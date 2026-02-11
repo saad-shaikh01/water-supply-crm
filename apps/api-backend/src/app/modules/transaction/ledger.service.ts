@@ -1,10 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
+import { CacheInvalidationService } from '@water-supply-crm/caching';
 import { TransactionType } from '@prisma/client';
 
 @Injectable()
 export class LedgerService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cache: CacheInvalidationService,
+  ) {}
 
   /**
    * Records a delivery transaction.
@@ -76,6 +80,9 @@ export class LedgerService {
           },
         });
       }
+
+      // Invalidate wallet cache after delivery
+      await this.cache.invalidateCustomerWallets(data.vendorId, data.customerId);
 
       return { success: true };
     });

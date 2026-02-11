@@ -1,7 +1,7 @@
 # Project Current Status - Water Supply CRM
 
 **Last Updated:** February 11, 2026
-**Status:** Core Backend Engine & Infrastructure Complete
+**Status:** Core Backend Engine & Performance Infrastructure Complete
 
 ---
 
@@ -13,6 +13,10 @@
 -   **Authentication:** JWT (JSON Web Tokens) with Passport.js
 -   **Security:** Bcrypt for password hashing
 -   **Infrastructure:** Docker Compose (Postgres, Redis, RabbitMQ, pgAdmin)
+-   **Rate Limiting:** [@nestjs/throttler](https://github.com/nestjs/throttler) with Redis-backed storage
+-   **Caching:** [cache-manager](https://github.com/node-cache-manager/node-cache-manager) with Redis store (`cache-manager-redis-yet`)
+-   **Async Queues:** [BullMQ](https://bullmq.io/) with Redis backend
+-   **Structured Logging:** [nestjs-pino](https://github.com/iamolegga/nestjs-pino) (Pino)
 
 ---
 
@@ -86,14 +90,52 @@
 ### Daily Sheets
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
-| POST | `/daily-sheets/generate` | Generate sheets for a specific date |
+| POST | `/daily-sheets/generate` | **Async:** Enqueues sheet generation, returns `{ jobId }` |
+| GET | `/daily-sheets/generation-status/:jobId` | Poll job progress and results |
 | GET | `/daily-sheets` | List all generated sheets |
 | GET | `/daily-sheets/:id` | Get full sheet with all delivery items |
 | PATCH | `/daily-sheets/items/:id` | **Submit Delivery:** Records exchange & updates Ledger |
 
 ---
 
-## 4. Current Database Schema (Summary)
+## 4. Performance & Scaling Infrastructure
+
+### A. Database Indexes (Pillar 4)
+-   Added composite indexes to 7 models (`Transaction`, `DailySheet`, `DailySheetItem`, `Customer`, `Product`, `User`, `Route`) targeting frequent query patterns.
+-   Key indexes: `[vendorId, createdAt]` on transactions, `[vendorId, routeId, date]` on daily sheets, `[vendorId, isActive]` on products.
+-   Migration applied: `add_performance_indexes`.
+
+### B. Structured Logging with Pino (Pillar 5)
+-   **Shared Lib:** `@water-supply-crm/logging` (`libs/shared/logging/`)
+-   Pino-pretty in development, raw JSON in production.
+-   Automatic correlation ID generation via `x-correlation-id` header.
+-   Auth header and password field redaction.
+-   `VendorContextInterceptor` injects `vendorId`, `userId`, `userRole` into every log line for authenticated requests.
+
+### C. Rate Limiting (Pillar 1)
+-   **Shared Lib:** `@water-supply-crm/rate-limiting` (`libs/shared/rate-limiting/`)
+-   Three global throttle tiers: **short** (10/sec), **medium** (100/min), **long** (1000/hr).
+-   Redis-backed storage for distributed rate tracking.
+-   `VendorThrottleGuard` tracks by `vendorId` (authenticated) or IP (unauthenticated).
+-   Custom overrides: Login (3/sec, 5/min, 20/hr), Sheet generation (1/sec, 3/min).
+
+### D. Caching Layer (Pillar 3)
+-   **Shared Lib:** `@water-supply-crm/caching` (`libs/shared/caching/`)
+-   Global Redis cache with 60s default TTL.
+-   `CacheInvalidationService` provides tenant-scoped cache key management.
+-   **Cached queries:** Products (5min TTL), Routes (5min TTL).
+-   **Auto-invalidation:** Product/Route caches on create; customer wallet cache after delivery.
+
+### E. Async Processing with BullMQ (Pillar 2)
+-   **Shared Lib:** `@water-supply-crm/queue` (`libs/shared/queue/`)
+-   BullMQ with Redis, 3 retry attempts with exponential backoff.
+-   **Daily sheet generation is now async:** `POST /daily-sheets/generate` returns `{ jobId, status: 'queued' }`. Poll `GET /daily-sheets/generation-status/:jobId` for progress/results.
+-   `DailySheetProcessor` handles sheet generation in the background with progress reporting.
+-   **Notifications module** (stub): `NotificationService` with `queueWhatsApp()` and `queueSMS()` ready for integration.
+
+---
+
+## 5. Current Database Schema (Summary)
 -   `Vendor`: Multi-tenant organizations.
 -   `User`: Staff, Drivers, Admins.
 -   `Product`: Water bottle types and pricing.
@@ -105,8 +147,25 @@
 
 ---
 
-## 5. Next Steps
+## 6. Shared Libraries
+| Alias | Path | Purpose |
+| :--- | :--- | :--- |
+| `@water-supply-crm/database` | `libs/shared/database/` | Prisma client & DatabaseModule |
+| `@water-supply-crm/logging` | `libs/shared/logging/` | Pino structured logging |
+| `@water-supply-crm/rate-limiting` | `libs/shared/rate-limiting/` | Throttler with Redis storage |
+| `@water-supply-crm/caching` | `libs/shared/caching/` | Cache manager with Redis store |
+| `@water-supply-crm/queue` | `libs/shared/queue/` | BullMQ queue infrastructure |
+
+---
+
+## 7. Breaking Changes
+-   **`POST /daily-sheets/generate`** is now **asynchronous**. It returns `{ jobId, status: 'queued' }` instead of the generated sheets directly. Clients must poll `GET /daily-sheets/generation-status/:jobId` until status is `completed` to get results.
+
+---
+
+## 8. Next Steps
 1.  **Driver Portal UI:** Frontend for drivers to use on the road.
 2.  **Live Tracking Service:** Real-time GPS updates from drivers.
-3.  **WhatsApp Service:** Automated delivery receipts.
+3.  **WhatsApp/SMS Integration:** Connect notification stubs to actual messaging APIs.
 4.  **Admin Dashboard:** Visualizing sheets and reconciliation reports.
+5.  **Monitoring:** Add health checks, Prometheus metrics, and alerting.

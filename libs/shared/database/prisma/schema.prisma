@@ -70,6 +70,8 @@ model User {
   
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  @@index([vendorId])
 }
 
 model Product {
@@ -88,6 +90,8 @@ model Product {
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([vendorId, isActive])
 }
 
 model Customer {
@@ -120,6 +124,10 @@ model Customer {
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  @@index([vendorId])
+  @@index([vendorId, routeId])
+  @@index([routeId])
 }
 
 model CustomerProductPrice {
@@ -157,6 +165,8 @@ model Route {
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([vendorId])
 }
 
 model Van {
@@ -203,6 +213,10 @@ model DailySheet {
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  @@index([vendorId, date])
+  @@index([vendorId, routeId, date])
+  @@index([driverId, date])
 }
 
 model DailySheetItem {
@@ -228,6 +242,9 @@ model DailySheetItem {
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  @@index([dailySheetId, sequence])
+  @@index([dailySheetId, customerId])
 }
 
 model Transaction {
@@ -251,4 +268,8 @@ model Transaction {
   description   String?
 
   createdAt     DateTime @default(now())
+
+  @@index([vendorId, createdAt])
+  @@index([customerId, createdAt])
+  @@index([dailySheetId])
 }

@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Body, Param, Patch, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { DailySheetService } from './daily-sheet.service';
 import { GenerateSheetsDto } from './dto/generate-sheets.dto';
 import { SubmitDeliveryDto } from './dto/submit-delivery.dto';
@@ -11,8 +12,14 @@ export class DailySheetController {
   constructor(private readonly dailySheetService: DailySheetService) {}
 
   @Post('generate')
+  @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 3 } })
   generate(@CurrentUser() user: any, @Body() dto: GenerateSheetsDto) {
     return this.dailySheetService.generate(user.vendorId, dto);
+  }
+
+  @Get('generation-status/:jobId')
+  getGenerationStatus(@Param('jobId') jobId: string) {
+    return this.dailySheetService.getGenerationStatus(jobId);
   }
 
   @Patch('items/:id')

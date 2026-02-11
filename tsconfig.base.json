@@ -19,7 +19,11 @@
       "@water-supply-crm/ui/styles.css": ["libs/shared/ui/src/styles.css"],
       "@water-supply-crm/types": ["libs/shared/types/src/index.ts"],
       "@water-supply-crm/data-access": ["libs/shared/data-access/src/index.ts"],
-      "@water-supply-crm/database": ["libs/shared/database/src/index.ts"]
+      "@water-supply-crm/database": ["libs/shared/database/src/index.ts"],
+      "@water-supply-crm/logging": ["libs/shared/logging/src/index.ts"],
+      "@water-supply-crm/rate-limiting": ["libs/shared/rate-limiting/src/index.ts"],
+      "@water-supply-crm/caching": ["libs/shared/caching/src/index.ts"],
+      "@water-supply-crm/queue": ["libs/shared/queue/src/index.ts"]
     }
   },
   "exclude": ["node_modules", "tmp"]
