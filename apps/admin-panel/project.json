@@ -4,6 +4,44 @@
   "sourceRoot": "apps/admin-panel",
   "projectType": "application",
   "tags": [],
-  "// targets": "to see all targets run: nx show project admin-panel --web",
-  "targets": {}
+ "targets": {
+    "build": {
+      "executor": "@nx/next:build",
+      "outputs": ["{options.outputPath}"],
+      "defaultConfiguration": "production",
+      "options": {
+        "outputPath": "dist/apps/admin-panel"
+      },
+      "configurations": {
+        "development": {
+          "outputPath": "apps/admin-panel"
+        },
+        "production": {}
+      }
+    },
+    "serve": {
+      "executor": "@nx/next:server",
+      "defaultConfiguration": "development",
+      "options": {
+        "buildTarget": "admin-panel:build",
+        "dev": true
+      },
+      "configurations": {
+        "development": {
+          "buildTarget": "admin-panel:build:development",
+          "dev": true
+        },
+        "production": {
+          "buildTarget": "admin-panel:build:production",
+          "dev": false
+        }
+      }
+    },
+    "export": {
+      "executor": "@nx/next:export",
+      "options": {
+        "buildTarget": "admin-panel:build:production"
+      }
+    }
+  }
 }

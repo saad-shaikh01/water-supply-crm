@@ -1,4 +1,5 @@
 import '@water-supply-crm/ui/styles.css';
+import './global.css';
 
 export const metadata = {
   title: 'Welcome to admin-panel',

@@ -1,14 +1,254 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
-  provider = "prisma-client"
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  VENDOR_ADMIN
+  STAFF
+  DRIVER
+  CUSTOMER
+}
+
+enum DeliveryStatus {
+  PENDING
+  COMPLETED
+  EMPTY_ONLY
+  NOT_AVAILABLE
+  RESCHEDULED
+  CANCELLED
+}
+
+enum TransactionType {
+  DELIVERY
+  COLLECTION
+  PAYMENT
+  ADJUSTMENT
+  LOAD_OUT
+  CHECK_IN
+}
+
+model Vendor {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  address     String?
+  logoUrl     String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  products    Product[]
+  customers   Customer[]
+  vans        Van[]
+  routes      Route[]
+  dailySheets DailySheet[]
+  transactions Transaction[]
+}
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  password      String
+  name          String
+  phoneNumber   String?
+  role          UserRole
+  isActive      Boolean  @default(true)
+  vendorId      String?
+  vendor        Vendor?  @relation(fields: [vendorId], references: [id])
+  
+  // Relations for specific roles
+  assignedVan   Van?     @relation("VanDriver")
+  dailySheets   DailySheet[] @relation("DriverSheets")
+  customer      Customer? // One-to-one link for Customer Portal
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Product {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  basePrice   Float
+  vendorId    String
+  vendor      Vendor   @relation(fields: [vendorId], references: [id])
+  isActive    Boolean  @default(true)
+
+  wallets     BottleWallet[]
+  sheetItems  DailySheetItem[]
+  transactions Transaction[]
+  customPrices CustomerProductPrice[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Customer {
+  id            String   @id @default(uuid())
+  customerCode  String   @unique
+  name          String
+  address       String
+  phoneNumber   String
+  latitude      Float?
+  longitude     Float?
+  
+  // Delivery Schedule (e.g., [1, 4] for Mon/Thu)
+  deliveryDays  Int[]    
+  
+  vendorId      String
+  vendor        Vendor   @relation(fields: [vendorId], references: [id])
+  
+  routeId       String?
+  route         Route?   @relation(fields: [routeId], references: [id])
+  
+  userId        String?  @unique
+  user          User?    @relation(fields: [userId], references: [id])
+
+  financialBalance Float @default(0) // Current outstanding amount
+
+  wallets       BottleWallet[]
+  customPrices  CustomerProductPrice[]
+  sheetItems    DailySheetItem[]
+  transactions  Transaction[]
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model CustomerProductPrice {
+  id          String   @id @default(uuid())
+  customerId  String
+  productId   String
+  customPrice Float
+  
+  customer    Customer @relation(fields: [customerId], references: [id])
+  product     Product  @relation(fields: [productId], references: [id])
+
+  @@unique([customerId, productId])
+}
+
+model BottleWallet {
+  id          String   @id @default(uuid())
+  customerId  String
+  productId   String
+  balance     Int      @default(0) // Current bottles at customer location
+  
+  customer    Customer @relation(fields: [customerId], references: [id])
+  product     Product  @relation(fields: [productId], references: [id])
+
+  @@unique([customerId, productId])
+}
+
+model Route {
+  id          String   @id @default(uuid())
+  name        String
+  vendorId    String
+  vendor      Vendor   @relation(fields: [vendorId], references: [id])
+  
+  customers   Customer[]
+  dailySheets DailySheet[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Van {
+  id            String   @id @default(uuid())
+  plateNumber   String   @unique
+  vendorId      String
+  vendor        Vendor   @relation(fields: [vendorId], references: [id])
+  
+  defaultDriverId String? @unique
+  defaultDriver   User?   @relation("VanDriver", fields: [defaultDriverId], references: [id])
+  
+  dailySheets   DailySheet[]
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model DailySheet {
+  id            String   @id @default(uuid())
+  date          DateTime
+  vendorId      String
+  vendor        Vendor   @relation(fields: [vendorId], references: [id])
+  
+  routeId       String
+  route         Route    @relation(fields: [routeId], references: [id])
+  
+  vanId         String
+  van           Van      @relation(fields: [vanId], references: [id])
+  
+  driverId      String
+  driver        User     @relation("DriverSheets", fields: [driverId], references: [id])
+  
+  isClosed      Boolean  @default(false)
+  
+  // Reconciliation fields
+  filledOutCount Int     @default(0)
+  filledInCount  Int     @default(0)
+  emptyInCount   Int     @default(0)
+  cashExpected   Float   @default(0)
+  cashCollected  Float   @default(0)
+
+  items         DailySheetItem[]
+  transactions  Transaction[]
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model DailySheetItem {
+  id            String   @id @default(uuid())
+  dailySheetId  String
+  dailySheet    DailySheet @relation(fields: [dailySheetId], references: [id])
+  
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id])
+  
+  productId     String
+  product       Product  @relation(fields: [productId], references: [id])
+  
+  sequence      Int
+  status        DeliveryStatus @default(PENDING)
+  
+  filledDropped Int      @default(0)
+  emptyReceived Int      @default(0)
+  cashCollected Float    @default(0)
+  
+  reason        String?  // For Rescheduled/Cancelled/NotAvailable
+  rescheduledTo DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Transaction {
+  id            String   @id @default(uuid())
+  type          TransactionType
+  vendorId      String
+  vendor        Vendor   @relation(fields: [vendorId], references: [id])
+  
+  customerId    String?
+  customer      Customer? @relation(fields: [customerId], references: [id])
+  
+  productId     String?
+  product       Product?  @relation(fields: [productId], references: [id])
+  
+  dailySheetId  String?
+  dailySheet    DailySheet? @relation(fields: [dailySheetId], references: [id])
+  
+  bottleCount   Int?     // Positive for drop, negative for receive
+  amount        Float?   // Positive for charge, negative for payment
+  
+  description   String?
+
+  createdAt     DateTime @default(now())
 }
