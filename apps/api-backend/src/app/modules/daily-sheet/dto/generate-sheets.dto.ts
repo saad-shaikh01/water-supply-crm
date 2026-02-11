@@ -1,3 +1,6 @@
+import { IsDateString } from 'class-validator';
+
 export class GenerateSheetsDto {
-  date!: string; // ISO format date
+  @IsDateString()
+  date!: string;
 }

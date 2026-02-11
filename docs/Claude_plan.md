@@ -1,166 +1,244 @@
-The backend API (NestJS/Prisma/PostgreSQL) has solid business logic but zero performance infrastructure. No rate limiting, caching, queuing,
- structured logging, or database indexes exist. Docker containers for Redis and RabbitMQ are already running but unused. This plan adds 5
- performance pillars to make the system production-ready for high load.
+Backend Completion Plan - Water Supply CRM                                                                                                                               
+                                                                                                                                                                        
+ Context
 
- Implementation Order
+ The Water Supply CRM backend has core modules scaffolded with basic Create/List endpoints, but is missing: complete auth flows, RBAC enforcement, full CRUD operations,
+ pagination, transaction query endpoints, daily sheet lifecycle (load-out/check-in/reconciliation), and dashboard statistics. The goal is to complete all backend
+ functionality to support the vendor dashboard frontend phases 1-2 and beyond.
 
- Pillar 4 (DB Indexes)  ─┐
-                          ├─> Pillar 1 (Rate Limiting) ─┐
- Pillar 5 (Logging)     ─┘                              ├─> Pillar 2 (Async Queues)
-                          ┌─> Pillar 3 (Caching)       ─┘
- Pillars 4 & 5 have no dependencies (parallel). Pillars 1 & 3 need Redis. Pillar 2 is last (depends on all others).
+ Current state: 9 working endpoints across 8 modules. Most modules only have POST + GET. Empty files: roles.decorator.ts, roles.guard.ts, user.controller.ts,
+ transaction.controller.ts, create-user.dto.ts. No input validation (class-validator not installed).
 
- ---
- Packages to Install
-
- # Production (10 packages)
- npm install nestjs-pino pino-http pino @nestjs/throttler @nestjs/throttler-storage-redis @nestjs/cache-manager cache-manager
- cache-manager-redis-yet @nestjs/bullmq bullmq
-
- # Dev (1 package)
- npm install --save-dev pino-pretty
+ Target state: 46 endpoints with full CRUD, RBAC, pagination, validation, and business logic.
 
  ---
- Pillar 4: Database Indexes (First)
+ Phase 0: Foundation - Validation & Pagination
 
- Why first: Zero code changes, immediate query speedup for all subsequent work.
+ Install dependencies:
+ npm install class-validator class-transformer
 
- Modify: libs/shared/database/prisma/schema.prisma
+ Modify apps/api-backend/src/main.ts:
+ - Add ValidationPipe globally with whitelist, forbidNonWhitelisted, transform, and enableImplicitConversion
+ - Add app.enableCors() for frontend dev
 
- Add @@index to these models:
- ┌────────────────┬────────────────────────────────────────────────────────────────┬──────────────────────────────────────────────┐
- │     Model      │                            Indexes                             │                Query Pattern                 │
- ├────────────────┼────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────┤
- │ Transaction    │ [vendorId, createdAt], [customerId, createdAt], [dailySheetId] │ Ledger history, reporting                    │
- ├────────────────┼────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────┤
- │ DailySheet     │ [vendorId, date], [vendorId, routeId, date], [driverId, date]  │ Sheet listing, duplicate check in generate() │
- ├────────────────┼────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────┤
- │ DailySheetItem │ [dailySheetId, sequence], [dailySheetId, customerId]           │ Ordered item listing                         │
- ├────────────────┼────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────┤
- │ Customer       │ [vendorId], [vendorId, routeId], [routeId]                     │ Customer lists, route filtering              │
- ├────────────────┼────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────┤
- │ Product        │ [vendorId, isActive]                                           │ Active products query                        │
- ├────────────────┼────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────┤
- │ User           │ [vendorId]                                                     │ Vendor's users                               │
- ├────────────────┼────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────┤
- │ Route          │ [vendorId]                                                     │ Vendor's routes                              │
- └────────────────┴────────────────────────────────────────────────────────────────┴──────────────────────────────────────────────┘
- Then run: npx prisma migrate dev --name add-performance-indexes --schema=libs/shared/database/prisma/schema.prisma
+ Create pagination utility:
+ - apps/api-backend/src/app/common/dto/pagination-query.dto.ts - reusable DTO with page and limit
+ - apps/api-backend/src/app/common/helpers/paginate.ts - helper returning { data, meta: { total, page, limit, totalPages } }
+
+ Add class-validator decorators to all 8 existing DTOs:
+ - login.dto.ts - @IsEmail(), @IsString()
+ - create-vendor.dto.ts - @IsString(), @IsEmail(), @IsOptional()
+ - create-product.dto.ts - @IsString(), @IsNumber(), @Min(0)
+ - create-customer.dto.ts - @IsString(), @IsArray(), @IsInt(), @IsOptional(), @IsUUID()
+ - create-route.dto.ts - @IsString()
+ - create-van.dto.ts - @IsString(), @IsOptional(), @IsUUID()
+ - generate-sheets.dto.ts - @IsDateString()
+ - submit-delivery.dto.ts - @IsEnum(), @IsInt(), @IsNumber(), @Min(0)
 
  ---
- Pillar 5: Structured Logging with Pino (Second)
+ Phase 1: Auth Completion & Roles Guard
 
- New Nx lib: libs/shared/logging/ (@water-supply-crm/logging)
+ Implement RBAC (both files currently empty):
+ - apps/api-backend/src/app/common/decorators/roles.decorator.ts - @Roles() decorator using SetMetadata
+ - apps/api-backend/src/app/common/guards/roles.guard.ts - RolesGuard using Reflector to check user role. Permissive by default (no @Roles() = allow all authenticated)
 
- New files:
- - libs/shared/logging/src/lib/logging.module.ts - SharedLoggingModule wrapping nestjs-pino LoggerModule with:
-   - Pino-pretty transport in dev, raw JSON in production
-   - Correlation ID generation via x-correlation-id header
-   - Request serializer that strips auth headers
-   - Redaction of password fields
- - libs/shared/logging/src/index.ts - Exports
+ Complete Auth module:
+ - Modify auth.controller.ts - add 3 endpoints:
+   - GET /auth/me - returns current user profile (requires JWT)
+   - POST /auth/forgot-password - generates JWT reset token (15min expiry), logs it
+   - POST /auth/reset-password - verifies reset token, updates password
+ - Modify auth.service.ts - add generateResetToken(), verifyResetToken(), resetPassword(), getProfile()
+ - Create auth/dto/forgot-password.dto.ts and auth/dto/reset-password.dto.ts
 
- New file: apps/api-backend/src/app/common/interceptors/vendor-context.interceptor.ts
- - Injects vendorId, userId, userRole from JWT into Pino log context per request
-
- Modify:
- - tsconfig.base.json - Add @water-supply-crm/logging path alias
- - apps/api-backend/src/main.ts - Add { bufferLogs: true } to NestFactory, replace logger with app.get(Logger) from nestjs-pino
- - apps/api-backend/src/app/app.module.ts - Import SharedLoggingModule
-
- ---
- Pillar 1: Rate Limiting (Third)
-
- New Nx lib: libs/shared/rate-limiting/ (@water-supply-crm/rate-limiting)
-
- New files:
- - libs/shared/rate-limiting/src/lib/rate-limiting.module.ts - RateLimitingModule with:
-   - 3 throttler tiers: short (10/sec), medium (100/min), long (1000/hr)
-   - Redis-backed storage via @nestjs/throttler-storage-redis
-   - Registers ThrottlerGuard as global APP_GUARD
- - libs/shared/rate-limiting/src/index.ts - Exports
-
- New file: apps/api-backend/src/app/common/guards/vendor-throttle.guard.ts
- - Extends ThrottlerGuard to track by vendorId (authenticated) or IP (unauthenticated)
-
- Modify:
- - tsconfig.base.json - Add @water-supply-crm/rate-limiting path alias
- - apps/api-backend/src/app/app.module.ts - Import RateLimitingModule
- - apps/api-backend/src/app/modules/auth/auth.controller.ts - Add @Throttle on login (3/sec, 5/min, 20/hr)
- - apps/api-backend/src/app/modules/daily-sheet/daily-sheet.controller.ts - Add @Throttle on generate (1/sec, 3/min)
+ Complete User module (controller + DTOs currently empty):
+ - Implement user/dto/create-user.dto.ts with validation
+ - Create user/dto/update-user.dto.ts
+ - Modify user.service.ts - add findAllByVendor(), update(), deactivate()
+ - Implement user.controller.ts:
+   - POST /users - create user (VENDOR_ADMIN only)
+   - GET /users - list vendor users (VENDOR_ADMIN, STAFF)
+   - GET /users/:id - user detail (VENDOR_ADMIN, STAFF)
+   - PATCH /users/:id - update user (VENDOR_ADMIN)
+ - Modify user.module.ts - add UserController
 
  ---
- Pillar 3: Caching Layer (Fourth)
+ Phase 2: Secure Existing + Complete CRUD (Product, Route, Van, Vendor)
 
- New Nx lib: libs/shared/caching/ (@water-supply-crm/caching)
+ Vendor module:
+ - Add @UseGuards(JwtAuthGuard, RolesGuard) to vendor.controller.ts
+ - Add @Roles(SUPER_ADMIN) on create/list, @Roles(SUPER_ADMIN, VENDOR_ADMIN) on findOne
+ - Add PATCH /vendors/:id endpoint (SUPER_ADMIN)
+ - Create vendor/dto/update-vendor.dto.ts
+ - Add update() to vendor.service.ts
 
- New files:
- - libs/shared/caching/src/lib/caching.module.ts - SharedCachingModule (@Global) with cache-manager-redis-yet store, 60s default TTL
- - libs/shared/caching/src/lib/cache-invalidation.service.ts - Helper service with:
-   - vendorKey(vendorId, entity) - Builds tenant-scoped cache keys
-   - invalidateVendorEntity() - Deletes vendor entity cache
-   - invalidateCustomerWallets() - Purges wallet cache after delivery
- - libs/shared/caching/src/lib/cache-keys.constants.ts - Constants for cache keys and TTLs (products: 5min, routes: 5min, customers: 2min,
- wallets: 30s)
- - libs/shared/caching/src/index.ts - Exports
+ Product module:
+ - Create product/dto/update-product.dto.ts
+ - Add update() and toggleActive() to product.service.ts (both invalidate cache)
+ - Add to product.controller.ts: PATCH /products/:id, PATCH /products/:id/toggle-active
+ - Add RolesGuard + role decorators
 
- Modify:
- - tsconfig.base.json - Add @water-supply-crm/caching path alias
- - apps/api-backend/src/app/app.module.ts - Import SharedCachingModule
- - apps/api-backend/src/app/modules/product/product.service.ts - Cache findAll(), invalidate on create()
- - apps/api-backend/src/app/modules/route/route.service.ts - Cache findAll(), invalidate on create()
- - apps/api-backend/src/app/modules/transaction/ledger.service.ts - Invalidate customer wallet cache after recordDelivery()
+ Route module:
+ - Create route/dto/update-route.dto.ts
+ - Add findOne(), update(), remove() to route.service.ts (cache invalidation)
+ - Add to route.controller.ts: GET /routes/:id, PATCH /routes/:id, DELETE /routes/:id
+ - Delete guarded: throw ConflictException if route has customers
+
+ Van module:
+ - Create van/dto/update-van.dto.ts
+ - Add findOne(), update(), remove() to van.service.ts
+ - Add to van.controller.ts: GET /vans/:id, PATCH /vans/:id, DELETE /vans/:id
+ - Delete guarded: throw ConflictException if van has open daily sheets
 
  ---
- Pillar 2: Async Processing with BullMQ (Last)
+ Phase 3: Customer Module - Full CRUD + Pagination + Custom Pricing
 
- New Nx lib: libs/shared/queue/ (@water-supply-crm/queue)
+ New DTOs:
+ - customer/dto/update-customer.dto.ts
+ - customer/dto/customer-query.dto.ts - extends PaginationQueryDto with search, routeId, sort
+ - customer/dto/set-custom-price.dto.ts
 
- New files:
- - libs/shared/queue/src/lib/queue.module.ts - SharedQueueModule (@Global) with BullMQ root config (Redis URL, retry: 3 attempts with
- exponential backoff)
- - libs/shared/queue/src/lib/queue-names.constants.ts - Queue names: daily-sheet-generation, notifications
- - libs/shared/queue/src/lib/queue-events.constants.ts - Job names: generate-sheets, send-whatsapp, send-sms
- - libs/shared/queue/src/index.ts - Exports
+ Modify customer.service.ts:
+ - findAllPaginated(vendorId, query) - paginated with search (name/code/phone), route filter, sort
+ - findOne(vendorId, id) - customer with wallets, custom prices, recent transactions
+ - update(vendorId, id, dto) - update customer, ensure vendor ownership
+ - remove(vendorId, id) - only if no transactions (preserve audit trail)
+ - setCustomPrice(vendorId, customerId, dto) - upsert CustomerProductPrice
+ - removeCustomPrice(vendorId, customerId, productId) - delete custom price
+ - getTransactionHistory(vendorId, customerId, pagination) - paginated
 
- New file: apps/api-backend/src/app/modules/daily-sheet/daily-sheet.processor.ts
- - BullMQ @Processor that contains the actual sheet generation logic (moved from generate() in service)
- - Reports job progress, logs with Pino, returns sheet IDs created
+ Modify customer.controller.ts - 7 endpoints:
+ - GET /customers - paginated list with search/filter, cached per vendor (VENDOR_ADMIN, STAFF, DRIVER)
+ - GET /customers/:id - detail with wallets + prices (VENDOR_ADMIN, STAFF, DRIVER)
+ - PATCH /customers/:id - update, invalidate customer cache (VENDOR_ADMIN, STAFF)
+ - DELETE /customers/:id - remove, invalidate customer cache (VENDOR_ADMIN)
+ - POST /customers/:id/custom-prices - set custom price, invalidate cache (VENDOR_ADMIN, STAFF)
+ - DELETE /customers/:id/custom-prices/:productId - remove price, invalidate cache (VENDOR_ADMIN, STAFF)
+ - GET /customers/:id/transactions - transaction history, not cached (VENDOR_ADMIN, STAFF, DRIVER)
 
- New module: apps/api-backend/src/app/modules/notifications/
- - notifications.module.ts - Registers notifications queue
- - notification.service.ts - queueWhatsApp(), queueSMS() methods for future use
- - notification.processor.ts - Stub processor (logs, ready for WhatsApp/SMS API integration)
+ ---
+ Phase 4: Transaction Module - Queries, Payments, Adjustments
 
- Modify:
- - tsconfig.base.json - Add @water-supply-crm/queue path alias
- - apps/api-backend/src/app/app.module.ts - Import SharedQueueModule + NotificationsModule
- - apps/api-backend/src/app/modules/daily-sheet/daily-sheet.module.ts - Register BullMQ queue, add DailySheetProcessor provider
- - apps/api-backend/src/app/modules/daily-sheet/daily-sheet.service.ts - Refactor generate() to enqueue job (returns { jobId, status: 'queued'
-  } instead of blocking). Add getGenerationStatus(jobId) method.
- - apps/api-backend/src/app/modules/daily-sheet/daily-sheet.controller.ts - Add GET generation-status/:jobId endpoint
+ New DTOs:
+ - transaction/dto/record-payment.dto.ts - customerId, amount, description
+ - transaction/dto/record-adjustment.dto.ts - customerId, productId?, amount?, bottleCount?, description
+ - transaction/dto/transaction-query.dto.ts - extends PaginationQueryDto with customerId, type, dateFrom, dateTo
 
- Breaking change: POST /daily-sheets/generate changes from synchronous (returns sheets) to async (returns jobId). Clients must poll GET
- /daily-sheets/generation-status/:jobId for results.
+ Modify ledger.service.ts (keep existing recordDelivery):
+ - recordPayment(vendorId, dto) - create PAYMENT transaction, decrement customer financialBalance
+ - recordAdjustment(vendorId, dto) - create ADJUSTMENT transaction, adjust financialBalance and/or BottleWallet
+ - findAllPaginated(vendorId, query) - paginated with filters
+ - findByCustomer(vendorId, customerId, pagination) - customer transactions
+ - getCustomerLedgerSummary(vendorId, customerId) - balance + wallets + recent transactions
+
+ Implement transaction.controller.ts (currently empty):
+ - GET /transactions - paginated filtered list (VENDOR_ADMIN, STAFF)
+ - POST /transactions/payments - record payment, invalidate customer cache + wallet cache, trigger WhatsApp notification via NotificationService.queueWhatsApp()
+ (VENDOR_ADMIN, STAFF)
+ - POST /transactions/adjustments - record adjustment, invalidate caches (VENDOR_ADMIN)
+ - GET /transactions/customers/:customerId - customer transactions (VENDOR_ADMIN, STAFF, DRIVER)
+ - GET /transactions/customers/:customerId/summary - ledger summary (VENDOR_ADMIN, STAFF, DRIVER)
+
+ Modify transaction.module.ts - add TransactionController
+
+ ---
+ Phase 5: Daily Sheet Lifecycle - Load-Out, Check-In, Reconciliation
+
+ New DTOs:
+ - daily-sheet/dto/load-out.dto.ts - filledOutCount
+ - daily-sheet/dto/check-in.dto.ts - filledInCount, emptyInCount, cashCollected
+ - daily-sheet/dto/daily-sheet-query.dto.ts - extends PaginationQueryDto with date, dateFrom, dateTo, routeId, driverId, isClosed
+ - daily-sheet/dto/swap-driver.dto.ts - driverId, vanId?
+
+ Modify daily-sheet.service.ts:
+ - findAllPaginated(vendorId, query) - replace existing findAll with paginated + filtered version
+ - loadOut(vendorId, sheetId, dto) - set filledOutCount, create LOAD_OUT transaction
+ - checkIn(vendorId, sheetId, dto) - set filledInCount/emptyInCount/cashCollected, create CHECK_IN transaction
+ - closeSheet(vendorId, sheetId) - validate all items non-PENDING, calculate reconciliation, set isClosed=true, return discrepancy report
+ - swapDriver(vendorId, sheetId, dto) - swap driverId/vanId on open sheet
+ - getSheetsByDriver(vendorId, driverId, date?) - driver's sheets
+
+ Modify daily-sheet.controller.ts - add endpoints:
+ - GET /daily-sheets - update to paginated + filtered
+ - GET /daily-sheets/driver/:driverId - driver's sheets (MUST be before :id route)
+ - PATCH /daily-sheets/:id/load-out - record load-out (VENDOR_ADMIN, STAFF)
+ - PATCH /daily-sheets/:id/check-in - record check-in (VENDOR_ADMIN, STAFF)
+ - POST /daily-sheets/:id/close - close/reconcile (VENDOR_ADMIN, STAFF)
+ - PATCH /daily-sheets/:id/swap-driver - swap driver (VENDOR_ADMIN)
+
+ Important: Route ordering in controller - /driver/:driverId and /generation-status/:jobId must be defined BEFORE /:id.
+
+ ---
+ Phase 6: Dashboard Statistics Module (New)
+
+ Create new module:
+ - apps/api-backend/src/app/modules/dashboard/dashboard.module.ts
+ - apps/api-backend/src/app/modules/dashboard/dashboard.service.ts
+ - apps/api-backend/src/app/modules/dashboard/dashboard.controller.ts
+ - apps/api-backend/src/app/modules/dashboard/dto/dashboard-query.dto.ts
+
+ Endpoints (all cached with 60s TTL via Redis):
+ - GET /dashboard/overview - totalCustomers, totalProducts, totalRoutes, totalVans, totalDrivers, totalOutstandingBalance, totalBottlesOut (VENDOR_ADMIN, STAFF)
+ - GET /dashboard/daily-stats?date= - sheets, deliveries, bottles, cash for a day (VENDOR_ADMIN, STAFF)
+ - GET /dashboard/revenue?dateFrom=&dateTo= - revenue time series (VENDOR_ADMIN)
+ - GET /dashboard/top-customers?limit= - top customers by revenue (VENDOR_ADMIN, STAFF)
+ - GET /dashboard/route-performance?date= - per-route stats (VENDOR_ADMIN, STAFF)
+
+ Modify app.module.ts - add DashboardModule import
+
+ ---
+ Cross-Cutting: Redis Caching, Rate Limiting & BullMQ Usage in All New Code
+
+ Every new and modified endpoint must properly leverage the existing infrastructure:
+
+ Redis Caching (via CacheInvalidationService)
+
+ - All list/findAll endpoints must check cache first, return cached data if available
+ - All create/update/delete operations must invalidate the relevant cache
+ - Cache keys follow the pattern: vendor:{vendorId}:{entity} (use cache.vendorKey())
+ - TTLs: use CACHE_TTLS constants (products=5min, routes=5min, add new constants for customers=2min, users=5min, dashboard=1min)
+ - New cache keys to add to libs/shared/caching/src/lib/cache-keys.constants.ts: CUSTOMERS, USERS, VANS, DASHBOARD
+ - Customer transactions should NOT be cached (real-time accuracy needed)
+ - Dashboard stats can be cached with short TTL (60s)
+
+ Rate Limiting (via @Throttle decorator)
+
+ - All write endpoints (POST/PATCH/DELETE) should have tighter rate limits than default
+ - Auth endpoints: strict limits (already done for login, apply same to forgot-password/reset-password)
+ - Bulk operations (daily-sheet generate, close): very strict (1/sec, 3/min)
+ - Standard CRUD writes: use medium throttle override
+ - Read endpoints: use global defaults (10/sec, 100/min, 1000/hr)
+
+ BullMQ Queues
+
+ - Keep daily sheet generation async (already done)
+ - Notification triggers: when delivery is completed (submitDelivery), when payment is recorded, call NotificationService.queueWhatsApp() to send receipt
+ - Reconciliation report generation could be async for large vendors (optional, start synchronous)
 
  ---
  File Summary
- ┌───────────────────┬────────────────────────────────────────────────────────────────────┐
- │      Action       │                               Count                                │
- ├───────────────────┼────────────────────────────────────────────────────────────────────┤
- │ New Nx libs       │ 4 (logging, rate-limiting, caching, queue)                         │
- ├───────────────────┼────────────────────────────────────────────────────────────────────┤
- │ New backend files │ ~10 (processors, services, interceptors, guards)                   │
- ├───────────────────┼────────────────────────────────────────────────────────────────────┤
- │ Modified files    │ ~12 (schema, tsconfig, main.ts, app.module, services, controllers) │
- ├───────────────────┼────────────────────────────────────────────────────────────────────┤
- │ New packages      │ 11                                                                 │
- └───────────────────┴────────────────────────────────────────────────────────────────────┘
+
+ 23 new files | 34 modified files | 46 total endpoints
+
+ Key files to reuse:
+
+ - libs/shared/database/ - PrismaService (already global)
+ - libs/shared/caching/src/lib/cache-invalidation.service.ts - CacheInvalidationService with vendorKey(), invalidateVendorEntity(), get(), set()
+ - libs/shared/caching/src/lib/cache-keys.constants.ts - CACHE_KEYS, CACHE_TTLS
+ - libs/shared/queue/src/lib/queue-names.constants.ts - QUEUE_NAMES
+ - apps/api-backend/src/app/common/decorators/current-user.decorator.ts - @CurrentUser()
+ - apps/api-backend/src/app/common/guards/jwt-auth.guard.ts - JwtAuthGuard
+
  ---
  Verification Plan
 
- 1. Indexes: Run prisma migrate dev, verify via pgAdmin that indexes exist
- 2. Logging: Start API, hit endpoints, verify structured JSON logs with correlation IDs and vendor context
- 3. Rate Limiting: Rapid-fire GET /api (>10/sec) and verify 429 response; check Redis keys for throttle state
- 4. Caching: Call GET /api/products twice, verify 2nd is instant; create product, verify cache invalidation
- 5. Queues: Call POST /daily-sheets/generate, verify immediate { jobId } response; poll status endpoint until completed; verify sheets in DB
+ After each phase, test via curl or Postman:
+
+ 1. Phase 0: Send malformed POST to /api/products -> should get 400 with validation errors
+ 2. Phase 1: POST /api/auth/login -> get token -> GET /api/auth/me -> see profile. Create a STAFF user -> try POST /api/users as STAFF -> get 403
+ 3. Phase 2: Try PATCH /api/products/:id to update price, DELETE /api/routes/:id with customers -> get 409
+ 4. Phase 3: GET /api/customers?search=john&routeId=xxx&page=1&limit=10 -> paginated results
+ 5. Phase 4: POST /api/transactions/payments -> check customer balance decreased
+ 6. Phase 5: Full lifecycle: generate -> load-out -> deliver items -> check-in -> close -> verify reconciliation totals
+ 7. Phase 6: GET /api/dashboard/overview -> see aggregated stats
+
+ End-to-end: Run npx nx serve api-backend with Docker services running (docker-compose up -d).

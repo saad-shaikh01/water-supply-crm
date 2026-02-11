@@ -1,7 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
-import { CacheInvalidationService, CACHE_KEYS, CACHE_TTLS } from '@water-supply-crm/caching';
+import {
+  CacheInvalidationService,
+  CACHE_KEYS,
+  CACHE_TTLS,
+} from '@water-supply-crm/caching';
 import { CreateProductDto } from './dto/create-product.dto';
+import { UpdateProductDto } from './dto/update-product.dto';
 
 @Injectable()
 export class ProductService {
@@ -10,12 +15,9 @@ export class ProductService {
     private cache: CacheInvalidationService,
   ) {}
 
-  async create(vendorId: string, createProductDto: CreateProductDto) {
+  async create(vendorId: string, dto: CreateProductDto) {
     const product = await this.prisma.product.create({
-      data: {
-        ...createProductDto,
-        vendorId,
-      },
+      data: { ...dto, vendorId },
     });
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.PRODUCTS);
     return product;
@@ -34,8 +36,44 @@ export class ProductService {
   }
 
   async findOne(vendorId: string, id: string) {
-    return this.prisma.product.findFirst({
+    const product = await this.prisma.product.findFirst({
       where: { id, vendorId },
     });
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+    return product;
+  }
+
+  async update(vendorId: string, id: string, dto: UpdateProductDto) {
+    const product = await this.prisma.product.findFirst({
+      where: { id, vendorId },
+    });
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    const updated = await this.prisma.product.update({
+      where: { id },
+      data: dto,
+    });
+    await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.PRODUCTS);
+    return updated;
+  }
+
+  async toggleActive(vendorId: string, id: string) {
+    const product = await this.prisma.product.findFirst({
+      where: { id, vendorId },
+    });
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    const updated = await this.prisma.product.update({
+      where: { id },
+      data: { isActive: !product.isActive },
+    });
+    await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.PRODUCTS);
+    return updated;
   }
 }

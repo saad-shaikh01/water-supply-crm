@@ -7,18 +7,18 @@ import {
   IsUUID,
 } from 'class-validator';
 
-export class CreateCustomerDto {
+export class UpdateCustomerDto {
+  @IsOptional()
   @IsString()
-  customerCode!: string;
+  name?: string;
 
+  @IsOptional()
   @IsString()
-  name!: string;
+  address?: string;
 
+  @IsOptional()
   @IsString()
-  address!: string;
-
-  @IsString()
-  phoneNumber!: string;
+  phoneNumber?: string;
 
   @IsOptional()
   @IsNumber()
@@ -28,9 +28,10 @@ export class CreateCustomerDto {
   @IsNumber()
   longitude?: number;
 
+  @IsOptional()
   @IsArray()
   @IsInt({ each: true })
-  deliveryDays!: number[];
+  deliveryDays?: number[];
 
   @IsOptional()
   @IsUUID()

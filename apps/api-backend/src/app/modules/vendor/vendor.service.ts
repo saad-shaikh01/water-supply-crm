@@ -1,6 +1,7 @@
-import { Injectable, ConflictException } from '@nestjs/common';
+import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import { CreateVendorDto } from './dto/create-vendor.dto';
+import { UpdateVendorDto } from './dto/update-vendor.dto';
 import { UserService } from '../user/user.service';
 import { UserRole } from '@prisma/client';
 
@@ -8,11 +9,12 @@ import { UserRole } from '@prisma/client';
 export class VendorService {
   constructor(
     private prisma: PrismaService,
-    private userService: UserService
+    private userService: UserService,
   ) {}
 
   async create(createVendorDto: CreateVendorDto) {
-    const { adminEmail, adminPassword, adminName, ...vendorData } = createVendorDto;
+    const { adminEmail, adminPassword, adminName, ...vendorData } =
+      createVendorDto;
 
     const existing = await this.prisma.vendor.findUnique({
       where: { slug: vendorData.slug },
@@ -44,8 +46,23 @@ export class VendorService {
   }
 
   async findOne(id: string) {
-    return this.prisma.vendor.findUnique({
+    const vendor = await this.prisma.vendor.findUnique({
       where: { id },
+    });
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+    return vendor;
+  }
+
+  async update(id: string, dto: UpdateVendorDto) {
+    const vendor = await this.prisma.vendor.findUnique({ where: { id } });
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+    return this.prisma.vendor.update({
+      where: { id },
+      data: dto,
     });
   }
 }

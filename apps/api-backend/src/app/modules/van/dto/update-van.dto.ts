@@ -1,8 +1,9 @@
 import { IsString, IsOptional, IsUUID } from 'class-validator';
 
-export class CreateVanDto {
+export class UpdateVanDto {
+  @IsOptional()
   @IsString()
-  plateNumber!: string;
+  plateNumber?: string;
 
   @IsOptional()
   @IsUUID()
