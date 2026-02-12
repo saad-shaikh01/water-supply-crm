@@ -7,7 +7,6 @@ import { PrismaService } from '@water-supply-crm/database';
 import {
   CacheInvalidationService,
   CACHE_KEYS,
-  CACHE_TTLS,
 } from '@water-supply-crm/caching';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
@@ -177,10 +176,10 @@ export class CustomerService {
       create: {
         customerId,
         productId: dto.productId,
-        price: dto.price,
+        customPrice: dto.price,
       },
       update: {
-        price: dto.price,
+        customPrice: dto.price,
       },
       include: { product: true },
     });
