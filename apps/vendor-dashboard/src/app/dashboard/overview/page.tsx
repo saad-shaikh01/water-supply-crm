@@ -1,0 +1,11 @@
+import { OverviewStats } from '../../../features/dashboard/components/overview-stats';
+import { PageHeader } from '../../../components/shared/page-header';
+
+export default function OverviewPage() {
+  return (
+    <div className="space-y-6">
+      <PageHeader title="Overview" description="Your business at a glance" />
+      <OverviewStats />
+    </div>
+  );
+}
