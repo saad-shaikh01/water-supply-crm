@@ -1,171 +1,173 @@
 # Project Current Status - Water Supply CRM
 
-**Last Updated:** February 11, 2026
-**Status:** Core Backend Engine & Performance Infrastructure Complete
+**Last Updated:** February 12, 2026
+**Status:** ✅ Backend COMPLETE — All 46 endpoints implemented, RBAC enforced, full lifecycle coverage
 
 ---
 
 ## 1. Technical Stack Used
--   **Monorepo Management:** [Nx](https://nx.dev/)
--   **Backend Framework:** [NestJS](https://nestjs.com/) (Node.js)
--   **Database ORM:** [Prisma](https://www.prisma.io/)
--   **Database:** [PostgreSQL](https://www.postgresql.org/) (Running via Docker)
--   **Authentication:** JWT (JSON Web Tokens) with Passport.js
--   **Security:** Bcrypt for password hashing
--   **Infrastructure:** Docker Compose (Postgres, Redis, RabbitMQ, pgAdmin)
--   **Rate Limiting:** [@nestjs/throttler](https://github.com/nestjs/throttler) with Redis-backed storage
--   **Caching:** [cache-manager](https://github.com/node-cache-manager/node-cache-manager) with Redis store (`cache-manager-redis-yet`)
--   **Async Queues:** [BullMQ](https://bullmq.io/) with Redis backend
--   **Structured Logging:** [nestjs-pino](https://github.com/iamolegga/nestjs-pino) (Pino)
+
+| Layer | Technology |
+| :--- | :--- |
+| Monorepo | Nx |
+| Backend | NestJS (Node.js) |
+| Database ORM | Prisma |
+| Database | PostgreSQL (Docker) |
+| Authentication | JWT (Passport.js) + bcrypt |
+| RBAC | Custom RolesGuard + @Roles() decorator |
+| Input Validation | class-validator + class-transformer |
+| Rate Limiting | @nestjs/throttler + Redis storage |
+| Caching | cache-manager + Redis (cache-manager-redis-yet) |
+| Async Queues | BullMQ + Redis |
+| Structured Logging | nestjs-pino (Pino) |
+| Frontend | Next.js 16 + React 19 |
 
 ---
 
-## 2. Implemented Modules & Business Logic
+## 2. Backend — All Implemented Modules
 
-### A. Identity & Access Management (IAM)
--   **Multi-Tenancy:** Every record is linked to a `Vendor` via `vendorId`.
--   **Role-Based Access Control (RBAC):** Supports `SUPER_ADMIN`, `VENDOR_ADMIN`, `STAFF`, `DRIVER`, and `CUSTOMER`.
--   **Atomic Vendor Creation:** When a Vendor is created, its primary Admin user is created automatically within a single database transaction.
+### Auth Module (`/api/auth`)
+| Method | Endpoint | Auth | Roles | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| POST | `/auth/login` | ❌ | — | Login, returns JWT |
+| GET | `/auth/me` | ✅ | Any | Current user profile |
+| POST | `/auth/forgot-password` | ❌ | — | Generate reset token (logs it) |
+| POST | `/auth/reset-password` | ❌ | — | Reset password with token |
 
-### B. Logistics Engine
--   **Product Management:** Vendors can define multiple products (e.g., 19L Bottles, 5L Bottles) with base prices.
--   **Route Management:** Support for fixed delivery routes.
--   **Customer Management:**
-    -   Assignment to routes.
-    -   Custom delivery schedules (e.g., Monday & Thursday).
-    -   Automatic "Bottle Wallet" initialization for every product.
--   **Van Management:** Tracking fleet and assigning default drivers to vans.
+### Users Module (`/api/users`)
+| Method | Endpoint | Auth | Roles | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| POST | `/users` | ✅ | VENDOR_ADMIN | Create staff/driver user |
+| GET | `/users` | ✅ | VENDOR_ADMIN, STAFF | List vendor users (cached) |
+| GET | `/users/:id` | ✅ | VENDOR_ADMIN, STAFF | User detail |
+| PATCH | `/users/:id` | ✅ | VENDOR_ADMIN | Update user |
 
-### C. Daily Sheet Engine
--   **Bulk Generation:** Logic to generate sheets for all routes based on the current day of the week.
--   **Scheduling:** Filters customers automatically based on their assigned delivery days.
--   **Sequence Tracking:** Every delivery item has a sequence number for the driver.
+### Vendors Module (`/api/vendors`)
+| Method | Endpoint | Auth | Roles | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| POST | `/vendors` | ✅ | SUPER_ADMIN | Create vendor + admin user |
+| GET | `/vendors` | ✅ | SUPER_ADMIN | List all vendors |
+| GET | `/vendors/:id` | ✅ | SUPER_ADMIN, VENDOR_ADMIN | Vendor detail |
+| PATCH | `/vendors/:id` | ✅ | SUPER_ADMIN | Update vendor |
 
-### D. Transaction Ledger (The Backbone)
--   **Immutable Records:** Every bottle movement and cash payment is stored as a permanent transaction.
--   **Wallet Logic:** Real-time updates to customer bottle balances (`BottleWallet`).
--   **Financial Logic:** Automatic calculation of outstanding customer balances based on deliveries and payments.
+### Products Module (`/api/products`)
+| Method | Endpoint | Auth | Roles | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| POST | `/products` | ✅ | VENDOR_ADMIN, STAFF | Create product |
+| GET | `/products` | ✅ | Any | List active products (cached 5min) |
+| GET | `/products/:id` | ✅ | Any | Product detail |
+| PATCH | `/products/:id` | ✅ | VENDOR_ADMIN, STAFF | Update product |
+| PATCH | `/products/:id/toggle-active` | ✅ | VENDOR_ADMIN | Enable/disable product |
 
----
+### Routes Module (`/api/routes`)
+| Method | Endpoint | Auth | Roles | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| POST | `/routes` | ✅ | VENDOR_ADMIN, STAFF | Create route |
+| GET | `/routes` | ✅ | Any | List routes with customer count (cached 5min) |
+| GET | `/routes/:id` | ✅ | Any | Route detail with customers |
+| PATCH | `/routes/:id` | ✅ | VENDOR_ADMIN, STAFF | Update route |
+| DELETE | `/routes/:id` | ✅ | VENDOR_ADMIN | Delete route (guarded: no customers) |
 
-## 3. API Endpoints Reference
+### Vans Module (`/api/vans`)
+| Method | Endpoint | Auth | Roles | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| POST | `/vans` | ✅ | VENDOR_ADMIN, STAFF | Register van |
+| GET | `/vans` | ✅ | Any | List vans with drivers (cached 5min) |
+| GET | `/vans/:id` | ✅ | Any | Van detail |
+| PATCH | `/vans/:id` | ✅ | VENDOR_ADMIN, STAFF | Update van |
+| DELETE | `/vans/:id` | ✅ | VENDOR_ADMIN | Delete van (guarded: no open sheets) |
 
-### Authentication
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| POST | `/auth/login` | Login with email/password and receive JWT |
+### Customers Module (`/api/customers`)
+| Method | Endpoint | Auth | Roles | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| POST | `/customers` | ✅ | VENDOR_ADMIN, STAFF | Create customer + init wallets |
+| GET | `/customers` | ✅ | VENDOR_ADMIN, STAFF, DRIVER | Paginated list (search, routeId, sort) |
+| GET | `/customers/:id` | ✅ | VENDOR_ADMIN, STAFF, DRIVER | Detail with wallets + custom prices |
+| PATCH | `/customers/:id` | ✅ | VENDOR_ADMIN, STAFF | Update customer |
+| DELETE | `/customers/:id` | ✅ | VENDOR_ADMIN | Delete (guarded: no transactions) |
+| POST | `/customers/:id/custom-prices` | ✅ | VENDOR_ADMIN, STAFF | Set/update custom price |
+| DELETE | `/customers/:id/custom-prices/:productId` | ✅ | VENDOR_ADMIN, STAFF | Remove custom price |
+| GET | `/customers/:id/transactions` | ✅ | VENDOR_ADMIN, STAFF, DRIVER | Paginated transaction history |
 
-### Vendors (Platform Level)
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| POST | `/vendors` | Create a new Vendor and its Admin User |
-| GET | `/vendors` | List all vendors |
-| GET | `/vendors/:id` | Get vendor details |
+### Transactions Module (`/api/transactions`)
+| Method | Endpoint | Auth | Roles | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| GET | `/transactions` | ✅ | VENDOR_ADMIN, STAFF | Paginated list (filter by type, date, customer) |
+| POST | `/transactions/payments` | ✅ | VENDOR_ADMIN, STAFF | Record payment + WhatsApp notification |
+| POST | `/transactions/adjustments` | ✅ | VENDOR_ADMIN | Record manual adjustment |
+| GET | `/transactions/customers/:customerId` | ✅ | VENDOR_ADMIN, STAFF, DRIVER | Customer transactions |
+| GET | `/transactions/customers/:customerId/summary` | ✅ | VENDOR_ADMIN, STAFF, DRIVER | Ledger summary |
 
-### Products
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| POST | `/products` | Create a new product (Vendor context) |
-| GET | `/products` | List all active products |
-| GET | `/products/:id` | Get product details |
+### Daily Sheets Module (`/api/daily-sheets`)
+| Method | Endpoint | Auth | Roles | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| POST | `/daily-sheets/generate` | ✅ | VENDOR_ADMIN, STAFF | Async sheet generation (returns jobId) |
+| GET | `/daily-sheets/generation-status/:jobId` | ✅ | VENDOR_ADMIN, STAFF | Poll job status |
+| GET | `/daily-sheets/driver/:driverId` | ✅ | VENDOR_ADMIN, STAFF, DRIVER | Driver's sheets |
+| PATCH | `/daily-sheets/items/:id` | ✅ | VENDOR_ADMIN, STAFF, DRIVER | Submit delivery item |
+| GET | `/daily-sheets` | ✅ | Any | Paginated list (date, route, driver, isClosed) |
+| GET | `/daily-sheets/:id` | ✅ | Any | Full sheet with items |
+| PATCH | `/daily-sheets/:id/load-out` | ✅ | VENDOR_ADMIN, STAFF | Record filled bottles dispatched |
+| PATCH | `/daily-sheets/:id/check-in` | ✅ | VENDOR_ADMIN, STAFF | Record return (filled + empty + cash) |
+| POST | `/daily-sheets/:id/close` | ✅ | VENDOR_ADMIN, STAFF | Close sheet + reconciliation report |
+| PATCH | `/daily-sheets/:id/swap-driver` | ✅ | VENDOR_ADMIN | Swap driver/van on open sheet |
 
-### Routes
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| POST | `/routes` | Create a new delivery route |
-| GET | `/routes` | List all routes with customer counts |
-
-### Customers
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| POST | `/customers` | Create a customer & initialize wallets |
-| GET | `/customers` | List all customers with wallet balances |
-
-### Vans
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| POST | `/vans` | Register a new van and assign a driver |
-| GET | `/vans` | List all vans |
-
-### Daily Sheets
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| POST | `/daily-sheets/generate` | **Async:** Enqueues sheet generation, returns `{ jobId }` |
-| GET | `/daily-sheets/generation-status/:jobId` | Poll job progress and results |
-| GET | `/daily-sheets` | List all generated sheets |
-| GET | `/daily-sheets/:id` | Get full sheet with all delivery items |
-| PATCH | `/daily-sheets/items/:id` | **Submit Delivery:** Records exchange & updates Ledger |
-
----
-
-## 4. Performance & Scaling Infrastructure
-
-### A. Database Indexes (Pillar 4)
--   Added composite indexes to 7 models (`Transaction`, `DailySheet`, `DailySheetItem`, `Customer`, `Product`, `User`, `Route`) targeting frequent query patterns.
--   Key indexes: `[vendorId, createdAt]` on transactions, `[vendorId, routeId, date]` on daily sheets, `[vendorId, isActive]` on products.
--   Migration applied: `add_performance_indexes`.
-
-### B. Structured Logging with Pino (Pillar 5)
--   **Shared Lib:** `@water-supply-crm/logging` (`libs/shared/logging/`)
--   Pino-pretty in development, raw JSON in production.
--   Automatic correlation ID generation via `x-correlation-id` header.
--   Auth header and password field redaction.
--   `VendorContextInterceptor` injects `vendorId`, `userId`, `userRole` into every log line for authenticated requests.
-
-### C. Rate Limiting (Pillar 1)
--   **Shared Lib:** `@water-supply-crm/rate-limiting` (`libs/shared/rate-limiting/`)
--   Three global throttle tiers: **short** (10/sec), **medium** (100/min), **long** (1000/hr).
--   Redis-backed storage for distributed rate tracking.
--   `VendorThrottleGuard` tracks by `vendorId` (authenticated) or IP (unauthenticated).
--   Custom overrides: Login (3/sec, 5/min, 20/hr), Sheet generation (1/sec, 3/min).
-
-### D. Caching Layer (Pillar 3)
--   **Shared Lib:** `@water-supply-crm/caching` (`libs/shared/caching/`)
--   Global Redis cache with 60s default TTL.
--   `CacheInvalidationService` provides tenant-scoped cache key management.
--   **Cached queries:** Products (5min TTL), Routes (5min TTL).
--   **Auto-invalidation:** Product/Route caches on create; customer wallet cache after delivery.
-
-### E. Async Processing with BullMQ (Pillar 2)
--   **Shared Lib:** `@water-supply-crm/queue` (`libs/shared/queue/`)
--   BullMQ with Redis, 3 retry attempts with exponential backoff.
--   **Daily sheet generation is now async:** `POST /daily-sheets/generate` returns `{ jobId, status: 'queued' }`. Poll `GET /daily-sheets/generation-status/:jobId` for progress/results.
--   `DailySheetProcessor` handles sheet generation in the background with progress reporting.
--   **Notifications module** (stub): `NotificationService` with `queueWhatsApp()` and `queueSMS()` ready for integration.
+### Dashboard Module (`/api/dashboard`)
+| Method | Endpoint | Auth | Roles | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| GET | `/dashboard/overview` | ✅ | VENDOR_ADMIN, STAFF | Totals: customers, products, routes, vans, drivers, balance, bottles (cached 1min) |
+| GET | `/dashboard/daily-stats?date=` | ✅ | VENDOR_ADMIN, STAFF | Sheets, deliveries, bottles, cash for a day (cached 1min) |
+| GET | `/dashboard/revenue?dateFrom=&dateTo=` | ✅ | VENDOR_ADMIN | Revenue time series (cached 1min) |
+| GET | `/dashboard/top-customers?limit=` | ✅ | VENDOR_ADMIN, STAFF | Top customers by revenue (cached 1min) |
+| GET | `/dashboard/route-performance?date=` | ✅ | VENDOR_ADMIN, STAFF | Per-route completion stats (cached 1min) |
 
 ---
 
-## 5. Current Database Schema (Summary)
--   `Vendor`: Multi-tenant organizations.
--   `User`: Staff, Drivers, Admins.
--   `Product`: Water bottle types and pricing.
--   `Customer`: Profiles, routes, and financial balances.
--   `BottleWallet`: Per-product bottle counts at customer locations.
--   `DailySheet`: Master record for a van/driver's day.
--   `DailySheetItem`: Individual delivery stops.
--   `Transaction`: Immutable ledger of all movements.
+## 3. Cross-Cutting Features
+
+### Redis Caching
+- All list endpoints check cache before querying DB
+- Cache invalidated on every create/update/delete
+- Cache key pattern: `vendor:{vendorId}:{entity}`
+- TTLs: Products=5min, Routes=5min, Vans=5min, Users=5min, Customers=2min, Wallets=30s, Dashboard=1min
+
+### RBAC (Role-Based Access Control)
+- `@Roles()` decorator + `RolesGuard` on all endpoints
+- Permissive by default (no @Roles = allow all authenticated)
+- Roles: SUPER_ADMIN > VENDOR_ADMIN > STAFF > DRIVER > CUSTOMER
+
+### Input Validation
+- `ValidationPipe` globally (whitelist + forbidNonWhitelisted + transform)
+- All DTOs have `class-validator` decorators
+- Returns 400 with detailed error messages on invalid input
+
+### Rate Limiting
+- Global: 10/sec, 100/min, 1000/hr
+- Auth endpoints: 3/sec, 5/min, 20/hr
+- Write operations: 5/sec, 20/min
+- Sheet generation/close: 1/sec, 3/min
 
 ---
 
-## 6. Shared Libraries
+## 4. Shared Libraries
+
 | Alias | Path | Purpose |
 | :--- | :--- | :--- |
-| `@water-supply-crm/database` | `libs/shared/database/` | Prisma client & DatabaseModule |
+| `@water-supply-crm/database` | `libs/shared/database/` | Prisma client (global) |
 | `@water-supply-crm/logging` | `libs/shared/logging/` | Pino structured logging |
-| `@water-supply-crm/rate-limiting` | `libs/shared/rate-limiting/` | Throttler with Redis storage |
-| `@water-supply-crm/caching` | `libs/shared/caching/` | Cache manager with Redis store |
-| `@water-supply-crm/queue` | `libs/shared/queue/` | BullMQ queue infrastructure |
+| `@water-supply-crm/rate-limiting` | `libs/shared/rate-limiting/` | Throttler + Redis |
+| `@water-supply-crm/caching` | `libs/shared/caching/` | CacheManager + Redis + CacheInvalidationService |
+| `@water-supply-crm/queue` | `libs/shared/queue/` | BullMQ infrastructure |
+| `@water-supply-crm/types` | `libs/shared/types/` | Shared TypeScript types |
+| `@water-supply-crm/data-access` | `libs/shared/data-access/` | Axios API client + React Query provider |
+| `@water-supply-crm/ui` | `libs/shared/ui/` | Shared UI utilities |
 
 ---
 
-## 7. Breaking Changes
--   **`POST /daily-sheets/generate`** is now **asynchronous**. It returns `{ jobId, status: 'queued' }` instead of the generated sheets directly. Clients must poll `GET /daily-sheets/generation-status/:jobId` until status is `completed` to get results.
+## 5. Next Steps — Frontend & Integration
 
----
-
-## 8. Next Steps
-1.  **Driver Portal UI:** Frontend for drivers to use on the road.
-2.  **Live Tracking Service:** Real-time GPS updates from drivers.
-3.  **WhatsApp/SMS Integration:** Connect notification stubs to actual messaging APIs.
-4.  **Admin Dashboard:** Visualizing sheets and reconciliation reports.
-5.  **Monitoring:** Add health checks, Prometheus metrics, and alerting.
+1. **Frontend Phase 1:** Auth flow, dashboard, customers, products (in progress)
+2. **Frontend Phase 2:** Daily sheets lifecycle UI (load-out → deliver → check-in → close)
+3. **WhatsApp/SMS Integration:** Connect notification stubs to actual provider APIs
+4. **Driver Mobile App:** Lightweight PWA for drivers using `/daily-sheets/driver/:id` endpoints
+5. **Monitoring:** Health checks, Prometheus metrics, alerting

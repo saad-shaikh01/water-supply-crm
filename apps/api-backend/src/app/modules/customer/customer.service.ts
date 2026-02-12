@@ -177,10 +177,10 @@ export class CustomerService {
       create: {
         customerId,
         productId: dto.productId,
-        price: dto.price,
+        customPrice: dto.price,
       },
       update: {
-        price: dto.price,
+        customPrice: dto.price,
       },
       include: { product: true },
     });
