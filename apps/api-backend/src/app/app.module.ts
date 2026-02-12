@@ -18,6 +18,7 @@ import { VanModule } from './modules/van/van.module';
 import { DailySheetModule } from './modules/daily-sheet/daily-sheet.module';
 import { TransactionModule } from './modules/transaction/transaction.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     DailySheetModule,
     TransactionModule,
     NotificationsModule,
+    DashboardModule,
   ],
   controllers: [AppController],
   providers: [
