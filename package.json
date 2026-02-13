@@ -2,7 +2,13 @@
   "name": "@water-supply-crm/source",
   "version": "0.0.0",
   "license": "MIT",
-  "scripts": {},
+  "scripts": {
+    "seed": "DATABASE_URL=$DATABASE_URL ts-node --project libs/shared/database/tsconfig.lib.json libs/shared/database/prisma/seed.ts"
+  },
+  "prisma": {
+    "schema": "libs/shared/database/prisma/schema.prisma",
+    "seed": "ts-node --project libs/shared/database/tsconfig.lib.json libs/shared/database/prisma/seed.ts"
+  },
   "private": true,
   "devDependencies": {
     "@babel/core": "^7.14.5",
