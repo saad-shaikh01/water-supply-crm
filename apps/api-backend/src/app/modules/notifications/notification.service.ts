@@ -22,4 +22,13 @@ export class NotificationService {
       message,
     });
   }
+
+  async queueFcm(userId: string, title: string, body: string, data?: Record<string, string>) {
+    return this.notificationQueue.add(JOB_NAMES.SEND_FCM_NOTIFICATION, {
+      userId,
+      title,
+      body,
+      data,
+    });
+  }
 }

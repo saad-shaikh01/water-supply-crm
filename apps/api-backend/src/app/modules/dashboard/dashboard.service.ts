@@ -267,4 +267,174 @@ export class DashboardService {
     await this.cache.set(cacheKey, result, CACHE_TTLS.DASHBOARD);
     return result;
   }
+
+  async getStaffPerformance(vendorId: string, from?: string, to?: string) {
+    const cacheKey = this.cache.vendorKey(
+      vendorId,
+      `${CACHE_KEYS.DASHBOARD}:staff-performance:${from ?? ''}:${to ?? ''}`,
+    );
+    const cached = await this.cache.get<any>(cacheKey);
+    if (cached) return cached;
+
+    const dateFilter: any = {};
+    if (from) dateFilter.gte = new Date(from);
+    if (to) dateFilter.lte = new Date(to);
+
+    const sheets = await this.prisma.dailySheet.findMany({
+      where: {
+        vendorId,
+        ...(Object.keys(dateFilter).length > 0 && { date: dateFilter }),
+      },
+      include: {
+        driver: { select: { id: true, name: true } },
+        items: {
+          select: {
+            status: true,
+            filledDropped: true,
+            cashCollected: true,
+          },
+        },
+      },
+    });
+
+    // Group by driverId
+    const byDriver = new Map<string, { driver: any; sheets: any[] }>();
+    for (const sheet of sheets) {
+      const entry = byDriver.get(sheet.driverId) ?? {
+        driver: sheet.driver,
+        sheets: [],
+      };
+      entry.sheets.push(sheet);
+      byDriver.set(sheet.driverId, entry);
+    }
+
+    const deliveredStatuses = new Set(['DELIVERED', 'COMPLETED', 'EMPTY_ONLY']);
+
+    const result = Array.from(byDriver.values()).map(({ driver, sheets: driverSheets }) => {
+      const allItems = driverSheets.flatMap((s) => s.items);
+      const totalItems = allItems.length;
+      const deliveredItems = allItems.filter((i) => deliveredStatuses.has(i.status)).length;
+      const cancelledItems = allItems.filter((i) => i.status === 'CANCELLED').length;
+      const notAvailable = allItems.filter((i) => i.status === 'NOT_AVAILABLE').length;
+      const totalBottlesDelivered = allItems
+        .filter((i) => deliveredStatuses.has(i.status))
+        .reduce((sum, i) => sum + i.filledDropped, 0);
+      const totalCashCollected = allItems.reduce((sum, i) => sum + i.cashCollected, 0);
+
+      return {
+        driver,
+        stats: {
+          totalSheets: driverSheets.length,
+          totalItems,
+          deliveredItems,
+          cancelledItems,
+          notAvailable,
+          completionRate:
+            totalItems > 0
+              ? Math.round((deliveredItems / totalItems) * 100)
+              : 0,
+          totalBottlesDelivered,
+          totalCashCollected,
+        },
+      };
+    });
+
+    result.sort((a, b) => b.stats.completionRate - a.stats.completionRate);
+
+    await this.cache.set(cacheKey, result, 60); // 60s TTL
+    return result;
+  }
+
+  /** Platform-level overview — SUPER_ADMIN only */
+  async getPlatformOverview() {
+    const cacheKey = 'platform:dashboard:overview';
+    const cached = await this.cache.get<any>(cacheKey);
+    if (cached) return cached;
+
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+    const [
+      totalVendors,
+      activeVendors,
+      suspendedVendors,
+      totalCustomers,
+      totalDrivers,
+      revenueAllTime,
+      revenueThisMonth,
+      revenueLastMonth,
+      deliveriesThisMonth,
+      newVendorsThisMonth,
+      topVendors,
+    ] = await Promise.all([
+      this.prisma.vendor.count(),
+      this.prisma.vendor.count({ where: { isActive: true } }),
+      this.prisma.vendor.count({ where: { isActive: false } }),
+      this.prisma.customer.count(),
+      this.prisma.user.count({ where: { role: 'DRIVER', isActive: true } }),
+      this.prisma.transaction.aggregate({
+        where: { type: TransactionType.DELIVERY },
+        _sum: { amount: true },
+      }),
+      this.prisma.transaction.aggregate({
+        where: { type: TransactionType.DELIVERY, createdAt: { gte: startOfMonth } },
+        _sum: { amount: true },
+      }),
+      this.prisma.transaction.aggregate({
+        where: {
+          type: TransactionType.DELIVERY,
+          createdAt: { gte: startOfLastMonth, lt: startOfMonth },
+        },
+        _sum: { amount: true },
+      }),
+      this.prisma.dailySheetItem.count({
+        where: { status: 'DELIVERED', dailySheet: { date: { gte: startOfMonth } } },
+      }),
+      this.prisma.vendor.count({ where: { createdAt: { gte: startOfMonth } } }),
+      // Top 5 vendors by total transaction amount
+      this.prisma.transaction.groupBy({
+        by: ['vendorId'],
+        where: { type: TransactionType.DELIVERY },
+        _sum: { amount: true },
+        orderBy: { _sum: { amount: 'desc' } },
+        take: 5,
+      }),
+    ]);
+
+    // Enrich top vendors with names
+    const topVendorIds = topVendors.map((v) => v.vendorId);
+    const topVendorDetails = await this.prisma.vendor.findMany({
+      where: { id: { in: topVendorIds } },
+      select: { id: true, name: true, slug: true },
+    });
+    const vendorMap = Object.fromEntries(topVendorDetails.map((v) => [v.id, v]));
+
+    const revenueThisMonthVal = revenueThisMonth._sum.amount ?? 0;
+    const revenueLastMonthVal = revenueLastMonth._sum.amount ?? 0;
+    const revenueGrowth =
+      revenueLastMonthVal > 0
+        ? Math.round(((revenueThisMonthVal - revenueLastMonthVal) / revenueLastMonthVal) * 100)
+        : 0;
+
+    const result = {
+      vendors: { total: totalVendors, active: activeVendors, suspended: suspendedVendors, newThisMonth: newVendorsThisMonth },
+      customers: { total: totalCustomers },
+      drivers: { totalActive: totalDrivers },
+      revenue: {
+        allTime: revenueAllTime._sum.amount ?? 0,
+        thisMonth: revenueThisMonthVal,
+        lastMonth: revenueLastMonthVal,
+        growthPercent: revenueGrowth,
+      },
+      deliveries: { thisMonth: deliveriesThisMonth },
+      topVendors: topVendors.map((v) => ({
+        vendor: vendorMap[v.vendorId] ?? { id: v.vendorId },
+        totalRevenue: v._sum.amount ?? 0,
+      })),
+    };
+
+    await this.cache.set(cacheKey, result, CACHE_TTLS.DASHBOARD);
+    return result;
+  }
 }

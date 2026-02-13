@@ -12,6 +12,13 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
+  /** GET /dashboard/platform — Platform-wide stats for SUPER_ADMIN */
+  @Get('platform')
+  @Roles(UserRole.SUPER_ADMIN)
+  getPlatformOverview() {
+    return this.dashboardService.getPlatformOverview();
+  }
+
   @Get('overview')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
   getOverview(@CurrentUser() user: any) {
@@ -47,5 +54,19 @@ export class DashboardController {
     @Query() query: DashboardQueryDto,
   ) {
     return this.dashboardService.getRoutePerformance(user.vendorId, query.date);
+  }
+
+  /** GET /dashboard/performance/staff?from=2026-01-01&to=2026-01-31 */
+  @Get('performance/staff')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  getStaffPerformance(
+    @CurrentUser() user: any,
+    @Query() query: DashboardQueryDto,
+  ) {
+    return this.dashboardService.getStaffPerformance(
+      user.vendorId,
+      query.dateFrom,
+      query.dateTo,
+    );
   }
 }

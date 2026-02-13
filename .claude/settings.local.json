@@ -10,7 +10,18 @@
       "Bash(\"C:/Users/Saad shaikh/Desktop/portfolio/water-supply/water-supply-crm/apps/vendor-dashboard/src/components/shared/status-badge.tsx\" << 'ENDOFFILE'\nimport { Badge } from '@water-supply-crm/ui';\n\ntype Status = 'OPEN' | 'CLOSED' | 'PENDING' | 'ACTIVE' | 'INACTIVE' | 'IN_PROGRESS' | 'GENERATED' | 'LOADED' | 'DELIVERING' | 'CHECKED_IN' | string;\n\nconst statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning' | 'info' }> = {\n  OPEN: { label: 'Open', variant: 'success' },\n  ACTIVE: { label: 'Active', variant: 'success' },\n  CLOSED: { label: 'Closed', variant: 'secondary' },\n  INACTIVE: { label: 'Inactive', variant: 'secondary' },\n  PENDING: { label: 'Pending', variant: 'warning' },\n  IN_PROGRESS: { label: 'In Progress', variant: 'info' },\n  GENERATED: { label: 'Generated', variant: 'info' },\n  LOADED: { label: 'Loaded', variant: 'warning' },\n  DELIVERING: { label: 'Delivering', variant: 'warning' },\n  CHECKED_IN: { label: 'Checked In', variant: 'success' },\n};\n\nexport function StatusBadge\\({ status }: { status: Status }\\) {\n  const config = statusConfig[status] ?? { label: status, variant: 'outline' as const };\n  return <Badge variant={config.variant}>{config.label}</Badge>;\n}\nENDOFFILE)",
       "Bash(npx tsc:*)",
       "Bash(cd:*)",
-      "Bash(npx nx build:*)"
+      "Bash(npx nx build:*)",
+      "Bash(python3:*)",
+      "Bash(find:*)",
+      "Bash(npx prisma migrate dev:*)",
+      "Bash(DATABASE_URL=\"postgresql://admin:admin123@localhost:5432/water_supply_crm?schema=public\" npx prisma migrate dev:*)",
+      "Bash(pg_isready:*)",
+      "Bash(DATABASE_URL=\"postgresql://admin:admin123@localhost:5432/water_supply_crm?schema=public\" npx prisma generate:*)",
+      "Bash(ls:*)",
+      "Bash(git -C /home/user/water-supply-crm diff HEAD -- apps/api-backend/src/app/modules/vendor/vendor.service.ts)",
+      "Bash(git -C /home/user/water-supply-crm stash)",
+      "Bash(git -C /home/user/water-supply-crm stash pop)",
+      "Bash(cat:*)"
     ]
   }
 }

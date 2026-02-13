@@ -16,4 +16,9 @@ export class UpdateVendorDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  /** Vendor's Raast ID (phone number or CNIC) for manual payment reference */
+  @IsOptional()
+  @IsString()
+  raastId?: string;
 }

@@ -8,18 +8,26 @@ import {
   CacheInvalidationService,
   CACHE_KEYS,
 } from '@water-supply-crm/caching';
+import * as bcrypt from 'bcrypt';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { CustomerQueryDto } from './dto/customer-query.dto';
 import { SetCustomPriceDto } from './dto/set-custom-price.dto';
+import { CreatePortalAccountDto } from './dto/create-portal-account.dto';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { paginate } from '../../common/helpers/paginate';
+import { CustomerStatementPdfService } from './pdf/customer-statement-pdf.service';
+import { AuditService } from '../audit/audit.service';
+
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 @Injectable()
 export class CustomerService {
   constructor(
     private prisma: PrismaService,
     private cache: CacheInvalidationService,
+    private statementPdf: CustomerStatementPdfService,
+    private audit: AuditService,
   ) {}
 
   async create(vendorId: string, dto: CreateCustomerDto) {
@@ -54,6 +62,15 @@ export class CustomerService {
     });
 
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
+
+    await this.audit.log({
+      vendorId,
+      action: 'CREATE',
+      entity: 'Customer',
+      entityId: customer.id,
+      changes: { after: { name: customer.name, customerCode: customer.customerCode } },
+    });
+
     return customer;
   }
 
@@ -127,6 +144,14 @@ export class CustomerService {
     });
 
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
+
+    await this.audit.log({
+      vendorId,
+      action: 'UPDATE',
+      entity: 'Customer',
+      entityId: id,
+    });
+
     return updated;
   }
 
@@ -148,6 +173,14 @@ export class CustomerService {
 
     await this.prisma.customer.delete({ where: { id } });
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
+
+    await this.audit.log({
+      vendorId,
+      action: 'DELETE',
+      entity: 'Customer',
+      entityId: id,
+    });
+
     return { deleted: true };
   }
 
@@ -209,6 +242,70 @@ export class CustomerService {
     return { deleted: true };
   }
 
+  async createPortalAccount(
+    vendorId: string,
+    customerId: string,
+    dto: CreatePortalAccountDto,
+  ) {
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: customerId, vendorId },
+    });
+    if (!customer) {
+      throw new NotFoundException('Customer not found');
+    }
+    if (customer.userId) {
+      throw new ConflictException('Customer already has a portal account');
+    }
+
+    const existing = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
+    if (existing) {
+      throw new ConflictException('Email already in use');
+    }
+
+    const hashedPassword = await bcrypt.hash(dto.password, 10);
+
+    const user = await this.prisma.user.create({
+      data: {
+        email: dto.email,
+        password: hashedPassword,
+        name: customer.name,
+        role: 'CUSTOMER',
+      },
+      select: { id: true, email: true, name: true, role: true, createdAt: true },
+    });
+
+    await this.prisma.customer.update({
+      where: { id: customerId },
+      data: { userId: user.id },
+    });
+
+    await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
+    return { message: 'Portal account created', user };
+  }
+
+  async removePortalAccount(vendorId: string, customerId: string) {
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: customerId, vendorId },
+    });
+    if (!customer) {
+      throw new NotFoundException('Customer not found');
+    }
+    if (!customer.userId) {
+      throw new NotFoundException('Customer has no portal account');
+    }
+
+    await this.prisma.customer.update({
+      where: { id: customerId },
+      data: { userId: null },
+    });
+    await this.prisma.user.delete({ where: { id: customer.userId } });
+
+    await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
+    return { message: 'Portal account removed' };
+  }
+
   async getTransactionHistory(
     vendorId: string,
     customerId: string,
@@ -239,5 +336,108 @@ export class CustomerService {
     ]);
 
     return paginate(data, total, page, limit);
+  }
+
+  async getMonthlyStatement(vendorId: string, customerId: string, month?: string) {
+    const targetMonth = month ?? new Date().toISOString().slice(0, 7);
+    const [year, mon] = targetMonth.split('-').map(Number);
+    const startDate = new Date(year, mon - 1, 1);
+    const endDate = new Date(year, mon, 1); // exclusive
+
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: customerId, vendorId },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const transactions = await this.prisma.transaction.findMany({
+      where: {
+        customerId,
+        vendorId,
+        createdAt: { gte: startDate, lt: endDate },
+      },
+      include: { product: { select: { name: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const periodActivity = transactions.reduce((sum, t) => sum + (t.amount ?? 0), 0);
+    const closingBalance = customer.financialBalance;
+    const openingBalance = closingBalance - periodActivity;
+
+    const period = new Date(year, mon - 1, 1).toLocaleString('en-PK', {
+      month: 'long',
+      year: 'numeric',
+    });
+
+    return {
+      customer,
+      transactions,
+      openingBalance,
+      closingBalance,
+      period,
+    };
+  }
+
+  async getMonthlyStatementPdf(vendorId: string, customerId: string, month?: string): Promise<Buffer> {
+    const data = await this.getMonthlyStatement(vendorId, customerId, month);
+    return this.statementPdf.generate(data);
+  }
+
+  async getDeliverySchedule(
+    vendorId: string,
+    customerId: string,
+    from: string,
+    to: string,
+  ) {
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: customerId, vendorId },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const fromDate = new Date(from);
+    const toDate = new Date(to);
+
+    // Fetch actual delivery records for past dates
+    const sheetItems = await this.prisma.dailySheetItem.findMany({
+      where: {
+        customerId,
+        dailySheet: {
+          vendorId,
+          date: { gte: fromDate, lte: toDate },
+        },
+      },
+      include: {
+        dailySheet: { select: { date: true } },
+      },
+    });
+
+    // Map date string → actual status
+    const actualStatus = new Map<string, string>();
+    for (const item of sheetItems) {
+      const dateStr = item.dailySheet.date.toISOString().slice(0, 10);
+      actualStatus.set(dateStr, item.status);
+    }
+
+    // Build schedule by iterating each day in range
+    const schedule: { date: string; dayName: string; status: string }[] = [];
+    const current = new Date(fromDate);
+    while (current <= toDate) {
+      const dayOfWeek = current.getDay();
+      if (customer.deliveryDays.includes(dayOfWeek)) {
+        const dateStr = current.toISOString().slice(0, 10);
+        schedule.push({
+          date: dateStr,
+          dayName: DAY_NAMES[dayOfWeek],
+          status: actualStatus.get(dateStr) ?? 'SCHEDULED',
+        });
+      }
+      current.setDate(current.getDate() + 1);
+    }
+
+    return {
+      customerId: customer.id,
+      customerName: customer.name,
+      deliveryDays: customer.deliveryDays,
+      schedule,
+    };
   }
 }

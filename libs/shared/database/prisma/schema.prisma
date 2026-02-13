@@ -33,23 +33,35 @@ enum TransactionType {
   CHECK_IN
 }
 
+enum ExpenseCategory {
+  FUEL
+  MAINTENANCE
+  SALARY
+  REPAIR
+  OTHER
+}
+
 model Vendor {
   id          String   @id @default(uuid())
   name        String
   slug        String   @unique
   address     String?
   logoUrl     String?
+  // Payment settings
+  raastId     String?  // Vendor's Raast ID for static QR / reference
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  users       User[]
-  products    Product[]
-  customers   Customer[]
-  vans        Van[]
-  routes      Route[]
-  dailySheets DailySheet[]
-  transactions Transaction[]
+  users           User[]
+  products        Product[]
+  customers       Customer[]
+  vans            Van[]
+  routes          Route[]
+  dailySheets     DailySheet[]
+  transactions    Transaction[]
+  paymentRequests PaymentRequest[]
+  expenses        Expense[]
 }
 
 model User {
@@ -67,7 +79,9 @@ model User {
   assignedVan   Van?     @relation("VanDriver")
   dailySheets   DailySheet[] @relation("DriverSheets")
   customer      Customer? // One-to-one link for Customer Portal
-  
+  expenses      Expense[]
+  fcmTokens     FcmToken[]
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -117,10 +131,11 @@ model Customer {
 
   financialBalance Float @default(0) // Current outstanding amount
 
-  wallets       BottleWallet[]
-  customPrices  CustomerProductPrice[]
-  sheetItems    DailySheetItem[]
-  transactions  Transaction[]
+  wallets         BottleWallet[]
+  customPrices    CustomerProductPrice[]
+  sheetItems      DailySheetItem[]
+  transactions    Transaction[]
+  paymentRequests PaymentRequest[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -179,6 +194,7 @@ model Van {
   defaultDriver   User?   @relation("VanDriver", fields: [defaultDriverId], references: [id])
   
   dailySheets   DailySheet[]
+  expenses      Expense[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -272,4 +288,122 @@ model Transaction {
   @@index([vendorId, createdAt])
   @@index([customerId, createdAt])
   @@index([dailySheetId])
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Payment Requests
+// ──────────────────────────────────────────────────────────────────────────────
+
+enum PaymentRequestStatus {
+  PENDING     // Manual: submitted by customer, waiting vendor review
+              // Raast QR: QR generated, waiting scan
+  PROCESSING  // Raast QR: customer scanning / payment in progress
+  PAID        // Gateway confirmed payment (Raast QR auto-approved)
+  APPROVED    // Vendor manually approved (manual payments)
+  REJECTED    // Vendor rejected
+  EXPIRED     // QR expired without payment
+  CANCELLED   // Customer cancelled
+}
+
+enum PaymentMethod {
+  RAAST_QR          // Automated via Paymob — QR generated, customer scans
+  MANUAL_RAAST      // Customer paid via Raast, submitted reference number
+  MANUAL_JAZZCASH   // Customer paid via JazzCash, submitted reference
+  MANUAL_EASYPAISA  // Customer paid via Easypaisa, submitted reference
+  MANUAL_BANK       // Customer paid via bank transfer / IBFT
+}
+
+model PaymentRequest {
+  id         String               @id @default(uuid())
+  vendorId   String
+  customerId String
+  amount     Float
+
+  method  PaymentMethod
+  status  PaymentRequestStatus @default(PENDING)
+
+  // ── Raast QR (automated) ─────────────────────────────────────────────
+  gatewayOrderId  String?   // Paymob order ID
+  gatewayTxId     String?   // Paymob transaction ID (set on webhook)
+  checkoutUrl     String?   // Paymob hosted checkout URL
+  qrCodeData      String?   // QR image base64 or URL (if returned by gateway)
+  qrExpiresAt     DateTime? // QR expiry (typically 10-15 min)
+
+  // ── Manual payment ───────────────────────────────────────────────────
+  referenceNo    String?   // Transaction ID / reference entered by customer
+  screenshotPath String?   // Local path to uploaded screenshot
+  customerNote   String?   // Optional message from customer
+
+  // ── Review (vendor) ──────────────────────────────────────────────────
+  reviewedBy      String?   // userId of vendor admin who approved/rejected
+  reviewedAt      DateTime?
+  rejectionReason String?
+
+  vendor   Vendor   @relation(fields: [vendorId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vendorId, status])
+  @@index([customerId])
+  @@index([gatewayOrderId])
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Expense Tracking
+// ──────────────────────────────────────────────────────────────────────────────
+
+model Expense {
+  id          String          @id @default(uuid())
+  vendorId    String
+  vendor      Vendor          @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  category    ExpenseCategory
+  amount      Float
+  description String
+  date        DateTime
+  vanId       String?
+  van         Van?            @relation(fields: [vanId], references: [id])
+  createdById String
+  createdBy   User            @relation(fields: [createdById], references: [id])
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([vendorId, date])
+  @@index([vendorId, category])
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// FCM Push Tokens
+// ──────────────────────────────────────────────────────────────────────────────
+
+model FcmToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  platform  String   // "android" | "ios" | "web"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Audit Log
+// ──────────────────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  vendorId  String?
+  userId    String?
+  userName  String?
+  action    String   // "CREATE" | "UPDATE" | "DELETE" | "APPROVE" | "REJECT" | "SUSPEND" etc.
+  entity    String   // "Customer" | "Payment" | "User" etc.
+  entityId  String?
+  changes   Json?    // { before: {}, after: {} }
+  createdAt DateTime @default(now())
+
+  @@index([vendorId, createdAt])
+  @@index([entity, entityId])
 }

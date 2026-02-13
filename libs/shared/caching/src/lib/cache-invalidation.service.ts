@@ -28,4 +28,8 @@ export class CacheInvalidationService {
   async set(key: string, value: unknown, ttl?: number): Promise<void> {
     await this.cacheManager.set(key, value, ttl);
   }
+
+  async del(key: string): Promise<void> {
+    await this.cacheManager.del(key);
+  }
 }

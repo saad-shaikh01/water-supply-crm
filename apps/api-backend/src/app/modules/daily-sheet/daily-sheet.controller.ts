@@ -6,11 +6,14 @@ import {
   Param,
   Patch,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { UserRole } from '@prisma/client';
 import { DailySheetService } from './daily-sheet.service';
+import { DailySheetPdfService } from './pdf/daily-sheet-pdf.service';
 import { GenerateSheetsDto } from './dto/generate-sheets.dto';
 import { SubmitDeliveryDto } from './dto/submit-delivery.dto';
 import { LoadOutDto } from './dto/load-out.dto';
@@ -25,7 +28,10 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 @Controller('daily-sheets')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class DailySheetController {
-  constructor(private readonly dailySheetService: DailySheetService) {}
+  constructor(
+    private readonly dailySheetService: DailySheetService,
+    private readonly pdfService: DailySheetPdfService,
+  ) {}
 
   // ── Static routes MUST come before /:id ──────────────────────────────
 
@@ -119,5 +125,31 @@ export class DailySheetController {
     @Body() dto: SwapDriverDto,
   ) {
     return this.dailySheetService.swapDriver(user.vendorId, id, dto);
+  }
+
+  /**
+   * GET /api/daily-sheets/:id/export
+   * Downloads a PDF of the daily sheet (A4, printable).
+   * Roles: VENDOR_ADMIN, STAFF
+   */
+  @Get(':id/export')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  async exportPdf(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const sheet = await this.dailySheetService.findOne(user.vendorId, id);
+    const pdfBuffer = await this.pdfService.generate(sheet);
+
+    const dateStr = new Date(sheet.date).toISOString().split('T')[0];
+    const filename = `sheet-${dateStr}-${sheet.route?.name ?? id}.pdf`
+      .replace(/\s+/g, '-')
+      .toLowerCase();
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.end(pdfBuffer);
   }
 }
