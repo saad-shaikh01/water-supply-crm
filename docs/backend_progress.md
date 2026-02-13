@@ -1,6 +1,6 @@
 # Backend Progress Log — Water Supply CRM
 
-**Last Updated:** February 12, 2026
+**Last Updated:** February 12, 2026 (Session 4)
 
 ---
 
@@ -8,10 +8,10 @@
 
 | Metric | Value |
 | :--- | :--- |
-| Total Endpoints | **46** |
-| Modules Completed | **11** |
-| New Files Created | **~35** |
-| Files Modified | **~20** |
+| Total Endpoints | **95** |
+| Modules Completed | **16** |
+| New Files Created | **~75** |
+| Files Modified | **~35** |
 | Test Coverage | Pending |
 
 ---
@@ -209,12 +209,265 @@ All dashboard endpoints cached with **60s TTL**.
 
 ---
 
+---
+
+## Phase 7 — Customer Portal ✅ (Feb 12, 2026, Session 2)
+
+**Goal:** Read-only portal for customers to view their own data via JWT.
+
+### Files Created
+- `customer-portal/customer-portal.service.ts`
+- `customer-portal/customer-portal.controller.ts`
+- `customer-portal/customer-portal.module.ts`
+
+### Files Modified
+- `auth/auth.service.ts` — `login()` now includes `customerId` in JWT payload for CUSTOMER role
+- `auth/jwt.strategy.ts` — validate() returns `customerId` from payload
+- `app/app.module.ts` — Added `CustomerPortalModule`
+
+### Key Design Decisions
+- CUSTOMER users have no `vendorId` on User model — service looks up Customer via `userId`
+- `customerId` added to JWT so portal endpoints need no extra DB lookup to find the customer
+- Effective prices: returns `customPrice` if set, falls back to `Product.basePrice`
+- All 4 endpoints are `@Roles(CUSTOMER)` only — staff cannot access portal endpoints
+
+---
+
+## Phase 8 — WhatsApp Integration ✅ (Feb 12, 2026, Session 2)
+
+**Goal:** Real WhatsApp message sending via whatsapp-web.js with Redis rate limiting.
+
+### Files Created
+- `whatsapp/templates/message.templates.ts` — Urdu/English templates (delivery, payment, reminder, scheduled)
+- `whatsapp/providers/whatsapp-provider.interface.ts` — `IWhatsAppProvider` interface + injection token
+- `whatsapp/providers/whatsapp-web.provider.ts` — whatsapp-web.js with LocalAuth, Docker puppeteer args
+- `whatsapp/whatsapp.service.ts` — Redis rate-limiting (1 msg/phone/min), sendMessage(), sendBulk()
+- `whatsapp/whatsapp.module.ts` — `@Global()` module
+
+### Files Modified
+- `notifications/notification.processor.ts` — BullMQ processor now calls `WhatsAppService.sendMessage()` (was stub)
+- `notifications/notifications.module.ts` — Imports `WhatsAppModule`
+- `app/app.module.ts` — Added `WhatsAppModule`
+
+### Key Design Decisions
+- Abstract `IWhatsAppProvider` interface allows swapping to Twilio/360dialog without changing `WhatsAppService`
+- `WHATSAPP_ENABLED=true` env flag — app starts normally even if `whatsapp-web.js` not installed
+- Pakistan phone format: `0xxx...` → `92xxx...@c.us` automatically
+- `@Global()` means any module can inject `WhatsAppService` without importing `WhatsAppModule`
+- `@ts-ignore` on dynamic imports since `whatsapp-web.js` is an optional peer dependency
+
+---
+
+## Phase 9 — Real-time Driver Tracking ✅ (Feb 12, 2026, Session 2)
+
+**Goal:** Production-ready, scalable GPS tracking using SSE + Redis Pub/Sub (no WebSocket packages needed).
+
+### Files Created
+- `tracking/dto/update-location.dto.ts` — lat/lng/speed/bearing/status with validation
+- `tracking/tracking.service.ts` — Two ioredis clients (publisher + subscriber), Redis SCAN, RxJS Subject
+- `tracking/tracking.controller.ts` — 4 endpoints including SSE stream
+- `tracking/tracking.module.ts`
+
+### Files Modified
+- `auth/auth.service.ts` — Added `name` to JWT payload
+- `auth/jwt.strategy.ts` — Added `name` to CurrentUser object
+- `app/app.module.ts` — Added `TrackingModule`
+
+### Key Design Decisions
+- **SSE instead of WebSockets** — no new packages needed (`@nestjs/websockets`/`socket.io` not installed), works through HTTP/1.1 proxies, auto-reconnects built into browser EventSource API
+- **Two separate ioredis connections** required: subscriber client CANNOT issue regular commands while subscribed
+- **Redis SCAN** (cursor-based) instead of `KEYS *` — safe for large production Redis instances
+- **TTL 5 minutes** on Redis driver keys — offline drivers auto-expire, no cleanup job needed
+- **Redis Pub/Sub fan-out** — when running multiple app instances, all instances get the message and push to their own SSE clients
+- `onModuleDestroy` cleanly quits both Redis connections and completes the Subject
+
+### Scalability Notes
+- 1 SSE connection per dashboard tab (long-lived HTTP connection)
+- Redis Pub/Sub channel: `tracking:location` (shared across all instances)
+- Redis key pattern: `tracking:driver:{driverId}` with 5min TTL
+- Works with any number of app replicas behind a load balancer
+
+---
+
+---
+
+## Phase 10 — JWT Refresh Token + Daily Sheet PDF ✅ (Feb 12, 2026, Session 3)
+
+### JWT Refresh Token
+- Login now returns `access_token` (1 day) + `refresh_token` (UUID, 7 days, Redis-stored)
+- `POST /auth/refresh` — validates + rotates (old token immediately invalidated)
+- `POST /auth/logout` — deletes refresh token from Redis
+- Deactivated users blocked at refresh time
+
+### Daily Sheet PDF Export
+- `GET /daily-sheets/:id/export` — A4 printable PDF via pdfkit
+- Content: header, sheet info, 4 summary boxes, discrepancy row, delivery table with totals
+
+### Files
+- `auth/dto/refresh-token.dto.ts`
+- `email/email.service.ts` + `email/email.module.ts` (Gmail SMTP, HTML templates)
+- `daily-sheet/pdf/daily-sheet-pdf.service.ts`
+- Updated: `auth.service.ts`, `auth.controller.ts`, `daily-sheet.controller.ts`, `daily-sheet.module.ts`
+- Added `del()` method to `CacheInvalidationService`
+
+---
+
+## Phase 11 — Super Admin Complete Flow ✅ (Feb 12, 2026, Session 3)
+
+**Goal:** Full SUPER_ADMIN coverage — vendor lifecycle, suspension, platform stats, oversight tools.
+
+### New Endpoints (10)
+| Endpoint | Feature |
+| :--- | :--- |
+| `GET /vendors/:id/stats` | Deep vendor stats — customers, revenue, deliveries, balance, last active |
+| `GET /vendors/:id/users` | All users under a vendor |
+| `PATCH /vendors/:id/suspend` | Suspend vendor + Redis flag blocks all users instantly |
+| `PATCH /vendors/:id/unsuspend` | Restore access + clear Redis flag |
+| `POST /vendors/:id/reset-admin-password` | Force-reset vendor admin password (support tool) |
+| `DELETE /vendors/:id` | Delete vendor + all data (blocked if transactions exist) |
+| `GET /dashboard/platform` | Platform KPIs: vendors, revenue, growth%, top vendors |
+
+### Vendor Suspension Architecture
+- `suspend()` → `prisma.vendor.update({ isActive: false })` + `cache.set('vendor:{id}:suspended', true, 0)`
+- `JwtStrategy.validate()` — on every authenticated request, checks Redis for suspension key (~0.5ms)
+- Suspended vendor's users get **instant 401** even with a valid unexpired JWT
+- `unsuspend()` → `prisma.vendor.update({ isActive: true })` + `cache.del(key)` — access restored immediately
+
+### Key Design Decisions
+- Redis suspension key has **no TTL** (`ttl=0`) — stays until explicitly cleared by unsuspend
+- SUPER_ADMIN users have no `vendorId` in JWT → bypass suspension check entirely
+- Vendor delete cascades in correct Prisma order to avoid FK constraint violations
+- `GET /vendors` now includes `_counts: { customers, drivers }` for quick health view
+
+### Files Modified
+- `vendor/vendor.service.ts` — complete rewrite, added 6 new methods
+- `vendor/vendor.controller.ts` — complete rewrite, 10 endpoints
+- `vendor/dto/reset-admin-password.dto.ts` — new
+- `auth/jwt.strategy.ts` — now injects CacheInvalidationService, checks suspension
+- `dashboard/dashboard.service.ts` — added `getPlatformOverview()`
+- `dashboard/dashboard.controller.ts` — added `GET /platform`
+
+---
+
+## Phase 12 — Balance Reminder CRON + Customer Portal Accounts ✅ (Feb 12, 2026, Session 4)
+
+**Goal:** Automated WhatsApp balance reminders via BullMQ + customer portal account management.
+
+### Balance Reminder (New Module)
+
+**Files Created:**
+- `balance-reminder/dto/schedule-reminder.dto.ts` — `ScheduleReminderDto` + `SendNowDto`
+- `balance-reminder/balance-reminder.service.ts` — BullMQ repeatable job management + WhatsApp sending
+- `balance-reminder/balance-reminder.processor.ts` — BullMQ processor for `SEND_BALANCE_REMINDERS` jobs
+- `balance-reminder/balance-reminder.controller.ts` — 4 API endpoints
+- `balance-reminder/balance-reminder.module.ts`
+
+**Files Modified:**
+- `libs/shared/queue/src/lib/queue-names.constants.ts` — Added `BALANCE_REMINDERS` queue
+- `libs/shared/queue/src/lib/queue-events.constants.ts` — Added `SEND_BALANCE_REMINDERS` job name
+- `app/app.module.ts` — Added `BalanceReminderModule`
+
+**Endpoints:**
+| Endpoint | Description |
+| :--- | :--- |
+| `POST /balance-reminders/schedule` | Configure repeatable cron (default: `0 4 * * *` = 9 AM PKT) with `minBalance` |
+| `GET /balance-reminders/schedule` | Check schedule status + next run time |
+| `DELETE /balance-reminders/schedule` | Disable automatic reminders |
+| `POST /balance-reminders/send-now` | Immediately send reminders (supports `dryRun=true` preview) |
+
+**Architecture:**
+- Per-vendor BullMQ repeatable job keyed `balance-reminder:{vendorId}` — independent schedules per tenant
+- Queries customers with `financialBalance >= minBalance` (positive = owes money)
+- Sends WhatsApp via `WhatsAppService.sendMessage()` — respects existing rate limit (1/phone/min)
+- `dryRun=true` returns list without sending
+- BullMQ handles retries on failure
+
+### Customer Portal Account Management
+
+**Files Created:**
+- `customer/dto/create-portal-account.dto.ts` — email + password (min 8 chars)
+
+**Files Modified:**
+- `customer/customer.service.ts` — Added `createPortalAccount()` + `removePortalAccount()`
+  - `createPortalAccount()`: creates User with `role=CUSTOMER`, links to customer via `userId`
+  - `removePortalAccount()`: unlinks + deletes user account
+- `customer/customer.controller.ts` — Added 2 endpoints:
+  - `POST /customers/:id/portal-account` — VENDOR_ADMIN only
+  - `DELETE /customers/:id/portal-account` — VENDOR_ADMIN only
+
+### Bug Fix
+- `user/user.service.ts` — `findByEmail()` now includes `customer: true` in include clause — fixes CUSTOMER role login (JWT was missing `customerId`)
+
+---
+
+## Phase 13 — Payment System (Raast QR + Manual) ✅ (Feb 12, 2026, Session 4)
+
+**Goal:** Complete online payment checkout — Raast QR via Paymob (automated) + manual payment with screenshot upload + vendor approval flow.
+
+### New DB Model
+- `PaymentRequest` — full payment lifecycle (PENDING → PROCESSING/PAID/APPROVED/REJECTED/EXPIRED)
+- `PaymentMethod` enum: `RAAST_QR`, `MANUAL_RAAST`, `MANUAL_JAZZCASH`, `MANUAL_EASYPAISA`, `MANUAL_BANK`
+- `PaymentRequestStatus` enum: `PENDING`, `PROCESSING`, `PAID`, `APPROVED`, `REJECTED`, `EXPIRED`, `CANCELLED`
+- `Vendor.raastId String?` — vendor's Raast phone/CNIC for manual payments
+
+### Files Created
+- `payment/dto/initiate-payment.dto.ts` — amount + PaymentMethod
+- `payment/dto/submit-manual-payment.dto.ts` — amount, method, referenceNo, customerNote
+- `payment/dto/review-payment.dto.ts` — ApprovePaymentDto + RejectPaymentDto (reason)
+- `payment/dto/payment-query.dto.ts` — status, customerId filters
+- `payment/providers/payment-provider.interface.ts` — `IPaymentProvider` + `RaastQrResult` + `PAYMENT_PROVIDER` token
+- `payment/providers/paymob.provider.ts` — Paymob 3-step auth/order/paykey flow, HMAC-SHA512 webhook verification, graceful mock fallback
+- `payment/payment.service.ts` — full business logic (initiate, submit, status, approve, reject, webhook handler)
+- `payment/payment-portal.controller.ts` — customer portal endpoints (`/portal/payments/*`)
+- `payment/payment-admin.controller.ts` — vendor admin endpoints (`/payment-requests/*`)
+- `payment/webhook.controller.ts` — `POST /webhooks/paymob` (no JWT auth, HMAC verified)
+- `payment/payment.module.ts` — wires everything, Strategy pattern for provider DI
+
+### Files Modified
+- `libs/shared/database/prisma/schema.prisma` — Added `PaymentRequest` model + back-relations, `Vendor.raastId`, enums
+- `vendor/dto/update-vendor.dto.ts` — Added `raastId?: string`
+- `customer-portal/customer-portal.service.ts` — Added `getVendorPaymentInfo()`
+- `customer-portal/customer-portal.controller.ts` — Added `GET /portal/payment-info`
+- `main.ts` — Switched to `NestExpressApplication`, added `useStaticAssets('uploads')`
+- `app/app.module.ts` — Added `PaymentModule`
+- `package.json` — Added `@types/multer` (devDependency)
+
+### Key Design Decisions
+- **Provider pattern** (`IPaymentProvider` interface) — swap Paymob for NayaPay/Foree with zero business logic change
+- **Mock fallback** — if `PAYMOB_API_KEY` empty → returns mock QR data, development works without gateway
+- **HMAC-SHA512** — Paymob webhook signature verified (concatenates 20 specific fields in exact order)
+- **Auto-record on approve/paid** — calls `LedgerService.recordPayment()` atomically in both manual approve and webhook flows
+- **WhatsApp on approve** — uses existing `MessageTemplates.paymentReceived()` (Urdu message)
+- **WhatsApp on reject** — custom Urdu rejection message with reason
+- **Screenshot stored locally** — `uploads/payment-screenshots/<timestamp-random>.ext`, served at `/uploads/...`
+- **5MB file limit** — only JPG/PNG/WEBP accepted
+- **Auto-expire PROCESSING QR** — checked in `getPaymentStatus()` when `qrExpiresAt < now`
+- **Duplicate webhook guard** — checks for already PAID/APPROVED status before processing
+
+### Endpoints (10 new)
+| Endpoint | Auth | Notes |
+| :--- | :--- | :--- |
+| `POST /portal/payments/raast` | CUSTOMER | → Paymob → checkout URL |
+| `POST /portal/payments/manual` | CUSTOMER | multipart/form-data + optional screenshot |
+| `GET /portal/payments/:id` | CUSTOMER | status check + auto-expire |
+| `GET /portal/payments` | CUSTOMER | payment history |
+| `GET /portal/payment-info` | CUSTOMER | vendor Raast ID + instructions |
+| `GET /payment-requests` | VENDOR_ADMIN, STAFF | paginated + filter |
+| `GET /payment-requests/:id` | VENDOR_ADMIN, STAFF | detail + screenshot URL |
+| `PATCH /payment-requests/:id/approve` | VENDOR_ADMIN | → ledger + WhatsApp |
+| `PATCH /payment-requests/:id/reject` | VENDOR_ADMIN | + WhatsApp with reason |
+| `POST /webhooks/paymob` | none | HMAC verified → auto-record |
+
+---
+
 ## Known Issues / Future Improvements
 
 | Issue | Priority | Notes |
 | :--- | :--- | :--- |
-| `tx` param implicit `any` type in customer.service.ts | Low | Minor TS warning, doesn't affect runtime |
-| Forgot-password only logs token (no email sending) | Medium | Needs email provider integration |
-| WhatsApp notifications are stubs | Medium | Needs WhatsApp Business API integration |
-| No unit/integration tests | High | All logic manually testable via curl/Postman |
-| No API documentation (Swagger) | Medium | Add `@nestjs/swagger` decorators |
+| **Prisma generate + migrate** | 🔴 Critical | `prisma generate` + `prisma migrate dev` — PaymentRequest model not yet in DB |
+| `UserRole` TS error | 🟠 High | Fixed by `prisma generate` — pre-existing, doesn't affect runtime |
+| No Swagger/OpenAPI docs | 🟠 High | `@nestjs/swagger` — needed before frontend integration |
+| No env var validation on startup | 🟡 Medium | Joi schema to catch missing env at boot time |
+| No unit/integration tests | 🟡 Medium | All endpoints manually testable via Postman |
+| No notification history log | 🟡 Low | Store sent WhatsApp messages to DB for audit |
+| Audit log | 🟡 Low | Track who approved payments / changed customer data |

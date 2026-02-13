@@ -12,6 +12,13 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
+  /** GET /dashboard/platform — Platform-wide stats for SUPER_ADMIN */
+  @Get('platform')
+  @Roles(UserRole.SUPER_ADMIN)
+  getPlatformOverview() {
+    return this.dashboardService.getPlatformOverview();
+  }
+
   @Get('overview')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
   getOverview(@CurrentUser() user: any) {

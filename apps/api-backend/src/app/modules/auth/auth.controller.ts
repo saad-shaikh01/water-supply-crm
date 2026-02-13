@@ -13,6 +13,7 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
@@ -66,5 +67,28 @@ export class AuthController {
   async resetPassword(@Body() dto: ResetPasswordDto) {
     await this.authService.resetPassword(dto.token, dto.newPassword);
     return { message: 'Password has been reset successfully' };
+  }
+
+  /**
+   * POST /auth/refresh
+   * Exchange a valid refresh token for a new access + refresh token pair.
+   * Old refresh token is immediately invalidated (rotation).
+   */
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
+  async refresh(@Body() dto: RefreshTokenDto) {
+    return this.authService.refreshTokens(dto.refreshToken);
+  }
+
+  /**
+   * POST /auth/logout
+   * Invalidates the refresh token — user must login again after this.
+   */
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  async logout(@Body() dto: RefreshTokenDto) {
+    await this.authService.logout(dto.refreshToken);
+    return { message: 'Logged out successfully' };
   }
 }

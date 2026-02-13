@@ -1,4 +1,4 @@
-import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
+import { Injectable, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import { UserRole } from '@prisma/client';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
@@ -49,14 +49,14 @@ export class UserService {
   async findByEmail(email: string) {
     return this.prisma.user.findUnique({
       where: { email },
-      include: { vendor: true },
+      include: { vendor: true, customer: true },
     });
   }
 
   async findById(id: string) {
     return this.prisma.user.findUnique({
       where: { id },
-      include: { vendor: true },
+      include: { vendor: true, customer: true },
     });
   }
 
@@ -162,6 +162,58 @@ export class UserService {
 
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.USERS);
     return updated;
+  }
+
+  async reactivate(vendorId: string, id: string) {
+    const user = await this.prisma.user.findFirst({
+      where: { id, vendorId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id },
+      data: { isActive: true },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        isActive: true,
+      },
+    });
+
+    await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.USERS);
+    return updated;
+  }
+
+  async remove(vendorId: string, id: string) {
+    const user = await this.prisma.user.findFirst({
+      where: { id, vendorId },
+      include: {
+        _count: {
+          select: { dailySheets: true },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Block deletion if the driver has any historical daily sheets
+    if (user._count.dailySheets > 0) {
+      throw new BadRequestException(
+        `Cannot delete user — they have ${user._count.dailySheets} daily sheet(s) on record. Deactivate instead to preserve history.`,
+      );
+    }
+
+    await this.prisma.user.delete({ where: { id } });
+    await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.USERS);
+
+    return { message: 'User deleted successfully' };
   }
 
   async updatePassword(userId: string, hashedPassword: string) {

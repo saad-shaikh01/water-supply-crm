@@ -1,5 +1,6 @@
 import {
   Controller,
+  Delete,
   Get,
   Post,
   Patch,
@@ -53,5 +54,26 @@ export class UserController {
     @Body() dto: UpdateUserDto,
   ) {
     return this.userService.update(user.vendorId, id, dto);
+  }
+
+  /** PATCH /users/:id/deactivate — soft-disable (isActive = false), preserves all history */
+  @Patch(':id/deactivate')
+  @Roles(UserRole.VENDOR_ADMIN)
+  async deactivate(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.userService.deactivate(user.vendorId, id);
+  }
+
+  /** PATCH /users/:id/reactivate — re-enable a previously deactivated user */
+  @Patch(':id/reactivate')
+  @Roles(UserRole.VENDOR_ADMIN)
+  async reactivate(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.userService.reactivate(user.vendorId, id);
+  }
+
+  /** DELETE /users/:id — permanent delete, blocked if user has any daily sheets */
+  @Delete(':id')
+  @Roles(UserRole.VENDOR_ADMIN)
+  async remove(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.userService.remove(user.vendorId, id);
   }
 }

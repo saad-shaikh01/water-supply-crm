@@ -19,6 +19,13 @@ import { DailySheetModule } from './modules/daily-sheet/daily-sheet.module';
 import { TransactionModule } from './modules/transaction/transaction.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { CustomerPortalModule } from './modules/customer-portal/customer-portal.module';
+import { WhatsAppModule } from './modules/whatsapp/whatsapp.module';
+import { TrackingModule } from './modules/tracking/tracking.module';
+import { HealthModule } from './modules/health/health.module';
+import { EmailModule } from './modules/email/email.module';
+import { BalanceReminderModule } from './modules/balance-reminder/balance-reminder.module';
+import { PaymentModule } from './modules/payment/payment.module';
 
 @Module({
   imports: [
@@ -40,6 +47,13 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
     TransactionModule,
     NotificationsModule,
     DashboardModule,
+    CustomerPortalModule,
+    WhatsAppModule,
+    TrackingModule,
+    HealthModule,
+    EmailModule,
+    BalanceReminderModule,
+    PaymentModule,
   ],
   controllers: [AppController],
   providers: [

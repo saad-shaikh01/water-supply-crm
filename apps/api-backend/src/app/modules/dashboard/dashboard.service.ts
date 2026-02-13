@@ -267,4 +267,97 @@ export class DashboardService {
     await this.cache.set(cacheKey, result, CACHE_TTLS.DASHBOARD);
     return result;
   }
+
+  /** Platform-level overview — SUPER_ADMIN only */
+  async getPlatformOverview() {
+    const cacheKey = 'platform:dashboard:overview';
+    const cached = await this.cache.get<any>(cacheKey);
+    if (cached) return cached;
+
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+    const [
+      totalVendors,
+      activeVendors,
+      suspendedVendors,
+      totalCustomers,
+      totalDrivers,
+      revenueAllTime,
+      revenueThisMonth,
+      revenueLastMonth,
+      deliveriesThisMonth,
+      newVendorsThisMonth,
+      topVendors,
+    ] = await Promise.all([
+      this.prisma.vendor.count(),
+      this.prisma.vendor.count({ where: { isActive: true } }),
+      this.prisma.vendor.count({ where: { isActive: false } }),
+      this.prisma.customer.count(),
+      this.prisma.user.count({ where: { role: 'DRIVER', isActive: true } }),
+      this.prisma.transaction.aggregate({
+        where: { type: TransactionType.DELIVERY },
+        _sum: { amount: true },
+      }),
+      this.prisma.transaction.aggregate({
+        where: { type: TransactionType.DELIVERY, createdAt: { gte: startOfMonth } },
+        _sum: { amount: true },
+      }),
+      this.prisma.transaction.aggregate({
+        where: {
+          type: TransactionType.DELIVERY,
+          createdAt: { gte: startOfLastMonth, lt: startOfMonth },
+        },
+        _sum: { amount: true },
+      }),
+      this.prisma.dailySheetItem.count({
+        where: { status: 'DELIVERED', dailySheet: { date: { gte: startOfMonth } } },
+      }),
+      this.prisma.vendor.count({ where: { createdAt: { gte: startOfMonth } } }),
+      // Top 5 vendors by total transaction amount
+      this.prisma.transaction.groupBy({
+        by: ['vendorId'],
+        where: { type: TransactionType.DELIVERY },
+        _sum: { amount: true },
+        orderBy: { _sum: { amount: 'desc' } },
+        take: 5,
+      }),
+    ]);
+
+    // Enrich top vendors with names
+    const topVendorIds = topVendors.map((v) => v.vendorId);
+    const topVendorDetails = await this.prisma.vendor.findMany({
+      where: { id: { in: topVendorIds } },
+      select: { id: true, name: true, slug: true },
+    });
+    const vendorMap = Object.fromEntries(topVendorDetails.map((v) => [v.id, v]));
+
+    const revenueThisMonthVal = revenueThisMonth._sum.amount ?? 0;
+    const revenueLastMonthVal = revenueLastMonth._sum.amount ?? 0;
+    const revenueGrowth =
+      revenueLastMonthVal > 0
+        ? Math.round(((revenueThisMonthVal - revenueLastMonthVal) / revenueLastMonthVal) * 100)
+        : 0;
+
+    const result = {
+      vendors: { total: totalVendors, active: activeVendors, suspended: suspendedVendors, newThisMonth: newVendorsThisMonth },
+      customers: { total: totalCustomers },
+      drivers: { totalActive: totalDrivers },
+      revenue: {
+        allTime: revenueAllTime._sum.amount ?? 0,
+        thisMonth: revenueThisMonthVal,
+        lastMonth: revenueLastMonthVal,
+        growthPercent: revenueGrowth,
+      },
+      deliveries: { thisMonth: deliveriesThisMonth },
+      topVendors: topVendors.map((v) => ({
+        vendor: vendorMap[v.vendorId] ?? { id: v.vendorId },
+        totalRevenue: v._sum.amount ?? 0,
+      })),
+    };
+
+    await this.cache.set(cacheKey, result, CACHE_TTLS.DASHBOARD);
+    return result;
+  }
 }
