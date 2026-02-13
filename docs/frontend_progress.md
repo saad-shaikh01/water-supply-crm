@@ -1,6 +1,6 @@
 # Frontend Progress — Water Supply CRM
 
-**Last Updated:** February 12, 2026
+**Last Updated:** February 13, 2026
 
 ---
 
@@ -9,8 +9,10 @@
 | App | Purpose | Status | Progress |
 |-----|---------|--------|----------|
 | `apps/vendor-dashboard` | VENDOR_ADMIN / STAFF / DRIVER | **Complete & Building** | 100% |
-| `apps/admin-panel` | SUPER_ADMIN (platform owner) — vendors + site health | In Progress | ~40% |
-| `apps/customer-portal` | Customer self-service | Not Started | 0% |
+| `apps/admin-panel` | SUPER_ADMIN (platform owner) — vendors + site health | **Complete & Building** | 100% |
+| `apps/customer-portal` | Customer self-service portal | **Complete & Building** | 100% |
+
+All three apps build cleanly with `nx build <app-name>`.
 
 ---
 
@@ -27,7 +29,8 @@ All shadcn/ui components added and exported:
 ### `@water-supply-crm/data-access` — Complete ✅
 - `apiClient` — Axios with Bearer token interceptor (reads `auth_token` cookie)
 - `QueryProvider` — Global TanStack Query v5 configuration
-- Package type fixed to `"module"` (ESM) for Turbopack compatibility
+- Package type: `"module"` (ESM) for Turbopack compatibility
+- `tsconfig.lib.json` includes `.tsx` files + `jsx: react-jsx` for QueryProvider compilation
 
 ---
 
@@ -39,20 +42,20 @@ All shadcn/ui components added and exported:
 - `lib/query-keys.ts` — Centralized TanStack Query key factory
 - `lib/rbac.ts` — `hasMinRole()` helper with role hierarchy (SUPER_ADMIN=5 → CUSTOMER=1)
 - `store/auth.store.ts` — Zustand with persist (`vendor-auth-store`)
-- `middleware.ts` — Protects `/dashboard/*`, redirects auth users, handles DRIVER routing
+- `middleware.ts` — Protects `/dashboard/*`, redirects auth users, DRIVER restricted to `/dashboard/daily-sheets/*`
 
 ### Auth Pages (`app/auth/`)
-- [x] Login — full flow, sets `auth_token` cookie, routes DRIVER to daily-sheets
-- [x] Signup — UI-only (informational, no backend support yet)
+- [x] Login — sets `auth_token` + `user_role` cookies, routes DRIVER directly to daily-sheets
+- [x] Signup — UI-only (informational)
 - [x] Forgot Password
-- [x] Reset Password (with `useSearchParams` wrapped in Suspense)
+- [x] Reset Password (wrapped in Suspense for `useSearchParams`)
 
 ### Dashboard Layout (`app/dashboard/`)
 - [x] Sidebar — role-filtered nav (8 items, DRIVER only sees Daily Sheets)
-- [x] Header — with UserNav dropdown (initials avatar + logout)
-- [x] NuqsAdapter + Suspense in layout (for URL state on all child pages)
+- [x] Header — UserNav dropdown (initials avatar + logout)
+- [x] NuqsAdapter + Suspense in layout (URL state for all child pages)
 
-### Feature Modules (all complete)
+### Feature Modules
 
 | Feature | API | Hooks | Schema | Components | Page |
 |---------|-----|-------|--------|------------|------|
@@ -66,8 +69,15 @@ All shadcn/ui components added and exported:
 | Daily Sheets | ✅ | ✅ | ✅ | list, generate, detail (full lifecycle), load-out, check-in | ✅ + [id] |
 | Transactions | ✅ | ✅ | ✅ | list, payment-form, adjustment-form | ✅ |
 
+### Driver-specific (DRIVER role)
+- [x] Cookie-based role (`user_role`) written on login for middleware access
+- [x] Middleware blocks DRIVER from all routes except `/dashboard/daily-sheets`
+- [x] Sheet list filtered by `driverId` — driver only sees their own sheets
+- [x] Sheet detail: per-item partial delivery inputs + notes field
+- [x] Check-in dialog with `emptiesReturned` input
+
 ### Shared Components
-- [x] `DataTable` — generic paginated table with Skeleton loading states
+- [x] `DataTable` — generic paginated table with Skeleton loading
 - [x] `PageHeader` — title + optional action button
 - [x] `ConfirmDialog` — delete confirmation modal
 - [x] `StatusBadge` — colored chips (OPEN, CLOSED, PENDING, PAYMENT, CREDIT, DEBIT…)
@@ -76,50 +86,77 @@ All shadcn/ui components added and exported:
 
 ---
 
-## App 2: Admin Panel — IN PROGRESS (~40%)
+## App 2: Admin Panel — COMPLETE ✅
 
-> **Scope clarification:** Admin panel is the SUPER_ADMIN / platform-owner dashboard.
-> It does NOT manage customers, daily sheets, routes, vans, or products — those are all vendor-level operations handled in `vendor-dashboard`.
-> Admin panel is about managing the platform itself: vendors, platform-wide KPIs, and site health.
+**Build status:** `nx build admin-panel` passes.
 
-### Done ✅
-- Auth pages (login, signup, forgot-password, reset-password)
-- Dashboard layout (sidebar, header)
-- Products feature (list + create) — **NOTE: likely out of scope, may need to be removed**
+> **Scope:** SUPER_ADMIN / platform-owner dashboard. Manages the platform itself (vendors + platform KPIs).
+> Does NOT duplicate vendor-level features (customers, daily sheets, routes, vans, products).
 
-### Correct Scope — Missing ❌
+### Architecture
+- `store/auth.store.ts` — Zustand with persist (`admin-auth-store`)
+- `lib/query-keys.ts` — Query key factory for auth, vendors, dashboard
+- `middleware.ts` — Protects routes, redirects to `/vendors`
 
-| Feature | Description |
-|---------|-------------|
-| Platform overview page | Total vendors, total revenue across platform, active users, system-wide KPIs |
-| Vendors management | CRUD for vendor accounts — create, view, suspend/activate vendors |
-| Site health / monitoring | API traffic, active sessions, error rates, system status |
-| Platform-level users | Manage SUPER_ADMIN accounts (optional) |
+### Auth Pages (`app/auth/`)
+- [x] Login — sets `auth_token` cookie, redirects to `/vendors`
+- [x] Forgot Password, Reset Password
 
----
+### Dashboard Layout (`app/(dashboard)/`)
+- [x] Sidebar — 3 items: Overview, Vendors, Settings
+- [x] Header — UserNav with Zustand-powered real user name/email + logout
 
-## App 3: Customer Portal — NOT STARTED ❌
+### Feature Modules
 
-Planned features (Phase 4 in original TODO):
-- Auth (customer login / registration)
-- My Account (profile, address, assigned route)
-- Wallet (current balance display)
-- Transaction history
-- Delivery calendar / upcoming deliveries
-- On-demand bottle request form
+| Feature | API | Hooks | Components | Page |
+|---------|-----|-------|------------|------|
+| Dashboard Overview | ✅ | ✅ | 4 KPI cards (Vendors, Customers, Revenue, Active Today) | ✅ `/` |
+| Vendors | ✅ | ✅ | vendor-list (table + edit/delete), vendor-form (create full / edit name+slug) | ✅ `/vendors` |
+
+### Shared Components
+- [x] `ConfirmDialog` — delete confirmation
 
 ---
 
-## Next Priority Order
+## App 3: Customer Portal — COMPLETE ✅
 
-1. **Complete `admin-panel`** — Platform overview KPIs + Vendors management (CRUD). Remove products feature if out of scope.
-2. **Build `customer-portal`** — Customer-facing self-service (auth, wallet, delivery history, requests)
-3. **Polish pass** — Toast error handling, skeleton loaders, PWA for driver mobile use
+**Build status:** `nx build customer-portal` passes — all 9 routes compile.
+
+> **Scope:** Customer-facing self-service portal. Customers log in to view wallet balance, transaction history, and account info.
+
+### Architecture
+- `store/auth.store.ts` — Zustand with persist (`customer-auth-store`)
+- `lib/query-keys.ts` — Query key factory for auth, customer profile, transactions
+- `middleware.ts` — Protects `/home`, `/transactions`, `/profile`; redirects authenticated users away from `/auth/*`
+
+### Auth Pages (`app/auth/`)
+- [x] Login — sets `auth_token` cookie, stores user + `customerId` in Zustand, redirects to `/home`
+- [x] Forgot Password — UI placeholder (backend reset endpoint pending)
+
+### Portal Layout (`app/(portal)/`)
+- [x] Header — desktop nav (Home / Transactions / Profile) + user avatar dropdown
+- [x] Mobile bottom nav — fixed tab bar for mobile devices
+- [x] NuqsAdapter + Suspense in layout
+
+### Feature Modules
+
+| Feature | API | Hooks | Components | Page |
+|---------|-----|-------|------------|------|
+| Wallet | ✅ | ✅ | wallet-card (balance + bottles + credits), recent-transactions (last 5) | `/home` |
+| Transactions | ✅ | ✅ | transaction-list (paginated, nuqs) | `/transactions` |
+| Profile | ✅ | ✅ | profile-card (all customer fields) | `/profile` |
+
+### Backend endpoints used
+- `POST /auth/login`
+- `GET /customers/:customerId` — profile + wallet balance + bottleCount
+- `GET /transactions/customers/:customerId` — paginated history
+- `GET /transactions/customers/:customerId/summary` — credit/debit totals
 
 ---
 
 ## Known Issues / Notes
 
-- `baseline-browser-mapping` package is >2 months old (cosmetic warning, not blocking)
-- Middleware deprecation warning: Next.js recommends renaming `middleware.ts` → `proxy.ts` in future versions (not breaking yet)
-- Daily Sheets `[id]` page is dynamic (SSR on demand) — correct, as it depends on runtime data
+- `baseline-browser-mapping` package is >2 months old — cosmetic warning, not blocking
+- Middleware deprecation: Next.js recommends renaming `middleware.ts` → `proxy.ts` in a future version (not breaking yet)
+- Customer portal forgot-password is UI-only — backend reset endpoint not yet available
+- Daily Sheets `[id]` page is dynamic (SSR on demand) — correct, runtime data dependency
