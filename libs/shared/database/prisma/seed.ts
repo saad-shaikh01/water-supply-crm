@@ -15,7 +15,7 @@ import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient({
   datasources: {
-    db: { url: process.env.DATABASE_URL },
+    db: { url: process.env[`DATABASE_URL`] },
   },
 });
 
@@ -23,9 +23,9 @@ async function main() {
   console.log('🌱  Starting database seed...\n');
 
   // ── 1. Create SUPER_ADMIN ─────────────────────────────────────────────────
-  const superAdminEmail = process.env.SUPER_ADMIN_EMAIL || 'admin@watercrm.com';
-  const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD || 'Admin@123456';
-  const superAdminName = process.env.SUPER_ADMIN_NAME || 'Platform Admin';
+  const superAdminEmail = process.env[`SUPER_ADMIN_EMAIL`] || 'admin@watercrm.com';
+  const superAdminPassword = process.env[`SUPER_ADMIN_PASSWORD`] || 'Admin@123456';
+  const superAdminName = process.env[`SUPER_ADMIN_NAME`] || 'Platform Admin';
 
   const existingSuperAdmin = await prisma.user.findUnique({
     where: { email: superAdminEmail },
@@ -51,7 +51,7 @@ async function main() {
   }
 
   // ── 2. Create Demo Vendor (optional, can skip with SKIP_DEMO=true) ────────
-  if (process.env.SKIP_DEMO === 'true') {
+  if (process.env[`SKIP_DEMO`] === 'true') {
     console.log('ℹ️  SKIP_DEMO=true — skipping demo vendor creation');
     return;
   }
