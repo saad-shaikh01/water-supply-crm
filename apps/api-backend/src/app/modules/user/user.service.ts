@@ -5,12 +5,14 @@ import { CacheInvalidationService } from '@water-supply-crm/caching';
 import { CACHE_KEYS, CACHE_TTLS } from '@water-supply-crm/caching';
 import * as bcrypt from 'bcrypt';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { AuditService } from '../audit/audit.service';
 
 @Injectable()
 export class UserService {
   constructor(
     private prisma: PrismaService,
     private cache: CacheInvalidationService,
+    private audit: AuditService,
   ) {}
 
   async create(data: {
@@ -43,6 +45,15 @@ export class UserService {
     }
 
     const { password, ...result } = user;
+
+    await this.audit.log({
+      vendorId: data.vendorId,
+      action: 'CREATE',
+      entity: 'User',
+      entityId: user.id,
+      changes: { after: { email: user.email, name: user.name, role: user.role } },
+    });
+
     return result;
   }
 
@@ -136,6 +147,14 @@ export class UserService {
     });
 
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.USERS);
+
+    await this.audit.log({
+      vendorId,
+      action: 'UPDATE',
+      entity: 'User',
+      entityId: id,
+    });
+
     return updated;
   }
 
@@ -161,6 +180,14 @@ export class UserService {
     });
 
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.USERS);
+
+    await this.audit.log({
+      vendorId,
+      action: 'DEACTIVATE',
+      entity: 'User',
+      entityId: id,
+    });
+
     return updated;
   }
 
@@ -186,6 +213,14 @@ export class UserService {
     });
 
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.USERS);
+
+    await this.audit.log({
+      vendorId,
+      action: 'REACTIVATE',
+      entity: 'User',
+      entityId: id,
+    });
+
     return updated;
   }
 
@@ -212,6 +247,14 @@ export class UserService {
 
     await this.prisma.user.delete({ where: { id } });
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.USERS);
+
+    await this.audit.log({
+      vendorId,
+      action: 'DELETE',
+      entity: 'User',
+      entityId: id,
+      changes: { before: { email: user.email, name: user.name, role: user.role } },
+    });
 
     return { message: 'User deleted successfully' };
   }

@@ -11,6 +11,7 @@ import { UpdateVendorDto } from './dto/update-vendor.dto';
 import { UserService } from '../user/user.service';
 import { UserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { AuditService } from '../audit/audit.service';
 
 // Redis key used to block suspended vendor's users from authenticating
 export const vendorSuspendedKey = (vendorId: string) =>
@@ -22,6 +23,7 @@ export class VendorService {
     private prisma: PrismaService,
     private userService: UserService,
     private cache: CacheInvalidationService,
+    private audit: AuditService,
   ) {}
 
   async create(createVendorDto: CreateVendorDto) {
@@ -94,6 +96,13 @@ export class VendorService {
     // No TTL — stays until explicitly unsuspended
     await this.cache.set(vendorSuspendedKey(id), true, 0);
 
+    await this.audit.log({
+      vendorId: id,
+      action: 'SUSPEND',
+      entity: 'Vendor',
+      entityId: id,
+    });
+
     return { message: `Vendor "${vendor.name}" suspended successfully` };
   }
 
@@ -105,6 +114,13 @@ export class VendorService {
 
     await this.prisma.vendor.update({ where: { id }, data: { isActive: true } });
     await this.cache.del(vendorSuspendedKey(id));
+
+    await this.audit.log({
+      vendorId: id,
+      action: 'UNSUSPEND',
+      entity: 'Vendor',
+      entityId: id,
+    });
 
     return { message: `Vendor "${vendor.name}" unsuspended successfully` };
   }
@@ -142,6 +158,13 @@ export class VendorService {
     });
 
     await this.cache.del(vendorSuspendedKey(id));
+
+    await this.audit.log({
+      action: 'DELETE',
+      entity: 'Vendor',
+      entityId: id,
+      changes: { before: { name: vendor.name } },
+    });
 
     return { message: 'Vendor and all associated data deleted permanently' };
   }

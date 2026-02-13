@@ -268,6 +268,83 @@ export class DashboardService {
     return result;
   }
 
+  async getStaffPerformance(vendorId: string, from?: string, to?: string) {
+    const cacheKey = this.cache.vendorKey(
+      vendorId,
+      `${CACHE_KEYS.DASHBOARD}:staff-performance:${from ?? ''}:${to ?? ''}`,
+    );
+    const cached = await this.cache.get<any>(cacheKey);
+    if (cached) return cached;
+
+    const dateFilter: any = {};
+    if (from) dateFilter.gte = new Date(from);
+    if (to) dateFilter.lte = new Date(to);
+
+    const sheets = await this.prisma.dailySheet.findMany({
+      where: {
+        vendorId,
+        ...(Object.keys(dateFilter).length > 0 && { date: dateFilter }),
+      },
+      include: {
+        driver: { select: { id: true, name: true } },
+        items: {
+          select: {
+            status: true,
+            filledDropped: true,
+            cashCollected: true,
+          },
+        },
+      },
+    });
+
+    // Group by driverId
+    const byDriver = new Map<string, { driver: any; sheets: any[] }>();
+    for (const sheet of sheets) {
+      const entry = byDriver.get(sheet.driverId) ?? {
+        driver: sheet.driver,
+        sheets: [],
+      };
+      entry.sheets.push(sheet);
+      byDriver.set(sheet.driverId, entry);
+    }
+
+    const deliveredStatuses = new Set(['DELIVERED', 'COMPLETED', 'EMPTY_ONLY']);
+
+    const result = Array.from(byDriver.values()).map(({ driver, sheets: driverSheets }) => {
+      const allItems = driverSheets.flatMap((s) => s.items);
+      const totalItems = allItems.length;
+      const deliveredItems = allItems.filter((i) => deliveredStatuses.has(i.status)).length;
+      const cancelledItems = allItems.filter((i) => i.status === 'CANCELLED').length;
+      const notAvailable = allItems.filter((i) => i.status === 'NOT_AVAILABLE').length;
+      const totalBottlesDelivered = allItems
+        .filter((i) => deliveredStatuses.has(i.status))
+        .reduce((sum, i) => sum + i.filledDropped, 0);
+      const totalCashCollected = allItems.reduce((sum, i) => sum + i.cashCollected, 0);
+
+      return {
+        driver,
+        stats: {
+          totalSheets: driverSheets.length,
+          totalItems,
+          deliveredItems,
+          cancelledItems,
+          notAvailable,
+          completionRate:
+            totalItems > 0
+              ? Math.round((deliveredItems / totalItems) * 100)
+              : 0,
+          totalBottlesDelivered,
+          totalCashCollected,
+        },
+      };
+    });
+
+    result.sort((a, b) => b.stats.completionRate - a.stats.completionRate);
+
+    await this.cache.set(cacheKey, result, 60); // 60s TTL
+    return result;
+  }
+
   /** Platform-level overview — SUPER_ADMIN only */
   async getPlatformOverview() {
     const cacheKey = 'platform:dashboard:overview';

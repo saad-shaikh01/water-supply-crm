@@ -20,6 +20,7 @@ import {
 import { LedgerService } from '../transaction/ledger.service';
 import { NotificationService } from '../notifications/notification.service';
 import { MessageTemplates } from '../whatsapp/templates/message.templates';
+import { AuditService } from '../audit/audit.service';
 
 @Injectable()
 export class PaymentService {
@@ -30,6 +31,7 @@ export class PaymentService {
     @Inject(PAYMENT_PROVIDER) private readonly gateway: IPaymentProvider,
     private readonly ledger: LedgerService,
     private readonly notifications: NotificationService,
+    private readonly audit: AuditService,
   ) {}
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -296,6 +298,15 @@ export class PaymentService {
       `Payment approved: ${requestId} Rs.${request.amount} for customer ${request.customerId}`,
     );
 
+    await this.audit.log({
+      vendorId,
+      userId: reviewedBy,
+      action: 'APPROVE',
+      entity: 'Payment',
+      entityId: requestId,
+      changes: { after: { amount: request.amount, customerId: request.customerId } },
+    });
+
     return {
       message: 'Payment approved and recorded in ledger',
       requestId,
@@ -345,6 +356,15 @@ export class PaymentService {
       .catch((e) =>
         this.logger.warn(`WhatsApp notification failed: ${e.message}`),
       );
+
+    await this.audit.log({
+      vendorId,
+      userId: reviewedBy,
+      action: 'REJECT',
+      entity: 'Payment',
+      entityId: requestId,
+      changes: { after: { reason } },
+    });
 
     return { message: 'Payment rejected', requestId, reason };
   }

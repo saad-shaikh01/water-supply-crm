@@ -9,6 +9,7 @@ import { PaymobProvider } from './providers/paymob.provider';
 import { PAYMENT_PROVIDER } from './providers/payment-provider.interface';
 import { TransactionModule } from '../transaction/transaction.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     }),
     TransactionModule, // provides LedgerService
     NotificationsModule, // provides NotificationService
+    AuditModule,
   ],
   controllers: [
     PaymentPortalController,

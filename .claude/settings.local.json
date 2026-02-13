@@ -12,7 +12,16 @@
       "Bash(cd:*)",
       "Bash(npx nx build:*)",
       "Bash(python3:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(npx prisma migrate dev:*)",
+      "Bash(DATABASE_URL=\"postgresql://admin:admin123@localhost:5432/water_supply_crm?schema=public\" npx prisma migrate dev:*)",
+      "Bash(pg_isready:*)",
+      "Bash(DATABASE_URL=\"postgresql://admin:admin123@localhost:5432/water_supply_crm?schema=public\" npx prisma generate:*)",
+      "Bash(ls:*)",
+      "Bash(git -C /home/user/water-supply-crm diff HEAD -- apps/api-backend/src/app/modules/vendor/vendor.service.ts)",
+      "Bash(git -C /home/user/water-supply-crm stash)",
+      "Bash(git -C /home/user/water-supply-crm stash pop)",
+      "Bash(cat:*)"
     ]
   }
 }

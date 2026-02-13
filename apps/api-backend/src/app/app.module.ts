@@ -26,6 +26,9 @@ import { HealthModule } from './modules/health/health.module';
 import { EmailModule } from './modules/email/email.module';
 import { BalanceReminderModule } from './modules/balance-reminder/balance-reminder.module';
 import { PaymentModule } from './modules/payment/payment.module';
+import { ExpenseModule } from './modules/expense/expense.module';
+import { FcmModule } from './modules/fcm/fcm.module';
+import { AuditModule } from './modules/audit/audit.module';
 
 @Module({
   imports: [
@@ -54,6 +57,9 @@ import { PaymentModule } from './modules/payment/payment.module';
     EmailModule,
     BalanceReminderModule,
     PaymentModule,
+    FcmModule,
+    ExpenseModule,
+    AuditModule,
   ],
   controllers: [AppController],
   providers: [

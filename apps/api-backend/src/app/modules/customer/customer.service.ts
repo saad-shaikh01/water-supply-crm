@@ -17,6 +17,7 @@ import { CreatePortalAccountDto } from './dto/create-portal-account.dto';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { paginate } from '../../common/helpers/paginate';
 import { CustomerStatementPdfService } from './pdf/customer-statement-pdf.service';
+import { AuditService } from '../audit/audit.service';
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -26,6 +27,7 @@ export class CustomerService {
     private prisma: PrismaService,
     private cache: CacheInvalidationService,
     private statementPdf: CustomerStatementPdfService,
+    private audit: AuditService,
   ) {}
 
   async create(vendorId: string, dto: CreateCustomerDto) {
@@ -60,6 +62,15 @@ export class CustomerService {
     });
 
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
+
+    await this.audit.log({
+      vendorId,
+      action: 'CREATE',
+      entity: 'Customer',
+      entityId: customer.id,
+      changes: { after: { name: customer.name, customerCode: customer.customerCode } },
+    });
+
     return customer;
   }
 
@@ -133,6 +144,14 @@ export class CustomerService {
     });
 
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
+
+    await this.audit.log({
+      vendorId,
+      action: 'UPDATE',
+      entity: 'Customer',
+      entityId: id,
+    });
+
     return updated;
   }
 
@@ -154,6 +173,14 @@ export class CustomerService {
 
     await this.prisma.customer.delete({ where: { id } });
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
+
+    await this.audit.log({
+      vendorId,
+      action: 'DELETE',
+      entity: 'Customer',
+      entityId: id,
+    });
+
     return { deleted: true };
   }
 

@@ -1,7 +1,7 @@
 # Project Current Status - Water Supply CRM
 
-**Last Updated:** February 12, 2026 (Session 4)
-**Status:** ✅ Backend PRODUCTION READY — 95 endpoints, 16 modules, full payment system (Raast QR + Manual), balance reminders, customer portal
+**Last Updated:** February 13, 2026 (Session 5)
+**Status:** ✅ Backend PRODUCTION READY — 111 endpoints, 19 modules, full payment system (Raast QR + Manual), balance reminders, customer portal, expense tracking, FCM push notifications, audit log, staff performance
 
 ---
 
@@ -23,6 +23,7 @@
 | WhatsApp | whatsapp-web.js (optional, WHATSAPP_ENABLED=true) |
 | Real-time Tracking | Server-Sent Events (SSE) + ioredis Pub/Sub |
 | Payment Gateway | Paymob (Raast QR) + Manual (screenshot review) |
+| Push Notifications | Firebase Admin SDK (FCM) — Android / iOS / Web |
 | File Uploads | Multer (local disk — payment screenshots) |
 | Frontend | Next.js 16 + React 19 |
 
@@ -105,6 +106,8 @@
 | GET | `/customers/:id/transactions` | ✅ | VENDOR_ADMIN, STAFF, DRIVER | Paginated transaction history |
 | POST | `/customers/:id/portal-account` | ✅ | VENDOR_ADMIN | Create login credentials for customer portal access |
 | DELETE | `/customers/:id/portal-account` | ✅ | VENDOR_ADMIN | Remove customer portal account |
+| GET | `/customers/:id/statement?month=YYYY-MM` | ✅ | VENDOR_ADMIN, STAFF | Financial statement PDF download (PDFKit) |
+| GET | `/customers/:id/schedule?from=&to=` | ✅ | VENDOR_ADMIN, STAFF, DRIVER | Delivery calendar with actual vs scheduled status |
 
 ### Transactions Module (`/api/transactions`)
 | Method | Endpoint | Auth | Roles | Description |
@@ -139,6 +142,7 @@
 | GET | `/dashboard/top-customers?limit=` | ✅ | VENDOR_ADMIN, STAFF | Top customers by revenue (cached 1min) |
 | GET | `/dashboard/route-performance?date=` | ✅ | VENDOR_ADMIN, STAFF | Per-route completion stats (cached 1min) |
 | GET | `/dashboard/platform` | ✅ | SUPER_ADMIN | Platform KPIs: all vendors, revenue, growth % (cached 1min) |
+| GET | `/dashboard/performance/staff?from=&to=` | ✅ | VENDOR_ADMIN, STAFF | Per-driver: completion rate, bottles, cash, sheets (cached 60s) |
 
 ### Customer Portal Module (`/api/portal`)
 | Method | Endpoint | Auth | Roles | Description |
@@ -148,6 +152,8 @@
 | GET | `/portal/payment-info` | ✅ | CUSTOMER | Vendor's Raast ID + payment instructions |
 | GET | `/portal/transactions` | ✅ | CUSTOMER | Own transaction history (paginated) |
 | GET | `/portal/deliveries` | ✅ | CUSTOMER | Own delivery history (paginated) |
+| GET | `/portal/statement?month=YYYY-MM` | ✅ | CUSTOMER | Own financial statement PDF download |
+| GET | `/portal/schedule?from=&to=` | ✅ | CUSTOMER | Own delivery calendar |
 
 ### Payment Module — Customer Portal (`/api/portal/payments`)
 | Method | Endpoint | Auth | Roles | Description |
@@ -170,6 +176,29 @@
 | Method | Endpoint | Auth | Description |
 | :--- | :--- | :--- | :--- |
 | POST | `/webhooks/paymob` | ❌ | Paymob sends payment confirmation → auto-record + WhatsApp |
+
+### Expense Tracking Module (`/api/expenses`)
+| Method | Endpoint | Auth | Roles | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| POST | `/expenses` | ✅ | VENDOR_ADMIN, STAFF | Create expense (FUEL/MAINTENANCE/SALARY/REPAIR/OTHER) |
+| GET | `/expenses` | ✅ | VENDOR_ADMIN, STAFF | Paginated list (filter: category, date range, vanId) |
+| GET | `/expenses/summary` | ✅ | VENDOR_ADMIN | Breakdown by category + total revenue + gross profit |
+| GET | `/expenses/:id` | ✅ | VENDOR_ADMIN, STAFF | Expense detail |
+| PATCH | `/expenses/:id` | ✅ | VENDOR_ADMIN, STAFF | Update expense |
+| DELETE | `/expenses/:id` | ✅ | VENDOR_ADMIN | Delete expense |
+
+### FCM Push Notifications Module (`/api/fcm`)
+| Method | Endpoint | Auth | Roles | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| POST | `/fcm/token` | ✅ | Any | Register device FCM token (android/ios/web) |
+| DELETE | `/fcm/token` | ✅ | Any | Remove FCM token (logout/unsubscribe) |
+| GET | `/fcm/tokens` | ✅ | Any | List own registered tokens |
+
+### Audit Log Module (`/api/audit-logs`)
+| Method | Endpoint | Auth | Roles | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| GET | `/audit-logs` | ✅ | SUPER_ADMIN, VENDOR_ADMIN | Paginated log (filter: entity, action, userId, date range) |
+| GET | `/audit-logs/:id` | ✅ | SUPER_ADMIN, VENDOR_ADMIN | Single audit log entry |
 
 ### Balance Reminder Module (`/api/balance-reminders`)
 | Method | Endpoint | Auth | Roles | Description |
@@ -332,6 +361,12 @@ MAIL_PASS=xxxx xxxx xxxx xxxx    # 16-char Gmail App Password
 MAIL_FROM="Water Supply CRM <yourapp@gmail.com>"
 FRONTEND_URL=http://localhost:3000
 
+# ── FCM Push Notifications (optional — skip if not using) ────────────
+FIREBASE_PROJECT_ID=your-firebase-project-id
+FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxxx@project.iam.gserviceaccount.com
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+# ⚠ If FIREBASE_* vars not set → FCM silently disabled (dev-safe)
+
 # ── WhatsApp (optional — skip if not using) ───────────────────────────
 WHATSAPP_ENABLED=true
 WHATSAPP_SESSION_PATH=./.whatsapp-sessions
@@ -353,12 +388,12 @@ API_URL=https://yourdomain.com/api # Your public API URL (for Paymob webhook cal
 
 | Feature | Priority | Notes |
 | :--- | :--- | :--- |
-| Prisma migrations | 🔴 Critical | Run `prisma generate` + `prisma migrate dev` before first deploy |
+| Prisma migrations | 🔴 Critical | Run `prisma migrate dev --name add-expenses-fcm-audit` before first deploy (DB was unavailable in dev) |
 | Swagger/OpenAPI documentation | 🟠 High | `@nestjs/swagger` — frontend team needs API reference |
 | Env variables validation on startup | 🟠 High | Joi schema — catch missing env at boot, not at runtime |
 | Unit / integration tests | 🟡 Medium | All endpoints manually testable via Postman now |
 | Notification history log | 🟡 Medium | Store sent WhatsApp messages in DB |
-| Audit log | 🟡 Low | Track who approved/changed what |
+| Frontend dashboard | 🟡 Medium | Next.js vendor dashboard UI (backend is complete) |
 
 ---
 
@@ -372,18 +407,21 @@ API_URL=https://yourdomain.com/api # Your public API URL (for Paymob webhook cal
 | Products | 5 | `/api/products` |
 | Routes | 5 | `/api/routes` |
 | Vans | 5 | `/api/vans` |
-| Customers | 10 | `/api/customers` |
+| Customers | 12 | `/api/customers` |
 | Transactions | 5 | `/api/transactions` |
 | Daily Sheets | 11 | `/api/daily-sheets` |
-| Dashboard | 6 | `/api/dashboard` |
-| Customer Portal | 5 | `/api/portal` |
+| Dashboard | 7 | `/api/dashboard` |
+| Customer Portal | 7 | `/api/portal` |
 | Payment (Portal) | 4 | `/api/portal/payments` |
 | Payment (Admin) | 4 | `/api/payment-requests` |
 | Webhook | 1 | `/api/webhooks` |
 | Balance Reminders | 4 | `/api/balance-reminders` |
 | Tracking | 4 | `/api/tracking` |
 | Health | 3 | `/api/health` |
-| **TOTAL** | **95** | |
+| **Expenses** *(new)* | **6** | `/api/expenses` |
+| **FCM** *(new)* | **3** | `/api/fcm` |
+| **Audit Logs** *(new)* | **2** | `/api/audit-logs` |
+| **TOTAL** | **111** | |
 
 ---
 
@@ -453,8 +491,9 @@ Vendor approves → PATCH /payment-requests/:id/approve
 
 ---
 
-## 10. Database — New Models Added (Session 4)
+## 10. Database — Models Added by Session
 
+### Session 4 Models
 | Model | Fields | Relations |
 | :--- | :--- | :--- |
 | `PaymentRequest` | id, vendorId, customerId, amount, method, status, gatewayOrderId, gatewayTxId, checkoutUrl, qrCodeData, qrExpiresAt, referenceNo, screenshotPath, customerNote, reviewedBy, reviewedAt, rejectionReason | → Vendor, → Customer |
@@ -466,3 +505,20 @@ Vendor approves → PATCH /payment-requests/:id/approve
 **Vendor model** now has `raastId String?` — set via `PATCH /vendors/:id { raastId: "0300-XXXXXXX" }`
 
 **Uploaded files:** stored at `uploads/payment-screenshots/<filename>`, served at `GET /uploads/payment-screenshots/<filename>`
+
+### Session 5 Models (migration: `add-expenses-fcm-audit`)
+| Model | Fields | Relations |
+| :--- | :--- | :--- |
+| `Expense` | id, vendorId, category, amount, description, date, vanId?, createdById, createdAt, updatedAt | → Vendor, → Van?, → User |
+| `FcmToken` | id, userId, token (unique), platform, createdAt, updatedAt | → User |
+| `AuditLog` | id, vendorId?, userId?, userName?, action, entity, entityId?, changes (JSON?), createdAt | — (no FK constraints, fire-and-forget safe) |
+
+**ExpenseCategory enum:** `FUEL`, `MAINTENANCE`, `SALARY`, `REPAIR`, `OTHER`
+
+**To run migration:**
+```bash
+DATABASE_URL="..." npx prisma migrate dev --schema=libs/shared/database/prisma/schema.prisma --name add-expenses-fcm-audit
+npx prisma generate --schema=libs/shared/database/prisma/schema.prisma
+```
+
+**Audit log is written on:** Customer create/update/delete, User create/update/deactivate/reactivate/delete, Payment approve/reject, Vendor suspend/unsuspend/delete

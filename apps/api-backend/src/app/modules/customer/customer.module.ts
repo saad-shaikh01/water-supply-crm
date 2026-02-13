@@ -8,5 +8,6 @@ import { AuditModule } from '../audit/audit.module';
   imports: [AuditModule],
   controllers: [CustomerController],
   providers: [CustomerService, CustomerStatementPdfService],
+  exports: [CustomerService],
 })
 export class CustomerModule {}

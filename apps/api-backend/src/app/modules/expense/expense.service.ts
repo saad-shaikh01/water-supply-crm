@@ -79,8 +79,8 @@ export class ExpenseService {
         ...(dto.category !== undefined && { category: dto.category }),
         ...(dto.amount !== undefined && { amount: dto.amount }),
         ...(dto.description !== undefined && { description: dto.description }),
-        ...(dto.date !== undefined && { date: new Date(dto.date) }),
-        ...(dto.vanId !== undefined && { vanId: dto.vanId ?? null }),
+        ...(dto.date !== undefined && { date: new Date(dto.date as string) }),
+        ...(dto.vanId !== undefined && { vanId: dto.vanId || null }),
       },
       include: {
         van: { select: { id: true, plateNumber: true } },

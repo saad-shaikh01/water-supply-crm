@@ -55,4 +55,18 @@ export class DashboardController {
   ) {
     return this.dashboardService.getRoutePerformance(user.vendorId, query.date);
   }
+
+  /** GET /dashboard/performance/staff?from=2026-01-01&to=2026-01-31 */
+  @Get('performance/staff')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  getStaffPerformance(
+    @CurrentUser() user: any,
+    @Query() query: DashboardQueryDto,
+  ) {
+    return this.dashboardService.getStaffPerformance(
+      user.vendorId,
+      query.dateFrom,
+      query.dateTo,
+    );
+  }
 }
