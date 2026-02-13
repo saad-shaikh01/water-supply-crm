@@ -204,7 +204,7 @@ export class VendorService {
       }),
       this.prisma.dailySheetItem.count({
         where: {
-          status: 'DELIVERED',
+          status: 'COMPLETED',
           dailySheet: { vendorId: id, date: { gte: startOfMonth } },
         },
       }),

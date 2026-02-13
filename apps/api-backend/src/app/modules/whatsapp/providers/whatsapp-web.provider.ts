@@ -21,13 +21,13 @@ export class WhatsAppWebProvider
     this.enabled = true;
 
     try {
-      // Dynamic import to avoid crash if package not installed
+      // webpackIgnore prevents webpack from trying to bundle these optional packages
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
       // @ts-ignore — optional peer dependency, installed separately
-      const { Client, LocalAuth } = await import('whatsapp-web.js');
+      const { Client, LocalAuth } = await import(/* webpackIgnore: true */ 'whatsapp-web.js');
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
       // @ts-ignore — optional peer dependency, installed separately
-      const qrcode = await import('qrcode-terminal');
+      const qrcode = await import(/* webpackIgnore: true */ 'qrcode-terminal');
 
       this.client = new Client({
         authStrategy: new LocalAuth({

@@ -389,7 +389,7 @@ export class DashboardService {
         _sum: { amount: true },
       }),
       this.prisma.dailySheetItem.count({
-        where: { status: 'DELIVERED', dailySheet: { date: { gte: startOfMonth } } },
+        where: { status: 'COMPLETED', dailySheet: { date: { gte: startOfMonth } } },
       }),
       this.prisma.vendor.count({ where: { createdAt: { gte: startOfMonth } } }),
       // Top 5 vendors by total transaction amount
