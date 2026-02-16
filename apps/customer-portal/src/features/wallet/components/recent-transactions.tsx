@@ -1,12 +1,13 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { Card, CardContent, CardHeader, CardTitle, Badge, Skeleton } from '@water-supply-crm/ui';
-import { ArrowRight } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle, Badge, Skeleton, Button } from '@water-supply-crm/ui';
+import { ArrowRight, Receipt, ArrowUpRight, ArrowDownLeft, FileText, Calendar } from 'lucide-react';
 import Link from 'next/link';
 import { transactionsApi } from '../../transactions/api/transactions.api';
 import { useAuthStore } from '../../../store/auth.store';
 import { queryKeys } from '../../../lib/query-keys';
+import { cn } from '@water-supply-crm/ui';
 
 export function RecentTransactions() {
   const user = useAuthStore((s) => s.user);
@@ -21,52 +22,81 @@ export function RecentTransactions() {
   const transactions = data?.data ?? [];
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="text-base font-semibold">Recent Transactions</CardTitle>
-        <Link
-          href="/transactions"
-          className="text-sm text-primary hover:underline flex items-center gap-1"
-        >
-          View all <ArrowRight className="h-3 w-3" />
-        </Link>
+    <Card className="rounded-[2rem] border-border/50 bg-card/30 backdrop-blur-sm overflow-hidden">
+      <CardHeader className="flex flex-row items-center justify-between border-b bg-muted/20 px-6 py-4">
+        <CardTitle className="text-sm font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+          <Receipt className="h-4 w-4 text-primary" />
+          Recent Activity
+        </CardTitle>
+        <Button variant="ghost" size="sm" asChild className="rounded-full font-bold h-8 hover:bg-primary/10 hover:text-primary">
+          <Link href="/transactions" className="flex items-center gap-1">
+            History <ArrowRight className="h-3 w-3" />
+          </Link>
+        </Button>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-0">
         {isLoading ? (
-          <div className="space-y-3">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-12 w-full" />
+          <div className="p-6 space-y-4">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-4">
+                <Skeleton className="h-10 w-10 rounded-full" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-4 w-1/3" />
+                  <Skeleton className="h-3 w-1/4" />
+                </div>
+                <Skeleton className="h-6 w-16 rounded-lg" />
+              </div>
             ))}
           </div>
         ) : transactions.length === 0 ? (
-          <p className="text-center text-muted-foreground py-8 text-sm">No transactions yet</p>
+          <div className="p-12 text-center flex flex-col items-center gap-3">
+            <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center opacity-20">
+              <FileText className="h-6 w-6" />
+            </div>
+            <p className="text-sm font-bold text-muted-foreground">No transactions yet</p>
+          </div>
         ) : (
-          <div className="space-y-3">
-            {transactions.map((tx) => (
-              <div
-                key={tx.id}
-                className="flex items-center justify-between py-2 border-b last:border-0"
-              >
-                <div>
-                  <p className="text-sm font-medium">{tx.description || tx.type}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {new Date(tx.createdAt).toLocaleDateString()}
-                  </p>
+          <div className="divide-y divide-border/50">
+            {transactions.map((tx: any) => {
+              const isPayment = tx.amount < 0; // Negative means money received from customer
+              return (
+                <div
+                  key={tx.id}
+                  className="flex items-center justify-between p-4 sm:p-6 hover:bg-accent/30 transition-all cursor-default group"
+                >
+                  <div className="flex items-center gap-4 min-w-0">
+                    <div className={cn(
+                      "h-10 w-10 rounded-full flex items-center justify-center shrink-0 transition-transform group-hover:scale-110",
+                      isPayment ? "bg-emerald-500/10 text-emerald-500" : "bg-primary/10 text-primary"
+                    )}>
+                      {isPayment ? <ArrowDownLeft className="h-5 w-5" /> : <ArrowUpRight className="h-5 w-5" />}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold truncate group-hover:text-primary transition-colors">
+                        {tx.description || tx.type.replace('_', ' ')}
+                      </p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <Calendar className="h-3 w-3 text-muted-foreground" />
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-tighter">
+                          {new Date(tx.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right ml-4">
+                    <p className={cn(
+                      "text-sm font-black font-mono",
+                      isPayment ? "text-emerald-500" : "text-destructive"
+                    )}>
+                      {isPayment ? '-' : '+'} ₨ {Math.abs(tx.amount).toLocaleString()}
+                    </p>
+                    <Badge variant="outline" className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0 mt-1 opacity-50">
+                      {tx.type}
+                    </Badge>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`text-sm font-semibold ${
-                      tx.type === 'CREDIT' ? 'text-green-600' : 'text-red-600'
-                    }`}
-                  >
-                    {tx.type === 'CREDIT' ? '+' : '-'}Rs. {Math.abs(tx.amount).toLocaleString()}
-                  </span>
-                  <Badge variant={tx.type === 'CREDIT' ? 'default' : 'secondary'} className="text-xs">
-                    {tx.type}
-                  </Badge>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </CardContent>

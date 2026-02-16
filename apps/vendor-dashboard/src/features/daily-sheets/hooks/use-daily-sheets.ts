@@ -48,21 +48,36 @@ export const useGenerateSheet = () => {
     mutationFn: (data: Record<string, unknown>) => dailySheetsApi.generate(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['sheets'] });
-      toast.success('Daily sheet generated successfully');
+      toast.success('Sheet generation started...');
     },
-    onError: () => toast.error('Failed to generate daily sheet'),
+    onError: () => toast.error('Failed to start sheet generation'),
   });
 };
 
-export const useStartLoadOut = (sheetId: string) => {
+export const useGenerationStatus = (jobId: string) => {
+  return useQuery({
+    queryKey: ['sheet-generation-status', jobId],
+    queryFn: () => dailySheetsApi.getGenerationStatus(jobId),
+    enabled: !!jobId,
+    refetchInterval: (query) => {
+      const data = query.state.data as any;
+      if (data?.status === 'completed' || data?.status === 'failed') {
+        return false;
+      }
+      return 1000; // Poll every second
+    },
+  });
+};
+
+export const useLoadOut = (sheetId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: Record<string, unknown>) => dailySheetsApi.startLoadOut(sheetId, data),
+    mutationFn: (data: Record<string, unknown>) => dailySheetsApi.loadOut(sheetId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
-      toast.success('Load-out started');
+      toast.success('Load-out recorded');
     },
-    onError: () => toast.error('Failed to start load-out'),
+    onError: () => toast.error('Failed to record load-out'),
   });
 };
 
@@ -75,6 +90,19 @@ export const useCheckIn = (sheetId: string) => {
       toast.success('Check-in recorded');
     },
     onError: () => toast.error('Failed to record check-in'),
+  });
+};
+
+export const useUpdateDeliveryItem = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ itemId, data }: { itemId: string; data: Record<string, unknown> }) => 
+      dailySheetsApi.updateDeliveryItem(itemId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
+      toast.success('Delivery recorded');
+    },
+    onError: () => toast.error('Failed to record delivery'),
   });
 };
 

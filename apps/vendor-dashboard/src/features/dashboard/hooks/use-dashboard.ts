@@ -9,10 +9,10 @@ export const useOverviewStats = () => {
   });
 };
 
-export const useDailyStats = (date: string) => {
+export const useRevenueStats = (dateFrom: string, dateTo: string) => {
   return useQuery({
-    queryKey: queryKeys.dashboard.daily(date),
-    queryFn: () => dashboardApi.getDaily(date).then((r) => r.data),
-    enabled: !!date,
+    queryKey: ['dashboard', 'revenue', dateFrom, dateTo],
+    queryFn: () => dashboardApi.getRevenue(dateFrom, dateTo).then((r) => r.data),
+    enabled: !!dateFrom && !!dateTo,
   });
 };

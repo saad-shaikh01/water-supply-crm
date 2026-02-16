@@ -4,15 +4,17 @@ import { toast } from 'sonner';
 import { transactionsApi, type TransactionQuery } from '../api/transactions.api';
 import { queryKeys } from '../../../lib/query-keys';
 
-export const useTransactions = () => {
-  const [page] = useQueryState('page', parseAsInteger.withDefault(1));
-  const [customerId] = useQueryState('customerId', { defaultValue: '' });
+export const useTransactions = (overrideCustomerId?: string) => {
+  const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
+  const [urlCustomerId] = useQueryState('customerId', { defaultValue: '' });
   const [type] = useQueryState('type', { defaultValue: '' });
+
+  const effectiveCustomerId = overrideCustomerId || urlCustomerId;
 
   const params: TransactionQuery = {
     page,
     limit: 20,
-    customerId: customerId || undefined,
+    customerId: effectiveCustomerId || undefined,
     type: type || undefined,
   };
 
@@ -22,7 +24,8 @@ export const useTransactions = () => {
       queryFn: () => transactionsApi.getAll(params).then((r) => r.data),
     }),
     page,
-    customerId,
+    setPage,
+    customerId: effectiveCustomerId,
     type,
   };
 };
@@ -52,5 +55,47 @@ export const useAddAdjustment = () => {
       toast.success('Adjustment recorded');
     },
     onError: () => toast.error('Failed to record adjustment'),
+  });
+};
+
+export const usePaymentRequests = () => {
+  const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
+  const [status] = useQueryState('status', { defaultValue: 'PENDING' });
+
+  const params = { page, limit: 20, status: status || undefined };
+
+  return {
+    ...useQuery({
+      queryKey: ['payment-requests', params],
+      queryFn: () => transactionsApi.getRequests(params).then((r) => r.data),
+    }),
+    page,
+    setPage,
+    status,
+  };
+};
+
+export const useApproveRequest = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => transactionsApi.approveRequest(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['payment-requests'] });
+      toast.success('Payment approved successfully');
+    },
+    onError: () => toast.error('Failed to approve payment'),
+  });
+};
+
+export const useRejectRequest = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => 
+      transactionsApi.rejectRequest(id, reason),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['payment-requests'] });
+      toast.success('Payment rejected');
+    },
+    onError: () => toast.error('Failed to reject payment'),
   });
 };

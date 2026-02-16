@@ -1,15 +1,18 @@
 import { z } from 'zod';
 
 export const customerSchema = z.object({
+  customerCode: z.string().min(2, 'Code is required'),
   name: z.string().min(2, 'Name must be at least 2 characters'),
-  phone: z.string().min(10, 'Valid phone number required'),
+  phoneNumber: z.string().min(10, 'Valid phone number required'),
   address: z.string().min(5, 'Address must be at least 5 characters'),
-  routeId: z.string().min(1, 'Route is required'),
-  bottleCount: z.number().min(0),
+  routeId: z.string().uuid('Valid Route is required'),
+  deliveryDays: z.array(z.number()).min(1, 'Select at least one delivery day'),
+  latitude: z.number().optional(),
+  longitude: z.number().optional(),
 });
 
 export const customPriceSchema = z.object({
-  productId: z.string().min(1, 'Product is required'),
+  productId: z.string().uuid('Product is required'),
   price: z.number().positive('Price must be positive'),
 });
 

@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const paymentSchema = z.object({
   amount: z.number().positive('Amount must be positive'),
-  notes: z.string().optional(),
+  description: z.string().optional(),
 });
 
 export const adjustmentSchema = z.object({
