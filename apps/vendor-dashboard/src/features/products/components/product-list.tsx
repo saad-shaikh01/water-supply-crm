@@ -17,18 +17,25 @@ interface ProductListProps {
 }
 
 export function ProductList({ onEdit }: ProductListProps) {
-  const { data, isLoading } = useProducts();
+  const { data, isLoading, page, setPage, limit, setLimit } = useProducts();
   const { mutate: deleteProduct, isPending: isDeleting } = useDeleteProduct();
   const { mutate: toggleProduct } = useToggleProduct();
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  const products = (data ?? []) as Array<{ id: string; name: string; basePrice: number; isActive: boolean; description?: string }>;
+  const response = (data as { data?: any[]; meta?: { total: number } } | undefined);
+  const products = (response?.data ?? []) as Array<{ id: string; name: string; basePrice: number; isActive: boolean; description?: string }>;
+  const total = response?.meta?.total ?? 0;
 
   return (
     <div className="space-y-4">
       <DataTable
         data={products}
         isLoading={isLoading}
+        page={page}
+        limit={limit}
+        total={total}
+        onPageChange={setPage}
+        onLimitChange={setLimit}
         emptyMessage="No products in inventory. Add your first product!"
         columns={[
           { 

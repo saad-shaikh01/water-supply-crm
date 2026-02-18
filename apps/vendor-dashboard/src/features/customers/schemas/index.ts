@@ -7,6 +7,7 @@ export const customerSchema = z.object({
   address: z.string().min(5, 'Address must be at least 5 characters'),
   routeId: z.string().uuid('Valid Route is required'),
   deliveryDays: z.array(z.number()).min(1, 'Select at least one delivery day'),
+  paymentType: z.enum(['MONTHLY', 'CASH']).default('CASH'),
   latitude: z.number().optional(),
   longitude: z.number().optional(),
 });

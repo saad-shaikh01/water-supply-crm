@@ -11,9 +11,9 @@ import { useDailySheets } from '../hooks/use-daily-sheets';
 import { cn } from '@water-supply-crm/ui';
 
 export function SheetList() {
-  const { data, isLoading, page, setPage } = useDailySheets();
+  const { data, isLoading, page, setPage, limit, setLimit } = useDailySheets();
 
-  const sheets = (data as { data?: unknown[]; totalPages?: number } | undefined);
+  const sheets = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
   const rows = (sheets?.data ?? []) as Array<{ 
     id: string; 
     date: string; 
@@ -25,7 +25,7 @@ export function SheetList() {
     van?: { plateNumber: string };
     _count?: { items: number };
   }>;
-  const totalPages = sheets?.totalPages ?? 1;
+  const total = sheets?.meta?.total ?? 0;
 
   const getStatus = (sheet: typeof rows[0]) => {
     if (sheet.isClosed) return 'CLOSED';
@@ -37,7 +37,9 @@ export function SheetList() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 bg-card/30 p-4 rounded-2xl border border-border/50">
-        <SearchInput placeholder="Search by date..." paramKey="date" />
+        <div className="flex-1 w-full">
+          <SearchInput placeholder="Search by date..." paramKey="date" />
+        </div>
         <RouteFilter />
       </div>
 
@@ -45,8 +47,10 @@ export function SheetList() {
         data={rows}
         isLoading={isLoading}
         page={page}
-        totalPages={totalPages}
+        limit={limit}
+        total={total}
         onPageChange={setPage}
+        onLimitChange={setLimit}
         emptyMessage="No sheets found for this selection."
         columns={[
           { 

@@ -7,13 +7,14 @@ import { queryKeys } from '../../../lib/query-keys';
 export const useTransactions = () => {
   const user = useAuthStore((s) => s.user);
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
+  const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
 
   const query = useQuery({
-    queryKey: queryKeys.transactions.all(user?.customerId ?? '', { page, limit: 20 }),
+    queryKey: queryKeys.transactions.all(user?.customerId ?? '', { page, limit }),
     queryFn: () =>
-      transactionsApi.getAll(user!.customerId, { page, limit: 20 }).then((r) => r.data),
+      transactionsApi.getAll(user!.customerId, { page, limit }).then((r) => r.data),
     enabled: !!user?.customerId,
   });
 
-  return { ...query, page, setPage };
+  return { ...query, page, setPage, limit, setLimit };
 };

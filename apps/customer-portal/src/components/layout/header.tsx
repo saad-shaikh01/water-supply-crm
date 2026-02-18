@@ -9,14 +9,16 @@ import {
 } from '@water-supply-crm/ui';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Receipt, User, LogOut, Droplets, Bell } from 'lucide-react';
+import { Home, Receipt, User, LogOut, Droplets, Bell, CreditCard, Truck, CalendarDays } from 'lucide-react';
 import { ThemeToggle } from './theme-toggle';
 import { cn } from '@water-supply-crm/ui';
 
 const navItems = [
-  { href: '/home', label: 'Home', icon: Home },
-  { href: '/transactions', label: 'Transactions', icon: Receipt },
-  { href: '/profile', label: 'Profile', icon: User },
+  { href: '/home', label: 'Home' },
+  { href: '/deliveries', label: 'Deliveries' },
+  { href: '/payments', label: 'Payments' },
+  { href: '/transactions', label: 'History' },
+  { href: '/profile', label: 'Profile' },
 ];
 
 export function Header() {

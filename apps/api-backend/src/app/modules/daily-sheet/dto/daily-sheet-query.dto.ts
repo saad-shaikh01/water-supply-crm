@@ -1,4 +1,4 @@
-import { IsOptional, IsDateString, IsUUID, IsBoolean } from 'class-validator';
+import { IsOptional, IsDateString, IsUUID, IsBoolean, IsIn } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
 
@@ -24,7 +24,15 @@ export class DailySheetQueryDto extends PaginationQueryDto {
   driverId?: string;
 
   @IsOptional()
+  @IsUUID()
+  vanId?: string;
+
+  @IsOptional()
   @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
   isClosed?: boolean;
+
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  sortDir?: 'asc' | 'desc' = 'desc';
 }

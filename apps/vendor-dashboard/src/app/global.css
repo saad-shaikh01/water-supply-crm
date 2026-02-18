@@ -2,86 +2,76 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  :root {
-    --background: 210 40% 98%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 0.75rem;
-  }
+:root {
+  --background: 210 40% 98%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --primary: 221 83% 53%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 210 40% 96%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 210 40% 96%;
+  --muted-foreground: 215 16% 47%;
+  --accent: 210 40% 96%;
+  --accent-foreground: 222 47% 11%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 214 32% 91%;
+  --input: 214 32% 91%;
+  --ring: 221 83% 53%;
+  --radius: 1.25rem;
+}
 
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 48%;
-  }
+.dark {
+  --background: 222 47% 4%;
+  --foreground: 210 40% 98%;
+  --card: 222 47% 6%;
+  --card-foreground: 210 40% 98%;
+  --popover: 222 47% 6%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 217 91% 60%;
+  --primary-foreground: 222 47% 11%;
+  --secondary: 222 47% 12%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 222 47% 12%;
+  --muted-foreground: 215 20% 65%;
+  --accent: 222 47% 12%;
+  --accent-foreground: 210 40% 98%;
+  --destructive: 0 62% 30%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 222 47% 12%;
+  --input: 222 47% 12%;
+  --ring: 224 76% 48%;
 }
 
 @layer base {
   * {
-    @apply border-border;
+    @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground antialiased selection:bg-primary selection:text-primary-foreground;
+    @apply bg-background text-foreground antialiased selection:bg-primary/20;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    background-image: 
+      radial-gradient(at 0% 0%, hsla(221, 83%, 53%, 0.05) 0px, transparent 50%),
+      radial-gradient(at 100% 100%, hsla(221, 83%, 53%, 0.02) 0px, transparent 50%);
+    background-attachment: fixed;
   }
 }
 
-@layer utilities {
-  .scrollbar-none::-webkit-scrollbar {
-    display: none;
-  }
-  .scrollbar-none {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
+@layer components {
+  /* Custom Premium UI Utilities */
+  .glass-panel {
+    @apply bg-card/60 backdrop-blur-xl border border-white/10 dark:border-white/5 shadow-glass;
   }
 
-  .glass {
-    @apply bg-background/50 backdrop-blur-xl border border-border/50;
+  .premium-card {
+    @apply bg-card rounded-3xl border border-border/50 shadow-premium transition-all duration-300 hover:shadow-2xl hover:border-primary/20;
   }
-}
 
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  @apply bg-transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  @apply bg-muted-foreground/20 rounded-full hover:bg-muted-foreground/30 transition-colors;
+  .btn-primary {
+    @apply bg-primary text-primary-foreground shadow-[0_8px_20px_-6px_rgba(59,130,246,0.5)] hover:shadow-[0_12px_25px_-6px_rgba(59,130,246,0.6)] active:scale-95 transition-all duration-200 font-bold;
+  }
 }

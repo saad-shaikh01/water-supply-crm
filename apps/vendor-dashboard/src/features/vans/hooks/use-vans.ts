@@ -1,12 +1,31 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQueryState, parseAsInteger } from 'nuqs';
 import { toast } from 'sonner';
 import { vansApi } from '../api/vans.api';
 import { queryKeys } from '../../../lib/query-keys';
 
 export const useVans = () => {
+  const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
+  const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
+
+  const params = { page, limit };
+
+  return {
+    ...useQuery({
+      queryKey: queryKeys.vans.all(params),
+      queryFn: () => vansApi.getAll(params).then((r) => r.data),
+    }),
+    page,
+    setPage,
+    limit,
+    setLimit,
+  };
+};
+
+export const useAllVans = () => {
   return useQuery({
-    queryKey: queryKeys.vans.all,
-    queryFn: () => vansApi.getAll().then((r) => r.data),
+    queryKey: [...queryKeys.vans.all({}), 'all'],
+    queryFn: () => vansApi.getAll({ limit: 100 }).then((r) => r.data),
   });
 };
 
@@ -44,5 +63,29 @@ export const useDeleteVan = () => {
       toast.success('Van deleted');
     },
     onError: () => toast.error('Failed to delete van'),
+  });
+};
+
+export const useDeactivateVan = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => vansApi.deactivate(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.vans.all });
+      toast.success('Van deactivated');
+    },
+    onError: () => toast.error('Failed to deactivate van'),
+  });
+};
+
+export const useReactivateVan = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => vansApi.reactivate(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.vans.all });
+      toast.success('Van reactivated');
+    },
+    onError: () => toast.error('Failed to reactivate van'),
   });
 };

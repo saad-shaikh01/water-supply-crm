@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
@@ -14,6 +15,7 @@ import { VendorService } from './vendor.service';
 import { CreateVendorDto } from './dto/create-vendor.dto';
 import { UpdateVendorDto } from './dto/update-vendor.dto';
 import { ResetAdminPasswordDto } from './dto/reset-admin-password.dto';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -33,8 +35,8 @@ export class VendorController {
 
   /** GET /vendors — List all vendors with customer/driver counts */
   @Get()
-  findAll() {
-    return this.vendorService.findAll();
+  findAll(@Query() query: PaginationQueryDto) {
+    return this.vendorService.findAllPaginated(query);
   }
 
   /** GET /vendors/:id — Vendor detail */

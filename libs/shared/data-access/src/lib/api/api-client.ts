@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { getCookie } from 'cookies-next';
+import { getCookie, deleteCookie } from 'cookies-next';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
 
@@ -29,9 +29,10 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Handle unauthorized error (e.g., redirect to login)
-      // This is a placeholder, you might want to handle this differently
-      // window.location.href = '/auth/login';
+      deleteCookie('auth_token');
+      if (typeof window !== 'undefined') {
+        window.location.href = '/auth/login';
+      }
     }
     return Promise.reject(error);
   }

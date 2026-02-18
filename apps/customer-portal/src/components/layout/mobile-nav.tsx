@@ -2,12 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Receipt, User, Wallet } from 'lucide-react';
+import { Home, Receipt, User, CreditCard, Truck } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { motion } from 'framer-motion';
 
 const navItems = [
   { href: '/home', label: 'Home', icon: Home },
+  { href: '/deliveries', label: 'Deliveries', icon: Truck },
+  { href: '/payments', label: 'Payments', icon: CreditCard },
   { href: '/transactions', label: 'History', icon: Receipt },
   { href: '/profile', label: 'Account', icon: User },
 ];
@@ -30,7 +32,7 @@ export function MobileNav() {
               )}
             >
               <Icon className={cn("h-5 w-5 transition-transform duration-300", isActive && "scale-110")} />
-              <span className="text-[10px] font-bold uppercase tracking-tighter">{label}</span>
+              <span className="text-[9px] font-bold uppercase tracking-tighter">{label}</span>
               {isActive && (
                 <motion.div
                   layoutId="bottom-nav-indicator"

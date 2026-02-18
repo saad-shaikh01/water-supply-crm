@@ -21,7 +21,8 @@
       "Bash(git -C /home/user/water-supply-crm diff HEAD -- apps/api-backend/src/app/modules/vendor/vendor.service.ts)",
       "Bash(git -C /home/user/water-supply-crm stash)",
       "Bash(git -C /home/user/water-supply-crm stash pop)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(npx ts-node:*)"
     ]
   }
 }

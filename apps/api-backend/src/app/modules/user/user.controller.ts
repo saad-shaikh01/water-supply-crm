@@ -6,6 +6,7 @@ import {
   Patch,
   Param,
   Body,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
@@ -13,6 +14,8 @@ import { UserRole } from '@prisma/client';
 import { UserService } from './user.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -35,8 +38,8 @@ export class UserController {
 
   @Get()
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
-  async findAll(@CurrentUser() user: any) {
-    return this.userService.findAllByVendor(user.vendorId);
+  async findAll(@CurrentUser() user: any, @Query() query: PaginationQueryDto) {
+    return this.userService.findAllPaginated(user.vendorId, query);
   }
 
   @Get(':id')
@@ -68,6 +71,13 @@ export class UserController {
   @Roles(UserRole.VENDOR_ADMIN)
   async reactivate(@CurrentUser() user: any, @Param('id') id: string) {
     return this.userService.reactivate(user.vendorId, id);
+  }
+
+  /** PATCH /users/me/change-password — user changes their own password */
+  @Patch('me/change-password')
+  @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
+  changePassword(@CurrentUser() user: any, @Body() dto: ChangePasswordDto) {
+    return this.userService.changeOwnPassword(user.id, dto.currentPassword, dto.newPassword);
   }
 
   /** DELETE /users/:id — permanent delete, blocked if user has any daily sheets */

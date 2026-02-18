@@ -1,13 +1,25 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQueryState, parseAsInteger } from 'nuqs';
 import { toast } from 'sonner';
 import { productsApi } from '../api/products.api';
 import { queryKeys } from '../../../lib/query-keys';
 
 export const useProducts = () => {
-  return useQuery({
-    queryKey: queryKeys.products.all,
-    queryFn: () => productsApi.getAll().then((r) => r.data),
-  });
+  const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
+  const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
+
+  const params = { page, limit };
+
+  return {
+    ...useQuery({
+      queryKey: queryKeys.products.all(params),
+      queryFn: () => productsApi.getAll(params).then((r) => r.data),
+    }),
+    page,
+    setPage,
+    limit,
+    setLimit,
+  };
 };
 
 export const useCreateProduct = () => {

@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -16,6 +17,8 @@ import { CheckInDto } from './dto/check-in.dto';
 import { SwapDriverDto } from './dto/swap-driver.dto';
 import { DailySheetQueryDto } from './dto/daily-sheet-query.dto';
 import { LedgerService } from '../transaction/ledger.service';
+import { AuditService } from '../audit/audit.service';
+import { FcmService } from '../fcm/fcm.service';
 import { paginate } from '../../common/helpers/paginate';
 
 @Injectable()
@@ -23,6 +26,8 @@ export class DailySheetService {
   constructor(
     private prisma: PrismaService,
     private ledger: LedgerService,
+    private audit: AuditService,
+    private fcm: FcmService,
     @InjectQueue(QUEUE_NAMES.DAILY_SHEET_GENERATION)
     private sheetQueue: Queue,
   ) {}
@@ -99,12 +104,32 @@ export class DailySheetService {
         });
       }
 
+      if (dto.status !== 'PENDING') {
+        await this.audit.log({
+          vendorId,
+          action: 'DELIVERY_SUBMIT',
+          entity: 'DailySheetItem',
+          entityId: itemId,
+          changes: { after: { status: dto.status, filledDropped: dto.filledDropped, emptyReceived: dto.emptyReceived } },
+        });
+      }
+
+      // FCM: notify customer on completed delivery (fire-and-forget)
+      if (dto.status === DeliveryStatus.COMPLETED || dto.status === DeliveryStatus.EMPTY_ONLY) {
+        this.fcm.sendToCustomer(
+          item.customerId,
+          'Delivery Completed',
+          `${dto.filledDropped} bottle(s) delivered. Empty received: ${dto.emptyReceived}.`,
+          { type: 'DELIVERY', itemId },
+        ).catch(() => null);
+      }
+
       return updatedItem;
     });
   }
 
   async findAllPaginated(vendorId: string, query: DailySheetQueryDto) {
-    const { page = 1, limit = 20, date, dateFrom, dateTo, routeId, driverId, isClosed } = query;
+    const { page = 1, limit = 20, date, dateFrom, dateTo, routeId, driverId, vanId, isClosed, sortDir = 'desc' } = query;
 
     const where: any = { vendorId };
 
@@ -120,6 +145,7 @@ export class DailySheetService {
 
     if (routeId) where.routeId = routeId;
     if (driverId) where.driverId = driverId;
+    if (vanId) where.vanId = vanId;
     if (isClosed !== undefined) where.isClosed = isClosed;
 
     const [data, total] = await Promise.all([
@@ -131,7 +157,7 @@ export class DailySheetService {
           driver: { select: { id: true, name: true } },
           _count: { select: { items: true } },
         },
-        orderBy: { date: 'desc' },
+        orderBy: { date: sortDir },
         skip: (page - 1) * limit,
         take: limit,
       }),
@@ -149,7 +175,16 @@ export class DailySheetService {
         van: true,
         driver: true,
         items: {
-          include: { customer: true, product: true },
+          include: {
+            customer: {
+              select: {
+                id: true, name: true, customerCode: true,
+                address: true, phoneNumber: true,
+                paymentType: true, financialBalance: true,
+              },
+            },
+            product: true,
+          },
           orderBy: { sequence: 'asc' },
         },
       },
@@ -270,6 +305,14 @@ export class DailySheetService {
       },
     });
 
+    await this.audit.log({
+      vendorId,
+      action: 'CLOSE',
+      entity: 'DailySheet',
+      entityId: sheetId,
+      changes: { after: { bottleDiscrepancy, cashDiscrepancy } },
+    });
+
     return {
       sheet: closed,
       reconciliation: {
@@ -284,28 +327,62 @@ export class DailySheetService {
     };
   }
 
-  async swapDriver(vendorId: string, sheetId: string, dto: SwapDriverDto) {
+  async swapAssignment(vendorId: string, sheetId: string, dto: SwapDriverDto) {
+    if (!dto.driverId && !dto.vanId) {
+      throw new UnprocessableEntityException(
+        'Provide at least one of: driverId, vanId',
+      );
+    }
+
     const sheet = await this.prisma.dailySheet.findFirst({
       where: { id: sheetId, vendorId },
     });
-    if (!sheet) {
-      throw new NotFoundException('Daily sheet not found');
-    }
-    if (sheet.isClosed) {
-      throw new ConflictException('Cannot swap driver on a closed sheet');
+    if (!sheet) throw new NotFoundException('Daily sheet not found');
+    if (sheet.isClosed) throw new ConflictException('Cannot update a closed sheet');
+
+    const updateData: any = {};
+
+    if (dto.vanId) {
+      const van = await this.prisma.van.findFirst({
+        where: { id: dto.vanId, vendorId },
+        include: { defaultDriver: true },
+      });
+      if (!van) throw new NotFoundException('Van not found');
+      updateData.vanId = dto.vanId;
+
+      // If only van is changing (no explicit driver given), auto-assign van's default driver
+      if (!dto.driverId && van.defaultDriverId) {
+        updateData.driverId = van.defaultDriverId;
+      }
     }
 
-    const updateData: any = { driverId: dto.driverId };
-    if (dto.vanId) updateData.vanId = dto.vanId;
+    if (dto.driverId) {
+      const driver = await this.prisma.user.findFirst({
+        where: { id: dto.driverId, vendorId },
+      });
+      if (!driver) throw new NotFoundException('Driver not found');
+      updateData.driverId = dto.driverId;
+    }
 
-    return this.prisma.dailySheet.update({
+    const updated = await this.prisma.dailySheet.update({
       where: { id: sheetId },
       data: updateData,
       include: {
         driver: { select: { id: true, name: true } },
         van: { select: { id: true, plateNumber: true } },
+        route: { select: { id: true, name: true } },
       },
     });
+
+    await this.audit.log({
+      vendorId,
+      action: 'SWAP_ASSIGNMENT',
+      entity: 'DailySheet',
+      entityId: sheetId,
+      changes: { after: updateData },
+    });
+
+    return updated;
   }
 
   async getSheetsByDriver(vendorId: string, driverId: string, date?: string) {

@@ -6,6 +6,8 @@ import { CACHE_KEYS, CACHE_TTLS } from '@water-supply-crm/caching';
 import * as bcrypt from 'bcrypt';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { AuditService } from '../audit/audit.service';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
+import { paginate } from '../../common/helpers/paginate';
 
 @Injectable()
 export class UserService {
@@ -72,11 +74,8 @@ export class UserService {
   }
 
   async findByIdentifier(identifier: string) {
-    // Try email first
     const byEmail = await this.findByEmail(identifier);
     if (byEmail) return byEmail;
-
-    // Then try phone number
     return this.findByPhoneNumber(identifier);
   }
 
@@ -87,12 +86,40 @@ export class UserService {
     });
   }
 
-  async findAllByVendor(vendorId: string) {
-    const cacheKey = this.cache.vendorKey(vendorId, CACHE_KEYS.USERS);
-    const cached = await this.cache.get<any[]>(cacheKey);
+  async findAllPaginated(vendorId: string, query: PaginationQueryDto) {
+    const { page = 1, limit = 20 } = query;
+    const cacheKey = this.cache.vendorKey(vendorId, `${CACHE_KEYS.USERS}:p:${page}:l:${limit}`);
+    const cached = await this.cache.get(cacheKey);
     if (cached) return cached;
 
-    const users = await this.prisma.user.findMany({
+    const where = { vendorId };
+    const [data, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          phoneNumber: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    const result = paginate(data, total, page, limit);
+    await this.cache.set(cacheKey, result, CACHE_TTLS.USERS);
+    return result;
+  }
+
+  async findAllByVendor(vendorId: string) {
+    return this.prisma.user.findMany({
       where: { vendorId },
       select: {
         id: true,
@@ -106,9 +133,6 @@ export class UserService {
       },
       orderBy: { createdAt: 'desc' },
     });
-
-    await this.cache.set(cacheKey, users, CACHE_TTLS.USERS);
-    return users;
   }
 
   async findOneByVendor(vendorId: string, id: string) {
@@ -254,7 +278,6 @@ export class UserService {
       throw new NotFoundException('User not found');
     }
 
-    // Block deletion if the driver has any historical daily sheets
     if (user._count.dailySheets > 0) {
       throw new BadRequestException(
         `Cannot delete user — they have ${user._count.dailySheets} daily sheet(s) on record. Deactivate instead to preserve history.`,
@@ -280,5 +303,17 @@ export class UserService {
       where: { id: userId },
       data: { password: hashedPassword },
     });
+  }
+
+  async changeOwnPassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const valid = await bcrypt.compare(currentPassword, user.password);
+    if (!valid) throw new BadRequestException('Current password is incorrect');
+
+    const hashed = await bcrypt.hash(newPassword, 10);
+    await this.prisma.user.update({ where: { id: userId }, data: { password: hashed } });
+    return { message: 'Password changed successfully' };
   }
 }

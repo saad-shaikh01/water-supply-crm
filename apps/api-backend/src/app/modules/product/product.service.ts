@@ -7,6 +7,8 @@ import {
 } from '@water-supply-crm/caching';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { ProductQueryDto } from './dto/product-query.dto';
+import { paginate } from '../../common/helpers/paginate';
 
 @Injectable()
 export class ProductService {
@@ -16,23 +18,66 @@ export class ProductService {
   ) {}
 
   async create(vendorId: string, dto: CreateProductDto) {
-    const product = await this.prisma.product.create({
-      data: { ...dto, vendorId },
+    const product = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.product.create({ data: { ...dto, vendorId } });
+
+      // Create a BottleWallet for every existing active customer of this vendor
+      const customers = await tx.customer.findMany({
+        where: { vendorId, isActive: true },
+        select: { id: true },
+      });
+
+      if (customers.length > 0) {
+        await tx.bottleWallet.createMany({
+          data: customers.map((c) => ({
+            customerId: c.id,
+            productId: created.id,
+            balance: 0,
+          })),
+          skipDuplicates: true,
+        });
+      }
+
+      return created;
     });
+
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.PRODUCTS);
     return product;
   }
 
-  async findAll(vendorId: string) {
-    const cacheKey = this.cache.vendorKey(vendorId, CACHE_KEYS.PRODUCTS);
+  async findAll(vendorId: string, query: ProductQueryDto = {}) {
+    const { page = 1, limit = 50, search, isActive, sortDir = 'asc' } = query;
+
+    const where: any = { vendorId };
+
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    if (isActive !== undefined) {
+      where.isActive = isActive;
+    }
+
+    const cacheKey = this.cache.vendorKey(vendorId, `${CACHE_KEYS.PRODUCTS}:p:${page}:l:${limit}:s:${search || ''}:a:${isActive}`);
     const cached = await this.cache.get(cacheKey);
     if (cached) return cached;
 
-    const products = await this.prisma.product.findMany({
-      where: { vendorId, isActive: true },
-    });
-    await this.cache.set(cacheKey, products, CACHE_TTLS.PRODUCTS);
-    return products;
+    const [data, total] = await Promise.all([
+      this.prisma.product.findMany({
+        where,
+        orderBy: { name: sortDir },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.product.count({ where }),
+    ]);
+
+    const result = paginate(data, total, page, limit);
+    await this.cache.set(cacheKey, result, CACHE_TTLS.PRODUCTS);
+    return result;
   }
 
   async findOne(vendorId: string, id: string) {

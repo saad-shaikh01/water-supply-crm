@@ -10,18 +10,21 @@ import {
   Badge,
   Button,
   Skeleton,
+  DataTablePagination,
 } from '@water-supply-crm/ui';
-import { ChevronLeft, ChevronRight, Calendar, Receipt, FileText, Inbox } from 'lucide-react';
+import { Calendar, Receipt, FileText, Inbox } from 'lucide-react';
 import { useTransactions } from '../hooks/use-transactions';
 import { cn } from '@water-supply-crm/ui';
 
 export function TransactionList() {
-  const { data, isLoading, page, setPage } = useTransactions();
+  const { data, isLoading, page, setPage, limit, setLimit } = useTransactions();
 
-  const transactions = (data as any)?.data ?? [];
-  const totalPages = (data as any)?.totalPages ?? 1;
+  const response = (data as { data?: any[]; meta?: { total: number } } | undefined);
+  const transactions = response?.data ?? [];
+  const total = response?.meta?.total ?? 0;
 
   if (isLoading) {
+// ... (keeping Skeleton)
     return (
       <div className="space-y-4">
         <div className="rounded-2xl border border-border/50 overflow-hidden">
@@ -113,33 +116,13 @@ export function TransactionList() {
         </Table>
       </div>
 
-      {totalPages > 1 && (
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-2">
-          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground order-2 sm:order-1">
-            Page <span className="text-foreground">{page}</span> of <span className="text-foreground">{totalPages}</span>
-          </p>
-          <div className="flex items-center gap-2 order-1 sm:order-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 w-9 p-0 rounded-xl bg-background/50 hover:bg-accent border-border/50 transition-all shadow-sm"
-              onClick={() => setPage(page - 1)}
-              disabled={page <= 1}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 w-9 p-0 rounded-xl bg-background/50 hover:bg-accent border-border/50 transition-all shadow-sm"
-              onClick={() => setPage(page + 1)}
-              disabled={page >= totalPages}
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
+      <DataTablePagination
+        page={page}
+        limit={limit}
+        total={total}
+        onPageChange={setPage}
+        onLimitChange={setLimit}
+      />
     </div>
   );
 }

@@ -15,17 +15,24 @@ interface RouteListProps {
 }
 
 export function RouteList({ onEdit }: RouteListProps) {
-  const { data, isLoading } = useRoutes();
+  const { data, isLoading, page, setPage, limit, setLimit } = useRoutes();
   const { mutate: deleteRoute, isPending: isDeleting } = useDeleteRoute();
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  const routes = (data ?? []) as Array<{ id: string; name: string; description?: string; driver?: { name: string }; van?: { plateNumber: string } }>;
+  const response = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
+  const routes = (response?.data ?? []) as Array<{ id: string; name: string; description?: string; driver?: { name: string }; van?: { plateNumber: string } }>;
+  const total = response?.meta?.total ?? 0;
 
   return (
     <div>
       <DataTable
         data={routes}
         isLoading={isLoading}
+        page={page}
+        limit={limit}
+        total={total}
+        onPageChange={setPage}
+        onLimitChange={setLimit}
         emptyMessage="No routes found"
         columns={[
           { key: 'name', header: 'Name', cell: (r) => <span className="font-medium">{r.name}</span> },

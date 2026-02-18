@@ -7,6 +7,11 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum PaymentType {
+  MONTHLY
+  CASH
+}
+
 enum UserRole {
   SUPER_ADMIN
   VENDOR_ADMIN
@@ -129,7 +134,9 @@ model Customer {
   userId        String?  @unique
   user          User?    @relation(fields: [userId], references: [id])
 
-  financialBalance Float @default(0) // Current outstanding amount
+  paymentType      PaymentType @default(CASH)
+  isActive         Boolean     @default(true)
+  financialBalance Float       @default(0) // Current outstanding amount
 
   wallets         BottleWallet[]
   customPrices    CustomerProductPrice[]
@@ -170,16 +177,19 @@ model BottleWallet {
 }
 
 model Route {
-  id          String   @id @default(uuid())
-  name        String
-  vendorId    String
-  vendor      Vendor   @relation(fields: [vendorId], references: [id])
-  
-  customers   Customer[]
-  dailySheets DailySheet[]
+  id            String   @id @default(uuid())
+  name          String
+  vendorId      String
+  vendor        Vendor   @relation(fields: [vendorId], references: [id])
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  defaultVanId  String?
+  defaultVan    Van?     @relation("RouteDefaultVan", fields: [defaultVanId], references: [id])
+
+  customers     Customer[]
+  dailySheets   DailySheet[]
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@index([vendorId])
 }
@@ -190,9 +200,11 @@ model Van {
   vendorId      String
   vendor        Vendor   @relation(fields: [vendorId], references: [id])
   
+  isActive        Boolean @default(true)
   defaultDriverId String? @unique
   defaultDriver   User?   @relation("VanDriver", fields: [defaultDriverId], references: [id])
-  
+
+  routes        Route[]  @relation("RouteDefaultVan")
   dailySheets   DailySheet[]
   expenses      Expense[]
 
@@ -278,9 +290,11 @@ model Transaction {
   dailySheetId  String?
   dailySheet    DailySheet? @relation(fields: [dailySheetId], references: [id])
   
-  bottleCount   Int?     // Positive for drop, negative for receive
+  bottleCount   Int?     // NET change to wallet (filledDropped - emptyReceived)
+  filledDropped Int?     // Filled bottles given to customer (consumption indicator)
+  emptyReceived Int?     // Empty bottles collected from customer
   amount        Float?   // Positive for charge, negative for payment
-  
+
   description   String?
 
   createdAt     DateTime @default(now())

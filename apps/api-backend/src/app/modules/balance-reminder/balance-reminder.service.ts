@@ -104,6 +104,8 @@ export class BalanceReminderService {
     const customers = await this.prisma.customer.findMany({
       where: {
         vendorId,
+        paymentType: 'MONTHLY',
+        isActive: true,
         financialBalance: { gte: minBalance },
         phoneNumber: { not: '' },
       },

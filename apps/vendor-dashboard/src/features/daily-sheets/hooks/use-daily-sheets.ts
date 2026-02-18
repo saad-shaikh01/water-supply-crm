@@ -7,14 +7,15 @@ import { useAuthStore } from '../../../store/auth.store';
 
 export const useDailySheets = () => {
   const user = useAuthStore((s) => s.user);
-  const [page] = useQueryState('page', parseAsInteger.withDefault(1));
+  const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
+  const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
   const [date] = useQueryState('date', { defaultValue: '' });
   const [routeId] = useQueryState('routeId', { defaultValue: '' });
   const [status] = useQueryState('status', { defaultValue: '' });
 
   const params: SheetQuery = {
     page,
-    limit: 20,
+    limit,
     date: date || undefined,
     routeId: routeId || undefined,
     status: status || undefined,
@@ -28,6 +29,9 @@ export const useDailySheets = () => {
       queryFn: () => dailySheetsApi.getAll(params).then((r) => r.data),
     }),
     page,
+    setPage,
+    limit,
+    setLimit,
     date,
     routeId,
     status,
@@ -116,5 +120,17 @@ export const useCloseSheet = (sheetId: string) => {
       toast.success('Sheet closed successfully');
     },
     onError: () => toast.error('Failed to close sheet'),
+  });
+};
+
+export const useSwapAssignment = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) => dailySheetsApi.swapAssignment(sheetId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
+      toast.success('Assignment updated');
+    },
+    onError: () => toast.error('Failed to update assignment'),
   });
 };

@@ -116,15 +116,15 @@ export class DailySheetController {
     return this.dailySheetService.closeSheet(user.vendorId, id);
   }
 
-  @Patch(':id/swap-driver')
+  @Patch(':id/swap-assignment')
   @Roles(UserRole.VENDOR_ADMIN)
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
-  swapDriver(
+  swapAssignment(
     @CurrentUser() user: any,
     @Param('id') id: string,
     @Body() dto: SwapDriverDto,
   ) {
-    return this.dailySheetService.swapDriver(user.vendorId, id, dto);
+    return this.dailySheetService.swapAssignment(user.vendorId, id, dto);
   }
 
   /**

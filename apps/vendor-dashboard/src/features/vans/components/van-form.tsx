@@ -22,10 +22,11 @@ export function VanForm({ open, onOpenChange, van }: VanFormProps) {
   const isEdit = !!van?.id;
   const { mutate: create, isPending: isCreating } = useCreateVan();
   const { mutate: update, isPending: isUpdating } = useUpdateVan();
-  const { data: users } = useUsers();
+  const { data: usersResponse } = useUsers();
   const isPending = isCreating || isUpdating;
 
-  const drivers = ((users ?? []) as Array<{ id: string; name: string; role: string }>).filter(u => u.role === 'DRIVER');
+  const users = (usersResponse as { data?: any[] } | undefined)?.data ?? [];
+  const drivers = users.filter((u: any) => u.role === 'DRIVER');
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<VanInput>({
     resolver: zodResolver(vanSchema),

@@ -1,6 +1,6 @@
 # Backend Progress Log — Water Supply CRM
 
-**Last Updated:** February 12, 2026 (Session 4)
+**Last Updated:** February 18, 2026 (Session 6)
 
 ---
 
@@ -8,10 +8,10 @@
 
 | Metric | Value |
 | :--- | :--- |
-| Total Endpoints | **95** |
-| Modules Completed | **16** |
-| New Files Created | **~75** |
-| Files Modified | **~35** |
+| Total Endpoints | **119** |
+| Modules Completed | **19** |
+| New Files Created | **~80** |
+| Files Modified | **~50** |
 | Test Coverage | Pending |
 
 ---
@@ -460,14 +460,116 @@ All dashboard endpoints cached with **60s TTL**.
 
 ---
 
+---
+
+## Phase 14 — Backend Gap Fixes & Hardening ✅ (Feb 18, 2026, Session 6)
+
+**Goal:** Comprehensive audit of all backend gaps — fix data model issues, missing filters, broken flows, and seed data.
+
+### Schema Changes (5 new migrations)
+
+| Migration | Change |
+| :--- | :--- |
+| `add_payment_type_to_customer` | Added `PaymentType` enum (`MONTHLY`/`CASH`) + `Customer.paymentType @default(CASH)` |
+| `add_filled_empty_to_transaction` | Added `Transaction.filledDropped Int?` + `Transaction.emptyReceived Int?` (raw delivery counts) |
+| `add_default_van_to_route` | Added `Route.defaultVanId String?` + Van back-relation `routes[]` |
+| `add_isactive_to_customer` | Added `Customer.isActive Boolean @default(true)` |
+| `add_isactive_to_van` | Added `Van.isActive Boolean @default(true)` |
+
+### New Endpoints (8)
+
+| Endpoint | Module | Description |
+| :--- | :--- | :--- |
+| `PATCH /customers/:id/deactivate` | Customers | Soft-disable customer (isActive=false), history preserved |
+| `PATCH /customers/:id/reactivate` | Customers | Re-enable deactivated customer |
+| `GET /customers/:id/consumption?month=` | Customers | Per-product consumption rate (avg deliveries/month, avg bottles) |
+| `PATCH /vans/:id/deactivate` | Vans | Soft-disable van (isActive=false) |
+| `PATCH /vans/:id/reactivate` | Vans | Re-enable deactivated van |
+| `PATCH /users/me/change-password` | Users | Authenticated user changes their own password (bcrypt verify + rehash) |
+| `PATCH /daily-sheets/:id/swap-assignment` | Daily Sheets | Replaces `/swap-driver` — supports van-only, driver-only, or both; auto-assigns van's defaultDriver |
+
+### Bug Fixes
+
+| Bug | Fix |
+| :--- | :--- |
+| **Critical: all routes got same van** | Processor used `findFirst` (got same van for all routes). Fixed: each route fetches its own `defaultVan` |
+| **RESCHEDULED deliveries lost** | Processor never carried forward skipped items. Fixed: on sheet generation, RESCHEDULED items from older sheets are re-added; old items marked CANCELLED |
+| **New product missing existing wallets** | `product.create()` only new customers got wallets. Fixed: creates `BottleWallet` for ALL active customers when product created |
+| **Balance reminders sent to CASH customers** | Reminder query had no `paymentType` filter. Fixed: only `MONTHLY` + `isActive=true` customers receive reminders |
+| **Transaction raw delivery data lost** | `bottleCount` only stored NET (filledDropped - emptyReceived). Fixed: now stores both raw fields separately |
+| **vendor.service.ts constructor missing** | Previous session left `// ... (constructor)` placeholder → 41 TS errors. Fixed: restored full constructor + all methods |
+| **user.service.ts methods missing** | `create`, `findByEmail`, `findById`, `findByIdentifier` were lost. Fixed: fully restored |
+
+### Improvements
+
+**Customer Filters (`GET /customers`):**
+- Added `paymentType` filter (MONTHLY/CASH)
+- Added `isActive` filter (default `true` — inactive customers hidden from delivery lists)
+- Added `balanceMin` / `balanceMax` for outstanding balance filtering
+- Added `sortDir` (asc/desc)
+- Added `financialBalance` sort option
+
+**Products (`GET /products`):**
+- Fully paginated (was unfiltered list)
+- Added `search` (name/description), `isActive`, `sortDir`
+
+**Daily Sheets (`GET /daily-sheets`):**
+- Added `vanId` filter
+- Added `sortDir` (default `desc`)
+- Sheet items now include customer `paymentType` + `financialBalance` so drivers see payment type per stop
+
+**Vans (`GET /vans`):**
+- Now includes assigned routes in all responses
+- `isActive` filter on list endpoint (default shows all; `isActive=false` for inactive)
+
+**Routes:**
+- `defaultVanId` added to create/update DTOs
+- All responses now include `defaultVan { id, plateNumber, defaultDriver { id, name } }`
+- Validated: van must belong to same vendor before assigning
+
+**Transactions (`GET /transactions`):**
+- Added `vanId` filter (via `dailySheet.vanId`)
+
+**Daily Sheet Processor:**
+- Inactive vans → route skipped with reason in `skippedRoutes[]` response
+- Missing `defaultDriverId` → route skipped with reason
+- Job return now includes `{ sheetsCreated, skippedRoutes: [{ id, name, reason }] }`
+- Only `isActive=true` customers added to sheets
+
+**Audit Log coverage added for:**
+- Daily sheet close (`CLOSE`)
+- Delivery submit (`DELIVERY_SUBMIT`)
+- Swap assignment (`SWAP_ASSIGNMENT`)
+
+**FCM push notifications added for:**
+- Delivery completed → customer notified
+- Payment approved → customer notified with new balance
+- Payment rejected → customer notified with reason
+
+### Seed Data Rewritten (`libs/shared/database/prisma/seed.ts`)
+
+| Feature | Before | After |
+| :--- | :--- | :--- |
+| SUPER_ADMIN | ❌ None | ✅ `super@watercrm.com / Super@123456` |
+| STAFF user | ❌ None | ✅ `staff@aquapure.com / Staff@123456` |
+| Route → Van link | ❌ No `defaultVanId` | ✅ Each route linked to its own van |
+| PaymentType variety | ❌ All CASH | ✅ ~40% MONTHLY, ~60% CASH |
+| Customer isActive | ❌ All active | ✅ ~10% inactive |
+| Van isActive | ❌ All active | ✅ 1 inactive (Malir route — tests skip logic) |
+| Products | ❌ 1 (19L only) | ✅ 2 (19L + 5L) |
+| Bottle wallets | ❌ All zero | ✅ Realistic 0–8 bottles at home |
+| Financial balances | ❌ All zero | ✅ MONTHLY: 0–5000, CASH: 0–300 |
+| Custom prices | ❌ None | ✅ ~20 customers with custom 19L pricing |
+| Delivery day patterns | ❌ All [1,3,5] | ✅ 7 different patterns |
+
+---
+
 ## Known Issues / Future Improvements
 
 | Issue | Priority | Notes |
 | :--- | :--- | :--- |
-| **Prisma generate + migrate** | 🔴 Critical | `prisma generate` + `prisma migrate dev` — PaymentRequest model not yet in DB |
-| `UserRole` TS error | 🟠 High | Fixed by `prisma generate` — pre-existing, doesn't affect runtime |
 | No Swagger/OpenAPI docs | 🟠 High | `@nestjs/swagger` — needed before frontend integration |
 | No env var validation on startup | 🟡 Medium | Joi schema to catch missing env at boot time |
 | No unit/integration tests | 🟡 Medium | All endpoints manually testable via Postman |
 | No notification history log | 🟡 Low | Store sent WhatsApp messages to DB for audit |
-| Audit log | 🟡 Low | Track who approved payments / changed customer data |
+| Delivery sequence sorting | 🟡 Low | Driver sheet stop order is currently by customerCode; GPS proximity sort held for later |

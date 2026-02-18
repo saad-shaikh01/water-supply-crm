@@ -148,6 +148,33 @@ export class CustomerController {
     res.end(buffer);
   }
 
+  /** PATCH /customers/:id/deactivate — soft-disable customer, preserves history */
+  @Patch(':id/deactivate')
+  @Roles(UserRole.VENDOR_ADMIN)
+  @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
+  deactivate(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.customerService.deactivate(user.vendorId, id);
+  }
+
+  /** PATCH /customers/:id/reactivate — re-enable a deactivated customer */
+  @Patch(':id/reactivate')
+  @Roles(UserRole.VENDOR_ADMIN)
+  @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
+  reactivate(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.customerService.reactivate(user.vendorId, id);
+  }
+
+  /** GET /customers/:id/consumption?month=2026-02 — consumption rate & bottle stats */
+  @Get(':id/consumption')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  getConsumption(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Query() query: StatementQueryDto,
+  ) {
+    return this.customerService.getConsumptionStats(user.vendorId, id, query.month);
+  }
+
   /** GET /customers/:id/schedule?from=2026-02-01&to=2026-02-28 — delivery calendar */
   @Get(':id/schedule')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)

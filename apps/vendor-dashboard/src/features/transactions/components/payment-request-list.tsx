@@ -13,7 +13,7 @@ import { usePaymentRequests, useApproveRequest, useRejectRequest } from '../hook
 import { cn } from '@water-supply-crm/ui';
 
 export function PaymentRequestList() {
-  const { data, isLoading, page, setPage } = usePaymentRequests();
+  const { data, isLoading, page, setPage, limit, setLimit } = usePaymentRequests();
   const { mutate: approve, isPending: isApproving } = useApproveRequest();
   const { mutate: reject, isPending: isRejecting } = useRejectRequest();
 
@@ -21,7 +21,7 @@ export function PaymentRequestList() {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
 
-  const requests = (data as { data?: unknown[]; totalPages?: number } | undefined);
+  const requests = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
   const rows = (requests?.data ?? []) as Array<{
     id: string;
     amount: number;
@@ -32,7 +32,7 @@ export function PaymentRequestList() {
     customer?: { name: string; customerCode: string };
     screenshotPath?: string;
   }>;
-  const totalPages = requests?.totalPages ?? 1;
+  const total = requests?.meta?.total ?? 0;
 
   const handleReject = () => {
     if (selectedRequest && rejectReason) {
@@ -52,8 +52,10 @@ export function PaymentRequestList() {
         data={rows}
         isLoading={isLoading}
         page={page}
-        totalPages={totalPages}
+        limit={limit}
+        total={total}
         onPageChange={setPage}
+        onLimitChange={setLimit}
         emptyMessage="No pending payment requests."
         columns={[
           {

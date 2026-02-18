@@ -11,19 +11,19 @@ export const queryKeys = {
     one: (id: string) => ['customers', id] as const,
   },
   products: {
-    all: ['products'] as const,
+    all: (params?: object) => ['products', params].filter(Boolean) as const,
     one: (id: string) => ['products', id] as const,
   },
   routes: {
-    all: ['routes'] as const,
+    all: (params?: object) => ['routes', params].filter(Boolean) as const,
     one: (id: string) => ['routes', id] as const,
   },
   vans: {
-    all: ['vans'] as const,
+    all: (params?: object) => ['vans', params].filter(Boolean) as const,
     one: (id: string) => ['vans', id] as const,
   },
   users: {
-    all: ['users'] as const,
+    all: (params?: object) => ['users', params].filter(Boolean) as const,
   },
   sheets: {
     all: (params: object) => ['sheets', params] as const,

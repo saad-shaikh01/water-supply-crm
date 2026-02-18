@@ -6,6 +6,7 @@ import { queryKeys } from '../../../lib/query-keys';
 
 export const useTransactions = (overrideCustomerId?: string) => {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
+  const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
   const [urlCustomerId] = useQueryState('customerId', { defaultValue: '' });
   const [type] = useQueryState('type', { defaultValue: '' });
 
@@ -13,7 +14,7 @@ export const useTransactions = (overrideCustomerId?: string) => {
 
   const params: TransactionQuery = {
     page,
-    limit: 20,
+    limit,
     customerId: effectiveCustomerId || undefined,
     type: type || undefined,
   };
@@ -25,6 +26,8 @@ export const useTransactions = (overrideCustomerId?: string) => {
     }),
     page,
     setPage,
+    limit,
+    setLimit,
     customerId: effectiveCustomerId,
     type,
   };
@@ -60,9 +63,10 @@ export const useAddAdjustment = () => {
 
 export const usePaymentRequests = () => {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
+  const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
   const [status] = useQueryState('status', { defaultValue: 'PENDING' });
 
-  const params = { page, limit: 20, status: status || undefined };
+  const params = { page, limit, status: status || undefined };
 
   return {
     ...useQuery({
@@ -71,6 +75,8 @@ export const usePaymentRequests = () => {
     }),
     page,
     setPage,
+    limit,
+    setLimit,
     status,
   };
 };

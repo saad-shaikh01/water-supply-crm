@@ -6,14 +6,17 @@ import { queryKeys } from '../../../lib/query-keys';
 
 export const useCustomers = () => {
   const [search] = useQueryState('search', { defaultValue: '' });
-  const [page] = useQueryState('page', parseAsInteger.withDefault(1));
+  const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
+  const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
   const [routeId] = useQueryState('routeId', { defaultValue: '' });
+  const [paymentType] = useQueryState<'MONTHLY' | 'CASH' | ''>('paymentType', { defaultValue: '' });
 
   const params = {
     search: search || undefined,
     page,
-    limit: 20,
+    limit,
     routeId: routeId || undefined,
+    paymentType: (paymentType as 'MONTHLY' | 'CASH') || undefined,
   };
 
   return {
@@ -23,7 +26,11 @@ export const useCustomers = () => {
     }),
     search,
     page,
+    setPage,
+    limit,
+    setLimit,
     routeId,
+    paymentType,
   };
 };
 
@@ -70,6 +77,30 @@ export const useDeleteCustomer = () => {
       toast.success('Customer deleted');
     },
     onError: () => toast.error('Failed to delete customer'),
+  });
+};
+
+export const useDeactivateCustomer = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => customersApi.deactivate(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      toast.success('Customer deactivated');
+    },
+    onError: () => toast.error('Failed to deactivate customer'),
+  });
+};
+
+export const useReactivateCustomer = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => customersApi.reactivate(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      toast.success('Customer reactivated');
+    },
+    onError: () => toast.error('Failed to reactivate customer'),
   });
 };
 

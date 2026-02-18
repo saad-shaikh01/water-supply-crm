@@ -21,29 +21,29 @@ function StatCard({ title, value, icon: Icon, description, trend, index }: StatC
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.1 }}
     >
-      <Card className="group overflow-hidden border-border/50 bg-card/50 backdrop-blur-sm hover:shadow-xl hover:shadow-primary/5 hover:border-primary/20 transition-all duration-300">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground group-hover:text-primary transition-colors">
+      <Card className="group relative overflow-hidden border-white/10 bg-card/40 backdrop-blur-xl shadow-glass hover:shadow-premium hover:border-primary/30 transition-all duration-500 rounded-[2rem]">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+          <CardTitle className="text-xs font-black uppercase tracking-[0.15em] text-muted-foreground/80 group-hover:text-primary transition-colors">
             {title}
           </CardTitle>
-          <div className="p-2 rounded-lg bg-accent group-hover:bg-primary group-hover:text-primary-foreground transition-all duration-300">
-            <Icon className="h-4 w-4" />
+          <div className="h-10 w-10 rounded-2xl bg-primary/5 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-all duration-500 shadow-inner">
+            <Icon className="h-5 w-5" />
           </div>
         </CardHeader>
         <CardContent>
-          <div className="text-3xl font-bold tracking-tight">{value}</div>
-          <div className="flex items-center gap-2 mt-1">
+          <div className="text-3xl font-black tracking-tight mb-2">{value}</div>
+          <div className="flex items-center gap-2">
             {trend && (
-              <span className="flex items-center text-[10px] font-bold text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded">
+              <span className="flex items-center text-[10px] font-black text-emerald-500 bg-emerald-500/10 px-2 py-1 rounded-full border border-emerald-500/20">
                 <ArrowUpRight className="h-3 w-3 mr-0.5" />
                 {trend}
               </span>
             )}
-            {description && <p className="text-xs text-muted-foreground truncate">{description}</p>}
+            {description && <p className="text-[11px] font-bold text-muted-foreground/60 truncate uppercase tracking-wider">{description}</p>}
           </div>
         </CardContent>
-        {/* Subtle background glow */}
-        <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-primary/5 blur-3xl rounded-full group-hover:bg-primary/10 transition-colors" />
+        {/* Animated background glow */}
+        <div className="absolute -right-6 -bottom-6 w-32 h-32 bg-primary/5 blur-[50px] rounded-full group-hover:bg-primary/20 transition-all duration-700" />
       </Card>
     </motion.div>
   );

@@ -5,6 +5,7 @@ export interface SheetQuery {
   limit?: number;
   date?: string;
   routeId?: string;
+  vanId?: string;
   status?: string;
   driverId?: string;
 }
@@ -21,4 +22,8 @@ export const dailySheetsApi = {
   close: (id: string) => apiClient.post(`/daily-sheets/${id}/close`),
   updateDeliveryItem: (itemId: string, data: Record<string, unknown>) =>
     apiClient.patch(`/daily-sheets/items/${itemId}`, data),
+  swapAssignment: (id: string, data: Record<string, unknown>) =>
+    apiClient.patch(`/daily-sheets/${id}/swap-assignment`, data),
+  exportPdf: (id: string) =>
+    apiClient.get(`/daily-sheets/${id}/export`, { responseType: 'blob' }),
 };

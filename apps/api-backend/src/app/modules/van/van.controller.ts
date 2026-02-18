@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
@@ -13,6 +14,7 @@ import { UserRole } from '@prisma/client';
 import { VanService } from './van.service';
 import { CreateVanDto } from './dto/create-van.dto';
 import { UpdateVanDto } from './dto/update-van.dto';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -31,8 +33,8 @@ export class VanController {
   }
 
   @Get()
-  findAll(@CurrentUser() user: any) {
-    return this.vanService.findAll(user.vendorId);
+  findAll(@CurrentUser() user: any, @Query() query: PaginationQueryDto) {
+    return this.vanService.findAllPaginated(user.vendorId, query);
   }
 
   @Get(':id')
@@ -49,6 +51,20 @@ export class VanController {
     @Body() dto: UpdateVanDto,
   ) {
     return this.vanService.update(user.vendorId, id, dto);
+  }
+
+  @Patch(':id/deactivate')
+  @Roles(UserRole.VENDOR_ADMIN)
+  @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
+  deactivate(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.vanService.deactivate(user.vendorId, id);
+  }
+
+  @Patch(':id/reactivate')
+  @Roles(UserRole.VENDOR_ADMIN)
+  @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
+  reactivate(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.vanService.reactivate(user.vendorId, id);
   }
 
   @Delete(':id')

@@ -58,6 +58,8 @@ export class LedgerService {
           customerId: data.customerId,
           productId: data.productId,
           dailySheetId: data.dailySheetId,
+          filledDropped: data.filledDropped,
+          emptyReceived: data.emptyReceived,
           bottleCount: data.filledDropped - data.emptyReceived,
           amount: totalAmount,
           description: `Delivered ${data.filledDropped}, Received ${data.emptyReceived}`,
@@ -175,11 +177,12 @@ export class LedgerService {
   }
 
   async findAllPaginated(vendorId: string, query: TransactionQueryDto) {
-    const { page = 1, limit = 20, customerId, type, dateFrom, dateTo } = query;
+    const { page = 1, limit = 20, customerId, vanId, type, dateFrom, dateTo } = query;
 
     const where: any = { vendorId };
 
     if (customerId) where.customerId = customerId;
+    if (vanId) where.dailySheet = { vanId };
     if (type) where.type = type;
     if (dateFrom || dateTo) {
       where.createdAt = {};

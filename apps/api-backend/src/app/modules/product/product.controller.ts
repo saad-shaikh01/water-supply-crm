@@ -5,6 +5,7 @@ import {
   Patch,
   Body,
   Param,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
@@ -12,6 +13,7 @@ import { UserRole } from '@prisma/client';
 import { ProductService } from './product.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { ProductQueryDto } from './dto/product-query.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -30,8 +32,8 @@ export class ProductController {
   }
 
   @Get()
-  findAll(@CurrentUser() user: any) {
-    return this.productService.findAll(user.vendorId);
+  findAll(@CurrentUser() user: any, @Query() query: ProductQueryDto) {
+    return this.productService.findAll(user.vendorId, query);
   }
 
   @Get(':id')

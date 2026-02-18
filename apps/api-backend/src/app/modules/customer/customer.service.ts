@@ -75,9 +75,10 @@ export class CustomerService {
   }
 
   async findAllPaginated(vendorId: string, query: CustomerQueryDto) {
-    const { page = 1, limit = 20, search, routeId, sort = 'name' } = query;
+    const { page = 1, limit = 20, search, routeId, paymentType, isActive, balanceMin, balanceMax, sort = 'name', sortDir = 'asc' } = query;
 
-    const where: any = { vendorId };
+    // Default: show only active customers unless explicitly asked for inactive
+    const where: any = { vendorId, isActive: isActive !== undefined ? isActive : true };
 
     if (search) {
       where.OR = [
@@ -91,6 +92,16 @@ export class CustomerService {
       where.routeId = routeId;
     }
 
+    if (paymentType) {
+      where.paymentType = paymentType;
+    }
+
+    if (balanceMin !== undefined || balanceMax !== undefined) {
+      where.financialBalance = {};
+      if (balanceMin !== undefined) where.financialBalance.gte = balanceMin;
+      if (balanceMax !== undefined) where.financialBalance.lte = balanceMax;
+    }
+
     const [data, total] = await Promise.all([
       this.prisma.customer.findMany({
         where,
@@ -98,7 +109,7 @@ export class CustomerService {
           route: { select: { id: true, name: true } },
           wallets: { include: { product: { select: { id: true, name: true } } } },
         },
-        orderBy: { [sort]: 'asc' },
+        orderBy: { [sort]: sortDir },
         skip: (page - 1) * limit,
         take: limit,
       }),
@@ -381,6 +392,105 @@ export class CustomerService {
   async getMonthlyStatementPdf(vendorId: string, customerId: string, month?: string): Promise<Buffer> {
     const data = await this.getMonthlyStatement(vendorId, customerId, month);
     return this.statementPdf.generate(data);
+  }
+
+  async deactivate(vendorId: string, id: string) {
+    const customer = await this.prisma.customer.findFirst({ where: { id, vendorId } });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const updated = await this.prisma.customer.update({
+      where: { id },
+      data: { isActive: false },
+      select: { id: true, name: true, customerCode: true, isActive: true },
+    });
+    await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
+    await this.audit.log({ vendorId, action: 'DEACTIVATE', entity: 'Customer', entityId: id });
+    return updated;
+  }
+
+  async reactivate(vendorId: string, id: string) {
+    const customer = await this.prisma.customer.findFirst({ where: { id, vendorId } });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const updated = await this.prisma.customer.update({
+      where: { id },
+      data: { isActive: true },
+      select: { id: true, name: true, customerCode: true, isActive: true },
+    });
+    await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
+    await this.audit.log({ vendorId, action: 'REACTIVATE', entity: 'Customer', entityId: id });
+    return updated;
+  }
+
+  async getConsumptionStats(vendorId: string, customerId: string, month?: string) {
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: customerId, vendorId },
+      include: {
+        wallets: { include: { product: { select: { id: true, name: true } } } },
+      },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const targetMonth = month ?? new Date().toISOString().slice(0, 7);
+    const [year, mon] = targetMonth.split('-').map(Number);
+    const startDate = new Date(year, mon - 1, 1);
+    const endDate = new Date(year, mon, 1);
+
+    const deliveries = await this.prisma.transaction.findMany({
+      where: {
+        customerId,
+        vendorId,
+        type: 'DELIVERY',
+        createdAt: { gte: startDate, lt: endDate },
+      },
+      select: {
+        filledDropped: true,
+        emptyReceived: true,
+        createdAt: true,
+        product: { select: { id: true, name: true } },
+      },
+    });
+
+    const deliveryCount = deliveries.length;
+    const totalFilled = deliveries.reduce((sum, t) => sum + (t.filledDropped ?? 0), 0);
+    const totalEmpty = deliveries.reduce((sum, t) => sum + (t.emptyReceived ?? 0), 0);
+    const avgPerDelivery = deliveryCount > 0
+      ? Math.round((totalFilled / deliveryCount) * 100) / 100
+      : 0;
+
+    // Per-wallet consumption rate: avgPerDelivery / walletBalance * 100
+    const walletStats = customer.wallets.map((w) => {
+      const walletDeliveries = deliveries.filter((d) => d.product?.id === w.productId);
+      const walletFilled = walletDeliveries.reduce((sum, d) => sum + (d.filledDropped ?? 0), 0);
+      const walletAvg = walletDeliveries.length > 0
+        ? Math.round((walletFilled / walletDeliveries.length) * 100) / 100
+        : 0;
+      const consumptionRate = w.balance > 0
+        ? Math.round((walletAvg / w.balance) * 10000) / 100
+        : null;
+
+      return {
+        product: w.product,
+        currentWalletBalance: w.balance,
+        deliveryCount: walletDeliveries.length,
+        totalConsumed: walletFilled,
+        avgPerDelivery: walletAvg,
+        consumptionRate: consumptionRate !== null ? `${consumptionRate}%` : 'N/A',
+      };
+    });
+
+    return {
+      customerId: customer.id,
+      customerName: customer.name,
+      period: targetMonth,
+      summary: {
+        deliveryCount,
+        totalFilledDropped: totalFilled,
+        totalEmptyReceived: totalEmpty,
+        avgFilledPerDelivery: avgPerDelivery,
+      },
+      byProduct: walletStats,
+    };
   }
 
   async getDeliverySchedule(

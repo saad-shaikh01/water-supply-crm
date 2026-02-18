@@ -1,7 +1,7 @@
 # Project Current Status - Water Supply CRM
 
-**Last Updated:** February 13, 2026 (Session 5)
-**Status:** ✅ Backend PRODUCTION READY — 111 endpoints, 19 modules, full payment system (Raast QR + Manual), balance reminders, customer portal, expense tracking, FCM push notifications, audit log, staff performance
+**Last Updated:** February 18, 2026 (Session 6)
+**Status:** ✅ Backend PRODUCTION READY — 119 endpoints, 19 modules, full payment system (Raast QR + Manual), balance reminders, customer portal, expense tracking, FCM push notifications, audit log, staff performance, PaymentType (MONTHLY/CASH), isActive on customers/vans, consumption stats, proper seed data
 
 ---
 
@@ -50,6 +50,7 @@
 | PATCH | `/users/:id` | ✅ | VENDOR_ADMIN | Update user |
 | PATCH | `/users/:id/deactivate` | ✅ | VENDOR_ADMIN | Soft disable (isActive=false), history kept |
 | PATCH | `/users/:id/reactivate` | ✅ | VENDOR_ADMIN | Re-enable deactivated user |
+| PATCH | `/users/me/change-password` | ✅ | Any | User changes their own password (verifies current) |
 | DELETE | `/users/:id` | ✅ | VENDOR_ADMIN | Hard delete (blocked if daily sheets exist) |
 
 ### Vendors Module (`/api/vendors`)
@@ -88,22 +89,27 @@
 | Method | Endpoint | Auth | Roles | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | POST | `/vans` | ✅ | VENDOR_ADMIN, STAFF | Register van |
-| GET | `/vans` | ✅ | Any | List vans (cached 5min) |
-| GET | `/vans/:id` | ✅ | Any | Van detail |
+| GET | `/vans` | ✅ | Any | List vans with assigned routes (isActive filter) |
+| GET | `/vans/:id` | ✅ | Any | Van detail with assigned routes |
 | PATCH | `/vans/:id` | ✅ | VENDOR_ADMIN, STAFF | Update van |
+| PATCH | `/vans/:id/deactivate` | ✅ | VENDOR_ADMIN | Soft-disable van (isActive=false) |
+| PATCH | `/vans/:id/reactivate` | ✅ | VENDOR_ADMIN | Re-enable deactivated van |
 | DELETE | `/vans/:id` | ✅ | VENDOR_ADMIN | Delete van (blocked if open sheets) |
 
 ### Customers Module (`/api/customers`)
 | Method | Endpoint | Auth | Roles | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| POST | `/customers` | ✅ | VENDOR_ADMIN, STAFF | Create customer + init wallets |
-| GET | `/customers` | ✅ | VENDOR_ADMIN, STAFF, DRIVER | Paginated list (search, routeId, sort) |
+| POST | `/customers` | ✅ | VENDOR_ADMIN, STAFF | Create customer + init wallets for ALL products |
+| GET | `/customers` | ✅ | VENDOR_ADMIN, STAFF, DRIVER | Paginated list (search, routeId, paymentType, isActive, balanceMin/Max, sort) |
 | GET | `/customers/:id` | ✅ | VENDOR_ADMIN, STAFF, DRIVER | Detail with wallets + custom prices |
 | PATCH | `/customers/:id` | ✅ | VENDOR_ADMIN, STAFF | Update customer |
+| PATCH | `/customers/:id/deactivate` | ✅ | VENDOR_ADMIN, STAFF | Soft-disable customer (isActive=false), history kept |
+| PATCH | `/customers/:id/reactivate` | ✅ | VENDOR_ADMIN, STAFF | Re-enable deactivated customer |
 | DELETE | `/customers/:id` | ✅ | VENDOR_ADMIN | Delete (blocked if transactions exist) |
 | POST | `/customers/:id/custom-prices` | ✅ | VENDOR_ADMIN, STAFF | Set/update custom price |
 | DELETE | `/customers/:id/custom-prices/:productId` | ✅ | VENDOR_ADMIN, STAFF | Remove custom price |
 | GET | `/customers/:id/transactions` | ✅ | VENDOR_ADMIN, STAFF, DRIVER | Paginated transaction history |
+| GET | `/customers/:id/consumption?month=YYYY-MM` | ✅ | VENDOR_ADMIN, STAFF | Per-product consumption rate (avg bottles/delivery, avg/month) |
 | POST | `/customers/:id/portal-account` | ✅ | VENDOR_ADMIN | Create login credentials for customer portal access |
 | DELETE | `/customers/:id/portal-account` | ✅ | VENDOR_ADMIN | Remove customer portal account |
 | GET | `/customers/:id/statement?month=YYYY-MM` | ✅ | VENDOR_ADMIN, STAFF | Financial statement PDF download (PDFKit) |
@@ -112,7 +118,7 @@
 ### Transactions Module (`/api/transactions`)
 | Method | Endpoint | Auth | Roles | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| GET | `/transactions` | ✅ | VENDOR_ADMIN, STAFF | Paginated list (filter by type, date, customer) |
+| GET | `/transactions` | ✅ | VENDOR_ADMIN, STAFF | Paginated list (filter by type, date, customer, vanId) |
 | POST | `/transactions/payments` | ✅ | VENDOR_ADMIN, STAFF | Record payment + WhatsApp notification |
 | POST | `/transactions/adjustments` | ✅ | VENDOR_ADMIN | Record manual adjustment |
 | GET | `/transactions/customers/:customerId` | ✅ | VENDOR_ADMIN, STAFF, DRIVER | Customer transactions |
@@ -130,7 +136,7 @@
 | PATCH | `/daily-sheets/:id/load-out` | ✅ | VENDOR_ADMIN, STAFF | Record filled bottles dispatched |
 | PATCH | `/daily-sheets/:id/check-in` | ✅ | VENDOR_ADMIN, STAFF | Record return (filled + empty + cash) |
 | POST | `/daily-sheets/:id/close` | ✅ | VENDOR_ADMIN, STAFF | Close sheet + reconciliation report |
-| PATCH | `/daily-sheets/:id/swap-driver` | ✅ | VENDOR_ADMIN | Swap driver/van on open sheet |
+| PATCH | `/daily-sheets/:id/swap-assignment` | ✅ | VENDOR_ADMIN | Swap driver and/or van on open sheet (auto-assigns van's default driver) |
 | GET | `/daily-sheets/:id/export` | ✅ | VENDOR_ADMIN, STAFF | Download PDF (A4, printable, with reconciliation) |
 
 ### Dashboard Module (`/api/dashboard`)
@@ -388,11 +394,11 @@ API_URL=https://yourdomain.com/api # Your public API URL (for Paymob webhook cal
 
 | Feature | Priority | Notes |
 | :--- | :--- | :--- |
-| Prisma migrations | 🔴 Critical | Run `prisma migrate dev --name add-expenses-fcm-audit` before first deploy (DB was unavailable in dev) |
 | Swagger/OpenAPI documentation | 🟠 High | `@nestjs/swagger` — frontend team needs API reference |
 | Env variables validation on startup | 🟠 High | Joi schema — catch missing env at boot, not at runtime |
 | Unit / integration tests | 🟡 Medium | All endpoints manually testable via Postman now |
 | Notification history log | 🟡 Medium | Store sent WhatsApp messages in DB |
+| Delivery sequence sorting | 🟡 Low | Stop order is by customerCode; GPS proximity sort planned for later |
 | Frontend dashboard | 🟡 Medium | Next.js vendor dashboard UI (backend is complete) |
 
 ---
@@ -402,12 +408,12 @@ API_URL=https://yourdomain.com/api # Your public API URL (for Paymob webhook cal
 | Module | Endpoints | Base Path |
 | :--- | :---: | :--- |
 | Auth | 6 | `/api/auth` |
-| Users | 7 | `/api/users` |
+| Users | 8 | `/api/users` |
 | Vendors | 10 | `/api/vendors` |
 | Products | 5 | `/api/products` |
 | Routes | 5 | `/api/routes` |
-| Vans | 5 | `/api/vans` |
-| Customers | 12 | `/api/customers` |
+| Vans | 7 | `/api/vans` |
+| Customers | 15 | `/api/customers` |
 | Transactions | 5 | `/api/transactions` |
 | Daily Sheets | 11 | `/api/daily-sheets` |
 | Dashboard | 7 | `/api/dashboard` |
@@ -418,10 +424,10 @@ API_URL=https://yourdomain.com/api # Your public API URL (for Paymob webhook cal
 | Balance Reminders | 4 | `/api/balance-reminders` |
 | Tracking | 4 | `/api/tracking` |
 | Health | 3 | `/api/health` |
-| **Expenses** *(new)* | **6** | `/api/expenses` |
-| **FCM** *(new)* | **3** | `/api/fcm` |
-| **Audit Logs** *(new)* | **2** | `/api/audit-logs` |
-| **TOTAL** | **111** | |
+| Expenses | 6 | `/api/expenses` |
+| FCM | 3 | `/api/fcm` |
+| Audit Logs | 2 | `/api/audit-logs` |
+| **TOTAL** | **119** | |
 
 ---
 
@@ -521,4 +527,39 @@ DATABASE_URL="..." npx prisma migrate dev --schema=libs/shared/database/prisma/s
 npx prisma generate --schema=libs/shared/database/prisma/schema.prisma
 ```
 
-**Audit log is written on:** Customer create/update/delete, User create/update/deactivate/reactivate/delete, Payment approve/reject, Vendor suspend/unsuspend/delete
+**Audit log is written on:** Customer create/update/delete/deactivate/reactivate, User create/update/deactivate/reactivate/delete, Payment approve/reject, Vendor suspend/unsuspend/delete, Daily sheet close, Delivery submit, Swap assignment
+
+### Session 6 Schema Changes (migration: per-change migrations)
+| Change | Details |
+| :--- | :--- |
+| `PaymentType` enum | `MONTHLY` / `CASH` — added to `Customer.paymentType @default(CASH)` |
+| `Customer.isActive` | `Boolean @default(true)` — soft-disable customers without losing history |
+| `Van.isActive` | `Boolean @default(true)` — deactivate vans without deleting |
+| `Route.defaultVanId` | `String?` → FK to Van — fixes sheet generation: each route uses its own van |
+| `Transaction.filledDropped` | `Int?` — raw bottles delivered (was computed/lost in bottleCount NET) |
+| `Transaction.emptyReceived` | `Int?` — raw empty bottles collected per delivery |
+| `Transaction.bottleCount` | Still present — now means NET (filledDropped - emptyReceived) |
+
+**To run all pending migrations:**
+```bash
+DATABASE_URL="..." npx prisma migrate dev --schema=libs/shared/database/prisma/schema.prisma
+npx prisma generate --schema=libs/shared/database/prisma/schema.prisma
+```
+
+### Seed Data (`libs/shared/database/prisma/seed.ts`)
+```bash
+DATABASE_URL="..." npx ts-node --project libs/shared/database/tsconfig.lib.json \
+  --transpile-only libs/shared/database/prisma/seed.ts
+```
+
+**Seeded users:**
+| Role | Email | Password |
+| :--- | :--- | :--- |
+| SUPER_ADMIN | super@watercrm.com | Super@123456 |
+| VENDOR_ADMIN | vendor@aquapure.com | Vendor@123456 |
+| STAFF | staff@aquapure.com | Staff@123456 |
+| DRIVER 1 | driver1@aquapure.com | Driver@123 |
+| DRIVER 2 | driver2@aquapure.com | Driver@123 |
+| DRIVER 3 | driver3@aquapure.com | Driver@123 |
+
+**Seeded data:** 3 routes (DHA→KHI-123, Gulshan→SINDH-456, Malir→PK-789 inactive), 2 products (19L + 5L), 100 customers (~40% MONTHLY, ~10% inactive), realistic bottle wallet + financial balances, ~20% custom prices

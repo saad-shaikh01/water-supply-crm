@@ -6,17 +6,19 @@ import { useRoutes } from '../../../features/routes/hooks/use-routes';
 
 export function RouteFilter() {
   const [routeId, setRouteId] = useQueryState('routeId', { defaultValue: '' });
-  const { data: routes } = useRoutes();
+  const { data } = useRoutes();
+
+  const routes = (data as { data?: any[] } | undefined)?.data ?? [];
 
   return (
     <Select value={routeId || 'all'} onValueChange={(v) => setRouteId(v === 'all' ? null : v)}>
-      <SelectTrigger className="w-[180px]">
+      <SelectTrigger className="w-[180px] rounded-xl bg-background/50 border-border/50">
         <SelectValue placeholder="All Routes" />
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent className="rounded-xl border-border/50 shadow-2xl">
         <SelectItem value="all">All Routes</SelectItem>
-        {((routes ?? []) as Array<{ id: string; name: string }>).map((route) => (
-          <SelectItem key={route.id} value={route.id}>
+        {routes.map((route: any) => (
+          <SelectItem key={route.id} value={route.id} className="rounded-lg">
             {route.name}
           </SelectItem>
         ))}

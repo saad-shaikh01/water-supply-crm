@@ -12,6 +12,7 @@ import { UserService } from '../user/user.service';
 import { UserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { AuditService } from '../audit/audit.service';
+import { paginate } from '../../common/helpers/paginate';
 
 // Redis key used to block suspended vendor's users from authenticating
 export const vendorSuspendedKey = (vendorId: string) =>
@@ -50,13 +51,40 @@ export class VendorService {
     });
   }
 
-  /** List all vendors with basic counts — used by SUPER_ADMIN dashboard list */
+  /** List all vendors with pagination — used by SUPER_ADMIN dashboard list */
+  async findAllPaginated(query: any) {
+    const { page = 1, limit = 20 } = query;
+
+    const [vendors, total] = await Promise.all([
+      this.prisma.vendor.findMany({
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.vendor.count(),
+    ]);
+
+    // Attach quick counts to each vendor
+    const withCounts = await Promise.all(
+      vendors.map(async (v) => {
+        const [customers, drivers] = await Promise.all([
+          this.prisma.customer.count({ where: { vendorId: v.id } }),
+          this.prisma.user.count({
+            where: { vendorId: v.id, role: UserRole.DRIVER, isActive: true },
+          }),
+        ]);
+        return { ...v, _counts: { customers, drivers } };
+      }),
+    );
+
+    return paginate(withCounts, total, page, limit);
+  }
+
   async findAll() {
     const vendors = await this.prisma.vendor.findMany({
       orderBy: { createdAt: 'desc' },
     });
 
-    // Attach quick counts to each vendor
     const withCounts = await Promise.all(
       vendors.map(async (v) => {
         const [customers, drivers] = await Promise.all([

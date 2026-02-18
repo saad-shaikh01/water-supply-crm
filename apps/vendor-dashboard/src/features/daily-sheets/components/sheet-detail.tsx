@@ -10,6 +10,7 @@ import {
 import { PageHeader } from '../../../components/shared/page-header';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import { useDailySheet, useLoadOut, useCheckIn, useCloseSheet, useUpdateDeliveryItem } from '../hooks/use-daily-sheets';
+import { dailySheetsApi } from '../api/daily-sheets.api';
 import { toast } from 'sonner';
 import { 
   Truck, Package, CheckCircle2, ClipboardList, 
@@ -82,12 +83,26 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
 
   const onSaveItem = () => {
     if (!deliveryOpen) return;
-    updateItem({ 
-      itemId: deliveryOpen, 
-      data: itemForm 
-    }, { 
-      onSuccess: () => setDeliveryOpen(null) 
+    updateItem({
+      itemId: deliveryOpen,
+      data: itemForm
+    }, {
+      onSuccess: () => setDeliveryOpen(null)
     });
+  };
+
+  const handleExportPdf = async () => {
+    try {
+      const res = await dailySheetsApi.exportPdf(sheetId);
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sheet-${sheetId}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error('Failed to export PDF');
+    }
   };
 
   return (
@@ -116,7 +131,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
               {isCheckedIn && <Button onClick={() => closeSheet()} disabled={isClosing} className="rounded-full font-bold shadow-lg shadow-primary/20">Close & Reconcile</Button>}
             </div>
           )}
-          <Button variant="outline" size="icon" className="rounded-full" onClick={() => window.open(`/api/daily-sheets/${sheetId}/export`, '_blank')}>
+          <Button variant="outline" size="icon" className="rounded-full" onClick={handleExportPdf}>
             <Download className="h-4 w-4" />
           </Button>
         </div>

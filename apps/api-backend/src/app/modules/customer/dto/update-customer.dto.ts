@@ -5,9 +5,14 @@ import {
   IsInt,
   IsNumber,
   IsUUID,
+  IsEnum,
 } from 'class-validator';
+import { PaymentType } from '@prisma/client';
 
 export class UpdateCustomerDto {
+  @IsOptional()
+  @IsEnum(PaymentType)
+  paymentType?: PaymentType;
   @IsOptional()
   @IsString()
   name?: string;

@@ -21,6 +21,7 @@ import { LedgerService } from '../transaction/ledger.service';
 import { NotificationService } from '../notifications/notification.service';
 import { MessageTemplates } from '../whatsapp/templates/message.templates';
 import { AuditService } from '../audit/audit.service';
+import { FcmService } from '../fcm/fcm.service';
 
 @Injectable()
 export class PaymentService {
@@ -32,6 +33,7 @@ export class PaymentService {
     private readonly ledger: LedgerService,
     private readonly notifications: NotificationService,
     private readonly audit: AuditService,
+    private readonly fcm: FcmService,
   ) {}
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -294,6 +296,13 @@ export class PaymentService {
         this.logger.warn(`WhatsApp notification failed: ${e.message}`),
       );
 
+    this.fcm.sendToCustomer(
+      request.customerId,
+      'Payment Approved ✅',
+      `Rs. ${request.amount} payment approved. New balance: Rs. ${Math.max(0, newBalance)}`,
+      { type: 'PAYMENT_APPROVED', requestId },
+    ).catch(() => null);
+
     this.logger.log(
       `Payment approved: ${requestId} Rs.${request.amount} for customer ${request.customerId}`,
     );
@@ -365,6 +374,13 @@ export class PaymentService {
       entityId: requestId,
       changes: { after: { reason } },
     });
+
+    this.fcm.sendToCustomer(
+      request.customerId,
+      'Payment Rejected ❌',
+      `Rs. ${request.amount} payment rejected. Reason: ${reason}`,
+      { type: 'PAYMENT_REJECTED', requestId },
+    ).catch(() => null);
 
     return { message: 'Payment rejected', requestId, reason };
   }

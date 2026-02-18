@@ -14,23 +14,25 @@ interface TransactionListProps {
 }
 
 export function TransactionList({ customerId }: TransactionListProps) {
-  const { data, isLoading, page, setPage } = useTransactions(customerId);
+  const { data, isLoading, page, setPage, limit, setLimit } = useTransactions(customerId);
   const [paymentOpen, setPaymentOpen] = useState(false);
 
-  const txData = (data as { data?: unknown[]; totalPages?: number } | undefined);
+  const txData = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
   const rows = (txData?.data ?? []) as Array<{ id: string; type: string; amount: number; createdAt: string; customer?: { name: string }; description?: string }>;
-  const totalPages = txData?.totalPages ?? 1;
+  const total = txData?.meta?.total ?? 0;
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-accent/30 border border-border/50 max-w-sm w-full focus-within:ring-2 focus-within:ring-primary/20 transition-all">
-          <Search className="h-4 w-4 text-muted-foreground" />
-          <input 
-            type="text" 
-            placeholder="Search notes..." 
-            className="bg-transparent border-none outline-none text-sm w-full placeholder:text-muted-foreground/50"
-          />
+        <div className="flex-1 w-full max-w-sm">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-accent/30 border border-border/50 focus-within:ring-2 focus-within:ring-primary/20 transition-all">
+            <Search className="h-4 w-4 text-muted-foreground" />
+            <input 
+              type="text" 
+              placeholder="Search notes..." 
+              className="bg-transparent border-none outline-none text-sm w-full placeholder:text-muted-foreground/50"
+            />
+          </div>
         </div>
         
         {customerId && (
@@ -48,8 +50,10 @@ export function TransactionList({ customerId }: TransactionListProps) {
         data={rows}
         isLoading={isLoading}
         page={page}
-        totalPages={totalPages}
+        limit={limit}
+        total={total}
         onPageChange={setPage}
+        onLimitChange={setLimit}
         emptyMessage="No transactions found in this period."
         columns={[
           { 

@@ -1,14 +1,18 @@
 'use client';
 
 import { useProducts } from '../hooks/use-products';
-import { Card, CardContent, CardHeader, CardTitle, Button } from '@water-supply-crm/ui';
+import { Card, CardContent, CardHeader, CardTitle, Button, DataTablePagination } from '@water-supply-crm/ui';
 import { Plus, Package } from 'lucide-react';
 
 export function ProductList() {
-  const { data: products, isLoading } = useProducts();
+  const { data, isLoading, page, setPage, limit, setLimit } = useProducts();
+
+  const response = (data as { data?: any[]; meta?: { total: number } } | undefined);
+  const products = response?.data ?? [];
+  const total = response?.meta?.total ?? 0;
 
   if (isLoading) {
-    return <div className="p-8 text-center">Loading products...</div>;
+    return <div className="p-8 text-center text-sm font-bold text-muted-foreground">Loading inventory...</div>;
   }
 
   return (
@@ -63,6 +67,13 @@ export function ProductList() {
           </table>
         </div>
       </CardContent>
+      <DataTablePagination
+        page={page}
+        limit={limit}
+        total={total}
+        onPageChange={setPage}
+        onLimitChange={setLimit}
+      />
     </Card>
   );
 }

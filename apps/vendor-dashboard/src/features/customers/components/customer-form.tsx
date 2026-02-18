@@ -32,18 +32,21 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
   const isEdit = !!customer?.id;
   const { mutate: create, isPending: isCreating } = useCreateCustomer();
   const { mutate: update, isPending: isUpdating } = useUpdateCustomer();
-  const { data: routes } = useRoutes();
+  const { data: routesResponse } = useRoutes();
   const isPending = isCreating || isUpdating;
+
+  const routes = (routesResponse as { data?: any[] } | undefined)?.data ?? [];
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<CustomerInput>({
     resolver: zodResolver(customerSchema),
-    defaultValues: { 
-      customerCode: '', 
-      name: '', 
-      phoneNumber: '', 
-      address: '', 
-      routeId: '', 
-      deliveryDays: [] 
+    defaultValues: {
+      customerCode: '',
+      name: '',
+      phoneNumber: '',
+      address: '',
+      routeId: '',
+      deliveryDays: [],
+      paymentType: 'CASH',
     },
   });
 
@@ -58,11 +61,12 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
         address: String(customer.address ?? ''),
         routeId: String((customer.route as { id?: string } | undefined)?.id ?? customer.routeId ?? ''),
         deliveryDays: (customer.deliveryDays as number[] ?? []),
+        paymentType: (customer.paymentType as 'MONTHLY' | 'CASH') ?? 'CASH',
         latitude: customer.latitude ? Number(customer.latitude) : undefined,
         longitude: customer.longitude ? Number(customer.longitude) : undefined,
       });
     } else if (!open) {
-      reset({ customerCode: '', name: '', phoneNumber: '', address: '', routeId: '', deliveryDays: [] });
+      reset({ customerCode: '', name: '', phoneNumber: '', address: '', routeId: '', deliveryDays: [], paymentType: 'CASH' });
     }
   }, [open, customer, reset]);
 
@@ -99,19 +103,19 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label className="text-sm font-semibold">Customer Code</Label>
-              <Input 
-                placeholder="CUST-001" 
+              <Input
+                placeholder="CUST-001"
                 className="bg-accent/30 border-border/50 focus:border-primary/50 transition-all"
-                {...register('customerCode')} 
+                {...register('customerCode')}
               />
               {errors.customerCode && <p className="text-[11px] font-medium text-destructive animate-in fade-in slide-in-from-top-1">{errors.customerCode.message}</p>}
             </div>
             <div className="space-y-2">
               <Label className="text-sm font-semibold">Full Name</Label>
-              <Input 
-                placeholder="John Doe" 
+              <Input
+                placeholder="John Doe"
                 className="bg-accent/30 border-border/50 focus:border-primary/50 transition-all"
-                {...register('name')} 
+                {...register('name')}
               />
               {errors.name && <p className="text-[11px] font-medium text-destructive animate-in fade-in slide-in-from-top-1">{errors.name.message}</p>}
             </div>
@@ -119,37 +123,52 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
 
           <div className="space-y-2">
             <Label className="text-sm font-semibold">Phone Number</Label>
-            <Input 
-              placeholder="+92 300 1234567" 
+            <Input
+              placeholder="+92 300 1234567"
               className="bg-accent/30 border-border/50 focus:border-primary/50 transition-all"
-              {...register('phoneNumber')} 
+              {...register('phoneNumber')}
             />
             {errors.phoneNumber && <p className="text-[11px] font-medium text-destructive animate-in fade-in slide-in-from-top-1">{errors.phoneNumber.message}</p>}
           </div>
 
           <div className="space-y-2">
             <Label className="text-sm font-semibold">Address</Label>
-            <Input 
-              placeholder="Building, Street, Area" 
+            <Input
+              placeholder="Building, Street, Area"
               className="bg-accent/30 border-border/50 focus:border-primary/50 transition-all"
-              {...register('address')} 
+              {...register('address')}
             />
             {errors.address && <p className="text-[11px] font-medium text-destructive animate-in fade-in slide-in-from-top-1">{errors.address.message}</p>}
           </div>
 
-          <div className="space-y-2">
-            <Label className="text-sm font-semibold">Service Route</Label>
-            <Select value={watch('routeId')} onValueChange={(v) => setValue('routeId', v, { shouldValidate: true })}>
-              <SelectTrigger className="bg-accent/30 border-border/50 focus:border-primary/50 transition-all">
-                <SelectValue placeholder="Select a route" />
-              </SelectTrigger>
-              <SelectContent>
-                {((routes ?? []) as Array<{ id: string; name: string }>).map((r) => (
-                  <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {errors.routeId && <p className="text-[11px] font-medium text-destructive animate-in fade-in slide-in-from-top-1">{errors.routeId.message}</p>}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold">Service Route</Label>
+              <Select value={watch('routeId')} onValueChange={(v) => setValue('routeId', v, { shouldValidate: true })}>
+                <SelectTrigger className="bg-accent/30 border-border/50 focus:border-primary/50 transition-all">
+                  <SelectValue placeholder="Select a route" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-border/50 shadow-2xl">
+                  {routes.map((r: any) => (
+                    <SelectItem key={r.id} value={r.id} className="rounded-lg">{r.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {errors.routeId && <p className="text-[11px] font-medium text-destructive animate-in fade-in slide-in-from-top-1">{errors.routeId.message}</p>}
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold">Payment Type</Label>
+              <Select value={watch('paymentType')} onValueChange={(v) => setValue('paymentType', v as 'MONTHLY' | 'CASH', { shouldValidate: true })}>
+                <SelectTrigger className="bg-accent/30 border-border/50 focus:border-primary/50 transition-all">
+                  <SelectValue placeholder="Select type" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-border/50 shadow-2xl">
+                  <SelectItem value="CASH" className="rounded-lg">Cash (Per Delivery)</SelectItem>
+                  <SelectItem value="MONTHLY" className="rounded-lg">Monthly Billing</SelectItem>
+                </SelectContent>
+              </Select>
+              {errors.paymentType && <p className="text-[11px] font-medium text-destructive animate-in fade-in slide-in-from-top-1">{errors.paymentType.message}</p>}
+            </div>
           </div>
 
           <div className="space-y-3 p-4 rounded-xl bg-accent/20 border border-border/30">

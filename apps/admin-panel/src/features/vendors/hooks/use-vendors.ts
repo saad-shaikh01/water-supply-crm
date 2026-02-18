@@ -1,13 +1,25 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQueryState, parseAsInteger } from 'nuqs';
 import { toast } from 'sonner';
 import { vendorsApi, type VendorQuery } from '../api/vendors.api';
 import { queryKeys } from '../../../lib/query-keys';
 
-export const useVendors = (params: VendorQuery = {}) => {
-  return useQuery({
-    queryKey: queryKeys.vendors.all(params),
-    queryFn: () => vendorsApi.getAll(params).then((r) => r.data),
-  });
+export const useVendors = () => {
+  const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
+  const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
+
+  const params = { page, limit };
+
+  return {
+    ...useQuery({
+      queryKey: queryKeys.vendors.all(params),
+      queryFn: () => vendorsApi.getAll(params).then((r) => r.data),
+    }),
+    page,
+    setPage,
+    limit,
+    setLimit,
+  };
 };
 
 export const useCreateVendor = () => {

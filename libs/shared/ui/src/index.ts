@@ -13,4 +13,5 @@ export * from './lib/components/ui/tabs';
 export * from './lib/components/ui/dropdown-menu';
 export * from './lib/components/ui/separator';
 export * from './lib/components/ui/avatar';
+export * from './lib/components/ui/pagination';
 export * from './lib/utils';

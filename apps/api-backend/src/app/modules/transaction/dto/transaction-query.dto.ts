@@ -8,6 +8,10 @@ export class TransactionQueryDto extends PaginationQueryDto {
   customerId?: string;
 
   @IsOptional()
+  @IsUUID()
+  vanId?: string;
+
+  @IsOptional()
   @IsEnum(TransactionType)
   type?: TransactionType;
 

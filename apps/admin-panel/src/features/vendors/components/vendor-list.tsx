@@ -1,27 +1,29 @@
 'use client';
 
 import { useState } from 'react';
-import { Button, Badge, Skeleton } from '@water-supply-crm/ui';
+import { Button, Badge, Skeleton, DataTablePagination } from '@water-supply-crm/ui';
 import { Pencil, Trash2 } from 'lucide-react';
 import { useVendors, useDeleteVendor } from '../hooks/use-vendors';
 import { VendorForm } from './vendor-form';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 
 export function VendorList() {
-  const { data, isLoading } = useVendors({ limit: 50 });
+  const { data, isLoading, page, setPage, limit, setLimit } = useVendors();
   const { mutate: deleteVendor } = useDeleteVendor();
 
   const [editTarget, setEditTarget] = useState<Record<string, unknown> | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  const vendors = ((data as { data?: unknown[] } | undefined)?.data ?? (Array.isArray(data) ? data : [])) as Array<{
+  const response = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
+  const vendors = (response?.data ?? []) as Array<{
     id: string;
     name: string;
     slug: string;
     isActive?: boolean;
-    _count?: { customers?: number; users?: number };
+    _counts?: { customers?: number; drivers?: number }; // Note: backend uses _counts based on my update
     createdAt?: string;
   }>;
+  const total = response?.meta?.total ?? 0;
 
   if (isLoading) {
     return (
@@ -40,7 +42,7 @@ export function VendorList() {
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Vendor</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Slug</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Customers</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Users</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Drivers</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Created</th>
               <th className="px-4 py-3 w-[100px]" />
@@ -51,8 +53,8 @@ export function VendorList() {
               <tr key={vendor.id} className="hover:bg-muted/30 transition-colors">
                 <td className="px-4 py-3 font-medium">{vendor.name}</td>
                 <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{vendor.slug}</td>
-                <td className="px-4 py-3">{vendor._count?.customers ?? '—'}</td>
-                <td className="px-4 py-3">{vendor._count?.users ?? '—'}</td>
+                <td className="px-4 py-3">{vendor._counts?.customers ?? '—'}</td>
+                <td className="px-4 py-3">{vendor._counts?.drivers ?? '—'}</td>
                 <td className="px-4 py-3">
                   <Badge variant={vendor.isActive !== false ? 'success' : 'destructive'}>
                     {vendor.isActive !== false ? 'Active' : 'Suspended'}
@@ -83,6 +85,14 @@ export function VendorList() {
           </tbody>
         </table>
       </div>
+
+      <DataTablePagination
+        page={page}
+        limit={limit}
+        total={total}
+        onPageChange={setPage}
+        onLimitChange={setLimit}
+      />
 
       <VendorForm
         open={!!editTarget}
