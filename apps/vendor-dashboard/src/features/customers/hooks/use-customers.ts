@@ -72,3 +72,28 @@ export const useDeleteCustomer = () => {
     onError: () => toast.error('Failed to delete customer'),
   });
 };
+
+export const useCreatePortalAccount = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+      customersApi.createPortalAccount(id, data),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.customers.one(id) });
+      toast.success('Portal account created successfully');
+    },
+    onError: () => toast.error('Failed to create portal account'),
+  });
+};
+
+export const useRemovePortalAccount = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => customersApi.removePortalAccount(id),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.customers.one(id) });
+      toast.success('Portal access revoked');
+    },
+    onError: () => toast.error('Failed to revoke portal access'),
+  });
+};

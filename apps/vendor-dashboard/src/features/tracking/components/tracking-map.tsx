@@ -1,0 +1,147 @@
+'use client';
+
+import { useState, useMemo } from 'react';
+import { Map, Marker, NavigationControl, FullscreenControl, ScaleControl, Popup } from 'react-map-gl';
+import 'mapbox-gl/dist/mapbox-gl.css';
+import { useTracking } from '../hooks/use-tracking';
+import { Truck, MapPin, Navigation } from 'lucide-react';
+import { Card, Badge, Button } from '@water-supply-crm/ui';
+import { cn } from '@water-supply-crm/ui';
+
+// In production, this should be in .env
+const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN || 'pk.eyJ1Ijoic2FhZHNoYWlraDAwNyIsImEiOiJjbTdiaG1rdmowMDRqMmtzZ3psdjNrd3NyIn0.Z_X_vX_vX_vX_vX_vX_vXw';
+
+export function TrackingMap() {
+  const { driverList, isConnected } = useTracking();
+  const [selectedDriver, setSelectedDriver] = useState<any>(null);
+
+  const [viewState, setViewState] = useState({
+    latitude: 24.8607, // Karachi Default
+    longitude: 67.0011,
+    zoom: 12
+  });
+
+  return (
+    <div className="relative w-full h-[calc(100vh-200px)] rounded-[2.5rem] overflow-hidden border border-border/50 shadow-2xl bg-muted/20">
+      <Map
+        {...viewState}
+        onMove={evt => setViewState(evt.viewState)}
+        mapStyle="mapbox://styles/mapbox/navigation-day-v1"
+        mapboxAccessToken={MAPBOX_TOKEN}
+      >
+        <NavigationControl position="top-right" />
+        <FullscreenControl position="top-right" />
+        <ScaleControl />
+
+        {driverList.map((driver) => (
+          <Marker
+            key={driver.driverId}
+            latitude={driver.latitude}
+            longitude={driver.longitude}
+            anchor="bottom"
+            onClick={e => {
+              e.originalEvent.stopPropagation();
+              setSelectedDriver(driver);
+            }}
+          >
+            <div className="group cursor-pointer">
+              <div className="relative flex flex-col items-center">
+                <div className="px-2 py-1 bg-background border border-border/50 rounded-lg shadow-xl mb-1 text-[10px] font-black uppercase tracking-tighter transform group-hover:-translate-y-1 transition-all duration-300">
+                  {driver.driverName}
+                </div>
+                <div className={cn(
+                  "h-10 w-10 rounded-2xl flex items-center justify-center shadow-lg transform transition-all duration-500 group-hover:scale-110",
+                  driver.status === 'ONLINE' ? "bg-emerald-500 text-white shadow-emerald-500/20" :
+                  driver.status === 'DELIVERING' ? "bg-primary text-white shadow-primary/20" :
+                  "bg-zinc-500 text-white shadow-zinc-500/20"
+                )}>
+                  <Truck className="h-6 w-6" />
+                  
+                  {/* Direction Arrow */}
+                  {driver.bearing !== undefined && (
+                    <div 
+                      className="absolute -top-1 -right-1 h-4 w-4 bg-white rounded-full flex items-center justify-center text-primary shadow-sm"
+                      style={{ transform: `rotate(${driver.bearing}deg)` }}
+                    >
+                      <Navigation className="h-2.5 w-2.5 fill-current" />
+                    </div>
+                  )}
+                </div>
+                
+                {/* Active Pulse for online drivers */}
+                {driver.status === 'ONLINE' && (
+                  <div className="absolute inset-0 h-10 w-10 rounded-2xl bg-emerald-500 animate-ping opacity-20 -z-10" />
+                )}
+              </div>
+            </div>
+          </Marker>
+        ))}
+
+        {selectedDriver && (
+          <Popup
+            latitude={selectedDriver.latitude}
+            longitude={selectedDriver.longitude}
+            anchor="top"
+            onClose={() => setSelectedDriver(null)}
+            className="z-50"
+            closeButton={false}
+            offset={10}
+          >
+            <div className="p-3 min-w-[200px] space-y-3">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2">
+                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
+                    {selectedDriver.driverName.charAt(0)}
+                  </div>
+                  <div>
+                    <p className="text-sm font-black">{selectedDriver.driverName}</p>
+                    <Badge variant={selectedDriver.status === 'ONLINE' ? 'success' : 'secondary'} className="text-[8px] px-1.5 py-0">
+                      {selectedDriver.status}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+              
+              <Separator className="bg-border/50" />
+              
+              <div className="grid grid-cols-2 gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                <div>
+                  <p>Speed</p>
+                  <p className="text-foreground font-mono">{selectedDriver.speed ? `${selectedDriver.speed} km/h` : 'Stopped'}</p>
+                </div>
+                <div>
+                  <p>Updated</p>
+                  <p className="text-foreground font-mono">{new Date(selectedDriver.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                </div>
+              </div>
+
+              <Button size="sm" className="w-full rounded-xl font-bold h-8 text-[10px]">
+                Assign New Task
+              </Button>
+            </div>
+          </Popup>
+        )}
+      </Map>
+
+      {/* Stats Overlay */}
+      <div className="absolute bottom-8 left-8 z-10 flex gap-4">
+        <Card className="bg-background/80 backdrop-blur-xl border-border/50 px-6 py-4 rounded-3xl shadow-2xl flex items-center gap-4">
+          <div className="flex flex-col">
+            <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Active Drivers</span>
+            <span className="text-2xl font-black font-mono">{driverList.length}</span>
+          </div>
+          <div className="h-10 w-[1px] bg-border/50" />
+          <div className="flex items-center gap-2">
+            <div className={cn(
+              "h-3 w-3 rounded-full animate-pulse",
+              isConnected ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]" : "bg-destructive shadow-[0_0_10px_rgba(239,68,68,0.5)]"
+            )} />
+            <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+              {isConnected ? 'Live Connected' : 'Disconnected'}
+            </span>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}

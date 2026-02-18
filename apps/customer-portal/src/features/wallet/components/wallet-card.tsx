@@ -66,15 +66,6 @@ export function WalletCard() {
             </CardContent>
           </Card>
         </motion.div>
-...
-      <PaymentDialog 
-        open={paymentOpen} 
-        onOpenChange={setPaymentOpen} 
-        suggestedAmount={balance > 0 ? balance : 0}
-      />
-    </div>
-  );
-}
 
         {/* Bottles Card */}
         <motion.div
@@ -142,6 +133,12 @@ export function WalletCard() {
           </CardContent>
         </Card>
       </div>
+
+      <PaymentDialog 
+        open={paymentOpen} 
+        onOpenChange={setPaymentOpen} 
+        suggestedAmount={balance > 0 ? balance : 0}
+      />
     </div>
   );
 }

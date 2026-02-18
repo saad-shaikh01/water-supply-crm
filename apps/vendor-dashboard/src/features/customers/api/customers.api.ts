@@ -15,6 +15,10 @@ export const customersApi = {
   remove: (id: string) => apiClient.delete(`/customers/${id}`),
   setCustomPrice: (customerId: string, data: Record<string, unknown>) =>
     apiClient.post(`/customers/${customerId}/custom-prices`, data),
+  createPortalAccount: (customerId: string, data: Record<string, unknown>) =>
+    apiClient.post(`/customers/${customerId}/portal-account`, data),
+  removePortalAccount: (customerId: string) =>
+    apiClient.delete(`/customers/${customerId}/portal-account`),
   getWalletBalance: (customerId: string) =>
     apiClient.get(`/customers/${customerId}/wallet`),
 };

@@ -271,9 +271,10 @@ export class CustomerService {
         email: dto.email,
         password: hashedPassword,
         name: customer.name,
+        phoneNumber: customer.phoneNumber,
         role: 'CUSTOMER',
       },
-      select: { id: true, email: true, name: true, role: true, createdAt: true },
+      select: { id: true, email: true, name: true, phoneNumber: true, role: true, createdAt: true },
     });
 
     await this.prisma.customer.update({

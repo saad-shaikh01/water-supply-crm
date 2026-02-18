@@ -4,6 +4,50 @@
   "sourceRoot": "apps/customer-portal",
   "projectType": "application",
   "tags": [],
-  "// targets": "to see all targets run: nx show project customer-portal --web",
-  "targets": {}
+  "targets": {
+    "build": {
+      "executor": "@nx/next:build",
+      "outputs": [
+        "{options.outputPath}"
+      ],
+      "defaultConfiguration": "production",
+      "options": {
+        "outputPath": "dist/apps/customer-portal"
+      },
+      "configurations": {
+        "development": {
+          "outputPath": "apps/customer-portal"
+        },
+        "production": {}
+      }
+    },
+    "serve": {
+      "executor": "@nx/next:server",
+      "defaultConfiguration": "development",
+      "options": {
+        "buildTarget": "customer-portal:build",
+        "dev": true,
+        "port": 4202
+      },
+      "configurations": {
+        "development": {
+          "buildTarget": "customer-portal:build:development",
+          "dev": true
+        },
+        "production": {
+          "buildTarget": "customer-portal:build:production",
+          "dev": false
+        }
+      }
+    },
+    "export": {
+      "executor": "@nx/next:export",
+      "options": {
+        "buildTarget": "customer-portal:build:production"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    }
+  }
 }

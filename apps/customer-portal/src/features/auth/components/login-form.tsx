@@ -43,16 +43,16 @@ export function LoginForm() {
         <CardContent className="p-10 pt-8">
           <form onSubmit={handleSubmit((d) => login(d))} className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="email" className="text-xs font-black uppercase tracking-widest text-muted-foreground ml-1">Email Address</Label>
+              <Label htmlFor="identifier" className="text-xs font-black uppercase tracking-widest text-muted-foreground ml-1">Email or Phone Number</Label>
               <Input
-                id="email"
-                type="email"
-                placeholder="name@example.com"
+                id="identifier"
+                type="text"
+                placeholder="name@example.com or 03001234567"
                 className="h-12 rounded-2xl bg-accent/30 border-border/50 focus:border-primary/50 transition-all px-4 font-medium"
-                {...register('email')}
+                {...register('identifier')}
               />
-              {errors.email && (
-                <p className="text-[10px] font-bold text-destructive ml-1">{errors.email.message}</p>
+              {errors.identifier && (
+                <p className="text-[10px] font-bold text-destructive ml-1">{errors.identifier.message}</p>
               )}
             </div>
 

@@ -8,7 +8,13 @@ import { vendorSuspendedKey } from '../vendor/vendor.service';
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(private readonly cache: CacheInvalidationService) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+        (req) => {
+          // Allow token via query param for SSE (EventSource)
+          return req?.query?.token as string;
+        },
+      ]),
       ignoreExpiration: false,
       secretOrKey: process.env.JWT_SECRET || 'super-secret-key',
     });

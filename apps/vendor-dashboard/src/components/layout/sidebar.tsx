@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Users, Map, Package, Truck,
-  ClipboardList, CreditCard, UserCog, Droplets, Banknote
+  ClipboardList, CreditCard, UserCog, Droplets, Banknote, Navigation
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { useAuthStore } from '../../store/auth.store';
@@ -25,6 +25,7 @@ const navItems: NavItem[] = [
   { label: 'Routes', href: '/dashboard/routes', icon: Map, minRole: 'STAFF' },
   { label: 'Vans', href: '/dashboard/vans', icon: Truck, minRole: 'STAFF' },
   { label: 'Daily Sheets', href: '/dashboard/daily-sheets', icon: ClipboardList, minRole: 'DRIVER' },
+  { label: 'Live Tracking', href: '/dashboard/tracking', icon: Navigation, minRole: 'STAFF' },
   { label: 'Transactions', href: '/dashboard/transactions', icon: CreditCard, minRole: 'STAFF' },
   { label: 'Payment Requests', href: '/dashboard/payment-requests', icon: Banknote, minRole: 'STAFF' },
   { label: 'Users', href: '/dashboard/users', icon: UserCog, minRole: 'VENDOR_ADMIN' },

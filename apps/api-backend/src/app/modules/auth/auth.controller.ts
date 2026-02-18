@@ -30,7 +30,7 @@ export class AuthController {
   })
   async login(@Body() loginDto: LoginDto) {
     const user = await this.authService.validateUser(
-      loginDto.email,
+      loginDto.identifier,
       loginDto.password,
     );
     if (!user) {

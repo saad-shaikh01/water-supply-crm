@@ -24,7 +24,8 @@
       "defaultConfiguration": "development",
       "options": {
         "buildTarget": "admin-panel:build",
-        "dev": true
+        "dev": true,
+        "port": 4200
       },
       "configurations": {
         "development": {

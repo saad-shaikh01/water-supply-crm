@@ -24,8 +24,8 @@ export class AuthService {
     private cache: CacheInvalidationService,
   ) {}
 
-  async validateUser(email: string, pass: string): Promise<any> {
-    const user = await this.userService.findByEmail(email);
+  async validateUser(identifier: string, pass: string): Promise<any> {
+    const user = await this.userService.findByIdentifier(identifier);
     if (user && (await bcrypt.compare(pass, user.password))) {
       const { password, ...result } = user;
       return result;

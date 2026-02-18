@@ -30,10 +30,10 @@ export function LoginForm() {
       <form onSubmit={handleSubmit((data) => login(data))}>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input id="email" type="email" placeholder="you@example.com" {...register('email')} />
-            {errors.email && (
-              <p className="text-sm text-destructive">{errors.email.message}</p>
+            <Label htmlFor="identifier">Email or Phone Number</Label>
+            <Input id="identifier" placeholder="you@example.com or 03001234567" {...register('identifier')} />
+            {errors.identifier && (
+              <p className="text-sm text-destructive">{errors.identifier.message}</p>
             )}
           </div>
           <div className="space-y-2">

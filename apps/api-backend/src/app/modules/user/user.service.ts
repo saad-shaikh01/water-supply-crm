@@ -64,6 +64,22 @@ export class UserService {
     });
   }
 
+  async findByPhoneNumber(phoneNumber: string) {
+    return this.prisma.user.findUnique({
+      where: { phoneNumber },
+      include: { vendor: true, customer: true },
+    });
+  }
+
+  async findByIdentifier(identifier: string) {
+    // Try email first
+    const byEmail = await this.findByEmail(identifier);
+    if (byEmail) return byEmail;
+
+    // Then try phone number
+    return this.findByPhoneNumber(identifier);
+  }
+
   async findById(id: string) {
     return this.prisma.user.findUnique({
       where: { id },
