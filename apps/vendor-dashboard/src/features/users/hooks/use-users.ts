@@ -27,7 +27,7 @@ export const useCreateUser = () => {
   return useMutation({
     mutationFn: (data: Record<string, unknown>) => usersApi.create(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.users.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.users.all() });
       toast.success('User created');
     },
     onError: () => toast.error('Failed to create user'),
@@ -40,7 +40,7 @@ export const useUpdateUser = () => {
     mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
       usersApi.update(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.users.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.users.all() });
       toast.success('User updated');
     },
     onError: () => toast.error('Failed to update user'),
@@ -52,7 +52,7 @@ export const useDeleteUser = () => {
   return useMutation({
     mutationFn: (id: string) => usersApi.remove(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.users.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.users.all() });
       toast.success('User deleted');
     },
     onError: () => toast.error('Failed to delete user'),
@@ -64,7 +64,7 @@ export const useDeactivateUser = () => {
   return useMutation({
     mutationFn: (id: string) => usersApi.deactivate(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.users.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.users.all() });
       toast.success('User deactivated');
     },
     onError: () => toast.error('Failed to deactivate user'),
@@ -76,7 +76,7 @@ export const useReactivateUser = () => {
   return useMutation({
     mutationFn: (id: string) => usersApi.reactivate(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.users.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.users.all() });
       toast.success('User reactivated');
     },
     onError: () => toast.error('Failed to reactivate user'),

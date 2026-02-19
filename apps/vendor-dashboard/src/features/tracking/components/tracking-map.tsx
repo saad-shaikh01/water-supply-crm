@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Map, Marker, NavigationControl, FullscreenControl, ScaleControl, Popup } from 'react-map-gl';
+import { Map, Marker, NavigationControl, FullscreenControl, ScaleControl, Popup } from 'react-map-gl/mapbox';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { useTracking } from '../hooks/use-tracking';
 import { Truck, MapPin, Navigation } from 'lucide-react';
-import { Card, Badge, Button } from '@water-supply-crm/ui';
+import { Card, Badge, Button, Separator } from '@water-supply-crm/ui';
 import { cn } from '@water-supply-crm/ui';
 
 // In production, this should be in .env

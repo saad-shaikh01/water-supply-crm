@@ -10,7 +10,7 @@ const nextConfig = {
   // Use this to set Nx-specific options
   // See: https://nx.dev/recipes/next/next-config-setup
   nx: {},
-  transpilePackages: ['react-map-gl', 'mapbox-gl'],
+  transpilePackages: ['react-map-gl', 'mapbox-gl', '@vis.gl/react-mapbox', '@vis.gl/react-maplibre'],
 };
 
 const plugins = [

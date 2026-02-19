@@ -1,6 +1,6 @@
 'use client';
 
-import { useQueryState } from 'nuqs';
+import { useQueryState, parseAsString } from 'nuqs';
 import { Input } from '@water-supply-crm/ui';
 import { Search } from 'lucide-react';
 import { useCallback, useTransition } from 'react';
@@ -11,7 +11,7 @@ interface SearchInputProps {
 }
 
 export function SearchInput({ placeholder = 'Search...', paramKey = 'search' }: SearchInputProps) {
-  const [value, setValue] = useQueryState(paramKey, { defaultValue: '' });
+  const [value, setValue] = useQueryState(paramKey, parseAsString.withDefault(''));
   const [, startTransition] = useTransition();
 
   const handleChange = useCallback(

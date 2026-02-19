@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useQueryState, parseAsInteger } from 'nuqs';
+import { useQueryState, parseAsInteger, parseAsString } from 'nuqs';
 import { toast } from 'sonner';
 import { transactionsApi, type TransactionQuery } from '../api/transactions.api';
 import { queryKeys } from '../../../lib/query-keys';
@@ -7,8 +7,8 @@ import { queryKeys } from '../../../lib/query-keys';
 export const useTransactions = (overrideCustomerId?: string) => {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
-  const [urlCustomerId] = useQueryState('customerId', { defaultValue: '' });
-  const [type] = useQueryState('type', { defaultValue: '' });
+  const [urlCustomerId] = useQueryState('customerId', parseAsString.withDefault(''));
+  const [type] = useQueryState('type', parseAsString.withDefault(''));
 
   const effectiveCustomerId = overrideCustomerId || urlCustomerId;
 

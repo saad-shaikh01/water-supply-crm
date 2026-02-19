@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useQueryState } from 'nuqs';
+import { useQueryState, parseAsString } from 'nuqs';
 import { MoreHorizontal, Pencil, Trash2, Eye, MapPin, Phone, PowerOff, Power } from 'lucide-react';
 import {
   Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -28,7 +28,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deactivateId, setDeactivateId] = useState<string | null>(null);
   const [editCustomer, setEditCustomer] = useState<Record<string, unknown> | null>(null);
-  const [paymentType, setPaymentType] = useQueryState<'MONTHLY' | 'CASH' | ''>('paymentType', { defaultValue: '' });
+  const [paymentType, setPaymentType] = useQueryState('paymentType', parseAsString.withDefault(''));
 
   const customers = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
   const rows = (customers?.data ?? []) as Array<{

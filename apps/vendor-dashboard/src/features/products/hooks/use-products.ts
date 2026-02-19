@@ -13,7 +13,7 @@ export const useProducts = () => {
   return {
     ...useQuery({
       queryKey: queryKeys.products.all(params),
-      queryFn: () => productsApi.getAll(params).then((r) => r.data),
+      queryFn: () => productsApi.getAll().then((r) => r.data),
     }),
     page,
     setPage,
@@ -27,7 +27,7 @@ export const useCreateProduct = () => {
   return useMutation({
     mutationFn: (data: Record<string, unknown>) => productsApi.create(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.all() });
       toast.success('Product created successfully');
     },
     onError: () => toast.error('Failed to create product'),
@@ -40,7 +40,7 @@ export const useUpdateProduct = () => {
     mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
       productsApi.update(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.all() });
       toast.success('Product updated');
     },
     onError: () => toast.error('Failed to update product'),
@@ -52,7 +52,7 @@ export const useDeleteProduct = () => {
   return useMutation({
     mutationFn: (id: string) => productsApi.remove(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.all() });
       toast.success('Product deleted');
     },
     onError: () => toast.error('Failed to delete product'),
@@ -64,7 +64,7 @@ export const useToggleProduct = () => {
   return useMutation({
     mutationFn: (id: string) => productsApi.toggle(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.all() });
       toast.success('Product status updated');
     },
     onError: () => toast.error('Failed to toggle product'),

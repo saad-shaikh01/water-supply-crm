@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useQueryState, parseAsInteger } from 'nuqs';
+import { useQueryState, parseAsInteger, parseAsString } from 'nuqs';
 import { toast } from 'sonner';
 import { dailySheetsApi, type SheetQuery } from '../api/daily-sheets.api';
 import { queryKeys } from '../../../lib/query-keys';
@@ -9,9 +9,9 @@ export const useDailySheets = () => {
   const user = useAuthStore((s) => s.user);
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
-  const [date] = useQueryState('date', { defaultValue: '' });
-  const [routeId] = useQueryState('routeId', { defaultValue: '' });
-  const [status] = useQueryState('status', { defaultValue: '' });
+  const [date] = useQueryState('date', parseAsString.withDefault(''));
+  const [routeId] = useQueryState('routeId', parseAsString.withDefault(''));
+  const [status] = useQueryState('status', parseAsString.withDefault(''));
 
   const params: SheetQuery = {
     page,

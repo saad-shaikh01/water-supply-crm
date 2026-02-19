@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useQueryState, parseAsInteger } from 'nuqs';
+import { useQueryState, parseAsInteger, parseAsString } from 'nuqs';
 import { toast } from 'sonner';
 import { expensesApi, type ExpenseQuery, type ExpenseCategory } from '../api/expenses.api';
 
@@ -8,7 +8,7 @@ const QUERY_KEY = 'expenses';
 export const useExpenses = () => {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
-  const [category] = useQueryState<ExpenseCategory | ''>('category', { defaultValue: '' });
+  const [category] = useQueryState('category', parseAsString.withDefault(''));
 
   const params: ExpenseQuery = {
     page,

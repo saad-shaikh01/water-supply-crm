@@ -4,20 +4,20 @@ import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, Skeleton, Button, Badge } from '@water-supply-crm/ui';
 import { Wallet, Droplets, TrendingUp, ArrowUpRight, Plus, CreditCard } from 'lucide-react';
 import { useAuthStore } from '../../../store/auth.store';
-import { useCustomerProfile, useWalletSummary } from '../hooks/use-wallet';
+import { usePortalProfile, usePortalBalance } from '../hooks/use-wallet';
 import { cn } from '@water-supply-crm/ui';
 import { motion } from 'framer-motion';
 import { PaymentDialog } from '../../payments/components/payment-dialog';
 
 export function WalletCard() {
-  const user = useAuthStore((s) => s.user);
-  const { data: profile, isLoading: profileLoading } = useCustomerProfile(user?.customerId);
-  const { data: summary, isLoading: summaryLoading } = useWalletSummary(user?.customerId);
+  const { data: profile, isLoading: profileLoading } = usePortalProfile();
+  const { data: balanceData, isLoading: balanceLoading } = usePortalBalance();
   const [paymentOpen, setPaymentOpen] = useState(false);
 
-  const isLoading = profileLoading || summaryLoading;
+  const isLoading = profileLoading || balanceLoading;
   const balance = Number(profile?.financialBalance ?? 0);
-  const isNegative = balance > 0; // Customer owes money
+  const bottleWallets = (balanceData as any)?.bottleWallets ?? [];
+  const totalBottles = bottleWallets.reduce((sum: number, w: any) => sum + (w.quantity ?? 0), 0);
 
   return (
     <div className="space-y-6">
@@ -83,22 +83,19 @@ export function WalletCard() {
               {isLoading ? (
                 <Skeleton className="h-8 w-16" />
               ) : (
-                <div className="text-3xl font-black font-mono">{profile?.bottleCount ?? 0}</div>
+                <div className="text-3xl font-black font-mono">{totalBottles}</div>
               )}
               <p className="text-[10px] text-muted-foreground mt-1 font-bold uppercase">Bottles at Home</p>
-              
-              <div className="mt-4 pt-4 border-t border-border/50">
-                <div className="flex justify-between items-center text-[10px] font-bold uppercase">
-                  <span className="text-muted-foreground">Limit</span>
-                  <span className="text-primary">10 Units</span>
+              {bottleWallets.length > 0 && (
+                <div className="mt-3 space-y-1 pt-3 border-t border-border/50">
+                  {bottleWallets.map((w: any) => (
+                    <div key={w.productId} className="flex justify-between text-[11px] font-medium text-muted-foreground">
+                      <span>{w.product?.name}</span>
+                      <span className="font-mono font-bold">{w.quantity} × ₨{w.effectivePrice}</span>
+                    </div>
+                  ))}
                 </div>
-                <div className="w-full bg-accent h-1.5 rounded-full mt-1 overflow-hidden">
-                  <div 
-                    className="bg-primary h-full transition-all duration-1000" 
-                    style={{ width: `${Math.min(((profile?.bottleCount ?? 0) / 10) * 100, 100)}%` }} 
-                  />
-                </div>
-              </div>
+              )}
             </CardContent>
           </Card>
         </motion.div>
@@ -113,7 +110,7 @@ export function WalletCard() {
             <div>
               <p className="text-[10px] font-bold uppercase text-muted-foreground">Total Paid</p>
               <p className="text-lg font-black font-mono text-emerald-600 dark:text-emerald-400">
-                ₨ {(summary?.totalCredits ?? 0).toLocaleString()}
+                ₨ {balance > 0 ? balance.toLocaleString() : '0'}
               </p>
             </div>
           </CardContent>

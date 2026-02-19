@@ -1,8 +1,14 @@
 'use client';
 
-import { TrackingMap } from '../../../features/tracking/components/tracking-map';
+import dynamic from 'next/dynamic';
 import { PageHeader } from '../../../components/shared/page-header';
-import { Truck } from 'lucide-react';
+import { Truck, MapPin } from 'lucide-react';
+import { Skeleton } from '@water-supply-crm/ui';
+
+const TrackingMap = dynamic(
+  () => import('../../../features/tracking/components/tracking-map').then((m) => m.TrackingMap),
+  { ssr: false, loading: () => <Skeleton className="h-[500px] w-full rounded-3xl" /> }
+);
 
 export default function TrackingPage() {
   return (

@@ -1,15 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useQueryState, parseAsInteger } from 'nuqs';
+import { useQueryState, parseAsInteger, parseAsString } from 'nuqs';
 import { toast } from 'sonner';
 import { customersApi } from '../api/customers.api';
 import { queryKeys } from '../../../lib/query-keys';
 
 export const useCustomers = () => {
-  const [search] = useQueryState('search', { defaultValue: '' });
+  const [search] = useQueryState('search', parseAsString.withDefault(''));
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
-  const [routeId] = useQueryState('routeId', { defaultValue: '' });
-  const [paymentType] = useQueryState<'MONTHLY' | 'CASH' | ''>('paymentType', { defaultValue: '' });
+  const [routeId] = useQueryState('routeId', parseAsString.withDefault(''));
+  const [paymentType] = useQueryState('paymentType', parseAsString.withDefault(''));
 
   const params = {
     search: search || undefined,

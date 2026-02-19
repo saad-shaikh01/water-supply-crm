@@ -1,17 +1,18 @@
 import { useQuery } from '@tanstack/react-query';
 import { walletApi } from '../api/wallet.api';
-import { queryKeys } from '../../../lib/query-keys';
 
-export const useCustomerProfile = (customerId: string | undefined) =>
+export const usePortalProfile = () =>
   useQuery({
-    queryKey: queryKeys.customer.profile(customerId ?? ''),
-    queryFn: () => walletApi.getProfile(customerId!).then((r) => r.data),
-    enabled: !!customerId,
+    queryKey: ['portal-me'],
+    queryFn: () => walletApi.getProfile().then((r) => r.data),
   });
 
-export const useWalletSummary = (customerId: string | undefined) =>
+export const usePortalBalance = () =>
   useQuery({
-    queryKey: queryKeys.transactions.summary(customerId ?? ''),
-    queryFn: () => walletApi.getSummary(customerId!).then((r) => r.data),
-    enabled: !!customerId,
+    queryKey: ['portal-balance'],
+    queryFn: () => walletApi.getBalance().then((r) => r.data),
   });
+
+// Keep legacy hook signature for backward compat — now ignores customerId param
+export const useCustomerProfile = (_customerId?: string) => usePortalProfile();
+export const useWalletSummary = (_customerId?: string) => usePortalBalance();

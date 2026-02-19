@@ -66,13 +66,12 @@ export function OverviewStats() {
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-      <StatCard 
+      <StatCard
         index={0}
-        title="Total Customers" 
-        value={String(stats.totalCustomers ?? 0)} 
-        icon={Users} 
-        description="Growth from last month" 
-        trend="+12%"
+        title="Total Customers"
+        value={String(stats.totalCustomers ?? 0)}
+        icon={Users}
+        description="Active customers"
       />
       <StatCard 
         index={1}
@@ -96,13 +95,12 @@ export function OverviewStats() {
         description="Operations today" 
         trend="Live"
       />
-      <StatCard 
+      <StatCard
         index={4}
-        title="Revenue This Month" 
-        value={`₨${Number(stats.monthlyRevenue ?? 0).toLocaleString()}`} 
-        icon={DollarSign} 
-        description="Target: ₨500k" 
-        trend="+8%"
+        title="Revenue This Month"
+        value={`₨${Number(stats.monthlyRevenue ?? 0).toLocaleString()}`}
+        icon={DollarSign}
+        description="Collections this month"
       />
       <StatCard 
         index={5}

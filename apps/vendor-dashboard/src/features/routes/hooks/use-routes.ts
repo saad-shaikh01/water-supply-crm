@@ -27,7 +27,7 @@ export const useCreateRoute = () => {
   return useMutation({
     mutationFn: (data: Record<string, unknown>) => routesApi.create(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.routes.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.routes.all() });
       toast.success('Route created');
     },
     onError: () => toast.error('Failed to create route'),
@@ -40,7 +40,7 @@ export const useUpdateRoute = () => {
     mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
       routesApi.update(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.routes.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.routes.all() });
       toast.success('Route updated');
     },
     onError: () => toast.error('Failed to update route'),
@@ -52,7 +52,7 @@ export const useDeleteRoute = () => {
   return useMutation({
     mutationFn: (id: string) => routesApi.remove(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.routes.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.routes.all() });
       toast.success('Route deleted');
     },
     onError: () => toast.error('Failed to delete route'),

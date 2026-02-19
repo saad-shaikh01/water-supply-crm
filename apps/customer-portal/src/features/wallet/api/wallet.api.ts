@@ -1,28 +1,36 @@
 import { apiClient } from '@water-supply-crm/data-access';
 
-export interface CustomerProfile {
+export interface PortalProfile {
   id: string;
   name: string;
-  email: string;
-  phone: string | null;
-  address: string | null;
-  walletBalance: number;
-  bottleCount: number;
-  route: { id: string; name: string } | null;
+  email?: string;
+  phoneNumber?: string;
+  address?: string;
+  financialBalance: number;
+  paymentType: 'MONTHLY' | 'CASH';
+  route?: { id: string; name: string } | null;
+  bottleWallets?: Array<{ product: { name: string }; quantity: number; price: number }>;
   createdAt: string;
 }
 
-export interface TransactionSummary {
-  totalCredits: number;
-  totalDebits: number;
-  currentBalance: number;
-  transactionCount: number;
+export interface PortalBalance {
+  financialBalance: number;
+  bottleWallets: Array<{
+    productId: string;
+    product: { name: string };
+    quantity: number;
+    effectivePrice: number;
+  }>;
 }
 
 export const walletApi = {
-  getProfile: (customerId: string) =>
-    apiClient.get<CustomerProfile>(`/customers/${customerId}`),
+  getProfile: () =>
+    apiClient.get<PortalProfile>('/portal/me'),
 
-  getSummary: (customerId: string) =>
-    apiClient.get<TransactionSummary>(`/transactions/customers/${customerId}/summary`),
+  getBalance: () =>
+    apiClient.get<PortalBalance>('/portal/balance'),
+
+  // Legacy summary — uses portal transactions
+  getSummary: () =>
+    apiClient.get('/portal/transactions/summary'),
 };

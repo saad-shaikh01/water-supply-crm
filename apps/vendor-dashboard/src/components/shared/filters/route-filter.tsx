@@ -1,11 +1,11 @@
 'use client';
 
-import { useQueryState } from 'nuqs';
+import { useQueryState, parseAsString } from 'nuqs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@water-supply-crm/ui';
 import { useRoutes } from '../../../features/routes/hooks/use-routes';
 
 export function RouteFilter() {
-  const [routeId, setRouteId] = useQueryState('routeId', { defaultValue: '' });
+  const [routeId, setRouteId] = useQueryState('routeId', parseAsString.withDefault(''));
   const { data } = useRoutes();
 
   const routes = (data as { data?: any[] } | undefined)?.data ?? [];

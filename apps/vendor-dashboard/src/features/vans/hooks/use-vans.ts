@@ -34,7 +34,7 @@ export const useCreateVan = () => {
   return useMutation({
     mutationFn: (data: Record<string, unknown>) => vansApi.create(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.vans.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.vans.all() });
       toast.success('Van created');
     },
     onError: () => toast.error('Failed to create van'),
@@ -47,7 +47,7 @@ export const useUpdateVan = () => {
     mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
       vansApi.update(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.vans.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.vans.all() });
       toast.success('Van updated');
     },
     onError: () => toast.error('Failed to update van'),
@@ -59,7 +59,7 @@ export const useDeleteVan = () => {
   return useMutation({
     mutationFn: (id: string) => vansApi.remove(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.vans.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.vans.all() });
       toast.success('Van deleted');
     },
     onError: () => toast.error('Failed to delete van'),
@@ -71,7 +71,7 @@ export const useDeactivateVan = () => {
   return useMutation({
     mutationFn: (id: string) => vansApi.deactivate(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.vans.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.vans.all() });
       toast.success('Van deactivated');
     },
     onError: () => toast.error('Failed to deactivate van'),
@@ -83,7 +83,7 @@ export const useReactivateVan = () => {
   return useMutation({
     mutationFn: (id: string) => vansApi.reactivate(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.vans.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.vans.all() });
       toast.success('Van reactivated');
     },
     onError: () => toast.error('Failed to reactivate van'),

@@ -24,7 +24,7 @@ export function ProfileCard() {
 
   const infoFields = [
     { icon: Mail, label: 'Email Address', value: profile.email },
-    { icon: Phone, label: 'Phone Number', value: profile.phone ?? '—' },
+    { icon: Phone, label: 'Phone Number', value: profile.phoneNumber ?? '—' },
     { icon: MapPin, label: 'Delivery Address', value: profile.address ?? '—' },
   ];
 
@@ -49,7 +49,7 @@ export function ProfileCard() {
                 <p className="text-zinc-400 text-sm font-bold uppercase tracking-widest mt-1">Verified Customer</p>
                 <div className="mt-4 flex flex-wrap justify-center sm:justify-start gap-2">
                   <Badge className="bg-white/10 hover:bg-white/20 text-white border-white/10 font-mono text-[10px] tracking-tighter uppercase px-2 py-0">
-                    {profile.customerCode}
+                    {profile.id?.slice(0, 8).toUpperCase()}
                   </Badge>
                   <Badge className="bg-primary/20 text-primary-foreground border-primary/20 font-bold text-[10px] tracking-widest uppercase px-2 py-0">
                     {profile.route?.name || 'Unassigned'}
@@ -117,8 +117,8 @@ export function ProfileCard() {
             </CardHeader>
             <CardContent className="p-6">
               <div className="flex flex-wrap gap-2">
-                {profile.deliveryDays?.length > 0 ? (
-                  profile.deliveryDays.map((d: number) => (
+                {(profile as any).deliveryDays?.length > 0 ? (
+                  (profile as any).deliveryDays.map((d: number) => (
                     <Badge key={d} className="bg-primary/10 text-primary border-primary/20 font-black text-[10px] px-3 py-1">
                       {DAYS[d]}
                     </Badge>
@@ -143,7 +143,7 @@ export function ProfileCard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Current Balance</p>
-                  <p className="text-2xl font-black font-mono mt-1">₨ {profile.walletBalance.toLocaleString()}</p>
+                  <p className="text-2xl font-black font-mono mt-1">₨ {profile.financialBalance?.toLocaleString() ?? 0}</p>
                 </div>
                 <div className="h-12 w-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary">
                   <Package className="h-6 w-6" />

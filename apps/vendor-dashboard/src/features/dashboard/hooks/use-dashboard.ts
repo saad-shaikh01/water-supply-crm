@@ -16,3 +16,24 @@ export const useRevenueStats = (dateFrom: string, dateTo: string) => {
     enabled: !!dateFrom && !!dateTo,
   });
 };
+
+export const useTopCustomers = (limit = 5) => {
+  return useQuery({
+    queryKey: ['dashboard', 'top-customers', limit],
+    queryFn: () => dashboardApi.getTopCustomers(limit).then((r) => r.data),
+  });
+};
+
+export const useRoutePerformance = (date?: string) => {
+  return useQuery({
+    queryKey: ['dashboard', 'route-performance', date],
+    queryFn: () => dashboardApi.getRoutePerformance(date).then((r) => r.data),
+  });
+};
+
+export const useStaffPerformance = (from?: string, to?: string) => {
+  return useQuery({
+    queryKey: ['dashboard', 'staff-performance', from, to],
+    queryFn: () => dashboardApi.getStaffPerformance(from, to).then((r) => r.data),
+  });
+};

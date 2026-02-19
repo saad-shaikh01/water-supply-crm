@@ -9,12 +9,13 @@ import {
 } from '@water-supply-crm/ui';
 import { PageHeader } from '../../../components/shared/page-header';
 import { StatusBadge } from '../../../components/shared/status-badge';
-import { useDailySheet, useLoadOut, useCheckIn, useCloseSheet, useUpdateDeliveryItem } from '../hooks/use-daily-sheets';
+import { useDailySheet, useLoadOut, useCheckIn, useCloseSheet, useUpdateDeliveryItem, useSwapAssignment } from '../hooks/use-daily-sheets';
+import { useAllVans } from '../../vans/hooks/use-vans';
 import { dailySheetsApi } from '../api/daily-sheets.api';
 import { toast } from 'sonner';
 import { 
-  Truck, Package, CheckCircle2, ClipboardList, 
-  ArrowLeft, Download, MapPin, User, 
+  Truck, Package, CheckCircle2, ClipboardList,
+  ArrowLeft, Download, MapPin, User, ArrowRightLeft,
   Droplets, DollarSign, Info, AlertCircle, Save
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -45,16 +46,21 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const { mutate: recordCheckIn, isPending: isSavingCheckIn } = useCheckIn(sheetId);
   const { mutate: closeSheet, isPending: isClosing } = useCloseSheet(sheetId);
   const { mutate: updateItem, isPending: isUpdatingItem } = useUpdateDeliveryItem(sheetId);
+  const { mutate: swapAssignment, isPending: isSwapping } = useSwapAssignment(sheetId);
+  const { data: vansData } = useAllVans();
+  const allVans = ((vansData as any)?.data ?? []) as Array<{ id: string; plateNumber: string }>;
 
   // Dialog States
   const [loadOutOpen, setLoadOutOpen] = useState(false);
   const [checkInOpen, setCheckInOpen] = useState(false);
   const [deliveryOpen, setDeliveryOpen] = useState<string | null>(null);
+  const [swapOpen, setSwapOpen] = useState(false);
 
   // Form States
   const [loadOutCount, setLoadOutCount] = useState(0);
   const [checkInData, setCheckIn] = useState({ filledInCount: 0, emptyInCount: 0, cashCollected: 0 });
   const [itemForm, setItemForm] = useState<Partial<DeliveryItem>>({});
+  const [swapForm, setSwapForm] = useState<{ vanId?: string }>({});
 
   if (isLoading) return <div className="space-y-6"><Skeleton className="h-20 w-full rounded-3xl" /><Skeleton className="h-96 w-full rounded-3xl" /></div>;
 
@@ -130,6 +136,11 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
               {isLoaded && <Button onClick={() => setCheckInOpen(true)} className="rounded-full font-bold shadow-lg shadow-primary/20" variant="secondary">Check In</Button>}
               {isCheckedIn && <Button onClick={() => closeSheet()} disabled={isClosing} className="rounded-full font-bold shadow-lg shadow-primary/20">Close & Reconcile</Button>}
             </div>
+          )}
+          {!isClosed && (
+            <Button variant="outline" size="icon" className="rounded-full" onClick={() => setSwapOpen(true)} title="Swap van assignment">
+              <ArrowRightLeft className="h-4 w-4" />
+            </Button>
           )}
           <Button variant="outline" size="icon" className="rounded-full" onClick={handleExportPdf}>
             <Download className="h-4 w-4" />
@@ -318,6 +329,45 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
               className="rounded-xl font-bold"
             >
               Record Arrival
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Swap Assignment Dialog */}
+      <Dialog open={swapOpen} onOpenChange={setSwapOpen}>
+        <DialogContent className="rounded-3xl max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black flex items-center gap-2">
+              <ArrowRightLeft className="h-5 w-5 text-primary" />
+              Swap Van
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">Current Van</Label>
+              <p className="text-sm font-bold">{sheet.van?.plateNumber ?? '—'}</p>
+            </div>
+            <div className="space-y-2">
+              <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">New Van</Label>
+              <Select value={swapForm.vanId ?? ''} onValueChange={(v) => setSwapForm({ vanId: v })}>
+                <SelectTrigger className="h-11"><SelectValue placeholder="Select a van" /></SelectTrigger>
+                <SelectContent>
+                  {allVans.filter((v) => v.id !== sheet.vanId).map((v) => (
+                    <SelectItem key={v.id} value={v.id}>{v.plateNumber}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setSwapOpen(false)}>Cancel</Button>
+            <Button
+              onClick={() => swapAssignment(swapForm, { onSuccess: () => { setSwapOpen(false); setSwapForm({}); } })}
+              disabled={isSwapping || !swapForm.vanId}
+              className="rounded-xl font-bold"
+            >
+              {isSwapping ? 'Swapping...' : 'Confirm Swap'}
             </Button>
           </DialogFooter>
         </DialogContent>
