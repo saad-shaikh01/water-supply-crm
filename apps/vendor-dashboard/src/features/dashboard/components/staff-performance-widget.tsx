@@ -20,33 +20,37 @@ export function StaffPerformanceWidget() {
   }>;
 
   return (
-    <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-black uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+    <Card className="bg-[#05070a] border border-white/5 rounded-xl shadow-2xl">
+      <CardHeader className="pb-4">
+        <CardTitle className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/40 flex items-center gap-2">
           <UserCog className="h-4 w-4 text-primary" /> Staff — This Month
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-2">
+      <CardContent className="space-y-1">
         {isLoading ? (
-          Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-12 rounded-xl" />)
+          Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-xl bg-white/[0.02]" />)
         ) : staff.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-4">No performance data</p>
+          <p className="text-xs font-bold text-muted-foreground/50 text-center py-8 uppercase tracking-widest">No performance data</p>
         ) : (
-          staff.map((s) => (
-            <div key={s.id} className="flex items-center gap-3 p-2 rounded-xl hover:bg-accent/30 transition-colors">
-              <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-black text-xs shrink-0">
+          staff.map((s, i) => (
+            <div key={s.id || `staff-${i}`} className="flex items-center gap-4 p-3 rounded-xl hover:bg-white/[0.03] transition-all group/staff border border-transparent hover:border-white/5">
+              <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm shrink-0 shadow-inner group-hover/staff:scale-110 transition-transform">
                 {s.name.charAt(0)}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold truncate">{s.name}</p>
-                <p className="text-[10px] text-muted-foreground capitalize">{s.role?.toLowerCase()}</p>
+                <p className="text-sm font-bold text-white/80 group-hover/staff:text-white transition-colors truncate">{s.name}</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-tighter font-semibold">{s.role?.toLowerCase()}</p>
               </div>
-              <div className="text-right shrink-0 space-y-0.5">
+              <div className="text-right shrink-0">
                 {s.deliveries !== undefined && (
-                  <p className="text-[11px] font-mono font-bold">{s.deliveries} del.</p>
+                  <p className="text-sm font-bold text-white/90 tabular-nums">
+                    {s.deliveries} <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-tighter">del.</span>
+                  </p>
                 )}
                 {s.cashCollected !== undefined && (
-                  <p className="text-[10px] text-emerald-500 font-mono">₨{Number(s.cashCollected).toLocaleString()}</p>
+                  <p className="text-[11px] text-emerald-500 font-bold tabular-nums">
+                    ₨{Number(s.cashCollected).toLocaleString()}
+                  </p>
                 )}
               </div>
             </div>

@@ -17,44 +17,52 @@ export function RoutePerformanceWidget() {
   }>;
 
   return (
-    <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-black uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+    <Card className="bg-[#05070a] border border-white/5 rounded-xl shadow-2xl">
+      <CardHeader className="pb-4">
+        <CardTitle className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/40 flex items-center gap-2">
           <Map className="h-4 w-4 text-primary" /> Route Performance — Today
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-5">
         {isLoading ? (
-          Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-12 rounded-xl" />)
+          Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-xl bg-white/[0.02]" />)
         ) : routes.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-4">No sheets generated today</p>
+          <div className="flex flex-col items-center justify-center py-8 space-y-2 opacity-30">
+            <Clock className="h-8 w-8 text-muted-foreground" />
+            <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">No sheets generated</p>
+          </div>
         ) : (
-          routes.map((r) => {
+          routes.map((r, i) => {
             const rate = r.completionRate ?? (r.totalDeliveries
               ? Math.round(((r.completedDeliveries ?? 0) / r.totalDeliveries) * 100)
               : 0);
             return (
-              <div key={r.id} className="space-y-1.5">
+              <div key={r.id || `route-${i}`} className="space-y-2 group/route">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm font-bold">{r.name}</span>
+                  <span className="text-sm font-bold text-white/80 group-hover/route:text-white transition-colors">{r.name}</span>
                   <Badge className={cn(
-                    "text-[10px] font-bold border-none",
+                    "text-[10px] font-bold border-none px-2 py-0.5 rounded-full",
                     rate >= 80 ? "bg-emerald-500/10 text-emerald-500" :
-                    rate >= 50 ? "bg-yellow-500/10 text-yellow-600" :
-                    "bg-muted text-muted-foreground"
+                    rate >= 50 ? "bg-yellow-500/10 text-yellow-500" :
+                    "bg-white/5 text-muted-foreground"
                   )}>
                     {rate}%
                   </Badge>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 h-1.5 bg-accent rounded-full overflow-hidden">
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 h-1.5 bg-white/[0.03] rounded-full overflow-hidden">
                     <div
-                      className={cn("h-full rounded-full transition-all", rate >= 80 ? "bg-emerald-500" : rate >= 50 ? "bg-yellow-500" : "bg-muted-foreground")}
+                      className={cn(
+                        "h-full rounded-full transition-all duration-500",
+                        rate >= 80 ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)]" : 
+                        rate >= 50 ? "bg-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.4)]" : 
+                        "bg-white/20"
+                      )}
                       style={{ width: `${rate}%` }}
                     />
                   </div>
-                  <span className="text-[10px] text-muted-foreground font-mono shrink-0">
-                    {r.completedDeliveries ?? 0}/{r.totalDeliveries ?? 0}
+                  <span className="text-[10px] text-white/40 font-bold tabular-nums shrink-0">
+                    {r.completedDeliveries ?? 0} <span className="opacity-30">/</span> {r.totalDeliveries ?? 0}
                   </span>
                 </div>
               </div>

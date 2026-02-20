@@ -21,9 +21,9 @@ function StatCard({ title, value, icon: Icon, description, trend, index }: StatC
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.1 }}
     >
-      <Card className="group relative overflow-hidden border-white/10 bg-card/40 backdrop-blur-xl shadow-glass hover:shadow-premium hover:border-primary/30 transition-all duration-500 rounded-[2rem]">
+      <Card className="group relative overflow-hidden border-border dark:border-white/10 bg-card/40 backdrop-blur-xl shadow-glass hover:shadow-premium hover:border-primary/30 transition-all duration-500 rounded-[2rem]">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-          <CardTitle className="text-xs font-black uppercase tracking-[0.15em] text-muted-foreground/80 group-hover:text-primary transition-colors">
+          <CardTitle className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/80 group-hover:text-primary transition-colors">
             {title}
           </CardTitle>
           <div className="h-10 w-10 rounded-2xl bg-primary/5 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-all duration-500 shadow-inner">
@@ -31,15 +31,15 @@ function StatCard({ title, value, icon: Icon, description, trend, index }: StatC
           </div>
         </CardHeader>
         <CardContent>
-          <div className="text-3xl font-black tracking-tight mb-2">{value}</div>
+          <div className="text-3xl font-extrabold tracking-tight mb-2 text-foreground">{value}</div>
           <div className="flex items-center gap-2">
             {trend && (
-              <span className="flex items-center text-[10px] font-black text-emerald-500 bg-emerald-500/10 px-2 py-1 rounded-full border border-emerald-500/20">
+              <span className="flex items-center text-[10px] font-bold text-emerald-500 bg-emerald-500/10 px-2 py-1 rounded-full border border-emerald-500/20">
                 <ArrowUpRight className="h-3 w-3 mr-0.5" />
                 {trend}
               </span>
             )}
-            {description && <p className="text-[11px] font-bold text-muted-foreground/60 truncate uppercase tracking-wider">{description}</p>}
+            {description && <p className="text-[11px] font-semibold text-muted-foreground/60 truncate uppercase tracking-wider">{description}</p>}
           </div>
         </CardContent>
         {/* Animated background glow */}
