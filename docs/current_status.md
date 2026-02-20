@@ -1,7 +1,7 @@
 # Project Current Status - Water Supply CRM
 
-**Last Updated:** February 18, 2026 (Session 6)
-**Status:** ✅ Backend PRODUCTION READY — 119 endpoints, 19 modules, full payment system (Raast QR + Manual), balance reminders, customer portal, expense tracking, FCM push notifications, audit log, staff performance, PaymentType (MONTHLY/CASH), isActive on customers/vans, consumption stats, proper seed data
+**Last Updated:** February 20, 2026 (Session 9)
+**Status:** ✅ Backend PRODUCTION READY — 123 endpoints, 20 modules, full payment system (Raast QR + Manual), balance reminders, customer portal, expense tracking, FCM push notifications, audit log, staff performance, PaymentType (MONTHLY/CASH), isActive on customers/vans, consumption stats, proper seed data + **Analytics & Reporting module**
 
 ---
 
@@ -138,6 +138,16 @@
 | POST | `/daily-sheets/:id/close` | ✅ | VENDOR_ADMIN, STAFF | Close sheet + reconciliation report |
 | PATCH | `/daily-sheets/:id/swap-assignment` | ✅ | VENDOR_ADMIN | Swap driver and/or van on open sheet (auto-assigns van's default driver) |
 | GET | `/daily-sheets/:id/export` | ✅ | VENDOR_ADMIN, STAFF | Download PDF (A4, printable, with reconciliation) |
+
+### Analytics Module (`/api/analytics`)
+| Method | Endpoint | Auth | Roles | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| GET | `/analytics/financial` | ✅ | VENDOR_ADMIN, STAFF | Revenue, expenses, profit by day, revenue by route/payment type, collection rate, outstanding balance |
+| GET | `/analytics/deliveries` | ✅ | VENDOR_ADMIN, STAFF | Delivery summary, by day, by day-of-week, by route, missed reasons |
+| GET | `/analytics/customers` | ✅ | VENDOR_ADMIN, STAFF | Customer summary, growth by month (12mo), top by revenue, highest balances, payment type breakdown |
+| GET | `/analytics/staff` | ✅ | VENDOR_ADMIN, STAFF | Per-driver deliveries, completion rate, cash collected, bottles delivered, leaderboard |
+
+All endpoints accept `?from=YYYY-MM-DD&to=YYYY-MM-DD` date range filter. Cached 120s.
 
 ### Dashboard Module (`/api/dashboard`)
 | Method | Endpoint | Auth | Roles | Description |
@@ -399,7 +409,9 @@ API_URL=https://yourdomain.com/api # Your public API URL (for Paymob webhook cal
 | Unit / integration tests | 🟡 Medium | All endpoints manually testable via Postman now |
 | Notification history log | 🟡 Medium | Store sent WhatsApp messages in DB |
 | Delivery sequence sorting | 🟡 Low | Stop order is by customerCode; GPS proximity sort planned for later |
-| Frontend dashboard | 🟡 Medium | Next.js vendor dashboard UI (backend is complete) |
+| Refresh tokens (frontend) | 🟡 Medium | Backend ready; frontend interceptor not yet wired |
+| Daily sheets filter dropdowns | 🟡 Low | vanId + driverId filter UI on sheet list |
+| Portal payment polling | 🟡 Medium | refetchInterval after Raast QR submit |
 
 ---
 
@@ -427,7 +439,8 @@ API_URL=https://yourdomain.com/api # Your public API URL (for Paymob webhook cal
 | Expenses | 6 | `/api/expenses` |
 | FCM | 3 | `/api/fcm` |
 | Audit Logs | 2 | `/api/audit-logs` |
-| **TOTAL** | **119** | |
+| Analytics | 4 | `/api/analytics` |
+| **TOTAL** | **123** | |
 
 ---
 

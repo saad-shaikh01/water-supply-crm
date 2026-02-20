@@ -112,6 +112,8 @@
     "firebase-admin": "^13.6.1",
     "framer-motion": "^12.34.0",
     "ioredis": "^5.9.2",
+    "jspdf": "^4.2.0",
+    "jspdf-autotable": "^5.0.7",
     "lucide-react": "^0.563.0",
     "mapbox-gl": "^3.18.1",
     "nestjs-pino": "^4.5.0",

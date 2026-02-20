@@ -1,6 +1,6 @@
 # Backend Progress Log — Water Supply CRM
 
-**Last Updated:** February 18, 2026 (Session 6)
+**Last Updated:** February 20, 2026 (Session 9)
 
 ---
 
@@ -8,10 +8,10 @@
 
 | Metric | Value |
 | :--- | :--- |
-| Total Endpoints | **119** |
-| Modules Completed | **19** |
-| New Files Created | **~80** |
-| Files Modified | **~50** |
+| Total Endpoints | **123** |
+| Modules Completed | **20** |
+| New Files Created | **~84** |
+| Files Modified | **~51** |
 | Test Coverage | Pending |
 
 ---
@@ -561,6 +561,38 @@ All dashboard endpoints cached with **60s TTL**.
 | Financial balances | ❌ All zero | ✅ MONTHLY: 0–5000, CASH: 0–300 |
 | Custom prices | ❌ None | ✅ ~20 customers with custom 19L pricing |
 | Delivery day patterns | ❌ All [1,3,5] | ✅ 7 different patterns |
+
+---
+
+---
+
+## Phase 15 — Analytics & Reporting Module ✅ (February 20, 2026, Session 9)
+
+**Goal:** Dedicated analytics module with date-range filterable insights — financial, delivery, customer, and staff metrics.
+
+### Files Created
+- `analytics/analytics.dto.ts` — `DateRangeDto` with optional `from`/`to` ISO date string fields
+- `analytics/analytics.service.ts` — 4 methods with Prisma queries, in-memory aggregations, 120s Redis cache
+- `analytics/analytics.controller.ts` — 4 GET endpoints, JWT + RBAC guards
+- `analytics/analytics.module.ts` — NestJS module
+
+### Files Modified
+- `app/app.module.ts` — Added `AnalyticsModule`
+
+### Endpoints (4 new)
+| Endpoint | Logic |
+| :--- | :--- |
+| `GET /analytics/financial?from=&to=` | Revenue by day, expenses by category/day, profit by day, revenue by route, revenue by PaymentType (CASH/MONTHLY), collection rate (cashCollected/cashExpected), outstanding balance |
+| `GET /analytics/deliveries?from=&to=` | Summary (total/completed/missed/rate), by day, by day-of-week (Mon-Sun peak analysis), by route, missed reasons from `DailySheetItem.reason` |
+| `GET /analytics/customers?from=&to=` | Summary (total/active/inactive/new), payment type breakdown, growth by month (last 12mo fixed), top 10 by revenue, top 10 by outstanding balance |
+| `GET /analytics/staff?from=&to=` | Per-driver: deliveries, completionRate, cashCollected, bottlesDelivered — sorted by completionRate desc |
+
+### Key Design Decisions
+- Date range filter optional — omitting returns all-time data
+- Customer growth chart (12 months) ignores date range for historical context
+- Aggregation in JS after Prisma `findMany` (avoids complex Prisma groupBy joins)
+- Cache key includes `from`+`to` so each date range is independently cached
+- All 4 endpoints use same VENDOR_ADMIN + STAFF role guard
 
 ---
 

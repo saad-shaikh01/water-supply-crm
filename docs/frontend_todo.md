@@ -1,7 +1,7 @@
 # Frontend TODO — Complete Gap Analysis & Execution Plan
-**Date:** February 18, 2026
+**Date:** February 20, 2026 (Session 9)
 **Apps:** Vendor Dashboard (4201) · Customer Portal (4202) · Admin Panel (4200)
-**Backend:** 119 endpoints · All production-ready
+**Backend:** 123 endpoints · All production-ready
 
 ---
 
@@ -9,7 +9,7 @@
 
 | App | Status | Pages Done | Pages Missing | API Gaps |
 |:----|:-------|:-----------|:--------------|:---------|
-| Vendor Dashboard | ~65% | 11/16 | 5 pages fully missing | ~30 endpoints unconnected |
+| Vendor Dashboard | ~90% | 15/16 | 1 page (admin) | ~8 endpoints unconnected |
 | Customer Portal | ~40% | 3/8 | 5 pages fully missing | ~8 endpoints unconnected |
 | Admin Panel | ~30% | 1/5 | 4 pages missing | ~8 endpoints unconnected |
 
@@ -362,13 +362,14 @@ Backend: `GET /portal/statement` ready · Priority: MEDIUM
 19. Customer Portal: payment status polling in dialog
 
 ### Phase C — Important Missing Pages (~3-4 days)
-20. Expenses page (full CRUD + summary card)
-21. Balance Reminders page
-22. Dashboard: top customers + route performance + staff performance widgets
-23. Customer Portal: schedule page
-24. Customer Portal: statement page
-25. Admin: vendor detail page (stats + users + suspend)
-26. Admin: platform dashboard
+20. ✅ Expenses page (full CRUD + summary card) — DONE
+21. ✅ Balance Reminders page — DONE
+22. ✅ Dashboard: top customers + route performance + staff performance widgets — DONE
+23. ✅ Analytics & Reporting page (`/dashboard/analytics`) — DONE (Session 9)
+24. Customer Portal: schedule page
+25. Customer Portal: statement page
+26. Admin: vendor detail page (stats + users + suspend)
+27. Admin: platform dashboard
 
 ### Phase D — Polish & Completeness (~2 days)
 27. Empty state illustrations on all list pages
@@ -426,12 +427,16 @@ Backend: `GET /portal/statement` ready · Priority: MEDIUM
 | `PATCH /users/me/change-password` | ❌ | |
 | `PATCH /daily-sheets/:id/swap-assignment` | ❌ | Old name used |
 | `GET /daily-sheets/:id/export` | ⚠️ | Wrong URL |
-| `GET /expenses` | ❌ | Page missing |
-| `POST /expenses` | ❌ | Page missing |
-| `GET /expenses/summary` | ❌ | Page missing |
-| `GET /balance-reminders/schedule` | ❌ | Page missing |
-| `POST /balance-reminders/send-now` | ❌ | Page missing |
-| `GET /audit-logs` | ❌ | Page missing |
+| `GET /expenses` | ✅ | Done |
+| `POST /expenses` | ✅ | Done |
+| `GET /expenses/summary` | ✅ | Done |
+| `GET /balance-reminders/schedule` | ✅ | Done |
+| `POST /balance-reminders/send-now` | ✅ | Done |
+| `GET /audit-logs` | ✅ | Done |
+| `GET /analytics/financial` | ✅ | Done (Session 9) |
+| `GET /analytics/deliveries` | ✅ | Done (Session 9) |
+| `GET /analytics/customers` | ✅ | Done (Session 9) |
+| `GET /analytics/staff` | ✅ | Done (Session 9) |
 
 ### Customer Portal
 | Endpoint | Status | Notes |

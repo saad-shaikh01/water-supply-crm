@@ -29,6 +29,7 @@ import { PaymentModule } from './modules/payment/payment.module';
 import { ExpenseModule } from './modules/expense/expense.module';
 import { FcmModule } from './modules/fcm/fcm.module';
 import { AuditModule } from './modules/audit/audit.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { AuditModule } from './modules/audit/audit.module';
     FcmModule,
     ExpenseModule,
     AuditModule,
+    AnalyticsModule,
   ],
   controllers: [AppController],
   providers: [

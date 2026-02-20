@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Users, Map, Package, Truck,
   ClipboardList, CreditCard, UserCog, Droplets, Banknote, Navigation,
-  Receipt, Bell, ScrollText
+  Receipt, Bell, ScrollText, BarChart2
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { useAuthStore } from '../../store/auth.store';
@@ -33,6 +33,7 @@ const navItems: NavItem[] = [
   { label: 'Transactions', href: '/dashboard/transactions', icon: CreditCard, minRole: 'STAFF', group: 'Finance' },
   { label: 'Payment Requests', href: '/dashboard/payment-requests', icon: Banknote, minRole: 'STAFF', group: 'Finance' },
   { label: 'Expenses', href: '/dashboard/expenses', icon: Receipt, minRole: 'STAFF', group: 'Finance' },
+  { label: 'Analytics', href: '/dashboard/analytics', icon: BarChart2, minRole: 'VENDOR_ADMIN', group: 'Finance' },
   // Settings
   { label: 'Users', href: '/dashboard/users', icon: UserCog, minRole: 'VENDOR_ADMIN', group: 'Settings' },
   { label: 'Balance Reminders', href: '/dashboard/balance-reminders', icon: Bell, minRole: 'VENDOR_ADMIN', group: 'Settings' },
