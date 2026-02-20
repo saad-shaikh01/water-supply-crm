@@ -128,3 +128,36 @@ export const useRemovePortalAccount = () => {
     onError: () => toast.error('Failed to revoke portal access'),
   });
 };
+
+export const useCustomerConsumption = (id: string, month?: string) =>
+  useQuery({
+    queryKey: ['customers', id, 'consumption', month],
+    queryFn: () => customersApi.getConsumption(id, month ? { month } : undefined).then((r) => r.data),
+    enabled: !!id,
+  });
+
+export const useSetCustomPrice = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ customerId, data }: { customerId: string; data: Record<string, unknown> }) =>
+      customersApi.setCustomPrice(customerId, data),
+    onSuccess: (_, { customerId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.customers.one(customerId) });
+      toast.success('Custom price saved');
+    },
+    onError: () => toast.error('Failed to save custom price'),
+  });
+};
+
+export const useRemoveCustomPrice = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ customerId, productId }: { customerId: string; productId: string }) =>
+      customersApi.removeCustomPrice(customerId, productId),
+    onSuccess: (_, { customerId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.customers.one(customerId) });
+      toast.success('Custom price removed');
+    },
+    onError: () => toast.error('Failed to remove custom price'),
+  });
+};

@@ -1,5 +1,5 @@
 # Frontend TODO — Complete Gap Analysis & Execution Plan
-**Date:** February 20, 2026 (Session 9)
+**Date:** February 21, 2026 (Session 10)
 **Apps:** Vendor Dashboard (4201) · Customer Portal (4202) · Admin Panel (4200)
 **Backend:** 123 endpoints · All production-ready
 
@@ -9,7 +9,7 @@
 
 | App | Status | Pages Done | Pages Missing | API Gaps |
 |:----|:-------|:-----------|:--------------|:---------|
-| Vendor Dashboard | ~90% | 15/16 | 1 page (admin) | ~8 endpoints unconnected |
+| Vendor Dashboard | ~95% | 15/16 | 1 page (admin) | ~4 endpoints unconnected |
 | Customer Portal | ~40% | 3/8 | 5 pages fully missing | ~8 endpoints unconnected |
 | Admin Panel | ~30% | 1/5 | 4 pages missing | ~8 endpoints unconnected |
 
@@ -51,11 +51,11 @@
 - [ ] `getSchedule: (id, params) => apiClient.get('/customers/${id}/schedule', { params })`
 
 **Missing in Customer Detail page:**
-- [ ] Consumption Stats card → `GET /customers/:id/consumption?month=YYYY-MM` → avg bottles/delivery per product
+- ✅ Consumption Stats tab → `GET /customers/:id/consumption?month=YYYY-MM` — DONE (Session 10)
 - [ ] Delivery Schedule view → `GET /customers/:id/schedule?from=&to=` → calendar of scheduled vs actual
-- [ ] Statement PDF button → `GET /customers/:id/statement?month=YYYY-MM` → file download
+- ✅ Statement PDF button → `GET /customers/:id/statement?month=YYYY-MM` — DONE (Session 10)
 - [ ] Deactivate / Reactivate toggle button (instead of only Delete)
-- [ ] Remove custom price button next to each custom price row
+- ✅ Remove custom price button next to each custom price row — DONE (Session 10)
 - [ ] Transaction history section in detail page (paginated)
 
 ---
@@ -86,10 +86,9 @@
 **Files:** `features/users/api/users.api.ts` · `features/users/components/user-list.tsx`
 
 - [ ] Add `deactivate` and `reactivate` API calls
-- [ ] Add `changePassword: (data) => apiClient.patch('/users/me/change-password', data)`
 - [ ] Add Deactivate / Reactivate in user row dropdown (alongside Delete)
 - [ ] Show `isActive` badge in user list
-- [ ] Add "Change Password" in top-right `UserNav` dropdown menu
+- ✅ Add "Change Password" in top-right `UserNav` dropdown menu — DONE (Session 10)
 
 ---
 
@@ -348,10 +347,10 @@ Backend: `GET /portal/statement` ready · Priority: MEDIUM
 ### Phase B — High Priority Features (~3-4 days)
 6. Customer: `paymentType` in form, filter chip, table badge
 7. Customer: deactivate/reactivate actions + visual treatment
-8. Customer: consumption stats + delivery schedule in detail
-9. Customer: statement PDF download
+8. ✅ Customer: consumption stats tab in detail — DONE (Session 10)
+9. ✅ Customer: statement PDF download — DONE (Session 10)
 10. Vans: deactivate/reactivate
-11. Users: deactivate/reactivate + change password in UserNav
+11. ✅ Users: change password in UserNav — DONE (Session 10) | deactivate/reactivate still pending
 12. Daily sheets: swap-assignment dialog
 13. Daily sheets: vanId + driverId filters in list
 14. Daily sheets: reconciliation report after close
@@ -415,16 +414,17 @@ Backend: `GET /portal/statement` ready · Priority: MEDIUM
 | `GET /customers` | ✅ | Missing filters |
 | `PATCH /customers/:id/deactivate` | ❌ | |
 | `PATCH /customers/:id/reactivate` | ❌ | |
-| `GET /customers/:id/consumption` | ❌ | |
+| `GET /customers/:id/consumption` | ✅ | Done (Session 10) |
 | `GET /customers/:id/schedule` | ❌ | |
-| `GET /customers/:id/statement` | ❌ | |
-| `DELETE /customers/:id/custom-prices/:id` | ❌ | |
+| `GET /customers/:id/statement` | ✅ | Done (Session 10) |
+| `POST /customers/:id/custom-prices` | ✅ | Done (Session 10) |
+| `DELETE /customers/:id/custom-prices/:productId` | ✅ | Done (Session 10) |
 | `POST /routes` (defaultVanId) | ⚠️ | Field missing in form |
 | `PATCH /vans/:id/deactivate` | ❌ | |
 | `PATCH /vans/:id/reactivate` | ❌ | |
 | `PATCH /users/:id/deactivate` | ❌ | |
 | `PATCH /users/:id/reactivate` | ❌ | |
-| `PATCH /users/me/change-password` | ❌ | |
+| `PATCH /users/me/change-password` | ✅ | Done (Session 10) |
 | `PATCH /daily-sheets/:id/swap-assignment` | ❌ | Old name used |
 | `GET /daily-sheets/:id/export` | ⚠️ | Wrong URL |
 | `GET /expenses` | ✅ | Done |
@@ -453,4 +453,4 @@ Backend: `GET /portal/statement` ready · Priority: MEDIUM
 
 ---
 
-*Last updated: Feb 18, 2026 — Based on full codebase audit of vendor-dashboard, customer-portal, admin-panel*
+*Last updated: Feb 21, 2026 (Session 10) — Session 10 added: consumption tab, statement PDF, custom price add/delete, change password in UserNav*

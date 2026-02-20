@@ -8,19 +8,24 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
   Input, Label
 } from '@water-supply-crm/ui';
-import { 
-  useCustomer, 
-  useCreatePortalAccount, 
-  useRemovePortalAccount 
+import {
+  useCustomer,
+  useCreatePortalAccount,
+  useRemovePortalAccount,
+  useCustomerConsumption,
+  useSetCustomPrice,
+  useRemoveCustomPrice,
 } from '../hooks/use-customers';
+import { useProducts } from '../../products/hooks/use-products';
 import { PageHeader } from '../../../components/shared/page-header';
 import { TransactionList } from '../../transactions/components/transaction-list';
 import { NuqsAdapter } from 'nuqs/adapters/next/app';
-import { 
-  MapPin, Phone, User, Calendar, 
-  Wallet, Tag, ArrowLeft, Pencil, 
+import {
+  MapPin, Phone, User, Calendar,
+  Wallet, Tag, ArrowLeft, Pencil,
   CreditCard, Droplets, Clock, Info,
-  ShieldCheck, Lock, Mail, Trash2, Globe
+  ShieldCheck, Lock, Mail, Trash2, Globe,
+  TrendingUp, FileText, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -42,6 +47,42 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
   const [editOpen, setEditOpen] = useState(false);
   const [portalOpen, setPortalOpen] = useState(false);
   const [portalData, setPortalData] = useState({ email: '', password: '' });
+  const [customPriceOpen, setCustomPriceOpen] = useState(false);
+  const [customPriceForm, setCustomPriceForm] = useState({ productId: '', customPrice: '' });
+  const [consumptionMonth, setConsumptionMonth] = useState(() => new Date().toISOString().slice(0, 7));
+
+  const { mutate: setCustomPrice, isPending: isSavingPrice } = useSetCustomPrice();
+  const { mutate: removeCustomPrice } = useRemoveCustomPrice();
+  const { data: consumptionData, isLoading: isLoadingConsumption } = useCustomerConsumption(customerId, consumptionMonth);
+  const { data: productsData } = useProducts();
+  const allProducts = (productsData as any)?.data ?? [];
+
+  const handleStatementDownload = async () => {
+    try {
+      const { default: axios } = await import('axios');
+      const { getCookie } = await import('cookies-next');
+      const token = getCookie('auth_token');
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
+      const res = await axios.get(`${apiUrl}/customers/${customerId}/statement?month=${consumptionMonth}`, {
+        responseType: 'blob',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `statement-${customerId}-${consumptionMonth}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // silent — no toast needed if statement not available
+    }
+  };
+
+  const handleMonthChange = (dir: -1 | 1) => {
+    const d = new Date(consumptionMonth + '-01');
+    d.setMonth(d.getMonth() + dir);
+    setConsumptionMonth(d.toISOString().slice(0, 7));
+  };
 
   if (isLoading) {
     return (
@@ -171,17 +212,20 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
       </div>
 
       <Tabs defaultValue="transactions" className="w-full">
-        <TabsList className="bg-accent/30 p-1 rounded-2xl border border-border/50">
-          <TabsTrigger value="transactions" className="rounded-xl font-bold px-6 py-2 transition-all">
+        <TabsList className="bg-accent/30 p-1 rounded-2xl border border-border/50 flex-wrap h-auto gap-1">
+          <TabsTrigger value="transactions" className="rounded-xl font-bold px-5 py-2 transition-all">
             Transactions
           </TabsTrigger>
-          <TabsTrigger value="inventory" className="rounded-xl font-bold px-6 py-2 transition-all">
+          <TabsTrigger value="inventory" className="rounded-xl font-bold px-5 py-2 transition-all">
             Inventory & Wallets
           </TabsTrigger>
-          <TabsTrigger value="prices" className="rounded-xl font-bold px-6 py-2 transition-all">
+          <TabsTrigger value="consumption" className="rounded-xl font-bold px-5 py-2 transition-all">
+            Consumption
+          </TabsTrigger>
+          <TabsTrigger value="prices" className="rounded-xl font-bold px-5 py-2 transition-all">
             Custom Pricing
           </TabsTrigger>
-          <TabsTrigger value="info" className="rounded-xl font-bold px-6 py-2 transition-all">
+          <TabsTrigger value="info" className="rounded-xl font-bold px-5 py-2 transition-all">
             Full Info
           </TabsTrigger>
         </TabsList>
@@ -237,13 +281,83 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
             </div>
           </TabsContent>
 
+          <TabsContent value="consumption">
+            <Card className="rounded-3xl border-border/50 bg-card/30 backdrop-blur-sm">
+              <CardHeader className="border-b bg-muted/20 px-6 py-4 flex flex-row items-center justify-between">
+                <CardTitle className="text-base font-bold flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4 text-primary" /> Consumption Rate
+                </CardTitle>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => handleMonthChange(-1)} className="h-7 w-7 rounded-lg border border-border/50 flex items-center justify-center hover:bg-accent transition-colors">
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </button>
+                  <span className="text-xs font-bold min-w-[80px] text-center">{consumptionMonth}</span>
+                  <button onClick={() => handleMonthChange(1)} className="h-7 w-7 rounded-lg border border-border/50 flex items-center justify-center hover:bg-accent transition-colors">
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                  <Button size="sm" variant="outline" className="rounded-xl h-8 px-3 text-xs font-bold gap-1.5 ml-2" onClick={handleStatementDownload}>
+                    <FileText className="h-3.5 w-3.5" /> Statement PDF
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="p-6">
+                {isLoadingConsumption ? (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {[1, 2, 3, 4].map(i => <div key={i} className="h-24 bg-muted/30 rounded-2xl animate-pulse" />)}
+                  </div>
+                ) : (() => {
+                  const c = consumptionData as any;
+                  if (!c) return <p className="text-sm text-muted-foreground text-center py-10">No data</p>;
+                  const { summary, byProduct } = c;
+                  return (
+                    <div className="space-y-6">
+                      {/* Summary stats */}
+                      <div className="grid gap-3 sm:grid-cols-4">
+                        {[
+                          { label: 'Deliveries', value: summary?.deliveryCount ?? 0 },
+                          { label: 'Total Filled', value: summary?.totalFilledDropped ?? 0 },
+                          { label: 'Total Empties Returned', value: summary?.totalEmptyReceived ?? 0 },
+                          { label: 'Avg per Delivery', value: summary?.avgFilledPerDelivery ?? 0 },
+                        ].map((s) => (
+                          <div key={s.label} className="rounded-2xl bg-muted/30 p-4 text-center">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{s.label}</p>
+                            <p className="text-2xl font-black mt-1">{s.value}</p>
+                          </div>
+                        ))}
+                      </div>
+                      {/* Per-product breakdown */}
+                      {(byProduct ?? []).length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-6">No deliveries in this period</p>
+                      ) : (
+                        <div className="divide-y divide-border/50 border border-border/50 rounded-2xl overflow-hidden">
+                          <div className="grid grid-cols-5 px-4 py-2 bg-muted/20 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                            <span>Product</span><span className="text-right">Deliveries</span><span className="text-right">Total Consumed</span><span className="text-right">Avg/Delivery</span><span className="text-right">Consumption Rate</span>
+                          </div>
+                          {(byProduct ?? []).map((p: any) => (
+                            <div key={p.product?.id} className="grid grid-cols-5 px-4 py-3 hover:bg-accent/20 transition-colors items-center">
+                              <span className="text-sm font-bold">{p.product?.name}</span>
+                              <span className="text-sm font-mono text-right">{p.deliveryCount}</span>
+                              <span className="text-sm font-mono text-right">{p.totalConsumed}</span>
+                              <span className="text-sm font-mono text-right">{p.avgPerDelivery}</span>
+                              <span className={`text-sm font-bold text-right ${p.consumptionRate === 'N/A' ? 'text-muted-foreground' : 'text-primary'}`}>{p.consumptionRate}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           <TabsContent value="prices">
             <Card className="rounded-3xl border-border/50 bg-card/30 backdrop-blur-sm">
               <CardHeader className="border-b bg-muted/20 px-6 py-4 flex flex-row items-center justify-between">
                 <CardTitle className="text-base font-bold flex items-center gap-2">
                   <Tag className="h-4 w-4 text-primary" /> Custom Product Pricing
                 </CardTitle>
-                <Button variant="outline" size="sm" className="rounded-full h-8 px-4 text-xs font-bold">
+                <Button variant="outline" size="sm" className="rounded-full h-8 px-4 text-xs font-bold" onClick={() => { setCustomPriceForm({ productId: '', customPrice: '' }); setCustomPriceOpen(true); }}>
                   Add Custom Rate
                 </Button>
               </CardHeader>
@@ -256,13 +370,18 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                           <span className="text-sm font-bold">{p.product?.name}</span>
                           <span className="text-[10px] text-muted-foreground">Standard Base: ₨ {p.product?.basePrice}</span>
                         </div>
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-3">
                           <div className="flex flex-col items-end">
                             <span className="text-lg font-black font-mono text-primary">₨ {p.customPrice}</span>
                             <span className="text-[10px] font-bold uppercase text-emerald-500">Special Rate</span>
                           </div>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full">
-                            <Pencil className="h-3 w-3" />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 rounded-full hover:bg-destructive/10 hover:text-destructive"
+                            onClick={() => removeCustomPrice({ customerId, productId: p.productId })}
+                          >
+                            <Trash2 className="h-3 w-3" />
                           </Button>
                         </div>
                       </div>
@@ -435,6 +554,57 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
               className="rounded-xl font-bold shadow-lg shadow-primary/20"
             >
               {isCreatingAccount ? 'Setting up...' : 'Enable Access'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Custom Price Dialog */}
+      <Dialog open={customPriceOpen} onOpenChange={setCustomPriceOpen}>
+        <DialogContent className="rounded-3xl max-w-sm bg-background/95 backdrop-blur-xl border-border/50">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black flex items-center gap-2">
+              <Tag className="h-5 w-5 text-primary" /> Set Custom Price
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground">Product</Label>
+              <select
+                value={customPriceForm.productId}
+                onChange={e => setCustomPriceForm(p => ({ ...p, productId: e.target.value }))}
+                className="w-full h-11 rounded-xl border border-border/50 bg-background px-3 text-sm font-bold focus:outline-none focus:ring-1 focus:ring-primary/50"
+              >
+                <option value="">Select product...</option>
+                {allProducts.map((pr: any) => (
+                  <option key={pr.id} value={pr.id}>{pr.name} (Base: ₨{pr.basePrice})</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground">Custom Price (₨)</Label>
+              <Input
+                type="number"
+                placeholder="0.00"
+                className="h-11 font-mono font-bold"
+                value={customPriceForm.customPrice}
+                onChange={e => setCustomPriceForm(p => ({ ...p, customPrice: e.target.value }))}
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-3 border-t pt-6 mt-2">
+            <Button variant="ghost" onClick={() => setCustomPriceOpen(false)} className="rounded-xl">Cancel</Button>
+            <Button
+              onClick={() => {
+                setCustomPrice(
+                  { customerId, data: { productId: customPriceForm.productId, customPrice: Number(customPriceForm.customPrice) } },
+                  { onSuccess: () => setCustomPriceOpen(false) }
+                );
+              }}
+              disabled={isSavingPrice || !customPriceForm.productId || !customPriceForm.customPrice}
+              className="rounded-xl font-bold shadow-lg shadow-primary/20"
+            >
+              {isSavingPrice ? 'Saving...' : 'Save Price'}
             </Button>
           </DialogFooter>
         </DialogContent>

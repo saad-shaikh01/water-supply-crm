@@ -1,6 +1,6 @@
 # Frontend Progress — Water Supply CRM
 
-**Last Updated:** February 20, 2026 (Session 9)
+**Last Updated:** February 21, 2026 (Session 10)
 **Status:** ✅ Modernized & Fully Integrated
 
 ---
@@ -9,7 +9,7 @@
 
 | App | Purpose | Status | Progress |
 |-----|---------|--------|----------|
-| `apps/vendor-dashboard` | VENDOR_ADMIN / STAFF / DRIVER | **Modernized & Integrated** | ~90% |
+| `apps/vendor-dashboard` | VENDOR_ADMIN / STAFF / DRIVER | **Modernized & Integrated** | ~95% |
 | `apps/admin-panel` | SUPER_ADMIN (platform owner) | **Modernized & Integrated** | 100% |
 | `apps/customer-portal` | Customer self-service portal | **Modernized & Integrated** | 100% |
 
@@ -93,3 +93,61 @@ Updated core shadcn/ui components for a premium look:
 | Reconciliation dialog after sheet close | ❌ Pending |
 | Portal payment status polling | ❌ Pending |
 | Refresh token interceptor | ❌ Pending |
+
+---
+
+## Session 10 — Endpoint Integration Completion (February 21, 2026)
+
+### Overview
+Wired up all previously-audited but unintegrated backend endpoints in the vendor dashboard. Full audit was done in Session 9 showing ~20% of defined API functions were dead code.
+
+### Modified Files
+
+| File | Changes |
+|------|---------|
+| `features/customers/hooks/use-customers.ts` | Added `useCustomerConsumption`, `useSetCustomPrice`, `useRemoveCustomPrice` hooks |
+| `features/customers/components/customer-detail.tsx` | Consumption tab, Statement PDF download, Custom Price Add/Delete dialog |
+| `components/layout/user-nav.tsx` | Change Password dialog with validation |
+
+### New Features Added
+
+#### Customer Detail — Consumption Tab
+- Month picker with prev/next arrows (default: current month `YYYY-MM`)
+- Calls `GET /customers/:id/consumption?month=YYYY-MM`
+- 4 summary stat cards: Deliveries, Filled Dropped, Empty Received, Avg Bottles/Delivery
+- Per-product table: `deliveries | totalConsumed | avgPerDelivery | consumptionRate%`
+- "Statement PDF" download button next to month picker
+
+#### Customer Detail — Statement PDF Download
+- Button: `GET /customers/:id/statement?month=YYYY-MM` → blob download
+- Dynamic axios import to avoid SSR issues (uses cookie auth token)
+- File named `statement-YYYY-MM.pdf`
+
+#### Customer Detail — Custom Pricing
+- "Add Custom Rate" button → Dialog with product dropdown (from `useProducts`) + price input
+- Calls `POST /customers/:id/custom-prices`
+- Delete (trash) icon on each existing custom price row → `DELETE /customers/:id/custom-prices/:productId`
+- Both actions invalidate customer query on success
+
+#### UserNav — Change Password
+- New "Change Password" DropdownMenuItem (KeyRound icon)
+- Opens Dialog with: Current Password + New Password + Confirm fields
+- Client-side validation: passwords must match, min 6 chars
+- Calls `PATCH /users/me/change-password` → closes dialog + clears form on success
+
+### Design Patterns Used
+- All new dialogs follow glassmorphism style: `rounded-3xl bg-background/95 backdrop-blur-xl border-border/50`
+- Month navigation: `<ChevronLeft>` / `<ChevronRight>` buttons with `YYYY-MM` string arithmetic
+- PDF downloads: `URL.createObjectURL(blob)` → `<a>` click → `revokeObjectURL`
+- Dynamic imports used for jspdf and axios to avoid SSR bundle issues
+
+### Remaining Gaps (still pending)
+| Feature | Status |
+|---------|--------|
+| Daily sheets filter dropdowns (vanId, driverId) | ❌ Pending |
+| Reconciliation dialog after sheet close | ❌ Pending |
+| Portal payment status polling | ❌ Pending |
+| Refresh token interceptor | ❌ Pending |
+| Delivery schedule in customer detail | ❌ Pending |
+| Van deactivate/reactivate | ❌ Pending |
+| User deactivate/reactivate | ❌ Pending |
