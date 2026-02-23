@@ -30,6 +30,9 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const [editCustomer, setEditCustomer] = useState<Record<string, unknown> | null>(null);
   const [paymentType, setPaymentType] = useQueryState('paymentType', parseAsString.withDefault(''));
 
+  // Reset to page 1 whenever any filter changes
+  const resetPage = () => setPage(1);
+
   const customers = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
   const rows = (customers?.data ?? []) as Array<{
     id: string;
@@ -48,10 +51,10 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row items-center gap-4 bg-card/30 p-4 rounded-2xl border border-border/50">
         <div className="flex-1 w-full">
-          <SearchInput placeholder="Search name, phone or code..." />
+          <SearchInput placeholder="Search name, phone or code..." onBeforeChange={resetPage} />
         </div>
-        <RouteFilter />
-        <Select value={paymentType || 'all'} onValueChange={(v) => setPaymentType(v === 'all' ? null : v as 'MONTHLY' | 'CASH')}>
+        <RouteFilter onBeforeChange={resetPage} />
+        <Select value={paymentType || 'all'} onValueChange={(v) => { resetPage(); setPaymentType(v === 'all' ? null : v as 'MONTHLY' | 'CASH'); }}>
           <SelectTrigger className="w-[160px] rounded-xl bg-background/50 border-border/50">
             <SelectValue placeholder="All Types" />
           </SelectTrigger>

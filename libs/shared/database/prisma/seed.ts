@@ -16,6 +16,7 @@
  *   - 3 Routes (DHA, Gulshan, Malir — each linked to its own van)
  *   - 2 Products (19L + 5L)
  *   - 100 Customers (mix of MONTHLY/CASH, all active, zero balances)
+ *   - CustomerDeliverySchedule entries (2–3 days per customer, random vans)
  */
 import { PrismaClient, UserRole, PaymentType } from '@prisma/client';
 import { faker } from '@faker-js/faker';
@@ -41,12 +42,18 @@ function getRandomItem<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-// Pick 2 or 3 random delivery days from Mon–Sat (1–6), no Sunday
-function randomDeliveryDays(): number[] {
-  const weekdays = [1, 2, 3, 4, 5, 6]; // Mon=1 ... Sat=6
-  const count = Math.random() < 0.5 ? 2 : 3; // 50% get 2 days, 50% get 3 days
-  const shuffled = weekdays.sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, count).sort((a, b) => a - b); // keep sorted ascending
+interface Van { id: string; plateNumber: string }
+
+// Pick 2 or 3 random delivery days from Mon–Sat (1–6), assign random vans
+function randomSchedule(vans: Van[]): { dayOfWeek: number; vanId: string; routeSequence: number }[] {
+  const weekdays = [1, 2, 3, 4, 5, 6];
+  const count = Math.random() < 0.5 ? 2 : 3;
+  const shuffled = [...weekdays].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, count).sort((a, b) => a - b).map((day, i) => ({
+    dayOfWeek: day,
+    vanId: getRandomItem(vans).id,
+    routeSequence: i + 1,
+  }));
 }
 
 async function main() {
@@ -59,6 +66,7 @@ async function main() {
   await prisma.dailySheet.deleteMany({ where: { vendor: { slug: VENDOR_SLUG } } });
   await prisma.transaction.deleteMany({ where: { vendor: { slug: VENDOR_SLUG } } });
   await prisma.paymentRequest.deleteMany({ where: { vendor: { slug: VENDOR_SLUG } } });
+  await prisma.customerDeliverySchedule.deleteMany({ where: { customer: { vendor: { slug: VENDOR_SLUG } } } });
   await prisma.bottleWallet.deleteMany({ where: { customer: { vendor: { slug: VENDOR_SLUG } } } });
   await prisma.customerProductPrice.deleteMany({ where: { customer: { vendor: { slug: VENDOR_SLUG } } } });
   await prisma.customer.deleteMany({ where: { vendor: { slug: VENDOR_SLUG } } });
@@ -184,7 +192,7 @@ async function main() {
     const areaKey = route.name.toUpperCase() as keyof typeof KARACHI_AREAS;
     const area = getRandomItem(KARACHI_AREAS[areaKey]);
     const isMonthly = i % 5 < 2; // ~40% MONTHLY, ~60% CASH
-    const deliveryDays = randomDeliveryDays();
+    const schedule = randomSchedule(vans);
 
     const customer = await prisma.customer.create({
       data: {
@@ -192,13 +200,17 @@ async function main() {
         name: faker.person.fullName(),
         phoneNumber: faker.helpers.replaceSymbols('03##-#######'),
         address: `${faker.location.streetAddress(false)}, ${area}`,
-        deliveryDays,
         vendorId: vendor.id,
         routeId: route.id,
         paymentType: isMonthly ? PaymentType.MONTHLY : PaymentType.CASH,
         isActive: true,
-        financialBalance: 0, // fresh customer — no outstanding amount
+        financialBalance: 0,
       },
+    });
+
+    // Create delivery schedule entries
+    await prisma.customerDeliverySchedule.createMany({
+      data: schedule.map((s) => ({ customerId: customer.id, ...s })),
     });
 
     // Bottle wallets at 0 — customer hasn't received any bottles yet
@@ -210,7 +222,7 @@ async function main() {
     });
   }
 
-  console.log(`✅ ${CUSTOMER_COUNT} customers created\n`);
+  console.log(`✅ ${CUSTOMER_COUNT} customers created with delivery schedules\n`);
 
   console.log('═══════════════════════════════════════════════════════════════');
   console.log('  SEED COMPLETE');
@@ -230,6 +242,7 @@ async function main() {
   console.log('  Customers: 100 fresh · all active · zero balances');
   console.log('             ~40 MONTHLY · ~60 CASH');
   console.log('             Distributed: ~33-34 per route');
+  console.log('             Each with 2–3 day delivery schedule across all vans');
   console.log('═══════════════════════════════════════════════════════════════\n');
 }
 

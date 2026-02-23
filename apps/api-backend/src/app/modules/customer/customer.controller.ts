@@ -190,4 +190,14 @@ export class CustomerController {
       query.to,
     );
   }
+
+  /** GET /customers/:id/financial-summary — current/last month paid, due, bottles, last delivery */
+  @Get(':id/financial-summary')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  getFinancialSummary(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+  ) {
+    return this.customerService.getFinancialSummary(user.vendorId, id);
+  }
 }

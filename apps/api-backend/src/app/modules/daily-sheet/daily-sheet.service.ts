@@ -15,6 +15,8 @@ import { SubmitDeliveryDto } from './dto/submit-delivery.dto';
 import { LoadOutDto } from './dto/load-out.dto';
 import { CheckInDto } from './dto/check-in.dto';
 import { SwapDriverDto } from './dto/swap-driver.dto';
+import { CreateLoadDto } from './dto/create-load.dto';
+import { CheckinLoadDto } from './dto/checkin-load.dto';
 import { DailySheetQueryDto } from './dto/daily-sheet-query.dto';
 import { LedgerService } from '../transaction/ledger.service';
 import { AuditService } from '../audit/audit.service';
@@ -36,6 +38,7 @@ export class DailySheetService {
     const job = await this.sheetQueue.add(JOB_NAMES.GENERATE_SHEETS, {
       vendorId,
       date: dto.date,
+      vanIds: dto.vanIds,
     });
     return { jobId: job.id, status: 'queued' };
   }
@@ -78,6 +81,7 @@ export class DailySheetService {
           emptyReceived: dto.emptyReceived,
           cashCollected: dto.cashCollected,
           reason: dto.reason,
+          photoUrl: dto.photoUrl,
         },
       });
 
@@ -179,13 +183,20 @@ export class DailySheetService {
             customer: {
               select: {
                 id: true, name: true, customerCode: true,
-                address: true, phoneNumber: true,
-                paymentType: true, financialBalance: true,
+                address: true, floor: true, nearbyLandmark: true,
+                deliveryInstructions: true, latitude: true, longitude: true,
+                phoneNumber: true, paymentType: true, financialBalance: true,
+                wallets: {
+                  select: { balance: true, product: { select: { name: true } } },
+                },
               },
             },
             product: true,
           },
           orderBy: { sequence: 'asc' },
+        },
+        loads: {
+          orderBy: { tripNumber: 'asc' },
         },
       },
     });
@@ -193,6 +204,88 @@ export class DailySheetService {
       throw new NotFoundException('Daily sheet not found');
     }
     return sheet;
+  }
+
+  async createLoad(vendorId: string, sheetId: string, dto: CreateLoadDto) {
+    const sheet = await this.prisma.dailySheet.findFirst({
+      where: { id: sheetId, vendorId },
+    });
+    if (!sheet) throw new NotFoundException('Daily sheet not found');
+    if (sheet.isClosed) throw new ConflictException('Cannot update a closed sheet');
+
+    // Only one active trip at a time
+    const activeTrip = await this.prisma.dailySheetLoad.findFirst({
+      where: { dailySheetId: sheetId, endedAt: null },
+    });
+    if (activeTrip) throw new ConflictException('A trip is already in progress — check in first');
+
+    const lastLoad = await this.prisma.dailySheetLoad.findFirst({
+      where: { dailySheetId: sheetId },
+      orderBy: { tripNumber: 'desc' },
+    });
+    const tripNumber = (lastLoad?.tripNumber ?? 0) + 1;
+
+    const [load] = await this.prisma.$transaction([
+      this.prisma.dailySheetLoad.create({
+        data: { dailySheetId: sheetId, tripNumber, loadedFilled: dto.loadedFilled },
+      }),
+      this.prisma.dailySheet.update({
+        where: { id: sheetId },
+        data: { filledOutCount: { increment: dto.loadedFilled } },
+      }),
+    ]);
+
+    return load;
+  }
+
+  async checkinLoad(vendorId: string, sheetId: string, loadId: string, dto: CheckinLoadDto) {
+    const sheet = await this.prisma.dailySheet.findFirst({
+      where: { id: sheetId, vendorId },
+    });
+    if (!sheet) throw new NotFoundException('Daily sheet not found');
+    if (sheet.isClosed) throw new ConflictException('Sheet is already closed');
+
+    const load = await this.prisma.dailySheetLoad.findFirst({
+      where: { id: loadId, dailySheetId: sheetId },
+    });
+    if (!load) throw new NotFoundException('Load trip not found');
+    if (load.endedAt) throw new ConflictException('Trip already checked in');
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.dailySheetLoad.update({
+        where: { id: loadId },
+        data: {
+          returnedFilled: dto.returnedFilled,
+          collectedEmpty: dto.collectedEmpty,
+          cashHandedIn: dto.cashHandedIn,
+          endedAt: new Date(),
+        },
+      });
+
+      // Update sheet-level aggregates
+      await tx.dailySheet.update({
+        where: { id: sheetId },
+        data: {
+          filledInCount: { increment: dto.returnedFilled },
+          emptyInCount: { increment: dto.collectedEmpty },
+          cashCollected: { increment: dto.cashHandedIn },
+        },
+      });
+
+      return updated;
+    });
+  }
+
+  async getLoads(vendorId: string, sheetId: string) {
+    const sheet = await this.prisma.dailySheet.findFirst({
+      where: { id: sheetId, vendorId },
+    });
+    if (!sheet) throw new NotFoundException('Daily sheet not found');
+
+    return this.prisma.dailySheetLoad.findMany({
+      where: { dailySheetId: sheetId },
+      orderBy: { tripNumber: 'asc' },
+    });
   }
 
   async loadOut(vendorId: string, sheetId: string, dto: LoadOutDto) {

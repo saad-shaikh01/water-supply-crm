@@ -19,6 +19,8 @@ import { SubmitDeliveryDto } from './dto/submit-delivery.dto';
 import { LoadOutDto } from './dto/load-out.dto';
 import { CheckInDto } from './dto/check-in.dto';
 import { SwapDriverDto } from './dto/swap-driver.dto';
+import { CreateLoadDto } from './dto/create-load.dto';
+import { CheckinLoadDto } from './dto/checkin-load.dto';
 import { DailySheetQueryDto } from './dto/daily-sheet-query.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -125,6 +127,63 @@ export class DailySheetController {
     @Body() dto: SwapDriverDto,
   ) {
     return this.dailySheetService.swapAssignment(user.vendorId, id, dto);
+  }
+
+  // ── Load trips (multi-trip per sheet) ────────────────────────────────
+
+  @Post(':id/loads')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 20 } })
+  createLoad(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() dto: CreateLoadDto,
+  ) {
+    return this.dailySheetService.createLoad(user.vendorId, id, dto);
+  }
+
+  @Patch(':id/loads/:loadId/checkin')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
+  checkinLoad(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Param('loadId') loadId: string,
+    @Body() dto: CheckinLoadDto,
+  ) {
+    return this.dailySheetService.checkinLoad(user.vendorId, id, loadId, dto);
+  }
+
+  @Get(':id/loads')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  getLoads(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.dailySheetService.getLoads(user.vendorId, id);
+  }
+
+  /**
+   * GET /api/daily-sheets/:id/invoice
+   * Opens an inline PDF invoice (all items with address/wallet detail).
+   * Roles: VENDOR_ADMIN, STAFF, DRIVER
+   */
+  @Get(':id/invoice')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  async exportInvoice(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const sheet = await this.dailySheetService.findOne(user.vendorId, id);
+    const pdfBuffer = await this.pdfService.generate(sheet);
+
+    const dateStr = new Date(sheet.date).toISOString().split('T')[0];
+    const filename = `invoice-${dateStr}-${(sheet as any).van?.plateNumber ?? id}.pdf`
+      .replace(/\s+/g, '-')
+      .toLowerCase();
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.end(pdfBuffer);
   }
 
   /**

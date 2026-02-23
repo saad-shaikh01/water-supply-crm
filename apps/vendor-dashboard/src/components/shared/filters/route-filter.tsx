@@ -1,17 +1,33 @@
 'use client';
 
 import { useQueryState, parseAsString } from 'nuqs';
+import { useQuery } from '@tanstack/react-query';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@water-supply-crm/ui';
-import { useRoutes } from '../../../features/routes/hooks/use-routes';
+import { routesApi } from '../../../features/routes/api/routes.api';
 
-export function RouteFilter() {
+interface RouteFilterProps {
+  onBeforeChange?: () => void;
+}
+
+export function RouteFilter({ onBeforeChange }: RouteFilterProps) {
   const [routeId, setRouteId] = useQueryState('routeId', parseAsString.withDefault(''));
-  const { data } = useRoutes();
+
+  // Fixed params — NOT URL state — avoids collision with list's page param
+  const { data } = useQuery({
+    queryKey: ['routes', 'dropdown'],
+    queryFn: () => routesApi.getAll({ page: 1, limit: 100 }).then((r) => r.data),
+    staleTime: 5 * 60 * 1000,
+  });
 
   const routes = (data as { data?: any[] } | undefined)?.data ?? [];
 
+  const handleChange = (v: string) => {
+    onBeforeChange?.();
+    setRouteId(v === 'all' ? null : v);
+  };
+
   return (
-    <Select value={routeId || 'all'} onValueChange={(v) => setRouteId(v === 'all' ? null : v)}>
+    <Select value={routeId || 'all'} onValueChange={handleChange}>
       <SelectTrigger className="w-[180px] rounded-xl bg-background/50 border-border/50">
         <SelectValue placeholder="All Routes" />
       </SelectTrigger>

@@ -26,4 +26,13 @@ export const dailySheetsApi = {
     apiClient.patch(`/daily-sheets/${id}/swap-assignment`, data),
   exportPdf: (id: string) =>
     apiClient.get(`/daily-sheets/${id}/export`, { responseType: 'blob' }),
+  exportInvoice: (id: string) =>
+    apiClient.get(`/daily-sheets/${id}/invoice`, { responseType: 'blob' }),
+  // Load trips
+  createLoad: (id: string, data: Record<string, unknown>) =>
+    apiClient.post(`/daily-sheets/${id}/loads`, data),
+  checkinLoad: (id: string, loadId: string, data: Record<string, unknown>) =>
+    apiClient.patch(`/daily-sheets/${id}/loads/${loadId}/checkin`, data),
+  getLoads: (id: string) =>
+    apiClient.get(`/daily-sheets/${id}/loads`),
 };

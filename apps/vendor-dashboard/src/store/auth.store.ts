@@ -23,6 +23,6 @@ export const useAuthStore = create<AuthState>()(
       setUser: (user) => set({ user }),
       clearUser: () => set({ user: null }),
     }),
-    { name: 'vendor-auth-store' }
+    { name: 'vendor-auth-store', skipHydration: true }
   )
 );

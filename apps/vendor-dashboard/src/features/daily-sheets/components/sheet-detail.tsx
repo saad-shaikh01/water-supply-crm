@@ -2,30 +2,56 @@
 
 import { useState } from 'react';
 import {
-  Card, CardContent, CardHeader, CardTitle, Button, Skeleton, Badge,
+  Card, CardContent, Button, Skeleton, Badge,
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
   Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-  Separator
+  Tabs, TabsList, TabsTrigger,
 } from '@water-supply-crm/ui';
-import { PageHeader } from '../../../components/shared/page-header';
 import { StatusBadge } from '../../../components/shared/status-badge';
-import { useDailySheet, useLoadOut, useCheckIn, useCloseSheet, useUpdateDeliveryItem, useSwapAssignment } from '../hooks/use-daily-sheets';
+import {
+  useDailySheet, useCloseSheet, useUpdateDeliveryItem,
+  useSwapAssignment, useCreateLoad, useCheckinLoad,
+} from '../hooks/use-daily-sheets';
 import { useAllVans } from '../../vans/hooks/use-vans';
+import { useAllDrivers } from '../../users/hooks/use-users';
 import { dailySheetsApi } from '../api/daily-sheets.api';
 import { toast } from 'sonner';
-import { 
+import {
   Truck, Package, CheckCircle2, ClipboardList,
   ArrowLeft, Download, MapPin, User, ArrowRightLeft,
-  Droplets, DollarSign, Info, AlertCircle, Save
+  Droplets, DollarSign, AlertCircle, Plus,
+  ChevronDown, ChevronUp, Loader2, Clock,
+  Phone, MessageCircle, Navigation, Printer,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@water-supply-crm/ui';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useAuthStore } from '../../../store/auth.store';
+import { hasMinRole } from '../../../lib/rbac';
+
+interface CustomerWallet {
+  balance: number;
+  product: { name: string };
+}
 
 interface DeliveryItem {
   id: string;
+  sequence: number;
   customerId: string;
-  customer?: { name: string; address: string; customerCode: string };
+  customer?: {
+    name: string;
+    address: string;
+    customerCode: string;
+    floor?: string;
+    nearbyLandmark?: string;
+    deliveryInstructions?: string;
+    latitude?: number;
+    longitude?: number;
+    phoneNumber?: string;
+    paymentType?: 'MONTHLY' | 'CASH';
+    financialBalance?: number;
+    wallets?: CustomerWallet[];
+  };
   productId: string;
   product?: { name: string };
   status: 'PENDING' | 'COMPLETED' | 'EMPTY_ONLY' | 'NOT_AVAILABLE' | 'RESCHEDULED' | 'CANCELLED';
@@ -33,67 +59,157 @@ interface DeliveryItem {
   emptyReceived: number;
   cashCollected: number;
   reason?: string;
+  photoUrl?: string;
+}
+
+interface LoadTrip {
+  id: string;
+  tripNumber: number;
+  loadedFilled: number;
+  returnedFilled: number;
+  collectedEmpty: number;
+  cashHandedIn: number;
+  startedAt: string;
+  endedAt: string | null;
 }
 
 interface SheetDetailProps {
   sheetId: string;
 }
 
+type TabKey = 'all' | 'pending' | 'completed' | 'issues';
+
+const ITEMS_PER_PAGE = 20;
+
+function tabFilter(tab: TabKey, item: DeliveryItem): boolean {
+  switch (tab) {
+    case 'pending': return item.status === 'PENDING';
+    case 'completed': return item.status === 'COMPLETED' || item.status === 'EMPTY_ONLY';
+    case 'issues': return item.status === 'RESCHEDULED' || item.status === 'CANCELLED' || item.status === 'NOT_AVAILABLE';
+    default: return true;
+  }
+}
+
 export function SheetDetail({ sheetId }: SheetDetailProps) {
   const router = useRouter();
+  const user = useAuthStore((s) => s.user);
+  const isDriver = user?.role === 'DRIVER';
+  const isAdminOrStaff = user ? hasMinRole(user.role, 'STAFF') : false;
+
   const { data, isLoading } = useDailySheet(sheetId);
-  const { mutate: recordLoadOut, isPending: isSavingLoadOut } = useLoadOut(sheetId);
-  const { mutate: recordCheckIn, isPending: isSavingCheckIn } = useCheckIn(sheetId);
   const { mutate: closeSheet, isPending: isClosing } = useCloseSheet(sheetId);
   const { mutate: updateItem, isPending: isUpdatingItem } = useUpdateDeliveryItem(sheetId);
   const { mutate: swapAssignment, isPending: isSwapping } = useSwapAssignment(sheetId);
+  const { mutate: createLoad, isPending: isStartingTrip } = useCreateLoad(sheetId);
+  const { mutate: checkinLoad, isPending: isCheckingIn } = useCheckinLoad(sheetId);
   const { data: vansData } = useAllVans();
   const allVans = ((vansData as any)?.data ?? []) as Array<{ id: string; plateNumber: string }>;
+  const { data: driversData } = useAllDrivers();
+  const allDrivers = ((driversData as any)?.data ?? []) as Array<{ id: string; name: string }>;
 
-  // Dialog States
-  const [loadOutOpen, setLoadOutOpen] = useState(false);
-  const [checkInOpen, setCheckInOpen] = useState(false);
+  // Dialog states
+  const [newTripOpen, setNewTripOpen] = useState(false);
+  const [checkinOpen, setCheckinOpen] = useState<string | null>(null);
   const [deliveryOpen, setDeliveryOpen] = useState<string | null>(null);
   const [swapOpen, setSwapOpen] = useState(false);
 
-  // Form States
-  const [loadOutCount, setLoadOutCount] = useState(0);
-  const [checkInData, setCheckIn] = useState({ filledInCount: 0, emptyInCount: 0, cashCollected: 0 });
+  // Form states
+  const [newTripFilled, setNewTripFilled] = useState(0);
+  const [checkinForm, setCheckinForm] = useState({ returnedFilled: 0, collectedEmpty: 0, cashHandedIn: 0 });
   const [itemForm, setItemForm] = useState<Partial<DeliveryItem>>({});
-  const [swapForm, setSwapForm] = useState<{ vanId?: string }>({});
+  const [swapForm, setSwapForm] = useState<{ vanId?: string; driverId?: string }>({});
 
-  if (isLoading) return <div className="space-y-6"><Skeleton className="h-20 w-full rounded-3xl" /><Skeleton className="h-96 w-full rounded-3xl" /></div>;
+  // Delivery dialog: two-step UX
+  const [deliveryMode, setDeliveryMode] = useState<'delivered' | 'unable'>('delivered');
+  const [unableAction, setUnableAction] = useState<'RESCHEDULED' | 'CANCELLED'>('RESCHEDULED');
+  const [unableReason, setUnableReason] = useState('');
+
+  // Tabs + pagination
+  const [activeTab, setActiveTab] = useState<TabKey>('all');
+  const [tabPage, setTabPage] = useState(1);
+
+  // Accordion
+  const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
+
+  if (isLoading) return (
+    <div className="space-y-6">
+      <Skeleton className="h-20 w-full rounded-3xl" />
+      <Skeleton className="h-96 w-full rounded-3xl" />
+    </div>
+  );
 
   const sheet = (data ?? {}) as Record<string, any>;
   const items = (sheet.items ?? []) as DeliveryItem[];
-  
-  // Status Derivation
+  const loads = (sheet.loads ?? []) as LoadTrip[];
+
+  const activeTrip = loads.find((l) => !l.endedAt) ?? null;
+  const hasAnyTrip = loads.length > 0;
   const isClosed = !!sheet.isClosed;
-  const isCheckedIn = !isClosed && (sheet.cashCollected > 0 || sheet.filledInCount > 0);
-  const isLoaded = !isClosed && !isCheckedIn && sheet.filledOutCount > 0;
-  const isNew = !isClosed && !isCheckedIn && !isLoaded;
+  const currentStatus = isClosed ? 'CLOSED' : activeTrip ? 'LOADED' : hasAnyTrip ? 'CHECKED_IN' : 'OPEN';
 
-  const currentStatus = isClosed ? 'CLOSED' : isCheckedIn ? 'CHECKED_IN' : isLoaded ? 'LOADED' : 'OPEN';
+  // ── Computed real-time stats ────────────────────────────────────────
+  const completedItems = items.filter((i) => i.status === 'COMPLETED');
+  const totalFilledDropped = completedItems.reduce((acc, i) => acc + i.filledDropped, 0);
+  const totalEmptyReceived = completedItems.reduce((acc, i) => acc + i.emptyReceived, 0);
+  const totalCashCollected = completedItems.reduce((acc, i) => acc + i.cashCollected, 0);
+  const bottlesInTruck = Math.max(0, (sheet.filledOutCount ?? 0) - totalFilledDropped);
 
+  // ── Tab filtering + pagination ──────────────────────────────────────
+  const filteredItems = items.filter((i) => tabFilter(activeTab, i));
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / ITEMS_PER_PAGE));
+  const paginatedItems = filteredItems.slice((tabPage - 1) * ITEMS_PER_PAGE, tabPage * ITEMS_PER_PAGE);
+
+  const tabCount = (tab: TabKey) => items.filter((i) => tabFilter(tab, i)).length;
+
+  const handleTabChange = (tab: string) => {
+    setActiveTab(tab as TabKey);
+    setTabPage(1);
+    setExpandedItemId(null);
+  };
+
+  // ── Delivery dialog handlers ─────────────────────────────────────────
   const handleOpenDelivery = (item: DeliveryItem) => {
-    if (isClosed || isCheckedIn) return;
+    if (isClosed) return;
+    const isUnable = item.status === 'RESCHEDULED' || item.status === 'CANCELLED' || item.status === 'NOT_AVAILABLE';
+    setDeliveryMode(item.status === 'PENDING' ? 'delivered' : isUnable ? 'unable' : 'delivered');
+    setUnableAction(item.status === 'CANCELLED' ? 'CANCELLED' : 'RESCHEDULED');
+    setUnableReason(item.reason || '');
     setItemForm({
-      status: item.status === 'PENDING' ? 'COMPLETED' : item.status,
       filledDropped: item.filledDropped || 1,
-      emptyReceived: item.emptyReceived || 1,
+      emptyReceived: item.emptyReceived || 0,
       cashCollected: item.cashCollected || 0,
-      reason: item.reason || '',
     });
     setDeliveryOpen(item.id);
   };
 
   const onSaveItem = () => {
     if (!deliveryOpen) return;
-    updateItem({
-      itemId: deliveryOpen,
-      data: itemForm
-    }, {
-      onSuccess: () => setDeliveryOpen(null)
+    let finalData: Record<string, unknown>;
+    if (deliveryMode === 'delivered') {
+      finalData = {
+        status: 'COMPLETED',
+        filledDropped: itemForm.filledDropped ?? 1,
+        emptyReceived: itemForm.emptyReceived ?? 0,
+        cashCollected: itemForm.cashCollected ?? 0,
+      };
+    } else {
+      if (!unableReason.trim()) {
+        toast.error('Reason is required');
+        return;
+      }
+      finalData = {
+        status: unableAction,
+        filledDropped: 0,
+        emptyReceived: 0,
+        cashCollected: 0,
+        reason: unableReason,
+      };
+    }
+    updateItem({ itemId: deliveryOpen, data: finalData }, {
+      onSuccess: () => {
+        setDeliveryOpen(null);
+        setExpandedItemId(null);
+      },
     });
   };
 
@@ -111,9 +227,28 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
     }
   };
 
+  const handlePrintInvoice = async () => {
+    try {
+      const res = await dailySheetsApi.exportInvoice(sheetId);
+      const url = URL.createObjectURL(res.data);
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch {
+      toast.error('Failed to load invoice');
+    }
+  };
+
+  const formatTime = (dt: string) =>
+    new Date(dt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  const formatPhone = (phone?: string) => {
+    if (!phone) return '';
+    return phone.startsWith('0') ? `92${phone.slice(1)}` : phone;
+  };
+
   return (
     <div className="space-y-8 pb-20">
-      {/* Header */}
+      {/* ── Header ─────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-4">
         <Button variant="ghost" size="icon" onClick={() => router.back()} className="rounded-full">
           <ArrowLeft className="h-5 w-5" />
@@ -126,51 +261,53 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             <StatusBadge status={currentStatus} />
           </div>
           <p className="text-muted-foreground text-sm flex items-center gap-2 mt-1 font-medium">
-            <MapPin className="h-3 w-3" /> {sheet.route?.name} • <Truck className="h-3 w-3 ml-1" /> {sheet.van?.plateNumber}
+            <MapPin className="h-3 w-3" /> {sheet.route?.name ?? 'No Route'} • <Truck className="h-3 w-3 ml-1" /> {sheet.van?.plateNumber}
           </p>
         </div>
         <div className="flex gap-2">
-          {!isClosed && (
-            <div className="flex gap-2">
-              {isNew && <Button onClick={() => { setLoadOutCount(items.length * 2); setLoadOutOpen(true); }} className="rounded-full font-bold shadow-lg shadow-primary/20">Start Load-Out</Button>}
-              {isLoaded && <Button onClick={() => setCheckInOpen(true)} className="rounded-full font-bold shadow-lg shadow-primary/20" variant="secondary">Check In</Button>}
-              {isCheckedIn && <Button onClick={() => closeSheet()} disabled={isClosing} className="rounded-full font-bold shadow-lg shadow-primary/20">Close & Reconcile</Button>}
-            </div>
-          )}
-          {!isClosed && (
-            <Button variant="outline" size="icon" className="rounded-full" onClick={() => setSwapOpen(true)} title="Swap van assignment">
+          {!isClosed && isAdminOrStaff && (
+            <Button
+              variant="outline"
+              size="icon"
+              className="rounded-full"
+              onClick={() => setSwapOpen(true)}
+              title="Swap van assignment"
+            >
               <ArrowRightLeft className="h-4 w-4" />
             </Button>
           )}
-          <Button variant="outline" size="icon" className="rounded-full" onClick={handleExportPdf}>
+          <Button variant="outline" size="icon" className="rounded-full" onClick={handleExportPdf} title="Download PDF">
             <Download className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" size="icon" className="rounded-full" onClick={handlePrintInvoice} title="Print Invoice">
+            <Printer className="h-4 w-4" />
           </Button>
         </div>
       </div>
 
-      {/* Lifecycle Stepper */}
+      {/* ── Lifecycle Stepper ──────────────────────────────── */}
       <div className="grid grid-cols-4 gap-2">
         {[
           { label: 'Generated', active: true, icon: ClipboardList },
-          { label: 'Loaded', active: isLoaded || isCheckedIn || isClosed, icon: Package },
-          { label: 'Invoiced', active: isCheckedIn || isClosed, icon: DollarSign },
+          { label: 'Loaded', active: hasAnyTrip || isClosed, icon: Package },
+          { label: 'Checked In', active: (hasAnyTrip && !activeTrip) || isClosed, icon: DollarSign },
           { label: 'Closed', active: isClosed, icon: CheckCircle2 },
         ].map((step, i) => (
           <div key={i} className="flex flex-col items-center gap-2">
             <div className={cn(
-              "h-10 w-10 rounded-full flex items-center justify-center transition-all duration-500",
-              step.active ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20" : "bg-muted text-muted-foreground"
+              'h-10 w-10 rounded-full flex items-center justify-center transition-all duration-500',
+              step.active ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20' : 'bg-muted text-muted-foreground',
             )}>
               <step.icon className="h-5 w-5" />
             </div>
-            <span className={cn("text-[10px] font-bold uppercase tracking-widest", step.active ? "text-primary" : "text-muted-foreground")}>
+            <span className={cn('text-[10px] font-bold uppercase tracking-widest', step.active ? 'text-primary' : 'text-muted-foreground')}>
               {step.label}
             </span>
           </div>
         ))}
       </div>
 
-      {/* Stats Grid */}
+      {/* ── Real-time Stats Bar ─────────────────────────────── */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card className="bg-card/50 backdrop-blur-sm">
           <CardContent className="p-4 flex items-center gap-4">
@@ -189,8 +326,8 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
               <Droplets className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-[10px] font-bold uppercase text-muted-foreground">Load Dispatch</p>
-              <p className="text-sm font-black">{sheet.filledOutCount} Filled</p>
+              <p className="text-[10px] font-bold uppercase text-muted-foreground">Filled Dropped</p>
+              <p className="text-sm font-black">{totalFilledDropped} <span className="text-xs font-normal text-muted-foreground">of {sheet.filledOutCount}</span></p>
             </div>
           </CardContent>
         </Card>
@@ -200,228 +337,746 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
               <CheckCircle2 className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-[10px] font-bold uppercase text-muted-foreground">Progress</p>
-              <p className="text-sm font-black">{items.filter(i => i.status !== 'PENDING').length} / {items.length} Done</p>
+              <p className="text-[10px] font-bold uppercase text-muted-foreground">Cash Collected</p>
+              <p className="text-sm font-black">₨ {totalCashCollected.toLocaleString()}</p>
             </div>
           </CardContent>
         </Card>
         <Card className="bg-card/50 backdrop-blur-sm">
           <CardContent className="p-4 flex items-center gap-4">
             <div className="h-10 w-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500">
-              <DollarSign className="h-5 w-5" />
+              <Truck className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-[10px] font-bold uppercase text-muted-foreground">Cash Collected</p>
-              <p className="text-sm font-black">₨ {sheet.cashCollected?.toLocaleString()}</p>
+              <p className="text-[10px] font-bold uppercase text-muted-foreground">In Truck</p>
+              <p className="text-sm font-black">{bottlesInTruck} bottles</p>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Items List */}
+      {/* ── Load Trips Section ─────────────────────────────── */}
       <div className="space-y-4">
-        <h3 className="text-lg font-black flex items-center gap-2">
-          <ClipboardList className="h-5 w-5 text-primary" />
-          Delivery Queue
-        </h3>
-        <div className="grid gap-3">
-          {items.map((item, idx) => (
-            <motion.div
-              key={item.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.05 }}
-            >
-              <Card className={cn(
-                "group overflow-hidden border-border/50 hover:border-primary/30 transition-all cursor-pointer",
-                item.status !== 'PENDING' ? "bg-muted/30 opacity-80" : "bg-card/50"
-              )} onClick={() => handleOpenDelivery(item)}>
-                <CardContent className="p-4 sm:p-6">
-                  <div className="flex flex-col sm:flex-row gap-4 sm:items-center">
-                    <div className="h-10 w-10 rounded-full bg-accent flex items-center justify-center shrink-0 font-black text-sm">
-                      {item.customer?.name?.charAt(0)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-bold text-sm sm:text-base truncate">{item.customer?.name}</h4>
-                        <Badge variant="outline" className="text-[9px] font-mono px-1.5">{item.customer?.customerCode}</Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground truncate flex items-center gap-1 mt-0.5">
-                        <MapPin className="h-2.5 w-2.5" /> {item.customer?.address}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-4 shrink-0 sm:border-l sm:pl-6 border-border/50">
-                      <div className="text-center">
-                        <p className="text-[10px] font-bold uppercase text-muted-foreground">Status</p>
-                        <StatusBadge status={item.status} />
-                      </div>
-                      <div className="text-right min-w-[80px]">
-                        <p className="text-[10px] font-bold uppercase text-muted-foreground">Record</p>
-                        <p className="text-sm font-black font-mono">
-                          {item.status === 'PENDING' ? '—' : `${item.filledDropped} Drop`}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          ))}
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <h3 className="text-lg font-black flex items-center gap-2">
+            <Truck className="h-5 w-5 text-primary" />
+            Load Trips
+            <Badge variant="secondary" className="font-bold text-xs">{loads.length}</Badge>
+          </h3>
+          <div className="flex gap-2">
+            {!isClosed && !activeTrip && isAdminOrStaff && (
+              <Button
+                size="sm"
+                onClick={() => { setNewTripFilled(items.length * 2); setNewTripOpen(true); }}
+                className="rounded-full font-bold shadow-lg shadow-primary/20 gap-2"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                New Load-Out
+              </Button>
+            )}
+            {!isClosed && !activeTrip && hasAnyTrip && isAdminOrStaff && (
+              <Button
+                size="sm"
+                variant="default"
+                onClick={() => closeSheet()}
+                disabled={isClosing}
+                className="rounded-full font-bold"
+              >
+                {isClosing ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Close & Reconcile'}
+              </Button>
+            )}
+          </div>
         </div>
+
+        {loads.length === 0 ? (
+          <Card className="border-dashed border-2 border-border/40">
+            <CardContent className="p-8 flex flex-col items-center gap-3 text-center">
+              <Truck className="h-8 w-8 text-muted-foreground/30" />
+              <p className="text-sm font-bold text-muted-foreground">No trips yet</p>
+              {isAdminOrStaff && (
+                <p className="text-xs text-muted-foreground/60 max-w-[220px]">
+                  Start a Load-Out to record the first trip for this sheet.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {loads.map((trip, idx) => {
+              const isActive = !trip.endedAt;
+              const duration = trip.endedAt
+                ? Math.round((new Date(trip.endedAt).getTime() - new Date(trip.startedAt).getTime()) / 60000)
+                : null;
+
+              return (
+                <motion.div
+                  key={trip.id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: idx * 0.05 }}
+                >
+                  <Card className={cn(
+                    'border transition-all overflow-hidden',
+                    isActive
+                      ? 'border-emerald-500/40 bg-emerald-500/5 shadow-sm shadow-emerald-500/10'
+                      : 'border-border/50 bg-card/50',
+                  )}>
+                    <CardContent className="p-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                        <div className="flex items-center gap-3 shrink-0">
+                          <div className={cn(
+                            'h-9 w-9 rounded-full flex items-center justify-center font-black text-sm relative',
+                            isActive ? 'bg-emerald-500 text-white' : 'bg-muted text-muted-foreground',
+                          )}>
+                            {trip.tripNumber}
+                            {isActive && (
+                              <span className="absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-emerald-400 animate-ping" />
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">
+                              Trip {trip.tripNumber}
+                            </p>
+                            <div className="flex items-center gap-1 mt-0.5">
+                              <Clock className="h-2.5 w-2.5 text-muted-foreground" />
+                              <span className="text-[10px] text-muted-foreground">
+                                {formatTime(trip.startedAt)}
+                                {trip.endedAt && ` → ${formatTime(trip.endedAt)} (${duration}m)`}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <div className="rounded-xl bg-orange-500/10 px-3 py-2 text-center">
+                            <p className="text-[9px] font-bold uppercase text-orange-500/80">Loaded</p>
+                            <p className="text-lg font-black font-mono text-orange-500">{trip.loadedFilled}</p>
+                          </div>
+                          <div className={cn('rounded-xl px-3 py-2 text-center', trip.endedAt ? 'bg-blue-500/10' : 'bg-muted/30')}>
+                            <p className="text-[9px] font-bold uppercase text-muted-foreground">Returned</p>
+                            <p className={cn('text-lg font-black font-mono', trip.endedAt ? 'text-blue-500' : 'text-muted-foreground/40')}>
+                              {trip.endedAt ? trip.returnedFilled : '—'}
+                            </p>
+                          </div>
+                          <div className={cn('rounded-xl px-3 py-2 text-center', trip.endedAt ? 'bg-purple-500/10' : 'bg-muted/30')}>
+                            <p className="text-[9px] font-bold uppercase text-muted-foreground">Empties</p>
+                            <p className={cn('text-lg font-black font-mono', trip.endedAt ? 'text-purple-500' : 'text-muted-foreground/40')}>
+                              {trip.endedAt ? trip.collectedEmpty : '—'}
+                            </p>
+                          </div>
+                          <div className={cn('rounded-xl px-3 py-2 text-center', trip.endedAt ? 'bg-emerald-500/10' : 'bg-muted/30')}>
+                            <p className="text-[9px] font-bold uppercase text-muted-foreground">Cash</p>
+                            <p className={cn('text-lg font-black font-mono', trip.endedAt ? 'text-emerald-500' : 'text-muted-foreground/40')}>
+                              {trip.endedAt ? `₨${trip.cashHandedIn}` : '—'}
+                            </p>
+                          </div>
+                        </div>
+
+                        {isActive && !isClosed && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="rounded-full font-bold border-emerald-500/50 text-emerald-600 hover:bg-emerald-500/10 shrink-0"
+                            onClick={() => {
+                              setCheckinForm({ returnedFilled: 0, collectedEmpty: 0, cashHandedIn: 0 });
+                              setCheckinOpen(trip.id);
+                            }}
+                          >
+                            Check In
+                          </Button>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              );
+            })}
+          </div>
+        )}
+
+        {activeTrip && !isClosed && (
+          <div className="flex items-center gap-2 px-4 py-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-sm font-semibold text-amber-600">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            Trip {activeTrip.tripNumber} is in progress. Check in before starting a new trip.
+          </div>
+        )}
       </div>
 
-      {/* Load-Out Dialog */}
-      <Dialog open={loadOutOpen} onOpenChange={setLoadOutOpen}>
-        <DialogContent className="rounded-3xl max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-black">Dispatch Load</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">Filled Bottles Dispatched</Label>
-              <Input 
-                type="number" 
-                value={loadOutCount} 
-                onChange={(e) => setLoadOutCount(Number(e.target.value))}
-                className="h-12 text-2xl font-black font-mono"
-              />
-              <p className="text-[11px] text-muted-foreground italic">Enter the total count of filled bottles loaded into the van.</p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setLoadOutOpen(false)}>Cancel</Button>
-            <Button 
-              onClick={() => recordLoadOut({ filledOutCount: loadOutCount }, { onSuccess: () => setLoadOutOpen(false) })} 
-              disabled={isSavingLoadOut}
-              className="rounded-xl font-bold"
-            >
-              Confirm Load-Out
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* ── Delivery Queue ─────────────────────────────────── */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-black flex items-center gap-2">
+            <ClipboardList className="h-5 w-5 text-primary" />
+            Delivery Queue
+          </h3>
+          <p className="text-xs text-muted-foreground font-medium">
+            {items.filter((i) => i.status !== 'PENDING').length} / {items.length} done
+          </p>
+        </div>
 
-      {/* Check-In Dialog */}
-      <Dialog open={checkInOpen} onOpenChange={setCheckInOpen}>
-        <DialogContent className="rounded-3xl max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-black">Arrival Check-In</DialogTitle>
-          </DialogHeader>
-          <div className="grid grid-cols-2 gap-4 py-4">
-            <div className="space-y-2">
-              <Label className="font-bold text-xs uppercase tracking-widest">Filled Returned</Label>
-              <Input type="number" value={checkInData.filledInCount} onChange={e => setCheckIn(p => ({ ...p, filledInCount: Number(e.target.value) }))} className="font-mono font-bold" />
-            </div>
-            <div className="space-y-2">
-              <Label className="font-bold text-xs uppercase tracking-widest">Empties Returned</Label>
-              <Input type="number" value={checkInData.emptyInCount} onChange={e => setCheckIn(p => ({ ...p, emptyInCount: Number(e.target.value) }))} className="font-mono font-bold" />
-            </div>
-            <div className="col-span-2 space-y-2">
-              <Label className="font-bold text-xs uppercase tracking-widest">Total Cash Collected (₨)</Label>
-              <Input type="number" value={checkInData.cashCollected} onChange={e => setCheckIn(p => ({ ...p, cashCollected: Number(e.target.value) }))} className="h-12 text-xl font-black font-mono" />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setCheckInOpen(false)}>Cancel</Button>
-            <Button 
-              onClick={() => recordCheckIn(checkInData, { onSuccess: () => setCheckInOpen(false) })} 
-              disabled={isSavingCheckIn}
-              className="rounded-xl font-bold"
-            >
-              Record Arrival
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        {/* Status Tabs */}
+        <Tabs value={activeTab} onValueChange={handleTabChange}>
+          <TabsList className="w-full grid grid-cols-4 h-10">
+            <TabsTrigger value="all" className="text-xs font-bold">
+              All <span className="ml-1 text-[10px] opacity-60">({tabCount('all')})</span>
+            </TabsTrigger>
+            <TabsTrigger value="pending" className="text-xs font-bold">
+              Pending <span className="ml-1 text-[10px] opacity-60">({tabCount('pending')})</span>
+            </TabsTrigger>
+            <TabsTrigger value="completed" className="text-xs font-bold">
+              Done <span className="ml-1 text-[10px] opacity-60">({tabCount('completed')})</span>
+            </TabsTrigger>
+            <TabsTrigger value="issues" className="text-xs font-bold">
+              Issues <span className="ml-1 text-[10px] opacity-60">({tabCount('issues')})</span>
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
 
-      {/* Swap Assignment Dialog */}
-      <Dialog open={swapOpen} onOpenChange={setSwapOpen}>
+        {/* Item list */}
+        <div className="grid gap-2">
+          {paginatedItems.length === 0 ? (
+            <Card className="border-dashed border-2 border-border/40">
+              <CardContent className="p-8 text-center text-sm text-muted-foreground font-medium">
+                No items in this category.
+              </CardContent>
+            </Card>
+          ) : (
+            paginatedItems.map((item, idx) => {
+              const isExpanded = expandedItemId === item.id;
+              const customer = item.customer;
+              const walletBalance = customer?.wallets?.[0]?.balance ?? 0;
+
+              return (
+                <motion.div
+                  key={item.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: idx * 0.03 }}
+                >
+                  <Card className={cn(
+                    'overflow-hidden border-border/50 transition-all',
+                    item.status !== 'PENDING' ? 'bg-muted/30' : 'bg-card/50',
+                    isExpanded ? 'border-primary/30 shadow-sm' : 'hover:border-primary/20',
+                  )}>
+                    {/* Header row — always visible */}
+                    <CardContent className="p-4 sm:p-5">
+                      <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+                        {/* Sequence + avatar */}
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <div className="h-9 w-9 rounded-full bg-accent flex items-center justify-center shrink-0 font-black text-sm">
+                            {item.sequence}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h4 className="font-bold text-sm truncate">{customer?.name}</h4>
+                              <Badge variant="outline" className="text-[9px] font-mono px-1.5">{customer?.customerCode}</Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground truncate flex items-center gap-1 mt-0.5">
+                              <MapPin className="h-2.5 w-2.5 shrink-0" />
+                              {customer?.address}
+                              {customer?.floor ? ` · ${customer.floor}` : ''}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Status + action */}
+                        <div className="flex items-center gap-3 shrink-0">
+                          <StatusBadge status={item.status} />
+                          {!isClosed && (
+                            <Button
+                              size="sm"
+                              variant={item.status === 'PENDING' ? 'default' : 'outline'}
+                              className="rounded-full font-bold text-xs h-8 px-3"
+                              onClick={() => handleOpenDelivery(item)}
+                            >
+                              {item.status === 'PENDING' ? 'Record' : 'Edit'}
+                            </Button>
+                          )}
+                          <button
+                            className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                            onClick={() => setExpandedItemId(isExpanded ? null : item.id)}
+                          >
+                            {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                          </button>
+                        </div>
+                      </div>
+                    </CardContent>
+
+                    {/* Expanded accordion panel */}
+                    <AnimatePresence>
+                      {isExpanded && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.2 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="border-t border-border/50 bg-accent/10 p-4 sm:p-5 space-y-4">
+                            {/* Wallet + payment */}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                              <div className="rounded-xl bg-background/70 border border-border/40 px-3 py-2">
+                                <p className="text-[9px] font-bold uppercase text-muted-foreground">Bottle Wallet</p>
+                                <p className="text-base font-black mt-0.5">{walletBalance} btl</p>
+                              </div>
+                              <div className="rounded-xl bg-background/70 border border-border/40 px-3 py-2">
+                                <p className="text-[9px] font-bold uppercase text-muted-foreground">Balance Due</p>
+                                <p className={cn('text-base font-black mt-0.5', (customer?.financialBalance ?? 0) > 0 ? 'text-destructive' : 'text-emerald-600')}>
+                                  ₨{(customer?.financialBalance ?? 0).toLocaleString()}
+                                </p>
+                              </div>
+                              <div className="rounded-xl bg-background/70 border border-border/40 px-3 py-2">
+                                <p className="text-[9px] font-bold uppercase text-muted-foreground">Payment</p>
+                                <p className="text-base font-black mt-0.5">{customer?.paymentType ?? '—'}</p>
+                              </div>
+                              <div className="rounded-xl bg-background/70 border border-border/40 px-3 py-2">
+                                <p className="text-[9px] font-bold uppercase text-muted-foreground">Phone</p>
+                                <p className="text-sm font-black mt-0.5 truncate">{customer?.phoneNumber ?? '—'}</p>
+                              </div>
+                            </div>
+
+                            {/* Address details */}
+                            {(customer?.floor || customer?.nearbyLandmark || customer?.deliveryInstructions) && (
+                              <div className="rounded-xl bg-background/70 border border-border/40 p-3 space-y-1">
+                                {customer?.floor && (
+                                  <p className="text-xs text-muted-foreground">
+                                    <span className="font-bold">Floor:</span> {customer.floor}
+                                  </p>
+                                )}
+                                {customer?.nearbyLandmark && (
+                                  <p className="text-xs text-muted-foreground">
+                                    <span className="font-bold">Landmark:</span> {customer.nearbyLandmark}
+                                  </p>
+                                )}
+                                {customer?.deliveryInstructions && (
+                                  <p className="text-xs text-amber-700 dark:text-amber-400 font-medium">
+                                    <span className="font-bold">Note:</span> {customer.deliveryInstructions}
+                                  </p>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Action buttons: Call / WhatsApp / Map */}
+                            <div className="flex gap-2 flex-wrap">
+                              {customer?.phoneNumber && (
+                                <a href={`tel:${customer.phoneNumber}`}>
+                                  <Button size="sm" variant="outline" className="rounded-full font-bold gap-1.5 text-xs h-8">
+                                    <Phone className="h-3.5 w-3.5" />
+                                    Call
+                                  </Button>
+                                </a>
+                              )}
+                              {customer?.phoneNumber && (
+                                <a
+                                  href={`https://wa.me/${formatPhone(customer.phoneNumber)}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  <Button size="sm" variant="outline" className="rounded-full font-bold gap-1.5 text-xs h-8 text-emerald-600 border-emerald-500/30 hover:bg-emerald-500/10">
+                                    <MessageCircle className="h-3.5 w-3.5" />
+                                    WhatsApp
+                                  </Button>
+                                </a>
+                              )}
+                              {customer?.latitude && customer?.longitude && (
+                                <a
+                                  href={`https://maps.google.com/?q=${customer.latitude},${customer.longitude}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  <Button size="sm" variant="outline" className="rounded-full font-bold gap-1.5 text-xs h-8 text-blue-600 border-blue-500/30 hover:bg-blue-500/10">
+                                    <Navigation className="h-3.5 w-3.5" />
+                                    Map
+                                  </Button>
+                                </a>
+                              )}
+                            </div>
+
+                            {/* Show reason if any */}
+                            {item.reason && (
+                              <p className="text-xs text-muted-foreground bg-background/70 rounded-xl px-3 py-2 border border-border/40">
+                                <span className="font-bold">Reason:</span> {item.reason}
+                              </p>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </Card>
+                </motion.div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between gap-2 pt-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-full font-bold"
+              disabled={tabPage <= 1}
+              onClick={() => setTabPage((p) => Math.max(1, p - 1))}
+            >
+              Previous
+            </Button>
+            <span className="text-xs text-muted-foreground font-medium">
+              Page {tabPage} of {totalPages} · {filteredItems.length} items
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-full font-bold"
+              disabled={tabPage >= totalPages}
+              onClick={() => setTabPage((p) => Math.min(totalPages, p + 1))}
+            >
+              Next
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* ── New Load-Out Dialog ─────────────────────────────── */}
+      <Dialog open={newTripOpen} onOpenChange={setNewTripOpen}>
         <DialogContent className="rounded-3xl max-w-sm">
           <DialogHeader>
             <DialogTitle className="text-xl font-black flex items-center gap-2">
-              <ArrowRightLeft className="h-5 w-5 text-primary" />
-              Swap Van
+              <Package className="h-5 w-5 text-primary" />
+              Start Load-Out
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">Current Van</Label>
-              <p className="text-sm font-bold">{sheet.van?.plateNumber ?? '—'}</p>
-            </div>
-            <div className="space-y-2">
-              <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">New Van</Label>
-              <Select value={swapForm.vanId ?? ''} onValueChange={(v) => setSwapForm({ vanId: v })}>
-                <SelectTrigger className="h-11"><SelectValue placeholder="Select a van" /></SelectTrigger>
-                <SelectContent>
-                  {allVans.filter((v) => v.id !== sheet.vanId).map((v) => (
-                    <SelectItem key={v.id} value={v.id}>{v.plateNumber}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
+                Trip {loads.length + 1} — Filled Bottles Dispatched
+              </Label>
+              <Input
+                type="number"
+                min={1}
+                value={newTripFilled}
+                onChange={(e) => setNewTripFilled(Number(e.target.value))}
+                className="h-14 text-3xl font-black font-mono text-center"
+              />
+              <p className="text-[11px] text-muted-foreground">Total filled bottles loaded into the van for this trip.</p>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setSwapOpen(false)}>Cancel</Button>
+            <Button variant="ghost" onClick={() => setNewTripOpen(false)}>Cancel</Button>
             <Button
-              onClick={() => swapAssignment(swapForm, { onSuccess: () => { setSwapOpen(false); setSwapForm({}); } })}
-              disabled={isSwapping || !swapForm.vanId}
+              onClick={() => createLoad({ loadedFilled: newTripFilled }, { onSuccess: () => setNewTripOpen(false) })}
+              disabled={isStartingTrip || newTripFilled < 1}
               className="rounded-xl font-bold"
             >
-              {isSwapping ? 'Swapping...' : 'Confirm Swap'}
+              {isStartingTrip ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Confirm Dispatch
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Delivery Item Entry Dialog */}
+      {/* ── Check-In Dialog ────────────────────────────────── */}
+      <Dialog open={!!checkinOpen} onOpenChange={(o) => !o && setCheckinOpen(null)}>
+        <DialogContent className="rounded-3xl max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+              Trip Check-In
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-4 py-4">
+            <div className="space-y-2">
+              <Label className="font-bold text-xs uppercase tracking-widest">Filled Returned</Label>
+              <Input
+                type="number"
+                min={0}
+                value={checkinForm.returnedFilled}
+                onChange={(e) => setCheckinForm((p) => ({ ...p, returnedFilled: Number(e.target.value) }))}
+                className="font-mono font-bold"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="font-bold text-xs uppercase tracking-widest">Empties Collected</Label>
+              <Input
+                type="number"
+                min={0}
+                value={checkinForm.collectedEmpty}
+                onChange={(e) => setCheckinForm((p) => ({ ...p, collectedEmpty: Number(e.target.value) }))}
+                className="font-mono font-bold"
+              />
+            </div>
+            <div className="col-span-2 space-y-2">
+              <Label className="font-bold text-xs uppercase tracking-widest">Cash Handed In (₨)</Label>
+              <Input
+                type="number"
+                min={0}
+                value={checkinForm.cashHandedIn}
+                onChange={(e) => setCheckinForm((p) => ({ ...p, cashHandedIn: Number(e.target.value) }))}
+                className="h-14 text-2xl font-black font-mono text-center"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setCheckinOpen(null)}>Cancel</Button>
+            <Button
+              onClick={() => checkinLoad(
+                { loadId: checkinOpen!, data: checkinForm },
+                { onSuccess: () => setCheckinOpen(null) },
+              )}
+              disabled={isCheckingIn}
+              className="rounded-xl font-bold"
+            >
+              {isCheckingIn ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Confirm Check-In
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Swap Assignment Dialog ───────────────────────────── */}
+      <Dialog open={swapOpen} onOpenChange={(o) => { setSwapOpen(o); if (!o) setSwapForm({}); }}>
+        <DialogContent className="rounded-3xl max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black flex items-center gap-2">
+              <ArrowRightLeft className="h-5 w-5 text-primary" />
+              Swap Assignment
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-5 py-4">
+            {/* Driver section */}
+            <div className="space-y-3 p-4 rounded-2xl bg-accent/20 border border-border/30">
+              <div className="flex items-center justify-between">
+                <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">Driver</Label>
+                <span className="text-[10px] text-muted-foreground">This sheet only</span>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                <User className="h-3.5 w-3.5" />
+                <span>Current: <span className="font-bold text-foreground">{sheet.driver?.name ?? '—'}</span></span>
+              </div>
+              <Select
+                value={swapForm.driverId ?? ''}
+                onValueChange={(v) => setSwapForm((p) => ({ ...p, driverId: v || undefined }))}
+              >
+                <SelectTrigger className="h-10">
+                  <SelectValue placeholder="Keep current driver" />
+                </SelectTrigger>
+                <SelectContent>
+                  {allDrivers
+                    .filter((d) => d.id !== sheet.driverId)
+                    .map((d) => (
+                      <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              {swapForm.driverId && (
+                <button
+                  className="text-[11px] text-muted-foreground underline"
+                  onClick={() => setSwapForm((p) => ({ ...p, driverId: undefined }))}
+                >
+                  Clear driver change
+                </button>
+              )}
+            </div>
+
+            {/* Van section */}
+            <div className="space-y-3 p-4 rounded-2xl bg-accent/20 border border-border/30">
+              <div className="flex items-center justify-between">
+                <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">Van</Label>
+                <span className="text-[10px] text-muted-foreground">This sheet only</span>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                <Truck className="h-3.5 w-3.5" />
+                <span>Current: <span className="font-bold text-foreground">{sheet.van?.plateNumber ?? '—'}</span></span>
+              </div>
+              <Select
+                value={swapForm.vanId ?? ''}
+                onValueChange={(v) => setSwapForm((p) => ({ ...p, vanId: v || undefined }))}
+              >
+                <SelectTrigger className="h-10">
+                  <SelectValue placeholder="Keep current van" />
+                </SelectTrigger>
+                <SelectContent>
+                  {allVans
+                    .filter((v) => v.id !== sheet.vanId)
+                    .map((v) => (
+                      <SelectItem key={v.id} value={v.id}>{v.plateNumber}</SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              {swapForm.vanId && (
+                <button
+                  className="text-[11px] text-muted-foreground underline"
+                  onClick={() => setSwapForm((p) => ({ ...p, vanId: undefined }))}
+                >
+                  Clear van change
+                </button>
+              )}
+            </div>
+
+            {/* Info note */}
+            <p className="text-[11px] text-muted-foreground bg-muted/40 rounded-xl px-3 py-2">
+              These changes apply to this sheet only. To permanently change a van&apos;s default driver, update the van in Settings.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => { setSwapOpen(false); setSwapForm({}); }}>Cancel</Button>
+            <Button
+              onClick={() => swapAssignment(swapForm, { onSuccess: () => { setSwapOpen(false); setSwapForm({}); } })}
+              disabled={isSwapping || (!swapForm.vanId && !swapForm.driverId)}
+              className="rounded-xl font-bold"
+            >
+              {isSwapping ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Confirm Swap
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Delivery Action Dialog ──────────────────────────── */}
       <Dialog open={!!deliveryOpen} onOpenChange={(o) => !o && setDeliveryOpen(null)}>
         <DialogContent className="rounded-3xl max-w-md">
           <DialogHeader>
             <DialogTitle className="text-xl font-black flex items-center gap-2">
               <Droplets className="h-5 w-5 text-primary" />
-              Record Delivery
+              {(() => {
+                const item = items.find((i) => i.id === deliveryOpen);
+                return item?.customer?.name ?? 'Record Delivery';
+              })()}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-6 py-4">
-            <div className="space-y-2">
-              <Label className="font-bold text-xs uppercase tracking-widest">Status</Label>
-              <Select value={itemForm.status} onValueChange={v => setItemForm(p => ({ ...p, status: v as any }))}>
-                <SelectTrigger className="h-11 font-bold"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="COMPLETED">Completed</SelectItem>
-                  <SelectItem value="EMPTY_ONLY">Only Empties Received</SelectItem>
-                  <SelectItem value="NOT_AVAILABLE">Customer Not Available</SelectItem>
-                  <SelectItem value="RESCHEDULED">Rescheduled</SelectItem>
-                  <SelectItem value="CANCELLED">Cancelled</SelectItem>
-                </SelectContent>
-              </Select>
+
+          <div className="space-y-5 py-4">
+            {/* Delivered / Unable to Deliver toggle */}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setDeliveryMode('delivered')}
+                className={cn(
+                  'flex-1 py-3 px-4 rounded-2xl text-sm font-bold border-2 transition-all',
+                  deliveryMode === 'delivered'
+                    ? 'bg-emerald-500/10 border-emerald-500 text-emerald-700 dark:text-emerald-400'
+                    : 'bg-background border-border/50 text-muted-foreground hover:border-emerald-500/30',
+                )}
+              >
+                Delivered
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeliveryMode('unable')}
+                className={cn(
+                  'flex-1 py-3 px-4 rounded-2xl text-sm font-bold border-2 transition-all',
+                  deliveryMode === 'unable'
+                    ? 'bg-destructive/10 border-destructive text-destructive'
+                    : 'bg-background border-border/50 text-muted-foreground hover:border-destructive/30',
+                )}
+              >
+                Unable to Deliver
+              </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="font-bold text-xs uppercase tracking-widest">Dropped</Label>
-                <Input type="number" value={itemForm.filledDropped} onChange={e => setItemForm(p => ({ ...p, filledDropped: Number(e.target.value) }))} className="font-mono font-bold h-11" />
+            {deliveryMode === 'delivered' ? (
+              /* Delivery fields */
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="font-bold text-xs uppercase tracking-widest">Dropped</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={itemForm.filledDropped ?? 1}
+                      onChange={(e) => setItemForm((p) => ({ ...p, filledDropped: Number(e.target.value) }))}
+                      className="font-mono font-bold h-11"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="font-bold text-xs uppercase tracking-widest">Empties Received</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={itemForm.emptyReceived ?? 0}
+                      onChange={(e) => setItemForm((p) => ({ ...p, emptyReceived: Number(e.target.value) }))}
+                      className="font-mono font-bold h-11"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label className="font-bold text-xs uppercase tracking-widest">Cash Collected (₨)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={itemForm.cashCollected ?? 0}
+                    onChange={(e) => setItemForm((p) => ({ ...p, cashCollected: Number(e.target.value) }))}
+                    className="h-12 text-lg font-black font-mono text-center bg-emerald-500/5 border-emerald-500/20 text-emerald-600 dark:text-emerald-400"
+                  />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label className="font-bold text-xs uppercase tracking-widest">Received</Label>
-                <Input type="number" value={itemForm.emptyReceived} onChange={e => setItemForm(p => ({ ...p, emptyReceived: Number(e.target.value) }))} className="font-mono font-bold h-11" />
+            ) : (
+              /* Unable to deliver fields */
+              <div className="space-y-4">
+                {/* Action: Reschedule or Cancel */}
+                <div className="space-y-2">
+                  <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">Action</Label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setUnableAction('RESCHEDULED')}
+                      className={cn(
+                        'flex-1 py-2.5 px-3 rounded-xl text-xs font-bold border transition-all',
+                        unableAction === 'RESCHEDULED'
+                          ? 'bg-blue-500/10 border-blue-500 text-blue-700 dark:text-blue-400'
+                          : 'bg-background border-border/50 text-muted-foreground hover:border-blue-500/30',
+                      )}
+                    >
+                      Reschedule
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setUnableAction('CANCELLED')}
+                      className={cn(
+                        'flex-1 py-2.5 px-3 rounded-xl text-xs font-bold border transition-all',
+                        unableAction === 'CANCELLED'
+                          ? 'bg-destructive/10 border-destructive text-destructive'
+                          : 'bg-background border-border/50 text-muted-foreground hover:border-destructive/30',
+                      )}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+
+                {/* Reason — required */}
+                <div className="space-y-2">
+                  <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
+                    Reason <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    placeholder="e.g. Customer not home, gate locked..."
+                    value={unableReason}
+                    onChange={(e) => setUnableReason(e.target.value)}
+                    className="h-11"
+                  />
+                </div>
+
+                {unableAction === 'RESCHEDULED' && (
+                  <p className="text-[11px] text-muted-foreground bg-blue-500/5 border border-blue-500/20 rounded-xl px-3 py-2">
+                    This delivery will be picked up automatically on the next sheet generation for this van.
+                  </p>
+                )}
               </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label className="font-bold text-xs uppercase tracking-widest">Cash Collected (₨)</Label>
-              <Input type="number" value={itemForm.cashCollected} onChange={e => setItemForm(p => ({ ...p, cashCollected: Number(e.target.value) }))} className="h-12 text-lg font-black font-mono bg-emerald-500/5 border-emerald-500/20 text-emerald-600 dark:text-emerald-400" />
-            </div>
-
-            <div className="space-y-2">
-              <Label className="font-bold text-xs uppercase tracking-widest">Note / Reason</Label>
-              <Input placeholder="Optional details..." value={itemForm.reason} onChange={e => setItemForm(p => ({ ...p, reason: e.target.value }))} className="h-11" />
-            </div>
+            )}
           </div>
+
           <DialogFooter>
             <Button variant="ghost" onClick={() => setDeliveryOpen(null)}>Discard</Button>
-            <Button onClick={onSaveItem} disabled={isUpdatingItem} className="rounded-xl font-bold min-w-[120px]">
-              {isUpdatingItem ? 'Saving...' : 'Save Record'}
+            <Button
+              onClick={onSaveItem}
+              disabled={isUpdatingItem}
+              className="rounded-xl font-bold min-w-[120px]"
+            >
+              {isUpdatingItem ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Save Record
             </Button>
           </DialogFooter>
         </DialogContent>

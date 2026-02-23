@@ -117,32 +117,36 @@ model Customer {
   id            String   @id @default(uuid())
   customerCode  String   @unique
   name          String
-  address       String
   phoneNumber   String
-  latitude      Float?
-  longitude     Float?
-  
-  // Delivery Schedule (e.g., [1, 4] for Mon/Thu)
-  deliveryDays  Int[]    
-  
+
+  // Location
+  address              String
+  floor                String?  // e.g. "2nd Floor", "Flat 3B"
+  nearbyLandmark       String?  // e.g. "Near McDonald's", "Opposite mosque"
+  deliveryInstructions String?  // e.g. "Call before arriving", "Leave at gate"
+  googleMapsUrl        String?  // Full Google Maps share URL (lat/lng parsed on frontend)
+  latitude             Float?
+  longitude            Float?
+
   vendorId      String
   vendor        Vendor   @relation(fields: [vendorId], references: [id])
-  
-  routeId       String?
+
+  routeId       String?  // Optional "home route" for organizational grouping only
   route         Route?   @relation(fields: [routeId], references: [id])
-  
+
   userId        String?  @unique
   user          User?    @relation(fields: [userId], references: [id])
 
   paymentType      PaymentType @default(CASH)
   isActive         Boolean     @default(true)
-  financialBalance Float       @default(0) // Current outstanding amount
+  financialBalance Float       @default(0) // Current outstanding amount (running balance)
 
-  wallets         BottleWallet[]
-  customPrices    CustomerProductPrice[]
-  sheetItems      DailySheetItem[]
-  transactions    Transaction[]
-  paymentRequests PaymentRequest[]
+  wallets           BottleWallet[]
+  customPrices      CustomerProductPrice[]
+  sheetItems        DailySheetItem[]
+  transactions      Transaction[]
+  paymentRequests   PaymentRequest[]
+  deliverySchedules CustomerDeliverySchedule[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -150,6 +154,21 @@ model Customer {
   @@index([vendorId])
   @@index([vendorId, routeId])
   @@index([routeId])
+}
+
+model CustomerDeliverySchedule {
+  id            String   @id @default(uuid())
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  vanId         String
+  van           Van      @relation(fields: [vanId], references: [id])
+  dayOfWeek     Int      // 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+  routeSequence Int?     // Position in van's delivery order on this day
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([customerId, dayOfWeek])
+  @@index([vanId, dayOfWeek])
 }
 
 model CustomerProductPrice {
@@ -204,9 +223,10 @@ model Van {
   defaultDriverId String? @unique
   defaultDriver   User?   @relation("VanDriver", fields: [defaultDriverId], references: [id])
 
-  routes        Route[]  @relation("RouteDefaultVan")
-  dailySheets   DailySheet[]
-  expenses      Expense[]
+  routes            Route[]  @relation("RouteDefaultVan")
+  dailySheets       DailySheet[]
+  expenses          Expense[]
+  deliverySchedules CustomerDeliverySchedule[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -218,8 +238,8 @@ model DailySheet {
   vendorId      String
   vendor        Vendor   @relation(fields: [vendorId], references: [id])
   
-  routeId       String
-  route         Route    @relation(fields: [routeId], references: [id])
+  routeId       String?
+  route         Route?   @relation(fields: [routeId], references: [id])
   
   vanId         String
   van           Van      @relation(fields: [vanId], references: [id])
@@ -238,6 +258,7 @@ model DailySheet {
 
   items         DailySheetItem[]
   transactions  Transaction[]
+  loads         DailySheetLoad[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -245,6 +266,21 @@ model DailySheet {
   @@index([vendorId, date])
   @@index([vendorId, routeId, date])
   @@index([driverId, date])
+}
+
+model DailySheetLoad {
+  id             String     @id @default(uuid())
+  dailySheetId   String
+  dailySheet     DailySheet @relation(fields: [dailySheetId], references: [id], onDelete: Cascade)
+  tripNumber     Int        // 1, 2, 3...
+  loadedFilled   Int        // filled bottles taken from warehouse at trip start
+  returnedFilled Int        @default(0)  // filled returned at end of trip
+  collectedEmpty Int        @default(0)  // empties collected from customers
+  cashHandedIn   Float      @default(0)  // cash given to warehouse at check-in
+  startedAt      DateTime   @default(now())
+  endedAt        DateTime?  // null = trip still in progress
+
+  @@index([dailySheetId])
 }
 
 model DailySheetItem {
@@ -266,6 +302,7 @@ model DailySheetItem {
   cashCollected Float    @default(0)
   
   reason        String?  // For Rescheduled/Cancelled/NotAvailable
+  photoUrl      String?  // Optional photo evidence (rescheduled/cancelled)
   rescheduledTo DateTime?
 
   createdAt     DateTime @default(now())

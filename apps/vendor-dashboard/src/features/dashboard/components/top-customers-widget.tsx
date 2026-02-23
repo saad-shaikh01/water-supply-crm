@@ -31,7 +31,7 @@ export function TopCustomersWidget() {
           <p className="text-sm text-muted-foreground text-center py-4">No data available</p>
         ) : (
           customers.map((c, i) => (
-            <div key={c.id} className="flex items-center gap-3 p-2 rounded-xl hover:bg-accent/30 transition-colors">
+            <div key={i} className="flex items-center gap-3 p-2 rounded-xl hover:bg-accent/30 transition-colors">
               <div className={cn(
                 "h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-black shrink-0",
                 i === 0 ? "bg-yellow-500/20 text-yellow-600" :

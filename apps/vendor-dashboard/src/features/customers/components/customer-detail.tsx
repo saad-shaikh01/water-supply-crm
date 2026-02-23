@@ -26,6 +26,7 @@ import {
   CreditCard, Droplets, Clock, Info,
   ShieldCheck, Lock, Mail, Trash2, Globe,
   TrendingUp, FileText, ChevronLeft, ChevronRight,
+  ExternalLink, Navigation, Building2, Landmark,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -37,6 +38,7 @@ interface CustomerDetailProps {
 }
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DAY_LABELS: Record<number, string> = { 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat' };
 
 export function CustomerDetail({ customerId }: CustomerDetailProps) {
   const router = useRouter();
@@ -181,18 +183,21 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex gap-1 flex-wrap">
-              {customer.deliveryDays?.length > 0 ? (
-                customer.deliveryDays.map((d: number) => (
-                  <Badge key={d} variant="secondary" className="text-[9px] font-black px-1.5 py-0 bg-primary/5 text-primary border-primary/20">
-                    {DAYS[d]}
-                  </Badge>
+            <div className="flex flex-col gap-1">
+              {customer.deliverySchedules?.length > 0 ? (
+                customer.deliverySchedules.map((s: any) => (
+                  <div key={s.id ?? s.dayOfWeek} className="flex items-center gap-1.5">
+                    <Badge variant="secondary" className="text-[9px] font-black px-1.5 py-0 bg-primary/5 text-primary border-primary/20">
+                      {DAY_LABELS[s.dayOfWeek] ?? DAYS[s.dayOfWeek]}
+                    </Badge>
+                    <span className="text-[9px] text-muted-foreground font-medium">{s.van?.plateNumber}</span>
+                  </div>
                 ))
               ) : (
                 <span className="text-sm font-bold text-muted-foreground">Not Set</span>
               )}
             </div>
-            <p className="text-[10px] text-muted-foreground mt-2 font-medium">Weekly Delivery Days</p>
+            <p className="text-[10px] text-muted-foreground mt-2 font-medium">Weekly Delivery Schedule</p>
           </CardContent>
         </Card>
 
@@ -492,16 +497,81 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
               </div>
 
               <Card className="rounded-3xl border-border/50 bg-card/30 backdrop-blur-sm overflow-hidden flex flex-col">
-                 <div className="flex-1 bg-accent/20 flex flex-col items-center justify-center p-6 text-center border-b border-border/50 border-dashed">
-                    <MapPin className="h-8 w-8 text-primary/40 mb-3" />
-                    <p className="text-xs font-bold text-muted-foreground">Location Pin</p>
-                    <p className="text-[10px] text-muted-foreground/60 max-w-[150px] mt-1 italic">Maps integration pending latitude/longitude verification.</p>
-                 </div>
-                 <div className="p-4 bg-muted/10">
-                    <Button variant="outline" className="w-full rounded-xl text-xs font-bold border-dashed h-9">
-                       Update Map Location
-                    </Button>
-                 </div>
+                <CardHeader className="border-b bg-muted/20 px-6 py-4">
+                  <CardTitle className="text-base font-bold flex items-center gap-2">
+                    <Navigation className="h-4 w-4 text-primary" /> Location
+                  </CardTitle>
+                </CardHeader>
+
+                {/* Embedded OpenStreetMap — shown only when lat/lng available */}
+                {customer.latitude && customer.longitude ? (
+                  <div className="relative w-full h-48 border-b border-border/50 overflow-hidden">
+                    <iframe
+                      title="Customer Location"
+                      width="100%"
+                      height="100%"
+                      loading="lazy"
+                      src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(customer.longitude) - 0.006},${Number(customer.latitude) - 0.004},${Number(customer.longitude) + 0.006},${Number(customer.latitude) + 0.004}&layer=mapnik&marker=${customer.latitude},${customer.longitude}`}
+                      className="border-none w-full h-full"
+                    />
+                    {/* Overlay click → open full map */}
+                    <a
+                      href={customer.googleMapsUrl || `https://www.google.com/maps?q=${customer.latitude},${customer.longitude}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="absolute top-2 right-2 flex items-center gap-1.5 bg-background/90 backdrop-blur-sm border border-border/50 rounded-xl px-2.5 py-1.5 text-[10px] font-bold text-foreground hover:bg-primary/10 hover:text-primary hover:border-primary/30 transition-all shadow-lg"
+                    >
+                      <ExternalLink className="h-3 w-3" /> Open Maps
+                    </a>
+                  </div>
+                ) : (
+                  /* No coordinates — show placeholder with map icon */
+                  <div className="h-32 bg-accent/10 border-b border-border/50 flex flex-col items-center justify-center gap-2">
+                    <MapPin className="h-7 w-7 text-muted-foreground/30" />
+                    <p className="text-[10px] text-muted-foreground/50 font-semibold">No coordinates — add Google Maps link to enable map</p>
+                  </div>
+                )}
+
+                <CardContent className="p-5 space-y-3">
+                  {/* Address */}
+                  <div className="flex items-start gap-2.5">
+                    <MapPin className="h-3.5 w-3.5 text-primary shrink-0 mt-1" />
+                    <p className="text-sm font-semibold leading-snug">{customer.address}</p>
+                  </div>
+
+                  {/* Floor + Landmark row */}
+                  {(customer.floor || customer.nearbyLandmark) && (
+                    <div className="flex flex-wrap gap-2">
+                      {customer.floor && (
+                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-accent/40 border border-border/30">
+                          <Building2 className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-xs font-semibold">{customer.floor}</span>
+                        </div>
+                      )}
+                      {customer.nearbyLandmark && (
+                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-accent/40 border border-border/30">
+                          <Landmark className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-xs font-semibold">{customer.nearbyLandmark}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Delivery instructions */}
+                  {customer.deliveryInstructions && (
+                    <div className="p-2.5 rounded-xl bg-amber-500/5 border border-amber-500/20 flex items-start gap-2">
+                      <Info className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+                      <p className="text-xs text-foreground/80 leading-relaxed">{customer.deliveryInstructions}</p>
+                    </div>
+                  )}
+
+                  {/* Coordinates badge */}
+                  {customer.latitude && customer.longitude && (
+                    <Badge variant="secondary" className="font-mono text-[10px] font-bold">
+                      {Number(customer.latitude).toFixed(5)}, {Number(customer.longitude).toFixed(5)}
+                    </Badge>
+                  )}
+                </CardContent>
               </Card>
             </div>
           </TabsContent>
@@ -597,7 +667,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
             <Button
               onClick={() => {
                 setCustomPrice(
-                  { customerId, data: { productId: customPriceForm.productId, customPrice: Number(customPriceForm.customPrice) } },
+                  { customerId, data: { productId: customPriceForm.productId, price: Number(customPriceForm.customPrice) } },
                   { onSuccess: () => setCustomPriceOpen(false) }
                 );
               }}

@@ -32,6 +32,10 @@ export class CustomerPortalService {
         customPrices: {
           include: { product: { select: { id: true, name: true } } },
         },
+        deliverySchedules: {
+          include: { van: { select: { id: true, plateNumber: true } } },
+          orderBy: { dayOfWeek: 'asc' },
+        },
       },
     });
 
@@ -45,7 +49,7 @@ export class CustomerPortalService {
       name: customer.name,
       address: customer.address,
       phoneNumber: customer.phoneNumber,
-      deliveryDays: customer.deliveryDays,
+      deliverySchedules: customer.deliverySchedules,
       financialBalance: customer.financialBalance,
       route: customer.route,
       wallets: customer.wallets,

@@ -1,29 +1,50 @@
 import {
   IsString,
   IsOptional,
-  IsArray,
-  IsInt,
   IsNumber,
   IsUUID,
   IsEnum,
+  ValidateNested,
+  IsArray,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { PaymentType } from '@prisma/client';
+import { DeliveryScheduleItemDto } from './delivery-schedule-item.dto';
 
 export class CreateCustomerDto {
   @IsOptional()
   @IsEnum(PaymentType)
   paymentType?: PaymentType = PaymentType.CASH;
+
+  @IsOptional()
   @IsString()
-  customerCode!: string;
+  customerCode?: string; // auto-generated if not provided
 
   @IsString()
   name!: string;
 
   @IsString()
+  phoneNumber!: string;
+
+  // Location
+  @IsString()
   address!: string;
 
+  @IsOptional()
   @IsString()
-  phoneNumber!: string;
+  floor?: string;
+
+  @IsOptional()
+  @IsString()
+  nearbyLandmark?: string;
+
+  @IsOptional()
+  @IsString()
+  deliveryInstructions?: string;
+
+  @IsOptional()
+  @IsString()
+  googleMapsUrl?: string;
 
   @IsOptional()
   @IsNumber()
@@ -34,8 +55,9 @@ export class CreateCustomerDto {
   longitude?: number;
 
   @IsArray()
-  @IsInt({ each: true })
-  deliveryDays!: number[];
+  @ValidateNested({ each: true })
+  @Type(() => DeliveryScheduleItemDto)
+  deliverySchedule!: DeliveryScheduleItemDto[];
 
   @IsOptional()
   @IsUUID()

@@ -7,6 +7,7 @@ import { QUEUE_NAMES } from '@water-supply-crm/queue';
 interface GenerateSheetsJobData {
   vendorId: string;
   date: string;
+  vanIds?: string[];
 }
 
 @Processor(QUEUE_NAMES.DAILY_SHEET_GENERATION)
@@ -17,100 +18,107 @@ export class DailySheetProcessor extends WorkerHost {
     super();
   }
 
-  async process(job: Job<GenerateSheetsJobData>): Promise<{ sheetIds: string[]; skippedRoutes: { id: string; name: string; reason: string }[] }> {
-    const { vendorId, date } = job.data;
+  async process(job: Job<GenerateSheetsJobData>): Promise<{ sheetIds: string[]; skippedVans: { id: string; plateNumber: string; reason: string }[] }> {
+    const { vendorId, date, vanIds } = job.data;
     this.logger.log(`Processing sheet generation job ${job.id} for vendor ${vendorId}, date ${date}`);
 
     const targetDate = new Date(date);
     const dayOfWeek = targetDate.getDay();
 
-    const routes = await this.prisma.route.findMany({
-      where: { vendorId },
+    const startOfDay = new Date(targetDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(targetDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const defaultProduct = await this.prisma.product.findFirst({
+      where: { vendorId, isActive: true },
+    });
+    if (!defaultProduct) {
+      this.logger.warn(`No active product found for vendor ${vendorId} — aborting`);
+      return { sheetIds: [], skippedVans: [] };
+    }
+
+    // Fetch active vans (optionally filtered by vanIds)
+    const vanWhere = vanIds?.length
+      ? { vendorId, isActive: true, id: { in: vanIds } }
+      : { vendorId, isActive: true };
+
+    const vans = await this.prisma.van.findMany({
+      where: vanWhere,
       include: {
-        customers: {
-          where: { deliveryDays: { has: dayOfWeek }, isActive: true },
-        },
-        defaultVan: {
-          include: { defaultDriver: true },
+        defaultDriver: true,
+        routes: { where: { vendorId }, take: 1 }, // van's home route (if any)
+        deliverySchedules: {
+          where: {
+            dayOfWeek,
+            customer: { isActive: true },
+          },
+          include: { customer: true },
+          orderBy: [{ routeSequence: 'asc' }, { customer: { name: 'asc' } }],
         },
       },
     });
 
     const generatedSheetIds: string[] = [];
-    const skippedRoutes: { id: string; name: string; reason: string }[] = [];
-    const totalRoutes = routes.filter((r) => r.customers.length > 0).length;
+    const skippedVans: { id: string; plateNumber: string; reason: string }[] = [];
+    const activeVans = vans.filter((v) => v.deliverySchedules.length > 0);
     let processed = 0;
 
-    for (const route of routes) {
-      if (route.customers.length === 0) continue;
+    for (const van of vans) {
+      const schedules = van.deliverySchedules;
+      if (schedules.length === 0) continue;
 
-      // Each route uses its own assigned van + that van's default driver
-      const van = route.defaultVan;
-      if (!van || !van.isActive) {
-        const reason = !van ? 'No van assigned to this route' : `Van ${van.plateNumber} is inactive (under maintenance)`;
-        this.logger.warn(`Route "${route.name}" skipped — ${reason}`);
-        skippedRoutes.push({ id: route.id, name: route.name, reason });
-        processed++;
-        continue;
-      }
       if (!van.defaultDriverId) {
-        this.logger.warn(`Route "${route.name}" skipped — van has no defaultDriver`);
-        skippedRoutes.push({ id: route.id, name: route.name, reason: `Van ${van.plateNumber} has no default driver` });
+        this.logger.warn(`Van ${van.plateNumber} skipped — no default driver`);
+        skippedVans.push({ id: van.id, plateNumber: van.plateNumber, reason: 'No default driver assigned' });
         processed++;
         continue;
       }
 
-      const startOfDay = new Date(targetDate);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(targetDate);
-      endOfDay.setHours(23, 59, 59, 999);
-
+      // Check for existing sheet for this van today
       const existing = await this.prisma.dailySheet.findFirst({
         where: {
           vendorId,
-          routeId: route.id,
+          vanId: van.id,
           date: { gte: startOfDay, lt: endOfDay },
         },
       });
 
       if (existing) {
+        this.logger.log(`Van ${van.plateNumber} already has a sheet for ${date} — skipping`);
         processed++;
         continue;
       }
 
-      const defaultProduct = await this.prisma.product.findFirst({
-        where: { vendorId, isActive: true },
-      });
+      // Van's home route (nullable)
+      const routeId = van.routes[0]?.id ?? null;
 
-      if (!defaultProduct) continue;
-
-      // Fetch any RESCHEDULED items from previous sheets for customers on this route
+      // Fetch any RESCHEDULED items from previous sheets for customers on this van's schedule
+      const customerIds = schedules.map((s) => s.customerId);
       const rescheduledItems = await this.prisma.dailySheetItem.findMany({
         where: {
           status: 'RESCHEDULED',
-          customer: { routeId: route.id, vendorId },
-          dailySheet: { date: { lt: targetDate } },
+          customerId: { in: customerIds },
+          dailySheet: { vendorId, date: { lt: targetDate } },
         },
         include: { customer: true },
       });
 
-      // Build unique set of rescheduled customerIds to avoid duplicates with regular schedule
+      // Build unique set of rescheduled customerIds to avoid duplicates
       const rescheduledCustomerIds = new Set(rescheduledItems.map((i) => i.customerId));
 
       // Regular scheduled customers (exclude those already covered by rescheduled)
-      const regularCustomers = route.customers.filter(
-        (c) => !rescheduledCustomerIds.has(c.id),
-      );
+      const regularSchedules = schedules.filter((s) => !rescheduledCustomerIds.has(s.customerId));
 
       const allItems = [
-        ...regularCustomers.map((customer, index) => ({
-          customerId: customer.id,
-          sequence: index + 1,
+        ...regularSchedules.map((s, index) => ({
+          customerId: s.customerId,
+          sequence: s.routeSequence ?? index + 1,
           productId: defaultProduct.id,
         })),
         ...rescheduledItems.map((item, index) => ({
           customerId: item.customerId,
-          sequence: regularCustomers.length + index + 1,
+          sequence: regularSchedules.length + index + 1,
           productId: item.productId,
         })),
       ];
@@ -118,7 +126,7 @@ export class DailySheetProcessor extends WorkerHost {
       const sheet = await this.prisma.dailySheet.create({
         data: {
           vendorId,
-          routeId: route.id,
+          routeId,
           vanId: van.id,
           driverId: van.defaultDriverId,
           date: targetDate,
@@ -126,7 +134,7 @@ export class DailySheetProcessor extends WorkerHost {
         },
       });
 
-      // Mark the old RESCHEDULED items as CANCELLED (they've been moved to new sheet)
+      // Mark old RESCHEDULED items as CANCELLED (moved to new sheet)
       if (rescheduledItems.length > 0) {
         await this.prisma.dailySheetItem.updateMany({
           where: { id: { in: rescheduledItems.map((i) => i.id) } },
@@ -136,10 +144,10 @@ export class DailySheetProcessor extends WorkerHost {
 
       generatedSheetIds.push(sheet.id);
       processed++;
-      await job.updateProgress(Math.round((processed / totalRoutes) * 100));
+      await job.updateProgress(Math.round((processed / Math.max(activeVans.length, 1)) * 100));
     }
 
-    this.logger.log(`Job ${job.id} completed: ${generatedSheetIds.length} sheets created, ${skippedRoutes.length} routes skipped`);
-    return { sheetIds: generatedSheetIds, skippedRoutes };
+    this.logger.log(`Job ${job.id} completed: ${generatedSheetIds.length} sheets created, ${skippedVans.length} vans skipped`);
+    return { sheetIds: generatedSheetIds, skippedVans };
   }
 }

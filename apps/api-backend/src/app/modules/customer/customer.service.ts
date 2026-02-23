@@ -30,19 +30,97 @@ export class CustomerService {
     private audit: AuditService,
   ) {}
 
-  async create(vendorId: string, dto: CreateCustomerDto) {
-    const existing = await this.prisma.customer.findUnique({
-      where: { customerCode: dto.customerCode },
+  /** Follow a Google Maps short URL and extract lat/lng from the resolved full URL */
+  private async resolveGoogleMapsLatLng(url: string): Promise<{ latitude?: number; longitude?: number }> {
+    try {
+      // Only attempt resolution for known short URLs
+      if (!url.includes('goo.gl') && !url.includes('maps.app')) return {};
+
+      const res = await fetch(url, { method: 'HEAD', redirect: 'follow' });
+      const finalUrl = res.url;
+
+      // Try @lat,lng pattern
+      const atMatch = finalUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+      if (atMatch) return { latitude: parseFloat(atMatch[1]), longitude: parseFloat(atMatch[2]) };
+
+      // Try ?q=lat,lng pattern
+      const qMatch = finalUrl.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+      if (qMatch) return { latitude: parseFloat(qMatch[1]), longitude: parseFloat(qMatch[2]) };
+    } catch {
+      // Non-fatal — just skip lat/lng if resolution fails
+    }
+    return {};
+  }
+
+  private async generateCustomerCode(vendorId: string, tx: any): Promise<string> {
+    const vendor = await tx.vendor.findUnique({
+      where: { id: vendorId },
+      select: { name: true },
     });
 
-    if (existing) {
-      throw new ConflictException('Customer code already exists');
+    // Prefix: first letter of each word in vendor name, max 3 chars (e.g. "AquaPure Karachi" → "AK")
+    const prefix = (vendor?.name ?? 'C')
+      .split(/\s+/)
+      .map((w: string) => w[0]?.toUpperCase() ?? '')
+      .join('')
+      .slice(0, 3) || 'C';
+
+    // Find highest existing sequential code for this vendor
+    const last = await tx.customer.findFirst({
+      where: { vendorId, customerCode: { startsWith: `${prefix}-` } },
+      orderBy: { customerCode: 'desc' },
+      select: { customerCode: true },
+    });
+
+    let next = 1;
+    if (last) {
+      const num = parseInt(last.customerCode.split('-').pop() ?? '0', 10);
+      if (!isNaN(num)) next = num + 1;
     }
 
-    const customer = await this.prisma.$transaction(async (tx) => {
-      const customer = await tx.customer.create({
-        data: { ...dto, vendorId },
+    return `${prefix}-${String(next).padStart(4, '0')}`;
+  }
+
+  async create(vendorId: string, dto: CreateCustomerDto) {
+    // If customerCode provided manually, check uniqueness
+    if (dto.customerCode) {
+      const existing = await this.prisma.customer.findUnique({
+        where: { customerCode: dto.customerCode },
       });
+      if (existing) throw new ConflictException('Customer code already exists');
+    }
+
+    // Resolve lat/lng from Google Maps URL if not explicitly provided
+    let resolvedCoords: { latitude?: number; longitude?: number } = {};
+    if (dto.googleMapsUrl && (dto.latitude == null || dto.longitude == null)) {
+      resolvedCoords = await this.resolveGoogleMapsLatLng(dto.googleMapsUrl);
+    }
+
+    const { deliverySchedule, ...customerFields } = dto;
+
+    const customer = await this.prisma.$transaction(async (tx) => {
+      const customerCode = dto.customerCode ?? (await this.generateCustomerCode(vendorId, tx));
+
+      const customer = await tx.customer.create({
+        data: {
+          ...customerFields,
+          customerCode,
+          vendorId,
+          latitude: dto.latitude ?? resolvedCoords.latitude,
+          longitude: dto.longitude ?? resolvedCoords.longitude,
+        },
+      });
+
+      if (deliverySchedule?.length) {
+        await tx.customerDeliverySchedule.createMany({
+          data: deliverySchedule.map((s) => ({
+            customerId: customer.id,
+            vanId: s.vanId,
+            dayOfWeek: s.dayOfWeek,
+            routeSequence: s.routeSequence ?? null,
+          })),
+        });
+      }
 
       const products = await tx.product.findMany({
         where: { vendorId, isActive: true },
@@ -108,6 +186,10 @@ export class CustomerService {
         include: {
           route: { select: { id: true, name: true } },
           wallets: { include: { product: { select: { id: true, name: true } } } },
+          deliverySchedules: {
+            include: { van: { select: { id: true, plateNumber: true } } },
+            orderBy: { dayOfWeek: 'asc' },
+          },
         },
         orderBy: { [sort]: sortDir },
         skip: (page - 1) * limit,
@@ -126,6 +208,10 @@ export class CustomerService {
         route: true,
         wallets: { include: { product: true } },
         customPrices: { include: { product: true } },
+        deliverySchedules: {
+          include: { van: { select: { id: true, plateNumber: true } } },
+          orderBy: { dayOfWeek: 'asc' },
+        },
       },
     });
 
@@ -145,13 +231,46 @@ export class CustomerService {
       throw new NotFoundException('Customer not found');
     }
 
-    const updated = await this.prisma.customer.update({
-      where: { id },
-      data: dto,
-      include: {
-        route: { select: { id: true, name: true } },
-        wallets: { include: { product: { select: { id: true, name: true } } } },
-      },
+    // Resolve lat/lng from Google Maps URL if URL changed and coords not provided
+    let resolvedCoords: { latitude?: number; longitude?: number } = {};
+    if (dto.googleMapsUrl && dto.googleMapsUrl !== customer.googleMapsUrl && dto.latitude == null && dto.longitude == null) {
+      resolvedCoords = await this.resolveGoogleMapsLatLng(dto.googleMapsUrl);
+    }
+
+    const { deliverySchedule, ...customerFields } = dto;
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      // Replace schedule if provided (delete-then-recreate)
+      if (deliverySchedule !== undefined) {
+        await tx.customerDeliverySchedule.deleteMany({ where: { customerId: id } });
+        if (deliverySchedule.length > 0) {
+          await tx.customerDeliverySchedule.createMany({
+            data: deliverySchedule.map((s) => ({
+              customerId: id,
+              vanId: s.vanId,
+              dayOfWeek: s.dayOfWeek,
+              routeSequence: s.routeSequence ?? null,
+            })),
+          });
+        }
+      }
+
+      return tx.customer.update({
+        where: { id },
+        data: {
+          ...customerFields,
+          latitude: dto.latitude ?? resolvedCoords.latitude,
+          longitude: dto.longitude ?? resolvedCoords.longitude,
+        },
+        include: {
+          route: { select: { id: true, name: true } },
+          wallets: { include: { product: { select: { id: true, name: true } } } },
+          deliverySchedules: {
+            include: { van: { select: { id: true, plateNumber: true } } },
+            orderBy: { dayOfWeek: 'asc' },
+          },
+        },
+      });
     });
 
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
@@ -504,6 +623,13 @@ export class CustomerService {
     });
     if (!customer) throw new NotFoundException('Customer not found');
 
+    // Get customer's delivery schedules
+    const schedules = await this.prisma.customerDeliverySchedule.findMany({
+      where: { customerId },
+      select: { dayOfWeek: true, vanId: true },
+    });
+    const scheduledDays = new Set(schedules.map((s) => s.dayOfWeek));
+
     const fromDate = new Date(from);
     const toDate = new Date(to);
 
@@ -533,7 +659,7 @@ export class CustomerService {
     const current = new Date(fromDate);
     while (current <= toDate) {
       const dayOfWeek = current.getDay();
-      if (customer.deliveryDays.includes(dayOfWeek)) {
+      if (scheduledDays.has(dayOfWeek)) {
         const dateStr = current.toISOString().slice(0, 10);
         schedule.push({
           date: dateStr,
@@ -547,8 +673,75 @@ export class CustomerService {
     return {
       customerId: customer.id,
       customerName: customer.name,
-      deliveryDays: customer.deliveryDays,
+      scheduledDays: [...scheduledDays].sort(),
       schedule,
+    };
+  }
+
+  async getFinancialSummary(vendorId: string, customerId: string) {
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: customerId, vendorId },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const now = new Date();
+    const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+
+    const [currentTxns, lastTxns, lastMonthItems, lastDelivery] = await Promise.all([
+      // Current month transactions
+      this.prisma.transaction.findMany({
+        where: { customerId, vendorId, createdAt: { gte: currentMonthStart, lte: currentMonthEnd } },
+        select: { type: true, amount: true },
+      }),
+      // Last month transactions
+      this.prisma.transaction.findMany({
+        where: { customerId, vendorId, createdAt: { gte: lastMonthStart, lte: lastMonthEnd } },
+        select: { type: true, amount: true },
+      }),
+      // Last month delivery items (for bottle count)
+      this.prisma.dailySheetItem.findMany({
+        where: {
+          customerId,
+          status: 'COMPLETED',
+          dailySheet: { vendorId, date: { gte: lastMonthStart, lte: lastMonthEnd } },
+        },
+        select: { filledDropped: true, emptyReceived: true },
+      }),
+      // Most recent completed delivery
+      this.prisma.dailySheetItem.findFirst({
+        where: { customerId, status: 'COMPLETED', dailySheet: { vendorId } },
+        orderBy: { createdAt: 'desc' },
+        include: { dailySheet: { select: { date: true } } },
+      }),
+    ]);
+
+    const sum = (txns: { type: string; amount: number }[], type: string) =>
+      txns.filter((t) => t.type === type).reduce((acc, t) => acc + t.amount, 0);
+
+    const currentMonthDue = sum(currentTxns, 'DELIVERY');
+    const currentMonthPaid = sum(currentTxns, 'PAYMENT');
+    const lastMonthDue = sum(lastTxns, 'DELIVERY');
+    const lastMonthPaid = sum(lastTxns, 'PAYMENT');
+    const lastMonthBottles = lastMonthItems.reduce((acc, i) => acc + (i.filledDropped ?? 0), 0);
+
+    return {
+      currentMonth: {
+        due: currentMonthDue,
+        paid: currentMonthPaid,
+        outstanding: currentMonthDue - currentMonthPaid,
+      },
+      lastMonth: {
+        due: lastMonthDue,
+        paid: lastMonthPaid,
+        outstanding: lastMonthDue - lastMonthPaid,
+        bottlesDelivered: lastMonthBottles,
+      },
+      lastDeliveryDate: lastDelivery?.dailySheet?.date ?? null,
+      lastDeliveryBottles: lastDelivery?.filledDropped ?? 0,
+      runningBalance: customer.financialBalance,
     };
   }
 }

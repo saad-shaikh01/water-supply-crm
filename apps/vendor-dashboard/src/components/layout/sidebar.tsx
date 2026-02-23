@@ -63,7 +63,7 @@ export function Sidebar({ className }: { className?: string }) {
         </Link>
       </div>
 
-      <nav className="flex-1 p-6 overflow-y-auto scrollbar-none space-y-8">
+      <nav className="flex-1 p-6 overflow-y-auto scrollbar-none space-y-8 transition-opacity duration-300">
         {GROUPS.map((group) => {
           const groupItems = visibleItems.filter((item) => item.group === group);
           if (groupItems.length === 0) return null;

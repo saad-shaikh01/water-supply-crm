@@ -6,7 +6,7 @@ import { useProfile } from '../hooks/use-profile';
 import { cn } from '@water-supply-crm/ui';
 import { motion } from 'framer-motion';
 
-const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DAY_LABELS: Record<number, string> = { 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat' };
 
 export function ProfileCard() {
   const { data: profile, isLoading } = useProfile();
@@ -116,12 +116,17 @@ export function ProfileCard() {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-6">
-              <div className="flex flex-wrap gap-2">
-                {(profile as any).deliveryDays?.length > 0 ? (
-                  (profile as any).deliveryDays.map((d: number) => (
-                    <Badge key={d} className="bg-primary/10 text-primary border-primary/20 font-black text-[10px] px-3 py-1">
-                      {DAYS[d]}
-                    </Badge>
+              <div className="flex flex-col gap-1.5">
+                {(profile as any).deliverySchedules?.length > 0 ? (
+                  (profile as any).deliverySchedules.map((s: any) => (
+                    <div key={s.id ?? s.dayOfWeek} className="flex items-center gap-2">
+                      <Badge className="bg-primary/10 text-primary border-primary/20 font-black text-[10px] px-3 py-1">
+                        {DAY_LABELS[s.dayOfWeek] ?? s.dayOfWeek}
+                      </Badge>
+                      {s.van?.plateNumber && (
+                        <span className="text-[10px] text-muted-foreground font-medium">{s.van.plateNumber}</span>
+                      )}
+                    </div>
                   ))
                 ) : (
                   <p className="text-sm font-bold text-muted-foreground italic">No schedule set</p>

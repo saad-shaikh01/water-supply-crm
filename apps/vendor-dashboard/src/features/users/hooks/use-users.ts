@@ -4,6 +4,14 @@ import { toast } from 'sonner';
 import { usersApi } from '../api/users.api';
 import { queryKeys } from '../../../lib/query-keys';
 
+export const useAllDrivers = () => {
+  return useQuery({
+    queryKey: [...queryKeys.users.all({}), 'drivers-all'],
+    queryFn: () =>
+      usersApi.getAll({ limit: 100, role: 'DRIVER', isActive: true }).then((r) => r.data),
+  });
+};
+
 export const useUsers = () => {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));

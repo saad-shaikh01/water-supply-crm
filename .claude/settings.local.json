@@ -26,7 +26,9 @@
       "Bash(git -C \"D:\\\\Repositories\\\\water-supply-crm\" log --oneline -3 -- package.json)",
       "Bash(git -C \"D:\\\\Repositories\\\\water-supply-crm\" show adaf9d2:package.json)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(tail:*)",
+      "Bash(npx prisma:*)"
     ]
   }
 }

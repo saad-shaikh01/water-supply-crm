@@ -134,3 +134,28 @@ export const useSwapAssignment = (sheetId: string) => {
     onError: () => toast.error('Failed to update assignment'),
   });
 };
+
+export const useCreateLoad = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) => dailySheetsApi.createLoad(sheetId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
+      toast.success('Trip started — load-out recorded');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to start trip'),
+  });
+};
+
+export const useCheckinLoad = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ loadId, data }: { loadId: string; data: Record<string, unknown> }) =>
+      dailySheetsApi.checkinLoad(sheetId, loadId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
+      toast.success('Trip checked in');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to check in'),
+  });
+};

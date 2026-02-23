@@ -9,7 +9,8 @@ import {
 } from '@water-supply-crm/ui';
 import { generateSheetSchema, type GenerateSheetInput } from '../schemas';
 import { useGenerateSheet, useGenerationStatus } from '../hooks/use-daily-sheets';
-import { Calendar, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { useAllVans } from '../../vans/hooks/use-vans';
+import { Calendar, Loader2, CheckCircle2, AlertCircle, Truck } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 
 interface SheetGenerateProps {
@@ -19,8 +20,14 @@ interface SheetGenerateProps {
 
 export function SheetGenerate({ open, onOpenChange }: SheetGenerateProps) {
   const [jobId, setJobId] = useState<string | null>(null);
+  const [vanMode, setVanMode] = useState<'all' | 'specific'>('all');
+  const [selectedVanIds, setSelectedVanIds] = useState<string[]>([]);
+
   const { mutate: generate, isPending: isSubmitting } = useGenerateSheet();
   const { data: status, isLoading: isPolling } = useGenerationStatus(jobId || '');
+  const { data: vansData } = useAllVans();
+  const allVans = ((vansData as any)?.data ?? []) as Array<{ id: string; plateNumber: string; isActive: boolean }>;
+  const activeVans = allVans.filter((v) => v.isActive !== false);
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<GenerateSheetInput>({
     resolver: zodResolver(generateSheetSchema),
@@ -31,6 +38,8 @@ export function SheetGenerate({ open, onOpenChange }: SheetGenerateProps) {
     if (!open) {
       reset();
       setJobId(null);
+      setVanMode('all');
+      setSelectedVanIds([]);
     }
   }, [open, reset]);
 
@@ -44,11 +53,21 @@ export function SheetGenerate({ open, onOpenChange }: SheetGenerateProps) {
     }
   }, [status?.status, onOpenChange]);
 
+  const toggleVan = (vanId: string) => {
+    setSelectedVanIds((prev) =>
+      prev.includes(vanId) ? prev.filter((id) => id !== vanId) : [...prev, vanId],
+    );
+  };
+
   const onSubmit = (data: GenerateSheetInput) => {
-    generate(data, { 
+    const payload: Record<string, unknown> = { date: data.date };
+    if (vanMode === 'specific' && selectedVanIds.length > 0) {
+      payload.vanIds = selectedVanIds;
+    }
+    generate(payload, {
       onSuccess: (res: any) => {
         setJobId(res.jobId);
-      } 
+      },
     });
   };
 
@@ -65,30 +84,106 @@ export function SheetGenerate({ open, onOpenChange }: SheetGenerateProps) {
             Generate Sheets
           </SheetTitle>
           <SheetDescription>
-            Generate daily delivery sheets for all active routes scheduled for the selected date.
+            Generate daily delivery sheets for active vans scheduled for the selected date.
           </SheetDescription>
         </SheetHeader>
 
         {!jobId ? (
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 py-8">
+            {/* Date picker */}
             <div className="space-y-3 p-6 rounded-2xl bg-accent/20 border border-border/30">
               <Label className="text-sm font-semibold">Delivery Date</Label>
-              <Input 
-                type="date" 
+              <Input
+                type="date"
                 className="bg-background border-border/50 h-12 text-lg font-medium focus:ring-primary/20 transition-all"
-                {...register('date')} 
+                {...register('date')}
               />
               {errors.date && <p className="text-xs font-medium text-destructive">{errors.date.message}</p>}
-              <p className="text-[11px] text-muted-foreground mt-2 italic">
-                Tip: This will create sheets for all routes that have deliveries on this day.
-              </p>
+            </div>
+
+            {/* Van selection */}
+            <div className="space-y-3 p-6 rounded-2xl bg-accent/20 border border-border/30">
+              <Label className="text-sm font-semibold flex items-center gap-2">
+                <Truck className="h-4 w-4 text-primary" />
+                Van Selection
+              </Label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setVanMode('all')}
+                  className={cn(
+                    'flex-1 py-2 px-4 rounded-xl text-sm font-semibold border transition-all',
+                    vanMode === 'all'
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-background border-border/50 text-muted-foreground hover:border-primary/50',
+                  )}
+                >
+                  All Vans
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVanMode('specific')}
+                  className={cn(
+                    'flex-1 py-2 px-4 rounded-xl text-sm font-semibold border transition-all',
+                    vanMode === 'specific'
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-background border-border/50 text-muted-foreground hover:border-primary/50',
+                  )}
+                >
+                  Select Specific
+                </button>
+              </div>
+
+              {vanMode === 'specific' && (
+                <div className="mt-3 space-y-2 max-h-48 overflow-y-auto">
+                  {activeVans.length === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center py-2">No active vans found</p>
+                  ) : (
+                    activeVans.map((van) => (
+                      <label
+                        key={van.id}
+                        className={cn(
+                          'flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all',
+                          selectedVanIds.includes(van.id)
+                            ? 'bg-primary/10 border-primary/40'
+                            : 'bg-background border-border/40 hover:border-primary/30',
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          className="rounded accent-primary h-4 w-4"
+                          checked={selectedVanIds.includes(van.id)}
+                          onChange={() => toggleVan(van.id)}
+                        />
+                        <Truck className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-semibold">{van.plateNumber}</span>
+                      </label>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {vanMode === 'specific' && selectedVanIds.length > 0 && (
+                <p className="text-[11px] text-muted-foreground">
+                  {selectedVanIds.length} van{selectedVanIds.length > 1 ? 's' : ''} selected
+                </p>
+              )}
+              {vanMode === 'all' && (
+                <p className="text-[11px] text-muted-foreground italic">
+                  Sheets will be created for all active vans with scheduled customers.
+                </p>
+              )}
             </div>
 
             <SheetFooter className="pt-6 border-t">
               <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
                 Cancel
               </Button>
-              <Button type="submit" className="min-w-[140px] shadow-lg shadow-primary/20" disabled={isSubmitting}>
+              <Button
+                type="submit"
+                className="min-w-[140px] shadow-lg shadow-primary/20"
+                disabled={isSubmitting || (vanMode === 'specific' && selectedVanIds.length === 0)}
+              >
                 {isSubmitting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -124,16 +219,16 @@ export function SheetGenerate({ open, onOpenChange }: SheetGenerateProps) {
 
             {!isCompleted && !isFailed && (
               <div className="w-full bg-accent h-2 rounded-full overflow-hidden">
-                <div 
-                  className="bg-primary h-full transition-all duration-500 ease-out" 
+                <div
+                  className="bg-primary h-full transition-all duration-500 ease-out"
                   style={{ width: `${status?.progress || 10}%` }}
                 />
               </div>
             )}
 
             {(isCompleted || isFailed) && (
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 className="mt-4"
                 onClick={() => onOpenChange(false)}
               >
