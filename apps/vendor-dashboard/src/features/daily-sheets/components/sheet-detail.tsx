@@ -112,6 +112,9 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const [checkinOpen, setCheckinOpen] = useState<string | null>(null);
   const [deliveryOpen, setDeliveryOpen] = useState<string | null>(null);
   const [swapOpen, setSwapOpen] = useState(false);
+  const [reconcileOpen, setReconcileOpen] = useState(false);
+  const [reconcileData, setReconcileData] = useState<any>(null);
+  const [reconcileLoading, setReconcileLoading] = useState(false);
 
   // Form states
   const [newTripFilled, setNewTripFilled] = useState(0);
@@ -235,6 +238,21 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch {
       toast.error('Failed to load invoice');
+    }
+  };
+
+  const handleOpenReconcile = async () => {
+    setReconcileLoading(true);
+    setReconcileData(null);
+    setReconcileOpen(true);
+    try {
+      const data = await dailySheetsApi.getReconciliationPreview(sheetId);
+      setReconcileData(data);
+    } catch {
+      toast.error('Failed to load reconciliation preview');
+      setReconcileOpen(false);
+    } finally {
+      setReconcileLoading(false);
     }
   };
 
@@ -378,11 +396,10 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
               <Button
                 size="sm"
                 variant="default"
-                onClick={() => closeSheet()}
-                disabled={isClosing}
+                onClick={handleOpenReconcile}
                 className="rounded-full font-bold"
               >
-                {isClosing ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Close & Reconcile'}
+                Close & Reconcile
               </Button>
             )}
           </div>
@@ -736,6 +753,172 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
           </div>
         )}
       </div>
+
+      {/* ── Close & Reconcile Dialog ────────────────────────── */}
+      <Dialog open={reconcileOpen} onOpenChange={(o) => { if (!o) { setReconcileOpen(false); setReconcileData(null); } }}>
+        <DialogContent className="rounded-3xl max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-primary" />
+              Close & Reconcile
+            </DialogTitle>
+          </DialogHeader>
+
+          {reconcileLoading ? (
+            <div className="py-12 flex flex-col items-center gap-3">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <p className="text-sm text-muted-foreground">Loading reconciliation data...</p>
+            </div>
+          ) : reconcileData ? (
+            <div className="space-y-4 py-4">
+              {/* Pending warning */}
+              {reconcileData.pendingCount > 0 && (
+                <div className="flex items-start gap-2 px-4 py-3 rounded-2xl bg-destructive/10 border border-destructive/20 text-sm font-semibold text-destructive">
+                  <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                  {reconcileData.pendingCount} item(s) still PENDING — resolve them before closing.
+                </div>
+              )}
+
+              {/* Bottle reconciliation */}
+              <div className="rounded-2xl border border-border/50 bg-accent/10 overflow-hidden">
+                <div className="px-4 py-2.5 bg-muted/40 border-b border-border/40">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Bottle Summary</p>
+                </div>
+                <div className="p-4 grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-[10px] text-muted-foreground font-bold uppercase">Dispatched</p>
+                    <p className="text-xl font-black font-mono">{reconcileData.bottles.dispatched}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-muted-foreground font-bold uppercase">Delivered</p>
+                    <p className="text-xl font-black font-mono">{reconcileData.bottles.delivered}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-muted-foreground font-bold uppercase">Returned to Warehouse</p>
+                    <p className="text-xl font-black font-mono">{reconcileData.bottles.returned}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-muted-foreground font-bold uppercase">Discrepancy</p>
+                    <p className={cn(
+                      'text-xl font-black font-mono',
+                      reconcileData.bottles.discrepancy !== 0 ? 'text-destructive' : 'text-emerald-600',
+                    )}>
+                      {reconcileData.bottles.discrepancy > 0 ? '+' : ''}{reconcileData.bottles.discrepancy}
+                      {reconcileData.bottles.discrepancy !== 0 && ' ⚠️'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Cash reconciliation */}
+              <div className="rounded-2xl border border-border/50 bg-accent/10 overflow-hidden">
+                <div className="px-4 py-2.5 bg-muted/40 border-b border-border/40">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Cash Summary</p>
+                </div>
+                <div className="divide-y divide-border/40">
+                  {/* Cash customers row */}
+                  <div className="p-4 space-y-2">
+                    <p className="text-xs font-black text-foreground">
+                      Cash Customers ({reconcileData.cashCustomers.count} deliveries)
+                    </p>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div className="rounded-xl bg-background/70 border border-border/40 px-2 py-2">
+                        <p className="text-[9px] font-bold uppercase text-muted-foreground">Billed</p>
+                        <p className="text-sm font-black font-mono">₨{reconcileData.cashCustomers.billed.toLocaleString()}</p>
+                      </div>
+                      <div className="rounded-xl bg-background/70 border border-border/40 px-2 py-2">
+                        <p className="text-[9px] font-bold uppercase text-muted-foreground">Collected</p>
+                        <p className="text-sm font-black font-mono text-emerald-600">₨{reconcileData.cashCustomers.collected.toLocaleString()}</p>
+                      </div>
+                      <div className={cn(
+                        'rounded-xl border px-2 py-2',
+                        reconcileData.cashCustomers.addedToBalance > 0
+                          ? 'bg-amber-500/10 border-amber-500/30'
+                          : 'bg-background/70 border-border/40',
+                      )}>
+                        <p className="text-[9px] font-bold uppercase text-muted-foreground">→ Balance</p>
+                        <p className={cn(
+                          'text-sm font-black font-mono',
+                          reconcileData.cashCustomers.addedToBalance > 0 ? 'text-amber-600' : 'text-muted-foreground',
+                        )}>
+                          ₨{reconcileData.cashCustomers.addedToBalance.toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                    {reconcileData.cashCustomers.addedToBalance > 0 && (
+                      <p className="text-[11px] text-amber-600 font-medium">
+                        ₨{reconcileData.cashCustomers.addedToBalance.toLocaleString()} added to customer balances (unpaid cash deliveries)
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Monthly customers row */}
+                  {reconcileData.monthlyCustomers.count > 0 && (
+                    <div className="p-4 flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-black">Monthly Customers ({reconcileData.monthlyCustomers.count} deliveries)</p>
+                        <p className="text-[11px] text-muted-foreground">Billed to accounts — no cash expected</p>
+                      </div>
+                      <p className="text-sm font-black font-mono text-blue-600">
+                        ₨{reconcileData.monthlyCustomers.billedToAccounts.toLocaleString()}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Driver handover */}
+              <div className={cn(
+                'rounded-2xl border overflow-hidden',
+                reconcileData.driver.discrepancy !== 0
+                  ? 'border-destructive/30 bg-destructive/5'
+                  : 'border-emerald-500/30 bg-emerald-500/5',
+              )}>
+                <div className="px-4 py-2.5 border-b border-border/40 bg-muted/40">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Driver Handover</p>
+                </div>
+                <div className="p-4 grid grid-cols-3 gap-3 text-center">
+                  <div>
+                    <p className="text-[9px] font-bold uppercase text-muted-foreground">Should Hand In</p>
+                    <p className="text-lg font-black font-mono">₨{reconcileData.driver.shouldHandIn.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-bold uppercase text-muted-foreground">Handed In</p>
+                    <p className="text-lg font-black font-mono">₨{reconcileData.driver.handedIn.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-bold uppercase text-muted-foreground">Difference</p>
+                    <p className={cn(
+                      'text-lg font-black font-mono',
+                      reconcileData.driver.discrepancy !== 0 ? 'text-destructive' : 'text-emerald-600',
+                    )}>
+                      {reconcileData.driver.discrepancy !== 0
+                        ? `₨${Math.abs(reconcileData.driver.discrepancy).toLocaleString()} ${reconcileData.driver.discrepancy > 0 ? 'short' : 'over'} ⚠️`
+                        : '✓ Clear'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => { setReconcileOpen(false); setReconcileData(null); }}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => closeSheet(undefined, {
+                onSuccess: () => { setReconcileOpen(false); setReconcileData(null); },
+              })}
+              disabled={isClosing || reconcileLoading || !reconcileData || reconcileData.pendingCount > 0}
+              className="rounded-xl font-bold min-w-[140px]"
+            >
+              {isClosing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Confirm Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── New Load-Out Dialog ─────────────────────────────── */}
       <Dialog open={newTripOpen} onOpenChange={setNewTripOpen}>

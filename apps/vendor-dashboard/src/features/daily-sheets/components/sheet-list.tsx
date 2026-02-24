@@ -1,17 +1,22 @@
 'use client';
 
 import Link from 'next/link';
-import { Eye, Calendar, MapPin, User, Truck, FileText } from 'lucide-react';
-import { Button, Badge } from '@water-supply-crm/ui';
+import { Eye, Calendar, MapPin, User, Truck, FileText, X } from 'lucide-react';
+import { Button, Badge, Input, Label } from '@water-supply-crm/ui';
 import { DataTable } from '../../../components/shared/data-table';
 import { StatusBadge } from '../../../components/shared/status-badge';
-import { SearchInput } from '../../../components/shared/filters/search-input';
 import { RouteFilter } from '../../../components/shared/filters/route-filter';
+import { VanFilter } from '../../../components/shared/filters/van-filter';
+import { DriverFilter } from '../../../components/shared/filters/driver-filter';
 import { useDailySheets } from '../hooks/use-daily-sheets';
+import { useQueryState, parseAsString } from 'nuqs';
+import { useAuthStore } from '../../../store/auth.store';
 import { cn } from '@water-supply-crm/ui';
 
 export function SheetList() {
+  const user = useAuthStore((s) => s.user);
   const { data, isLoading, page, setPage, limit, setLimit } = useDailySheets();
+  const [date, setDate] = useQueryState('date', parseAsString.withDefault(''));
 
   const sheets = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
   const rows = (sheets?.data ?? []) as Array<{ 
@@ -34,13 +39,52 @@ export function SheetList() {
     return 'OPEN';
   };
 
+  const isDriver = user?.role === 'DRIVER';
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 bg-card/30 p-4 rounded-2xl border border-border/50">
-        <div className="flex-1 w-full">
-          <SearchInput placeholder="Search by date..." paramKey="date" />
+      <div className="bg-card/30 p-6 rounded-2xl border border-border/50 space-y-4">
+        <div className={cn(
+          "grid grid-cols-1 sm:grid-cols-2 gap-4",
+          isDriver ? "lg:grid-cols-3" : "lg:grid-cols-4"
+        )}>
+          <div className="space-y-1.5">
+            <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Date</Label>
+            <div className="relative">
+              <Input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value || null)}
+                className="rounded-xl bg-background/50 border-border/50 h-10 pr-8"
+              />
+              {date && (
+                <button 
+                  onClick={() => setDate(null)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Route</Label>
+            <RouteFilter />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Van</Label>
+            <VanFilter />
+          </div>
+
+          {!isDriver && (
+            <div className="space-y-1.5">
+              <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Driver</Label>
+              <DriverFilter />
+            </div>
+          )}
         </div>
-        <RouteFilter />
       </div>
 
       <DataTable

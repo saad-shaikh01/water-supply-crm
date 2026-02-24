@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter, SheetDescription,
   Button, Input, Label,
@@ -19,6 +20,7 @@ interface SheetGenerateProps {
 }
 
 export function SheetGenerate({ open, onOpenChange }: SheetGenerateProps) {
+  const queryClient = useQueryClient();
   const [jobId, setJobId] = useState<string | null>(null);
   const [vanMode, setVanMode] = useState<'all' | 'specific'>('all');
   const [selectedVanIds, setSelectedVanIds] = useState<string[]>([]);
@@ -46,12 +48,13 @@ export function SheetGenerate({ open, onOpenChange }: SheetGenerateProps) {
   // Handle completion
   useEffect(() => {
     if (status?.status === 'completed') {
+      queryClient.invalidateQueries({ queryKey: ['sheets'] });
       const timer = setTimeout(() => {
         onOpenChange(false);
       }, 2000);
       return () => clearTimeout(timer);
     }
-  }, [status?.status, onOpenChange]);
+  }, [status?.status, onOpenChange, queryClient]);
 
   const toggleVan = (vanId: string) => {
     setSelectedVanIds((prev) =>

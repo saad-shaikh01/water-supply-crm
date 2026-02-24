@@ -82,6 +82,17 @@ export class DailySheetController {
     return this.dailySheetService.findAllPaginated(user.vendorId, query);
   }
 
+  /**
+   * GET /api/daily-sheets/:id/reconciliation-preview
+   * Returns reconciliation breakdown WITHOUT closing the sheet.
+   * Used to show the confirmation dialog before close.
+   */
+  @Get(':id/reconciliation-preview')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  getReconciliationPreview(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.dailySheetService.getReconciliationPreview(user.vendorId, id);
+  }
+
   @Get(':id')
   findOne(@CurrentUser() user: any, @Param('id') id: string) {
     return this.dailySheetService.findOne(user.vendorId, id);

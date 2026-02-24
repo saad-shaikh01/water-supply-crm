@@ -5,6 +5,7 @@ import { CacheInvalidationService } from '@water-supply-crm/caching';
 import { CACHE_KEYS, CACHE_TTLS } from '@water-supply-crm/caching';
 import * as bcrypt from 'bcrypt';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { UserQueryDto } from './dto/user-query.dto';
 import { AuditService } from '../audit/audit.service';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { paginate } from '../../common/helpers/paginate';
@@ -86,13 +87,16 @@ export class UserService {
     });
   }
 
-  async findAllPaginated(vendorId: string, query: PaginationQueryDto) {
-    const { page = 1, limit = 20 } = query;
-    const cacheKey = this.cache.vendorKey(vendorId, `${CACHE_KEYS.USERS}:p:${page}:l:${limit}`);
+  async findAllPaginated(vendorId: string, query: UserQueryDto) {
+    const { page = 1, limit = 20, role, isActive } = query;
+    const cacheKey = this.cache.vendorKey(vendorId, `${CACHE_KEYS.USERS}:p:${page}:l:${limit}:r:${role ?? ''}:a:${isActive ?? ''}`);
     const cached = await this.cache.get(cacheKey);
     if (cached) return cached;
 
-    const where = { vendorId };
+    const where: any = { vendorId };
+    if (role) where.role = role;
+    if (isActive !== undefined) where.isActive = isActive;
+
     const [data, total] = await Promise.all([
       this.prisma.user.findMany({
         where,

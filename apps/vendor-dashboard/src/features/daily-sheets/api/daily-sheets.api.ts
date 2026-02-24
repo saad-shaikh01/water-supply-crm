@@ -20,6 +20,8 @@ export const dailySheetsApi = {
   checkIn: (id: string, data: Record<string, unknown>) =>
     apiClient.patch(`/daily-sheets/${id}/check-in`, data),
   close: (id: string) => apiClient.post(`/daily-sheets/${id}/close`),
+  getReconciliationPreview: (id: string) =>
+    apiClient.get(`/daily-sheets/${id}/reconciliation-preview`).then((r) => r.data),
   updateDeliveryItem: (itemId: string, data: Record<string, unknown>) =>
     apiClient.patch(`/daily-sheets/items/${itemId}`, data),
   swapAssignment: (id: string, data: Record<string, unknown>) =>

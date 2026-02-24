@@ -11,6 +11,8 @@ export const useDailySheets = () => {
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
   const [date] = useQueryState('date', parseAsString.withDefault(''));
   const [routeId] = useQueryState('routeId', parseAsString.withDefault(''));
+  const [vanId] = useQueryState('vanId', parseAsString.withDefault(''));
+  const [driverId] = useQueryState('driverId', parseAsString.withDefault(''));
   const [status] = useQueryState('status', parseAsString.withDefault(''));
 
   const params: SheetQuery = {
@@ -18,9 +20,10 @@ export const useDailySheets = () => {
     limit,
     date: date || undefined,
     routeId: routeId || undefined,
+    vanId: vanId || undefined,
     status: status || undefined,
     // DRIVER only sees their own sheets
-    driverId: user?.role === 'DRIVER' ? user.id : undefined,
+    driverId: user?.role === 'DRIVER' ? user.id : (driverId || undefined),
   };
 
   return {
@@ -34,6 +37,8 @@ export const useDailySheets = () => {
     setLimit,
     date,
     routeId,
+    vanId,
+    driverId,
     status,
   };
 };

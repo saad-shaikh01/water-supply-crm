@@ -353,13 +353,100 @@ export class DailySheetService {
     return updated;
   }
 
-  async closeSheet(vendorId: string, sheetId: string) {
-    const sheet = await this.prisma.dailySheet.findFirst({
+  // ── Reconciliation helper ─────────────────────────────────────────────
+  private buildReconciliation(sheet: any) {
+    const activeItems = (sheet.items as any[]).filter(
+      (i) => i.status === DeliveryStatus.COMPLETED || i.status === DeliveryStatus.EMPTY_ONLY,
+    );
+
+    const getPrice = (item: any): number => {
+      const custom = item.customer?.customPrices?.find(
+        (cp: any) => cp.productId === item.productId,
+      );
+      return custom?.customPrice ?? item.product?.basePrice ?? 0;
+    };
+
+    // Bottle summary
+    const totalDelivered = activeItems.reduce((s, i) => s + i.filledDropped, 0);
+    const bottleDiscrepancy = sheet.filledOutCount - (sheet.filledInCount + totalDelivered);
+
+    // Cash breakdown by payment type
+    const cashItems = activeItems.filter((i) => i.customer?.paymentType === 'CASH');
+    const monthlyItems = activeItems.filter((i) => i.customer?.paymentType === 'MONTHLY');
+
+    const cashBilled = cashItems.reduce(
+      (s, i) => s + getPrice(i) * i.filledDropped, 0,
+    );
+    const cashCollectedFromCash = cashItems.reduce((s, i) => s + i.cashCollected, 0);
+
+    const monthlyBilled = monthlyItems.reduce(
+      (s, i) => s + getPrice(i) * i.filledDropped, 0,
+    );
+
+    // Driver handover — ALL cash recorded across every item
+    const totalCashRecorded = (sheet.items as any[]).reduce(
+      (s, i) => s + i.cashCollected, 0,
+    );
+    const driverDiscrepancy = totalCashRecorded - sheet.cashCollected;
+
+    const pendingCount = (sheet.items as any[]).filter(
+      (i) => i.status === DeliveryStatus.PENDING,
+    ).length;
+
+    return {
+      pendingCount,
+      bottles: {
+        dispatched: sheet.filledOutCount,
+        delivered: totalDelivered,
+        returned: sheet.filledInCount,
+        discrepancy: bottleDiscrepancy,
+      },
+      cashCustomers: {
+        count: cashItems.length,
+        billed: cashBilled,
+        collected: cashCollectedFromCash,
+        addedToBalance: cashBilled - cashCollectedFromCash,
+      },
+      monthlyCustomers: {
+        count: monthlyItems.length,
+        billedToAccounts: monthlyBilled,
+      },
+      driver: {
+        shouldHandIn: totalCashRecorded,
+        handedIn: sheet.cashCollected,
+        discrepancy: driverDiscrepancy,
+      },
+    };
+  }
+
+  // Fetch sheet with pricing data needed for reconciliation
+  private async fetchSheetForReconciliation(vendorId: string, sheetId: string) {
+    return this.prisma.dailySheet.findFirst({
       where: { id: sheetId, vendorId },
       include: {
-        items: true,
+        items: {
+          include: {
+            customer: {
+              select: {
+                paymentType: true,
+                customPrices: { select: { productId: true, customPrice: true } },
+              },
+            },
+            product: { select: { basePrice: true } },
+          },
+        },
       },
     });
+  }
+
+  async getReconciliationPreview(vendorId: string, sheetId: string) {
+    const sheet = await this.fetchSheetForReconciliation(vendorId, sheetId);
+    if (!sheet) throw new NotFoundException('Daily sheet not found');
+    return this.buildReconciliation(sheet);
+  }
+
+  async closeSheet(vendorId: string, sheetId: string) {
+    const sheet = await this.fetchSheetForReconciliation(vendorId, sheetId);
     if (!sheet) {
       throw new NotFoundException('Daily sheet not found');
     }
@@ -367,7 +454,7 @@ export class DailySheetService {
       throw new ConflictException('Sheet is already closed');
     }
 
-    const pendingItems = sheet.items.filter(
+    const pendingItems = (sheet.items as any[]).filter(
       (item) => item.status === DeliveryStatus.PENDING,
     );
     if (pendingItems.length > 0) {
@@ -376,25 +463,13 @@ export class DailySheetService {
       );
     }
 
-    // Calculate reconciliation
-    const totalDelivered = sheet.items
-      .filter((i) => i.status === DeliveryStatus.COMPLETED)
-      .reduce((sum, i) => sum + i.filledDropped, 0);
-
-    const totalCashFromDeliveries = sheet.items.reduce(
-      (sum, i) => sum + i.cashCollected,
-      0,
-    );
-
-    const bottlesAccountedFor = sheet.filledInCount + totalDelivered;
-    const bottleDiscrepancy = sheet.filledOutCount - bottlesAccountedFor;
-    const cashDiscrepancy = totalCashFromDeliveries - sheet.cashCollected;
+    const reconciliation = this.buildReconciliation(sheet);
 
     const closed = await this.prisma.dailySheet.update({
       where: { id: sheetId },
       data: {
         isClosed: true,
-        cashExpected: totalCashFromDeliveries,
+        cashExpected: reconciliation.driver.shouldHandIn,
       },
     });
 
@@ -403,20 +478,17 @@ export class DailySheetService {
       action: 'CLOSE',
       entity: 'DailySheet',
       entityId: sheetId,
-      changes: { after: { bottleDiscrepancy, cashDiscrepancy } },
+      changes: {
+        after: {
+          bottleDiscrepancy: reconciliation.bottles.discrepancy,
+          driverCashDiscrepancy: reconciliation.driver.discrepancy,
+        },
+      },
     });
 
     return {
       sheet: closed,
-      reconciliation: {
-        filledOutCount: sheet.filledOutCount,
-        totalDelivered,
-        filledInCount: sheet.filledInCount,
-        bottleDiscrepancy,
-        cashExpected: totalCashFromDeliveries,
-        cashCollected: sheet.cashCollected,
-        cashDiscrepancy,
-      },
+      reconciliation,
     };
   }
 

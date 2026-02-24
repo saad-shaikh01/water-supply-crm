@@ -15,7 +15,7 @@ import { UserService } from './user.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
-import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
+import { UserQueryDto } from './dto/user-query.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -38,7 +38,7 @@ export class UserController {
 
   @Get()
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
-  async findAll(@CurrentUser() user: any, @Query() query: PaginationQueryDto) {
+  async findAll(@CurrentUser() user: any, @Query() query: UserQueryDto) {
     return this.userService.findAllPaginated(user.vendorId, query);
   }
 
