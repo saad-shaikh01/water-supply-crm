@@ -301,8 +301,9 @@ model DailySheetItem {
   emptyReceived Int      @default(0)
   cashCollected Float    @default(0)
   
-  reason        String?  // For Rescheduled/Cancelled/NotAvailable
-  photoUrl      String?  // Optional photo evidence (rescheduled/cancelled)
+  reason          String?  // Free text notes for unable-to-deliver
+  failureCategory String?  // CUSTOMER_NOT_HOME | CUSTOMER_NOT_ANSWERING | CUSTOMER_SELF_PICKUP | VAN_BREAKDOWN | ACCESS_ISSUE | CUSTOMER_REFUSED | WEATHER | OTHER
+  photoUrl        String?  // Optional photo evidence
   rescheduledTo DateTime?
 
   createdAt     DateTime @default(now())

@@ -50,6 +50,24 @@ export class DailySheetController {
     return this.dailySheetService.getGenerationStatus(jobId);
   }
 
+  @Get('driver/:driverId/stats')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  getDriverStats(
+    @CurrentUser() user: any,
+    @Param('driverId') driverId: string,
+    @Query('month') month?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    // DRIVER can only query their own stats
+    const resolvedDriverId = user.role === UserRole.DRIVER ? user.id : driverId;
+    return this.dailySheetService.getDriverStats(user.vendorId, resolvedDriverId, {
+      month,
+      dateFrom,
+      dateTo,
+    });
+  }
+
   @Get('driver/:driverId')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
   getSheetsByDriver(

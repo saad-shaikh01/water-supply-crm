@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Users, Map, Package, Truck,
   ClipboardList, CreditCard, UserCog, Droplets, Banknote, Navigation,
-  Receipt, Bell, ScrollText, BarChart2
+  Receipt, Bell, ScrollText, BarChart2, Home, History
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { useAuthStore } from '../../store/auth.store';
@@ -21,6 +21,9 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
+  // Driver
+  { label: 'Home', href: '/dashboard/home', icon: Home, minRole: 'DRIVER', group: 'Driver' },
+  { label: 'My History', href: '/dashboard/history', icon: History, minRole: 'DRIVER', group: 'Driver' },
   // Operations
   { label: 'Overview', href: '/dashboard/overview', icon: LayoutDashboard, minRole: 'STAFF', group: 'Operations' },
   { label: 'Customers', href: '/dashboard/customers', icon: Users, minRole: 'STAFF', group: 'Operations' },
@@ -40,7 +43,7 @@ const navItems: NavItem[] = [
   { label: 'Audit Logs', href: '/dashboard/audit-logs', icon: ScrollText, minRole: 'VENDOR_ADMIN', group: 'Settings' },
 ];
 
-const GROUPS = ['Operations', 'Finance', 'Settings'];
+const GROUPS = ['Driver', 'Operations', 'Finance', 'Settings'];
 
 export function Sidebar({ className }: { className?: string }) {
   const pathname = usePathname();

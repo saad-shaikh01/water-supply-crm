@@ -4,10 +4,12 @@ export interface SheetQuery {
   page?: number;
   limit?: number;
   date?: string;
+  dateFrom?: string;
+  dateTo?: string;
   routeId?: string;
   vanId?: string;
-  status?: string;
   driverId?: string;
+  isClosed?: boolean;
 }
 
 export const dailySheetsApi = {

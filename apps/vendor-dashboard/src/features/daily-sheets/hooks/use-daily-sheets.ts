@@ -9,19 +9,21 @@ export const useDailySheets = () => {
   const user = useAuthStore((s) => s.user);
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
-  const [date] = useQueryState('date', parseAsString.withDefault(''));
+  const [from] = useQueryState('from', parseAsString.withDefault(''));
+  const [to] = useQueryState('to', parseAsString.withDefault(''));
   const [routeId] = useQueryState('routeId', parseAsString.withDefault(''));
   const [vanId] = useQueryState('vanId', parseAsString.withDefault(''));
   const [driverId] = useQueryState('driverId', parseAsString.withDefault(''));
-  const [status] = useQueryState('status', parseAsString.withDefault(''));
+  const [isClosed] = useQueryState('isClosed', parseAsString.withDefault(''));
 
   const params: SheetQuery = {
     page,
     limit,
-    date: date || undefined,
+    dateFrom: from || undefined,
+    dateTo: to || undefined,
     routeId: routeId || undefined,
     vanId: vanId || undefined,
-    status: status || undefined,
+    isClosed: isClosed === 'true' ? true : isClosed === 'false' ? false : undefined,
     // DRIVER only sees their own sheets
     driverId: user?.role === 'DRIVER' ? user.id : (driverId || undefined),
   };
@@ -35,11 +37,12 @@ export const useDailySheets = () => {
     setPage,
     limit,
     setLimit,
-    date,
+    from,
+    to,
     routeId,
     vanId,
     driverId,
-    status,
+    isClosed,
   };
 };
 

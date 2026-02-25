@@ -12,10 +12,10 @@
  *   - 3 Drivers
  *
  * Vendor data:
- *   - 3 Vans (all active, each linked to a driver)
- *   - 3 Routes (DHA, Gulshan, Malir — each linked to its own van)
+ *   - 2 Vans (KHI-123 covers DHA+Malir, SINDH-456 covers Gulshan)
+ *   - 3 Routes (DHA, Gulshan, Malir)
  *   - 2 Products (19L + 5L)
- *   - 100 Customers (mix of MONTHLY/CASH, all active, zero balances)
+ *   - 10 Customers (mix of MONTHLY/CASH, all active, zero balances)
  *   - CustomerDeliverySchedule entries (2–3 days per customer, random vans)
  */
 import { PrismaClient, UserRole, PaymentType } from '@prisma/client';
@@ -29,7 +29,7 @@ const prisma = new PrismaClient({
 });
 
 const VENDOR_SLUG = 'aquapure-karachi';
-const CUSTOMER_COUNT = 100;
+const CUSTOMER_COUNT = 10;
 const BCRYPT_ROUNDS = 10;
 
 const KARACHI_AREAS = {
@@ -147,35 +147,31 @@ async function main() {
   );
   console.log('✅ 3 Drivers created\n');
 
-  // ── Vans (all active) ────────────────────────────────────────────────────
+  // ── Vans (2 active) ──────────────────────────────────────────────────────
   const vansData = [
-    { plateNumber: 'KHI-123',   isActive: true },
-    { plateNumber: 'SINDH-456', isActive: true },
-    { plateNumber: 'PK-789',    isActive: true },
+    { plateNumber: 'KHI-123',   isActive: true, defaultDriverId: drivers[0].id }, // Kamran
+    { plateNumber: 'SINDH-456', isActive: true, defaultDriverId: drivers[1].id }, // Faisal
   ];
   const vans = await Promise.all(
-    vansData.map((v, i) =>
-      prisma.van.create({
-        data: { ...v, vendorId: vendor.id, defaultDriverId: drivers[i].id },
-      }),
+    vansData.map((v) =>
+      prisma.van.create({ data: { ...v, vendorId: vendor.id } }),
     ),
   );
-  console.log('✅ 3 Vans created (all active)\n');
+  console.log('✅ 2 Vans created (KHI-123 → Kamran, SINDH-456 → Faisal)\n');
 
-  // ── Routes (each linked to its own van) ──────────────────────────────────
-  const routeNames = ['DHA', 'Gulshan', 'Malir'];
+  // ── Routes ────────────────────────────────────────────────────────────────
+  // DHA → van 1, Gulshan → van 2, Malir → van 1 (runs different days)
+  const routeConfigs = [
+    { name: 'DHA',     defaultVanId: vans[0].id },
+    { name: 'Gulshan', defaultVanId: vans[1].id },
+    { name: 'Malir',   defaultVanId: vans[0].id },
+  ];
   const routes = await Promise.all(
-    routeNames.map((name, i) =>
-      prisma.route.create({
-        data: {
-          name,
-          vendorId: vendor.id,
-          defaultVanId: vans[i].id,
-        },
-      }),
+    routeConfigs.map((r) =>
+      prisma.route.create({ data: { ...r, vendorId: vendor.id } }),
     ),
   );
-  console.log('✅ 3 Routes created (DHA → KHI-123, Gulshan → SINDH-456, Malir → PK-789)\n');
+  console.log('✅ 3 Routes created (DHA → KHI-123, Gulshan → SINDH-456, Malir → KHI-123)\n');
 
   // ── Products ─────────────────────────────────────────────────────────────
   const products = await Promise.all([
@@ -235,14 +231,13 @@ async function main() {
   console.log('  DRIVER 3     : driver3@aquapure.com     / Driver@123');
   console.log('───────────────────────────────────────────────────────────────');
   console.log('  Products : 19L Mineral Water @ ₨150 | 5L Mineral Water @ ₨60');
-  console.log('  Routes   : DHA → Van KHI-123   → Kamran Khan');
-  console.log('             Gulshan → Van SINDH-456 → Faisal Malik');
-  console.log('             Malir   → Van PK-789    → Rizwan Ahmed');
+  console.log('  Vans     : KHI-123 (Kamran Khan) | SINDH-456 (Faisal Malik)');
+  console.log('  Routes   : DHA → KHI-123  |  Gulshan → SINDH-456  |  Malir → KHI-123');
   console.log('───────────────────────────────────────────────────────────────');
-  console.log('  Customers: 100 fresh · all active · zero balances');
-  console.log('             ~40 MONTHLY · ~60 CASH');
-  console.log('             Distributed: ~33-34 per route');
-  console.log('             Each with 2–3 day delivery schedule across all vans');
+  console.log('  Customers: 10 fresh · all active · zero balances');
+  console.log('             ~4 MONTHLY · ~6 CASH');
+  console.log('             Distributed: ~3-4 per route');
+  console.log('             Each with 2–3 day delivery schedule across both vans');
   console.log('═══════════════════════════════════════════════════════════════\n');
 }
 

@@ -1,39 +1,96 @@
 import axios from 'axios';
-import { getCookie, deleteCookie } from 'cookies-next';
+import { getCookie, setCookie, deleteCookie } from 'cookies-next';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
 
 export const apiClient = axios.create({
   baseURL: API_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  headers: { 'Content-Type': 'application/json' },
 });
 
-// Add a request interceptor to add the auth token to headers
+// ── Request interceptor — attach access token ──────────────────────────
 apiClient.interceptors.request.use(
   (config) => {
     const token = getCookie('auth_token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
+    if (token) config.headers.Authorization = `Bearer ${token}`;
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error),
 );
 
-// Add a response interceptor to handle unauthorized errors
+// ── Refresh queue ──────────────────────────────────────────────────────
+let isRefreshing = false;
+type QueueEntry = { resolve: (token: string) => void; reject: (err: unknown) => void };
+let failedQueue: QueueEntry[] = [];
+
+const processQueue = (error: unknown, token: string | null) => {
+  failedQueue.forEach((p) => (error ? p.reject(error) : p.resolve(token!)));
+  failedQueue = [];
+};
+
+const clearAuth = () => {
+  deleteCookie('auth_token');
+  deleteCookie('refresh_token');
+  deleteCookie('user_role');
+  if (typeof window !== 'undefined') window.location.href = '/auth/login';
+};
+
+// ── Response interceptor — silent token refresh on 401 ────────────────
 apiClient.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      deleteCookie('auth_token');
-      if (typeof window !== 'undefined') {
-        window.location.href = '/auth/login';
-      }
+  async (error) => {
+    const original = error.config;
+
+    // Skip: not 401, already retried, or it IS the refresh endpoint
+    if (
+      error.response?.status !== 401 ||
+      original._retry ||
+      original.url?.includes('/auth/refresh')
+    ) {
+      return Promise.reject(error);
     }
-    return Promise.reject(error);
-  }
+
+    if (isRefreshing) {
+      // Queue and replay once refresh completes
+      return new Promise<string>((resolve, reject) => {
+        failedQueue.push({ resolve, reject });
+      }).then((token) => {
+        original.headers.Authorization = `Bearer ${token}`;
+        return apiClient(original);
+      });
+    }
+
+    original._retry = true;
+    isRefreshing = true;
+
+    const refreshToken = getCookie('refresh_token');
+    if (!refreshToken) {
+      isRefreshing = false;
+      processQueue(error, null);
+      clearAuth();
+      return Promise.reject(error);
+    }
+
+    try {
+      // Use plain axios — NOT apiClient — to avoid interceptor loop
+      const { data } = await axios.post(`${API_URL}/auth/refresh`, {
+        refreshToken,
+      });
+
+      setCookie('auth_token', data.access_token, { maxAge: 60 * 60 * 24 });       // 1 day
+      setCookie('refresh_token', data.refresh_token, { maxAge: 60 * 60 * 24 * 7 }); // 7 days
+
+      apiClient.defaults.headers.common.Authorization = `Bearer ${data.access_token}`;
+      original.headers.Authorization = `Bearer ${data.access_token}`;
+
+      processQueue(null, data.access_token);
+      return apiClient(original);
+    } catch (refreshError) {
+      processQueue(refreshError, null);
+      clearAuth();
+      return Promise.reject(refreshError);
+    } finally {
+      isRefreshing = false;
+    }
+  },
 );

@@ -28,7 +28,8 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(tail:*)",
-      "Bash(npx prisma:*)"
+      "Bash(npx prisma:*)",
+      "Bash(head:*)"
     ]
   }
 }

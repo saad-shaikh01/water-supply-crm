@@ -59,6 +59,7 @@ interface DeliveryItem {
   emptyReceived: number;
   cashCollected: number;
   reason?: string;
+  failureCategory?: string;
   photoUrl?: string;
 }
 
@@ -124,8 +125,32 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
 
   // Delivery dialog: two-step UX
   const [deliveryMode, setDeliveryMode] = useState<'delivered' | 'unable'>('delivered');
-  const [unableAction, setUnableAction] = useState<'RESCHEDULED' | 'CANCELLED'>('RESCHEDULED');
+  const [failureCategory, setFailureCategory] = useState<string>('CUSTOMER_NOT_HOME');
   const [unableReason, setUnableReason] = useState('');
+
+  const FAILURE_CATEGORIES = [
+    { value: 'CUSTOMER_NOT_HOME', label: 'Customer Not Home' },
+    { value: 'CUSTOMER_NOT_ANSWERING', label: 'Customer Not Answering' },
+    { value: 'CUSTOMER_SELF_PICKUP', label: 'Customer Self Pickup' },
+    { value: 'VAN_BREAKDOWN', label: 'Van Breakdown' },
+    { value: 'ACCESS_ISSUE', label: 'Area / Access Issue' },
+    { value: 'CUSTOMER_REFUSED', label: 'Customer Refused (Cancel)' },
+    { value: 'WEATHER', label: 'Weather / Road Issue' },
+    { value: 'OTHER', label: 'Other' },
+  ] as const;
+
+  const CATEGORY_LABELS: Record<string, string> = {
+    CUSTOMER_NOT_HOME: 'Customer Not Home',
+    CUSTOMER_NOT_ANSWERING: 'Customer Not Answering',
+    CUSTOMER_SELF_PICKUP: 'Customer Self Pickup',
+    VAN_BREAKDOWN: 'Van Breakdown',
+    ACCESS_ISSUE: 'Area / Access Issue',
+    CUSTOMER_REFUSED: 'Customer Refused',
+    WEATHER: 'Weather / Road Issue',
+    OTHER: 'Other',
+  };
+
+  const formatCategory = (cat: string) => CATEGORY_LABELS[cat] ?? cat;
 
   // Tabs + pagination
   const [activeTab, setActiveTab] = useState<TabKey>('all');
@@ -151,10 +176,10 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const currentStatus = isClosed ? 'CLOSED' : activeTrip ? 'LOADED' : hasAnyTrip ? 'CHECKED_IN' : 'OPEN';
 
   // ── Computed real-time stats ────────────────────────────────────────
-  const completedItems = items.filter((i) => i.status === 'COMPLETED');
-  const totalFilledDropped = completedItems.reduce((acc, i) => acc + i.filledDropped, 0);
-  const totalEmptyReceived = completedItems.reduce((acc, i) => acc + i.emptyReceived, 0);
-  const totalCashCollected = completedItems.reduce((acc, i) => acc + i.cashCollected, 0);
+  const doneItems = items.filter((i) => i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY');
+  const totalFilledDropped = doneItems.reduce((acc, i) => acc + i.filledDropped, 0);
+  const totalEmptyReceived = doneItems.reduce((acc, i) => acc + i.emptyReceived, 0);
+  const totalCashCollected = doneItems.reduce((acc, i) => acc + i.cashCollected, 0);
   const bottlesInTruck = Math.max(0, (sheet.filledOutCount ?? 0) - totalFilledDropped);
 
   // ── Tab filtering + pagination ──────────────────────────────────────
@@ -175,7 +200,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
     if (isClosed) return;
     const isUnable = item.status === 'RESCHEDULED' || item.status === 'CANCELLED' || item.status === 'NOT_AVAILABLE';
     setDeliveryMode(item.status === 'PENDING' ? 'delivered' : isUnable ? 'unable' : 'delivered');
-    setUnableAction(item.status === 'CANCELLED' ? 'CANCELLED' : 'RESCHEDULED');
+    setFailureCategory(item.failureCategory || 'CUSTOMER_NOT_HOME');
     setUnableReason(item.reason || '');
     setItemForm({
       filledDropped: item.filledDropped || 1,
@@ -196,16 +221,13 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         cashCollected: itemForm.cashCollected ?? 0,
       };
     } else {
-      if (!unableReason.trim()) {
-        toast.error('Reason is required');
-        return;
-      }
       finalData = {
-        status: unableAction,
+        status: failureCategory === 'CUSTOMER_REFUSED' ? 'CANCELLED' : 'RESCHEDULED',
+        failureCategory,
         filledDropped: 0,
         emptyReceived: 0,
         cashCollected: 0,
-        reason: unableReason,
+        reason: unableReason || undefined,
       };
     }
     updateItem({ itemId: deliveryOpen, data: finalData }, {
@@ -326,7 +348,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
       </div>
 
       {/* ── Real-time Stats Bar ─────────────────────────────── */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Card className="bg-card/50 backdrop-blur-sm">
           <CardContent className="p-4 flex items-center gap-4">
             <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
@@ -346,6 +368,17 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             <div>
               <p className="text-[10px] font-bold uppercase text-muted-foreground">Filled Dropped</p>
               <p className="text-sm font-black">{totalFilledDropped} <span className="text-xs font-normal text-muted-foreground">of {sheet.filledOutCount}</span></p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-card/50 backdrop-blur-sm">
+          <CardContent className="p-4 flex items-center gap-4">
+            <div className="h-10 w-10 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-500">
+              <Package className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[10px] font-bold uppercase text-muted-foreground">Empty Received</p>
+              <p className="text-sm font-black">{totalEmptyReceived} <span className="text-xs font-normal text-muted-foreground">bottles</span></p>
             </div>
           </CardContent>
         </Card>
@@ -709,10 +742,19 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
                               )}
                             </div>
 
-                            {/* Show reason if any */}
-                            {item.reason && (
+                            {/* Show failure category + reason if unable to deliver */}
+                            {item.failureCategory && (
+                              <div className="flex items-start gap-2 text-xs bg-destructive/5 rounded-xl px-3 py-2 border border-destructive/20">
+                                <AlertCircle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
+                                <div>
+                                  <span className="font-bold text-destructive">{formatCategory(item.failureCategory)}</span>
+                                  {item.reason && <span className="text-muted-foreground"> · {item.reason}</span>}
+                                </div>
+                              </div>
+                            )}
+                            {!item.failureCategory && item.reason && (
                               <p className="text-xs text-muted-foreground bg-background/70 rounded-xl px-3 py-2 border border-border/40">
-                                <span className="font-bold">Reason:</span> {item.reason}
+                                <span className="font-bold">Note:</span> {item.reason}
                               </p>
                             )}
                           </div>
@@ -1198,53 +1240,45 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             ) : (
               /* Unable to deliver fields */
               <div className="space-y-4">
-                {/* Action: Reschedule or Cancel */}
-                <div className="space-y-2">
-                  <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">Action</Label>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setUnableAction('RESCHEDULED')}
-                      className={cn(
-                        'flex-1 py-2.5 px-3 rounded-xl text-xs font-bold border transition-all',
-                        unableAction === 'RESCHEDULED'
-                          ? 'bg-blue-500/10 border-blue-500 text-blue-700 dark:text-blue-400'
-                          : 'bg-background border-border/50 text-muted-foreground hover:border-blue-500/30',
-                      )}
-                    >
-                      Reschedule
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setUnableAction('CANCELLED')}
-                      className={cn(
-                        'flex-1 py-2.5 px-3 rounded-xl text-xs font-bold border transition-all',
-                        unableAction === 'CANCELLED'
-                          ? 'bg-destructive/10 border-destructive text-destructive'
-                          : 'bg-background border-border/50 text-muted-foreground hover:border-destructive/30',
-                      )}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-
-                {/* Reason — required */}
+                {/* Reason category — required */}
                 <div className="space-y-2">
                   <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
-                    Reason <span className="text-destructive">*</span>
+                    Reason Category <span className="text-destructive">*</span>
+                  </Label>
+                  <Select value={failureCategory} onValueChange={setFailureCategory}>
+                    <SelectTrigger className="h-11 rounded-xl">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-xl border-border/50 shadow-2xl">
+                      {FAILURE_CATEGORIES.map((cat) => (
+                        <SelectItem key={cat.value} value={cat.value} className="rounded-lg">
+                          {cat.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Optional notes */}
+                <div className="space-y-2">
+                  <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
+                    Notes (optional)
                   </Label>
                   <Input
-                    placeholder="e.g. Customer not home, gate locked..."
+                    placeholder="Additional details..."
                     value={unableReason}
                     onChange={(e) => setUnableReason(e.target.value)}
                     className="h-11"
                   />
                 </div>
 
-                {unableAction === 'RESCHEDULED' && (
+                {failureCategory === 'CUSTOMER_REFUSED' ? (
+                  <p className="text-[11px] font-medium text-destructive bg-destructive/5 border border-destructive/20 rounded-xl px-3 py-2">
+                    This will permanently cancel this delivery stop.
+                  </p>
+                ) : (
                   <p className="text-[11px] text-muted-foreground bg-blue-500/5 border border-blue-500/20 rounded-xl px-3 py-2">
-                    This delivery will be picked up automatically on the next sheet generation for this van.
+                    This stop will be picked up automatically on the next sheet generation for this van.
                   </p>
                 )}
               </div>

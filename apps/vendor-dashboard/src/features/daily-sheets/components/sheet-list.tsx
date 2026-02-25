@@ -1,32 +1,32 @@
 'use client';
 
 import Link from 'next/link';
-import { Eye, Calendar, MapPin, User, Truck, FileText, X } from 'lucide-react';
-import { Button, Badge, Input, Label } from '@water-supply-crm/ui';
+import { Eye, Calendar, MapPin, User, Truck } from 'lucide-react';
+import { Button, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@water-supply-crm/ui';
 import { DataTable } from '../../../components/shared/data-table';
 import { StatusBadge } from '../../../components/shared/status-badge';
+import { DateRangePicker } from '../../../components/shared/date-range-picker';
 import { RouteFilter } from '../../../components/shared/filters/route-filter';
 import { VanFilter } from '../../../components/shared/filters/van-filter';
 import { DriverFilter } from '../../../components/shared/filters/driver-filter';
 import { useDailySheets } from '../hooks/use-daily-sheets';
 import { useQueryState, parseAsString } from 'nuqs';
 import { useAuthStore } from '../../../store/auth.store';
-import { cn } from '@water-supply-crm/ui';
 
 export function SheetList() {
   const user = useAuthStore((s) => s.user);
   const { data, isLoading, page, setPage, limit, setLimit } = useDailySheets();
-  const [date, setDate] = useQueryState('date', parseAsString.withDefault(''));
+  const [isClosed, setIsClosed] = useQueryState('isClosed', parseAsString.withDefault(''));
 
   const sheets = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
-  const rows = (sheets?.data ?? []) as Array<{ 
-    id: string; 
-    date: string; 
-    isClosed: boolean; 
+  const rows = (sheets?.data ?? []) as Array<{
+    id: string;
+    date: string;
+    isClosed: boolean;
     filledOutCount: number;
     cashCollected: number;
-    route?: { name: string }; 
-    driver?: { name: string }; 
+    route?: { name: string };
+    driver?: { name: string };
     van?: { plateNumber: string };
     _count?: { items: number };
   }>;
@@ -44,40 +44,41 @@ export function SheetList() {
   return (
     <div className="space-y-6">
       <div className="bg-card/30 p-6 rounded-2xl border border-border/50 space-y-4">
-        <div className={cn(
-          "grid grid-cols-1 sm:grid-cols-2 gap-4",
-          isDriver ? "lg:grid-cols-3" : "lg:grid-cols-4"
-        )}>
-          <div className="space-y-1.5">
-            <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Date</Label>
-            <div className="relative">
-              <Input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value || null)}
-                className="rounded-xl bg-background/50 border-border/50 h-10 pr-8"
-              />
-              {date && (
-                <button 
-                  onClick={() => setDate(null)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {/* Date range picker — single dropdown */}
+          <div className="space-y-1.5 sm:col-span-2 lg:col-span-1">
+            <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Date Range</Label>
+            <DateRangePicker />
           </div>
 
+          {/* Status filter */}
+          <div className="space-y-1.5">
+            <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Status</Label>
+            <Select value={isClosed || 'all'} onValueChange={(v) => setIsClosed(v === 'all' ? null : v)}>
+              <SelectTrigger className="rounded-xl bg-background/50 border-border/50 h-10">
+                <SelectValue placeholder="All Sheets" />
+              </SelectTrigger>
+              <SelectContent className="rounded-xl border-border/50 shadow-2xl">
+                <SelectItem value="all">All Sheets</SelectItem>
+                <SelectItem value="false">Open</SelectItem>
+                <SelectItem value="true">Closed</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Route */}
           <div className="space-y-1.5">
             <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Route</Label>
             <RouteFilter />
           </div>
 
+          {/* Van */}
           <div className="space-y-1.5">
             <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Van</Label>
             <VanFilter />
           </div>
 
+          {/* Driver — hidden for drivers */}
           {!isDriver && (
             <div className="space-y-1.5">
               <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Driver</Label>
@@ -97,9 +98,9 @@ export function SheetList() {
         onLimitChange={setLimit}
         emptyMessage="No sheets found for this selection."
         columns={[
-          { 
-            key: 'date', 
-            header: 'Operations Date', 
+          {
+            key: 'date',
+            header: 'Operations Date',
             cell: (r) => (
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary shrink-0 border border-primary/10">
@@ -114,11 +115,11 @@ export function SheetList() {
                   </span>
                 </div>
               </div>
-            ) 
+            )
           },
-          { 
-            key: 'route', 
-            header: 'Route & Van', 
+          {
+            key: 'route',
+            header: 'Route & Van',
             cell: (r) => (
               <div className="space-y-1">
                 <div className="flex items-center gap-1.5 text-sm font-bold">
@@ -130,11 +131,11 @@ export function SheetList() {
                   {r.van?.plateNumber ?? '—'}
                 </div>
               </div>
-            ) 
+            )
           },
-          { 
-            key: 'driver', 
-            header: 'Driver', 
+          {
+            key: 'driver',
+            header: 'Driver',
             cell: (r) => (
               <div className="flex items-center gap-2">
                 <div className="h-6 w-6 rounded-full bg-accent flex items-center justify-center">
@@ -142,22 +143,22 @@ export function SheetList() {
                 </div>
                 <span className="text-xs font-semibold">{r.driver?.name ?? '—'}</span>
               </div>
-            ) 
+            )
           },
-          { 
-            key: 'items', 
-            header: 'Load', 
+          {
+            key: 'items',
+            header: 'Load',
             cell: (r) => (
               <div className="flex flex-col">
                 <span className="text-sm font-bold">{r._count?.items ?? 0} Items</span>
                 <span className="text-[10px] text-muted-foreground">Planned Deliveries</span>
               </div>
-            ) 
+            )
           },
-          { 
-            key: 'status', 
-            header: 'Status', 
-            cell: (r) => <StatusBadge status={getStatus(r)} /> 
+          {
+            key: 'status',
+            header: 'Status',
+            cell: (r) => <StatusBadge status={getStatus(r)} />
           },
           {
             key: 'actions',

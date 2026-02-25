@@ -72,22 +72,29 @@ export class DailySheetService {
       throw new NotFoundException('Sheet item not found');
     }
 
+    // Auto-detect EMPTY_ONLY: if submitted as COMPLETED with 0 filledDropped, it's an empty-only pickup
+    const resolvedStatus =
+      dto.status === DeliveryStatus.COMPLETED && dto.filledDropped === 0
+        ? DeliveryStatus.EMPTY_ONLY
+        : dto.status;
+
     return this.prisma.$transaction(async (tx) => {
       const updatedItem = await tx.dailySheetItem.update({
         where: { id: itemId },
         data: {
-          status: dto.status,
+          status: resolvedStatus,
           filledDropped: dto.filledDropped,
           emptyReceived: dto.emptyReceived,
           cashCollected: dto.cashCollected,
           reason: dto.reason,
+          failureCategory: dto.failureCategory,
           photoUrl: dto.photoUrl,
         },
       });
 
       if (
-        dto.status === DeliveryStatus.COMPLETED ||
-        dto.status === DeliveryStatus.EMPTY_ONLY
+        resolvedStatus === DeliveryStatus.COMPLETED ||
+        resolvedStatus === DeliveryStatus.EMPTY_ONLY
       ) {
         const customPrice = item.customer.customPrices.find(
           (p) => p.productId === item.productId,
@@ -108,18 +115,18 @@ export class DailySheetService {
         });
       }
 
-      if (dto.status !== 'PENDING') {
+      if (resolvedStatus !== 'PENDING') {
         await this.audit.log({
           vendorId,
           action: 'DELIVERY_SUBMIT',
           entity: 'DailySheetItem',
           entityId: itemId,
-          changes: { after: { status: dto.status, filledDropped: dto.filledDropped, emptyReceived: dto.emptyReceived } },
+          changes: { after: { status: resolvedStatus, filledDropped: dto.filledDropped, emptyReceived: dto.emptyReceived } },
         });
       }
 
       // FCM: notify customer on completed delivery (fire-and-forget)
-      if (dto.status === DeliveryStatus.COMPLETED || dto.status === DeliveryStatus.EMPTY_ONLY) {
+      if (resolvedStatus === DeliveryStatus.COMPLETED || resolvedStatus === DeliveryStatus.EMPTY_ONLY) {
         this.fcm.sendToCustomer(
           item.customerId,
           'Delivery Completed',
@@ -569,6 +576,95 @@ export class DailySheetService {
       },
       orderBy: { date: 'desc' },
     });
+  }
+
+  async getDriverStats(
+    vendorId: string,
+    driverId: string,
+    params: { month?: string; dateFrom?: string; dateTo?: string },
+  ) {
+    let startDate: Date, endDate: Date;
+    if (params.month) {
+      const [y, m] = params.month.split('-').map(Number);
+      startDate = new Date(y, m - 1, 1);
+      endDate = new Date(y, m, 0, 23, 59, 59);
+    } else {
+      startDate = params.dateFrom ? new Date(params.dateFrom) : new Date(0);
+      endDate = params.dateTo ? new Date(params.dateTo) : new Date();
+    }
+
+    const sheets = await this.prisma.dailySheet.findMany({
+      where: {
+        vendorId,
+        driverId,
+        isClosed: true,
+        date: { gte: startDate, lte: endDate },
+      },
+      include: {
+        van: { select: { plateNumber: true } },
+        route: { select: { name: true } },
+        items: {
+          select: {
+            status: true,
+            filledDropped: true,
+            emptyReceived: true,
+            cashCollected: true,
+            failureCategory: true,
+          },
+        },
+      },
+      orderBy: { date: 'desc' },
+    });
+
+    let totalItems = 0;
+    let deliveredCount = 0;
+    let totalBottles = 0;
+    let totalEmpties = 0;
+    const failureBreakdown: Record<string, number> = {};
+
+    for (const sheet of sheets) {
+      for (const item of sheet.items) {
+        totalItems++;
+        if (item.status === 'COMPLETED' || item.status === 'EMPTY_ONLY') {
+          deliveredCount++;
+          totalBottles += item.filledDropped;
+          totalEmpties += item.emptyReceived;
+        }
+        if (item.failureCategory) {
+          failureBreakdown[item.failureCategory] =
+            (failureBreakdown[item.failureCategory] ?? 0) + 1;
+        }
+      }
+    }
+
+    const cashExpected = sheets.reduce((s, sh) => s + sh.cashExpected, 0);
+    const cashCollected = sheets.reduce((s, sh) => s + sh.cashCollected, 0);
+
+    return {
+      totalSheets: sheets.length,
+      totalItems,
+      deliveredCount,
+      successRate:
+        totalItems > 0 ? Math.round((deliveredCount / totalItems) * 100) : 0,
+      totalBottlesDropped: totalBottles,
+      totalEmptiesReceived: totalEmpties,
+      cashExpected,
+      cashCollected,
+      cashDiscrepancy: cashExpected - cashCollected,
+      failureBreakdown,
+      sheets: sheets.map((s) => ({
+        id: s.id,
+        date: s.date,
+        van: s.van.plateNumber,
+        route: s.route?.name ?? null,
+        totalItems: s.items.length,
+        deliveredItems: s.items.filter(
+          (i) => i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY',
+        ).length,
+        cashCollected: s.cashCollected,
+        cashExpected: s.cashExpected,
+      })),
+    };
   }
 
   // Legacy method kept for backwards-compatibility

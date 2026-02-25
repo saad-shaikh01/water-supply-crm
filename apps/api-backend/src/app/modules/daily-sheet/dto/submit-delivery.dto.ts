@@ -22,6 +22,10 @@ export class SubmitDeliveryDto {
   reason?: string;
 
   @IsOptional()
+  @IsString()
+  failureCategory?: string;
+
+  @IsOptional()
   @IsUrl()
   photoUrl?: string;
 }
