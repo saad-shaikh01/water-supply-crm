@@ -78,6 +78,11 @@ export class CustomerPortalController {
     return this.portalService.getSchedule(user.userId, query.from, query.to);
   }
 
+  @Get('products')
+  getProducts(@CurrentUser() user: any) {
+    return this.portalService.getProducts(user.userId);
+  }
+
   @Post('change-password')
   changePassword(@CurrentUser() user: any, @Body() dto: ChangePasswordDto) {
     return this.portalService.changePassword(

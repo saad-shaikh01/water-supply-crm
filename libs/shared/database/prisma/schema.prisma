@@ -67,6 +67,8 @@ model Vendor {
   transactions    Transaction[]
   paymentRequests PaymentRequest[]
   expenses        Expense[]
+  orders          CustomerOrder[]
+  tickets         CustomerTicket[]
 }
 
 model User {
@@ -106,6 +108,7 @@ model Product {
   sheetItems  DailySheetItem[]
   transactions Transaction[]
   customPrices CustomerProductPrice[]
+  orders      CustomerOrder[]
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -147,6 +150,8 @@ model Customer {
   transactions      Transaction[]
   paymentRequests   PaymentRequest[]
   deliverySchedules CustomerDeliverySchedule[]
+  orders            CustomerOrder[]
+  tickets           CustomerTicket[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -345,6 +350,81 @@ model Transaction {
 // ──────────────────────────────────────────────────────────────────────────────
 // Payment Requests
 // ──────────────────────────────────────────────────────────────────────────────
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Customer Orders & Support Tickets
+// ──────────────────────────────────────────────────────────────────────────────
+
+enum OrderStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum TicketType {
+  FEEDBACK
+  COMPLAINT
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+model CustomerOrder {
+  id              String      @id @default(cuid())
+  vendorId        String
+  customerId      String
+  productId       String
+  quantity        Int
+  status          OrderStatus @default(PENDING)
+  note            String?
+  preferredDate   DateTime?
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  rejectionReason String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  vendor   Vendor   @relation(fields: [vendorId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id])
+  product  Product  @relation(fields: [productId], references: [id])
+
+  @@index([vendorId, status])
+  @@index([customerId])
+}
+
+model CustomerTicket {
+  id          String         @id @default(cuid())
+  vendorId    String
+  customerId  String
+  type        TicketType
+  subject     String
+  description String
+  status      TicketStatus   @default(OPEN)
+  priority    TicketPriority @default(NORMAL)
+  vendorReply String?
+  resolvedBy  String?
+  resolvedAt  DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  vendor   Vendor   @relation(fields: [vendorId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@index([vendorId, status])
+  @@index([customerId])
+}
 
 enum PaymentRequestStatus {
   PENDING     // Manual: submitted by customer, waiting vendor review

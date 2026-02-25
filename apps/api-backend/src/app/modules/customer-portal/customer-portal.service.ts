@@ -243,6 +243,15 @@ export class CustomerPortalService {
     );
   }
 
+  async getProducts(userId: string) {
+    const customer = await this.getCustomer(userId);
+    return this.prisma.product.findMany({
+      where: { vendorId: customer.vendorId, isActive: true },
+      select: { id: true, name: true, basePrice: true },
+      orderBy: { name: 'asc' },
+    });
+  }
+
   async changePassword(
     userId: string,
     currentPassword: string,

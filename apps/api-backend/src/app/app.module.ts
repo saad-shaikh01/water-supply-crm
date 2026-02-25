@@ -30,6 +30,8 @@ import { ExpenseModule } from './modules/expense/expense.module';
 import { FcmModule } from './modules/fcm/fcm.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { OrderModule } from './modules/order/order.module';
+import { TicketModule } from './modules/ticket/ticket.module';
 
 @Module({
   imports: [
@@ -62,6 +64,8 @@ import { AnalyticsModule } from './modules/analytics/analytics.module';
     ExpenseModule,
     AuditModule,
     AnalyticsModule,
+    OrderModule,
+    TicketModule,
   ],
   controllers: [AppController],
   providers: [

@@ -19,6 +19,12 @@ export const usePortalSummary = () =>
     queryFn: () => walletApi.getSummary().then((r) => r.data),
   });
 
+export const usePortalProducts = () =>
+  useQuery({
+    queryKey: ['portal-products'],
+    queryFn: () => walletApi.getProducts().then((r) => r.data),
+  });
+
 // Keep legacy hook signature for backward compat — now ignores customerId param
 export const useCustomerProfile = (_customerId?: string) => usePortalProfile();
 export const useWalletSummary = (_customerId?: string) => usePortalBalance();

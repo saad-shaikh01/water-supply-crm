@@ -9,6 +9,24 @@ App: `apps/vendor-dashboard`
    - Scope checked: Daily Sheets (`sheet-detail.tsx`, `sheet-list.tsx`, hooks, api, backend endpoints).
    - Result: FE-001 and FE-002 appear implemented in code.
    - Note: This was a static code audit only (not runtime click-through QA).
+2. February 25, 2026 - Static code audit by Codex:
+   - Scope checked: Customers list/detail flow (`customer-list.tsx`, `customer-form.tsx`, `customer-detail.tsx`, `use-customers.ts`, `customers.api.ts`, backend customer query/controller/service).
+   - Result: Core flow works, but significant filter and RBAC UX gaps found.
+   - Key gaps:
+     - Inactive customers cannot be surfaced from UI (reactivate path effectively unreachable).
+     - Delivery day and van filtering missing in list UX.
+     - Admin-only actions are visible to non-admin roles.
+     - Detail page does not yet use customer schedule endpoint (`GET /customers/:id/schedule`).
+   - Note: Static code audit only (no runtime click-through QA in browser).
+3. February 25, 2026 - Static code audit by Codex:
+   - Scope checked: Daily Sheets list/detail flow (`sheet-list.tsx`, `sheet-detail.tsx`, `use-daily-sheets.ts`, `daily-sheets.api.ts`, backend daily-sheet dto/controller/service).
+   - Result: Overall implementation is strong, but operational UX and a few correctness gaps remain.
+   - Key gaps:
+     - List status derivation can misclassify checked-in sheets when cash is zero.
+     - Filter UX will not scale well (many controls in one row) and pagination is not reset on filter change.
+     - Detail page shows admin-level actions to roles that backend rejects (RBAC mismatch).
+     - Important list-level operations data is missing (progress/issue visibility needs aggregate fields).
+   - Note: Static code audit only (no runtime click-through QA in browser).
 
 ## Page Audit Matrix
 
@@ -22,14 +40,14 @@ App: `apps/vendor-dashboard`
 | `/dashboard/home` | `apps/vendor-dashboard/src/app/dashboard/home/page.tsx` | NR | NR | NR | NR | |
 | `/dashboard/overview` | `apps/vendor-dashboard/src/app/dashboard/overview/page.tsx` | NR | NR | NR | NR | |
 | `/dashboard/analytics` | `apps/vendor-dashboard/src/app/dashboard/analytics/page.tsx` | NR | NR | NR | NR | |
-| `/dashboard/customers` | `apps/vendor-dashboard/src/app/dashboard/customers/page.tsx` | NR | NR | NR | NR | |
-| `/dashboard/customers/:id` | `apps/vendor-dashboard/src/app/dashboard/customers/[id]/page.tsx` | NR | NR | NR | NR | |
+| `/dashboard/customers` | `apps/vendor-dashboard/src/app/dashboard/customers/page.tsx` | P | P | P | P | List works, but filter set is incomplete (no active/inactive toggle, no day/van filters, no balance/sort controls). |
+| `/dashboard/customers/:id` | `apps/vendor-dashboard/src/app/dashboard/customers/[id]/page.tsx` | P | P | P | P | Detail tabs are strong, but delivery schedule calendar is missing despite existing API endpoint. |
 | `/dashboard/products` | `apps/vendor-dashboard/src/app/dashboard/products/page.tsx` | NR | NR | NR | NR | |
 | `/dashboard/routes` | `apps/vendor-dashboard/src/app/dashboard/routes/page.tsx` | NR | NR | NR | NR | |
 | `/dashboard/vans` | `apps/vendor-dashboard/src/app/dashboard/vans/page.tsx` | NR | NR | NR | NR | |
 | `/dashboard/users` | `apps/vendor-dashboard/src/app/dashboard/users/page.tsx` | NR | NR | NR | NR | |
-| `/dashboard/daily-sheets` | `apps/vendor-dashboard/src/app/dashboard/daily-sheets/page.tsx` | NR | NR | NR | NR | |
-| `/dashboard/daily-sheets/:id` | `apps/vendor-dashboard/src/app/dashboard/daily-sheets/[id]/page.tsx` | NR | NR | NR | NR | |
+| `/dashboard/daily-sheets` | `apps/vendor-dashboard/src/app/dashboard/daily-sheets/page.tsx` | P | P | P | P | Functional list + filters exist, but filter ergonomics and status/data fidelity need improvement. |
+| `/dashboard/daily-sheets/:id` | `apps/vendor-dashboard/src/app/dashboard/daily-sheets/[id]/page.tsx` | P | P | P | P | Rich detail flow, but RBAC visibility mismatch and product-wallet display correctness need fixes. |
 | `/dashboard/transactions` | `apps/vendor-dashboard/src/app/dashboard/transactions/page.tsx` | NR | NR | NR | NR | |
 | `/dashboard/payment-requests` | `apps/vendor-dashboard/src/app/dashboard/payment-requests/page.tsx` | NR | NR | NR | NR | |
 | `/dashboard/expenses` | `apps/vendor-dashboard/src/app/dashboard/expenses/page.tsx` | NR | NR | NR | NR | |

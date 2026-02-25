@@ -37,6 +37,12 @@ export interface PortalSummary {
   nextDeliveryDate: string | null;
 }
 
+export interface PortalProduct {
+  id: string;
+  name: string;
+  basePrice: number;
+}
+
 export const walletApi = {
   getProfile: () =>
     apiClient.get<PortalProfile>('/portal/me'),
@@ -46,4 +52,7 @@ export const walletApi = {
 
   getSummary: () =>
     apiClient.get<PortalSummary>('/portal/summary'),
+
+  getProducts: () =>
+    apiClient.get<PortalProduct[]>('/portal/products'),
 };

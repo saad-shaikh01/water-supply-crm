@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Receipt, User, CreditCard, Truck } from 'lucide-react';
+import { Home, Receipt, User, CreditCard, Truck, ShoppingCart, MessageCircle } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { motion } from 'framer-motion';
 
@@ -10,6 +10,8 @@ const navItems = [
   { href: '/home', label: 'Home', icon: Home },
   { href: '/deliveries', label: 'Deliveries', icon: Truck },
   { href: '/payments', label: 'Payments', icon: CreditCard },
+  { href: '/orders', label: 'Orders', icon: ShoppingCart },
+  { href: '/support', label: 'Support', icon: MessageCircle },
   { href: '/transactions', label: 'History', icon: Receipt },
   { href: '/profile', label: 'Account', icon: User },
 ];
