@@ -13,7 +13,7 @@ export default function CustomersPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Customers"
+        title="Customer Lists"
         description="Manage your customer base, delivery schedules, and wallet balances."
         action={
           <Button 
