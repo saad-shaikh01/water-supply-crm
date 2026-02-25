@@ -3,14 +3,21 @@ import { apiClient } from '@water-supply-crm/data-access';
 export interface PortalProfile {
   id: string;
   name: string;
-  email?: string;
+  email?: string | null;
   phoneNumber?: string;
   address?: string;
   financialBalance: number;
   paymentType: 'MONTHLY' | 'CASH';
-  route?: { id: string; name: string } | null;
-  bottleWallets?: Array<{ product: { name: string }; quantity: number; price: number }>;
+  floor?: string | null;
+  nearbyLandmark?: string | null;
+  deliveryInstructions?: string | null;
   createdAt: string;
+  route?: { id: string; name: string } | null;
+  deliverySchedules?: Array<{
+    id: string;
+    dayOfWeek: number;
+    van?: { id: string; plateNumber: string } | null;
+  }>;
 }
 
 export interface PortalBalance {
@@ -23,6 +30,13 @@ export interface PortalBalance {
   }>;
 }
 
+export interface PortalSummary {
+  totalPaid: number;
+  lastPaymentAmount: number | null;
+  lastPaymentDate: string | null;
+  nextDeliveryDate: string | null;
+}
+
 export const walletApi = {
   getProfile: () =>
     apiClient.get<PortalProfile>('/portal/me'),
@@ -30,7 +44,6 @@ export const walletApi = {
   getBalance: () =>
     apiClient.get<PortalBalance>('/portal/balance'),
 
-  // Legacy summary — uses portal transactions
   getSummary: () =>
-    apiClient.get('/portal/transactions/summary'),
+    apiClient.get<PortalSummary>('/portal/summary'),
 };

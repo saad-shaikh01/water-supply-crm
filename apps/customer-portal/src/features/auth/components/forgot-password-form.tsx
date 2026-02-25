@@ -6,6 +6,7 @@ import { Button, Input, Label, Card, CardContent, CardHeader, CardTitle, CardDes
 import { forgotPasswordSchema, type ForgotPasswordInput } from '../schemas';
 import { toast } from 'sonner';
 import Link from 'next/link';
+import { authApi } from '../api/auth.api';
 
 export function ForgotPasswordForm() {
   const {
@@ -17,9 +18,13 @@ export function ForgotPasswordForm() {
   });
 
   const onSubmit = async (data: ForgotPasswordInput) => {
-    // Placeholder — backend reset endpoint not yet available
-    console.log('Reset requested for:', data.email);
-    toast.success('If that email exists, a reset link has been sent.');
+    try {
+      await authApi.forgotPassword({ email: data.email });
+      toast.success('If that email exists, a reset link has been sent.');
+    } catch {
+      // Always show success message to prevent email enumeration
+      toast.success('If that email exists, a reset link has been sent.');
+    }
   };
 
   return (

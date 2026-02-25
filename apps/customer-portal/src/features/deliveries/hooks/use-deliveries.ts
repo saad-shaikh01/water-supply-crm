@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
-import { deliveriesApi } from '../api/deliveries.api';
+import { deliveriesApi, type DeliveryQuery } from '../api/deliveries.api';
 import { toast } from 'sonner';
 
-export const useDeliveries = (params: { page?: number; limit?: number }) =>
+export const useDeliveries = (params: DeliveryQuery) =>
   useQuery({
     queryKey: ['portal-deliveries', params],
     queryFn: () => deliveriesApi.getAll(params).then((r) => r.data),

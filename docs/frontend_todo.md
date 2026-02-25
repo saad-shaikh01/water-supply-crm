@@ -1,4 +1,9 @@
 # Frontend TODO — Complete Gap Analysis & Execution Plan
+
+> NOTE: This file is a historical gap list snapshot from Session 10.
+> Canonical status and active plan now live in `docs/STATUS.md` and `docs/EXECUTION_PLAN.md`.
+> Reviewed for archive on February 25, 2026.
+
 **Date:** February 21, 2026 (Session 10)
 **Apps:** Vendor Dashboard (4201) · Customer Portal (4202) · Admin Panel (4200)
 **Backend:** 123 endpoints · All production-ready

@@ -1,4 +1,8 @@
 # Frontend Session 7 — Progress Tracker
+> NOTE: This file is a historical session log.
+> Canonical status and planning now live in `docs/STATUS.md` and `docs/EXECUTION_PLAN.md`.
+> Reviewed for archive on February 25, 2026.
+
 **Date:** February 18, 2026
 **Started from:** frontend_todo.md plan
 

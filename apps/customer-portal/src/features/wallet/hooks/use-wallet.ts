@@ -13,6 +13,12 @@ export const usePortalBalance = () =>
     queryFn: () => walletApi.getBalance().then((r) => r.data),
   });
 
+export const usePortalSummary = () =>
+  useQuery({
+    queryKey: ['portal-summary'],
+    queryFn: () => walletApi.getSummary().then((r) => r.data),
+  });
+
 // Keep legacy hook signature for backward compat — now ignores customerId param
 export const useCustomerProfile = (_customerId?: string) => usePortalProfile();
 export const useWalletSummary = (_customerId?: string) => usePortalBalance();

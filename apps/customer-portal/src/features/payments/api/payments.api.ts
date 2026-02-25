@@ -28,8 +28,8 @@ export const paymentsApi = {
   getPaymentInfo: () => 
     apiClient.get<PaymentInfo>('/portal/payment-info'),
 
-  initiateRaastQr: (data: RaastQrRequest) => 
-    apiClient.post<RaastQrResponse>('/portal/payments/raast', data),
+  initiateRaastQr: (data: RaastQrRequest) =>
+    apiClient.post<RaastQrResponse>('/portal/payments/raast', { ...data, method: 'RAAST_QR' }),
 
   submitManualPayment: (data: FormData) => 
     apiClient.post('/portal/payments/manual', data, {

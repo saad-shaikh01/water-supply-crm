@@ -1,5 +1,9 @@
 # Frontend Current Status - Water Supply CRM
 
+> NOTE: This file is a historical snapshot and may be stale.
+> Canonical status and planning now live in `docs/STATUS.md` and `docs/EXECUTION_PLAN.md`.
+> Reviewed for archive on February 25, 2026.
+
 **Last Updated:** February 16, 2026
 **Status:** ✅ All Three Apps Complete, Modernized & Production Ready
 

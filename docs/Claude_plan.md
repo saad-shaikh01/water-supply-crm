@@ -1,4 +1,8 @@
-Backend Completion Plan - Water Supply CRM                                                                                                                               
+Backend Completion Plan - Water Supply CRM
+
+NOTE: This file is an old planning artifact and no longer reflects current system size.
+Use `docs/STATUS.md` and `docs/EXECUTION_PLAN.md` for active execution.
+Reviewed for archive on February 25, 2026.
                                                                                                                                                                         
  Context
 

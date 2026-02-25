@@ -1,5 +1,9 @@
 # Frontend Progress — Water Supply CRM
 
+> NOTE: This file is a historical session log and may conflict with newer state.
+> Canonical status and planning now live in `docs/STATUS.md` and `docs/EXECUTION_PLAN.md`.
+> Reviewed for archive on February 25, 2026.
+
 **Last Updated:** February 21, 2026 (Session 10)
 **Status:** ✅ Modernized & Fully Integrated
 

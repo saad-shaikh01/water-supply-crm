@@ -16,15 +16,23 @@ import { Calendar, Receipt, FileText, Inbox } from 'lucide-react';
 import { useTransactions } from '../hooks/use-transactions';
 import { cn } from '@water-supply-crm/ui';
 
-export function TransactionList() {
+interface TransactionListProps {
+  typeFilter?: string;
+}
+
+export function TransactionList({ typeFilter }: TransactionListProps) {
   const { data, isLoading, page, setPage, limit, setLimit } = useTransactions();
 
   const response = (data as { data?: any[]; meta?: { total: number } } | undefined);
-  const transactions = response?.data ?? [];
+  const allTransactions = response?.data ?? [];
   const total = response?.meta?.total ?? 0;
 
+  // Client-side filter by type
+  const transactions = typeFilter
+    ? allTransactions.filter((tx: any) => tx.type === typeFilter)
+    : allTransactions;
+
   if (isLoading) {
-// ... (keeping Skeleton)
     return (
       <div className="space-y-4">
         <div className="rounded-2xl border border-border/50 overflow-hidden">
@@ -65,11 +73,11 @@ export function TransactionList() {
               transactions.map((tx: any, idx: number) => {
                 const isPayment = tx.amount < 0;
                 return (
-                  <TableRow 
+                  <TableRow
                     key={tx.id}
                     className={cn(
-                      "group transition-colors border-b border-border/50 last:border-0 hover:bg-primary/[0.02]",
-                      idx % 2 === 0 ? "bg-transparent" : "bg-muted/5"
+                      'group transition-colors border-b border-border/50 last:border-0 hover:bg-primary/[0.02]',
+                      idx % 2 === 0 ? 'bg-transparent' : 'bg-muted/5',
                     )}
                   >
                     <TableCell className="py-4 pl-6">
@@ -93,7 +101,7 @@ export function TransactionList() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge 
+                      <Badge
                         variant={isPayment ? 'success' : 'outline'}
                         className="text-[9px] font-black tracking-widest"
                       >
@@ -102,8 +110,8 @@ export function TransactionList() {
                     </TableCell>
                     <TableCell className="text-right pr-6">
                       <div className={cn(
-                        "font-mono font-black text-sm",
-                        isPayment ? "text-emerald-500" : "text-destructive"
+                        'font-mono font-black text-sm',
+                        isPayment ? 'text-emerald-500' : 'text-destructive',
                       )}>
                         {isPayment ? '-' : '+'} ₨ {Math.abs(tx.amount).toLocaleString()}
                       </div>

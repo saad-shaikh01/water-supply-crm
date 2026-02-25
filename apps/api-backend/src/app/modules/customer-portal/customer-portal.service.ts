@@ -1,8 +1,10 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from '@water-supply-crm/database';
 import { paginate } from '../../common/helpers/paginate';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { CustomerService } from '../customer/customer.service';
+import { PortalDeliveriesQueryDto } from './dto/portal-deliveries-query.dto';
 
 @Injectable()
 export class CustomerPortalService {
@@ -36,6 +38,7 @@ export class CustomerPortalService {
           include: { van: { select: { id: true, plateNumber: true } } },
           orderBy: { dayOfWeek: 'asc' },
         },
+        user: { select: { email: true } },
       },
     });
 
@@ -49,6 +52,12 @@ export class CustomerPortalService {
       name: customer.name,
       address: customer.address,
       phoneNumber: customer.phoneNumber,
+      email: customer.user?.email ?? null,
+      paymentType: customer.paymentType,
+      floor: customer.floor ?? null,
+      nearbyLandmark: customer.nearbyLandmark ?? null,
+      deliveryInstructions: customer.deliveryInstructions ?? null,
+      createdAt: customer.createdAt,
       deliverySchedules: customer.deliverySchedules,
       financialBalance: customer.financialBalance,
       route: customer.route,
@@ -97,13 +106,56 @@ export class CustomerPortalService {
 
     return {
       financialBalance: customer.financialBalance,
-      wallets: customer.wallets.map((w) => ({
-        product: w.product,
-        bottleBalance: w.balance,
-        pricePerBottle:
+      bottleWallets: customer.wallets.map((w) => ({
+        productId: w.productId,
+        product: { name: w.product.name },
+        quantity: w.balance,
+        effectivePrice:
           customer.customPrices.find((cp) => cp.productId === w.productId)
             ?.customPrice ?? w.product.basePrice,
       })),
+    };
+  }
+
+  async getSummary(userId: string) {
+    const customer = await this.getCustomer(userId);
+
+    const [totalPaidResult, lastPayment, schedules] = await Promise.all([
+      this.prisma.transaction.aggregate({
+        where: { customerId: customer.id, type: 'PAYMENT' },
+        _sum: { amount: true },
+      }),
+      this.prisma.paymentRequest.findFirst({
+        where: {
+          customerId: customer.id,
+          status: { in: ['PAID', 'APPROVED'] },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { amount: true, createdAt: true },
+      }),
+      this.prisma.customerDeliverySchedule.findMany({
+        where: { customerId: customer.id },
+      }),
+    ]);
+
+    const scheduledDays = schedules.map((s) => s.dayOfWeek);
+    const today = new Date();
+    let nextDeliveryDate: Date | null = null;
+    for (let i = 1; i <= 7; i++) {
+      const next = new Date(today);
+      next.setDate(today.getDate() + i);
+      const dow = next.getDay() === 0 ? 7 : next.getDay();
+      if (scheduledDays.includes(dow)) {
+        nextDeliveryDate = next;
+        break;
+      }
+    }
+
+    return {
+      totalPaid: totalPaidResult._sum.amount ?? 0,
+      lastPaymentAmount: lastPayment?.amount ?? null,
+      lastPaymentDate: lastPayment?.createdAt ?? null,
+      nextDeliveryDate,
     };
   }
 
@@ -129,11 +181,23 @@ export class CustomerPortalService {
     return paginate(data, total, page, limit);
   }
 
-  async getDeliveries(userId: string, pagination: PaginationQueryDto) {
+  async getDeliveries(userId: string, query: PortalDeliveriesQueryDto) {
     const customer = await this.getCustomer(userId);
-    const { page = 1, limit = 20 } = pagination;
+    const { page = 1, limit = 20, dateFrom, dateTo } = query;
 
-    const where = { customerId: customer.id };
+    const where: any = {
+      customerId: customer.id,
+      ...(dateFrom || dateTo
+        ? {
+            dailySheet: {
+              date: {
+                ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
+                ...(dateTo ? { lte: new Date(dateTo) } : {}),
+              },
+            },
+          }
+        : {}),
+    };
 
     const [data, total] = await Promise.all([
       this.prisma.dailySheetItem.findMany({
@@ -177,5 +241,25 @@ export class CustomerPortalService {
       from,
       to,
     );
+  }
+
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const valid = await bcrypt.compare(currentPassword, user.password);
+    if (!valid)
+      throw new BadRequestException('Current password is incorrect');
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: await bcrypt.hash(newPassword, 10) },
+    });
+
+    return { message: 'Password updated successfully' };
   }
 }

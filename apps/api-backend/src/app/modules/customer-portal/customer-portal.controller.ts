@@ -1,8 +1,10 @@
-import { Controller, Get, Query, UseGuards, Res } from '@nestjs/common';
+import { Controller, Get, Post, Query, Body, UseGuards, Res } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { Response } from 'express';
 import { CustomerPortalService } from './customer-portal.service';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
+import { PortalDeliveriesQueryDto } from './dto/portal-deliveries-query.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { StatementQueryDto } from '../customer/dto/statement-query.dto';
 import { ScheduleQueryDto } from '../customer/dto/schedule-query.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -26,6 +28,11 @@ export class CustomerPortalController {
     return this.portalService.getBalance(user.userId);
   }
 
+  @Get('summary')
+  getSummary(@CurrentUser() user: any) {
+    return this.portalService.getSummary(user.userId);
+  }
+
   /** GET /portal/payment-info — Vendor's Raast ID + instructions for manual payments */
   @Get('payment-info')
   getPaymentInfo(@CurrentUser() user: any) {
@@ -43,9 +50,9 @@ export class CustomerPortalController {
   @Get('deliveries')
   getDeliveries(
     @CurrentUser() user: any,
-    @Query() pagination: PaginationQueryDto,
+    @Query() query: PortalDeliveriesQueryDto,
   ) {
-    return this.portalService.getDeliveries(user.userId, pagination);
+    return this.portalService.getDeliveries(user.userId, query);
   }
 
   /** GET /portal/statement?month=2026-01 — customer statement PDF */
@@ -69,5 +76,14 @@ export class CustomerPortalController {
   @Get('schedule')
   getSchedule(@CurrentUser() user: any, @Query() query: ScheduleQueryDto) {
     return this.portalService.getSchedule(user.userId, query.from, query.to);
+  }
+
+  @Post('change-password')
+  changePassword(@CurrentUser() user: any, @Body() dto: ChangePasswordDto) {
+    return this.portalService.changePassword(
+      user.userId,
+      dto.currentPassword,
+      dto.newPassword,
+    );
   }
 }

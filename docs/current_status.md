@@ -1,5 +1,9 @@
 # Project Current Status - Water Supply CRM
 
+> NOTE: This file is a historical snapshot and may be stale.
+> Canonical status and planning now live in `docs/STATUS.md` and `docs/EXECUTION_PLAN.md`.
+> Reviewed for archive on February 25, 2026.
+
 **Last Updated:** February 21, 2026 (Session 10)
 **Status:** ✅ Backend PRODUCTION READY — 123 endpoints, 20 modules, full payment system (Raast QR + Manual), balance reminders, customer portal, expense tracking, FCM push notifications, audit log, staff performance, PaymentType (MONTHLY/CASH), isActive on customers/vans, consumption stats, proper seed data + Analytics & Reporting module. Frontend ~95% complete — all major vendor dashboard endpoints integrated.
 

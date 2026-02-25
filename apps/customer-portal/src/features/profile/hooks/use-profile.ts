@@ -1,14 +1,17 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { profileApi } from '../api/profile.api';
-import { useAuthStore } from '../../../store/auth.store';
-import { queryKeys } from '../../../lib/query-keys';
 
-export const useProfile = () => {
-  const user = useAuthStore((s) => s.user);
-
-  return useQuery({
-    queryKey: queryKeys.customer.profile(user?.customerId ?? ''),
-    queryFn: () => profileApi.getProfile(user!.customerId).then((r) => r.data),
-    enabled: !!user?.customerId,
+export const useProfile = () =>
+  useQuery({
+    queryKey: ['portal-me'],
+    queryFn: () => profileApi.getProfile().then((r) => r.data),
   });
-};
+
+export const useChangePassword = () =>
+  useMutation({
+    mutationFn: profileApi.changePassword,
+    onSuccess: () => toast.success('Password updated successfully'),
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? 'Failed to update password'),
+  });

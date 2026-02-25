@@ -3,6 +3,8 @@ import { apiClient } from '@water-supply-crm/data-access';
 export interface DeliveryQuery {
   page?: number;
   limit?: number;
+  dateFrom?: string;
+  dateTo?: string;
 }
 
 export const deliveriesApi = {

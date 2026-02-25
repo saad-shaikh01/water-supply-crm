@@ -1,29 +1,45 @@
 'use client';
 
 import { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, Skeleton, Button, Badge } from '@water-supply-crm/ui';
-import { Wallet, Droplets, TrendingUp, ArrowUpRight, Plus, CreditCard } from 'lucide-react';
-import { useAuthStore } from '../../../store/auth.store';
-import { usePortalProfile, usePortalBalance } from '../hooks/use-wallet';
+import { Card, CardContent, CardHeader, CardTitle, Skeleton, Button } from '@water-supply-crm/ui';
+import { Wallet, Droplets, TrendingUp, Plus, CreditCard, CalendarCheck } from 'lucide-react';
+import { usePortalProfile, usePortalBalance, usePortalSummary } from '../hooks/use-wallet';
 import { cn } from '@water-supply-crm/ui';
 import { motion } from 'framer-motion';
 import { PaymentDialog } from '../../payments/components/payment-dialog';
 
+function formatNextDelivery(dateStr: string | null | undefined): string {
+  if (!dateStr) return 'No upcoming delivery';
+  const date = new Date(dateStr);
+  return date.toLocaleDateString('en-PK', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
 export function WalletCard() {
   const { data: profile, isLoading: profileLoading } = usePortalProfile();
   const { data: balanceData, isLoading: balanceLoading } = usePortalBalance();
+  const { data: summary, isLoading: summaryLoading } = usePortalSummary();
   const [paymentOpen, setPaymentOpen] = useState(false);
 
   const isLoading = profileLoading || balanceLoading;
   const balance = Number(profile?.financialBalance ?? 0);
-  const bottleWallets = (balanceData as any)?.bottleWallets ?? [];
-  const totalBottles = bottleWallets.reduce((sum: number, w: any) => sum + (w.quantity ?? 0), 0);
+  const bottleWallets = balanceData?.bottleWallets ?? [];
+  const totalBottles = bottleWallets.reduce((sum, w) => sum + (w.quantity ?? 0), 0);
+
+  const nextDeliveryText = summaryLoading
+    ? '...'
+    : formatNextDelivery(summary?.nextDeliveryDate);
+
+  const totalPaid = summary?.totalPaid ?? 0;
+  const lastPaymentAmount = summary?.lastPaymentAmount ?? null;
+  const lastPaymentDate = summary?.lastPaymentDate
+    ? new Date(summary.lastPaymentDate).toLocaleDateString('en-PK', { day: 'numeric', month: 'short' })
+    : null;
 
   return (
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {/* Main Balance Card */}
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="sm:col-span-2 lg:col-span-2"
@@ -47,7 +63,7 @@ export function WalletCard() {
               </div>
 
               <div className="mt-8 flex flex-col sm:flex-row items-center gap-4">
-                <Button 
+                <Button
                   onClick={() => setPaymentOpen(true)}
                   className="w-full sm:w-auto rounded-2xl bg-white text-primary hover:bg-white/90 font-black px-8 py-6 h-auto shadow-lg active:scale-95 transition-all"
                 >
@@ -55,8 +71,8 @@ export function WalletCard() {
                   Pay Now
                 </Button>
                 <div className="flex items-center gap-2 text-xs font-bold opacity-80">
-                  <TrendingUp className="h-4 w-4" />
-                  <span>Next delivery scheduled for tomorrow</span>
+                  <CalendarCheck className="h-4 w-4" />
+                  <span>Next delivery: {nextDeliveryText}</span>
                 </div>
               </div>
 
@@ -88,7 +104,7 @@ export function WalletCard() {
               <p className="text-[10px] text-muted-foreground mt-1 font-bold uppercase">Bottles at Home</p>
               {bottleWallets.length > 0 && (
                 <div className="mt-3 space-y-1 pt-3 border-t border-border/50">
-                  {bottleWallets.map((w: any) => (
+                  {bottleWallets.map((w) => (
                     <div key={w.productId} className="flex justify-between text-[11px] font-medium text-muted-foreground">
                       <span>{w.product?.name}</span>
                       <span className="font-mono font-bold">{w.quantity} × ₨{w.effectivePrice}</span>
@@ -109,9 +125,13 @@ export function WalletCard() {
             </div>
             <div>
               <p className="text-[10px] font-bold uppercase text-muted-foreground">Total Paid</p>
-              <p className="text-lg font-black font-mono text-emerald-600 dark:text-emerald-400">
-                ₨ {balance > 0 ? balance.toLocaleString() : '0'}
-              </p>
+              {summaryLoading ? (
+                <Skeleton className="h-5 w-20 mt-1" />
+              ) : (
+                <p className="text-lg font-black font-mono text-emerald-600 dark:text-emerald-400">
+                  ₨ {Number(totalPaid).toLocaleString()}
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -123,17 +143,28 @@ export function WalletCard() {
             </div>
             <div>
               <p className="text-[10px] font-bold uppercase text-muted-foreground">Last Payment</p>
-              <p className="text-lg font-black font-mono text-blue-600 dark:text-blue-400">
-                ₨ 2,500
-              </p>
+              {summaryLoading ? (
+                <Skeleton className="h-5 w-20 mt-1" />
+              ) : lastPaymentAmount !== null ? (
+                <div>
+                  <p className="text-lg font-black font-mono text-blue-600 dark:text-blue-400">
+                    ₨ {Number(lastPaymentAmount).toLocaleString()}
+                  </p>
+                  {lastPaymentDate && (
+                    <p className="text-[10px] text-muted-foreground">{lastPaymentDate}</p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-lg font-black font-mono text-blue-600 dark:text-blue-400">—</p>
+              )}
             </div>
           </CardContent>
         </Card>
       </div>
 
-      <PaymentDialog 
-        open={paymentOpen} 
-        onOpenChange={setPaymentOpen} 
+      <PaymentDialog
+        open={paymentOpen}
+        onOpenChange={setPaymentOpen}
         suggestedAmount={balance > 0 ? balance : 0}
       />
     </div>
