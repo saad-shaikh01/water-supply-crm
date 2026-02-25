@@ -3,6 +3,13 @@
 Last Updated: February 25, 2026
 App: `apps/vendor-dashboard`
 
+## Audit Pass Log
+
+1. February 25, 2026 - Static code audit by Codex:
+   - Scope checked: Daily Sheets (`sheet-detail.tsx`, `sheet-list.tsx`, hooks, api, backend endpoints).
+   - Result: FE-001 and FE-002 appear implemented in code.
+   - Note: This was a static code audit only (not runtime click-through QA).
+
 ## Page Audit Matrix
 
 | Route | Page File | UI | UX | API | Overall | Notes |
