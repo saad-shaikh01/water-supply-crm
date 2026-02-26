@@ -22,9 +22,10 @@ Purpose: Page-by-page completion audit and executable task tracking.
 1. `vendor-dashboard.md` - Vendor dashboard page audit.
 2. `customer-portal.md` - Customer portal page audit.
 3. `admin-panel.md` - Admin panel page audit.
-4. `TASK_BOARD.md` - Executable pending task queue.
-5. `API_CHANGE_CARDS.md` - Controlled backend changes required by frontend.
-6. `AUDIT_PASS_FLOW.md` - Step-by-step sprint workflow (audit, branching, implementation, merge).
+4. `TASK_BOARD.md` - Executable pending task queue (vendor-dashboard focused).
+5. `CUSTOMER_PORTAL_TASK_BOARD.md` - Dedicated executable queue for customer-portal closure.
+6. `API_CHANGE_CARDS.md` - Controlled backend changes required by frontend.
+7. `AUDIT_PASS_FLOW.md` - Step-by-step sprint workflow (audit, branching, implementation, merge).
 
 ## Operating Rules
 

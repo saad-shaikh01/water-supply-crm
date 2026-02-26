@@ -38,6 +38,13 @@ function buildMonthOptions() {
   return opts;
 }
 
+function formatLocalDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function DeliveriesContent() {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [month, setMonth] = useQueryState('month', parseAsString.withDefault(''));
@@ -51,8 +58,8 @@ function DeliveriesContent() {
     const [y, m] = month.split('-').map(Number);
     const from = new Date(y, m - 1, 1);
     const to = new Date(y, m, 0); // last day of month
-    dateFrom = from.toISOString().split('T')[0];
-    dateTo = to.toISOString().split('T')[0];
+    dateFrom = formatLocalDate(from);
+    dateTo = formatLocalDate(to);
   }
 
   const { data, isLoading } = useDeliveries({ page, limit: 20, dateFrom, dateTo });

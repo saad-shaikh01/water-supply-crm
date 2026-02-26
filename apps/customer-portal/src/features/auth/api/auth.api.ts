@@ -4,7 +4,7 @@ interface LoginResponse {
   access_token: string;
   refresh_token: string;
   expires_in: number;
-  user: { id: string; name: string; email: string; customerId: string };
+  user: { id: string; name: string; email: string; role: string; customerId?: string };
 }
 
 export const authApi = {

@@ -28,7 +28,6 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
   const {
     register,
     handleSubmit,
-    watch,
     reset,
     setError,
     formState: { errors },
@@ -98,11 +97,11 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
             <div className="relative">
               <Input
                 type={showNew ? 'text' : 'password'}
-                placeholder="Min. 6 characters"
+                placeholder="Min. 8 characters"
                 className="h-12 rounded-xl pr-10"
                 {...register('newPassword', {
                   required: 'Required',
-                  minLength: { value: 6, message: 'At least 6 characters' },
+                  minLength: { value: 8, message: 'Password must be at least 8 characters' },
                 })}
               />
               <button
