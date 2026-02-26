@@ -9,7 +9,7 @@ import {
 } from '@water-supply-crm/ui';
 import { routeSchema, type RouteInput } from '../schemas';
 import { useCreateRoute, useUpdateRoute } from '../hooks/use-routes';
-import { useVans } from '../../vans/hooks/use-vans';
+import { useAllVans } from '../../vans/hooks/use-vans';
 
 interface RouteFormProps {
   open: boolean;
@@ -21,7 +21,7 @@ export function RouteForm({ open, onOpenChange, route }: RouteFormProps) {
   const isEdit = !!route?.id;
   const { mutate: create, isPending: isCreating } = useCreateRoute();
   const { mutate: update, isPending: isUpdating } = useUpdateRoute();
-  const { data: vansResponse } = useVans();
+  const { data: vansResponse } = useAllVans();
   const isPending = isCreating || isUpdating;
 
   const vans = (vansResponse as { data?: any[] } | undefined)?.data ?? [];
