@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import { DispatchStatus } from '@prisma/client';
 import { paginate } from '../../common/helpers/paginate';
@@ -6,10 +6,18 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { RejectOrderDto } from './dto/reject-order.dto';
 import { OrderQueryDto } from './dto/order-query.dto';
 import { DispatchPlanDto } from './dto/dispatch-plan.dto';
+import { NotificationService } from '../notifications/notification.service';
+import { NOTIFICATION_EVENTS } from '@water-supply-crm/queue';
+import { MessageTemplates } from '../whatsapp/templates/message.templates';
 
 @Injectable()
 export class OrderService {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(OrderService.name);
+
+  constructor(
+    private prisma: PrismaService,
+    private notifications: NotificationService,
+  ) {}
 
   private async getCustomer(userId: string) {
     const customer = await this.prisma.customer.findFirst({ where: { userId } });
@@ -133,22 +141,61 @@ export class OrderService {
   }
 
   async approveOrder(vendorId: string, orderId: string, reviewerId: string) {
-    const order = await this.prisma.customerOrder.findUnique({ where: { id: orderId } });
+    const order = await this.prisma.customerOrder.findUnique({
+      where: { id: orderId },
+      include: {
+        customer: { select: { name: true, phoneNumber: true, userId: true } },
+        product: { select: { name: true } },
+      },
+    });
     if (!order || order.vendorId !== vendorId) throw new NotFoundException('Order not found');
     if (order.status !== 'PENDING') throw new BadRequestException('Order is not in PENDING status');
 
-    return this.prisma.customerOrder.update({
+    const updated = await this.prisma.customerOrder.update({
       where: { id: orderId },
       data: { status: 'APPROVED', reviewedBy: reviewerId, reviewedAt: new Date() },
     });
+
+    // Notify customer — WhatsApp + FCM
+    const waKey = `ntf:${NOTIFICATION_EVENTS.ORDER_APPROVED}:${orderId}:wa`;
+    const fcmKey = `ntf:${NOTIFICATION_EVENTS.ORDER_APPROVED}:${orderId}:fcm`;
+
+    const waMsg = MessageTemplates.orderApproved(
+      order.customer.name,
+      order.product.name,
+      order.quantity,
+    );
+    this.notifications
+      .queueWhatsApp(order.customer.phoneNumber, waMsg, waKey)
+      .catch((e) => this.logger.warn(`WhatsApp notify failed for order ${orderId}: ${e.message}`));
+
+    if (order.customer.userId) {
+      this.notifications
+        .queueFcm(
+          order.customer.userId,
+          'Order Approved ✅',
+          `Your order for ${order.product.name} (qty: ${order.quantity}) has been approved.`,
+          { type: 'ORDER_APPROVED', orderId },
+          fcmKey,
+        )
+        .catch(() => null);
+    }
+
+    return updated;
   }
 
   async rejectOrder(vendorId: string, orderId: string, reviewerId: string, dto: RejectOrderDto) {
-    const order = await this.prisma.customerOrder.findUnique({ where: { id: orderId } });
+    const order = await this.prisma.customerOrder.findUnique({
+      where: { id: orderId },
+      include: {
+        customer: { select: { name: true, phoneNumber: true, userId: true } },
+        product: { select: { name: true } },
+      },
+    });
     if (!order || order.vendorId !== vendorId) throw new NotFoundException('Order not found');
     if (order.status !== 'PENDING') throw new BadRequestException('Order is not in PENDING status');
 
-    return this.prisma.customerOrder.update({
+    const updated = await this.prisma.customerOrder.update({
       where: { id: orderId },
       data: {
         status: 'REJECTED',
@@ -157,6 +204,33 @@ export class OrderService {
         reviewedAt: new Date(),
       },
     });
+
+    // Notify customer — WhatsApp + FCM
+    const waKey = `ntf:${NOTIFICATION_EVENTS.ORDER_REJECTED}:${orderId}:wa`;
+    const fcmKey = `ntf:${NOTIFICATION_EVENTS.ORDER_REJECTED}:${orderId}:fcm`;
+
+    const waMsg = MessageTemplates.orderRejected(
+      order.customer.name,
+      order.product.name,
+      dto.rejectionReason,
+    );
+    this.notifications
+      .queueWhatsApp(order.customer.phoneNumber, waMsg, waKey)
+      .catch((e) => this.logger.warn(`WhatsApp notify failed for order ${orderId}: ${e.message}`));
+
+    if (order.customer.userId) {
+      this.notifications
+        .queueFcm(
+          order.customer.userId,
+          'Order Rejected ❌',
+          `Your order for ${order.product.name} was rejected.${dto.rejectionReason ? ` Reason: ${dto.rejectionReason}` : ''}`,
+          { type: 'ORDER_REJECTED', orderId },
+          fcmKey,
+        )
+        .catch(() => null);
+    }
+
+    return updated;
   }
 
   private async getApprovedOrder(vendorId: string, orderId: string) {
