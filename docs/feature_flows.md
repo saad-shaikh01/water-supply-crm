@@ -33,24 +33,29 @@
 
 ## 2. Daily Sheet Lifecycle
 
-A **Daily Sheet** is the core operational document — one sheet per route per day.
+A **Daily Sheet** is the core operational document — one sheet **per van** per day (not per route).
 
 ```
-GENERATED → LOADED → IN_PROGRESS → INVOICED → CLOSED
+OPEN → LOADED → CHECKED_IN → CLOSED
 ```
 
 ### Step-by-step
 
 #### Step 1 — Generate Sheets
 - **Who:** VENDOR_ADMIN or STAFF
-- **Action:** `POST /daily-sheets/generate { date }`
+- **Action:** `POST /daily-sheets/generate { date, vanIds? }`
 - **What happens (backend):**
-  1. BullMQ job is queued (`generate-sheets` queue)
-  2. For each active route that has a `defaultVan` → creates one `DailySheet`
-  3. Skips routes with inactive vans
-  4. For each customer on that route whose `deliveryDays` includes today's weekday → creates a `DailySheetItem` with `status: PENDING`
-  5. Sheet starts in `GENERATED` status
-- **Frontend:** Shows progress bar while polling job status
+  1. BullMQ job is queued (`daily-sheet-generation` queue)
+  2. For each **active van** (optionally filtered by `vanIds`) that has a `defaultDriver` and customers scheduled today → creates one `DailySheet`
+  3. Skips vans with no `defaultDriver` assigned
+  4. Skips vans that already have a sheet for the target date
+  5. Customers are sourced from **van-level `deliverySchedules`** (not route-level) filtered by today's day-of-week
+  6. RESCHEDULED items from previous sheets for the same customers are carried forward and deduplicated
+  7. The van's first route (ordered by `createdAt asc`) is attached as `routeId` for analytics if configured
+  8. Sheet starts in `OPEN` status (no `isClosed`, no load trips)
+- **Frontend:** Polls `GET /daily-sheets/generation-status/:jobId` to show progress bar
+
+> **Important:** Generation is **van-centric**, not route-centric. A route's `defaultVan` is used for form hints and analytics labels but the scheduler iterates vans directly.
 
 #### Step 2 — Load Out (Driver loads the van)
 - **Who:** DRIVER (or STAFF)
@@ -79,17 +84,18 @@ GENERATED → LOADED → IN_PROGRESS → INVOICED → CLOSED
   - Driver can mark as `RESCHEDULED` or `CANCELLED` with a reason if customer not home
 - **Sheet status stays:** `LOADED` during deliveries
 
-#### Step 4 — Check In (Driver returns)
+#### Step 4 — Check In (Driver returns load trip)
 - **Who:** DRIVER
-- **Action:** `PATCH /daily-sheets/:id/check-in { filledReturned, emptyReturned, cashHandedIn }`
+- **Action:** `PATCH /daily-sheets/:id/loads/:loadId/checkin { returnedFilled, collectedEmpty, cashHandedIn }`
 - **What happens:**
-  - Records end-of-day inventory: bottles returned to depot
-  - `cashHandedIn`: total cash driver is handing in
-  - Sheet status → `INVOICED`
+  - Records end-of-trip inventory: bottles returned to depot
+  - `cashHandedIn`: total cash driver is handing in for this trip
+  - Load trip `endedAt` is set
+  - Multiple trips per sheet are supported (multi-trip model)
 
 #### Step 5 — Close Sheet (Admin reviews & closes)
 - **Who:** VENDOR_ADMIN or STAFF
-- **Action:** `PATCH /daily-sheets/:id/close`
+- **Action:** `POST /daily-sheets/:id/close`
 - **What happens (backend):**
   1. Calculates reconciliation:
      - `bottleDiscrepancy = filledLoaded - filledDropped - filledReturned`
@@ -413,4 +419,4 @@ Vendor
 
 ---
 
-*Last updated: February 21, 2026*
+*Last updated: February 26, 2026 — updated generation flow from route-centric to van-centric (FE-ROUTE-007)*
