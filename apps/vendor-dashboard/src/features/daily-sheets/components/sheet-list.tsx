@@ -1,8 +1,12 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
-import { Eye, Calendar, MapPin, User, Truck } from 'lucide-react';
-import { Button, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@water-supply-crm/ui';
+import { Eye, Calendar, MapPin, User, Truck, SlidersHorizontal, X, Droplets, DollarSign } from 'lucide-react';
+import {
+  Button, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Sheet, SheetContent, SheetHeader, SheetTitle,
+} from '@water-supply-crm/ui';
 import { DataTable } from '../../../components/shared/data-table';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import { DateRangePicker } from '../../../components/shared/date-range-picker';
@@ -12,11 +16,13 @@ import { DriverFilter } from '../../../components/shared/filters/driver-filter';
 import { useDailySheets } from '../hooks/use-daily-sheets';
 import { useQueryState, parseAsString } from 'nuqs';
 import { useAuthStore } from '../../../store/auth.store';
+import { cn } from '@water-supply-crm/ui';
 
 export function SheetList() {
   const user = useAuthStore((s) => s.user);
-  const { data, isLoading, page, setPage, limit, setLimit } = useDailySheets();
+  const { data, isLoading, page, setPage, limit, setLimit, routeId, vanId, driverId } = useDailySheets();
   const [isClosed, setIsClosed] = useQueryState('isClosed', parseAsString.withDefault(''));
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const sheets = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
   const rows = (sheets?.data ?? []) as Array<{
@@ -44,52 +50,104 @@ export function SheetList() {
 
   const isDriver = user?.role === 'DRIVER';
 
+  const resetPage = () => setPage(1);
+
+  // Build active chip list for secondary filters
+  const activeChips = [
+    routeId ? { label: `Route`, clear: () => { resetPage(); } } : null,
+    vanId ? { label: `Van`, clear: () => { resetPage(); } } : null,
+    (!isDriver && driverId) ? { label: `Driver`, clear: () => { resetPage(); } } : null,
+    isClosed ? { label: isClosed === 'true' ? 'Closed' : 'Open', clear: () => { resetPage(); setIsClosed(null); } } : null,
+  ].filter(Boolean) as Array<{ label: string; clear: () => void }>;
+
   return (
-    <div className="space-y-6">
-      <div className="bg-card/30 p-6 rounded-2xl border border-border/50 space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {/* Date range picker — single dropdown */}
-          <div className="space-y-1.5 sm:col-span-2 lg:col-span-1">
-            <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Date Range</Label>
-            <DateRangePicker />
-          </div>
-
-          {/* Status filter */}
-          <div className="space-y-1.5">
-            <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Status</Label>
-            <Select value={isClosed || 'all'} onValueChange={(v) => setIsClosed(v === 'all' ? null : v)}>
-              <SelectTrigger className="rounded-xl bg-background/50 border-border/50 h-10">
-                <SelectValue placeholder="All Sheets" />
-              </SelectTrigger>
-              <SelectContent className="rounded-xl border-border/50 shadow-2xl">
-                <SelectItem value="all">All Sheets</SelectItem>
-                <SelectItem value="false">Open</SelectItem>
-                <SelectItem value="true">Closed</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Route */}
-          <div className="space-y-1.5">
-            <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Route</Label>
-            <RouteFilter />
-          </div>
-
-          {/* Van */}
-          <div className="space-y-1.5">
-            <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Van</Label>
-            <VanFilter />
-          </div>
-
-          {/* Driver — hidden for drivers */}
-          {!isDriver && (
-            <div className="space-y-1.5">
-              <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Driver</Label>
-              <DriverFilter />
-            </div>
-          )}
+    <div className="space-y-4">
+      {/* Primary filter bar */}
+      <div className="flex flex-col sm:flex-row items-end gap-3 bg-card/30 p-4 rounded-2xl border border-border/50">
+        <div className="space-y-1.5 flex-1 min-w-[200px]">
+          <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Date Range</Label>
+          <DateRangePicker />
         </div>
+
+        <div className="space-y-1.5">
+          <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Status</Label>
+          <Select value={isClosed || 'all'} onValueChange={(v) => { resetPage(); setIsClosed(v === 'all' ? null : v); }}>
+            <SelectTrigger className="rounded-xl bg-background/50 border-border/50 h-10 w-[130px]">
+              <SelectValue placeholder="All Sheets" />
+            </SelectTrigger>
+            <SelectContent className="rounded-xl border-border/50 shadow-2xl">
+              <SelectItem value="all">All Sheets</SelectItem>
+              <SelectItem value="false">Open</SelectItem>
+              <SelectItem value="true">Closed</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setFiltersOpen(true)}
+          className={cn(
+            "rounded-xl h-10 px-4 gap-2 font-semibold shrink-0",
+            (routeId || vanId || (!isDriver && driverId)) && "border-primary text-primary"
+          )}
+        >
+          <SlidersHorizontal className="h-4 w-4" />
+          Filters
+          {(routeId || vanId || (!isDriver && driverId)) && (
+            <span className="h-5 w-5 flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-black">
+              {[routeId, vanId, (!isDriver && driverId) ? driverId : null].filter(Boolean).length}
+            </span>
+          )}
+        </Button>
       </div>
+
+      {/* Active filter chips */}
+      {activeChips.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 px-1">
+          {activeChips.map((chip) => (
+            <span
+              key={chip.label}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold"
+            >
+              {chip.label}
+            </span>
+          ))}
+          <button
+            onClick={() => { resetPage(); setIsClosed(null); }}
+            className="text-xs text-muted-foreground hover:text-foreground font-semibold underline-offset-2 hover:underline"
+          >
+            Clear all
+          </button>
+        </div>
+      )}
+
+      {/* More Filters drawer */}
+      <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-sm bg-background/95 backdrop-blur-xl border-l border-border/50">
+          <SheetHeader className="pb-6 border-b">
+            <SheetTitle className="flex items-center gap-2 text-lg font-bold">
+              <SlidersHorizontal className="h-5 w-5 text-primary" /> More Filters
+            </SheetTitle>
+          </SheetHeader>
+          <div className="space-y-6 py-6">
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Route</Label>
+              <RouteFilter onBeforeChange={resetPage} />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Van</Label>
+              <VanFilter onBeforeChange={resetPage} />
+            </div>
+            {!isDriver && (
+              <div className="space-y-2">
+                <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Driver</Label>
+                <DriverFilter onBeforeChange={resetPage} />
+              </div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <DataTable
         data={rows}
@@ -155,6 +213,29 @@ export function SheetList() {
               <div className="flex flex-col">
                 <span className="text-sm font-bold">{r._count?.items ?? 0} Items</span>
                 <span className="text-[10px] text-muted-foreground">Planned Deliveries</span>
+              </div>
+            )
+          },
+          {
+            key: 'bottles',
+            header: 'Bottles',
+            cell: (r) => (
+              <div className="flex items-center gap-1.5 text-xs">
+                <Droplets className="h-3 w-3 text-primary" />
+                <span className="font-bold">{r.filledOutCount ?? 0}</span>
+                <span className="text-muted-foreground">out /</span>
+                <span className="font-bold">{r.filledInCount ?? 0}</span>
+                <span className="text-muted-foreground">in</span>
+              </div>
+            )
+          },
+          {
+            key: 'cash',
+            header: 'Cash',
+            cell: (r) => (
+              <div className="flex items-center gap-1 text-xs font-mono font-bold">
+                <DollarSign className="h-3 w-3 text-emerald-500" />
+                <span>{Number(r.cashCollected ?? 0).toLocaleString()}</span>
               </div>
             )
           },
