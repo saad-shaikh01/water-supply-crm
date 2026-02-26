@@ -39,7 +39,8 @@ export function VanList({ onEdit }: VanListProps) {
     model?: string;
     capacity?: number;
     isActive?: boolean;
-    routes?: Array<{ name: string }>;
+    defaultDriver?: { id: string; name: string };
+    routes?: Array<{ id: string; name: string }>;
   }>;
   const total = response?.meta?.total ?? 0;
 
@@ -96,7 +97,30 @@ export function VanList({ onEdit }: VanListProps) {
             )
           },
           { key: 'model', header: 'Model', cell: (r) => r.model ?? '—' },
-          { key: 'capacity', header: 'Capacity', cell: (r) => r.capacity ? `${r.capacity} units` : '—' },
+          {
+            key: 'driver',
+            header: 'Default Driver',
+            cell: (r) => r.defaultDriver
+              ? <span className="text-xs font-semibold">{r.defaultDriver.name}</span>
+              : <span className="text-xs text-muted-foreground">—</span>
+          },
+          {
+            key: 'routes',
+            header: 'Routes',
+            cell: (r) => {
+              const routes = r.routes ?? [];
+              if (routes.length === 0) return <span className="text-xs text-muted-foreground">—</span>;
+              return (
+                <div className="flex flex-wrap gap-1">
+                  {routes.map((rt) => (
+                    <Badge key={rt.id} variant="secondary" className="text-[9px] font-bold px-1.5 py-0 rounded-full">
+                      {rt.name}
+                    </Badge>
+                  ))}
+                </div>
+              );
+            }
+          },
           {
             key: 'status', header: 'Status',
             cell: (r) => (
