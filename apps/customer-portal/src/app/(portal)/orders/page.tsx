@@ -7,6 +7,7 @@ import { parseAsInteger, parseAsString, useQueryState } from 'nuqs';
 import { cn } from '@water-supply-crm/ui';
 import { useOrders, useCancelOrder } from '../../../features/orders/hooks/use-orders';
 import { PlaceOrderDialog } from '../../../features/orders/components/place-order-dialog';
+import { ListEmptyState, ListErrorState, ListLoadingState } from '../../../components/shared/list-states';
 
 const STATUS_CONFIG: Record<string, { label: string; icon: any; color: string }> = {
   PENDING:   { label: 'Pending',   icon: Clock,        color: 'bg-amber-500/10 text-amber-600' },
@@ -27,7 +28,7 @@ function OrdersContent() {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [status, setStatus] = useQueryState('status', parseAsString.withDefault(''));
   const [dialogOpen, setDialogOpen] = useState(false);
-  const { data, isLoading } = useOrders({ page, limit: 20, status: status || undefined });
+  const { data, isLoading, isError, refetch } = useOrders({ page, limit: 20, status: status || undefined });
   const { mutate: cancelOrder, isPending: isCancelling } = useCancelOrder();
 
   const orders = (data as any)?.data ?? [];
@@ -81,19 +82,20 @@ function OrdersContent() {
 
       {/* List */}
       {isLoading ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-20 rounded-2xl bg-accent/30 animate-pulse" />
-          ))}
-        </div>
+        <ListLoadingState rows={3} />
+      ) : isError ? (
+        <ListErrorState
+          icon={ShoppingCart}
+          title="Failed to load orders"
+          description="Please retry to fetch your latest order statuses."
+          onRetry={() => refetch()}
+        />
       ) : orders.length === 0 ? (
-        <Card className="bg-card/50">
-          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <ShoppingCart className="h-12 w-12 text-muted-foreground/30 mb-4" />
-            <p className="font-bold text-muted-foreground">No orders yet</p>
-            <p className="text-sm text-muted-foreground/60 mt-1">Place an order to request extra delivery</p>
-          </CardContent>
-        </Card>
+        <ListEmptyState
+          icon={ShoppingCart}
+          title="No orders yet"
+          description="Place an order to request extra delivery."
+        />
       ) : (
         <div className="space-y-3">
           {orders.map((order: any) => {

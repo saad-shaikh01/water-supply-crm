@@ -8,6 +8,7 @@ import { cn } from '@water-supply-crm/ui';
 import { useTickets } from '../../../features/tickets/hooks/use-tickets';
 import { CreateTicketDialog } from '../../../features/tickets/components/create-ticket-dialog';
 import { TicketDetailDialog } from '../../../features/tickets/components/ticket-detail-dialog';
+import { ListEmptyState, ListErrorState, ListLoadingState } from '../../../components/shared/list-states';
 
 const STATUS_COLOR: Record<string, string> = {
   OPEN:        'bg-amber-500/10 text-amber-600',
@@ -44,7 +45,7 @@ function SupportContent() {
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<any>(null);
 
-  const { data, isLoading } = useTickets({
+  const { data, isLoading, isError, refetch } = useTickets({
     page,
     limit: 20,
     type: typeFilter || undefined,
@@ -120,19 +121,20 @@ function SupportContent() {
 
       {/* List */}
       {isLoading ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-20 rounded-2xl bg-accent/30 animate-pulse" />
-          ))}
-        </div>
+        <ListLoadingState rows={3} />
+      ) : isError ? (
+        <ListErrorState
+          icon={MessageCircle}
+          title="Failed to load tickets"
+          description="Please retry to view your support tickets."
+          onRetry={() => refetch()}
+        />
       ) : tickets.length === 0 ? (
-        <Card className="bg-card/50">
-          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <MessageCircle className="h-12 w-12 text-muted-foreground/30 mb-4" />
-            <p className="font-bold text-muted-foreground">No tickets yet</p>
-            <p className="text-sm text-muted-foreground/60 mt-1">Submit a complaint or feedback and we'll respond</p>
-          </CardContent>
-        </Card>
+        <ListEmptyState
+          icon={MessageCircle}
+          title="No tickets yet"
+          description="Submit a complaint or feedback and we will respond."
+        />
       ) : (
         <div className="space-y-3">
           {tickets.map((ticket: any) => (
