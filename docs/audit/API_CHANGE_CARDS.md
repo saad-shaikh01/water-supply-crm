@@ -130,7 +130,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-005 - Routes List Filters (Search + Default Van)
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /routes`
