@@ -22,6 +22,7 @@ import { NotificationService } from '../notifications/notification.service';
 import { MessageTemplates } from '../whatsapp/templates/message.templates';
 import { AuditService } from '../audit/audit.service';
 import { FcmService } from '../fcm/fcm.service';
+import { NOTIFICATION_EVENTS } from '@water-supply-crm/queue';
 
 @Injectable()
 export class PaymentService {
@@ -291,7 +292,11 @@ export class PaymentService {
       Math.max(0, newBalance),
     );
     await this.notifications
-      .queueWhatsApp(request.customer.phoneNumber, message)
+      .queueWhatsApp(
+        request.customer.phoneNumber,
+        message,
+        `ntf:${NOTIFICATION_EVENTS.PAYMENT_APPROVED}:${requestId}:wa`,
+      )
       .catch((e) =>
         this.logger.warn(`WhatsApp notification failed: ${e.message}`),
       );
@@ -361,7 +366,11 @@ export class PaymentService {
     // WhatsApp notification
     const message = `Assalam o Alaikum ${request.customer.name},\n\nAfsos! Aapki payment verify nahi ho saki.\n💰 Amount: Rs. ${request.amount}\n❌ Reason: ${reason}\n\nBara payment submit karein ya vendor se rabta karein.`;
     await this.notifications
-      .queueWhatsApp(request.customer.phoneNumber, message)
+      .queueWhatsApp(
+        request.customer.phoneNumber,
+        message,
+        `ntf:${NOTIFICATION_EVENTS.PAYMENT_REJECTED}:${requestId}:wa`,
+      )
       .catch((e) =>
         this.logger.warn(`WhatsApp notification failed: ${e.message}`),
       );
@@ -444,7 +453,11 @@ export class PaymentService {
       Math.max(0, newBalance),
     );
     await this.notifications
-      .queueWhatsApp(request.customer.phoneNumber, message)
+      .queueWhatsApp(
+        request.customer.phoneNumber,
+        message,
+        `ntf:${NOTIFICATION_EVENTS.PAYMENT_APPROVED}:${request.id}:wa`,
+      )
       .catch((e) =>
         this.logger.warn(`WhatsApp notification failed: ${e.message}`),
       );

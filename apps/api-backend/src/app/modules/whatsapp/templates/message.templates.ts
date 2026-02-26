@@ -19,4 +19,13 @@ export const MessageTemplates = {
 
   deliveryScheduled: (customerName: string, date: string) =>
     `Assalam o Alaikum ${customerName}! 📅\n\nAapki delivery schedule hui hai:\n📆 Date: ${date}\n\nDriver aapke ghar aayega. Shukriya!`,
+
+  orderApproved: (customerName: string, productName: string, qty: number) =>
+    `Assalam o Alaikum ${customerName}! ✅\n\nAapka order approve ho gaya:\n🔵 Product: ${productName}\n🫙 Quantity: ${qty}\n\nHum jald delivery karenge. Shukriya!`,
+
+  orderRejected: (customerName: string, productName: string, reason?: string) =>
+    `Assalam o Alaikum ${customerName},\n\nAfsos! Aapka order reject ho gaya:\n🔵 Product: ${productName}${reason ? `\n❌ Reason: ${reason}` : ''}\n\nKoi sawaal ho toh support se rabta karein.`,
+
+  ticketReplied: (customerName: string, subject: string) =>
+    `Assalam o Alaikum ${customerName}! 💬\n\nAapke ticket ka jawab aa gaya:\n📋 Subject: ${subject}\n\nPortal mein check karein. Shukriya!`,
 };
