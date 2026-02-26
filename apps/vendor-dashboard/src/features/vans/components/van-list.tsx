@@ -11,6 +11,8 @@ import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { useVans, useDeleteVan, useDeactivateVan, useReactivateVan } from '../hooks/use-vans';
 import { useQueryState, parseAsString } from 'nuqs';
 import { cn } from '@water-supply-crm/ui';
+import { useAuthStore } from '../../../store/auth.store';
+import { hasMinRole } from '../../../lib/rbac';
 
 interface VanListProps {
   onEdit: (van: Record<string, unknown>) => void;
@@ -27,6 +29,8 @@ export function VanList({ onEdit }: VanListProps) {
   const [isActive, setIsActive] = useQueryState('isActive', parseAsString.withDefault(''));
 
   const resetPage = () => setPage(1);
+  const user = useAuthStore((s) => s.user);
+  const isAdmin = user ? hasMinRole(user.role, 'VENDOR_ADMIN') : false;
 
   const response = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
   const vans = (response?.data ?? []) as Array<{
@@ -115,8 +119,8 @@ export function VanList({ onEdit }: VanListProps) {
                   <DropdownMenuItem onClick={() => onEdit(r as Record<string, unknown>)} className="rounded-lg cursor-pointer px-2 py-2">
                     <Pencil className="mr-2 h-4 w-4 text-orange-500" /> Edit
                   </DropdownMenuItem>
-                  <div className="h-[1px] bg-border/50 my-1" />
-                  {r.isActive !== false ? (
+                  {isAdmin && <div className="h-[1px] bg-border/50 my-1" />}
+                  {isAdmin && (r.isActive !== false ? (
                     <DropdownMenuItem
                       onClick={() => setDeactivateId(r.id)}
                       className="rounded-lg cursor-pointer px-2 py-2 text-orange-500 focus:text-orange-500 focus:bg-orange-500/10"
@@ -131,13 +135,15 @@ export function VanList({ onEdit }: VanListProps) {
                     >
                       <Power className="mr-2 h-4 w-4" /> Reactivate
                     </DropdownMenuItem>
+                  ))}
+                  {isAdmin && (
+                    <DropdownMenuItem
+                      onClick={() => setDeleteId(r.id)}
+                      className="rounded-lg cursor-pointer px-2 py-2 text-destructive focus:text-destructive focus:bg-destructive/10"
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" /> Delete
+                    </DropdownMenuItem>
                   )}
-                  <DropdownMenuItem
-                    onClick={() => setDeleteId(r.id)}
-                    className="rounded-lg cursor-pointer px-2 py-2 text-destructive focus:text-destructive focus:bg-destructive/10"
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" /> Delete
-                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             ),
