@@ -34,11 +34,10 @@ export function RouteForm({ open, onOpenChange, route }: RouteFormProps) {
     if (open && route) {
       reset({
         name: String(route.name ?? ''),
-        description: String(route.description ?? ''),
         defaultVanId: String((route.defaultVan as { id?: string } | undefined)?.id ?? route.defaultVanId ?? ''),
       });
     } else if (!open) {
-      reset({ name: '', description: '', defaultVanId: '' });
+      reset({ name: '', defaultVanId: '' });
     }
   }, [open, route, reset]);
 
@@ -60,10 +59,6 @@ export function RouteForm({ open, onOpenChange, route }: RouteFormProps) {
             <Label>Name</Label>
             <Input placeholder="Route name" {...register('name')} />
             {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
-          </div>
-          <div className="space-y-2">
-            <Label>Description</Label>
-            <Input placeholder="Optional description" {...register('description')} />
           </div>
           <div className="space-y-2">
             <Label>Default Van</Label>
