@@ -421,7 +421,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-015 - Portal Order Fulfillment Lifecycle Visibility
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /portal/orders`
