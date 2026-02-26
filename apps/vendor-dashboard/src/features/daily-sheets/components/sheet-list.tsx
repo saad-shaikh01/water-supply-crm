@@ -24,6 +24,8 @@ export function SheetList() {
     date: string;
     isClosed: boolean;
     filledOutCount: number;
+    filledInCount: number;
+    emptyInCount: number;
     cashCollected: number;
     route?: { name: string };
     driver?: { name: string };
@@ -34,7 +36,8 @@ export function SheetList() {
 
   const getStatus = (sheet: typeof rows[0]) => {
     if (sheet.isClosed) return 'CLOSED';
-    if (sheet.cashCollected > 0) return 'CHECKED_IN';
+    // Checked-in: any return indicators present (cash, bottles back, or empties collected)
+    if (sheet.cashCollected > 0 || sheet.filledInCount > 0 || sheet.emptyInCount > 0) return 'CHECKED_IN';
     if (sheet.filledOutCount > 0) return 'LOADED';
     return 'OPEN';
   };
