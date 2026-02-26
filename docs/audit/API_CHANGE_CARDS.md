@@ -59,7 +59,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-002 - Daily Sheets List Operational Aggregates
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /daily-sheets`
