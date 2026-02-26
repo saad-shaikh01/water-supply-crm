@@ -517,9 +517,23 @@ model CustomerTicket {
 
   vendor   Vendor   @relation(fields: [vendorId], references: [id])
   customer Customer @relation(fields: [customerId], references: [id])
+  messages TicketMessage[]
 
   @@index([vendorId, status])
   @@index([customerId])
+}
+
+model TicketMessage {
+  id          String   @id @default(uuid())
+  ticketId    String
+  ticket      CustomerTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  senderRole  String   // "CUSTOMER" | "VENDOR"
+  senderId    String
+  message     String
+  attachments Json     @default("[]")
+  createdAt   DateTime @default(now())
+
+  @@index([ticketId])
 }
 
 enum PaymentRequestStatus {
