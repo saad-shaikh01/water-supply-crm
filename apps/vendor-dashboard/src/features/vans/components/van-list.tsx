@@ -1,11 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { MoreHorizontal, Pencil, Trash2, PowerOff, Power } from 'lucide-react';
-import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Badge } from '@water-supply-crm/ui';
+import { MoreHorizontal, Pencil, Trash2, PowerOff, Power, Search, X } from 'lucide-react';
+import {
+  Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Badge,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Input,
+} from '@water-supply-crm/ui';
 import { DataTable } from '../../../components/shared/data-table';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { useVans, useDeleteVan, useDeactivateVan, useReactivateVan } from '../hooks/use-vans';
+import { useQueryState, parseAsString } from 'nuqs';
 import { cn } from '@water-supply-crm/ui';
 
 interface VanListProps {
@@ -19,6 +23,10 @@ export function VanList({ onEdit }: VanListProps) {
   const { mutate: reactivateVan, isPending: isReactivating } = useReactivateVan();
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deactivateId, setDeactivateId] = useState<string | null>(null);
+  const [search, setSearch] = useQueryState('search', parseAsString.withDefault(''));
+  const [isActive, setIsActive] = useQueryState('isActive', parseAsString.withDefault(''));
+
+  const resetPage = () => setPage(1);
 
   const response = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
   const vans = (response?.data ?? []) as Array<{
@@ -32,7 +40,34 @@ export function VanList({ onEdit }: VanListProps) {
   const total = response?.meta?.total ?? 0;
 
   return (
-    <div>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3 bg-card/30 p-4 rounded-2xl border border-border/50">
+        <div className="relative flex-1 min-w-[160px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search plate or model..."
+            value={search}
+            onChange={(e) => { resetPage(); setSearch(e.target.value || null); }}
+            className="pl-9 rounded-xl bg-background/50 border-border/50 h-10"
+          />
+        </div>
+        <Select value={isActive || 'all'} onValueChange={(v) => { resetPage(); setIsActive(v === 'all' ? null : v); }}>
+          <SelectTrigger className="w-[130px] rounded-xl bg-background/50 border-border/50 h-10">
+            <SelectValue placeholder="All Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Vans</SelectItem>
+            <SelectItem value="true">Active</SelectItem>
+            <SelectItem value="false">Inactive</SelectItem>
+          </SelectContent>
+        </Select>
+        {(search || isActive) && (
+          <button onClick={() => { resetPage(); setSearch(null); setIsActive(null); }}
+            className="text-xs text-muted-foreground hover:text-foreground font-semibold underline-offset-2 hover:underline flex items-center gap-1">
+            <X className="h-3 w-3" /> Clear
+          </button>
+        )}
+      </div>
       <DataTable
         data={vans}
         isLoading={isLoading}
