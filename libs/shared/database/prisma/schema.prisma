@@ -69,6 +69,7 @@ model Vendor {
   expenses        Expense[]
   orders          CustomerOrder[]
   tickets         CustomerTicket[]
+  deliveryIssues  DeliveryIssue[]
 }
 
 model User {
@@ -311,11 +312,46 @@ model DailySheetItem {
   photoUrl        String?  // Optional photo evidence
   rescheduledTo DateTime?
 
+  deliveryIssue DeliveryIssue?
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   @@index([dailySheetId, sequence])
   @@index([dailySheetId, customerId])
+}
+
+model DeliveryIssue {
+  id               String              @id @default(uuid())
+  vendorId         String
+  vendor           Vendor              @relation(fields: [vendorId], references: [id])
+
+  dailySheetItemId String              @unique
+  dailySheetItem   DailySheetItem      @relation(fields: [dailySheetItemId], references: [id])
+
+  status           DeliveryIssueStatus @default(OPEN)
+
+  // Plan fields
+  nextAction       IssueNextAction?
+  retryAt          DateTime?
+  assignedToUserId String?
+  assignedVanId    String?
+  assignedDriverId String?
+  planNotes        String?
+  plannedAt        DateTime?
+  plannedById      String?
+
+  // Resolution fields
+  resolution       IssueResolution?
+  resolvedNotes    String?
+  resolvedAt       DateTime?
+  resolvedById     String?
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([vendorId, status])
+  @@index([vendorId, createdAt])
 }
 
 model Transaction {
@@ -354,6 +390,30 @@ model Transaction {
 // ──────────────────────────────────────────────────────────────────────────────
 // Customer Orders & Support Tickets
 // ──────────────────────────────────────────────────────────────────────────────
+
+enum DeliveryIssueStatus {
+  OPEN
+  PLANNED
+  IN_RETRY
+  RESOLVED
+  DROPPED
+}
+
+enum IssueNextAction {
+  RETRY_SAME_DAY
+  RETRY_ON_DATE_TIME
+  MOVE_TO_NEXT_REGULAR_DAY
+  SELF_PICKUP
+  CANCEL_ONE_OFF
+  PERMANENT_STOP
+}
+
+enum IssueResolution {
+  DELIVERED
+  SELF_PICKUP_DONE
+  DROPPED
+  CANCELLED
+}
 
 enum OrderStatus {
   PENDING

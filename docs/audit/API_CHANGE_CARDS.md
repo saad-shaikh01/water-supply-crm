@@ -234,7 +234,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-009 - Delivery Issues Domain + Ops Workflow Endpoints
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /delivery-issues`

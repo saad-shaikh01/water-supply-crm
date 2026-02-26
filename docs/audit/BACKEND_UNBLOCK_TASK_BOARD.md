@@ -16,7 +16,7 @@ Goal: Complete backend work first so frontend tasks remain unblocked.
 |---|---|---|---|---|---|---|
 | B-UNB-001 | API-004 | Products delete endpoint contract (`DELETE /products/:id`) | High | DONE | `FE-PROD-003` | Return `{ deleted: true }` + safe conflict errors. |
 | B-UNB-002 | API-005 | Routes list filters (`search`, `defaultVanId`) | High | DONE | `FE-ROUTE-005` | Add DTO + service query support, keep pagination behavior. |
-| B-UNB-003 | API-009 | Delivery issues domain + ops workflow endpoints | High | READY | `FE-OPS-002`, `FE-OPS-003`, `NTF-008` | Driver report-only + ops plan/resolve model. |
+| B-UNB-003 | API-009 | Delivery issues domain + ops workflow endpoints | High | DONE | `FE-OPS-002`, `FE-OPS-003`, `NTF-008` | Driver report-only + ops plan/resolve model. |
 | B-UNB-004 | API-010 | On-demand order dispatch planning endpoints | High | READY | `FE-OPS-004` | Approval and dispatch become separate lifecycle stages. |
 | B-UNB-005 | API-011 | Add order -> open sheet insertion endpoint + additive fields | High | READY | `FE-OPS-005`, `FE-OPS-006` | Implement idempotent insertion into active sheet. |
 | B-UNB-006 | API-012 | Daily-sheet generation includes planned on-demand orders | High | READY | `FE-OPS-005` | Keep generation idempotent with skip-reason summary. |

@@ -21,6 +21,7 @@ import { DailySheetQueryDto } from './dto/daily-sheet-query.dto';
 import { LedgerService } from '../transaction/ledger.service';
 import { AuditService } from '../audit/audit.service';
 import { FcmService } from '../fcm/fcm.service';
+import { DeliveryIssueService } from '../delivery-issue/delivery-issue.service';
 import { paginate } from '../../common/helpers/paginate';
 
 @Injectable()
@@ -30,6 +31,7 @@ export class DailySheetService {
     private ledger: LedgerService,
     private audit: AuditService,
     private fcm: FcmService,
+    private deliveryIssue: DeliveryIssueService,
     @InjectQueue(QUEUE_NAMES.DAILY_SHEET_GENERATION)
     private sheetQueue: Queue,
   ) {}
@@ -133,6 +135,15 @@ export class DailySheetService {
           `${dto.filledDropped} bottle(s) delivered. Empty received: ${dto.emptyReceived}.`,
           { type: 'DELIVERY', itemId },
         ).catch(() => null);
+      }
+
+      // Auto-create delivery issue for failed/rescheduled deliveries
+      const failureStatuses: DeliveryStatus[] = [
+        DeliveryStatus.NOT_AVAILABLE,
+        DeliveryStatus.RESCHEDULED,
+      ];
+      if (failureStatuses.includes(resolvedStatus)) {
+        this.deliveryIssue.createForItem(vendorId, itemId).catch(() => null);
       }
 
       return updatedItem;

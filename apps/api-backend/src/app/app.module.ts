@@ -32,6 +32,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { OrderModule } from './modules/order/order.module';
 import { TicketModule } from './modules/ticket/ticket.module';
+import { DeliveryIssueModule } from './modules/delivery-issue/delivery-issue.module';
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { TicketModule } from './modules/ticket/ticket.module';
     AnalyticsModule,
     OrderModule,
     TicketModule,
+    DeliveryIssueModule,
   ],
   controllers: [AppController],
   providers: [
