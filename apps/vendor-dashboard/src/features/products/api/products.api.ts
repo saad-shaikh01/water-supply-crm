@@ -14,5 +14,5 @@ export const productsApi = {
   create: (data: Record<string, unknown>) => apiClient.post('/products', data),
   update: (id: string, data: Record<string, unknown>) => apiClient.patch(`/products/${id}`, data),
   remove: (id: string) => apiClient.delete(`/products/${id}`),
-  toggle: (id: string) => apiClient.patch(`/products/${id}/toggle`),
+  toggle: (id: string) => apiClient.patch(`/products/${id}/toggle-active`),
 };
