@@ -20,7 +20,12 @@ export function RouteList({ onEdit }: RouteListProps) {
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const response = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
-  const routes = (response?.data ?? []) as Array<{ id: string; name: string; description?: string; driver?: { name: string }; van?: { plateNumber: string } }>;
+  const routes = (response?.data ?? []) as Array<{
+    id: string;
+    name: string;
+    description?: string;
+    defaultVan?: { plateNumber: string; defaultDriver?: { name: string } };
+  }>;
   const total = response?.meta?.total ?? 0;
 
   return (
@@ -36,9 +41,8 @@ export function RouteList({ onEdit }: RouteListProps) {
         emptyMessage="No routes found"
         columns={[
           { key: 'name', header: 'Name', cell: (r) => <span className="font-medium">{r.name}</span> },
-          { key: 'description', header: 'Description', cell: (r) => r.description ?? '—' },
-          { key: 'driver', header: 'Driver', cell: (r) => r.driver?.name ?? '—' },
-          { key: 'van', header: 'Van', cell: (r) => r.van?.plateNumber ?? '—' },
+          { key: 'van', header: 'Default Van', cell: (r) => r.defaultVan?.plateNumber ?? '—' },
+          { key: 'driver', header: 'Default Driver', cell: (r) => r.defaultVan?.defaultDriver?.name ?? '—' },
           {
             key: 'actions', header: '', width: '60px',
             cell: (r) => (
