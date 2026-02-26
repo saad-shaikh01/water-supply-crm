@@ -1,6 +1,6 @@
 # API Change Cards
 
-Last Updated: February 25, 2026
+Last Updated: February 26, 2026
 Purpose: Controlled backend adjustments required by frontend work.
 
 ## Card Template
@@ -101,6 +101,133 @@ Affected pages:
 
 Backward compatibility:
 - Yes. Additive response field only.
+
+Owner:
+- Requester: Frontend planning (Codex)
+- API steward: Backend owner
+
+## API-004 - Products Delete Endpoint Contract
+Status: PROPOSED
+
+Endpoint:
+- `DELETE /products/:id`
+
+Request diff:
+- No request body change.
+
+Response diff:
+- Add delete response shape: `{ deleted: true }`
+- Return clear conflict error when deletion is not allowed due to dependent records.
+
+Affected pages:
+- `/dashboard/products`
+
+Backward compatibility:
+- Yes. Additive endpoint; existing clients unaffected.
+
+Owner:
+- Requester: Frontend planning (Codex)
+- API steward: Backend owner
+
+## API-005 - Routes List Filters (Search + Default Van)
+Status: PROPOSED
+
+Endpoint:
+- `GET /routes`
+
+Request diff:
+- Add optional query param: `search` (string, route name contains)
+- Add optional query param: `defaultVanId` (UUID)
+- Keep existing `page`/`limit` behavior.
+
+Response diff:
+- No response shape change required.
+
+Affected pages:
+- `/dashboard/routes`
+
+Backward compatibility:
+- Yes. Optional query params only.
+
+Owner:
+- Requester: Frontend planning (Codex)
+- API steward: Backend owner
+
+## API-006 - Orders and Tickets STAFF Access Alignment
+Status: PROPOSED
+
+Endpoint:
+- `GET /orders`, `PATCH /orders/:id/approve`, `PATCH /orders/:id/reject`
+- `GET /tickets`, `PATCH /tickets/:id/reply`
+
+Request diff:
+- No request shape change.
+
+Response diff:
+- No response shape change.
+
+Access policy diff:
+- Add `STAFF` role access for above endpoints to match dashboard navigation intent.
+
+Affected pages:
+- `/dashboard/orders`
+- `/dashboard/tickets`
+
+Backward compatibility:
+- Yes for clients; security scope expands, so explicit owner approval required.
+
+Owner:
+- Requester: Frontend planning (Codex)
+- API steward: Backend owner
+
+## API-007 - Orders List Advanced Filters
+Status: PROPOSED
+
+Endpoint:
+- `GET /orders`
+
+Request diff:
+- Add optional query params:
+  - `search` (customer name/phone or product name contains)
+  - `customerId` (cuid/string)
+  - `productId` (UUID/cuid based on model id format)
+  - `dateFrom` (YYYY-MM-DD)
+  - `dateTo` (YYYY-MM-DD)
+
+Response diff:
+- No response shape change required.
+
+Affected pages:
+- `/dashboard/orders`
+
+Backward compatibility:
+- Yes. Optional query params only.
+
+Owner:
+- Requester: Frontend planning (Codex)
+- API steward: Backend owner
+
+## API-008 - Tickets List Advanced Filters
+Status: PROPOSED
+
+Endpoint:
+- `GET /tickets`
+
+Request diff:
+- Add optional query params:
+  - `priority` (`LOW | NORMAL | HIGH | URGENT`)
+  - `search` (subject/description/customer name contains)
+  - `dateFrom` (YYYY-MM-DD)
+  - `dateTo` (YYYY-MM-DD)
+
+Response diff:
+- No response shape change required.
+
+Affected pages:
+- `/dashboard/tickets`
+
+Backward compatibility:
+- Yes. Optional query params only.
 
 Owner:
 - Requester: Frontend planning (Codex)

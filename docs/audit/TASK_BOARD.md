@@ -1,6 +1,6 @@
 # Frontend Task Board
 
-Last Updated: February 25, 2026
+Last Updated: February 26, 2026
 Purpose: Executable queue for frontend pending tasks.
 
 ## Status Legend
@@ -33,6 +33,30 @@ Purpose: Executable queue for frontend pending tasks.
 | FE-DS-006 | api-backend | `/api/daily-sheets` | Query Bug | Fix date range upper bound so `dateTo=YYYY-MM-DD` includes the full end date (not midnight-only comparison). | High | Agent A | READY | - | - | Current `lte new Date(dateTo)` risks excluding intended records. |
 | FE-DS-007 | vendor-dashboard + api-backend | `/dashboard/daily-sheets` | API + FE | Add list-level operational aggregates (pending/completed/issues counts + trip state) and render progress/health indicators in table. | Medium | Agent B | BLOCKED | - | - | Requires API card approval: `API-002`. |
 | FE-DS-008 | vendor-dashboard + api-backend | `/dashboard/daily-sheets/:id` | Data Correctness | Show product-specific wallet balance in each delivery row instead of always first wallet entry. | Medium | Agent A | BLOCKED | - | - | Requires API card approval: `API-003`. |
+| FE-PROD-001 | vendor-dashboard | `/dashboard/products` | Pagination Bug | Wire list query params correctly in `useProducts` (`page`, `limit`) by passing params to `productsApi.getAll(params)`. | High | Agent A | READY | - | - | Current hook builds params but does not send them. |
+| FE-PROD-002 | vendor-dashboard | `/dashboard/products` | Endpoint Bug | Fix toggle action endpoint usage from `/products/:id/toggle` to backend-supported `/products/:id/toggle-active`. | High | Agent A | READY | - | - | Toggle currently fails with 404/405 depending on proxy. |
+| FE-PROD-003 | vendor-dashboard + api-backend | `/dashboard/products` | API + FE | Resolve delete mismatch: either implement `DELETE /products/:id` or remove delete action from UI and confirm policy. | High | Agent B | BLOCKED | - | - | Requires API card approval: `API-004`. |
+| FE-PROD-004 | vendor-dashboard | `/dashboard/products` | Filters UX | Add compact filters (`search`, `isActive`, `sortDir`) with URL state + active chips + clear-all. | Medium | Agent B | READY | - | - | Backend already supports these query params. |
+| FE-PROD-005 | vendor-dashboard | `/dashboard/products` | RBAC UX | Hide/disable admin-only actions (`Toggle Active`, `Delete`) for non-`VENDOR_ADMIN` users. | High | Agent A | READY | - | - | Backend already restricts these actions. |
+| FE-VAN-001 | vendor-dashboard | `/dashboard/vans` | Filters UX | Add server-side list filters (`isActive`, `search`) with compact filter bar and query-state wiring. | Medium | Agent B | READY | - | - | Prevents long-table scanning and supports reactivation workflow. |
+| FE-VAN-002 | vendor-dashboard | `/dashboard/vans` | RBAC UX | Hide/disable admin-only actions (`Deactivate`, `Reactivate`, `Delete`) for non-`VENDOR_ADMIN`. | High | Agent A | READY | - | - | Avoids repeated 403 loops for STAFF users. |
+| FE-VAN-003 | vendor-dashboard | `/dashboard/vans` | Table UX | Add `Default Driver` and `Assigned Routes` columns from existing response payload (`defaultDriver`, `routes`). | Medium | Agent B | READY | - | - | Important dispatch context missing in current table. |
+| FE-VAN-004 | vendor-dashboard | `/dashboard/vans` | Form Reliability | In `van-form`, use `useAllDrivers` for dropdown and send explicit `null` when clearing `defaultDriverId` on edit. | High | Agent A | READY | - | - | Current `useUsers` pagination can hide drivers and clear action may not persist. |
+| FE-ROUTE-001 | vendor-dashboard | `/dashboard/routes` | Data Mapping Bug | Fix table columns to read van/driver from `defaultVan` (`defaultVan.plateNumber`, `defaultVan.defaultDriver.name`). | High | Agent A | READY | - | - | Current UI expects `van`/`driver` fields that backend does not return. |
+| FE-ROUTE-002 | vendor-dashboard | `/dashboard/routes` | Contract Cleanup | Remove unsupported `description` field from route form/list schema to match current backend DTO/model. | Medium | Agent B | READY | - | - | Prevents misleading unsaved input. |
+| FE-ROUTE-003 | vendor-dashboard | `/dashboard/routes` | Form Reliability | Replace `useVans` with all-vans source (`useAllVans` or fixed params) in route form default-van selector. | High | Agent A | READY | - | - | Avoids page/limit URL collision causing incomplete dropdown options. |
+| FE-ROUTE-004 | vendor-dashboard | `/dashboard/routes` | RBAC UX | Hide delete action for non-`VENDOR_ADMIN` users. | High | Agent A | READY | - | - | Backend delete endpoint is admin-only. |
+| FE-ROUTE-005 | vendor-dashboard + api-backend | `/dashboard/routes` | API + FE | Add route list filters (`search`, `defaultVanId`) and bind compact filter controls in UI. | Medium | Agent B | BLOCKED | - | - | Requires API card approval: `API-005`. |
+| FE-ROUTE-006 | api-backend | `/api/daily-sheets/generate` | Data Correctness | Make `routeId` assignment deterministic when a van is linked to multiple routes (avoid unordered `take: 1`). | High | Agent A | READY | - | - | Stabilizes downstream route analytics and filtering. |
+| FE-ROUTE-007 | docs | `docs/feature_flows.md` | Documentation | Update generation narrative from route-centric to current van-centric scheduler flow. | Medium | Agent B | READY | - | - | Current documentation conflicts with running backend logic. |
+| FE-ORD-001 | vendor-dashboard + api-backend | `/dashboard/orders` | RBAC Alignment | Align STAFF access policy with UI navigation: either allow STAFF on orders endpoints or hide page/menu for STAFF. | High | Agent A | BLOCKED | - | - | Requires API card approval: `API-006`. |
+| FE-ORD-002 | vendor-dashboard | `/dashboard/orders` | Table UX | Add `Preferred Date` + `Reviewed At` context columns for faster dispatch decisioning. | Medium | Agent B | READY | - | - | Data already exists in order payload. |
+| FE-ORD-003 | vendor-dashboard + api-backend | `/dashboard/orders` | API + FE | Add server-side filters (`search`, `customerId`, `productId`, `dateFrom`, `dateTo`) and compact filter drawer/chips in UI. | Medium | Agent B | BLOCKED | - | - | Requires API card approval: `API-007`. |
+| FE-ORD-004 | vendor-dashboard | `/dashboard/orders` | Shared UI | Extend `StatusBadge` mapping for order states (`APPROVED`, `REJECTED`, `CANCELLED`) with semantic colors. | Low | Agent A | READY | - | - | Improves scanability of review queue. |
+| FE-TKT-001 | vendor-dashboard + api-backend | `/dashboard/tickets` | RBAC Alignment | Align STAFF access policy with UI navigation: either allow STAFF on ticket endpoints or hide page/menu for STAFF. | High | Agent A | BLOCKED | - | - | Requires API card approval: `API-006`. |
+| FE-TKT-002 | vendor-dashboard | `/dashboard/tickets` | Bug Fix | Initialize reply dialog status from selected ticket status (safe default only for OPEN) to avoid accidental rollback to `IN_PROGRESS`. | High | Agent A | READY | - | - | Current dialog default can unintentionally reopen resolved tickets. |
+| FE-TKT-003 | vendor-dashboard + api-backend | `/dashboard/tickets` | API + FE | Add server-side filters (`priority`, `search`, `dateFrom`, `dateTo`) and compact filter UX with chips. | Medium | Agent B | BLOCKED | - | - | Requires API card approval: `API-008`. |
+| FE-TKT-004 | vendor-dashboard | `/dashboard/tickets` | Table UX | Add customer phone + resolution context (`resolvedAt` or latest reply timestamp) for support triage. | Medium | Agent B | READY | - | - | Reduces need to open each ticket dialog for context. |
 
 ## Update Rules
 

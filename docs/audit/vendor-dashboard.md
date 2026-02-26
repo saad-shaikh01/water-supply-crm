@@ -1,6 +1,6 @@
 # Vendor Dashboard Audit
 
-Last Updated: February 25, 2026
+Last Updated: February 26, 2026
 App: `apps/vendor-dashboard`
 
 ## Audit Pass Log
@@ -27,6 +27,16 @@ App: `apps/vendor-dashboard`
      - Detail page shows admin-level actions to roles that backend rejects (RBAC mismatch).
      - Important list-level operations data is missing (progress/issue visibility needs aggregate fields).
    - Note: Static code audit only (no runtime click-through QA in browser).
+4. February 26, 2026 - Static code audit by Codex:
+   - Scope checked: Products, Vans, Routes, Orders, Tickets (`page.tsx`, list/form components, hooks, api clients, related backend controllers/services/dto).
+   - Result: Core pages are present but all five features still have meaningful correctness and RBAC alignment gaps.
+   - Key gaps:
+     - Products: list pagination params are not wired, toggle endpoint path mismatch, delete action has no backend endpoint.
+     - Vans: admin-only actions are exposed to staff; list context and form driver sourcing need reliability fixes.
+     - Routes: UI expects fields backend does not return; description input is dead field; default-van source can be incomplete.
+     - Orders/Tickets: sidebar allows STAFF but backend endpoints currently reject STAFF (`403` risk).
+     - Route logic is now van-centric for sheet generation; docs still contain older route-centric wording.
+   - Note: Static code audit only (no runtime click-through QA in browser).
 
 ## Page Audit Matrix
 
@@ -42,9 +52,9 @@ App: `apps/vendor-dashboard`
 | `/dashboard/analytics` | `apps/vendor-dashboard/src/app/dashboard/analytics/page.tsx` | NR | NR | NR | NR | |
 | `/dashboard/customers` | `apps/vendor-dashboard/src/app/dashboard/customers/page.tsx` | P | P | P | P | List works, but filter set is incomplete (no active/inactive toggle, no day/van filters, no balance/sort controls). |
 | `/dashboard/customers/:id` | `apps/vendor-dashboard/src/app/dashboard/customers/[id]/page.tsx` | P | P | P | P | Detail tabs are strong, but delivery schedule calendar is missing despite existing API endpoint. |
-| `/dashboard/products` | `apps/vendor-dashboard/src/app/dashboard/products/page.tsx` | NR | NR | NR | NR | |
-| `/dashboard/routes` | `apps/vendor-dashboard/src/app/dashboard/routes/page.tsx` | NR | NR | NR | NR | |
-| `/dashboard/vans` | `apps/vendor-dashboard/src/app/dashboard/vans/page.tsx` | NR | NR | NR | NR | |
+| `/dashboard/products` | `apps/vendor-dashboard/src/app/dashboard/products/page.tsx` | P | P | P | P | CRUD shell exists, but list pagination wiring, action endpoint alignment, filters, and RBAC visibility still need fixes. |
+| `/dashboard/routes` | `apps/vendor-dashboard/src/app/dashboard/routes/page.tsx` | P | P | P | P | Route CRUD present but data-contract mismatches (`description`, driver/van mapping) and filter gaps remain. |
+| `/dashboard/vans` | `apps/vendor-dashboard/src/app/dashboard/vans/page.tsx` | P | P | P | P | Core CRUD works, but admin-only action exposure, missing filters, and driver assignment UX reliability need work. |
 | `/dashboard/users` | `apps/vendor-dashboard/src/app/dashboard/users/page.tsx` | NR | NR | NR | NR | |
 | `/dashboard/daily-sheets` | `apps/vendor-dashboard/src/app/dashboard/daily-sheets/page.tsx` | P | P | P | P | Functional list + filters exist, but filter ergonomics and status/data fidelity need improvement. |
 | `/dashboard/daily-sheets/:id` | `apps/vendor-dashboard/src/app/dashboard/daily-sheets/[id]/page.tsx` | P | P | P | P | Rich detail flow, but RBAC visibility mismatch and product-wallet display correctness need fixes. |
@@ -54,6 +64,8 @@ App: `apps/vendor-dashboard`
 | `/dashboard/balance-reminders` | `apps/vendor-dashboard/src/app/dashboard/balance-reminders/page.tsx` | NR | NR | NR | NR | |
 | `/dashboard/audit-logs` | `apps/vendor-dashboard/src/app/dashboard/audit-logs/page.tsx` | NR | NR | NR | NR | |
 | `/dashboard/tracking` | `apps/vendor-dashboard/src/app/dashboard/tracking/page.tsx` | NR | NR | NR | NR | |
+| `/dashboard/orders` | `apps/vendor-dashboard/src/app/dashboard/orders/page.tsx` | P | P | P | P | Workflow works for admin, but STAFF RBAC mismatch and limited filter/table context require follow-up. |
+| `/dashboard/tickets` | `apps/vendor-dashboard/src/app/dashboard/tickets/page.tsx` | P | P | P | P | Ticket triage exists, but STAFF RBAC mismatch and reply-status handling bug need fixes. |
 | `/dashboard/history` | `apps/vendor-dashboard/src/app/dashboard/history/page.tsx` | NR | NR | NR | NR | |
 
 ## Notes
