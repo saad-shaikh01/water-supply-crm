@@ -18,6 +18,12 @@ const statusConfig: Record<string, { label: string; variant: 'default' | 'second
   RESCHEDULED: { label: 'Rescheduled', variant: 'warning' },
   NOT_AVAILABLE: { label: 'Not Available', variant: 'destructive' },
   EMPTY_ONLY: { label: 'Empty Only', variant: 'info' },
+  // Order states
+  APPROVED: { label: 'Approved', variant: 'success' },
+  REJECTED: { label: 'Rejected', variant: 'destructive' },
+  UNDER_REVIEW: { label: 'Under Review', variant: 'warning' },
+  DISPATCHED: { label: 'Dispatched', variant: 'info' },
+  DELIVERED: { label: 'Delivered', variant: 'success' },
 };
 
 export function StatusBadge({ status }: { status: Status }) {
