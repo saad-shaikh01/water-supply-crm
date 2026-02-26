@@ -394,7 +394,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-014 - Portal Transactions Server-Side Filters
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /portal/transactions`
@@ -421,7 +421,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-015 - Portal Order Fulfillment Lifecycle Visibility
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /portal/orders`
@@ -448,7 +448,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-016 - Portal Tickets Conversation + Attachments
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /portal/tickets/:id/messages` (new)
@@ -474,7 +474,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-017 - Portal Products Effective Price Field
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /portal/products`

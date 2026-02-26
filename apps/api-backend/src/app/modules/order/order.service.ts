@@ -47,10 +47,12 @@ export class OrderService {
     const where: any = { customerId: customer.id };
     if (status) where.status = status;
 
-    const [data, total] = await Promise.all([
+    const [orders, total] = await Promise.all([
       this.prisma.customerOrder.findMany({
         where,
-        include: { product: { select: { id: true, name: true, basePrice: true } } },
+        include: {
+          product: { select: { id: true, name: true, basePrice: true } },
+        },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
@@ -58,7 +60,41 @@ export class OrderService {
       this.prisma.customerOrder.count({ where }),
     ]);
 
+    const data = orders.map((order) => ({
+      ...order,
+      fulfillmentStatus: this.resolveFulfillmentStatus(order.status, order.dispatchStatus),
+      plannedDate: order.targetDate ?? null,
+      deliveredAt: order.dispatchedAt ?? null,
+      dispatchContext:
+        order.dispatchStatus !== 'UNPLANNED'
+          ? {
+              vanId: order.dispatchVanId ?? null,
+              driverId: order.dispatchDriverId ?? null,
+              targetDate: order.targetDate ?? null,
+              dispatchMode: order.dispatchMode ?? null,
+            }
+          : null,
+    }));
+
     return paginate(data, total, page, limit);
+  }
+
+  private resolveFulfillmentStatus(
+    status: string,
+    dispatchStatus: string,
+  ): string {
+    if (status === 'PENDING') return 'PENDING_APPROVAL';
+    if (status === 'REJECTED') return 'REJECTED';
+    if (status === 'CANCELLED') return 'CANCELLED';
+    // APPROVED — check dispatch sub-state
+    switch (dispatchStatus) {
+      case 'PLANNED': return 'PLANNED';
+      case 'INSERTED_IN_SHEET': return 'OUT_FOR_DELIVERY';
+      case 'DELIVERED': return 'DELIVERED';
+      case 'FAILED': return 'APPROVED'; // reattempt pending
+      case 'SELF_PICKUP_DONE': return 'DELIVERED';
+      default: return 'APPROVED';
+    }
   }
 
   async cancelOrder(userId: string, orderId: string) {

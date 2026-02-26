@@ -4,6 +4,7 @@ import { paginate } from '../../common/helpers/paginate';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { ReplyTicketDto } from './dto/reply-ticket.dto';
 import { TicketQueryDto } from './dto/ticket-query.dto';
+import { CreateTicketMessageDto } from './dto/create-ticket-message.dto';
 
 @Injectable()
 export class TicketService {
@@ -76,6 +77,37 @@ export class TicketService {
     ]);
 
     return paginate(data, total, page, limit);
+  }
+
+  async getTicketMessages(userId: string, ticketId: string) {
+    const customer = await this.getCustomer(userId);
+    const ticket = await this.prisma.customerTicket.findUnique({ where: { id: ticketId } });
+    if (!ticket || ticket.customerId !== customer.id) throw new NotFoundException('Ticket not found');
+
+    return this.prisma.ticketMessage.findMany({
+      where: { ticketId },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async createTicketMessage(
+    userId: string,
+    ticketId: string,
+    dto: CreateTicketMessageDto,
+  ) {
+    const customer = await this.getCustomer(userId);
+    const ticket = await this.prisma.customerTicket.findUnique({ where: { id: ticketId } });
+    if (!ticket || ticket.customerId !== customer.id) throw new NotFoundException('Ticket not found');
+
+    return this.prisma.ticketMessage.create({
+      data: {
+        ticketId,
+        senderRole: 'CUSTOMER',
+        senderId: customer.id,
+        message: dto.message,
+        attachments: (dto.attachments as any) ?? [],
+      },
+    });
   }
 
   async replyToTicket(vendorId: string, ticketId: string, userId: string, dto: ReplyTicketDto) {

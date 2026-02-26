@@ -35,10 +35,10 @@ Goal: Complete backend work first so frontend tasks remain unblocked.
 
 | ID | API Card | Scope | Priority | Status | Blocks Which CP Tasks |
 |---|---|---|---|---|---|
-| B-CP-001 | API-014 | Portal transactions server-side filters | Medium | READY | `CP-005`, `CP-015` |
-| B-CP-002 | API-015 | Portal order lifecycle visibility | Medium | READY | `CP-016` |
-| B-CP-003 | API-016 | Ticket conversation + attachments | Medium | READY | `CP-017` |
-| B-CP-004 | API-017 | Portal product `effectivePrice` | Medium | READY | `CP-018` |
+| B-CP-001 | API-014 | Portal transactions server-side filters | Medium | DONE | `CP-005`, `CP-015` |
+| B-CP-002 | API-015 | Portal order lifecycle visibility | Medium | DONE | `CP-016` |
+| B-CP-003 | API-016 | Ticket conversation + attachments | Medium | DONE | `CP-017` |
+| B-CP-004 | API-017 | Portal product `effectivePrice` | Medium | DONE | `CP-018` |
 
 ## Phase 3 - Notification Platform (Feed/Logs/Preferences)
 
