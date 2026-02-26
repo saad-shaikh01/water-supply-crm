@@ -5,8 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle, Badge } from '@water-supply-c
 import { useDeliverySchedule } from '../../../features/deliveries/hooks/use-deliveries';
 import { usePortalProfile } from '../../../features/wallet/hooks/use-wallet';
 import { cn } from '@water-supply-crm/ui';
+import { formatDayLabel } from '../../../lib/day-labels';
 
-const DAY_LABELS: Record<number, string> = { 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 7: 'Sun' };
+function formatLocalDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
 export default function SchedulePage() {
   // Fix B3: pass 6-week date range so schedule is never empty
@@ -16,8 +22,8 @@ export default function SchedulePage() {
   to.setDate(to.getDate() + 28);
 
   const { data, isLoading: scheduleLoading } = useDeliverySchedule({
-    from: from.toISOString().split('T')[0],
-    to: to.toISOString().split('T')[0],
+    from: formatLocalDate(from),
+    to: formatLocalDate(to),
   });
   const { data: profile, isLoading: profileLoading } = usePortalProfile();
 
@@ -58,7 +64,7 @@ export default function SchedulePage() {
                 {deliverySchedules.map((s: any) => (
                   <div key={s.id ?? s.dayOfWeek} className="flex items-center gap-2 bg-primary/10 rounded-xl px-3 py-1.5">
                     <Badge className="bg-primary/20 text-primary border-0 font-black text-[11px] px-2 py-0">
-                      {DAY_LABELS[s.dayOfWeek] ?? `Day ${s.dayOfWeek}`}
+                      {formatDayLabel(s.dayOfWeek)}
                     </Badge>
                     {s.van?.plateNumber && (
                       <span className="text-[11px] text-muted-foreground font-bold">{s.van.plateNumber}</span>
@@ -67,7 +73,7 @@ export default function SchedulePage() {
                 ))}
               </div>
               <p className="text-[10px] text-muted-foreground font-bold">
-                Every {deliverySchedules.map((s: any) => DAY_LABELS[s.dayOfWeek]).join(', ')}
+                Every {deliverySchedules.map((s: any) => formatDayLabel(s.dayOfWeek)).join(', ')}
               </p>
             </div>
           )}

@@ -3,10 +3,11 @@
 import { Suspense, useState } from 'react';
 import { ShoppingCart, Plus, ChevronLeft, ChevronRight, X, Clock, CheckCircle2, XCircle, Ban } from 'lucide-react';
 import { Card, CardContent, Badge, Button } from '@water-supply-crm/ui';
-import { parseAsInteger, useQueryState } from 'nuqs';
+import { parseAsInteger, parseAsString, useQueryState } from 'nuqs';
 import { cn } from '@water-supply-crm/ui';
 import { useOrders, useCancelOrder } from '../../../features/orders/hooks/use-orders';
 import { PlaceOrderDialog } from '../../../features/orders/components/place-order-dialog';
+import { ListEmptyState, ListErrorState, ListLoadingState } from '../../../components/shared/list-states';
 
 const STATUS_CONFIG: Record<string, { label: string; icon: any; color: string }> = {
   PENDING:   { label: 'Pending',   icon: Clock,        color: 'bg-amber-500/10 text-amber-600' },
@@ -15,10 +16,19 @@ const STATUS_CONFIG: Record<string, { label: string; icon: any; color: string }>
   CANCELLED: { label: 'Cancelled', icon: Ban,          color: 'bg-muted text-muted-foreground' },
 };
 
+const STATUS_FILTERS = [
+  { value: '', label: 'All' },
+  { value: 'PENDING', label: 'Pending' },
+  { value: 'APPROVED', label: 'Approved' },
+  { value: 'REJECTED', label: 'Rejected' },
+  { value: 'CANCELLED', label: 'Cancelled' },
+];
+
 function OrdersContent() {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
+  const [status, setStatus] = useQueryState('status', parseAsString.withDefault(''));
   const [dialogOpen, setDialogOpen] = useState(false);
-  const { data, isLoading } = useOrders({ page, limit: 20 });
+  const { data, isLoading, isError, refetch } = useOrders({ page, limit: 20, status: status || undefined });
   const { mutate: cancelOrder, isPending: isCancelling } = useCancelOrder();
 
   const orders = (data as any)?.data ?? [];
@@ -49,21 +59,43 @@ function OrdersContent() {
         </Button>
       </div>
 
+      <div className="flex gap-2 flex-wrap">
+        {STATUS_FILTERS.map((filter) => (
+          <button
+            type="button"
+            key={filter.value || 'ALL'}
+            onClick={() => {
+              setStatus(filter.value || null);
+              setPage(1);
+            }}
+            className={cn(
+              'px-4 py-2 rounded-xl text-xs font-bold transition-all',
+              status === filter.value
+                ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
+                : 'bg-accent/50 text-muted-foreground hover:bg-accent hover:text-foreground'
+            )}
+          >
+            {filter.label}
+          </button>
+        ))}
+      </div>
+
       {/* List */}
       {isLoading ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-20 rounded-2xl bg-accent/30 animate-pulse" />
-          ))}
-        </div>
+        <ListLoadingState rows={3} />
+      ) : isError ? (
+        <ListErrorState
+          icon={ShoppingCart}
+          title="Failed to load orders"
+          description="Please retry to fetch your latest order statuses."
+          onRetry={() => refetch()}
+        />
       ) : orders.length === 0 ? (
-        <Card className="bg-card/50">
-          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <ShoppingCart className="h-12 w-12 text-muted-foreground/30 mb-4" />
-            <p className="font-bold text-muted-foreground">No orders yet</p>
-            <p className="text-sm text-muted-foreground/60 mt-1">Place an order to request extra delivery</p>
-          </CardContent>
-        </Card>
+        <ListEmptyState
+          icon={ShoppingCart}
+          title="No orders yet"
+          description="Place an order to request extra delivery."
+        />
       ) : (
         <div className="space-y-3">
           {orders.map((order: any) => {

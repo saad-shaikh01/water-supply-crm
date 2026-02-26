@@ -8,6 +8,7 @@ import { usePortalProfile } from '../../../features/wallet/hooks/use-wallet';
 import { PaymentDialog } from '../../../features/payments/components/payment-dialog';
 import { cn } from '@water-supply-crm/ui';
 import { parseAsInteger, useQueryState } from 'nuqs';
+import { ListEmptyState, ListErrorState, ListLoadingState } from '../../../components/shared/list-states';
 
 const STATUS_CONFIG: Record<string, { label: string; icon: any; color: string }> = {
   PENDING:    { label: 'Pending',    icon: Clock,        color: 'bg-yellow-500/10 text-yellow-600' },
@@ -22,7 +23,7 @@ function PaymentsContent() {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [paymentOpen, setPaymentOpen] = useState(false);
 
-  const { data, isLoading } = usePaymentHistory({ page, limit: 20 });
+  const { data, isLoading, isError, refetch } = usePaymentHistory({ page, limit: 20 });
   const { data: profile } = usePortalProfile();
 
   const payments = (data as any)?.data ?? [];
@@ -57,19 +58,20 @@ function PaymentsContent() {
       </div>
 
       {isLoading ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-20 rounded-2xl bg-accent/30 animate-pulse" />
-          ))}
-        </div>
+        <ListLoadingState rows={3} />
+      ) : isError ? (
+        <ListErrorState
+          icon={CreditCard}
+          title="Failed to load payments"
+          description="Please try again. If the issue continues, contact support."
+          onRetry={() => refetch()}
+        />
       ) : payments.length === 0 ? (
-        <Card className="bg-card/50">
-          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <CreditCard className="h-12 w-12 text-muted-foreground/30 mb-4" />
-            <p className="font-bold text-muted-foreground">No payments yet</p>
-            <p className="text-sm text-muted-foreground/60 mt-1">Your payment history will appear here</p>
-          </CardContent>
-        </Card>
+        <ListEmptyState
+          icon={CreditCard}
+          title="No payments yet"
+          description="Your payment history will appear here."
+        />
       ) : (
         <div className="space-y-3">
           {payments.map((p: any) => {

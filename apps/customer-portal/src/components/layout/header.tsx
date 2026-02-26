@@ -16,6 +16,8 @@ import { cn } from '@water-supply-crm/ui';
 const navItems = [
   { href: '/home', label: 'Home' },
   { href: '/deliveries', label: 'Deliveries' },
+  { href: '/schedule', label: 'Schedule' },
+  { href: '/statement', label: 'Statement' },
   { href: '/payments', label: 'Payments' },
   { href: '/orders', label: 'Orders' },
   { href: '/support', label: 'Support' },
