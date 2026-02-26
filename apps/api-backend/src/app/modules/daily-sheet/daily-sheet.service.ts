@@ -151,7 +151,11 @@ export class DailySheetService {
       where.date = { gte: d, lt: next };
     } else {
       if (dateFrom) where.date = { ...where.date, gte: new Date(dateFrom) };
-      if (dateTo) where.date = { ...where.date, lte: new Date(dateTo) };
+      if (dateTo) {
+        const endOfDay = new Date(dateTo);
+        endOfDay.setHours(23, 59, 59, 999);
+        where.date = { ...where.date, lte: endOfDay };
+      }
     }
 
     if (routeId) where.routeId = routeId;

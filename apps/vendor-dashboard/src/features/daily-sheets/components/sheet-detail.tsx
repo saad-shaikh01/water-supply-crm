@@ -96,6 +96,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const user = useAuthStore((s) => s.user);
   const isDriver = user?.role === 'DRIVER';
   const isAdminOrStaff = user ? hasMinRole(user.role, 'STAFF') : false;
+  const isAdmin = user ? hasMinRole(user.role, 'VENDOR_ADMIN') : false;
 
   const { data, isLoading } = useDailySheet(sheetId);
   const { mutate: closeSheet, isPending: isClosing } = useCloseSheet(sheetId);
@@ -305,7 +306,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
           </p>
         </div>
         <div className="flex gap-2">
-          {!isClosed && isAdminOrStaff && (
+          {!isClosed && isAdmin && (
             <Button
               variant="outline"
               size="icon"
@@ -316,9 +317,11 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
               <ArrowRightLeft className="h-4 w-4" />
             </Button>
           )}
-          <Button variant="outline" size="icon" className="rounded-full" onClick={handleExportPdf} title="Download PDF">
-            <Download className="h-4 w-4" />
-          </Button>
+          {!isDriver && (
+            <Button variant="outline" size="icon" className="rounded-full" onClick={handleExportPdf} title="Download PDF">
+              <Download className="h-4 w-4" />
+            </Button>
+          )}
           <Button variant="outline" size="icon" className="rounded-full" onClick={handlePrintInvoice} title="Print Invoice">
             <Printer className="h-4 w-4" />
           </Button>

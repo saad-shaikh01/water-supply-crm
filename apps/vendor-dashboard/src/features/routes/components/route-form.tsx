@@ -9,7 +9,7 @@ import {
 } from '@water-supply-crm/ui';
 import { routeSchema, type RouteInput } from '../schemas';
 import { useCreateRoute, useUpdateRoute } from '../hooks/use-routes';
-import { useVans } from '../../vans/hooks/use-vans';
+import { useAllVans } from '../../vans/hooks/use-vans';
 
 interface RouteFormProps {
   open: boolean;
@@ -21,7 +21,7 @@ export function RouteForm({ open, onOpenChange, route }: RouteFormProps) {
   const isEdit = !!route?.id;
   const { mutate: create, isPending: isCreating } = useCreateRoute();
   const { mutate: update, isPending: isUpdating } = useUpdateRoute();
-  const { data: vansResponse } = useVans();
+  const { data: vansResponse } = useAllVans();
   const isPending = isCreating || isUpdating;
 
   const vans = (vansResponse as { data?: any[] } | undefined)?.data ?? [];
@@ -34,11 +34,10 @@ export function RouteForm({ open, onOpenChange, route }: RouteFormProps) {
     if (open && route) {
       reset({
         name: String(route.name ?? ''),
-        description: String(route.description ?? ''),
         defaultVanId: String((route.defaultVan as { id?: string } | undefined)?.id ?? route.defaultVanId ?? ''),
       });
     } else if (!open) {
-      reset({ name: '', description: '', defaultVanId: '' });
+      reset({ name: '', defaultVanId: '' });
     }
   }, [open, route, reset]);
 
@@ -60,10 +59,6 @@ export function RouteForm({ open, onOpenChange, route }: RouteFormProps) {
             <Label>Name</Label>
             <Input placeholder="Route name" {...register('name')} />
             {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
-          </div>
-          <div className="space-y-2">
-            <Label>Description</Label>
-            <Input placeholder="Optional description" {...register('description')} />
           </div>
           <div className="space-y-2">
             <Label>Default Van</Label>

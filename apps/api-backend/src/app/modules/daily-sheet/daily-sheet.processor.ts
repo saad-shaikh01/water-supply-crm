@@ -47,7 +47,7 @@ export class DailySheetProcessor extends WorkerHost {
       where: vanWhere,
       include: {
         defaultDriver: true,
-        routes: { where: { vendorId }, take: 1 }, // van's home route (if any)
+        routes: { where: { vendorId }, orderBy: { createdAt: 'asc' }, take: 1 }, // van's home route — deterministic by creation order
         deliverySchedules: {
           where: {
             dayOfWeek,

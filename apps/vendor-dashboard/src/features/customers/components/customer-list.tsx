@@ -3,10 +3,11 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useQueryState, parseAsString } from 'nuqs';
-import { MoreHorizontal, Pencil, Trash2, Eye, MapPin, Phone, PowerOff, Power } from 'lucide-react';
+import { MoreHorizontal, Pencil, Trash2, Eye, MapPin, Phone, PowerOff, Power, SlidersHorizontal, X } from 'lucide-react';
 import {
   Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem,
-  DropdownMenuTrigger, Badge, Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+  DropdownMenuTrigger, Badge, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Sheet, SheetContent, SheetHeader, SheetTitle, Label,
 } from '@water-supply-crm/ui';
 import { DataTable } from '../../../components/shared/data-table';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
@@ -15,23 +16,39 @@ import { RouteFilter } from '../../../components/shared/filters/route-filter';
 import { useCustomers, useDeleteCustomer, useDeactivateCustomer, useReactivateCustomer } from '../hooks/use-customers';
 import { CustomerForm } from './customer-form';
 import { cn } from '@water-supply-crm/ui';
+import { useAuthStore } from '../../../store/auth.store';
+import { hasMinRole } from '../../../lib/rbac';
 
 interface CustomerListProps {
   onAdd?: () => void;
 }
 
 export function CustomerList({ onAdd: _ }: CustomerListProps) {
-  const { data, isLoading, page, setPage, limit, setLimit } = useCustomers();
+  const user = useAuthStore((s) => s.user);
+  const isAdmin = user ? hasMinRole(user.role, 'VENDOR_ADMIN') : false;
+  const { data, isLoading, page, setPage, limit, setLimit, isActive, setIsActive } = useCustomers();
   const { mutate: deleteCustomer, isPending: isDeleting } = useDeleteCustomer();
   const { mutate: deactivateCustomer, isPending: isDeactivating } = useDeactivateCustomer();
   const { mutate: reactivateCustomer, isPending: isReactivating } = useReactivateCustomer();
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deactivateId, setDeactivateId] = useState<string | null>(null);
   const [editCustomer, setEditCustomer] = useState<Record<string, unknown> | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [paymentType, setPaymentType] = useQueryState('paymentType', parseAsString.withDefault(''));
 
   // Reset to page 1 whenever any filter changes
   const resetPage = () => setPage(1);
+
+  const activeFilters = [
+    paymentType ? { label: `Type: ${paymentType}`, clear: () => { resetPage(); setPaymentType(null); } } : null,
+    isActive ? { label: isActive === 'true' ? 'Active' : 'Inactive', clear: () => { resetPage(); setIsActive(null); } } : null,
+  ].filter(Boolean) as Array<{ label: string; clear: () => void }>;
+
+  const clearAllFilters = () => {
+    resetPage();
+    setPaymentType(null);
+    setIsActive(null);
+  };
 
   const customers = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
   const rows = (customers?.data ?? []) as Array<{
@@ -44,27 +61,104 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     customerCode: string;
     paymentType?: 'MONTHLY' | 'CASH';
     isActive?: boolean;
+    deliverySchedules?: Array<{ dayOfWeek: number; van?: { plateNumber: string } }>;
   }>;
   const total = customers?.meta?.total ?? 0;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row items-center gap-4 bg-card/30 p-4 rounded-2xl border border-border/50">
+    <div className="space-y-4">
+      {/* Primary filter bar */}
+      <div className="flex flex-col sm:flex-row items-center gap-3 bg-card/30 p-4 rounded-2xl border border-border/50">
         <div className="flex-1 w-full">
           <SearchInput placeholder="Search name, phone or code..." onBeforeChange={resetPage} />
         </div>
         <RouteFilter onBeforeChange={resetPage} />
-        <Select value={paymentType || 'all'} onValueChange={(v) => { resetPage(); setPaymentType(v === 'all' ? null : v as 'MONTHLY' | 'CASH'); }}>
-          <SelectTrigger className="w-[160px] rounded-xl bg-background/50 border-border/50">
-            <SelectValue placeholder="All Types" />
-          </SelectTrigger>
-          <SelectContent className="rounded-xl border-border/50 shadow-2xl">
-            <SelectItem value="all">All Types</SelectItem>
-            <SelectItem value="CASH">Cash</SelectItem>
-            <SelectItem value="MONTHLY">Monthly</SelectItem>
-          </SelectContent>
-        </Select>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setFiltersOpen(true)}
+          className={cn(
+            "rounded-xl h-10 px-4 gap-2 font-semibold shrink-0",
+            activeFilters.length > 0 && "border-primary text-primary"
+          )}
+        >
+          <SlidersHorizontal className="h-4 w-4" />
+          Filters
+          {activeFilters.length > 0 && (
+            <Badge className="h-5 w-5 p-0 flex items-center justify-center rounded-full text-[10px] font-black">
+              {activeFilters.length}
+            </Badge>
+          )}
+        </Button>
       </div>
+
+      {/* Active filter chips */}
+      {activeFilters.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 px-1">
+          {activeFilters.map((f) => (
+            <button
+              key={f.label}
+              onClick={f.clear}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold hover:bg-primary/20 transition-colors"
+            >
+              {f.label}
+              <X className="h-3 w-3" />
+            </button>
+          ))}
+          <button
+            onClick={clearAllFilters}
+            className="text-xs text-muted-foreground hover:text-foreground font-semibold underline-offset-2 hover:underline transition-colors"
+          >
+            Clear all
+          </button>
+        </div>
+      )}
+
+      {/* More Filters drawer */}
+      <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-sm bg-background/95 backdrop-blur-xl border-l border-border/50">
+          <SheetHeader className="pb-6 border-b">
+            <SheetTitle className="flex items-center gap-2 text-lg font-bold">
+              <SlidersHorizontal className="h-5 w-5 text-primary" /> More Filters
+            </SheetTitle>
+          </SheetHeader>
+          <div className="space-y-6 py-6">
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Payment Type</Label>
+              <Select value={paymentType || 'all'} onValueChange={(v) => { resetPage(); setPaymentType(v === 'all' ? null : v as 'MONTHLY' | 'CASH'); }}>
+                <SelectTrigger className="rounded-xl bg-background/50 border-border/50 h-10">
+                  <SelectValue placeholder="All Types" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-border/50 shadow-2xl">
+                  <SelectItem value="all">All Types</SelectItem>
+                  <SelectItem value="CASH">Cash</SelectItem>
+                  <SelectItem value="MONTHLY">Monthly</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Status</Label>
+              <Select value={isActive || 'all'} onValueChange={(v) => { resetPage(); setIsActive(v === 'all' ? null : v); }}>
+                <SelectTrigger className="rounded-xl bg-background/50 border-border/50 h-10">
+                  <SelectValue placeholder="All Status" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-border/50 shadow-2xl">
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="true">Active</SelectItem>
+                  <SelectItem value="false">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          {activeFilters.length > 0 && (
+            <div className="border-t pt-4">
+              <Button variant="ghost" className="w-full rounded-xl text-muted-foreground" onClick={() => { clearAllFilters(); setFiltersOpen(false); }}>
+                <X className="h-4 w-4 mr-2" /> Clear All Filters
+              </Button>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
 
       <DataTable
         data={rows}
@@ -128,6 +222,29 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             )
           },
           {
+            key: 'deliveryDays',
+            header: 'Delivery Days',
+            cell: (r) => {
+              const DAY_SHORT: Record<number, string> = { 0: 'Sun', 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat' };
+              const schedules = r.deliverySchedules ?? [];
+              if (schedules.length === 0) return <span className="text-xs text-muted-foreground">—</span>;
+              return (
+                <div className="flex flex-wrap gap-1">
+                  {schedules.map((s, i) => (
+                    <div key={i} className="flex items-center gap-0.5">
+                      <Badge variant="secondary" className="text-[9px] font-black px-1.5 py-0 bg-primary/10 text-primary border-primary/20 rounded-full">
+                        {DAY_SHORT[s.dayOfWeek] ?? s.dayOfWeek}
+                      </Badge>
+                      {s.van?.plateNumber && (
+                        <span className="text-[9px] text-muted-foreground font-mono">{s.van.plateNumber}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              );
+            }
+          },
+          {
             key: 'paymentType',
             header: 'Type',
             cell: (r) => (
@@ -179,8 +296,8 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                     <Pencil className="mr-2 h-4 w-4 text-orange-500" />
                     <span className="font-medium text-sm">Edit Details</span>
                   </DropdownMenuItem>
-                  <div className="h-[1px] bg-border/50 my-1" />
-                  {r.isActive !== false ? (
+                  {isAdmin && <div className="h-[1px] bg-border/50 my-1" />}
+                  {isAdmin && (r.isActive !== false ? (
                     <DropdownMenuItem
                       onClick={() => setDeactivateId(r.id)}
                       className="rounded-lg cursor-pointer px-2 py-2 text-orange-500 focus:text-orange-500 focus:bg-orange-500/10"
@@ -197,14 +314,16 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                       <Power className="mr-2 h-4 w-4" />
                       <span className="font-medium text-sm">Reactivate</span>
                     </DropdownMenuItem>
+                  ))}
+                  {isAdmin && (
+                    <DropdownMenuItem
+                      onClick={() => setDeleteId(r.id)}
+                      className="rounded-lg cursor-pointer px-2 py-2 text-destructive focus:text-destructive focus:bg-destructive/10"
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      <span className="font-medium text-sm">Delete Customer</span>
+                    </DropdownMenuItem>
                   )}
-                  <DropdownMenuItem
-                    onClick={() => setDeleteId(r.id)}
-                    className="rounded-lg cursor-pointer px-2 py-2 text-destructive focus:text-destructive focus:bg-destructive/10"
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    <span className="font-medium text-sm">Delete Customer</span>
-                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             ),
