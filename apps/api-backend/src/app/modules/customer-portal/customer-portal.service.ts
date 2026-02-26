@@ -2,9 +2,9 @@ import { Injectable, NotFoundException, ForbiddenException, BadRequestException 
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '@water-supply-crm/database';
 import { paginate } from '../../common/helpers/paginate';
-import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { CustomerService } from '../customer/customer.service';
 import { PortalDeliveriesQueryDto } from './dto/portal-deliveries-query.dto';
+import { PortalTransactionsQueryDto } from './dto/portal-transactions-query.dto';
 
 @Injectable()
 export class CustomerPortalService {
@@ -159,11 +159,24 @@ export class CustomerPortalService {
     };
   }
 
-  async getTransactions(userId: string, pagination: PaginationQueryDto) {
+  async getTransactions(userId: string, query: PortalTransactionsQueryDto) {
     const customer = await this.getCustomer(userId);
-    const { page = 1, limit = 20 } = pagination;
+    const { page = 1, limit = 20, type, dateFrom, dateTo, search } = query;
 
-    const where = { customerId: customer.id, vendorId: customer.vendorId };
+    const where: any = { customerId: customer.id, vendorId: customer.vendorId };
+    if (type) where.type = type;
+    if (dateFrom || dateTo) {
+      where.createdAt = {};
+      if (dateFrom) where.createdAt.gte = new Date(dateFrom);
+      if (dateTo) {
+        const end = new Date(dateTo);
+        end.setHours(23, 59, 59, 999);
+        where.createdAt.lte = end;
+      }
+    }
+    if (search) {
+      where.description = { contains: search, mode: 'insensitive' };
+    }
 
     const [data, total] = await Promise.all([
       this.prisma.transaction.findMany({

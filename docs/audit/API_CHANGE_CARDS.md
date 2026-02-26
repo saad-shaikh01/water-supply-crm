@@ -394,7 +394,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-014 - Portal Transactions Server-Side Filters
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /portal/transactions`

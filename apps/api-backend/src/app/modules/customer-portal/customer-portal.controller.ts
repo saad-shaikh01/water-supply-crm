@@ -2,7 +2,7 @@ import { Controller, Get, Post, Query, Body, UseGuards, Res } from '@nestjs/comm
 import { UserRole } from '@prisma/client';
 import { Response } from 'express';
 import { CustomerPortalService } from './customer-portal.service';
-import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
+import { PortalTransactionsQueryDto } from './dto/portal-transactions-query.dto';
 import { PortalDeliveriesQueryDto } from './dto/portal-deliveries-query.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { StatementQueryDto } from '../customer/dto/statement-query.dto';
@@ -42,9 +42,9 @@ export class CustomerPortalController {
   @Get('transactions')
   getTransactions(
     @CurrentUser() user: any,
-    @Query() pagination: PaginationQueryDto,
+    @Query() query: PortalTransactionsQueryDto,
   ) {
-    return this.portalService.getTransactions(user.userId, pagination);
+    return this.portalService.getTransactions(user.userId, query);
   }
 
   @Get('deliveries')
