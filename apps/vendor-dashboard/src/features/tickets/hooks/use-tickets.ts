@@ -8,8 +8,19 @@ export const useTickets = () => {
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
   const [type, setType] = useQueryState('type', parseAsString.withDefault(''));
   const [status, setStatus] = useQueryState('status', parseAsString.withDefault(''));
+  const [priority, setPriority] = useQueryState('priority', parseAsString.withDefault(''));
+  const [from] = useQueryState('from', parseAsString.withDefault(''));
+  const [to] = useQueryState('to', parseAsString.withDefault(''));
 
-  const params = { page, limit, type: type || undefined, status: status || undefined };
+  const params = {
+    page,
+    limit,
+    type: type || undefined,
+    status: status || undefined,
+    priority: priority || undefined,
+    dateFrom: from || undefined,
+    dateTo: to || undefined,
+  };
 
   return {
     ...useQuery({
@@ -24,6 +35,8 @@ export const useTickets = () => {
     setType,
     status,
     setStatus,
+    priority,
+    setPriority,
   };
 };
 

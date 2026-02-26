@@ -32,6 +32,7 @@ import { hasMinRole } from '../../../lib/rbac';
 interface CustomerWallet {
   balance: number;
   product: { name: string };
+  productId?: string;
 }
 
 interface DeliveryItem {
@@ -597,7 +598,8 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             paginatedItems.map((item, idx) => {
               const isExpanded = expandedItemId === item.id;
               const customer = item.customer;
-              const walletBalance = customer?.wallets?.[0]?.balance ?? 0;
+              const matchedWallet = customer?.wallets?.find((w) => w.productId === item.productId) ?? customer?.wallets?.[0];
+              const walletBalance = matchedWallet?.balance ?? 0;
 
               return (
                 <motion.div

@@ -9,6 +9,8 @@ export const useCustomers = () => {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
   const [routeId] = useQueryState('routeId', parseAsString.withDefault(''));
+  const [vanId] = useQueryState('vanId', parseAsString.withDefault(''));
+  const [dayOfWeek] = useQueryState('dayOfWeek', parseAsInteger.withDefault(0));
   const [paymentType] = useQueryState('paymentType', parseAsString.withDefault(''));
   const [isActive, setIsActive] = useQueryState('isActive', parseAsString.withDefault(''));
   const [balanceMin] = useQueryState('balanceMin', parseAsFloat.withDefault(NaN));
@@ -21,6 +23,8 @@ export const useCustomers = () => {
     page,
     limit,
     routeId: routeId || undefined,
+    vanId: vanId || undefined,
+    dayOfWeek: dayOfWeek || undefined,
     paymentType: (paymentType as 'MONTHLY' | 'CASH') || undefined,
     isActive: isActive === 'true' ? true : isActive === 'false' ? false : undefined,
     balanceMin: !isNaN(balanceMin) ? balanceMin : undefined,
@@ -40,6 +44,8 @@ export const useCustomers = () => {
     limit,
     setLimit,
     routeId,
+    vanId,
+    dayOfWeek,
     paymentType,
     isActive,
     setIsActive,

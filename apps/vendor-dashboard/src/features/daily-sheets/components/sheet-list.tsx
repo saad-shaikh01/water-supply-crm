@@ -37,6 +37,8 @@ export function SheetList() {
     driver?: { name: string };
     van?: { plateNumber: string };
     _count?: { items: number };
+    itemCounts?: { pending: number; completed: number; issues: number };
+    tripState?: { tripCount: number; hasActiveTrip: boolean };
   }>;
   const total = sheets?.meta?.total ?? 0;
 
@@ -208,13 +210,48 @@ export function SheetList() {
           },
           {
             key: 'items',
-            header: 'Load',
-            cell: (r) => (
-              <div className="flex flex-col">
-                <span className="text-sm font-bold">{r._count?.items ?? 0} Items</span>
-                <span className="text-[10px] text-muted-foreground">Planned Deliveries</span>
-              </div>
-            )
+            header: 'Items',
+            cell: (r) => {
+              if (r.itemCounts) {
+                const total = r.itemCounts.pending + r.itemCounts.completed + r.itemCounts.issues;
+                return (
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-sm font-bold">{total} Items</span>
+                    <div className="flex items-center gap-2 text-[10px] font-mono">
+                      <span className="text-muted-foreground">{r.itemCounts.completed}✓</span>
+                      <span className="text-amber-500">{r.itemCounts.pending}⏳</span>
+                      {r.itemCounts.issues > 0 && (
+                        <span className="text-destructive">{r.itemCounts.issues}!</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <div className="flex flex-col">
+                  <span className="text-sm font-bold">{r._count?.items ?? 0} Items</span>
+                  <span className="text-[10px] text-muted-foreground">Planned Deliveries</span>
+                </div>
+              );
+            }
+          },
+          {
+            key: 'trips',
+            header: 'Trips',
+            cell: (r) => {
+              if (!r.tripState) return <span className="text-[10px] text-muted-foreground">—</span>;
+              return (
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-sm font-bold">{r.tripState.tripCount}</span>
+                  {r.tripState.hasActiveTrip && (
+                    <span className="text-[10px] text-emerald-500 font-semibold flex items-center gap-1">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
+                      Active
+                    </span>
+                  )}
+                </div>
+              );
+            }
           },
           {
             key: 'bottles',

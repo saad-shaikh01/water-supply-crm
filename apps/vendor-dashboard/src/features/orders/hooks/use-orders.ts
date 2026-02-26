@@ -7,8 +7,18 @@ export const useOrders = () => {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
   const [status, setStatus] = useQueryState('status', parseAsString.withDefault(''));
+  const [search, setSearch] = useQueryState('search', parseAsString.withDefault(''));
+  const [from] = useQueryState('from', parseAsString.withDefault(''));
+  const [to] = useQueryState('to', parseAsString.withDefault(''));
 
-  const params = { page, limit, status: status || undefined };
+  const params = {
+    page,
+    limit,
+    status: status || undefined,
+    search: search || undefined,
+    dateFrom: from || undefined,
+    dateTo: to || undefined,
+  };
 
   return {
     ...useQuery({
@@ -21,6 +31,8 @@ export const useOrders = () => {
     setLimit,
     status,
     setStatus,
+    search,
+    setSearch,
   };
 };
 

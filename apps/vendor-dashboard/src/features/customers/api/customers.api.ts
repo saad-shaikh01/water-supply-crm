@@ -5,6 +5,8 @@ export interface CustomerQuery {
   page?: number;
   limit?: number;
   routeId?: string;
+  vanId?: string;
+  dayOfWeek?: number;
   paymentType?: 'MONTHLY' | 'CASH';
   isActive?: boolean;
   balanceMin?: number;

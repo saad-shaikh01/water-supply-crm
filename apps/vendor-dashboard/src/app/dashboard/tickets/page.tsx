@@ -1,13 +1,15 @@
 'use client';
 
 import { Suspense, useState } from 'react';
-import { MessageSquare, MessageCircle } from 'lucide-react';
+import { MessageCircle } from 'lucide-react';
 import { Badge } from '@water-supply-crm/ui';
 import { Button } from '@water-supply-crm/ui';
 import { cn } from '@water-supply-crm/ui';
 import { PageHeader } from '../../../components/shared/page-header';
 import { DataTable } from '../../../components/shared/data-table';
 import { StatusBadge } from '../../../components/shared/status-badge';
+import { SearchInput } from '../../../components/shared/filters/search-input';
+import { DateRangePicker } from '../../../components/shared/date-range-picker';
 import { useTickets, useReplyTicket } from '../../../features/tickets/hooks/use-tickets';
 import { TicketReplyDialog } from '../../../features/tickets/components/ticket-reply-dialog';
 
@@ -25,6 +27,14 @@ const STATUS_OPTIONS = [
   { value: 'CLOSED', label: 'Closed' },
 ];
 
+const PRIORITY_OPTIONS = [
+  { value: '', label: 'All Priorities' },
+  { value: 'LOW', label: 'Low' },
+  { value: 'NORMAL', label: 'Normal' },
+  { value: 'HIGH', label: 'High' },
+  { value: 'URGENT', label: 'Urgent' },
+];
+
 const PRIORITY_COLOR: Record<string, string> = {
   LOW:    'bg-muted text-muted-foreground',
   NORMAL: 'bg-blue-500/10 text-blue-600',
@@ -38,7 +48,7 @@ const TYPE_COLOR: Record<string, string> = {
 };
 
 function TicketsContent() {
-  const { data, isLoading, page, setPage, limit, setLimit, type, setType, status, setStatus } = useTickets();
+  const { data, isLoading, page, setPage, limit, setLimit, type, setType, status, setStatus, priority, setPriority } = useTickets();
   const { mutate: replyTicket, isPending: isReplying } = useReplyTicket();
   const [selectedTicket, setSelectedTicket] = useState<any>(null);
 
@@ -53,32 +63,50 @@ function TicketsContent() {
       />
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-3 items-center">
-        <div className="flex gap-1">
-          {TYPE_TABS.map((tab) => (
-            <button
-              key={tab.value}
-              onClick={() => { setType(tab.value || null); setPage(1); }}
-              className={cn(
-                'px-4 py-2 rounded-xl text-xs font-bold transition-all border',
-                type === tab.value
-                  ? 'bg-primary text-primary-foreground border-transparent shadow-lg shadow-primary/20'
-                  : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground',
-              )}
-            >
-              {tab.label}
-            </button>
-          ))}
+      <div className="space-y-3">
+        <div className="flex flex-wrap gap-3 items-center">
+          <div className="flex gap-1">
+            {TYPE_TABS.map((tab) => (
+              <button
+                key={tab.value}
+                onClick={() => { setType(tab.value || null); setPage(1); }}
+                className={cn(
+                  'px-4 py-2 rounded-xl text-xs font-bold transition-all border',
+                  type === tab.value
+                    ? 'bg-primary text-primary-foreground border-transparent shadow-lg shadow-primary/20'
+                    : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground',
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <select
+            value={status}
+            onChange={(e) => { setStatus(e.target.value || null); setPage(1); }}
+            className="rounded-xl border border-border bg-background px-3 py-2 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-primary/50"
+          >
+            {STATUS_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+          <select
+            value={priority}
+            onChange={(e) => { setPriority(e.target.value || null); setPage(1); }}
+            className="rounded-xl border border-border bg-background px-3 py-2 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-primary/50"
+          >
+            {PRIORITY_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
         </div>
-        <select
-          value={status}
-          onChange={(e) => { setStatus(e.target.value || null); setPage(1); }}
-          className="rounded-xl border border-border bg-background px-3 py-2 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-primary/50"
-        >
-          {STATUS_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
-          ))}
-        </select>
+        <div className="flex flex-wrap gap-3 items-center">
+          <SearchInput
+            placeholder="Search subject, description, or customer…"
+            onBeforeChange={() => setPage(1)}
+          />
+          <DateRangePicker className="w-[220px]" />
+        </div>
       </div>
 
       <DataTable

@@ -32,7 +32,7 @@ Owner:
 ## Active Cards
 
 ## API-001 - Customers List Filter by Delivery Day and Van
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /customers`
@@ -59,7 +59,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-002 - Daily Sheets List Operational Aggregates
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /daily-sheets`
@@ -84,7 +84,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-003 - Daily Sheet Detail Wallet Product Mapping
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /daily-sheets/:id`
@@ -154,7 +154,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-006 - Orders and Tickets STAFF Access Alignment
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /orders`, `PATCH /orders/:id/approve`, `PATCH /orders/:id/reject`
@@ -181,7 +181,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-007 - Orders List Advanced Filters
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /orders`
@@ -208,7 +208,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-008 - Tickets List Advanced Filters
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /tickets`
