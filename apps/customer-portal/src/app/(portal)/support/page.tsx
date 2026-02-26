@@ -29,9 +29,18 @@ const TYPE_TABS = [
   { value: 'FEEDBACK', label: 'Feedback' },
 ];
 
+const STATUS_TABS = [
+  { value: '', label: 'All Statuses' },
+  { value: 'OPEN', label: 'Open' },
+  { value: 'IN_PROGRESS', label: 'In Progress' },
+  { value: 'RESOLVED', label: 'Resolved' },
+  { value: 'CLOSED', label: 'Closed' },
+];
+
 function SupportContent() {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [typeFilter, setTypeFilter] = useQueryState('type', parseAsString.withDefault(''));
+  const [statusFilter, setStatusFilter] = useQueryState('status', parseAsString.withDefault(''));
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<any>(null);
 
@@ -39,6 +48,7 @@ function SupportContent() {
     page,
     limit: 20,
     type: typeFilter || undefined,
+    status: statusFilter || undefined,
   });
 
   const tickets = (data as any)?.data ?? [];
@@ -80,6 +90,27 @@ function SupportContent() {
               typeFilter === tab.value
                 ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
                 : 'bg-accent/50 text-muted-foreground hover:bg-accent hover:text-foreground',
+            )}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex gap-2 flex-wrap">
+        {STATUS_TABS.map((tab) => (
+          <button
+            type="button"
+            key={tab.value || 'ALL_STATUS'}
+            onClick={() => {
+              setStatusFilter(tab.value || null);
+              setPage(1);
+            }}
+            className={cn(
+              'px-4 py-2 rounded-xl text-xs font-bold transition-all',
+              statusFilter === tab.value
+                ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
+                : 'bg-accent/50 text-muted-foreground hover:bg-accent hover:text-foreground'
             )}
           >
             {tab.label}
@@ -136,10 +167,17 @@ function SupportContent() {
                         {new Date(ticket.createdAt).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' })}
                       </span>
                     </div>
+                    {ticket.vendorReply ? (
+                      <p className="mt-1 text-[11px] text-emerald-700 dark:text-emerald-400 line-clamp-1">
+                        Vendor: {ticket.vendorReply}
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-[11px] text-muted-foreground/70">Awaiting vendor response</p>
+                    )}
                   </div>
                   {ticket.vendorReply && (
                     <div className="shrink-0">
-                      <span className="text-[10px] font-bold text-emerald-600 bg-emerald-500/10 px-2 py-1 rounded-lg">Reply</span>
+                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-500/15 px-2 py-1 rounded-lg">Vendor Replied</span>
                     </div>
                   )}
                 </CardContent>
