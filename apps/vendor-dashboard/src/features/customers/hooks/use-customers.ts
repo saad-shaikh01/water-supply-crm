@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useQueryState, parseAsInteger, parseAsString } from 'nuqs';
+import { useQueryState, parseAsInteger, parseAsString, parseAsFloat } from 'nuqs';
 import { toast } from 'sonner';
 import { customersApi } from '../api/customers.api';
 import { queryKeys } from '../../../lib/query-keys';
@@ -11,6 +11,10 @@ export const useCustomers = () => {
   const [routeId] = useQueryState('routeId', parseAsString.withDefault(''));
   const [paymentType] = useQueryState('paymentType', parseAsString.withDefault(''));
   const [isActive, setIsActive] = useQueryState('isActive', parseAsString.withDefault(''));
+  const [balanceMin] = useQueryState('balanceMin', parseAsFloat.withDefault(NaN));
+  const [balanceMax] = useQueryState('balanceMax', parseAsFloat.withDefault(NaN));
+  const [sort] = useQueryState('sort', parseAsString.withDefault(''));
+  const [sortDir] = useQueryState('sortDir', parseAsString.withDefault(''));
 
   const params = {
     search: search || undefined,
@@ -19,6 +23,10 @@ export const useCustomers = () => {
     routeId: routeId || undefined,
     paymentType: (paymentType as 'MONTHLY' | 'CASH') || undefined,
     isActive: isActive === 'true' ? true : isActive === 'false' ? false : undefined,
+    balanceMin: !isNaN(balanceMin) ? balanceMin : undefined,
+    balanceMax: !isNaN(balanceMax) ? balanceMax : undefined,
+    sort: sort || undefined,
+    sortDir: (sortDir as 'asc' | 'desc') || undefined,
   };
 
   return {
@@ -35,6 +43,10 @@ export const useCustomers = () => {
     paymentType,
     isActive,
     setIsActive,
+    balanceMin,
+    balanceMax,
+    sort,
+    sortDir,
   };
 };
 

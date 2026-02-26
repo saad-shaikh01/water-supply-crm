@@ -9,6 +9,8 @@ export interface CustomerQuery {
   isActive?: boolean;
   balanceMin?: number;
   balanceMax?: number;
+  sort?: string;
+  sortDir?: 'asc' | 'desc';
 }
 
 export const customersApi = {
