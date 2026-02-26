@@ -274,7 +274,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-010 - On-Demand Order Dispatch Planning
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `POST /orders/:id/dispatch-plan`

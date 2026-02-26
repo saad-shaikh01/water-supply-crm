@@ -415,6 +415,21 @@ enum IssueResolution {
   CANCELLED
 }
 
+enum DispatchStatus {
+  UNPLANNED
+  PLANNED
+  INSERTED_IN_SHEET
+  DELIVERED
+  FAILED
+  SELF_PICKUP_DONE
+  CANCELLED
+}
+
+enum DispatchMode {
+  INSERT_IN_OPEN_SHEET
+  QUEUE_FOR_GENERATION
+}
+
 enum OrderStatus {
   PENDING
   APPROVED
@@ -453,6 +468,19 @@ model CustomerOrder {
   reviewedBy      String?
   reviewedAt      DateTime?
   rejectionReason String?
+
+  // Dispatch planning
+  dispatchStatus   DispatchStatus @default(UNPLANNED)
+  targetDate       DateTime?
+  timeWindow       String?
+  dispatchVanId    String?
+  dispatchDriverId String?
+  dispatchMode     DispatchMode?
+  dispatchNotes    String?
+  plannedAt        DateTime?
+  plannedById      String?
+  dispatchedAt     DateTime?
+
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
@@ -461,6 +489,7 @@ model CustomerOrder {
   product  Product  @relation(fields: [productId], references: [id])
 
   @@index([vendorId, status])
+  @@index([vendorId, dispatchStatus])
   @@index([customerId])
 }
 
