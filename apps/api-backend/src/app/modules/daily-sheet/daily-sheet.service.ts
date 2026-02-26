@@ -22,6 +22,7 @@ import { LedgerService } from '../transaction/ledger.service';
 import { AuditService } from '../audit/audit.service';
 import { FcmService } from '../fcm/fcm.service';
 import { DeliveryIssueService } from '../delivery-issue/delivery-issue.service';
+import { InsertOrderItemDto, SequenceMode } from './dto/insert-order-item.dto';
 import { paginate } from '../../common/helpers/paginate';
 
 @Injectable()
@@ -174,14 +175,21 @@ export class DailySheetService {
     if (vanId) where.vanId = vanId;
     if (isClosed !== undefined) where.isClosed = isClosed;
 
-    const [data, total] = await Promise.all([
+    const [sheets, total] = await Promise.all([
       this.prisma.dailySheet.findMany({
         where,
         include: {
           route: { select: { id: true, name: true } },
           van: { select: { id: true, plateNumber: true } },
           driver: { select: { id: true, name: true } },
-          _count: { select: { items: true } },
+          items: {
+            select: {
+              status: true,
+              deliveryType: true,
+              deliveryIssue: { select: { id: true, status: true } },
+            },
+          },
+          loads: { select: { endedAt: true } },
         },
         orderBy: { date: sortDir },
         skip: (page - 1) * limit,
@@ -189,6 +197,28 @@ export class DailySheetService {
       }),
       this.prisma.dailySheet.count({ where }),
     ]);
+
+    const data = sheets.map(({ items, loads, ...sheet }) => {
+      const issueCount = items.filter((i) => i.deliveryIssue !== null).length;
+      const onDemandCount = items.filter((i) => i.deliveryType === 'ON_DEMAND').length;
+      const itemCounts = {
+        pending: items.filter((i) => i.status === 'PENDING').length,
+        completed: items.filter((i) => i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY').length,
+        issues: items.filter((i) => ['NOT_AVAILABLE', 'RESCHEDULED', 'CANCELLED'].includes(i.status)).length,
+      };
+      const tripState = {
+        tripCount: loads.length,
+        hasActiveTrip: loads.some((l) => l.endedAt === null),
+      };
+      return {
+        ...sheet,
+        _count: { items: items.length },
+        itemCounts,
+        tripState,
+        issueCount,
+        onDemandCount,
+      };
+    });
 
     return paginate(data, total, page, limit);
   }
@@ -209,7 +239,7 @@ export class DailySheetService {
                 deliveryInstructions: true, latitude: true, longitude: true,
                 phoneNumber: true, paymentType: true, financialBalance: true,
                 wallets: {
-                  select: { balance: true, product: { select: { name: true } } },
+                  select: { productId: true, balance: true, product: { select: { name: true } } },
                 },
               },
             },
@@ -226,6 +256,55 @@ export class DailySheetService {
       throw new NotFoundException('Daily sheet not found');
     }
     return sheet;
+  }
+
+  async insertItemFromOrder(vendorId: string, sheetId: string, dto: InsertOrderItemDto) {
+    const sheet = await this.prisma.dailySheet.findFirst({
+      where: { id: sheetId, vendorId },
+      include: { _count: { select: { items: true } } },
+    });
+    if (!sheet) throw new NotFoundException('Daily sheet not found');
+    if (sheet.isClosed) throw new ConflictException('Cannot insert into a closed sheet');
+
+    const order = await this.prisma.customerOrder.findUnique({ where: { id: dto.orderId } });
+    if (!order || order.vendorId !== vendorId) throw new NotFoundException('Order not found');
+    if (order.status !== 'APPROVED') {
+      throw new BadRequestException('Only APPROVED orders can be inserted into a sheet');
+    }
+
+    // Idempotency: check if an item for this order already exists in this sheet
+    const existing = await this.prisma.dailySheetItem.findFirst({
+      where: { dailySheetId: sheetId, sourceOrderId: dto.orderId },
+    });
+    if (existing) return existing;
+
+    const sequence =
+      dto.sequenceMode === SequenceMode.CUSTOM && dto.sequence
+        ? dto.sequence
+        : sheet._count.items + 1;
+
+    return this.prisma.$transaction(async (tx) => {
+      const item = await tx.dailySheetItem.create({
+        data: {
+          dailySheetId: sheetId,
+          customerId: order.customerId,
+          productId: order.productId,
+          sequence,
+          deliveryType: 'ON_DEMAND',
+          sourceOrderId: order.id,
+        },
+      });
+
+      await tx.customerOrder.update({
+        where: { id: order.id },
+        data: {
+          dispatchStatus: 'INSERTED_IN_SHEET',
+          dispatchedAt: new Date(),
+        },
+      });
+
+      return item;
+    });
   }
 
   async createLoad(vendorId: string, sheetId: string, dto: CreateLoadDto) {

@@ -306,7 +306,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-011 - Daily Sheet Item Source Linking for On-Demand Orders
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `POST /daily-sheets/:id/items/from-order`

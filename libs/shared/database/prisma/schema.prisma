@@ -29,6 +29,11 @@ enum DeliveryStatus {
   CANCELLED
 }
 
+enum DeliveryType {
+  SCHEDULED
+  ON_DEMAND
+}
+
 enum TransactionType {
   DELIVERY
   COLLECTION
@@ -302,7 +307,9 @@ model DailySheetItem {
   
   sequence      Int
   status        DeliveryStatus @default(PENDING)
-  
+  deliveryType  DeliveryType   @default(SCHEDULED)
+  sourceOrderId String?
+
   filledDropped Int      @default(0)
   emptyReceived Int      @default(0)
   cashCollected Float    @default(0)
