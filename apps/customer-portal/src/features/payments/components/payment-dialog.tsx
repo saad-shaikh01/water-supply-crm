@@ -27,7 +27,7 @@ interface PaymentDialogProps {
   suggestedAmount?: number;
 }
 
-const TERMINAL_QR_STATUSES = ['PAID', 'EXPIRED', 'REJECTED'] as const;
+const TERMINAL_QR_STATUSES = ['PAID', 'APPROVED', 'EXPIRED', 'REJECTED'] as const;
 
 const QR_STATUS_CONFIG: Record<string, { title: string; message: string; chipClass: string; iconClass: string; icon: typeof Clock3 }> = {
   PENDING: {
@@ -47,6 +47,13 @@ const QR_STATUS_CONFIG: Record<string, { title: string; message: string; chipCla
   PAID: {
     title: 'Payment Received',
     message: 'Payment is confirmed and your account will refresh shortly.',
+    chipClass: 'bg-emerald-500/10 text-emerald-600',
+    iconClass: 'bg-emerald-500/10 border-emerald-500 text-emerald-600',
+    icon: CheckCircle2,
+  },
+  APPROVED: {
+    title: 'Payment Approved',
+    message: 'Payment was approved and account widgets are refreshing.',
     chipClass: 'bg-emerald-500/10 text-emerald-600',
     iconClass: 'bg-emerald-500/10 border-emerald-500 text-emerald-600',
     icon: CheckCircle2,
@@ -101,7 +108,11 @@ export function PaymentDialog({ open, onOpenChange, suggestedAmount = 0 }: Payme
     if (!qrPaymentId || !isTerminalQrStatus || hasSyncedTerminalState) return;
     setHasSyncedTerminalState(true);
     queryClient.invalidateQueries({ queryKey: ['payment-history'] });
-  }, [hasSyncedTerminalState, isTerminalQrStatus, qrPaymentId, queryClient]);
+    if (currentQrStatus === 'PAID' || currentQrStatus === 'APPROVED') {
+      queryClient.invalidateQueries({ queryKey: ['portal-balance'] });
+      queryClient.invalidateQueries({ queryKey: ['portal-summary'] });
+    }
+  }, [currentQrStatus, hasSyncedTerminalState, isTerminalQrStatus, qrPaymentId, queryClient]);
 
   const handleInitiateRaast = () => {
     if (!amount || Number(amount) <= 0) return;

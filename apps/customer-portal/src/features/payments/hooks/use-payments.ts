@@ -21,6 +21,8 @@ export const useSubmitManualPayment = () => {
     mutationFn: (data: FormData) => paymentsApi.submitManualPayment(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['payment-history'] });
+      queryClient.invalidateQueries({ queryKey: ['portal-balance'] });
+      queryClient.invalidateQueries({ queryKey: ['portal-summary'] });
       toast.success('Payment proof submitted for review');
     },
     onError: () => toast.error('Failed to submit payment proof'),
