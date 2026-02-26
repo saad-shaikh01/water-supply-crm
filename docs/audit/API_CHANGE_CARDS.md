@@ -32,7 +32,7 @@ Owner:
 ## Active Cards
 
 ## API-001 - Customers List Filter by Delivery Day and Van
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /customers`

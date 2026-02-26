@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useQueryState, parseAsString } from 'nuqs';
+import { useQueryState, parseAsString, parseAsInteger } from 'nuqs';
 import { MoreHorizontal, Pencil, Trash2, Eye, MapPin, Phone, PowerOff, Power, SlidersHorizontal, X } from 'lucide-react';
 import {
   Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -13,6 +13,7 @@ import { DataTable } from '../../../components/shared/data-table';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { SearchInput } from '../../../components/shared/filters/search-input';
 import { RouteFilter } from '../../../components/shared/filters/route-filter';
+import { VanFilter } from '../../../components/shared/filters/van-filter';
 import { useCustomers, useDeleteCustomer, useDeactivateCustomer, useReactivateCustomer } from '../hooks/use-customers';
 import { CustomerForm } from './customer-form';
 import { cn } from '@water-supply-crm/ui';
@@ -35,6 +36,10 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const [editCustomer, setEditCustomer] = useState<Record<string, unknown> | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [paymentType, setPaymentType] = useQueryState('paymentType', parseAsString.withDefault(''));
+  const [vanId, setVanId] = useQueryState('vanId', parseAsString.withDefault(''));
+  const [dayOfWeek, setDayOfWeek] = useQueryState('dayOfWeek', parseAsInteger.withDefault(0));
+
+  const DAY_NAMES: Record<number, string> = { 1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday', 6: 'Saturday' };
 
   // Reset to page 1 whenever any filter changes
   const resetPage = () => setPage(1);
@@ -42,12 +47,16 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const activeFilters = [
     paymentType ? { label: `Type: ${paymentType}`, clear: () => { resetPage(); setPaymentType(null); } } : null,
     isActive ? { label: isActive === 'true' ? 'Active' : 'Inactive', clear: () => { resetPage(); setIsActive(null); } } : null,
+    dayOfWeek ? { label: `Day: ${DAY_NAMES[dayOfWeek] ?? dayOfWeek}`, clear: () => { resetPage(); setDayOfWeek(null); } } : null,
+    vanId ? { label: 'Van filter', clear: () => { resetPage(); setVanId(null); } } : null,
   ].filter(Boolean) as Array<{ label: string; clear: () => void }>;
 
   const clearAllFilters = () => {
     resetPage();
     setPaymentType(null);
     setIsActive(null);
+    setDayOfWeek(null);
+    setVanId(null);
   };
 
   const customers = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
@@ -148,6 +157,27 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                   <SelectItem value="false">Inactive</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Delivery Day</Label>
+              <Select
+                value={dayOfWeek ? String(dayOfWeek) : 'all'}
+                onValueChange={(v) => { resetPage(); setDayOfWeek(v === 'all' ? null : Number(v)); }}
+              >
+                <SelectTrigger className="rounded-xl bg-background/50 border-border/50 h-10">
+                  <SelectValue placeholder="All Days" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-border/50 shadow-2xl">
+                  <SelectItem value="all">All Days</SelectItem>
+                  {Object.entries(DAY_NAMES).map(([val, name]) => (
+                    <SelectItem key={val} value={val}>{name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Van</Label>
+              <VanFilter onBeforeChange={resetPage} />
             </div>
           </div>
           {activeFilters.length > 0 && (
