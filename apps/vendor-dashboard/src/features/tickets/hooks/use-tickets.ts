@@ -9,8 +9,9 @@ export const useTickets = () => {
   const [type, setType] = useQueryState('type', parseAsString.withDefault(''));
   const [status, setStatus] = useQueryState('status', parseAsString.withDefault(''));
   const [priority, setPriority] = useQueryState('priority', parseAsString.withDefault(''));
-  const [from] = useQueryState('from', parseAsString.withDefault(''));
-  const [to] = useQueryState('to', parseAsString.withDefault(''));
+  const [search, setSearch] = useQueryState('search', parseAsString.withDefault(''));
+  const [from, setFrom] = useQueryState('from', parseAsString.withDefault(''));
+  const [to, setTo] = useQueryState('to', parseAsString.withDefault(''));
 
   const params = {
     page,
@@ -18,6 +19,7 @@ export const useTickets = () => {
     type: type || undefined,
     status: status || undefined,
     priority: priority || undefined,
+    search: search || undefined,
     dateFrom: from || undefined,
     dateTo: to || undefined,
   };
@@ -37,6 +39,12 @@ export const useTickets = () => {
     setStatus,
     priority,
     setPriority,
+    search,
+    setSearch,
+    from,
+    setFrom,
+    to,
+    setTo,
   };
 };
 
