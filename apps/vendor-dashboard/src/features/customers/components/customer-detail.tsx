@@ -17,6 +17,7 @@ import {
   useRemoveCustomPrice,
   useCustomerSchedule,
 } from '../hooks/use-customers';
+import { customersApi } from '../api/customers.api';
 import { useProducts } from '../../products/hooks/use-products';
 import { PageHeader } from '../../../components/shared/page-header';
 import { TransactionList } from '../../transactions/components/transaction-list';
@@ -69,22 +70,17 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
 
   const handleStatementDownload = async () => {
     try {
-      const { default: axios } = await import('axios');
-      const { getCookie } = await import('cookies-next');
-      const token = getCookie('auth_token');
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
-      const res = await axios.get(`${apiUrl}/customers/${customerId}/statement?month=${consumptionMonth}`, {
-        responseType: 'blob',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const url = URL.createObjectURL(res.data);
+      const res = await customersApi.getStatement(customerId, { month: consumptionMonth });
+      const blob = res.data as Blob;
+      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = `statement-${customerId}-${consumptionMonth}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      // silent — no toast needed if statement not available
+      const { toast } = await import('sonner');
+      toast.error('Statement not available for this period');
     }
   };
 
