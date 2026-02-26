@@ -154,7 +154,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-006 - Orders and Tickets STAFF Access Alignment
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /orders`, `PATCH /orders/:id/approve`, `PATCH /orders/:id/reject`
