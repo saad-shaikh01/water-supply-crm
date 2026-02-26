@@ -48,6 +48,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     customerCode: string;
     paymentType?: 'MONTHLY' | 'CASH';
     isActive?: boolean;
+    deliverySchedules?: Array<{ dayOfWeek: number; van?: { plateNumber: string } }>;
   }>;
   const total = customers?.meta?.total ?? 0;
 
@@ -140,6 +141,29 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                 {r.route?.name ?? 'Unassigned'}
               </Badge>
             )
+          },
+          {
+            key: 'deliveryDays',
+            header: 'Delivery Days',
+            cell: (r) => {
+              const DAY_SHORT: Record<number, string> = { 0: 'Sun', 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat' };
+              const schedules = r.deliverySchedules ?? [];
+              if (schedules.length === 0) return <span className="text-xs text-muted-foreground">—</span>;
+              return (
+                <div className="flex flex-wrap gap-1">
+                  {schedules.map((s, i) => (
+                    <div key={i} className="flex items-center gap-0.5">
+                      <Badge variant="secondary" className="text-[9px] font-black px-1.5 py-0 bg-primary/10 text-primary border-primary/20 rounded-full">
+                        {DAY_SHORT[s.dayOfWeek] ?? s.dayOfWeek}
+                      </Badge>
+                      {s.van?.plateNumber && (
+                        <span className="text-[9px] text-muted-foreground font-mono">{s.van.plateNumber}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              );
+            }
           },
           {
             key: 'paymentType',
