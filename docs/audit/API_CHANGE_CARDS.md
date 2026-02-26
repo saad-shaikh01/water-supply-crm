@@ -232,3 +232,163 @@ Backward compatibility:
 Owner:
 - Requester: Frontend planning (Codex)
 - API steward: Backend owner
+
+## API-009 - Delivery Issues Domain + Ops Workflow Endpoints
+Status: PROPOSED
+
+Endpoint:
+- `GET /delivery-issues`
+- `GET /delivery-issues/:id`
+- `PATCH /delivery-issues/:id/plan`
+- `PATCH /delivery-issues/:id/resolve`
+
+Request diff:
+- New delivery issue workflow model decoupled from raw item status.
+- `plan` request should support:
+  - `nextAction` (`RETRY_SAME_DAY | RETRY_ON_DATE_TIME | MOVE_TO_NEXT_REGULAR_DAY | SELF_PICKUP | CANCEL_ONE_OFF | PERMANENT_STOP`)
+  - `retryAt` (optional, required for explicit retry datetime)
+  - `assignedToUserId` (optional)
+  - `assignedVanId` (optional)
+  - `assignedDriverId` (optional)
+  - `notes` (optional)
+- `resolve` request should support:
+  - `resolution` (`DELIVERED | SELF_PICKUP_DONE | DROPPED | CANCELLED`)
+  - `notes` (optional)
+
+Response diff:
+- Additive new resource:
+  - issue identity
+  - linked `dailySheetItemId`
+  - workflow status (`OPEN | PLANNED | IN_RETRY | RESOLVED | DROPPED`)
+  - ownership, due/aging fields, audit metadata
+
+Affected pages:
+- `/dashboard/daily-sheets/:id`
+- `/dashboard/delivery-issues`
+
+Backward compatibility:
+- Yes. New endpoints/resource; existing sheet APIs remain valid.
+
+Owner:
+- Requester: Frontend planning (Codex)
+- API steward: Backend owner
+
+## API-010 - On-Demand Order Dispatch Planning
+Status: PROPOSED
+
+Endpoint:
+- `POST /orders/:id/dispatch-plan`
+- `PATCH /orders/:id/dispatch-plan`
+- `POST /orders/:id/dispatch-now`
+
+Request diff:
+- Add dispatch planning payload:
+  - `targetDate`
+  - `timeWindow` (optional)
+  - `vanId` (optional)
+  - `driverId` (optional)
+  - `dispatchMode` (`INSERT_IN_OPEN_SHEET | QUEUE_FOR_GENERATION`)
+  - `notes` (optional)
+
+Response diff:
+- Add dispatch object in order response:
+  - `dispatchStatus` (`UNPLANNED | PLANNED | INSERTED_IN_SHEET | DELIVERED | FAILED | SELF_PICKUP_DONE | CANCELLED`)
+  - `plannedAt`, `plannedBy`, `targetDate`, assignment refs
+
+Affected pages:
+- `/dashboard/orders`
+
+Backward compatibility:
+- Yes. Existing approval/reject endpoints unchanged; new planning endpoints are additive.
+
+Owner:
+- Requester: Frontend planning (Codex)
+- API steward: Backend owner
+
+## API-011 - Daily Sheet Item Source Linking for On-Demand Orders
+Status: PROPOSED
+
+Endpoint:
+- `POST /daily-sheets/:id/items/from-order`
+- `GET /daily-sheets`
+- `GET /daily-sheets/:id`
+
+Request diff:
+- Add manual insertion endpoint from approved/planned order into a sheet:
+  - `orderId`
+  - optional `sequenceMode` (`APPEND | CUSTOM`)
+  - optional `sequence`
+
+Response diff:
+- In sheet list rows add additive counters:
+  - `issueCount`
+  - `onDemandCount`
+- In sheet detail items add additive fields:
+  - `sourceOrderId` (nullable)
+  - `deliveryType` (`SCHEDULED | ON_DEMAND`)
+
+Affected pages:
+- `/dashboard/daily-sheets`
+- `/dashboard/daily-sheets/:id`
+- `/dashboard/orders`
+
+Backward compatibility:
+- Yes. Additive fields and new endpoint.
+
+Owner:
+- Requester: Frontend planning (Codex)
+- API steward: Backend owner
+
+## API-012 - Generation Pipeline Includes Planned On-Demand Orders
+Status: PROPOSED
+
+Endpoint:
+- `POST /daily-sheets/generate`
+
+Request diff:
+- No request shape change required.
+
+Response diff:
+- Generation must include approved + planned on-demand orders for target date with idempotency safeguards.
+- Job result should include additive summary:
+  - `insertedOnDemandCount`
+  - `skippedOnDemand` (with reason list)
+
+Affected pages:
+- `/dashboard/daily-sheets`
+- `/dashboard/orders`
+
+Backward compatibility:
+- Yes. Existing request works unchanged; generation behavior is enhanced.
+
+Owner:
+- Requester: Frontend planning (Codex)
+- API steward: Backend owner
+
+## API-013 - Ops Analytics for Issues and On-Demand Fulfillment
+Status: PROPOSED
+
+Endpoint:
+- `GET /analytics/deliveries` (extended)
+- `GET /dashboard/overview` (extended optional KPIs)
+
+Request diff:
+- No request shape change required.
+
+Response diff:
+- Add additive KPI fields:
+  - `openIssues`
+  - `issueAgingBuckets`
+  - `onDemandFulfillmentRate`
+  - `retrySuccessRate`
+
+Affected pages:
+- `/dashboard/analytics`
+- `/dashboard/overview` (optional KPI cards)
+
+Backward compatibility:
+- Yes. Additive fields only.
+
+Owner:
+- Requester: Frontend planning (Codex)
+- API steward: Backend owner
