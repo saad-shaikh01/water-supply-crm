@@ -14,12 +14,16 @@ import { StatusBadge } from '../../../components/shared/status-badge';
 import { useProducts, useDeleteProduct, useToggleProduct } from '../hooks/use-products';
 import { useQueryState, parseAsString } from 'nuqs';
 import { cn } from '@water-supply-crm/ui';
+import { useAuthStore } from '../../../store/auth.store';
+import { hasMinRole } from '../../../lib/rbac';
 
 interface ProductListProps {
   onEdit: (product: Record<string, unknown>) => void;
 }
 
 export function ProductList({ onEdit }: ProductListProps) {
+  const user = useAuthStore((s) => s.user);
+  const isAdmin = user ? hasMinRole(user.role, 'VENDOR_ADMIN') : false;
   const { data, isLoading, page, setPage, limit, setLimit } = useProducts();
   const { mutate: deleteProduct, isPending: isDeleting } = useDeleteProduct();
   const { mutate: toggleProduct } = useToggleProduct();
@@ -160,20 +164,24 @@ export function ProductList({ onEdit }: ProductListProps) {
                     <Pencil className="mr-2 h-4 w-4 text-orange-500" /> 
                     <span className="font-medium text-sm">Edit Product</span>
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => toggleProduct(r.id)} className="rounded-lg cursor-pointer px-2 py-2">
-                    {r.isActive
-                      ? <><ToggleLeft className="mr-2 h-4 w-4 text-muted-foreground" /> <span className="font-medium text-sm">Deactivate</span></>
-                      : <><ToggleRight className="mr-2 h-4 w-4 text-emerald-500" /> <span className="font-medium text-sm text-emerald-500">Activate</span></>
-                    }
-                  </DropdownMenuItem>
-                  <div className="h-[1px] bg-border/50 my-1" />
-                  <DropdownMenuItem
-                    onClick={() => setDeleteId(r.id)}
-                    className="rounded-lg cursor-pointer px-2 py-2 text-destructive focus:text-destructive focus:bg-destructive/10"
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" /> 
-                    <span className="font-medium text-sm">Remove Product</span>
-                  </DropdownMenuItem>
+                  {isAdmin && (
+                    <DropdownMenuItem onClick={() => toggleProduct(r.id)} className="rounded-lg cursor-pointer px-2 py-2">
+                      {r.isActive
+                        ? <><ToggleLeft className="mr-2 h-4 w-4 text-muted-foreground" /> <span className="font-medium text-sm">Deactivate</span></>
+                        : <><ToggleRight className="mr-2 h-4 w-4 text-emerald-500" /> <span className="font-medium text-sm text-emerald-500">Activate</span></>
+                      }
+                    </DropdownMenuItem>
+                  )}
+                  {isAdmin && <div className="h-[1px] bg-border/50 my-1" />}
+                  {isAdmin && (
+                    <DropdownMenuItem
+                      onClick={() => setDeleteId(r.id)}
+                      className="rounded-lg cursor-pointer px-2 py-2 text-destructive focus:text-destructive focus:bg-destructive/10"
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      <span className="font-medium text-sm">Remove Product</span>
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             ),
