@@ -366,7 +366,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-013 - Ops Analytics for Issues and On-Demand Fulfillment
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /analytics/deliveries` (extended)
