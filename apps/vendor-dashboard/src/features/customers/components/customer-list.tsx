@@ -21,7 +21,7 @@ interface CustomerListProps {
 }
 
 export function CustomerList({ onAdd: _ }: CustomerListProps) {
-  const { data, isLoading, page, setPage, limit, setLimit } = useCustomers();
+  const { data, isLoading, page, setPage, limit, setLimit, isActive, setIsActive } = useCustomers();
   const { mutate: deleteCustomer, isPending: isDeleting } = useDeleteCustomer();
   const { mutate: deactivateCustomer, isPending: isDeactivating } = useDeactivateCustomer();
   const { mutate: reactivateCustomer, isPending: isReactivating } = useReactivateCustomer();
@@ -62,6 +62,16 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             <SelectItem value="all">All Types</SelectItem>
             <SelectItem value="CASH">Cash</SelectItem>
             <SelectItem value="MONTHLY">Monthly</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={isActive || 'all'} onValueChange={(v) => { resetPage(); setIsActive(v === 'all' ? null : v); }}>
+          <SelectTrigger className="w-[140px] rounded-xl bg-background/50 border-border/50">
+            <SelectValue placeholder="All Status" />
+          </SelectTrigger>
+          <SelectContent className="rounded-xl border-border/50 shadow-2xl">
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="true">Active</SelectItem>
+            <SelectItem value="false">Inactive</SelectItem>
           </SelectContent>
         </Select>
       </div>

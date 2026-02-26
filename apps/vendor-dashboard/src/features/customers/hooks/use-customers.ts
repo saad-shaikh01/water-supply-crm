@@ -10,6 +10,7 @@ export const useCustomers = () => {
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
   const [routeId] = useQueryState('routeId', parseAsString.withDefault(''));
   const [paymentType] = useQueryState('paymentType', parseAsString.withDefault(''));
+  const [isActive, setIsActive] = useQueryState('isActive', parseAsString.withDefault(''));
 
   const params = {
     search: search || undefined,
@@ -17,6 +18,7 @@ export const useCustomers = () => {
     limit,
     routeId: routeId || undefined,
     paymentType: (paymentType as 'MONTHLY' | 'CASH') || undefined,
+    isActive: isActive === 'true' ? true : isActive === 'false' ? false : undefined,
   };
 
   return {
@@ -31,6 +33,8 @@ export const useCustomers = () => {
     setLimit,
     routeId,
     paymentType,
+    isActive,
+    setIsActive,
   };
 };
 
