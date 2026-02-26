@@ -474,7 +474,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-017 - Portal Products Effective Price Field
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /portal/products`

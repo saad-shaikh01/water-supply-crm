@@ -258,11 +258,25 @@ export class CustomerPortalService {
 
   async getProducts(userId: string) {
     const customer = await this.getCustomer(userId);
-    return this.prisma.product.findMany({
-      where: { vendorId: customer.vendorId, isActive: true },
-      select: { id: true, name: true, basePrice: true },
-      orderBy: { name: 'asc' },
-    });
+
+    const [products, customPrices] = await Promise.all([
+      this.prisma.product.findMany({
+        where: { vendorId: customer.vendorId, isActive: true },
+        select: { id: true, name: true, basePrice: true },
+        orderBy: { name: 'asc' },
+      }),
+      this.prisma.customerProductPrice.findMany({
+        where: { customerId: customer.id },
+        select: { productId: true, customPrice: true },
+      }),
+    ]);
+
+    const priceMap = new Map(customPrices.map((cp) => [cp.productId, cp.customPrice]));
+
+    return products.map((p) => ({
+      ...p,
+      effectivePrice: priceMap.get(p.id) ?? p.basePrice,
+    }));
   }
 
   async changePassword(
