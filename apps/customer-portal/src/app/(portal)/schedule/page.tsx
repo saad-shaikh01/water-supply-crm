@@ -8,6 +8,13 @@ import { cn } from '@water-supply-crm/ui';
 
 const DAY_LABELS: Record<number, string> = { 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 7: 'Sun' };
 
+function formatLocalDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export default function SchedulePage() {
   // Fix B3: pass 6-week date range so schedule is never empty
   const from = new Date();
@@ -16,8 +23,8 @@ export default function SchedulePage() {
   to.setDate(to.getDate() + 28);
 
   const { data, isLoading: scheduleLoading } = useDeliverySchedule({
-    from: from.toISOString().split('T')[0],
-    to: to.toISOString().split('T')[0],
+    from: formatLocalDate(from),
+    to: formatLocalDate(to),
   });
   const { data: profile, isLoading: profileLoading } = usePortalProfile();
 
