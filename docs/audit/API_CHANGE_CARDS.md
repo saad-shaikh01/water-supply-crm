@@ -84,7 +84,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-003 - Daily Sheet Detail Wallet Product Mapping
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /daily-sheets/:id`
