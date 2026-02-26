@@ -15,6 +15,7 @@ import {
   useCustomerConsumption,
   useSetCustomPrice,
   useRemoveCustomPrice,
+  useCustomerSchedule,
 } from '../hooks/use-customers';
 import { useProducts } from '../../products/hooks/use-products';
 import { PageHeader } from '../../../components/shared/page-header';
@@ -52,10 +53,17 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
   const [customPriceOpen, setCustomPriceOpen] = useState(false);
   const [customPriceForm, setCustomPriceForm] = useState({ productId: '', customPrice: '' });
   const [consumptionMonth, setConsumptionMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [scheduleRange, setScheduleRange] = useState<{ dateFrom: string; dateTo: string }>(() => {
+    const now = new Date();
+    const from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    const to = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+    return { dateFrom: from, dateTo: to };
+  });
 
   const { mutate: setCustomPrice, isPending: isSavingPrice } = useSetCustomPrice();
   const { mutate: removeCustomPrice } = useRemoveCustomPrice();
   const { data: consumptionData, isLoading: isLoadingConsumption } = useCustomerConsumption(customerId, consumptionMonth);
+  const { data: scheduleData, isLoading: isLoadingSchedule } = useCustomerSchedule(customerId, scheduleRange);
   const { data: productsData } = useProducts();
   const allProducts = (productsData as any)?.data ?? [];
 
@@ -227,6 +235,9 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
           <TabsTrigger value="consumption" className="rounded-xl font-bold px-5 py-2 transition-all">
             Consumption
           </TabsTrigger>
+          <TabsTrigger value="schedule" className="rounded-xl font-bold px-5 py-2 transition-all">
+            Schedule
+          </TabsTrigger>
           <TabsTrigger value="prices" className="rounded-xl font-bold px-5 py-2 transition-all">
             Custom Pricing
           </TabsTrigger>
@@ -349,6 +360,72 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                           ))}
                         </div>
                       )}
+                    </div>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="schedule">
+            <Card className="rounded-3xl border-border/50 bg-card/30 backdrop-blur-sm">
+              <CardHeader className="border-b bg-muted/20 px-6 py-4 flex flex-row items-center justify-between">
+                <CardTitle className="text-base font-bold flex items-center gap-2">
+                  <Calendar className="h-4 w-4 text-primary" /> Delivery Schedule
+                </CardTitle>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={scheduleRange.dateFrom}
+                    onChange={(e) => setScheduleRange((p) => ({ ...p, dateFrom: e.target.value }))}
+                    className="h-8 px-2 rounded-lg border border-border/50 bg-background text-xs font-medium focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  />
+                  <span className="text-xs text-muted-foreground">to</span>
+                  <input
+                    type="date"
+                    value={scheduleRange.dateTo}
+                    onChange={(e) => setScheduleRange((p) => ({ ...p, dateTo: e.target.value }))}
+                    className="h-8 px-2 rounded-lg border border-border/50 bg-background text-xs font-medium focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  />
+                </div>
+              </CardHeader>
+              <CardContent className="p-6">
+                {isLoadingSchedule ? (
+                  <div className="space-y-3">
+                    {[1, 2, 3].map((i) => <div key={i} className="h-14 bg-muted/30 rounded-2xl animate-pulse" />)}
+                  </div>
+                ) : (() => {
+                  const items = (scheduleData as any[]) ?? [];
+                  if (items.length === 0) {
+                    return <p className="text-sm text-muted-foreground text-center py-10">No scheduled deliveries in this date range.</p>;
+                  }
+                  const STATUS_COLORS: Record<string, string> = {
+                    COMPLETED: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
+                    EMPTY_ONLY: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
+                    PENDING: 'bg-amber-500/10 text-amber-600 border-amber-500/20',
+                    RESCHEDULED: 'bg-orange-500/10 text-orange-600 border-orange-500/20',
+                    CANCELLED: 'bg-destructive/10 text-destructive border-destructive/20',
+                    NOT_AVAILABLE: 'bg-destructive/10 text-destructive border-destructive/20',
+                  };
+                  return (
+                    <div className="divide-y divide-border/50 border border-border/50 rounded-2xl overflow-hidden">
+                      <div className="grid grid-cols-4 px-4 py-2 bg-muted/20 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                        <span>Date</span><span>Product</span><span className="text-right">Qty</span><span className="text-right">Status</span>
+                      </div>
+                      {items.map((item: any) => (
+                        <div key={item.id} className="grid grid-cols-4 px-4 py-3 hover:bg-accent/20 transition-colors items-center">
+                          <span className="text-xs font-semibold">
+                            {new Date(item.date ?? item.dailySheet?.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}
+                          </span>
+                          <span className="text-xs font-semibold">{item.product?.name ?? '—'}</span>
+                          <span className="text-xs font-mono text-right">{item.filledDropped ?? 0}</span>
+                          <div className="flex justify-end">
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${STATUS_COLORS[item.status] ?? 'bg-muted text-muted-foreground border-muted'}`}>
+                              {item.status}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   );
                 })()}

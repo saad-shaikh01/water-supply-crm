@@ -152,6 +152,13 @@ export const useCustomerConsumption = (id: string, month?: string) =>
     enabled: !!id,
   });
 
+export const useCustomerSchedule = (id: string, params?: { dateFrom?: string; dateTo?: string }) =>
+  useQuery({
+    queryKey: ['customers', id, 'schedule', params],
+    queryFn: () => customersApi.getSchedule(id, params).then((r) => r.data),
+    enabled: !!id,
+  });
+
 export const useSetCustomPrice = () => {
   const queryClient = useQueryClient();
   return useMutation({
