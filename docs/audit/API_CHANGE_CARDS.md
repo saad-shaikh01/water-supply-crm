@@ -208,7 +208,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-008 - Tickets List Advanced Filters
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /tickets`
