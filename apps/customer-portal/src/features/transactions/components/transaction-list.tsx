@@ -8,13 +8,14 @@ import {
   TableHeader,
   TableRow,
   Badge,
-  Button,
   Skeleton,
   DataTablePagination,
+  Card,
+  CardContent,
+  cn,
 } from '@water-supply-crm/ui';
-import { Calendar, Receipt, FileText, Inbox } from 'lucide-react';
+import { Calendar, FileText, Inbox } from 'lucide-react';
 import { useTransactions } from '../hooks/use-transactions';
-import { cn } from '@water-supply-crm/ui';
 
 interface TransactionListProps {
   typeFilter?: string;
@@ -23,7 +24,7 @@ interface TransactionListProps {
 export function TransactionList({ typeFilter }: TransactionListProps) {
   const { data, isLoading, page, setPage, limit, setLimit } = useTransactions();
 
-  const response = (data as { data?: any[]; meta?: { total: number } } | undefined);
+  const response = data as { data?: any[]; meta?: { total: number } } | undefined;
   const allTransactions = response?.data ?? [];
   const total = response?.meta?.total ?? 0;
 
@@ -35,7 +36,18 @@ export function TransactionList({ typeFilter }: TransactionListProps) {
   if (isLoading) {
     return (
       <div className="space-y-4">
-        <div className="rounded-2xl border border-border/50 overflow-hidden">
+        <div className="space-y-3 sm:hidden">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i} className="rounded-2xl border-border/50 bg-card/50">
+              <CardContent className="p-4 space-y-2">
+                <Skeleton className="h-4 w-2/3" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-1/3" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <div className="hidden sm:block rounded-2xl border border-border/50 overflow-hidden">
           <div className="h-12 bg-muted/30 border-b border-border/50" />
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="flex items-center gap-4 p-4 border-b border-border/50 last:border-0">
@@ -49,7 +61,47 @@ export function TransactionList({ typeFilter }: TransactionListProps) {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-[2rem] border border-border/50 bg-card/30 backdrop-blur-sm overflow-hidden shadow-sm">
+      <div className="space-y-3 sm:hidden">
+        {transactions.length === 0 ? (
+          <Card className="bg-card/50">
+            <CardContent className="h-64 flex flex-col items-center justify-center text-center space-y-2 opacity-60">
+              <Inbox className="h-10 w-10 text-muted-foreground/50" />
+              <p className="text-sm font-bold text-muted-foreground">No transactions found</p>
+            </CardContent>
+          </Card>
+        ) : (
+          transactions.map((tx: any) => {
+            const isPayment = tx.amount < 0;
+            return (
+              <Card key={tx.id} className="rounded-2xl border-border/50 bg-card/50">
+                <CardContent className="p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1 min-w-0">
+                      <p className="text-sm font-bold truncate">{tx.description || tx.type.replace('_', ' ')}</p>
+                      <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                        <Calendar className="h-3 w-3" />
+                        {new Date(tx.createdAt).toLocaleDateString(undefined, {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric',
+                        })}
+                      </p>
+                    </div>
+                    <Badge variant={isPayment ? 'success' : 'outline'} className="text-[9px] font-black tracking-widest shrink-0">
+                      {tx.type}
+                    </Badge>
+                  </div>
+                  <p className={cn('text-right font-mono font-black text-base', isPayment ? 'text-emerald-500' : 'text-destructive')}>
+                    {isPayment ? '-' : '+'} Rs {Math.abs(tx.amount).toLocaleString()}
+                  </p>
+                </CardContent>
+              </Card>
+            );
+          })
+        )}
+      </div>
+
+      <div className="hidden sm:block rounded-[2rem] border border-border/50 bg-card/30 backdrop-blur-sm overflow-hidden shadow-sm">
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/20 hover:bg-muted/20 border-b border-border/50">
@@ -77,7 +129,7 @@ export function TransactionList({ typeFilter }: TransactionListProps) {
                     key={tx.id}
                     className={cn(
                       'group transition-colors border-b border-border/50 last:border-0 hover:bg-primary/[0.02]',
-                      idx % 2 === 0 ? 'bg-transparent' : 'bg-muted/5',
+                      idx % 2 === 0 ? 'bg-transparent' : 'bg-muted/5'
                     )}
                   >
                     <TableCell className="py-4 pl-6">
@@ -101,19 +153,13 @@ export function TransactionList({ typeFilter }: TransactionListProps) {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        variant={isPayment ? 'success' : 'outline'}
-                        className="text-[9px] font-black tracking-widest"
-                      >
+                      <Badge variant={isPayment ? 'success' : 'outline'} className="text-[9px] font-black tracking-widest">
                         {tx.type}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right pr-6">
-                      <div className={cn(
-                        'font-mono font-black text-sm',
-                        isPayment ? 'text-emerald-500' : 'text-destructive',
-                      )}>
-                        {isPayment ? '-' : '+'} ₨ {Math.abs(tx.amount).toLocaleString()}
+                      <div className={cn('font-mono font-black text-sm', isPayment ? 'text-emerald-500' : 'text-destructive')}>
+                        {isPayment ? '-' : '+'} Rs {Math.abs(tx.amount).toLocaleString()}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -124,13 +170,7 @@ export function TransactionList({ typeFilter }: TransactionListProps) {
         </Table>
       </div>
 
-      <DataTablePagination
-        page={page}
-        limit={limit}
-        total={total}
-        onPageChange={setPage}
-        onLimitChange={setLimit}
-      />
+      <DataTablePagination page={page} limit={limit} total={total} onPageChange={setPage} onLimitChange={setLimit} />
     </div>
   );
 }
