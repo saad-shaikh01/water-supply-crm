@@ -340,7 +340,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-012 - Generation Pipeline Includes Planned On-Demand Orders
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `POST /daily-sheets/generate`
