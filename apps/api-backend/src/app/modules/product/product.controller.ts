@@ -1,5 +1,6 @@
 import {
   Controller,
+  Delete,
   Get,
   Post,
   Patch,
@@ -57,5 +58,12 @@ export class ProductController {
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   toggleActive(@CurrentUser() user: any, @Param('id') id: string) {
     return this.productService.toggleActive(user.vendorId, id);
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.VENDOR_ADMIN)
+  @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
+  remove(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.productService.remove(user.vendorId, id);
   }
 }

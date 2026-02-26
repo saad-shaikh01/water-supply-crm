@@ -107,7 +107,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-004 - Products Delete Endpoint Contract
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `DELETE /products/:id`
@@ -130,7 +130,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-005 - Routes List Filters (Search + Default Van)
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /routes`
@@ -234,7 +234,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-009 - Delivery Issues Domain + Ops Workflow Endpoints
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /delivery-issues`
@@ -274,7 +274,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-010 - On-Demand Order Dispatch Planning
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `POST /orders/:id/dispatch-plan`
@@ -306,7 +306,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-011 - Daily Sheet Item Source Linking for On-Demand Orders
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `POST /daily-sheets/:id/items/from-order`
@@ -340,7 +340,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-012 - Generation Pipeline Includes Planned On-Demand Orders
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `POST /daily-sheets/generate`
@@ -366,7 +366,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-013 - Ops Analytics for Issues and On-Demand Fulfillment
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /analytics/deliveries` (extended)
@@ -388,6 +388,198 @@ Affected pages:
 
 Backward compatibility:
 - Yes. Additive fields only.
+
+Owner:
+- Requester: Frontend planning (Codex)
+- API steward: Backend owner
+
+## API-014 - Portal Transactions Server-Side Filters
+Status: PROPOSED
+
+Endpoint:
+- `GET /portal/transactions`
+
+Request diff:
+- Add optional query params:
+  - `type` (`PAYMENT | DELIVERY | ADJUSTMENT`)
+  - `dateFrom` (YYYY-MM-DD)
+  - `dateTo` (YYYY-MM-DD)
+  - `search` (optional text against description)
+
+Response diff:
+- No response shape change required.
+
+Affected pages:
+- `customer-portal` `/transactions`
+- `customer-portal` `/home` (recent activity consistency)
+
+Backward compatibility:
+- Yes. Optional query params only.
+
+Owner:
+- Requester: Frontend planning (Codex)
+- API steward: Backend owner
+
+## API-015 - Portal Order Fulfillment Lifecycle Visibility
+Status: PROPOSED
+
+Endpoint:
+- `GET /portal/orders`
+- `GET /portal/orders/:id` (optional new detail endpoint)
+
+Request diff:
+- Optional: add status filters for new lifecycle states.
+
+Response diff:
+- Extend order response with additive fields:
+  - `fulfillmentStatus` (`PENDING_APPROVAL | APPROVED | PLANNED | OUT_FOR_DELIVERY | DELIVERED | REJECTED | CANCELLED`)
+  - `plannedDate` (nullable)
+  - `deliveredAt` (nullable)
+  - `dispatchContext` (van/driver/sheet reference when available)
+
+Affected pages:
+- `customer-portal` `/orders`
+
+Backward compatibility:
+- Yes. Additive fields; existing status can remain for compatibility.
+
+Owner:
+- Requester: Frontend planning (Codex)
+- API steward: Backend owner
+
+## API-016 - Portal Tickets Conversation + Attachments
+Status: PROPOSED
+
+Endpoint:
+- `GET /portal/tickets/:id/messages` (new)
+- `POST /portal/tickets/:id/messages` (new)
+
+Request diff:
+- Message payload:
+  - `message` (string)
+  - optional `attachments[]`
+
+Response diff:
+- Add conversation timeline resource:
+  - `id`, `ticketId`, `senderRole`, `message`, `attachments[]`, `createdAt`
+
+Affected pages:
+- `customer-portal` `/support`
+
+Backward compatibility:
+- Yes. Existing ticket endpoints unchanged.
+
+Owner:
+- Requester: Frontend planning (Codex)
+- API steward: Backend owner
+
+## API-017 - Portal Products Effective Price Field
+Status: PROPOSED
+
+Endpoint:
+- `GET /portal/products`
+
+Request diff:
+- No request change required.
+
+Response diff:
+- Add additive field:
+  - `effectivePrice` (custom price fallback to base price)
+
+Affected pages:
+- `customer-portal` `/orders`
+
+Backward compatibility:
+- Yes. Additive field only.
+
+Owner:
+- Requester: Frontend planning (Codex)
+- API steward: Backend owner
+
+## API-018 - Portal Notifications Feed (Future)
+Status: PROPOSED
+
+Endpoint:
+- `GET /portal/notifications`
+- `PATCH /portal/notifications/:id/read`
+- `PATCH /portal/notifications/read-all`
+
+Request diff:
+- Optional pagination + filter by `isRead`.
+
+Response diff:
+- Notification payload:
+  - `id`, `type`, `title`, `message`, `entityId`, `isRead`, `createdAt`
+
+Affected pages:
+- `customer-portal` all pages (header bell)
+
+Backward compatibility:
+- Yes. New endpoint set only.
+
+Owner:
+- Requester: Frontend planning (Codex)
+- API steward: Backend owner
+
+## API-019 - Notification Delivery Log + Admin Query Endpoints
+Status: PROPOSED
+
+Endpoint:
+- `GET /notifications/logs`
+- `GET /notifications/logs/:id`
+
+Request diff:
+- Add optional filters:
+  - `eventType`
+  - `channel` (`WHATSAPP | FCM | SMS | IN_APP`)
+  - `status` (`QUEUED | SENT | FAILED`)
+  - `dateFrom`
+  - `dateTo`
+  - `recipientType` (`CUSTOMER | USER`)
+  - `recipientId`
+
+Response diff:
+- New delivery log resource:
+  - `id`, `eventType`, `channel`, `status`
+  - `recipientType`, `recipientId`, `recipientAddress`
+  - `entityType`, `entityId`
+  - `attemptCount`, `lastError`
+  - `queuedAt`, `sentAt`, `failedAt`
+
+Affected pages:
+- Vendor dashboard notification operations (future)
+- Admin panel observability (future)
+
+Backward compatibility:
+- Yes. Additive new endpoints.
+
+Owner:
+- Requester: Frontend planning (Codex)
+- API steward: Backend owner
+
+## API-020 - Notification Preferences Endpoints
+Status: PROPOSED
+
+Endpoint:
+- `GET /notifications/preferences`
+- `PATCH /notifications/preferences`
+
+Request diff:
+- Preference payload by event type and channel:
+  - `eventType`
+  - `channel`
+  - `enabled` (boolean)
+
+Response diff:
+- Preference list/resource:
+  - `id`, `eventType`, `channel`, `enabled`, `updatedAt`
+
+Affected pages:
+- Customer portal profile/preferences (future)
+- Vendor dashboard user settings (future)
+
+Backward compatibility:
+- Yes. New endpoints only.
 
 Owner:
 - Requester: Frontend planning (Codex)

@@ -37,12 +37,27 @@ export class RouteService {
   }
 
   async findAllPaginated(vendorId: string, query: any) {
-    const { page = 1, limit = 20 } = query;
-    const cacheKey = this.cache.vendorKey(vendorId, `${CACHE_KEYS.ROUTES}:p:${page}:l:${limit}`);
-    const cached = await this.cache.get(cacheKey);
-    if (cached) return cached;
+    const { page = 1, limit = 20, search, defaultVanId } = query;
 
-    const where = { vendorId };
+    const where: any = { vendorId };
+    if (search) {
+      where.name = { contains: search, mode: 'insensitive' };
+    }
+    if (defaultVanId) {
+      where.defaultVanId = defaultVanId;
+    }
+
+    const hasFilters = !!(search || defaultVanId);
+    const cacheKey = this.cache.vendorKey(
+      vendorId,
+      `${CACHE_KEYS.ROUTES}:p:${page}:l:${limit}:s:${search || ''}:v:${defaultVanId || ''}`,
+    );
+
+    if (!hasFilters) {
+      const cached = await this.cache.get(cacheKey);
+      if (cached) return cached;
+    }
+
     const [data, total] = await Promise.all([
       this.prisma.route.findMany({
         where,
@@ -63,7 +78,9 @@ export class RouteService {
     ]);
 
     const result = paginate(data, total, page, limit);
-    await this.cache.set(cacheKey, result, CACHE_TTLS.ROUTES);
+    if (!hasFilters) {
+      await this.cache.set(cacheKey, result, CACHE_TTLS.ROUTES);
+    }
     return result;
   }
 

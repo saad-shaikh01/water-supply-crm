@@ -14,7 +14,7 @@ import { UserRole } from '@prisma/client';
 import { RouteService } from './route.service';
 import { CreateRouteDto } from './dto/create-route.dto';
 import { UpdateRouteDto } from './dto/update-route.dto';
-import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
+import { RouteQueryDto } from './dto/route-query.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -33,7 +33,7 @@ export class RouteController {
   }
 
   @Get()
-  findAll(@CurrentUser() user: any, @Query() query: PaginationQueryDto) {
+  findAll(@CurrentUser() user: any, @Query() query: RouteQueryDto) {
     return this.routeService.findAllPaginated(user.vendorId, query);
   }
 
