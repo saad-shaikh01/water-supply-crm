@@ -27,7 +27,7 @@ Primary Owner: Agent C
 | CP-011 | Profile (`profile-card.tsx`) | Bug Fix | Add Sunday (`7`) day label mapping and ensure schedule day labels consistent across app. | Low | Agent C | DONE | - | Day labels display correctly for all 1..7 days. |
 | CP-012 | Portal state invalidation | Reliability | Invalidate relevant queries (`portal-balance`, `portal-summary`, `payment-history`) on payment state transitions. | Medium | Agent C | DONE | - | Balance/summary/widgets refresh after successful payment status update. |
 | CP-013 | UX consistency layer | UX Improvement | Standardize error/empty/loading/retry patterns across orders, payments, support, transactions. | Medium | Agent C | DONE | - | Shared behavior and visual consistency across all portal list pages. |
-| CP-014 | QA coverage | Quality | Add real e2e smoke tests (login, pay flow shell, order create/cancel, ticket create, statement download trigger). | High | Agent C | READY | - | Replace placeholder tests with runnable scenario tests. |
+| CP-014 | QA coverage | Quality | Add real e2e smoke tests (login, pay flow shell, order create/cancel, ticket create, statement download trigger). | High | Agent C | DONE | - | Replace placeholder tests with runnable scenario tests. |
 
 ## Enhancement Sprint (After Closure)
 
