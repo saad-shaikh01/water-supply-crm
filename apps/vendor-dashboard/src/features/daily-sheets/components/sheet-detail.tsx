@@ -136,7 +136,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
     { value: 'CUSTOMER_SELF_PICKUP', label: 'Customer Self Pickup' },
     { value: 'VAN_BREAKDOWN', label: 'Van Breakdown' },
     { value: 'ACCESS_ISSUE', label: 'Area / Access Issue' },
-    { value: 'CUSTOMER_REFUSED', label: 'Customer Refused (Cancel)' },
+    { value: 'CUSTOMER_REFUSED', label: 'Customer Refused' },
     { value: 'WEATHER', label: 'Weather / Road Issue' },
     { value: 'OTHER', label: 'Other' },
   ] as const;
@@ -224,7 +224,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
       };
     } else {
       finalData = {
-        status: failureCategory === 'CUSTOMER_REFUSED' ? 'CANCELLED' : 'RESCHEDULED',
+        status: 'NOT_AVAILABLE',
         failureCategory,
         filledDropped: 0,
         emptyReceived: 0,
@@ -1277,15 +1277,9 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
                   />
                 </div>
 
-                {failureCategory === 'CUSTOMER_REFUSED' ? (
-                  <p className="text-[11px] font-medium text-destructive bg-destructive/5 border border-destructive/20 rounded-xl px-3 py-2">
-                    This will permanently cancel this delivery stop.
-                  </p>
-                ) : (
-                  <p className="text-[11px] text-muted-foreground bg-blue-500/5 border border-blue-500/20 rounded-xl px-3 py-2">
-                    This stop will be picked up automatically on the next sheet generation for this van.
-                  </p>
-                )}
+                <p className="text-[11px] text-muted-foreground bg-blue-500/5 border border-blue-500/20 rounded-xl px-3 py-2">
+                  This reports an issue for ops planning. Drivers cannot reschedule or cancel from this screen.
+                </p>
               </div>
             )}
           </div>
