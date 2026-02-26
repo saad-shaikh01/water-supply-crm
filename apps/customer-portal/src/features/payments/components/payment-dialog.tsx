@@ -67,6 +67,13 @@ const QR_STATUS_CONFIG: Record<string, { title: string; message: string; chipCla
   },
 };
 
+const MANUAL_METHOD_OPTIONS = [
+  { value: 'MANUAL_RAAST', label: 'Raast' },
+  { value: 'MANUAL_JAZZCASH', label: 'JazzCash' },
+  { value: 'MANUAL_EASYPAISA', label: 'Easypaisa' },
+  { value: 'MANUAL_BANK', label: 'Bank Transfer' },
+] as const;
+
 export function PaymentDialog({ open, onOpenChange, suggestedAmount = 0 }: PaymentDialogProps) {
   const queryClient = useQueryClient();
   const { data: info } = usePaymentInfo();
@@ -75,8 +82,9 @@ export function PaymentDialog({ open, onOpenChange, suggestedAmount = 0 }: Payme
 
   const [amount, setAmount] = useState<string | number>(suggestedAmount > 0 ? suggestedAmount : '');
   const [method, setMethod] = useState<'RAAST_QR' | 'MANUAL'>('RAAST_QR');
-  const [manualMethod, setManualMethod] = useState('MANUAL_RAAST');
+  const [manualMethod, setManualMethod] = useState<(typeof MANUAL_METHOD_OPTIONS)[number]['value']>('MANUAL_RAAST');
   const [refNo, setRefNo] = useState('');
+  const [customerNote, setCustomerNote] = useState('');
   const [file, setFile] = useState<File | null>(null);
 
   const [qrResponse, setQrResponse] = useState<any>(null);
@@ -120,6 +128,7 @@ export function PaymentDialog({ open, onOpenChange, suggestedAmount = 0 }: Payme
     formData.append('amount', String(amount));
     formData.append('method', manualMethod);
     formData.append('referenceNo', refNo);
+    if (customerNote.trim()) formData.append('customerNote', customerNote.trim());
     if (file) formData.append('screenshot', file);
 
     submitManual(formData, {
@@ -138,6 +147,7 @@ export function PaymentDialog({ open, onOpenChange, suggestedAmount = 0 }: Payme
     setMethod('RAAST_QR');
     setManualMethod('MANUAL_RAAST');
     setRefNo('');
+    setCustomerNote('');
     setFile(null);
   };
 
@@ -222,6 +232,27 @@ export function PaymentDialog({ open, onOpenChange, suggestedAmount = 0 }: Payme
                       </div>
 
                       <div className="space-y-2">
+                        <Label className="text-xs font-black uppercase tracking-widest">Payment Method</Label>
+                        <div className="grid grid-cols-2 gap-2">
+                          {MANUAL_METHOD_OPTIONS.map((item) => (
+                            <button
+                              type="button"
+                              key={item.value}
+                              onClick={() => setManualMethod(item.value)}
+                              className={cn(
+                                'rounded-xl border px-3 py-2 text-sm font-semibold transition-colors',
+                                manualMethod === item.value
+                                  ? 'border-primary/40 bg-primary/10 text-primary'
+                                  : 'border-border bg-background hover:bg-muted/60'
+                              )}
+                            >
+                              {item.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
                         <Label className="text-xs font-black uppercase tracking-widest">Reference / TID</Label>
                         <Input
                           placeholder="Enter Transaction ID"
@@ -242,6 +273,17 @@ export function PaymentDialog({ open, onOpenChange, suggestedAmount = 0 }: Payme
                           />
                           <Upload className="absolute right-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                         </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label className="text-xs font-black uppercase tracking-widest">Customer Note (Optional)</Label>
+                        <textarea
+                          value={customerNote}
+                          onChange={(e) => setCustomerNote(e.target.value)}
+                          placeholder="Add context for vendor (bank account used, transfer details, etc.)"
+                          rows={3}
+                          className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-primary/40 focus:ring-2 focus:ring-primary/20"
+                        />
                       </div>
                     </div>
 
