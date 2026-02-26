@@ -9,7 +9,7 @@ import {
 } from '@water-supply-crm/ui';
 import { vanSchema, type VanInput } from '../schemas';
 import { useCreateVan, useUpdateVan } from '../hooks/use-vans';
-import { useUsers } from '../../users/hooks/use-users';
+import { useAllDrivers } from '../../users/hooks/use-users';
 import { Truck, User } from 'lucide-react';
 
 interface VanFormProps {
@@ -22,11 +22,10 @@ export function VanForm({ open, onOpenChange, van }: VanFormProps) {
   const isEdit = !!van?.id;
   const { mutate: create, isPending: isCreating } = useCreateVan();
   const { mutate: update, isPending: isUpdating } = useUpdateVan();
-  const { data: usersResponse } = useUsers();
+  const { data: driversResponse } = useAllDrivers();
   const isPending = isCreating || isUpdating;
 
-  const users = (usersResponse as { data?: any[] } | undefined)?.data ?? [];
-  const drivers = users.filter((u: any) => u.role === 'DRIVER');
+  const drivers = (driversResponse as { data?: any[] } | undefined)?.data ?? [];
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<VanInput>({
     resolver: zodResolver(vanSchema),
@@ -47,7 +46,10 @@ export function VanForm({ open, onOpenChange, van }: VanFormProps) {
   const onSubmit = (data: VanInput) => {
     const payload = {
       ...data,
-      defaultDriverId: data.defaultDriverId || undefined
+      // Send explicit null when clearing driver on edit; undefined for create
+      defaultDriverId: isEdit
+        ? (data.defaultDriverId || null)
+        : (data.defaultDriverId || undefined),
     };
     
     if (isEdit) {

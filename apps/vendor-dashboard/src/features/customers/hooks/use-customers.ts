@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useQueryState, parseAsInteger, parseAsString } from 'nuqs';
+import { useQueryState, parseAsInteger, parseAsString, parseAsFloat } from 'nuqs';
 import { toast } from 'sonner';
 import { customersApi } from '../api/customers.api';
 import { queryKeys } from '../../../lib/query-keys';
@@ -10,6 +10,11 @@ export const useCustomers = () => {
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
   const [routeId] = useQueryState('routeId', parseAsString.withDefault(''));
   const [paymentType] = useQueryState('paymentType', parseAsString.withDefault(''));
+  const [isActive, setIsActive] = useQueryState('isActive', parseAsString.withDefault(''));
+  const [balanceMin] = useQueryState('balanceMin', parseAsFloat.withDefault(NaN));
+  const [balanceMax] = useQueryState('balanceMax', parseAsFloat.withDefault(NaN));
+  const [sort] = useQueryState('sort', parseAsString.withDefault(''));
+  const [sortDir] = useQueryState('sortDir', parseAsString.withDefault(''));
 
   const params = {
     search: search || undefined,
@@ -17,6 +22,11 @@ export const useCustomers = () => {
     limit,
     routeId: routeId || undefined,
     paymentType: (paymentType as 'MONTHLY' | 'CASH') || undefined,
+    isActive: isActive === 'true' ? true : isActive === 'false' ? false : undefined,
+    balanceMin: !isNaN(balanceMin) ? balanceMin : undefined,
+    balanceMax: !isNaN(balanceMax) ? balanceMax : undefined,
+    sort: sort || undefined,
+    sortDir: (sortDir as 'asc' | 'desc') || undefined,
   };
 
   return {
@@ -31,6 +41,12 @@ export const useCustomers = () => {
     setLimit,
     routeId,
     paymentType,
+    isActive,
+    setIsActive,
+    balanceMin,
+    balanceMax,
+    sort,
+    sortDir,
   };
 };
 
@@ -133,6 +149,13 @@ export const useCustomerConsumption = (id: string, month?: string) =>
   useQuery({
     queryKey: ['customers', id, 'consumption', month],
     queryFn: () => customersApi.getConsumption(id, month ? { month } : undefined).then((r) => r.data),
+    enabled: !!id,
+  });
+
+export const useCustomerSchedule = (id: string, params?: { dateFrom?: string; dateTo?: string }) =>
+  useQuery({
+    queryKey: ['customers', id, 'schedule', params],
+    queryFn: () => customersApi.getSchedule(id, params).then((r) => r.data),
     enabled: !!id,
   });
 

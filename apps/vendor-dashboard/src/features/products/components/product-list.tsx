@@ -1,26 +1,45 @@
 'use client';
 
 import { useState } from 'react';
-import { MoreHorizontal, Pencil, Trash2, ToggleLeft, ToggleRight, Package, DollarSign } from 'lucide-react';
+import { MoreHorizontal, Pencil, Trash2, ToggleLeft, ToggleRight, Package, DollarSign, Search, X, ArrowUpDown } from 'lucide-react';
 import {
   Button, DropdownMenu, DropdownMenuContent,
-  DropdownMenuItem, DropdownMenuTrigger, Badge
+  DropdownMenuItem, DropdownMenuTrigger, Badge,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Input,
 } from '@water-supply-crm/ui';
 import { DataTable } from '../../../components/shared/data-table';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import { useProducts, useDeleteProduct, useToggleProduct } from '../hooks/use-products';
+import { useQueryState, parseAsString } from 'nuqs';
 import { cn } from '@water-supply-crm/ui';
+import { useAuthStore } from '../../../store/auth.store';
+import { hasMinRole } from '../../../lib/rbac';
 
 interface ProductListProps {
   onEdit: (product: Record<string, unknown>) => void;
 }
 
 export function ProductList({ onEdit }: ProductListProps) {
+  const user = useAuthStore((s) => s.user);
+  const isAdmin = user ? hasMinRole(user.role, 'VENDOR_ADMIN') : false;
   const { data, isLoading, page, setPage, limit, setLimit } = useProducts();
   const { mutate: deleteProduct, isPending: isDeleting } = useDeleteProduct();
   const { mutate: toggleProduct } = useToggleProduct();
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [search, setSearch] = useQueryState('search', parseAsString.withDefault(''));
+  const [isActive, setIsActive] = useQueryState('isActive', parseAsString.withDefault(''));
+  const [sortDir, setSortDir] = useQueryState('sortDir', parseAsString.withDefault(''));
+
+  const resetPage = () => setPage(1);
+
+  const activeChips = [
+    isActive ? { label: isActive === 'true' ? 'Active' : 'Inactive', clear: () => { resetPage(); setIsActive(null); } } : null,
+    sortDir ? { label: sortDir === 'asc' ? 'A→Z' : 'Z→A', clear: () => { resetPage(); setSortDir(null); } } : null,
+  ].filter(Boolean) as Array<{ label: string; clear: () => void }>;
+
+  const clearAll = () => { resetPage(); setSearch(null); setIsActive(null); setSortDir(null); };
 
   const response = (data as { data?: any[]; meta?: { total: number } } | undefined);
   const products = (response?.data ?? []) as Array<{ id: string; name: string; basePrice: number; isActive: boolean; description?: string }>;
@@ -28,6 +47,57 @@ export function ProductList({ onEdit }: ProductListProps) {
 
   return (
     <div className="space-y-4">
+      {/* Filter bar */}
+      <div className="flex flex-wrap items-center gap-3 bg-card/30 p-4 rounded-2xl border border-border/50">
+        <div className="relative flex-1 min-w-[180px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search products..."
+            value={search}
+            onChange={(e) => { resetPage(); setSearch(e.target.value || null); }}
+            className="pl-9 rounded-xl bg-background/50 border-border/50 h-10"
+          />
+        </div>
+        <Select value={isActive || 'all'} onValueChange={(v) => { resetPage(); setIsActive(v === 'all' ? null : v); }}>
+          <SelectTrigger className="w-[130px] rounded-xl bg-background/50 border-border/50 h-10">
+            <SelectValue placeholder="All Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="true">Active</SelectItem>
+            <SelectItem value="false">Inactive</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={sortDir || 'none'} onValueChange={(v) => { resetPage(); setSortDir(v === 'none' ? null : v); }}>
+          <SelectTrigger className="w-[110px] rounded-xl bg-background/50 border-border/50 h-10">
+            <ArrowUpDown className="h-3.5 w-3.5 mr-1.5 shrink-0" />
+            <SelectValue placeholder="Sort" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">Default</SelectItem>
+            <SelectItem value="asc">A → Z</SelectItem>
+            <SelectItem value="desc">Z → A</SelectItem>
+          </SelectContent>
+        </Select>
+        {activeChips.length > 0 && (
+          <button onClick={clearAll} className="text-xs text-muted-foreground hover:text-foreground font-semibold underline-offset-2 hover:underline">
+            Clear all
+          </button>
+        )}
+      </div>
+
+      {/* Active chips */}
+      {activeChips.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 px-1">
+          {activeChips.map((chip) => (
+            <button key={chip.label} onClick={chip.clear}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold hover:bg-primary/20 transition-colors">
+              {chip.label} <X className="h-3 w-3" />
+            </button>
+          ))}
+        </div>
+      )}
+
       <DataTable
         data={products}
         isLoading={isLoading}
@@ -94,20 +164,24 @@ export function ProductList({ onEdit }: ProductListProps) {
                     <Pencil className="mr-2 h-4 w-4 text-orange-500" /> 
                     <span className="font-medium text-sm">Edit Product</span>
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => toggleProduct(r.id)} className="rounded-lg cursor-pointer px-2 py-2">
-                    {r.isActive
-                      ? <><ToggleLeft className="mr-2 h-4 w-4 text-muted-foreground" /> <span className="font-medium text-sm">Deactivate</span></>
-                      : <><ToggleRight className="mr-2 h-4 w-4 text-emerald-500" /> <span className="font-medium text-sm text-emerald-500">Activate</span></>
-                    }
-                  </DropdownMenuItem>
-                  <div className="h-[1px] bg-border/50 my-1" />
-                  <DropdownMenuItem
-                    onClick={() => setDeleteId(r.id)}
-                    className="rounded-lg cursor-pointer px-2 py-2 text-destructive focus:text-destructive focus:bg-destructive/10"
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" /> 
-                    <span className="font-medium text-sm">Remove Product</span>
-                  </DropdownMenuItem>
+                  {isAdmin && (
+                    <DropdownMenuItem onClick={() => toggleProduct(r.id)} className="rounded-lg cursor-pointer px-2 py-2">
+                      {r.isActive
+                        ? <><ToggleLeft className="mr-2 h-4 w-4 text-muted-foreground" /> <span className="font-medium text-sm">Deactivate</span></>
+                        : <><ToggleRight className="mr-2 h-4 w-4 text-emerald-500" /> <span className="font-medium text-sm text-emerald-500">Activate</span></>
+                      }
+                    </DropdownMenuItem>
+                  )}
+                  {isAdmin && <div className="h-[1px] bg-border/50 my-1" />}
+                  {isAdmin && (
+                    <DropdownMenuItem
+                      onClick={() => setDeleteId(r.id)}
+                      className="rounded-lg cursor-pointer px-2 py-2 text-destructive focus:text-destructive focus:bg-destructive/10"
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      <span className="font-medium text-sm">Remove Product</span>
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             ),
