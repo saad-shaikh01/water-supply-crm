@@ -27,7 +27,7 @@ Goal: Complete backend work first so frontend tasks remain unblocked.
 | ID | Task Board Ref | Scope | Priority | Status | Notes |
 |---|---|---|---|---|---|
 | B-NTF-001 | NTF-001 | Notification event constants/contracts | High | DONE | Start here to avoid event-name drift. |
-| B-NTF-002 | NTF-002 | Idempotency key for notification jobs | High | READY | Prevent duplicate sends on retries/replays. |
+| B-NTF-002 | NTF-002 | Idempotency key for notification jobs | High | DONE | Prevent duplicate sends on retries/replays. |
 | B-NTF-003 | NTF-003..009 | Orders/Tickets/Payments trigger coverage | High | READY | Cover admin/staff/customer roles for critical events. |
 | B-NTF-004 | NTF-013 | Integration tests for trigger + dedupe behavior | High | READY | Required before merge to main. |
 
