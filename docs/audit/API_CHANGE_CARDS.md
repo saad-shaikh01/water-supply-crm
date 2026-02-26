@@ -448,7 +448,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-016 - Portal Tickets Conversation + Attachments
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /portal/tickets/:id/messages` (new)
