@@ -15,12 +15,16 @@ import { RouteFilter } from '../../../components/shared/filters/route-filter';
 import { useCustomers, useDeleteCustomer, useDeactivateCustomer, useReactivateCustomer } from '../hooks/use-customers';
 import { CustomerForm } from './customer-form';
 import { cn } from '@water-supply-crm/ui';
+import { useAuthStore } from '../../../store/auth.store';
+import { hasMinRole } from '../../../lib/rbac';
 
 interface CustomerListProps {
   onAdd?: () => void;
 }
 
 export function CustomerList({ onAdd: _ }: CustomerListProps) {
+  const user = useAuthStore((s) => s.user);
+  const isAdmin = user ? hasMinRole(user.role, 'VENDOR_ADMIN') : false;
   const { data, isLoading, page, setPage, limit, setLimit, isActive, setIsActive } = useCustomers();
   const { mutate: deleteCustomer, isPending: isDeleting } = useDeleteCustomer();
   const { mutate: deactivateCustomer, isPending: isDeactivating } = useDeactivateCustomer();
@@ -189,8 +193,8 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                     <Pencil className="mr-2 h-4 w-4 text-orange-500" />
                     <span className="font-medium text-sm">Edit Details</span>
                   </DropdownMenuItem>
-                  <div className="h-[1px] bg-border/50 my-1" />
-                  {r.isActive !== false ? (
+                  {isAdmin && <div className="h-[1px] bg-border/50 my-1" />}
+                  {isAdmin && (r.isActive !== false ? (
                     <DropdownMenuItem
                       onClick={() => setDeactivateId(r.id)}
                       className="rounded-lg cursor-pointer px-2 py-2 text-orange-500 focus:text-orange-500 focus:bg-orange-500/10"
@@ -207,14 +211,16 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                       <Power className="mr-2 h-4 w-4" />
                       <span className="font-medium text-sm">Reactivate</span>
                     </DropdownMenuItem>
+                  ))}
+                  {isAdmin && (
+                    <DropdownMenuItem
+                      onClick={() => setDeleteId(r.id)}
+                      className="rounded-lg cursor-pointer px-2 py-2 text-destructive focus:text-destructive focus:bg-destructive/10"
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      <span className="font-medium text-sm">Delete Customer</span>
+                    </DropdownMenuItem>
                   )}
-                  <DropdownMenuItem
-                    onClick={() => setDeleteId(r.id)}
-                    className="rounded-lg cursor-pointer px-2 py-2 text-destructive focus:text-destructive focus:bg-destructive/10"
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    <span className="font-medium text-sm">Delete Customer</span>
-                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             ),
