@@ -40,7 +40,9 @@ export const usePaymentStatus = (id: string) =>
     enabled: !!id,
     refetchInterval: (query) => {
       const data = query.state.data as any;
-      if (data?.status === 'PAID' || data?.status === 'EXPIRED') return false;
+      if (data?.status === 'PAID' || data?.status === 'EXPIRED' || data?.status === 'REJECTED' || data?.status === 'APPROVED') {
+        return false;
+      }
       return 5000;
     }
   });
