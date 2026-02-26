@@ -7,6 +7,8 @@ import { cn } from '@water-supply-crm/ui';
 import { PageHeader } from '../../../components/shared/page-header';
 import { DataTable } from '../../../components/shared/data-table';
 import { StatusBadge } from '../../../components/shared/status-badge';
+import { SearchInput } from '../../../components/shared/filters/search-input';
+import { DateRangePicker } from '../../../components/shared/date-range-picker';
 import { useOrders, useApproveOrder, useRejectOrder } from '../../../features/orders/hooks/use-orders';
 import { OrderRejectDialog } from '../../../features/orders/components/order-reject-dialog';
 
@@ -35,22 +37,31 @@ function OrdersContent() {
         description="Review and manage extra delivery orders from customers."
       />
 
-      {/* Status filter */}
-      <div className="flex gap-2 flex-wrap">
-        {STATUS_OPTIONS.map((opt) => (
-          <button
-            key={opt.value}
-            onClick={() => { setStatus(opt.value || null); setPage(1); }}
-            className={cn(
-              'px-4 py-2 rounded-xl text-xs font-bold transition-all border',
-              status === opt.value
-                ? 'bg-primary text-primary-foreground border-transparent shadow-lg shadow-primary/20'
-                : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground',
-            )}
-          >
-            {opt.label}
-          </button>
-        ))}
+      {/* Filters */}
+      <div className="space-y-3">
+        <div className="flex gap-2 flex-wrap">
+          {STATUS_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => { setStatus(opt.value || null); setPage(1); }}
+              className={cn(
+                'px-4 py-2 rounded-xl text-xs font-bold transition-all border',
+                status === opt.value
+                  ? 'bg-primary text-primary-foreground border-transparent shadow-lg shadow-primary/20'
+                  : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground',
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-3 items-center">
+          <SearchInput
+            placeholder="Search customer, phone, or product…"
+            onBeforeChange={() => setPage(1)}
+          />
+          <DateRangePicker className="w-[220px]" />
+        </div>
       </div>
 
       <DataTable

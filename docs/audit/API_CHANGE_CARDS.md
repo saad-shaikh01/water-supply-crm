@@ -181,7 +181,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-007 - Orders List Advanced Filters
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /orders`
