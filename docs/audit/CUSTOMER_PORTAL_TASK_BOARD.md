@@ -15,7 +15,7 @@ Primary Owner: Agent C
 | ID | Route / Module | Type | Task | Priority | Owner | Status | Depends On | Acceptance |
 |---|---|---|---|---|---|---|---|---|
 | CP-001 | Navigation (Header + MobileNav) | UX Bug | Add discoverable access for `/schedule` and `/statement` (desktop + mobile). | High | Agent C | DONE | - | User can reach both pages within max 2 taps from any portal page. |
-| CP-002 | Mobile Navigation IA | UX Improvement | Replace crowded 7-item bottom nav with compact IA (primary tabs + `More` sheet). | High | Agent C | READY | - | Bottom nav remains clear on 360px width; all routes still accessible. |
+| CP-002 | Mobile Navigation IA | UX Improvement | Replace crowded 7-item bottom nav with compact IA (primary tabs + `More` sheet). | High | Agent C | DONE | - | Bottom nav remains clear on 360px width; all routes still accessible. |
 | CP-003 | Payments (`payment-dialog.tsx`) | Flow Bug | Integrate `usePaymentStatus` for Raast flow (pending/processing/paid/expired/rejected states). | High | Agent C | READY | - | After QR initiation, dialog reflects real status and refreshes payment list on terminal state. |
 | CP-004 | Payments (`payment-dialog.tsx`) | Feature Gap | Add manual method selector (`MANUAL_RAAST/JAZZCASH/EASYPAISA/BANK`) + optional customer note field. | High | Agent C | READY | - | Submitted payload reflects selected method and note; validation remains intact. |
 | CP-005 | Transactions (`transaction-list.tsx`) | Data Correctness | Remove misleading client-side type filtering over paginated data; either use server-side filter or relabel fallback clearly. | High | Agent C | BLOCKED | API-014 | Filtered totals + pagination must represent true server dataset. |
