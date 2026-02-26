@@ -86,6 +86,8 @@ function TicketsContent() {
 
   const formatDateLabel = (date: string) =>
     new Date(`${date}T00:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  const formatDateTime = (date: string) =>
+    new Date(date).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
   const activeChips = [
     type ? { label: `Type: ${type}`, clear: () => { setPage(1); setType(null); } } : null,
@@ -249,7 +251,10 @@ function TicketsContent() {
             key: 'customer',
             header: 'Customer',
             cell: (r: any) => (
-              <p className="font-bold text-sm">{r.customer?.name}</p>
+              <div>
+                <p className="font-bold text-sm">{r.customer?.name}</p>
+                <p className="text-[10px] text-muted-foreground">{r.customer?.phoneNumber ?? '-'}</p>
+              </div>
             ),
           },
           {
@@ -281,6 +286,31 @@ function TicketsContent() {
             key: 'status',
             header: 'Status',
             cell: (r: any) => <StatusBadge status={r.status} />,
+          },
+          {
+            key: 'resolution',
+            header: 'Resolution',
+            cell: (r: any) => {
+              if (r.resolvedAt) {
+                return (
+                  <div>
+                    <p className="text-[11px] font-semibold text-emerald-600">Resolved</p>
+                    <p className="text-[10px] text-muted-foreground">{formatDateTime(r.resolvedAt)}</p>
+                  </div>
+                );
+              }
+
+              if (r.vendorReply) {
+                return (
+                  <div>
+                    <p className="text-[11px] font-semibold text-primary">Last Reply</p>
+                    <p className="text-[10px] text-muted-foreground">{formatDateTime(r.updatedAt ?? r.createdAt)}</p>
+                  </div>
+                );
+              }
+
+              return <span className="text-[10px] text-muted-foreground">No reply yet</span>;
+            },
           },
           {
             key: 'actions',
