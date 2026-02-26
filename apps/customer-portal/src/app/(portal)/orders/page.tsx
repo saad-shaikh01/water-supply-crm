@@ -3,7 +3,7 @@
 import { Suspense, useState } from 'react';
 import { ShoppingCart, Plus, ChevronLeft, ChevronRight, X, Clock, CheckCircle2, XCircle, Ban } from 'lucide-react';
 import { Card, CardContent, Badge, Button } from '@water-supply-crm/ui';
-import { parseAsInteger, useQueryState } from 'nuqs';
+import { parseAsInteger, parseAsString, useQueryState } from 'nuqs';
 import { cn } from '@water-supply-crm/ui';
 import { useOrders, useCancelOrder } from '../../../features/orders/hooks/use-orders';
 import { PlaceOrderDialog } from '../../../features/orders/components/place-order-dialog';
@@ -15,10 +15,19 @@ const STATUS_CONFIG: Record<string, { label: string; icon: any; color: string }>
   CANCELLED: { label: 'Cancelled', icon: Ban,          color: 'bg-muted text-muted-foreground' },
 };
 
+const STATUS_FILTERS = [
+  { value: '', label: 'All' },
+  { value: 'PENDING', label: 'Pending' },
+  { value: 'APPROVED', label: 'Approved' },
+  { value: 'REJECTED', label: 'Rejected' },
+  { value: 'CANCELLED', label: 'Cancelled' },
+];
+
 function OrdersContent() {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
+  const [status, setStatus] = useQueryState('status', parseAsString.withDefault(''));
   const [dialogOpen, setDialogOpen] = useState(false);
-  const { data, isLoading } = useOrders({ page, limit: 20 });
+  const { data, isLoading } = useOrders({ page, limit: 20, status: status || undefined });
   const { mutate: cancelOrder, isPending: isCancelling } = useCancelOrder();
 
   const orders = (data as any)?.data ?? [];
@@ -47,6 +56,27 @@ function OrdersContent() {
           <Plus className="h-4 w-4" />
           Place Order
         </Button>
+      </div>
+
+      <div className="flex gap-2 flex-wrap">
+        {STATUS_FILTERS.map((filter) => (
+          <button
+            type="button"
+            key={filter.value || 'ALL'}
+            onClick={() => {
+              setStatus(filter.value || null);
+              setPage(1);
+            }}
+            className={cn(
+              'px-4 py-2 rounded-xl text-xs font-bold transition-all',
+              status === filter.value
+                ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
+                : 'bg-accent/50 text-muted-foreground hover:bg-accent hover:text-foreground'
+            )}
+          >
+            {filter.label}
+          </button>
+        ))}
       </div>
 
       {/* List */}
