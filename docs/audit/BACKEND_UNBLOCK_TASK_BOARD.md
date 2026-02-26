@@ -14,7 +14,7 @@ Goal: Complete backend work first so frontend tasks remain unblocked.
 
 | ID | API Card | Scope | Priority | Status | Blocks Which FE Tasks | Notes |
 |---|---|---|---|---|---|---|
-| B-UNB-001 | API-004 | Products delete endpoint contract (`DELETE /products/:id`) | High | READY | `FE-PROD-003` | Return `{ deleted: true }` + safe conflict errors. |
+| B-UNB-001 | API-004 | Products delete endpoint contract (`DELETE /products/:id`) | High | DONE | `FE-PROD-003` | Return `{ deleted: true }` + safe conflict errors. |
 | B-UNB-002 | API-005 | Routes list filters (`search`, `defaultVanId`) | High | READY | `FE-ROUTE-005` | Add DTO + service query support, keep pagination behavior. |
 | B-UNB-003 | API-009 | Delivery issues domain + ops workflow endpoints | High | READY | `FE-OPS-002`, `FE-OPS-003`, `NTF-008` | Driver report-only + ops plan/resolve model. |
 | B-UNB-004 | API-010 | On-demand order dispatch planning endpoints | High | READY | `FE-OPS-004` | Approval and dispatch become separate lifecycle stages. |

@@ -107,7 +107,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-004 - Products Delete Endpoint Contract
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `DELETE /products/:id`
