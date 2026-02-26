@@ -6,11 +6,13 @@ import { DailySheetController } from './daily-sheet.controller';
 import { DailySheetProcessor } from './daily-sheet.processor';
 import { DailySheetPdfService } from './pdf/daily-sheet-pdf.service';
 import { AuditModule } from '../audit/audit.module';
+import { DeliveryIssueModule } from '../delivery-issue/delivery-issue.module';
 
 @Module({
   imports: [
     BullModule.registerQueue({ name: QUEUE_NAMES.DAILY_SHEET_GENERATION }),
     AuditModule,
+    DeliveryIssueModule,
   ],
   controllers: [DailySheetController],
   providers: [DailySheetService, DailySheetProcessor, DailySheetPdfService],

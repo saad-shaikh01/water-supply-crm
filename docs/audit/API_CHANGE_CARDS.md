@@ -107,7 +107,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-004 - Products Delete Endpoint Contract
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `DELETE /products/:id`
@@ -130,7 +130,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-005 - Routes List Filters (Search + Default Van)
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /routes`
@@ -234,7 +234,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-009 - Delivery Issues Domain + Ops Workflow Endpoints
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /delivery-issues`
@@ -274,7 +274,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-010 - On-Demand Order Dispatch Planning
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `POST /orders/:id/dispatch-plan`
@@ -306,7 +306,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-011 - Daily Sheet Item Source Linking for On-Demand Orders
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `POST /daily-sheets/:id/items/from-order`
@@ -340,7 +340,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-012 - Generation Pipeline Includes Planned On-Demand Orders
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `POST /daily-sheets/generate`
@@ -366,7 +366,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-013 - Ops Analytics for Issues and On-Demand Fulfillment
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /analytics/deliveries` (extended)

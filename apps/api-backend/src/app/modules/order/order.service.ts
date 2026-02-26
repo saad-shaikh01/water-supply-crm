@@ -1,9 +1,11 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
+import { DispatchStatus } from '@prisma/client';
 import { paginate } from '../../common/helpers/paginate';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { RejectOrderDto } from './dto/reject-order.dto';
 import { OrderQueryDto } from './dto/order-query.dto';
+import { DispatchPlanDto } from './dto/dispatch-plan.dto';
 
 @Injectable()
 export class OrderService {
@@ -117,6 +119,87 @@ export class OrderService {
         rejectionReason: dto.rejectionReason,
         reviewedBy: reviewerId,
         reviewedAt: new Date(),
+      },
+    });
+  }
+
+  private async getApprovedOrder(vendorId: string, orderId: string) {
+    const order = await this.prisma.customerOrder.findUnique({ where: { id: orderId } });
+    if (!order || order.vendorId !== vendorId) throw new NotFoundException('Order not found');
+    if (order.status !== 'APPROVED') {
+      throw new BadRequestException('Only APPROVED orders can be dispatch-planned');
+    }
+    return order;
+  }
+
+  async createDispatchPlan(vendorId: string, orderId: string, dto: DispatchPlanDto, userId: string) {
+    const order = await this.getApprovedOrder(vendorId, orderId);
+    if (order.dispatchStatus !== DispatchStatus.UNPLANNED) {
+      throw new BadRequestException('Dispatch plan already exists. Use PATCH to update.');
+    }
+
+    return this.prisma.customerOrder.update({
+      where: { id: orderId },
+      data: {
+        dispatchStatus: DispatchStatus.PLANNED,
+        targetDate: new Date(dto.targetDate),
+        timeWindow: dto.timeWindow ?? null,
+        dispatchVanId: dto.vanId ?? null,
+        dispatchDriverId: dto.driverId ?? null,
+        dispatchMode: dto.dispatchMode,
+        dispatchNotes: dto.notes ?? null,
+        plannedAt: new Date(),
+        plannedById: userId,
+      },
+      include: {
+        customer: { select: { id: true, name: true } },
+        product: { select: { id: true, name: true } },
+      },
+    });
+  }
+
+  async updateDispatchPlan(vendorId: string, orderId: string, dto: DispatchPlanDto, userId: string) {
+    const order = await this.getApprovedOrder(vendorId, orderId);
+    if (order.dispatchStatus === DispatchStatus.UNPLANNED) {
+      throw new BadRequestException('No dispatch plan exists yet. Use POST to create.');
+    }
+    if (order.dispatchStatus === DispatchStatus.INSERTED_IN_SHEET) {
+      throw new BadRequestException('Order is already inserted in a sheet and cannot be re-planned');
+    }
+
+    return this.prisma.customerOrder.update({
+      where: { id: orderId },
+      data: {
+        dispatchStatus: DispatchStatus.PLANNED,
+        targetDate: new Date(dto.targetDate),
+        timeWindow: dto.timeWindow ?? null,
+        dispatchVanId: dto.vanId ?? null,
+        dispatchDriverId: dto.driverId ?? null,
+        dispatchMode: dto.dispatchMode,
+        dispatchNotes: dto.notes ?? null,
+        plannedAt: new Date(),
+        plannedById: userId,
+      },
+      include: {
+        customer: { select: { id: true, name: true } },
+        product: { select: { id: true, name: true } },
+      },
+    });
+  }
+
+  async dispatchNow(vendorId: string, orderId: string, userId: string) {
+    const order = await this.getApprovedOrder(vendorId, orderId);
+
+    return this.prisma.customerOrder.update({
+      where: { id: orderId },
+      data: {
+        dispatchStatus: DispatchStatus.INSERTED_IN_SHEET,
+        dispatchedAt: new Date(),
+        plannedById: userId,
+      },
+      include: {
+        customer: { select: { id: true, name: true } },
+        product: { select: { id: true, name: true } },
       },
     });
   }

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import {
   CacheInvalidationService,
@@ -104,6 +104,28 @@ export class ProductService {
     });
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.PRODUCTS);
     return updated;
+  }
+
+  async remove(vendorId: string, id: string) {
+    const product = await this.prisma.product.findFirst({
+      where: { id, vendorId },
+      include: {
+        _count: { select: { sheetItems: true, orders: true } },
+      },
+    });
+    if (!product) throw new NotFoundException('Product not found');
+    if (product._count.sheetItems > 0 || product._count.orders > 0) {
+      throw new ConflictException(
+        'Cannot delete a product with existing delivery records or orders. Deactivate it instead.',
+      );
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.bottleWallet.deleteMany({ where: { productId: id } });
+      await tx.customerProductPrice.deleteMany({ where: { productId: id } });
+      await tx.product.delete({ where: { id } });
+    });
+    await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.PRODUCTS);
+    return { deleted: true };
   }
 
   async toggleActive(vendorId: string, id: string) {

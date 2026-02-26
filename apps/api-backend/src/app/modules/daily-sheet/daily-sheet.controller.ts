@@ -22,6 +22,7 @@ import { SwapDriverDto } from './dto/swap-driver.dto';
 import { CreateLoadDto } from './dto/create-load.dto';
 import { CheckinLoadDto } from './dto/checkin-load.dto';
 import { DailySheetQueryDto } from './dto/daily-sheet-query.dto';
+import { InsertOrderItemDto } from './dto/insert-order-item.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -114,6 +115,17 @@ export class DailySheetController {
   @Get(':id')
   findOne(@CurrentUser() user: any, @Param('id') id: string) {
     return this.dailySheetService.findOne(user.vendorId, id);
+  }
+
+  @Post(':id/items/from-order')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
+  insertItemFromOrder(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() dto: InsertOrderItemDto,
+  ) {
+    return this.dailySheetService.insertItemFromOrder(user.vendorId, id, dto);
   }
 
   // ── Sheet lifecycle ───────────────────────────────────────────────────

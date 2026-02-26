@@ -152,24 +152,42 @@ export class AnalyticsService {
 
     const dateFilter = buildDateFilter(from, to);
 
-    const items = await this.prisma.dailySheetItem.findMany({
-      where: {
-        dailySheet: {
-          vendorId,
-          ...(dateFilter && { date: dateFilter }),
-        },
-      },
-      select: {
-        status: true,
-        reason: true,
-        dailySheet: {
-          select: {
-            date: true,
-            route: { select: { id: true, name: true } },
+    const [items, openIssues, resolvedIssues] = await Promise.all([
+      this.prisma.dailySheetItem.findMany({
+        where: {
+          dailySheet: {
+            vendorId,
+            ...(dateFilter && { date: dateFilter }),
           },
         },
-      },
-    });
+        select: {
+          status: true,
+          deliveryType: true,
+          reason: true,
+          dailySheet: {
+            select: {
+              date: true,
+              route: { select: { id: true, name: true } },
+            },
+          },
+        },
+      }),
+      this.prisma.deliveryIssue.findMany({
+        where: {
+          vendorId,
+          status: { in: ['OPEN', 'PLANNED', 'IN_RETRY'] },
+        },
+        select: { createdAt: true, status: true },
+      }),
+      this.prisma.deliveryIssue.findMany({
+        where: {
+          vendorId,
+          status: 'RESOLVED',
+          ...(dateFilter && { resolvedAt: dateFilter }),
+        },
+        select: { resolution: true },
+      }),
+    ]);
 
     const completedStatuses = new Set(['COMPLETED', 'EMPTY_ONLY']);
     const missedStatuses = new Set(['CANCELLED', 'NOT_AVAILABLE']);
@@ -242,12 +260,50 @@ export class AnalyticsService {
       .map(([reason, count]) => ({ reason, count }))
       .sort((a, b) => b.count - a.count);
 
+    // Ops KPIs: delivery issues
+    const now = Date.now();
+    const MS_PER_DAY = 86_400_000;
+    const issueAgingBuckets = {
+      lessThan1d: 0,
+      oneToThreeDays: 0,
+      fourToSevenDays: 0,
+      moreThan7d: 0,
+    };
+    for (const issue of openIssues) {
+      const ageDays = (now - issue.createdAt.getTime()) / MS_PER_DAY;
+      if (ageDays < 1) issueAgingBuckets.lessThan1d++;
+      else if (ageDays < 4) issueAgingBuckets.oneToThreeDays++;
+      else if (ageDays < 8) issueAgingBuckets.fourToSevenDays++;
+      else issueAgingBuckets.moreThan7d++;
+    }
+
+    // On-demand fulfillment rate
+    const onDemandItems = items.filter((i) => i.deliveryType === 'ON_DEMAND');
+    const onDemandCompleted = onDemandItems.filter((i) => completedStatuses.has(i.status)).length;
+    const onDemandFulfillmentRate =
+      onDemandItems.length > 0
+        ? Math.round((onDemandCompleted / onDemandItems.length) * 100)
+        : null;
+
+    // Retry success rate (resolved issues with DELIVERED resolution)
+    const retryDelivered = resolvedIssues.filter((i) => i.resolution === 'DELIVERED').length;
+    const retrySuccessRate =
+      resolvedIssues.length > 0
+        ? Math.round((retryDelivered / resolvedIssues.length) * 100)
+        : null;
+
     const result = {
       summary: { total, completed, missed, pending, completionRate },
       byDay,
       byDayOfWeek,
       byRoute,
       missedReasons,
+      opsKpis: {
+        openIssues: openIssues.length,
+        issueAgingBuckets,
+        onDemandFulfillmentRate,
+        retrySuccessRate,
+      },
     };
 
     await this.cache.set(cacheKey, result, 120);
