@@ -24,8 +24,12 @@ Purpose: Page-by-page completion audit and executable task tracking.
 3. `admin-panel.md` - Admin panel page audit.
 4. `TASK_BOARD.md` - Executable pending task queue (vendor-dashboard focused).
 5. `CUSTOMER_PORTAL_TASK_BOARD.md` - Dedicated executable queue for customer-portal closure.
-6. `API_CHANGE_CARDS.md` - Controlled backend changes required by frontend.
-7. `AUDIT_PASS_FLOW.md` - Step-by-step sprint workflow (audit, branching, implementation, merge).
+6. `VENDOR_DASHBOARD_UI_UX_TASK_BOARD.md` - Vendor dashboard UI/UX-only execution queue.
+7. `NOTIFICATIONS_ROLLOUT_PLAN.md` - Cross-feature notifications architecture and rollout plan.
+8. `NOTIFICATIONS_TASK_BOARD.md` - Backend-first notifications execution queue.
+9. `BACKEND_UNBLOCK_TASK_BOARD.md` - Prioritized backend execution queue to remove frontend blockers.
+10. `API_CHANGE_CARDS.md` - Controlled backend changes required by frontend.
+11. `AUDIT_PASS_FLOW.md` - Step-by-step sprint workflow (audit, branching, implementation, merge).
 
 ## Operating Rules
 

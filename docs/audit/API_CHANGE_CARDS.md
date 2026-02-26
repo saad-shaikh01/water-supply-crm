@@ -520,3 +520,67 @@ Backward compatibility:
 Owner:
 - Requester: Frontend planning (Codex)
 - API steward: Backend owner
+
+## API-019 - Notification Delivery Log + Admin Query Endpoints
+Status: PROPOSED
+
+Endpoint:
+- `GET /notifications/logs`
+- `GET /notifications/logs/:id`
+
+Request diff:
+- Add optional filters:
+  - `eventType`
+  - `channel` (`WHATSAPP | FCM | SMS | IN_APP`)
+  - `status` (`QUEUED | SENT | FAILED`)
+  - `dateFrom`
+  - `dateTo`
+  - `recipientType` (`CUSTOMER | USER`)
+  - `recipientId`
+
+Response diff:
+- New delivery log resource:
+  - `id`, `eventType`, `channel`, `status`
+  - `recipientType`, `recipientId`, `recipientAddress`
+  - `entityType`, `entityId`
+  - `attemptCount`, `lastError`
+  - `queuedAt`, `sentAt`, `failedAt`
+
+Affected pages:
+- Vendor dashboard notification operations (future)
+- Admin panel observability (future)
+
+Backward compatibility:
+- Yes. Additive new endpoints.
+
+Owner:
+- Requester: Frontend planning (Codex)
+- API steward: Backend owner
+
+## API-020 - Notification Preferences Endpoints
+Status: PROPOSED
+
+Endpoint:
+- `GET /notifications/preferences`
+- `PATCH /notifications/preferences`
+
+Request diff:
+- Preference payload by event type and channel:
+  - `eventType`
+  - `channel`
+  - `enabled` (boolean)
+
+Response diff:
+- Preference list/resource:
+  - `id`, `eventType`, `channel`, `enabled`, `updatedAt`
+
+Affected pages:
+- Customer portal profile/preferences (future)
+- Vendor dashboard user settings (future)
+
+Backward compatibility:
+- Yes. New endpoints only.
+
+Owner:
+- Requester: Frontend planning (Codex)
+- API steward: Backend owner
