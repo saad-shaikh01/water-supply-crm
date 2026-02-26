@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useQueryState, parseAsInteger } from 'nuqs';
+import { useQueryState, parseAsInteger, parseAsString } from 'nuqs';
 import { toast } from 'sonner';
 import { productsApi } from '../api/products.api';
 import { queryKeys } from '../../../lib/query-keys';
@@ -7,18 +7,30 @@ import { queryKeys } from '../../../lib/query-keys';
 export const useProducts = () => {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
+  const [search] = useQueryState('search', parseAsString.withDefault(''));
+  const [isActive] = useQueryState('isActive', parseAsString.withDefault(''));
+  const [sortDir] = useQueryState('sortDir', parseAsString.withDefault(''));
 
-  const params = { page, limit };
+  const params = {
+    page,
+    limit,
+    search: search || undefined,
+    isActive: isActive === 'true' ? true : isActive === 'false' ? false : undefined,
+    sortDir: (sortDir as 'asc' | 'desc') || undefined,
+  };
 
   return {
     ...useQuery({
       queryKey: queryKeys.products.all(params),
-      queryFn: () => productsApi.getAll().then((r) => r.data),
+      queryFn: () => productsApi.getAll(params).then((r) => r.data),
     }),
     page,
     setPage,
     limit,
     setLimit,
+    search,
+    isActive,
+    sortDir,
   };
 };
 
