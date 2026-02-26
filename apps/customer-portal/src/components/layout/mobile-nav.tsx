@@ -2,13 +2,15 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Receipt, User, CreditCard, Truck, ShoppingCart, MessageCircle } from 'lucide-react';
+import { Home, Receipt, User, CreditCard, Truck, ShoppingCart, MessageCircle, CalendarDays, FileText } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { motion } from 'framer-motion';
 
 const navItems = [
   { href: '/home', label: 'Home', icon: Home },
   { href: '/deliveries', label: 'Deliveries', icon: Truck },
+  { href: '/schedule', label: 'Schedule', icon: CalendarDays },
+  { href: '/statement', label: 'Statement', icon: FileText },
   { href: '/payments', label: 'Payments', icon: CreditCard },
   { href: '/orders', label: 'Orders', icon: ShoppingCart },
   { href: '/support', label: 'Support', icon: MessageCircle },
