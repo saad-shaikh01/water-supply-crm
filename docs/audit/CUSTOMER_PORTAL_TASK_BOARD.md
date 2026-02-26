@@ -37,7 +37,7 @@ Primary Owner: Agent C
 | CP-016 | Orders lifecycle | API + FE | Expose richer order fulfillment states (`PLANNED`, `OUT_FOR_DELIVERY`, `DELIVERED`) and show timeline in portal. | Medium | Agent C | BLOCKED | API-015 | Customer can see fulfillment progress after order approval. |
 | CP-017 | Tickets enhancements | API + FE | Add ticket conversation timeline + optional attachment support for customer/vendor replies. | Medium | Agent C | BLOCKED | API-016 | Ticket detail shows chronological thread and attachments. |
 | CP-018 | Product pricing for portal orders | API + FE | Return customer effective price in portal product payload and show in Place Order dialog. | Medium | Agent C | BLOCKED | API-017 | Portal order dialog shows customer-actual price, not generic base price. |
-| CP-019 | Password policy consistency | Security UX | Align reset-password and change-password minimum policy (recommended min 8). | Medium | Agent C | READY | - | Both flows enforce same minimum and show same helper/error messaging. |
+| CP-019 | Password policy consistency | Security UX | Align reset-password and change-password minimum policy (recommended min 8). | Medium | Agent C | DONE | - | Both flows enforce same minimum and show same helper/error messaging. |
 | CP-020 | Notification center | Feature | Connect bell icon to actual portal notifications (payment/ticket/order updates). | Low | Agent C | BLOCKED | API-018 (future) | Bell icon shows real unread count and list. |
 
 ## Execution Rule for Agent C
