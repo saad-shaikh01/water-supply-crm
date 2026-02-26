@@ -9,12 +9,16 @@ import {
 import { DataTable } from '../../../components/shared/data-table';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { useRoutes, useDeleteRoute } from '../hooks/use-routes';
+import { useAuthStore } from '../../../store/auth.store';
+import { hasMinRole } from '../../../lib/rbac';
 
 interface RouteListProps {
   onEdit: (route: Record<string, unknown>) => void;
 }
 
 export function RouteList({ onEdit }: RouteListProps) {
+  const user = useAuthStore((s) => s.user);
+  const isAdmin = user ? hasMinRole(user.role, 'VENDOR_ADMIN') : false;
   const { data, isLoading, page, setPage, limit, setLimit } = useRoutes();
   const { mutate: deleteRoute, isPending: isDeleting } = useDeleteRoute();
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -54,9 +58,11 @@ export function RouteList({ onEdit }: RouteListProps) {
                   <DropdownMenuItem onClick={() => onEdit(r as Record<string, unknown>)}>
                     <Pencil className="mr-2 h-4 w-4" /> Edit
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setDeleteId(r.id)} className="text-destructive focus:text-destructive">
-                    <Trash2 className="mr-2 h-4 w-4" /> Delete
-                  </DropdownMenuItem>
+                  {isAdmin && (
+                    <DropdownMenuItem onClick={() => setDeleteId(r.id)} className="text-destructive focus:text-destructive">
+                      <Trash2 className="mr-2 h-4 w-4" /> Delete
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             ),
