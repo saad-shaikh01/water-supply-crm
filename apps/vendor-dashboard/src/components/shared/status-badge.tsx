@@ -18,6 +18,11 @@ const statusConfig: Record<string, { label: string; variant: 'default' | 'second
   RESCHEDULED: { label: 'Rescheduled', variant: 'warning' },
   NOT_AVAILABLE: { label: 'Not Available', variant: 'destructive' },
   EMPTY_ONLY: { label: 'Empty Only', variant: 'info' },
+  // Delivery issue states
+  PLANNED: { label: 'Planned', variant: 'warning' },
+  IN_RETRY: { label: 'In Retry', variant: 'info' },
+  RESOLVED: { label: 'Resolved', variant: 'success' },
+  DROPPED: { label: 'Dropped', variant: 'secondary' },
   // Order states
   APPROVED: { label: 'Approved', variant: 'success' },
   REJECTED: { label: 'Rejected', variant: 'destructive' },

@@ -38,17 +38,32 @@ export class DeliveryIssueService {
   constructor(private prisma: PrismaService) {}
 
   async findAll(vendorId: string, query: DeliveryIssueQueryDto) {
-    const { page = 1, limit = 20, status, sheetId, dateFrom, dateTo } = query;
+    const {
+      page = 1,
+      limit = 20,
+      status,
+      sheetId,
+      assignedToUserId,
+      dateFrom,
+      dateTo,
+    } = query;
 
     const where: any = { vendorId };
     if (status) where.status = status;
     if (sheetId) {
       where.dailySheetItem = { dailySheetId: sheetId };
     }
+    if (assignedToUserId) {
+      where.assignedToUserId = assignedToUserId;
+    }
     if (dateFrom || dateTo) {
       const dateFilter: any = {};
       if (dateFrom) dateFilter.gte = new Date(dateFrom);
-      if (dateTo) dateFilter.lte = new Date(dateTo);
+      if (dateTo) {
+        const endOfDay = new Date(dateTo);
+        endOfDay.setHours(23, 59, 59, 999);
+        dateFilter.lte = endOfDay;
+      }
       if (!where.dailySheetItem) where.dailySheetItem = {};
       where.dailySheetItem.dailySheet = { date: dateFilter };
     }
