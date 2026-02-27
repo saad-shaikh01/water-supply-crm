@@ -9,14 +9,18 @@ export const useOrders = () => {
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
   const [status, setStatus] = useQueryState('status', parseAsString.withDefault(''));
   const [search, setSearch] = useQueryState('search', parseAsString.withDefault(''));
-  const [from] = useQueryState('from', parseAsString.withDefault(''));
-  const [to] = useQueryState('to', parseAsString.withDefault(''));
+  const [customerId, setCustomerId] = useQueryState('customerId', parseAsString.withDefault(''));
+  const [productId, setProductId] = useQueryState('productId', parseAsString.withDefault(''));
+  const [from, setFrom] = useQueryState('from', parseAsString.withDefault(''));
+  const [to, setTo] = useQueryState('to', parseAsString.withDefault(''));
 
   const params = {
     page,
     limit,
     status: status || undefined,
     search: search || undefined,
+    customerId: customerId || undefined,
+    productId: productId || undefined,
     dateFrom: from || undefined,
     dateTo: to || undefined,
   };
@@ -34,6 +38,14 @@ export const useOrders = () => {
     setStatus,
     search,
     setSearch,
+    customerId,
+    setCustomerId,
+    productId,
+    setProductId,
+    from,
+    setFrom,
+    to,
+    setTo,
   };
 };
 

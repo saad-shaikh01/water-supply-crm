@@ -1,14 +1,29 @@
 'use client';
 
-import { Suspense, useState } from 'react';
-import { Check, Truck, X } from 'lucide-react';
-import { Button } from '@water-supply-crm/ui';
+import { useQuery } from '@tanstack/react-query';
+import { Suspense, useEffect, useRef, useState } from 'react';
+import { Check, SlidersHorizontal, Truck, X } from 'lucide-react';
+import {
+  Badge,
+  Button,
+  Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '@water-supply-crm/ui';
 import { cn } from '@water-supply-crm/ui';
 import { PageHeader } from '../../../components/shared/page-header';
 import { DataTable } from '../../../components/shared/data-table';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import { SearchInput } from '../../../components/shared/filters/search-input';
 import { DateRangePicker } from '../../../components/shared/date-range-picker';
+import { customersApi } from '../../../features/customers/api/customers.api';
 import {
   useOrders,
   useApproveOrder,
@@ -19,6 +34,7 @@ import {
 } from '../../../features/orders/hooks/use-orders';
 import { OrderRejectDialog } from '../../../features/orders/components/order-reject-dialog';
 import { OrderDispatchDrawer } from '../../../features/orders/components/order-dispatch-drawer';
+import { productsApi } from '../../../features/products/api/products.api';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All' },
@@ -29,7 +45,26 @@ const STATUS_OPTIONS = [
 ];
 
 function OrdersContent() {
-  const { data, isLoading, page, setPage, limit, setLimit, status, setStatus } = useOrders();
+  const {
+    data,
+    isLoading,
+    page,
+    setPage,
+    limit,
+    setLimit,
+    status,
+    setStatus,
+    search,
+    setSearch,
+    customerId,
+    setCustomerId,
+    productId,
+    setProductId,
+    from,
+    setFrom,
+    to,
+    setTo,
+  } = useOrders();
   const { mutate: approve, isPending: isApproving } = useApproveOrder();
   const { mutate: reject, isPending: isRejecting } = useRejectOrder();
   const { mutate: saveDispatchPlan, isPending: isSavingPlan } = useSaveDispatchPlan();
@@ -38,9 +73,26 @@ function OrdersContent() {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [dispatchOrder, setDispatchOrder] = useState<any>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const previousDateRange = useRef(`${from}|${to}`);
+
+  const { data: customerOptionsData } = useQuery({
+    queryKey: ['order-filter-customers'],
+    queryFn: () => customersApi.getAll({ page: 1, limit: 100, isActive: true }).then((r) => r.data),
+  });
+  const { data: productOptionsData } = useQuery({
+    queryKey: ['order-filter-products'],
+    queryFn: () => productsApi.getAll({ page: 1, limit: 100, isActive: true }).then((r) => r.data),
+  });
 
   const rows = (data as any)?.data ?? [];
   const total = (data as any)?.meta?.total ?? 0;
+  const customers = ((customerOptionsData as { data?: Array<{ id: string; name: string; phoneNumber?: string }> } | undefined)?.data ?? []);
+  const products = ((productOptionsData as { data?: Array<{ id: string; name: string }> } | undefined)?.data ?? []);
+  const selectedCustomer = customers.find((customer) => customer.id === customerId);
+  const selectedProduct = products.find((product) => product.id === productId);
+  const statusLabel = STATUS_OPTIONS.find((opt) => opt.value === status)?.label ?? 'All';
+  const activeFilterCount = [customerId, productId, from || to].filter(Boolean).length;
 
   const formatDate = (date?: string) =>
     date
@@ -51,6 +103,58 @@ function OrdersContent() {
     date
       ? new Date(date).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
       : '-';
+
+  const formatDateLabel = (date: string) =>
+    new Date(`${date}T00:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+
+  useEffect(() => {
+    const nextRange = `${from}|${to}`;
+    if (previousDateRange.current !== nextRange) {
+      previousDateRange.current = nextRange;
+      setPage(1);
+    }
+  }, [from, to, setPage]);
+
+  const activeChips = [
+    status ? { label: `Status: ${statusLabel}`, clear: () => { setPage(1); setStatus(null); } } : null,
+    search ? { label: `Search: ${search}`, clear: () => { setPage(1); setSearch(null); } } : null,
+    customerId
+      ? {
+          label: `Customer: ${selectedCustomer?.name ?? 'Selected customer'}`,
+          clear: () => { setPage(1); setCustomerId(null); },
+        }
+      : null,
+    productId
+      ? {
+          label: `Product: ${selectedProduct?.name ?? 'Selected product'}`,
+          clear: () => { setPage(1); setProductId(null); },
+        }
+      : null,
+    (from || to)
+      ? {
+          label: `Date: ${from ? formatDateLabel(from) : '...'} to ${to ? formatDateLabel(to) : '...'}`,
+          clear: () => { setPage(1); setFrom(null); setTo(null); },
+        }
+      : null,
+  ].filter(Boolean) as Array<{ label: string; clear: () => void }>;
+
+  const clearAdvancedFilters = () => {
+    setPage(1);
+    setCustomerId(null);
+    setProductId(null);
+    setFrom(null);
+    setTo(null);
+  };
+
+  const clearAll = () => {
+    setPage(1);
+    setStatus(null);
+    setSearch(null);
+    setCustomerId(null);
+    setProductId(null);
+    setFrom(null);
+    setTo(null);
+  };
 
   return (
     <div className="space-y-6">
@@ -81,9 +185,122 @@ function OrdersContent() {
             placeholder="Search customer, phone, or product..."
             onBeforeChange={() => setPage(1)}
           />
-          <DateRangePicker className="w-[220px]" />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setFiltersOpen(true)}
+            className={cn(
+              'rounded-xl h-10 px-4 gap-2 font-semibold shrink-0',
+              activeFilterCount > 0 && 'border-primary text-primary',
+            )}
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            More Filters
+            {activeFilterCount > 0 && (
+              <Badge className="h-5 w-5 p-0 flex items-center justify-center rounded-full text-[10px] font-black">
+                {activeFilterCount}
+              </Badge>
+            )}
+          </Button>
         </div>
+
+        {activeChips.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 px-1">
+            {activeChips.map((chip) => (
+              <button
+                key={chip.label}
+                onClick={chip.clear}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold hover:bg-primary/20 transition-colors"
+              >
+                {chip.label}
+                <X className="h-3 w-3" />
+              </button>
+            ))}
+            <button
+              onClick={clearAll}
+              className="text-xs text-muted-foreground hover:text-foreground font-semibold underline-offset-2 hover:underline"
+            >
+              Clear all
+            </button>
+          </div>
+        )}
       </div>
+
+      <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-sm bg-background/95 backdrop-blur-xl border-l border-border/50">
+          <SheetHeader className="pb-6 border-b">
+            <SheetTitle className="flex items-center gap-2 text-lg font-bold">
+              <SlidersHorizontal className="h-5 w-5 text-primary" /> More Filters
+            </SheetTitle>
+          </SheetHeader>
+          <div className="space-y-6 py-6">
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Customer</Label>
+              <Select
+                value={customerId || 'all'}
+                onValueChange={(value) => {
+                  setPage(1);
+                  setCustomerId(value === 'all' ? null : value);
+                }}
+              >
+                <SelectTrigger className="rounded-xl bg-background/50 border-border/50 h-10">
+                  <SelectValue placeholder="All Customers" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-border/50 shadow-2xl">
+                  <SelectItem value="all">All Customers</SelectItem>
+                  {customers.map((customer) => (
+                    <SelectItem key={customer.id} value={customer.id}>
+                      {customer.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Product</Label>
+              <Select
+                value={productId || 'all'}
+                onValueChange={(value) => {
+                  setPage(1);
+                  setProductId(value === 'all' ? null : value);
+                }}
+              >
+                <SelectTrigger className="rounded-xl bg-background/50 border-border/50 h-10">
+                  <SelectValue placeholder="All Products" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-border/50 shadow-2xl">
+                  <SelectItem value="all">All Products</SelectItem>
+                  {products.map((product) => (
+                    <SelectItem key={product.id} value={product.id}>
+                      {product.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Created Date</Label>
+              <DateRangePicker className="w-full" />
+            </div>
+          </div>
+          {activeFilterCount > 0 && (
+            <div className="border-t pt-4">
+              <Button
+                variant="ghost"
+                className="w-full rounded-xl text-muted-foreground"
+                onClick={() => {
+                  clearAdvancedFilters();
+                  setFiltersOpen(false);
+                }}
+              >
+                <X className="h-4 w-4 mr-2" /> Clear Drawer Filters
+              </Button>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
 
       <DataTable
         data={rows}

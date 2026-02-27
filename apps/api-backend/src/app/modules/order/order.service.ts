@@ -75,9 +75,38 @@ export class OrderService {
   }
 
   async getVendorOrders(vendorId: string, query: OrderQueryDto) {
-    const { page = 1, limit = 20, status } = query;
+    const {
+      page = 1,
+      limit = 20,
+      status,
+      search,
+      customerId,
+      productId,
+      dateFrom,
+      dateTo,
+    } = query;
     const where: any = { vendorId };
     if (status) where.status = status;
+    if (search) {
+      where.OR = [
+        { customer: { name: { contains: search, mode: 'insensitive' } } },
+        { customer: { phoneNumber: { contains: search, mode: 'insensitive' } } },
+        { product: { name: { contains: search, mode: 'insensitive' } } },
+        { note: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+    if (customerId) where.customerId = customerId;
+    if (productId) where.productId = productId;
+    if (dateFrom || dateTo) {
+      const createdAt: any = {};
+      if (dateFrom) createdAt.gte = new Date(dateFrom);
+      if (dateTo) {
+        const endOfDay = new Date(dateTo);
+        endOfDay.setHours(23, 59, 59, 999);
+        createdAt.lte = endOfDay;
+      }
+      where.createdAt = createdAt;
+    }
 
     const [data, total] = await Promise.all([
       this.prisma.customerOrder.findMany({
