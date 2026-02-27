@@ -558,7 +558,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-020 - Notification Preferences Endpoints
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /notifications/preferences`
