@@ -497,7 +497,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-018 - Portal Notifications Feed (Future)
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /portal/notifications`
