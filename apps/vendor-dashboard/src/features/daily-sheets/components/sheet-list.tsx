@@ -67,7 +67,7 @@ export function SheetList() {
   return (
     <div className="space-y-4">
       {/* Primary filter bar */}
-      <div className="flex flex-col sm:flex-row items-end gap-3 bg-card/30 p-4 rounded-2xl border border-border/50">
+      <div className="flex flex-col sm:flex-row items-end gap-3 bg-card/30 p-4 rounded-2xl border border-border">
         <div className="space-y-1.5 flex-1 min-w-[200px]">
           <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Date Range</Label>
           <DateRangePicker />
@@ -76,10 +76,10 @@ export function SheetList() {
         <div className="space-y-1.5">
           <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Status</Label>
           <Select value={isClosed || 'all'} onValueChange={(v) => { resetPage(); setIsClosed(v === 'all' ? null : v); }}>
-            <SelectTrigger className="rounded-xl bg-background/50 border-border/50 h-10 w-[130px]">
+            <SelectTrigger className="rounded-xl bg-background/50 border-border h-10 w-[130px]">
               <SelectValue placeholder="All Sheets" />
             </SelectTrigger>
-            <SelectContent className="rounded-xl border-border/50 shadow-2xl">
+            <SelectContent className="rounded-xl border-border shadow-2xl">
               <SelectItem value="all">All Sheets</SelectItem>
               <SelectItem value="false">Open</SelectItem>
               <SelectItem value="true">Closed</SelectItem>
@@ -139,8 +139,8 @@ export function SheetList() {
 
       {/* More Filters drawer */}
       <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-sm bg-background/95 backdrop-blur-xl border-l border-border/50">
-          <SheetHeader className="pb-6 border-b">
+        <SheetContent side="right" className="w-full sm:max-w-sm bg-background/95 backdrop-blur-xl border-l border-border">
+          <SheetHeader className="pb-6 border-b border-border">
             <SheetTitle className="flex items-center gap-2 text-lg font-bold">
               <SlidersHorizontal className="h-5 w-5 text-primary" /> More Filters
             </SheetTitle>

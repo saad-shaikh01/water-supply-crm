@@ -42,10 +42,10 @@ export function DataTable<T extends { id: string }>({
   if (isLoading) {
     return (
       <div className="space-y-4">
-        <div className="rounded-2xl border border-white/10 overflow-hidden bg-white/[0.03] backdrop-blur-2xl">
-          <div className="h-14 bg-white/[0.02] border-b border-white/10" />
+        <div className="rounded-2xl border border-border overflow-hidden bg-white/[0.02] backdrop-blur-2xl">
+          <div className="h-14 bg-white/[0.01] border-b border-border" />
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="flex items-center gap-4 p-6 border-b border-white/5 last:border-0">
+            <div key={i} className="flex items-center gap-4 p-6 border-b border-border/50 last:border-0">
               <Skeleton className="h-4 w-full rounded-full" />
             </div>
           ))}
@@ -56,10 +56,10 @@ export function DataTable<T extends { id: string }>({
 
   return (
     <div className="flex flex-col min-h-0 flex-1 space-y-6">
-      <div className="rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-2xl overflow-hidden shadow-2xl">
+      <div className="rounded-2xl border border-border bg-white/[0.02] backdrop-blur-2xl overflow-hidden shadow-2xl">
         <Table>
           <TableHeader>
-            <TableRow className="bg-white/[0.02] hover:bg-white/[0.02] border-b border-white/10">
+            <TableRow className="bg-white/[0.01] hover:bg-white/[0.01] border-b border-border">
               {columns.map((col) => (
                 <TableHead 
                   key={col.key} 
@@ -79,10 +79,10 @@ export function DataTable<T extends { id: string }>({
                   className="h-72 text-center"
                 >
                   <div className="flex flex-col items-center justify-center space-y-4">
-                    <div className="p-6 rounded-2xl bg-white/[0.02] border border-white/10">
-                      <Inbox className="h-10 w-10 text-white/20" />
+                    <div className="p-6 rounded-2xl bg-white/[0.01] border border-border">
+                      <Inbox className="h-10 w-10 text-muted-foreground/40" />
                     </div>
-                    <p className="text-sm font-bold text-white/30 tracking-tight">{emptyMessage}</p>
+                    <p className="text-sm font-bold text-muted-foreground/30 tracking-tight">{emptyMessage}</p>
                   </div>
                 </TableCell>
               </TableRow>
@@ -90,12 +90,12 @@ export function DataTable<T extends { id: string }>({
               data.map((row) => (
                 <TableRow 
                   key={row.id} 
-                  className="group/row transition-colors border-b border-white/5 last:border-0 hover:bg-white/[0.04]"
+                  className="group/row transition-colors border-b border-border/50 last:border-0 hover:bg-white/[0.04]"
                 >
                   {columns.map((col) => (
                     <TableCell key={col.key} className="py-5 px-6">
                       <div className={cn(
-                        "text-sm font-medium transition-colors text-white/90 group-hover:text-primary",
+                        "text-sm font-medium transition-colors text-foreground/90 group-hover:text-primary",
                         // Auto-apply tabular-nums if column looks like a number
                         (col.header.toLowerCase().includes('balance') || col.header.toLowerCase().includes('amount')) && "tabular-nums"
                       )}>
