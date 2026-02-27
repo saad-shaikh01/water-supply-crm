@@ -1,5 +1,6 @@
 export * from './lib/components/ui/button';
 export * from './lib/components/ui/input';
+export * from './lib/components/ui/textarea';
 export * from './lib/components/ui/label';
 export * from './lib/components/ui/card';
 export * from './lib/components/ui/table';
