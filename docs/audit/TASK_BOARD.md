@@ -1,6 +1,6 @@
 # Frontend Task Board
 
-Last Updated: February 26, 2026
+Last Updated: February 27, 2026
 Purpose: Executable queue for frontend pending tasks.
 
 ## Status Legend
@@ -64,6 +64,11 @@ Purpose: Executable queue for frontend pending tasks.
 | FE-OPS-005 | api-backend | `/api/daily-sheets` | Integration | Support adding approved planned on-demand orders into open sheets and generated sheets with idempotency guard. | High | Agent A | IN_REVIEW | - | - | Dependency cleared: `API-011` and `API-012` implemented. Proceed with FE integration/verification. |
 | FE-OPS-006 | vendor-dashboard | `/dashboard/daily-sheets` | Table UX | Add list chips for `issueCount` and `onDemandCount`, plus quick link to Delivery Issues Inbox. | Medium | Agent B | IN_REVIEW | - | - | Dependency cleared: `API-011` implemented. Proceed with FE list UX. |
 | FE-OPS-007 | vendor-dashboard + api-backend | `/dashboard/analytics` | Analytics | Add Ops KPIs: open issues, issue aging, on-demand fulfillment rate, retry success rate. | Medium | Agent B | IN_REVIEW | - | - | Dependency cleared: `API-013` implemented. Proceed with FE analytics wiring. |
+| FE-FIN-001 | vendor-dashboard | `/dashboard/expenses` | Data Mapping Bug | Fix expense summary cards to read the current backend summary contract (`breakdown`, `grandTotal`, `totalRevenue`) instead of stale field names so category totals and total expenses render correctly. | High | Agent A | READY | - | - | Current UI reads `byCategory` and `totalExpenses`, but backend returns `breakdown` and `grandTotal`. |
+| FE-FIN-002 | api-backend + vendor-dashboard | `/dashboard/transactions`, `/dashboard/expenses`, `/dashboard/analytics` | Data Correctness | Make finance date-range upper bounds inclusive for `YYYY-MM-DD` inputs (end-of-day, not midnight) across transactions, expenses, summaries, and analytics. | High | Agent B | READY | - | - | Current `to` filters use `new Date(to)` and can drop same-day records after 00:00. |
+| FE-FIN-003 | vendor-dashboard | `/dashboard/payment-requests` | Cache Consistency | After approving or rejecting a payment request, invalidate related `transactions`, `customers`, and finance analytics queries so balances and ledger data do not stay stale. | High | Agent A | READY | - | - | Approval records a ledger payment on backend, but frontend currently only refreshes `payment-requests`. |
+| FE-FIN-004 | vendor-dashboard + api-backend | `/dashboard/transactions` | API + FE | Replace the dead transaction search box with real filters: wire existing `type`/date filters and either implement backend description search or remove the misleading input. | Medium | Agent B | READY | - | - | Current search input is display-only and does not change query params or API results. |
+| FE-FIN-005 | vendor-dashboard | `/dashboard/expenses` | Query Wiring | Align expense list/filter client params with backend (`from`/`to`) and add date-range wiring to both list and summary queries so expense totals can be audited by period. | Medium | Agent A | READY | - | - | Frontend query type uses `dateFrom`/`dateTo`, while backend expects `from`/`to`; summary request also ignores date filters. |
 
 ## Update Rules
 
