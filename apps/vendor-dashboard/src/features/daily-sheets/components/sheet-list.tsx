@@ -176,20 +176,15 @@ export function SheetList() {
         columns={[
           {
             key: 'date',
-            header: 'Operations Date',
+            header: 'Date',
             cell: (r) => (
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary shrink-0 border border-primary/10">
-                  <Calendar className="h-5 w-5" />
+              <div className="flex items-center gap-2 whitespace-nowrap">
+                <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0 border border-primary/10">
+                  <Calendar className="h-4 w-4" />
                 </div>
-                <div className="flex flex-col min-w-0">
-                  <span className="font-bold truncate text-sm">
-                    {new Date(r.date).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider">
-                    {new Date(r.date).getFullYear()}
-                  </span>
-                </div>
+                <span className="font-bold text-sm text-white">
+                  {new Date(r.date).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}
+                </span>
               </div>
             )
           },
@@ -197,13 +192,13 @@ export function SheetList() {
             key: 'route',
             header: 'Route & Van',
             cell: (r) => (
-              <div className="space-y-1">
-                <div className="flex items-center gap-1.5 text-sm font-bold">
-                  <MapPin className="h-3 w-3 text-primary" />
+              <div className="flex flex-col min-w-0 max-w-[150px]">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-white truncate">
+                  <MapPin className="h-3 w-3 text-primary shrink-0" />
                   {r.route?.name ?? '—'}
                 </div>
-                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground font-mono">
-                  <Truck className="h-2.5 w-2.5" />
+                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground font-mono truncate">
+                  <Truck className="h-2.5 w-2.5 shrink-0" />
                   {r.van?.plateNumber ?? '—'}
                 </div>
               </div>
@@ -213,11 +208,11 @@ export function SheetList() {
             key: 'driver',
             header: 'Driver',
             cell: (r) => (
-              <div className="flex items-center gap-2">
-                <div className="h-6 w-6 rounded-full bg-accent flex items-center justify-center">
-                  <User className="h-3 w-3 text-muted-foreground" />
+              <div className="flex items-center gap-2 whitespace-nowrap max-w-[120px]">
+                <div className="h-6 w-6 rounded-full bg-white/5 border border-white/5 flex items-center justify-center shrink-0">
+                  <User className="h-3 w-3 text-muted-foreground/60" />
                 </div>
-                <span className="text-xs font-semibold">{r.driver?.name ?? '—'}</span>
+                <span className="text-xs font-semibold text-white/80 truncate">{r.driver?.name ?? '—'}</span>
               </div>
             )
           },
@@ -228,41 +223,20 @@ export function SheetList() {
               if (r.itemCounts) {
                 const total = r.itemCounts.pending + r.itemCounts.completed + r.itemCounts.issues;
                 return (
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-sm font-bold">{total} Items</span>
-                    <div className="flex items-center gap-2 text-[10px] font-mono">
-                      <span className="text-muted-foreground">{r.itemCounts.completed}✓</span>
-                      <span className="text-amber-500">{r.itemCounts.pending}⏳</span>
+                  <div className="flex items-center gap-2 whitespace-nowrap">
+                    <span className="text-xs font-bold text-white">{total}</span>
+                    <div className="flex items-center gap-1.5 text-[10px] font-mono">
+                      <span className="text-emerald-400">{r.itemCounts.completed}✓</span>
+                      <span className="text-amber-400">{r.itemCounts.pending}⏳</span>
                       {r.itemCounts.issues > 0 && (
-                        <span className="text-destructive">{r.itemCounts.issues}!</span>
+                        <span className="text-rose-400">{r.itemCounts.issues}!</span>
                       )}
                     </div>
                   </div>
                 );
               }
               return (
-                <div className="flex flex-col">
-                  <span className="text-sm font-bold">{r._count?.items ?? 0} Items</span>
-                  <span className="text-[10px] text-muted-foreground">Planned Deliveries</span>
-                </div>
-              );
-            }
-          },
-          {
-            key: 'trips',
-            header: 'Trips',
-            cell: (r) => {
-              if (!r.tripState) return <span className="text-[10px] text-muted-foreground">—</span>;
-              return (
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-sm font-bold">{r.tripState.tripCount}</span>
-                  {r.tripState.hasActiveTrip && (
-                    <span className="text-[10px] text-emerald-500 font-semibold flex items-center gap-1">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
-                      Active
-                    </span>
-                  )}
-                </div>
+                <span className="text-xs font-bold text-white whitespace-nowrap">{r._count?.items ?? 0} Items</span>
               );
             }
           },
@@ -270,12 +244,11 @@ export function SheetList() {
             key: 'bottles',
             header: 'Bottles',
             cell: (r) => (
-              <div className="flex items-center gap-1.5 text-xs">
-                <Droplets className="h-3 w-3 text-primary" />
-                <span className="font-bold">{r.filledOutCount ?? 0}</span>
-                <span className="text-muted-foreground">out /</span>
-                <span className="font-bold">{r.filledInCount ?? 0}</span>
-                <span className="text-muted-foreground">in</span>
+              <div className="flex items-center gap-1.5 text-xs whitespace-nowrap">
+                <span className="font-bold text-white">{r.filledOutCount ?? 0}</span>
+                <span className="text-muted-foreground/40">/</span>
+                <span className="font-bold text-white">{r.filledInCount ?? 0}</span>
+                <span className="text-muted-foreground/40 font-medium">in</span>
               </div>
             )
           },
@@ -283,32 +256,37 @@ export function SheetList() {
             key: 'cash',
             header: 'Cash',
             cell: (r) => (
-              <div className="flex items-center gap-1 text-xs font-mono font-bold">
-                <DollarSign className="h-3 w-3 text-emerald-500" />
-                <span>{Number(r.cashCollected ?? 0).toLocaleString()}</span>
+              <div className="text-xs font-mono font-bold text-emerald-400 whitespace-nowrap">
+                ₨ {Number(r.cashCollected ?? 0).toLocaleString()}
               </div>
             )
           },
           {
             key: 'ops',
-            header: 'Ops Signals',
+            header: 'Signals',
             cell: (r) => (
-              <div className="flex flex-wrap gap-1.5">
-                <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2.5 py-1 text-[10px] font-bold text-destructive">
-                  <AlertTriangle className="h-3 w-3" />
-                  {r.issueCount ?? 0}
-                </span>
-                <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2.5 py-1 text-[10px] font-bold text-blue-600">
-                  <Zap className="h-3 w-3" />
-                  {r.onDemandCount ?? 0}
-                </span>
+              <div className="flex items-center gap-1.5 whitespace-nowrap">
+                {r.issueCount !== undefined && r.issueCount > 0 && (
+                  <Badge variant="outline" className="h-5 px-1.5 border-rose-500/20 bg-rose-500/10 text-rose-400 text-[9px] font-bold">
+                    {r.issueCount} ERR
+                  </Badge>
+                )}
+                {r.onDemandCount !== undefined && r.onDemandCount > 0 && (
+                  <Badge variant="outline" className="h-5 px-1.5 border-indigo-500/20 bg-indigo-500/10 text-indigo-400 text-[9px] font-bold">
+                    {r.onDemandCount} REQ
+                  </Badge>
+                )}
               </div>
             )
           },
           {
             key: 'status',
             header: 'Status',
-            cell: (r) => <StatusBadge status={getStatus(r)} />
+            cell: (r) => (
+              <div className="scale-90 origin-left">
+                <StatusBadge status={getStatus(r)} />
+              </div>
+            )
           },
           {
             key: 'actions',

@@ -25,12 +25,12 @@ export function TransactionList({ customerId }: TransactionListProps) {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex-1 w-full max-w-sm">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-accent/30 border border-border/50 focus-within:ring-2 focus-within:ring-primary/20 transition-all">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/[0.02] border border-border focus-within:ring-4 focus-within:ring-primary/10 transition-colors">
             <Search className="h-4 w-4 text-muted-foreground" />
             <input 
               type="text" 
               placeholder="Search notes..." 
-              className="bg-transparent border-none outline-none text-sm w-full placeholder:text-muted-foreground/50"
+              className="bg-transparent border-none outline-none text-sm w-full text-white placeholder:text-muted-foreground/50 font-medium"
             />
           </div>
         </div>
@@ -38,7 +38,7 @@ export function TransactionList({ customerId }: TransactionListProps) {
         {customerId && (
           <Button 
             onClick={() => setPaymentOpen(true)}
-            className="rounded-full shadow-lg shadow-primary/20 flex items-center gap-2 font-bold"
+            className="rounded-full shadow-lg shadow-primary/20 flex items-center gap-2 font-bold h-10 px-6"
           >
             <Plus className="h-4 w-4" />
             Record Payment
@@ -60,9 +60,9 @@ export function TransactionList({ customerId }: TransactionListProps) {
             key: 'date', 
             header: 'Date', 
             cell: (r) => (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Calendar className="h-3 w-3" />
-                <span className="text-xs font-medium">{new Date(r.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+              <div className="flex items-center gap-2 text-muted-foreground/80 whitespace-nowrap">
+                <Calendar className="h-3 w-3 shrink-0" />
+                <span className="text-xs font-medium tabular-nums">{new Date(r.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</span>
               </div>
             ) 
           },
@@ -70,14 +70,16 @@ export function TransactionList({ customerId }: TransactionListProps) {
             key: 'customer', 
             header: 'Customer', 
             cell: (r: typeof rows[0]) => (
-              <span className="font-bold text-sm">{r.customer?.name ?? '—'}</span>
+              <span className="font-bold text-sm text-white truncate max-w-[180px] block">{r.customer?.name ?? '—'}</span>
             ) 
           }]),
           { 
             key: 'type', 
             header: 'Type', 
             cell: (r) => (
-              <StatusBadge status={r.type} />
+              <div className="scale-90 origin-left">
+                <StatusBadge status={r.type} />
+              </div>
             ) 
           },
           { 
@@ -88,8 +90,8 @@ export function TransactionList({ customerId }: TransactionListProps) {
               const isPayment = amount < 0; // Negative means money received
               return (
                 <div className={cn(
-                  "font-mono font-bold text-sm flex items-center gap-1",
-                  isPayment ? "text-emerald-500" : "text-destructive"
+                  "font-mono font-bold text-xs flex items-center gap-1 whitespace-nowrap",
+                  isPayment ? "text-emerald-400" : "text-rose-400"
                 )}>
                   {isPayment ? '-' : '+'} ₨ {Math.abs(amount).toLocaleString()}
                 </div>
@@ -100,7 +102,7 @@ export function TransactionList({ customerId }: TransactionListProps) {
             key: 'notes', 
             header: 'Description', 
             cell: (r) => (
-              <div className="flex items-center gap-2 text-muted-foreground max-w-[300px]">
+              <div className="flex items-center gap-2 text-muted-foreground/60 max-w-[250px]">
                 <FileText className="h-3 w-3 shrink-0" />
                 <span className="text-xs truncate italic">{r.description || 'No notes available'}</span>
               </div>
