@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Home, Receipt, User, CreditCard, Truck, ShoppingCart, MessageCircle, CalendarDays, FileText, Menu } from 'lucide-react';
 import { cn, Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@water-supply-crm/ui';
-import { motion } from 'framer-motion';
 
 const primaryNavItems = [
   { href: '/home', label: 'Home', icon: Home },
@@ -27,7 +26,7 @@ export function MobileNav() {
 
   return (
     <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-50 px-4 pb-4">
-      <div className="bg-background/80 backdrop-blur-xl border border-border/50 rounded-2xl shadow-2xl flex items-center justify-around h-16 px-2">
+      <div className="bg-background/80 backdrop-blur-xl border border-border/50 rounded-2xl shadow-2xl flex items-center justify-around h-16 px-2 dark:glass-surface">
         {primaryNavItems.map(({ href, label, icon: Icon }) => {
           const isActive = pathname === href;
           return (
@@ -35,17 +34,15 @@ export function MobileNav() {
               key={href}
               href={href}
               className={cn(
-                "relative flex flex-col items-center justify-center flex-1 h-full gap-1 transition-all duration-300",
+                "relative flex flex-col items-center justify-center flex-1 h-full gap-1 transition-colors",
                 isActive ? "text-primary" : "text-muted-foreground hover:text-foreground"
               )}
             >
-              <Icon className={cn("h-5 w-5 transition-transform duration-300", isActive && "scale-110")} />
+              <Icon className={cn("h-5 w-5", isActive && "scale-110")} />
               <span className="text-[9px] font-bold uppercase tracking-tighter">{label}</span>
               {isActive && (
-                <motion.div
-                  layoutId="bottom-nav-indicator"
-                  className="absolute -top-2 w-10 h-1 bg-primary rounded-full shadow-[0_-4px_10px_rgba(var(--primary),0.5)]"
-                  transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                <div
+                  className="absolute -top-2 w-10 h-1 bg-primary rounded-full shadow-[0_-4px_10px_rgba(99,102,241,0.5)]"
                 />
               )}
             </Link>
@@ -57,18 +54,18 @@ export function MobileNav() {
             <button
               type="button"
               className={cn(
-                'relative flex flex-col items-center justify-center flex-1 h-full gap-1 transition-all duration-300',
+                'relative flex flex-col items-center justify-center flex-1 h-full gap-1 transition-colors',
                 isMoreActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
               )}
             >
-              <Menu className={cn('h-5 w-5 transition-transform duration-300', isMoreActive && 'scale-110')} />
+              <Menu className={cn('h-5 w-5', isMoreActive && 'scale-110')} />
               <span className="text-[9px] font-bold uppercase tracking-tighter">More</span>
               {isMoreActive && <span className="absolute -top-2 w-10 h-1 bg-primary rounded-full" />}
             </button>
           </SheetTrigger>
           <SheetContent
             side="bottom"
-            className="sm:hidden rounded-t-3xl border-x border-t border-border/50 bg-background/95 backdrop-blur-xl px-4 pb-8 pt-6"
+            className="sm:hidden rounded-t-3xl border-x border-t border-border/50 bg-background/95 backdrop-blur-xl px-4 pb-8 pt-6 dark:glass-surface"
           >
             <SheetHeader className="space-y-1 text-left">
               <SheetTitle className="text-base">More Actions</SheetTitle>

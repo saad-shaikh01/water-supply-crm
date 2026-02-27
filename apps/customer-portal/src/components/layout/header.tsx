@@ -36,7 +36,7 @@ export function Header() {
     : 'C';
 
   return (
-    <header className="h-16 border-b bg-background/50 backdrop-blur-xl sticky top-0 z-40 w-full flex items-center justify-between px-4 md:px-6">
+    <header className="h-16 border-b border-border bg-background/50 backdrop-blur-xl sticky top-0 z-40 w-full flex items-center justify-between px-4 md:px-6 dark:glass-surface">
       <div className="flex items-center gap-2">
         <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
           <Droplets className="h-5 w-5" />
@@ -55,7 +55,7 @@ export function Header() {
               key={href}
               href={href}
               className={cn(
-                "px-4 py-1.5 rounded-full text-xs font-bold transition-all duration-300",
+                "px-4 py-1.5 rounded-full text-xs font-bold transition-colors",
                 isActive 
                   ? "bg-background text-primary shadow-sm shadow-black/5" 
                   : "text-muted-foreground hover:text-foreground"
@@ -74,7 +74,7 @@ export function Header() {
         
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="relative h-9 w-9 rounded-full p-0 ring-offset-background hover:ring-2 hover:ring-primary/20 transition-all">
+            <Button variant="ghost" className="relative h-9 w-9 rounded-full p-0 ring-offset-background hover:ring-2 hover:ring-primary/20 transition-colors">
               <Avatar className="h-9 w-9 border border-border/50">
                 <AvatarFallback className="text-[10px] font-black bg-gradient-to-br from-primary to-blue-600 text-primary-foreground">
                   {initials}
@@ -82,7 +82,7 @@ export function Header() {
               </Avatar>
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-64 p-2 bg-background/95 backdrop-blur-xl border-border/50 rounded-2xl shadow-2xl mt-2">
+          <DropdownMenuContent align="end" className="w-64 p-2 bg-background/95 backdrop-blur-xl border-border/50 rounded-2xl shadow-2xl mt-2 dark:glass-surface">
             <DropdownMenuLabel className="font-normal px-2 py-3">
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-black">
@@ -96,13 +96,13 @@ export function Header() {
             </DropdownMenuLabel>
             <DropdownMenuSeparator className="bg-border/50" />
             <div className="p-1">
-              <DropdownMenuItem asChild className="rounded-xl px-3 py-2 cursor-pointer transition-all">
+              <DropdownMenuItem asChild className="rounded-xl px-3 py-2 cursor-pointer transition-colors">
                 <Link href="/profile" className="flex items-center">
                   <User className="mr-3 h-4 w-4" />
                   <span className="font-bold text-sm">Account Settings</span>
                 </Link>
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={logout} className="text-destructive focus:text-destructive focus:bg-destructive/10 rounded-xl px-3 py-2 cursor-pointer transition-all">
+              <DropdownMenuItem onClick={logout} className="text-destructive focus:text-destructive focus:bg-destructive/10 rounded-xl px-3 py-2 cursor-pointer transition-colors">
                 <LogOut className="mr-3 h-4 w-4" />
                 <span className="font-bold text-sm">Logout</span>
               </DropdownMenuItem>

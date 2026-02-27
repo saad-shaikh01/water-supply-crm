@@ -43,7 +43,7 @@ function TransactionsContent() {
               setPage(1);
             }}
             className={cn(
-              'px-4 py-2 rounded-xl text-xs font-bold transition-all',
+              'px-4 py-2 rounded-xl text-xs font-bold transition-colors',
               typeFilter === tab.value
                 ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
                 : 'bg-accent/50 text-muted-foreground hover:bg-accent hover:text-foreground',
@@ -54,7 +54,7 @@ function TransactionsContent() {
         ))}
       </div>
 
-      <div className="rounded-3xl border border-border/50 bg-card/40 p-3 sm:p-4 backdrop-blur-sm">
+      <div className="rounded-2xl border border-border/50 bg-card/40 p-3 sm:p-4 backdrop-blur-sm dark:glass-surface">
         <div className="flex flex-col gap-3 md:flex-row md:items-center">
           <div className="relative flex-1 min-w-0">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -65,7 +65,7 @@ function TransactionsContent() {
                 setPage(1);
               }}
               placeholder="Search descriptions"
-              className="rounded-2xl pl-9"
+              className="rounded-xl pl-9"
             />
           </div>
 
@@ -77,7 +77,7 @@ function TransactionsContent() {
                 setDateFrom(e.target.value || null);
                 setPage(1);
               }}
-              className="rounded-2xl min-w-[10rem]"
+              className="rounded-xl min-w-[10rem]"
             />
             <Input
               type="date"
@@ -86,7 +86,7 @@ function TransactionsContent() {
                 setDateTo(e.target.value || null);
                 setPage(1);
               }}
-              className="rounded-2xl min-w-[10rem]"
+              className="rounded-xl min-w-[10rem]"
             />
           </div>
 
@@ -100,7 +100,7 @@ function TransactionsContent() {
               setPage(1);
             }}
             disabled={!hasExtraFilters}
-            className="rounded-2xl font-bold gap-2"
+            className="rounded-xl font-bold gap-2 transition-colors"
           >
             <X className="h-4 w-4" />
             Clear
@@ -115,7 +115,7 @@ function TransactionsContent() {
 
 export default function TransactionsPage() {
   return (
-    <Suspense fallback={<div className="h-64 rounded-2xl bg-accent/30 animate-pulse" />}>
+    <Suspense fallback={<div className="h-64 rounded-2xl bg-accent/10 animate-pulse" />}>
       <TransactionsContent />
     </Suspense>
   );

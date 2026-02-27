@@ -73,7 +73,7 @@ function SupportContent() {
         </div>
         <Button
           onClick={() => setCreateOpen(true)}
-          className="rounded-2xl font-bold gap-2 shadow-lg shadow-primary/20 active:scale-95 transition-all"
+          className="rounded-xl font-bold gap-2 shadow-lg shadow-primary/20 transition-colors"
         >
           <Plus className="h-4 w-4" />
           New Ticket
@@ -87,7 +87,7 @@ function SupportContent() {
             key={tab.value}
             onClick={() => { setTypeFilter(tab.value || null); setPage(1); }}
             className={cn(
-              'px-4 py-2 rounded-xl text-xs font-bold transition-all',
+              'px-4 py-2 rounded-xl text-xs font-bold transition-colors',
               typeFilter === tab.value
                 ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
                 : 'bg-accent/50 text-muted-foreground hover:bg-accent hover:text-foreground',
@@ -108,7 +108,7 @@ function SupportContent() {
               setPage(1);
             }}
             className={cn(
-              'px-4 py-2 rounded-xl text-xs font-bold transition-all',
+              'px-4 py-2 rounded-xl text-xs font-bold transition-colors',
               statusFilter === tab.value
                 ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
                 : 'bg-accent/50 text-muted-foreground hover:bg-accent hover:text-foreground'
@@ -143,7 +143,7 @@ function SupportContent() {
               onClick={() => setSelectedTicket(ticket)}
               className="w-full text-left"
             >
-              <Card className="bg-card/50 backdrop-blur-sm border-border/50 hover:border-primary/30 hover:bg-card/80 transition-all">
+              <Card className="bg-card/50 backdrop-blur-sm border-border/50 hover:border-primary/30 hover:bg-card/80 transition-colors dark:glass-surface">
                 <CardContent className="p-4 flex items-start gap-4">
                   <div className={cn(
                     'h-10 w-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5',
@@ -195,7 +195,7 @@ function SupportContent() {
           <Button
             variant="outline"
             size="sm"
-            className="rounded-xl gap-1"
+            className="rounded-xl gap-1 transition-colors"
             disabled={page <= 1}
             onClick={() => setPage(page - 1)}
           >
@@ -205,7 +205,7 @@ function SupportContent() {
           <Button
             variant="outline"
             size="sm"
-            className="rounded-xl gap-1"
+            className="rounded-xl gap-1 transition-colors"
             disabled={page >= totalPages}
             onClick={() => setPage(page + 1)}
           >
@@ -226,7 +226,7 @@ function SupportContent() {
 
 export default function SupportPage() {
   return (
-    <Suspense fallback={<div className="h-64 rounded-2xl bg-accent/30 animate-pulse" />}>
+    <Suspense fallback={<div className="h-64 rounded-2xl bg-accent/10 animate-pulse" />}>
       <SupportContent />
     </Suspense>
   );

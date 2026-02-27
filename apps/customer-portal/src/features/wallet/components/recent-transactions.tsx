@@ -22,13 +22,13 @@ export function RecentTransactions() {
   const transactions = data?.data ?? [];
 
   return (
-    <Card className="rounded-[2rem] border-border/50 bg-card/30 backdrop-blur-sm overflow-hidden">
-      <CardHeader className="flex flex-row items-center justify-between border-b bg-muted/20 px-6 py-4">
+    <Card className="rounded-2xl border-border/50 bg-card/30 backdrop-blur-sm overflow-hidden dark:glass-surface">
+      <CardHeader className="flex flex-row items-center justify-between border-b border-border/50 bg-muted/20 px-6 py-4">
         <CardTitle className="text-sm font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
           <Receipt className="h-4 w-4 text-primary" />
           Recent Activity
         </CardTitle>
-        <Button variant="ghost" size="sm" asChild className="rounded-full font-bold h-8 hover:bg-primary/10 hover:text-primary">
+        <Button variant="ghost" size="sm" asChild className="rounded-full font-bold h-8 hover:bg-primary/10 hover:text-primary transition-colors">
           <Link href="/transactions" className="flex items-center gap-1">
             History <ArrowRight className="h-3 w-3" />
           </Link>
@@ -56,17 +56,17 @@ export function RecentTransactions() {
             <p className="text-sm font-bold text-muted-foreground">No transactions yet</p>
           </div>
         ) : (
-          <div className="divide-y divide-border/50">
+          <div className="divide-y divide-border/30">
             {transactions.map((tx: any) => {
               const isPayment = tx.amount < 0; // Negative means money received from customer
               return (
                 <div
                   key={tx.id}
-                  className="flex items-center justify-between p-4 sm:p-6 hover:bg-accent/30 transition-all cursor-default group"
+                  className="flex items-center justify-between p-4 sm:p-6 hover:bg-accent/10 transition-colors cursor-default group"
                 >
                   <div className="flex items-center gap-4 min-w-0">
                     <div className={cn(
-                      "h-10 w-10 rounded-full flex items-center justify-center shrink-0 transition-transform group-hover:scale-110",
+                      "h-10 w-10 rounded-full flex items-center justify-center shrink-0 transition-colors",
                       isPayment ? "bg-emerald-500/10 text-emerald-500" : "bg-primary/10 text-primary"
                     )}>
                       {isPayment ? <ArrowDownLeft className="h-5 w-5" /> : <ArrowUpRight className="h-5 w-5" />}
