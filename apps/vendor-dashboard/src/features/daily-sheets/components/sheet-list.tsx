@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Eye, Calendar, MapPin, User, Truck, SlidersHorizontal, X, Droplets, DollarSign } from 'lucide-react';
+import { Eye, Calendar, MapPin, User, Truck, SlidersHorizontal, Droplets, DollarSign, AlertTriangle, Zap } from 'lucide-react';
 import {
   Button, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
   Sheet, SheetContent, SheetHeader, SheetTitle,
@@ -39,6 +39,8 @@ export function SheetList() {
     _count?: { items: number };
     itemCounts?: { pending: number; completed: number; issues: number };
     tripState?: { tripCount: number; hasActiveTrip: boolean };
+    issueCount?: number;
+    onDemandCount?: number;
   }>;
   const total = sheets?.meta?.total ?? 0;
 
@@ -121,6 +123,17 @@ export function SheetList() {
           >
             Clear all
           </button>
+        </div>
+      )}
+
+      {!isDriver && (
+        <div className="flex justify-end">
+          <Button variant="outline" size="sm" asChild className="rounded-xl gap-2">
+            <Link href="/dashboard/delivery-issues">
+              <AlertTriangle className="h-4 w-4" />
+              Delivery Issues Inbox
+            </Link>
+          </Button>
         </div>
       )}
 
@@ -273,6 +286,22 @@ export function SheetList() {
               <div className="flex items-center gap-1 text-xs font-mono font-bold">
                 <DollarSign className="h-3 w-3 text-emerald-500" />
                 <span>{Number(r.cashCollected ?? 0).toLocaleString()}</span>
+              </div>
+            )
+          },
+          {
+            key: 'ops',
+            header: 'Ops Signals',
+            cell: (r) => (
+              <div className="flex flex-wrap gap-1.5">
+                <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2.5 py-1 text-[10px] font-bold text-destructive">
+                  <AlertTriangle className="h-3 w-3" />
+                  {r.issueCount ?? 0}
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2.5 py-1 text-[10px] font-bold text-blue-600">
+                  <Zap className="h-3 w-3" />
+                  {r.onDemandCount ?? 0}
+                </span>
               </div>
             )
           },
