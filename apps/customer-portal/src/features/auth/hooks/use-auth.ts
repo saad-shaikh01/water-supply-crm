@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { authApi } from '../api/auth.api';
 import { useAuthStore } from '../../../store/auth.store';
 import type { LoginInput } from '../schemas';
+import { unregisterSessionFcmToken } from '../../notifications/lib/fcm-session';
 
 export const useLogin = () => {
   const router = useRouter();
@@ -17,6 +18,7 @@ export const useLogin = () => {
     onSuccess: ({ data }) => {
       const customerId = data.user.customerId;
       if (data.user.role !== 'CUSTOMER' || !customerId) {
+        unregisterSessionFcmToken().catch(() => null);
         authApi.logout(data.refresh_token).catch(() => null);
         deleteCookie('auth_token');
         deleteCookie('refresh_token');
@@ -49,6 +51,7 @@ export const useLogout = () => {
 
   return () => {
     const refreshToken = getCookie('refresh_token') as string | undefined;
+    unregisterSessionFcmToken().catch(() => null);
     if (refreshToken) {
       authApi.logout(refreshToken).catch(() => null);
     }
