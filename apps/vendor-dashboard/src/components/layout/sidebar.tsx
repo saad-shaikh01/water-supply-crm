@@ -56,8 +56,8 @@ export function Sidebar({ className }: { className?: string }) {
   );
 
   return (
-    <aside className={cn("flex flex-col border-r border-white/10 bg-white/[0.02] backdrop-blur-3xl", className)}>
-      <div className="h-20 flex items-center px-8 border-b border-white/5 bg-transparent">
+    <aside className={cn("flex flex-col border-r border-border bg-white/[0.02] backdrop-blur-3xl", className)}>
+      <div className="h-20 flex items-center px-8 border-b border-border/50 bg-transparent">
         <Link href="/dashboard/overview" className="flex items-center gap-3 group">
           <div className="p-2 rounded-xl bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors shadow-inner">
             <Droplets className="h-6 w-6" />
@@ -109,8 +109,8 @@ export function Sidebar({ className }: { className?: string }) {
         })}
       </nav>
 
-      <div className="p-6 border-t border-white/5 bg-white/[0.01]">
-        <div className="px-5 py-4 rounded-2xl bg-white/[0.03] border border-white/5 shadow-xl">
+      <div className="p-6 border-t border-border/50 bg-white/[0.01]">
+        <div className="px-5 py-4 rounded-2xl bg-white/[0.03] border border-border/50 shadow-xl">
           <p className="text-[9px] uppercase tracking-widest font-bold text-primary">Operator</p>
           <p className="text-sm font-bold truncate text-white mt-1">{user?.name || 'User'}</p>
           <div className="flex items-center gap-2 mt-1">

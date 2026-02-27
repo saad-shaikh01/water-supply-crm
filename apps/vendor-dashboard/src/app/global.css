@@ -3,71 +3,64 @@
 @tailwind utilities;
 
 :root {
-  /* Premium Dark Base Tokens */
-  --background: 0 0% 1.17%; /* #030303 */
-  --foreground: 0 0% 100%; /* #ffffff */
-  
-  --card: 240 20% 4.9%; /* Base for rgba(10, 10, 15, 0.7) */
-  --card-foreground: 0 0% 100%;
-  
-  --popover: 240 20% 4.9%;
-  --popover-foreground: 0 0% 100%;
-  
-  --primary: 239 84% 67%; /* #6366f1 */
+  /* Premium Light Tokens (for fallback/switch) */
+  --background: 230 50% 98%;
+  --foreground: 230 60% 5%;
+  --card: 0 0% 100% / 0.8;
+  --card-foreground: 230 60% 5%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 230 60% 5%;
+  --primary: 239 84% 67%;
   --primary-foreground: 0 0% 100%;
-  
-  --secondary: 240 20% 14.7%; /* Base for rgba(30, 30, 45, 0.6) */
-  --secondary-foreground: 0 0% 100%;
-  
-  --muted: 240 20% 14.7%;
-  --muted-foreground: 215 19% 65%; /* #94a3b8 */
-  
-  --accent: 239 84% 67%; /* Base for rgba(99, 102, 241, 0.15) */
-  --accent-foreground: 0 0% 100%;
-  
-  --destructive: 0 84% 60%; /* #ef4444 */
+  --secondary: 230 50% 96% / 0.6;
+  --secondary-foreground: 230 60% 5%;
+  --muted: 230 30% 94% / 0.3;
+  --muted-foreground: 230 20% 35%;
+  --accent: 239 84% 67% / 0.1;
+  --accent-foreground: 239 84% 67%;
+  --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 100%;
-  
-  --border: 0 0% 100% / 0.08; /* rgba(255, 255, 255, 0.08) */
-  --input: 0 0% 100% / 0.05; /* rgba(255, 255, 255, 0.05) */
+  --border: 230 30% 88%;
+  --input: 230 30% 88%;
   --ring: 239 84% 67%;
-  
   --radius: 1rem;
 }
 
 .dark {
-  --background: 0 0% 1.17%;
-  --foreground: 0 0% 100%;
-  --card: 240 20% 4.9%;
-  --card-foreground: 0 0% 100%;
+  /* Premium Dark Base Tokens - Softened */
+  --background: 0 0% 1.17%; /* #030303 */
+  --foreground: 0 0% 98%; 
+  
+  --card: 240 20% 4.9%; /* Base for translucency */
+  --card-foreground: 0 0% 98%;
+  
   --popover: 240 20% 4.9%;
-  --popover-foreground: 0 0% 100%;
-  --primary: 239 84% 67%;
+  --popover-foreground: 0 0% 98%;
+  
+  --primary: 239 84% 67%; /* #6366f1 */
   --primary-foreground: 0 0% 100%;
+  
   --secondary: 240 20% 14.7%;
-  --secondary-foreground: 0 0% 100%;
+  --secondary-foreground: 0 0% 98%;
+  
   --muted: 240 20% 14.7%;
-  --muted-foreground: 215 19% 65%;
-  --accent: 239 84% 67%;
+  --muted-foreground: 215 16% 55%; /* Softer text */
+  
+  --accent: 239 84% 67% / 0.15;
   --accent-foreground: 0 0% 100%;
+  
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 100%;
-  --border: 0 0% 100% / 0.08;
-  --input: 0 0% 100% / 0.05;
+  
+  --border: 0 0% 100% / 0.05; /* Softened border from 0.08 */
+  --input: 0 0% 100% / 0.03; /* Softened input background */
   --ring: 239 84% 67%;
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
-    transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
-    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-    transition-duration: 150ms;
-  }
-  
-  /* Disable all motion-heavy transitions */
-  * {
-    transition: none !important;
+    transition: none !important; /* Premium Dark hard constraint */
   }
   
   /* Re-enable only simple color state changes */
@@ -82,8 +75,8 @@
     overflow-x: hidden;
   }
 
-  /* Mesh Gradient Background Layer */
-  body::before {
+  /* Mesh Gradient Background Layer - Dark Mode Only */
+  .dark body::before {
     content: "";
     position: fixed;
     top: 0;
@@ -92,15 +85,15 @@
     height: 100%;
     z-index: -2;
     background: 
-      radial-gradient(circle at 20% 20%, rgba(99, 102, 241, 0.12), transparent 40%),
-      radial-gradient(circle at 80% 80%, rgba(139, 92, 246, 0.12), transparent 40%),
-      radial-gradient(circle at 50% 50%, rgba(79, 70, 229, 0.08), transparent 60%);
+      radial-gradient(circle at 20% 20%, rgba(99, 102, 241, 0.1), transparent 40%),
+      radial-gradient(circle at 80% 80%, rgba(139, 92, 246, 0.1), transparent 40%),
+      radial-gradient(circle at 50% 50%, rgba(79, 70, 229, 0.05), transparent 60%);
     background-color: #030303;
     pointer-events: none;
   }
 
-  /* Noise Overlay Layer */
-  body::after {
+  /* Noise Overlay Layer - Dark Mode Only */
+  .dark body::after {
     content: "";
     position: fixed;
     top: 0;
@@ -108,7 +101,7 @@
     width: 100%;
     height: 100%;
     z-index: -1;
-    opacity: 0.015;
+    opacity: 0.012;
     background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
     pointer-events: none;
   }
@@ -117,52 +110,58 @@
 @layer components {
   /* Premium Glassmorphism Overrides */
   
-  /* Cards */
-  .rounded-2xl, .rounded-3xl, .rounded-xl {
-    @apply border-white/10;
+  .dark .glass-surface {
+    @apply bg-white/[0.02] backdrop-blur-2xl border border-white/[0.05] !important;
+    background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0.005) 100%) !important;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3) !important;
   }
 
-  .bg-card, .bg-card\/40, .bg-popover {
-    @apply bg-white/[0.03] backdrop-blur-2xl !important;
-    background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.01) 100%) !important;
+  /* Standardize borders for common components */
+  .dark .border, 
+  .dark .border-t, 
+  .dark .border-b, 
+  .dark .border-l, 
+  .dark .border-r {
+    @apply border-white/[0.05] !important;
   }
 
-  .shadow-glass, .shadow-xl, .shadow-2xl {
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37), inset 0 0 0 1px rgba(255, 255, 255, 0.1) !important;
+  .dark .bg-card, 
+  .dark .bg-white\/\[0\.03\],
+  .dark .bg-white\/\[0\.02\] {
+    @apply bg-white/[0.02] !important;
   }
 
   /* Buttons */
   .inline-flex.items-center.justify-center.whitespace-nowrap.rounded-2xl {
-    @apply rounded-lg !important; /*rounded-lg per spec for buttons*/
+    @apply rounded-lg !important; 
   }
 
-  .bg-primary {
-    @apply shadow-[0_0_20px_-5px_rgba(99,102,241,0.3)] !important;
-  }
-
-  .active\:scale-95 {
-    @apply active:scale-100 !important; /* Remove motion */
+  .dark .bg-primary {
+    @apply shadow-[0_4px_12px_rgba(99,102,241,0.2)] !important;
   }
 
   /* Inputs */
-  input:not([type='checkbox']):not([type='radio']), textarea, select {
-    @apply bg-white/[0.03] border-white/10 backdrop-blur-md text-white !important;
+  .dark input:not([type='checkbox']):not([type='radio']), 
+  .dark textarea, 
+  .dark select {
+    @apply bg-white/[0.02] border-white/[0.05] backdrop-blur-md text-white/90 font-medium !important;
   }
 
-  input:focus, textarea:focus, select:focus {
-    @apply border-primary ring-primary/10 ring-4 !important;
+  /* Table Specifics */
+  .dark thead tr {
+    @apply bg-white/[0.01] border-b border-white/[0.05] !important;
+  }
+  
+  .dark tr {
+    @apply border-b border-white/[0.02] last:border-0 !important;
   }
 
-  /* Specific Premium Classes */
-  .premium-card {
-    @apply bg-white/[0.03] backdrop-blur-2xl rounded-2xl p-6 border border-white/10;
-    background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.01) 100%);
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37), inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  .dark th {
+    @apply text-white/40 font-bold uppercase tracking-[0.2em] !important;
   }
 
-  /* Badges */
-  .inline-flex.items-center.rounded-full.border.px-2.5.py-0.5 {
-    @apply font-bold uppercase tracking-wider text-[10px] !important;
+  .dark td {
+    @apply text-white/80 font-medium !important;
   }
 }
 
