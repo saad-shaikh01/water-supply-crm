@@ -14,41 +14,41 @@ import {
 
 export function Header() {
   return (
-    <header className="h-20 bg-background/20 backdrop-blur-3xl flex items-center justify-between px-6 md:px-12 sticky top-0 z-40 shrink-0 border-b border-border/50 dark:border-white/5 shadow-2xl">
+    <header className="h-20 bg-white/[0.02] backdrop-blur-3xl flex items-center justify-between px-6 md:px-12 sticky top-0 z-40 shrink-0 border-b border-white/10 shadow-2xl">
       <div className="flex items-center gap-8 flex-1">
         <Sheet>
           <SheetTrigger asChild>
-            <Button variant="ghost" size="icon" className="md:hidden hover:bg-muted dark:hover:bg-white/5 transition-all rounded-xl h-12 w-12 border border-border/50 dark:border-white/5">
-              <Menu className="h-6 w-6" />
+            <Button variant="ghost" size="icon" className="md:hidden hover:bg-white/5 rounded-xl h-12 w-12 border border-white/10">
+              <Menu className="h-6 w-6 text-white" />
             </Button>
           </SheetTrigger>
-          <SheetContent side="left" className="p-0 w-80 border-r border-border dark:border-white/5 glass-panel">
+          <SheetContent side="left" className="p-0 w-80 border-r border-white/10 bg-transparent">
             <Sidebar className="w-full h-full border-none shadow-none" />
           </SheetContent>
         </Sheet>
 
-        <div className="hidden md:flex items-center gap-4 px-6 py-3 rounded-2xl bg-muted/50 dark:bg-black/20 border border-border/50 dark:border-white/5 max-w-lg w-full group focus-within:ring-2 focus-within:ring-primary/40 focus-within:bg-background dark:focus-within:bg-black/40 transition-all duration-500 shadow-xl dark:shadow-2xl">
-          <Search className="h-4 w-4 text-muted-foreground group-focus-within:text-primary group-focus-within:scale-110 transition-all" />
+        <div className="hidden md:flex items-center gap-4 px-6 py-2.5 rounded-xl bg-white/[0.03] border border-white/10 max-w-md w-full focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/10 transition-colors shadow-xl">
+          <Search className="h-4 w-4 text-muted-foreground" />
           <input 
             type="text" 
             placeholder="Search anything..." 
-            className="bg-transparent border-none outline-none text-[13px] w-full placeholder:text-muted-foreground/50 dark:placeholder:text-muted-foreground/30 font-bold tracking-tight text-foreground"
+            className="bg-transparent border-none outline-none text-sm w-full placeholder:text-muted-foreground/50 font-medium tracking-tight text-white"
           />
-          <kbd className="hidden lg:inline-flex h-6 select-none items-center gap-1 rounded-md border border-border dark:border-white/10 bg-muted dark:bg-black/40 px-2 font-mono text-[10px] font-black text-muted-foreground/60 dark:text-muted-foreground/40 shadow-sm">
+          <kbd className="hidden lg:inline-flex h-5 select-none items-center gap-1 rounded border border-white/10 bg-white/5 px-1.5 font-mono text-[10px] text-muted-foreground">
             <span className="text-xs">⌘</span>K
           </kbd>
         </div>
       </div>
 
-      <div className="flex items-center gap-4 md:gap-8">
+      <div className="flex items-center gap-4 md:gap-6">
         <div className="flex items-center gap-2">
           <ThemeToggle />
-          <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-primary hover:bg-primary/5 rounded-xl h-12 w-12 transition-all border border-transparent hover:border-border/50 dark:hover:border-white/5">
+          <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-white hover:bg-white/5 rounded-xl h-11 w-11 transition-colors border border-transparent hover:border-white/10">
             <Bell className="h-5 w-5" />
-            <span className="absolute top-3 right-3 w-2 h-2 bg-primary rounded-full shadow-[0_0_12px_rgba(0,212,255,1)] animate-pulse" />
+            <span className="absolute top-3 right-3 w-2 h-2 bg-primary rounded-full shadow-[0_0_10px_rgba(99,102,241,1)]" />
           </Button>
         </div>
-        <div className="h-8 w-px bg-border dark:bg-white/5 mx-2 hidden sm:block" />
+        <div className="h-8 w-px bg-white/10 mx-2 hidden sm:block" />
         <UserNav />
       </div>
     </header>
