@@ -1,9 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
-  Button, Label, Input,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  Button,
+  Label,
+  Input,
 } from '@water-supply-crm/ui';
 import { Loader2, ShoppingCart } from 'lucide-react';
 import { usePortalProducts } from '../../wallet/hooks/use-wallet';
@@ -38,6 +44,13 @@ export function PlaceOrderDialog({ open, onOpenChange }: PlaceOrderDialogProps) 
     );
   };
 
+  const selectedProduct = useMemo(
+    () => products.find((product) => product.id === productId),
+    [productId, products]
+  );
+  const unitPrice = selectedProduct?.effectivePrice ?? 0;
+  const estimatedTotal = unitPrice * quantity;
+
   return (
     <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) reset(); }}>
       <DialogContent className="sm:max-w-md rounded-3xl border-border/50 bg-card/90 backdrop-blur-xl">
@@ -52,7 +65,6 @@ export function PlaceOrderDialog({ open, onOpenChange }: PlaceOrderDialogProps) 
         </DialogHeader>
 
         <div className="space-y-4 mt-2">
-          {/* Product */}
           <div className="space-y-1.5">
             <Label className="text-xs font-bold uppercase tracking-wider">Product</Label>
             <select
@@ -61,15 +73,26 @@ export function PlaceOrderDialog({ open, onOpenChange }: PlaceOrderDialogProps) 
               className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
             >
               <option value="">Select a product...</option>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} — ₨{p.basePrice}/unit
+              {products.map((product) => (
+                <option key={product.id} value={product.id}>
+                  {product.name} - Rs {product.effectivePrice}/unit
                 </option>
               ))}
             </select>
+            {selectedProduct && (
+              <div className="rounded-2xl border border-border/50 bg-background/70 px-3 py-2 text-xs space-y-1">
+                <p className="font-bold text-foreground">
+                  Your price: Rs {selectedProduct.effectivePrice.toLocaleString()} / unit
+                </p>
+                {selectedProduct.effectivePrice !== selectedProduct.basePrice && (
+                  <p className="text-muted-foreground">
+                    Base price: Rs {selectedProduct.basePrice.toLocaleString()} / unit
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* Quantity */}
           <div className="space-y-1.5">
             <Label className="text-xs font-bold uppercase tracking-wider">Quantity</Label>
             <Input
@@ -81,7 +104,6 @@ export function PlaceOrderDialog({ open, onOpenChange }: PlaceOrderDialogProps) 
             />
           </div>
 
-          {/* Preferred Date (optional) */}
           <div className="space-y-1.5">
             <Label className="text-xs font-bold uppercase tracking-wider">
               Preferred Date <span className="text-muted-foreground font-normal">(optional)</span>
@@ -94,7 +116,6 @@ export function PlaceOrderDialog({ open, onOpenChange }: PlaceOrderDialogProps) 
             />
           </div>
 
-          {/* Note */}
           <div className="space-y-1.5">
             <Label className="text-xs font-bold uppercase tracking-wider">
               Note <span className="text-muted-foreground font-normal">(optional)</span>
@@ -114,7 +135,7 @@ export function PlaceOrderDialog({ open, onOpenChange }: PlaceOrderDialogProps) 
             className="w-full rounded-2xl font-bold gap-2 shadow-lg shadow-primary/20"
           >
             {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShoppingCart className="h-4 w-4" />}
-            Place Order
+            {selectedProduct ? `Place Order - Rs ${estimatedTotal.toLocaleString()}` : 'Place Order'}
           </Button>
         </div>
       </DialogContent>

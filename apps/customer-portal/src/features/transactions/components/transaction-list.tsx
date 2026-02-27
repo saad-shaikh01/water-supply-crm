@@ -25,13 +25,8 @@ export function TransactionList({ typeFilter }: TransactionListProps) {
   const { data, isLoading, isError, refetch, page, setPage, limit, setLimit } = useTransactions();
 
   const response = data as { data?: any[]; meta?: { total: number } } | undefined;
-  const allTransactions = response?.data ?? [];
+  const transactions = response?.data ?? [];
   const total = response?.meta?.total ?? 0;
-
-  // Client-side filter by type
-  const transactions = typeFilter
-    ? allTransactions.filter((tx: any) => tx.type === typeFilter)
-    : allTransactions;
 
   if (isLoading) {
     return <ListLoadingState rows={4} />;
@@ -53,7 +48,11 @@ export function TransactionList({ typeFilter }: TransactionListProps) {
       <ListEmptyState
         icon={Inbox}
         title="No transactions found"
-        description="Your transaction history will appear here."
+        description={
+          typeFilter
+            ? 'No transactions match the selected type.'
+            : 'Your transaction history will appear here.'
+        }
       />
     );
   }
