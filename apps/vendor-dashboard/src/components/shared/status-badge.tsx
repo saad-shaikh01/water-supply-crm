@@ -29,6 +29,10 @@ const statusConfig: Record<string, { label: string; variant: 'default' | 'second
   UNDER_REVIEW: { label: 'Under Review', variant: 'warning' },
   DISPATCHED: { label: 'Dispatched', variant: 'info' },
   DELIVERED: { label: 'Delivered', variant: 'success' },
+  UNPLANNED: { label: 'Unplanned', variant: 'outline' },
+  INSERTED_IN_SHEET: { label: 'Inserted In Sheet', variant: 'info' },
+  FAILED: { label: 'Failed', variant: 'destructive' },
+  SELF_PICKUP_DONE: { label: 'Self Pickup', variant: 'success' },
 };
 
 export function StatusBadge({ status }: { status: Status }) {

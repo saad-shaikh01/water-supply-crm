@@ -60,3 +60,47 @@ export const useRejectOrder = () => {
     onError: () => toast.error('Failed to reject order'),
   });
 };
+
+export const useSaveDispatchPlan = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      data,
+      hasExistingPlan,
+    }: {
+      id: string;
+      data: {
+        targetDate: string;
+        timeWindow?: string;
+        vanId?: string;
+        driverId?: string;
+        dispatchMode: string;
+        notes?: string;
+      };
+      hasExistingPlan: boolean;
+    }) =>
+      hasExistingPlan
+        ? ordersApi.updateDispatchPlan(id, data)
+        : ordersApi.createDispatchPlan(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['vendor-orders'] });
+      toast.success('Dispatch plan saved');
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? 'Failed to save dispatch plan'),
+  });
+};
+
+export const useDispatchOrderNow = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => ordersApi.dispatchNow(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['vendor-orders'] });
+      toast.success('Order marked as dispatched');
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? 'Failed to dispatch order'),
+  });
+};
