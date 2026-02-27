@@ -4,8 +4,6 @@ import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, Skeleton, Button } from '@water-supply-crm/ui';
 import { Wallet, Droplets, TrendingUp, Plus, CreditCard, CalendarCheck } from 'lucide-react';
 import { usePortalProfile, usePortalBalance, usePortalSummary } from '../hooks/use-wallet';
-import { cn } from '@water-supply-crm/ui';
-import { motion } from 'framer-motion';
 import { PaymentDialog } from '../../payments/components/payment-dialog';
 
 function formatNextDelivery(dateStr: string | null | undefined): string {
@@ -39,12 +37,8 @@ export function WalletCard() {
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {/* Main Balance Card */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="sm:col-span-2 lg:col-span-2"
-        >
-          <Card className="relative overflow-hidden border-none bg-gradient-to-br from-primary to-blue-700 text-primary-foreground shadow-2xl shadow-primary/20 rounded-[2rem]">
+        <div className="sm:col-span-2 lg:col-span-2">
+          <Card className="relative overflow-hidden border-none bg-gradient-to-br from-primary to-blue-700 text-primary-foreground shadow-2xl shadow-primary/20 rounded-2xl dark:shadow-none">
             <CardContent className="p-8">
               <div className="flex justify-between items-start">
                 <div className="space-y-1">
@@ -65,7 +59,7 @@ export function WalletCard() {
               <div className="mt-8 flex flex-col sm:flex-row items-center gap-4">
                 <Button
                   onClick={() => setPaymentOpen(true)}
-                  className="w-full sm:w-auto rounded-2xl bg-white text-primary hover:bg-white/90 font-black px-8 py-6 h-auto shadow-lg active:scale-95 transition-all"
+                  className="w-full sm:w-auto rounded-xl bg-white text-primary hover:bg-white/90 font-black px-8 py-6 h-auto shadow-lg transition-colors"
                 >
                   <Plus className="mr-2 h-5 w-5" />
                   Pay Now
@@ -81,15 +75,11 @@ export function WalletCard() {
               <div className="absolute right-10 top-10 w-20 h-20 bg-blue-400/20 rounded-full blur-2xl" />
             </CardContent>
           </Card>
-        </motion.div>
+        </div>
 
         {/* Bottles Card */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-        >
-          <Card className="h-full rounded-[2rem] border-border/50 bg-card/50 backdrop-blur-sm">
+        <div>
+          <Card className="h-full rounded-2xl border-border/50 bg-card/50 backdrop-blur-sm dark:glass-surface">
             <CardHeader className="pb-2">
               <CardTitle className="text-xs font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                 <Droplets className="h-3 w-3 text-blue-500" /> Inventory
@@ -114,11 +104,11 @@ export function WalletCard() {
               )}
             </CardContent>
           </Card>
-        </motion.div>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Card className="rounded-2xl border-border/50 bg-emerald-500/5 dark:bg-emerald-500/10">
+        <Card className="rounded-2xl border-border/50 bg-emerald-500/5 dark:bg-emerald-500/5 dark:glass-surface">
           <CardContent className="p-4 flex items-center gap-4">
             <div className="h-10 w-10 rounded-xl bg-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
               <TrendingUp className="h-5 w-5" />
@@ -136,7 +126,7 @@ export function WalletCard() {
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl border-border/50 bg-blue-500/5 dark:bg-blue-500/10">
+        <Card className="rounded-2xl border-border/50 bg-blue-500/5 dark:bg-blue-500/5 dark:glass-surface">
           <CardContent className="p-4 flex items-center gap-4">
             <div className="h-10 w-10 rounded-xl bg-blue-500/20 flex items-center justify-center text-blue-600 dark:text-blue-400">
               <CreditCard className="h-5 w-5" />

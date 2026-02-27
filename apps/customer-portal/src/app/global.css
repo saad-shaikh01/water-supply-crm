@@ -2,63 +2,190 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  :root {
-    --background: 210 40% 98%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 1rem;
-  }
+:root {
+  /* Premium Light Tokens (for fallback/switch) */
+  --background: 230 50% 98%;
+  --foreground: 230 60% 5%;
+  --card: 0 0% 100% / 0.8;
+  --card-foreground: 230 60% 5%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 230 60% 5%;
+  --primary: 239 84% 67%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 230 50% 96% / 0.6;
+  --secondary-foreground: 230 60% 5%;
+  --muted: 230 30% 94% / 0.3;
+  --muted-foreground: 230 20% 35%;
+  --accent: 239 84% 67% / 0.1;
+  --accent-foreground: 239 84% 67%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 230 30% 88%;
+  --input: 230 30% 88%;
+  --ring: 239 84% 67%;
+  --radius: 1rem;
+}
 
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 48%;
-  }
+.dark {
+  /* Premium Dark Base Tokens - Softened */
+  --background: 0 0% 1.17%; /* #030303 */
+  --foreground: 0 0% 98%; 
+  
+  --card: 240 20% 4.9%; /* Base for translucency */
+  --card-foreground: 0 0% 98%;
+  
+  --popover: 240 20% 4.9%;
+  --popover-foreground: 0 0% 98%;
+  
+  --primary: 239 84% 67%; /* #6366f1 */
+  --primary-foreground: 0 0% 100%;
+  
+  --secondary: 240 20% 14.7%;
+  --secondary-foreground: 0 0% 98%;
+  
+  --muted: 240 20% 14.7%;
+  --muted-foreground: 215 16% 55%; /* Softer text */
+  
+  --accent: 239 84% 67% / 0.15;
+  --accent-foreground: 0 0% 100%;
+  
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  
+  --border: 0 0% 100% / 0.05; /* Softened border from 0.08 */
+  --input: 0 0% 100% / 0.03; /* Softened input background */
+  --ring: 239 84% 67%;
 }
 
 @layer base {
   * {
-    @apply border-border;
+    @apply border-border outline-ring/50;
+    transition: none !important; /* Premium Dark hard constraint */
   }
+  
+  /* Re-enable only simple color state changes */
+  .transition-colors {
+    transition: color 0.15s, background-color 0.15s, border-color 0.15s !important;
+  }
+
   body {
-    @apply bg-background text-foreground antialiased selection:bg-primary selection:text-primary-foreground;
+    @apply bg-background text-foreground antialiased selection:bg-primary selection:text-white;
+    position: relative;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Mesh Gradient Background Layer - Dark Mode Only */
+  .dark body::before {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -2;
+    background: 
+      radial-gradient(circle at 20% 20%, rgba(99, 102, 241, 0.1), transparent 40%),
+      radial-gradient(circle at 80% 80%, rgba(139, 92, 246, 0.1), transparent 40%),
+      radial-gradient(circle at 50% 50%, rgba(79, 70, 229, 0.05), transparent 60%);
+    background-color: #030303;
+    pointer-events: none;
+  }
+
+  /* Noise Overlay Layer - Dark Mode Only */
+  .dark body::after {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+    opacity: 0.012;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+    pointer-events: none;
+  }
+}
+
+@layer components {
+  /* Premium Glassmorphism Overrides */
+  
+  .dark .glass-surface {
+    background-color: rgb(255 255 255 / 0.02) !important;
+    backdrop-filter: blur(24px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+    border: 1px solid rgb(255 255 255 / 0.05) !important;
+    background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0.005) 100%) !important;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3) !important;
+  }
+
+  /* Standardize borders for common components */
+  .dark .border, 
+  .dark .border-t, 
+  .dark .border-b, 
+  .dark .border-l, 
+  .dark .border-r {
+    border-color: rgb(255 255 255 / 0.05) !important;
+  }
+
+  .dark .bg-card {
+    background-color: rgb(255 255 255 / 0.02) !important;
+  }
+
+  /* Buttons */
+  .inline-flex.items-center.justify-center.whitespace-nowrap.rounded-2xl {
+    border-radius: 0.5rem !important;
+  }
+
+  .dark .bg-primary {
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2) !important;
+  }
+
+  /* Inputs */
+  .dark input:not([type='checkbox']):not([type='radio']), 
+  .dark textarea, 
+  .dark select {
+    background-color: rgb(255 255 255 / 0.02) !important;
+    border-color: rgb(255 255 255 / 0.05) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    color: rgb(255 255 255 / 0.9) !important;
+    font-weight: 500 !important;
+  }
+
+  /* Table Specifics */
+  .dark thead tr {
+    background-color: rgb(255 255 255 / 0.01) !important;
+    border-bottom: 1px solid rgb(255 255 255 / 0.05) !important;
+  }
+  
+  .dark tr {
+    border-bottom: 1px solid rgb(255 255 255 / 0.02) !important;
+  }
+
+  .dark tbody tr:last-child,
+  .dark table tr:last-child {
+    border-bottom-width: 0 !important;
+  }
+
+  .dark th {
+    color: rgb(255 255 255 / 0.4) !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.2em !important;
+  }
+
+  .dark td {
+    color: rgb(255 255 255 / 0.8) !important;
+    font-weight: 500 !important;
   }
 }
 
 @layer utilities {
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+  
   .scrollbar-none::-webkit-scrollbar {
     display: none;
   }
