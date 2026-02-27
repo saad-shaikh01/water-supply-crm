@@ -44,9 +44,9 @@ Goal: Complete backend work first so frontend tasks remain unblocked.
 
 | ID | API Card | Scope | Priority | Status | Notes |
 |---|---|---|---|---|---|
-| B-NPL-001 | API-019 | Notification delivery log + admin query | Medium | READY | Needed for observability and support debugging. |
-| B-NPL-002 | API-018 | In-app notification feed endpoints | Medium | READY | Supports portal/vendor bell UX. |
-| B-NPL-003 | API-020 | Notification preferences endpoints | Medium | READY | Event/channel opt-in model. |
+| B-NPL-001 | API-019 | Notification delivery log + admin query | Medium | DONE | Needed for observability and support debugging. |
+| B-NPL-002 | API-018 | In-app notification feed endpoints | Medium | DONE | Supports portal/vendor bell UX. |
+| B-NPL-003 | API-020 | Notification preferences endpoints | Medium | DONE | Event/channel opt-in model. |
 
 ## Recommended Execution Order (Agent B)
 
