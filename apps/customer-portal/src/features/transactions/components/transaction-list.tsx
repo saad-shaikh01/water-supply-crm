@@ -63,7 +63,7 @@ export function TransactionList({ typeFilter }: TransactionListProps) {
         {transactions.map((tx: any) => {
           const isPayment = tx.amount < 0;
           return (
-            <Card key={tx.id} className="rounded-2xl border-border/50 bg-card/50">
+            <Card key={tx.id} className="rounded-2xl border-border/50 bg-card/50 dark:glass-surface">
               <CardContent className="p-4 space-y-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1 min-w-0">
@@ -90,10 +90,10 @@ export function TransactionList({ typeFilter }: TransactionListProps) {
         })}
       </div>
 
-      <div className="hidden sm:block rounded-[2rem] border border-border/50 bg-card/30 backdrop-blur-sm overflow-hidden shadow-sm">
+      <div className="hidden sm:block rounded-2xl border border-border/50 bg-card/30 backdrop-blur-sm overflow-hidden shadow-sm dark:glass-surface">
         <Table>
           <TableHeader>
-            <TableRow className="bg-muted/20 hover:bg-muted/20 border-b border-border/50">
+            <TableRow className="bg-muted/20 hover:bg-muted/20 border-b border-border/50 transition-colors">
               <TableHead className="h-12 text-[10px] uppercase tracking-widest font-black text-muted-foreground pl-6">Date</TableHead>
               <TableHead className="h-12 text-[10px] uppercase tracking-widest font-black text-muted-foreground">Description</TableHead>
               <TableHead className="h-12 text-[10px] uppercase tracking-widest font-black text-muted-foreground">Type</TableHead>

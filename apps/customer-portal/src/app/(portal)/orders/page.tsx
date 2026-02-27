@@ -69,7 +69,7 @@ function OrdersContent() {
         </div>
         <Button
           onClick={() => setDialogOpen(true)}
-          className="rounded-2xl font-bold gap-2 shadow-lg shadow-primary/20 active:scale-95 transition-all"
+          className="rounded-xl font-bold gap-2 shadow-lg shadow-primary/20 transition-colors"
         >
           <Plus className="h-4 w-4" />
           Place Order
@@ -86,7 +86,7 @@ function OrdersContent() {
               setPage(1);
             }}
             className={cn(
-              'px-4 py-2 rounded-xl text-xs font-bold transition-all',
+              'px-4 py-2 rounded-xl text-xs font-bold transition-colors',
               status === filter.value
                 ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
                 : 'bg-accent/50 text-muted-foreground hover:bg-accent hover:text-foreground'
@@ -123,7 +123,7 @@ function OrdersContent() {
               FULFILLMENT_BADGE[order.status === 'APPROVED' ? 'APPROVED' : 'PENDING_APPROVAL'];
             const fulfillmentStepIndex = FULFILLMENT_STEPS.findIndex((step) => step.value === order.fulfillmentStatus);
             return (
-              <Card key={order.id} className="bg-card/50 backdrop-blur-sm border-border/50">
+              <Card key={order.id} className="bg-card/50 backdrop-blur-sm border-border/50 dark:glass-surface">
                 <CardContent className="p-4 flex items-start gap-4">
                   <div className={cn('h-10 w-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5', cfg.color)}>
                     <Icon className="h-5 w-5" />
@@ -201,7 +201,7 @@ function OrdersContent() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="rounded-xl h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0"
+                      className="rounded-xl h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0 transition-colors"
                       disabled={isCancelling}
                       onClick={() => cancelOrder(order.id)}
                     >
@@ -221,7 +221,7 @@ function OrdersContent() {
           <Button
             variant="outline"
             size="sm"
-            className="rounded-xl gap-1"
+            className="rounded-xl gap-1 transition-colors"
             disabled={page <= 1}
             onClick={() => setPage(page - 1)}
           >
@@ -231,7 +231,7 @@ function OrdersContent() {
           <Button
             variant="outline"
             size="sm"
-            className="rounded-xl gap-1"
+            className="rounded-xl gap-1 transition-colors"
             disabled={page >= totalPages}
             onClick={() => setPage(page + 1)}
           >
@@ -247,7 +247,7 @@ function OrdersContent() {
 
 export default function OrdersPage() {
   return (
-    <Suspense fallback={<div className="h-64 rounded-2xl bg-accent/30 animate-pulse" />}>
+    <Suspense fallback={<div className="h-64 rounded-2xl bg-accent/10 animate-pulse" />}>
       <OrdersContent />
     </Suspense>
   );
