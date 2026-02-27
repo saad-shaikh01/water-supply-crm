@@ -1,14 +1,15 @@
 # Notifications Task Board
 
 Last Updated: February 27, 2026
+Scope: Cross-app notifications / push token lifecycle
 Primary Backend Owner: Agent B
-Primary Planning Owner: Codex
+Primary Frontend Owner: Agent A / Agent C
 
 ## Status Legend
 
 - `READY`: implement now
 - `BLOCKED`: waiting dependency/API approval
-- `DONE`: merged into integration branch
+- `DONE`: implemented and merged
 
 ## Backend Implementation Queue
 
@@ -28,11 +29,11 @@ Primary Planning Owner: Codex
 | NTF-012 | Feed API | API + FE | Add in-app notification feed endpoints for portal/vendor/admin. | Medium | Agent B | BLOCKED | API-018, API-019 | Frontends can fetch unread/read notifications with pagination. |
 | NTF-013 | QA | Quality | Add integration tests for order/ticket/payment notification triggers and dedupe behavior. | High | Agent B | READY | - | Trigger tests pass for all newly added notification events. |
 
-## Frontend Follow-up Queue (After Backend)
+## Frontend Follow-up Queue
 
 | ID | App | Type | Task | Priority | Owner | Status | Depends On | Acceptance |
 |---|---|---|---|---|---|---|---|---|
-| NTF-FE-001 | customer-portal | Integration | Register/unregister FCM token on login/logout lifecycle. | High | Agent C | BLOCKED | NTF-001..009 | Active customer sessions register token and receive pushes. |
+| NTF-FE-001 | customer-portal | Integration | Register/unregister FCM token on login/logout lifecycle. | High | Agent C | DONE | `/fcm/token` | Added browser-side FCM token sync on authenticated portal session start, logout/session-clear unregister, and safe no-op fallback when browser permission or Firebase web config is unavailable. |
 | NTF-FE-002 | vendor-dashboard | Integration | Register FCM tokens for vendor users and enable push reception path. | High | Agent A | BLOCKED | NTF-001..009 | Vendor admins/staff receive new order/ticket/payment alerts. |
 | NTF-FE-003 | customer-portal | UI | Wire bell icon to notification feed list/unread count. | Medium | Agent C | BLOCKED | NTF-010, NTF-012 | Customer sees unread count and can mark items read. |
 | NTF-FE-004 | vendor-dashboard | UI | Add dashboard notifications panel/inbox for actionable events. | Medium | Agent A | BLOCKED | NTF-010, NTF-012 | Vendor can view and open event-linked notifications. |
