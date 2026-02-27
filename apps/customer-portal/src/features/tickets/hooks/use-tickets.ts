@@ -15,6 +15,13 @@ export const useTicket = (id: string) =>
     enabled: !!id,
   });
 
+export const useTicketMessages = (id: string, enabled = true) =>
+  useQuery({
+    queryKey: ['portal-ticket-messages', id],
+    queryFn: () => ticketsApi.getMessages(id).then((r) => r.data),
+    enabled: !!id && enabled,
+  });
+
 export const useCreateTicket = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -25,6 +32,23 @@ export const useCreateTicket = () => {
     },
     onError: () => {
       toast.error('Failed to submit ticket');
+    },
+  });
+};
+
+export const useCreateTicketMessage = (id: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { message: string; attachments?: Array<Record<string, unknown>> }) =>
+      ticketsApi.createMessage(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['portal-ticket-messages', id] });
+      queryClient.invalidateQueries({ queryKey: ['portal-tickets'] });
+      queryClient.invalidateQueries({ queryKey: ['portal-ticket', id] });
+      toast.success('Reply sent');
+    },
+    onError: () => {
+      toast.error('Failed to send reply');
     },
   });
 };
