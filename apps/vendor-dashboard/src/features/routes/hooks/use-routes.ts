@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useQueryState, parseAsInteger } from 'nuqs';
+import { useQueryState, parseAsInteger, parseAsString } from 'nuqs';
 import { toast } from 'sonner';
 import { routesApi } from '../api/routes.api';
 import { queryKeys } from '../../../lib/query-keys';
@@ -7,8 +7,15 @@ import { queryKeys } from '../../../lib/query-keys';
 export const useRoutes = () => {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
+  const [search, setSearch] = useQueryState('search', parseAsString.withDefault(''));
+  const [defaultVanId, setDefaultVanId] = useQueryState('defaultVanId', parseAsString.withDefault(''));
 
-  const params = { page, limit };
+  const params = {
+    page,
+    limit,
+    search: search || undefined,
+    defaultVanId: defaultVanId || undefined,
+  };
 
   return {
     ...useQuery({
@@ -19,6 +26,10 @@ export const useRoutes = () => {
     setPage,
     limit,
     setLimit,
+    search,
+    setSearch,
+    defaultVanId,
+    setDefaultVanId,
   };
 };
 

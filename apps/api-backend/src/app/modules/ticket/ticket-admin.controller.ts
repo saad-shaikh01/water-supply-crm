@@ -10,7 +10,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @Controller('tickets')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.VENDOR_ADMIN, UserRole.SUPER_ADMIN)
+@Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.SUPER_ADMIN)
 export class TicketAdminController {
   constructor(private readonly ticketService: TicketService) {}
 
