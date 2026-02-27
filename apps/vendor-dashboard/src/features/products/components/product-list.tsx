@@ -112,13 +112,13 @@ export function ProductList({ onEdit }: ProductListProps) {
             key: 'name', 
             header: 'Product', 
             cell: (r) => (
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary shrink-0 border border-primary/10">
-                  <Package className="h-5 w-5" />
+              <div className="flex items-center gap-3 max-w-[250px]">
+                <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0 border border-primary/10">
+                  <Package className="h-4 w-4" />
                 </div>
                 <div className="flex flex-col min-w-0">
-                  <span className="font-bold truncate text-sm">{r.name}</span>
-                  <span className="text-[11px] text-muted-foreground truncate italic">{r.description || 'No description'}</span>
+                  <span className="font-bold truncate text-sm text-white">{r.name}</span>
+                  <span className="text-[10px] text-muted-foreground/60 truncate italic">{r.description || 'No description'}</span>
                 </div>
               </div>
             ) 
@@ -127,8 +127,8 @@ export function ProductList({ onEdit }: ProductListProps) {
             key: 'price', 
             header: 'Base Price', 
             cell: (r) => (
-              <div className="flex items-center gap-1.5 font-mono font-black text-primary">
-                <span className="text-xs">₨</span>
+              <div className="flex items-center gap-1 font-mono font-bold text-indigo-400 whitespace-nowrap">
+                <span className="text-[10px] opacity-60">₨</span>
                 {Number(r.basePrice).toLocaleString()}
               </div>
             ) 
@@ -137,15 +137,17 @@ export function ProductList({ onEdit }: ProductListProps) {
             key: 'status',
             header: 'Status',
             cell: (r) => (
-              <Badge 
-                variant={r.isActive ? "success" : "outline"}
-                className={cn(
-                  "px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest",
-                  !r.isActive && "opacity-50"
-                )}
-              >
-                {r.isActive ? 'Active' : 'Inactive'}
-              </Badge>
+              <div className="scale-90 origin-left">
+                <Badge 
+                  variant={r.isActive ? "success" : "outline"}
+                  className={cn(
+                    "px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider",
+                    !r.isActive && "opacity-40"
+                  )}
+                >
+                  {r.isActive ? 'Active' : 'Inactive'}
+                </Badge>
+              </div>
             ),
           },
           {

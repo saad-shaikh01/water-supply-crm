@@ -62,9 +62,9 @@ export function PaymentRequestList() {
             key: 'date',
             header: 'Date',
             cell: (r) => (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Calendar className="h-3 w-3" />
-                <span className="text-xs font-medium">
+              <div className="flex items-center gap-2 text-muted-foreground/80 whitespace-nowrap">
+                <Calendar className="h-3 w-3 shrink-0" />
+                <span className="text-xs font-medium tabular-nums">
                   {new Date(r.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                 </span>
               </div>
@@ -74,9 +74,9 @@ export function PaymentRequestList() {
             key: 'customer',
             header: 'Customer',
             cell: (r) => (
-              <div className="flex flex-col">
-                <span className="font-bold text-sm">{r.customer?.name}</span>
-                <span className="text-[10px] text-muted-foreground font-mono">{r.customer?.customerCode}</span>
+              <div className="flex flex-col min-w-0 max-w-[180px]">
+                <span className="font-bold text-sm text-white truncate">{r.customer?.name}</span>
+                <span className="text-[10px] text-muted-foreground/60 font-mono truncate">{r.customer?.customerCode}</span>
               </div>
             )
           },
@@ -84,7 +84,7 @@ export function PaymentRequestList() {
             key: 'amount',
             header: 'Amount',
             cell: (r) => (
-              <div className="font-mono font-black text-emerald-500">
+              <div className="font-mono font-bold text-xs text-emerald-400 whitespace-nowrap">
                 ₨ {r.amount.toLocaleString()}
               </div>
             )
@@ -93,7 +93,7 @@ export function PaymentRequestList() {
             key: 'method',
             header: 'Method',
             cell: (r) => (
-              <Badge variant="outline" className="font-mono text-[10px]">
+              <Badge variant="outline" className="font-mono text-[9px] bg-white/5 border-white/10 text-white/60 px-1.5 py-0 rounded-md whitespace-nowrap">
                 {r.method.replace('MANUAL_', '').replace('_', ' ')}
               </Badge>
             )
@@ -101,32 +101,36 @@ export function PaymentRequestList() {
           {
             key: 'status',
             header: 'Status',
-            cell: (r) => <StatusBadge status={r.status} />
+            cell: (r) => (
+              <div className="scale-90 origin-left">
+                <StatusBadge status={r.status} />
+              </div>
+            )
           },
           {
             key: 'actions',
             header: '',
-            width: '120px',
+            width: '100px',
             cell: (r) => (
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 shrink-0">
                 {r.status === 'PENDING' && (
                   <>
                     <Button
                       size="icon"
                       variant="ghost"
-                      className="h-8 w-8 text-emerald-500 hover:text-emerald-600 hover:bg-emerald-500/10 rounded-full"
+                      className="h-7 w-7 text-emerald-400 hover:bg-emerald-500/10 rounded-full"
                       onClick={() => approve(r.id)}
                       disabled={isApproving}
                     >
-                      <Check className="h-4 w-4" />
+                      <Check className="h-3.5 w-3.5" />
                     </Button>
                     <Button
                       size="icon"
                       variant="ghost"
-                      className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10 rounded-full"
+                      className="h-7 w-7 text-rose-400 hover:bg-rose-500/10 rounded-full"
                       onClick={() => { setSelectedRequest(r); setRejectOpen(true); }}
                     >
-                      <X className="h-4 w-4" />
+                      <X className="h-3.5 w-3.5" />
                     </Button>
                   </>
                 )}
@@ -134,10 +138,10 @@ export function PaymentRequestList() {
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="h-8 w-8 text-primary hover:bg-primary/10 rounded-full"
+                    className="h-7 w-7 text-indigo-400 hover:bg-indigo-500/10 rounded-full"
                     onClick={() => window.open(r.screenshotPath, '_blank')}
                   >
-                    <Eye className="h-4 w-4" />
+                    <Eye className="h-3.5 w-3.5" />
                   </Button>
                 )}
               </div>

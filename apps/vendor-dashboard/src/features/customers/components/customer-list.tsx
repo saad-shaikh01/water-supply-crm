@@ -204,20 +204,20 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             key: 'name',
             header: 'Customer',
             cell: (r) => (
-              <div className={cn("flex items-center gap-3", !r.isActive && "opacity-60")}>
-                <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold shrink-0">
+              <div className={cn("flex items-center gap-3 max-w-[220px]", !r.isActive && "opacity-60")}>
+                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold shrink-0 text-xs">
                   {r.name.charAt(0)}
                 </div>
                 <div className="flex flex-col min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="font-bold truncate group-hover:text-primary transition-colors">{r.name}</span>
+                    <span className="font-bold truncate text-sm text-white group-hover:text-primary transition-colors">{r.name}</span>
                     {!r.isActive && (
-                      <Badge variant="outline" className="text-[9px] px-1.5 py-0 text-muted-foreground border-muted-foreground/30">
-                        INACTIVE
+                      <Badge variant="outline" className="text-[8px] px-1 py-0 h-3.5 text-muted-foreground border-muted-foreground/20 shrink-0">
+                        OFF
                       </Badge>
                     )}
                   </div>
-                  <span className="text-[10px] uppercase tracking-tighter text-muted-foreground font-mono">{r.customerCode}</span>
+                  <span className="text-[10px] uppercase tracking-tighter text-muted-foreground/60 font-mono truncate">{r.customerCode}</span>
                 </div>
               </div>
             )
@@ -226,9 +226,9 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             key: 'phone',
             header: 'Contact',
             cell: (r) => (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Phone className="h-3 w-3" />
-                <span className="text-xs font-medium">{r.phoneNumber}</span>
+              <div className="flex items-center gap-2 text-muted-foreground/80 whitespace-nowrap">
+                <Phone className="h-3 w-3 shrink-0" />
+                <span className="text-xs font-medium tabular-nums">{r.phoneNumber}</span>
               </div>
             )
           },
@@ -236,7 +236,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             key: 'address',
             header: 'Location',
             cell: (r) => (
-              <div className="flex items-center gap-2 text-muted-foreground max-w-[200px]">
+              <div className="flex items-center gap-2 text-muted-foreground/70 max-w-[180px]">
                 <MapPin className="h-3 w-3 shrink-0" />
                 <span className="text-xs truncate">{r.address}</span>
               </div>
@@ -246,9 +246,11 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             key: 'route',
             header: 'Route',
             cell: (r) => (
-              <Badge variant="secondary" className="bg-accent/50 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border-none">
-                {r.route?.name ?? 'Unassigned'}
-              </Badge>
+              <div className="max-w-[120px]">
+                <Badge variant="secondary" className="bg-white/5 text-white/60 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border-none truncate block text-center">
+                  {r.route?.name ?? 'None'}
+                </Badge>
+              </div>
             )
           },
           {
@@ -257,19 +259,23 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             cell: (r) => {
               const DAY_SHORT: Record<number, string> = { 0: 'Sun', 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat' };
               const schedules = r.deliverySchedules ?? [];
-              if (schedules.length === 0) return <span className="text-xs text-muted-foreground">—</span>;
+              if (schedules.length === 0) return <span className="text-xs text-muted-foreground/40">—</span>;
+              
+              const visible = schedules.slice(0, 2);
+              const remaining = schedules.length - 2;
+
               return (
-                <div className="flex flex-wrap gap-1">
-                  {schedules.map((s, i) => (
-                    <div key={i} className="flex items-center gap-0.5">
-                      <Badge variant="secondary" className="text-[9px] font-black px-1.5 py-0 bg-primary/10 text-primary border-primary/20 rounded-full">
-                        {DAY_SHORT[s.dayOfWeek] ?? s.dayOfWeek}
-                      </Badge>
-                      {s.van?.plateNumber && (
-                        <span className="text-[9px] text-muted-foreground font-mono">{s.van.plateNumber}</span>
-                      )}
-                    </div>
+                <div className="flex items-center gap-1 whitespace-nowrap">
+                  {visible.map((s, i) => (
+                    <Badge key={i} variant="secondary" className="text-[9px] font-bold px-1.5 py-0 bg-primary/10 text-primary border-primary/20 rounded-md">
+                      {DAY_SHORT[s.dayOfWeek] ?? s.dayOfWeek}
+                    </Badge>
                   ))}
+                  {remaining > 0 && (
+                    <Badge variant="outline" className="text-[9px] font-bold px-1 py-0 border-white/10 text-muted-foreground/60 rounded-md">
+                      +{remaining}
+                    </Badge>
+                  )}
                 </div>
               );
             }
@@ -279,10 +285,10 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             header: 'Type',
             cell: (r) => (
               <Badge className={cn(
-                "text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border-none",
+                "text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border-none whitespace-nowrap",
                 r.paymentType === 'MONTHLY'
-                  ? "bg-blue-500/10 text-blue-500"
-                  : "bg-emerald-500/10 text-emerald-500"
+                  ? "bg-indigo-500/10 text-indigo-400"
+                  : "bg-emerald-500/10 text-emerald-400"
               )}>
                 {r.paymentType ?? 'CASH'}
               </Badge>
@@ -296,8 +302,8 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
               const isOwed = balance > 0;
               return (
                 <div className={cn(
-                  "font-mono font-bold text-sm px-2 py-1 rounded-lg inline-block",
-                  isOwed ? "text-destructive bg-destructive/10" : "text-emerald-500 bg-emerald-500/10"
+                  "font-mono font-bold text-xs px-2 py-1 rounded-md inline-block whitespace-nowrap",
+                  isOwed ? "text-rose-400 bg-rose-500/10" : "text-emerald-400 bg-emerald-500/10"
                 )}>
                   ₨ {balance.toLocaleString()}
                 </div>

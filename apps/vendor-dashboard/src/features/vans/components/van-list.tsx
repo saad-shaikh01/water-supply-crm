@@ -46,18 +46,18 @@ export function VanList({ onEdit }: VanListProps) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3 bg-card/30 p-4 rounded-2xl border border-border/50">
+      <div className="flex flex-wrap items-center gap-3 bg-card/30 p-4 rounded-2xl border border-border">
         <div className="relative flex-1 min-w-[160px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search plate or model..."
             value={search}
             onChange={(e) => { resetPage(); setSearch(e.target.value || null); }}
-            className="pl-9 rounded-xl bg-background/50 border-border/50 h-10"
+            className="pl-9 rounded-xl bg-background/50 border-border h-10"
           />
         </div>
         <Select value={isActive || 'all'} onValueChange={(v) => { resetPage(); setIsActive(v === 'all' ? null : v); }}>
-          <SelectTrigger className="w-[130px] rounded-xl bg-background/50 border-border/50 h-10">
+          <SelectTrigger className="w-[130px] rounded-xl bg-background/50 border-border h-10">
             <SelectValue placeholder="All Status" />
           </SelectTrigger>
           <SelectContent>
@@ -86,37 +86,49 @@ export function VanList({ onEdit }: VanListProps) {
           {
             key: 'plate', header: 'Plate Number',
             cell: (r) => (
-              <div className={cn("flex items-center gap-2", !r.isActive && "opacity-60")}>
-                <span className="font-medium">{r.plateNumber}</span>
+              <div className={cn("flex items-center gap-2 whitespace-nowrap", !r.isActive && "opacity-60")}>
+                <span className="font-bold text-sm text-white">{r.plateNumber}</span>
                 {r.isActive === false && (
-                  <Badge variant="outline" className="text-[9px] px-1.5 py-0 text-muted-foreground border-muted-foreground/30">
-                    INACTIVE
+                  <Badge variant="outline" className="text-[8px] px-1 py-0 h-3.5 text-muted-foreground border-muted-foreground/20 shrink-0">
+                    OFF
                   </Badge>
                 )}
               </div>
             )
           },
-          { key: 'model', header: 'Model', cell: (r) => r.model ?? '—' },
+          { 
+            key: 'model', header: 'Model', 
+            cell: (r) => <span className="text-xs font-medium text-muted-foreground/80 truncate max-w-[120px] block">{r.model ?? '—'}</span> 
+          },
           {
             key: 'driver',
             header: 'Default Driver',
             cell: (r) => r.defaultDriver
-              ? <span className="text-xs font-semibold">{r.defaultDriver.name}</span>
-              : <span className="text-xs text-muted-foreground">—</span>
+              ? <span className="text-xs font-semibold text-white/80 truncate max-w-[120px] block">{r.defaultDriver.name}</span>
+              : <span className="text-xs text-muted-foreground/40">—</span>
           },
           {
             key: 'routes',
             header: 'Routes',
             cell: (r) => {
               const routes = r.routes ?? [];
-              if (routes.length === 0) return <span className="text-xs text-muted-foreground">—</span>;
+              if (routes.length === 0) return <span className="text-xs text-muted-foreground/40">—</span>;
+              
+              const visible = routes.slice(0, 2);
+              const remaining = routes.length - 2;
+
               return (
-                <div className="flex flex-wrap gap-1">
-                  {routes.map((rt) => (
-                    <Badge key={rt.id} variant="secondary" className="text-[9px] font-bold px-1.5 py-0 rounded-full">
+                <div className="flex items-center gap-1 whitespace-nowrap">
+                  {visible.map((rt) => (
+                    <Badge key={rt.id} variant="secondary" className="text-[9px] font-bold px-1.5 py-0 bg-white/5 text-white/60 rounded-md border-none">
                       {rt.name}
                     </Badge>
                   ))}
+                  {remaining > 0 && (
+                    <Badge variant="outline" className="text-[9px] font-bold px-1 py-0 border-white/10 text-muted-foreground/60 rounded-md">
+                      +{remaining}
+                    </Badge>
+                  )}
                 </div>
               );
             }
@@ -124,12 +136,14 @@ export function VanList({ onEdit }: VanListProps) {
           {
             key: 'status', header: 'Status',
             cell: (r) => (
-              <Badge className={cn(
-                "text-[10px] font-bold px-2 py-0.5 rounded-full border-none",
-                r.isActive !== false ? "bg-emerald-500/10 text-emerald-500" : "bg-muted text-muted-foreground"
-              )}>
-                {r.isActive !== false ? 'Active' : 'Inactive'}
-              </Badge>
+              <div className="scale-90 origin-left">
+                <Badge className={cn(
+                  "text-[9px] font-bold px-2 py-0.5 rounded-md border-none uppercase tracking-wider",
+                  r.isActive !== false ? "bg-emerald-500/10 text-emerald-400" : "bg-white/5 text-muted-foreground/40"
+                )}>
+                  {r.isActive !== false ? 'Active' : 'Inactive'}
+                </Badge>
+              </div>
             )
           },
           {
