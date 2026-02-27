@@ -29,6 +29,9 @@ const processQueue = (error: unknown, token: string | null) => {
 };
 
 const clearAuth = () => {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('customer-portal:session-cleared'));
+  }
   deleteCookie('auth_token');
   deleteCookie('refresh_token');
   deleteCookie('user_role');

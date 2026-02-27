@@ -38,7 +38,7 @@ Primary Owner: Agent C
 | CP-017 | Tickets enhancements | API + FE | Add ticket conversation timeline + optional attachment support for customer/vendor replies. | Medium | Agent C | DONE | API-016 | Ticket detail now loads chronological messages and supports optional reply attachment links. |
 | CP-018 | Product pricing for portal orders | API + FE | Return customer effective price in portal product payload and show in Place Order dialog. | Medium | Agent C | DONE | API-017 | Place Order dialog now shows customer effective unit price and live estimated total. |
 | CP-019 | Password policy consistency | Security UX | Align reset-password and change-password minimum policy (recommended min 8). | Medium | Agent C | DONE | - | Both flows enforce same minimum and show same helper/error messaging. |
-| CP-020 | Notification center | Feature | Connect bell icon to actual portal notifications (payment/ticket/order updates). | Low | Agent C | BLOCKED | API-018 (future) | Bell icon shows real unread count and list. |
+| CP-020 | Notification center | Feature | Connect bell icon to actual portal notifications (payment/ticket/order updates). | Low | Agent C | DONE | API-018 (future) | Bell now aggregates live payments/orders/tickets into a notification feed with unread count; read state is local until dedicated notification APIs exist. |
 
 ## Execution Rule for Agent C
 
