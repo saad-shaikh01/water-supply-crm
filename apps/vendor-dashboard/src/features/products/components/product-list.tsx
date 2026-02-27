@@ -48,18 +48,18 @@ export function ProductList({ onEdit }: ProductListProps) {
   return (
     <div className="space-y-4">
       {/* Filter bar */}
-      <div className="flex flex-wrap items-center gap-3 bg-card/30 p-4 rounded-2xl border border-border/50">
+      <div className="flex flex-wrap items-center gap-3 bg-card/30 p-4 rounded-2xl border border-border">
         <div className="relative flex-1 min-w-[180px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search products..."
             value={search}
             onChange={(e) => { resetPage(); setSearch(e.target.value || null); }}
-            className="pl-9 rounded-xl bg-background/50 border-border/50 h-10"
+            className="pl-9 rounded-xl bg-background/50 border-border h-10"
           />
         </div>
         <Select value={isActive || 'all'} onValueChange={(v) => { resetPage(); setIsActive(v === 'all' ? null : v); }}>
-          <SelectTrigger className="w-[130px] rounded-xl bg-background/50 border-border/50 h-10">
+          <SelectTrigger className="w-[130px] rounded-xl bg-background/50 border-border h-10">
             <SelectValue placeholder="All Status" />
           </SelectTrigger>
           <SelectContent>
@@ -69,7 +69,7 @@ export function ProductList({ onEdit }: ProductListProps) {
           </SelectContent>
         </Select>
         <Select value={sortDir || 'none'} onValueChange={(v) => { resetPage(); setSortDir(v === 'none' ? null : v); }}>
-          <SelectTrigger className="w-[110px] rounded-xl bg-background/50 border-border/50 h-10">
+          <SelectTrigger className="w-[110px] rounded-xl bg-background/50 border-border h-10">
             <ArrowUpDown className="h-3.5 w-3.5 mr-1.5 shrink-0" />
             <SelectValue placeholder="Sort" />
           </SelectTrigger>

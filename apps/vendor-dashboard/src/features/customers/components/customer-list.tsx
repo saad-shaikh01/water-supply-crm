@@ -77,7 +77,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   return (
     <div className="space-y-4">
       {/* Primary filter bar */}
-      <div className="flex flex-col sm:flex-row items-center gap-3 bg-card/30 p-4 rounded-2xl border border-border/50">
+      <div className="flex flex-col sm:flex-row items-center gap-3 bg-card/30 p-4 rounded-2xl border border-border">
         <div className="flex-1 w-full">
           <SearchInput placeholder="Search name, phone or code..." onBeforeChange={resetPage} />
         </div>
@@ -125,8 +125,8 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
 
       {/* More Filters drawer */}
       <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-sm bg-background/95 backdrop-blur-xl border-l border-border/50">
-          <SheetHeader className="pb-6 border-b">
+        <SheetContent side="right" className="w-full sm:max-w-sm bg-background/95 backdrop-blur-xl border-l border-border">
+          <SheetHeader className="pb-6 border-b border-border">
             <SheetTitle className="flex items-center gap-2 text-lg font-bold">
               <SlidersHorizontal className="h-5 w-5 text-primary" /> More Filters
             </SheetTitle>
@@ -135,10 +135,10 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             <div className="space-y-2">
               <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Payment Type</Label>
               <Select value={paymentType || 'all'} onValueChange={(v) => { resetPage(); setPaymentType(v === 'all' ? null : v as 'MONTHLY' | 'CASH'); }}>
-                <SelectTrigger className="rounded-xl bg-background/50 border-border/50 h-10">
+                <SelectTrigger className="rounded-xl bg-background/50 border-border h-10">
                   <SelectValue placeholder="All Types" />
                 </SelectTrigger>
-                <SelectContent className="rounded-xl border-border/50 shadow-2xl">
+                <SelectContent className="rounded-xl border-border shadow-2xl">
                   <SelectItem value="all">All Types</SelectItem>
                   <SelectItem value="CASH">Cash</SelectItem>
                   <SelectItem value="MONTHLY">Monthly</SelectItem>
@@ -148,10 +148,10 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             <div className="space-y-2">
               <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Status</Label>
               <Select value={isActive || 'all'} onValueChange={(v) => { resetPage(); setIsActive(v === 'all' ? null : v); }}>
-                <SelectTrigger className="rounded-xl bg-background/50 border-border/50 h-10">
+                <SelectTrigger className="rounded-xl bg-background/50 border-border h-10">
                   <SelectValue placeholder="All Status" />
                 </SelectTrigger>
-                <SelectContent className="rounded-xl border-border/50 shadow-2xl">
+                <SelectContent className="rounded-xl border-border shadow-2xl">
                   <SelectItem value="all">All Status</SelectItem>
                   <SelectItem value="true">Active</SelectItem>
                   <SelectItem value="false">Inactive</SelectItem>
@@ -164,10 +164,10 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                 value={dayOfWeek ? String(dayOfWeek) : 'all'}
                 onValueChange={(v) => { resetPage(); setDayOfWeek(v === 'all' ? null : Number(v)); }}
               >
-                <SelectTrigger className="rounded-xl bg-background/50 border-border/50 h-10">
+                <SelectTrigger className="rounded-xl bg-background/50 border-border h-10">
                   <SelectValue placeholder="All Days" />
                 </SelectTrigger>
-                <SelectContent className="rounded-xl border-border/50 shadow-2xl">
+                <SelectContent className="rounded-xl border-border shadow-2xl">
                   <SelectItem value="all">All Days</SelectItem>
                   {Object.entries(DAY_NAMES).map(([val, name]) => (
                     <SelectItem key={val} value={val}>{name}</SelectItem>
