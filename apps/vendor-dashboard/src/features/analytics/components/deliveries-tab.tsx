@@ -9,7 +9,7 @@ import {
 } from 'recharts';
 import { useTheme } from 'next-themes';
 import { useDeliveryAnalytics } from '../hooks/use-analytics';
-import { Package, CheckCircle, XCircle, Activity } from 'lucide-react';
+import { Package, CheckCircle, XCircle, Activity, AlertTriangle, Repeat, Clock3 } from 'lucide-react';
 
 function StatCard({ label, value, icon: Icon, color }: { label: string; value: string; icon: any; color?: string }) {
   return (
@@ -64,6 +64,8 @@ export function DeliveriesTab({ from, to }: { from: string; to: string }) {
   const byDay = (d.byDay ?? []).map((b: any) => ({ date: b.date.slice(5), Completed: b.completed, Missed: b.missed }));
   const byDayOfWeek = d.byDayOfWeek ?? [];
   const byRoute = (d.byRoute ?? []).slice(0, 10);
+  const opsKpis = d.opsKpis ?? {};
+  const issueAgingBuckets = opsKpis.issueAgingBuckets ?? {};
 
   return (
     <div className="space-y-4">
@@ -73,6 +75,49 @@ export function DeliveriesTab({ from, to }: { from: string; to: string }) {
         <StatCard label="Missed" value={String(missed)} icon={XCircle} color="bg-destructive/10" />
         <StatCard label="Completion Rate" value={`${completionRate}%`} icon={Activity} />
       </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Open Issues" value={String(opsKpis.openIssues ?? 0)} icon={AlertTriangle} color="bg-destructive/10" />
+        <StatCard
+          label="Issue Aging"
+          value={`${issueAgingBuckets.moreThan7d ?? 0} >7d`}
+          icon={Clock3}
+          color="bg-amber-500/10"
+        />
+        <StatCard
+          label="On-Demand Fulfillment"
+          value={opsKpis.onDemandFulfillmentRate == null ? 'N/A' : `${opsKpis.onDemandFulfillmentRate}%`}
+          icon={Package}
+          color="bg-blue-500/10"
+        />
+        <StatCard
+          label="Retry Success"
+          value={opsKpis.retrySuccessRate == null ? 'N/A' : `${opsKpis.retrySuccessRate}%`}
+          icon={Repeat}
+          color="bg-violet-500/10"
+        />
+      </div>
+
+      <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
+        <CardHeader>
+          <CardTitle className="text-sm font-bold uppercase tracking-widest text-muted-foreground">Issue Aging Buckets</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              { label: '< 1 Day', value: issueAgingBuckets.lessThan1d ?? 0, tone: 'text-emerald-500' },
+              { label: '1-3 Days', value: issueAgingBuckets.oneToThreeDays ?? 0, tone: 'text-blue-500' },
+              { label: '4-7 Days', value: issueAgingBuckets.fourToSevenDays ?? 0, tone: 'text-amber-500' },
+              { label: '> 7 Days', value: issueAgingBuckets.moreThan7d ?? 0, tone: 'text-destructive' },
+            ].map((bucket) => (
+              <div key={bucket.label} className="rounded-2xl border border-border/50 bg-background/40 p-4">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{bucket.label}</p>
+                <p className={`mt-2 text-2xl font-black ${bucket.tone}`}>{bucket.value}</p>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Stacked area chart by day */}
       <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
