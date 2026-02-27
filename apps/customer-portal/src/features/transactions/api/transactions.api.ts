@@ -22,6 +22,7 @@ export interface PaginatedTransactions {
 export interface TransactionQuery {
   page?: number;
   limit?: number;
+  type?: string;
 }
 
 export const transactionsApi = {

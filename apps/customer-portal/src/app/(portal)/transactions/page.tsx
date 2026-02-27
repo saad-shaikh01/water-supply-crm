@@ -3,7 +3,7 @@
 import { Suspense } from 'react';
 import { Receipt } from 'lucide-react';
 import { TransactionList } from '../../../features/transactions/components/transaction-list';
-import { parseAsString, useQueryState } from 'nuqs';
+import { parseAsInteger, parseAsString, useQueryState } from 'nuqs';
 import { cn } from '@water-supply-crm/ui';
 
 const TYPE_TABS = [
@@ -15,6 +15,7 @@ const TYPE_TABS = [
 
 function TransactionsContent() {
   const [typeFilter, setTypeFilter] = useQueryState('type', parseAsString.withDefault(''));
+  const [, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
 
   return (
     <div className="space-y-6">
@@ -33,7 +34,10 @@ function TransactionsContent() {
         {TYPE_TABS.map((tab) => (
           <button
             key={tab.value}
-            onClick={() => setTypeFilter(tab.value || null)}
+            onClick={() => {
+              setTypeFilter(tab.value || null);
+              setPage(1);
+            }}
             className={cn(
               'px-4 py-2 rounded-xl text-xs font-bold transition-all',
               typeFilter === tab.value
