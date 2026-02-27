@@ -42,7 +42,7 @@ export class DailySheetProcessor extends WorkerHost {
     });
     if (!defaultProduct) {
       this.logger.warn(`No active product found for vendor ${vendorId} — aborting`);
-      return { sheetIds: [], skippedVans: [] };
+      return { sheetIds: [], skippedVans: [], insertedOnDemandCount: 0, skippedOnDemand: [] };
     }
 
     // Fetch active vans (optionally filtered by vanIds)
