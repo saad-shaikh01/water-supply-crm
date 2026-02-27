@@ -55,8 +55,8 @@ export function DataTable<T extends { id: string }>({
   }
 
   return (
-    <div className="flex flex-col min-h-0 flex-1 space-y-6">
-      <div className="rounded-2xl border border-border bg-white/[0.02] backdrop-blur-2xl overflow-hidden shadow-2xl">
+    <div className="flex flex-col min-h-0 flex-1 relative">
+      <div className="rounded-2xl border border-border bg-white/[0.02] backdrop-blur-2xl overflow-hidden shadow-2xl mb-6">
         <Table>
           <TableHeader>
             <TableRow className="bg-white/[0.01] hover:bg-white/[0.01] border-b border-border">
@@ -93,7 +93,7 @@ export function DataTable<T extends { id: string }>({
                   className="group/row transition-colors border-b border-border/50 last:border-0 hover:bg-white/[0.04]"
                 >
                   {columns.map((col) => (
-                    <TableCell key={col.key} className="py-5 px-6">
+                    <TableCell key={col.key} className="py-4 px-6">
                       <div className={cn(
                         "text-sm font-medium transition-colors text-foreground/90 group-hover:text-primary",
                         // Auto-apply tabular-nums if column looks like a number
@@ -111,14 +111,18 @@ export function DataTable<T extends { id: string }>({
       </div>
       
       {onPageChange && onLimitChange && (
-        <div className="px-2">
-          <DataTablePagination 
-            page={page}
-            limit={limit}
-            total={total}
-            onPageChange={onPageChange}
-            onLimitChange={onLimitChange}
-          />
+        <div className="sticky bottom-4 z-30 mt-auto">
+          <div className="mx-auto max-w-fit sm:max-w-none">
+            <div className="bg-[#0a0a0f]/80 backdrop-blur-2xl border border-white/10 rounded-2xl p-1 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.5)] overflow-hidden">
+              <DataTablePagination 
+                page={page}
+                limit={limit}
+                total={total}
+                onPageChange={onPageChange}
+                onLimitChange={onLimitChange}
+              />
+            </div>
+          </div>
         </div>
       )}
     </div>

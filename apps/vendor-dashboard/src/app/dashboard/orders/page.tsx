@@ -314,113 +314,127 @@ function OrdersContent() {
         columns={[
           {
             key: 'date',
-            header: 'Date',
+            header: 'Created',
             cell: (r: any) => (
-              <span className="text-xs text-muted-foreground">
-                {formatDate(r.createdAt)}
-              </span>
+              <div className="flex flex-col min-w-[80px]">
+                <span className="text-xs font-bold text-white tabular-nums">
+                  {new Date(r.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}
+                </span>
+                <span className="text-[10px] text-muted-foreground/60 font-medium">
+                  {new Date(r.createdAt).getFullYear()}
+                </span>
+              </div>
             ),
           },
           {
             key: 'customer',
             header: 'Customer',
             cell: (r: any) => (
-              <div>
-                <p className="font-bold text-sm">{r.customer?.name}</p>
-                <p className="text-[10px] text-muted-foreground">{r.customer?.phoneNumber}</p>
+              <div className="flex flex-col max-w-[200px] min-w-[150px]">
+                <p className="font-bold text-sm text-white truncate">{r.customer?.name}</p>
+                <p className="text-[10px] text-muted-foreground/70 font-mono truncate">{r.customer?.phoneNumber}</p>
               </div>
             ),
           },
           {
             key: 'product',
-            header: 'Product',
+            header: 'Order Details',
             cell: (r: any) => (
-              <div>
-                <p className="font-bold text-sm">{r.product?.name}</p>
-                <p className="text-[10px] text-muted-foreground">x {r.quantity}</p>
+              <div className="flex flex-col max-w-[180px] min-w-[120px]">
+                <p className="font-bold text-sm text-indigo-400 truncate">{r.product?.name}</p>
+                <p className="text-[10px] text-muted-foreground font-bold">Qty: {r.quantity}</p>
               </div>
             ),
           },
           {
             key: 'preferredDate',
-            header: 'Preferred Date',
+            header: 'Requested For',
             cell: (r: any) => (
-              <span className="text-xs text-muted-foreground">{formatDate(r.preferredDate)}</span>
-            ),
-          },
-          {
-            key: 'reviewedAt',
-            header: 'Reviewed At',
-            cell: (r: any) => (
-              <span className="text-xs text-muted-foreground">{formatDateTime(r.reviewedAt)}</span>
-            ),
-          },
-          {
-            key: 'dispatch',
-            header: 'Dispatch',
-            cell: (r: any) => (
-              <div>
-                <StatusBadge status={r.dispatchStatus ?? 'UNPLANNED'} />
-                <p className="text-[10px] text-muted-foreground mt-1">
-                  {r.targetDate ? `${formatDate(r.targetDate)}${r.timeWindow ? ` | ${r.timeWindow}` : ''}` : 'No plan saved'}
-                </p>
+              <div className="flex flex-col min-w-[100px]">
+                <span className="text-xs font-bold text-white whitespace-nowrap">
+                  {formatDate(r.preferredDate)}
+                </span>
+                <span className="text-[10px] text-muted-foreground/60 italic font-medium">Preferred</span>
               </div>
             ),
           },
           {
-            key: 'note',
-            header: 'Ops Notes',
+            key: 'dispatch',
+            header: 'Dispatch Plan',
             cell: (r: any) => (
-              <span className="text-xs text-muted-foreground">{r.dispatchNotes ?? r.note ?? '-'}</span>
+              <div className="flex flex-col min-w-[140px] max-w-[200px]">
+                <div className="scale-90 origin-left">
+                  <StatusBadge status={r.dispatchStatus ?? 'UNPLANNED'} />
+                </div>
+                {r.targetDate ? (
+                  <p className="text-[10px] text-white/70 mt-1 font-medium truncate">
+                    {formatDate(r.targetDate)}{r.timeWindow ? ` • ${r.timeWindow}` : ''}
+                  </p>
+                ) : (
+                  <p className="text-[10px] text-muted-foreground/40 mt-1 italic">No plan saved</p>
+                )}
+              </div>
             ),
           },
           {
             key: 'status',
             header: 'Approval',
             cell: (r: any) => {
+              const badge = (
+                <div className="scale-90 origin-left">
+                  <StatusBadge status={r.status} />
+                </div>
+              );
+
               if (r.status === 'REJECTED' && r.rejectionReason) {
                 return (
-                  <div>
-                    <StatusBadge status={r.status} />
-                    <p className="text-[10px] text-destructive mt-0.5">{r.rejectionReason}</p>
+                  <div className="flex flex-col min-w-[120px] max-w-[180px]">
+                    {badge}
+                    <p className="text-[10px] text-rose-400 mt-1 font-medium truncate italic" title={r.rejectionReason}>
+                      {r.rejectionReason}
+                    </p>
                   </div>
                 );
               }
 
               if (r.status === 'APPROVED' && r.reviewedAt) {
                 return (
-                  <div>
-                    <StatusBadge status={r.status} />
-                    <p className="text-[10px] text-muted-foreground mt-0.5">{formatDateTime(r.reviewedAt)}</p>
+                  <div className="flex flex-col min-w-[120px]">
+                    {badge}
+                    <p className="text-[10px] text-muted-foreground/60 mt-1 font-medium">
+                      {formatDateTime(r.reviewedAt)}
+                    </p>
                   </div>
                 );
               }
 
-              return <StatusBadge status={r.status} />;
+              return <div className="min-w-[120px]">{badge}</div>;
             },
           },
           {
             key: 'actions',
             header: '',
-            width: '160px',
+            width: '100px',
             cell: (r: any) => {
               if (r.status === 'PENDING') {
                 return (
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1.5 justify-end">
                     <Button
                       size="icon"
                       variant="ghost"
-                      className="h-8 w-8 text-emerald-500 hover:text-emerald-600 hover:bg-emerald-500/10 rounded-full"
+                      className="h-8 w-8 text-emerald-400 hover:bg-emerald-500/10 rounded-full border border-transparent hover:border-emerald-500/20 transition-colors"
                       onClick={() => approve(r.id)}
                       disabled={isApproving}
+                      title="Approve Order"
                     >
                       <Check className="h-4 w-4" />
                     </Button>
                     <Button
                       size="icon"
                       variant="ghost"
-                      className="h-8 w-8 text-destructive hover:bg-destructive/10 rounded-full"
+                      className="h-8 w-8 text-rose-400 hover:bg-rose-500/10 rounded-full border border-transparent hover:border-rose-500/20 transition-colors"
                       onClick={() => { setSelectedOrderId(r.id); setRejectOpen(true); }}
+                      title="Reject Order"
                     >
                       <X className="h-4 w-4" />
                     </Button>
@@ -430,15 +444,17 @@ function OrdersContent() {
 
               if (r.status === 'APPROVED') {
                 return (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="rounded-xl h-8 text-xs font-bold gap-1.5"
-                    onClick={() => setDispatchOrder(r)}
-                  >
-                    <Truck className="h-3.5 w-3.5" />
-                    {r.dispatchStatus === 'UNPLANNED' ? 'Plan' : 'Edit Plan'}
-                  </Button>
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-lg h-8 px-3 text-[11px] font-bold gap-1.5 bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20 transition-colors"
+                      onClick={() => setDispatchOrder(r)}
+                    >
+                      <Truck className="h-3.5 w-3.5" />
+                      {r.dispatchStatus === 'UNPLANNED' ? 'Plan' : 'Edit Plan'}
+                    </Button>
+                  </div>
                 );
               }
 
