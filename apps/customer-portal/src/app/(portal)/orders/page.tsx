@@ -24,6 +24,23 @@ const STATUS_FILTERS = [
   { value: 'CANCELLED', label: 'Cancelled' },
 ];
 
+const FULFILLMENT_BADGE: Record<string, { label: string; color: string }> = {
+  PENDING_APPROVAL: { label: 'Awaiting Approval', color: 'bg-amber-500/10 text-amber-600' },
+  APPROVED: { label: 'Approved', color: 'bg-blue-500/10 text-blue-600' },
+  PLANNED: { label: 'Planned', color: 'bg-primary/10 text-primary' },
+  OUT_FOR_DELIVERY: { label: 'Out for Delivery', color: 'bg-primary/10 text-primary' },
+  DELIVERED: { label: 'Delivered', color: 'bg-emerald-500/10 text-emerald-600' },
+  REJECTED: { label: 'Rejected', color: 'bg-destructive/10 text-destructive' },
+  CANCELLED: { label: 'Cancelled', color: 'bg-muted text-muted-foreground' },
+};
+
+const FULFILLMENT_STEPS = [
+  { value: 'APPROVED', label: 'Approved' },
+  { value: 'PLANNED', label: 'Planned' },
+  { value: 'OUT_FOR_DELIVERY', label: 'Out' },
+  { value: 'DELIVERED', label: 'Delivered' },
+];
+
 function OrdersContent() {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [status, setStatus] = useQueryState('status', parseAsString.withDefault(''));
@@ -101,6 +118,10 @@ function OrdersContent() {
           {orders.map((order: any) => {
             const cfg = STATUS_CONFIG[order.status] ?? STATUS_CONFIG['PENDING'];
             const Icon = cfg.icon;
+            const fulfillment =
+              FULFILLMENT_BADGE[order.fulfillmentStatus] ??
+              FULFILLMENT_BADGE[order.status === 'APPROVED' ? 'APPROVED' : 'PENDING_APPROVAL'];
+            const fulfillmentStepIndex = FULFILLMENT_STEPS.findIndex((step) => step.value === order.fulfillmentStatus);
             return (
               <Card key={order.id} className="bg-card/50 backdrop-blur-sm border-border/50">
                 <CardContent className="p-4 flex items-start gap-4">
@@ -115,6 +136,9 @@ function OrdersContent() {
                       <Badge className={cn('text-[10px] px-2 py-0 rounded-full border-none font-bold', cfg.color)}>
                         {cfg.label}
                       </Badge>
+                      <Badge className={cn('text-[10px] px-2 py-0 rounded-full border-none font-bold', fulfillment.color)}>
+                        {fulfillment.label}
+                      </Badge>
                     </div>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
                       {new Date(order.createdAt).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' })}
@@ -127,6 +151,50 @@ function OrdersContent() {
                       <p className="text-[11px] font-bold text-destructive mt-0.5">
                         Reason: {order.rejectionReason}
                       </p>
+                    )}
+                    {fulfillmentStepIndex >= 0 && (
+                      <div className="mt-3 space-y-2">
+                        <div className="grid grid-cols-4 gap-2">
+                          {FULFILLMENT_STEPS.map((step, idx) => {
+                            const isActive = idx <= fulfillmentStepIndex;
+                            const isCurrent = idx === fulfillmentStepIndex;
+                            return (
+                              <div key={step.value} className="space-y-1">
+                                <div
+                                  className={cn(
+                                    'h-1.5 rounded-full transition-colors',
+                                    isActive ? 'bg-primary' : 'bg-muted'
+                                  )}
+                                />
+                                <p
+                                  className={cn(
+                                    'text-[9px] font-bold uppercase tracking-widest leading-tight',
+                                    isCurrent
+                                      ? 'text-foreground'
+                                      : isActive
+                                        ? 'text-foreground/80'
+                                        : 'text-muted-foreground'
+                                  )}
+                                >
+                                  {step.label}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {order.fulfillmentStatus !== 'DELIVERED' && order.plannedDate && (
+                          <p className="text-[11px] text-muted-foreground">
+                            Planned for {new Date(order.plannedDate).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </p>
+                        )}
+
+                        {order.fulfillmentStatus === 'DELIVERED' && order.deliveredAt && (
+                          <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
+                            Delivered on {new Date(order.deliveredAt).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </p>
+                        )}
+                      </div>
                     )}
                   </div>
                   {order.status === 'PENDING' && (

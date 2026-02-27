@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
   Button, Label, Badge,
@@ -37,6 +37,22 @@ interface TicketReplyDialogProps {
 export function TicketReplyDialog({ ticket, open, onOpenChange, onConfirm, isPending }: TicketReplyDialogProps) {
   const [reply, setReply] = useState('');
   const [status, setStatus] = useState('IN_PROGRESS');
+
+  useEffect(() => {
+    if (!ticket || !open) return;
+
+    if (ticket.status === 'OPEN') {
+      setStatus('IN_PROGRESS');
+      return;
+    }
+
+    if (STATUS_OPTIONS.some((opt) => opt.value === ticket.status)) {
+      setStatus(ticket.status);
+      return;
+    }
+
+    setStatus('IN_PROGRESS');
+  }, [ticket, open]);
 
   const isValid = reply.trim().length >= 5;
 

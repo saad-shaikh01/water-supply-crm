@@ -93,7 +93,9 @@ model User {
   dailySheets   DailySheet[] @relation("DriverSheets")
   customer      Customer? // One-to-one link for Customer Portal
   expenses      Expense[]
-  fcmTokens     FcmToken[]
+  fcmTokens             FcmToken[]
+  inAppNotifications    InAppNotification[]
+  notificationPrefs     NotificationPreference[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -648,4 +650,61 @@ model AuditLog {
 
   @@index([vendorId, createdAt])
   @@index([entity, entityId])
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Notification Platform
+// ──────────────────────────────────────────────────────────────────────────────
+
+model InAppNotification {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vendorId  String?
+  type      String    // e.g. ORDER_APPROVED | TICKET_REPLIED | PAYMENT_APPROVED
+  title     String
+  message   String
+  entityId  String?   // orderId, ticketId, paymentRequestId, etc.
+  isRead    Boolean   @default(false)
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+}
+
+model NotificationPreference {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventType String   // e.g. order.approved
+  channel   String   // WHATSAPP | SMS | FCM | IN_APP
+  enabled   Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, eventType, channel])
+  @@index([userId])
+}
+
+model NotificationLog {
+  id               String    @id @default(uuid())
+  channel          String    // WHATSAPP | SMS | FCM | IN_APP
+  status           String    // SENT | FAILED
+  recipientAddress String?   // phone number or FCM userId
+  eventType        String?   // e.g. order.approved
+  entityType       String?   // ORDER | PAYMENT | TICKET
+  entityId         String?
+  recipientType    String?   // CUSTOMER | USER
+  recipientId      String?
+  vendorId         String?
+  attemptCount     Int       @default(1)
+  lastError        String?
+  queuedAt         DateTime
+  sentAt           DateTime?
+  failedAt         DateTime?
+  createdAt        DateTime  @default(now())
+
+  @@index([channel, status])
+  @@index([vendorId, createdAt])
+  @@index([createdAt])
 }

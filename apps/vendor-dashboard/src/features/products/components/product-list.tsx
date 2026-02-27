@@ -192,7 +192,7 @@ export function ProductList({ onEdit }: ProductListProps) {
         open={!!deleteId}
         onOpenChange={(o) => { if (!o) setDeleteId(null); }}
         title="Delete Product"
-        description="Are you sure you want to remove this product? This will affect all future daily sheets and reports. This action cannot be undone."
+        description="Delete only if this product has no delivery history or orders. If records exist, deactivate it instead. This action cannot be undone."
         onConfirm={() => { if (deleteId) deleteProduct(deleteId, { onSuccess: () => setDeleteId(null) }); }}
         isLoading={isDeleting}
         confirmLabel="Remove Product"

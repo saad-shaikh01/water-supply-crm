@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Users, Map, Package, Truck,
   ClipboardList, CreditCard, UserCog, Droplets, Banknote, Navigation,
-  Receipt, Bell, ScrollText, BarChart2, Home, History, ShoppingCart, MessageSquare
+  Receipt, Bell, ScrollText, BarChart2, Home, History, ShoppingCart, MessageSquare, AlertTriangle
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { useAuthStore } from '../../store/auth.store';
@@ -34,6 +34,7 @@ const navItems: NavItem[] = [
   { label: 'Live Tracking', href: '/dashboard/tracking', icon: Navigation, minRole: 'STAFF', group: 'Operations' },
   { label: 'Orders', href: '/dashboard/orders', icon: ShoppingCart, minRole: 'STAFF', group: 'Operations' },
   { label: 'Tickets', href: '/dashboard/tickets', icon: MessageSquare, minRole: 'STAFF', group: 'Operations' },
+  { label: 'Delivery Issues', href: '/dashboard/delivery-issues', icon: AlertTriangle, minRole: 'STAFF', group: 'Operations' },
   // Finance
   { label: 'Transactions', href: '/dashboard/transactions', icon: CreditCard, minRole: 'STAFF', group: 'Finance' },
   { label: 'Payment Requests', href: '/dashboard/payment-requests', icon: Banknote, minRole: 'STAFF', group: 'Finance' },

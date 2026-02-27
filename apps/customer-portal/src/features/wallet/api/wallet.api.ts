@@ -41,6 +41,7 @@ export interface PortalProduct {
   id: string;
   name: string;
   basePrice: number;
+  effectivePrice: number;
 }
 
 export const walletApi = {

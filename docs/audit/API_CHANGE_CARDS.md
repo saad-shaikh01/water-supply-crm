@@ -497,7 +497,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-018 - Portal Notifications Feed (Future)
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /portal/notifications`
@@ -522,7 +522,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-019 - Notification Delivery Log + Admin Query Endpoints
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /notifications/logs`
@@ -558,7 +558,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-020 - Notification Preferences Endpoints
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /notifications/preferences`

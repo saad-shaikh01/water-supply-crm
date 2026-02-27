@@ -12,6 +12,10 @@ export class DeliveryIssueQueryDto extends PaginationQueryDto {
   sheetId?: string;
 
   @IsOptional()
+  @IsUUID()
+  assignedToUserId?: string;
+
+  @IsOptional()
   @IsString()
   dateFrom?: string;
 
