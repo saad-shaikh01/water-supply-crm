@@ -111,7 +111,10 @@
   /* Premium Glassmorphism Overrides */
   
   .dark .glass-surface {
-    @apply bg-white/[0.02] backdrop-blur-2xl border border-white/[0.05] !important;
+    background-color: rgb(255 255 255 / 0.02) !important;
+    backdrop-filter: blur(24px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+    border: 1px solid rgb(255 255 255 / 0.05) !important;
     background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0.005) 100%) !important;
     box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3) !important;
   }
@@ -122,46 +125,59 @@
   .dark .border-b, 
   .dark .border-l, 
   .dark .border-r {
-    @apply border-white/[0.05] !important;
+    border-color: rgb(255 255 255 / 0.05) !important;
   }
 
-  .dark .bg-card, 
-  .dark .bg-white\/\[0\.03\],
-  .dark .bg-white\/\[0\.02\] {
-    @apply bg-white/[0.02] !important;
+  .dark .bg-card {
+    background-color: rgb(255 255 255 / 0.02) !important;
   }
 
   /* Buttons */
   .inline-flex.items-center.justify-center.whitespace-nowrap.rounded-2xl {
-    @apply rounded-lg !important; 
+    border-radius: 0.5rem !important;
   }
 
   .dark .bg-primary {
-    @apply shadow-[0_4px_12px_rgba(99,102,241,0.2)] !important;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2) !important;
   }
 
   /* Inputs */
   .dark input:not([type='checkbox']):not([type='radio']), 
   .dark textarea, 
   .dark select {
-    @apply bg-white/[0.02] border-white/[0.05] backdrop-blur-md text-white/90 font-medium !important;
+    background-color: rgb(255 255 255 / 0.02) !important;
+    border-color: rgb(255 255 255 / 0.05) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    color: rgb(255 255 255 / 0.9) !important;
+    font-weight: 500 !important;
   }
 
   /* Table Specifics */
   .dark thead tr {
-    @apply bg-white/[0.01] border-b border-white/[0.05] !important;
+    background-color: rgb(255 255 255 / 0.01) !important;
+    border-bottom: 1px solid rgb(255 255 255 / 0.05) !important;
   }
   
   .dark tr {
-    @apply border-b border-white/[0.02] last:border-0 !important;
+    border-bottom: 1px solid rgb(255 255 255 / 0.02) !important;
+  }
+
+  .dark tbody tr:last-child,
+  .dark table tr:last-child {
+    border-bottom-width: 0 !important;
   }
 
   .dark th {
-    @apply text-white/40 font-bold uppercase tracking-[0.2em] !important;
+    color: rgb(255 255 255 / 0.4) !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.2em !important;
   }
 
   .dark td {
-    @apply text-white/80 font-medium !important;
+    color: rgb(255 255 255 / 0.8) !important;
+    font-weight: 500 !important;
   }
 }
 
