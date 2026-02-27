@@ -9,9 +9,10 @@ import {
 } from '@water-supply-crm/ui';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Receipt, User, LogOut, Droplets, Bell, CreditCard, Truck, CalendarDays } from 'lucide-react';
+import { User, LogOut, Droplets } from 'lucide-react';
 import { ThemeToggle } from './theme-toggle';
 import { cn } from '@water-supply-crm/ui';
+import { NotificationCenter } from '../../features/notifications/components/notification-center';
 
 const navItems = [
   { href: '/home', label: 'Home' },
@@ -68,10 +69,7 @@ export function Header() {
 
       <div className="flex items-center gap-2 md:gap-3">
         <ThemeToggle />
-        <Button variant="ghost" size="icon" className="relative text-muted-foreground h-9 w-9 rounded-full hover:bg-accent dark:hover:bg-white/5 transition-colors">
-          <Bell className="h-5 w-5" />
-          <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-destructive rounded-full border-2 border-background" />
-        </Button>
+        <NotificationCenter />
         <div className="h-8 w-[1px] bg-border/50 mx-1 hidden sm:block" />
         
         <DropdownMenu>
