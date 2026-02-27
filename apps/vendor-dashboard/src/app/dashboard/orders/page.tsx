@@ -125,6 +125,20 @@ function OrdersContent() {
             ),
           },
           {
+            key: 'preferredDate',
+            header: 'Preferred Date',
+            cell: (r: any) => (
+              <span className="text-xs text-muted-foreground">{formatDate(r.preferredDate)}</span>
+            ),
+          },
+          {
+            key: 'reviewedAt',
+            header: 'Reviewed At',
+            cell: (r: any) => (
+              <span className="text-xs text-muted-foreground">{formatDateTime(r.reviewedAt)}</span>
+            ),
+          },
+          {
             key: 'dispatch',
             header: 'Dispatch',
             cell: (r: any) => (
