@@ -12,7 +12,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @Controller('orders')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.VENDOR_ADMIN, UserRole.SUPER_ADMIN)
+@Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.SUPER_ADMIN)
 export class OrderAdminController {
   constructor(private readonly orderService: OrderService) {}
 
