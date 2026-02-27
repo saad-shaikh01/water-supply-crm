@@ -2,6 +2,7 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
+import { PrismaService } from '@water-supply-crm/database';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { FcmService } from '../fcm/fcm.service';
 
@@ -12,11 +13,24 @@ export class NotificationProcessor extends WorkerHost {
   constructor(
     private readonly whatsapp: WhatsAppService,
     private readonly fcm: FcmService,
+    private readonly prisma: PrismaService,
   ) {
     super();
   }
 
   async process(job: Job): Promise<void> {
+    const queuedAt = new Date(job.timestamp);
+
+    try {
+      await this.handleJob(job);
+      await this.writeLog(job, 'SENT', queuedAt, null);
+    } catch (err: any) {
+      await this.writeLog(job, 'FAILED', queuedAt, err?.message ?? 'Unknown error');
+      throw err;
+    }
+  }
+
+  private async handleJob(job: Job): Promise<void> {
     switch (job.name) {
       case JOB_NAMES.SEND_WHATSAPP: {
         const { phoneNumber, message } = job.data;
@@ -40,5 +54,43 @@ export class NotificationProcessor extends WorkerHost {
       default:
         this.logger.warn(`Unknown notification job: ${job.name}`);
     }
+  }
+
+  private async writeLog(
+    job: Job,
+    status: 'SENT' | 'FAILED',
+    queuedAt: Date,
+    error: string | null,
+  ): Promise<void> {
+    const channel =
+      job.name === JOB_NAMES.SEND_WHATSAPP ? 'WHATSAPP'
+      : job.name === JOB_NAMES.SEND_SMS ? 'SMS'
+      : 'FCM';
+
+    const recipientAddress = job.data.phoneNumber ?? job.data.userId ?? null;
+    const now = new Date();
+
+    await this.prisma.notificationLog
+      .create({
+        data: {
+          channel,
+          status,
+          recipientAddress,
+          eventType: job.data.eventType ?? null,
+          entityType: job.data.entityType ?? null,
+          entityId: job.data.entityId ?? null,
+          recipientType: job.data.recipientType ?? null,
+          recipientId: job.data.recipientId ?? null,
+          vendorId: job.data.vendorId ?? null,
+          attemptCount: (job.attemptsMade ?? 0) + 1,
+          lastError: error,
+          queuedAt,
+          sentAt: status === 'SENT' ? now : null,
+          failedAt: status === 'FAILED' ? now : null,
+        },
+      })
+      .catch((e) =>
+        this.logger.warn(`Failed to write notification log: ${e.message}`),
+      );
   }
 }

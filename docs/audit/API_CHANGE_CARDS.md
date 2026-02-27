@@ -522,7 +522,7 @@ Owner:
 - API steward: Backend owner
 
 ## API-019 - Notification Delivery Log + Admin Query Endpoints
-Status: PROPOSED
+Status: IMPLEMENTED
 
 Endpoint:
 - `GET /notifications/logs`

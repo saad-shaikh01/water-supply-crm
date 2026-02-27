@@ -649,3 +649,30 @@ model AuditLog {
   @@index([vendorId, createdAt])
   @@index([entity, entityId])
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Notification Platform
+// ──────────────────────────────────────────────────────────────────────────────
+
+model NotificationLog {
+  id               String    @id @default(uuid())
+  channel          String    // WHATSAPP | SMS | FCM | IN_APP
+  status           String    // SENT | FAILED
+  recipientAddress String?   // phone number or FCM userId
+  eventType        String?   // e.g. order.approved
+  entityType       String?   // ORDER | PAYMENT | TICKET
+  entityId         String?
+  recipientType    String?   // CUSTOMER | USER
+  recipientId      String?
+  vendorId         String?
+  attemptCount     Int       @default(1)
+  lastError        String?
+  queuedAt         DateTime
+  sentAt           DateTime?
+  failedAt         DateTime?
+  createdAt        DateTime  @default(now())
+
+  @@index([channel, status])
+  @@index([vendorId, createdAt])
+  @@index([createdAt])
+}
