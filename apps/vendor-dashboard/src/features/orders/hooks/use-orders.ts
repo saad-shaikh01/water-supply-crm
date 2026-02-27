@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useQueryState, parseAsInteger, parseAsString } from 'nuqs';
 import { toast } from 'sonner';
 import { ordersApi } from '../api/orders.api';
+import { dailySheetsApi } from '../../daily-sheets/api/daily-sheets.api';
 
 export const useOrders = () => {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
@@ -102,5 +103,20 @@ export const useDispatchOrderNow = () => {
     },
     onError: (e: any) =>
       toast.error(e?.response?.data?.message ?? 'Failed to dispatch order'),
+  });
+};
+
+export const useInsertOrderIntoSheet = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sheetId, orderId }: { sheetId: string; orderId: string }) =>
+      dailySheetsApi.insertItemFromOrder(sheetId, { orderId, sequenceMode: 'APPEND' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['vendor-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['sheets'] });
+      toast.success('Order inserted into the selected sheet');
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? 'Failed to insert order into sheet'),
   });
 };

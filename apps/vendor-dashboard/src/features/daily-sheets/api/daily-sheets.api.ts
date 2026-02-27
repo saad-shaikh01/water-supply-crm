@@ -24,6 +24,10 @@ export const dailySheetsApi = {
   close: (id: string) => apiClient.post(`/daily-sheets/${id}/close`),
   getReconciliationPreview: (id: string) =>
     apiClient.get(`/daily-sheets/${id}/reconciliation-preview`).then((r) => r.data),
+  insertItemFromOrder: (
+    id: string,
+    data: { orderId: string; sequenceMode?: 'APPEND' | 'CUSTOM'; sequence?: number },
+  ) => apiClient.post(`/daily-sheets/${id}/items/from-order`, data),
   updateDeliveryItem: (itemId: string, data: Record<string, unknown>) =>
     apiClient.patch(`/daily-sheets/items/${itemId}`, data),
   swapAssignment: (id: string, data: Record<string, unknown>) =>

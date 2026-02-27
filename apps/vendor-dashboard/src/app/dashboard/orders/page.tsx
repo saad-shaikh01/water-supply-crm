@@ -15,6 +15,7 @@ import {
   useRejectOrder,
   useSaveDispatchPlan,
   useDispatchOrderNow,
+  useInsertOrderIntoSheet,
 } from '../../../features/orders/hooks/use-orders';
 import { OrderRejectDialog } from '../../../features/orders/components/order-reject-dialog';
 import { OrderDispatchDrawer } from '../../../features/orders/components/order-dispatch-drawer';
@@ -33,6 +34,7 @@ function OrdersContent() {
   const { mutate: reject, isPending: isRejecting } = useRejectOrder();
   const { mutate: saveDispatchPlan, isPending: isSavingPlan } = useSaveDispatchPlan();
   const { mutate: dispatchNow, isPending: isDispatchingNow } = useDispatchOrderNow();
+  const { mutate: insertIntoSheet, isPending: isInsertingIntoSheet } = useInsertOrderIntoSheet();
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [dispatchOrder, setDispatchOrder] = useState<any>(null);
@@ -232,16 +234,27 @@ function OrdersContent() {
         order={dispatchOrder}
         open={!!dispatchOrder}
         onOpenChange={(open) => { if (!open) setDispatchOrder(null); }}
-        isSaving={isSavingPlan}
+        isSaving={isSavingPlan || isInsertingIntoSheet}
         isDispatching={isDispatchingNow}
         onSave={(form) => {
           if (!dispatchOrder) return;
+          const { targetSheetId, ...planData } = form;
           saveDispatchPlan({
             id: dispatchOrder.id,
-            data: form,
+            data: planData,
             hasExistingPlan: dispatchOrder.dispatchStatus && dispatchOrder.dispatchStatus !== 'UNPLANNED',
           }, {
-            onSuccess: () => setDispatchOrder(null),
+            onSuccess: () => {
+              if (planData.dispatchMode === 'INSERT_IN_OPEN_SHEET' && targetSheetId) {
+                insertIntoSheet(
+                  { sheetId: targetSheetId, orderId: dispatchOrder.id },
+                  { onSuccess: () => setDispatchOrder(null) },
+                );
+                return;
+              }
+
+              setDispatchOrder(null);
+            },
           });
         }}
         onDispatchNow={() => {

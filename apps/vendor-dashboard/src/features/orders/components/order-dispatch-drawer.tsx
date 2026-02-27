@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   Button,
   Input,
@@ -19,6 +20,7 @@ import {
 import { CalendarClock, Truck } from 'lucide-react';
 import { useAllVans } from '../../vans/hooks/use-vans';
 import { useAllDrivers } from '../../users/hooks/use-users';
+import { dailySheetsApi } from '../../daily-sheets/api/daily-sheets.api';
 
 const DISPATCH_MODE_OPTIONS = [
   { value: 'INSERT_IN_OPEN_SHEET', label: 'Insert In Open Sheet' },
@@ -36,6 +38,7 @@ interface OrderDispatchDrawerProps {
     driverId?: string;
     dispatchMode: string;
     notes?: string;
+    targetSheetId?: string;
   }) => void;
   onDispatchNow: () => void;
   isSaving?: boolean;
@@ -60,10 +63,29 @@ export function OrderDispatchDrawer({
     driverId: '',
     dispatchMode: 'QUEUE_FOR_GENERATION',
     notes: '',
+    targetSheetId: '',
   });
 
   const vans = ((vansData as any)?.data ?? []) as Array<{ id: string; plateNumber: string }>;
   const drivers = ((driversData as any)?.data ?? []) as Array<{ id: string; name: string }>;
+
+  const { data: openSheetsData } = useQuery({
+    queryKey: ['order-dispatch-open-sheets', form.targetDate, form.vanId],
+    queryFn: () =>
+      dailySheetsApi.getAll({
+        page: 1,
+        limit: 100,
+        date: form.targetDate,
+        vanId: form.vanId || undefined,
+        isClosed: false,
+      }).then((r) => r.data),
+    enabled: open && form.dispatchMode === 'INSERT_IN_OPEN_SHEET' && !!form.targetDate,
+  });
+
+  const openSheets = useMemo(
+    () => ((openSheetsData as any)?.data ?? []) as Array<{ id: string; route?: { name: string }; van?: { plateNumber: string }; driver?: { name: string } }>,
+    [openSheetsData],
+  );
 
   useEffect(() => {
     if (!order || !open) return;
@@ -75,10 +97,16 @@ export function OrderDispatchDrawer({
       driverId: order.dispatchDriverId ?? '',
       dispatchMode: order.dispatchMode ?? 'QUEUE_FOR_GENERATION',
       notes: order.dispatchNotes ?? '',
+      targetSheetId: '',
     });
   }, [order, open]);
 
-  const canSave = !!form.targetDate && !!form.dispatchMode;
+  useEffect(() => {
+    setForm((prev) => ({ ...prev, targetSheetId: '' }));
+  }, [form.targetDate, form.vanId, form.dispatchMode]);
+
+  const needsSheetSelection = form.dispatchMode === 'INSERT_IN_OPEN_SHEET';
+  const canSave = !!form.targetDate && !!form.dispatchMode && (!needsSheetSelection || !!form.targetSheetId);
   const canDispatchNow = order?.status === 'APPROVED' && order?.dispatchStatus !== 'INSERTED_IN_SHEET';
 
   return (
@@ -122,6 +150,31 @@ export function OrderDispatchDrawer({
               </SelectContent>
             </Select>
           </div>
+
+          {needsSheetSelection && (
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Open Sheet</Label>
+              <Select
+                value={form.targetSheetId || 'none'}
+                onValueChange={(value) => setForm((prev) => ({ ...prev, targetSheetId: value === 'none' ? '' : value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select an open sheet" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Select an open sheet</SelectItem>
+                  {openSheets.map((sheet) => (
+                    <SelectItem key={sheet.id} value={sheet.id}>
+                      {(sheet.route?.name ?? 'No Route')} | {(sheet.van?.plateNumber ?? '-')} | {(sheet.driver?.name ?? '-')}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {form.targetDate && openSheets.length === 0 && (
+                <p className="text-[11px] text-muted-foreground">No open sheets found for the selected date and van.</p>
+              )}
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Time Window</Label>
@@ -176,7 +229,7 @@ export function OrderDispatchDrawer({
 
           <div className="rounded-2xl border border-border/40 bg-card/30 p-4 text-xs text-muted-foreground flex gap-3">
             <CalendarClock className="h-4 w-4 mt-0.5 text-primary shrink-0" />
-            Approval only changes the order state to approved. Dispatch remains separate until you save a plan or send it straight into a sheet.
+            Approval only changes the order state to approved. Dispatch remains separate until you save a plan or insert it into a live sheet.
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3 pt-2">
@@ -200,10 +253,11 @@ export function OrderDispatchDrawer({
                 driverId: form.driverId || undefined,
                 dispatchMode: form.dispatchMode,
                 notes: form.notes || undefined,
+                targetSheetId: form.targetSheetId || undefined,
               })}
               className="flex-1"
             >
-              Save Plan
+              {needsSheetSelection ? 'Save and Insert' : 'Save Plan'}
             </Button>
           </div>
         </div>
