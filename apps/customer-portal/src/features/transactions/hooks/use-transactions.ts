@@ -9,11 +9,22 @@ export const useTransactions = () => {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
   const [type] = useQueryState('type', parseAsString.withDefault(''));
+  const [dateFrom] = useQueryState('dateFrom', parseAsString.withDefault(''));
+  const [dateTo] = useQueryState('dateTo', parseAsString.withDefault(''));
+  const [search] = useQueryState('search', parseAsString.withDefault(''));
+
+  const params = {
+    page,
+    limit,
+    type: type || undefined,
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
+    search: search || undefined,
+  };
 
   const query = useQuery({
-    queryKey: queryKeys.transactions.all(user?.customerId ?? '', { page, limit, type: type || undefined }),
-    queryFn: () =>
-      transactionsApi.getAll(user!.customerId, { page, limit, type: type || undefined }).then((r) => r.data),
+    queryKey: queryKeys.transactions.all(user?.customerId ?? '', params),
+    queryFn: () => transactionsApi.getAll(user!.customerId, params).then((r) => r.data),
     enabled: !!user?.customerId,
   });
 
