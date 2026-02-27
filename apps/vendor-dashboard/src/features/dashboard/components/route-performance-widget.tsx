@@ -1,6 +1,6 @@
 'use client';
 
-import { Map, CheckCircle2, Clock } from 'lucide-react';
+import { Map, Clock } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, Skeleton, Badge } from '@water-supply-crm/ui';
 import { useRoutePerformance } from '../hooks/use-dashboard';
 import { cn } from '@water-supply-crm/ui';
@@ -17,9 +17,9 @@ export function RoutePerformanceWidget() {
   }>;
 
   return (
-    <Card className="bg-[#05070a] border border-white/5 rounded-xl shadow-2xl">
+    <Card className="bg-white/[0.03] backdrop-blur-2xl border-white/10 rounded-2xl shadow-2xl">
       <CardHeader className="pb-4">
-        <CardTitle className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/40 flex items-center gap-2">
+        <CardTitle className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/80 flex items-center gap-2">
           <Map className="h-4 w-4 text-primary" /> Route Performance — Today
         </CardTitle>
       </CardHeader>
@@ -39,23 +39,23 @@ export function RoutePerformanceWidget() {
             return (
               <div key={r.id || `route-${i}`} className="space-y-2 group/route">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm font-bold text-white/80 group-hover/route:text-white transition-colors">{r.name}</span>
+                  <span className="text-sm font-bold text-white/90">{r.name}</span>
                   <Badge className={cn(
-                    "text-[10px] font-bold border-none px-2 py-0.5 rounded-full",
-                    rate >= 80 ? "bg-emerald-500/10 text-emerald-500" :
-                    rate >= 50 ? "bg-yellow-500/10 text-yellow-500" :
-                    "bg-white/5 text-muted-foreground"
+                    "text-[10px] font-bold border px-2 py-0.5 rounded-full uppercase tracking-wider",
+                    rate >= 80 ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                    rate >= 50 ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
+                    "bg-white/5 text-muted-foreground border-white/10"
                   )}>
                     {rate}%
                   </Badge>
                 </div>
                 <div className="flex items-center gap-3">
-                  <div className="flex-1 h-1.5 bg-white/[0.03] rounded-full overflow-hidden">
+                  <div className="flex-1 h-1.5 bg-white/[0.05] rounded-full overflow-hidden">
                     <div
                       className={cn(
-                        "h-full rounded-full transition-all duration-500",
-                        rate >= 80 ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)]" : 
-                        rate >= 50 ? "bg-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.4)]" : 
+                        "h-full rounded-full",
+                        rate >= 80 ? "bg-emerald-500" : 
+                        rate >= 50 ? "bg-amber-500" : 
                         "bg-white/20"
                       )}
                       style={{ width: `${rate}%` }}

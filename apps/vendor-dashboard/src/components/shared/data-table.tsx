@@ -42,10 +42,10 @@ export function DataTable<T extends { id: string }>({
   if (isLoading) {
     return (
       <div className="space-y-4">
-        <div className="rounded-3xl border border-border/50 overflow-hidden bg-card/20 backdrop-blur-xl">
-          <div className="h-14 bg-muted/40 border-b border-border/50" />
+        <div className="rounded-2xl border border-white/10 overflow-hidden bg-white/[0.03] backdrop-blur-2xl">
+          <div className="h-14 bg-white/[0.02] border-b border-white/10" />
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="flex items-center gap-4 p-6 border-b border-border/50 last:border-0">
+            <div key={i} className="flex items-center gap-4 p-6 border-b border-white/5 last:border-0">
               <Skeleton className="h-4 w-full rounded-full" />
             </div>
           ))}
@@ -56,14 +56,14 @@ export function DataTable<T extends { id: string }>({
 
   return (
     <div className="flex flex-col min-h-0 flex-1 space-y-6">
-      <div className="rounded-xl border border-border dark:border-white/5 bg-background dark:bg-[#05070a] overflow-hidden shadow-xl dark:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.8)] transition-all duration-500">
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-2xl overflow-hidden shadow-2xl">
         <Table>
           <TableHeader>
-            <TableRow className="bg-muted/50 dark:bg-white/[0.02] hover:bg-muted/50 dark:hover:bg-white/[0.02] border-b border-border dark:border-white/5">
+            <TableRow className="bg-white/[0.02] hover:bg-white/[0.02] border-b border-white/10">
               {columns.map((col) => (
                 <TableHead 
                   key={col.key} 
-                  className="h-14 text-[10px] uppercase tracking-[0.25em] font-bold text-muted-foreground/60 dark:text-white/40"
+                  className="h-14 text-[10px] uppercase tracking-[0.25em] font-bold text-muted-foreground"
                   style={col.width ? { width: col.width } : undefined}
                 >
                   {col.header}
@@ -79,32 +79,23 @@ export function DataTable<T extends { id: string }>({
                   className="h-72 text-center"
                 >
                   <div className="flex flex-col items-center justify-center space-y-4">
-                    <div className="p-6 rounded-2xl bg-muted/50 dark:bg-white/[0.02] border border-border dark:border-white/5">
-                      <Inbox className="h-10 w-10 text-muted-foreground/40 dark:text-white/20" />
+                    <div className="p-6 rounded-2xl bg-white/[0.02] border border-white/10">
+                      <Inbox className="h-10 w-10 text-white/20" />
                     </div>
-                    <p className="text-sm font-bold text-muted-foreground/50 dark:text-white/30 tracking-tight">{emptyMessage}</p>
+                    <p className="text-sm font-bold text-white/30 tracking-tight">{emptyMessage}</p>
                   </div>
                 </TableCell>
               </TableRow>
             ) : (
-              data.map((row, idx) => (
+              data.map((row) => (
                 <TableRow 
                   key={row.id} 
-                  className={cn(
-                    "group/row relative transition-all duration-300 border-b border-border/50 dark:border-white/[0.02] last:border-0 hover:bg-primary/[0.03]",
-                    idx % 2 === 0 ? "bg-transparent" : "bg-muted/20 dark:bg-white/[0.01]"
-                  )}
+                  className="group/row transition-colors border-b border-white/5 last:border-0 hover:bg-white/[0.04]"
                 >
-                  {columns.map((col, colIdx) => (
-                    <TableCell key={col.key} className="py-5 px-6 relative overflow-hidden">
-                      {/* Left Neon Accent Indicator */}
-                      {colIdx === 0 && (
-                        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-0 bg-primary shadow-[0_0_10px_rgba(0,212,255,0.8)] transition-all duration-300 group-hover/row:h-3/5" />
-                      )}
-                      
+                  {columns.map((col) => (
+                    <TableCell key={col.key} className="py-5 px-6">
                       <div className={cn(
-                        "text-sm font-semibold transition-all duration-300",
-                        "text-foreground/70 dark:text-white/70 group-hover/row:text-primary group-hover/row:translate-x-1",
+                        "text-sm font-medium transition-colors text-white/90 group-hover:text-primary",
                         // Auto-apply tabular-nums if column looks like a number
                         (col.header.toLowerCase().includes('balance') || col.header.toLowerCase().includes('amount')) && "tabular-nums"
                       )}>

@@ -34,7 +34,7 @@ Scope: UI/UX and responsiveness only
 | VD-UX-010 | Overview + Analytics | Information UX | Refine KPI card hierarchy, chart spacing, and breakdown readability. | Medium | Agent A | READY | KPIs and charts are readable on both desktop and tablet widths. |
 | VD-UX-011 | Tracking page | Map UX | Improve map panel balance, info cards, and small-screen behavior (drawer/sheet strategy). | Medium | Agent A | READY | Tracking remains usable on laptop and mobile viewports. |
 | VD-UX-012 | Accessibility baseline | A11y | Fix obvious keyboard/focus/contrast issues in vendor dashboard interactive controls. | Medium | Agent A | READY | No hidden focus states, no low-contrast critical text. |
-| VD-UX-013 | Dashboard visual system | Design System | Apply the approved Premium Dark design system across vendor dashboard using static glassmorphism, strict dark tokens, and responsive Shadcn/Tailwind styling. | High | Agent A | READY | Vendor dashboard matches the Premium Dark spec, remains responsive, and uses no motion beyond simple color changes. |
+| VD-UX-013 | Dashboard visual system | Design System | Apply the approved Premium Dark design system across vendor dashboard using static glassmorphism, strict dark tokens, and responsive Shadcn/Tailwind styling. | High | Agent A | DONE | Implemented strict dark tokens, glassmorphism surfaces, mesh background, noise overlay, and removed non-compliant motion. |
 | VD-UX-014 | Final responsive pass | QA UX | Run viewport sweep (`360`, `390`, `768`, `1024`, `1440`) and patch remaining clipping/overflow. | High | Agent A | READY | No clipped controls or overlapping text in primary screens. |
 
 ## Premium Dark Spec (VD-UX-013)
