@@ -8,7 +8,9 @@ export const useTransactions = (overrideCustomerId?: string) => {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
   const [urlCustomerId] = useQueryState('customerId', parseAsString.withDefault(''));
-  const [type] = useQueryState('type', parseAsString.withDefault(''));
+  const [type, setType] = useQueryState('type', parseAsString.withDefault(''));
+  const [dateFrom, setDateFrom] = useQueryState('dateFrom', parseAsString.withDefault(''));
+  const [dateTo, setDateTo] = useQueryState('dateTo', parseAsString.withDefault(''));
 
   const effectiveCustomerId = overrideCustomerId || urlCustomerId;
 
@@ -17,6 +19,8 @@ export const useTransactions = (overrideCustomerId?: string) => {
     limit,
     customerId: effectiveCustomerId || undefined,
     type: type || undefined,
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
   };
 
   return {
@@ -30,6 +34,11 @@ export const useTransactions = (overrideCustomerId?: string) => {
     setLimit,
     customerId: effectiveCustomerId,
     type,
+    setType,
+    dateFrom,
+    setDateFrom,
+    dateTo,
+    setDateTo,
   };
 };
 
