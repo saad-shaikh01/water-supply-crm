@@ -322,6 +322,7 @@ model DailySheetItem {
   rescheduledTo DateTime?
 
   deliveryIssue DeliveryIssue?
+  transactions  Transaction[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -375,9 +376,12 @@ model Transaction {
   productId     String?
   product       Product?  @relation(fields: [productId], references: [id])
   
-  dailySheetId  String?
-  dailySheet    DailySheet? @relation(fields: [dailySheetId], references: [id])
-  
+  dailySheetId     String?
+  dailySheet       DailySheet?     @relation(fields: [dailySheetId], references: [id])
+
+  dailySheetItemId String?
+  dailySheetItem   DailySheetItem? @relation(fields: [dailySheetItemId], references: [id], onDelete: SetNull)
+
   bottleCount   Int?     // NET change to wallet (filledDropped - emptyReceived)
   filledDropped Int?     // Filled bottles given to customer (consumption indicator)
   emptyReceived Int?     // Empty bottles collected from customer
@@ -390,6 +394,7 @@ model Transaction {
   @@index([vendorId, createdAt])
   @@index([customerId, createdAt])
   @@index([dailySheetId])
+  @@index([dailySheetItemId])
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

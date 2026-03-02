@@ -2,28 +2,41 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { OrderService } from './order.service';
 import { NotificationService } from '../notifications/notification.service';
+import { FcmService } from '../fcm/fcm.service';
 import { NOTIFICATION_EVENTS } from '@water-supply-crm/queue';
 
 /**
- * Integration tests: OrderService notification triggers
+ * Unit tests: OrderService notification triggers
  *
- * Verifies that approveOrder and rejectOrder fire WhatsApp + FCM
- * notifications with correctly structured idempotency keys so that
- * BullMQ deduplicates retried jobs.
+ * Covers:
+ *  - createOrder  → vendor FCM (ORDER_SUBMITTED)
+ *  - cancelOrder  → vendor FCM (ORDER_CANCELLED)
+ *  - approveOrder → customer WhatsApp + FCM (ORDER_APPROVED, idempotency keys)
+ *  - rejectOrder  → customer WhatsApp + FCM (ORDER_REJECTED, idempotency keys)
  */
 describe('OrderService — notification triggers', () => {
   let service: OrderService;
   let mockPrisma: any;
   let mockNotifications: { queueWhatsApp: jest.Mock; queueFcm: jest.Mock };
+  let mockFcm: { sendToVendorUsers: jest.Mock; sendToCustomer: jest.Mock };
 
   const ORDER_ID = 'order-abc-123';
   const VENDOR_ID = 'vendor-xyz';
   const REVIEWER_ID = 'user-reviewer';
+  const CUSTOMER_ID = 'customer-1';
+
+  const customerRecord = {
+    id: CUSTOMER_ID,
+    vendorId: VENDOR_ID,
+    name: 'Ahmed Khan',
+    phoneNumber: '+923001234567',
+    userId: 'user-cust-1',
+  };
 
   const pendingOrder = {
     id: ORDER_ID,
     vendorId: VENDOR_ID,
-    customerId: 'customer-1',
+    customerId: CUSTOMER_ID,
     status: 'PENDING',
     dispatchStatus: 'UNPLANNED',
     quantity: 3,
@@ -39,6 +52,11 @@ describe('OrderService — notification triggers', () => {
     mockNotifications = {
       queueWhatsApp: jest.fn().mockResolvedValue(undefined),
       queueFcm: jest.fn().mockResolvedValue(undefined),
+    };
+
+    mockFcm = {
+      sendToVendorUsers: jest.fn().mockResolvedValue({ sent: 2, failed: 0 }),
+      sendToCustomer: jest.fn().mockResolvedValue({ sent: 1, failed: 0 }),
     };
 
     mockPrisma = {
@@ -59,6 +77,7 @@ describe('OrderService — notification triggers', () => {
         OrderService,
         { provide: 'PrismaService', useValue: mockPrisma },
         { provide: NotificationService, useValue: mockNotifications },
+        { provide: FcmService, useValue: mockFcm },
       ],
     })
       .overrideProvider('PrismaService')
@@ -66,9 +85,10 @@ describe('OrderService — notification triggers', () => {
       .compile();
 
     service = module.get<OrderService>(OrderService);
-    // Directly inject prisma since NestJS DI uses the class token
+    // Directly inject dependencies since NestJS DI uses class tokens
     (service as any).prisma = mockPrisma;
     (service as any).notifications = mockNotifications;
+    (service as any).fcm = mockFcm;
   });
 
   afterEach(() => jest.clearAllMocks());
@@ -185,6 +205,119 @@ describe('OrderService — notification triggers', () => {
       const approvedKey = `ntf:${NOTIFICATION_EVENTS.ORDER_APPROVED}:${ORDER_ID}:wa`;
       const rejectedKey = `ntf:${NOTIFICATION_EVENTS.ORDER_REJECTED}:${ORDER_ID}:wa`;
       expect(approvedKey).not.toBe(rejectedKey);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // createOrder — vendor staff FCM
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('createOrder', () => {
+    const createDto = { productId: 'product-1', quantity: 2 };
+    const createdOrder = {
+      id: ORDER_ID,
+      vendorId: VENDOR_ID,
+      customerId: CUSTOMER_ID,
+      quantity: 2,
+      product: { id: 'product-1', name: 'Water 19L', basePrice: 150 },
+    };
+
+    beforeEach(() => {
+      mockPrisma.customer.findFirst.mockResolvedValue(customerRecord);
+      mockPrisma.product.findFirst.mockResolvedValue({ id: 'product-1', vendorId: VENDOR_ID, isActive: true });
+      mockPrisma.customerOrder.create.mockResolvedValue(createdOrder);
+    });
+
+    it('notifies vendor users via FCM with ORDER_SUBMITTED type', async () => {
+      await service.createOrder(customerRecord.userId, createDto);
+      await Promise.resolve();
+
+      expect(mockFcm.sendToVendorUsers).toHaveBeenCalledWith(
+        VENDOR_ID,
+        expect.stringContaining('Order'),
+        expect.stringContaining('Water 19L'),
+        expect.objectContaining({
+          type: NOTIFICATION_EVENTS.ORDER_SUBMITTED,
+          orderId: ORDER_ID,
+        }),
+      );
+    });
+
+    it('still returns the created order even if FCM throws', async () => {
+      mockFcm.sendToVendorUsers.mockRejectedValue(new Error('FCM down'));
+
+      const result = await service.createOrder(customerRecord.userId, createDto);
+      await Promise.resolve();
+
+      expect(result).toEqual(createdOrder);
+    });
+
+    it('throws NotFoundException when customer not found — no FCM', async () => {
+      mockPrisma.customer.findFirst.mockResolvedValue(null);
+
+      await expect(service.createOrder('unknown-user', createDto)).rejects.toThrow();
+      expect(mockFcm.sendToVendorUsers).not.toHaveBeenCalled();
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // cancelOrder — vendor staff FCM
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('cancelOrder', () => {
+    beforeEach(() => {
+      mockPrisma.customer.findFirst.mockResolvedValue(customerRecord);
+      mockPrisma.customerOrder.findUnique.mockResolvedValue(pendingOrder);
+      mockPrisma.customerOrder.update.mockResolvedValue({
+        ...pendingOrder,
+        status: 'CANCELLED',
+      });
+    });
+
+    it('notifies vendor users via FCM with ORDER_CANCELLED type', async () => {
+      await service.cancelOrder(customerRecord.userId, ORDER_ID);
+      await Promise.resolve();
+
+      expect(mockFcm.sendToVendorUsers).toHaveBeenCalledWith(
+        VENDOR_ID,
+        expect.stringContaining('Cancel'),
+        expect.stringContaining(customerRecord.name),
+        expect.objectContaining({
+          type: NOTIFICATION_EVENTS.ORDER_CANCELLED,
+          orderId: ORDER_ID,
+        }),
+      );
+    });
+
+    it('ORDER_CANCELLED event is distinct from ORDER_SUBMITTED event', () => {
+      expect(NOTIFICATION_EVENTS.ORDER_CANCELLED).not.toBe(NOTIFICATION_EVENTS.ORDER_SUBMITTED);
+      expect(NOTIFICATION_EVENTS.ORDER_CANCELLED).toBe('order.cancelled');
+    });
+
+    it('throws BadRequestException and sends no FCM when order is not PENDING', async () => {
+      mockPrisma.customerOrder.findUnique.mockResolvedValue({
+        ...pendingOrder,
+        status: 'APPROVED',
+      });
+
+      await expect(
+        service.cancelOrder(customerRecord.userId, ORDER_ID),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(mockFcm.sendToVendorUsers).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException and sends no FCM when order belongs to another customer', async () => {
+      mockPrisma.customerOrder.findUnique.mockResolvedValue({
+        ...pendingOrder,
+        customerId: 'other-customer',
+      });
+
+      await expect(
+        service.cancelOrder(customerRecord.userId, ORDER_ID),
+      ).rejects.toThrow(NotFoundException);
+
+      expect(mockFcm.sendToVendorUsers).not.toHaveBeenCalled();
     });
   });
 });

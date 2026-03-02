@@ -7,6 +7,7 @@ import { RejectOrderDto } from './dto/reject-order.dto';
 import { OrderQueryDto } from './dto/order-query.dto';
 import { DispatchPlanDto } from './dto/dispatch-plan.dto';
 import { NotificationService } from '../notifications/notification.service';
+import { FcmService } from '../fcm/fcm.service';
 import { NOTIFICATION_EVENTS } from '@water-supply-crm/queue';
 import { MessageTemplates } from '../whatsapp/templates/message.templates';
 
@@ -17,6 +18,7 @@ export class OrderService {
   constructor(
     private prisma: PrismaService,
     private notifications: NotificationService,
+    private fcm: FcmService,
   ) {}
 
   private async getCustomer(userId: string) {
@@ -33,7 +35,7 @@ export class OrderService {
     });
     if (!product) throw new NotFoundException('Product not found');
 
-    return this.prisma.customerOrder.create({
+    const order = await this.prisma.customerOrder.create({
       data: {
         vendorId: customer.vendorId,
         customerId: customer.id,
@@ -46,6 +48,18 @@ export class OrderService {
         product: { select: { id: true, name: true, basePrice: true } },
       },
     });
+
+    // Notify vendor staff of the new order (fire-and-forget)
+    this.fcm
+      .sendToVendorUsers(
+        customer.vendorId,
+        'New Order Received 🛒',
+        `${customer.name} ordered ${order.product.name} × ${dto.quantity}.`,
+        { type: NOTIFICATION_EVENTS.ORDER_SUBMITTED, orderId: order.id },
+      )
+      .catch(() => null);
+
+    return order;
   }
 
   async getCustomerOrders(userId: string, query: OrderQueryDto) {
@@ -112,10 +126,22 @@ export class OrderService {
     if (!order || order.customerId !== customer.id) throw new NotFoundException('Order not found');
     if (order.status !== 'PENDING') throw new BadRequestException('Only PENDING orders can be cancelled');
 
-    return this.prisma.customerOrder.update({
+    const updated = await this.prisma.customerOrder.update({
       where: { id: orderId },
       data: { status: 'CANCELLED' },
     });
+
+    // Notify vendor staff that a pending order was cancelled (fire-and-forget)
+    this.fcm
+      .sendToVendorUsers(
+        customer.vendorId,
+        'Order Cancelled ❌',
+        `${customer.name} cancelled their order (ID: ${orderId}).`,
+        { type: NOTIFICATION_EVENTS.ORDER_CANCELLED, orderId },
+      )
+      .catch(() => null);
+
+    return updated;
   }
 
   async getVendorOrders(vendorId: string, query: OrderQueryDto) {

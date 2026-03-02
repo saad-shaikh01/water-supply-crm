@@ -139,6 +139,16 @@ export class PaymentService {
       `Manual payment submitted: ${request.id} — Rs.${dto.amount} via ${dto.method}`,
     );
 
+    // Notify vendor staff of the pending payment request (fire-and-forget)
+    this.fcm
+      .sendToVendorUsers(
+        customer.vendorId,
+        'New Payment Request 💰',
+        `${customer.name} submitted Rs. ${dto.amount} via ${dto.method}. Pending review.`,
+        { type: NOTIFICATION_EVENTS.PAYMENT_SUBMITTED, requestId: request.id },
+      )
+      .catch(() => null);
+
     return {
       paymentRequestId: request.id,
       status: request.status,
