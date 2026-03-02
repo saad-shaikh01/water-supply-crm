@@ -105,9 +105,11 @@ export function OrderDispatchDrawer({
     setForm((prev) => ({ ...prev, targetSheetId: '' }));
   }, [form.targetDate, form.vanId, form.dispatchMode]);
 
+  const dispatchStatus = order?.dispatchStatus ?? 'UNPLANNED';
+  const isDispatchLocked = ['INSERTED_IN_SHEET', 'DELIVERED', 'SELF_PICKUP_DONE', 'CANCELLED'].includes(dispatchStatus);
   const needsSheetSelection = form.dispatchMode === 'INSERT_IN_OPEN_SHEET';
-  const canSave = !!form.targetDate && !!form.dispatchMode && (!needsSheetSelection || !!form.targetSheetId);
-  const canDispatchNow = order?.status === 'APPROVED' && order?.dispatchStatus !== 'INSERTED_IN_SHEET';
+  const canSave = !isDispatchLocked && !!form.targetDate && !!form.dispatchMode && (!needsSheetSelection || !!form.targetSheetId);
+  const canDispatchNow = order?.status === 'APPROVED' && !isDispatchLocked;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -229,7 +231,9 @@ export function OrderDispatchDrawer({
 
           <div className="rounded-2xl border border-border/40 bg-card/30 p-4 text-xs text-muted-foreground flex gap-3">
             <CalendarClock className="h-4 w-4 mt-0.5 text-primary shrink-0" />
-            Approval only changes the order state to approved. Dispatch remains separate until you save a plan or insert it into a live sheet.
+            {isDispatchLocked
+              ? 'This order is already in a locked dispatch state and can no longer be replanned from this drawer.'
+              : 'Approval only changes the order state to approved. Dispatch remains separate until you save a plan or insert it into a live sheet.'}
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3 pt-2">

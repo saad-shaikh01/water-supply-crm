@@ -51,9 +51,13 @@ export function Sidebar({ className }: { className?: string }) {
   const pathname = usePathname();
   const user = useAuthStore((s) => s.user);
 
-  const visibleItems = navItems.filter((item) =>
-    user ? hasMinRole(user.role, item.minRole) : false
-  );
+  const visibleItems = navItems.filter((item) => {
+    if (!user) return false;
+    if (item.group === 'Driver') {
+      return user.role === 'DRIVER';
+    }
+    return hasMinRole(user.role, item.minRole);
+  });
 
   return (
     <aside className={cn("flex flex-col border-r border-border bg-white/[0.02] backdrop-blur-3xl", className)}>

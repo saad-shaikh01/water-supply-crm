@@ -443,6 +443,15 @@ function OrdersContent() {
               }
 
               if (r.status === 'APPROVED') {
+                const canManageDispatch =
+                  !['INSERTED_IN_SHEET', 'DELIVERED', 'SELF_PICKUP_DONE', 'CANCELLED'].includes(
+                    r.dispatchStatus ?? 'UNPLANNED',
+                  );
+
+                if (!canManageDispatch) {
+                  return null;
+                }
+
                 return (
                   <div className="flex justify-end">
                     <Button
