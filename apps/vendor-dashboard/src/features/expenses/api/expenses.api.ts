@@ -6,8 +6,8 @@ export interface ExpenseQuery {
   page?: number;
   limit?: number;
   category?: ExpenseCategory;
-  dateFrom?: string;
-  dateTo?: string;
+  from?: string;
+  to?: string;
   vanId?: string;
 }
 
@@ -26,7 +26,7 @@ export interface ExpenseSummary {
 
 export const expensesApi = {
   getAll: (params: ExpenseQuery) => apiClient.get('/expenses', { params }),
-  getSummary: () => apiClient.get<ExpenseSummary>('/expenses/summary'),
+  getSummary: (params?: Pick<ExpenseQuery, 'from' | 'to'>) => apiClient.get<ExpenseSummary>('/expenses/summary', { params }),
   getOne: (id: string) => apiClient.get(`/expenses/${id}`),
   create: (data: Record<string, unknown>) => apiClient.post('/expenses', data),
   update: (id: string, data: Record<string, unknown>) => apiClient.patch(`/expenses/${id}`, data),

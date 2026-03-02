@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { PageHeader } from '../../../components/shared/page-header';
+import { DateRangePicker } from '../../../components/shared/date-range-picker';
 import { ExpenseList } from '../../../features/expenses/components/expense-list';
 import { ExpenseForm } from '../../../features/expenses/components/expense-form';
 import { Button } from '@water-supply-crm/ui';
@@ -21,7 +22,10 @@ export default function ExpensesPage() {
           </Button>
         }
       />
-      <ExpenseList />
+      <div className="space-y-6">
+        <DateRangePicker className="w-full sm:w-auto sm:min-w-64" />
+        <ExpenseList />
+      </div>
       <ExpenseForm open={addOpen} onOpenChange={setAddOpen} />
     </>
   );
