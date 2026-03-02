@@ -187,7 +187,11 @@ export class LedgerService {
     if (dateFrom || dateTo) {
       where.createdAt = {};
       if (dateFrom) where.createdAt.gte = new Date(dateFrom);
-      if (dateTo) where.createdAt.lte = new Date(dateTo);
+      if (dateTo) {
+        const end = new Date(dateTo);
+        end.setHours(23, 59, 59, 999);
+        where.createdAt.lte = end;
+      }
     }
 
     const [data, total] = await Promise.all([
