@@ -89,6 +89,31 @@ export class FcmService implements OnModuleInit {
     body: string,
     data?: Record<string, string>,
   ) {
+    const users = await this.prisma.user.findMany({
+      where: { vendorId, isActive: true },
+      select: { id: true },
+    });
+
+    if (users.length) {
+      const entityId =
+        data?.ticketId ??
+        data?.orderId ??
+        data?.paymentRequestId ??
+        data?.customerId ??
+        undefined;
+
+      await this.prisma.inAppNotification.createMany({
+        data: users.map((user) => ({
+          userId: user.id,
+          vendorId,
+          type: data?.type ?? 'VENDOR_ALERT',
+          title,
+          message: body,
+          entityId,
+        })),
+      });
+    }
+
     if (!this.enabled) return { sent: 0, failed: 0 };
 
     const tokens = await this.prisma.fcmToken.findMany({
