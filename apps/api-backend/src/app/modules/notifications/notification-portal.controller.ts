@@ -9,7 +9,13 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @Controller('portal/notifications')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.CUSTOMER)
+@Roles(
+  UserRole.CUSTOMER,
+  UserRole.DRIVER,
+  UserRole.STAFF,
+  UserRole.VENDOR_ADMIN,
+  UserRole.SUPER_ADMIN,
+)
 export class NotificationPortalController {
   constructor(private readonly notifService: InAppNotificationService) {}
 
