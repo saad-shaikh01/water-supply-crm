@@ -10,7 +10,11 @@ function buildDateFilter(from?: string, to?: string) {
   if (!from && !to) return undefined;
   const filter: any = {};
   if (from) filter.gte = new Date(from);
-  if (to) filter.lte = new Date(to);
+  if (to) {
+    const end = new Date(to);
+    end.setHours(23, 59, 59, 999);
+    filter.lte = end;
+  }
   return filter;
 }
 

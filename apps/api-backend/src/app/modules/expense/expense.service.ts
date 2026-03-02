@@ -37,7 +37,11 @@ export class ExpenseService {
     if (from || to) {
       where.date = {};
       if (from) where.date.gte = new Date(from);
-      if (to) where.date.lte = new Date(to);
+      if (to) {
+        const end = new Date(to);
+        end.setHours(23, 59, 59, 999);
+        where.date.lte = end;
+      }
     }
 
     const [data, total] = await Promise.all([
@@ -103,7 +107,11 @@ export class ExpenseService {
     if (from || to) {
       const dateFilter: any = {};
       if (from) dateFilter.gte = new Date(from);
-      if (to) dateFilter.lte = new Date(to);
+      if (to) {
+        const end = new Date(to);
+        end.setHours(23, 59, 59, 999);
+        dateFilter.lte = end;
+      }
       expenseWhere.date = dateFilter;
       txWhere.createdAt = dateFilter;
     }
