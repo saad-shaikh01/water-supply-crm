@@ -111,6 +111,7 @@ export class DailySheetService {
           customerId: item.customerId,
           productId: item.productId,
           dailySheetId: item.dailySheetId,
+          dailySheetItemId: itemId,
           filledDropped: dto.filledDropped,
           emptyReceived: dto.emptyReceived,
           cashCollected: dto.cashCollected,
