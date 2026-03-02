@@ -27,8 +27,11 @@ export default function SchedulePage() {
   });
   const { data: profile, isLoading: profileLoading } = usePortalProfile();
 
-  const schedule = (data as any)?.data ?? (Array.isArray(data) ? data : []);
+  const schedule = Array.isArray(data) ? data : [];
   const deliverySchedules = (profile as any)?.deliverySchedules ?? [];
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
   return (
     <div className="space-y-6">
@@ -83,7 +86,7 @@ export default function SchedulePage() {
       {/* Upcoming Deliveries */}
       <div>
         <p className="text-xs font-black uppercase tracking-widest text-muted-foreground mb-3 px-1">
-          Upcoming Deliveries
+          Delivery Calendar
         </p>
 
         {scheduleLoading ? (
@@ -105,8 +108,12 @@ export default function SchedulePage() {
         ) : (
           <div className="space-y-3">
             {schedule.map((item: any) => {
-              const date = new Date(item.date ?? item.scheduledDate);
-              const isUpcoming = date >= new Date();
+              const [y, m, d] = (item.date ?? item.scheduledDate).split('-').map(Number);
+              const date = new Date(y, m - 1, d);
+              const isFutureOrToday = date >= today;
+              const isCompleted = item.status === 'COMPLETED';
+              const isUpcoming = isFutureOrToday && !isCompleted;
+
               return (
                 <Card key={item.id ?? item.date} className="bg-card/50 backdrop-blur-sm border-border/50">
                   <CardContent className="p-4 flex items-center gap-4">
@@ -125,11 +132,12 @@ export default function SchedulePage() {
                           'text-[10px] px-2 py-0 rounded-full border-none font-bold',
                           isUpcoming ? 'bg-primary/10 text-primary' : 'bg-emerald-500/10 text-emerald-500',
                         )}>
-                          {isUpcoming ? 'Upcoming' : 'Completed'}
+                          {isCompleted ? 'Completed' : (isFutureOrToday ? 'Upcoming' : 'Past')}
                         </Badge>
                       </div>
                       <p className="text-[11px] text-muted-foreground mt-0.5">
-                        {item.route?.name ?? ''}{item.product?.name ? ` · ${item.product.name}` : ''}
+                        {item.status === 'SCHEDULED' ? 'Standard Schedule' : item.status}
+                        {item.route?.name ? ` · ${item.route.name}` : ''}
                       </p>
                     </div>
                   </CardContent>

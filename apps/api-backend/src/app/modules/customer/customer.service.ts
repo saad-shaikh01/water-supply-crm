@@ -623,17 +623,18 @@ export class CustomerService {
     });
     if (!customer) throw new NotFoundException('Customer not found');
 
-    // Get customer's delivery schedules
+    // Get customer's delivery schedules (convention: 1=Mon, ..., 7=Sun)
     const schedules = await this.prisma.customerDeliverySchedule.findMany({
       where: { customerId },
       select: { dayOfWeek: true, vanId: true },
     });
     const scheduledDays = new Set(schedules.map((s) => s.dayOfWeek));
 
+    // Use UTC for consistent date range iteration
     const fromDate = new Date(from);
     const toDate = new Date(to);
 
-    // Fetch actual delivery records for past dates
+    // Fetch actual delivery records for the date range
     const sheetItems = await this.prisma.dailySheetItem.findMany({
       where: {
         customerId,
@@ -647,35 +648,32 @@ export class CustomerService {
       },
     });
 
-    // Map date string → actual status
+    // Map date string (YYYY-MM-DD) → actual status
     const actualStatus = new Map<string, string>();
     for (const item of sheetItems) {
       const dateStr = item.dailySheet.date.toISOString().slice(0, 10);
       actualStatus.set(dateStr, item.status);
     }
 
-    // Build schedule by iterating each day in range
+    // Build schedule by iterating each day in range using UTC methods
     const schedule: { date: string; dayName: string; status: string }[] = [];
     const current = new Date(fromDate);
     while (current <= toDate) {
-      const dayOfWeek = current.getDay();
+      const utcDOW = current.getUTCDay();
+      const dayOfWeek = utcDOW === 0 ? 7 : utcDOW; // Normalize Sunday (0 -> 7)
+      
       if (scheduledDays.has(dayOfWeek)) {
         const dateStr = current.toISOString().slice(0, 10);
         schedule.push({
           date: dateStr,
-          dayName: DAY_NAMES[dayOfWeek],
+          dayName: DAY_NAMES[utcDOW],
           status: actualStatus.get(dateStr) ?? 'SCHEDULED',
         });
       }
-      current.setDate(current.getDate() + 1);
+      current.setUTCDate(current.getUTCDate() + 1);
     }
 
-    return {
-      customerId: customer.id,
-      customerName: customer.name,
-      scheduledDays: [...scheduledDays].sort(),
-      schedule,
-    };
+    return schedule;
   }
 
   async getFinancialSummary(vendorId: string, customerId: string) {
