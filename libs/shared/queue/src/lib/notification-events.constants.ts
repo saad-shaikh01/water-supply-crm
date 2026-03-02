@@ -3,6 +3,7 @@ export const NOTIFICATION_EVENTS = {
   ORDER_SUBMITTED:   'order.submitted',
   ORDER_APPROVED:    'order.approved',
   ORDER_REJECTED:    'order.rejected',
+  ORDER_CANCELLED:   'order.cancelled',
 
   // Payment lifecycle
   PAYMENT_SUBMITTED: 'payment.submitted',
@@ -13,6 +14,9 @@ export const NOTIFICATION_EVENTS = {
   TICKET_CREATED:    'ticket.created',
   TICKET_REPLIED:    'ticket.replied',
   TICKET_RESOLVED:   'ticket.resolved',
+
+  // Delivery lifecycle
+  DELIVERY_FAILED:   'delivery.failed',
 } as const;
 
 export type NotificationEvent = (typeof NOTIFICATION_EVENTS)[keyof typeof NOTIFICATION_EVENTS];
