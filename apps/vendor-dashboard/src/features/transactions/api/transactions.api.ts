@@ -5,6 +5,8 @@ export interface TransactionQuery {
   limit?: number;
   customerId?: string;
   type?: string;
+  dateFrom?: string;
+  dateTo?: string;
 }
 
 export interface PaymentRequestQuery {
