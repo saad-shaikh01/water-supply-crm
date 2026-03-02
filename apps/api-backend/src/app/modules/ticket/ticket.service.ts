@@ -54,10 +54,28 @@ export class TicketService {
 
   async getCustomerTickets(userId: string, query: TicketQueryDto) {
     const customer = await this.getCustomer(userId);
-    const { page = 1, limit = 20, type, status } = query;
+    const { page = 1, limit = 20, type, status, priority, search, dateFrom, dateTo } = query;
     const where: any = { customerId: customer.id };
     if (type) where.type = type;
     if (status) where.status = status;
+    if (priority) where.priority = priority;
+    if (search) {
+      where.OR = [
+        { subject: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } },
+        { vendorReply: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+    if (dateFrom || dateTo) {
+      const createdAt: any = {};
+      if (dateFrom) createdAt.gte = new Date(dateFrom);
+      if (dateTo) {
+        const endOfDay = new Date(dateTo);
+        endOfDay.setHours(23, 59, 59, 999);
+        createdAt.lte = endOfDay;
+      }
+      where.createdAt = createdAt;
+    }
 
     const [data, total] = await Promise.all([
       this.prisma.customerTicket.findMany({
@@ -80,10 +98,30 @@ export class TicketService {
   }
 
   async getVendorTickets(vendorId: string, query: TicketQueryDto) {
-    const { page = 1, limit = 20, type, status } = query;
+    const { page = 1, limit = 20, type, status, priority, search, dateFrom, dateTo } = query;
     const where: any = { vendorId };
     if (type) where.type = type;
     if (status) where.status = status;
+    if (priority) where.priority = priority;
+    if (search) {
+      where.OR = [
+        { subject: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } },
+        { vendorReply: { contains: search, mode: 'insensitive' } },
+        { customer: { name: { contains: search, mode: 'insensitive' } } },
+        { customer: { phoneNumber: { contains: search, mode: 'insensitive' } } },
+      ];
+    }
+    if (dateFrom || dateTo) {
+      const createdAt: any = {};
+      if (dateFrom) createdAt.gte = new Date(dateFrom);
+      if (dateTo) {
+        const endOfDay = new Date(dateTo);
+        endOfDay.setHours(23, 59, 59, 999);
+        createdAt.lte = endOfDay;
+      }
+      where.createdAt = createdAt;
+    }
 
     const [data, total] = await Promise.all([
       this.prisma.customerTicket.findMany({
