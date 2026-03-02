@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Eye, Calendar, MapPin, User, Truck, SlidersHorizontal, Droplets, DollarSign, AlertTriangle, Zap } from 'lucide-react';
 import {
-  Button, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Badge, Button, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
   Sheet, SheetContent, SheetHeader, SheetTitle,
 } from '@water-supply-crm/ui';
 import { DataTable } from '../../../components/shared/data-table';
