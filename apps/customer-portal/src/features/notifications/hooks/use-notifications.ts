@@ -151,6 +151,7 @@ export function useNotifications() {
         .slice(0, 12);
     },
     staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
   });
 
   const notifications = useMemo(
