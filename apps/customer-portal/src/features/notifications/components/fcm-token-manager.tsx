@@ -18,11 +18,9 @@ export function FcmTokenManager() {
     };
 
     void syncToken();
-    window.addEventListener('focus', syncToken);
 
     return () => {
       active = false;
-      window.removeEventListener('focus', syncToken);
     };
   }, [user?.id]);
 

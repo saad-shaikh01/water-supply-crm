@@ -83,7 +83,7 @@ const MANUAL_METHOD_OPTIONS = [
 
 export function PaymentDialog({ open, onOpenChange, suggestedAmount = 0 }: PaymentDialogProps) {
   const queryClient = useQueryClient();
-  const { data: info } = usePaymentInfo();
+  const { data: info } = usePaymentInfo(open);
   const { mutate: initiateRaast, isPending: isInitiatingRaast } = useInitiateRaastQr();
   const { mutate: submitManual, isPending: isSubmittingManual } = useSubmitManualPayment();
 

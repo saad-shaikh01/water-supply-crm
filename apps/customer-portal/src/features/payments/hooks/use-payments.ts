@@ -2,10 +2,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { paymentsApi, type RaastQrRequest } from '../api/payments.api';
 import { toast } from 'sonner';
 
-export const usePaymentInfo = () => 
+export const usePaymentInfo = (enabled = true) => 
   useQuery({
     queryKey: ['payment-info'],
     queryFn: () => paymentsApi.getPaymentInfo().then(r => r.data),
+    enabled,
   });
 
 export const useInitiateRaastQr = () => {

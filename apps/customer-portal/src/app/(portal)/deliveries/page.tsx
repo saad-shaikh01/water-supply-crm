@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense } from 'react';
+import { Suspense, useMemo } from 'react';
 import { Truck, ChevronLeft, ChevronRight, AlertCircle } from 'lucide-react';
 import { Card, CardContent, Badge, Button } from '@water-supply-crm/ui';
 import { useDeliveries } from '../../../features/deliveries/hooks/use-deliveries';
@@ -49,7 +49,7 @@ function DeliveriesContent() {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [month, setMonth] = useQueryState('month', parseAsString.withDefault(''));
 
-  const monthOptions = buildMonthOptions();
+  const monthOptions = useMemo(() => buildMonthOptions(), []);
 
   // Compute date range from selected month
   let dateFrom: string | undefined;

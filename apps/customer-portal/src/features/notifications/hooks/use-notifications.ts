@@ -150,7 +150,7 @@ export function useNotifications() {
         .sort((left, right) => toComparableTime(right.createdAt) - toComparableTime(left.createdAt))
         .slice(0, 12);
     },
-    staleTime: 60_000,
+    staleTime: 5 * 60_000,
   });
 
   const notifications = useMemo(

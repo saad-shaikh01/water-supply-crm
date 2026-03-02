@@ -127,6 +127,8 @@ async function ensureServiceWorker(config: FirebaseWebConfig) {
   return navigator.serviceWorker.register(`/firebase-messaging-sw.js?${params.toString()}`);
 }
 
+let isFirebaseInitialized = false;
+
 async function requestBrowserFcmToken() {
   if (typeof window === 'undefined') return null;
   if (!('Notification' in window) || !('serviceWorker' in navigator)) return null;
@@ -141,23 +143,27 @@ async function requestBrowserFcmToken() {
 
   if (permission !== 'granted') return null;
 
-  await loadFirebaseCompat();
+  // Only load scripts and initialize once
+  if (!isFirebaseInitialized) {
+    await loadFirebaseCompat();
+    const firebase = window.firebase;
+    if (!firebase) return null;
+
+    if (!firebase.apps?.length) {
+      firebase.initializeApp({
+        apiKey: config.apiKey,
+        authDomain: config.authDomain,
+        projectId: config.projectId,
+        storageBucket: config.storageBucket,
+        messagingSenderId: config.messagingSenderId,
+        appId: config.appId,
+      });
+    }
+    isFirebaseInitialized = true;
+  }
 
   const firebase = window.firebase;
   if (!firebase) return null;
-
-  if (!firebase.apps?.length) {
-    firebase.initializeApp({
-      apiKey: config.apiKey,
-      authDomain: config.authDomain,
-      projectId: config.projectId,
-      storageBucket: config.storageBucket,
-      messagingSenderId: config.messagingSenderId,
-      appId: config.appId,
-    });
-  } else {
-    firebase.app();
-  }
 
   const registration = await ensureServiceWorker(config);
   const messaging = firebase.messaging();
