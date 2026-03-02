@@ -112,6 +112,8 @@ export const useUpdateDeliveryItem = (sheetId: string) => {
       dailySheetsApi.updateDeliveryItem(itemId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
+      queryClient.invalidateQueries({ queryKey: ['sheets'] });
+      queryClient.invalidateQueries({ queryKey: ['delivery-issues'] });
       toast.success('Delivery recorded');
     },
     onError: () => toast.error('Failed to record delivery'),
