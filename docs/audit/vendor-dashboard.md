@@ -37,6 +37,15 @@ App: `apps/vendor-dashboard`
      - Orders/Tickets: sidebar allows STAFF but backend endpoints currently reject STAFF (`403` risk).
      - Route logic is now van-centric for sheet generation; docs still contain older route-centric wording.
    - Note: Static code audit only (no runtime click-through QA in browser).
+5. March 2, 2026 - Static code audit by Codex:
+   - Scope checked: Overview dashboard and live tracking (`overview/page.tsx`, dashboard widgets/hooks/api, tracking page/map/hooks/api, related backend dashboard/tracking services).
+   - Result: Both pages have substantial implementation shells, but each still has correctness gaps before they can be treated as complete.
+   - Key gaps:
+     - Overview: multiple widget data-contract mismatches mean cards/charts can render empty or incorrect values.
+     - Overview: data is fragmented across several queries instead of one dashboard snapshot, creating avoidable load and role-handling complexity.
+     - Tracking: live SSE infrastructure exists, but frontend expects `latitude/longitude` while backend emits `lat/lng`.
+     - Tracking: snapshot bootstrapping, EventSource auth handling, reconnect behavior, and map action UX still need operational hardening.
+   - Note: Static code audit only (no runtime click-through QA in browser).
 
 ## Page Audit Matrix
 
@@ -48,7 +57,7 @@ App: `apps/vendor-dashboard`
 | `/auth/reset-password` | `apps/vendor-dashboard/src/app/auth/reset-password/page.tsx` | NR | NR | NR | NR | |
 | `/auth/signup` | `apps/vendor-dashboard/src/app/auth/signup/page.tsx` | NR | NR | NR | NR | |
 | `/dashboard/home` | `apps/vendor-dashboard/src/app/dashboard/home/page.tsx` | NR | NR | NR | NR | |
-| `/dashboard/overview` | `apps/vendor-dashboard/src/app/dashboard/overview/page.tsx` | NR | NR | NR | NR | |
+| `/dashboard/overview` | `apps/vendor-dashboard/src/app/dashboard/overview/page.tsx` | P | P | P | P | Page shell exists, but overview cards and widgets have frontend/backend contract mismatches and need consolidated CRM KPI planning. |
 | `/dashboard/analytics` | `apps/vendor-dashboard/src/app/dashboard/analytics/page.tsx` | NR | NR | NR | NR | |
 | `/dashboard/customers` | `apps/vendor-dashboard/src/app/dashboard/customers/page.tsx` | P | P | P | P | List works, but filter set is incomplete (no active/inactive toggle, no day/van filters, no balance/sort controls). |
 | `/dashboard/customers/:id` | `apps/vendor-dashboard/src/app/dashboard/customers/[id]/page.tsx` | P | P | P | P | Detail tabs are strong, but delivery schedule calendar is missing despite existing API endpoint. |
@@ -63,7 +72,7 @@ App: `apps/vendor-dashboard`
 | `/dashboard/expenses` | `apps/vendor-dashboard/src/app/dashboard/expenses/page.tsx` | NR | NR | NR | NR | |
 | `/dashboard/balance-reminders` | `apps/vendor-dashboard/src/app/dashboard/balance-reminders/page.tsx` | NR | NR | NR | NR | |
 | `/dashboard/audit-logs` | `apps/vendor-dashboard/src/app/dashboard/audit-logs/page.tsx` | NR | NR | NR | NR | |
-| `/dashboard/tracking` | `apps/vendor-dashboard/src/app/dashboard/tracking/page.tsx` | NR | NR | NR | NR | |
+| `/dashboard/tracking` | `apps/vendor-dashboard/src/app/dashboard/tracking/page.tsx` | P | P | P | P | SSE and map shell exist, but location payload mismatch (`latitude/longitude` vs `lat/lng`), snapshot bootstrapping, and live-ops UX still need fixes. |
 | `/dashboard/orders` | `apps/vendor-dashboard/src/app/dashboard/orders/page.tsx` | P | P | P | P | Workflow works for admin, but STAFF RBAC mismatch and limited filter/table context require follow-up. |
 | `/dashboard/tickets` | `apps/vendor-dashboard/src/app/dashboard/tickets/page.tsx` | P | P | P | P | Ticket triage exists, but STAFF RBAC mismatch and reply-status handling bug need fixes. |
 | `/dashboard/history` | `apps/vendor-dashboard/src/app/dashboard/history/page.tsx` | NR | NR | NR | NR | |
