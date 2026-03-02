@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bell, CheckCheck, Loader2, Menu, Search } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { UserNav } from './user-nav';
 import { Sidebar } from './sidebar';
 import { ThemeToggle } from './theme-toggle';
@@ -30,6 +31,7 @@ interface InAppNotification {
 }
 
 export function Header() {
+  const router = useRouter();
   const user = useAuthStore((state) => state.user);
   const queryClient = useQueryClient();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -103,6 +105,30 @@ export function Header() {
       hour: '2-digit',
       minute: '2-digit',
     });
+
+  const getNotificationHref = (notification: InAppNotification) => {
+    let pathname = '/dashboard/overview';
+
+    if (notification.type.startsWith('ORDER_')) {
+      pathname = '/dashboard/orders';
+    } else if (notification.type.startsWith('PAYMENT_')) {
+      pathname = '/dashboard/payment-requests';
+    } else if (notification.type.startsWith('TICKET_')) {
+      pathname = '/dashboard/tickets';
+    } else if (
+      notification.type === 'DELIVERY_FAILED' ||
+      notification.type.startsWith('DELIVERY_')
+    ) {
+      pathname = '/dashboard/delivery-issues';
+    }
+
+    if (!notification.entityId) {
+      return pathname;
+    }
+
+    const params = new URLSearchParams({ entityId: notification.entityId });
+    return `${pathname}?${params.toString()}`;
+  };
 
   return (
     <header className="h-20 bg-white/[0.02] backdrop-blur-3xl flex items-center justify-between px-6 md:px-12 sticky top-0 z-40 shrink-0 border-b border-border shadow-2xl">
@@ -215,9 +241,20 @@ export function Header() {
                         key={notification.id}
                         type="button"
                         onClick={() => {
+                          const href = getNotificationHref(notification);
+
                           if (!notification.isRead) {
-                            markNotificationRead(notification.id);
+                            markNotificationRead(notification.id, {
+                              onSettled: () => {
+                                setNotificationsOpen(false);
+                                router.push(href);
+                              },
+                            });
+                            return;
                           }
+
+                          setNotificationsOpen(false);
+                          router.push(href);
                         }}
                         className="w-full text-left px-4 py-3 hover:bg-white/5 transition-colors border-b border-border/30 last:border-b-0"
                       >
