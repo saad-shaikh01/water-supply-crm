@@ -2,20 +2,19 @@
 
 import { useState } from 'react';
 import { useQueryState, parseAsString } from 'nuqs';
-import { MoreHorizontal, Pencil, Trash2, Receipt, TrendingDown, Fuel, Wrench, Users, AlertTriangle } from 'lucide-react';
+import { MoreHorizontal, Pencil, Trash2, Receipt, Fuel, Wrench, Users, AlertTriangle, type LucideIcon } from 'lucide-react';
 import {
   Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuTrigger, Badge, Card, CardContent,
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@water-supply-crm/ui';
 import { DataTable } from '../../../components/shared/data-table';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { useExpenses, useExpenseSummary, useDeleteExpense } from '../hooks/use-expenses';
 import { ExpenseForm } from './expense-form';
-import type { ExpenseCategory } from '../api/expenses.api';
+import type { ExpenseCategory, ExpenseSummary } from '../api/expenses.api';
 import { cn } from '@water-supply-crm/ui';
 
-const CATEGORY_CONFIG: Record<ExpenseCategory, { label: string; color: string; icon: any }> = {
+const CATEGORY_CONFIG: Record<ExpenseCategory, { label: string; color: string; icon: LucideIcon }> = {
   FUEL:        { label: 'Fuel',        color: 'bg-orange-500/10 text-orange-500',   icon: Fuel },
   MAINTENANCE: { label: 'Maintenance', color: 'bg-yellow-500/10 text-yellow-600',  icon: Wrench },
   SALARY:      { label: 'Salary',      color: 'bg-blue-500/10 text-blue-500',       icon: Users },
@@ -41,7 +40,10 @@ export function ExpenseList() {
     van?: { plateNumber: string };
   }>;
   const total = response?.meta?.total ?? 0;
-  const summaryData = summary as any;
+  const summaryData = summary as ExpenseSummary | undefined;
+  const categoryTotals = Object.fromEntries(
+    (summaryData?.breakdown ?? []).map((item) => [item.category, item.totalAmount])
+  ) as Partial<Record<ExpenseCategory, number>>;
 
   return (
     <div className="space-y-6">
@@ -50,7 +52,7 @@ export function ExpenseList() {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {Object.entries(CATEGORY_CONFIG).map(([cat, cfg]) => {
             const Icon = cfg.icon;
-            const catTotal = summaryData?.byCategory?.[cat] ?? 0;
+            const catTotal = categoryTotals[cat as ExpenseCategory] ?? 0;
             return (
               <Card
                 key={cat}
@@ -78,7 +80,7 @@ export function ExpenseList() {
         <div className="flex flex-wrap gap-4 p-4 rounded-2xl bg-card/30 border border-border/50">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Total Expenses</p>
-            <p className="font-black font-mono text-lg text-destructive">₨ {Number(summaryData?.totalExpenses ?? 0).toLocaleString()}</p>
+            <p className="font-black font-mono text-lg text-destructive">₨ {Number(summaryData?.grandTotal ?? 0).toLocaleString()}</p>
           </div>
           {summaryData?.grossProfit !== undefined && (
             <div>
