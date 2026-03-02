@@ -11,9 +11,22 @@ export interface ExpenseQuery {
   vanId?: string;
 }
 
+export interface ExpenseSummaryItem {
+  category: ExpenseCategory;
+  totalAmount: number;
+  count: number;
+}
+
+export interface ExpenseSummary {
+  breakdown: ExpenseSummaryItem[];
+  grandTotal: number;
+  totalRevenue: number;
+  grossProfit: number;
+}
+
 export const expensesApi = {
   getAll: (params: ExpenseQuery) => apiClient.get('/expenses', { params }),
-  getSummary: () => apiClient.get('/expenses/summary'),
+  getSummary: () => apiClient.get<ExpenseSummary>('/expenses/summary'),
   getOne: (id: string) => apiClient.get(`/expenses/${id}`),
   create: (data: Record<string, unknown>) => apiClient.post('/expenses', data),
   update: (id: string, data: Record<string, unknown>) => apiClient.patch(`/expenses/${id}`, data),
