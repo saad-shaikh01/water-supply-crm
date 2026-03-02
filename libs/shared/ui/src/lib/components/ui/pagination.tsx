@@ -124,5 +124,3 @@ export function DataTablePagination({
     </div>
   );
 }
-  );
-}
