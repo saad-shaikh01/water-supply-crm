@@ -9,7 +9,9 @@ import {
   SheetContent,
   SheetTrigger,
   Button,
-  Input
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
 } from '@water-supply-crm/ui';
 
 export function Header() {
@@ -43,10 +45,34 @@ export function Header() {
       <div className="flex items-center gap-4 md:gap-6">
         <div className="flex items-center gap-2">
           <ThemeToggle />
-          <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-white hover:bg-white/5 rounded-xl h-11 w-11 transition-colors border border-transparent hover:border-border">
-            <Bell className="h-5 w-5" />
-            <span className="absolute top-3 right-3 w-2 h-2 bg-primary rounded-full shadow-[0_0_10px_rgba(99,102,241,1)]" />
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Open notifications"
+                className="relative text-muted-foreground hover:text-white hover:bg-white/5 rounded-xl h-11 w-11 transition-colors border border-transparent hover:border-border data-[state=open]:bg-white/5 data-[state=open]:text-white data-[state=open]:border-border"
+              >
+                <Bell className="h-5 w-5" />
+                <span className="absolute top-3 right-3 w-2 h-2 bg-primary rounded-full shadow-[0_0_10px_rgba(99,102,241,1)]" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="w-72 p-0 bg-background/95 backdrop-blur-xl border-border/50 rounded-2xl shadow-2xl"
+            >
+              <div className="px-4 py-3 border-b border-border/50">
+                <p className="text-sm font-bold text-white">Notifications</p>
+                <p className="text-[11px] text-muted-foreground">No notifications yet</p>
+              </div>
+              <div className="px-4 py-5">
+                <p className="text-sm font-medium text-foreground">Notifications coming soon.</p>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Alerts and updates will appear here when they are available.
+                </p>
+              </div>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         <div className="h-8 w-px bg-border/50 mx-2 hidden sm:block" />
         <UserNav />
