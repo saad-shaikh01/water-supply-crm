@@ -9,11 +9,15 @@ export const useExpenses = () => {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
   const [category] = useQueryState('category', parseAsString.withDefault(''));
+  const [from] = useQueryState('from', parseAsString.withDefault(''));
+  const [to] = useQueryState('to', parseAsString.withDefault(''));
 
   const params: ExpenseQuery = {
     page,
     limit,
     category: (category as ExpenseCategory) || undefined,
+    from: from || undefined,
+    to: to || undefined,
   };
 
   return {
@@ -26,14 +30,24 @@ export const useExpenses = () => {
     limit,
     setLimit,
     category,
+    from,
+    to,
   };
 };
 
-export const useExpenseSummary = () =>
-  useQuery({
-    queryKey: [QUERY_KEY, 'summary'],
-    queryFn: () => expensesApi.getSummary().then((r) => r.data),
+export const useExpenseSummary = () => {
+  const [from] = useQueryState('from', parseAsString.withDefault(''));
+  const [to] = useQueryState('to', parseAsString.withDefault(''));
+  const params = {
+    from: from || undefined,
+    to: to || undefined,
+  };
+
+  return useQuery({
+    queryKey: [QUERY_KEY, 'summary', params],
+    queryFn: () => expensesApi.getSummary(params).then((r) => r.data),
   });
+};
 
 export const useCreateExpense = () => {
   const queryClient = useQueryClient();

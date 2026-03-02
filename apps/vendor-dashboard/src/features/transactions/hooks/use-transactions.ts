@@ -4,6 +4,15 @@ import { toast } from 'sonner';
 import { transactionsApi, type TransactionQuery } from '../api/transactions.api';
 import { queryKeys } from '../../../lib/query-keys';
 
+const invalidatePaymentRequestDependencies = async (queryClient: ReturnType<typeof useQueryClient>) => {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['payment-requests'] }),
+    queryClient.invalidateQueries({ queryKey: ['transactions'] }),
+    queryClient.invalidateQueries({ queryKey: ['customers'] }),
+    queryClient.invalidateQueries({ queryKey: ['analytics', 'financial'] }),
+  ]);
+};
+
 export const useTransactions = (overrideCustomerId?: string) => {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
@@ -85,8 +94,8 @@ export const useApproveRequest = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => transactionsApi.approveRequest(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['payment-requests'] });
+    onSuccess: async () => {
+      await invalidatePaymentRequestDependencies(queryClient);
       toast.success('Payment approved successfully');
     },
     onError: () => toast.error('Failed to approve payment'),
@@ -98,8 +107,8 @@ export const useRejectRequest = () => {
   return useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) => 
       transactionsApi.rejectRequest(id, reason),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['payment-requests'] });
+    onSuccess: async () => {
+      await invalidatePaymentRequestDependencies(queryClient);
       toast.success('Payment rejected');
     },
     onError: () => toast.error('Failed to reject payment'),
