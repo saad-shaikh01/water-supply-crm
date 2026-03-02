@@ -8,7 +8,7 @@ import {
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '@water-supply-crm/database';
-import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
+import { QUEUE_NAMES, JOB_NAMES, NOTIFICATION_EVENTS } from '@water-supply-crm/queue';
 import { DeliveryStatus, TransactionType } from '@prisma/client';
 import { GenerateSheetsDto } from './dto/generate-sheets.dto';
 import { SubmitDeliveryDto } from './dto/submit-delivery.dto';
@@ -146,6 +146,25 @@ export class DailySheetService {
       ];
       if (failureStatuses.includes(resolvedStatus)) {
         this.deliveryIssue.createForItem(vendorId, itemId).catch(() => null);
+      }
+
+      // FCM: notify customer on any delivery failure (fire-and-forget)
+      if (
+        resolvedStatus === DeliveryStatus.NOT_AVAILABLE ||
+        resolvedStatus === DeliveryStatus.RESCHEDULED ||
+        resolvedStatus === DeliveryStatus.CANCELLED
+      ) {
+        const failureBody = dto.reason
+          ? `Your delivery could not be completed. Reason: ${dto.reason}`
+          : 'Your delivery could not be completed. Please contact support.';
+        this.fcm
+          .sendToCustomer(
+            item.customerId,
+            'Delivery Unsuccessful 🚫',
+            failureBody,
+            { type: NOTIFICATION_EVENTS.DELIVERY_FAILED, itemId },
+          )
+          .catch(() => null);
       }
 
       return updatedItem;
