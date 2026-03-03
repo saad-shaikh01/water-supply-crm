@@ -5,7 +5,7 @@ import { PrismaService } from '@water-supply-crm/database';
 import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
 import { MessageTemplates } from '../whatsapp/templates/message.templates';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
-import { ScheduleReminderDto, SendNowDto } from './dto/schedule-reminder.dto';
+import { ScheduleReminderDto, SendNowDto, SendTargetedDto } from './dto/schedule-reminder.dto';
 
 const DEFAULT_CRON = '0 4 * * *'; // 9 AM PKT (UTC+5) — stored as UTC
 const DEFAULT_MIN_BALANCE = 100;
@@ -145,6 +145,78 @@ export class BalanceReminderService {
     const dryRun = dto.dryRun ?? false;
 
     return this.processVendorReminders(vendorId, minBalance, dryRun);
+  }
+
+  /**
+   * Send reminders to a targeted subset of customers.
+   *   mode=single   — exactly one customer (customerIds[0])
+   *   mode=selected — explicit list of customer IDs
+   *   mode=eligible — all customers above minBalance threshold (same as sendNow)
+   */
+  async sendTargeted(vendorId: string, dto: SendTargetedDto) {
+    const minBalance = dto.minBalance ?? DEFAULT_MIN_BALANCE;
+    const dryRun = dto.dryRun ?? false;
+
+    if (dto.mode === 'eligible') {
+      return this.processVendorReminders(vendorId, minBalance, dryRun);
+    }
+
+    // single / selected — explicit customer list required
+    const customerIds = dto.customerIds ?? [];
+    if (customerIds.length === 0) {
+      return { vendorId, sent: 0, skipped: 0, dryRun, customers: [], error: 'customerIds is required for mode=single or mode=selected' };
+    }
+
+    const customers = await this.prisma.customer.findMany({
+      where: {
+        id: { in: customerIds },
+        vendorId,
+        isActive: true,
+        phoneNumber: { not: '' },
+      },
+      select: {
+        id: true,
+        name: true,
+        phoneNumber: true,
+        financialBalance: true,
+      },
+    });
+
+    if (customers.length === 0) {
+      return { vendorId, sent: 0, skipped: 0, dryRun, customers: [] };
+    }
+
+    let sent = 0;
+    let skipped = 0;
+    const results: Array<{
+      customerId: string;
+      name: string;
+      balance: number;
+      status: string;
+    }> = [];
+
+    for (const customer of customers) {
+      const message = MessageTemplates.balanceReminder(
+        customer.name,
+        customer.financialBalance,
+      );
+
+      if (dryRun) {
+        results.push({ customerId: customer.id, name: customer.name, balance: customer.financialBalance, status: 'would-send' });
+        skipped++;
+        continue;
+      }
+
+      const messageSent = await this.whatsapp.sendMessage(customer.phoneNumber, message);
+      results.push({ customerId: customer.id, name: customer.name, balance: customer.financialBalance, status: messageSent ? 'sent' : 'failed' });
+      if (messageSent) { sent++; } else { skipped++; }
+    }
+
+    this.logger.log(
+      `Targeted reminders for vendor ${vendorId} (mode=${dto.mode}): sent=${sent}, skipped=${skipped}, dryRun=${dryRun}`,
+    );
+
+    return { vendorId, sent, skipped, dryRun, customers: results };
   }
 
   /** Core logic — called by BullMQ processor and sendNow */

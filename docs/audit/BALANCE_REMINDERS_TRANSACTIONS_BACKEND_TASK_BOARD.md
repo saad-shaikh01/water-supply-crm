@@ -33,7 +33,7 @@ It intentionally excludes broad UI polish. Frontend work is tracked separately i
 | BR-BE-002 | Balance Reminders | High | DONE | Persist reminder schedule config in the database instead of relying only on BullMQ repeat metadata. Add a vendor-level config record as the source of truth for schedule state. | BR-BE-001 |
 | BR-BE-003 | Balance Reminders | High | READY | Add reminder run logging. Track each reminder run (`scheduled`, `manual bulk`, `manual single`, `dry run`) with counts, status, and timestamps. | BR-BE-002 |
 | BR-BE-004 | Balance Reminders | High | READY | Add per-recipient audit logging for reminder delivery: recipient, balance at send time, channel, status, failure reason, run reference. | BR-BE-003 |
-| BR-BE-005 | Balance Reminders | High | READY | Add targeted send API for one customer or selected customers. Support payload modes like `single`, `selected`, and `eligible`. | BR-BE-002 |
+| BR-BE-005 | Balance Reminders | High | DONE | Add targeted send API for one customer or selected customers. Support payload modes like `single`, `selected`, and `eligible`. | BR-BE-002 |
 | BR-BE-006 | Balance Reminders | Medium | READY | Add dry-run preview for targeted and bulk sends. Response should clearly show who would receive a reminder and why others are skipped. | BR-BE-005 |
 | BR-BE-007 | Balance Reminders | High | READY | Move reminder delivery to queue-based execution per recipient instead of synchronous request-loop sending. Keep request latency low and improve retry behavior. | BR-BE-003 |
 | BR-BE-008 | Balance Reminders | Medium | READY | Add cooldown protection to prevent repeated reminders to the same customer inside a defined window unless explicitly forced. | BR-BE-004 |
