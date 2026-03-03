@@ -1,5 +1,5 @@
-import { IsOptional, IsEnum, IsString } from 'class-validator';
-import { PaymentRequestStatus } from '@prisma/client';
+import { IsOptional, IsEnum, IsString, IsDateString } from 'class-validator';
+import { PaymentMethod, PaymentRequestStatus } from '@prisma/client';
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
 
 export class PaymentQueryDto extends PaginationQueryDto {
@@ -10,4 +10,16 @@ export class PaymentQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   customerId?: string;
+
+  @IsOptional()
+  @IsEnum(PaymentMethod)
+  method?: PaymentMethod;
+
+  @IsOptional()
+  @IsDateString()
+  dateFrom?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dateTo?: string;
 }

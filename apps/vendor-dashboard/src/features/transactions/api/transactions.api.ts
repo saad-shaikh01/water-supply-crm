@@ -16,6 +16,9 @@ export interface PaymentRequestQuery {
   limit?: number;
   status?: string;
   customerId?: string;
+  method?: string;
+  dateFrom?: string;
+  dateTo?: string;
 }
 
 export const transactionsApi = {

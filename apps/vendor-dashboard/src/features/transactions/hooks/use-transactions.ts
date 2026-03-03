@@ -91,9 +91,21 @@ export const useAddAdjustment = () => {
 export const usePaymentRequests = () => {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
-  const [status] = useQueryState('status', { defaultValue: 'PENDING' });
+  const [status, setStatus] = useQueryState('status', parseAsString.withDefault(''));
+  const [customerId, setCustomerId] = useQueryState('customerId', parseAsString.withDefault(''));
+  const [method, setMethod] = useQueryState('method', parseAsString.withDefault(''));
+  const [dateFrom, setDateFrom] = useQueryState('dateFrom', parseAsString.withDefault(''));
+  const [dateTo, setDateTo] = useQueryState('dateTo', parseAsString.withDefault(''));
 
-  const params = { page, limit, status: status || undefined };
+  const params = {
+    page,
+    limit,
+    status: status || undefined,
+    customerId: customerId || undefined,
+    method: method || undefined,
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
+  };
 
   return {
     ...useQuery({
@@ -105,6 +117,15 @@ export const usePaymentRequests = () => {
     limit,
     setLimit,
     status,
+    setStatus,
+    customerId,
+    setCustomerId,
+    method,
+    setMethod,
+    dateFrom,
+    setDateFrom,
+    dateTo,
+    setDateTo,
   };
 };
 

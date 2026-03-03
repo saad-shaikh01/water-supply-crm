@@ -209,10 +209,16 @@ export class PaymentService {
 
   /** List payment requests for a vendor (with optional filters) */
   async findAllByVendor(vendorId: string, query: PaymentQueryDto) {
-    const { page = 1, limit = 20, status, customerId } = query;
+    const { page = 1, limit = 20, status, customerId, method, dateFrom, dateTo } = query;
     const where: any = { vendorId };
     if (status) where.status = status;
     if (customerId) where.customerId = customerId;
+    if (method) where.method = method;
+    if (dateFrom || dateTo) {
+      where.createdAt = {};
+      if (dateFrom) where.createdAt.gte = new Date(`${dateFrom}T00:00:00.000Z`);
+      if (dateTo) where.createdAt.lte = new Date(`${dateTo}T23:59:59.999Z`);
+    }
 
     const [data, total] = await Promise.all([
       this.prisma.paymentRequest.findMany({
