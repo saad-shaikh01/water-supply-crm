@@ -31,6 +31,16 @@ export class BalanceReminderService {
     private readonly whatsapp: WhatsAppService,
   ) {}
 
+  /** Remove existing BullMQ repeatable job for a vendor (does NOT touch DB) */
+  private async removeQueueJob(vendorId: string): Promise<void> {
+    const jobId = REPEATABLE_JOB_ID(vendorId);
+    const repeatableJobs = await this.reminderQueue.getRepeatableJobs();
+    const existing = repeatableJobs.filter((j) => j.id === jobId);
+    for (const job of existing) {
+      await this.reminderQueue.removeRepeatableByKey(job.key);
+    }
+  }
+
   /** Configure (or update) the repeatable daily reminder job for a vendor */
   async scheduleReminders(
     vendorId: string,
@@ -41,7 +51,7 @@ export class BalanceReminderService {
     const jobId = REPEATABLE_JOB_ID(vendorId);
 
     // Remove any existing repeatable job for this vendor first
-    await this.cancelReminders(vendorId);
+    await this.removeQueueJob(vendorId);
 
     await this.reminderQueue.add(
       JOB_NAMES.SEND_BALANCE_REMINDERS,
@@ -53,6 +63,13 @@ export class BalanceReminderService {
         removeOnFail: 20,
       },
     );
+
+    // Persist schedule config as source of truth
+    await this.prisma.reminderScheduleConfig.upsert({
+      where: { vendorId },
+      update: { cronExpression, minBalance },
+      create: { vendorId, cronExpression, minBalance },
+    });
 
     // Fetch the newly created repeatable job to get nextRunAt
     const repeatableJobs = await this.reminderQueue.getRepeatableJobs();
@@ -73,15 +90,13 @@ export class BalanceReminderService {
     };
   }
 
-  /** Remove the repeatable reminder job for a vendor */
+  /** Remove the repeatable reminder job for a vendor and clear DB config */
   async cancelReminders(vendorId: string): Promise<ReminderScheduleStatus & { message: string }> {
-    const jobId = REPEATABLE_JOB_ID(vendorId);
-    const repeatableJobs = await this.reminderQueue.getRepeatableJobs();
-    const existing = repeatableJobs.filter((j) => j.id === jobId);
+    await this.removeQueueJob(vendorId);
 
-    for (const job of existing) {
-      await this.reminderQueue.removeRepeatableByKey(job.key);
-    }
+    await this.prisma.reminderScheduleConfig.deleteMany({
+      where: { vendorId },
+    });
 
     return {
       vendorId,
@@ -93,13 +108,13 @@ export class BalanceReminderService {
     };
   }
 
-  /** Get current schedule status for a vendor */
+  /** Get current schedule status for a vendor — DB is source of truth */
   async getScheduleStatus(vendorId: string): Promise<ReminderScheduleStatus> {
-    const jobId = REPEATABLE_JOB_ID(vendorId);
-    const repeatableJobs = await this.reminderQueue.getRepeatableJobs();
-    const existing = repeatableJobs.find((j) => j.id === jobId);
+    const config = await this.prisma.reminderScheduleConfig.findUnique({
+      where: { vendorId },
+    });
 
-    if (!existing) {
+    if (!config) {
       return {
         vendorId,
         scheduled: false,
@@ -109,12 +124,18 @@ export class BalanceReminderService {
       };
     }
 
+    // Get nextRunAt from BullMQ (queue metadata only, not job data)
+    const jobId = REPEATABLE_JOB_ID(vendorId);
+    const repeatableJobs = await this.reminderQueue.getRepeatableJobs();
+    const job = repeatableJobs.find((j) => j.id === jobId);
+    const nextRunAt = job?.next ? new Date(job.next).toISOString() : null;
+
     return {
       vendorId,
       scheduled: true,
-      cronExpression: existing.pattern,
-      minBalance: null, // populated from DB after BR-BE-002 adds ReminderScheduleConfig
-      nextRunAt: existing.next ? new Date(existing.next).toISOString() : null,
+      cronExpression: config.cronExpression,
+      minBalance: config.minBalance,
+      nextRunAt,
     };
   }
 

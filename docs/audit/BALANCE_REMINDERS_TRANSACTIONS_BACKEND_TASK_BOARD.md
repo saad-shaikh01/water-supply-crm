@@ -30,7 +30,7 @@ It intentionally excludes broad UI polish. Frontend work is tracked separately i
 | Ticket ID | Feature | Priority | Status | Description | Depends On |
 |---|---|---|---|---|---|
 | BR-BE-001 | Balance Reminders | High | DONE | Fix current schedule contract mismatch and normalize API shape. Standardize on `cronExpression`, `scheduled`, `nextRunAt`, `minBalance`, and return a stable response that the frontend can rely on. | - |
-| BR-BE-002 | Balance Reminders | High | READY | Persist reminder schedule config in the database instead of relying only on BullMQ repeat metadata. Add a vendor-level config record as the source of truth for schedule state. | BR-BE-001 |
+| BR-BE-002 | Balance Reminders | High | DONE | Persist reminder schedule config in the database instead of relying only on BullMQ repeat metadata. Add a vendor-level config record as the source of truth for schedule state. | BR-BE-001 |
 | BR-BE-003 | Balance Reminders | High | READY | Add reminder run logging. Track each reminder run (`scheduled`, `manual bulk`, `manual single`, `dry run`) with counts, status, and timestamps. | BR-BE-002 |
 | BR-BE-004 | Balance Reminders | High | READY | Add per-recipient audit logging for reminder delivery: recipient, balance at send time, channel, status, failure reason, run reference. | BR-BE-003 |
 | BR-BE-005 | Balance Reminders | High | READY | Add targeted send API for one customer or selected customers. Support payload modes like `single`, `selected`, and `eligible`. | BR-BE-002 |
