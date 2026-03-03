@@ -16,6 +16,7 @@ volumes:
   redis_data:
   rabbitmq_data:
   uploads_data:
+  whatsapp_session:   # Persists WhatsApp auth across container restarts — mount into api-backend
 
 services:
 
@@ -97,8 +98,13 @@ services:
       DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public"
       REDIS_URL: "redis://redis:6379"
       RABBITMQ_URL: "amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672"
+      # WhatsApp — set WHATSAPP_ENABLED=true in .env.prod to activate.
+      # Scan the QR code printed in container logs on first start.
+      WHATSAPP_SESSION_PATH: /app/whatsapp-session
+      CHROMIUM_PATH: /usr/bin/chromium-browser
     volumes:
       - uploads_data:/app/uploads
+      - whatsapp_session:/app/whatsapp-session
     expose:
       - "3000"
     depends_on:
