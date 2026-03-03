@@ -63,18 +63,19 @@ model Vendor {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  users           User[]
-  products        Product[]
-  customers       Customer[]
-  vans            Van[]
-  routes          Route[]
-  dailySheets     DailySheet[]
-  transactions    Transaction[]
-  paymentRequests PaymentRequest[]
-  expenses        Expense[]
-  orders          CustomerOrder[]
-  tickets         CustomerTicket[]
-  deliveryIssues  DeliveryIssue[]
+  users                   User[]
+  products                Product[]
+  customers               Customer[]
+  vans                    Van[]
+  routes                  Route[]
+  dailySheets             DailySheet[]
+  transactions            Transaction[]
+  paymentRequests         PaymentRequest[]
+  expenses                Expense[]
+  orders                  CustomerOrder[]
+  tickets                 CustomerTicket[]
+  deliveryIssues          DeliveryIssue[]
+  reminderScheduleConfig  ReminderScheduleConfig?
 }
 
 model User {
@@ -712,4 +713,19 @@ model NotificationLog {
   @@index([channel, status])
   @@index([vendorId, createdAt])
   @@index([createdAt])
+}
+// ──────────────────────────────────────────────────────────────────────────────
+// Balance Reminder Schedule Config
+// ──────────────────────────────────────────────────────────────────────────────
+
+model ReminderScheduleConfig {
+  id             String   @id @default(uuid())
+  vendorId       String   @unique
+  vendor         Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  cronExpression String
+  minBalance     Int      @default(100)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([vendorId])
 }

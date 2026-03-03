@@ -9,7 +9,7 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { UserRole } from '@prisma/client';
 import { BalanceReminderService } from './balance-reminder.service';
-import { ScheduleReminderDto, SendNowDto } from './dto/schedule-reminder.dto';
+import { ScheduleReminderDto, SendNowDto, SendTargetedDto, PreviewDto } from './dto/schedule-reminder.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -65,5 +65,31 @@ export class BalanceReminderController {
   @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 3 } })
   sendNow(@CurrentUser() user: any, @Body() dto: SendNowDto) {
     return this.reminderService.sendNow(user.vendorId, dto);
+  }
+
+  /**
+   * POST /balance-reminders/send-targeted
+   * Send reminders to a targeted subset of customers.
+   * Body: { mode: 'single'|'selected'|'eligible', customerIds?: string[], minBalance?: number, dryRun?: boolean, force?: boolean }
+   *   mode=single   — exactly one customer (customerIds[0])
+   *   mode=selected — explicit list of customer IDs
+   *   mode=eligible — all customers above minBalance threshold
+   */
+  @Post('send-targeted')
+  @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 5 } })
+  sendTargeted(@CurrentUser() user: any, @Body() dto: SendTargetedDto) {
+    return this.reminderService.sendTargeted(user.vendorId, dto);
+  }
+
+  /**
+   * POST /balance-reminders/preview
+   * Dry-run preview — returns full eligibility breakdown without sending messages.
+   * Body: { mode?: 'single'|'selected'|'eligible', customerIds?: string[], minBalance?: number }
+   * Response: { wouldSend: [...], skipped: [{ ..., reason: 'skipped-low-balance' | ... }], totalWouldSend, totalSkipped }
+   */
+  @Post('preview')
+  @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 20 } })
+  previewReminders(@CurrentUser() user: any, @Body() dto: PreviewDto) {
+    return this.reminderService.previewReminders(user.vendorId, dto);
   }
 }

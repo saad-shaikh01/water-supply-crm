@@ -17,10 +17,11 @@ import {
 } from '../../../features/balance-reminders/hooks/use-balance-reminders';
 import { cn } from '@water-supply-crm/ui';
 
+// Cron values are UTC — PKT is UTC+5, so 9 AM PKT = 04:00 UTC
 const PRESETS = [
-  { label: 'Daily at 9 AM', value: '0 9 * * *' },
-  { label: 'Weekly Monday 9 AM', value: '0 9 * * 1' },
-  { label: 'Monthly 1st at 9 AM', value: '0 9 1 * *' },
+  { label: 'Daily at 9 AM (PKT)', value: '0 4 * * *' },
+  { label: 'Weekly Monday 9 AM (PKT)', value: '0 4 * * 1' },
+  { label: 'Monthly 1st at 9 AM (PKT)', value: '0 4 1 * *' },
   { label: 'Custom', value: 'custom' },
 ];
 
@@ -31,7 +32,7 @@ export default function BalanceRemindersPage() {
   const { mutate: sendNow, isPending: isSending } = useSendRemindersNow();
 
   const existing = schedule as any;
-  const [preset, setPreset] = useState('0 9 * * *');
+  const [preset, setPreset] = useState('0 4 * * *');
   const [customCron, setCustomCron] = useState('');
   const [minBalance, setMinBalance] = useState('100');
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -40,7 +41,7 @@ export default function BalanceRemindersPage() {
 
   const handleSave = () => {
     setSchedule({
-      cron: cronValue,
+      cronExpression: cronValue,
       minBalance: Number(minBalance),
     });
   };
@@ -64,16 +65,21 @@ export default function BalanceRemindersPage() {
           <CardContent>
             {isLoading ? (
               <div className="h-10 rounded-xl bg-accent/30 animate-pulse" />
-            ) : existing?.cron ? (
+            ) : existing?.scheduled ? (
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <Badge className="bg-emerald-500/10 text-emerald-500 border-none text-xs font-bold">Active</Badge>
-                    <code className="text-sm font-mono bg-accent/50 px-2 py-0.5 rounded-lg">{existing.cron}</code>
+                    <code className="text-sm font-mono bg-accent/50 px-2 py-0.5 rounded-lg">{existing.cronExpression}</code>
                   </div>
-                  {existing.minBalance && (
+                  {existing.minBalance != null && (
                     <p className="text-xs text-muted-foreground">
                       Customers with balance ≥ ₨ {Number(existing.minBalance).toLocaleString()}
+                    </p>
+                  )}
+                  {existing.nextRunAt && (
+                    <p className="text-xs text-muted-foreground">
+                      Next run: {new Date(existing.nextRunAt).toLocaleString()}
                     </p>
                   )}
                 </div>
@@ -120,14 +126,14 @@ export default function BalanceRemindersPage() {
 
             {preset === 'custom' && (
               <div className="space-y-2">
-                <Label className="text-sm font-semibold">Custom Cron Expression</Label>
+                <Label className="text-sm font-semibold">Custom Cron Expression (UTC)</Label>
                 <Input
-                  placeholder="e.g. 0 9 * * 1-5"
+                  placeholder="e.g. 0 4 * * 1-5"
                   value={customCron}
                   onChange={(e) => setCustomCron(e.target.value)}
                   className="font-mono bg-accent/30 border-border/50"
                 />
-                <p className="text-[11px] text-muted-foreground">Standard cron syntax: minute hour day month weekday</p>
+                <p className="text-[11px] text-muted-foreground">Standard UTC cron syntax: minute hour day month weekday</p>
               </div>
             )}
 
