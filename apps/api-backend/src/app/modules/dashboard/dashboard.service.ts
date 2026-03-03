@@ -40,6 +40,11 @@ export class DashboardService {
       bottleAgg,
       todaySheets,
       monthlyRevenueAgg,
+      openTickets,
+      openDeliveryIssues,
+      pendingPayments,
+      onDemandQueue,
+      todayCollectionsAgg,
     ] = await Promise.all([
       this.prisma.customer.count({ where: { vendorId } }),
       this.prisma.product.count({ where: { vendorId, isActive: true } }),
@@ -67,6 +72,26 @@ export class DashboardService {
         },
         _sum: { amount: true },
       }),
+      this.prisma.customerTicket.count({
+        where: { vendorId, status: { in: ['OPEN', 'IN_PROGRESS'] } },
+      }),
+      this.prisma.deliveryIssue.count({
+        where: { vendorId, status: 'OPEN' },
+      }),
+      this.prisma.paymentRequest.count({
+        where: { vendorId, status: 'PENDING' },
+      }),
+      this.prisma.customerOrder.count({
+        where: { vendorId, status: 'APPROVED', dispatchStatus: 'UNPLANNED' },
+      }),
+      this.prisma.transaction.aggregate({
+        where: {
+          vendorId,
+          type: TransactionType.PAYMENT,
+          createdAt: { gte: startOfToday },
+        },
+        _sum: { amount: true },
+      }),
     ]);
 
     const result = {
@@ -79,6 +104,11 @@ export class DashboardService {
       totalBottlesOut: bottleAgg._sum.balance ?? 0,
       todaySheets,
       monthlyRevenue: monthlyRevenueAgg._sum.amount ?? 0,
+      openTickets,
+      openDeliveryIssues,
+      pendingPayments,
+      onDemandQueue,
+      todayCollections: Math.abs(todayCollectionsAgg._sum.amount ?? 0),
     };
 
     await this.cache.set(cacheKey, result, CACHE_TTLS.DASHBOARD);
