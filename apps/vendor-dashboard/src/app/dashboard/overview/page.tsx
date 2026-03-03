@@ -1,3 +1,5 @@
+'use client';
+
 import dynamic from 'next/dynamic';
 import { OverviewStats } from '../../../features/dashboard/components/overview-stats';
 import { PageHeader } from '../../../components/shared/page-header';
