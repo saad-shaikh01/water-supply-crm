@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Badge,
   Button,
@@ -8,11 +8,20 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  Input,
 } from '@water-supply-crm/ui';
 import { cn } from '@water-supply-crm/ui';
-import { Clock, Loader2, MessageCircle, Paperclip, Send } from 'lucide-react';
+import {
+  CheckCircle2,
+  Clock,
+  Loader2,
+  MessageCircle,
+  Paperclip,
+  Send,
+  X,
+} from 'lucide-react';
+import { toast } from 'sonner';
 import { useCreateTicketMessage, useTicketMessages } from '../hooks/use-tickets';
+import { ticketsApi } from '../api/tickets.api';
 
 const STATUS_COLOR: Record<string, string> = {
   OPEN: 'bg-amber-500/10 text-amber-600',
@@ -57,16 +66,39 @@ function getAttachmentLabel(attachment: Record<string, unknown>, index: number) 
   );
 }
 
-function getAttachmentUrl(attachment: Record<string, unknown>) {
-  if (typeof attachment.url === 'string') return attachment.url;
-  if (typeof attachment.href === 'string') return attachment.href;
-  return null;
+/**
+ * Open an attachment via a signed URL from the backend.
+ * Attachments stored with a 'key' (new private-bucket records) use the signed
+ * URL endpoint. Legacy records that carry a plain 'url' fall back to that URL.
+ */
+async function openAttachment(attachment: Record<string, unknown>) {
+  const key = typeof attachment.key === 'string' ? attachment.key : null;
+  const legacyUrl = typeof attachment.url === 'string' ? attachment.url : null;
+
+  if (key) {
+    // Open blank tab first (preserves user-gesture for popup-blocker avoidance)
+    const win = window.open('', '_blank');
+    try {
+      const { data } = await ticketsApi.getAttachmentUrl(key);
+      win?.location.assign(data.signedUrl);
+    } catch {
+      win?.close();
+      toast.error('Could not load attachment');
+    }
+  } else if (legacyUrl) {
+    window.open(legacyUrl, '_blank', 'noreferrer');
+  }
 }
 
 export function TicketDetailDialog({ ticket, open, onOpenChange }: TicketDetailDialogProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState('');
-  const [attachmentName, setAttachmentName] = useState('');
-  const [attachmentUrl, setAttachmentUrl] = useState('');
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [uploadedAttachment, setUploadedAttachment] = useState<{
+    key: string;
+    name: string;
+  } | null>(null);
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
 
   const {
     data: rawMessages,
@@ -111,27 +143,52 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: TicketDetailD
 
   const clearComposer = () => {
     setMessage('');
-    setAttachmentName('');
-    setAttachmentUrl('');
+    setPendingFile(null);
+    setUploadedAttachment(null);
+    setIsUploadingAttachment(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setPendingFile(file);
+    setUploadedAttachment(null);
+    setIsUploadingAttachment(true);
+
+    try {
+      const formData = new FormData();
+      formData.append('attachment', file);
+      const { data } = await ticketsApi.uploadAttachment(formData);
+      // Store only key + name — no public URL
+      setUploadedAttachment({ key: data.key, name: data.name });
+    } catch {
+      toast.error('Failed to upload attachment. Please try again.');
+      setPendingFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } finally {
+      setIsUploadingAttachment(false);
+    }
+  };
+
+  const removeAttachment = () => {
+    setPendingFile(null);
+    setUploadedAttachment(null);
+    setIsUploadingAttachment(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleSubmit = () => {
-    const trimmedMessage = message.trim();
-    const trimmedAttachmentUrl = attachmentUrl.trim();
+    if (!message.trim()) return;
 
-    if (!trimmedMessage) return;
-
-    const attachments = trimmedAttachmentUrl
-      ? [
-          {
-            name: attachmentName.trim() || 'Attachment',
-            url: trimmedAttachmentUrl,
-          },
-        ]
+    // Persist only { name, key } — signed URLs are generated on-demand
+    const attachments = uploadedAttachment
+      ? [{ name: uploadedAttachment.name, key: uploadedAttachment.key }]
       : undefined;
 
     sendMessage(
-      { message: trimmedMessage, attachments },
+      { message: message.trim(), attachments },
       { onSuccess: clearComposer }
     );
   };
@@ -231,19 +288,20 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: TicketDetailD
                             <div className="space-y-1">
                               {attachments.map((attachment, index) => {
                                 const label = getAttachmentLabel(attachment, index);
-                                const url = getAttachmentUrl(attachment);
+                                const hasKey = typeof attachment.key === 'string';
+                                const hasLegacyUrl = typeof attachment.url === 'string';
+                                const isClickable = hasKey || hasLegacyUrl;
 
-                                return url ? (
-                                  <a
+                                return isClickable ? (
+                                  <button
                                     key={`${entry.id}-attachment-${index}`}
-                                    href={url}
-                                    target="_blank"
-                                    rel="noreferrer"
+                                    type="button"
+                                    onClick={() => openAttachment(attachment)}
                                     className="flex items-center gap-2 text-xs font-bold text-primary hover:underline"
                                   >
                                     <Paperclip className="h-3.5 w-3.5" />
                                     {label}
-                                  </a>
+                                  </button>
                                 ) : (
                                   <div
                                     key={`${entry.id}-attachment-${index}`}
@@ -276,26 +334,56 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: TicketDetailD
               className="w-full rounded-2xl border border-border bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
             />
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Input
-                value={attachmentName}
-                onChange={(e) => setAttachmentName(e.target.value)}
-                placeholder="Attachment label (optional)"
-                className="rounded-2xl"
+            {/* Attachment picker */}
+            <div className="space-y-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,.pdf,.doc,.docx,.txt"
+                className="hidden"
+                onChange={handleFileChange}
               />
-              <Input
-                value={attachmentUrl}
-                onChange={(e) => setAttachmentUrl(e.target.value)}
-                placeholder="Attachment URL (optional)"
-                className="rounded-2xl"
-              />
+
+              {!pendingFile ? (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-2 text-xs font-bold text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Paperclip className="h-3.5 w-3.5" />
+                  Attach a file (optional)
+                </button>
+              ) : (
+                <div className="flex items-center gap-2 rounded-xl border border-border/50 bg-muted/30 px-3 py-2">
+                  {isUploadingAttachment ? (
+                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+                  ) : uploadedAttachment ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                  ) : (
+                    <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  )}
+                  <span className="flex-1 truncate text-xs font-bold">
+                    {pendingFile.name}
+                  </span>
+                  {isUploadingAttachment && (
+                    <span className="text-[10px] text-muted-foreground">Uploading…</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={removeAttachment}
+                    className="shrink-0 text-muted-foreground hover:text-destructive transition-colors"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end">
               <Button
                 type="button"
                 onClick={handleSubmit}
-                disabled={!message.trim() || isPending}
+                disabled={!message.trim() || isPending || isUploadingAttachment}
                 className="rounded-2xl font-bold gap-2 shadow-lg shadow-primary/20"
               >
                 {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}

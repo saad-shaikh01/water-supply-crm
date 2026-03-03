@@ -9,8 +9,8 @@ export interface DriverLocation {
   vendorId: string;
   vanId?: string;
   dailySheetId?: string;
-  lat: number;
-  lng: number;
+  latitude: number;
+  longitude: number;
   speed?: number;
   bearing?: number;
   status?: string;
@@ -89,11 +89,11 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
       vendorId,
       vanId,
       dailySheetId,
-      lat: dto.lat,
-      lng: dto.lng,
+      latitude: dto.latitude,
+      longitude: dto.longitude,
       speed: dto.speed,
       bearing: dto.bearing,
-      status: dto.status ?? 'Active',
+      status: dto.status ?? 'ONLINE',
       updatedAt: new Date().toISOString(),
     };
 
@@ -112,6 +112,7 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Explicitly mark driver offline (e.g. when daily sheet is closed).
+   * Sends an 'offline' sentinel so dashboards remove the marker immediately.
    */
   async removeDriver(driverId: string, vendorId: string): Promise<void> {
     await this.publisher.del(`${LOCATION_KEY_PREFIX}${driverId}`);
@@ -123,8 +124,8 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
         driverId,
         vendorId,
         driverName: '',
-        lat: 0,
-        lng: 0,
+        latitude: 0,
+        longitude: 0,
         status: 'offline',
         updatedAt: new Date().toISOString(),
       },

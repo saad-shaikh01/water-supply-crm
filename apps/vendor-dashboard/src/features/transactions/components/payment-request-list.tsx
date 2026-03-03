@@ -7,10 +7,25 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
   Input, Label, Badge
 } from '@water-supply-crm/ui';
+import { toast } from 'sonner';
 import { DataTable } from '../../../components/shared/data-table';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import { usePaymentRequests, useApproveRequest, useRejectRequest } from '../hooks/use-transactions';
+import { transactionsApi } from '../api/transactions.api';
 import { cn } from '@water-supply-crm/ui';
+
+async function openScreenshot(requestId: string) {
+  // Open a blank tab immediately inside the user-gesture handler, then
+  // navigate it once the signed URL arrives (avoids popup-blocker issues).
+  const win = window.open('', '_blank');
+  try {
+    const { data } = await transactionsApi.getScreenshotUrl(requestId);
+    win?.location.assign(data.signedUrl);
+  } catch {
+    win?.close();
+    toast.error('Could not load screenshot');
+  }
+}
 
 export function PaymentRequestList() {
   const { data, isLoading, page, setPage, limit, setLimit } = usePaymentRequests();
@@ -139,7 +154,7 @@ export function PaymentRequestList() {
                     size="icon"
                     variant="ghost"
                     className="h-7 w-7 text-indigo-400 hover:bg-indigo-500/10 rounded-full"
-                    onClick={() => window.open(r.screenshotPath, '_blank')}
+                    onClick={() => openScreenshot(r.id)}
                   >
                     <Eye className="h-3.5 w-3.5" />
                   </Button>

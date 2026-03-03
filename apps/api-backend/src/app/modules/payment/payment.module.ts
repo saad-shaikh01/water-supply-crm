@@ -1,6 +1,4 @@
 import { Module } from '@nestjs/common';
-import { MulterModule } from '@nestjs/platform-express';
-import { join } from 'path';
 import { PaymentService } from './payment.service';
 import { PaymentPortalController } from './payment-portal.controller';
 import { PaymentAdminController } from './payment-admin.controller';
@@ -10,12 +8,11 @@ import { PAYMENT_PROVIDER } from './providers/payment-provider.interface';
 import { TransactionModule } from '../transaction/transaction.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AuditModule } from '../audit/audit.module';
+import { StorageModule } from '../../common/storage/storage.module';
 
 @Module({
   imports: [
-    MulterModule.register({
-      dest: join(process.cwd(), 'uploads', 'payment-screenshots'),
-    }),
+    StorageModule,
     TransactionModule, // provides LedgerService
     NotificationsModule, // provides NotificationService
     AuditModule,

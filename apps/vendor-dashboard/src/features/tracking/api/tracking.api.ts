@@ -8,7 +8,8 @@ export interface DriverLocation {
   longitude: number;
   speed?: number;
   bearing?: number;
-  status: 'ONLINE' | 'DELIVERING' | 'AWAY';
+  /** 'offline' is a server-sent sentinel — hook removes the driver from state on receipt */
+  status: 'ONLINE' | 'DELIVERING' | 'AWAY' | 'offline';
   updatedAt: string;
 }
 

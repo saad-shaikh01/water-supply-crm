@@ -30,4 +30,8 @@ export const transactionsApi = {
   getRequest: (id: string) => apiClient.get(`/payment-requests/${id}`),
   approveRequest: (id: string) => apiClient.patch(`/payment-requests/${id}/approve`),
   rejectRequest: (id: string, reason: string) => apiClient.patch(`/payment-requests/${id}/reject`, { reason }),
+
+  /** Fetch a short-lived signed URL for the payment screenshot (private bucket). */
+  getScreenshotUrl: (id: string) =>
+    apiClient.get<{ signedUrl: string }>(`/payment-requests/${id}/screenshot`),
 };

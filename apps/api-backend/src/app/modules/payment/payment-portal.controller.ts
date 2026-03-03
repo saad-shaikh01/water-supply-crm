@@ -10,8 +10,8 @@ import {
   UploadedFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname, join } from 'path';
+import { memoryStorage } from 'multer';
+import { extname } from 'path';
 import { Throttle } from '@nestjs/throttler';
 import { UserRole } from '@prisma/client';
 import { PaymentService } from './payment.service';
@@ -22,20 +22,16 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-
-const screenshotStorage = diskStorage({
-  destination: join(process.cwd(), 'uploads', 'payment-screenshots'),
-  filename: (_req, file, cb) => {
-    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    cb(null, `${uniqueSuffix}${extname(file.originalname)}`);
-  },
-});
+import { StorageService } from '../../common/storage/storage.service';
 
 @Controller('portal/payments')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.CUSTOMER)
 export class PaymentPortalController {
-  constructor(private readonly paymentService: PaymentService) {}
+  constructor(
+    private readonly paymentService: PaymentService,
+    private readonly storage: StorageService,
+  ) {}
 
   /**
    * POST /portal/payments/raast
@@ -56,13 +52,13 @@ export class PaymentPortalController {
    * Submit a manual payment with reference number + optional screenshot.
    * Body (multipart/form-data):
    *   amount, method, referenceNo, customerNote (optional)
-   *   screenshot (optional file, max 5MB)
+   *   screenshot (optional file, max 5MB) — uploaded to Wasabi object storage
    */
   @Post('manual')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   @UseInterceptors(
     FileInterceptor('screenshot', {
-      storage: screenshotStorage,
+      storage: memoryStorage(),
       limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
       fileFilter: (_req, file, cb) => {
         const allowed = ['.jpg', '.jpeg', '.png', '.webp'];
@@ -74,14 +70,21 @@ export class PaymentPortalController {
       },
     }),
   )
-  submitManual(
+  async submitManual(
     @CurrentUser() user: any,
     @Body() dto: SubmitManualPaymentDto,
     @UploadedFile() file?: Express.Multer.File,
   ) {
-    const screenshotPath = file
-      ? `payment-screenshots/${file.filename}`
-      : undefined;
+    let screenshotPath: string | undefined;
+    if (file) {
+      const { key } = await this.storage.upload(
+        'payment-screenshots',
+        file.buffer,
+        file.originalname,
+        file.mimetype,
+      );
+      screenshotPath = key;
+    }
     return this.paymentService.submitManualPayment(
       user.customerId,
       dto,

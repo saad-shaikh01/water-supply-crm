@@ -1,103 +1,172 @@
-version: '3.9'
-
+# ─── Networks ──────────────────────────────────────────────────────────────────
+# wscrm_internal — isolated, no external egress.  Only data-layer services live
+#   here, plus api-backend which needs to reach them.
+# wscrm_proxy — reachable by the host Nginx (or any reverse-proxy container).
+#   api-backend is on both; frontends are proxy-only.
 networks:
-  water-net:
+  wscrm_internal:
+    driver: bridge
+    internal: true
+  wscrm_proxy:
     driver: bridge
 
+# ─── Volumes ───────────────────────────────────────────────────────────────────
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+  uploads_data:
+
 services:
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────────
   postgres:
     image: postgres:15-alpine
+    container_name: wscrm-postgres
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-watercrm}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
-      POSTGRES_DB: ${POSTGRES_DB:-water_supply_crm}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    networks:
-      - water-net
-    restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-watercrm} -d ${POSTGRES_DB:-water_supply_crm}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
+    networks:
+      - wscrm_internal
+    # No ports exposed — internal only
 
+  # ── Redis ─────────────────────────────────────────────────────────────────────
   redis:
-    image: redis:alpine
+    image: redis:7-alpine
+    container_name: wscrm-redis
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
     volumes:
       - redis_data:/data
-    networks:
-      - water-net
-    restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 5s
+    networks:
+      - wscrm_internal
+    # No ports exposed — internal only
 
+  # ── RabbitMQ ──────────────────────────────────────────────────────────────────
   rabbitmq:
     image: rabbitmq:3-management-alpine
+    container_name: wscrm-rabbitmq
+    restart: unless-stopped
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-rabbit}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-rabbitp}
-    ports:
-      - "15672:15672"
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
     networks:
-      - water-net
-    restart: unless-stopped
+      - wscrm_internal
+    ports:
+      # Management UI — bound to loopback only; access via SSH tunnel
+      - "127.0.0.1:15672:15672"
+    # AMQP port 5672 is NOT exposed — internal only
 
+  # ── API Backend ───────────────────────────────────────────────────────────────
   api-backend:
     build:
       context: .
       dockerfile: apps/api-backend/Dockerfile
-      target: production
+    container_name: wscrm-api
+    restart: unless-stopped
     env_file:
-      - .env
+      - path: .env.prod
+        required: false   # must exist in production; optional for local config checks
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public"
+      REDIS_URL: "redis://redis:6379"
+      RABBITMQ_URL: "amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672"
+    volumes:
+      - uploads_data:/app/uploads
+    expose:
+      - "3000"
     depends_on:
-      - postgres
-      - redis
-      - rabbitmq
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     networks:
-      - water-net
-    restart: on-failure
-    ports:
-      - "3000:3000"
+      - wscrm_internal
+      - wscrm_proxy
 
+  # ── Vendor Dashboard ──────────────────────────────────────────────────────────
   vendor-dashboard:
     build:
-      context: apps/vendor-dashboard
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/vendor-dashboard/Dockerfile
       args:
-        NODE_ENV: production
-    env_file:
-      - .env
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN: ${NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN}
+        NEXT_PUBLIC_FIREBASE_API_KEY: ${NEXT_PUBLIC_FIREBASE_API_KEY}
+        NEXT_PUBLIC_FIREBASE_APP_ID: ${NEXT_PUBLIC_FIREBASE_APP_ID}
+        NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN}
+        NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID}
+        NEXT_PUBLIC_FIREBASE_MESSAGING_VAPID_KEY: ${NEXT_PUBLIC_FIREBASE_MESSAGING_VAPID_KEY}
+        NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${NEXT_PUBLIC_FIREBASE_PROJECT_ID}
+        NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET}
+        NEXT_PUBLIC_FIREBASE_VAPID_KEY: ${NEXT_PUBLIC_FIREBASE_VAPID_KEY}
+    container_name: wscrm-vendor
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "4201"
+      HOSTNAME: "0.0.0.0"
+      NEXT_TELEMETRY_DISABLED: "1"
+    expose:
+      - "4201"
     depends_on:
       - api-backend
     networks:
-      - water-net
-    restart: on-failure
-    ports:
-      - "4201:4201"
+      - wscrm_proxy
 
+  # ── Customer Portal ───────────────────────────────────────────────────────────
   customer-portal:
     build:
-      context: apps/customer-portal
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/customer-portal/Dockerfile
       args:
-        NODE_ENV: production
-    env_file:
-      - .env
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_FIREBASE_API_KEY: ${NEXT_PUBLIC_FIREBASE_API_KEY}
+        NEXT_PUBLIC_FIREBASE_APP_ID: ${NEXT_PUBLIC_FIREBASE_APP_ID}
+        NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN}
+        NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID}
+        NEXT_PUBLIC_FIREBASE_MESSAGING_VAPID_KEY: ${NEXT_PUBLIC_FIREBASE_MESSAGING_VAPID_KEY}
+        NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${NEXT_PUBLIC_FIREBASE_PROJECT_ID}
+        NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET}
+        NEXT_PUBLIC_FIREBASE_VAPID_KEY: ${NEXT_PUBLIC_FIREBASE_VAPID_KEY}
+    container_name: wscrm-portal
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "4202"
+      HOSTNAME: "0.0.0.0"
+      NEXT_TELEMETRY_DISABLED: "1"
+    expose:
+      - "4202"
     depends_on:
       - api-backend
     networks:
-      - water-net
-    restart: on-failure
-    ports:
-      - "4202:4202"
-
-volumes:
-  postgres_data:
-  redis_data:
-  rabbitmq_data:
+      - wscrm_proxy
