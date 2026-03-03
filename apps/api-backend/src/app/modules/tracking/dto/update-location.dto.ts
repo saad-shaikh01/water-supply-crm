@@ -4,12 +4,12 @@ export class UpdateLocationDto {
   @IsNumber()
   @Min(-90)
   @Max(90)
-  lat: number;
+  latitude: number;
 
   @IsNumber()
   @Min(-180)
   @Max(180)
-  lng: number;
+  longitude: number;
 
   /** Driver's current speed in km/h */
   @IsOptional()
@@ -24,7 +24,7 @@ export class UpdateLocationDto {
   @Max(360)
   bearing?: number;
 
-  /** Custom status message (e.g. "On the way", "Delivering") */
+  /** Driver status: ONLINE | DELIVERING | AWAY */
   @IsOptional()
   @IsString()
   status?: string;

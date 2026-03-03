@@ -1,25 +1,35 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { Map, Marker, NavigationControl, FullscreenControl, ScaleControl, Popup } from 'react-map-gl/mapbox';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { useTracking } from '../hooks/use-tracking';
-import { Truck, MapPin, Navigation } from 'lucide-react';
-import { Card, Badge, Button, Separator } from '@water-supply-crm/ui';
+import { Truck, Navigation, AlertTriangle } from 'lucide-react';
+import { Card, Badge, Separator } from '@water-supply-crm/ui';
 import { cn } from '@water-supply-crm/ui';
 
-// In production, this should be in .env
-const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN || 'pk.eyJ1Ijoic2FhZHNoYWlraDAwNyIsImEiOiJjbTdiaG1rdmowMDRqMmtzZ3psdjNrd3NyIn0.Z_X_vX_vX_vX_vX_vX_vXw';
+const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
 
 export function TrackingMap() {
   const { driverList, isConnected } = useTracking();
   const [selectedDriver, setSelectedDriver] = useState<any>(null);
 
   const [viewState, setViewState] = useState({
-    latitude: 24.8607, // Karachi Default
+    latitude: 24.8607, // Karachi default
     longitude: 67.0011,
-    zoom: 12
+    zoom: 12,
   });
+
+  // Fail clearly — do not silently embed a fallback token.
+  if (!MAPBOX_TOKEN) {
+    return (
+      <div className="relative w-full h-[calc(100vh-200px)] rounded-[2.5rem] overflow-hidden border border-destructive/30 bg-destructive/5 flex flex-col items-center justify-center gap-3 text-destructive">
+        <AlertTriangle className="h-8 w-8" />
+        <p className="text-sm font-bold">Map not configured</p>
+        <p className="text-xs text-muted-foreground">Set NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN in your environment.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="relative w-full h-[calc(100vh-200px)] rounded-[2.5rem] overflow-hidden border border-border/50 shadow-2xl bg-muted/20">
@@ -56,10 +66,10 @@ export function TrackingMap() {
                   "bg-zinc-500 text-white shadow-zinc-500/20"
                 )}>
                   <Truck className="h-6 w-6" />
-                  
+
                   {/* Direction Arrow */}
                   {driver.bearing !== undefined && (
-                    <div 
+                    <div
                       className="absolute -top-1 -right-1 h-4 w-4 bg-white rounded-full flex items-center justify-center text-primary shadow-sm"
                       style={{ transform: `rotate(${driver.bearing}deg)` }}
                     >
@@ -67,8 +77,8 @@ export function TrackingMap() {
                     </div>
                   )}
                 </div>
-                
-                {/* Active Pulse for online drivers */}
+
+                {/* Active pulse for online drivers */}
                 {driver.status === 'ONLINE' && (
                   <div className="absolute inset-0 h-10 w-10 rounded-2xl bg-emerald-500 animate-ping opacity-20 -z-10" />
                 )}
@@ -88,22 +98,20 @@ export function TrackingMap() {
             offset={10}
           >
             <div className="p-3 min-w-[200px] space-y-3">
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-2">
-                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
-                    {selectedDriver.driverName.charAt(0)}
-                  </div>
-                  <div>
-                    <p className="text-sm font-black">{selectedDriver.driverName}</p>
-                    <Badge variant={selectedDriver.status === 'ONLINE' ? 'success' : 'secondary'} className="text-[8px] px-1.5 py-0">
-                      {selectedDriver.status}
-                    </Badge>
-                  </div>
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
+                  {selectedDriver.driverName.charAt(0)}
+                </div>
+                <div>
+                  <p className="text-sm font-black">{selectedDriver.driverName}</p>
+                  <Badge variant={selectedDriver.status === 'ONLINE' ? 'success' : 'secondary'} className="text-[8px] px-1.5 py-0">
+                    {selectedDriver.status}
+                  </Badge>
                 </div>
               </div>
-              
+
               <Separator className="bg-border/50" />
-              
+
               <div className="grid grid-cols-2 gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
                 <div>
                   <p>Speed</p>
@@ -114,10 +122,6 @@ export function TrackingMap() {
                   <p className="text-foreground font-mono">{new Date(selectedDriver.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                 </div>
               </div>
-
-              <Button size="sm" className="w-full rounded-xl font-bold h-8 text-[10px]">
-                Assign New Task
-              </Button>
             </div>
           </Popup>
         )}
