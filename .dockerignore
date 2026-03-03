@@ -1,4 +1,27 @@
+# Build artifacts
 node_modules
 dist
-.git
 .nx
+
+# Version control
+.git
+.gitignore
+
+# Test / e2e apps — not needed in production images
+apps/*-e2e/
+coverage/
+
+# Local environment files — secrets must never enter the build context
+.env
+.env.local
+.env.*.local
+
+# IDE / editor
+.vscode/
+.idea/
+
+# OS / misc
+tmp/
+uploads/
+*.webp
+*.log
