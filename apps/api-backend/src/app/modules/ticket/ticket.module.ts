@@ -4,9 +4,10 @@ import { TicketPortalController } from './ticket-portal.controller';
 import { TicketAdminController } from './ticket-admin.controller';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { FcmModule } from '../fcm/fcm.module';
+import { StorageModule } from '../../common/storage/storage.module';
 
 @Module({
-  imports: [NotificationsModule, FcmModule],
+  imports: [NotificationsModule, FcmModule, StorageModule],
   controllers: [TicketPortalController, TicketAdminController],
   providers: [TicketService],
 })

@@ -24,4 +24,15 @@ export const ticketsApi = {
       attachments?: Array<Record<string, unknown>>;
     }
   ) => apiClient.post(`/portal/tickets/${id}/messages`, data),
+
+  /**
+   * Upload a single file to Wasabi via the backend.
+   * Returns { key, url, name } for use in ticket message attachments.
+   */
+  uploadAttachment: (formData: FormData) =>
+    apiClient.post<{ key: string; url: string; name: string }>(
+      '/portal/tickets/upload-attachment',
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    ),
 };
