@@ -4,7 +4,9 @@ export interface TransactionQuery {
   page?: number;
   limit?: number;
   customerId?: string;
+  vanId?: string;
   type?: string;
+  search?: string;
   dateFrom?: string;
   dateTo?: string;
 }
