@@ -3,20 +3,26 @@
 import { useRevenueStats } from '../hooks/use-dashboard';
 import { Card, CardContent, CardHeader, CardTitle, Skeleton } from '@water-supply-crm/ui';
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
+import { useAuthStore } from '../../../store/auth.store';
 
 export function RevenueChart() {
-  // Last 7 days
+  const user = useAuthStore((s) => s.user);
+  const isAdmin = user?.role === 'VENDOR_ADMIN';
+
   const to = new Date();
   const from = new Date();
   from.setDate(to.getDate() - 7);
-  
-  const { data, isLoading } = useRevenueStats(from.toISOString(), to.toISOString());
 
+  const formatDate = (date: Date) => date.toISOString().split('T')[0];
+  
+  const { data, isLoading } = useRevenueStats(formatDate(from), formatDate(to), isAdmin);
+
+  if (!isAdmin) return null;
   if (isLoading) return <Skeleton className="h-[350px] w-full rounded-2xl bg-white/[0.03]" />;
 
   const chartData = (data as any[] ?? []).map((d: any) => ({
     name: new Date(d.date).toLocaleDateString(undefined, { weekday: 'short' }),
-    total: d.totalRevenue,
+    total: d.revenue,
   }));
 
   return (

@@ -91,7 +91,7 @@ export function OverviewStats() {
       />
       <StatCard 
         title="Pending Balance" 
-        value={`₨${Number(stats.pendingBalance ?? 0).toLocaleString()}`} 
+        value={`₨${Number(stats.totalOutstandingBalance ?? 0).toLocaleString()}`} 
         icon={TrendingUp} 
         description="Collection required" 
       />
