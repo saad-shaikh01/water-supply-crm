@@ -6,16 +6,21 @@ import { useStaffPerformance } from '../hooks/use-dashboard';
 
 export function StaffPerformanceWidget() {
   const today = new Date();
-  const from = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
-  const to = today.toISOString().slice(0, 10);
+  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  const from = startOfMonth.toISOString().split('T')[0];
+  const to = today.toISOString().split('T')[0];
+  
   const { data, isLoading } = useStaffPerformance(from, to);
-  const staff = (Array.isArray(data) ? data : (data as any)?.data ?? []) as Array<{
-    id: string;
-    name: string;
-    role: string;
-    deliveries?: number;
-    cashCollected?: number;
-    completionRate?: number;
+  const rows = (Array.isArray(data) ? data : (data as any)?.data ?? []) as Array<{
+    driver: { id: string; name: string };
+    stats: {
+      totalSheets: number;
+      totalItems: number;
+      deliveredItems: number;
+      completionRate: number;
+      totalBottlesDelivered: number;
+      totalCashCollected: number;
+    };
   }>;
 
   return (
@@ -28,29 +33,33 @@ export function StaffPerformanceWidget() {
       <CardContent className="space-y-1">
         {isLoading ? (
           Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-xl bg-white/[0.02]" />)
-        ) : staff.length === 0 ? (
+        ) : rows.length === 0 ? (
           <p className="text-xs font-bold text-muted-foreground/50 text-center py-8 uppercase tracking-widest">No performance data</p>
         ) : (
-          staff.map((s, i) => (
-            <div key={s.id || `staff-${i}`} className="flex items-center gap-4 p-3 rounded-xl hover:bg-white/[0.03] transition-colors group/staff border border-transparent hover:border-white/5">
+          rows.map((row, i) => (
+            <div key={row.driver?.id || `staff-${i}`} className="flex items-center gap-4 p-3 rounded-xl hover:bg-white/[0.03] transition-colors group/staff border border-transparent hover:border-white/5">
               <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm shrink-0 shadow-inner">
-                {s.name.charAt(0)}
+                {row.driver?.name?.charAt(0) ?? '?'}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-white/90 truncate">{s.name}</p>
-                <p className="text-[10px] text-muted-foreground/60 uppercase tracking-tighter font-semibold">{s.role?.toLowerCase()}</p>
+                <p className="text-sm font-bold text-white/90 truncate">{row.driver?.name ?? 'Unknown'}</p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <div className="flex-1 h-1 bg-white/5 rounded-full overflow-hidden max-w-[60px]">
+                    <div 
+                      className="h-full bg-primary rounded-full" 
+                      style={{ width: `${row.stats.completionRate}%` }} 
+                    />
+                  </div>
+                  <span className="text-[9px] text-muted-foreground/60 font-bold tracking-tighter">{row.stats.completionRate}% RATE</span>
+                </div>
               </div>
               <div className="text-right shrink-0">
-                {s.deliveries !== undefined && (
-                  <p className="text-sm font-bold text-white/90 tabular-nums">
-                    {s.deliveries} <span className="text-[10px] text-muted-foreground/40 font-medium uppercase tracking-tighter">del.</span>
-                  </p>
-                )}
-                {s.cashCollected !== undefined && (
-                  <p className="text-[11px] text-emerald-400 font-bold tabular-nums">
-                    ₨{Number(s.cashCollected).toLocaleString()}
-                  </p>
-                )}
+                <p className="text-sm font-bold text-white/90 tabular-nums">
+                  {row.stats.deliveredItems} <span className="text-[10px] text-muted-foreground/40 font-medium uppercase tracking-tighter">del.</span>
+                </p>
+                <p className="text-[11px] text-emerald-400 font-bold tabular-nums">
+                  ₨{Number(row.stats.totalCashCollected).toLocaleString()}
+                </p>
               </div>
             </div>
           ))

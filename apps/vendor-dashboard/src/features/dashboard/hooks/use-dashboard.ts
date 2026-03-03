@@ -9,11 +9,11 @@ export const useOverviewStats = () => {
   });
 };
 
-export const useRevenueStats = (dateFrom: string, dateTo: string) => {
+export const useRevenueStats = (dateFrom: string, dateTo: string, enabled = true) => {
   return useQuery({
     queryKey: ['dashboard', 'revenue', dateFrom, dateTo],
     queryFn: () => dashboardApi.getRevenue(dateFrom, dateTo).then((r) => r.data),
-    enabled: !!dateFrom && !!dateTo,
+    enabled: enabled && !!dateFrom && !!dateTo,
   });
 };
 

@@ -7,12 +7,13 @@ import { cn } from '@water-supply-crm/ui';
 
 export function TopCustomersWidget() {
   const { data, isLoading } = useTopCustomers(5);
-  const customers = (Array.isArray(data) ? data : (data as any)?.data ?? []) as Array<{
-    id: string;
-    name: string;
-    customerCode: string;
-    totalValue?: number;
-    deliveries?: number;
+  const rows = (Array.isArray(data) ? data : (data as any)?.data ?? []) as Array<{
+    customer: {
+      id: string;
+      name: string;
+      customerCode: string;
+    };
+    totalRevenue: number;
   }>;
 
   return (
@@ -27,11 +28,11 @@ export function TopCustomersWidget() {
           Array.from({ length: 5 }).map((_, i) => (
             <Skeleton key={i} className="h-10 rounded-xl" />
           ))
-        ) : customers.length === 0 ? (
+        ) : rows.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-4">No data available</p>
         ) : (
-          customers.map((c, i) => (
-            <div key={i} className="flex items-center gap-3 p-2 rounded-xl hover:bg-white/5 transition-colors">
+          rows.map((row, i) => (
+            <div key={row.customer?.id ?? i} className="flex items-center gap-3 p-2 rounded-xl hover:bg-white/5 transition-colors">
               <div className={cn(
                 "h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0",
                 i === 0 ? "bg-amber-500/10 text-amber-500 border border-amber-500/20" :
@@ -42,16 +43,12 @@ export function TopCustomersWidget() {
                 {i + 1}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold truncate text-white">{c.name}</p>
-                <p className="text-[10px] font-mono text-muted-foreground/60">{c.customerCode}</p>
+                <p className="text-sm font-semibold truncate text-white">{row.customer?.name ?? 'Unknown'}</p>
+                <p className="text-[10px] font-mono text-muted-foreground/60">{row.customer?.customerCode ?? 'N/A'}</p>
               </div>
-              {(c.totalValue !== undefined || c.deliveries !== undefined) && (
-                <Badge variant="outline" className="text-[10px] font-mono shrink-0 bg-white/5 border-white/10 text-white/70">
-                  {c.totalValue !== undefined
-                    ? `₨${Number(c.totalValue).toLocaleString()}`
-                    : `${c.deliveries} del.`}
-                </Badge>
-              )}
+              <Badge variant="outline" className="text-[10px] font-mono shrink-0 bg-white/5 border-white/10 text-white/70">
+                ₨{Number(row.totalRevenue).toLocaleString()}
+              </Badge>
             </div>
           ))
         )}
