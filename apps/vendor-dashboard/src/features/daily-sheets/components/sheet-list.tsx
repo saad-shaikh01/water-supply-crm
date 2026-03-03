@@ -67,14 +67,14 @@ export function SheetList() {
   return (
     <div className="space-y-4">
       {/* Primary filter bar */}
-      <div className="flex flex-col sm:flex-row items-end gap-3 bg-card/30 p-4 rounded-2xl border border-border">
-        <div className="space-y-1.5 flex-1 min-w-[200px]">
-          <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Date Range</Label>
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-2 sm:gap-3 bg-card/30 p-3 sm:p-4 rounded-2xl border border-border">
+        <div className="flex-1 min-w-0">
+          <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1 mb-1 block sm:hidden">Date Range</Label>
           <DateRangePicker />
         </div>
 
-        <div className="space-y-1.5">
-          <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Status</Label>
+        <div className="hidden sm:block">
+          <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1 mb-1 block">Status</Label>
           <Select value={isClosed || 'all'} onValueChange={(v) => { resetPage(); setIsClosed(v === 'all' ? null : v); }}>
             <SelectTrigger className="rounded-xl bg-background/50 border-border h-10 w-[130px]">
               <SelectValue placeholder="All Sheets" />
@@ -92,15 +92,15 @@ export function SheetList() {
           size="sm"
           onClick={() => setFiltersOpen(true)}
           className={cn(
-            "rounded-xl h-10 px-4 gap-2 font-semibold shrink-0",
-            (routeId || vanId || (!isDriver && driverId)) && "border-primary text-primary"
+            "rounded-xl h-9 sm:h-10 px-3 sm:px-4 gap-2 font-semibold shrink-0",
+            (routeId || vanId || (!isDriver && driverId) || isClosed) && "border-primary text-primary"
           )}
         >
           <SlidersHorizontal className="h-4 w-4" />
           Filters
-          {(routeId || vanId || (!isDriver && driverId)) && (
+          {(routeId || vanId || (!isDriver && driverId) || isClosed) && (
             <span className="h-5 w-5 flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-black">
-              {[routeId, vanId, (!isDriver && driverId) ? driverId : null].filter(Boolean).length}
+              {[routeId, vanId, (!isDriver && driverId) ? driverId : null, isClosed].filter(Boolean).length}
             </span>
           )}
         </Button>

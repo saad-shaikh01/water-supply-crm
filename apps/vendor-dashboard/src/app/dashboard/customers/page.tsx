@@ -18,9 +18,9 @@ export default function CustomersPage() {
         action={
           <Button 
             onClick={() => setFormOpen(true)}
-            className="rounded-full px-5 py-6 h-auto shadow-lg shadow-primary/20 transition-all hover:scale-105 active:scale-95 flex items-center gap-2 text-base font-bold"
+            className="rounded-full px-4 sm:px-5 py-3 sm:py-6 h-auto shadow-lg shadow-primary/20 transition-all hover:scale-105 active:scale-95 flex items-center gap-2 text-sm sm:text-base font-bold w-full sm:w-auto justify-center"
           >
-            <UserPlus className="h-5 w-5" />
+            <UserPlus className="h-4 w-4 sm:h-5 sm:w-5" />
             Add New Customer
           </Button>
         }

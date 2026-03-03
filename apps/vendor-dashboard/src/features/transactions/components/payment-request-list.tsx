@@ -14,6 +14,7 @@ import { usePaymentRequests, useApproveRequest, useRejectRequest } from '../hook
 import { transactionsApi } from '../api/transactions.api';
 import { cn } from '@water-supply-crm/ui';
 
+<<<<<<< HEAD
 async function openScreenshot(requestId: string) {
   // Open a blank tab immediately inside the user-gesture handler, then
   // navigate it once the signed URL arrives (avoids popup-blocker issues).
@@ -26,9 +27,20 @@ async function openScreenshot(requestId: string) {
     toast.error('Could not load screenshot');
   }
 }
+=======
+import { useQueryState, parseAsString } from 'nuqs';
+
+const STATUS_OPTIONS = [
+  { value: '', label: 'All Status' },
+  { value: 'PENDING', label: 'Pending' },
+  { value: 'APPROVED', label: 'Approved' },
+  { value: 'REJECTED', label: 'Rejected' },
+];
+>>>>>>> origin/feat/FE-Sprint-01-agent-a
 
 export function PaymentRequestList() {
   const { data, isLoading, page, setPage, limit, setLimit } = usePaymentRequests();
+  const [status, setStatus] = useQueryState('status', parseAsString.withDefault(''));
   const { mutate: approve, isPending: isApproving } = useApproveRequest();
   const { mutate: reject, isPending: isRejecting } = useRejectRequest();
 
@@ -62,7 +74,25 @@ export function PaymentRequestList() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      {/* Filter bar */}
+      <div className="flex items-center gap-2 sm:gap-3 bg-card/30 p-3 sm:p-4 rounded-2xl border border-border">
+        <div className="flex items-center gap-2 flex-1">
+          <select
+            value={status}
+            onChange={(e) => { setStatus(e.target.value || null); setPage(1); }}
+            className="h-9 sm:h-10 rounded-xl bg-background/50 border-border/50 text-sm text-white px-3 pr-8 outline-none focus:ring-2 focus:ring-primary/30 appearance-none cursor-pointer min-w-[120px]"
+          >
+            {STATUS_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value} className="bg-background text-white">
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <div className="sm:hidden text-[10px] font-bold text-muted-foreground uppercase tracking-widest ml-1">Payment Requests</div>
+        </div>
+      </div>
+
       <DataTable
         data={rows}
         isLoading={isLoading}

@@ -122,46 +122,52 @@ function TicketsContent() {
       />
 
       <div className="space-y-3">
-        <div className="flex flex-wrap gap-3 items-center">
-          <div className="flex gap-1">
-            {TYPE_TABS.map((tab) => (
-              <button
-                key={tab.value}
-                onClick={() => { setType(tab.value || null); setPage(1); }}
-                className={cn(
-                  'px-4 py-2 rounded-xl text-xs font-bold transition-all border',
-                  type === tab.value
-                    ? 'bg-primary text-primary-foreground border-transparent shadow-lg shadow-primary/20'
-                    : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground',
-                )}
-              >
-                {tab.label}
-              </button>
-            ))}
+        <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <div className="flex-1 sm:flex-none flex gap-1">
+              {TYPE_TABS.map((tab) => (
+                <button
+                  key={tab.value}
+                  onClick={() => { setType(tab.value || null); setPage(1); }}
+                  className={cn(
+                    'flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-xl text-[10px] sm:text-xs font-bold transition-all border whitespace-nowrap',
+                    type === tab.value
+                      ? 'bg-primary text-primary-foreground border-transparent shadow-lg shadow-primary/20'
+                      : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground',
+                  )}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <SearchInput
-            placeholder="Search subject, description, or customer..."
-            onBeforeChange={() => setPage(1)}
-          />
+          <div className="flex items-center gap-2 w-full">
+            <div className="flex-1">
+              <SearchInput
+                placeholder="Search..."
+                onBeforeChange={() => setPage(1)}
+              />
+            </div>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setFiltersOpen(true)}
-            className={cn(
-              'rounded-xl h-10 px-4 gap-2 font-semibold shrink-0',
-              activeFilterCount > 0 && 'border-primary text-primary',
-            )}
-          >
-            <SlidersHorizontal className="h-4 w-4" />
-            More Filters
-            {activeFilterCount > 0 && (
-              <span className="h-5 w-5 flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-black">
-                {activeFilterCount}
-              </span>
-            )}
-          </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setFiltersOpen(true)}
+              className={cn(
+                'rounded-xl h-9 sm:h-10 px-3 sm:px-4 gap-2 font-semibold shrink-0',
+                activeFilterCount > 0 && 'border-primary text-primary',
+              )}
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              <span className="hidden sm:inline">More Filters</span>
+              {activeFilterCount > 0 && (
+                <span className="h-5 w-5 flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-black">
+                  {activeFilterCount}
+                </span>
+              )}
+            </Button>
+          </div>
         </div>
 
         {activeChips.length > 0 && (

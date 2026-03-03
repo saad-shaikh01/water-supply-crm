@@ -164,38 +164,54 @@ function OrdersContent() {
       />
 
       <div className="space-y-3">
-        <div className="flex gap-2 flex-wrap">
-          {STATUS_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => { setStatus(opt.value || null); setPage(1); }}
-              className={cn(
-                'px-4 py-2 rounded-xl text-xs font-bold transition-all border',
-                status === opt.value
-                  ? 'bg-primary text-primary-foreground border-transparent shadow-lg shadow-primary/20'
-                  : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground',
-              )}
-            >
-              {opt.label}
-            </button>
-          ))}
+        <div className="flex gap-1.5 sm:gap-2 flex-wrap">
+          <div className="sm:hidden w-full mb-1">
+            <Select value={status || 'all'} onValueChange={(v) => { setStatus(v === 'all' ? null : v); setPage(1); }}>
+              <SelectTrigger className="w-full rounded-xl bg-background/50 border-border/50 h-9 text-xs font-bold">
+                <SelectValue placeholder="Status: All" />
+              </SelectTrigger>
+              <SelectContent className="rounded-xl border-border/50 shadow-2xl">
+                {STATUS_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value || 'all'}>{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="hidden sm:flex gap-2 flex-wrap">
+            {STATUS_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => { setStatus(opt.value || null); setPage(1); }}
+                className={cn(
+                  'px-4 py-2 rounded-xl text-xs font-bold transition-all border',
+                  status === opt.value
+                    ? 'bg-primary text-primary-foreground border-transparent shadow-lg shadow-primary/20'
+                    : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground',
+                )}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="flex flex-wrap gap-3 items-center">
-          <SearchInput
-            placeholder="Search customer, phone, or product..."
-            onBeforeChange={() => setPage(1)}
-          />
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex-1">
+            <SearchInput
+              placeholder="Search..."
+              onBeforeChange={() => setPage(1)}
+            />
+          </div>
           <Button
             variant="outline"
             size="sm"
             onClick={() => setFiltersOpen(true)}
             className={cn(
-              'rounded-xl h-10 px-4 gap-2 font-semibold shrink-0',
+              'rounded-xl h-9 sm:h-10 px-3 sm:px-4 gap-2 font-semibold shrink-0',
               activeFilterCount > 0 && 'border-primary text-primary',
             )}
           >
             <SlidersHorizontal className="h-4 w-4" />
-            More Filters
+            <span className="hidden sm:inline">More Filters</span>
             {activeFilterCount > 0 && (
               <Badge className="h-5 w-5 p-0 flex items-center justify-center rounded-full text-[10px] font-black">
                 {activeFilterCount}
