@@ -7,9 +7,18 @@ import { MessageTemplates } from '../whatsapp/templates/message.templates';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { ScheduleReminderDto, SendNowDto } from './dto/schedule-reminder.dto';
 
-const DEFAULT_CRON = '0 4 * * *'; // 9 AM PKT (UTC+5)
+const DEFAULT_CRON = '0 4 * * *'; // 9 AM PKT (UTC+5) — stored as UTC
 const DEFAULT_MIN_BALANCE = 100;
 const REPEATABLE_JOB_ID = (vendorId: string) => `balance-reminder:${vendorId}`;
+
+/** Stable response shape returned by all schedule-related endpoints */
+export interface ReminderScheduleStatus {
+  vendorId: string;
+  scheduled: boolean;
+  cronExpression: string | null;
+  minBalance: number | null;
+  nextRunAt: string | null;
+}
 
 @Injectable()
 export class BalanceReminderService {
@@ -23,12 +32,15 @@ export class BalanceReminderService {
   ) {}
 
   /** Configure (or update) the repeatable daily reminder job for a vendor */
-  async scheduleReminders(vendorId: string, dto: ScheduleReminderDto) {
+  async scheduleReminders(
+    vendorId: string,
+    dto: ScheduleReminderDto,
+  ): Promise<ReminderScheduleStatus & { message: string }> {
     const cronExpression = dto.cronExpression ?? DEFAULT_CRON;
     const minBalance = dto.minBalance ?? DEFAULT_MIN_BALANCE;
     const jobId = REPEATABLE_JOB_ID(vendorId);
 
-    // Remove any existing repeatable job for this vendor
+    // Remove any existing repeatable job for this vendor first
     await this.cancelReminders(vendorId);
 
     await this.reminderQueue.add(
@@ -42,23 +54,28 @@ export class BalanceReminderService {
       },
     );
 
+    // Fetch the newly created repeatable job to get nextRunAt
+    const repeatableJobs = await this.reminderQueue.getRepeatableJobs();
+    const job = repeatableJobs.find((j) => j.id === jobId);
+    const nextRunAt = job?.next ? new Date(job.next).toISOString() : null;
+
     this.logger.log(
       `Scheduled balance reminders for vendor ${vendorId}: ${cronExpression}, minBalance=${minBalance}`,
     );
 
     return {
       vendorId,
+      scheduled: true,
       cronExpression,
       minBalance,
+      nextRunAt,
       message: 'Balance reminder schedule configured',
     };
   }
 
   /** Remove the repeatable reminder job for a vendor */
-  async cancelReminders(vendorId: string) {
+  async cancelReminders(vendorId: string): Promise<ReminderScheduleStatus & { message: string }> {
     const jobId = REPEATABLE_JOB_ID(vendorId);
-
-    // Find and remove repeatable job by key prefix
     const repeatableJobs = await this.reminderQueue.getRepeatableJobs();
     const existing = repeatableJobs.filter((j) => j.id === jobId);
 
@@ -66,23 +83,37 @@ export class BalanceReminderService {
       await this.reminderQueue.removeRepeatableByKey(job.key);
     }
 
-    return { vendorId, message: 'Balance reminder schedule removed' };
+    return {
+      vendorId,
+      scheduled: false,
+      cronExpression: null,
+      minBalance: null,
+      nextRunAt: null,
+      message: 'Balance reminder schedule removed',
+    };
   }
 
   /** Get current schedule status for a vendor */
-  async getScheduleStatus(vendorId: string) {
+  async getScheduleStatus(vendorId: string): Promise<ReminderScheduleStatus> {
     const jobId = REPEATABLE_JOB_ID(vendorId);
     const repeatableJobs = await this.reminderQueue.getRepeatableJobs();
     const existing = repeatableJobs.find((j) => j.id === jobId);
 
     if (!existing) {
-      return { vendorId, scheduled: false };
+      return {
+        vendorId,
+        scheduled: false,
+        cronExpression: null,
+        minBalance: null,
+        nextRunAt: null,
+      };
     }
 
     return {
       vendorId,
       scheduled: true,
       cronExpression: existing.pattern,
+      minBalance: null, // populated from DB after BR-BE-002 adds ReminderScheduleConfig
       nextRunAt: existing.next ? new Date(existing.next).toISOString() : null,
     };
   }
@@ -122,12 +153,17 @@ export class BalanceReminderService {
       this.logger.log(
         `No customers with balance >= ${minBalance} for vendor ${vendorId}`,
       );
-      return { vendorId, sent: 0, skipped: 0, customers: [] };
+      return { vendorId, sent: 0, skipped: 0, dryRun, customers: [] };
     }
 
     let sent = 0;
     let skipped = 0;
-    const results: Array<{ customerId: string; name: string; balance: number; status: string }> = [];
+    const results: Array<{
+      customerId: string;
+      name: string;
+      balance: number;
+      status: string;
+    }> = [];
 
     for (const customer of customers) {
       const message = MessageTemplates.balanceReminder(
@@ -140,7 +176,7 @@ export class BalanceReminderService {
           customerId: customer.id,
           name: customer.name,
           balance: customer.financialBalance,
-          status: 'dry-run',
+          status: 'would-send',
         });
         skipped++;
         continue;
@@ -155,7 +191,7 @@ export class BalanceReminderService {
         customerId: customer.id,
         name: customer.name,
         balance: customer.financialBalance,
-        status: messageSent ? 'sent' : 'skipped',
+        status: messageSent ? 'sent' : 'failed',
       });
 
       if (messageSent) {
@@ -166,9 +202,9 @@ export class BalanceReminderService {
     }
 
     this.logger.log(
-      `Balance reminders for vendor ${vendorId}: sent=${sent}, skipped=${skipped}`,
+      `Balance reminders for vendor ${vendorId}: sent=${sent}, skipped=${skipped}, dryRun=${dryRun}`,
     );
 
-    return { vendorId, sent, skipped, customers: results };
+    return { vendorId, sent, skipped, dryRun, customers: results };
   }
 }

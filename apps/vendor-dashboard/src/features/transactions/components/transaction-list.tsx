@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Button } from '@water-supply-crm/ui';
+import { Button, Badge } from '@water-supply-crm/ui';
 import { Plus, FileText, Calendar, Wallet, X } from 'lucide-react';
 import { DataTable } from '../../../components/shared/data-table';
 import { StatusBadge } from '../../../components/shared/status-badge';
