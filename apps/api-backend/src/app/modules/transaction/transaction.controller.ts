@@ -34,6 +34,18 @@ export class TransactionController {
     return this.ledgerService.findAllPaginated(user.vendorId, query);
   }
 
+  /**
+   * GET /transactions/summary
+   * Aggregate summary for the active filter window.
+   * Accepts the same query params as GET /transactions (except page/limit/type).
+   * Returns: { totalCharges, totalCollections, totalAdjustments, chargeCount, paymentCount, adjustmentCount, totalCount, net }
+   */
+  @Get('summary')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  getSummary(@CurrentUser() user: any, @Query() query: TransactionQueryDto) {
+    return this.ledgerService.getTransactionSummary(user.vendorId, query);
+  }
+
   @Post('payments')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })

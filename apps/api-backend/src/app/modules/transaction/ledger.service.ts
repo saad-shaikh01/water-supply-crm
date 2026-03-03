@@ -254,7 +254,7 @@ export class LedgerService {
   }
 
   async findAllPaginated(vendorId: string, query: TransactionQueryDto) {
-    const { page = 1, limit = 20, customerId, vanId, type, dateFrom, dateTo } = query;
+    const { page = 1, limit = 20, customerId, vanId, type, dateFrom, dateTo, search } = query;
 
     const where: any = { vendorId };
 
@@ -269,6 +269,13 @@ export class LedgerService {
         end.setHours(23, 59, 59, 999);
         where.createdAt.lte = end;
       }
+    }
+    if (search) {
+      where.OR = [
+        { customer: { name: { contains: search, mode: 'insensitive' } } },
+        { customer: { customerCode: { contains: search, mode: 'insensitive' } } },
+        { description: { contains: search, mode: 'insensitive' } },
+      ];
     }
 
     const [data, total] = await Promise.all([
@@ -286,6 +293,72 @@ export class LedgerService {
     ]);
 
     return paginate(data, total, page, limit);
+  }
+
+  /**
+   * Aggregate summary for the active filter window.
+   * Always breaks down all three types regardless of the `type` query param.
+   * The type filter applies to the paginated list, not the summary strip.
+   */
+  async getTransactionSummary(vendorId: string, query: TransactionQueryDto) {
+    const { customerId, vanId, dateFrom, dateTo, search } = query;
+
+    const baseWhere: any = { vendorId };
+    if (customerId) baseWhere.customerId = customerId;
+    if (vanId) baseWhere.dailySheet = { vanId };
+    if (dateFrom || dateTo) {
+      baseWhere.createdAt = {};
+      if (dateFrom) baseWhere.createdAt.gte = new Date(dateFrom);
+      if (dateTo) {
+        const end = new Date(dateTo);
+        end.setHours(23, 59, 59, 999);
+        baseWhere.createdAt.lte = end;
+      }
+    }
+    if (search) {
+      baseWhere.OR = [
+        { customer: { name: { contains: search, mode: 'insensitive' } } },
+        { customer: { customerCode: { contains: search, mode: 'insensitive' } } },
+        { description: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [deliveryAgg, paymentAgg, adjustmentAgg] = await Promise.all([
+      this.prisma.transaction.aggregate({
+        where: { ...baseWhere, type: TransactionType.DELIVERY },
+        _sum: { amount: true },
+        _count: { _all: true },
+      }),
+      this.prisma.transaction.aggregate({
+        where: { ...baseWhere, type: TransactionType.PAYMENT },
+        _sum: { amount: true },
+        _count: { _all: true },
+      }),
+      this.prisma.transaction.aggregate({
+        where: { ...baseWhere, type: TransactionType.ADJUSTMENT },
+        _sum: { amount: true },
+        _count: { _all: true },
+      }),
+    ]);
+
+    const totalCharges = deliveryAgg._sum.amount ?? 0;
+    // PAYMENT amounts are stored as negative (e.g. -500); negate for display
+    const totalCollections = Math.abs(paymentAgg._sum.amount ?? 0);
+    const totalAdjustments = adjustmentAgg._sum.amount ?? 0;
+    const chargeCount = deliveryAgg._count._all;
+    const paymentCount = paymentAgg._count._all;
+    const adjustmentCount = adjustmentAgg._count._all;
+
+    return {
+      totalCharges,
+      totalCollections,
+      totalAdjustments,
+      chargeCount,
+      paymentCount,
+      adjustmentCount,
+      totalCount: chargeCount + paymentCount + adjustmentCount,
+      net: totalCharges - totalCollections + totalAdjustments,
+    };
   }
 
   async findByCustomer(

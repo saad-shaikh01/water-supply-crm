@@ -29,20 +29,20 @@ It intentionally excludes broad UI polish. Frontend work is tracked separately i
 
 | Ticket ID | Feature | Priority | Status | Description | Depends On |
 |---|---|---|---|---|---|
-| BR-BE-001 | Balance Reminders | High | READY | Fix current schedule contract mismatch and normalize API shape. Standardize on `cronExpression`, `scheduled`, `nextRunAt`, `minBalance`, and return a stable response that the frontend can rely on. | - |
-| BR-BE-002 | Balance Reminders | High | READY | Persist reminder schedule config in the database instead of relying only on BullMQ repeat metadata. Add a vendor-level config record as the source of truth for schedule state. | BR-BE-001 |
+| BR-BE-001 | Balance Reminders | High | DONE | Fix current schedule contract mismatch and normalize API shape. Standardize on `cronExpression`, `scheduled`, `nextRunAt`, `minBalance`, and return a stable response that the frontend can rely on. | - |
+| BR-BE-002 | Balance Reminders | High | DONE | Persist reminder schedule config in the database instead of relying only on BullMQ repeat metadata. Add a vendor-level config record as the source of truth for schedule state. | BR-BE-001 |
 | BR-BE-003 | Balance Reminders | High | READY | Add reminder run logging. Track each reminder run (`scheduled`, `manual bulk`, `manual single`, `dry run`) with counts, status, and timestamps. | BR-BE-002 |
 | BR-BE-004 | Balance Reminders | High | READY | Add per-recipient audit logging for reminder delivery: recipient, balance at send time, channel, status, failure reason, run reference. | BR-BE-003 |
-| BR-BE-005 | Balance Reminders | High | READY | Add targeted send API for one customer or selected customers. Support payload modes like `single`, `selected`, and `eligible`. | BR-BE-002 |
-| BR-BE-006 | Balance Reminders | Medium | READY | Add dry-run preview for targeted and bulk sends. Response should clearly show who would receive a reminder and why others are skipped. | BR-BE-005 |
+| BR-BE-005 | Balance Reminders | High | DONE | Add targeted send API for one customer or selected customers. Support payload modes like `single`, `selected`, and `eligible`. | BR-BE-002 |
+| BR-BE-006 | Balance Reminders | Medium | DONE | Add dry-run preview for targeted and bulk sends. Response should clearly show who would receive a reminder and why others are skipped. | BR-BE-005 |
 | BR-BE-007 | Balance Reminders | High | READY | Move reminder delivery to queue-based execution per recipient instead of synchronous request-loop sending. Keep request latency low and improve retry behavior. | BR-BE-003 |
 | BR-BE-008 | Balance Reminders | Medium | READY | Add cooldown protection to prevent repeated reminders to the same customer inside a defined window unless explicitly forced. | BR-BE-004 |
 | BR-BE-009 | Balance Reminders | Medium | READY | Add reminder eligibility rules service: active customer only, positive balance threshold, valid phone, channel enabled, not opted out. Centralize this logic for dry-run + send-now + scheduled runs. | BR-BE-005 |
 | BR-BE-010 | Balance Reminders | Medium | READY | Add optional multi-channel abstraction for reminders so the flow can support WhatsApp first, and later FCM/in-app without rewriting the module. | BR-BE-007 |
-| TX-BE-001 | Transactions | High | READY | Expand `GET /transactions` to support `search` across customer name, customer code, and description. Keep pagination server-side. | - |
+| TX-BE-001 | Transactions | High | DONE | Expand `GET /transactions` to support `search` across customer name, customer code, and description. Keep pagination server-side. | - |
 | TX-BE-002 | Transactions | Medium | READY | Add amount-range filters to `GET /transactions` (`amountMin`, `amountMax`) for finance reconciliation and exception review. | TX-BE-001 |
 | TX-BE-003 | Transactions | Medium | READY | Add transaction source filter support (for example: `DELIVERY`, `MANUAL_PAYMENT`, `PAYMENT_REQUEST`, `ADJUSTMENT`) so finance users can narrow ledger views by source path. | TX-BE-001 |
-| TX-BE-004 | Transactions | Medium | READY | Add a transaction summary endpoint for the active filter window: total charges, total collections, net adjustments, count. This should power a summary strip above the table. | TX-BE-001 |
+| TX-BE-004 | Transactions | Medium | DONE | Add a transaction summary endpoint for the active filter window: total charges, total collections, net adjustments, count. This should power a summary strip above the table. | TX-BE-001 |
 | TX-BE-005 | Transactions | Medium | READY | Add richer related context to transaction list payload where useful: customer code, van/route linkage, payment-request reference, daily-sheet reference. Avoid excessive overfetching. | TX-BE-001 |
 | TX-BE-006 | Transactions | Low | READY | Define sane default range behavior when no filters are provided (for example, current month or last 30 days) if product decision is approved. This avoids unbounded history queries in production. | TX-BE-004 |
 | TX-BE-007 | Transactions | Medium | READY | Add CSV-ready export endpoint only if frontend-only export becomes insufficient at higher data volume. Keep as deferred unless required after usage validation. | TX-BE-004 |
