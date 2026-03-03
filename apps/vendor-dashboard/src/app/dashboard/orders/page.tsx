@@ -348,13 +348,28 @@ function OrdersContent() {
           },
           {
             key: 'preferredDate',
-            header: 'Requested For',
+            header: 'Preferred Date',
             cell: (r: any) => (
               <div className="flex flex-col min-w-[100px]">
                 <span className="text-xs font-bold text-white whitespace-nowrap">
                   {formatDate(r.preferredDate)}
                 </span>
-                <span className="text-[10px] text-muted-foreground/60 italic font-medium">Preferred</span>
+                <span className="text-[10px] text-muted-foreground/60 italic font-medium">Requested</span>
+              </div>
+            ),
+          },
+          {
+            key: 'reviewedAt',
+            header: 'Reviewed At',
+            cell: (r: any) => (
+              <div className="flex flex-col min-w-[120px]">
+                {r.reviewedAt ? (
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {formatDateTime(r.reviewedAt)}
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-muted-foreground/40 italic">Not reviewed</span>
+                )}
               </div>
             ),
           },
@@ -378,7 +393,7 @@ function OrdersContent() {
           },
           {
             key: 'status',
-            header: 'Approval',
+            header: 'Approval Status',
             cell: (r: any) => {
               const badge = (
                 <div className="scale-90 origin-left">
@@ -392,17 +407,6 @@ function OrdersContent() {
                     {badge}
                     <p className="text-[10px] text-rose-400 mt-1 font-medium truncate italic" title={r.rejectionReason}>
                       {r.rejectionReason}
-                    </p>
-                  </div>
-                );
-              }
-
-              if (r.status === 'APPROVED' && r.reviewedAt) {
-                return (
-                  <div className="flex flex-col min-w-[120px]">
-                    {badge}
-                    <p className="text-[10px] text-muted-foreground/60 mt-1 font-medium">
-                      {formatDateTime(r.reviewedAt)}
                     </p>
                   </div>
                 );
