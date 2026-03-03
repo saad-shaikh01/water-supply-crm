@@ -39,7 +39,7 @@ It intentionally excludes broad UI polish. Frontend work is tracked separately i
 | BR-BE-008 | Balance Reminders | Medium | READY | Add cooldown protection to prevent repeated reminders to the same customer inside a defined window unless explicitly forced. | BR-BE-004 |
 | BR-BE-009 | Balance Reminders | Medium | READY | Add reminder eligibility rules service: active customer only, positive balance threshold, valid phone, channel enabled, not opted out. Centralize this logic for dry-run + send-now + scheduled runs. | BR-BE-005 |
 | BR-BE-010 | Balance Reminders | Medium | READY | Add optional multi-channel abstraction for reminders so the flow can support WhatsApp first, and later FCM/in-app without rewriting the module. | BR-BE-007 |
-| TX-BE-001 | Transactions | High | READY | Expand `GET /transactions` to support `search` across customer name, customer code, and description. Keep pagination server-side. | - |
+| TX-BE-001 | Transactions | High | DONE | Expand `GET /transactions` to support `search` across customer name, customer code, and description. Keep pagination server-side. | - |
 | TX-BE-002 | Transactions | Medium | READY | Add amount-range filters to `GET /transactions` (`amountMin`, `amountMax`) for finance reconciliation and exception review. | TX-BE-001 |
 | TX-BE-003 | Transactions | Medium | READY | Add transaction source filter support (for example: `DELIVERY`, `MANUAL_PAYMENT`, `PAYMENT_REQUEST`, `ADJUSTMENT`) so finance users can narrow ledger views by source path. | TX-BE-001 |
 | TX-BE-004 | Transactions | Medium | READY | Add a transaction summary endpoint for the active filter window: total charges, total collections, net adjustments, count. This should power a summary strip above the table. | TX-BE-001 |

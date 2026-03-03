@@ -254,7 +254,7 @@ export class LedgerService {
   }
 
   async findAllPaginated(vendorId: string, query: TransactionQueryDto) {
-    const { page = 1, limit = 20, customerId, vanId, type, dateFrom, dateTo } = query;
+    const { page = 1, limit = 20, customerId, vanId, type, dateFrom, dateTo, search } = query;
 
     const where: any = { vendorId };
 
@@ -269,6 +269,13 @@ export class LedgerService {
         end.setHours(23, 59, 59, 999);
         where.createdAt.lte = end;
       }
+    }
+    if (search) {
+      where.OR = [
+        { customer: { name: { contains: search, mode: 'insensitive' } } },
+        { customer: { customerCode: { contains: search, mode: 'insensitive' } } },
+        { description: { contains: search, mode: 'insensitive' } },
+      ];
     }
 
     const [data, total] = await Promise.all([
