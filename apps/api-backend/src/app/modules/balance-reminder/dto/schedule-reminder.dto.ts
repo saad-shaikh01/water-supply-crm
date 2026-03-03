@@ -35,6 +35,29 @@ export class SendNowDto {
   dryRun?: boolean;
 }
 
+export class PreviewDto {
+  /**
+   * 'eligible' scans all vendor customers and classifies each.
+   * 'selected'/'single' scans only the provided customerIds.
+   * Defaults to 'eligible'.
+   */
+  @IsOptional()
+  @IsIn(['single', 'selected', 'eligible'])
+  mode?: 'single' | 'selected' | 'eligible';
+
+  /** Explicit customer IDs for mode=single or mode=selected */
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  customerIds?: string[];
+
+  /** Balance threshold — only relevant for mode=eligible */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  minBalance?: number;
+}
+
 export class SendTargetedDto {
   /**
    * Send mode:

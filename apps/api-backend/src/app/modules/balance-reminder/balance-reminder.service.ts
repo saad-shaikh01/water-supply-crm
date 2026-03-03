@@ -5,7 +5,7 @@ import { PrismaService } from '@water-supply-crm/database';
 import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
 import { MessageTemplates } from '../whatsapp/templates/message.templates';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
-import { ScheduleReminderDto, SendNowDto, SendTargetedDto } from './dto/schedule-reminder.dto';
+import { ScheduleReminderDto, SendNowDto, SendTargetedDto, PreviewDto } from './dto/schedule-reminder.dto';
 
 const DEFAULT_CRON = '0 4 * * *'; // 9 AM PKT (UTC+5) — stored as UTC
 const DEFAULT_MIN_BALANCE = 100;
@@ -217,6 +217,88 @@ export class BalanceReminderService {
     );
 
     return { vendorId, sent, skipped, dryRun, customers: results };
+  }
+
+  /**
+   * Full eligibility preview — shows every candidate and why they would or would not receive a reminder.
+   * Never sends messages. Always operates as dryRun=true.
+   *
+   * Eligibility reasons:
+   *   would-send          — passes all checks
+   *   skipped-low-balance — balance below minBalance
+   *   skipped-no-phone    — phone number missing
+   *   skipped-inactive    — customer is not active
+   *   skipped-wrong-type  — paymentType is not MONTHLY
+   */
+  async previewReminders(vendorId: string, dto: PreviewDto) {
+    const minBalance = dto.minBalance ?? DEFAULT_MIN_BALANCE;
+    const mode = dto.mode ?? 'eligible';
+
+    // Fetch candidates: for selected/single use explicit IDs; for eligible fetch all vendor customers
+    const whereBase = mode === 'eligible'
+      ? { vendorId }
+      : { id: { in: dto.customerIds ?? [] }, vendorId };
+
+    const candidates = await this.prisma.customer.findMany({
+      where: whereBase,
+      select: {
+        id: true,
+        name: true,
+        phoneNumber: true,
+        financialBalance: true,
+        isActive: true,
+        paymentType: true,
+      },
+      orderBy: { financialBalance: 'desc' },
+    });
+
+    type PreviewEntry = {
+      customerId: string;
+      name: string;
+      balance: number;
+      phone: string;
+      reason: string;
+    };
+
+    const wouldSend: PreviewEntry[] = [];
+    const skipped: PreviewEntry[] = [];
+
+    for (const c of candidates) {
+      const entry: PreviewEntry = {
+        customerId: c.id,
+        name: c.name,
+        balance: c.financialBalance,
+        phone: c.phoneNumber,
+        reason: '',
+      };
+
+      if (!c.isActive) {
+        entry.reason = 'skipped-inactive';
+        skipped.push(entry);
+      } else if (c.paymentType !== 'MONTHLY') {
+        entry.reason = 'skipped-wrong-type';
+        skipped.push(entry);
+      } else if (!c.phoneNumber || c.phoneNumber.trim() === '') {
+        entry.reason = 'skipped-no-phone';
+        skipped.push(entry);
+      } else if (c.financialBalance < minBalance) {
+        entry.reason = 'skipped-low-balance';
+        skipped.push(entry);
+      } else {
+        entry.reason = 'would-send';
+        wouldSend.push(entry);
+      }
+    }
+
+    return {
+      vendorId,
+      mode,
+      minBalance,
+      totalWouldSend: wouldSend.length,
+      totalSkipped: skipped.length,
+      wouldSend,
+      skipped,
+    };
   }
 
   /** Core logic — called by BullMQ processor and sendNow */
