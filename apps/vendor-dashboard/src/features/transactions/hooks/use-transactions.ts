@@ -16,7 +16,9 @@ const invalidatePaymentRequestDependencies = async (queryClient: ReturnType<type
 export const useTransactions = (overrideCustomerId?: string) => {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
-  const [urlCustomerId] = useQueryState('customerId', parseAsString.withDefault(''));
+  const [search, setSearch] = useQueryState('search', parseAsString.withDefault(''));
+  const [urlCustomerId, setCustomerId] = useQueryState('customerId', parseAsString.withDefault(''));
+  const [vanId, setVanId] = useQueryState('vanId', parseAsString.withDefault(''));
   const [type, setType] = useQueryState('type', parseAsString.withDefault(''));
   const [dateFrom, setDateFrom] = useQueryState('dateFrom', parseAsString.withDefault(''));
   const [dateTo, setDateTo] = useQueryState('dateTo', parseAsString.withDefault(''));
@@ -26,7 +28,9 @@ export const useTransactions = (overrideCustomerId?: string) => {
   const params: TransactionQuery = {
     page,
     limit,
+    search: search || undefined,
     customerId: effectiveCustomerId || undefined,
+    vanId: vanId || undefined,
     type: type || undefined,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
@@ -41,7 +45,12 @@ export const useTransactions = (overrideCustomerId?: string) => {
     setPage,
     limit,
     setLimit,
+    search,
+    setSearch,
     customerId: effectiveCustomerId,
+    setCustomerId,
+    vanId,
+    setVanId,
     type,
     setType,
     dateFrom,
