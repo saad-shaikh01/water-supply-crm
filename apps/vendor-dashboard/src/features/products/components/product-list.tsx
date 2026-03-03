@@ -6,16 +6,18 @@ import {
   Button, DropdownMenu, DropdownMenuContent,
   DropdownMenuItem, DropdownMenuTrigger, Badge,
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-  Input,
+  Input, Sheet, SheetContent, SheetHeader, SheetTitle, Label,
 } from '@water-supply-crm/ui';
 import { DataTable } from '../../../components/shared/data-table';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { StatusBadge } from '../../../components/shared/status-badge';
+import { SearchInput } from '../../../components/shared/filters/search-input';
 import { useProducts, useDeleteProduct, useToggleProduct } from '../hooks/use-products';
 import { useQueryState, parseAsString } from 'nuqs';
 import { cn } from '@water-supply-crm/ui';
 import { useAuthStore } from '../../../store/auth.store';
 import { hasMinRole } from '../../../lib/rbac';
+import { SlidersHorizontal } from 'lucide-react';
 
 interface ProductListProps {
   onEdit: (product: Record<string, unknown>) => void;
@@ -31,6 +33,7 @@ export function ProductList({ onEdit }: ProductListProps) {
   const [search, setSearch] = useQueryState('search', parseAsString.withDefault(''));
   const [isActive, setIsActive] = useQueryState('isActive', parseAsString.withDefault(''));
   const [sortDir, setSortDir] = useQueryState('sortDir', parseAsString.withDefault(''));
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const resetPage = () => setPage(1);
 
@@ -38,6 +41,8 @@ export function ProductList({ onEdit }: ProductListProps) {
     isActive ? { label: isActive === 'true' ? 'Active' : 'Inactive', clear: () => { resetPage(); setIsActive(null); } } : null,
     sortDir ? { label: sortDir === 'asc' ? 'A→Z' : 'Z→A', clear: () => { resetPage(); setSortDir(null); } } : null,
   ].filter(Boolean) as Array<{ label: string; clear: () => void }>;
+
+  const activeFilterCount = activeChips.length;
 
   const clearAll = () => { resetPage(); setSearch(null); setIsActive(null); setSortDir(null); };
 
@@ -48,43 +53,97 @@ export function ProductList({ onEdit }: ProductListProps) {
   return (
     <div className="space-y-4">
       {/* Filter bar */}
-      <div className="flex flex-wrap items-center gap-3 bg-card/30 p-4 rounded-2xl border border-border">
-        <div className="relative flex-1 min-w-[180px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search products..."
-            value={search}
-            onChange={(e) => { resetPage(); setSearch(e.target.value || null); }}
-            className="pl-9 rounded-xl bg-background/50 border-border h-10"
-          />
+      <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-3 bg-card/30 p-3 sm:p-4 rounded-2xl border border-border">
+        <div className="flex-1 w-full">
+          <SearchInput placeholder="Search products..." onBeforeChange={resetPage} />
         </div>
-        <Select value={isActive || 'all'} onValueChange={(v) => { resetPage(); setIsActive(v === 'all' ? null : v); }}>
-          <SelectTrigger className="w-[130px] rounded-xl bg-background/50 border-border h-10">
-            <SelectValue placeholder="All Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="true">Active</SelectItem>
-            <SelectItem value="false">Inactive</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={sortDir || 'none'} onValueChange={(v) => { resetPage(); setSortDir(v === 'none' ? null : v); }}>
-          <SelectTrigger className="w-[110px] rounded-xl bg-background/50 border-border h-10">
-            <ArrowUpDown className="h-3.5 w-3.5 mr-1.5 shrink-0" />
-            <SelectValue placeholder="Sort" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">Default</SelectItem>
-            <SelectItem value="asc">A → Z</SelectItem>
-            <SelectItem value="desc">Z → A</SelectItem>
-          </SelectContent>
-        </Select>
-        {activeChips.length > 0 && (
-          <button onClick={clearAll} className="text-xs text-muted-foreground hover:text-foreground font-semibold underline-offset-2 hover:underline">
-            Clear all
-          </button>
-        )}
+        <div className="hidden sm:flex items-center gap-3">
+          <Select value={isActive || 'all'} onValueChange={(v) => { resetPage(); setIsActive(v === 'all' ? null : v); }}>
+            <SelectTrigger className="w-[130px] rounded-xl bg-background/50 border-border h-10">
+              <SelectValue placeholder="All Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="true">Active</SelectItem>
+              <SelectItem value="false">Inactive</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={sortDir || 'none'} onValueChange={(v) => { resetPage(); setSortDir(v === 'none' ? null : v); }}>
+            <SelectTrigger className="w-[110px] rounded-xl bg-background/50 border-border h-10">
+              <ArrowUpDown className="h-3.5 w-3.5 mr-1.5 shrink-0" />
+              <SelectValue placeholder="Sort" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">Default</SelectItem>
+              <SelectItem value="asc">A → Z</SelectItem>
+              <SelectItem value="desc">Z → A</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setFiltersOpen(true)}
+          className={cn(
+            "rounded-xl h-9 sm:h-10 px-3 sm:px-4 gap-2 font-semibold shrink-0 w-full sm:w-auto sm:hidden",
+            activeFilterCount > 0 && "border-primary text-primary"
+          )}
+        >
+          <SlidersHorizontal className="h-4 w-4" />
+          Filters
+          {activeFilterCount > 0 && (
+            <Badge className="h-5 w-5 p-0 flex items-center justify-center rounded-full text-[10px] font-black">
+              {activeFilterCount}
+            </Badge>
+          )}
+        </Button>
       </div>
+
+      {/* More Filters drawer (Mobile Only) */}
+      <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-sm bg-background/95 backdrop-blur-xl border-l border-border">
+          <SheetHeader className="pb-6 border-b border-border">
+            <SheetTitle className="flex items-center gap-2 text-lg font-bold">
+              <SlidersHorizontal className="h-5 w-5 text-primary" /> Filters
+            </SheetTitle>
+          </SheetHeader>
+          <div className="space-y-6 py-6">
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Status</Label>
+              <Select value={isActive || 'all'} onValueChange={(v) => { resetPage(); setIsActive(v === 'all' ? null : v); }}>
+                <SelectTrigger className="rounded-xl bg-background/50 border-border h-10">
+                  <SelectValue placeholder="All Status" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-border shadow-2xl">
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="true">Active</SelectItem>
+                  <SelectItem value="false">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Sort Order</Label>
+              <Select value={sortDir || 'none'} onValueChange={(v) => { resetPage(); setSortDir(v === 'none' ? null : v); }}>
+                <SelectTrigger className="rounded-xl bg-background/50 border-border h-10">
+                  <SelectValue placeholder="Default Sort" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-border shadow-2xl">
+                  <SelectItem value="none">Default</SelectItem>
+                  <SelectItem value="asc">A → Z</SelectItem>
+                  <SelectItem value="desc">Z → A</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          {activeFilterCount > 0 && (
+            <div className="border-t pt-4">
+              <Button variant="ghost" className="w-full rounded-xl text-muted-foreground" onClick={() => { clearAll(); setFiltersOpen(false); }}>
+                <X className="h-4 w-4 mr-2" /> Clear All Filters
+              </Button>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
 
       {/* Active chips */}
       {activeChips.length > 0 && (
