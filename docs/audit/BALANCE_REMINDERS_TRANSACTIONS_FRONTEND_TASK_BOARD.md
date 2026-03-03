@@ -27,8 +27,8 @@ Backend work is tracked separately in:
 
 | Ticket ID | Feature | Priority | Status | Description | Depends On |
 |---|---|---|---|---|---|
-| BR-FE-001 | Balance Reminders | High | READY | Fix current page contract to use backend's real shape: `scheduled`, `cronExpression`, `nextRunAt`, `minBalance`. Remove false inactive state caused by mismatched field names. | BR-BE-001 |
-| BR-FE-002 | Balance Reminders | High | READY | Fix preset UX to respect PKT-facing labels while sending correct UTC cron expressions. Do not show "Daily at 9 AM" while posting the wrong cron value. | BR-BE-001 |
+| BR-FE-001 | Balance Reminders | High | DONE | Fix current page contract to use backend's real shape: `scheduled`, `cronExpression`, `nextRunAt`, `minBalance`. Remove false inactive state caused by mismatched field names. | BR-BE-001 |
+| BR-FE-002 | Balance Reminders | High | DONE | Fix preset UX to respect PKT-facing labels while sending correct UTC cron expressions. Do not show "Daily at 9 AM" while posting the wrong cron value. | BR-BE-001 |
 | BR-FE-003 | Balance Reminders | Medium | READY | Add a dry-run preview panel that shows exactly which customers would receive reminders before sending. | BR-BE-006 |
 | BR-FE-004 | Balance Reminders | High | READY | Add targeted single-customer send flow: searchable customer picker + confirmation modal + send action. | BR-BE-005 |
 | BR-FE-005 | Balance Reminders | Medium | READY | Add selected-customer bulk send flow for multiple chosen customers without sending to the full eligible customer base. | BR-BE-005 |

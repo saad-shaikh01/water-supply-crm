@@ -31,6 +31,7 @@ export class BalanceReminderService {
     // Remove any existing repeatable job for this vendor
     await this.cancelReminders(vendorId);
 
+    // Add to BullMQ
     await this.reminderQueue.add(
       JOB_NAMES.SEND_BALANCE_REMINDERS,
       { vendorId, minBalance },
@@ -42,6 +43,29 @@ export class BalanceReminderService {
       },
     );
 
+    // Get next run time from BullMQ if possible
+    const repeatableJobs = await this.reminderQueue.getRepeatableJobs();
+    const job = repeatableJobs.find((j) => j.id === jobId);
+    const nextRunAt = job?.next ? new Date(job.next) : null;
+
+    // Persist in DB (BR-BE-002)
+    await this.prisma.balanceReminderSchedule.upsert({
+      where: { vendorId },
+      update: {
+        cronExpression,
+        minBalance,
+        isActive: true,
+        nextRunAt,
+      },
+      create: {
+        vendorId,
+        cronExpression,
+        minBalance,
+        isActive: true,
+        nextRunAt,
+      },
+    });
+
     this.logger.log(
       `Scheduled balance reminders for vendor ${vendorId}: ${cronExpression}, minBalance=${minBalance}`,
     );
@@ -50,6 +74,7 @@ export class BalanceReminderService {
       vendorId,
       cronExpression,
       minBalance,
+      nextRunAt,
       message: 'Balance reminder schedule configured',
     };
   }
@@ -66,24 +91,34 @@ export class BalanceReminderService {
       await this.reminderQueue.removeRepeatableByKey(job.key);
     }
 
+    // Update DB
+    await this.prisma.balanceReminderSchedule.updateMany({
+      where: { vendorId },
+      data: { isActive: false, nextRunAt: null },
+    });
+
     return { vendorId, message: 'Balance reminder schedule removed' };
   }
 
   /** Get current schedule status for a vendor */
   async getScheduleStatus(vendorId: string) {
-    const jobId = REPEATABLE_JOB_ID(vendorId);
-    const repeatableJobs = await this.reminderQueue.getRepeatableJobs();
-    const existing = repeatableJobs.find((j) => j.id === jobId);
+    // Rely on DB as source of truth (BR-BE-002)
+    const schedule = await this.prisma.balanceReminderSchedule.findUnique({
+      where: { vendorId },
+    });
 
-    if (!existing) {
+    if (!schedule || !schedule.isActive) {
       return { vendorId, scheduled: false };
     }
 
+    // Optionally sync nextRunAt from BullMQ if needed, but DB is fine for now
     return {
       vendorId,
-      scheduled: true,
-      cronExpression: existing.pattern,
-      nextRunAt: existing.next ? new Date(existing.next).toISOString() : null,
+      scheduled: schedule.isActive,
+      cronExpression: schedule.cronExpression,
+      minBalance: schedule.minBalance,
+      nextRunAt: schedule.nextRunAt?.toISOString() ?? null,
+      lastRunAt: schedule.lastRunAt?.toISOString() ?? null,
     };
   }
 
@@ -117,6 +152,14 @@ export class BalanceReminderService {
       },
       orderBy: { financialBalance: 'desc' },
     });
+
+    // Update lastRunAt if not a dry run
+    if (!dryRun) {
+      await this.prisma.balanceReminderSchedule.updateMany({
+        where: { vendorId },
+        data: { lastRunAt: new Date() },
+      });
+    }
 
     if (customers.length === 0) {
       this.logger.log(

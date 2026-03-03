@@ -641,7 +641,6 @@ model FcmToken {
 // ──────────────────────────────────────────────────────────────────────────────
 // Audit Log
 // ──────────────────────────────────────────────────────────────────────────────
-
 model AuditLog {
   id        String   @id @default(uuid())
   vendorId  String?
@@ -652,10 +651,27 @@ model AuditLog {
   entityId  String?
   changes   Json?    // { before: {}, after: {} }
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([vendorId, createdAt])
   @@index([entity, entityId])
 }
+
+model BalanceReminderSchedule {
+  id             String   @id @default(uuid())
+  vendorId       String   @unique
+  vendor         Vendor   @relation(fields: [vendorId], references: [id])
+  cronExpression String
+  minBalance     Float    @default(100)
+  isActive       Boolean  @default(true)
+  lastRunAt      DateTime?
+  nextRunAt      DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([vendorId])
+}
+
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Notification Platform
