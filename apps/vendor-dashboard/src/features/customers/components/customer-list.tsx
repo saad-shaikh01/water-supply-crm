@@ -77,17 +77,19 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   return (
     <div className="space-y-4">
       {/* Primary filter bar */}
-      <div className="flex flex-col sm:flex-row items-center gap-3 bg-card/30 p-4 rounded-2xl border border-border">
+      <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-3 bg-card/30 p-3 sm:p-4 rounded-2xl border border-border">
         <div className="flex-1 w-full">
           <SearchInput placeholder="Search name, phone or code..." onBeforeChange={resetPage} />
         </div>
-        <RouteFilter onBeforeChange={resetPage} />
+        <div className="hidden sm:block">
+          <RouteFilter onBeforeChange={resetPage} />
+        </div>
         <Button
           variant="outline"
           size="sm"
           onClick={() => setFiltersOpen(true)}
           className={cn(
-            "rounded-xl h-10 px-4 gap-2 font-semibold shrink-0",
+            "rounded-xl h-9 sm:h-10 px-3 sm:px-4 gap-2 font-semibold shrink-0 w-full sm:w-auto",
             activeFilters.length > 0 && "border-primary text-primary"
           )}
         >
@@ -132,6 +134,10 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             </SheetTitle>
           </SheetHeader>
           <div className="space-y-6 py-6">
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Route</Label>
+              <RouteFilter onBeforeChange={resetPage} />
+            </div>
             <div className="space-y-2">
               <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Payment Type</Label>
               <Select value={paymentType || 'all'} onValueChange={(v) => { resetPage(); setPaymentType(v === 'all' ? null : v as 'MONTHLY' | 'CASH'); }}>

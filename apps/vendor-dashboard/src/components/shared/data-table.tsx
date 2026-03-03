@@ -43,9 +43,9 @@ export function DataTable<T extends { id: string }>({
     return (
       <div className="space-y-4">
         <div className="rounded-2xl border border-border overflow-hidden bg-white/[0.02] backdrop-blur-2xl">
-          <div className="h-14 bg-white/[0.01] border-b border-border" />
+          <div className="h-12 sm:h-14 bg-white/[0.01] border-b border-border" />
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="flex items-center gap-4 p-6 border-b border-border/50 last:border-0">
+            <div key={i} className="flex items-center gap-4 p-4 sm:p-6 border-b border-border/50 last:border-0">
               <Skeleton className="h-4 w-full rounded-full" />
             </div>
           ))}
@@ -63,7 +63,7 @@ export function DataTable<T extends { id: string }>({
               {columns.map((col) => (
                 <TableHead 
                   key={col.key} 
-                  className="h-14 text-[10px] uppercase tracking-[0.25em] font-bold text-muted-foreground"
+                  className="h-12 sm:h-14 text-[10px] uppercase tracking-[0.25em] font-bold text-muted-foreground"
                   style={col.width ? { width: col.width } : undefined}
                 >
                   {col.header}
@@ -93,7 +93,7 @@ export function DataTable<T extends { id: string }>({
                   className="group/row transition-colors border-b border-border/50 last:border-0 hover:bg-white/[0.04]"
                 >
                   {columns.map((col) => (
-                    <TableCell key={col.key} className="py-4 px-6">
+                    <TableCell key={col.key} className="py-3 px-4 sm:py-4 sm:px-6">
                       <div className={cn(
                         "text-sm font-medium transition-colors text-foreground/90 group-hover:text-primary",
                         // Auto-apply tabular-nums if column looks like a number

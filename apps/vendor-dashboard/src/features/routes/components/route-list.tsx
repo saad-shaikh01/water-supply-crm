@@ -13,6 +13,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Sheet, SheetContent, SheetHeader, SheetTitle, Label, Badge,
 } from '@water-supply-crm/ui';
 import { DataTable } from '../../../components/shared/data-table';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
@@ -21,6 +22,8 @@ import { useRoutes, useDeleteRoute } from '../hooks/use-routes';
 import { useAllVans } from '../../vans/hooks/use-vans';
 import { useAuthStore } from '../../../store/auth.store';
 import { hasMinRole } from '../../../lib/rbac';
+import { SlidersHorizontal } from 'lucide-react';
+import { cn } from '@water-supply-crm/ui';
 
 interface RouteListProps {
   onEdit: (route: Record<string, unknown>) => void;
@@ -44,6 +47,7 @@ export function RouteList({ onEdit }: RouteListProps) {
   const { data: vansData } = useAllVans();
   const { mutate: deleteRoute, isPending: isDeleting } = useDeleteRoute();
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const response = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
   const routes = (response?.data ?? []) as Array<{
@@ -56,9 +60,10 @@ export function RouteList({ onEdit }: RouteListProps) {
   const selectedVanLabel = vans.find((van) => van.id === defaultVanId)?.plateNumber ?? 'Van';
 
   const activeChips = [
-    search ? { label: `Search: ${search}`, clear: () => { setPage(1); setSearch(null); } } : null,
     defaultVanId ? { label: `Van: ${selectedVanLabel}`, clear: () => { setPage(1); setDefaultVanId(null); } } : null,
   ].filter(Boolean) as Array<{ label: string; clear: () => void }>;
+
+  const activeFilterCount = activeChips.length;
 
   const clearAll = () => {
     setPage(1);
@@ -68,27 +73,83 @@ export function RouteList({ onEdit }: RouteListProps) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3 bg-card/30 p-4 rounded-2xl border border-border">
-        <SearchInput placeholder="Search routes..." onBeforeChange={() => setPage(1)} />
+      <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-3 bg-card/30 p-3 sm:p-4 rounded-2xl border border-border">
+        <div className="flex-1 w-full">
+          <SearchInput placeholder="Search routes..." onBeforeChange={() => setPage(1)} />
+        </div>
 
-        <Select value={defaultVanId || 'all'} onValueChange={(v) => { setPage(1); setDefaultVanId(v === 'all' ? null : v); }}>
-          <SelectTrigger className="w-[180px] rounded-xl bg-background/50 border-border h-10">
-            <SelectValue placeholder="All Vans" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Vans</SelectItem>
-            {vans.map((van) => (
-              <SelectItem key={van.id} value={van.id}>{van.plateNumber}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="hidden sm:block">
+          <Select value={defaultVanId || 'all'} onValueChange={(v) => { setPage(1); setDefaultVanId(v === 'all' ? null : v); }}>
+            <SelectTrigger className="w-[180px] rounded-xl bg-background/50 border-border h-10">
+              <SelectValue placeholder="All Vans" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Vans</SelectItem>
+              {vans.map((van) => (
+                <SelectItem key={van.id} value={van.id}>{van.plateNumber}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setFiltersOpen(true)}
+          className={cn(
+            "rounded-xl h-9 sm:h-10 px-3 sm:px-4 gap-2 font-semibold shrink-0 w-full sm:w-auto",
+            activeFilterCount > 0 && "border-primary text-primary",
+            "sm:hidden"
+          )}
+        >
+          <SlidersHorizontal className="h-4 w-4" />
+          Filters
+          {activeFilterCount > 0 && (
+            <Badge className="h-5 w-5 p-0 flex items-center justify-center rounded-full text-[10px] font-black">
+              {activeFilterCount}
+            </Badge>
+          )}
+        </Button>
 
         {activeChips.length > 0 && (
-          <button onClick={clearAll} className="text-xs text-muted-foreground hover:text-foreground font-semibold underline-offset-2 hover:underline">
+          <button onClick={clearAll} className="hidden sm:block text-xs text-muted-foreground hover:text-foreground font-semibold underline-offset-2 hover:underline">
             Clear all
           </button>
         )}
       </div>
+
+      <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-sm bg-background/95 backdrop-blur-xl border-l border-border">
+          <SheetHeader className="pb-6 border-b border-border">
+            <SheetTitle className="flex items-center gap-2 text-lg font-bold">
+              <SlidersHorizontal className="h-5 w-5 text-primary" /> Filters
+            </SheetTitle>
+          </SheetHeader>
+          <div className="space-y-6 py-6">
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Default Van</Label>
+              <Select value={defaultVanId || 'all'} onValueChange={(v) => { setPage(1); setDefaultVanId(v === 'all' ? null : v); }}>
+                <SelectTrigger className="rounded-xl bg-background/50 border-border h-10">
+                  <SelectValue placeholder="All Vans" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-border shadow-2xl">
+                  <SelectItem value="all">All Vans</SelectItem>
+                  {vans.map((van) => (
+                    <SelectItem key={van.id} value={van.id}>{van.plateNumber}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          {activeFilterCount > 0 && (
+            <div className="border-t pt-4">
+              <Button variant="ghost" className="w-full rounded-xl text-muted-foreground" onClick={() => { clearAll(); setFiltersOpen(false); }}>
+                <X className="h-4 w-4 mr-2" /> Clear All Filters
+              </Button>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
 
       {activeChips.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 px-1">
