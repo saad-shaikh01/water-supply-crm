@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { balanceRemindersApi } from '../api/balance-reminders.api';
+import { balanceRemindersApi, PreviewPayload, SendTargetedPayload } from '../api/balance-reminders.api';
 
 const QUERY_KEY = ['balance-reminders-schedule'];
 
@@ -43,5 +43,26 @@ export const useSendRemindersNow = () => {
       toast.success(`Reminders sent to ${count} customers`);
     },
     onError: () => toast.error('Failed to send reminders'),
+  });
+};
+
+export const useSendTargeted = () => {
+  return useMutation({
+    mutationFn: (payload: SendTargetedPayload) => balanceRemindersApi.sendTargeted(payload),
+    onSuccess: (res) => {
+      const data = (res as any).data;
+      const count = data?.sent ?? 0;
+      const month = data?.month ?? '';
+      const withStatement = data?.includeStatement ? ' with statement' : '';
+      toast.success(`Sent ${count} reminder${count !== 1 ? 's' : ''}${withStatement} for ${month}`);
+    },
+    onError: () => toast.error('Failed to send reminders'),
+  });
+};
+
+export const usePreviewReminders = () => {
+  return useMutation({
+    mutationFn: (payload: PreviewPayload) => balanceRemindersApi.preview(payload),
+    onError: () => toast.error('Failed to load preview'),
   });
 };

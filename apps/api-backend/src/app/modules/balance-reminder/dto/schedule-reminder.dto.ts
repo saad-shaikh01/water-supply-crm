@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsOptional, Min, IsBoolean, IsIn, IsArray, ArrayMinSize } from 'class-validator';
+import { IsString, IsNumber, IsOptional, Min, IsBoolean, IsIn, IsArray, ArrayMinSize, Matches } from 'class-validator';
 
 export class ScheduleReminderDto {
   /**
@@ -33,6 +33,23 @@ export class SendNowDto {
   @IsOptional()
   @IsBoolean()
   dryRun?: boolean;
+
+  /**
+   * Billing month to reference in the reminder (YYYY-MM).
+   * Defaults to the current calendar month.
+   */
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'month must be in YYYY-MM format' })
+  month?: string;
+
+  /**
+   * If true, generate the monthly statement PDF for each customer,
+   * upload it to private storage, and include the signed URL in the message.
+   */
+  @IsOptional()
+  @IsBoolean()
+  includeStatement?: boolean;
 }
 
 export class PreviewDto {
@@ -56,6 +73,17 @@ export class PreviewDto {
   @IsNumber()
   @Min(0)
   minBalance?: number;
+
+  /** Billing month reference (YYYY-MM). Defaults to current month. */
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'month must be in YYYY-MM format' })
+  month?: string;
+
+  /** If true, statement links would be included in the message. */
+  @IsOptional()
+  @IsBoolean()
+  includeStatement?: boolean;
 }
 
 export class SendTargetedDto {
@@ -96,4 +124,21 @@ export class SendTargetedDto {
   @IsOptional()
   @IsBoolean()
   force?: boolean;
+
+  /**
+   * Billing month to reference in the reminder (YYYY-MM).
+   * Defaults to the current calendar month.
+   */
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'month must be in YYYY-MM format' })
+  month?: string;
+
+  /**
+   * If true, generate the monthly statement PDF for each customer,
+   * upload it to private storage, and include the signed URL in the message.
+   */
+  @IsOptional()
+  @IsBoolean()
+  includeStatement?: boolean;
 }

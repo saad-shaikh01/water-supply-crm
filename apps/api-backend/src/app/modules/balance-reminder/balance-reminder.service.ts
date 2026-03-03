@@ -5,11 +5,16 @@ import { PrismaService } from '@water-supply-crm/database';
 import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
 import { MessageTemplates } from '../whatsapp/templates/message.templates';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { StorageService } from '../../common/storage/storage.service';
+import { CustomerStatementPdfService } from '../customer/pdf/customer-statement-pdf.service';
 import { ScheduleReminderDto, SendNowDto, SendTargetedDto, PreviewDto } from './dto/schedule-reminder.dto';
 
 const DEFAULT_CRON = '0 4 * * *'; // 9 AM PKT (UTC+5) — stored as UTC
 const DEFAULT_MIN_BALANCE = 100;
 const REPEATABLE_JOB_ID = (vendorId: string) => `balance-reminder:${vendorId}`;
+
+/** Signed statement URL is valid for 7 days — long enough for customer to act */
+const STATEMENT_URL_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 /** Stable response shape returned by all schedule-related endpoints */
 export interface ReminderScheduleStatus {
@@ -29,6 +34,8 @@ export class BalanceReminderService {
     private readonly reminderQueue: Queue,
     private readonly prisma: PrismaService,
     private readonly whatsapp: WhatsAppService,
+    private readonly storage: StorageService,
+    private readonly statementPdf: CustomerStatementPdfService,
   ) {}
 
   /** Remove existing BullMQ repeatable job for a vendor (does NOT touch DB) */
@@ -143,8 +150,10 @@ export class BalanceReminderService {
   async sendNow(vendorId: string, dto: SendNowDto) {
     const minBalance = dto.minBalance ?? DEFAULT_MIN_BALANCE;
     const dryRun = dto.dryRun ?? false;
+    const month = dto.month ?? this.currentMonth();
+    const includeStatement = dto.includeStatement ?? false;
 
-    return this.processVendorReminders(vendorId, minBalance, dryRun);
+    return this.processVendorReminders(vendorId, minBalance, dryRun, month, includeStatement);
   }
 
   /**
@@ -156,15 +165,17 @@ export class BalanceReminderService {
   async sendTargeted(vendorId: string, dto: SendTargetedDto) {
     const minBalance = dto.minBalance ?? DEFAULT_MIN_BALANCE;
     const dryRun = dto.dryRun ?? false;
+    const month = dto.month ?? this.currentMonth();
+    const includeStatement = dto.includeStatement ?? false;
 
     if (dto.mode === 'eligible') {
-      return this.processVendorReminders(vendorId, minBalance, dryRun);
+      return this.processVendorReminders(vendorId, minBalance, dryRun, month, includeStatement);
     }
 
     // single / selected — explicit customer list required
     const customerIds = dto.customerIds ?? [];
     if (customerIds.length === 0) {
-      return { vendorId, sent: 0, skipped: 0, dryRun, customers: [], error: 'customerIds is required for mode=single or mode=selected' };
+      return { vendorId, sent: 0, skipped: 0, dryRun, month, includeStatement, customers: [], error: 'customerIds is required for mode=single or mode=selected' };
     }
 
     const customers = await this.prisma.customer.findMany({
@@ -183,7 +194,7 @@ export class BalanceReminderService {
     });
 
     if (customers.length === 0) {
-      return { vendorId, sent: 0, skipped: 0, dryRun, customers: [] };
+      return { vendorId, sent: 0, skipped: 0, dryRun, month, includeStatement, customers: [] };
     }
 
     let sent = 0;
@@ -193,46 +204,64 @@ export class BalanceReminderService {
       name: string;
       balance: number;
       status: string;
+      statementUrl?: string | null;
     }> = [];
 
     for (const customer of customers) {
-      const message = MessageTemplates.balanceReminder(
-        customer.name,
-        customer.financialBalance,
-      );
+      let statementUrl: string | null = null;
+
+      if (includeStatement && !dryRun) {
+        statementUrl = await this.generateStatementUrl(vendorId, customer.id, month);
+      }
+
+      const message = statementUrl
+        ? MessageTemplates.balanceReminderWithStatement(
+            customer.name,
+            customer.financialBalance,
+            this.formatMonthLabel(month),
+            statementUrl,
+          )
+        : MessageTemplates.balanceReminder(customer.name, customer.financialBalance);
 
       if (dryRun) {
-        results.push({ customerId: customer.id, name: customer.name, balance: customer.financialBalance, status: 'would-send' });
+        results.push({
+          customerId: customer.id,
+          name: customer.name,
+          balance: customer.financialBalance,
+          status: 'would-send',
+          statementUrl: includeStatement ? '(signed URL generated at send time)' : null,
+        });
         skipped++;
         continue;
       }
 
       const messageSent = await this.whatsapp.sendMessage(customer.phoneNumber, message);
-      results.push({ customerId: customer.id, name: customer.name, balance: customer.financialBalance, status: messageSent ? 'sent' : 'failed' });
+      results.push({
+        customerId: customer.id,
+        name: customer.name,
+        balance: customer.financialBalance,
+        status: messageSent ? 'sent' : 'failed',
+        statementUrl,
+      });
       if (messageSent) { sent++; } else { skipped++; }
     }
 
     this.logger.log(
-      `Targeted reminders for vendor ${vendorId} (mode=${dto.mode}): sent=${sent}, skipped=${skipped}, dryRun=${dryRun}`,
+      `Targeted reminders for vendor ${vendorId} (mode=${dto.mode}): sent=${sent}, skipped=${skipped}, dryRun=${dryRun}, month=${month}, includeStatement=${includeStatement}`,
     );
 
-    return { vendorId, sent, skipped, dryRun, customers: results };
+    return { vendorId, sent, skipped, dryRun, month, includeStatement, customers: results };
   }
 
   /**
    * Full eligibility preview — shows every candidate and why they would or would not receive a reminder.
    * Never sends messages. Always operates as dryRun=true.
-   *
-   * Eligibility reasons:
-   *   would-send          — passes all checks
-   *   skipped-low-balance — balance below minBalance
-   *   skipped-no-phone    — phone number missing
-   *   skipped-inactive    — customer is not active
-   *   skipped-wrong-type  — paymentType is not MONTHLY
    */
   async previewReminders(vendorId: string, dto: PreviewDto) {
     const minBalance = dto.minBalance ?? DEFAULT_MIN_BALANCE;
     const mode = dto.mode ?? 'eligible';
+    const month = dto.month ?? this.currentMonth();
+    const includeStatement = dto.includeStatement ?? false;
 
     // Fetch candidates: for selected/single use explicit IDs; for eligible fetch all vendor customers
     const whereBase = mode === 'eligible'
@@ -294,6 +323,8 @@ export class BalanceReminderService {
       vendorId,
       mode,
       minBalance,
+      month,
+      includeStatement,
       totalWouldSend: wouldSend.length,
       totalSkipped: skipped.length,
       wouldSend,
@@ -306,7 +337,11 @@ export class BalanceReminderService {
     vendorId: string,
     minBalance: number,
     dryRun = false,
+    month?: string,
+    includeStatement = false,
   ) {
+    const targetMonth = month ?? this.currentMonth();
+
     const customers = await this.prisma.customer.findMany({
       where: {
         vendorId,
@@ -328,7 +363,7 @@ export class BalanceReminderService {
       this.logger.log(
         `No customers with balance >= ${minBalance} for vendor ${vendorId}`,
       );
-      return { vendorId, sent: 0, skipped: 0, dryRun, customers: [] };
+      return { vendorId, sent: 0, skipped: 0, dryRun, month: targetMonth, includeStatement, customers: [] };
     }
 
     let sent = 0;
@@ -338,13 +373,24 @@ export class BalanceReminderService {
       name: string;
       balance: number;
       status: string;
+      statementUrl?: string | null;
     }> = [];
 
     for (const customer of customers) {
-      const message = MessageTemplates.balanceReminder(
-        customer.name,
-        customer.financialBalance,
-      );
+      let statementUrl: string | null = null;
+
+      if (includeStatement && !dryRun) {
+        statementUrl = await this.generateStatementUrl(vendorId, customer.id, targetMonth);
+      }
+
+      const message = statementUrl
+        ? MessageTemplates.balanceReminderWithStatement(
+            customer.name,
+            customer.financialBalance,
+            this.formatMonthLabel(targetMonth),
+            statementUrl,
+          )
+        : MessageTemplates.balanceReminder(customer.name, customer.financialBalance);
 
       if (dryRun) {
         results.push({
@@ -352,6 +398,7 @@ export class BalanceReminderService {
           name: customer.name,
           balance: customer.financialBalance,
           status: 'would-send',
+          statementUrl: includeStatement ? '(signed URL generated at send time)' : null,
         });
         skipped++;
         continue;
@@ -367,6 +414,7 @@ export class BalanceReminderService {
         name: customer.name,
         balance: customer.financialBalance,
         status: messageSent ? 'sent' : 'failed',
+        statementUrl,
       });
 
       if (messageSent) {
@@ -377,9 +425,83 @@ export class BalanceReminderService {
     }
 
     this.logger.log(
-      `Balance reminders for vendor ${vendorId}: sent=${sent}, skipped=${skipped}, dryRun=${dryRun}`,
+      `Balance reminders for vendor ${vendorId}: sent=${sent}, skipped=${skipped}, dryRun=${dryRun}, month=${targetMonth}, includeStatement=${includeStatement}`,
     );
 
-    return { vendorId, sent, skipped, dryRun, customers: results };
+    return { vendorId, sent, skipped, dryRun, month: targetMonth, includeStatement, customers: results };
+  }
+
+  /**
+   * Generate the monthly statement PDF for a customer, upload it to private storage,
+   * and return a pre-signed URL valid for 7 days.
+   * Returns null on any error — reminder is still sent without statement link.
+   */
+  private async generateStatementUrl(
+    vendorId: string,
+    customerId: string,
+    month: string,
+  ): Promise<string | null> {
+    try {
+      const [year, mon] = month.split('-').map(Number);
+      const startDate = new Date(year, mon - 1, 1);
+      const endDate = new Date(year, mon, 1);
+
+      const customer = await this.prisma.customer.findFirst({
+        where: { id: customerId, vendorId },
+      });
+      if (!customer) return null;
+
+      const transactions = await this.prisma.transaction.findMany({
+        where: {
+          customerId,
+          vendorId,
+          createdAt: { gte: startDate, lt: endDate },
+        },
+        include: { product: { select: { name: true } } },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      const periodActivity = transactions.reduce((sum, t) => sum + (t.amount ?? 0), 0);
+      const closingBalance = customer.financialBalance;
+      const openingBalance = closingBalance - periodActivity;
+      const period = new Date(year, mon - 1, 1).toLocaleString('en-PK', {
+        month: 'long',
+        year: 'numeric',
+      });
+
+      const pdfBuffer = await this.statementPdf.generate({
+        customer,
+        transactions,
+        openingBalance,
+        closingBalance,
+        period,
+      });
+
+      const { key } = await this.storage.upload(
+        'statement-reminders',
+        pdfBuffer,
+        `statement-${customerId}-${month}.pdf`,
+        'application/pdf',
+      );
+
+      return await this.storage.getSignedUrl(key, STATEMENT_URL_TTL_SECONDS);
+    } catch (err) {
+      this.logger.warn(`Statement generation failed for customer ${customerId} (${month}): ${err}`);
+      return null;
+    }
+  }
+
+  /** Returns current calendar month in YYYY-MM format */
+  private currentMonth(): string {
+    return new Date().toISOString().slice(0, 7);
+  }
+
+  /** Formats 'YYYY-MM' to a human-readable label like 'January 2026' */
+  private formatMonthLabel(month: string): string {
+    const [year, mon] = month.split('-').map(Number);
+    return new Date(year, mon - 1, 1).toLocaleString('en-PK', {
+      month: 'long',
+      year: 'numeric',
+    });
   }
 }

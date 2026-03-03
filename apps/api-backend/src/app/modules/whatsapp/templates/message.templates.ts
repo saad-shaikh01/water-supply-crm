@@ -17,6 +17,14 @@ export const MessageTemplates = {
   balanceReminder: (customerName: string, balance: number) =>
     `Assalam o Alaikum ${customerName},\n\nYe aapka outstanding balance reminder hai:\n💰 Due Amount: Rs. ${balance.toFixed(2)}\n\nKripya jald payment karein. Shukriya!`,
 
+  balanceReminderWithStatement: (
+    customerName: string,
+    balance: number,
+    month: string,
+    statementUrl: string,
+  ) =>
+    `Assalam o Alaikum ${customerName},\n\nYe aapka ${month} ka balance reminder hai:\n💰 Due Amount: Rs. ${balance.toFixed(2)}\n\n📄 Aapka maheena ka statement yahan dekhen:\n${statementUrl}\n\nKripya jald payment karein. Shukriya!`,
+
   deliveryScheduled: (customerName: string, date: string) =>
     `Assalam o Alaikum ${customerName}! 📅\n\nAapki delivery schedule hui hai:\n📆 Date: ${date}\n\nDriver aapke ghar aayega. Shukriya!`,
 
