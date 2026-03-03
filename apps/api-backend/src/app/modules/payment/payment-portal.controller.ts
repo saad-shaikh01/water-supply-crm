@@ -77,13 +77,13 @@ export class PaymentPortalController {
   ) {
     let screenshotPath: string | undefined;
     if (file) {
-      const { url } = await this.storage.upload(
+      const { key } = await this.storage.upload(
         'payment-screenshots',
         file.buffer,
         file.originalname,
         file.mimetype,
       );
-      screenshotPath = url;
+      screenshotPath = key;
     }
     return this.paymentService.submitManualPayment(
       user.customerId,

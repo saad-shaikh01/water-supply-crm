@@ -13,7 +13,6 @@ export class StorageService {
   private readonly logger = new Logger(StorageService.name);
   private readonly s3: S3Client;
   private readonly bucket: string;
-  private readonly baseUrl: string;
 
   constructor() {
     const endpoint = process.env.WASABI_ENDPOINT ?? '';
@@ -21,12 +20,6 @@ export class StorageService {
     const accessKeyId = process.env.WASABI_ACCESS_KEY_ID ?? '';
     const secretAccessKey = process.env.WASABI_SECRET_ACCESS_KEY ?? '';
     this.bucket = process.env.WASABI_BUCKET ?? '';
-
-    // Public base URL for constructing object URLs.
-    // Falls back to path-style endpoint URL if no explicit CDN is set.
-    this.baseUrl =
-      process.env.WASABI_PUBLIC_URL?.replace(/\/$/, '') ??
-      `${endpoint.replace(/\/$/, '')}/${this.bucket}`;
 
     this.s3 = new S3Client({
       region,
@@ -37,19 +30,21 @@ export class StorageService {
   }
 
   /**
-   * Upload a file buffer to Wasabi.
-   * @param prefix  Folder prefix, e.g. "payment-screenshots"
-   * @param buffer  File contents
-   * @param originalName  Original filename (used for extension extraction)
-   * @param mimetype  MIME type sent by the client
-   * @returns  { key, url } — key is the S3 object key; url is the addressable URL
+   * Upload a file buffer to Wasabi and return its object key.
+   * The bucket is treated as private — use getSignedUrl() to vend access.
+   *
+   * @param prefix       Folder prefix, e.g. "payment-screenshots"
+   * @param buffer       File contents
+   * @param originalName Original filename (used for extension extraction)
+   * @param mimetype     MIME type sent by the client
+   * @returns { key } — the S3 object key to store in the database
    */
   async upload(
     prefix: string,
     buffer: Buffer,
     originalName: string,
     mimetype: string,
-  ): Promise<{ key: string; url: string }> {
+  ): Promise<{ key: string }> {
     const ext = extname(originalName).toLowerCase() || '.bin';
     const key = `${prefix}/${randomUUID()}${ext}`;
 
@@ -62,17 +57,16 @@ export class StorageService {
       }),
     );
 
-    const url = `${this.baseUrl}/${key}`;
     this.logger.log(`Uploaded to Wasabi: ${key}`);
-    return { key, url };
+    return { key };
   }
 
   /**
    * Generate a pre-signed GET URL for a private object.
-   * @param key       S3 object key
-   * @param expiresIn Validity in seconds (default: 1 hour)
+   * @param key       S3 object key (as stored in the database)
+   * @param expiresIn Validity in seconds (default: 15 minutes)
    */
-  async getSignedUrl(key: string, expiresIn = 3600): Promise<string> {
+  async getSignedUrl(key: string, expiresIn = 900): Promise<string> {
     return getSignedUrl(
       this.s3,
       new GetObjectCommand({ Bucket: this.bucket, Key: key }),

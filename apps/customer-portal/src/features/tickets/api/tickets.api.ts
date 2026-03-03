@@ -27,12 +27,22 @@ export const ticketsApi = {
 
   /**
    * Upload a single file to Wasabi via the backend.
-   * Returns { key, url, name } for use in ticket message attachments.
+   * Returns { key, name } — the key is stored in the message's attachments JSON.
+   * Access is via getAttachmentUrl(), not a raw public URL.
    */
   uploadAttachment: (formData: FormData) =>
-    apiClient.post<{ key: string; url: string; name: string }>(
+    apiClient.post<{ key: string; name: string }>(
       '/portal/tickets/upload-attachment',
       formData,
       { headers: { 'Content-Type': 'multipart/form-data' } },
     ),
+
+  /**
+   * Generate a short-lived signed URL (15 min) for a ticket attachment.
+   * Call this when the user wants to view or download an attachment.
+   */
+  getAttachmentUrl: (key: string) =>
+    apiClient.get<{ signedUrl: string }>('/portal/tickets/attachment-url', {
+      params: { key },
+    }),
 };

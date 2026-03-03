@@ -66,10 +66,28 @@ function getAttachmentLabel(attachment: Record<string, unknown>, index: number) 
   );
 }
 
-function getAttachmentUrl(attachment: Record<string, unknown>) {
-  if (typeof attachment.url === 'string') return attachment.url;
-  if (typeof attachment.href === 'string') return attachment.href;
-  return null;
+/**
+ * Open an attachment via a signed URL from the backend.
+ * Attachments stored with a 'key' (new private-bucket records) use the signed
+ * URL endpoint. Legacy records that carry a plain 'url' fall back to that URL.
+ */
+async function openAttachment(attachment: Record<string, unknown>) {
+  const key = typeof attachment.key === 'string' ? attachment.key : null;
+  const legacyUrl = typeof attachment.url === 'string' ? attachment.url : null;
+
+  if (key) {
+    // Open blank tab first (preserves user-gesture for popup-blocker avoidance)
+    const win = window.open('', '_blank');
+    try {
+      const { data } = await ticketsApi.getAttachmentUrl(key);
+      win?.location.assign(data.signedUrl);
+    } catch {
+      win?.close();
+      toast.error('Could not load attachment');
+    }
+  } else if (legacyUrl) {
+    window.open(legacyUrl, '_blank', 'noreferrer');
+  }
 }
 
 export function TicketDetailDialog({ ticket, open, onOpenChange }: TicketDetailDialogProps) {
@@ -78,7 +96,6 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: TicketDetailD
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [uploadedAttachment, setUploadedAttachment] = useState<{
     key: string;
-    url: string;
     name: string;
   } | null>(null);
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
@@ -144,7 +161,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: TicketDetailD
       const formData = new FormData();
       formData.append('attachment', file);
       const { data } = await ticketsApi.uploadAttachment(formData);
-      setUploadedAttachment(data);
+      // Store only key + name — no public URL
+      setUploadedAttachment({ key: data.key, name: data.name });
     } catch {
       toast.error('Failed to upload attachment. Please try again.');
       setPendingFile(null);
@@ -164,8 +182,9 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: TicketDetailD
   const handleSubmit = () => {
     if (!message.trim()) return;
 
+    // Persist only { name, key } — signed URLs are generated on-demand
     const attachments = uploadedAttachment
-      ? [{ name: uploadedAttachment.name, url: uploadedAttachment.url, key: uploadedAttachment.key }]
+      ? [{ name: uploadedAttachment.name, key: uploadedAttachment.key }]
       : undefined;
 
     sendMessage(
@@ -269,19 +288,20 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: TicketDetailD
                             <div className="space-y-1">
                               {attachments.map((attachment, index) => {
                                 const label = getAttachmentLabel(attachment, index);
-                                const url = getAttachmentUrl(attachment);
+                                const hasKey = typeof attachment.key === 'string';
+                                const hasLegacyUrl = typeof attachment.url === 'string';
+                                const isClickable = hasKey || hasLegacyUrl;
 
-                                return url ? (
-                                  <a
+                                return isClickable ? (
+                                  <button
                                     key={`${entry.id}-attachment-${index}`}
-                                    href={url}
-                                    target="_blank"
-                                    rel="noreferrer"
+                                    type="button"
+                                    onClick={() => openAttachment(attachment)}
                                     className="flex items-center gap-2 text-xs font-bold text-primary hover:underline"
                                   >
                                     <Paperclip className="h-3.5 w-3.5" />
                                     {label}
-                                  </a>
+                                  </button>
                                 ) : (
                                   <div
                                     key={`${entry.id}-attachment-${index}`}
