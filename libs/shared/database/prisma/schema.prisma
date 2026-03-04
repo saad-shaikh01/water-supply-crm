@@ -76,6 +76,7 @@ model Vendor {
   tickets                 CustomerTicket[]
   deliveryIssues          DeliveryIssue[]
   reminderScheduleConfig  ReminderScheduleConfig?
+  driverLastLocations     DriverLastLocation[]
 }
 
 model User {
@@ -90,13 +91,14 @@ model User {
   vendor        Vendor?  @relation(fields: [vendorId], references: [id])
   
   // Relations for specific roles
-  assignedVan   Van?     @relation("VanDriver")
-  dailySheets   DailySheet[] @relation("DriverSheets")
-  customer      Customer? // One-to-one link for Customer Portal
-  expenses      Expense[]
+  assignedVan         Van?     @relation("VanDriver")
+  dailySheets         DailySheet[] @relation("DriverSheets")
+  customer            Customer? // One-to-one link for Customer Portal
+  expenses            Expense[]
   fcmTokens             FcmToken[]
   inAppNotifications    InAppNotification[]
   notificationPrefs     NotificationPreference[]
+  driverLastLocation    DriverLastLocation?
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -728,4 +730,32 @@ model ReminderScheduleConfig {
   updatedAt      DateTime @updatedAt
 
   @@index([vendorId])
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Driver Last-Known Location (persistent, DB-backed)
+// Redis holds the live stream; this table holds the last-known record so
+// offline drivers are not silently lost when the Redis key expires.
+// ──────────────────────────────────────────────────────────────────────────────
+
+model DriverLastLocation {
+  id           String   @id @default(uuid())
+  driverId     String   @unique
+  driver       User     @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  vendorId     String
+  vendor       Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  latitude     Float
+  longitude    Float
+  speed        Float?
+  bearing      Float?
+  /// ONLINE | DELIVERING | AWAY — last self-reported status
+  status       String   @default("ONLINE")
+  vanId        String?
+  dailySheetId String?
+  lastSeenAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([vendorId])
+  @@index([vendorId, lastSeenAt])
 }
