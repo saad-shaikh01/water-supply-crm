@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Map, Marker, NavigationControl, FullscreenControl, ScaleControl, Popup, useMap, MapRef } from 'react-map-gl/mapbox';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { useTracking } from '../hooks/use-tracking';
-import { Truck, Navigation, AlertTriangle, ExternalLink, Activity, Info, Map as MapIcon, Crosshair, X as CloseIcon, List } from 'lucide-react';
+import { Truck, Navigation, AlertTriangle, ExternalLink, Activity, Info, Map as MapIcon, Crosshair, X as CloseIcon, List, Signal, SignalLow, WifiOff } from 'lucide-react';
 import { 
   Card, 
   Badge, 
@@ -22,11 +22,22 @@ import Link from 'next/link';
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
 
 export function TrackingMap() {
-  const { drivers, driverList, isConnected } = useTracking();
+  const { drivers, driverList, isConnected, retryCount, lastEventTime } = useTracking();
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
+  const [lastEventAge, setLastEventAge] = useState<number>(0);
   const mapRef = useRef<MapRef>(null);
+
+  // Update last event age every second
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (lastEventTime) {
+        setLastEventAge(Math.floor((new Date().getTime() - lastEventTime.getTime()) / 1000));
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [lastEventTime]);
 
   const selectedDriver = selectedDriverId ? drivers[selectedDriverId] : null;
 
@@ -86,6 +97,67 @@ export function TrackingMap() {
         <NavigationControl position="top-right" />
         <FullscreenControl position="top-right" />
         <ScaleControl />
+
+        {/* Stream Health Panel */}
+        <div className="absolute top-8 left-8 z-10 flex flex-col gap-2 pointer-events-none">
+          <Card className="bg-background/80 backdrop-blur-xl border-border/50 px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-4 pointer-events-auto">
+            <div className="flex items-center gap-3">
+              <div className={cn(
+                "h-8 w-8 rounded-xl flex items-center justify-center transition-colors duration-500",
+                isConnected ? "bg-emerald-500/10 text-emerald-500" : "bg-destructive/10 text-destructive"
+              )}>
+                {isConnected ? (
+                  retryCount > 0 ? <SignalLow className="h-4 w-4" /> : <Signal className="h-4 w-4" />
+                ) : (
+                  <WifiOff className="h-4 w-4 animate-pulse" />
+                )}
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground leading-none mb-1">Stream Status</span>
+                <span className={cn(
+                  "text-xs font-black uppercase tracking-tighter",
+                  isConnected ? (retryCount > 0 ? "text-amber-500" : "text-emerald-500") : "text-destructive"
+                )}>
+                  {isConnected ? (retryCount > 0 ? 'Degraded' : 'Operational') : 'Disconnected'}
+                </span>
+              </div>
+            </div>
+            
+            <Separator orientation="vertical" className="h-8 bg-border/50" />
+
+            <div className="flex flex-col">
+              <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground leading-none mb-1">Latency</span>
+              <span className={cn(
+                "text-xs font-mono font-black",
+                lastEventAge < 5 ? "text-emerald-500" : lastEventAge < 15 ? "text-amber-500" : "text-destructive"
+              )}>
+                {lastEventTime ? `${lastEventAge}s` : '--'}
+              </span>
+            </div>
+
+            {retryCount > 0 && (
+              <>
+                <Separator orientation="vertical" className="h-8 bg-border/50" />
+                <div className="flex flex-col">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground leading-none mb-1">Retries</span>
+                  <span className="text-xs font-mono font-black text-amber-500">{retryCount}</span>
+                </div>
+              </>
+            )}
+          </Card>
+
+          {/* Degraded Message */}
+          {(!isConnected || retryCount > 0 || lastEventAge > 30) && (
+            <div className="bg-destructive/10 backdrop-blur-md border border-destructive/20 px-4 py-2 rounded-xl flex items-center gap-2 text-destructive animate-in fade-in slide-in-from-left-4 duration-500">
+              <AlertTriangle className="h-3 w-3" />
+              <span className="text-[10px] font-black uppercase tracking-widest">
+                {!isConnected ? 'Reconnecting to live stream...' : 
+                 retryCount > 0 ? 'Unstable connection detected' : 
+                 'Data lag exceeds operational threshold'}
+              </span>
+            </div>
+          )}
+        </div>
 
         {driverList.map((driver) => (
           <Marker

@@ -12,6 +12,8 @@ const BASE_DELAY_MS = 3_000;
 export const useTracking = () => {
   const [drivers, setDrivers] = useState<Record<string, DriverLocation>>({});
   const [isConnected, setIsConnected] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const [lastEventTime, setLastEventTime] = useState<Date | null>(null);
 
   // Refs keep the reconnect state stable across re-renders without causing them.
   const esRef = useRef<EventSource | null>(null);
@@ -28,6 +30,7 @@ export const useTracking = () => {
 
     /** Merge one location event into state; 'offline' sentinel removes the driver. */
     const applyUpdate = (data: DriverLocation) => {
+      setLastEventTime(new Date());
       if (data.status === 'offline') {
         setDrivers((prev) => {
           const next = { ...prev };
@@ -56,6 +59,7 @@ export const useTracking = () => {
         if (cancelledRef.current) { es.close(); return; }
         setIsConnected(true);
         retryCountRef.current = 0; // reset backoff counter on successful connect
+        setRetryCount(0);
       };
 
       es.onmessage = (event) => {
@@ -81,6 +85,7 @@ export const useTracking = () => {
         // Exponential backoff: 3 s → 6 s → 12 s → 24 s → 48 s → capped at 60 s
         const delay = Math.min(BASE_DELAY_MS * 2 ** retryCountRef.current, 60_000);
         retryCountRef.current += 1;
+        setRetryCount(retryCountRef.current);
         retryTimeoutRef.current = setTimeout(connect, delay);
       };
     };
@@ -121,5 +126,7 @@ export const useTracking = () => {
     drivers,
     driverList: Object.values(drivers),
     isConnected,
+    retryCount,
+    lastEventTime,
   };
 };
