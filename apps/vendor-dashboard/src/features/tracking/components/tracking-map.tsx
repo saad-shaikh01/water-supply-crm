@@ -4,21 +4,38 @@ import { useState } from 'react';
 import { Map, Marker, NavigationControl, FullscreenControl, ScaleControl, Popup } from 'react-map-gl/mapbox';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { useTracking } from '../hooks/use-tracking';
-import { Truck, Navigation, AlertTriangle } from 'lucide-react';
-import { Card, Badge, Separator } from '@water-supply-crm/ui';
+import { Truck, Navigation, AlertTriangle, ExternalLink, Activity, Info, Map as MapIcon } from 'lucide-react';
+import { 
+  Card, 
+  Badge, 
+  Separator, 
+  Button,
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from '@water-supply-crm/ui';
 import { cn } from '@water-supply-crm/ui';
+import Link from 'next/link';
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
 
 export function TrackingMap() {
   const { driverList, isConnected } = useTracking();
   const [selectedDriver, setSelectedDriver] = useState<any>(null);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   const [viewState, setViewState] = useState({
     latitude: 24.8607, // Karachi default
     longitude: 67.0011,
     zoom: 12,
   });
+
+  const handleMarkerClick = (driver: any) => {
+    setSelectedDriver(driver);
+    setIsDrawerOpen(true);
+  };
 
   // Fail clearly — do not silently embed a fallback token.
   if (!MAPBOX_TOKEN) {
@@ -51,7 +68,7 @@ export function TrackingMap() {
             anchor="bottom"
             onClick={e => {
               e.originalEvent.stopPropagation();
-              setSelectedDriver(driver);
+              handleMarkerClick(driver);
             }}
           >
             <div className="group cursor-pointer">
@@ -169,6 +186,120 @@ export function TrackingMap() {
           </div>
         </Card>
       </div>
+
+      <Sheet open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
+        <SheetContent side="right" className="w-[400px] sm:w-[450px] border-l border-border/50 bg-background/95 backdrop-blur-xl p-0">
+          {selectedDriver && (
+            <div className="flex flex-col h-full">
+              <SheetHeader className="p-8 pb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <Badge 
+                    variant={selectedDriver.freshness === 'LIVE' ? 'success' : selectedDriver.freshness === 'STALE' ? 'warning' : 'secondary'} 
+                    className="rounded-full px-3 py-1 uppercase tracking-widest text-[10px] font-black"
+                  >
+                    {selectedDriver.freshness}
+                  </Badge>
+                  <span className="text-[10px] font-mono font-bold text-muted-foreground uppercase tracking-widest">
+                    Last sync: {new Date(selectedDriver.updatedAt).toLocaleTimeString()}
+                  </span>
+                </div>
+                <SheetTitle className="text-3xl font-black tracking-tighter flex items-center gap-3">
+                  <div className="h-12 w-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary text-xl">
+                    {selectedDriver.driverName.charAt(0)}
+                  </div>
+                  {selectedDriver.driverName}
+                </SheetTitle>
+                <SheetDescription className="text-sm font-medium text-muted-foreground">
+                  Active delivery personnel currently in the field.
+                </SheetDescription>
+              </SheetHeader>
+
+              <div className="flex-1 overflow-y-auto p-8 space-y-8">
+                {/* Operational Stats */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-muted/30 p-4 rounded-3xl border border-border/50">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">Current Speed</p>
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-2xl font-black font-mono">{selectedDriver.speed || 0}</span>
+                      <span className="text-xs font-bold text-muted-foreground">km/h</span>
+                    </div>
+                  </div>
+                  <div className="bg-muted/30 p-4 rounded-3xl border border-border/50">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">Bearing</p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl font-black font-mono">{selectedDriver.bearing || 0}°</span>
+                      <Navigation 
+                        className="h-4 w-4 text-primary fill-current" 
+                        style={{ transform: `rotate(${selectedDriver.bearing || 0}deg)` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Contextual Info */}
+                <div className="space-y-4">
+                  <h3 className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2">
+                    <Info className="h-3 w-3" /> Logistics Context
+                  </h3>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between p-4 rounded-2xl bg-background border border-border/50">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Assigned Van</span>
+                        <span className="font-bold text-sm">{selectedDriver.vanId || 'No Van Assigned'}</span>
+                      </div>
+                      <Link href={`/dashboard/vans`} className="text-primary hover:bg-primary/10 p-2 rounded-xl transition-colors">
+                        <ExternalLink className="h-4 w-4" />
+                      </Link>
+                    </div>
+                    <div className="flex items-center justify-between p-4 rounded-2xl bg-background border border-border/50">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Active Sheet</span>
+                        <span className="font-bold text-sm truncate max-w-[200px]">{selectedDriver.dailySheetId || 'No Active Sheet'}</span>
+                      </div>
+                      {selectedDriver.dailySheetId && (
+                        <Link href={`/dashboard/daily-sheets/${selectedDriver.dailySheetId}`} className="text-primary hover:bg-primary/10 p-2 rounded-xl transition-colors">
+                          <ExternalLink className="h-4 w-4" />
+                        </Link>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quick Actions */}
+                <div className="space-y-4">
+                  <h3 className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2">
+                    <Activity className="h-3 w-3" /> Quick Actions
+                  </h3>
+                  <div className="grid grid-cols-1 gap-2">
+                    <Button variant="outline" className="justify-start gap-3 h-12 rounded-2xl border-border/50 hover:bg-primary/5 hover:text-primary hover:border-primary/20" asChild>
+                      <Link href={`/dashboard/history?driverId=${selectedDriver.driverId}`}>
+                        <MapIcon className="h-4 w-4" />
+                        View Location History
+                      </Link>
+                    </Button>
+                    <Button variant="outline" className="justify-start gap-3 h-12 rounded-2xl border-border/50 hover:bg-primary/5 hover:text-primary hover:border-primary/20">
+                      <Truck className="h-4 w-4" />
+                      Reassign to New Van
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-8 border-t border-border/50 bg-muted/20">
+                <div className="flex items-center gap-3 p-4 rounded-2xl bg-background border border-border/50">
+                  <div className={cn(
+                    "h-2 w-2 rounded-full",
+                    selectedDriver.freshness === 'LIVE' ? "bg-emerald-500 animate-pulse" : "bg-zinc-500"
+                  )} />
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                    Stream health: {selectedDriver.freshness === 'LIVE' ? 'Excellent (Sub-second lag)' : 'Degraded'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
