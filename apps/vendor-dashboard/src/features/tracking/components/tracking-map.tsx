@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Map, Marker, NavigationControl, FullscreenControl, ScaleControl, Popup, useMap, MapRef } from 'react-map-gl/mapbox';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { useTracking } from '../hooks/use-tracking';
-import { Truck, Navigation, AlertTriangle, ExternalLink, Activity, Info, Map as MapIcon, Crosshair, X as CloseIcon } from 'lucide-react';
+import { Truck, Navigation, AlertTriangle, ExternalLink, Activity, Info, Map as MapIcon, Crosshair, X as CloseIcon, List } from 'lucide-react';
 import { 
   Card, 
   Badge, 
@@ -213,8 +213,36 @@ export function TrackingMap() {
         </div>
       )}
 
-      {/* Stats Overlay */}
-      <div className="absolute bottom-8 left-8 z-10 flex gap-4">
+      {/* Stats & Legend Overlay */}
+      <div className="absolute bottom-8 left-8 z-10 flex flex-col gap-4">
+        {/* Legend */}
+        <Card className="bg-background/80 backdrop-blur-xl border-border/50 px-6 py-4 rounded-3xl shadow-2xl space-y-3">
+          <div className="flex items-center gap-2 mb-1">
+            <List className="h-3 w-3 text-muted-foreground" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Map Legend</span>
+          </div>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+            <div className="flex items-center gap-2">
+              <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+              <span className="text-[10px] font-bold text-foreground/70 uppercase">Live</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="h-2 w-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
+              <span className="text-[10px] font-bold text-foreground/70 uppercase">Stale</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="h-2 w-2 rounded-full bg-zinc-500 shadow-[0_0_8px_rgba(113,113,122,0.5)]" />
+              <span className="text-[10px] font-bold text-foreground/70 uppercase">Offline</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="h-3 w-3 rounded-md bg-primary flex items-center justify-center text-[8px] text-white">
+                <Truck className="h-2 w-2" />
+              </div>
+              <span className="text-[10px] font-bold text-foreground/70 uppercase">Delivering</span>
+            </div>
+          </div>
+        </Card>
+
         <Card className="bg-background/80 backdrop-blur-xl border-border/50 px-6 py-4 rounded-3xl shadow-2xl flex items-center gap-4">
           <div className="flex flex-col">
             <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Active Drivers</span>
