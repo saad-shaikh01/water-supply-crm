@@ -71,14 +71,19 @@ export class TrackingController {
    * Server-Sent Events stream — dashboard clients subscribe here.
    * Sends live location updates for the authenticated vendor's drivers.
    *
-   * Client usage:
-   *   const es = new EventSource('/api/tracking/subscribe', { headers: { Authorization: 'Bearer ...' } });
+   * Auth: Guarded by JwtAuthGuard + RolesGuard before SSE headers are flushed.
+   * Browser EventSource cannot send custom headers, so pass the JWT as a query
+   * parameter: `/api/tracking/subscribe?token=<jwt>`
+   * JwtStrategy extracts and validates it via `fromExtractors`.
+   *
+   * Client usage (browser):
+   *   const es = new EventSource(`/api/tracking/subscribe?token=${jwt}`);
    *   es.onmessage = (e) => { const location = JSON.parse(e.data); ... };
    */
   @Get('subscribe')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.SUPER_ADMIN)
   subscribe(@CurrentUser() user: any, @Res() res: Response, @Req() req: Request) {
-    // SSE headers
+    // SSE headers — flushed only after JwtAuthGuard succeeds
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
@@ -90,14 +95,16 @@ export class TrackingController {
       res.write(': heartbeat\n\n');
     }, 20_000);
 
-    // Push initial snapshot immediately so dashboard shows existing markers
+    // Push initial snapshot immediately so dashboard shows existing markers on connect
     this.trackingService.getActiveDrivers(user.vendorId).then((drivers) => {
       for (const driver of drivers) {
         res.write(`data: ${JSON.stringify(driver)}\n\n`);
       }
+    }).catch(() => {
+      // Non-fatal — live events will still arrive via Pub/Sub
     });
 
-    // Subscribe to live Redis Pub/Sub events filtered to this vendor
+    // Subscribe to live Redis Pub/Sub events filtered strictly to this vendor
     const subscription = this.trackingService.locationEvents$
       .pipe(
         filter((event) => event.vendorId === user.vendorId),
@@ -113,7 +120,7 @@ export class TrackingController {
         },
       });
 
-    // Clean up when client disconnects
+    // Clean up when client disconnects or connection drops
     req.on('close', () => {
       clearInterval(heartbeat);
       subscription.unsubscribe();
