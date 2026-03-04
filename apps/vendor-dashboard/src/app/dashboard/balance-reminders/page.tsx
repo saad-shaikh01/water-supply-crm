@@ -92,26 +92,25 @@ export default function BalanceRemindersPage() {
   const allCustomers: any[] = (allCustomersData as any)?.data ?? [];
   const selectedCustomer = allCustomers.find((c: any) => c.id === selectedCustomerId);
 
-  const buildPayload = (dryRun = false) => {
-    const base = {
-      mode: sendMode,
-      month,
-      includeStatement,
-      dryRun,
-    };
-    if (sendMode === 'single') {
-      return { ...base, customerIds: [selectedCustomerId] };
-    }
+  const buildSendPayload = (dryRun = false) => {
+    const base = { mode: sendMode, month, includeStatement, dryRun };
+    if (sendMode === 'single') return { ...base, customerIds: [selectedCustomerId] };
+    return { ...base, minBalance: Number(minBalance) };
+  };
+
+  const buildPreviewPayload = () => {
+    const base = { mode: sendMode, month, includeStatement };
+    if (sendMode === 'single') return { ...base, customerIds: [selectedCustomerId] };
     return { ...base, minBalance: Number(minBalance) };
   };
 
   const handlePreview = () => {
     setShowPreview(true);
-    preview(buildPayload(true) as any);
+    preview(buildPreviewPayload());
   };
 
   const handleSend = () => {
-    sendTargeted(buildPayload(false) as any, {
+    sendTargeted(buildSendPayload(false) as any, {
       onSuccess: () => {
         setShowPreview(false);
         resetPreview();
