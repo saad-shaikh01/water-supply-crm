@@ -491,7 +491,16 @@ export class CustomerService {
     });
 
     const periodActivity = transactions.reduce((sum, t) => sum + (t.amount ?? 0), 0);
-    const closingBalance = customer.financialBalance;
+
+    // Subtract transactions that occurred AFTER the selected month so that
+    // closingBalance reflects the balance at the END of the selected month,
+    // not today's live balance.
+    const laterTxs = await this.prisma.transaction.findMany({
+      where: { customerId, vendorId, createdAt: { gte: endDate } },
+      select: { amount: true },
+    });
+    const laterActivity = laterTxs.reduce((sum, t) => sum + (t.amount ?? 0), 0);
+    const closingBalance = customer.financialBalance - laterActivity;
     const openingBalance = closingBalance - periodActivity;
 
     const period = new Date(year, mon - 1, 1).toLocaleString('en-PK', {
