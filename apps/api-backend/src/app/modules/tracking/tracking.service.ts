@@ -179,7 +179,8 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Get a snapshot of all active drivers for a vendor.
-   * Uses SCAN (not KEYS) to be production-safe on large Redis instances.
+   * Sources: Redis live keys (unexpired). Freshness metadata derived at read time.
+   * Ordering: LIVE first, then STALE, then OFFLINE; within each group sorted by driverName.
    */
   async getActiveDrivers(vendorId: string): Promise<DriverLocation[]> {
     const keys = await this.scanKeys(`${LOCATION_KEY_PREFIX}*`);
@@ -197,6 +198,15 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
         // skip corrupted entries
       }
     }
+
+    // Deterministic ordering: LIVE → STALE → OFFLINE, then alphabetical within each group
+    const freshnessOrder: Record<string, number> = { LIVE: 0, STALE: 1, OFFLINE: 2 };
+    result.sort((a, b) => {
+      const fa = freshnessOrder[a.freshness ?? 'OFFLINE'] ?? 2;
+      const fb = freshnessOrder[b.freshness ?? 'OFFLINE'] ?? 2;
+      if (fa !== fb) return fa - fb;
+      return (a.driverName ?? '').localeCompare(b.driverName ?? '');
+    });
 
     return result;
   }
