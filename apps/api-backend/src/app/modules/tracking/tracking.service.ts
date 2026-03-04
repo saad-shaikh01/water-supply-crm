@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Subject } from 'rxjs';
 import Redis from 'ioredis';
+import { PrismaService } from '@water-supply-crm/database';
 import { UpdateLocationDto } from './dto/update-location.dto';
 
 export interface DriverLocation {
@@ -24,7 +25,7 @@ export interface LocationEvent {
 
 const TRACKING_CHANNEL = 'tracking:location';
 const LOCATION_KEY_PREFIX = 'tracking:driver:';
-const LOCATION_TTL_SECONDS = 5 * 60; // 5 minutes
+const LOCATION_TTL_SECONDS = 5 * 60; // 5 minutes — live stream only
 
 @Injectable()
 export class TrackingService implements OnModuleInit, OnModuleDestroy {
@@ -37,6 +38,8 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
 
   /** Broadcasts incoming location events to all SSE subscribers on this instance */
   readonly locationEvents$ = new Subject<LocationEvent>();
+
+  constructor(private readonly prisma: PrismaService) {}
 
   onModuleInit() {
     const redisUrl = process.env['REDIS_URL'] || 'redis://localhost:6379';
@@ -73,7 +76,9 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Driver pushes GPS location.
-   * Stores in Redis (auto-expires after 5 min) and publishes to all instances.
+   * 1. Upserts DB last-known record (persistent, survives Redis TTL expiry).
+   * 2. Stores in Redis with TTL (live stream path — fast expiry for presence).
+   * 3. Publishes to all instances via Redis Pub/Sub (SSE fanout).
    */
   async updateLocation(
     driverId: string,
@@ -83,6 +88,9 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
     vanId?: string,
     dailySheetId?: string,
   ): Promise<void> {
+    const now = new Date();
+    const status = dto.status ?? 'ONLINE';
+
     const location: DriverLocation = {
       driverId,
       driverName,
@@ -93,11 +101,39 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
       longitude: dto.longitude,
       speed: dto.speed,
       bearing: dto.bearing,
-      status: dto.status ?? 'ONLINE',
-      updatedAt: new Date().toISOString(),
+      status,
+      updatedAt: now.toISOString(),
     };
 
-    // Persist latest location — auto-expires so offline drivers disappear
+    // ── 1. Persist to DB (upsert by driverId) ─────────────────────────────
+    await this.prisma.driverLastLocation.upsert({
+      where: { driverId },
+      update: {
+        vendorId,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
+        speed: dto.speed ?? null,
+        bearing: dto.bearing ?? null,
+        status,
+        vanId: vanId ?? null,
+        dailySheetId: dailySheetId ?? null,
+        lastSeenAt: now,
+      },
+      create: {
+        driverId,
+        vendorId,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
+        speed: dto.speed ?? null,
+        bearing: dto.bearing ?? null,
+        status,
+        vanId: vanId ?? null,
+        dailySheetId: dailySheetId ?? null,
+        lastSeenAt: now,
+      },
+    });
+
+    // ── 2. Redis live stream (auto-expires, used for presence detection) ───
     await this.publisher.set(
       `${LOCATION_KEY_PREFIX}${driverId}`,
       JSON.stringify(location),
@@ -105,19 +141,19 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
       LOCATION_TTL_SECONDS,
     );
 
-    // Fan-out to all running instances via Redis Pub/Sub
+    // ── 3. Pub/Sub fanout to all running instances ─────────────────────────
     const event: LocationEvent = { vendorId, data: location };
     await this.publisher.publish(TRACKING_CHANNEL, JSON.stringify(event));
   }
 
   /**
    * Explicitly mark driver offline (e.g. when daily sheet is closed).
-   * Sends an 'offline' sentinel so dashboards remove the marker immediately.
+   * Removes the Redis live key and signals dashboards to remove the marker.
+   * Does NOT delete the DB record — last-known stays for audit/ops.
    */
   async removeDriver(driverId: string, vendorId: string): Promise<void> {
     await this.publisher.del(`${LOCATION_KEY_PREFIX}${driverId}`);
 
-    // Signal dashboards to remove the marker
     const event: LocationEvent = {
       vendorId,
       data: {
@@ -157,8 +193,11 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
     return result;
   }
 
-  /** Get the last known location for a single driver. */
-  async getDriverLocation(driverId: string): Promise<DriverLocation | null> {
+  /**
+   * Get the last known location for a single driver from Redis.
+   * Returns null if the key has expired.
+   */
+  async getDriverLocationFromRedis(driverId: string): Promise<DriverLocation | null> {
     const val = await this.publisher.get(`${LOCATION_KEY_PREFIX}${driverId}`);
     if (!val) return null;
     try {
@@ -166,6 +205,37 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Get the persisted last-known location for a driver from DB.
+   * Used as fallback when Redis key has expired.
+   */
+  async getDriverLocationFromDb(driverId: string): Promise<DriverLocation | null> {
+    const record = await this.prisma.driverLastLocation.findUnique({
+      where: { driverId },
+      include: { driver: { select: { name: true } } },
+    });
+    if (!record) return null;
+
+    return {
+      driverId: record.driverId,
+      driverName: record.driver.name,
+      vendorId: record.vendorId,
+      vanId: record.vanId ?? undefined,
+      dailySheetId: record.dailySheetId ?? undefined,
+      latitude: record.latitude,
+      longitude: record.longitude,
+      speed: record.speed ?? undefined,
+      bearing: record.bearing ?? undefined,
+      status: record.status,
+      updatedAt: record.lastSeenAt.toISOString(),
+    };
+  }
+
+  /** @deprecated Use getDriverLocationFromRedis — kept for internal compat */
+  async getDriverLocation(driverId: string): Promise<DriverLocation | null> {
+    return this.getDriverLocationFromRedis(driverId);
   }
 
   /** Safe Redis key scan using cursor-based SCAN instead of KEYS */
