@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Map, Marker, NavigationControl, FullscreenControl, ScaleControl, Popup, useMap, MapRef } from 'react-map-gl/mapbox';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { useTracking } from '../hooks/use-tracking';
-import { Truck, Navigation, AlertTriangle, ExternalLink, Activity, Info, Map as MapIcon, Crosshair, X as CloseIcon, List, Signal, SignalLow, WifiOff, Maximize, Target, RotateCcw } from 'lucide-react';
+import { Truck, Navigation, AlertTriangle, ExternalLink, Activity, Info, Map as MapIcon, Crosshair, X as CloseIcon, List, Signal, SignalLow, WifiOff, Maximize, Target, RotateCcw, ChevronDown } from 'lucide-react';
 import { 
   Card, 
   Badge, 
@@ -128,23 +128,24 @@ export function TrackingMap() {
   }
 
   return (
-    <div className="relative w-full h-[calc(100vh-200px)] rounded-[2.5rem] overflow-hidden border border-border/50 shadow-2xl bg-muted/20">
+    <div className="relative w-full h-[calc(100vh-180px)] sm:h-[calc(100vh-200px)] rounded-[2rem] sm:rounded-[2.5rem] overflow-hidden border border-border/50 shadow-2xl bg-muted/20">
       <Map
         {...viewState}
         onMove={evt => setViewState(evt.viewState)}
         mapStyle="mapbox://styles/mapbox/navigation-day-v1"
         mapboxAccessToken={MAPBOX_TOKEN}
+        ref={mapRef}
       >
-        <NavigationControl position="top-right" />
+        <NavigationControl position="top-right" showCompass={false} />
         <FullscreenControl position="top-right" />
         <ScaleControl />
 
         {/* Map Ergonomics Controls */}
-        <div className="absolute top-32 right-[10px] z-10 flex flex-col gap-2">
+        <div className="absolute top-28 sm:top-32 right-[10px] z-10 flex flex-col gap-2">
           <Button 
             variant="secondary" 
             size="icon" 
-            className="h-[29px] w-[29px] rounded-sm bg-white shadow-sm border border-border/50 hover:bg-muted"
+            className="h-8 w-8 sm:h-[29px] sm:w-[29px] rounded-md sm:rounded-sm bg-white shadow-md sm:shadow-sm border border-border/50 hover:bg-muted"
             title="Center Fleet"
             onClick={centerOnFleet}
           >
@@ -153,7 +154,7 @@ export function TrackingMap() {
           <Button 
             variant="secondary" 
             size="icon" 
-            className="h-[29px] w-[29px] rounded-sm bg-white shadow-sm border border-border/50 hover:bg-muted"
+            className="h-8 w-8 sm:h-[29px] sm:w-[29px] rounded-md sm:rounded-sm bg-white shadow-md sm:shadow-sm border border-border/50 hover:bg-muted"
             title="Center Selected Driver"
             disabled={!selectedDriver}
             onClick={centerOnSelected}
@@ -163,7 +164,7 @@ export function TrackingMap() {
           <Button 
             variant="secondary" 
             size="icon" 
-            className="h-[29px] w-[29px] rounded-sm bg-white shadow-sm border border-border/50 hover:bg-muted"
+            className="h-8 w-8 sm:h-[29px] sm:w-[29px] rounded-md sm:rounded-sm bg-white shadow-md sm:shadow-sm border border-border/50 hover:bg-muted"
             title="Reset View"
             onClick={resetViewport}
           >
@@ -172,36 +173,36 @@ export function TrackingMap() {
         </div>
 
         {/* Stream Health Panel */}
-        <div className="absolute top-8 left-8 z-10 flex flex-col gap-2 pointer-events-none">
-          <Card className="bg-background/80 backdrop-blur-xl border-border/50 px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-4 pointer-events-auto">
-            <div className="flex items-center gap-3">
+        <div className="absolute top-4 left-4 sm:top-8 sm:left-8 z-10 flex flex-col gap-2 pointer-events-none">
+          <Card className="bg-background/80 backdrop-blur-xl border-border/50 px-3 py-2 sm:px-5 sm:py-3 rounded-xl sm:rounded-2xl shadow-2xl flex items-center gap-3 sm:gap-4 pointer-events-auto">
+            <div className="flex items-center gap-2 sm:gap-3">
               <div className={cn(
-                "h-8 w-8 rounded-xl flex items-center justify-center transition-colors duration-500",
+                "h-7 w-7 sm:h-8 sm:w-8 rounded-lg sm:rounded-xl flex items-center justify-center transition-colors duration-500",
                 isConnected ? "bg-emerald-500/10 text-emerald-500" : "bg-destructive/10 text-destructive"
               )}>
                 {isConnected ? (
-                  retryCount > 0 ? <SignalLow className="h-4 w-4" /> : <Signal className="h-4 w-4" />
+                  retryCount > 0 ? <SignalLow className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> : <Signal className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 ) : (
-                  <WifiOff className="h-4 w-4 animate-pulse" />
+                  <WifiOff className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-pulse" />
                 )}
               </div>
               <div className="flex flex-col">
-                <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground leading-none mb-1">Stream Status</span>
+                <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground leading-none mb-1">Stream</span>
                 <span className={cn(
-                  "text-xs font-black uppercase tracking-tighter",
+                  "text-[10px] sm:text-xs font-black uppercase tracking-tighter",
                   isConnected ? (retryCount > 0 ? "text-amber-500" : "text-emerald-500") : "text-destructive"
                 )}>
-                  {isConnected ? (retryCount > 0 ? 'Degraded' : 'Operational') : 'Disconnected'}
+                  {isConnected ? (retryCount > 0 ? 'Degraded' : 'Live') : 'Offline'}
                 </span>
               </div>
             </div>
             
-            <Separator orientation="vertical" className="h-8 bg-border/50" />
+            <Separator orientation="vertical" className="h-6 sm:h-8 bg-border/50" />
 
             <div className="flex flex-col">
-              <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground leading-none mb-1">Latency</span>
+              <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground leading-none mb-1">Lag</span>
               <span className={cn(
-                "text-xs font-mono font-black",
+                "text-[10px] sm:text-xs font-mono font-black",
                 lastEventAge < 5 ? "text-emerald-500" : lastEventAge < 15 ? "text-amber-500" : "text-destructive"
               )}>
                 {lastEventTime ? `${lastEventAge}s` : '--'}
@@ -210,18 +211,18 @@ export function TrackingMap() {
 
             {retryCount > 0 && (
               <>
-                <Separator orientation="vertical" className="h-8 bg-border/50" />
+                <Separator orientation="vertical" className="h-6 sm:h-8 bg-border/50" />
                 <div className="flex flex-col">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground leading-none mb-1">Retries</span>
-                  <span className="text-xs font-mono font-black text-amber-500">{retryCount}</span>
+                  <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground leading-none mb-1">Re</span>
+                  <span className="text-[10px] sm:text-xs font-mono font-black text-amber-500">{retryCount}</span>
                 </div>
               </>
             )}
           </Card>
 
-          {/* Degraded Message */}
+          {/* Degraded Message - Hidden on very small screens */}
           {(!isConnected || retryCount > 0 || lastEventAge > 30) && (
-            <div className="bg-destructive/10 backdrop-blur-md border border-destructive/20 px-4 py-2 rounded-xl flex items-center gap-2 text-destructive animate-in fade-in slide-in-from-left-4 duration-500">
+            <div className="hidden sm:flex bg-destructive/10 backdrop-blur-md border border-destructive/20 px-4 py-2 rounded-xl items-center gap-2 text-destructive animate-in fade-in slide-in-from-left-4 duration-500">
               <AlertTriangle className="h-3 w-3" />
               <span className="text-[10px] font-black uppercase tracking-widest">
                 {!isConnected ? 'Reconnecting to live stream...' : 
@@ -359,48 +360,55 @@ export function TrackingMap() {
       )}
 
       {/* Stats & Legend Overlay */}
-      <div className="absolute bottom-8 left-8 z-10 flex flex-col gap-4">
-        {/* Legend */}
-        <Card className="bg-background/80 backdrop-blur-xl border-border/50 px-6 py-4 rounded-3xl shadow-2xl space-y-3">
-          <div className="flex items-center gap-2 mb-1">
-            <List className="h-3 w-3 text-muted-foreground" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Map Legend</span>
-          </div>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-            <div className="flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
-              <span className="text-[10px] font-bold text-foreground/70 uppercase">Live</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
-              <span className="text-[10px] font-bold text-foreground/70 uppercase">Stale</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-zinc-500 shadow-[0_0_8px_rgba(113,113,122,0.5)]" />
-              <span className="text-[10px] font-bold text-foreground/70 uppercase">Offline</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="h-3 w-3 rounded-md bg-primary flex items-center justify-center text-[8px] text-white">
-                <Truck className="h-2 w-2" />
+      <div className="absolute bottom-4 left-4 sm:bottom-8 sm:left-8 z-10 flex flex-col gap-3 sm:gap-4 max-w-[calc(100%-2rem)] sm:max-w-none">
+        {/* Legend - Collapsible on mobile */}
+        <details className="group sm:open">
+          <summary className="list-none cursor-pointer outline-none">
+            <Card className="bg-background/80 backdrop-blur-xl border-border/50 px-4 py-3 sm:px-6 sm:py-4 rounded-2xl sm:rounded-3xl shadow-2xl flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <List className="h-3 w-3 text-muted-foreground" />
+                <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Map Legend</span>
               </div>
-              <span className="text-[10px] font-bold text-foreground/70 uppercase">Delivering</span>
+              <ChevronDown className="h-3 w-3 text-muted-foreground group-open:rotate-180 transition-transform sm:hidden" />
+            </Card>
+          </summary>
+          <Card className="mt-2 bg-background/80 backdrop-blur-xl border-border/50 px-4 py-3 sm:px-6 sm:py-4 rounded-2xl sm:rounded-3xl shadow-2xl space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="grid grid-cols-2 gap-x-4 sm:gap-x-6 gap-y-2">
+              <div className="flex items-center gap-2">
+                <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                <span className="text-[10px] font-bold text-foreground/70 uppercase">Live</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="h-2 w-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
+                <span className="text-[10px] font-bold text-foreground/70 uppercase">Stale</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="h-2 w-2 rounded-full bg-zinc-500 shadow-[0_0_8px_rgba(113,113,122,0.5)]" />
+                <span className="text-[10px] font-bold text-foreground/70 uppercase">Offline</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="h-3 w-3 rounded-md bg-primary flex items-center justify-center text-[8px] text-white">
+                  <Truck className="h-2 w-2" />
+                </div>
+                <span className="text-[10px] font-bold text-foreground/70 uppercase">Delivering</span>
+              </div>
             </div>
-          </div>
-        </Card>
+          </Card>
+        </details>
 
-        <Card className="bg-background/80 backdrop-blur-xl border-border/50 px-6 py-4 rounded-3xl shadow-2xl flex items-center gap-4">
+        <Card className="bg-background/80 backdrop-blur-xl border-border/50 px-4 py-3 sm:px-6 sm:py-4 rounded-2xl sm:rounded-3xl shadow-2xl flex items-center gap-4">
           <div className="flex flex-col">
-            <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Active Drivers</span>
-            <span className="text-2xl font-black font-mono">{driverList.length}</span>
+            <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground">Active Drivers</span>
+            <span className="text-xl sm:text-2xl font-black font-mono leading-none mt-1">{driverList.length}</span>
           </div>
-          <div className="h-10 w-[1px] bg-border/50" />
+          <div className="h-8 sm:h-10 w-[1px] bg-border/50" />
           <div className="flex items-center gap-2">
             <div className={cn(
-              "h-3 w-3 rounded-full animate-pulse",
+              "h-2 w-2 sm:h-3 sm:w-3 rounded-full animate-pulse",
               isConnected ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]" : "bg-destructive shadow-[0_0_10px_rgba(239,68,68,0.5)]"
             )} />
-            <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-              {isConnected ? 'Live Connected' : 'Disconnected'}
+            <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+              {isConnected ? 'Stream Active' : 'Disconnected'}
             </span>
           </div>
         </Card>
