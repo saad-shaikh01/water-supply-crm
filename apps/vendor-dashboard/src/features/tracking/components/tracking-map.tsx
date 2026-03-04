@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
-import { Map, Marker, NavigationControl, FullscreenControl, ScaleControl, Popup } from 'react-map-gl/mapbox';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Map, Marker, NavigationControl, FullscreenControl, ScaleControl, Popup, useMap, MapRef } from 'react-map-gl/mapbox';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { useTracking } from '../hooks/use-tracking';
-import { Truck, Navigation, AlertTriangle, ExternalLink, Activity, Info, Map as MapIcon } from 'lucide-react';
+import { Truck, Navigation, AlertTriangle, ExternalLink, Activity, Info, Map as MapIcon, Crosshair, X as CloseIcon } from 'lucide-react';
 import { 
   Card, 
   Badge, 
@@ -22,9 +22,13 @@ import Link from 'next/link';
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
 
 export function TrackingMap() {
-  const { driverList, isConnected } = useTracking();
-  const [selectedDriver, setSelectedDriver] = useState<any>(null);
+  const { drivers, driverList, isConnected } = useTracking();
+  const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const mapRef = useRef<MapRef>(null);
+
+  const selectedDriver = selectedDriverId ? drivers[selectedDriverId] : null;
 
   const [viewState, setViewState] = useState({
     latitude: 24.8607, // Karachi default
@@ -33,8 +37,31 @@ export function TrackingMap() {
   });
 
   const handleMarkerClick = (driver: any) => {
-    setSelectedDriver(driver);
+    setSelectedDriverId(driver.driverId);
     setIsDrawerOpen(true);
+  };
+
+  // Camera lock logic: follow driver when enabled and driver moves
+  useEffect(() => {
+    if (isFollowing && selectedDriver) {
+      setViewState(prev => ({
+        ...prev,
+        latitude: selectedDriver.latitude,
+        longitude: selectedDriver.longitude,
+      }));
+    }
+  }, [selectedDriver?.latitude, selectedDriver?.longitude, isFollowing]);
+
+  const toggleFollow = () => {
+    setIsFollowing(!isFollowing);
+    if (!isFollowing && selectedDriver) {
+      setViewState(prev => ({
+        ...prev,
+        latitude: selectedDriver.latitude,
+        longitude: selectedDriver.longitude,
+        zoom: 15, // Zoom in when starting to follow
+      }));
+    }
   };
 
   // Fail clearly — do not silently embed a fallback token.
@@ -118,7 +145,7 @@ export function TrackingMap() {
             latitude={selectedDriver.latitude}
             longitude={selectedDriver.longitude}
             anchor="top"
-            onClose={() => setSelectedDriver(null)}
+            onClose={() => setSelectedDriverId(null)}
             className="z-50"
             closeButton={false}
             offset={10}
@@ -166,6 +193,25 @@ export function TrackingMap() {
           </Popup>
         )}
       </Map>
+
+      {/* Follow Mode Exit Control */}
+      {isFollowing && selectedDriver && (
+        <div className="absolute top-8 left-1/2 -translate-x-1/2 z-10">
+          <Button 
+            variant="destructive" 
+            className="rounded-full pl-2 pr-6 h-12 shadow-2xl border-2 border-white/20 animate-in slide-in-from-top-4 duration-500"
+            onClick={() => setIsFollowing(false)}
+          >
+            <div className="bg-white/20 p-2 rounded-full mr-3">
+              <CloseIcon className="h-4 w-4" />
+            </div>
+            <div className="flex flex-col items-start leading-tight">
+              <span className="text-[10px] font-black uppercase tracking-widest opacity-70">Following</span>
+              <span className="text-sm font-black">{selectedDriver.driverName}</span>
+            </div>
+          </Button>
+        </div>
+      )}
 
       {/* Stats Overlay */}
       <div className="absolute bottom-8 left-8 z-10 flex gap-4">
@@ -271,15 +317,22 @@ export function TrackingMap() {
                     <Activity className="h-3 w-3" /> Quick Actions
                   </h3>
                   <div className="grid grid-cols-1 gap-2">
+                    <Button 
+                      variant={isFollowing ? "primary" : "outline"} 
+                      className={cn(
+                        "justify-start gap-3 h-12 rounded-2xl border-border/50 transition-all duration-500",
+                        isFollowing ? "bg-primary text-white shadow-lg shadow-primary/20" : "hover:bg-primary/5 hover:text-primary hover:border-primary/20"
+                      )}
+                      onClick={toggleFollow}
+                    >
+                      <Crosshair className={cn("h-4 w-4", isFollowing && "animate-pulse")} />
+                      {isFollowing ? "Following Driver..." : "Follow Driver on Map"}
+                    </Button>
                     <Button variant="outline" className="justify-start gap-3 h-12 rounded-2xl border-border/50 hover:bg-primary/5 hover:text-primary hover:border-primary/20" asChild>
                       <Link href={`/dashboard/history?driverId=${selectedDriver.driverId}`}>
                         <MapIcon className="h-4 w-4" />
                         View Location History
                       </Link>
-                    </Button>
-                    <Button variant="outline" className="justify-start gap-3 h-12 rounded-2xl border-border/50 hover:bg-primary/5 hover:text-primary hover:border-primary/20">
-                      <Truck className="h-4 w-4" />
-                      Reassign to New Van
                     </Button>
                   </div>
                 </div>

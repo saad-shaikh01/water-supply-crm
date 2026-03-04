@@ -31,7 +31,7 @@ Backend execution is tracked separately in:
 | TRK-FE-004 | Tracking Core | Medium | DONE | Remove dead placeholder action and fail clearly when Mapbox token is missing. | - |
 | TRK-FE-005 | Tracking UX | High | DONE | Show freshness semantics on markers/popups (`LIVE`, `STALE`, `OFFLINE`) using backend freshness metadata; display `last seen` explicitly. | TRK-BE-003 |
 | TRK-FE-006 | Tracking UX | High | DONE | Add selected-driver side drawer with: driver, van, sheet, speed, bearing, last update, and quick links to sheet/history screens. | TRK-BE-007 |
-| TRK-FE-007 | Tracking UX | Medium | READY | Add follow-driver mode (map camera lock on selected driver with clear exit control). | TRK-FE-006 |
+| TRK-FE-007 | Tracking UX | Medium | DONE | Add follow-driver mode (map camera lock on selected driver with clear exit control). | TRK-FE-006 |
 | TRK-FE-008 | Ops Overlay | High | READY | Add map overlay for open delivery issues with severity styling and quick jump to Delivery Issues Inbox. | TRK-BE-008 |
 | TRK-FE-009 | Ops Overlay | High | READY | Add map overlay for on-demand dispatch pressure with quick jump to relevant dispatch workflow. | TRK-BE-009 |
 | TRK-FE-010 | Reliability UX | Medium | READY | Add stale/offline marker styles and legend panel so operators can identify risk states immediately. | TRK-FE-005 |
