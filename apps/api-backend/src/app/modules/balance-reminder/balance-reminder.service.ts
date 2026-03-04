@@ -38,17 +38,16 @@ export class BalanceReminderService {
     private readonly statementPdf: CustomerStatementPdfService,
   ) {}
 
-  /** Remove existing BullMQ repeatable job for a vendor (does NOT touch DB) */
+  // ─── Schedule management ────────────────────────────────────────────────────
+
   private async removeQueueJob(vendorId: string): Promise<void> {
     const jobId = REPEATABLE_JOB_ID(vendorId);
     const repeatableJobs = await this.reminderQueue.getRepeatableJobs();
-    const existing = repeatableJobs.filter((j) => j.id === jobId);
-    for (const job of existing) {
+    for (const job of repeatableJobs.filter((j) => j.id === jobId)) {
       await this.reminderQueue.removeRepeatableByKey(job.key);
     }
   }
 
-  /** Configure (or update) the repeatable daily reminder job for a vendor */
   async scheduleReminders(
     vendorId: string,
     dto: ScheduleReminderDto,
@@ -57,157 +56,93 @@ export class BalanceReminderService {
     const minBalance = dto.minBalance ?? DEFAULT_MIN_BALANCE;
     const jobId = REPEATABLE_JOB_ID(vendorId);
 
-    // Remove any existing repeatable job for this vendor first
     await this.removeQueueJob(vendorId);
-
     await this.reminderQueue.add(
       JOB_NAMES.SEND_BALANCE_REMINDERS,
       { vendorId, minBalance },
-      {
-        repeat: { pattern: cronExpression, utc: true },
-        jobId,
-        removeOnComplete: 50,
-        removeOnFail: 20,
-      },
+      { repeat: { pattern: cronExpression, utc: true }, jobId, removeOnComplete: 50, removeOnFail: 20 },
     );
 
-    // Persist schedule config as source of truth
     await this.prisma.reminderScheduleConfig.upsert({
       where: { vendorId },
       update: { cronExpression, minBalance },
       create: { vendorId, cronExpression, minBalance },
     });
 
-    // Fetch the newly created repeatable job to get nextRunAt
     const repeatableJobs = await this.reminderQueue.getRepeatableJobs();
     const job = repeatableJobs.find((j) => j.id === jobId);
     const nextRunAt = job?.next ? new Date(job.next).toISOString() : null;
 
-    this.logger.log(
-      `Scheduled balance reminders for vendor ${vendorId}: ${cronExpression}, minBalance=${minBalance}`,
-    );
-
-    return {
-      vendorId,
-      scheduled: true,
-      cronExpression,
-      minBalance,
-      nextRunAt,
-      message: 'Balance reminder schedule configured',
-    };
+    this.logger.log(`Scheduled balance reminders for vendor ${vendorId}: ${cronExpression}, minBalance=${minBalance}`);
+    return { vendorId, scheduled: true, cronExpression, minBalance, nextRunAt, message: 'Balance reminder schedule configured' };
   }
 
-  /** Remove the repeatable reminder job for a vendor and clear DB config */
   async cancelReminders(vendorId: string): Promise<ReminderScheduleStatus & { message: string }> {
     await this.removeQueueJob(vendorId);
-
-    await this.prisma.reminderScheduleConfig.deleteMany({
-      where: { vendorId },
-    });
-
-    return {
-      vendorId,
-      scheduled: false,
-      cronExpression: null,
-      minBalance: null,
-      nextRunAt: null,
-      message: 'Balance reminder schedule removed',
-    };
+    await this.prisma.reminderScheduleConfig.deleteMany({ where: { vendorId } });
+    return { vendorId, scheduled: false, cronExpression: null, minBalance: null, nextRunAt: null, message: 'Balance reminder schedule removed' };
   }
 
-  /** Get current schedule status for a vendor — DB is source of truth */
   async getScheduleStatus(vendorId: string): Promise<ReminderScheduleStatus> {
-    const config = await this.prisma.reminderScheduleConfig.findUnique({
-      where: { vendorId },
-    });
+    const config = await this.prisma.reminderScheduleConfig.findUnique({ where: { vendorId } });
+    if (!config) return { vendorId, scheduled: false, cronExpression: null, minBalance: null, nextRunAt: null };
 
-    if (!config) {
-      return {
-        vendorId,
-        scheduled: false,
-        cronExpression: null,
-        minBalance: null,
-        nextRunAt: null,
-      };
-    }
-
-    // Get nextRunAt from BullMQ (queue metadata only, not job data)
     const jobId = REPEATABLE_JOB_ID(vendorId);
     const repeatableJobs = await this.reminderQueue.getRepeatableJobs();
     const job = repeatableJobs.find((j) => j.id === jobId);
     const nextRunAt = job?.next ? new Date(job.next).toISOString() : null;
 
-    return {
-      vendorId,
-      scheduled: true,
-      cronExpression: config.cronExpression,
-      minBalance: config.minBalance,
-      nextRunAt,
-    };
+    return { vendorId, scheduled: true, cronExpression: config.cronExpression, minBalance: config.minBalance, nextRunAt };
   }
 
-  /** Immediately send reminders for all eligible customers of a vendor */
+  // ─── Send operations ────────────────────────────────────────────────────────
+
   async sendNow(vendorId: string, dto: SendNowDto) {
-    const minBalance = dto.minBalance ?? DEFAULT_MIN_BALANCE;
-    const dryRun = dto.dryRun ?? false;
-    const month = dto.month ?? this.currentMonth();
-    const includeStatement = dto.includeStatement ?? false;
-
-    return this.processVendorReminders(vendorId, minBalance, dryRun, month, includeStatement);
+    return this.processVendorReminders(
+      vendorId,
+      dto.minBalance ?? DEFAULT_MIN_BALANCE,
+      dto.dryRun ?? false,
+      dto.month ?? this.currentMonth(),
+      dto.includeStatement ?? false,
+      dto.paymentType,
+    );
   }
 
-  /**
-   * Send reminders to a targeted subset of customers.
-   *   mode=single   — exactly one customer (customerIds[0])
-   *   mode=selected — explicit list of customer IDs
-   *   mode=eligible — all customers above minBalance threshold (same as sendNow)
-   */
   async sendTargeted(vendorId: string, dto: SendTargetedDto) {
     const minBalance = dto.minBalance ?? DEFAULT_MIN_BALANCE;
     const dryRun = dto.dryRun ?? false;
     const month = dto.month ?? this.currentMonth();
     const includeStatement = dto.includeStatement ?? false;
+    const paymentType = dto.paymentType;
+    const endDate = this.monthEndDate(month);
 
     if (dto.mode === 'eligible') {
-      return this.processVendorReminders(vendorId, minBalance, dryRun, month, includeStatement);
+      return this.processVendorReminders(vendorId, minBalance, dryRun, month, includeStatement, paymentType);
     }
 
-    // single / selected — explicit customer list required
     const customerIds = dto.customerIds ?? [];
     if (customerIds.length === 0) {
       return { vendorId, sent: 0, skipped: 0, dryRun, month, includeStatement, customers: [], error: 'customerIds is required for mode=single or mode=selected' };
     }
 
     const customers = await this.prisma.customer.findMany({
-      where: {
-        id: { in: customerIds },
-        vendorId,
-        isActive: true,
-        phoneNumber: { not: '' },
-      },
-      select: {
-        id: true,
-        name: true,
-        phoneNumber: true,
-        financialBalance: true,
-      },
+      where: { id: { in: customerIds }, vendorId, isActive: true, phoneNumber: { not: '' } },
+      select: { id: true, name: true, phoneNumber: true, financialBalance: true },
     });
 
     if (customers.length === 0) {
       return { vendorId, sent: 0, skipped: 0, dryRun, month, includeStatement, customers: [] };
     }
 
+    // Calculate month-end balance for each customer (single batch query)
+    const monthEndBalances = await this.getMonthEndBalanceMap(vendorId, customers, endDate);
+
     let sent = 0;
     let skipped = 0;
-    const results: Array<{
-      customerId: string;
-      name: string;
-      balance: number;
-      status: string;
-      statementUrl?: string | null;
-    }> = [];
+    const results: Array<{ customerId: string; name: string; balance: number; status: string; statementUrl?: string | null }> = [];
 
     for (const customer of customers) {
+      const monthBalance = monthEndBalances.get(customer.id) ?? customer.financialBalance;
       let statementUrl: string | null = null;
 
       if (includeStatement && !dryRun) {
@@ -215,102 +150,60 @@ export class BalanceReminderService {
       }
 
       const message = statementUrl
-        ? MessageTemplates.balanceReminderWithStatement(
-            customer.name,
-            customer.financialBalance,
-            this.formatMonthLabel(month),
-            statementUrl,
-          )
-        : MessageTemplates.balanceReminder(customer.name, customer.financialBalance);
+        ? MessageTemplates.balanceReminderWithStatement(customer.name, monthBalance, this.formatMonthLabel(month), statementUrl)
+        : MessageTemplates.balanceReminder(customer.name, monthBalance);
 
       if (dryRun) {
-        results.push({
-          customerId: customer.id,
-          name: customer.name,
-          balance: customer.financialBalance,
-          status: 'would-send',
-          statementUrl: includeStatement ? '(signed URL generated at send time)' : null,
-        });
+        results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'would-send', statementUrl: includeStatement ? '(signed URL generated at send time)' : null });
         skipped++;
         continue;
       }
 
       const messageSent = await this.whatsapp.sendMessage(customer.phoneNumber, message);
-      results.push({
-        customerId: customer.id,
-        name: customer.name,
-        balance: customer.financialBalance,
-        status: messageSent ? 'sent' : 'failed',
-        statementUrl,
-      });
+      results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: messageSent ? 'sent' : 'failed', statementUrl });
       if (messageSent) { sent++; } else { skipped++; }
     }
 
-    this.logger.log(
-      `Targeted reminders for vendor ${vendorId} (mode=${dto.mode}): sent=${sent}, skipped=${skipped}, dryRun=${dryRun}, month=${month}, includeStatement=${includeStatement}`,
-    );
-
+    this.logger.log(`Targeted reminders vendor=${vendorId} mode=${dto.mode} sent=${sent} skipped=${skipped} dryRun=${dryRun} month=${month}`);
     return { vendorId, sent, skipped, dryRun, month, includeStatement, customers: results };
   }
 
-  /**
-   * Full eligibility preview — shows every candidate and why they would or would not receive a reminder.
-   * Never sends messages. Always operates as dryRun=true.
-   */
   async previewReminders(vendorId: string, dto: PreviewDto) {
     const minBalance = dto.minBalance ?? DEFAULT_MIN_BALANCE;
     const mode = dto.mode ?? 'eligible';
     const month = dto.month ?? this.currentMonth();
     const includeStatement = dto.includeStatement ?? false;
+    const paymentType = dto.paymentType;
+    const endDate = this.monthEndDate(month);
 
-    // Fetch candidates: for selected/single use explicit IDs; for eligible fetch all vendor customers
     const whereBase = mode === 'eligible'
-      ? { vendorId }
+      ? { vendorId, ...(paymentType ? { paymentType } : {}) }
       : { id: { in: dto.customerIds ?? [] }, vendorId };
 
     const candidates = await this.prisma.customer.findMany({
       where: whereBase,
-      select: {
-        id: true,
-        name: true,
-        phoneNumber: true,
-        financialBalance: true,
-        isActive: true,
-        paymentType: true,
-      },
+      select: { id: true, name: true, phoneNumber: true, financialBalance: true, isActive: true, paymentType: true },
       orderBy: { financialBalance: 'desc' },
     });
 
-    type PreviewEntry = {
-      customerId: string;
-      name: string;
-      balance: number;
-      phone: string;
-      reason: string;
-    };
+    // One batch query: get all transactions after month-end for all candidates
+    const monthEndBalances = await this.getMonthEndBalanceMap(vendorId, candidates, endDate);
 
+    type PreviewEntry = { customerId: string; name: string; balance: number; phone: string; paymentType: string; reason: string };
     const wouldSend: PreviewEntry[] = [];
     const skipped: PreviewEntry[] = [];
 
     for (const c of candidates) {
-      const entry: PreviewEntry = {
-        customerId: c.id,
-        name: c.name,
-        balance: c.financialBalance,
-        phone: c.phoneNumber,
-        reason: '',
-      };
+      const monthBalance = monthEndBalances.get(c.id) ?? c.financialBalance;
+      const entry: PreviewEntry = { customerId: c.id, name: c.name, balance: monthBalance, phone: c.phoneNumber, paymentType: c.paymentType, reason: '' };
 
       if (!c.isActive) {
         entry.reason = 'skipped-inactive';
         skipped.push(entry);
-      } else if (c.paymentType !== 'MONTHLY') {
-        entry.reason = 'skipped-wrong-type';
-        skipped.push(entry);
       } else if (!c.phoneNumber || c.phoneNumber.trim() === '') {
         entry.reason = 'skipped-no-phone';
         skipped.push(entry);
-      } else if (c.financialBalance < minBalance) {
+      } else if (monthBalance < minBalance) {
         entry.reason = 'skipped-low-balance';
         skipped.push(entry);
       } else {
@@ -319,17 +212,7 @@ export class BalanceReminderService {
       }
     }
 
-    return {
-      vendorId,
-      mode,
-      minBalance,
-      month,
-      includeStatement,
-      totalWouldSend: wouldSend.length,
-      totalSkipped: skipped.length,
-      wouldSend,
-      skipped,
-    };
+    return { vendorId, mode, minBalance, month, includeStatement, paymentType: paymentType ?? 'BOTH', totalWouldSend: wouldSend.length, totalSkipped: skipped.length, wouldSend, skipped };
   }
 
   /** Core logic — called by BullMQ processor and sendNow */
@@ -339,44 +222,46 @@ export class BalanceReminderService {
     dryRun = false,
     month?: string,
     includeStatement = false,
+    paymentType?: 'MONTHLY' | 'CASH',
   ) {
     const targetMonth = month ?? this.currentMonth();
+    const endDate = this.monthEndDate(targetMonth);
 
-    const customers = await this.prisma.customer.findMany({
+    // Fetch all active candidates with phone — do NOT filter by balance at DB level
+    // because we need month-end balance (historical), not today's live balance.
+    const candidates = await this.prisma.customer.findMany({
       where: {
         vendorId,
-        paymentType: 'MONTHLY',
+        ...(paymentType ? { paymentType } : {}),
         isActive: true,
-        financialBalance: { gte: minBalance },
         phoneNumber: { not: '' },
       },
-      select: {
-        id: true,
-        name: true,
-        phoneNumber: true,
-        financialBalance: true,
-      },
+      select: { id: true, name: true, phoneNumber: true, financialBalance: true },
       orderBy: { financialBalance: 'desc' },
     });
 
-    if (customers.length === 0) {
-      this.logger.log(
-        `No customers with balance >= ${minBalance} for vendor ${vendorId}`,
-      );
-      return { vendorId, sent: 0, skipped: 0, dryRun, month: targetMonth, includeStatement, customers: [] };
+    if (candidates.length === 0) {
+      this.logger.log(`No active customers with phone for vendor ${vendorId}`);
+      return { vendorId, sent: 0, skipped: 0, dryRun, month: targetMonth, includeStatement, paymentType: paymentType ?? 'BOTH', customers: [] };
+    }
+
+    // One batch query for post-month transactions
+    const monthEndBalances = await this.getMonthEndBalanceMap(vendorId, candidates, endDate);
+
+    // Filter to those with month-end balance >= minBalance
+    const eligible = candidates.filter((c) => (monthEndBalances.get(c.id) ?? c.financialBalance) >= minBalance);
+
+    if (eligible.length === 0) {
+      this.logger.log(`No customers with month-end balance >= ${minBalance} for vendor ${vendorId} (${targetMonth})`);
+      return { vendorId, sent: 0, skipped: 0, dryRun, month: targetMonth, includeStatement, paymentType: paymentType ?? 'BOTH', customers: [] };
     }
 
     let sent = 0;
     let skipped = 0;
-    const results: Array<{
-      customerId: string;
-      name: string;
-      balance: number;
-      status: string;
-      statementUrl?: string | null;
-    }> = [];
+    const results: Array<{ customerId: string; name: string; balance: number; status: string; statementUrl?: string | null }> = [];
 
-    for (const customer of customers) {
+    for (const customer of eligible) {
+      const monthBalance = monthEndBalances.get(customer.id) ?? customer.financialBalance;
       let statementUrl: string | null = null;
 
       if (includeStatement && !dryRun) {
@@ -384,87 +269,84 @@ export class BalanceReminderService {
       }
 
       const message = statementUrl
-        ? MessageTemplates.balanceReminderWithStatement(
-            customer.name,
-            customer.financialBalance,
-            this.formatMonthLabel(targetMonth),
-            statementUrl,
-          )
-        : MessageTemplates.balanceReminder(customer.name, customer.financialBalance);
+        ? MessageTemplates.balanceReminderWithStatement(customer.name, monthBalance, this.formatMonthLabel(targetMonth), statementUrl)
+        : MessageTemplates.balanceReminder(customer.name, monthBalance);
 
       if (dryRun) {
-        results.push({
-          customerId: customer.id,
-          name: customer.name,
-          balance: customer.financialBalance,
-          status: 'would-send',
-          statementUrl: includeStatement ? '(signed URL generated at send time)' : null,
-        });
+        results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'would-send', statementUrl: includeStatement ? '(signed URL generated at send time)' : null });
         skipped++;
         continue;
       }
 
-      const messageSent = await this.whatsapp.sendMessage(
-        customer.phoneNumber,
-        message,
-      );
-
-      results.push({
-        customerId: customer.id,
-        name: customer.name,
-        balance: customer.financialBalance,
-        status: messageSent ? 'sent' : 'failed',
-        statementUrl,
-      });
-
-      if (messageSent) {
-        sent++;
-      } else {
-        skipped++;
-      }
+      const messageSent = await this.whatsapp.sendMessage(customer.phoneNumber, message);
+      results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: messageSent ? 'sent' : 'failed', statementUrl });
+      if (messageSent) { sent++; } else { skipped++; }
     }
 
-    this.logger.log(
-      `Balance reminders for vendor ${vendorId}: sent=${sent}, skipped=${skipped}, dryRun=${dryRun}, month=${targetMonth}, includeStatement=${includeStatement}`,
-    );
+    this.logger.log(`Balance reminders vendor=${vendorId} sent=${sent} skipped=${skipped} dryRun=${dryRun} month=${targetMonth} includeStatement=${includeStatement}`);
+    return { vendorId, sent, skipped, dryRun, month: targetMonth, includeStatement, paymentType: paymentType ?? 'BOTH', customers: results };
+  }
 
-    return { vendorId, sent, skipped, dryRun, month: targetMonth, includeStatement, customers: results };
+  // ─── Helpers ────────────────────────────────────────────────────────────────
+
+  /**
+   * Batch-calculates the balance each customer had at the END of the given month.
+   * Formula: monthEndBalance = financialBalance − sum(transactions after monthEndDate)
+   * One DB query for all customers — O(1) round-trips regardless of list size.
+   */
+  private async getMonthEndBalanceMap(
+    vendorId: string,
+    customers: Array<{ id: string; financialBalance: number }>,
+    endDate: Date,
+  ): Promise<Map<string, number>> {
+    if (customers.length === 0) return new Map();
+
+    const laterTxs = await this.prisma.transaction.findMany({
+      where: { customerId: { in: customers.map((c) => c.id) }, vendorId, createdAt: { gte: endDate } },
+      select: { customerId: true, amount: true },
+    });
+
+    // Sum post-month activity per customer
+    const laterByCustomer = new Map<string, number>();
+    for (const tx of laterTxs) {
+      laterByCustomer.set(tx.customerId, (laterByCustomer.get(tx.customerId) ?? 0) + (tx.amount ?? 0));
+    }
+
+    const result = new Map<string, number>();
+    for (const c of customers) {
+      result.set(c.id, c.financialBalance - (laterByCustomer.get(c.id) ?? 0));
+    }
+    return result;
+  }
+
+  /** Returns the first moment of the month AFTER the given YYYY-MM string (exclusive upper bound) */
+  private monthEndDate(month: string): Date {
+    const [year, mon] = month.split('-').map(Number);
+    return new Date(year, mon, 1); // e.g. 2026-02 → 2026-03-01T00:00:00
   }
 
   /**
    * Generate the monthly statement PDF for a customer, upload it to private storage,
    * and return a pre-signed URL valid for 7 days.
-   * Returns null on any error — reminder is still sent without statement link.
+   * Returns null on any error so the reminder still sends without the link.
    */
-  private async generateStatementUrl(
-    vendorId: string,
-    customerId: string,
-    month: string,
-  ): Promise<string | null> {
+  private async generateStatementUrl(vendorId: string, customerId: string, month: string): Promise<string | null> {
     try {
       const [year, mon] = month.split('-').map(Number);
       const startDate = new Date(year, mon - 1, 1);
-      const endDate = new Date(year, mon, 1);
+      const endDate = this.monthEndDate(month);
 
-      const customer = await this.prisma.customer.findFirst({
-        where: { id: customerId, vendorId },
-      });
+      const customer = await this.prisma.customer.findFirst({ where: { id: customerId, vendorId } });
       if (!customer) return null;
 
       const transactions = await this.prisma.transaction.findMany({
-        where: {
-          customerId,
-          vendorId,
-          createdAt: { gte: startDate, lt: endDate },
-        },
+        where: { customerId, vendorId, createdAt: { gte: startDate, lt: endDate } },
         include: { product: { select: { name: true } } },
         orderBy: { createdAt: 'asc' },
       });
 
       const periodActivity = transactions.reduce((sum, t) => sum + (t.amount ?? 0), 0);
 
-      // Subtract post-month transactions so closingBalance reflects the balance
-      // at the END of the selected month, not today's live balance.
       const laterTxs = await this.prisma.transaction.findMany({
         where: { customerId, vendorId, createdAt: { gte: endDate } },
         select: { amount: true },
@@ -472,26 +354,10 @@ export class BalanceReminderService {
       const laterActivity = laterTxs.reduce((sum, t) => sum + (t.amount ?? 0), 0);
       const closingBalance = customer.financialBalance - laterActivity;
       const openingBalance = closingBalance - periodActivity;
-      const period = new Date(year, mon - 1, 1).toLocaleString('en-PK', {
-        month: 'long',
-        year: 'numeric',
-      });
+      const period = new Date(year, mon - 1, 1).toLocaleString('en-PK', { month: 'long', year: 'numeric' });
 
-      const pdfBuffer = await this.statementPdf.generate({
-        customer,
-        transactions,
-        openingBalance,
-        closingBalance,
-        period,
-      });
-
-      const { key } = await this.storage.upload(
-        'statement-reminders',
-        pdfBuffer,
-        `statement-${customerId}-${month}.pdf`,
-        'application/pdf',
-      );
-
+      const pdfBuffer = await this.statementPdf.generate({ customer, transactions, openingBalance, closingBalance, period });
+      const { key } = await this.storage.upload('statement-reminders', pdfBuffer, `statement-${customerId}-${month}.pdf`, 'application/pdf');
       return await this.storage.getSignedUrl(key, STATEMENT_URL_TTL_SECONDS);
     } catch (err) {
       this.logger.warn(`Statement generation failed for customer ${customerId} (${month}): ${err}`);
@@ -499,17 +365,12 @@ export class BalanceReminderService {
     }
   }
 
-  /** Returns current calendar month in YYYY-MM format */
   private currentMonth(): string {
     return new Date().toISOString().slice(0, 7);
   }
 
-  /** Formats 'YYYY-MM' to a human-readable label like 'January 2026' */
   private formatMonthLabel(month: string): string {
     const [year, mon] = month.split('-').map(Number);
-    return new Date(year, mon - 1, 1).toLocaleString('en-PK', {
-      month: 'long',
-      year: 'numeric',
-    });
+    return new Date(year, mon - 1, 1).toLocaleString('en-PK', { month: 'long', year: 'numeric' });
   }
 }

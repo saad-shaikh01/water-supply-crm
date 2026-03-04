@@ -1,5 +1,7 @@
 import { apiClient } from '@water-supply-crm/data-access';
 
+export type PaymentTypeFilter = 'MONTHLY' | 'CASH' | undefined;
+
 export interface SendTargetedPayload {
   mode: 'single' | 'selected' | 'eligible';
   customerIds?: string[];
@@ -7,6 +9,7 @@ export interface SendTargetedPayload {
   dryRun?: boolean;
   month?: string;
   includeStatement?: boolean;
+  paymentType?: PaymentTypeFilter;
 }
 
 export interface PreviewPayload {
@@ -15,6 +18,7 @@ export interface PreviewPayload {
   minBalance?: number;
   month?: string;
   includeStatement?: boolean;
+  paymentType?: PaymentTypeFilter;
 }
 
 export const balanceRemindersApi = {

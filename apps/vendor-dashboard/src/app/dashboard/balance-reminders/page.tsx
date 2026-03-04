@@ -39,6 +39,7 @@ function formatMonthDisplay(yyyyMM: string) {
 }
 
 type SendMode = 'eligible' | 'single';
+type PaymentTypeFilter = 'MONTHLY' | 'CASH' | 'BOTH';
 
 export default function BalanceRemindersPage() {
   const { data: schedule, isLoading } = useReminderSchedule();
@@ -60,6 +61,7 @@ export default function BalanceRemindersPage() {
   const [month, setMonth] = useState(currentMonth());
   const [includeStatement, setIncludeStatement] = useState(false);
   const [minBalance, setMinBalance] = useState('100');
+  const [paymentTypeFilter, setPaymentTypeFilter] = useState<PaymentTypeFilter>('BOTH');
   const [showPreview, setShowPreview] = useState(false);
 
   // Sync schedule form with loaded data
@@ -92,14 +94,16 @@ export default function BalanceRemindersPage() {
   const allCustomers: any[] = (allCustomersData as any)?.data ?? [];
   const selectedCustomer = allCustomers.find((c: any) => c.id === selectedCustomerId);
 
+  const resolvedPaymentType = paymentTypeFilter === 'BOTH' ? undefined : paymentTypeFilter;
+
   const buildSendPayload = (dryRun = false) => {
-    const base = { mode: sendMode, month, includeStatement, dryRun };
+    const base = { mode: sendMode, month, includeStatement, dryRun, paymentType: resolvedPaymentType };
     if (sendMode === 'single') return { ...base, customerIds: [selectedCustomerId] };
     return { ...base, minBalance: Number(minBalance) };
   };
 
   const buildPreviewPayload = () => {
-    const base = { mode: sendMode, month, includeStatement };
+    const base = { mode: sendMode, month, includeStatement, paymentType: resolvedPaymentType };
     if (sendMode === 'single') return { ...base, customerIds: [selectedCustomerId] };
     return { ...base, minBalance: Number(minBalance) };
   };
@@ -289,6 +293,33 @@ export default function BalanceRemindersPage() {
                 </div>
               </div>
 
+              {/* Payment type filter (eligible mode only) */}
+              {sendMode === 'eligible' && (
+                <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
+                  <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Customer Type</Label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['BOTH', 'MONTHLY', 'CASH'] as const).map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => { setPaymentTypeFilter(t); setShowPreview(false); resetPreview(); }}
+                        className={cn(
+                          'px-3 py-2 rounded-xl text-xs font-bold border transition-colors',
+                          paymentTypeFilter === t
+                            ? 'bg-primary/15 border-primary/40 text-primary'
+                            : 'bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10',
+                        )}
+                      >
+                        {t === 'BOTH' ? 'Both' : t === 'MONTHLY' ? 'Monthly' : 'Cash'}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground ml-1">
+                    {paymentTypeFilter === 'BOTH' ? 'All active customers with balance ≥ threshold.' : `Only ${paymentTypeFilter.toLowerCase()} customers.`}
+                  </p>
+                </div>
+              )}
+
               {/* Customer picker (single mode) */}
               {sendMode === 'single' && (
                 <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
@@ -387,7 +418,10 @@ export default function BalanceRemindersPage() {
                           <div className="text-xs space-y-1">
                             <p className="text-white font-semibold">{selectedCustomer.name}</p>
                             <p className="text-muted-foreground">
-                              Balance: ₨{Number(selectedCustomer.financialBalance ?? 0).toLocaleString()} &nbsp;·&nbsp;
+                              Balance ({formatMonthDisplay(month)}): ₨{Number(
+                                ([...(previewResult.wouldSend ?? []), ...(previewResult.skipped ?? [])].find((e: any) => e.customerId === selectedCustomerId)?.balance)
+                                ?? selectedCustomer.financialBalance ?? 0
+                              ).toLocaleString()} &nbsp;·&nbsp;
                               Phone: {selectedCustomer.phoneNumber || <span className="text-destructive">No phone</span>}
                             </p>
                             {includeStatement && (

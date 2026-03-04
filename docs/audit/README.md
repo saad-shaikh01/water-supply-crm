@@ -32,6 +32,8 @@ Purpose: Page-by-page completion audit, active execution tracking, and targeted 
 11. `AUDIT_PASS_FLOW.md` - Step-by-step sprint workflow (audit, branching, implementation, merge).
 12. `DASHBOARD_OVERVIEW_TASK_BOARD.md` - Actionable execution queue for the vendor overview dashboard.
 13. `TRACKING_AND_LIVE_OPS_PLAN.md` - Current-state audit and phased roadmap for live driver tracking.
+14. `TRACKING_BACKEND_TASK_BOARD.md` - Backend execution queue for production-ready driver tracking.
+15. `TRACKING_FRONTEND_TASK_BOARD.md` - Frontend execution queue for production-ready driver tracking UX.
 
 ## Operating Rules
 

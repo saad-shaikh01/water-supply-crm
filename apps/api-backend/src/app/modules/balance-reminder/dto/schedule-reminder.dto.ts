@@ -50,6 +50,16 @@ export class SendNowDto {
   @IsOptional()
   @IsBoolean()
   includeStatement?: boolean;
+
+  /**
+   * Restrict reminders to a specific payment type.
+   * 'MONTHLY' — only monthly subscribers
+   * 'CASH'    — only cash customers
+   * Omit (or undefined) — send to both types
+   */
+  @IsOptional()
+  @IsIn(['MONTHLY', 'CASH'])
+  paymentType?: 'MONTHLY' | 'CASH';
 }
 
 export class PreviewDto {
@@ -84,6 +94,14 @@ export class PreviewDto {
   @IsOptional()
   @IsBoolean()
   includeStatement?: boolean;
+
+  /**
+   * Restrict preview to a specific payment type.
+   * Omit to include both MONTHLY and CASH customers.
+   */
+  @IsOptional()
+  @IsIn(['MONTHLY', 'CASH'])
+  paymentType?: 'MONTHLY' | 'CASH';
 }
 
 export class SendTargetedDto {
@@ -141,4 +159,14 @@ export class SendTargetedDto {
   @IsOptional()
   @IsBoolean()
   includeStatement?: boolean;
+
+  /**
+   * Restrict reminders to a specific payment type.
+   * 'MONTHLY' — only monthly subscribers
+   * 'CASH'    — only cash customers
+   * Omit (or undefined) — send to both types
+   */
+  @IsOptional()
+  @IsIn(['MONTHLY', 'CASH'])
+  paymentType?: 'MONTHLY' | 'CASH';
 }
