@@ -62,11 +62,8 @@ export class TrackingController {
     @CurrentUser() user: any,
     @Param('driverId') driverId: string,
   ) {
-    const loc = await this.trackingService.getDriverLocation(driverId);
-    if (!loc || loc.vendorId !== user.vendorId) {
-      return { location: null };
-    }
-    return { location: loc };
+    const loc = await this.trackingService.getDriverLocationResilient(driverId, user.vendorId);
+    return { location: loc ?? null };
   }
 
   /**

@@ -241,6 +241,18 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  /**
+   * Get a driver's location: Redis (live) first, DB (last-known) as fallback.
+   * Always returns freshness metadata. Returns null only if no record exists at all.
+   */
+  async getDriverLocationResilient(driverId: string, vendorId: string): Promise<DriverLocation | null> {
+    const live = await this.getDriverLocationFromRedis(driverId);
+    if (live) return live;
+    const persisted = await this.getDriverLocationFromDb(driverId);
+    if (!persisted || persisted.vendorId !== vendorId) return null;
+    return persisted;
+  }
+
   /** @deprecated Use getDriverLocationFromRedis — kept for internal compat */
   async getDriverLocation(driverId: string): Promise<DriverLocation | null> {
     return this.getDriverLocationFromRedis(driverId);
