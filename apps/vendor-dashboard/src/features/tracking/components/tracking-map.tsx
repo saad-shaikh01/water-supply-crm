@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Map, Marker, NavigationControl, FullscreenControl, ScaleControl, Popup, useMap, MapRef } from 'react-map-gl/mapbox';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { useTracking } from '../hooks/use-tracking';
-import { Truck, Navigation, AlertTriangle, ExternalLink, Activity, Info, Map as MapIcon, Crosshair, X as CloseIcon, List, Signal, SignalLow, WifiOff } from 'lucide-react';
+import { Truck, Navigation, AlertTriangle, ExternalLink, Activity, Info, Map as MapIcon, Crosshair, X as CloseIcon, List, Signal, SignalLow, WifiOff, Maximize, Target, RotateCcw } from 'lucide-react';
 import { 
   Card, 
   Badge, 
@@ -52,6 +52,47 @@ export function TrackingMap() {
     setIsDrawerOpen(true);
   };
 
+  const centerOnFleet = useCallback(() => {
+    if (driverList.length === 0) return;
+
+    const bounds = driverList.reduce(
+      (acc, driver) => {
+        return [
+          [Math.min(acc[0][0], driver.longitude), Math.min(acc[0][1], driver.latitude)],
+          [Math.max(acc[1][0], driver.longitude), Math.max(acc[1][1], driver.latitude)],
+        ];
+      },
+      [[driverList[0].longitude, driverList[0].latitude], [driverList[0].longitude, driverList[0].latitude]]
+    );
+
+    mapRef.current?.fitBounds(
+      [bounds[0][0], bounds[0][1], bounds[1][0], bounds[1][1]],
+      { padding: 100, duration: 2000 }
+    );
+    setIsFollowing(false);
+  }, [driverList]);
+
+  const centerOnSelected = useCallback(() => {
+    if (selectedDriver) {
+      setViewState(prev => ({
+        ...prev,
+        latitude: selectedDriver.latitude,
+        longitude: selectedDriver.longitude,
+        zoom: 15,
+      }));
+    }
+  }, [selectedDriver]);
+
+  const resetViewport = useCallback(() => {
+    setViewState({
+      latitude: 24.8607,
+      longitude: 67.0011,
+      zoom: 12,
+    });
+    setIsFollowing(false);
+    setSelectedDriverId(null);
+  }, []);
+
   // Camera lock logic: follow driver when enabled and driver moves
   useEffect(() => {
     if (isFollowing && selectedDriver) {
@@ -97,6 +138,38 @@ export function TrackingMap() {
         <NavigationControl position="top-right" />
         <FullscreenControl position="top-right" />
         <ScaleControl />
+
+        {/* Map Ergonomics Controls */}
+        <div className="absolute top-32 right-[10px] z-10 flex flex-col gap-2">
+          <Button 
+            variant="secondary" 
+            size="icon" 
+            className="h-[29px] w-[29px] rounded-sm bg-white shadow-sm border border-border/50 hover:bg-muted"
+            title="Center Fleet"
+            onClick={centerOnFleet}
+          >
+            <Maximize className="h-4 w-4" />
+          </Button>
+          <Button 
+            variant="secondary" 
+            size="icon" 
+            className="h-[29px] w-[29px] rounded-sm bg-white shadow-sm border border-border/50 hover:bg-muted"
+            title="Center Selected Driver"
+            disabled={!selectedDriver}
+            onClick={centerOnSelected}
+          >
+            <Target className="h-4 w-4" />
+          </Button>
+          <Button 
+            variant="secondary" 
+            size="icon" 
+            className="h-[29px] w-[29px] rounded-sm bg-white shadow-sm border border-border/50 hover:bg-muted"
+            title="Reset View"
+            onClick={resetViewport}
+          >
+            <RotateCcw className="h-4 w-4" />
+          </Button>
+        </div>
 
         {/* Stream Health Panel */}
         <div className="absolute top-8 left-8 z-10 flex flex-col gap-2 pointer-events-none">

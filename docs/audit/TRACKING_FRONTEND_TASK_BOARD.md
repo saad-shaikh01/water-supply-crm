@@ -36,7 +36,7 @@ Backend execution is tracked separately in:
 | TRK-FE-009 | Ops Overlay | High | READY | Add map overlay for on-demand dispatch pressure with quick jump to relevant dispatch workflow. | TRK-BE-009 |
 | TRK-FE-010 | Reliability UX | Medium | DONE | Add stale/offline marker styles and legend panel so operators can identify risk states immediately. | TRK-FE-005 |
 | TRK-FE-011 | Reliability UX | Medium | DONE | Add stream health panel (connected/disconnected, retry count, last event age) and explicit degraded-state messaging. | TRK-BE-013 |
-| TRK-FE-012 | Map Ergonomics | Medium | READY | Add viewport controls for operations use: center on active fleet, center on selected driver, and reset viewport. | TRK-FE-006 |
+| TRK-FE-012 | Map Ergonomics | Medium | DONE | Add viewport controls for operations use: center on active fleet, center on selected driver, and reset viewport. | TRK-FE-006 |
 | TRK-FE-013 | History | Medium | READY | Add breadcrumb trail rendering for selected driver when backend history endpoint is available. | TRK-BE-011 |
 | TRK-FE-014 | Mobile Ops | Medium | READY | Ensure tracking controls and overlays are usable on mobile widths without covering the map excessively. | TRK-FE-006 |
 
