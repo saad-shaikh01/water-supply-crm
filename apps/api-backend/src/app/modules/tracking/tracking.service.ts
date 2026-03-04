@@ -84,9 +84,10 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Driver pushes GPS location.
-   * 1. Upserts DB last-known record (persistent, survives Redis TTL expiry).
-   * 2. Stores in Redis with TTL (live stream path — fast expiry for presence).
-   * 3. Publishes to all instances via Redis Pub/Sub (SSE fanout).
+   * 1. Derives vanId/dailySheetId from the driver's open daily sheet (server-side).
+   * 2. Upserts DB last-known record (persistent, survives Redis TTL expiry).
+   * 3. Stores in Redis with TTL (live stream path — fast expiry for presence).
+   * 4. Publishes to all instances via Redis Pub/Sub (SSE fanout).
    */
   async updateLocation(
     driverId: string,
@@ -98,6 +99,21 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     const now = new Date();
     const status = dto.status ?? 'ONLINE';
+
+    // Server-side context derivation: find today's open sheet for this driver
+    if (!vanId || !dailySheetId) {
+      const todayStart = new Date(now);
+      todayStart.setHours(0, 0, 0, 0);
+      const activeSheet = await this.prisma.dailySheet.findFirst({
+        where: { driverId, vendorId, isClosed: false, date: { gte: todayStart } },
+        select: { id: true, vanId: true },
+        orderBy: { date: 'desc' },
+      });
+      if (activeSheet) {
+        vanId = vanId ?? activeSheet.vanId;
+        dailySheetId = dailySheetId ?? activeSheet.id;
+      }
+    }
 
     const location: DriverLocation = {
       driverId,
