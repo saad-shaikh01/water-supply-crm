@@ -10,6 +10,13 @@ export interface DriverLocation {
   bearing?: number;
   /** 'offline' is a server-sent sentinel — hook removes the driver from state on receipt */
   status: 'ONLINE' | 'DELIVERING' | 'AWAY' | 'offline';
+  /** Freshness metadata from backend (TRK-BE-003) */
+  freshness: 'LIVE' | 'STALE' | 'OFFLINE';
+  /** Seconds since last update (TRK-BE-003) */
+  lastSeenSeconds: number;
+  /** Context from active sheet (TRK-BE-007) */
+  vanId?: string;
+  dailySheetId?: string;
   updatedAt: string;
 }
 

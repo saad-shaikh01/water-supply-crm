@@ -29,7 +29,8 @@
       "Bash(git commit:*)",
       "Bash(tail:*)",
       "Bash(npx prisma:*)",
-      "Bash(head:*)"
+      "Bash(head:*)",
+      "Bash(xargs grep:*)"
     ]
   }
 }

@@ -61,11 +61,20 @@ export function TrackingMap() {
                 </div>
                 <div className={cn(
                   "h-10 w-10 rounded-2xl flex items-center justify-center shadow-lg transform transition-all duration-500 group-hover:scale-110",
-                  driver.status === 'ONLINE' ? "bg-emerald-500 text-white shadow-emerald-500/20" :
-                  driver.status === 'DELIVERING' ? "bg-primary text-white shadow-primary/20" :
+                  driver.freshness === 'LIVE' ? (
+                    driver.status === 'DELIVERING' ? "bg-primary text-white shadow-primary/20" : "bg-emerald-500 text-white shadow-emerald-500/20"
+                  ) :
+                  driver.freshness === 'STALE' ? "bg-amber-500 text-white shadow-amber-500/20" :
                   "bg-zinc-500 text-white shadow-zinc-500/20"
                 )}>
                   <Truck className="h-6 w-6" />
+
+                  {/* Freshness Indicator Dot */}
+                  <div className={cn(
+                    "absolute -bottom-1 -right-1 h-3 w-3 rounded-full border-2 border-white shadow-sm",
+                    driver.freshness === 'LIVE' ? "bg-emerald-500" :
+                    driver.freshness === 'STALE' ? "bg-amber-500" : "bg-zinc-500"
+                  )} />
 
                   {/* Direction Arrow */}
                   {driver.bearing !== undefined && (
@@ -78,8 +87,8 @@ export function TrackingMap() {
                   )}
                 </div>
 
-                {/* Active pulse for online drivers */}
-                {driver.status === 'ONLINE' && (
+                {/* Active pulse for live drivers */}
+                {driver.freshness === 'LIVE' && (
                   <div className="absolute inset-0 h-10 w-10 rounded-2xl bg-emerald-500 animate-ping opacity-20 -z-10" />
                 )}
               </div>
@@ -98,15 +107,25 @@ export function TrackingMap() {
             offset={10}
           >
             <div className="p-3 min-w-[200px] space-y-3">
-              <div className="flex items-center gap-2">
-                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
-                  {selectedDriver.driverName.charAt(0)}
-                </div>
-                <div>
-                  <p className="text-sm font-black">{selectedDriver.driverName}</p>
-                  <Badge variant={selectedDriver.status === 'ONLINE' ? 'success' : 'secondary'} className="text-[8px] px-1.5 py-0">
-                    {selectedDriver.status}
-                  </Badge>
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2">
+                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
+                    {selectedDriver.driverName.charAt(0)}
+                  </div>
+                  <div>
+                    <p className="text-sm font-black">{selectedDriver.driverName}</p>
+                    <div className="flex items-center gap-1.5">
+                      <Badge variant={selectedDriver.status === 'DELIVERING' ? 'default' : 'secondary'} className="text-[8px] px-1.5 py-0">
+                        {selectedDriver.status}
+                      </Badge>
+                      <Badge 
+                        variant={selectedDriver.freshness === 'LIVE' ? 'success' : selectedDriver.freshness === 'STALE' ? 'warning' : 'secondary'} 
+                        className="text-[8px] px-1.5 py-0"
+                      >
+                        {selectedDriver.freshness}
+                      </Badge>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -118,8 +137,12 @@ export function TrackingMap() {
                   <p className="text-foreground font-mono">{selectedDriver.speed ? `${selectedDriver.speed} km/h` : 'Stopped'}</p>
                 </div>
                 <div>
-                  <p>Updated</p>
-                  <p className="text-foreground font-mono">{new Date(selectedDriver.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                  <p>Last Seen</p>
+                  <p className="text-foreground font-mono">
+                    {selectedDriver.lastSeenSeconds < 60 
+                      ? `${selectedDriver.lastSeenSeconds}s ago` 
+                      : `${Math.floor(selectedDriver.lastSeenSeconds / 60)}m ago`}
+                  </p>
                 </div>
               </div>
             </div>
