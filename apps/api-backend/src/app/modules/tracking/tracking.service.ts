@@ -16,7 +16,15 @@ export interface DriverLocation {
   bearing?: number;
   status?: string;
   updatedAt: string;
+  /** Derived at read time — not stored */
+  freshness?: 'LIVE' | 'STALE' | 'OFFLINE';
+  /** Seconds since last update — derived at read time */
+  lastSeenSeconds?: number;
 }
+
+/** Thresholds for freshness classification */
+const FRESHNESS_LIVE_SECONDS = 60;       // < 60 s → LIVE
+const FRESHNESS_STALE_SECONDS = 5 * 60; // 60–300 s → STALE, >300 s → OFFLINE
 
 export interface LocationEvent {
   vendorId: string;
@@ -184,7 +192,7 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
       if (!val) continue;
       try {
         const loc: DriverLocation = JSON.parse(val);
-        if (loc.vendorId === vendorId) result.push(loc);
+        if (loc.vendorId === vendorId) result.push(this.addFreshness(loc));
       } catch {
         // skip corrupted entries
       }
@@ -201,7 +209,7 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
     const val = await this.publisher.get(`${LOCATION_KEY_PREFIX}${driverId}`);
     if (!val) return null;
     try {
-      return JSON.parse(val);
+      return this.addFreshness(JSON.parse(val));
     } catch {
       return null;
     }
@@ -218,7 +226,7 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
     });
     if (!record) return null;
 
-    return {
+    return this.addFreshness({
       driverId: record.driverId,
       driverName: record.driver.name,
       vendorId: record.vendorId,
@@ -230,12 +238,31 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
       bearing: record.bearing ?? undefined,
       status: record.status,
       updatedAt: record.lastSeenAt.toISOString(),
-    };
+    });
   }
 
   /** @deprecated Use getDriverLocationFromRedis — kept for internal compat */
   async getDriverLocation(driverId: string): Promise<DriverLocation | null> {
     return this.getDriverLocationFromRedis(driverId);
+  }
+
+  /**
+   * Derives freshness metadata from updatedAt and attaches it to the location.
+   * Called on every read path (Redis snapshot, DB fallback, getActiveDrivers).
+   */
+  private addFreshness(loc: DriverLocation): DriverLocation {
+    const lastSeenSeconds = Math.floor(
+      (Date.now() - new Date(loc.updatedAt).getTime()) / 1000,
+    );
+    let freshness: 'LIVE' | 'STALE' | 'OFFLINE';
+    if (lastSeenSeconds < FRESHNESS_LIVE_SECONDS) {
+      freshness = 'LIVE';
+    } else if (lastSeenSeconds < FRESHNESS_STALE_SECONDS) {
+      freshness = 'STALE';
+    } else {
+      freshness = 'OFFLINE';
+    }
+    return { ...loc, freshness, lastSeenSeconds };
   }
 
   /** Safe Redis key scan using cursor-based SCAN instead of KEYS */
