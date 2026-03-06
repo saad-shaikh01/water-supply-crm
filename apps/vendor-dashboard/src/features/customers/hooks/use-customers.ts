@@ -59,7 +59,7 @@ export const useCustomers = () => {
 export const useAllCustomers = () => {
   return useQuery({
     queryKey: [...queryKeys.customers.all({}), 'all'],
-    queryFn: () => customersApi.getAll({ limit: 100 }).then((r) => r.data),
+    queryFn: () => customersApi.getAll({ limit: 1000 }).then((r) => r.data),
   });
 };
 
