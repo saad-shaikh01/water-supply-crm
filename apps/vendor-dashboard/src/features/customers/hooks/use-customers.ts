@@ -56,6 +56,13 @@ export const useCustomers = () => {
   };
 };
 
+export const useAllCustomers = () => {
+  return useQuery({
+    queryKey: [...queryKeys.customers.all({}), 'all'],
+    queryFn: () => customersApi.getAll({ limit: 1000 }).then((r) => r.data),
+  });
+};
+
 export const useCustomer = (id: string) => {
   return useQuery({
     queryKey: queryKeys.customers.one(id),
