@@ -26,6 +26,7 @@ This repo is production-ready for a Docker-based VPS deployment with host Nginx 
 - Queueing is Redis/BullMQ-based in the current codebase. RabbitMQ is not used by the production app services.
 - The backend serves `/uploads`, but current screenshot/attachment flows use S3-compatible object storage. The `uploads_data` volume is retained for the local uploads directory and future compatibility.
 - `NEXT_PUBLIC_*` values are baked into the frontend images at build time. If you change them, rebuild the affected frontend images.
+- The committed `.env.prod` keeps mail, storage, Firebase push, Paymob, and Mapbox disabled until real credentials are added.
 
 ## 1. VPS Requirements
 
@@ -54,10 +55,11 @@ newgrp docker
 ```bash
 git clone <your-repo-url> water-supply-crm
 cd water-supply-crm
-cp .env.prod.example .env.prod
 ```
 
-Edit `.env.prod` and fill in:
+This repo already ships a ready-to-use `.env.prod` for the current `testinglinq.com` deployment, so a VPS-side `nano` step is not required unless you want to rotate secrets or enable optional integrations.
+
+If you do want to customize it, review these values:
 
 - Required for every deploy:
   - `POSTGRES_USER`
