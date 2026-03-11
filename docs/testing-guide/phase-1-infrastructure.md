@@ -11,23 +11,25 @@ All tickets in this phase MUST be completed before any Phase 2/3/4/5 tickets beg
 **App:** api-backend
 
 ### Context
-`jest-mock-extended` provides `mockDeep<T>()` which creates deep type-safe mocks of the `PrismaService`. Without this, writing backend unit tests requires manual mock objects for every Prisma model. This is the foundation all backend unit tests depend on.
+`jest-mock-extended` provides `mockDeep<T>()` which creates deep type-safe mocks of `PrismaService`. Without this, backend unit tests require manual stub objects for every Prisma model method. All Phase 2 backend unit tests depend on this.
 
 ### Tasks
 
 #### Task 1: Install jest-mock-extended
-**Action:** Run in terminal
+Run in terminal at the repo root:
 ```bash
 npm install --save-dev jest-mock-extended
 ```
-Verify it appears in root `package.json` under `devDependencies`.
+Verify `jest-mock-extended` appears in root `package.json` under `devDependencies`.
 
-#### Task 2: Create the Prisma mock singleton file
-**Action:** Create file at `apps/api-backend/src/test/prisma-mock.ts`
+#### Task 2: Locate the PrismaService export
+**Action:** Read `libs/shared/database/src/index.ts` to find the correct import path for `PrismaService`. The path will be something like `@water-supply-crm/database` or a relative path. Record it — you will use it in all spec files.
 
-Write the following content exactly:
+#### Task 3: Create the Prisma mock singleton file
+**Action:** Create `apps/api-backend/src/test/prisma-mock.ts`
+
 ```typescript
-import { PrismaService } from '../../app/modules/../../../libs/shared/database/src';
+import { PrismaService } from '<path-found-in-task-2>';
 import { mockDeep, mockReset, DeepMockProxy } from 'jest-mock-extended';
 
 export type PrismaMock = DeepMockProxy<PrismaService>;
@@ -39,20 +41,33 @@ beforeEach(() => {
 });
 ```
 
-> Note: The `PrismaService` import path may need adjustment. Check the actual export path by reading `libs/shared/database/src/index.ts`. Use the correct path.
+#### Task 4: Register mock file in Jest setup
+**Action:** Read `apps/api-backend/jest.config.cts`.
 
-#### Task 3: Add the prisma mock to Jest setup
-**Action:** Modify `apps/api-backend/jest.config.cts`
-Add `setupFilesAfterFramework` pointing to the mock file:
-```typescript
-setupFilesAfterFramework: ['<rootDir>/src/test/prisma-mock.ts'],
+The current file is:
+```js
+module.exports = {
+  displayName: 'api-backend',
+  preset: '../../jest.preset.js',
+  testEnvironment: 'node',
+  transform: { ... },
+  moduleFileExtensions: ['ts', 'js', 'html'],
+  coverageDirectory: '../../coverage/apps/api-backend',
+};
 ```
-> Read `apps/api-backend/jest.config.cts` first, then add the property in the correct location.
+
+Add `setupFilesAfterEnv` (not `setupFilesAfterFramework`) to the config object:
+```js
+setupFilesAfterEnv: ['<rootDir>/src/test/prisma-mock.ts'],
+```
+
+> `setupFilesAfterEnv` is the correct Jest key. It runs after the test framework is installed in each test file's environment.
 
 ### Acceptance Criteria
-- [ ] `jest-mock-extended` appears in root `package.json` devDependencies
-- [ ] File `apps/api-backend/src/test/prisma-mock.ts` exists and compiles without errors
-- [ ] Running `npx nx test api-backend` does not throw import errors for the new mock file
+- [ ] `jest-mock-extended` in root `package.json` devDependencies
+- [ ] `apps/api-backend/src/test/prisma-mock.ts` exists and TypeScript compiles
+- [ ] `apps/api-backend/jest.config.cts` has `setupFilesAfterEnv` (not `setupFilesAfterFramework`)
+- [ ] `npx nx test api-backend` runs without import errors for the mock file
 
 ---
 
@@ -62,26 +77,25 @@ setupFilesAfterFramework: ['<rootDir>/src/test/prisma-mock.ts'],
 **Priority:** P0 Critical
 **App:** api-backend
 
-### Context
-Every backend unit test needs to bootstrap a `TestingModule` with the service under test and mocked dependencies. A shared helper prevents copy-paste boilerplate across 30+ spec files.
-
 ### Tasks
 
-#### Task 1: Create test module builder helper
-**Action:** Create file at `apps/api-backend/src/test/create-test-module.ts`
+#### Task 1: Create the helper
+**Action:** Create `apps/api-backend/src/test/create-test-module.ts`
 
-Write the following:
 ```typescript
 import { Test, TestingModule } from '@nestjs/testing';
 import { ModuleMetadata } from '@nestjs/common';
 
 /**
- * Creates a NestJS TestingModule with the provided metadata.
- * Use this in beforeEach() for all backend unit tests.
+ * Thin wrapper around Test.createTestingModule().compile().
+ * Use in beforeEach() for all backend unit tests.
  *
  * Example:
  *   const module = await createTestModule({
- *     providers: [AuthService, { provide: PrismaService, useValue: prismaMock }],
+ *     providers: [
+ *       AuthService,
+ *       { provide: PrismaService, useValue: prismaMock },
+ *     ],
  *   });
  *   service = module.get(AuthService);
  */
@@ -90,10 +104,9 @@ export async function createTestModule(metadata: ModuleMetadata): Promise<Testin
 }
 ```
 
-#### Task 2: Create barrel export for test utilities
-**Action:** Create file at `apps/api-backend/src/test/index.ts`
+#### Task 2: Create barrel export
+**Action:** Create `apps/api-backend/src/test/index.ts`
 
-Write:
 ```typescript
 export * from './prisma-mock';
 export * from './create-test-module';
@@ -101,9 +114,8 @@ export * from './factories';
 ```
 
 ### Acceptance Criteria
-- [ ] File `apps/api-backend/src/test/create-test-module.ts` exists
-- [ ] File `apps/api-backend/src/test/index.ts` exports all test utilities
-- [ ] No TypeScript errors in the helper files
+- [ ] Both files exist
+- [ ] No TypeScript errors
 
 ---
 
@@ -114,14 +126,24 @@ export * from './factories';
 **App:** api-backend
 
 ### Context
-Unit tests need consistent, reusable mock objects that match Prisma model shapes. Factories provide a single source of truth for test data, preventing tests from breaking when model shapes change.
+All factories must be derived from the actual Prisma schema at `libs/shared/database/prisma/schema.prisma`. The schema was read and the correct field names are used below. Do not invent fields.
+
+**Key schema facts:**
+- `Vendor`: `id`, `name`, `slug`, `address?`, `logoUrl?`, `raastId?`, `isActive`, `createdAt`, `updatedAt` — **no `email`, no `phone`**
+- `User`: `id`, `email`, `password`, `name`, `phoneNumber?`, `role`, `isActive`, `vendorId?`, `createdAt`, `updatedAt`
+- `Customer`: `id`, `customerCode`, `name`, `phoneNumber`, `address`, `vendorId`, `paymentType`, `isActive`, `financialBalance`, `createdAt`, `updatedAt` — **no `bottleCount`, no `balance`, no `portalEnabled`**
+- `Van`: `id`, `plateNumber`, `vendorId`, `isActive`, `defaultDriverId?`, `createdAt`, `updatedAt` — **field is `defaultDriverId`, not `driverId`**
+- `DailySheet`: `id`, `date`, `vendorId`, `vanId`, `driverId`, `isClosed`, `routeId?`, `filledOutCount`, `filledInCount`, `emptyInCount`, `cashExpected`, `cashCollected`, `createdAt`, `updatedAt` — **field is `isClosed: boolean`, not `status: string`**
+- `Transaction`: `id`, `type`, `vendorId`, `customerId?`, `productId?`, `amount?`, `description?`, `createdAt`
+- `PaymentRequest`: `id`, `vendorId`, `customerId`, `amount`, `method`, `status`, `gatewayOrderId?`, `checkoutUrl?`, `referenceNo?`, `screenshotPath?`, `createdAt`, `updatedAt`
+- `CustomerOrder`: `id`, `vendorId`, `customerId`, `productId`, `quantity`, `status` (OrderStatus enum: PENDING/APPROVED/REJECTED/CANCELLED), `createdAt`, `updatedAt`
+- `CustomerTicket`: `id`, `vendorId`, `customerId`, `type` (TicketType), `subject`, `description`, `status` (TicketStatus), `priority` (TicketPriority), `createdAt`, `updatedAt`
 
 ### Tasks
 
-#### Task 1: Create the factories barrel file
-**Action:** Create file at `apps/api-backend/src/test/factories/index.ts`
+#### Task 1: Create factories barrel file
+**Action:** Create `apps/api-backend/src/test/factories/index.ts`
 
-Write:
 ```typescript
 export * from './vendor.factory';
 export * from './user.factory';
@@ -136,23 +158,22 @@ export * from './order.factory';
 export * from './ticket.factory';
 ```
 
-#### Task 2: Create vendor and user factories
-**Action:** Create file at `apps/api-backend/src/test/factories/vendor.factory.ts`
-
-First, read `libs/shared/database/prisma/schema.prisma` to get the exact field names for `Vendor` and `User` models. Then write factories matching those exact fields:
+#### Task 2: Vendor and User factories
+**Action:** Create `apps/api-backend/src/test/factories/vendor.factory.ts`
 
 ```typescript
-import { Vendor, User, UserRole } from '@prisma/client';
+import { Vendor } from '@prisma/client';
 
 export const mockVendorId = 'vendor-test-001';
-export const mockVendorId2 = 'vendor-test-002';
 
 export function createMockVendor(overrides: Partial<Vendor> = {}): Vendor {
   return {
     id: mockVendorId,
     name: 'Test Water Co.',
-    email: 'vendor@test.com',
-    phone: '03001234567',
+    slug: 'test-water-co',
+    address: null,
+    logoUrl: null,
+    raastId: null,
     isActive: true,
     createdAt: new Date('2025-01-01'),
     updatedAt: new Date('2025-01-01'),
@@ -161,9 +182,8 @@ export function createMockVendor(overrides: Partial<Vendor> = {}): Vendor {
 }
 ```
 
-**Action:** Create file at `apps/api-backend/src/test/factories/user.factory.ts`
+**Action:** Create `apps/api-backend/src/test/factories/user.factory.ts`
 
-Read the `User` model fields from the schema, then write:
 ```typescript
 import { User, UserRole } from '@prisma/client';
 import { mockVendorId } from './vendor.factory';
@@ -174,6 +194,7 @@ export function createMockUser(overrides: Partial<User> = {}): User {
     email: 'driver@test.com',
     password: '$2b$10$hashedpassword',
     name: 'Test Driver',
+    phoneNumber: null,
     role: UserRole.DRIVER,
     vendorId: mockVendorId,
     isActive: true,
@@ -183,15 +204,19 @@ export function createMockUser(overrides: Partial<User> = {}): User {
   } as User;
 }
 
-export function createMockAdminUser(overrides: Partial<User> = {}): User {
-  return createMockUser({ id: 'user-admin-001', role: UserRole.SUPER_ADMIN, email: 'admin@test.com', ...overrides });
+export function createMockVendorAdmin(overrides: Partial<User> = {}): User {
+  return createMockUser({
+    id: 'user-admin-001',
+    role: UserRole.VENDOR_ADMIN,
+    email: 'admin@test.com',
+    ...overrides,
+  });
 }
 ```
 
-#### Task 3: Create customer and product factories
-**Action:** Create file at `apps/api-backend/src/test/factories/customer.factory.ts`
+#### Task 3: Customer and Product factories
+**Action:** Create `apps/api-backend/src/test/factories/customer.factory.ts`
 
-Read the `Customer` model from `libs/shared/database/prisma/schema.prisma`. Include all non-optional fields. Write:
 ```typescript
 import { Customer, PaymentType } from '@prisma/client';
 import { mockVendorId } from './vendor.factory';
@@ -199,16 +224,22 @@ import { mockVendorId } from './vendor.factory';
 export function createMockCustomer(overrides: Partial<Customer> = {}): Customer {
   return {
     id: 'customer-test-001',
+    customerCode: 'CUST-001',
     name: 'Test Customer',
-    phone: '03009876543',
-    address: '123 Test Street',
-    bottleCount: 2,
-    paymentType: PaymentType.MONTHLY,
-    basePrice: 150,
-    balance: 0,
+    phoneNumber: '03009876543',
+    address: '123 Test Street, Karachi',
+    floor: null,
+    nearbyLandmark: null,
+    deliveryInstructions: null,
+    googleMapsUrl: null,
+    latitude: null,
+    longitude: null,
     vendorId: mockVendorId,
+    routeId: null,
+    userId: null,
+    paymentType: PaymentType.CASH,
     isActive: true,
-    portalEnabled: false,
+    financialBalance: 0,         // correct field name — not 'balance'
     createdAt: new Date('2025-01-01'),
     updatedAt: new Date('2025-01-01'),
     ...overrides,
@@ -216,7 +247,7 @@ export function createMockCustomer(overrides: Partial<Customer> = {}): Customer 
 }
 ```
 
-**Action:** Create file at `apps/api-backend/src/test/factories/product.factory.ts`
+**Action:** Create `apps/api-backend/src/test/factories/product.factory.ts`
 
 ```typescript
 import { Product } from '@prisma/client';
@@ -226,8 +257,10 @@ export function createMockProduct(overrides: Partial<Product> = {}): Product {
   return {
     id: 'product-test-001',
     name: '19L Water Bottle',
+    description: null,
     basePrice: 150,
     vendorId: mockVendorId,
+    isActive: true,
     createdAt: new Date('2025-01-01'),
     updatedAt: new Date('2025-01-01'),
     ...overrides,
@@ -235,10 +268,9 @@ export function createMockProduct(overrides: Partial<Product> = {}): Product {
 }
 ```
 
-#### Task 4: Create van, route, and daily-sheet factories
-**Action:** Create file at `apps/api-backend/src/test/factories/van.factory.ts`
+#### Task 4: Van and Route factories
+**Action:** Create `apps/api-backend/src/test/factories/van.factory.ts`
 
-Read `Van` model from schema, then write:
 ```typescript
 import { Van } from '@prisma/client';
 import { mockVendorId } from './vendor.factory';
@@ -247,9 +279,9 @@ export function createMockVan(overrides: Partial<Van> = {}): Van {
   return {
     id: 'van-test-001',
     plateNumber: 'ABC-123',
-    driverId: 'user-test-001',
     vendorId: mockVendorId,
     isActive: true,
+    defaultDriverId: 'user-test-001',  // correct field — not 'driverId'
     createdAt: new Date('2025-01-01'),
     updatedAt: new Date('2025-01-01'),
     ...overrides,
@@ -257,7 +289,7 @@ export function createMockVan(overrides: Partial<Van> = {}): Van {
 }
 ```
 
-**Action:** Create file at `apps/api-backend/src/test/factories/route.factory.ts`
+**Action:** Create `apps/api-backend/src/test/factories/route.factory.ts`
 
 ```typescript
 import { Route } from '@prisma/client';
@@ -266,8 +298,9 @@ import { mockVendorId } from './vendor.factory';
 export function createMockRoute(overrides: Partial<Route> = {}): Route {
   return {
     id: 'route-test-001',
-    name: 'Route A',
+    name: 'Route North',
     vendorId: mockVendorId,
+    defaultVanId: null,
     createdAt: new Date('2025-01-01'),
     updatedAt: new Date('2025-01-01'),
     ...overrides,
@@ -275,14 +308,37 @@ export function createMockRoute(overrides: Partial<Route> = {}): Route {
 }
 ```
 
-**Action:** Create file at `apps/api-backend/src/test/factories/daily-sheet.factory.ts`
+#### Task 5: DailySheet factory
+**Action:** Create `apps/api-backend/src/test/factories/daily-sheet.factory.ts`
 
-Read `DailySheet` and `DailySheetItem` models from schema, then write factories for both.
+```typescript
+import { DailySheet } from '@prisma/client';
+import { mockVendorId } from './vendor.factory';
 
-#### Task 5: Create transaction and payment factories
-**Action:** Create file at `apps/api-backend/src/test/factories/transaction.factory.ts`
+export function createMockDailySheet(overrides: Partial<DailySheet> = {}): DailySheet {
+  return {
+    id: 'sheet-test-001',
+    date: new Date('2025-03-10'),
+    vendorId: mockVendorId,
+    vanId: 'van-test-001',
+    driverId: 'user-test-001',
+    routeId: null,
+    isClosed: false,              // correct field — not 'status'
+    filledOutCount: 0,
+    filledInCount: 0,
+    emptyInCount: 0,
+    cashExpected: 0,
+    cashCollected: 0,
+    createdAt: new Date('2025-01-01'),
+    updatedAt: new Date('2025-01-01'),
+    ...overrides,
+  } as DailySheet;
+}
+```
 
-Read `Transaction` model from schema, then write:
+#### Task 6: Transaction and Payment factories
+**Action:** Create `apps/api-backend/src/test/factories/transaction.factory.ts`
+
 ```typescript
 import { Transaction, TransactionType } from '@prisma/client';
 import { mockVendorId } from './vendor.factory';
@@ -290,62 +346,138 @@ import { mockVendorId } from './vendor.factory';
 export function createMockTransaction(overrides: Partial<Transaction> = {}): Transaction {
   return {
     id: 'txn-test-001',
-    customerId: 'customer-test-001',
-    vendorId: mockVendorId,
     type: TransactionType.PAYMENT,
+    vendorId: mockVendorId,
+    customerId: 'customer-test-001',
+    productId: null,
+    dailySheetId: null,
+    dailySheetItemId: null,
+    bottleCount: null,
+    filledDropped: null,
+    emptyReceived: null,
     amount: 300,
-    balanceBefore: 300,
-    balanceAfter: 0,
-    note: null,
+    description: null,
     createdAt: new Date('2025-01-01'),
     ...overrides,
   } as Transaction;
 }
 ```
 
-**Action:** Create file at `apps/api-backend/src/test/factories/payment.factory.ts`
+**Action:** Create `apps/api-backend/src/test/factories/payment.factory.ts`
 
-Read `PaymentRequest` model from schema, create factory matching all required fields.
+```typescript
+import { PaymentRequest, PaymentMethod, PaymentRequestStatus } from '@prisma/client';
+import { mockVendorId } from './vendor.factory';
 
-#### Task 6: Create order and ticket factories
-**Action:** Create files at:
-- `apps/api-backend/src/test/factories/order.factory.ts`
-- `apps/api-backend/src/test/factories/ticket.factory.ts`
+export function createMockPaymentRequest(overrides: Partial<PaymentRequest> = {}): PaymentRequest {
+  return {
+    id: 'pr-test-001',
+    vendorId: mockVendorId,
+    customerId: 'customer-test-001',
+    amount: 500,
+    method: PaymentMethod.MANUAL_RAAST,
+    status: PaymentRequestStatus.PENDING,
+    gatewayOrderId: null,
+    gatewayTxId: null,
+    checkoutUrl: null,
+    qrCodeData: null,
+    qrExpiresAt: null,
+    referenceNo: 'REF123',
+    screenshotPath: null,
+    customerNote: null,
+    reviewedBy: null,
+    reviewedAt: null,
+    rejectionReason: null,
+    createdAt: new Date('2025-01-01'),
+    updatedAt: new Date('2025-01-01'),
+    ...overrides,
+  } as PaymentRequest;
+}
+```
 
-Read `CustomerOrder` and `CustomerTicket` models from schema. Write factories for both following the same pattern as above.
+#### Task 7: Order and Ticket factories
+**Action:** Create `apps/api-backend/src/test/factories/order.factory.ts`
+
+```typescript
+import { CustomerOrder, OrderStatus, DispatchStatus } from '@prisma/client';
+import { mockVendorId } from './vendor.factory';
+
+export function createMockOrder(overrides: Partial<CustomerOrder> = {}): CustomerOrder {
+  return {
+    id: 'order-test-001',
+    vendorId: mockVendorId,
+    customerId: 'customer-test-001',
+    productId: 'product-test-001',
+    quantity: 2,
+    status: OrderStatus.PENDING,
+    note: null,
+    preferredDate: null,
+    reviewedBy: null,
+    reviewedAt: null,
+    rejectionReason: null,
+    dispatchStatus: DispatchStatus.UNPLANNED,
+    targetDate: null,
+    timeWindow: null,
+    dispatchVanId: null,
+    dispatchDriverId: null,
+    dispatchMode: null,
+    dispatchNotes: null,
+    plannedAt: null,
+    plannedById: null,
+    dispatchedAt: null,
+    createdAt: new Date('2025-01-01'),
+    updatedAt: new Date('2025-01-01'),
+    ...overrides,
+  } as CustomerOrder;
+}
+```
+
+**Action:** Create `apps/api-backend/src/test/factories/ticket.factory.ts`
+
+```typescript
+import { CustomerTicket, TicketType, TicketStatus, TicketPriority } from '@prisma/client';
+import { mockVendorId } from './vendor.factory';
+
+export function createMockTicket(overrides: Partial<CustomerTicket> = {}): CustomerTicket {
+  return {
+    id: 'ticket-test-001',
+    vendorId: mockVendorId,
+    customerId: 'customer-test-001',
+    type: TicketType.COMPLAINT,
+    subject: 'Test complaint',
+    description: 'Something went wrong',
+    status: TicketStatus.OPEN,
+    priority: TicketPriority.NORMAL,
+    vendorReply: null,
+    resolvedBy: null,
+    resolvedAt: null,
+    createdAt: new Date('2025-01-01'),
+    updatedAt: new Date('2025-01-01'),
+    ...overrides,
+  } as CustomerTicket;
+}
+```
 
 ### Acceptance Criteria
 - [ ] All 11 factory files exist in `apps/api-backend/src/test/factories/`
-- [ ] Each factory function returns an object that satisfies the corresponding Prisma type
-- [ ] No TypeScript errors when running `npx nx build api-backend --skip-nx-cache` (type-check)
-- [ ] All fields in each factory match the actual Prisma schema fields (verify by reading the schema)
+- [ ] Every field in every factory matches the actual Prisma model field names (verified against the schema above)
+- [ ] No fields from old schema versions appear: no `balance`, `bottleCount`, `portalEnabled`, `driverId` (on Van), `status` (on DailySheet), `email`/`phone` (on Vendor)
+- [ ] Running `npx nx test api-backend` compiles factory imports without TypeScript errors
 
 ---
 
-## TST-INF-004: Configure Jest coverage thresholds
+## TST-INF-004: Configure Jest coverage collection
 
 **Phase:** 1 — Infrastructure
 **Priority:** P1 High
 **App:** all apps
 
-### Context
-Coverage thresholds ensure tests don't regress. Without them, coverage silently drops to 0% after refactors. Configure per-app thresholds that will grow as test suites are built out.
-
 ### Tasks
 
-#### Task 1: Add coverage threshold to api-backend Jest config
-**Action:** Read `apps/api-backend/jest.config.cts`, then add a `coverageThreshold` block:
+#### Task 1: Add coverage config to api-backend Jest config
+**Action:** Read `apps/api-backend/jest.config.cts`, then add `collectCoverageFrom`:
 
-Add inside the config object:
-```typescript
-coverageThreshold: {
-  global: {
-    statements: 50,
-    branches: 40,
-    functions: 50,
-    lines: 50,
-  },
-},
+```js
 collectCoverageFrom: [
   'src/**/*.ts',
   '!src/**/*.spec.ts',
@@ -353,16 +485,26 @@ collectCoverageFrom: [
   '!src/main.ts',
   '!src/test/**',
 ],
+coverageThreshold: {
+  global: {
+    statements: 40,
+    branches: 30,
+    functions: 40,
+    lines: 40,
+  },
+},
 ```
 
-#### Task 2: Add coverage config to frontend apps
-**Action:** For each of the following files, read them first then add the same `collectCoverageFrom` array (adjusted for frontend):
+> Start thresholds low (40%). They will be raised incrementally as tests are added.
+
+#### Task 2: Add coverage config to frontend Jest configs
+**Action:** For each file, read it first, then add `collectCoverageFrom`:
 - `apps/vendor-dashboard/jest.config.cts`
 - `apps/customer-portal/jest.config.cts`
 - `apps/admin-panel/jest.config.cts`
 
 Add to each:
-```typescript
+```js
 collectCoverageFrom: [
   'src/**/*.{ts,tsx}',
   '!src/**/*.spec.{ts,tsx}',
@@ -373,12 +515,12 @@ collectCoverageFrom: [
 ],
 ```
 
-> Do NOT add coverage thresholds to frontend apps yet — component test coverage will be built up in Phase 4.
+> Do NOT add `coverageThreshold` to frontend configs yet.
 
 ### Acceptance Criteria
-- [ ] `apps/api-backend/jest.config.cts` contains `coverageThreshold` and `collectCoverageFrom`
-- [ ] All three frontend `jest.config.cts` files contain `collectCoverageFrom`
-- [ ] `npx nx test api-backend --coverage` runs without config errors
+- [ ] `apps/api-backend/jest.config.cts` has `collectCoverageFrom` and `coverageThreshold`
+- [ ] All three frontend `jest.config.cts` files have `collectCoverageFrom`
+- [ ] `npx nx test api-backend --coverage` completes without config errors
 
 ---
 
@@ -386,15 +528,10 @@ collectCoverageFrom: [
 
 **Phase:** 1 — Infrastructure
 **Priority:** P1 High
-**App:** root
-
-### Context
-The root `package.json` currently only has a `seed` script. Adding test scripts lets developers and CI pipelines run tests with short, memorable commands.
 
 ### Tasks
 
-#### Task 1: Add test scripts
-**Action:** Read `package.json` at root, then add the following scripts to the `scripts` object:
+**Action:** Read root `package.json`, then add to the `scripts` object:
 
 ```json
 "test": "nx run-many -t test --all",
@@ -407,10 +544,10 @@ The root `package.json` currently only has a `seed` script. Adding test scripts 
 "test:cov": "nx run-many -t test --all -- --coverage",
 "e2e:vendor": "nx e2e vendor-dashboard-e2e",
 "e2e:customer": "nx e2e customer-portal-e2e",
-"e2e:admin": "nx e2e admin-panel-e2e"
+"e2e:admin": "nx e2e admin-panel-e2e",
+"e2e:api": "nx e2e api-backend-e2e"
 ```
 
 ### Acceptance Criteria
-- [ ] All 11 scripts appear in root `package.json`
-- [ ] `npm run test:api` runs `nx test api-backend` successfully
-- [ ] `npm run test` triggers tests across all apps
+- [ ] All 12 scripts appear in root `package.json`
+- [ ] `npm run test:api` successfully invokes `nx test api-backend`

@@ -7,38 +7,63 @@
 
 ---
 
-## Setup: Cypress Custom Commands
+## How the frontend stores auth (verified from source)
 
-Before implementing any E2E ticket, add reusable Cypress commands.
+**Read `apps/vendor-dashboard/src/features/auth/hooks/use-auth.ts` before writing any Cypress test.**
+
+Key facts:
+- After login, tokens are stored in **cookies**: `auth_token` (1 day), `refresh_token` (7 days), `user_role` (7 days)
+- Auth is **NOT stored in `localStorage`**
+- Login field label is **"Email or Phone Number"**, field name is `identifier` (not `email`)
+- On success: DRIVER role → `/dashboard/home`, all other roles → `/dashboard/overview`
+- Customer form field is `phoneNumber` (not `phone`) — verified from `customer-form.tsx`
+
+---
+
+## Setup: Cypress Custom Commands
 
 ### Modify `apps/vendor-dashboard-e2e/src/support/commands.ts`
 
-**Action:** Read the existing file first, then add these commands:
+**Action:** Read the existing file first, then add:
 
 ```typescript
-// Login command — logs in as vendor admin and stores session
-Cypress.Commands.add('loginAsVendor', (email: string, password: string) => {
-  cy.request('POST', `${Cypress.env('apiUrl')}/api/auth/login`, { email, password })
-    .then((response) => {
-      window.localStorage.setItem('accessToken', response.body.accessToken);
-      // Store refresh token cookie if applicable
-    });
-  cy.visit('/dashboard/overview');
+// Programmatic login: bypasses the UI form, sets auth cookies directly
+Cypress.Commands.add('loginAsVendor', (identifier: string, password: string) => {
+  cy.request({
+    method: 'POST',
+    url: `${Cypress.env('apiUrl')}/api/auth/login`,
+    body: { identifier, password },   // 'identifier', not 'email'
+  }).then((response) => {
+    // Auth is stored in cookies, not localStorage
+    cy.setCookie('auth_token', response.body.access_token, { path: '/' });
+    cy.setCookie('refresh_token', response.body.refresh_token, { path: '/' });
+    cy.setCookie('user_role', response.body.user.role, { path: '/' });
+  });
 });
 
-// Intercept and stub API calls
-Cypress.Commands.add('stubApi', (method: string, url: string, body: object, status = 200) => {
-  cy.intercept(method, `${Cypress.env('apiUrl')}${url}`, { statusCode: status, body }).as(url.replace(/\//g, '_'));
+Cypress.Commands.add('loginAsDriver', (identifier: string, password: string) => {
+  cy.request({
+    method: 'POST',
+    url: `${Cypress.env('apiUrl')}/api/auth/login`,
+    body: { identifier, password },
+  }).then((response) => {
+    cy.setCookie('auth_token', response.body.access_token, { path: '/' });
+    cy.setCookie('refresh_token', response.body.refresh_token, { path: '/' });
+    cy.setCookie('user_role', response.body.user.role, { path: '/' });
+  });
 });
 ```
 
-Add to `cypress.config.ts` (read it first, then add):
+### Modify `cypress.config.ts`
+
+**Action:** Read `apps/vendor-dashboard-e2e/cypress.config.ts`, then add to the `env` block:
+
 ```typescript
 env: {
   apiUrl: 'http://localhost:3000',
-  vendorEmail: 'testvendor@watercrm.test',
+  vendorIdentifier: 'admin@watercrm.test',   // identifier, not vendorEmail
   vendorPassword: 'TestPassword123!',
-  driverEmail: 'driver@watercrm.test',
+  driverIdentifier: 'driver@watercrm.test',
   driverPassword: 'TestPassword123!',
 },
 ```
@@ -55,57 +80,59 @@ env: {
 
 ### Tasks
 
-#### Task 1: Read existing E2E spec
-**Action:** Read `apps/vendor-dashboard-e2e/src/e2e/app.cy.ts`
-Understand how the existing spec navigates and what it asserts. Follow the same pattern.
+#### Task 1: Read existing E2E spec and Cypress config
+**Action:** Read:
+- `apps/vendor-dashboard-e2e/src/e2e/app.cy.ts`
+- `apps/vendor-dashboard-e2e/cypress.config.ts`
+
+Note the `baseUrl` and the pattern used in the existing spec.
 
 #### Task 2: Write auth E2E tests
 **Action:** Create `apps/vendor-dashboard-e2e/src/e2e/auth.cy.ts`
 
 ```typescript
-describe('Vendor Dashboard Auth', () => {
-  it('should redirect to login page when unauthenticated', () => {
+describe('Vendor Dashboard — Auth', () => {
+  it('should redirect unauthenticated visit to /auth/login', () => {
+    cy.clearCookies();
     cy.visit('/dashboard/overview');
     cy.url().should('include', '/auth/login');
   });
 
-  it('should login with valid credentials and land on dashboard', () => {
+  it('should show the identifier (email/phone) input, not an email-only input', () => {
     cy.visit('/auth/login');
-
-    cy.get('input[type="email"]').type(Cypress.env('vendorEmail'));
-    cy.get('input[type="password"]').type(Cypress.env('vendorPassword'));
-    cy.get('button[type="submit"]').click();
-
-    cy.url().should('include', '/dashboard');
-    cy.get('h1, h2').should('be.visible'); // some heading on the dashboard
+    // Label reads "Email or Phone Number", input id is "identifier"
+    cy.get('#identifier').should('be.visible');
+    cy.contains('label', /email or phone/i).should('be.visible');
   });
 
-  it('should show error message with invalid credentials', () => {
+  it('should login with valid credentials and redirect to /dashboard/overview', () => {
     cy.visit('/auth/login');
-
-    cy.get('input[type="email"]').type('wrong@test.com');
-    cy.get('input[type="password"]').type('wrongpassword');
+    cy.get('#identifier').type(Cypress.env('vendorIdentifier'));
+    cy.get('#password').type(Cypress.env('vendorPassword'));
     cy.get('button[type="submit"]').click();
 
-    cy.get('[data-sonner-toast], .toast, [role="alert"]').should('be.visible');
-    cy.url().should('include', '/auth/login');
+    // Cookies must be set — not localStorage
+    cy.getCookie('auth_token').should('exist');
+    cy.getCookie('refresh_token').should('exist');
+    cy.url().should('include', '/dashboard/overview');
   });
 
-  it('should logout and redirect to login page', () => {
-    cy.loginAsVendor(Cypress.env('vendorEmail'), Cypress.env('vendorPassword'));
+  it('should show an error toast on invalid credentials', () => {
+    cy.visit('/auth/login');
+    cy.get('#identifier').type('wrong@test.com');
+    cy.get('#password').type('wrongpassword');
+    cy.get('button[type="submit"]').click();
 
-    // Click logout button (find via data-testid or aria-label)
-    cy.get('[aria-label="logout"], [data-testid="logout-btn"]').click();
-
+    cy.get('[data-sonner-toast], [role="alert"]').should('contain.text', /invalid/i);
     cy.url().should('include', '/auth/login');
   });
 });
 ```
 
 ### Acceptance Criteria
-- [ ] File exists with 4 test cases
-- [ ] Login test verifies URL redirect after successful login
-- [ ] Invalid credentials test verifies error toast/alert
+- [ ] File uses `cy.setCookie` in commands — **not** `localStorage.setItem`
+- [ ] Login test targets `#identifier` — **not** `input[type="email"]`
+- [ ] Cookie existence (`auth_token`) is asserted after successful login
 - [ ] All tests pass: `npx nx e2e vendor-dashboard-e2e --spec=src/e2e/auth.cy.ts`
 
 ---
@@ -120,9 +147,15 @@ describe('Vendor Dashboard Auth', () => {
 
 ### Tasks
 
-#### Task 1: Identify UI selectors
-**Action:** Read `apps/vendor-dashboard/src/features/customers/components/customer-list.tsx` and `customer-form.tsx`
-Note button labels, input labels, and any `data-testid` attributes.
+#### Task 1: Read customer form component to verify field names
+**Action:** Read `apps/vendor-dashboard/src/features/customers/components/customer-form.tsx`
+
+Confirmed field names from source:
+- Name field: `EMPTY_DEFAULTS.name` → `register('name')`
+- Phone field: `EMPTY_DEFAULTS.phoneNumber` → **`register('phoneNumber')`** — not `phone`
+- Address field: `register('address')`
+- The form is a `<Sheet>` (slide-over panel), not a `<Dialog>`
+- The component renders in a slide-over: look for `SheetContent`, `SheetTitle`
 
 #### Task 2: Write customer E2E tests
 **Action:** Create `apps/vendor-dashboard-e2e/src/e2e/customers.cy.ts`
@@ -130,43 +163,45 @@ Note button labels, input labels, and any `data-testid` attributes.
 ```typescript
 describe('Vendor Dashboard — Customers', () => {
   beforeEach(() => {
-    cy.loginAsVendor(Cypress.env('vendorEmail'), Cypress.env('vendorPassword'));
+    cy.loginAsVendor(Cypress.env('vendorIdentifier'), Cypress.env('vendorPassword'));
     cy.visit('/dashboard/customers');
   });
 
-  it('should display the customers list page', () => {
-    cy.get('h1, h2').should('contain.text', 'Customers');
+  it('should display the customers list page with a table', () => {
+    cy.contains(/customers/i).should('be.visible');
     cy.get('table, [role="table"]').should('be.visible');
   });
 
-  it('should open create customer form when Add Customer button is clicked', () => {
+  it('should open the Add Customer slide-over when the button is clicked', () => {
     cy.contains('button', /add customer/i).click();
-    cy.get('[role="dialog"]').should('be.visible');
-    cy.get('input[name="name"], input[placeholder*="Name"]').should('be.visible');
+    // CustomerForm is a Sheet (slide-over), not a Dialog
+    cy.get('[data-slot="sheet-content"], [role="dialog"]').should('be.visible');
+    // Name input
+    cy.get('input#name, input[name="name"]').should('be.visible');
   });
 
-  it('should create a new customer and see them in the list', () => {
-    const uniqueName = `Test Customer ${Date.now()}`;
+  it('should create a new customer using phoneNumber field (not phone)', () => {
+    const uniqueName = `E2E Customer ${Date.now()}`;
 
     cy.contains('button', /add customer/i).click();
 
-    cy.get('input[name="name"]').type(uniqueName);
-    cy.get('input[name="phone"]').type('03001234567');
-    cy.get('input[name="address"]').type('123 Test Street, Karachi');
-    // Fill other required fields as they appear in the form
+    cy.get('input[name="name"], input#name').type(uniqueName);
+    // Field is phoneNumber — verified from customer-form.tsx EMPTY_DEFAULTS
+    cy.get('input[name="phoneNumber"], input#phoneNumber').type('03001234567');
+    cy.get('input[name="address"], input#address').type('123 E2E Test Street, Karachi');
 
     cy.contains('button', /save|create|submit/i).click();
 
-    // Dialog should close and new customer should appear in table
-    cy.get('[role="dialog"]').should('not.exist');
+    // Slide-over closes; new customer appears in table
+    cy.get('[data-slot="sheet-content"], [role="dialog"]').should('not.exist');
     cy.contains(uniqueName).should('be.visible');
   });
 });
 ```
 
 ### Acceptance Criteria
-- [ ] File exists with 3 test cases
-- [ ] Create customer test uses a unique name (no collision with existing data)
+- [ ] Phone field targeted as `phoneNumber` — **not** `phone`
+- [ ] Slide-over selector accounts for `SheetContent` component
 - [ ] All tests pass: `npx nx e2e vendor-dashboard-e2e --spec=src/e2e/customers.cy.ts`
 
 ---
@@ -181,9 +216,9 @@ describe('Vendor Dashboard — Customers', () => {
 
 ### Tasks
 
-#### Task 1: Read daily sheet UI components
-**Action:** Read `apps/vendor-dashboard/src/features/daily-sheets/components/sheet-generate.tsx` and `sheet-list.tsx`
-Note button labels and form fields for sheet generation.
+#### Task 1: Read daily sheet UI
+**Action:** Read `apps/vendor-dashboard/src/features/daily-sheets/components/sheet-generate.tsx`
+Find the form field names (van selector, date input) and button labels.
 
 #### Task 2: Write daily sheet E2E
 **Action:** Create `apps/vendor-dashboard-e2e/src/e2e/daily-sheets.cy.ts`
@@ -191,12 +226,12 @@ Note button labels and form fields for sheet generation.
 ```typescript
 describe('Vendor Dashboard — Daily Sheets', () => {
   beforeEach(() => {
-    cy.loginAsVendor(Cypress.env('vendorEmail'), Cypress.env('vendorPassword'));
+    cy.loginAsVendor(Cypress.env('vendorIdentifier'), Cypress.env('vendorPassword'));
     cy.visit('/dashboard/daily-sheets');
   });
 
   it('should display the daily sheets list', () => {
-    cy.get('h1, h2').should('contain.text', /daily sheets|sheets/i);
+    cy.contains(/daily sheets/i).should('be.visible');
   });
 
   it('should open generate sheet dialog when Generate button is clicked', () => {
@@ -204,19 +239,17 @@ describe('Vendor Dashboard — Daily Sheets', () => {
     cy.get('[role="dialog"]').should('be.visible');
   });
 
-  it('should generate a sheet for today and navigate to sheet detail', () => {
+  it('should generate a daily sheet for a van and navigate to sheet detail', () => {
     cy.contains('button', /generate/i).click();
 
-    // Select a van from the dropdown
-    cy.get('[data-testid="van-select"], select[name="vanId"]').select(0);
-
-    // Date defaults to today — verify it's pre-filled or set it
-    const today = new Date().toISOString().split('T')[0];
-    cy.get('input[type="date"], input[name="date"]').should('have.value', today);
+    // Select the first available van from the dropdown
+    // Adjust selector to match actual van select component
+    cy.get('[data-testid="van-select"] button, select[name="vanId"]').first().click();
+    cy.get('[role="option"]').first().click(); // pick first van
 
     cy.contains('button', /generate|confirm/i).click();
 
-    // Should navigate to the new sheet detail page
+    // After generation, navigates to detail page
     cy.url().should('match', /\/dashboard\/daily-sheets\/.+/);
   });
 });
@@ -224,7 +257,6 @@ describe('Vendor Dashboard — Daily Sheets', () => {
 
 ### Acceptance Criteria
 - [ ] File exists with 3 test cases
-- [ ] Sheet generation test verifies URL change to detail page
 - [ ] All tests pass
 
 ---
@@ -239,30 +271,23 @@ describe('Vendor Dashboard — Daily Sheets', () => {
 
 ### Tasks
 
-#### Task 1: Read transaction UI
-**Action:** Read `apps/vendor-dashboard/src/features/transactions/components/payment-form.tsx`
+**Action:** Read `apps/vendor-dashboard/src/features/transactions/components/payment-form.tsx` and `adjustment-form.tsx` to find button labels and input names.
 
-#### Task 2: Write transaction E2E
-**Action:** Create `apps/vendor-dashboard-e2e/src/e2e/transactions.cy.ts`
-
-Write 3 test cases:
+Create `apps/vendor-dashboard-e2e/src/e2e/transactions.cy.ts` with 3 test cases:
 
 1. `it('should display transactions page with list')`
-   - Visit `/dashboard/transactions`
-   - Assert transactions table visible
+   - Login, visit `/dashboard/transactions`
+   - Assert table/list visible
 
-2. `it('should open Record Payment dialog and submit a payment')`
-   - Visit customer detail page
+2. `it('should open Record Payment form and fill an amount')`
+   - Navigate to a customer's detail page
    - Click Record Payment
    - Fill amount
-   - Submit
-   - Assert toast success and updated balance in UI
+   - Assert form is visible with correct inputs
 
-3. `it('should open Adjustment dialog and apply a credit')`
-   - Click Apply Adjustment
-   - Fill negative amount (e.g., -50)
-   - Submit
-   - Assert balance decreases
+3. `it('should submit a payment and see a success notification')`
+   - Complete and submit the payment form
+   - Assert success toast
 
 ### Acceptance Criteria
 - [ ] File exists with 3 test cases
@@ -280,32 +305,17 @@ Write 3 test cases:
 
 ### Tasks
 
-#### Task 1: Read orders page
-**Action:** Read `apps/vendor-dashboard/src/app/dashboard/orders/page.tsx`
+**Action:** Read `apps/vendor-dashboard/src/app/dashboard/orders/page.tsx` to understand page structure.
 
-#### Task 2: Write order dispatch E2E
-**Action:** Create `apps/vendor-dashboard-e2e/src/e2e/orders.cy.ts`
+Create `apps/vendor-dashboard-e2e/src/e2e/orders.cy.ts` with 3 test cases:
 
-Write 3 test cases:
-
-1. `it('should display orders list')`
-   - Visit `/dashboard/orders`
-   - Assert table visible
-
-2. `it('should open dispatch drawer for a PENDING order and dispatch it')`
-   - Click dispatch button on a PENDING order
-   - Confirm in drawer
-   - Assert status changes to DISPATCHED
-
-3. `it('should open reject dialog and reject a PENDING order with reason')`
-   - Click reject button
-   - Type a rejection reason
-   - Confirm rejection
-   - Assert status changes to REJECTED
+1. `it('should display orders list page')`
+2. `it('should dispatch a PENDING order and see status change')`
+3. `it('should reject a PENDING order with a reason')`
 
 ### Acceptance Criteria
 - [ ] File exists with 3 test cases
-- [ ] Status change is visually asserted after action
+- [ ] All tests pass
 
 ---
 
@@ -317,24 +327,10 @@ Write 3 test cases:
 ### File to Create
 `apps/vendor-dashboard-e2e/src/e2e/analytics.cy.ts`
 
-### Tasks
-
-Write 3 test cases:
-
-1. `it('should load analytics page with Financial tab active by default')`
-   - Visit `/dashboard/analytics`
-   - Assert Financial tab is selected
-
-2. `it('should switch to Deliveries tab and render delivery content')`
-   - Click Deliveries tab
-   - Assert delivery-specific content visible
-
-3. `it('should render Export CSV and Export PDF buttons')`
-   - Assert both export buttons are visible and enabled
-
-### Acceptance Criteria
-- [ ] File exists with 3 test cases
-- [ ] All tests pass
+**Action:** Create with 3 test cases:
+1. `it('should load analytics with Financial tab active by default')`
+2. `it('should switch to Deliveries tab')`
+3. `it('should show Export CSV and Export PDF buttons')`
 
 ---
 
@@ -348,22 +344,37 @@ Write 3 test cases:
 
 ### Tasks
 
-Write 3 test cases:
+**Action:** Create `apps/vendor-dashboard-e2e/src/e2e/driver.cy.ts`
 
-1. `it('should redirect DRIVER login to /dashboard/home')`
-   - Visit login page
-   - Login with driver credentials
-   - Assert URL is `/dashboard/home`
+```typescript
+describe('Vendor Dashboard — Driver Role', () => {
+  it('should redirect DRIVER login to /dashboard/home (not /dashboard/overview)', () => {
+    cy.visit('/auth/login');
+    cy.get('#identifier').type(Cypress.env('driverIdentifier'));
+    cy.get('#password').type(Cypress.env('driverPassword'));
+    cy.get('button[type="submit"]').click();
 
-2. `it('should render driver home page with today stats')`
-   - Login as driver
-   - Assert stats cards visible (deliveries, empties, etc.)
+    // Per use-auth.ts: role === 'DRIVER' → router.push('/dashboard/home')
+    cy.url().should('include', '/dashboard/home');
+  });
 
-3. `it('should navigate to driver history page')`
-   - Click My History link in sidebar
-   - Assert URL changes to `/dashboard/history`
+  it('should render driver home page stats', () => {
+    cy.loginAsDriver(Cypress.env('driverIdentifier'), Cypress.env('driverPassword'));
+    cy.visit('/dashboard/home');
+    cy.get('h1, h2').should('be.visible');
+  });
+
+  it('should navigate to /dashboard/history from sidebar', () => {
+    cy.loginAsDriver(Cypress.env('driverIdentifier'), Cypress.env('driverPassword'));
+    cy.visit('/dashboard/home');
+
+    cy.contains('a', /my history|history/i).click();
+    cy.url().should('include', '/dashboard/history');
+  });
+});
+```
 
 ### Acceptance Criteria
-- [ ] File exists with 3 test cases
-- [ ] DRIVER login redirect is explicitly verified
+- [ ] DRIVER redirect test verifies URL is `/dashboard/home` — **not** `/dashboard/overview`
+- [ ] Login uses `#identifier` input — not `input[type="email"]`
 - [ ] All tests pass

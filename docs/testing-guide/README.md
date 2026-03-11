@@ -20,10 +20,10 @@ Comprehensive testing plan for the Water Supply CRM monorepo covering unit tests
 | Phase | Name | Ticket Range | Files |
 |-------|------|-------------|-------|
 | 1 | Infrastructure & Setup | TST-INF-001–005 | [phase-1-infrastructure.md](./phase-1-infrastructure.md) |
-| 2 | Backend Unit Tests | TST-BE-001–064 | [phase-2-backend/](./phase-2-backend/) |
-| 3 | Backend Integration Tests | TST-INT-001–016 | [phase-3-backend-integration/](./phase-3-backend-integration/) |
-| 4 | Frontend Unit Tests | TST-FE-001–048 | [phase-4-frontend/](./phase-4-frontend/) |
-| 5 | End-to-End Tests | TST-E2E-001–027 | [phase-5-e2e/](./phase-5-e2e/) |
+| 2 | Backend Unit Tests | TST-BE-001–030 | [phase-2-backend/](./phase-2-backend/) |
+| 3 | Backend Integration Tests | TST-INT-001–012 | [phase-3-backend-integration/](./phase-3-backend-integration/) |
+| 4 | Frontend Unit Tests | TST-FE-001–018 | [phase-4-frontend/](./phase-4-frontend/) |
+| 5 | End-to-End Tests | TST-E2E-001–015 | [phase-5-e2e/](./phase-5-e2e/) |
 
 ---
 

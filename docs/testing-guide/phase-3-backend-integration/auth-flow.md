@@ -1,21 +1,50 @@
 # Phase 3 — Backend Integration Tests: Auth Flow
 
 **Test location:** `apps/api-backend-e2e/src/auth/`
-**Prerequisites:** Phase 1 complete, test database configured
+**Prerequisites:** Phase 1 complete
 
 ---
 
-## Overview
+## How the api-backend-e2e harness works
 
-Integration tests use Supertest to make real HTTP calls against a bootstrapped NestJS app connected to a test database. The test database is seeded before each suite and cleared after.
+**Read these files before writing any test in this phase:**
+1. `apps/api-backend-e2e/src/support/global-setup.ts` — waits for `HOST:PORT` to be open with `waitForPortOpen`
+2. `apps/api-backend-e2e/src/support/test-setup.ts` — configures `axios.defaults.baseURL = http://HOST:PORT`
+3. `apps/api-backend-e2e/src/api-backend/api-backend.spec.ts` — existing example: imports `axios`, calls `axios.get('/api')`
+4. `apps/api-backend-e2e/jest.config.cts` — uses `globalSetup`, `globalTeardown`, `setupFiles`
 
-**How to read existing e2e setup:**
-Before implementing any ticket in this phase, read:
-1. `apps/api-backend-e2e/src/api-backend/api-backend.spec.ts` (existing e2e test)
-2. `apps/api-backend-e2e/jest.config.cts`
-3. `apps/api-backend-e2e/src/support/global-setup.ts` (if it exists)
+**The harness runs against an already-running server** — it does NOT bootstrap NestJS inside the test process. There is no `@nestjs/testing` or Supertest in-process bootstrap. Tests call `axios` (pre-configured with base URL), or can use Supertest's `supertest.agent(axios.defaults.baseURL)`.
 
-This will tell you how the test app is bootstrapped and whether a test DB is already configured.
+**Correct test pattern:**
+```typescript
+import axios from 'axios';
+
+describe('POST /api/auth/login', () => {
+  it('should return 200 for valid credentials', async () => {
+    const res = await axios.post('/api/auth/login', { identifier: '...', password: '...' });
+    expect(res.status).toBe(200);
+  });
+});
+```
+
+**NOT this** (wrong — NestJS bootstrap not used in this harness):
+```typescript
+// ❌ WRONG — do not use @nestjs/testing in api-backend-e2e
+import { Test } from '@nestjs/testing';
+const app = moduleFixture.createNestApplication();
+```
+
+---
+
+## API contract (verified from source)
+
+| Field | Value |
+|-------|-------|
+| Login request body | `{ identifier: string, password: string }` — **identifier, not email** |
+| Login response | `{ access_token, refresh_token, expires_in, user: { id, email, name, role, vendorId } }` |
+| Refresh request body | `{ refreshToken: string }` — **body DTO, not cookie** |
+| Refresh response | Same as login response |
+| Protected endpoint | `GET /api/auth/me` with `Authorization: Bearer <access_token>` |
 
 ---
 
@@ -24,115 +53,97 @@ This will tell you how the test app is bootstrapped and whether a test DB is alr
 **Priority:** P0 Critical
 **Type:** Integration Test
 
-### Context
-Verifies the full auth chain: POST /api/auth/login returns a JWT, the JWT is valid for protected endpoints, and a request without a JWT gets 401.
-
 ### File to Create
 `apps/api-backend-e2e/src/auth/auth.e2e-spec.ts`
 
 ### Tasks
 
-#### Task 1: Read existing e2e bootstrap
-**Action:** Read:
-- `apps/api-backend-e2e/src/api-backend/api-backend.spec.ts`
-- `apps/api-backend-e2e/jest.config.cts`
+#### Task 1: Seed test credentials
+Before running integration tests, a test user must exist in the database. Two options:
+- Option A: Use the existing seed script (`npm run seed`) with known test credentials
+- Option B: Create a test user directly via Prisma in a `beforeAll` using `PrismaClient`
 
-Note how the NestJS app is started (INestApplication or direct bootstrap), how the test database URL is set, and whether Prisma is seeded in `beforeAll`.
+Determine which approach is used by reading `apps/api-backend-e2e/src/support/global-setup.ts` and any existing seed/fixture files.
 
-#### Task 2: Create auth integration test file
+Use environment variables for credentials:
+```
+HOST=localhost PORT=3000 TEST_IDENTIFIER=admin@test.com TEST_PASSWORD=TestPassword123!
+```
+
+#### Task 2: Write the test file
 **Action:** Create `apps/api-backend-e2e/src/auth/auth.e2e-spec.ts`
 
-Follow the same bootstrap pattern as the existing e2e spec. Use the **test database** (not production). The test assumes a user with known credentials exists (seed or create via Prisma in `beforeAll`).
-
 ```typescript
-import * as request from 'supertest';
-import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { AppModule } from '../../../apps/api-backend/src/app/app.module'; // adjust path
+import axios from 'axios';
 
-// These credentials must match what is seeded in the test database
-const TEST_VENDOR_EMAIL = 'testadmin@watercrm.test';
-const TEST_VENDOR_PASSWORD = 'TestPassword123!';
+const TEST_IDENTIFIER = process.env.TEST_IDENTIFIER ?? 'admin@test.com';
+const TEST_PASSWORD = process.env.TEST_PASSWORD ?? 'TestPassword123!';
 
-describe('Auth Integration', () => {
-  let app: INestApplication;
+describe('Auth API', () => {
   let accessToken: string;
 
-  beforeAll(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = moduleFixture.createNestApplication();
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-    app.setGlobalPrefix('api');
-    await app.init();
-
-    // Seed test user via Prisma directly
-    // const prisma = app.get(PrismaService);
-    // await prisma.user.create({ data: { email: TEST_VENDOR_EMAIL, password: await bcrypt.hash(TEST_VENDOR_PASSWORD, 10), ... } });
-  });
-
-  afterAll(async () => {
-    await app.close();
-  });
+  // ─── POST /api/auth/login ─────────────────────────────────────────────────
 
   describe('POST /api/auth/login', () => {
-    it('should return 200 with accessToken for valid credentials', async () => {
-      const response = await request(app.getHttpServer())
-        .post('/api/auth/login')
-        .send({ email: TEST_VENDOR_EMAIL, password: TEST_VENDOR_PASSWORD })
-        .expect(200);
+    it('should return 200 with access_token and refresh_token for valid credentials', async () => {
+      const res = await axios.post('/api/auth/login', {
+        identifier: TEST_IDENTIFIER,
+        password: TEST_PASSWORD,
+      });
 
-      expect(response.body).toHaveProperty('accessToken');
-      expect(typeof response.body.accessToken).toBe('string');
-      accessToken = response.body.accessToken;
+      expect(res.status).toBe(200);
+      expect(res.data).toHaveProperty('access_token');
+      expect(res.data).toHaveProperty('refresh_token');
+      expect(res.data).toHaveProperty('user');
+      expect(typeof res.data.access_token).toBe('string');
+      accessToken = res.data.access_token;
     });
 
-    it('should return 401 for invalid password', async () => {
-      await request(app.getHttpServer())
-        .post('/api/auth/login')
-        .send({ email: TEST_VENDOR_EMAIL, password: 'wrongpassword' })
-        .expect(401);
+    it('should return 401 for wrong password', async () => {
+      await expect(
+        axios.post('/api/auth/login', { identifier: TEST_IDENTIFIER, password: 'wrongpass' }),
+      ).rejects.toMatchObject({ response: { status: 401 } });
     });
 
-    it('should return 401 for non-existent user', async () => {
-      await request(app.getHttpServer())
-        .post('/api/auth/login')
-        .send({ email: 'nobody@nowhere.com', password: 'anything' })
-        .expect(401);
+    it('should return 401 for non-existent identifier', async () => {
+      await expect(
+        axios.post('/api/auth/login', { identifier: 'nobody@nowhere.com', password: 'anything' }),
+      ).rejects.toMatchObject({ response: { status: 401 } });
     });
   });
 
-  describe('GET /api/auth/me (or any protected endpoint)', () => {
-    it('should return 200 when Authorization header has valid JWT', async () => {
-      await request(app.getHttpServer())
-        .get('/api/auth/me') // adjust to actual protected endpoint
-        .set('Authorization', `Bearer ${accessToken}`)
-        .expect(200);
+  // ─── GET /api/auth/me ─────────────────────────────────────────────────────
+
+  describe('GET /api/auth/me', () => {
+    it('should return 200 with user profile when Authorization header is valid', async () => {
+      const res = await axios.get('/api/auth/me', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.data).toHaveProperty('email');
+      expect(res.data).not.toHaveProperty('password');
     });
 
-    it('should return 401 when no Authorization header is provided', async () => {
-      await request(app.getHttpServer())
-        .get('/api/auth/me')
-        .expect(401);
+    it('should return 401 when no Authorization header is sent', async () => {
+      await expect(
+        axios.get('/api/auth/me'),
+      ).rejects.toMatchObject({ response: { status: 401 } });
     });
 
-    it('should return 401 when Authorization header has an invalid/expired token', async () => {
-      await request(app.getHttpServer())
-        .get('/api/auth/me')
-        .set('Authorization', 'Bearer invalid.jwt.token')
-        .expect(401);
+    it('should return 401 when Authorization header has a malformed token', async () => {
+      await expect(
+        axios.get('/api/auth/me', { headers: { Authorization: 'Bearer not.a.real.token' } }),
+      ).rejects.toMatchObject({ response: { status: 401 } });
     });
   });
 });
 ```
 
-> Adjust the import path for `AppModule` and the protected endpoint path based on what actually exists in the API.
-
 ### Acceptance Criteria
-- [ ] File exists with 6 test cases
-- [ ] Tests run against test database (not production)
+- [ ] File exists using `axios` (no `@nestjs/testing`, no Supertest bootstrap)
+- [ ] Request body uses `identifier` — not `email`
+- [ ] Response assertions check `access_token` — not `accessToken`
 - [ ] All tests pass: `npx nx e2e api-backend-e2e --testFile=src/auth/auth.e2e-spec.ts`
 
 ---
@@ -142,74 +153,63 @@ describe('Auth Integration', () => {
 **Priority:** P0 Critical
 **Type:** Integration Test
 
-### File to Create/Modify
+### File to Modify
 `apps/api-backend-e2e/src/auth/auth.e2e-spec.ts` (add to existing file)
+
+### Key facts
+- Refresh endpoint: `POST /api/auth/refresh`
+- Request body: `{ refreshToken: string }` — **body, not cookie**
+- Returns: same shape as login response
 
 ### Tasks
 
-#### Task 1: Identify refresh token endpoint
-**Action:** Read `apps/api-backend/src/app/modules/auth/auth.controller.ts`
-Find the refresh token endpoint (likely `POST /api/auth/refresh`). Note:
-- Does it read the refresh token from cookie or request body?
-- What does it return?
-
-#### Task 2: Write refresh token rotation tests
-**Action:** Add to the existing describe block:
+**Action:** Add a new top-level `describe` block to the existing file:
 
 ```typescript
 describe('POST /api/auth/refresh', () => {
-  it('should return new accessToken when valid refresh token is provided', async () => {
-    // First login to get refresh token (from cookie or body)
-    const loginResponse = await request(app.getHttpServer())
-      .post('/api/auth/login')
-      .send({ email: TEST_VENDOR_EMAIL, password: TEST_VENDOR_PASSWORD });
+  let refreshToken: string;
 
-    // Extract refresh token (from Set-Cookie header or body)
-    const refreshToken = loginResponse.body.refreshToken
-      || loginResponse.headers['set-cookie']?.find((c: string) => c.startsWith('refresh_token='));
-
-    // Use refresh token to get new access token
-    const response = await request(app.getHttpServer())
-      .post('/api/auth/refresh')
-      .set('Cookie', `refresh_token=${refreshToken}`) // adjust based on actual implementation
-      .expect(200);
-
-    expect(response.body).toHaveProperty('accessToken');
+  beforeEach(async () => {
+    // Login fresh to get a valid refresh token for each test
+    const res = await axios.post('/api/auth/login', {
+      identifier: TEST_IDENTIFIER,
+      password: TEST_PASSWORD,
+    });
+    refreshToken = res.data.refresh_token;
   });
 
-  it('should return 401 when refresh token is invalid', async () => {
-    await request(app.getHttpServer())
-      .post('/api/auth/refresh')
-      .set('Cookie', 'refresh_token=invalid-token')
-      .expect(401);
+  it('should return new access_token and refresh_token when refresh token is valid', async () => {
+    const res = await axios.post('/api/auth/refresh', { refreshToken });
+
+    expect(res.status).toBe(200);
+    expect(res.data).toHaveProperty('access_token');
+    expect(res.data).toHaveProperty('refresh_token');
+    // New refresh token should differ from old one (rotation)
+    expect(res.data.refresh_token).not.toBe(refreshToken);
   });
 
-  it('should return 401 when refresh token is used a second time (rotation)', async () => {
-    // Login, get refresh token
-    const loginResponse = await request(app.getHttpServer())
-      .post('/api/auth/login')
-      .send({ email: TEST_VENDOR_EMAIL, password: TEST_VENDOR_PASSWORD });
+  it('should return 401 when refresh token is invalid (random string)', async () => {
+    await expect(
+      axios.post('/api/auth/refresh', { refreshToken: 'completely-invalid-token' }),
+    ).rejects.toMatchObject({ response: { status: 401 } });
+  });
 
-    const refreshToken = loginResponse.body.refreshToken;
+  it('should return 401 when the same refresh token is used a second time (rotation)', async () => {
+    // Use once — should succeed
+    await axios.post('/api/auth/refresh', { refreshToken });
 
-    // Use once — succeeds
-    await request(app.getHttpServer())
-      .post('/api/auth/refresh')
-      .set('Cookie', `refresh_token=${refreshToken}`)
-      .expect(200);
-
-    // Use same token again — should fail (rotation invalidated it)
-    await request(app.getHttpServer())
-      .post('/api/auth/refresh')
-      .set('Cookie', `refresh_token=${refreshToken}`)
-      .expect(401);
+    // Use same token again — old token was deleted from Redis, should fail
+    await expect(
+      axios.post('/api/auth/refresh', { refreshToken }),
+    ).rejects.toMatchObject({ response: { status: 401 } });
   });
 });
 ```
 
 ### Acceptance Criteria
-- [ ] 3 test cases for refresh token
-- [ ] Token rotation test verifies the same token cannot be used twice
+- [ ] 3 test cases for refresh
+- [ ] Rotation test verifies second use of same token returns 401
+- [ ] Request body uses `{ refreshToken }` — not a cookie
 - [ ] All tests pass
 
 ---
@@ -220,65 +220,90 @@ describe('POST /api/auth/refresh', () => {
 **Type:** Integration Test
 
 ### Context
-The most critical security property of the platform is that Vendor A cannot see Vendor B's data. Integration tests verify this by creating two vendors, two customers (one per vendor), and confirming neither vendor's token can access the other's customer.
+Verifies that Vendor A's JWT cannot read Vendor B's customers. This is the most important security property of the platform.
 
 ### File to Create
-`apps/api-backend-e2e/src/auth/multi-tenant-isolation.e2e-spec.ts`
+`apps/api-backend-e2e/src/auth/multi-tenant.e2e-spec.ts`
 
 ### Tasks
 
-#### Task 1: Plan test data setup
-**Action:** This test needs two vendors with their own users and customers. Plan the `beforeAll`:
-1. Create `Vendor A` + `Admin User A` in test DB using Prisma directly
-2. Create `Vendor B` + `Admin User B` in test DB using Prisma directly
-3. Create `Customer A` under Vendor A
-4. Login as Admin A → get `tokenA`
-5. Login as Admin B → get `tokenB`
+#### Task 1: Plan test data
+This test needs two separate vendor accounts. Either:
+- Use two pre-seeded test vendors (read seed file to find credentials)
+- OR create them via `PrismaClient` directly in `beforeAll`
 
-#### Task 2: Write isolation tests
-**Action:** Create `apps/api-backend-e2e/src/auth/multi-tenant-isolation.e2e-spec.ts`
+Read `libs/shared/database/prisma/seed.ts` to see what test data exists.
+
+#### Task 2: Write isolation test
+**Action:** Create `apps/api-backend-e2e/src/auth/multi-tenant.e2e-spec.ts`
 
 ```typescript
+import axios from 'axios';
+// If seeded data doesn't provide two vendors, import PrismaClient and create them:
+// import { PrismaClient } from '@prisma/client';
+
+const VENDOR_A_IDENTIFIER = process.env.VENDOR_A_IDENTIFIER ?? 'vendorA@test.com';
+const VENDOR_A_PASSWORD = process.env.VENDOR_A_PASSWORD ?? 'TestPassword123!';
+const VENDOR_B_IDENTIFIER = process.env.VENDOR_B_IDENTIFIER ?? 'vendorB@test.com';
+const VENDOR_B_PASSWORD = process.env.VENDOR_B_PASSWORD ?? 'TestPassword123!';
+
 describe('Multi-Tenant Isolation', () => {
   let tokenA: string;
   let tokenB: string;
   let customerAId: string;
 
   beforeAll(async () => {
-    // Bootstrap app (same as auth.e2e-spec.ts)
-    // Create two vendors + users + one customer under Vendor A via Prisma
-    // Login both and store tokens
+    // Login as Vendor A
+    const resA = await axios.post('/api/auth/login', {
+      identifier: VENDOR_A_IDENTIFIER,
+      password: VENDOR_A_PASSWORD,
+    });
+    tokenA = resA.data.access_token;
+
+    // Login as Vendor B
+    const resB = await axios.post('/api/auth/login', {
+      identifier: VENDOR_B_IDENTIFIER,
+      password: VENDOR_B_PASSWORD,
+    });
+    tokenB = resB.data.access_token;
+
+    // Create a customer under Vendor A using Vendor A's token
+    const createRes = await axios.post(
+      '/api/customers',
+      { name: 'Isolation Test Customer', phoneNumber: '0300-ISOLATION', address: '1 Test St', paymentType: 'CASH' },
+      { headers: { Authorization: `Bearer ${tokenA}` } },
+    );
+    customerAId = createRes.data.id;
   });
 
-  it('Vendor A token should return Customer A from GET /api/customers', async () => {
-    const response = await request(app.getHttpServer())
-      .get('/api/customers')
-      .set('Authorization', `Bearer ${tokenA}`)
-      .expect(200);
+  it('Vendor A token should list Customer A in GET /api/customers', async () => {
+    const res = await axios.get('/api/customers', {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    });
 
-    expect(response.body.data.some((c: any) => c.id === customerAId)).toBe(true);
+    expect(res.data.data.some((c: any) => c.id === customerAId)).toBe(true);
   });
 
-  it('Vendor B token should NOT return Customer A from GET /api/customers', async () => {
-    const response = await request(app.getHttpServer())
-      .get('/api/customers')
-      .set('Authorization', `Bearer ${tokenB}`)
-      .expect(200);
+  it('Vendor B token should NOT see Customer A in GET /api/customers', async () => {
+    const res = await axios.get('/api/customers', {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    });
 
-    expect(response.body.data.some((c: any) => c.id === customerAId)).toBe(false);
+    expect(res.data.data.some((c: any) => c.id === customerAId)).toBe(false);
   });
 
-  it('Vendor B token should return 404 when accessing Customer A directly', async () => {
-    await request(app.getHttpServer())
-      .get(`/api/customers/${customerAId}`)
-      .set('Authorization', `Bearer ${tokenB}`)
-      .expect(404);
+  it('Vendor B token should get 404 when fetching Customer A by ID', async () => {
+    await expect(
+      axios.get(`/api/customers/${customerAId}`, {
+        headers: { Authorization: `Bearer ${tokenB}` },
+      }),
+    ).rejects.toMatchObject({ response: { status: 404 } });
   });
 });
 ```
 
 ### Acceptance Criteria
 - [ ] File exists with 3 test cases
-- [ ] Test uses two different vendor tokens
-- [ ] Cross-vendor access returns 404 or empty array
+- [ ] Two different vendor tokens are used
+- [ ] Direct customer fetch across vendors returns 404
 - [ ] All tests pass
