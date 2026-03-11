@@ -1,8 +1,9 @@
 # ─── Networks ──────────────────────────────────────────────────────────────────
 # wscrm_internal — isolated, no external egress.  Only data-layer services live
 #   here, plus api-backend which needs to reach them.
-# wscrm_proxy — reachable by the host Nginx (or any reverse-proxy container).
-#   api-backend is on both; frontends are proxy-only.
+# wscrm_proxy — shared app network for any reverse-proxy container.
+#   In the default VPS setup, app services also publish loopback-only host ports
+#   so host Nginx can proxy to 127.0.0.1 safely.
 networks:
   wscrm_internal:
     driver: bridge
@@ -14,7 +15,6 @@ networks:
 volumes:
   postgres_data:
   redis_data:
-  rabbitmq_data:
   uploads_data:
   whatsapp_session:   # Persists WhatsApp auth across container restarts — mount into api-backend
 
@@ -59,29 +59,6 @@ services:
       - wscrm_internal
     # No ports exposed — internal only
 
-  # ── RabbitMQ ──────────────────────────────────────────────────────────────────
-  rabbitmq:
-    image: rabbitmq:3-management-alpine
-    container_name: wscrm-rabbitmq
-    restart: unless-stopped
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 15s
-      timeout: 10s
-      retries: 5
-      start_period: 20s
-    networks:
-      - wscrm_internal
-    ports:
-      # Management UI — bound to loopback only; access via SSH tunnel
-      - "127.0.0.1:15672:15672"
-    # AMQP port 5672 is NOT exposed — internal only
-
   # ── API Backend ───────────────────────────────────────────────────────────────
   api-backend:
     build:
@@ -94,10 +71,11 @@ services:
         required: false   # must exist in production; optional for local config checks
     environment:
       NODE_ENV: production
-      PORT: "3000"
+      PORT: "3100"
       DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public"
       REDIS_URL: "redis://redis:6379"
-      RABBITMQ_URL: "amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672"
+      REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
       # WhatsApp — set WHATSAPP_ENABLED=true in .env.prod to activate.
       # Scan the QR code printed in container logs on first start.
       WHATSAPP_SESSION_PATH: /app/whatsapp-session
@@ -105,17 +83,49 @@ services:
     volumes:
       - uploads_data:/app/uploads
       - whatsapp_session:/app/whatsapp-session
-    expose:
-      - "3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3100/api/health/ready >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+    ports:
+      - "127.0.0.1:3100:3100"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
     networks:
       - wscrm_internal
+      - wscrm_proxy
+
+  # ── Admin Panel ──────────────────────────────────────────────────────────────
+  admin-panel:
+    build:
+      context: .
+      dockerfile: apps/admin-panel/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    container_name: wscrm-admin
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "4300"
+      HOSTNAME: "0.0.0.0"
+      NEXT_TELEMETRY_DISABLED: "1"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4300/auth/login >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    ports:
+      - "127.0.0.1:4300:4300"
+    depends_on:
+      api-backend:
+        condition: service_healthy
+    networks:
       - wscrm_proxy
 
   # ── Vendor Dashboard ──────────────────────────────────────────────────────────
@@ -138,13 +148,20 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      PORT: "4201"
+      PORT: "4301"
       HOSTNAME: "0.0.0.0"
       NEXT_TELEMETRY_DISABLED: "1"
-    expose:
-      - "4201"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4301/auth/login >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    ports:
+      - "127.0.0.1:4301:4301"
     depends_on:
-      - api-backend
+      api-backend:
+        condition: service_healthy
     networks:
       - wscrm_proxy
 
@@ -167,12 +184,19 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      PORT: "4202"
+      PORT: "4302"
       HOSTNAME: "0.0.0.0"
       NEXT_TELEMETRY_DISABLED: "1"
-    expose:
-      - "4202"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4302/auth/login >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    ports:
+      - "127.0.0.1:4302:4302"
     depends_on:
-      - api-backend
+      api-backend:
+        condition: service_healthy
     networks:
       - wscrm_proxy

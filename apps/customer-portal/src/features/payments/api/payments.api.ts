@@ -11,9 +11,11 @@ export interface RaastQrRequest {
 
 export interface RaastQrResponse {
   id: string;
+  paymentRequestId?: string;
   checkoutUrl: string;
   qrExpiresAt: string;
   qrCodeData?: string;
+  status?: string;
 }
 
 export interface ManualPaymentRequest {

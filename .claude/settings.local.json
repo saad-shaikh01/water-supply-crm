@@ -29,7 +29,12 @@
       "Bash(git commit:*)",
       "Bash(tail:*)",
       "Bash(npx prisma:*)",
-      "Bash(head:*)"
+      "Bash(head:*)",
+      "Bash(xargs grep:*)",
+      "Bash(for dir:*)",
+      "Bash(do echo:*)",
+      "Read(//d/Repositories/water-supply-crm/**)",
+      "Bash(done)"
     ]
   }
 }

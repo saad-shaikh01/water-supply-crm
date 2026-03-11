@@ -4,7 +4,7 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Copy workspace manifests
-COPY package.json package-lock.json nx.json tsconfig.base.json ./
+COPY package.json package-lock.json nx.json tsconfig.base.json postcss.config.js tailwind.config.base.js ./
 
 # Install all dependencies (devDeps needed for Nx / Next.js build)
 RUN npm ci

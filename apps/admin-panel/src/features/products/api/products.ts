@@ -1,7 +1,7 @@
 import { apiClient } from '@water-supply-crm/data-access';
 
-export const getProducts = async () => {
-  const response = await apiClient.get('/products');
+export const getProducts = async (params?: { page?: number; limit?: number }) => {
+  const response = await apiClient.get('/products', { params });
   return response.data;
 };
 

@@ -24,6 +24,11 @@ Use this as the entrypoint for all planning and execution work.
 5. [admin_panel.md](./admin_panel.md)
 6. [start.md](./start.md)
 
+## Operations
+
+1. [deploy_vps.md](./deploy_vps.md)
+   - Production VPS deployment using Docker Compose + Nginx.
+
 ## Historical Docs (Read as Reference, Not Current Truth)
 
 1. [current_status.md](./current_status.md)

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
+import { NuqsAdapter } from 'nuqs/adapters/next/app';
 import { QueryProvider } from '@water-supply-crm/data-access';
 import { Toaster } from '@water-supply-crm/ui';
 import { ThemeProvider } from '../components/layout/theme-provider';
@@ -32,8 +33,10 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <QueryProvider>
-            <StoreHydration />
-            {children}
+            <NuqsAdapter>
+              <StoreHydration />
+              {children}
+            </NuqsAdapter>
             <Toaster />
           </QueryProvider>
         </ThemeProvider>

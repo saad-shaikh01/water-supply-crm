@@ -1,4 +1,5 @@
 import { Inter } from 'next/font/google';
+import { NuqsAdapter } from 'nuqs/adapters/next/app';
 import { QueryProvider } from '@water-supply-crm/data-access';
 import { Toaster } from '@water-supply-crm/ui';
 import { ThemeProvider } from '../components/layout/theme-provider';
@@ -25,7 +26,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           disableTransitionOnChange
         >
           <QueryProvider>
-            {children}
+            <NuqsAdapter>
+              {children}
+            </NuqsAdapter>
             <Toaster />
           </QueryProvider>
         </ThemeProvider>
