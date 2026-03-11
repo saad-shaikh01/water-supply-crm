@@ -26,16 +26,6 @@ RUN npx prisma generate --schema=libs/shared/database/prisma/schema.prisma
 # Compile the NestJS app → dist/apps/api-backend/main.js
 RUN npx nx build api-backend
 
-# Produce a pruned package.json + package-lock.json containing only
-# production dependencies, so the runner can install a minimal set.
-RUN npx nx run api-backend:prune-lockfile
-
-# Install production deps inside the builder so native modules (bcrypt, etc.)
-# are compiled for Alpine here and can be copied directly to the runner.
-RUN mkdir -p /prod && \
-    cp dist/apps/api-backend/package.json dist/apps/api-backend/package-lock.json /prod/ && \
-    cd /prod && npm ci --omit=dev
-
 # ─── Stage 2: Runner ──────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
 
@@ -59,9 +49,10 @@ ENV NODE_ENV=production
 ENV CHROMIUM_PATH=/usr/bin/chromium-browser
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
-# Copy pre-compiled production node_modules from builder
-# (avoids re-running native compilation — keeps runner image small)
-COPY --from=builder /prod/node_modules ./node_modules
+# Copy the builder's working node_modules. This keeps the image larger than a
+# pruned runtime install, but it is reliable with the current Nx custom build
+# target and avoids prune-lockfile failures during production builds.
+COPY --from=builder /app/node_modules ./node_modules
 
 # Copy the compiled application bundle
 COPY --from=builder /app/dist/apps/api-backend/main.js ./
