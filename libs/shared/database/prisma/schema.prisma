@@ -75,6 +75,7 @@ model Vendor {
   orders                  CustomerOrder[]
   tickets                 CustomerTicket[]
   deliveryIssues          DeliveryIssue[]
+  balanceReminderSchedule BalanceReminderSchedule?
   reminderScheduleConfig  ReminderScheduleConfig?
   driverLastLocations     DriverLastLocation[]
 }

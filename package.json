@@ -3,6 +3,18 @@
   "version": "0.0.0",
   "license": "MIT",
   "scripts": {
+    "test": "nx run-many -t test --all",
+    "test:api": "nx test api-backend",
+    "test:api:watch": "nx test api-backend --watch",
+    "test:api:cov": "nx test api-backend --coverage",
+    "test:vendor": "nx test vendor-dashboard",
+    "test:customer": "nx test customer-portal",
+    "test:admin": "nx test admin-panel",
+    "test:cov": "nx run-many -t test --all -- --coverage",
+    "e2e:vendor": "nx e2e vendor-dashboard-e2e",
+    "e2e:customer": "nx e2e customer-portal-e2e",
+    "e2e:admin": "nx e2e admin-panel-e2e",
+    "e2e:api": "nx e2e api-backend-e2e",
     "seed": "DATABASE_URL=$DATABASE_URL ts-node --project libs/shared/database/tsconfig.lib.json libs/shared/database/prisma/seed.ts"
   },
   "prisma": {
@@ -57,6 +69,7 @@
     "jest": "^30.0.2",
     "jest-environment-jsdom": "^30.0.2",
     "jest-environment-node": "^30.0.2",
+    "jest-mock-extended": "^4.0.0",
     "jest-util": "^30.0.2",
     "jsonc-eslint-parser": "^2.1.0",
     "nx": "22.4.5",
