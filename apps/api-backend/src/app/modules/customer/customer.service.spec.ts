@@ -6,10 +6,12 @@ import { AuditService } from '../audit/audit.service';
 import { CustomerStatementPdfService } from './pdf/customer-statement-pdf.service';
 import {
   createMockCustomer,
+  createMockProduct,
   createMockUser,
   createPrismaMock,
   createPrismaProvider,
   createTestModule,
+  mockPrismaTransaction,
   mockVendorId,
   PrismaMock,
 } from '../../../test';
@@ -25,6 +27,7 @@ describe('CustomerService', () => {
 
   beforeEach(async () => {
     prisma = createPrismaMock();
+    mockPrismaTransaction(prisma);
     cache = {
       invalidateVendorEntity: jest.fn().mockResolvedValue(undefined),
     };
@@ -284,6 +287,339 @@ describe('CustomerService', () => {
         CACHE_KEYS.CUSTOMERS,
       );
       expect(result).toEqual({ message: 'Portal account removed' });
+    });
+  });
+
+  describe('create', () => {
+    it('creates the customer, delivery schedules, and wallets using the live transaction flow', async () => {
+      const products = [
+        createMockProduct({ id: 'product-1' }),
+        createMockProduct({ id: 'product-2' }),
+      ];
+      prisma.vendor.findUnique.mockResolvedValue({ name: 'Blue Water Co' } as never);
+      prisma.customer.findFirst.mockResolvedValue({
+        customerCode: 'BWC-0007',
+      } as never);
+      prisma.customer.create.mockResolvedValue(
+        createMockCustomer({
+          id: 'customer-new-1',
+          vendorId: mockVendorId,
+          name: 'New Customer',
+          customerCode: 'BWC-0008',
+          routeId: 'route-1',
+        }) as never,
+      );
+      prisma.customerDeliverySchedule.createMany.mockResolvedValue({
+        count: 2,
+      } as never);
+      prisma.product.findMany.mockResolvedValue(products as never);
+      prisma.bottleWallet.create.mockResolvedValue({} as never);
+
+      const result = await service.create(mockVendorId, {
+        name: 'New Customer',
+        phoneNumber: '03001234567',
+        address: '123 Test Street',
+        paymentType: 'MONTHLY',
+        routeId: 'route-1',
+        latitude: 24.8607,
+        longitude: 67.0011,
+        deliverySchedule: [
+          { vanId: 'van-1', dayOfWeek: 1, routeSequence: 1 },
+          { vanId: 'van-2', dayOfWeek: 3, routeSequence: 2 },
+        ],
+      });
+
+      expect(prisma.customer.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          name: 'New Customer',
+          customerCode: 'BWC-0008',
+          vendorId: mockVendorId,
+          routeId: 'route-1',
+          latitude: 24.8607,
+          longitude: 67.0011,
+        }),
+      });
+      expect(prisma.customerDeliverySchedule.createMany).toHaveBeenCalledWith({
+        data: [
+          {
+            customerId: 'customer-new-1',
+            vanId: 'van-1',
+            dayOfWeek: 1,
+            routeSequence: 1,
+          },
+          {
+            customerId: 'customer-new-1',
+            vanId: 'van-2',
+            dayOfWeek: 3,
+            routeSequence: 2,
+          },
+        ],
+      });
+      expect(prisma.bottleWallet.create).toHaveBeenCalledTimes(2);
+      expect(cache.invalidateVendorEntity).toHaveBeenCalledWith(
+        mockVendorId,
+        CACHE_KEYS.CUSTOMERS,
+      );
+      expect(audit.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          vendorId: mockVendorId,
+          action: 'CREATE',
+          entity: 'Customer',
+          entityId: 'customer-new-1',
+        }),
+      );
+      expect(result.customerCode).toBe('BWC-0008');
+    });
+
+    it('throws ConflictException when a manual customerCode already exists', async () => {
+      prisma.customer.findUnique.mockResolvedValue(
+        createMockCustomer({ customerCode: 'MANUAL-001' }) as never,
+      );
+
+      await expect(
+        service.create(mockVendorId, {
+          customerCode: 'MANUAL-001',
+          name: 'Dup Customer',
+          phoneNumber: '03000000000',
+          address: '123 Test Street',
+          deliverySchedule: [],
+        }),
+      ).rejects.toThrow(new ConflictException('Customer code already exists'));
+    });
+  });
+
+  describe('update', () => {
+    it('replaces delivery schedules and updates the customer for the current vendor', async () => {
+      prisma.customer.findFirst.mockResolvedValue(
+        createMockCustomer({
+          id: 'customer-test-001',
+          vendorId: mockVendorId,
+          googleMapsUrl: null,
+        }) as never,
+      );
+      prisma.customerDeliverySchedule.deleteMany.mockResolvedValue({
+        count: 1,
+      } as never);
+      prisma.customerDeliverySchedule.createMany.mockResolvedValue({
+        count: 1,
+      } as never);
+      prisma.customer.update.mockResolvedValue({
+        ...createMockCustomer({
+          id: 'customer-test-001',
+          vendorId: mockVendorId,
+          name: 'Updated Name',
+        }),
+        route: { id: 'route-1', name: 'Route 1' },
+        wallets: [],
+        deliverySchedules: [],
+      } as never);
+
+      const result = await service.update(mockVendorId, 'customer-test-001', {
+        name: 'Updated Name',
+        deliverySchedule: [{ vanId: 'van-1', dayOfWeek: 2, routeSequence: 5 }],
+      });
+
+      expect(prisma.customerDeliverySchedule.deleteMany).toHaveBeenCalledWith({
+        where: { customerId: 'customer-test-001' },
+      });
+      expect(prisma.customerDeliverySchedule.createMany).toHaveBeenCalledWith({
+        data: [
+          {
+            customerId: 'customer-test-001',
+            vanId: 'van-1',
+            dayOfWeek: 2,
+            routeSequence: 5,
+          },
+        ],
+      });
+      expect(prisma.customer.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'customer-test-001' },
+          data: expect.objectContaining({ name: 'Updated Name' }),
+        }),
+      );
+      expect(cache.invalidateVendorEntity).toHaveBeenCalledWith(
+        mockVendorId,
+        CACHE_KEYS.CUSTOMERS,
+      );
+      expect(audit.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          vendorId: mockVendorId,
+          action: 'UPDATE',
+          entity: 'Customer',
+          entityId: 'customer-test-001',
+        }),
+      );
+      expect(result.name).toBe('Updated Name');
+    });
+
+    it('throws NotFoundException when the customer does not belong to the vendor', async () => {
+      prisma.customer.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.update(mockVendorId, 'missing-customer', { name: 'Nope' }),
+      ).rejects.toThrow(new NotFoundException('Customer not found'));
+    });
+  });
+
+  describe('setCustomPrice', () => {
+    it('upserts the customer-specific product price for the current vendor', async () => {
+      prisma.customer.findFirst.mockResolvedValue(
+        createMockCustomer({
+          id: 'customer-test-001',
+          vendorId: mockVendorId,
+        }) as never,
+      );
+      prisma.product.findFirst.mockResolvedValue(
+        createMockProduct({
+          id: 'product-test-001',
+          vendorId: mockVendorId,
+        }) as never,
+      );
+      prisma.customerProductPrice.upsert.mockResolvedValue({
+        id: 'price-1',
+        customerId: 'customer-test-001',
+        productId: 'product-test-001',
+        customPrice: 135,
+        product: createMockProduct({ id: 'product-test-001' }),
+      } as never);
+
+      const result = await service.setCustomPrice(
+        mockVendorId,
+        'customer-test-001',
+        {
+          productId: 'product-test-001',
+          price: 135,
+        },
+      );
+
+      expect(prisma.customerProductPrice.upsert).toHaveBeenCalledWith({
+        where: {
+          customerId_productId: {
+            customerId: 'customer-test-001',
+            productId: 'product-test-001',
+          },
+        },
+        create: {
+          customerId: 'customer-test-001',
+          productId: 'product-test-001',
+          customPrice: 135,
+        },
+        update: {
+          customPrice: 135,
+        },
+        include: { product: true },
+      });
+      expect(cache.invalidateVendorEntity).toHaveBeenCalledWith(
+        mockVendorId,
+        CACHE_KEYS.CUSTOMERS,
+      );
+      expect(result.customPrice).toBe(135);
+    });
+
+    it('throws NotFoundException when the customer is outside the vendor scope', async () => {
+      prisma.customer.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.setCustomPrice(mockVendorId, 'missing-customer', {
+          productId: 'product-test-001',
+          price: 135,
+        }),
+      ).rejects.toThrow(new NotFoundException('Customer not found'));
+    });
+  });
+
+  describe('removeCustomPrice', () => {
+    it('deletes the customer-specific product price for the current vendor', async () => {
+      prisma.customer.findFirst.mockResolvedValue(
+        createMockCustomer({
+          id: 'customer-test-001',
+          vendorId: mockVendorId,
+        }) as never,
+      );
+      prisma.customerProductPrice.delete.mockResolvedValue({} as never);
+
+      const result = await service.removeCustomPrice(
+        mockVendorId,
+        'customer-test-001',
+        'product-test-001',
+      );
+
+      expect(prisma.customerProductPrice.delete).toHaveBeenCalledWith({
+        where: {
+          customerId_productId: {
+            customerId: 'customer-test-001',
+            productId: 'product-test-001',
+          },
+        },
+      });
+      expect(cache.invalidateVendorEntity).toHaveBeenCalledWith(
+        mockVendorId,
+        CACHE_KEYS.CUSTOMERS,
+      );
+      expect(result).toEqual({ deleted: true });
+    });
+
+    it('throws NotFoundException when the customer is outside the vendor scope', async () => {
+      prisma.customer.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.removeCustomPrice(
+          mockVendorId,
+          'missing-customer',
+          'product-test-001',
+        ),
+      ).rejects.toThrow(new NotFoundException('Customer not found'));
+    });
+  });
+
+  describe('getMonthlyStatement', () => {
+    it('calculates opening and closing balances for the requested month', async () => {
+      prisma.customer.findFirst.mockResolvedValue(
+        createMockCustomer({
+          id: 'customer-test-001',
+          vendorId: mockVendorId,
+          financialBalance: 1000,
+        }) as never,
+      );
+      prisma.transaction.findMany
+        .mockResolvedValueOnce([
+          { amount: 300, product: { name: '19L Water Bottle' } },
+          { amount: -100, product: { name: '19L Water Bottle' } },
+          { amount: 50, product: { name: '19L Water Bottle' } },
+        ] as never)
+        .mockResolvedValueOnce([{ amount: 200 }, { amount: -50 }] as never);
+
+      const result = await service.getMonthlyStatement(
+        mockVendorId,
+        'customer-test-001',
+        '2025-01',
+      );
+
+      expect(prisma.transaction.findMany).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          where: expect.objectContaining({
+            customerId: 'customer-test-001',
+            vendorId: mockVendorId,
+            createdAt: {
+              gte: new Date(2025, 0, 1),
+              lt: new Date(2025, 1, 1),
+            },
+          }),
+        }),
+      );
+      expect(result.openingBalance).toBe(600);
+      expect(result.closingBalance).toBe(850);
+      expect(result.transactions).toHaveLength(3);
+    });
+
+    it('throws NotFoundException when the customer is outside the vendor scope', async () => {
+      prisma.customer.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.getMonthlyStatement(mockVendorId, 'missing-customer', '2025-01'),
+      ).rejects.toThrow(new NotFoundException('Customer not found'));
     });
   });
 });

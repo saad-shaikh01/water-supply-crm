@@ -346,4 +346,106 @@ describe('PaymentService', () => {
       ).rejects.toThrow(new NotFoundException('Payment request not found'));
     });
   });
+
+  describe('handlePaymobWebhook', () => {
+    it('returns received without side effects when the gateway payload is invalid', async () => {
+      gateway.verifyWebhook.mockReturnValue(null);
+
+      const result = await service.handlePaymobWebhook(
+        { any: 'payload' },
+        'bad-hmac',
+      );
+
+      expect(prisma.paymentRequest.findFirst).not.toHaveBeenCalled();
+      expect(ledger.recordPayment).not.toHaveBeenCalled();
+      expect(result).toEqual({ received: true });
+    });
+
+    it('marks the request as PAID, records the ledger entry, and queues WhatsApp on success', async () => {
+      gateway.verifyWebhook.mockReturnValue({
+        gatewayOrderId: 'paymob-order-1',
+        gatewayTxId: 'gateway-tx-1',
+        amountCents: 150000,
+        success: true,
+        rawPayload: { id: 'txn-1' },
+      });
+      prisma.paymentRequest.findFirst.mockResolvedValue({
+        id: 'payment-request-1',
+        vendorId: mockVendorId,
+        customerId: 'customer-1',
+        amount: 1500,
+        gatewayOrderId: 'paymob-order-1',
+        status: PaymentRequestStatus.PROCESSING,
+        customer: {
+          name: 'Ali Khan',
+          phoneNumber: '03001234567',
+          financialBalance: 5000,
+        },
+      } as never);
+      prisma.paymentRequest.update.mockResolvedValue({
+        id: 'payment-request-1',
+        status: PaymentRequestStatus.PAID,
+      } as never);
+
+      const result = await service.handlePaymobWebhook(
+        { any: 'payload' },
+        'valid-hmac',
+      );
+
+      expect(ledger.recordPayment).toHaveBeenCalledWith(
+        mockVendorId,
+        expect.objectContaining({
+          customerId: 'customer-1',
+          amount: 1500,
+          description: expect.stringContaining('gateway-tx-1'),
+        }),
+      );
+      expect(prisma.paymentRequest.update).toHaveBeenCalledWith({
+        where: { id: 'payment-request-1' },
+        data: {
+          status: PaymentRequestStatus.PAID,
+          gatewayTxId: 'gateway-tx-1',
+          reviewedAt: expect.any(Date),
+        },
+      });
+      expect(notifications.queueWhatsApp).toHaveBeenCalledWith(
+        '03001234567',
+        expect.any(String),
+        'ntf:payment.approved:payment-request-1:wa',
+      );
+      expect(result).toEqual({ received: true });
+    });
+
+    it('returns received without recording duplicate payments for already settled requests', async () => {
+      gateway.verifyWebhook.mockReturnValue({
+        gatewayOrderId: 'paymob-order-1',
+        gatewayTxId: 'gateway-tx-1',
+        amountCents: 150000,
+        success: true,
+        rawPayload: { id: 'txn-1' },
+      });
+      prisma.paymentRequest.findFirst.mockResolvedValue({
+        id: 'payment-request-1',
+        vendorId: mockVendorId,
+        customerId: 'customer-1',
+        amount: 1500,
+        gatewayOrderId: 'paymob-order-1',
+        status: PaymentRequestStatus.APPROVED,
+        customer: {
+          name: 'Ali Khan',
+          phoneNumber: '03001234567',
+          financialBalance: 5000,
+        },
+      } as never);
+
+      const result = await service.handlePaymobWebhook(
+        { any: 'payload' },
+        'valid-hmac',
+      );
+
+      expect(ledger.recordPayment).not.toHaveBeenCalled();
+      expect(prisma.paymentRequest.update).not.toHaveBeenCalled();
+      expect(result).toEqual({ received: true });
+    });
+  });
 });
