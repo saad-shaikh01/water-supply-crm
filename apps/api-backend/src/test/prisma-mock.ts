@@ -18,13 +18,15 @@ export function mockPrismaTransaction(
   mock: PrismaMock = prismaMock,
   tx: unknown = mock,
 ): PrismaMock {
-  mock.$transaction.mockImplementation(async (arg: unknown) => {
+  (mock.$transaction as unknown as jest.Mock).mockImplementation(
+    async (arg: unknown) => {
     if (typeof arg === 'function') {
       return (arg as (client: unknown) => unknown)(tx);
     }
 
     return Promise.all(arg as Promise<unknown>[]);
-  });
+    },
+  );
 
   return mock;
 }
