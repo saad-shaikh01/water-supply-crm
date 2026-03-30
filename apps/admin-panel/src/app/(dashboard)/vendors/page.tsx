@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { Button } from '@water-supply-crm/ui';
 import { Plus } from 'lucide-react';
 import { VendorList } from '../../../features/vendors/components/vendor-list';
@@ -21,7 +21,15 @@ export default function VendorsPage() {
           Add Vendor
         </Button>
       </div>
-      <VendorList />
+      <Suspense
+        fallback={
+          <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">
+            Loading vendors...
+          </div>
+        }
+      >
+        <VendorList />
+      </Suspense>
       <VendorForm open={formOpen} onOpenChange={setFormOpen} />
     </div>
   );
