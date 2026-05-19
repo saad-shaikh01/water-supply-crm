@@ -1,6 +1,6 @@
 import { Injectable, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
-import { UserRole } from '@prisma/client';
+import { Prisma, UserRole } from '@prisma/client';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
 import { CACHE_KEYS, CACHE_TTLS } from '@water-supply-crm/caching';
 import * as bcrypt from 'bcrypt';
@@ -36,12 +36,17 @@ export class UserService {
 
     const hashedPassword = await bcrypt.hash(data.password, 10);
 
-    const user = await this.prisma.user.create({
-      data: {
-        ...data,
-        password: hashedPassword,
-      },
-    });
+    let user;
+    try {
+      user = await this.prisma.user.create({
+        data: { ...data, password: hashedPassword },
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException('User with this email already exists');
+      }
+      throw e;
+    }
 
     if (data.vendorId) {
       await this.cache.invalidateVendorEntity(data.vendorId, CACHE_KEYS.USERS);

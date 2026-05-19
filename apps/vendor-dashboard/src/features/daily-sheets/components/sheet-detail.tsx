@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Card, CardContent, Button, Skeleton, Badge,
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -83,6 +83,30 @@ type TabKey = 'all' | 'pending' | 'completed' | 'issues';
 
 const ITEMS_PER_PAGE = 20;
 
+const FAILURE_CATEGORIES = [
+  { value: 'CUSTOMER_NOT_HOME', label: 'Customer Not Home' },
+  { value: 'CUSTOMER_NOT_ANSWERING', label: 'Customer Not Answering' },
+  { value: 'CUSTOMER_SELF_PICKUP', label: 'Customer Self Pickup' },
+  { value: 'VAN_BREAKDOWN', label: 'Van Breakdown' },
+  { value: 'ACCESS_ISSUE', label: 'Area / Access Issue' },
+  { value: 'CUSTOMER_REFUSED', label: 'Customer Refused' },
+  { value: 'WEATHER', label: 'Weather / Road Issue' },
+  { value: 'OTHER', label: 'Other' },
+] as const;
+
+const CATEGORY_LABELS: Record<string, string> = {
+  CUSTOMER_NOT_HOME: 'Customer Not Home',
+  CUSTOMER_NOT_ANSWERING: 'Customer Not Answering',
+  CUSTOMER_SELF_PICKUP: 'Customer Self Pickup',
+  VAN_BREAKDOWN: 'Van Breakdown',
+  ACCESS_ISSUE: 'Area / Access Issue',
+  CUSTOMER_REFUSED: 'Customer Refused',
+  WEATHER: 'Weather / Road Issue',
+  OTHER: 'Other',
+};
+
+const formatCategory = (cat: string) => CATEGORY_LABELS[cat] ?? cat;
+
 function tabFilter(tab: TabKey, item: DeliveryItem): boolean {
   switch (tab) {
     case 'pending': return item.status === 'PENDING';
@@ -91,6 +115,14 @@ function tabFilter(tab: TabKey, item: DeliveryItem): boolean {
     default: return true;
   }
 }
+
+const formatTime = (dt: string) =>
+  new Date(dt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+const formatPhone = (phone?: string) => {
+  if (!phone) return '';
+  return phone.startsWith('0') ? `92${phone.slice(1)}` : phone;
+};
 
 export function SheetDetail({ sheetId }: SheetDetailProps) {
   const router = useRouter();
@@ -130,36 +162,31 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const [failureCategory, setFailureCategory] = useState<string>('CUSTOMER_NOT_HOME');
   const [unableReason, setUnableReason] = useState('');
 
-  const FAILURE_CATEGORIES = [
-    { value: 'CUSTOMER_NOT_HOME', label: 'Customer Not Home' },
-    { value: 'CUSTOMER_NOT_ANSWERING', label: 'Customer Not Answering' },
-    { value: 'CUSTOMER_SELF_PICKUP', label: 'Customer Self Pickup' },
-    { value: 'VAN_BREAKDOWN', label: 'Van Breakdown' },
-    { value: 'ACCESS_ISSUE', label: 'Area / Access Issue' },
-    { value: 'CUSTOMER_REFUSED', label: 'Customer Refused' },
-    { value: 'WEATHER', label: 'Weather / Road Issue' },
-    { value: 'OTHER', label: 'Other' },
-  ] as const;
-
-  const CATEGORY_LABELS: Record<string, string> = {
-    CUSTOMER_NOT_HOME: 'Customer Not Home',
-    CUSTOMER_NOT_ANSWERING: 'Customer Not Answering',
-    CUSTOMER_SELF_PICKUP: 'Customer Self Pickup',
-    VAN_BREAKDOWN: 'Van Breakdown',
-    ACCESS_ISSUE: 'Area / Access Issue',
-    CUSTOMER_REFUSED: 'Customer Refused',
-    WEATHER: 'Weather / Road Issue',
-    OTHER: 'Other',
-  };
-
-  const formatCategory = (cat: string) => CATEGORY_LABELS[cat] ?? cat;
-
   // Tabs + pagination
   const [activeTab, setActiveTab] = useState<TabKey>('all');
   const [tabPage, setTabPage] = useState(1);
 
   // Accordion
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
+
+  // ── Memoized derived data (must be before any early returns) ─────────
+  const items = useMemo(() => ((data as any)?.items ?? []) as DeliveryItem[], [data]);
+  const loads = useMemo(() => ((data as any)?.loads ?? []) as LoadTrip[], [data]);
+  const doneItems = useMemo(
+    () => items.filter((i) => i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY'),
+    [items],
+  );
+  const stats = useMemo(() => ({
+    filledDropped: doneItems.reduce((acc, i) => acc + i.filledDropped, 0),
+    emptyReceived: doneItems.reduce((acc, i) => acc + i.emptyReceived, 0),
+    cashCollected: doneItems.reduce((acc, i) => acc + i.cashCollected, 0),
+  }), [doneItems]);
+  const filteredItems = useMemo(() => items.filter((i) => tabFilter(activeTab, i)), [items, activeTab]);
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(filteredItems.length / ITEMS_PER_PAGE)), [filteredItems]);
+  const paginatedItems = useMemo(
+    () => filteredItems.slice((tabPage - 1) * ITEMS_PER_PAGE, tabPage * ITEMS_PER_PAGE),
+    [filteredItems, tabPage],
+  );
 
   if (isLoading) return (
     <div className="space-y-6">
@@ -169,25 +196,13 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   );
 
   const sheet = (data ?? {}) as Record<string, any>;
-  const items = (sheet.items ?? []) as DeliveryItem[];
-  const loads = (sheet.loads ?? []) as LoadTrip[];
+  // items / loads / doneItems / stats / filteredItems / paginatedItems / totalPages — memoized above
 
   const activeTrip = loads.find((l) => !l.endedAt) ?? null;
   const hasAnyTrip = loads.length > 0;
   const isClosed = !!sheet.isClosed;
   const currentStatus = isClosed ? 'CLOSED' : activeTrip ? 'LOADED' : hasAnyTrip ? 'CHECKED_IN' : 'OPEN';
-
-  // ── Computed real-time stats ────────────────────────────────────────
-  const doneItems = items.filter((i) => i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY');
-  const totalFilledDropped = doneItems.reduce((acc, i) => acc + i.filledDropped, 0);
-  const totalEmptyReceived = doneItems.reduce((acc, i) => acc + i.emptyReceived, 0);
-  const totalCashCollected = doneItems.reduce((acc, i) => acc + i.cashCollected, 0);
-  const bottlesInTruck = Math.max(0, (sheet.filledOutCount ?? 0) - totalFilledDropped);
-
-  // ── Tab filtering + pagination ──────────────────────────────────────
-  const filteredItems = items.filter((i) => tabFilter(activeTab, i));
-  const totalPages = Math.max(1, Math.ceil(filteredItems.length / ITEMS_PER_PAGE));
-  const paginatedItems = filteredItems.slice((tabPage - 1) * ITEMS_PER_PAGE, tabPage * ITEMS_PER_PAGE);
+  const bottlesInTruck = Math.max(0, (sheet.filledOutCount ?? 0) - stats.filledDropped);
 
   const tabCount = (tab: TabKey) => items.filter((i) => tabFilter(tab, i)).length;
 
@@ -280,14 +295,6 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
     }
   };
 
-  const formatTime = (dt: string) =>
-    new Date(dt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-  const formatPhone = (phone?: string) => {
-    if (!phone) return '';
-    return phone.startsWith('0') ? `92${phone.slice(1)}` : phone;
-  };
-
   return (
     <div className="space-y-8 pb-20">
       {/* ── Header ─────────────────────────────────────────── */}
@@ -371,7 +378,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             </div>
             <div>
               <p className="text-[10px] font-bold uppercase text-muted-foreground">Filled Dropped</p>
-              <p className="text-sm font-black">{totalFilledDropped} <span className="text-xs font-normal text-muted-foreground">of {sheet.filledOutCount}</span></p>
+              <p className="text-sm font-black">{stats.filledDropped} <span className="text-xs font-normal text-muted-foreground">of {sheet.filledOutCount}</span></p>
             </div>
           </CardContent>
         </Card>
@@ -382,7 +389,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             </div>
             <div>
               <p className="text-[10px] font-bold uppercase text-muted-foreground">Empty Received</p>
-              <p className="text-sm font-black">{totalEmptyReceived} <span className="text-xs font-normal text-muted-foreground">bottles</span></p>
+              <p className="text-sm font-black">{stats.emptyReceived} <span className="text-xs font-normal text-muted-foreground">bottles</span></p>
             </div>
           </CardContent>
         </Card>
@@ -393,7 +400,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             </div>
             <div>
               <p className="text-[10px] font-bold uppercase text-muted-foreground">Cash Collected</p>
-              <p className="text-sm font-black">₨ {totalCashCollected.toLocaleString()}</p>
+              <p className="text-sm font-black">₨ {stats.cashCollected.toLocaleString()}</p>
             </div>
           </CardContent>
         </Card>

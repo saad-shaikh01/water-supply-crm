@@ -1,4 +1,4 @@
-import {
+﻿import {
   Controller,
   Post,
   Delete,
@@ -10,6 +10,7 @@ import { FcmService } from './fcm.service';
 import { RegisterFcmTokenDto } from './dto/register-fcm-token.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthUser } from '@water-supply-crm/types';
 
 @Controller('fcm')
 @UseGuards(JwtAuthGuard)
@@ -17,7 +18,7 @@ export class FcmController {
   constructor(private readonly fcmService: FcmService) {}
 
   @Post('token')
-  register(@CurrentUser() user: any, @Body() dto: RegisterFcmTokenDto) {
+  register(@CurrentUser() user: AuthUser, @Body() dto: RegisterFcmTokenDto) {
     return this.fcmService.registerToken(user.userId, dto.token, dto.platform);
   }
 
@@ -27,7 +28,7 @@ export class FcmController {
   }
 
   @Get('tokens')
-  listTokens(@CurrentUser() user: any) {
+  listTokens(@CurrentUser() user: AuthUser) {
     return this.fcmService.getTokensForUser(user.userId);
   }
 }

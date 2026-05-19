@@ -1,4 +1,4 @@
-import {
+﻿import {
   Body,
   Controller,
   Get,
@@ -18,6 +18,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthUser } from '@water-supply-crm/types';
 
 @Controller('delivery-issues')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -26,13 +27,13 @@ export class DeliveryIssueController {
   constructor(private readonly issueService: DeliveryIssueService) {}
 
   @Get()
-  findAll(@CurrentUser() user: any, @Query() query: DeliveryIssueQueryDto) {
+  findAll(@CurrentUser() user: AuthUser, @Query() query: DeliveryIssueQueryDto) {
     return this.issueService.findAll(user.vendorId, query);
   }
 
   @Get(':id')
   findOne(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.issueService.findOne(user.vendorId, id);
@@ -41,20 +42,20 @@ export class DeliveryIssueController {
   @Patch(':id/plan')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
   plan(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: PlanIssueDto,
   ) {
-    return this.issueService.plan(user.vendorId, id, dto, user.id);
+    return this.issueService.plan(user.vendorId, id, dto, user.userId);
   }
 
   @Patch(':id/resolve')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
   resolve(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ResolveIssueDto,
   ) {
-    return this.issueService.resolve(user.vendorId, id, dto, user.id);
+    return this.issueService.resolve(user.vendorId, id, dto, user.userId);
   }
 }

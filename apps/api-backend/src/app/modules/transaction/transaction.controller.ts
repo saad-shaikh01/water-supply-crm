@@ -1,4 +1,4 @@
-import {
+﻿import {
   Controller,
   Get,
   Post,
@@ -18,6 +18,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthUser } from '@water-supply-crm/types';
 import { NotificationService } from '../notifications/notification.service';
 
 @Controller('transactions')
@@ -30,7 +31,7 @@ export class TransactionController {
 
   @Get()
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
-  findAll(@CurrentUser() user: any, @Query() query: TransactionQueryDto) {
+  findAll(@CurrentUser() user: AuthUser, @Query() query: TransactionQueryDto) {
     return this.ledgerService.findAllPaginated(user.vendorId, query);
   }
 
@@ -42,14 +43,14 @@ export class TransactionController {
    */
   @Get('summary')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
-  getSummary(@CurrentUser() user: any, @Query() query: TransactionQueryDto) {
+  getSummary(@CurrentUser() user: AuthUser, @Query() query: TransactionQueryDto) {
     return this.ledgerService.getTransactionSummary(user.vendorId, query);
   }
 
   @Post('payments')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
-  async recordPayment(@CurrentUser() user: any, @Body() dto: RecordPaymentDto) {
+  async recordPayment(@CurrentUser() user: AuthUser, @Body() dto: RecordPaymentDto) {
     const transaction = await this.ledgerService.recordPayment(
       user.vendorId,
       dto,
@@ -69,7 +70,7 @@ export class TransactionController {
   @Roles(UserRole.VENDOR_ADMIN)
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   recordAdjustment(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Body() dto: RecordAdjustmentDto,
   ) {
     return this.ledgerService.recordAdjustment(user.vendorId, dto);
@@ -78,7 +79,7 @@ export class TransactionController {
   @Get('customers/:customerId')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
   findByCustomer(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('customerId') customerId: string,
     @Query() pagination: PaginationQueryDto,
   ) {
@@ -92,7 +93,7 @@ export class TransactionController {
   @Get('customers/:customerId/summary')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
   getCustomerSummary(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('customerId') customerId: string,
   ) {
     return this.ledgerService.getCustomerLedgerSummary(

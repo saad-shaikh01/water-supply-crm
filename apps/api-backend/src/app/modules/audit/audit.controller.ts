@@ -1,4 +1,4 @@
-import {
+﻿import {
   Controller,
   Get,
   Param,
@@ -13,6 +13,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthUser } from '@water-supply-crm/types';
 
 @Controller('audit-logs')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -21,7 +22,7 @@ export class AuditController {
 
   @Get()
   @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
-  findAll(@CurrentUser() user: any, @Query() query: AuditLogQueryDto) {
+  findAll(@CurrentUser() user: AuthUser, @Query() query: AuditLogQueryDto) {
     // SUPER_ADMIN sees all; VENDOR_ADMIN sees only their vendor
     const vendorId = user.role === UserRole.SUPER_ADMIN ? null : user.vendorId;
     return this.auditService.findAll(vendorId, query);

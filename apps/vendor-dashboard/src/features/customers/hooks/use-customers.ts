@@ -167,9 +167,9 @@ export const useCustomerConsumption = (id: string, month?: string) =>
 
 export const useCustomerSchedule = (id: string, params?: { dateFrom?: string; dateTo?: string }) =>
   useQuery({
-    queryKey: ['customers', id, 'schedule', params],
+    queryKey: ['customers', id, 'schedule', params?.dateFrom, params?.dateTo],
     queryFn: () => customersApi.getSchedule(id, params).then((r) => r.data),
-    enabled: !!id,
+    enabled: !!id && !!params?.dateFrom,
   });
 
 export const useSetCustomPrice = () => {

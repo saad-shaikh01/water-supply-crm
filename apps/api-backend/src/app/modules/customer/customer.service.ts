@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
+import { Prisma } from '@prisma/client';
 import {
   CacheInvalidationService,
   CACHE_KEYS,
@@ -52,7 +53,7 @@ export class CustomerService {
     return {};
   }
 
-  private async generateCustomerCode(vendorId: string, tx: any): Promise<string> {
+  private async generateCustomerCode(vendorId: string, tx: Prisma.TransactionClient): Promise<string> {
     const vendor = await tx.vendor.findUnique({
       where: { id: vendorId },
       select: { name: true },

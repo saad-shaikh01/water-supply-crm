@@ -1,4 +1,4 @@
-import {
+﻿import {
   Controller,
   Get,
   Post,
@@ -26,6 +26,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthUser } from '@water-supply-crm/types';
 
 @Controller('customers')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -35,19 +36,19 @@ export class CustomerController {
   @Post()
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
-  create(@CurrentUser() user: any, @Body() dto: CreateCustomerDto) {
+  create(@CurrentUser() user: AuthUser, @Body() dto: CreateCustomerDto) {
     return this.customerService.create(user.vendorId, dto);
   }
 
   @Get()
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
-  findAll(@CurrentUser() user: any, @Query() query: CustomerQueryDto) {
+  findAll(@CurrentUser() user: AuthUser, @Query() query: CustomerQueryDto) {
     return this.customerService.findAllPaginated(user.vendorId, query);
   }
 
   @Get(':id')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
-  findOne(@CurrentUser() user: any, @Param('id') id: string) {
+  findOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.customerService.findOne(user.vendorId, id);
   }
 
@@ -55,7 +56,7 @@ export class CustomerController {
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   update(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: UpdateCustomerDto,
   ) {
@@ -65,7 +66,7 @@ export class CustomerController {
   @Delete(':id')
   @Roles(UserRole.VENDOR_ADMIN)
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
-  remove(@CurrentUser() user: any, @Param('id') id: string) {
+  remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.customerService.remove(user.vendorId, id);
   }
 
@@ -73,7 +74,7 @@ export class CustomerController {
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   setCustomPrice(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: SetCustomPriceDto,
   ) {
@@ -84,7 +85,7 @@ export class CustomerController {
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   removeCustomPrice(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Param('productId') productId: string,
   ) {
@@ -94,7 +95,7 @@ export class CustomerController {
   @Get(':id/transactions')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
   getTransactionHistory(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Query() pagination: PaginationQueryDto,
   ) {
@@ -110,7 +111,7 @@ export class CustomerController {
   @Roles(UserRole.VENDOR_ADMIN)
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   createPortalAccount(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: CreatePortalAccountDto,
   ) {
@@ -121,7 +122,7 @@ export class CustomerController {
   @Delete(':id/portal-account')
   @Roles(UserRole.VENDOR_ADMIN)
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
-  removePortalAccount(@CurrentUser() user: any, @Param('id') id: string) {
+  removePortalAccount(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.customerService.removePortalAccount(user.vendorId, id);
   }
 
@@ -129,7 +130,7 @@ export class CustomerController {
   @Get(':id/statement')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
   async getStatement(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Query() query: StatementQueryDto,
     @Res() res: Response,
@@ -152,7 +153,7 @@ export class CustomerController {
   @Patch(':id/deactivate')
   @Roles(UserRole.VENDOR_ADMIN)
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
-  deactivate(@CurrentUser() user: any, @Param('id') id: string) {
+  deactivate(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.customerService.deactivate(user.vendorId, id);
   }
 
@@ -160,7 +161,7 @@ export class CustomerController {
   @Patch(':id/reactivate')
   @Roles(UserRole.VENDOR_ADMIN)
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
-  reactivate(@CurrentUser() user: any, @Param('id') id: string) {
+  reactivate(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.customerService.reactivate(user.vendorId, id);
   }
 
@@ -168,7 +169,7 @@ export class CustomerController {
   @Get(':id/consumption')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
   getConsumption(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Query() query: StatementQueryDto,
   ) {
@@ -179,7 +180,7 @@ export class CustomerController {
   @Get(':id/schedule')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
   getSchedule(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Query() query: ScheduleQueryDto,
   ) {
@@ -195,7 +196,7 @@ export class CustomerController {
   @Get(':id/financial-summary')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
   getFinancialSummary(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
   ) {
     return this.customerService.getFinancialSummary(user.vendorId, id);

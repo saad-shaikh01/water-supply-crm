@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Query, Body, UseGuards, Res } from '@nestjs/common';
+﻿import { Controller, Get, Post, Query, Body, UseGuards, Res } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { Response } from 'express';
 import { CustomerPortalService } from './customer-portal.service';
@@ -11,6 +11,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthUser } from '@water-supply-crm/types';
 
 @Controller('portal')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -19,29 +20,29 @@ export class CustomerPortalController {
   constructor(private readonly portalService: CustomerPortalService) {}
 
   @Get('me')
-  getProfile(@CurrentUser() user: any) {
+  getProfile(@CurrentUser() user: AuthUser) {
     return this.portalService.getProfile(user.userId);
   }
 
   @Get('balance')
-  getBalance(@CurrentUser() user: any) {
+  getBalance(@CurrentUser() user: AuthUser) {
     return this.portalService.getBalance(user.userId);
   }
 
   @Get('summary')
-  getSummary(@CurrentUser() user: any) {
+  getSummary(@CurrentUser() user: AuthUser) {
     return this.portalService.getSummary(user.userId);
   }
 
   /** GET /portal/payment-info — Vendor's Raast ID + instructions for manual payments */
   @Get('payment-info')
-  getPaymentInfo(@CurrentUser() user: any) {
+  getPaymentInfo(@CurrentUser() user: AuthUser) {
     return this.portalService.getVendorPaymentInfo(user.userId);
   }
 
   @Get('transactions')
   getTransactions(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Query() query: PortalTransactionsQueryDto,
   ) {
     return this.portalService.getTransactions(user.userId, query);
@@ -49,7 +50,7 @@ export class CustomerPortalController {
 
   @Get('deliveries')
   getDeliveries(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Query() query: PortalDeliveriesQueryDto,
   ) {
     return this.portalService.getDeliveries(user.userId, query);
@@ -58,7 +59,7 @@ export class CustomerPortalController {
   /** GET /portal/statement?month=2026-01 — customer statement PDF */
   @Get('statement')
   async getStatement(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Query() query: StatementQueryDto,
     @Res() res: Response,
   ) {
@@ -74,17 +75,17 @@ export class CustomerPortalController {
 
   /** GET /portal/schedule?from=2026-02-01&to=2026-02-28 — delivery calendar */
   @Get('schedule')
-  getSchedule(@CurrentUser() user: any, @Query() query: ScheduleQueryDto) {
+  getSchedule(@CurrentUser() user: AuthUser, @Query() query: ScheduleQueryDto) {
     return this.portalService.getSchedule(user.userId, query.from, query.to);
   }
 
   @Get('products')
-  getProducts(@CurrentUser() user: any) {
+  getProducts(@CurrentUser() user: AuthUser) {
     return this.portalService.getProducts(user.userId);
   }
 
   @Post('change-password')
-  changePassword(@CurrentUser() user: any, @Body() dto: ChangePasswordDto) {
+  changePassword(@CurrentUser() user: AuthUser, @Body() dto: ChangePasswordDto) {
     return this.portalService.changePassword(
       user.userId,
       dto.currentPassword,

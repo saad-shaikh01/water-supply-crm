@@ -1,4 +1,4 @@
-import {
+﻿import {
   Controller,
   Get,
   Post,
@@ -27,6 +27,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthUser } from '@water-supply-crm/types';
 
 @Controller('daily-sheets')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -41,7 +42,7 @@ export class DailySheetController {
   @Post('generate')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
   @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 3 } })
-  generate(@CurrentUser() user: any, @Body() dto: GenerateSheetsDto) {
+  generate(@CurrentUser() user: AuthUser, @Body() dto: GenerateSheetsDto) {
     return this.dailySheetService.generate(user.vendorId, dto);
   }
 
@@ -54,14 +55,14 @@ export class DailySheetController {
   @Get('driver/:driverId/stats')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
   getDriverStats(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('driverId') driverId: string,
     @Query('month') month?: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
   ) {
     // DRIVER can only query their own stats
-    const resolvedDriverId = user.role === UserRole.DRIVER ? user.id : driverId;
+    const resolvedDriverId = user.role === UserRole.DRIVER ? user.userId : driverId;
     return this.dailySheetService.getDriverStats(user.vendorId, resolvedDriverId, {
       month,
       dateFrom,
@@ -72,7 +73,7 @@ export class DailySheetController {
   @Get('driver/:driverId')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
   getSheetsByDriver(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('driverId') driverId: string,
     @Query('date') date?: string,
   ) {
@@ -87,7 +88,7 @@ export class DailySheetController {
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
   @Throttle({ short: { ttl: 1000, limit: 10 }, medium: { ttl: 60000, limit: 60 } })
   submitDelivery(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: SubmitDeliveryDto,
   ) {
@@ -97,7 +98,7 @@ export class DailySheetController {
   // ── List + single ─────────────────────────────────────────────────────
 
   @Get()
-  findAll(@CurrentUser() user: any, @Query() query: DailySheetQueryDto) {
+  findAll(@CurrentUser() user: AuthUser, @Query() query: DailySheetQueryDto) {
     return this.dailySheetService.findAllPaginated(user.vendorId, query);
   }
 
@@ -108,12 +109,12 @@ export class DailySheetController {
    */
   @Get(':id/reconciliation-preview')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
-  getReconciliationPreview(@CurrentUser() user: any, @Param('id') id: string) {
+  getReconciliationPreview(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.dailySheetService.getReconciliationPreview(user.vendorId, id);
   }
 
   @Get(':id')
-  findOne(@CurrentUser() user: any, @Param('id') id: string) {
+  findOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.dailySheetService.findOne(user.vendorId, id);
   }
 
@@ -121,7 +122,7 @@ export class DailySheetController {
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   insertItemFromOrder(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: InsertOrderItemDto,
   ) {
@@ -134,7 +135,7 @@ export class DailySheetController {
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   loadOut(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: LoadOutDto,
   ) {
@@ -145,7 +146,7 @@ export class DailySheetController {
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   checkIn(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: CheckInDto,
   ) {
@@ -155,7 +156,7 @@ export class DailySheetController {
   @Post(':id/close')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
   @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 3 } })
-  closeSheet(@CurrentUser() user: any, @Param('id') id: string) {
+  closeSheet(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.dailySheetService.closeSheet(user.vendorId, id);
   }
 
@@ -163,7 +164,7 @@ export class DailySheetController {
   @Roles(UserRole.VENDOR_ADMIN)
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   swapAssignment(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: SwapDriverDto,
   ) {
@@ -176,7 +177,7 @@ export class DailySheetController {
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 20 } })
   createLoad(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: CreateLoadDto,
   ) {
@@ -187,7 +188,7 @@ export class DailySheetController {
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   checkinLoad(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Param('loadId') loadId: string,
     @Body() dto: CheckinLoadDto,
@@ -197,7 +198,7 @@ export class DailySheetController {
 
   @Get(':id/loads')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
-  getLoads(@CurrentUser() user: any, @Param('id') id: string) {
+  getLoads(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.dailySheetService.getLoads(user.vendorId, id);
   }
 
@@ -209,7 +210,7 @@ export class DailySheetController {
   @Get(':id/invoice')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
   async exportInvoice(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Res() res: Response,
   ) {
@@ -235,7 +236,7 @@ export class DailySheetController {
   @Get(':id/export')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
   async exportPdf(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Res() res: Response,
   ) {

@@ -4,7 +4,7 @@ import {
   CacheInvalidationService,
   CACHE_KEYS,
 } from '@water-supply-crm/caching';
-import { TransactionType } from '@prisma/client';
+import { Prisma, TransactionType } from '@prisma/client';
 import { RecordPaymentDto } from './dto/record-payment.dto';
 import { RecordAdjustmentDto } from './dto/record-adjustment.dto';
 import { TransactionQueryDto } from './dto/transaction-query.dto';
@@ -37,81 +37,12 @@ export class LedgerService {
 
       // ── Idempotent re-post: if this item already has ledger entries, apply delta only ──
       if (data.dailySheetItemId) {
-        const existingDelivery = await tx.transaction.findFirst({
-          where: { dailySheetItemId: data.dailySheetItemId, type: TransactionType.DELIVERY },
-        });
-
-        if (existingDelivery) {
-          const existingPayment = await tx.transaction.findFirst({
-            where: { dailySheetItemId: data.dailySheetItemId, type: TransactionType.PAYMENT },
-          });
-
-          // Reconstruct what was previously applied to balances from the stored row values
-          const oldBottleChange = existingDelivery.bottleCount ?? 0;
-          // existingDelivery.amount = positive charge; existingPayment.amount = negative cash
-          const oldFinancialEffect =
-            (existingDelivery.amount ?? 0) + (existingPayment?.amount ?? 0);
-
-          const deltaBottle = newBottleChange - oldBottleChange;
-          const deltaFinancial = newFinancialEffect - oldFinancialEffect;
-
-          if (deltaBottle !== 0) {
-            await tx.bottleWallet.update({
-              where: {
-                customerId_productId: {
-                  customerId: data.customerId,
-                  productId: data.productId,
-                },
-              },
-              data: { balance: { increment: deltaBottle } },
-            });
-          }
-
-          if (deltaFinancial !== 0) {
-            await tx.customer.update({
-              where: { id: data.customerId },
-              data: { financialBalance: { increment: deltaFinancial } },
-            });
-          }
-
-          // Replace old transactions with updated values
-          await tx.transaction.deleteMany({
-            where: { dailySheetItemId: data.dailySheetItemId },
-          });
-
-          await tx.transaction.create({
-            data: {
-              type: TransactionType.DELIVERY,
-              vendorId: data.vendorId,
-              customerId: data.customerId,
-              productId: data.productId,
-              dailySheetId: data.dailySheetId,
-              dailySheetItemId: data.dailySheetItemId,
-              filledDropped: data.filledDropped,
-              emptyReceived: data.emptyReceived,
-              bottleCount: newBottleChange,
-              amount: totalAmount,
-              description: `Delivered ${data.filledDropped}, Received ${data.emptyReceived}`,
-            },
-          });
-
-          if (data.cashCollected > 0) {
-            await tx.transaction.create({
-              data: {
-                type: TransactionType.PAYMENT,
-                vendorId: data.vendorId,
-                customerId: data.customerId,
-                dailySheetId: data.dailySheetId,
-                dailySheetItemId: data.dailySheetItemId,
-                amount: -data.cashCollected,
-                description: `Cash collected during delivery`,
-              },
-            });
-          }
-
-          await this.cache.invalidateCustomerWallets(data.vendorId, data.customerId);
-          return { success: true };
-        }
+        const reposted = await this.applyIdempotentRepost(
+          tx,
+          { ...data, dailySheetItemId: data.dailySheetItemId },
+          { totalAmount, newBottleChange, newFinancialEffect },
+        );
+        if (reposted) return { success: true };
       }
 
       // ── First-time posting ──
@@ -163,6 +94,89 @@ export class LedgerService {
       await this.cache.invalidateCustomerWallets(data.vendorId, data.customerId);
       return { success: true };
     });
+  }
+
+  private async applyIdempotentRepost(
+    tx: Prisma.TransactionClient,
+    data: {
+      vendorId: string;
+      customerId: string;
+      productId: string;
+      dailySheetId: string;
+      dailySheetItemId: string;
+      filledDropped: number;
+      emptyReceived: number;
+      cashCollected: number;
+    },
+    computed: { totalAmount: number; newBottleChange: number; newFinancialEffect: number },
+  ): Promise<boolean> {
+    const existingDelivery = await tx.transaction.findFirst({
+      where: { dailySheetItemId: data.dailySheetItemId, type: TransactionType.DELIVERY },
+    });
+    if (!existingDelivery) return false;
+
+    const existingPayment = await tx.transaction.findFirst({
+      where: { dailySheetItemId: data.dailySheetItemId, type: TransactionType.PAYMENT },
+    });
+
+    // Reconstruct what was previously applied to balances from the stored row values
+    const oldBottleChange = existingDelivery.bottleCount ?? 0;
+    // existingDelivery.amount = positive charge; existingPayment.amount = negative cash
+    const oldFinancialEffect =
+      (existingDelivery.amount ?? 0) + (existingPayment?.amount ?? 0);
+
+    const deltaBottle = computed.newBottleChange - oldBottleChange;
+    const deltaFinancial = computed.newFinancialEffect - oldFinancialEffect;
+
+    if (deltaBottle !== 0) {
+      await tx.bottleWallet.update({
+        where: { customerId_productId: { customerId: data.customerId, productId: data.productId } },
+        data: { balance: { increment: deltaBottle } },
+      });
+    }
+
+    if (deltaFinancial !== 0) {
+      await tx.customer.update({
+        where: { id: data.customerId },
+        data: { financialBalance: { increment: deltaFinancial } },
+      });
+    }
+
+    // Replace old transactions with updated values
+    await tx.transaction.deleteMany({ where: { dailySheetItemId: data.dailySheetItemId } });
+
+    await tx.transaction.create({
+      data: {
+        type: TransactionType.DELIVERY,
+        vendorId: data.vendorId,
+        customerId: data.customerId,
+        productId: data.productId,
+        dailySheetId: data.dailySheetId,
+        dailySheetItemId: data.dailySheetItemId,
+        filledDropped: data.filledDropped,
+        emptyReceived: data.emptyReceived,
+        bottleCount: computed.newBottleChange,
+        amount: computed.totalAmount,
+        description: `Delivered ${data.filledDropped}, Received ${data.emptyReceived}`,
+      },
+    });
+
+    if (data.cashCollected > 0) {
+      await tx.transaction.create({
+        data: {
+          type: TransactionType.PAYMENT,
+          vendorId: data.vendorId,
+          customerId: data.customerId,
+          dailySheetId: data.dailySheetId,
+          dailySheetItemId: data.dailySheetItemId,
+          amount: -data.cashCollected,
+          description: `Cash collected during delivery`,
+        },
+      });
+    }
+
+    await this.cache.invalidateCustomerWallets(data.vendorId, data.customerId);
+    return true;
   }
 
   async recordPayment(vendorId: string, dto: RecordPaymentDto) {

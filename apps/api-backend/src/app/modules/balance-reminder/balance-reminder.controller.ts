@@ -1,4 +1,4 @@
-import {
+﻿import {
   Controller,
   Get,
   Post,
@@ -14,6 +14,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthUser } from '@water-supply-crm/types';
 
 @Controller('balance-reminders')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -30,7 +31,7 @@ export class BalanceReminderController {
   @Post('schedule')
   @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 3 } })
   scheduleReminders(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Body() dto: ScheduleReminderDto,
   ) {
     return this.reminderService.scheduleReminders(user.vendorId, dto);
@@ -41,7 +42,7 @@ export class BalanceReminderController {
    * Check if reminders are scheduled and when the next run is.
    */
   @Get('schedule')
-  getSchedule(@CurrentUser() user: any) {
+  getSchedule(@CurrentUser() user: AuthUser) {
     return this.reminderService.getScheduleStatus(user.vendorId);
   }
 
@@ -51,7 +52,7 @@ export class BalanceReminderController {
    */
   @Delete('schedule')
   @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 3 } })
-  cancelReminders(@CurrentUser() user: any) {
+  cancelReminders(@CurrentUser() user: AuthUser) {
     return this.reminderService.cancelReminders(user.vendorId);
   }
 
@@ -63,7 +64,7 @@ export class BalanceReminderController {
    */
   @Post('send-now')
   @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 3 } })
-  sendNow(@CurrentUser() user: any, @Body() dto: SendNowDto) {
+  sendNow(@CurrentUser() user: AuthUser, @Body() dto: SendNowDto) {
     return this.reminderService.sendNow(user.vendorId, dto);
   }
 
@@ -77,7 +78,7 @@ export class BalanceReminderController {
    */
   @Post('send-targeted')
   @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 5 } })
-  sendTargeted(@CurrentUser() user: any, @Body() dto: SendTargetedDto) {
+  sendTargeted(@CurrentUser() user: AuthUser, @Body() dto: SendTargetedDto) {
     return this.reminderService.sendTargeted(user.vendorId, dto);
   }
 
@@ -89,7 +90,7 @@ export class BalanceReminderController {
    */
   @Post('preview')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 20 } })
-  previewReminders(@CurrentUser() user: any, @Body() dto: PreviewDto) {
+  previewReminders(@CurrentUser() user: AuthUser, @Body() dto: PreviewDto) {
     return this.reminderService.previewReminders(user.vendorId, dto);
   }
 }

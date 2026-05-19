@@ -1,4 +1,4 @@
-import {
+﻿import {
   Controller,
   Get,
   Post,
@@ -19,6 +19,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthUser } from '@water-supply-crm/types';
 
 @Controller('vans')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -28,17 +29,17 @@ export class VanController {
   @Post()
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
-  create(@CurrentUser() user: any, @Body() dto: CreateVanDto) {
+  create(@CurrentUser() user: AuthUser, @Body() dto: CreateVanDto) {
     return this.vanService.create(user.vendorId, dto);
   }
 
   @Get()
-  findAll(@CurrentUser() user: any, @Query() query: PaginationQueryDto) {
+  findAll(@CurrentUser() user: AuthUser, @Query() query: PaginationQueryDto) {
     return this.vanService.findAllPaginated(user.vendorId, query);
   }
 
   @Get(':id')
-  findOne(@CurrentUser() user: any, @Param('id') id: string) {
+  findOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.vanService.findOne(user.vendorId, id);
   }
 
@@ -46,7 +47,7 @@ export class VanController {
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   update(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: UpdateVanDto,
   ) {
@@ -56,21 +57,21 @@ export class VanController {
   @Patch(':id/deactivate')
   @Roles(UserRole.VENDOR_ADMIN)
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
-  deactivate(@CurrentUser() user: any, @Param('id') id: string) {
+  deactivate(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.vanService.deactivate(user.vendorId, id);
   }
 
   @Patch(':id/reactivate')
   @Roles(UserRole.VENDOR_ADMIN)
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
-  reactivate(@CurrentUser() user: any, @Param('id') id: string) {
+  reactivate(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.vanService.reactivate(user.vendorId, id);
   }
 
   @Delete(':id')
   @Roles(UserRole.VENDOR_ADMIN)
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
-  remove(@CurrentUser() user: any, @Param('id') id: string) {
+  remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.vanService.remove(user.vendorId, id);
   }
 }

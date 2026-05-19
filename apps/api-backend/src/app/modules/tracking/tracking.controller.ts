@@ -1,4 +1,4 @@
-import {
+﻿import {
   Body,
   Controller,
   Get,
@@ -15,6 +15,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthUser } from '@water-supply-crm/types';
 import { TrackingService } from './tracking.service';
 import { UpdateLocationDto } from './dto/update-location.dto';
 
@@ -30,7 +31,7 @@ export class TrackingController {
   @Post('location')
   @Roles(UserRole.DRIVER, UserRole.STAFF, UserRole.VENDOR_ADMIN)
   async updateLocation(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Body() dto: UpdateLocationDto,
   ) {
     await this.trackingService.updateLocation(
@@ -48,7 +49,7 @@ export class TrackingController {
    */
   @Get('active')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.SUPER_ADMIN)
-  async getActiveDrivers(@CurrentUser() user: any) {
+  async getActiveDrivers(@CurrentUser() user: AuthUser) {
     return this.trackingService.getActiveDrivers(user.vendorId);
   }
 
@@ -59,7 +60,7 @@ export class TrackingController {
   @Get('driver/:driverId')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.SUPER_ADMIN)
   async getDriverLocation(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('driverId') driverId: string,
   ) {
     const loc = await this.trackingService.getDriverLocationResilient(driverId, user.vendorId);
@@ -82,7 +83,7 @@ export class TrackingController {
    */
   @Get('subscribe')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.SUPER_ADMIN)
-  subscribe(@CurrentUser() user: any, @Res() res: Response, @Req() req: Request) {
+  subscribe(@CurrentUser() user: AuthUser, @Res() res: Response, @Req() req: Request) {
     // SSE headers — flushed only after JwtAuthGuard succeeds
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache, no-transform');

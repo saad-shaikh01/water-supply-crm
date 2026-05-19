@@ -1,4 +1,4 @@
-import {
+﻿import {
   Controller,
   Get,
   Post,
@@ -23,6 +23,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthUser } from '@water-supply-crm/types';
 import { StorageService } from '../../common/storage/storage.service';
 
 const ALLOWED_ATTACHMENT_EXTS = [
@@ -42,12 +43,12 @@ export class TicketPortalController {
   // ── Static routes must be declared before parameterised /:id routes ──────
 
   @Post()
-  create(@CurrentUser() user: any, @Body() dto: CreateTicketDto) {
+  create(@CurrentUser() user: AuthUser, @Body() dto: CreateTicketDto) {
     return this.ticketService.createTicket(user.userId, dto);
   }
 
   @Get()
-  findAll(@CurrentUser() user: any, @Query() query: TicketQueryDto) {
+  findAll(@CurrentUser() user: AuthUser, @Query() query: TicketQueryDto) {
     return this.ticketService.getCustomerTickets(user.userId, query);
   }
 
@@ -98,19 +99,19 @@ export class TicketPortalController {
   // ── Parameterised /:id routes ─────────────────────────────────────────────
 
   @Get(':id')
-  findOne(@CurrentUser() user: any, @Param('id') id: string) {
+  findOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.ticketService.getCustomerTicketById(user.userId, id);
   }
 
   @Get(':id/messages')
-  getMessages(@CurrentUser() user: any, @Param('id') id: string) {
+  getMessages(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.ticketService.getTicketMessages(user.userId, id);
   }
 
   @Post(':id/messages')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 30 } })
   createMessage(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: CreateTicketMessageDto,
   ) {

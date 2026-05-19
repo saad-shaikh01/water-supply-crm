@@ -1,4 +1,4 @@
-import {
+﻿import {
   Controller,
   Get,
   Post,
@@ -19,6 +19,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthUser } from '@water-supply-crm/types';
 
 @Controller('expenses')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -28,26 +29,26 @@ export class ExpenseController {
   @Post()
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
-  create(@CurrentUser() user: any, @Body() dto: CreateExpenseDto) {
+  create(@CurrentUser() user: AuthUser, @Body() dto: CreateExpenseDto) {
     return this.expenseService.create(user.vendorId, user.userId, dto);
   }
 
   @Get()
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
-  findAll(@CurrentUser() user: any, @Query() query: ExpenseQueryDto) {
+  findAll(@CurrentUser() user: AuthUser, @Query() query: ExpenseQueryDto) {
     return this.expenseService.findAll(user.vendorId, query);
   }
 
   // Must be before /:id to avoid route conflict
   @Get('summary')
   @Roles(UserRole.VENDOR_ADMIN)
-  getSummary(@CurrentUser() user: any, @Query() query: ExpenseQueryDto) {
+  getSummary(@CurrentUser() user: AuthUser, @Query() query: ExpenseQueryDto) {
     return this.expenseService.getSummary(user.vendorId, query.from, query.to);
   }
 
   @Get(':id')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
-  findOne(@CurrentUser() user: any, @Param('id') id: string) {
+  findOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.expenseService.findOne(user.vendorId, id);
   }
 
@@ -55,7 +56,7 @@ export class ExpenseController {
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
   update(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: UpdateExpenseDto,
   ) {
@@ -65,7 +66,7 @@ export class ExpenseController {
   @Delete(':id')
   @Roles(UserRole.VENDOR_ADMIN)
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
-  remove(@CurrentUser() user: any, @Param('id') id: string) {
+  remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.expenseService.remove(user.vendorId, id);
   }
 }

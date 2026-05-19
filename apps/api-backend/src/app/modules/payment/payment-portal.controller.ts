@@ -1,4 +1,4 @@
-import {
+﻿import {
   Controller,
   Get,
   Post,
@@ -22,6 +22,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthUser } from '@water-supply-crm/types';
 import { StorageService } from '../../common/storage/storage.service';
 
 @Controller('portal/payments')
@@ -41,7 +42,7 @@ export class PaymentPortalController {
   @Post('raast')
   @Throttle({ short: { ttl: 1000, limit: 2 }, medium: { ttl: 60000, limit: 5 } })
   initiateRaast(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Body() dto: InitiatePaymentDto,
   ) {
     return this.paymentService.initiateRaastQr(user.customerId, dto);
@@ -71,7 +72,7 @@ export class PaymentPortalController {
     }),
   )
   async submitManual(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Body() dto: SubmitManualPaymentDto,
     @UploadedFile() file?: Express.Multer.File,
   ) {
@@ -97,7 +98,7 @@ export class PaymentPortalController {
    * Check status of a specific payment request.
    */
   @Get(':id')
-  getStatus(@CurrentUser() user: any, @Param('id') id: string) {
+  getStatus(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.paymentService.getPaymentStatus(user.customerId, id);
   }
 
@@ -107,7 +108,7 @@ export class PaymentPortalController {
    */
   @Get()
   getHistory(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Query() pagination: PaginationQueryDto,
   ) {
     return this.paymentService.getCustomerPaymentHistory(

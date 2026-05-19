@@ -6,6 +6,15 @@ import {
 } from '@water-supply-crm/caching';
 import { TransactionType, PaymentType } from '@prisma/client';
 
+function groupSum<T>(items: T[], keyFn: (i: T) => string, valueFn: (i: T) => number): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const item of items) {
+    const key = keyFn(item);
+    map.set(key, (map.get(key) ?? 0) + valueFn(item));
+  }
+  return map;
+}
+
 function buildDateFilter(from?: string, to?: string) {
   if (!from && !to) return undefined;
   const filter: any = {};
@@ -80,22 +89,13 @@ export class AnalyticsService {
     const totalRevenue = transactions.reduce((s, t) => s + (t.amount ?? 0), 0);
 
     // Revenue by day
-    const revenueByDayMap = new Map<string, number>();
-    for (const t of transactions) {
-      const day = t.createdAt.toISOString().slice(0, 10);
-      revenueByDayMap.set(day, (revenueByDayMap.get(day) ?? 0) + (t.amount ?? 0));
-    }
+    const revenueByDayMap = groupSum(transactions, (t) => t.createdAt.toISOString().slice(0, 10), (t) => t.amount ?? 0);
     const revenueByDay = Array.from(revenueByDayMap.entries()).map(([date, amount]) => ({ date, amount }));
 
     // Expenses totals and by category
     const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
-    const byCatMap = new Map<string, number>();
-    const expByDayMap = new Map<string, number>();
-    for (const e of expenses) {
-      byCatMap.set(e.category, (byCatMap.get(e.category) ?? 0) + e.amount);
-      const day = e.date.toISOString().slice(0, 10);
-      expByDayMap.set(day, (expByDayMap.get(day) ?? 0) + e.amount);
-    }
+    const byCatMap = groupSum(expenses, (e) => e.category, (e) => e.amount);
+    const expByDayMap = groupSum(expenses, (e) => e.date.toISOString().slice(0, 10), (e) => e.amount);
     const expensesByCategory = Array.from(byCatMap.entries()).map(([category, amount]) => ({ category, amount }));
     const expensesByDay = Array.from(expByDayMap.entries()).map(([date, amount]) => ({ date, amount }));
 
@@ -253,13 +253,8 @@ export class AnalyticsService {
     }));
 
     // Missed reasons
-    const reasonMap = new Map<string, number>();
-    for (const item of items) {
-      if (missedStatuses.has(item.status)) {
-        const reason = item.reason ?? item.status;
-        reasonMap.set(reason, (reasonMap.get(reason) ?? 0) + 1);
-      }
-    }
+    const missedItems = items.filter((i) => missedStatuses.has(i.status));
+    const reasonMap = groupSum(missedItems, (i) => i.reason ?? i.status, () => 1);
     const missedReasons = Array.from(reasonMap.entries())
       .map(([reason, count]) => ({ reason, count }))
       .sort((a, b) => b.count - a.count);

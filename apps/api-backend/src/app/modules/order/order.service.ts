@@ -57,7 +57,7 @@ export class OrderService {
         `${customer.name} ordered ${order.product.name} × ${dto.quantity}.`,
         { type: NOTIFICATION_EVENTS.ORDER_SUBMITTED, orderId: order.id },
       )
-      .catch(() => null);
+      .catch((e: Error) => this.logger.warn(`FCM order-submitted failed for vendor ${customer.vendorId}: ${e.message}`));
 
     return order;
   }
@@ -139,7 +139,7 @@ export class OrderService {
         `${customer.name} cancelled their order (ID: ${orderId}).`,
         { type: NOTIFICATION_EVENTS.ORDER_CANCELLED, orderId },
       )
-      .catch(() => null);
+      .catch((e: Error) => this.logger.warn(`FCM order-cancelled failed for vendor ${customer.vendorId}: ${e.message}`));
 
     return updated;
   }
@@ -233,7 +233,7 @@ export class OrderService {
           { type: 'ORDER_APPROVED', orderId },
           fcmKey,
         )
-        .catch(() => null);
+        .catch((e: Error) => this.logger.warn(`FCM order-approved failed for user ${order.customer.userId}: ${e.message}`));
     }
 
     return updated;
@@ -282,7 +282,7 @@ export class OrderService {
           { type: 'ORDER_REJECTED', orderId },
           fcmKey,
         )
-        .catch(() => null);
+        .catch((e: Error) => this.logger.warn(`FCM order-rejected failed for user ${order.customer.userId}: ${e.message}`));
     }
 
     return updated;

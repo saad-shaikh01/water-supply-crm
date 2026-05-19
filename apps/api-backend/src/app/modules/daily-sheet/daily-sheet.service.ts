@@ -4,12 +4,13 @@ import {
   BadRequestException,
   ConflictException,
   UnprocessableEntityException,
+  Logger,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '@water-supply-crm/database';
 import { QUEUE_NAMES, JOB_NAMES, NOTIFICATION_EVENTS } from '@water-supply-crm/queue';
-import { DeliveryStatus, TransactionType } from '@prisma/client';
+import { DeliveryStatus, PaymentType, TransactionType } from '@prisma/client';
 import { GenerateSheetsDto } from './dto/generate-sheets.dto';
 import { SubmitDeliveryDto } from './dto/submit-delivery.dto';
 import { LoadOutDto } from './dto/load-out.dto';
@@ -27,6 +28,8 @@ import { paginate } from '../../common/helpers/paginate';
 
 @Injectable()
 export class DailySheetService {
+  private readonly logger = new Logger(DailySheetService.name);
+
   constructor(
     private prisma: PrismaService,
     private ledger: LedgerService,
@@ -136,7 +139,7 @@ export class DailySheetService {
           'Delivery Completed',
           `${dto.filledDropped} bottle(s) delivered. Empty received: ${dto.emptyReceived}.`,
           { type: 'DELIVERY', itemId },
-        ).catch(() => null);
+        ).catch((e: Error) => this.logger.warn(`FCM delivery-complete failed for item ${itemId}: ${e.message}`));
       }
 
       // Auto-create delivery issue for failed/rescheduled deliveries
@@ -145,7 +148,9 @@ export class DailySheetService {
         DeliveryStatus.RESCHEDULED,
       ];
       if (failureStatuses.includes(resolvedStatus)) {
-        this.deliveryIssue.createForItem(vendorId, itemId).catch(() => null);
+        this.deliveryIssue.createForItem(vendorId, itemId).catch((e: Error) =>
+          this.logger.warn(`Auto-issue creation failed for item ${itemId}: ${e.message}`),
+        );
       }
 
       // FCM: notify customer on any delivery failure (fire-and-forget)
@@ -164,7 +169,7 @@ export class DailySheetService {
             failureBody,
             { type: NOTIFICATION_EVENTS.DELIVERY_FAILED, itemId },
           )
-          .catch(() => null);
+          .catch((e: Error) => this.logger.warn(`FCM delivery-failed notification failed for item ${itemId}: ${e.message}`));
       }
 
       return updatedItem;
@@ -492,8 +497,8 @@ export class DailySheetService {
     const bottleDiscrepancy = sheet.filledOutCount - (sheet.filledInCount + totalDelivered);
 
     // Cash breakdown by payment type
-    const cashItems = activeItems.filter((i) => i.customer?.paymentType === 'CASH');
-    const monthlyItems = activeItems.filter((i) => i.customer?.paymentType === 'MONTHLY');
+    const cashItems = activeItems.filter((i) => i.customer?.paymentType === PaymentType.CASH);
+    const monthlyItems = activeItems.filter((i) => i.customer?.paymentType === PaymentType.MONTHLY);
 
     const cashBilled = cashItems.reduce(
       (s, i) => s + getPrice(i) * i.filledDropped, 0,

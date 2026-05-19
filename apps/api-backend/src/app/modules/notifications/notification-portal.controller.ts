@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Param, Query, UseGuards } from '@nestjs/common';
+﻿import { Controller, Get, Patch, Param, Query, UseGuards } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { InAppNotificationService } from './in-app-notification.service';
 import { NotificationFeedQueryDto } from './dto/notification-feed-query.dto';
@@ -6,6 +6,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthUser } from '@water-supply-crm/types';
 
 @Controller('portal/notifications')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -26,7 +27,7 @@ export class NotificationPortalController {
    */
   @Get()
   getNotifications(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Query() query: NotificationFeedQueryDto,
   ) {
     const { page = 1, limit = 20, isRead } = query;
@@ -38,7 +39,7 @@ export class NotificationPortalController {
    * Returns count of unread notifications (for bell badge).
    */
   @Get('unread-count')
-  getUnreadCount(@CurrentUser() user: any) {
+  getUnreadCount(@CurrentUser() user: AuthUser) {
     return this.notifService.getUnreadCount(user.userId).then((count) => ({ count }));
   }
 
@@ -47,7 +48,7 @@ export class NotificationPortalController {
    * Mark all notifications as read for the current user.
    */
   @Patch('read-all')
-  markAllRead(@CurrentUser() user: any) {
+  markAllRead(@CurrentUser() user: AuthUser) {
     return this.notifService.markAllRead(user.userId);
   }
 
@@ -56,7 +57,7 @@ export class NotificationPortalController {
    * Mark a single notification as read.
    */
   @Patch(':id/read')
-  markRead(@CurrentUser() user: any, @Param('id') id: string) {
+  markRead(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.notifService.markRead(user.userId, id);
   }
 }

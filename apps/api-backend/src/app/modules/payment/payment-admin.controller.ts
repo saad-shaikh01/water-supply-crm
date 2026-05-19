@@ -1,4 +1,4 @@
-import {
+﻿import {
   Controller,
   Get,
   Patch,
@@ -17,6 +17,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthUser } from '@water-supply-crm/types';
 import { StorageService } from '../../common/storage/storage.service';
 
 @Controller('payment-requests')
@@ -34,7 +35,7 @@ export class PaymentAdminController {
    * Query: status, customerId, page, limit
    */
   @Get()
-  findAll(@CurrentUser() user: any, @Query() query: PaymentQueryDto) {
+  findAll(@CurrentUser() user: AuthUser, @Query() query: PaymentQueryDto) {
     return this.paymentService.findAllByVendor(user.vendorId, query);
   }
 
@@ -43,7 +44,7 @@ export class PaymentAdminController {
    * Get detail of a single payment request.
    */
   @Get(':id')
-  findOne(@CurrentUser() user: any, @Param('id') id: string) {
+  findOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.paymentService.findOneByVendor(user.vendorId, id);
   }
 
@@ -53,7 +54,7 @@ export class PaymentAdminController {
    * Returns: { signedUrl }
    */
   @Get(':id/screenshot')
-  async getScreenshot(@CurrentUser() user: any, @Param('id') id: string) {
+  async getScreenshot(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     const request = await this.paymentService.findOneByVendor(user.vendorId, id);
     if (!request.screenshotPath) {
       throw new NotFoundException('No screenshot attached to this payment request');
@@ -71,7 +72,7 @@ export class PaymentAdminController {
   @Roles(UserRole.VENDOR_ADMIN)
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 20 } })
   approve(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() _dto: ApprovePaymentDto,
   ) {
@@ -87,7 +88,7 @@ export class PaymentAdminController {
   @Roles(UserRole.VENDOR_ADMIN)
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 20 } })
   reject(
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: RejectPaymentDto,
   ) {
