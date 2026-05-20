@@ -34,7 +34,7 @@ export const useVans = () => {
 
 export const useAllVans = () => {
   return useQuery({
-    queryKey: [...queryKeys.vans.all({}), 'all'],
+    queryKey: ['vans', 'all'],
     queryFn: (): Promise<PaginatedResponse<VanSummary>> => vansApi.getAll({ limit: 100 }).then((r) => r.data),
   });
 };

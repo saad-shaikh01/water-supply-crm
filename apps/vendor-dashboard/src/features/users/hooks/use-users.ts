@@ -7,7 +7,7 @@ import { queryKeys } from '../../../lib/query-keys';
 
 export const useAllDrivers = () => {
   return useQuery({
-    queryKey: [...queryKeys.users.all({}), 'drivers-all'],
+    queryKey: ['users', 'drivers-all'],
     queryFn: (): Promise<PaginatedResponse<DriverSummary>> =>
       usersApi.getAll({ limit: 100, role: 'DRIVER', isActive: true }).then((r) => r.data),
   });

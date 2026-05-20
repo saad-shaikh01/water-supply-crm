@@ -26,7 +26,7 @@ export function SheetGenerate({ open, onOpenChange }: SheetGenerateProps) {
   const [selectedVanIds, setSelectedVanIds] = useState<string[]>([]);
 
   const { mutate: generate, isPending: isSubmitting } = useGenerateSheet();
-  const { data: status, isLoading: isPolling } = useGenerationStatus(jobId || '');
+  const { data: status, isLoading: isPolling, isError: isPollingError } = useGenerationStatus(jobId || '');
   const { data: vansData } = useAllVans();
   const allVans = ((vansData as any)?.data ?? []) as Array<{ id: string; plateNumber: string; isActive: boolean }>;
   const activeVans = allVans.filter((v) => v.isActive !== false);
@@ -76,7 +76,7 @@ export function SheetGenerate({ open, onOpenChange }: SheetGenerateProps) {
 
   const isGenerating = jobId && (status?.status === 'active' || status?.status === 'waiting' || status?.status === 'delayed');
   const isCompleted = status?.status === 'completed';
-  const isFailed = status?.status === 'failed';
+  const isFailed = status?.status === 'failed' || isPollingError;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -215,7 +215,8 @@ export function SheetGenerate({ open, onOpenChange }: SheetGenerateProps) {
               </h3>
               <p className="text-sm text-muted-foreground max-w-[280px]">
                 {isCompleted ? `Successfully generated ${status.result?.sheetIds?.length || 0} delivery sheets.` :
-                 isFailed ? `Error: ${status.failedReason || 'Unknown error occurred.'}` :
+                 isPollingError ? 'Could not fetch job status. Please close and check the sheets list.' :
+                 isFailed ? `Error: ${status?.failedReason || 'Unknown error occurred.'}` :
                  `Current status: ${status?.status || 'Processing...'}. Please wait.`}
               </p>
             </div>

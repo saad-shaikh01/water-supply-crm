@@ -125,6 +125,7 @@ model Product {
   updatedAt   DateTime @updatedAt
 
   @@index([vendorId, isActive])
+  @@index([vendorId, name])
 }
 
 model Customer {
@@ -282,6 +283,7 @@ model DailySheet {
   @@index([vendorId, date])
   @@index([vendorId, routeId, date])
   @@index([driverId, date])
+  @@index([vanId, date])
 }
 
 model DailySheetLoad {
@@ -297,6 +299,7 @@ model DailySheetLoad {
   endedAt        DateTime?  // null = trip still in progress
 
   @@index([dailySheetId])
+  @@index([dailySheetId, tripNumber])
 }
 
 model DailySheetItem {
@@ -332,6 +335,7 @@ model DailySheetItem {
 
   @@index([dailySheetId, sequence])
   @@index([dailySheetId, customerId])
+  @@index([customerId, status])
 }
 
 model DeliveryIssue {
@@ -365,6 +369,7 @@ model DeliveryIssue {
 
   @@index([vendorId, status])
   @@index([vendorId, createdAt])
+  @@index([assignedVanId])
 }
 
 model Transaction {
@@ -398,6 +403,7 @@ model Transaction {
   @@index([customerId, createdAt])
   @@index([dailySheetId])
   @@index([dailySheetItemId])
+  @@index([vendorId, type, createdAt])
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -508,6 +514,7 @@ model CustomerOrder {
   @@index([vendorId, status])
   @@index([vendorId, dispatchStatus])
   @@index([customerId])
+  @@index([customerId, status])
 }
 
 model CustomerTicket {
@@ -600,6 +607,7 @@ model PaymentRequest {
   @@index([vendorId, status])
   @@index([customerId])
   @@index([gatewayOrderId])
+  @@index([vendorId, createdAt])
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

@@ -23,6 +23,7 @@ import { MessageTemplates } from '../whatsapp/templates/message.templates';
 import { AuditService } from '../audit/audit.service';
 import { FcmService } from '../fcm/fcm.service';
 import { NOTIFICATION_EVENTS } from '@water-supply-crm/queue';
+import { CacheInvalidationService } from '@water-supply-crm/caching';
 
 @Injectable()
 export class PaymentService {
@@ -35,6 +36,7 @@ export class PaymentService {
     private readonly notifications: NotificationService,
     private readonly audit: AuditService,
     private readonly fcm: FcmService,
+    private readonly cache: CacheInvalidationService,
   ) {}
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -60,7 +62,7 @@ export class PaymentService {
       throw new BadRequestException('Amount must be positive');
     }
 
-    // Create pending payment request first (get our ID)
+    // Create pending payment request first (get our ID to pass to the gateway)
     const request = await this.prisma.paymentRequest.create({
       data: {
         vendorId: customer.vendorId,
@@ -71,14 +73,20 @@ export class PaymentService {
       },
     });
 
-    // Call Paymob to create QR session
-    const qrResult = await this.gateway.createRaastQr({
-      orderId: request.id,
-      amountPkr: dto.amount,
-      customerName: customer.name,
-      customerPhone: customer.phoneNumber,
-      description: `Payment for ${customer.vendor.name} — ${customer.customerCode}`,
-    });
+    let qrResult: Awaited<ReturnType<typeof this.gateway.createRaastQr>>;
+    try {
+      qrResult = await this.gateway.createRaastQr({
+        orderId: request.id,
+        amountPkr: dto.amount,
+        customerName: customer.name,
+        customerPhone: customer.phoneNumber,
+        description: `Payment for ${customer.vendor.name} — ${customer.customerCode}`,
+      });
+    } catch (e) {
+      // Gateway call failed — clean up the orphaned request
+      await this.prisma.paymentRequest.delete({ where: { id: request.id } }).catch(() => null);
+      throw e;
+    }
 
     // Update request with gateway data
     const updated = await this.prisma.paymentRequest.update({
@@ -336,6 +344,12 @@ export class PaymentService {
       entityId: requestId,
       changes: { after: { amount: request.amount, customerId: request.customerId } },
     });
+
+    await Promise.all([
+      this.cache.invalidateOverview(vendorId),
+      this.cache.invalidateCustomerWallets(vendorId, request.customerId),
+      this.cache.invalidateAnalytics(vendorId),
+    ]);
 
     return {
       message: 'Payment approved and recorded in ledger',

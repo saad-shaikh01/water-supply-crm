@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import { paginate } from '../../common/helpers/paginate';
 import { CreateTicketDto } from './dto/create-ticket.dto';
@@ -7,6 +7,7 @@ import { TicketQueryDto } from './dto/ticket-query.dto';
 import { CreateTicketMessageDto } from './dto/create-ticket-message.dto';
 import { NotificationService } from '../notifications/notification.service';
 import { FcmService } from '../fcm/fcm.service';
+import { StorageService } from '../../common/storage/storage.service';
 import { NOTIFICATION_EVENTS } from '@water-supply-crm/queue';
 import { MessageTemplates } from '../whatsapp/templates/message.templates';
 
@@ -18,6 +19,7 @@ export class TicketService {
     private prisma: PrismaService,
     private notifications: NotificationService,
     private fcm: FcmService,
+    private storage: StorageService,
   ) {}
 
   private async getCustomer(userId: string) {
@@ -168,6 +170,21 @@ export class TicketService {
         attachments: (dto.attachments as any) ?? [],
       },
     });
+  }
+
+  async getSignedAttachmentUrl(userId: string, key: string): Promise<{ signedUrl: string }> {
+    if (!key) throw new BadRequestException('key is required');
+    const customer = await this.getCustomer(userId);
+    // Verify the key belongs to a message in one of this customer's tickets
+    const message = await this.prisma.ticketMessage.findFirst({
+      where: {
+        ticket: { customerId: customer.id },
+        attachments: { string_contains: key },
+      },
+    });
+    if (!message) throw new ForbiddenException('Access denied');
+    const signedUrl = await this.storage.getSignedUrl(key);
+    return { signedUrl };
   }
 
   async replyToTicket(vendorId: string, ticketId: string, userId: string, dto: ReplyTicketDto) {

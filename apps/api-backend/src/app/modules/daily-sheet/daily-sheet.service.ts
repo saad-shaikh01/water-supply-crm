@@ -25,6 +25,7 @@ import { FcmService } from '../fcm/fcm.service';
 import { DeliveryIssueService } from '../delivery-issue/delivery-issue.service';
 import { InsertOrderItemDto, SequenceMode } from './dto/insert-order-item.dto';
 import { paginate } from '../../common/helpers/paginate';
+import { CacheInvalidationService } from '@water-supply-crm/caching';
 
 @Injectable()
 export class DailySheetService {
@@ -36,6 +37,7 @@ export class DailySheetService {
     private audit: AuditService,
     private fcm: FcmService,
     private deliveryIssue: DeliveryIssueService,
+    private cache: CacheInvalidationService,
     @InjectQueue(QUEUE_NAMES.DAILY_SHEET_GENERATION)
     private sheetQueue: Queue,
   ) {}
@@ -84,7 +86,7 @@ export class DailySheetService {
         ? DeliveryStatus.EMPTY_ONLY
         : dto.status;
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const updatedItem = await tx.dailySheetItem.update({
         where: { id: itemId },
         data: {
@@ -174,6 +176,15 @@ export class DailySheetService {
 
       return updatedItem;
     });
+
+    const sheetDate = item.dailySheet.date.toISOString().slice(0, 10);
+    await Promise.all([
+      this.cache.invalidateDailyDashboard(vendorId, sheetDate),
+      this.cache.invalidateOverview(vendorId),
+      this.cache.invalidateAnalytics(vendorId),
+    ]);
+
+    return result;
   }
 
   async findAllPaginated(vendorId: string, query: DailySheetQueryDto) {
@@ -377,7 +388,7 @@ export class DailySheetService {
     if (!load) throw new NotFoundException('Load trip not found');
     if (load.endedAt) throw new ConflictException('Trip already checked in');
 
-    return this.prisma.$transaction(async (tx) => {
+    const checkinResult = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.dailySheetLoad.update({
         where: { id: loadId },
         data: {
@@ -400,6 +411,11 @@ export class DailySheetService {
 
       return updated;
     });
+
+    const sheetDateCL = sheet.date.toISOString().slice(0, 10);
+    await this.cache.invalidateDailyDashboard(vendorId, sheetDateCL);
+
+    return checkinResult;
   }
 
   async getLoads(vendorId: string, sheetId: string) {
@@ -441,6 +457,9 @@ export class DailySheetService {
       },
     });
 
+    const sheetDateLO = sheet.date.toISOString().slice(0, 10);
+    await this.cache.invalidateDailyDashboard(vendorId, sheetDateLO);
+
     return updated;
   }
 
@@ -463,6 +482,9 @@ export class DailySheetService {
         cashCollected: dto.cashCollected,
       },
     });
+
+    const sheetDateCI = updated.date.toISOString().slice(0, 10);
+    await this.cache.invalidateDailyDashboard(vendorId, sheetDateCI);
 
     // Record CHECK_IN transaction
     await this.prisma.transaction.create({
@@ -612,6 +634,13 @@ export class DailySheetService {
       },
     });
 
+    const sheetDate = sheet.date.toISOString().slice(0, 10);
+    await Promise.all([
+      this.cache.invalidateDailyDashboard(vendorId, sheetDate),
+      this.cache.invalidateOverview(vendorId),
+      this.cache.invalidateAnalytics(vendorId),
+    ]);
+
     return {
       sheet: closed,
       reconciliation,
@@ -712,59 +741,79 @@ export class DailySheetService {
       endDate = params.dateTo ? new Date(params.dateTo) : new Date();
     }
 
-    const sheets = await this.prisma.dailySheet.findMany({
-      where: {
-        vendorId,
-        driverId,
-        isClosed: true,
-        date: { gte: startDate, lte: endDate },
-      },
-      include: {
-        van: { select: { plateNumber: true } },
-        route: { select: { name: true } },
-        items: {
-          select: {
-            status: true,
-            filledDropped: true,
-            emptyReceived: true,
-            cashCollected: true,
-            failureCategory: true,
-          },
+    const sheetWhere = {
+      vendorId,
+      driverId,
+      isClosed: true,
+      date: { gte: startDate, lte: endDate },
+    };
+    const completedStatuses: DeliveryStatus[] = [DeliveryStatus.COMPLETED, DeliveryStatus.EMPTY_ONLY];
+
+    const [itemStats, failureStats, cashAgg, deliveredPerSheet, sheets] = await Promise.all([
+      // aggregate totals by status
+      this.prisma.dailySheetItem.groupBy({
+        by: ['status'],
+        where: { dailySheet: sheetWhere },
+        _count: { id: true },
+        _sum: { filledDropped: true, emptyReceived: true },
+      }),
+      // failure breakdown
+      this.prisma.dailySheetItem.groupBy({
+        by: ['failureCategory'],
+        where: { dailySheet: sheetWhere, failureCategory: { not: null } },
+        _count: { id: true },
+      }),
+      // cash totals + sheet count
+      this.prisma.dailySheet.aggregate({
+        where: sheetWhere,
+        _sum: { cashExpected: true, cashCollected: true },
+        _count: { id: true },
+      }),
+      // delivered item count per sheet for the per-sheet list
+      this.prisma.dailySheetItem.groupBy({
+        by: ['dailySheetId'],
+        where: { dailySheet: sheetWhere, status: { in: completedStatuses } },
+        _count: { id: true },
+      }),
+      // sheet list (no items loaded)
+      this.prisma.dailySheet.findMany({
+        where: sheetWhere,
+        select: {
+          id: true,
+          date: true,
+          cashCollected: true,
+          cashExpected: true,
+          van: { select: { plateNumber: true } },
+          route: { select: { name: true } },
+          _count: { select: { items: true } },
         },
-      },
-      orderBy: { date: 'desc' },
-    });
+        orderBy: { date: 'desc' },
+      }),
+    ]);
 
-    let totalItems = 0;
-    let deliveredCount = 0;
-    let totalBottles = 0;
-    let totalEmpties = 0;
-    const failureBreakdown: Record<string, number> = {};
+    const deliveredMap = new Map(deliveredPerSheet.map((r) => [r.dailySheetId, r._count.id]));
 
-    for (const sheet of sheets) {
-      for (const item of sheet.items) {
-        totalItems++;
-        if (item.status === 'COMPLETED' || item.status === 'EMPTY_ONLY') {
-          deliveredCount++;
-          totalBottles += item.filledDropped;
-          totalEmpties += item.emptyReceived;
-        }
-        if (item.failureCategory) {
-          failureBreakdown[item.failureCategory] =
-            (failureBreakdown[item.failureCategory] ?? 0) + 1;
-        }
-      }
-    }
-
-    const cashExpected = sheets.reduce((s, sh) => s + sh.cashExpected, 0);
-    const cashCollected = sheets.reduce((s, sh) => s + sh.cashCollected, 0);
+    const totalItems = itemStats.reduce((s, r) => s + r._count.id, 0);
+    const deliveredCount = itemStats
+      .filter((r) => completedStatuses.includes(r.status as DeliveryStatus))
+      .reduce((s, r) => s + r._count.id, 0);
+    const totalBottles = itemStats
+      .filter((r) => completedStatuses.includes(r.status as DeliveryStatus))
+      .reduce((s, r) => s + (r._sum.filledDropped ?? 0), 0);
+    const totalEmpties = itemStats
+      .filter((r) => completedStatuses.includes(r.status as DeliveryStatus))
+      .reduce((s, r) => s + (r._sum.emptyReceived ?? 0), 0);
+    const failureBreakdown = Object.fromEntries(
+      failureStats.map((r) => [r.failureCategory!, r._count.id]),
+    );
+    const cashExpected = cashAgg._sum.cashExpected ?? 0;
+    const cashCollected = cashAgg._sum.cashCollected ?? 0;
 
     return {
-      totalSheets: sheets.length,
+      totalSheets: cashAgg._count.id,
       totalItems,
       deliveredCount,
-      successRate:
-        totalItems > 0 ? Math.round((deliveredCount / totalItems) * 100) : 0,
+      successRate: totalItems > 0 ? Math.round((deliveredCount / totalItems) * 100) : 0,
       totalBottlesDropped: totalBottles,
       totalEmptiesReceived: totalEmpties,
       cashExpected,
@@ -776,27 +825,31 @@ export class DailySheetService {
         date: s.date,
         van: s.van.plateNumber,
         route: s.route?.name ?? null,
-        totalItems: s.items.length,
-        deliveredItems: s.items.filter(
-          (i) => i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY',
-        ).length,
+        totalItems: s._count.items,
+        deliveredItems: deliveredMap.get(s.id) ?? 0,
         cashCollected: s.cashCollected,
         cashExpected: s.cashExpected,
       })),
     };
   }
 
-  // Legacy method kept for backwards-compatibility
-  async findAll(vendorId: string) {
-    return this.prisma.dailySheet.findMany({
-      where: { vendorId },
-      include: {
-        route: true,
-        van: true,
-        driver: true,
-        _count: { select: { items: true } },
-      },
-      orderBy: { date: 'desc' },
-    });
+  async findAll(vendorId: string, page = 1, limit = 20) {
+    const skip = (page - 1) * limit;
+    const [sheets, total] = await Promise.all([
+      this.prisma.dailySheet.findMany({
+        where: { vendorId },
+        include: {
+          route: true,
+          van: true,
+          driver: true,
+          _count: { select: { items: true } },
+        },
+        orderBy: { date: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.dailySheet.count({ where: { vendorId } }),
+    ]);
+    return { data: sheets, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 }

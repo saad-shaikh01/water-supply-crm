@@ -87,13 +87,12 @@ export class TicketPortalController {
   /**
    * GET /portal/tickets/attachment-url?key=ticket-attachments/uuid.ext
    * Generate a short-lived signed URL (15 min) for a ticket attachment.
+   * Verifies the key belongs to a message on this customer's ticket before signing.
    * Returns { signedUrl }.
    */
   @Get('attachment-url')
-  async getAttachmentUrl(@Query('key') key: string) {
-    if (!key) throw new BadRequestException('key query parameter is required');
-    const signedUrl = await this.storage.getSignedUrl(key);
-    return { signedUrl };
+  getAttachmentUrl(@CurrentUser() user: AuthUser, @Query('key') key: string) {
+    return this.ticketService.getSignedAttachmentUrl(user.userId, key);
   }
 
   // ── Parameterised /:id routes ─────────────────────────────────────────────

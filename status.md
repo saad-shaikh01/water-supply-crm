@@ -1,30 +1,6 @@
 Water Supply CRM — Complete Code Review Report
 Date: 2026-05-20 | Scope: API Backend + Vendor Dashboard | Agents Used: 3 specialized reviewers
 
-────────────────────────────────────────────────────────────────────
-CODE QUALITY FIXES — Implemented 2026-05-20 (from code_review.md)
-────────────────────────────────────────────────────────────────────
-✅ B1  — Prisma tx: any → Prisma.TransactionClient in customer.service.ts + ledger.service.ts
-✅ B2  — AuthUser interface defined in libs/shared/types; CurrentUser decorator typed; all 25 controllers updated (user: any → user: AuthUser)
-✅ B3  — PaymentType.CASH / PaymentType.MONTHLY enum used instead of string literals in buildReconciliation
-✅ B4  — FCM/WhatsApp .catch(() => null) → logger.warn() in order.service.ts (4 places) and daily-sheet.service.ts (3 places)
-✅ B5  — Idempotency logic extracted into private applyIdempotentRepost() in ledger.service.ts (70+ lines → 1 call)
-✅ B6  — groupSum<T>() helper extracted in analytics.service.ts; used for revenueByDay, byCat, expByDay, reasonMap
-✅ B7  — Prisma P2002 (unique constraint) caught in user.service.ts create() with ConflictException
-✅ B8  — Month param validation already handled by @Matches(/^\d{4}-\d{2}$/) in StatementQueryDto (no change needed)
-✅ F4  — useMemo added for items, loads, doneItems, stats, filteredItems, paginatedItems, totalPages in sheet-detail.tsx
-✅ F5  — useCustomerSchedule queryKey: params object → spread primitives (params.dateFrom, params.dateTo)
-✅ F6  — All useMutation hooks already had onError handlers (confirmed across all 18 hook files)
-✅ F7  — enabled: !!id && !!params?.dateFrom guard added to useCustomerSchedule
-✅ F8  — All mutation invalidations already using base ['customers'] key (confirmed, no change needed)
-✅ F9  — formatTime, formatPhone, FAILURE_CATEGORIES, CATEGORY_LABELS, formatCategory moved to module level in sheet-detail.tsx
-
-Remaining (large refactors — plan for future sprint):
-⬜ F2  — Split sheet-detail.tsx (1300 lines) into SheetHeader, DeliveryQueue, LoadTripsSection, dialogs
-⬜ F3  — Split customer-detail.tsx (763 lines), extract dialog components
-⬜ F14 — Replace 16 useState calls with useReducer in SheetDetail
-────────────────────────────────────────────────────────────────────
-
 Executive Summary
 Category	Critical	High	Medium	Low
 Backend Security & Logic	2	3	4	4
@@ -258,28 +234,28 @@ F15	Bulk WhatsApp Broadcast	whatsapp.sendBulk() exists internally but no API/UI 
 F16	Bulk Customer Operations	No select-all / bulk deactivate / bulk export on any list
 5. Priority Action Plan
 Week 1 — Fix Now (Critical / Security)
-[ ] [C1] Fix IDOR on ticket attachment URL — verify file ownership before signing
-[ ] [C2] Restrict CORS to allowed origins via env var
-[ ] [C3] Replace getDriverStats() loop with DB groupBy aggregation
-[ ] [C4] Add cache invalidation after submitDelivery, closeSheet, approvePayment
-[ ] [H2] Wrap Raast QR initiation in $transaction
-✅ [H4] Fix query key invalidation pattern — use base key array without params
+[C1] Fix IDOR on ticket attachment URL — verify file ownership before signing
+[C2] Restrict CORS to allowed origins via env var
+[C3] Replace getDriverStats() loop with DB groupBy aggregation
+[C4] Add cache invalidation after submitDelivery, closeSheet, approvePayment
+[H2] Wrap Raast QR initiation in $transaction
+[H4] Fix query key invalidation pattern — use base key array without params
 Week 2 — High Impact Fixes
-[ ] [H8] Run Prisma migration to add 8 missing indexes (5-min schema change, big perf win)
-[ ] [H1] Enforce NotificationPreference before queuing any notification
-[ ] [F1] Implement SMS provider (Twilio) — unblocks full notification stack
-[ ] [H6] Add error/failure state to sheet generation polling UI
-[ ] [H9] Paginate findAll() in daily sheets service
+[H8] Run Prisma migration to add 8 missing indexes (5-min schema change, big perf win)
+[H1] Enforce NotificationPreference before queuing any notification
+[F1] Implement SMS provider (Twilio) — unblocks full notification stack
+[H6] Add error/failure state to sheet generation polling UI
+[H9] Paginate findAll() in daily sheets service
 Week 3 — UX Improvements
-[ ] [M7] Add confirmation dialog before saving delivery status
-[ ] [F2] Auto-dispatch job: assign approved orders to next scheduled van
-[ ] [M4 / F5] Implement reminder cooldown using Redis TTL per customer
-✅ [M11] Fix useCustomerSchedule query key (spread params, not object reference)
-[ ] [F3] Vendor notification center (persistent in-app feed)
+[M7] Add confirmation dialog before saving delivery status
+[F2] Auto-dispatch job: assign approved orders to next scheduled van
+[M4 / F5] Implement reminder cooldown using Redis TTL per customer
+[M11] Fix useCustomerSchedule query key (spread params, not object reference)
+[F3] Vendor notification center (persistent in-app feed)
 Month 2 — Feature Completions
-[ ] [F4] Dispatch notifications to customers (order planned/dispatched)
-[ ] [F6] Payment request reminder job (auto-reminder after 3 days pending)
-[ ] [F8 / F9] Cron preset UI + notification preference settings panel
-[ ] [F11] Bulk approve + bulk plan orders UI
-[ ] [L1] Refactor SheetDetail (600+ lines) into sub-components
+[F4] Dispatch notifications to customers (order planned/dispatched)
+[F6] Payment request reminder job (auto-reminder after 3 days pending)
+[F8 / F9] Cron preset UI + notification preference settings panel
+[F11] Bulk approve + bulk plan orders UI
+[L1] Refactor SheetDetail (600+ lines) into sub-components
 Overall Assessment: Core architecture is solid — multi-tenancy, auth, queue system, and delivery tracking are well-structured. The main risk areas are cache invalidation gaps causing stale dashboards, missing database indexes causing slow queries at scale, the IDOR vulnerability on file access, and several incomplete automation flows (SMS, notification preferences, auto-dispatch) that are partially built but not wired end-to-end. With the Week 1 fixes in place, the system is production-safe. Week 2-3 fixes will handle scale and UX polish.

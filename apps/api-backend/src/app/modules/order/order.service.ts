@@ -8,6 +8,7 @@ import { OrderQueryDto } from './dto/order-query.dto';
 import { DispatchPlanDto } from './dto/dispatch-plan.dto';
 import { NotificationService } from '../notifications/notification.service';
 import { FcmService } from '../fcm/fcm.service';
+import { CacheInvalidationService } from '@water-supply-crm/caching';
 import { NOTIFICATION_EVENTS } from '@water-supply-crm/queue';
 import { MessageTemplates } from '../whatsapp/templates/message.templates';
 
@@ -19,6 +20,7 @@ export class OrderService {
     private prisma: PrismaService,
     private notifications: NotificationService,
     private fcm: FcmService,
+    private cache: CacheInvalidationService,
   ) {}
 
   private async getCustomer(userId: string) {
@@ -235,6 +237,8 @@ export class OrderService {
         )
         .catch((e: Error) => this.logger.warn(`FCM order-approved failed for user ${order.customer.userId}: ${e.message}`));
     }
+
+    await this.cache.invalidateOverview(vendorId);
 
     return updated;
   }

@@ -10,7 +10,11 @@ async function bootstrap() {
     bufferLogs: true,
   });
   app.useLogger(app.get(Logger));
-  app.enableCors();
+  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean);
+  app.enableCors({
+    origin: allowedOrigins?.length ? allowedOrigins : false,
+    credentials: true,
+  });
   // Serve uploaded payment screenshots as static files
   // Accessible at: GET /uploads/payment-screenshots/<filename>
   app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads' });
