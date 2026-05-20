@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useQueryState, parseAsInteger, parseAsString, parseAsFloat } from 'nuqs';
 import { toast } from 'sonner';
+import type { CustomerDetail, CustomerConsumption, CustomerScheduleItem, PaymentTypeValue } from '@water-supply-crm/types';
 import { customersApi } from '../api/customers.api';
 import { queryKeys } from '../../../lib/query-keys';
 
@@ -25,7 +26,9 @@ export const useCustomers = () => {
     routeId: routeId || undefined,
     vanId: vanId || undefined,
     dayOfWeek: dayOfWeek || undefined,
-    paymentType: (paymentType as 'MONTHLY' | 'CASH') || undefined,
+    paymentType: (['MONTHLY', 'CASH'] as const).includes(paymentType as PaymentTypeValue)
+      ? (paymentType as PaymentTypeValue)
+      : undefined,
     isActive: isActive === 'true' ? true : isActive === 'false' ? false : undefined,
     balanceMin: !isNaN(balanceMin) ? balanceMin : undefined,
     balanceMax: !isNaN(balanceMax) ? balanceMax : undefined,
@@ -66,7 +69,7 @@ export const useAllCustomers = () => {
 export const useCustomer = (id: string) => {
   return useQuery({
     queryKey: queryKeys.customers.one(id),
-    queryFn: () => customersApi.getOne(id).then((r) => r.data),
+    queryFn: (): Promise<CustomerDetail> => customersApi.getOne(id).then((r) => r.data),
     enabled: !!id,
   });
 };
@@ -161,14 +164,16 @@ export const useRemovePortalAccount = () => {
 export const useCustomerConsumption = (id: string, month?: string) =>
   useQuery({
     queryKey: ['customers', id, 'consumption', month],
-    queryFn: () => customersApi.getConsumption(id, month ? { month } : undefined).then((r) => r.data),
+    queryFn: (): Promise<CustomerConsumption> =>
+      customersApi.getConsumption(id, month ? { month } : undefined).then((r) => r.data),
     enabled: !!id,
   });
 
 export const useCustomerSchedule = (id: string, params?: { dateFrom?: string; dateTo?: string }) =>
   useQuery({
     queryKey: ['customers', id, 'schedule', params?.dateFrom, params?.dateTo],
-    queryFn: () => customersApi.getSchedule(id, params).then((r) => r.data),
+    queryFn: (): Promise<CustomerScheduleItem[]> =>
+      customersApi.getSchedule(id, params).then((r) => r.data),
     enabled: !!id && !!params?.dateFrom,
   });
 

@@ -1,39 +1,37 @@
 'use client';
 
 import { useState } from 'react';
-import { 
-  Tabs, TabsContent, TabsList, TabsTrigger, 
-  Card, CardContent, CardHeader, CardTitle, 
-  Skeleton, Button, Badge, Separator,
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-  Input, Label
+import {
+  Tabs, TabsContent, TabsList, TabsTrigger,
+  Card, CardContent, CardHeader, CardTitle,
+  Skeleton, Button, Badge,
 } from '@water-supply-crm/ui';
 import {
   useCustomer,
-  useCreatePortalAccount,
   useRemovePortalAccount,
   useCustomerConsumption,
-  useSetCustomPrice,
   useRemoveCustomPrice,
   useCustomerSchedule,
 } from '../hooks/use-customers';
 import { customersApi } from '../api/customers.api';
-import { useProducts } from '../../products/hooks/use-products';
-import { PageHeader } from '../../../components/shared/page-header';
 import { TransactionList } from '../../transactions/components/transaction-list';
 import { NuqsAdapter } from 'nuqs/adapters/next/app';
 import {
   MapPin, Phone, User, Calendar,
   Wallet, Tag, ArrowLeft, Pencil,
   CreditCard, Droplets, Clock, Info,
-  ShieldCheck, Lock, Mail, Trash2, Globe,
+  ShieldCheck, Trash2, Globe,
+  Lock as LockIcon,
   TrendingUp, FileText, ChevronLeft, ChevronRight,
   ExternalLink, Navigation, Building2, Landmark,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@water-supply-crm/ui';
+import type { CustomerDetail as CustomerDetailType, CustomerConsumption, CustomerScheduleItem } from '@water-supply-crm/types';
 import { CustomerForm } from './customer-form';
+import { PortalAccountDialog } from './dialogs/portal-account-dialog';
+import { CustomPriceDialog } from './dialogs/custom-price-dialog';
 
 interface CustomerDetailProps {
   customerId: string;
@@ -45,14 +43,11 @@ const DAY_LABELS: Record<number, string> = { 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'T
 export function CustomerDetail({ customerId }: CustomerDetailProps) {
   const router = useRouter();
   const { data, isLoading } = useCustomer(customerId);
-  const { mutate: createAccount, isPending: isCreatingAccount } = useCreatePortalAccount();
   const { mutate: removeAccount, isPending: isRemovingAccount } = useRemovePortalAccount();
 
   const [editOpen, setEditOpen] = useState(false);
   const [portalOpen, setPortalOpen] = useState(false);
-  const [portalData, setPortalData] = useState({ email: '', password: '' });
   const [customPriceOpen, setCustomPriceOpen] = useState(false);
-  const [customPriceForm, setCustomPriceForm] = useState({ productId: '', customPrice: '' });
   const [consumptionMonth, setConsumptionMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [scheduleRange, setScheduleRange] = useState<{ dateFrom: string; dateTo: string }>(() => {
     const now = new Date();
@@ -61,12 +56,9 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
     return { dateFrom: from, dateTo: to };
   });
 
-  const { mutate: setCustomPrice, isPending: isSavingPrice } = useSetCustomPrice();
   const { mutate: removeCustomPrice } = useRemoveCustomPrice();
   const { data: consumptionData, isLoading: isLoadingConsumption } = useCustomerConsumption(customerId, consumptionMonth);
   const { data: scheduleData, isLoading: isLoadingSchedule } = useCustomerSchedule(customerId, scheduleRange);
-  const { data: productsData } = useProducts();
-  const allProducts = (productsData as any)?.data ?? [];
 
   const handleStatementDownload = async () => {
     try {
@@ -102,18 +94,9 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
     );
   }
 
-  const customer = (data ?? {}) as Record<string, any>;
-  const balance = Number(customer.financialBalance ?? 0);
+  const customer = data as CustomerDetailType;
+  const balance = Number(customer?.financialBalance ?? 0);
   const isNegative = balance > 0; // Customer owes money
-
-  const handleCreateAccount = () => {
-    createAccount({ id: customerId, data: portalData }, {
-      onSuccess: () => {
-        setPortalOpen(false);
-        setPortalData({ email: '', password: '' });
-      }
-    });
-  };
 
   return (
     <div className="space-y-8 pb-10">
@@ -189,7 +172,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
           <CardContent>
             <div className="flex flex-col gap-1">
               {customer.deliverySchedules?.length > 0 ? (
-                customer.deliverySchedules.map((s: any) => (
+                customer.deliverySchedules.map((s) => (
                   <div key={s.id ?? s.dayOfWeek} className="flex items-center gap-1.5">
                     <Badge variant="secondary" className="text-[9px] font-black px-1.5 py-0 bg-primary/5 text-primary border-primary/20">
                       {DAY_LABELS[s.dayOfWeek] ?? DAYS[s.dayOfWeek]}
@@ -262,7 +245,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                 <CardContent className="p-0">
                   {customer.wallets?.length > 0 ? (
                     <div className="divide-y divide-border/50">
-                      {customer.wallets.map((w: any) => (
+                      {customer.wallets.map((w) => (
                         <div key={w.id} className="flex items-center justify-between p-4 hover:bg-accent/30 transition-colors">
                           <div className="flex flex-col">
                             <span className="text-sm font-bold">{w.product?.name}</span>
@@ -318,7 +301,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                     {[1, 2, 3, 4].map(i => <div key={i} className="h-24 bg-muted/30 rounded-2xl animate-pulse" />)}
                   </div>
                 ) : (() => {
-                  const c = consumptionData as any;
+                  const c = consumptionData as CustomerConsumption | undefined;
                   if (!c) return <p className="text-sm text-muted-foreground text-center py-10">No data</p>;
                   const { summary, byProduct } = c;
                   return (
@@ -345,7 +328,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                           <div className="grid grid-cols-5 px-4 py-2 bg-muted/20 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
                             <span>Product</span><span className="text-right">Deliveries</span><span className="text-right">Total Consumed</span><span className="text-right">Avg/Delivery</span><span className="text-right">Consumption Rate</span>
                           </div>
-                          {(byProduct ?? []).map((p: any) => (
+                          {(byProduct ?? []).map((p) => (
                             <div key={p.product?.id} className="grid grid-cols-5 px-4 py-3 hover:bg-accent/20 transition-colors items-center">
                               <span className="text-sm font-bold">{p.product?.name}</span>
                               <span className="text-sm font-mono text-right">{p.deliveryCount}</span>
@@ -391,7 +374,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                     {[1, 2, 3].map((i) => <div key={i} className="h-14 bg-muted/30 rounded-2xl animate-pulse" />)}
                   </div>
                 ) : (() => {
-                  const items = (scheduleData as any[]) ?? [];
+                  const items = (scheduleData as CustomerScheduleItem[]) ?? [];
                   if (items.length === 0) {
                     return <p className="text-sm text-muted-foreground text-center py-10">No scheduled deliveries in this date range.</p>;
                   }
@@ -408,10 +391,10 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                       <div className="grid grid-cols-4 px-4 py-2 bg-muted/20 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
                         <span>Date</span><span>Product</span><span className="text-right">Qty</span><span className="text-right">Status</span>
                       </div>
-                      {items.map((item: any) => (
+                      {items.map((item) => (
                         <div key={item.id} className="grid grid-cols-4 px-4 py-3 hover:bg-accent/20 transition-colors items-center">
                           <span className="text-xs font-semibold">
-                            {new Date(item.date ?? item.dailySheet?.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}
+                            {new Date(item.date ?? item.dailySheet?.date ?? '').toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}
                           </span>
                           <span className="text-xs font-semibold">{item.product?.name ?? '—'}</span>
                           <span className="text-xs font-mono text-right">{item.filledDropped ?? 0}</span>
@@ -435,14 +418,14 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                 <CardTitle className="text-base font-bold flex items-center gap-2">
                   <Tag className="h-4 w-4 text-primary" /> Custom Product Pricing
                 </CardTitle>
-                <Button variant="outline" size="sm" className="rounded-full h-8 px-4 text-xs font-bold" onClick={() => { setCustomPriceForm({ productId: '', customPrice: '' }); setCustomPriceOpen(true); }}>
+                <Button variant="outline" size="sm" className="rounded-full h-8 px-4 text-xs font-bold" onClick={() => setCustomPriceOpen(true)}>
                   Add Custom Rate
                 </Button>
               </CardHeader>
               <CardContent className="p-0">
                 {customer.customPrices?.length > 0 ? (
                   <div className="divide-y divide-border/50">
-                    {customer.customPrices.map((p: any) => (
+                    {customer.customPrices.map((p) => (
                       <div key={p.id} className="flex items-center justify-between p-4 hover:bg-accent/30 transition-colors">
                         <div className="flex flex-col">
                           <span className="text-sm font-bold">{p.product?.name}</span>
@@ -551,7 +534,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                     ) : (
                       <div className="flex flex-col items-center justify-center py-4 text-center space-y-4">
                         <div className="h-12 w-12 rounded-2xl bg-muted flex items-center justify-center">
-                          <Lock className="h-6 w-6 text-muted-foreground opacity-50" />
+                          <LockIcon className="h-6 w-6 text-muted-foreground opacity-50" />
                         </div>
                         <div className="space-y-1">
                           <h4 className="text-sm font-bold">No Portal Access</h4>
@@ -651,112 +634,22 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
         </div>
       </Tabs>
 
-      {/* Account Creation Dialog */}
-      <Dialog open={portalOpen} onOpenChange={setPortalOpen}>
-        <DialogContent className="rounded-3xl max-w-sm bg-background/95 backdrop-blur-xl border-border/50">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-black flex items-center gap-2">
-              <Globe className="h-6 w-6 text-primary" />
-              Portal Setup
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground">Login Email</Label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input 
-                  type="email" 
-                  placeholder="customer@email.com" 
-                  className="pl-9 h-11"
-                  value={portalData.email}
-                  onChange={e => setPortalData(p => ({ ...p, email: e.target.value }))}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground">Initial Password</Label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input 
-                  type="password" 
-                  placeholder="••••••••" 
-                  className="pl-9 h-11"
-                  value={portalData.password}
-                  onChange={e => setPortalData(p => ({ ...p, password: e.target.value }))}
-                />
-              </div>
-              <p className="text-[10px] text-muted-foreground font-medium">Minimum 8 characters recommended.</p>
-            </div>
-          </div>
-          <DialogFooter className="gap-3 sm:gap-0 border-t pt-6 mt-2">
-            <Button variant="ghost" onClick={() => setPortalOpen(false)} className="rounded-xl">Cancel</Button>
-            <Button 
-              onClick={handleCreateAccount} 
-              disabled={isCreatingAccount || !portalData.email || !portalData.password}
-              className="rounded-xl font-bold shadow-lg shadow-primary/20"
-            >
-              {isCreatingAccount ? 'Setting up...' : 'Enable Access'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <PortalAccountDialog
+        open={portalOpen}
+        onClose={() => setPortalOpen(false)}
+        customerId={customerId}
+      />
 
-      {/* Custom Price Dialog */}
-      <Dialog open={customPriceOpen} onOpenChange={setCustomPriceOpen}>
-        <DialogContent className="rounded-3xl max-w-sm bg-background/95 backdrop-blur-xl border-border/50">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-black flex items-center gap-2">
-              <Tag className="h-5 w-5 text-primary" /> Set Custom Price
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground">Product</Label>
-              <select
-                value={customPriceForm.productId}
-                onChange={e => setCustomPriceForm(p => ({ ...p, productId: e.target.value }))}
-                className="w-full h-11 rounded-xl border border-border/50 bg-background px-3 text-sm font-bold focus:outline-none focus:ring-1 focus:ring-primary/50"
-              >
-                <option value="">Select product...</option>
-                {allProducts.map((pr: any) => (
-                  <option key={pr.id} value={pr.id}>{pr.name} (Base: ₨{pr.basePrice})</option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground">Custom Price (₨)</Label>
-              <Input
-                type="number"
-                placeholder="0.00"
-                className="h-11 font-mono font-bold"
-                value={customPriceForm.customPrice}
-                onChange={e => setCustomPriceForm(p => ({ ...p, customPrice: e.target.value }))}
-              />
-            </div>
-          </div>
-          <DialogFooter className="gap-3 border-t pt-6 mt-2">
-            <Button variant="ghost" onClick={() => setCustomPriceOpen(false)} className="rounded-xl">Cancel</Button>
-            <Button
-              onClick={() => {
-                setCustomPrice(
-                  { customerId, data: { productId: customPriceForm.productId, price: Number(customPriceForm.customPrice) } },
-                  { onSuccess: () => setCustomPriceOpen(false) }
-                );
-              }}
-              disabled={isSavingPrice || !customPriceForm.productId || !customPriceForm.customPrice}
-              className="rounded-xl font-bold shadow-lg shadow-primary/20"
-            >
-              {isSavingPrice ? 'Saving...' : 'Save Price'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <CustomPriceDialog
+        open={customPriceOpen}
+        onClose={() => setCustomPriceOpen(false)}
+        customerId={customerId}
+      />
 
       <CustomerForm
         open={editOpen}
         onOpenChange={setEditOpen}
-        customer={customer}
+        customer={customer as unknown as Record<string, unknown>}
       />
     </div>
   );

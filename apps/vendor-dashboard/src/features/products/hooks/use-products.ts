@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useQueryState, parseAsInteger, parseAsString } from 'nuqs';
 import { toast } from 'sonner';
+import type { PaginatedResponse, ProductSummary } from '@water-supply-crm/types';
 import { productsApi } from '../api/products.api';
 import { queryKeys } from '../../../lib/query-keys';
 
@@ -22,7 +23,7 @@ export const useProducts = () => {
   return {
     ...useQuery({
       queryKey: queryKeys.products.all(params),
-      queryFn: () => productsApi.getAll(params).then((r) => r.data),
+      queryFn: (): Promise<PaginatedResponse<ProductSummary>> => productsApi.getAll(params).then((r) => r.data),
     }),
     page,
     setPage,

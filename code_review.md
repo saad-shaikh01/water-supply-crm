@@ -1,5 +1,6 @@
 Code Quality Review Report
 Scope: API Backend (NestJS) + Vendor Dashboard (Next.js/React)
+Last Updated: 2026-05-20 — Implementation session done
 
 Overall Verdict
 App	TypeScript Quality	React/NestJS Patterns	Error Handling	Code Organization	Score
@@ -7,7 +8,7 @@ API Backend	⚠️ Fair	✅ Good	⚠️ Fair	⚠️ Fair	6/10
 Vendor Dashboard	❌ Poor	⚠️ Fair	⚠️ Fair	❌ Poor	5/10
 BACKEND CODE QUALITY
 TypeScript — Problems
-B1 — any Types Spread Across Core Services
+✅ B1 — any Types Spread Across Core Services
 
 Ye sabse bada issue hai. Type safety naam ki koi cheez nahi kuch jagah:
 
@@ -26,7 +27,7 @@ Fix — Prisma transaction type:
 import { Prisma } from '@prisma/client';
 // tx ki proper type:
 tx: Prisma.TransactionClient
-B2 — @CurrentUser() Decorator Returns any Everywhere
+✅ B2 — @CurrentUser() Decorator Returns any Everywhere
 
 File: apps/api-backend/src/app/modules/customer/customer.controller.ts
 
@@ -44,7 +45,7 @@ export interface AuthUser {
   email: string;
 }
 // Phir har jagah: @CurrentUser() user: AuthUser
-B3 — Magic Strings — Prisma Enums Use Nahi Kar Rahe
+✅ B3 — Magic Strings — Prisma Enums Use Nahi Kar Rahe
 
 File: apps/api-backend/src/app/modules/daily-sheet/daily-sheet.service.ts
 
@@ -59,7 +60,7 @@ import { DeliveryStatus } from '@prisma/client';
 if (resolvedStatus !== DeliveryStatus.PENDING) { ... }
 const completedStatuses = new Set([DeliveryStatus.COMPLETED, DeliveryStatus.EMPTY_ONLY]);
 NestJS Patterns — Problems
-B4 — Fire-and-Forget FCM/WhatsApp — Errors Silently Swallowed
+✅ B4 — Fire-and-Forget FCM/WhatsApp — Errors Silently Swallowed
 
 Files: apps/api-backend/src/app/modules/order/order.service.ts, apps/api-backend/src/app/modules/daily-sheet/daily-sheet.service.ts
 
@@ -71,7 +72,7 @@ this.fcm.sendToCustomer(...).catch(() => null);
 this.fcm.sendToVendorUsers(...).catch((e) =>
   this.logger.warn(`FCM send failed for vendor ${vendorId}: ${e.message}`)
 );
-B5 — ledger.service.ts — Idempotency Method 70+ Lines, Should Be Extracted
+✅ B5 — ledger.service.ts — Idempotency Method 70+ Lines, Should Be Extracted
 
 File: apps/api-backend/src/app/modules/transaction/ledger.service.ts
 
@@ -85,7 +86,7 @@ if (data.dailySheetItemId) {
 
 // ✅ Extract karo:
 private async applyIdempotentRepost(tx, data): Promise<void> { ... }
-B6 — analytics.service.ts — Map Pattern Repeated 4 Times
+✅ B6 — analytics.service.ts — Map Pattern Repeated 4 Times
 
 File: apps/api-backend/src/app/modules/analytics/analytics.service.ts
 
@@ -103,7 +104,7 @@ function groupAndSum<T extends { id: string; name: string }>(
   items: any[], keyFn: (i) => T, valueFn: (i) => number
 ): Map<string, T & { total: number }> { ... }
 Error Handling — Problems
-B7 — Prisma Constraint Violations Not Caught
+✅ B7 — Prisma Constraint Violations Not Caught
 
 
 // ❌ Agar duplicate email se customer banao:
@@ -119,7 +120,7 @@ try {
   }
   throw e;
 }
-B8 — Month Format Validation Missing Before PDF Generation
+✅ B8 — Month Format Validation Missing Before PDF Generation (already handled via @Matches in StatementQueryDto — no change needed)
 
 File: apps/api-backend/src/app/modules/customer/customer.controller.ts
 
@@ -133,7 +134,7 @@ if (query.month && !MONTH_REGEX.test(query.month))
   throw new BadRequestException('Invalid month format. Use YYYY-MM');
 FRONTEND CODE QUALITY
 TypeScript — Critical Problems
-F1 — any Types on Every API Response — Type Safety Zero
+✅ F1 — any Types on Every API Response — Type Safety Zero
 
 File: apps/vendor-dashboard/src/features/customers/components/customer-detail.tsx
 
@@ -163,7 +164,7 @@ export interface SheetDetail {
   // ...
 }
 React — Critical Problems
-F2 — sheet-detail.tsx — God Component, 1300+ Lines, 16 State Variables
+✅ F2 — sheet-detail.tsx — God Component, 1300+ Lines, 16 State Variables
 
 File: apps/vendor-dashboard/src/features/daily-sheets/components/sheet-detail.tsx
 
@@ -197,7 +198,7 @@ sheet-detail.tsx (coordinator only)
 │       ├── delivery-dialog.tsx
 │       ├── swap-driver-dialog.tsx
 │       └── reconcile-dialog.tsx
-F3 — customer-detail.tsx — 763 Lines, Missing useReducer
+✅ F3 — customer-detail.tsx — 763 Lines, Missing useReducer
 
 File: apps/vendor-dashboard/src/features/customers/components/customer-detail.tsx
 
@@ -211,7 +212,7 @@ const [scheduleRange, setScheduleRange] = useState({ ... });
 
 // ✅ Group related state:
 const [dialogState, dispatch] = useReducer(dialogReducer, initialDialogState);
-F4 — Expensive Computations Without useMemo — Re-render Per Interaction
+✅ F4 — Expensive Computations Without useMemo — Re-render Per Interaction
 
 File: apps/vendor-dashboard/src/features/daily-sheets/components/sheet-detail.tsx
 
@@ -233,7 +234,7 @@ const stats = useMemo(() => ({
   emptyReturned: items.reduce((s, i) => s + i.emptyReturned, 0),
 }), [doneItems, items]);
 React Query — Problems
-F5 — Object Reference in Query Key — Infinite Refetch Bug
+✅ F5 — Object Reference in Query Key — Infinite Refetch Bug
 
 File: apps/vendor-dashboard/src/features/customers/hooks/use-customers.ts
 
@@ -242,7 +243,7 @@ queryKey: ['customers', id, 'schedule', params],
 
 // ✅ Primitive values spread karo:
 queryKey: ['customers', id, 'schedule', params.dateFrom, params.dateTo],
-F6 — Mutations Missing onError Handlers
+✅ F6 — Mutations Missing onError Handlers (already complete across all hooks — confirmed, no change needed)
 
 
 // ❌ use-customers.ts mein multiple mutations:
@@ -256,7 +257,7 @@ const { mutate: updateCustomer } = useMutation({
 onError: (error: any) => {
   toast.error(error?.response?.data?.message ?? 'Update failed. Please try again.');
 },
-F7 — Queries Without enabled Guard — Run on Undefined Params
+✅ F7 — Queries Without enabled Guard — Run on Undefined Params
 
 
 // ❌ id undefined ho to bhi query chalta hai
@@ -265,7 +266,7 @@ const { data } = useCustomerSchedule(customerId, scheduleRange);
 
 // ✅
 enabled: !!customerId && !!scheduleRange?.dateFrom,
-F8 — Query Key Invalidation Mismatch (Stale Data)
+✅ F8 — Query Key Invalidation Mismatch (Stale Data) (already using ['customers'] base key in all mutations — confirmed, no change needed)
 
 File: apps/vendor-dashboard/src/lib/query-keys.ts
 
@@ -280,7 +281,7 @@ queryClient.invalidateQueries({ queryKey: queryKeys.customers.all({}) })
 queryClient.invalidateQueries({ queryKey: ['customers'] })
 // → Matches ALL keys starting with 'customers'
 Code Organization — Problems
-F9 — Inline Helper Functions in Render — New Reference Every Render
+✅ F9 — Inline Helper Functions in Render — New Reference Every Render
 
 File: apps/vendor-dashboard/src/features/daily-sheets/components/sheet-detail.tsx
 
@@ -289,7 +290,7 @@ const formatTime = (dt: string) => new Date(dt).toLocaleTimeString(...);
 
 // ✅ Component ke bahar move karo (module level):
 const formatTime = (dt: string) => new Date(dt).toLocaleTimeString(...);
-F10 — Type Assertion Instead of Validation on Enums
+✅ F10 — Type Assertion Instead of Validation on Enums
 
 
 // ❌ Assert kiya, validate nahi kiya
@@ -302,26 +303,26 @@ if (!VALID_PAYMENT_TYPES.includes(paymentType as any))
   throw new Error('Invalid payment type');
 Summary — Prioritized Fix List
 Fix This Week (Breaks Type Safety / Real Bugs)
-#	Problem	Files	Effort
-1	Define shared API response interfaces — remove all any	libs/shared/types/ + all feature hooks	1 day
-2	Fix query key invalidation — use base key ['customers'] not queryKeys.customers.all({})	query-keys.ts, all hooks	2 hrs
-3	Fix object-in-query-key infinite refetch	use-customers.ts line ~170	30 min
-4	@CurrentUser() decorator return type — define AuthUser interface	all controllers	1 hr
-5	Use DeliveryStatus enum instead of string literals	daily-sheet.service.ts	1 hr
-6	Add onError handlers to all mutations	all use-*.ts hook files	2 hrs
-7	Add enabled: !!param guards to queries with optional params	all hooks	1 hr
+#	Status	Problem	Files	Effort
+1	✅ DONE	Define shared API response interfaces — remove all any	libs/shared/types/ + all feature hooks	1 day
+2	✅ DONE	Fix query key invalidation — use base key ['customers'] not queryKeys.customers.all({})	query-keys.ts, all hooks	2 hrs
+3	✅ DONE	Fix object-in-query-key infinite refetch	use-customers.ts line ~170	30 min
+4	✅ DONE	@CurrentUser() decorator return type — define AuthUser interface	all controllers	1 hr
+5	✅ DONE	Use DeliveryStatus enum instead of string literals	daily-sheet.service.ts	1 hr
+6	✅ DONE	Add onError handlers to all mutations	all use-*.ts hook files	2 hrs
+7	✅ DONE	Add enabled: !!param guards to queries with optional params	all hooks	1 hr
 Fix Next Sprint (Code Quality)
-#	Problem	Files	Effort
-8	Wrap Prisma creates/updates in try/catch for P2002 (unique constraint)	customer, user, vendor services	2 hrs
-9	Extract buildReconciliation / idempotency logic to private methods	ledger.service.ts, daily-sheet.service.ts	3 hrs
-10	Add useMemo on filter/reduce in SheetDetail	sheet-detail.tsx	1 hr
-11	Month format validation in PDF endpoint	customer.controller.ts	30 min
-12	FCM .catch(() => null) → log warning	order.service.ts, daily-sheet.service.ts	30 min
+#	Status	Problem	Files	Effort
+8	✅ DONE	Wrap Prisma creates/updates in try/catch for P2002 (unique constraint)	customer, user, vendor services	2 hrs
+9	✅ DONE	Extract buildReconciliation / idempotency logic to private methods	ledger.service.ts, daily-sheet.service.ts	3 hrs
+10	✅ DONE	Add useMemo on filter/reduce in SheetDetail	sheet-detail.tsx	1 hr
+11	✅ DONE	Month format validation in PDF endpoint	customer.controller.ts	30 min
+12	✅ DONE	FCM .catch(() => null) → log warning	order.service.ts, daily-sheet.service.ts	30 min
 Refactor (Technical Debt — Plan for Later)
-#	Problem	Files	Effort
-13	Split sheet-detail.tsx (1300 lines) into sub-components	sheet-detail.tsx	2 days
-14	Split customer-detail.tsx (763 lines), extract dialogs	customer-detail.tsx	1 day
-15	Replace 16 useState calls with useReducer in SheetDetail	sheet-detail.tsx	4 hrs
-16	DRY up analytics.service.ts Map-grouping pattern → generic helper	analytics.service.ts	2 hrs
-17	Move inline helpers (formatTime, etc.) outside component render	sheet-detail.tsx	1 hr
+#	Status	Problem	Files	Effort
+13	✅ DONE	Split sheet-detail.tsx (1300 lines) into sub-components	sheet-detail.tsx	2 days
+14	✅ DONE	Split customer-detail.tsx (763 lines), extract dialogs	customer-detail.tsx	1 day
+15	✅ DONE	Replace 16 useState calls with useReducer in SheetDetail	sheet-detail.tsx	4 hrs
+16	✅ DONE	DRY up analytics.service.ts Map-grouping pattern → generic helper	analytics.service.ts	2 hrs
+17	✅ DONE	Move inline helpers (formatTime, etc.) outside component render	sheet-detail.tsx	1 hr
 Bottom line: Core NestJS structure (modules, DI, guards, interceptors) sahi hai. Asli masla hai any types ka overuse — backend aur frontend dono mein — jo runtime crashes ka risk create karta hai aur refactoring painful banata hai. Frontend ka sabse urgent issue hai query key invalidation bug jo stale data show karta hai users ko, aur SheetDetail component jo ek monster ban gaya hai. Week 1 fixes (shared types + query keys + onError handlers) se code quality dramatically improve hogi bina koi bada refactor kiye.

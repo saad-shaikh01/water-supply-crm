@@ -1,78 +1,87 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useReducer, useMemo } from 'react';
 import {
   Card, CardContent, Button, Skeleton, Badge,
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-  Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
   Tabs, TabsList, TabsTrigger,
 } from '@water-supply-crm/ui';
 import { StatusBadge } from '../../../components/shared/status-badge';
-import {
-  useDailySheet, useCloseSheet, useUpdateDeliveryItem,
-  useSwapAssignment, useCreateLoad, useCheckinLoad,
-} from '../hooks/use-daily-sheets';
-import { useAllVans } from '../../vans/hooks/use-vans';
-import { useAllDrivers } from '../../users/hooks/use-users';
+import { useDailySheet } from '../hooks/use-daily-sheets';
 import { dailySheetsApi } from '../api/daily-sheets.api';
+import { DeliveryDialog } from './dialogs/delivery-dialog';
+import { CheckinDialog } from './dialogs/checkin-dialog';
+import { NewTripDialog } from './dialogs/new-trip-dialog';
+import { SwapDialog } from './dialogs/swap-dialog';
+import { ReconcileDialog } from './dialogs/reconcile-dialog';
 import { toast } from 'sonner';
 import {
   Truck, Package, CheckCircle2, ClipboardList,
   ArrowLeft, Download, MapPin, User, ArrowRightLeft,
   Droplets, DollarSign, AlertCircle, Plus,
-  ChevronDown, ChevronUp, Loader2, Clock,
+  ChevronDown, ChevronUp, Clock,
   Phone, MessageCircle, Navigation, Printer,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@water-supply-crm/ui';
 import { motion, AnimatePresence } from 'framer-motion';
+import type { DeliveryItem, LoadTrip } from '@water-supply-crm/types';
 import { useAuthStore } from '../../../store/auth.store';
 import { hasMinRole } from '../../../lib/rbac';
 
-interface CustomerWallet {
-  balance: number;
-  product: { name: string };
-  productId?: string;
+
+interface UiState {
+  newTripOpen: boolean;
+  checkinOpen: string | null;
+  deliveryOpen: string | null;
+  swapOpen: boolean;
+  reconcileOpen: boolean;
+  activeTab: TabKey;
+  tabPage: number;
+  expandedItemId: string | null;
 }
 
-interface DeliveryItem {
-  id: string;
-  sequence: number;
-  customerId: string;
-  customer?: {
-    name: string;
-    address: string;
-    customerCode: string;
-    floor?: string;
-    nearbyLandmark?: string;
-    deliveryInstructions?: string;
-    latitude?: number;
-    longitude?: number;
-    phoneNumber?: string;
-    paymentType?: 'MONTHLY' | 'CASH';
-    financialBalance?: number;
-    wallets?: CustomerWallet[];
-  };
-  productId: string;
-  product?: { name: string };
-  status: 'PENDING' | 'COMPLETED' | 'EMPTY_ONLY' | 'NOT_AVAILABLE' | 'RESCHEDULED' | 'CANCELLED';
-  filledDropped: number;
-  emptyReceived: number;
-  cashCollected: number;
-  reason?: string;
-  failureCategory?: string;
-  photoUrl?: string;
-}
+type UiAction =
+  | { type: 'OPEN_NEW_TRIP' }
+  | { type: 'CLOSE_NEW_TRIP' }
+  | { type: 'OPEN_CHECKIN'; tripId: string }
+  | { type: 'CLOSE_CHECKIN' }
+  | { type: 'OPEN_DELIVERY'; itemId: string }
+  | { type: 'CLOSE_DELIVERY' }
+  | { type: 'OPEN_SWAP' }
+  | { type: 'CLOSE_SWAP' }
+  | { type: 'OPEN_RECONCILE' }
+  | { type: 'CLOSE_RECONCILE' }
+  | { type: 'SET_TAB'; tab: TabKey }
+  | { type: 'SET_PAGE'; page: number }
+  | { type: 'SET_EXPANDED'; itemId: string | null };
 
-interface LoadTrip {
-  id: string;
-  tripNumber: number;
-  loadedFilled: number;
-  returnedFilled: number;
-  collectedEmpty: number;
-  cashHandedIn: number;
-  startedAt: string;
-  endedAt: string | null;
+const initialUiState: UiState = {
+  newTripOpen: false,
+  checkinOpen: null,
+  deliveryOpen: null,
+  swapOpen: false,
+  reconcileOpen: false,
+  activeTab: 'all',
+  tabPage: 1,
+  expandedItemId: null,
+};
+
+function uiReducer(state: UiState, action: UiAction): UiState {
+  switch (action.type) {
+    case 'OPEN_NEW_TRIP': return { ...state, newTripOpen: true };
+    case 'CLOSE_NEW_TRIP': return { ...state, newTripOpen: false };
+    case 'OPEN_CHECKIN': return { ...state, checkinOpen: action.tripId };
+    case 'CLOSE_CHECKIN': return { ...state, checkinOpen: null };
+    case 'OPEN_DELIVERY': return { ...state, deliveryOpen: action.itemId };
+    case 'CLOSE_DELIVERY': return { ...state, deliveryOpen: null, expandedItemId: null };
+    case 'OPEN_SWAP': return { ...state, swapOpen: true };
+    case 'CLOSE_SWAP': return { ...state, swapOpen: false };
+    case 'OPEN_RECONCILE': return { ...state, reconcileOpen: true };
+    case 'CLOSE_RECONCILE': return { ...state, reconcileOpen: false };
+    case 'SET_TAB': return { ...state, activeTab: action.tab, tabPage: 1, expandedItemId: null };
+    case 'SET_PAGE': return { ...state, tabPage: action.page };
+    case 'SET_EXPANDED': return { ...state, expandedItemId: action.itemId };
+  }
 }
 
 interface SheetDetailProps {
@@ -119,7 +128,7 @@ function tabFilter(tab: TabKey, item: DeliveryItem): boolean {
 const formatTime = (dt: string) =>
   new Date(dt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-const formatPhone = (phone?: string) => {
+const formatPhone = (phone?: string | null) => {
   if (!phone) return '';
   return phone.startsWith('0') ? `92${phone.slice(1)}` : phone;
 };
@@ -132,46 +141,11 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const isAdmin = user ? hasMinRole(user.role, 'VENDOR_ADMIN') : false;
 
   const { data, isLoading } = useDailySheet(sheetId);
-  const { mutate: closeSheet, isPending: isClosing } = useCloseSheet(sheetId);
-  const { mutate: updateItem, isPending: isUpdatingItem } = useUpdateDeliveryItem(sheetId);
-  const { mutate: swapAssignment, isPending: isSwapping } = useSwapAssignment(sheetId);
-  const { mutate: createLoad, isPending: isStartingTrip } = useCreateLoad(sheetId);
-  const { mutate: checkinLoad, isPending: isCheckingIn } = useCheckinLoad(sheetId);
-  const { data: vansData } = useAllVans();
-  const allVans = ((vansData as any)?.data ?? []) as Array<{ id: string; plateNumber: string }>;
-  const { data: driversData } = useAllDrivers();
-  const allDrivers = ((driversData as any)?.data ?? []) as Array<{ id: string; name: string }>;
-
-  // Dialog states
-  const [newTripOpen, setNewTripOpen] = useState(false);
-  const [checkinOpen, setCheckinOpen] = useState<string | null>(null);
-  const [deliveryOpen, setDeliveryOpen] = useState<string | null>(null);
-  const [swapOpen, setSwapOpen] = useState(false);
-  const [reconcileOpen, setReconcileOpen] = useState(false);
-  const [reconcileData, setReconcileData] = useState<any>(null);
-  const [reconcileLoading, setReconcileLoading] = useState(false);
-
-  // Form states
-  const [newTripFilled, setNewTripFilled] = useState(0);
-  const [checkinForm, setCheckinForm] = useState({ returnedFilled: 0, collectedEmpty: 0, cashHandedIn: 0 });
-  const [itemForm, setItemForm] = useState<Partial<DeliveryItem>>({});
-  const [swapForm, setSwapForm] = useState<{ vanId?: string; driverId?: string }>({});
-
-  // Delivery dialog: two-step UX
-  const [deliveryMode, setDeliveryMode] = useState<'delivered' | 'unable'>('delivered');
-  const [failureCategory, setFailureCategory] = useState<string>('CUSTOMER_NOT_HOME');
-  const [unableReason, setUnableReason] = useState('');
-
-  // Tabs + pagination
-  const [activeTab, setActiveTab] = useState<TabKey>('all');
-  const [tabPage, setTabPage] = useState(1);
-
-  // Accordion
-  const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
+  const [ui, dispatch] = useReducer(uiReducer, initialUiState);
 
   // ── Memoized derived data (must be before any early returns) ─────────
-  const items = useMemo(() => ((data as any)?.items ?? []) as DeliveryItem[], [data]);
-  const loads = useMemo(() => ((data as any)?.loads ?? []) as LoadTrip[], [data]);
+  const items = useMemo(() => data?.items ?? [], [data]);
+  const loads = useMemo(() => data?.loads ?? [], [data]);
   const doneItems = useMemo(
     () => items.filter((i) => i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY'),
     [items],
@@ -181,11 +155,11 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
     emptyReceived: doneItems.reduce((acc, i) => acc + i.emptyReceived, 0),
     cashCollected: doneItems.reduce((acc, i) => acc + i.cashCollected, 0),
   }), [doneItems]);
-  const filteredItems = useMemo(() => items.filter((i) => tabFilter(activeTab, i)), [items, activeTab]);
+  const filteredItems = useMemo(() => items.filter((i) => tabFilter(ui.activeTab, i)), [items, ui.activeTab]);
   const totalPages = useMemo(() => Math.max(1, Math.ceil(filteredItems.length / ITEMS_PER_PAGE)), [filteredItems]);
   const paginatedItems = useMemo(
-    () => filteredItems.slice((tabPage - 1) * ITEMS_PER_PAGE, tabPage * ITEMS_PER_PAGE),
-    [filteredItems, tabPage],
+    () => filteredItems.slice((ui.tabPage - 1) * ITEMS_PER_PAGE, ui.tabPage * ITEMS_PER_PAGE),
+    [filteredItems, ui.tabPage],
   );
 
   if (isLoading) return (
@@ -195,64 +169,21 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
     </div>
   );
 
-  const sheet = (data ?? {}) as Record<string, any>;
   // items / loads / doneItems / stats / filteredItems / paginatedItems / totalPages — memoized above
 
   const activeTrip = loads.find((l) => !l.endedAt) ?? null;
   const hasAnyTrip = loads.length > 0;
-  const isClosed = !!sheet.isClosed;
+  const isClosed = !!data?.isClosed;
   const currentStatus = isClosed ? 'CLOSED' : activeTrip ? 'LOADED' : hasAnyTrip ? 'CHECKED_IN' : 'OPEN';
-  const bottlesInTruck = Math.max(0, (sheet.filledOutCount ?? 0) - stats.filledDropped);
+  const bottlesInTruck = Math.max(0, (data?.filledOutCount ?? 0) - stats.filledDropped);
 
   const tabCount = (tab: TabKey) => items.filter((i) => tabFilter(tab, i)).length;
 
-  const handleTabChange = (tab: string) => {
-    setActiveTab(tab as TabKey);
-    setTabPage(1);
-    setExpandedItemId(null);
-  };
+  const handleTabChange = (tab: string) => dispatch({ type: 'SET_TAB', tab: tab as TabKey });
 
-  // ── Delivery dialog handlers ─────────────────────────────────────────
   const handleOpenDelivery = (item: DeliveryItem) => {
     if (isClosed) return;
-    const isUnable = item.status === 'RESCHEDULED' || item.status === 'CANCELLED' || item.status === 'NOT_AVAILABLE';
-    setDeliveryMode(item.status === 'PENDING' ? 'delivered' : isUnable ? 'unable' : 'delivered');
-    setFailureCategory(item.failureCategory || 'CUSTOMER_NOT_HOME');
-    setUnableReason(item.reason || '');
-    setItemForm({
-      filledDropped: item.filledDropped || 1,
-      emptyReceived: item.emptyReceived || 0,
-      cashCollected: item.cashCollected || 0,
-    });
-    setDeliveryOpen(item.id);
-  };
-
-  const onSaveItem = () => {
-    if (!deliveryOpen) return;
-    let finalData: Record<string, unknown>;
-    if (deliveryMode === 'delivered') {
-      finalData = {
-        status: 'COMPLETED',
-        filledDropped: itemForm.filledDropped ?? 1,
-        emptyReceived: itemForm.emptyReceived ?? 0,
-        cashCollected: itemForm.cashCollected ?? 0,
-      };
-    } else {
-      finalData = {
-        status: 'NOT_AVAILABLE',
-        failureCategory,
-        filledDropped: 0,
-        emptyReceived: 0,
-        cashCollected: 0,
-        reason: unableReason || undefined,
-      };
-    }
-    updateItem({ itemId: deliveryOpen, data: finalData }, {
-      onSuccess: () => {
-        setDeliveryOpen(null);
-        setExpandedItemId(null);
-      },
-    });
+    dispatch({ type: 'OPEN_DELIVERY', itemId: item.id });
   };
 
   const handleExportPdf = async () => {
@@ -280,20 +211,6 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
     }
   };
 
-  const handleOpenReconcile = async () => {
-    setReconcileLoading(true);
-    setReconcileData(null);
-    setReconcileOpen(true);
-    try {
-      const data = await dailySheetsApi.getReconciliationPreview(sheetId);
-      setReconcileData(data);
-    } catch {
-      toast.error('Failed to load reconciliation preview');
-      setReconcileOpen(false);
-    } finally {
-      setReconcileLoading(false);
-    }
-  };
 
   return (
     <div className="space-y-8 pb-20">
@@ -305,12 +222,12 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         <div className="flex-1">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-black tracking-tight">
-              {new Date(sheet.date).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}
+              {new Date(data!.date).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}
             </h1>
             <StatusBadge status={currentStatus} />
           </div>
           <p className="text-muted-foreground text-sm flex items-center gap-2 mt-1 font-medium">
-            <MapPin className="h-3 w-3" /> {sheet.route?.name ?? 'No Route'} • <Truck className="h-3 w-3 ml-1" /> {sheet.van?.plateNumber}
+            <MapPin className="h-3 w-3" /> {data?.route?.name ?? 'No Route'} • <Truck className="h-3 w-3 ml-1" /> {data?.van?.plateNumber}
           </p>
         </div>
         <div className="flex gap-2">
@@ -319,7 +236,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
               variant="outline"
               size="icon"
               className="rounded-full"
-              onClick={() => setSwapOpen(true)}
+              onClick={() => dispatch({ type: 'OPEN_SWAP' })}
               title="Swap van assignment"
             >
               <ArrowRightLeft className="h-4 w-4" />
@@ -367,7 +284,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             </div>
             <div>
               <p className="text-[10px] font-bold uppercase text-muted-foreground">Driver</p>
-              <p className="text-sm font-black">{sheet.driver?.name}</p>
+              <p className="text-sm font-black">{data?.driver?.name}</p>
             </div>
           </CardContent>
         </Card>
@@ -378,7 +295,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             </div>
             <div>
               <p className="text-[10px] font-bold uppercase text-muted-foreground">Filled Dropped</p>
-              <p className="text-sm font-black">{stats.filledDropped} <span className="text-xs font-normal text-muted-foreground">of {sheet.filledOutCount}</span></p>
+              <p className="text-sm font-black">{stats.filledDropped} <span className="text-xs font-normal text-muted-foreground">of {data?.filledOutCount}</span></p>
             </div>
           </CardContent>
         </Card>
@@ -429,7 +346,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             {!isClosed && !activeTrip && isAdminOrStaff && (
               <Button
                 size="sm"
-                onClick={() => { setNewTripFilled(items.length * 2); setNewTripOpen(true); }}
+                onClick={() => dispatch({ type: 'OPEN_NEW_TRIP' })}
                 className="rounded-full font-bold shadow-lg shadow-primary/20 gap-2"
               >
                 <Plus className="h-3.5 w-3.5" />
@@ -440,7 +357,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
               <Button
                 size="sm"
                 variant="default"
-                onClick={handleOpenReconcile}
+                onClick={() => dispatch({ type: 'OPEN_RECONCILE' })}
                 className="rounded-full font-bold"
               >
                 Close & Reconcile
@@ -538,10 +455,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
                             size="sm"
                             variant="outline"
                             className="rounded-full font-bold border-emerald-500/50 text-emerald-600 hover:bg-emerald-500/10 shrink-0"
-                            onClick={() => {
-                              setCheckinForm({ returnedFilled: 0, collectedEmpty: 0, cashHandedIn: 0 });
-                              setCheckinOpen(trip.id);
-                            }}
+                            onClick={() => dispatch({ type: 'OPEN_CHECKIN', tripId: trip.id })}
                           >
                             Check In
                           </Button>
@@ -576,7 +490,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         </div>
 
         {/* Status Tabs */}
-        <Tabs value={activeTab} onValueChange={handleTabChange}>
+        <Tabs value={ui.activeTab} onValueChange={handleTabChange}>
           <TabsList className="w-full grid grid-cols-4 h-10">
             <TabsTrigger value="all" className="text-xs font-bold">
               All <span className="ml-1 text-[10px] opacity-60">({tabCount('all')})</span>
@@ -603,7 +517,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             </Card>
           ) : (
             paginatedItems.map((item, idx) => {
-              const isExpanded = expandedItemId === item.id;
+              const isExpanded = ui.expandedItemId === item.id;
               const customer = item.customer;
               const matchedWallet = customer?.wallets?.find((w) => w.productId === item.productId) ?? customer?.wallets?.[0];
               const walletBalance = matchedWallet?.balance ?? 0;
@@ -656,7 +570,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
                           )}
                           <button
                             className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                            onClick={() => setExpandedItemId(isExpanded ? null : item.id)}
+                            onClick={() => dispatch({ type: 'SET_EXPANDED', itemId: isExpanded ? null : item.id })}
                           >
                             {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                           </button>
@@ -787,20 +701,20 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
               size="sm"
               variant="outline"
               className="rounded-full font-bold"
-              disabled={tabPage <= 1}
-              onClick={() => setTabPage((p) => Math.max(1, p - 1))}
+              disabled={ui.tabPage <= 1}
+              onClick={() => dispatch({ type: 'SET_PAGE', page: Math.max(1, ui.tabPage - 1) })}
             >
               Previous
             </Button>
             <span className="text-xs text-muted-foreground font-medium">
-              Page {tabPage} of {totalPages} · {filteredItems.length} items
+              Page {ui.tabPage} of {totalPages} · {filteredItems.length} items
             </span>
             <Button
               size="sm"
               variant="outline"
               className="rounded-full font-bold"
-              disabled={tabPage >= totalPages}
-              onClick={() => setTabPage((p) => Math.min(totalPages, p + 1))}
+              disabled={ui.tabPage >= totalPages}
+              onClick={() => dispatch({ type: 'SET_PAGE', page: Math.min(totalPages, ui.tabPage + 1) })}
             >
               Next
             </Button>
@@ -808,502 +722,38 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         )}
       </div>
 
-      {/* ── Close & Reconcile Dialog ────────────────────────── */}
-      <Dialog open={reconcileOpen} onOpenChange={(o) => { if (!o) { setReconcileOpen(false); setReconcileData(null); } }}>
-        <DialogContent className="rounded-3xl max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-black flex items-center gap-2">
-              <CheckCircle2 className="h-5 w-5 text-primary" />
-              Close & Reconcile
-            </DialogTitle>
-          </DialogHeader>
-
-          {reconcileLoading ? (
-            <div className="py-12 flex flex-col items-center gap-3">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <p className="text-sm text-muted-foreground">Loading reconciliation data...</p>
-            </div>
-          ) : reconcileData ? (
-            <div className="space-y-4 py-4">
-              {/* Pending warning */}
-              {reconcileData.pendingCount > 0 && (
-                <div className="flex items-start gap-2 px-4 py-3 rounded-2xl bg-destructive/10 border border-destructive/20 text-sm font-semibold text-destructive">
-                  <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-                  {reconcileData.pendingCount} item(s) still PENDING — resolve them before closing.
-                </div>
-              )}
-
-              {/* Bottle reconciliation */}
-              <div className="rounded-2xl border border-border/50 bg-accent/10 overflow-hidden">
-                <div className="px-4 py-2.5 bg-muted/40 border-b border-border/40">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Bottle Summary</p>
-                </div>
-                <div className="p-4 grid grid-cols-2 gap-3">
-                  <div>
-                    <p className="text-[10px] text-muted-foreground font-bold uppercase">Dispatched</p>
-                    <p className="text-xl font-black font-mono">{reconcileData.bottles.dispatched}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-muted-foreground font-bold uppercase">Delivered</p>
-                    <p className="text-xl font-black font-mono">{reconcileData.bottles.delivered}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-muted-foreground font-bold uppercase">Returned to Warehouse</p>
-                    <p className="text-xl font-black font-mono">{reconcileData.bottles.returned}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-muted-foreground font-bold uppercase">Discrepancy</p>
-                    <p className={cn(
-                      'text-xl font-black font-mono',
-                      reconcileData.bottles.discrepancy !== 0 ? 'text-destructive' : 'text-emerald-600',
-                    )}>
-                      {reconcileData.bottles.discrepancy > 0 ? '+' : ''}{reconcileData.bottles.discrepancy}
-                      {reconcileData.bottles.discrepancy !== 0 && ' ⚠️'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Cash reconciliation */}
-              <div className="rounded-2xl border border-border/50 bg-accent/10 overflow-hidden">
-                <div className="px-4 py-2.5 bg-muted/40 border-b border-border/40">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Cash Summary</p>
-                </div>
-                <div className="divide-y divide-border/40">
-                  {/* Cash customers row */}
-                  <div className="p-4 space-y-2">
-                    <p className="text-xs font-black text-foreground">
-                      Cash Customers ({reconcileData.cashCustomers.count} deliveries)
-                    </p>
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                      <div className="rounded-xl bg-background/70 border border-border/40 px-2 py-2">
-                        <p className="text-[9px] font-bold uppercase text-muted-foreground">Billed</p>
-                        <p className="text-sm font-black font-mono">₨{reconcileData.cashCustomers.billed.toLocaleString()}</p>
-                      </div>
-                      <div className="rounded-xl bg-background/70 border border-border/40 px-2 py-2">
-                        <p className="text-[9px] font-bold uppercase text-muted-foreground">Collected</p>
-                        <p className="text-sm font-black font-mono text-emerald-600">₨{reconcileData.cashCustomers.collected.toLocaleString()}</p>
-                      </div>
-                      <div className={cn(
-                        'rounded-xl border px-2 py-2',
-                        reconcileData.cashCustomers.addedToBalance > 0
-                          ? 'bg-amber-500/10 border-amber-500/30'
-                          : 'bg-background/70 border-border/40',
-                      )}>
-                        <p className="text-[9px] font-bold uppercase text-muted-foreground">→ Balance</p>
-                        <p className={cn(
-                          'text-sm font-black font-mono',
-                          reconcileData.cashCustomers.addedToBalance > 0 ? 'text-amber-600' : 'text-muted-foreground',
-                        )}>
-                          ₨{reconcileData.cashCustomers.addedToBalance.toLocaleString()}
-                        </p>
-                      </div>
-                    </div>
-                    {reconcileData.cashCustomers.addedToBalance > 0 && (
-                      <p className="text-[11px] text-amber-600 font-medium">
-                        ₨{reconcileData.cashCustomers.addedToBalance.toLocaleString()} added to customer balances (unpaid cash deliveries)
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Monthly customers row */}
-                  {reconcileData.monthlyCustomers.count > 0 && (
-                    <div className="p-4 flex items-center justify-between">
-                      <div>
-                        <p className="text-xs font-black">Monthly Customers ({reconcileData.monthlyCustomers.count} deliveries)</p>
-                        <p className="text-[11px] text-muted-foreground">Billed to accounts — no cash expected</p>
-                      </div>
-                      <p className="text-sm font-black font-mono text-blue-600">
-                        ₨{reconcileData.monthlyCustomers.billedToAccounts.toLocaleString()}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Driver handover */}
-              <div className={cn(
-                'rounded-2xl border overflow-hidden',
-                reconcileData.driver.discrepancy !== 0
-                  ? 'border-destructive/30 bg-destructive/5'
-                  : 'border-emerald-500/30 bg-emerald-500/5',
-              )}>
-                <div className="px-4 py-2.5 border-b border-border/40 bg-muted/40">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Driver Handover</p>
-                </div>
-                <div className="p-4 grid grid-cols-3 gap-3 text-center">
-                  <div>
-                    <p className="text-[9px] font-bold uppercase text-muted-foreground">Should Hand In</p>
-                    <p className="text-lg font-black font-mono">₨{reconcileData.driver.shouldHandIn.toLocaleString()}</p>
-                  </div>
-                  <div>
-                    <p className="text-[9px] font-bold uppercase text-muted-foreground">Handed In</p>
-                    <p className="text-lg font-black font-mono">₨{reconcileData.driver.handedIn.toLocaleString()}</p>
-                  </div>
-                  <div>
-                    <p className="text-[9px] font-bold uppercase text-muted-foreground">Difference</p>
-                    <p className={cn(
-                      'text-lg font-black font-mono',
-                      reconcileData.driver.discrepancy !== 0 ? 'text-destructive' : 'text-emerald-600',
-                    )}>
-                      {reconcileData.driver.discrepancy !== 0
-                        ? `₨${Math.abs(reconcileData.driver.discrepancy).toLocaleString()} ${reconcileData.driver.discrepancy > 0 ? 'short' : 'over'} ⚠️`
-                        : '✓ Clear'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => { setReconcileOpen(false); setReconcileData(null); }}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => closeSheet(undefined, {
-                onSuccess: () => { setReconcileOpen(false); setReconcileData(null); },
-              })}
-              disabled={isClosing || reconcileLoading || !reconcileData || reconcileData.pendingCount > 0}
-              className="rounded-xl font-bold min-w-[140px]"
-            >
-              {isClosing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              Confirm Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── New Load-Out Dialog ─────────────────────────────── */}
-      <Dialog open={newTripOpen} onOpenChange={setNewTripOpen}>
-        <DialogContent className="rounded-3xl max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-black flex items-center gap-2">
-              <Package className="h-5 w-5 text-primary" />
-              Start Load-Out
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
-                Trip {loads.length + 1} — Filled Bottles Dispatched
-              </Label>
-              <Input
-                type="number"
-                min={1}
-                value={newTripFilled}
-                onChange={(e) => setNewTripFilled(Number(e.target.value))}
-                className="h-14 text-3xl font-black font-mono text-center"
-              />
-              <p className="text-[11px] text-muted-foreground">Total filled bottles loaded into the van for this trip.</p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setNewTripOpen(false)}>Cancel</Button>
-            <Button
-              onClick={() => createLoad({ loadedFilled: newTripFilled }, { onSuccess: () => setNewTripOpen(false) })}
-              disabled={isStartingTrip || newTripFilled < 1}
-              className="rounded-xl font-bold"
-            >
-              {isStartingTrip ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              Confirm Dispatch
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Check-In Dialog ────────────────────────────────── */}
-      <Dialog open={!!checkinOpen} onOpenChange={(o) => !o && setCheckinOpen(null)}>
-        <DialogContent className="rounded-3xl max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-black flex items-center gap-2">
-              <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-              Trip Check-In
-            </DialogTitle>
-          </DialogHeader>
-          <div className="grid grid-cols-2 gap-4 py-4">
-            <div className="space-y-2">
-              <Label className="font-bold text-xs uppercase tracking-widest">Filled Returned</Label>
-              <Input
-                type="number"
-                min={0}
-                value={checkinForm.returnedFilled}
-                onChange={(e) => setCheckinForm((p) => ({ ...p, returnedFilled: Number(e.target.value) }))}
-                className="font-mono font-bold"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="font-bold text-xs uppercase tracking-widest">Empties Collected</Label>
-              <Input
-                type="number"
-                min={0}
-                value={checkinForm.collectedEmpty}
-                onChange={(e) => setCheckinForm((p) => ({ ...p, collectedEmpty: Number(e.target.value) }))}
-                className="font-mono font-bold"
-              />
-            </div>
-            <div className="col-span-2 space-y-2">
-              <Label className="font-bold text-xs uppercase tracking-widest">Cash Handed In (₨)</Label>
-              <Input
-                type="number"
-                min={0}
-                value={checkinForm.cashHandedIn}
-                onChange={(e) => setCheckinForm((p) => ({ ...p, cashHandedIn: Number(e.target.value) }))}
-                className="h-14 text-2xl font-black font-mono text-center"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setCheckinOpen(null)}>Cancel</Button>
-            <Button
-              onClick={() => checkinLoad(
-                { loadId: checkinOpen!, data: checkinForm },
-                { onSuccess: () => setCheckinOpen(null) },
-              )}
-              disabled={isCheckingIn}
-              className="rounded-xl font-bold"
-            >
-              {isCheckingIn ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              Confirm Check-In
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Swap Assignment Dialog ───────────────────────────── */}
-      <Dialog open={swapOpen} onOpenChange={(o) => { setSwapOpen(o); if (!o) setSwapForm({}); }}>
-        <DialogContent className="rounded-3xl max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-black flex items-center gap-2">
-              <ArrowRightLeft className="h-5 w-5 text-primary" />
-              Swap Assignment
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-5 py-4">
-            {/* Driver section */}
-            <div className="space-y-3 p-4 rounded-2xl bg-accent/20 border border-border/30">
-              <div className="flex items-center justify-between">
-                <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">Driver</Label>
-                <span className="text-[10px] text-muted-foreground">This sheet only</span>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-                <User className="h-3.5 w-3.5" />
-                <span>Current: <span className="font-bold text-foreground">{sheet.driver?.name ?? '—'}</span></span>
-              </div>
-              <Select
-                value={swapForm.driverId ?? ''}
-                onValueChange={(v) => setSwapForm((p) => ({ ...p, driverId: v || undefined }))}
-              >
-                <SelectTrigger className="h-10">
-                  <SelectValue placeholder="Keep current driver" />
-                </SelectTrigger>
-                <SelectContent>
-                  {allDrivers
-                    .filter((d) => d.id !== sheet.driverId)
-                    .map((d) => (
-                      <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-              {swapForm.driverId && (
-                <button
-                  className="text-[11px] text-muted-foreground underline"
-                  onClick={() => setSwapForm((p) => ({ ...p, driverId: undefined }))}
-                >
-                  Clear driver change
-                </button>
-              )}
-            </div>
-
-            {/* Van section */}
-            <div className="space-y-3 p-4 rounded-2xl bg-accent/20 border border-border/30">
-              <div className="flex items-center justify-between">
-                <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">Van</Label>
-                <span className="text-[10px] text-muted-foreground">This sheet only</span>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-                <Truck className="h-3.5 w-3.5" />
-                <span>Current: <span className="font-bold text-foreground">{sheet.van?.plateNumber ?? '—'}</span></span>
-              </div>
-              <Select
-                value={swapForm.vanId ?? ''}
-                onValueChange={(v) => setSwapForm((p) => ({ ...p, vanId: v || undefined }))}
-              >
-                <SelectTrigger className="h-10">
-                  <SelectValue placeholder="Keep current van" />
-                </SelectTrigger>
-                <SelectContent>
-                  {allVans
-                    .filter((v) => v.id !== sheet.vanId)
-                    .map((v) => (
-                      <SelectItem key={v.id} value={v.id}>{v.plateNumber}</SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-              {swapForm.vanId && (
-                <button
-                  className="text-[11px] text-muted-foreground underline"
-                  onClick={() => setSwapForm((p) => ({ ...p, vanId: undefined }))}
-                >
-                  Clear van change
-                </button>
-              )}
-            </div>
-
-            {/* Info note */}
-            <p className="text-[11px] text-muted-foreground bg-muted/40 rounded-xl px-3 py-2">
-              These changes apply to this sheet only. To permanently change a van&apos;s default driver, update the van in Settings.
-            </p>
-          </div>
-
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => { setSwapOpen(false); setSwapForm({}); }}>Cancel</Button>
-            <Button
-              onClick={() => swapAssignment(swapForm, { onSuccess: () => { setSwapOpen(false); setSwapForm({}); } })}
-              disabled={isSwapping || (!swapForm.vanId && !swapForm.driverId)}
-              className="rounded-xl font-bold"
-            >
-              {isSwapping ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              Confirm Swap
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Delivery Action Dialog ──────────────────────────── */}
-      <Dialog open={!!deliveryOpen} onOpenChange={(o) => !o && setDeliveryOpen(null)}>
-        <DialogContent className="rounded-3xl max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-black flex items-center gap-2">
-              <Droplets className="h-5 w-5 text-primary" />
-              {(() => {
-                const item = items.find((i) => i.id === deliveryOpen);
-                return item?.customer?.name ?? 'Record Delivery';
-              })()}
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-5 py-4">
-            {/* Delivered / Unable to Deliver toggle */}
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setDeliveryMode('delivered')}
-                className={cn(
-                  'flex-1 py-3 px-4 rounded-2xl text-sm font-bold border-2 transition-all',
-                  deliveryMode === 'delivered'
-                    ? 'bg-emerald-500/10 border-emerald-500 text-emerald-700 dark:text-emerald-400'
-                    : 'bg-background border-border/50 text-muted-foreground hover:border-emerald-500/30',
-                )}
-              >
-                Delivered
-              </button>
-              <button
-                type="button"
-                onClick={() => setDeliveryMode('unable')}
-                className={cn(
-                  'flex-1 py-3 px-4 rounded-2xl text-sm font-bold border-2 transition-all',
-                  deliveryMode === 'unable'
-                    ? 'bg-destructive/10 border-destructive text-destructive'
-                    : 'bg-background border-border/50 text-muted-foreground hover:border-destructive/30',
-                )}
-              >
-                Unable to Deliver
-              </button>
-            </div>
-
-            {deliveryMode === 'delivered' ? (
-              /* Delivery fields */
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label className="font-bold text-xs uppercase tracking-widest">Dropped</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      value={itemForm.filledDropped ?? 1}
-                      onChange={(e) => setItemForm((p) => ({ ...p, filledDropped: Number(e.target.value) }))}
-                      className="font-mono font-bold h-11"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="font-bold text-xs uppercase tracking-widest">Empties Received</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      value={itemForm.emptyReceived ?? 0}
-                      onChange={(e) => setItemForm((p) => ({ ...p, emptyReceived: Number(e.target.value) }))}
-                      className="font-mono font-bold h-11"
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label className="font-bold text-xs uppercase tracking-widest">Cash Collected (₨)</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={itemForm.cashCollected ?? 0}
-                    onChange={(e) => setItemForm((p) => ({ ...p, cashCollected: Number(e.target.value) }))}
-                    className="h-12 text-lg font-black font-mono text-center bg-emerald-500/5 border-emerald-500/20 text-emerald-600 dark:text-emerald-400"
-                  />
-                </div>
-              </div>
-            ) : (
-              /* Unable to deliver fields */
-              <div className="space-y-4">
-                {/* Reason category — required */}
-                <div className="space-y-2">
-                  <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
-                    Reason Category <span className="text-destructive">*</span>
-                  </Label>
-                  <Select value={failureCategory} onValueChange={setFailureCategory}>
-                    <SelectTrigger className="h-11 rounded-xl">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="rounded-xl border-border/50 shadow-2xl">
-                      {FAILURE_CATEGORIES.map((cat) => (
-                        <SelectItem key={cat.value} value={cat.value} className="rounded-lg">
-                          {cat.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Optional notes */}
-                <div className="space-y-2">
-                  <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
-                    Notes (optional)
-                  </Label>
-                  <Input
-                    placeholder="Additional details..."
-                    value={unableReason}
-                    onChange={(e) => setUnableReason(e.target.value)}
-                    className="h-11"
-                  />
-                </div>
-
-                <p className="text-[11px] text-muted-foreground bg-blue-500/5 border border-blue-500/20 rounded-xl px-3 py-2">
-                  This reports an issue for ops planning. Drivers cannot reschedule or cancel from this screen.
-                </p>
-              </div>
-            )}
-          </div>
-
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setDeliveryOpen(null)}>Discard</Button>
-            <Button
-              onClick={onSaveItem}
-              disabled={isUpdatingItem}
-              className="rounded-xl font-bold min-w-[120px]"
-            >
-              {isUpdatingItem ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              Save Record
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ReconcileDialog
+        open={ui.reconcileOpen}
+        onClose={() => dispatch({ type: 'CLOSE_RECONCILE' })}
+        sheetId={sheetId}
+      />
+      <NewTripDialog
+        open={ui.newTripOpen}
+        onClose={() => dispatch({ type: 'CLOSE_NEW_TRIP' })}
+        sheetId={sheetId}
+        tripNumber={loads.length + 1}
+        defaultFilled={items.length * 2}
+      />
+      <CheckinDialog
+        open={ui.checkinOpen}
+        onClose={() => dispatch({ type: 'CLOSE_CHECKIN' })}
+        sheetId={sheetId}
+      />
+      <SwapDialog
+        open={ui.swapOpen}
+        onClose={() => dispatch({ type: 'CLOSE_SWAP' })}
+        sheetId={sheetId}
+        currentDriverId={data?.driverId}
+        currentDriverName={data?.driver?.name}
+        currentVanId={data?.vanId}
+        currentVanPlate={data?.van?.plateNumber}
+      />
+      <DeliveryDialog
+        open={ui.deliveryOpen}
+        onClose={() => dispatch({ type: 'CLOSE_DELIVERY' })}
+        sheetId={sheetId}
+        items={items}
+      />
     </div>
   );
 }

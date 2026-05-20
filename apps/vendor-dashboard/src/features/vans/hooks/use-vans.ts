@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useQueryState, parseAsInteger, parseAsString } from 'nuqs';
 import { toast } from 'sonner';
+import type { PaginatedResponse, VanSummary } from '@water-supply-crm/types';
 import { vansApi } from '../api/vans.api';
 import { queryKeys } from '../../../lib/query-keys';
 
@@ -34,7 +35,7 @@ export const useVans = () => {
 export const useAllVans = () => {
   return useQuery({
     queryKey: [...queryKeys.vans.all({}), 'all'],
-    queryFn: () => vansApi.getAll({ limit: 100 }).then((r) => r.data),
+    queryFn: (): Promise<PaginatedResponse<VanSummary>> => vansApi.getAll({ limit: 100 }).then((r) => r.data),
   });
 };
 

@@ -1,13 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useQueryState, parseAsInteger } from 'nuqs';
 import { toast } from 'sonner';
+import type { PaginatedResponse, DriverSummary } from '@water-supply-crm/types';
 import { usersApi } from '../api/users.api';
 import { queryKeys } from '../../../lib/query-keys';
 
 export const useAllDrivers = () => {
   return useQuery({
     queryKey: [...queryKeys.users.all({}), 'drivers-all'],
-    queryFn: () =>
+    queryFn: (): Promise<PaginatedResponse<DriverSummary>> =>
       usersApi.getAll({ limit: 100, role: 'DRIVER', isActive: true }).then((r) => r.data),
   });
 };
