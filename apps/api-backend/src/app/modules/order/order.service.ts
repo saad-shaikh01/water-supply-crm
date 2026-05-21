@@ -1,4 +1,6 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { PrismaService } from '@water-supply-crm/database';
 import { DispatchStatus } from '@prisma/client';
 import { paginate } from '../../common/helpers/paginate';
@@ -6,10 +8,11 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { RejectOrderDto } from './dto/reject-order.dto';
 import { OrderQueryDto } from './dto/order-query.dto';
 import { DispatchPlanDto } from './dto/dispatch-plan.dto';
+import { BulkApproveDto, BulkPlanDto } from './dto/bulk-order.dto';
 import { NotificationService } from '../notifications/notification.service';
 import { FcmService } from '../fcm/fcm.service';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
-import { NOTIFICATION_EVENTS } from '@water-supply-crm/queue';
+import { NOTIFICATION_EVENTS, QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
 import { MessageTemplates } from '../whatsapp/templates/message.templates';
 
 @Injectable()
@@ -21,6 +24,7 @@ export class OrderService {
     private notifications: NotificationService,
     private fcm: FcmService,
     private cache: CacheInvalidationService,
+    @InjectQueue(QUEUE_NAMES.ORDER_DISPATCH) private dispatchQueue: Queue,
   ) {}
 
   private async getCustomer(userId: string) {
@@ -240,6 +244,11 @@ export class OrderService {
 
     await this.cache.invalidateOverview(vendorId);
 
+    // Enqueue auto-dispatch (fire-and-forget — failure doesn't block approval)
+    this.dispatchQueue
+      .add(JOB_NAMES.AUTO_DISPATCH_ORDER, { orderId, vendorId }, { attempts: 3, backoff: { type: 'exponential', delay: 5000 } })
+      .catch((e: Error) => this.logger.warn(`Auto-dispatch queue failed for order ${orderId}: ${e.message}`));
+
     return updated;
   }
 
@@ -307,7 +316,7 @@ export class OrderService {
       throw new BadRequestException('Dispatch plan already exists. Use PATCH to update.');
     }
 
-    return this.prisma.customerOrder.update({
+    const updated = await this.prisma.customerOrder.update({
       where: { id: orderId },
       data: {
         dispatchStatus: DispatchStatus.PLANNED,
@@ -321,10 +330,14 @@ export class OrderService {
         plannedById: userId,
       },
       include: {
-        customer: { select: { id: true, name: true } },
+        customer: { select: { id: true, name: true, phoneNumber: true, userId: true } },
         product: { select: { id: true, name: true } },
       },
     });
+
+    this.sendPlanNotification(orderId, updated.customer, updated.product.name, updated.quantity, new Date(dto.targetDate));
+
+    return updated;
   }
 
   async updateDispatchPlan(vendorId: string, orderId: string, dto: DispatchPlanDto, userId: string) {
@@ -336,7 +349,7 @@ export class OrderService {
       throw new BadRequestException('Order is already inserted in a sheet and cannot be re-planned');
     }
 
-    return this.prisma.customerOrder.update({
+    const updated = await this.prisma.customerOrder.update({
       where: { id: orderId },
       data: {
         dispatchStatus: DispatchStatus.PLANNED,
@@ -350,10 +363,125 @@ export class OrderService {
         plannedById: userId,
       },
       include: {
-        customer: { select: { id: true, name: true } },
+        customer: { select: { id: true, name: true, phoneNumber: true, userId: true } },
         product: { select: { id: true, name: true } },
       },
     });
+
+    this.sendPlanNotification(orderId, updated.customer, updated.product.name, updated.quantity, new Date(dto.targetDate));
+
+    return updated;
+  }
+
+  async bulkApprove(vendorId: string, dto: BulkApproveDto, reviewerId: string) {
+    const orders = await this.prisma.customerOrder.findMany({
+      where: { id: { in: dto.orderIds }, vendorId, status: 'PENDING' },
+      include: {
+        customer: { select: { name: true, phoneNumber: true, userId: true } },
+        product: { select: { name: true } },
+      },
+    });
+
+    if (orders.length === 0) return { approved: 0, skipped: dto.orderIds.length };
+
+    const approvedIds = orders.map((o) => o.id);
+
+    await this.prisma.customerOrder.updateMany({
+      where: { id: { in: approvedIds } },
+      data: { status: 'APPROVED', reviewedBy: reviewerId, reviewedAt: new Date() },
+    });
+
+    // Fire-and-forget: notify customers + enqueue auto-dispatch for each
+    for (const order of orders) {
+      const waKey = `ntf:${NOTIFICATION_EVENTS.ORDER_APPROVED}:${order.id}:wa`;
+      const waMsg = MessageTemplates.orderApproved(order.customer.name, order.product.name, order.quantity);
+      this.notifications.queueWhatsApp(order.customer.phoneNumber, waMsg, waKey).catch(() => null);
+
+      if (order.customer.userId) {
+        const fcmKey = `ntf:${NOTIFICATION_EVENTS.ORDER_APPROVED}:${order.id}:fcm`;
+        this.notifications.queueFcm(
+          order.customer.userId,
+          'Order Approved ✅',
+          `Your order for ${order.product.name} has been approved.`,
+          { type: 'ORDER_APPROVED', orderId: order.id },
+          fcmKey,
+        ).catch(() => null);
+      }
+
+      this.dispatchQueue
+        .add(JOB_NAMES.AUTO_DISPATCH_ORDER, { orderId: order.id, vendorId }, { attempts: 3, backoff: { type: 'exponential', delay: 5000 } })
+        .catch(() => null);
+    }
+
+    await this.cache.invalidateOverview(vendorId);
+
+    return { approved: approvedIds.length, skipped: dto.orderIds.length - approvedIds.length };
+  }
+
+  async bulkPlan(vendorId: string, dto: BulkPlanDto, reviewerId: string) {
+    const targetDate = new Date(dto.targetDate);
+    const orders = await this.prisma.customerOrder.findMany({
+      where: {
+        id: { in: dto.orderIds },
+        vendorId,
+        status: 'APPROVED',
+        dispatchStatus: { in: ['UNPLANNED', 'PLANNED'] },
+      },
+      include: {
+        customer: { select: { name: true, phoneNumber: true, userId: true } },
+        product: { select: { name: true } },
+      },
+    });
+
+    if (orders.length === 0) return { planned: 0, skipped: dto.orderIds.length };
+
+    const plannedIds = orders.map((o) => o.id);
+
+    await this.prisma.customerOrder.updateMany({
+      where: { id: { in: plannedIds } },
+      data: {
+        dispatchStatus: DispatchStatus.PLANNED,
+        targetDate,
+        dispatchMode: 'QUEUE_FOR_GENERATION',
+        plannedAt: new Date(),
+        plannedById: reviewerId,
+      },
+    });
+
+    for (const order of orders) {
+      this.sendPlanNotification(order.id, order.customer, order.product.name, order.quantity, targetDate);
+    }
+
+    return { planned: plannedIds.length, skipped: dto.orderIds.length - plannedIds.length };
+  }
+
+  private sendPlanNotification(
+    orderId: string,
+    customer: { name: string; phoneNumber: string; userId: string | null },
+    productName: string,
+    qty: number,
+    targetDate: Date,
+  ) {
+    const dateStr = targetDate.toLocaleDateString('en-PK', { weekday: 'long', day: 'numeric', month: 'long' });
+    const waMsg = MessageTemplates.orderPlanned(customer.name, productName, qty, dateStr);
+    const waKey = `ntf:${NOTIFICATION_EVENTS.ORDER_PLANNED}:${orderId}:wa`;
+
+    this.notifications
+      .queueWhatsApp(customer.phoneNumber, waMsg, waKey)
+      .catch((e) => this.logger.warn(`WhatsApp plan-notify failed for order ${orderId}: ${e.message}`));
+
+    if (customer.userId) {
+      const fcmKey = `ntf:${NOTIFICATION_EVENTS.ORDER_PLANNED}:${orderId}:fcm`;
+      this.notifications
+        .queueFcm(
+          customer.userId,
+          'Delivery Scheduled 📅',
+          `Your order for ${productName} is planned for ${dateStr}.`,
+          { type: NOTIFICATION_EVENTS.ORDER_PLANNED, orderId },
+          fcmKey,
+        )
+        .catch((e: Error) => this.logger.warn(`FCM plan-notify failed for order ${orderId}: ${e.message}`));
+    }
   }
 
   async dispatchNow(vendorId: string, orderId: string, userId: string) {

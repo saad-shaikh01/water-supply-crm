@@ -33,6 +33,7 @@ import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { OrderModule } from './modules/order/order.module';
 import { TicketModule } from './modules/ticket/ticket.module';
 import { DeliveryIssueModule } from './modules/delivery-issue/delivery-issue.module';
+import { PaymentReminderModule } from './modules/payment-reminder/payment-reminder.module';
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { DeliveryIssueModule } from './modules/delivery-issue/delivery-issue.mod
     OrderModule,
     TicketModule,
     DeliveryIssueModule,
+    PaymentReminderModule,
   ],
   controllers: [AppController],
   providers: [

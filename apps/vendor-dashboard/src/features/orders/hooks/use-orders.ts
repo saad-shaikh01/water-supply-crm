@@ -118,6 +118,34 @@ export const useDispatchOrderNow = () => {
   });
 };
 
+export const useBulkApproveOrders = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (orderIds: string[]) => ordersApi.bulkApprove(orderIds),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['vendor-orders'] });
+      const { approved, skipped } = (res.data as any) ?? {};
+      toast.success(`${approved} order(s) approved${skipped > 0 ? `, ${skipped} skipped` : ''}`);
+    },
+    onError: () => toast.error('Bulk approve failed'),
+  });
+};
+
+export const useBulkPlanOrders = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ orderIds, targetDate }: { orderIds: string[]; targetDate: string }) =>
+      ordersApi.bulkPlan(orderIds, targetDate),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['vendor-orders'] });
+      const { planned, skipped } = (res.data as any) ?? {};
+      toast.success(`${planned} order(s) planned${skipped > 0 ? `, ${skipped} skipped` : ''}`);
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? 'Bulk plan failed'),
+  });
+};
+
 export const useInsertOrderIntoSheet = () => {
   const queryClient = useQueryClient();
   return useMutation({

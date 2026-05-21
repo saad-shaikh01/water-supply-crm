@@ -45,4 +45,10 @@ export const ordersApi = {
 
   dispatchNow: (id: string) =>
     apiClient.post(`/orders/${id}/dispatch-now`),
+
+  bulkApprove: (orderIds: string[]) =>
+    apiClient.post('/orders/bulk-approve', { orderIds }),
+
+  bulkPlan: (orderIds: string[], targetDate: string) =>
+    apiClient.post('/orders/bulk-plan', { orderIds, targetDate }),
 };

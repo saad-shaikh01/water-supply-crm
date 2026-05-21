@@ -17,6 +17,13 @@ export const NOTIFICATION_EVENTS = {
 
   // Delivery lifecycle
   DELIVERY_FAILED:   'delivery.failed',
+
+  // Dispatch lifecycle
+  ORDER_PLANNED:     'order.planned',
+  ORDER_DISPATCHED:  'order.dispatched',
+
+  // Payment request
+  PAYMENT_REQUEST_PENDING: 'payment_request.pending',
 } as const;
 
 export type NotificationEvent = (typeof NOTIFICATION_EVENTS)[keyof typeof NOTIFICATION_EVENTS];

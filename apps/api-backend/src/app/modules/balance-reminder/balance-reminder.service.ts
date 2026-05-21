@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import Redis from 'ioredis';
 import { PrismaService } from '@water-supply-crm/database';
 import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
 import { MessageTemplates } from '../whatsapp/templates/message.templates';
@@ -12,6 +13,8 @@ import { ScheduleReminderDto, SendNowDto, SendTargetedDto, PreviewDto } from './
 const DEFAULT_CRON = '0 4 * * *'; // 9 AM PKT (UTC+5) — stored as UTC
 const DEFAULT_MIN_BALANCE = 100;
 const REPEATABLE_JOB_ID = (vendorId: string) => `balance-reminder:${vendorId}`;
+const REMINDER_COOLDOWN_TTL = 23 * 60 * 60; // 23 hours — prevent re-sending within same day
+const cooldownKey = (vendorId: string, customerId: string) => `balance-reminder-cooldown:${vendorId}:${customerId}`;
 
 /** Signed statement URL is valid for 7 days — long enough for customer to act */
 const STATEMENT_URL_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -26,8 +29,9 @@ export interface ReminderScheduleStatus {
 }
 
 @Injectable()
-export class BalanceReminderService {
+export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BalanceReminderService.name);
+  private redis: Redis;
 
   constructor(
     @InjectQueue(QUEUE_NAMES.BALANCE_REMINDERS)
@@ -37,6 +41,15 @@ export class BalanceReminderService {
     private readonly storage: StorageService,
     private readonly statementPdf: CustomerStatementPdfService,
   ) {}
+
+  onModuleInit() {
+    const redisUrl = process.env['REDIS_URL'] || 'redis://localhost:6379';
+    this.redis = new Redis(redisUrl);
+  }
+
+  async onModuleDestroy() {
+    await this.redis?.quit();
+  }
 
   // ─── Schedule management ────────────────────────────────────────────────────
 
@@ -264,7 +277,22 @@ export class BalanceReminderService {
       const monthBalance = monthEndBalances.get(customer.id) ?? customer.financialBalance;
       let statementUrl: string | null = null;
 
-      if (includeStatement && !dryRun) {
+      if (dryRun) {
+        results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'would-send', statementUrl: includeStatement ? '(signed URL generated at send time)' : null });
+        skipped++;
+        continue;
+      }
+
+      // Enforce per-customer cooldown to prevent duplicate sends within the same day
+      const cdKey = cooldownKey(vendorId, customer.id);
+      const onCooldown = await this.redis.exists(cdKey);
+      if (onCooldown) {
+        results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'skipped-cooldown', statementUrl: null });
+        skipped++;
+        continue;
+      }
+
+      if (includeStatement) {
         statementUrl = await this.generateStatementUrl(vendorId, customer.id, targetMonth);
       }
 
@@ -272,15 +300,14 @@ export class BalanceReminderService {
         ? MessageTemplates.balanceReminderWithStatement(customer.name, monthBalance, this.formatMonthLabel(targetMonth), statementUrl)
         : MessageTemplates.balanceReminder(customer.name, monthBalance);
 
-      if (dryRun) {
-        results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'would-send', statementUrl: includeStatement ? '(signed URL generated at send time)' : null });
-        skipped++;
-        continue;
-      }
-
       const messageSent = await this.whatsapp.sendMessage(customer.phoneNumber, message);
+      if (messageSent) {
+        await this.redis.set(cdKey, '1', 'EX', REMINDER_COOLDOWN_TTL);
+        sent++;
+      } else {
+        skipped++;
+      }
       results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: messageSent ? 'sent' : 'failed', statementUrl });
-      if (messageSent) { sent++; } else { skipped++; }
     }
 
     this.logger.log(`Balance reminders vendor=${vendorId} sent=${sent} skipped=${skipped} dryRun=${dryRun} month=${targetMonth} includeStatement=${includeStatement}`);

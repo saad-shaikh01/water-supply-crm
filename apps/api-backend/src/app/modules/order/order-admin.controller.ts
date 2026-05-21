@@ -5,6 +5,7 @@ import { OrderService } from './order.service';
 import { RejectOrderDto } from './dto/reject-order.dto';
 import { OrderQueryDto } from './dto/order-query.dto';
 import { DispatchPlanDto } from './dto/dispatch-plan.dto';
+import { BulkApproveDto, BulkPlanDto } from './dto/bulk-order.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -56,5 +57,17 @@ export class OrderAdminController {
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   dispatchNow(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.orderService.dispatchNow(user.vendorId, id, user.userId);
+  }
+
+  @Post('bulk-approve')
+  @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
+  bulkApprove(@CurrentUser() user: AuthUser, @Body() dto: BulkApproveDto) {
+    return this.orderService.bulkApprove(user.vendorId, dto, user.userId);
+  }
+
+  @Post('bulk-plan')
+  @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
+  bulkPlan(@CurrentUser() user: AuthUser, @Body() dto: BulkPlanDto) {
+    return this.orderService.bulkPlan(user.vendorId, dto, user.userId);
   }
 }

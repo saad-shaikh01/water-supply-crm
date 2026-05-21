@@ -19,20 +19,20 @@
 
 ---
 
-## Phase 3 — Week 3 (UX) ⏳ PENDING
+## Phase 3 — Week 3 (UX) ✅ COMPLETED
 
-- ⬜ [M7] Add confirmation dialog before saving delivery status as COMPLETED in sheet-detail.tsx
-- ⬜ [F2] Auto-dispatch background job — assign approved orders to next scheduled van/route
-- ⬜ [M4/F5] Implement balance reminder cooldown using Redis TTL per customer
-- ⬜ [M11] Fix useCustomerSchedule query key — spread params primitives instead of object reference
-- ⬜ [F3] Vendor notification center — persistent in-app notification feed for vendor staff
+- ✅ [M7] Add confirmation dialog before saving delivery status as COMPLETED in sheet-detail.tsx
+- ✅ [F2] Auto-dispatch background job — assign approved orders to next scheduled van/route
+- ✅ [M4/F5] Implement balance reminder cooldown using Redis TTL per customer
+- ✅ [M11] Fix useCustomerSchedule query key — spread params primitives instead of object reference
+- ✅ [F3] Vendor notification center — persistent in-app notification feed for vendor staff
 
 ---
 
-## Phase 4 — Month 2 (Features) ⏳ PENDING
+## Phase 4 — Month 2 (Features) ✅ COMPLETED
 
-- ⬜ [F4] Send dispatch notifications to customers when order is planned or dispatched
-- ⬜ [F6] Payment request reminder job — auto-remind vendor after 3 days pending
-- ⬜ [F8/F9] Cron preset UI for reminders + notification preference settings panel in portal
-- ⬜ [F11] Bulk approve + bulk plan orders — backend endpoints + vendor-dashboard UI
-- ⬜ [L1] Refactor SheetDetail (600+ lines) into SheetDetailHeader, DeliveryItemsList, LoadTripsSection sub-components
+- ✅ [F4] Send dispatch notifications to customers when order is planned or dispatched
+- ✅ [F6] Payment request reminder job — auto-remind vendor after 3 days pending
+- ✅ [F8/F9] Cron preset UI for reminders + notification preference settings panel in portal
+- ✅ [F11] Bulk approve + bulk plan orders — backend endpoints + vendor-dashboard UI
+- ✅ [L1] Refactor SheetDetail (600+ lines) into SheetDetailHeader, DeliveryItemsList, LoadTripsSection sub-components

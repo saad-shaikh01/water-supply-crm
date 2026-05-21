@@ -1,5 +1,9 @@
+'use client';
+
 import { ProfileCard } from '../../../features/profile/components/profile-card';
+import { NotificationPreferencesPanel } from '../../../features/notifications/components/notification-preferences-panel';
 import { UserCircle } from 'lucide-react';
+import { Card, CardContent } from '@water-supply-crm/ui';
 
 export default function ProfilePage() {
   return (
@@ -15,6 +19,12 @@ export default function ProfilePage() {
       </div>
 
       <ProfileCard />
+
+      <Card className="bg-card/50 backdrop-blur-sm border-border/50">
+        <CardContent className="pt-6">
+          <NotificationPreferencesPanel />
+        </CardContent>
+      </Card>
     </div>
   );
 }

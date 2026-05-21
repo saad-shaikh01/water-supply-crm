@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { Suspense, useEffect, useRef, useState } from 'react';
-import { Check, SlidersHorizontal, Truck, X } from 'lucide-react';
+import { CalendarDays, Check, CheckSquare, Loader2, SlidersHorizontal, Truck, X } from 'lucide-react';
 import {
   Badge,
   Button,
@@ -31,6 +31,8 @@ import {
   useSaveDispatchPlan,
   useDispatchOrderNow,
   useInsertOrderIntoSheet,
+  useBulkApproveOrders,
+  useBulkPlanOrders,
 } from '../../../features/orders/hooks/use-orders';
 import { OrderRejectDialog } from '../../../features/orders/components/order-reject-dialog';
 import { OrderDispatchDrawer } from '../../../features/orders/components/order-dispatch-drawer';
@@ -70,7 +72,11 @@ function OrdersContent() {
   const { mutate: saveDispatchPlan, isPending: isSavingPlan } = useSaveDispatchPlan();
   const { mutate: dispatchNow, isPending: isDispatchingNow } = useDispatchOrderNow();
   const { mutate: insertIntoSheet, isPending: isInsertingIntoSheet } = useInsertOrderIntoSheet();
+  const { mutate: bulkApprove, isPending: isBulkApproving } = useBulkApproveOrders();
+  const { mutate: bulkPlan, isPending: isBulkPlanning } = useBulkPlanOrders();
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+  const [bulkPlanDate, setBulkPlanDate] = useState('');
   const [rejectOpen, setRejectOpen] = useState(false);
   const [dispatchOrder, setDispatchOrder] = useState<any>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -318,6 +324,58 @@ function OrdersContent() {
         </SheetContent>
       </Sheet>
 
+      {selectedRows.size > 0 && (
+        <div className="flex flex-wrap items-center gap-3 p-4 rounded-2xl bg-primary/5 border border-primary/20 animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center gap-2 text-sm font-bold text-primary">
+            <CheckSquare className="h-4 w-4" />
+            {selectedRows.size} selected
+          </div>
+          <div className="flex flex-wrap gap-2 ml-auto">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 rounded-xl text-xs font-bold gap-1.5 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10"
+              disabled={isBulkApproving}
+              onClick={() => bulkApprove([...selectedRows], { onSuccess: () => setSelectedRows(new Set()) })}
+            >
+              {isBulkApproving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+              Approve All
+            </Button>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="date"
+                value={bulkPlanDate}
+                onChange={(e) => setBulkPlanDate(e.target.value)}
+                className="h-8 rounded-xl border border-border/50 bg-accent/30 px-2 text-xs text-white font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 rounded-xl text-xs font-bold gap-1.5 border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
+                disabled={isBulkPlanning || !bulkPlanDate}
+                onClick={() =>
+                  bulkPlan(
+                    { orderIds: [...selectedRows], targetDate: bulkPlanDate },
+                    { onSuccess: () => { setSelectedRows(new Set()); setBulkPlanDate(''); } },
+                  )
+                }
+              >
+                {isBulkPlanning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CalendarDays className="h-3.5 w-3.5" />}
+                Plan All
+              </Button>
+            </div>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 rounded-xl text-xs font-bold text-muted-foreground hover:text-foreground"
+              onClick={() => setSelectedRows(new Set())}
+            >
+              <X className="h-3.5 w-3.5 mr-1" /> Clear
+            </Button>
+          </div>
+        </div>
+      )}
+
       <DataTable
         data={rows}
         isLoading={isLoading}
@@ -328,6 +386,25 @@ function OrdersContent() {
         onLimitChange={setLimit}
         emptyMessage="No orders found."
         columns={[
+          {
+            key: 'select',
+            header: '',
+            width: '40px',
+            cell: (r: any) => (
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-border/50 accent-primary cursor-pointer"
+                checked={selectedRows.has(r.id)}
+                onChange={(e) => {
+                  const next = new Set(selectedRows);
+                  if (e.target.checked) next.add(r.id);
+                  else next.delete(r.id);
+                  setSelectedRows(next);
+                }}
+                onClick={(e) => e.stopPropagation()}
+              />
+            ),
+          },
           {
             key: 'date',
             header: 'Created',

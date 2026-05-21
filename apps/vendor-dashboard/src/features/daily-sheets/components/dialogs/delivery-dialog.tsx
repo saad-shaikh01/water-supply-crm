@@ -36,6 +36,7 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
   const [failureCategory, setFailureCategory] = useState('CUSTOMER_NOT_HOME');
   const [unableReason, setUnableReason] = useState('');
   const [itemForm, setItemForm] = useState<Partial<DeliveryItem>>({});
+  const [awaitingConfirm, setAwaitingConfirm] = useState(false);
 
   const item = items.find((i) => i.id === open) ?? null;
 
@@ -46,6 +47,7 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
     setDeliveryMode(item.status === 'PENDING' ? 'delivered' : isUnable ? 'unable' : 'delivered');
     setFailureCategory(item.failureCategory ?? 'CUSTOMER_NOT_HOME');
     setUnableReason(item.reason ?? '');
+    setAwaitingConfirm(false);
     setItemForm({
       filledDropped: item.filledDropped || 1,
       emptyReceived: item.emptyReceived || 0,
@@ -53,7 +55,16 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
     });
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const onSave = () => {
+  const handleSaveClick = () => {
+    if (!open) return;
+    if (deliveryMode === 'delivered') {
+      setAwaitingConfirm(true);
+      return;
+    }
+    doSave();
+  };
+
+  const doSave = () => {
     if (!open) return;
     const finalData: Record<string, unknown> = deliveryMode === 'delivered'
       ? {
@@ -83,6 +94,46 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
           </DialogTitle>
         </DialogHeader>
 
+        {awaitingConfirm ? (
+          <div className="py-6 space-y-5">
+            <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-3">
+              <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400">Confirm Delivery — {item?.customer?.name}</p>
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <div className="rounded-xl bg-background/70 border border-border/40 px-2 py-2">
+                  <p className="text-[9px] font-bold uppercase text-muted-foreground">Dropped</p>
+                  <p className="text-lg font-black font-mono">{itemForm.filledDropped ?? 1}</p>
+                </div>
+                <div className="rounded-xl bg-background/70 border border-border/40 px-2 py-2">
+                  <p className="text-[9px] font-bold uppercase text-muted-foreground">Empties</p>
+                  <p className="text-lg font-black font-mono">{itemForm.emptyReceived ?? 0}</p>
+                </div>
+                <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-2 py-2">
+                  <p className="text-[9px] font-bold uppercase text-muted-foreground">Cash</p>
+                  <p className="text-lg font-black font-mono text-emerald-600 dark:text-emerald-400">₨{itemForm.cashCollected ?? 0}</p>
+                </div>
+              </div>
+              <p className="text-[11px] text-muted-foreground">This will mark the delivery as <span className="font-bold text-emerald-600">COMPLETED</span> and update the customer&apos;s wallet and balance. This action cannot be undone without editing the record.</p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setAwaitingConfirm(false)}
+                className="flex-1 py-2.5 px-4 rounded-2xl text-sm font-bold border border-border/50 bg-background text-muted-foreground hover:border-primary/30 transition-all"
+              >
+                Go Back
+              </button>
+              <button
+                type="button"
+                onClick={doSave}
+                disabled={isPending}
+                className="flex-1 py-2.5 px-4 rounded-2xl text-sm font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition-all disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Confirm & Save
+              </button>
+            </div>
+          </div>
+        ) : (
         <div className="space-y-5 py-4">
           {/* Delivered / Unable toggle */}
           <div className="flex gap-2">
@@ -183,14 +234,17 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
             </div>
           )}
         </div>
+        )}
 
+        {!awaitingConfirm && (
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>Discard</Button>
-          <Button onClick={onSave} disabled={isPending} className="rounded-xl font-bold min-w-[120px]">
+          <Button onClick={handleSaveClick} disabled={isPending} className="rounded-xl font-bold min-w-[120px]">
             {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
             Save Record
           </Button>
         </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   );

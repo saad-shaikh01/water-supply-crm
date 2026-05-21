@@ -1,0 +1,297 @@
+'use client';
+
+import { Card, CardContent, Button, Badge, Tabs, TabsList, TabsTrigger } from '@water-supply-crm/ui';
+import { StatusBadge } from '../../../components/shared/status-badge';
+import {
+  AlertCircle, ChevronDown, ChevronUp, ClipboardList,
+  MapPin, MessageCircle, Navigation, Phone,
+} from 'lucide-react';
+import { cn } from '@water-supply-crm/ui';
+import { motion, AnimatePresence } from 'framer-motion';
+import type { DeliveryItem } from '@water-supply-crm/types';
+
+type TabKey = 'all' | 'pending' | 'completed' | 'issues';
+
+const CATEGORY_LABELS: Record<string, string> = {
+  CUSTOMER_NOT_HOME: 'Customer Not Home',
+  CUSTOMER_NOT_ANSWERING: 'Customer Not Answering',
+  CUSTOMER_SELF_PICKUP: 'Customer Self Pickup',
+  VAN_BREAKDOWN: 'Van Breakdown',
+  ACCESS_ISSUE: 'Area / Access Issue',
+  CUSTOMER_REFUSED: 'Customer Refused',
+  WEATHER: 'Weather / Road Issue',
+  OTHER: 'Other',
+};
+const formatCategory = (cat: string) => CATEGORY_LABELS[cat] ?? cat;
+
+const formatPhone = (phone?: string | null) => {
+  if (!phone) return '';
+  return phone.startsWith('0') ? `92${phone.slice(1)}` : phone;
+};
+
+interface DeliveryItemsListProps {
+  items: DeliveryItem[];
+  paginatedItems: DeliveryItem[];
+  filteredItems: DeliveryItem[];
+  activeTab: TabKey;
+  tabPage: number;
+  totalPages: number;
+  expandedItemId: string | null;
+  isClosed: boolean;
+  tabCount: (tab: TabKey) => number;
+  onTabChange: (tab: string) => void;
+  onPageChange: (page: number) => void;
+  onToggleExpand: (itemId: string | null) => void;
+  onOpenDelivery: (item: DeliveryItem) => void;
+}
+
+export function DeliveryItemsList({
+  items,
+  paginatedItems,
+  filteredItems,
+  activeTab,
+  tabPage,
+  totalPages,
+  expandedItemId,
+  isClosed,
+  tabCount,
+  onTabChange,
+  onPageChange,
+  onToggleExpand,
+  onOpenDelivery,
+}: DeliveryItemsListProps) {
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-black flex items-center gap-2">
+          <ClipboardList className="h-5 w-5 text-primary" />
+          Delivery Queue
+        </h3>
+        <p className="text-xs text-muted-foreground font-medium">
+          {items.filter((i) => i.status !== 'PENDING').length} / {items.length} done
+        </p>
+      </div>
+
+      <Tabs value={activeTab} onValueChange={onTabChange}>
+        <TabsList className="w-full grid grid-cols-4 h-10">
+          <TabsTrigger value="all" className="text-xs font-bold">
+            All <span className="ml-1 text-[10px] opacity-60">({tabCount('all')})</span>
+          </TabsTrigger>
+          <TabsTrigger value="pending" className="text-xs font-bold">
+            Pending <span className="ml-1 text-[10px] opacity-60">({tabCount('pending')})</span>
+          </TabsTrigger>
+          <TabsTrigger value="completed" className="text-xs font-bold">
+            Done <span className="ml-1 text-[10px] opacity-60">({tabCount('completed')})</span>
+          </TabsTrigger>
+          <TabsTrigger value="issues" className="text-xs font-bold">
+            Issues <span className="ml-1 text-[10px] opacity-60">({tabCount('issues')})</span>
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      <div className="grid gap-2">
+        {paginatedItems.length === 0 ? (
+          <Card className="border-dashed border-2 border-border/40">
+            <CardContent className="p-8 text-center text-sm text-muted-foreground font-medium">
+              No items in this category.
+            </CardContent>
+          </Card>
+        ) : (
+          paginatedItems.map((item, idx) => {
+            const isExpanded = expandedItemId === item.id;
+            const customer = item.customer;
+            const matchedWallet = customer?.wallets?.find((w) => w.productId === item.productId) ?? customer?.wallets?.[0];
+            const walletBalance = matchedWallet?.balance ?? 0;
+
+            return (
+              <motion.div
+                key={item.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.03 }}
+              >
+                <Card className={cn(
+                  'overflow-hidden border-border/50 transition-all',
+                  item.status !== 'PENDING' ? 'bg-muted/30' : 'bg-card/50',
+                  isExpanded ? 'border-primary/30 shadow-sm' : 'hover:border-primary/20',
+                )}>
+                  <CardContent className="p-4 sm:p-5">
+                    <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <div className="h-9 w-9 rounded-full bg-accent flex items-center justify-center shrink-0 font-black text-sm">
+                          {item.sequence}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="font-bold text-sm truncate">{customer?.name}</h4>
+                            <Badge variant="outline" className="text-[9px] font-mono px-1.5">{customer?.customerCode}</Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate flex items-center gap-1 mt-0.5">
+                            <MapPin className="h-2.5 w-2.5 shrink-0" />
+                            {customer?.address}
+                            {customer?.floor ? ` · ${customer.floor}` : ''}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 shrink-0">
+                        <StatusBadge status={item.status} />
+                        {!isClosed && (
+                          <Button
+                            size="sm"
+                            variant={item.status === 'PENDING' ? 'default' : 'outline'}
+                            className="rounded-full font-bold text-xs h-8 px-3"
+                            onClick={() => onOpenDelivery(item)}
+                          >
+                            {item.status === 'PENDING' ? 'Record' : 'Edit'}
+                          </Button>
+                        )}
+                        <button
+                          className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                          onClick={() => onToggleExpand(isExpanded ? null : item.id)}
+                        >
+                          {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </div>
+                  </CardContent>
+
+                  <AnimatePresence>
+                    {isExpanded && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="border-t border-border/50 bg-accent/10 p-4 sm:p-5 space-y-4">
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <div className="rounded-xl bg-background/70 border border-border/40 px-3 py-2">
+                              <p className="text-[9px] font-bold uppercase text-muted-foreground">Bottle Wallet</p>
+                              <p className="text-base font-black mt-0.5">{walletBalance} btl</p>
+                            </div>
+                            <div className="rounded-xl bg-background/70 border border-border/40 px-3 py-2">
+                              <p className="text-[9px] font-bold uppercase text-muted-foreground">Balance Due</p>
+                              <p className={cn('text-base font-black mt-0.5', (customer?.financialBalance ?? 0) > 0 ? 'text-destructive' : 'text-emerald-600')}>
+                                ₨{(customer?.financialBalance ?? 0).toLocaleString()}
+                              </p>
+                            </div>
+                            <div className="rounded-xl bg-background/70 border border-border/40 px-3 py-2">
+                              <p className="text-[9px] font-bold uppercase text-muted-foreground">Payment</p>
+                              <p className="text-base font-black mt-0.5">{customer?.paymentType ?? '—'}</p>
+                            </div>
+                            <div className="rounded-xl bg-background/70 border border-border/40 px-3 py-2">
+                              <p className="text-[9px] font-bold uppercase text-muted-foreground">Phone</p>
+                              <p className="text-sm font-black mt-0.5 truncate">{customer?.phoneNumber ?? '—'}</p>
+                            </div>
+                          </div>
+
+                          {(customer?.floor || customer?.nearbyLandmark || customer?.deliveryInstructions) && (
+                            <div className="rounded-xl bg-background/70 border border-border/40 p-3 space-y-1">
+                              {customer?.floor && (
+                                <p className="text-xs text-muted-foreground">
+                                  <span className="font-bold">Floor:</span> {customer.floor}
+                                </p>
+                              )}
+                              {customer?.nearbyLandmark && (
+                                <p className="text-xs text-muted-foreground">
+                                  <span className="font-bold">Landmark:</span> {customer.nearbyLandmark}
+                                </p>
+                              )}
+                              {customer?.deliveryInstructions && (
+                                <p className="text-xs text-amber-700 dark:text-amber-400 font-medium">
+                                  <span className="font-bold">Note:</span> {customer.deliveryInstructions}
+                                </p>
+                              )}
+                            </div>
+                          )}
+
+                          <div className="flex gap-2 flex-wrap">
+                            {customer?.phoneNumber && (
+                              <a href={`tel:${customer.phoneNumber}`}>
+                                <Button size="sm" variant="outline" className="rounded-full font-bold gap-1.5 text-xs h-8">
+                                  <Phone className="h-3.5 w-3.5" />
+                                  Call
+                                </Button>
+                              </a>
+                            )}
+                            {customer?.phoneNumber && (
+                              <a
+                                href={`https://wa.me/${formatPhone(customer.phoneNumber)}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <Button size="sm" variant="outline" className="rounded-full font-bold gap-1.5 text-xs h-8 text-emerald-600 border-emerald-500/30 hover:bg-emerald-500/10">
+                                  <MessageCircle className="h-3.5 w-3.5" />
+                                  WhatsApp
+                                </Button>
+                              </a>
+                            )}
+                            {customer?.latitude && customer?.longitude && (
+                              <a
+                                href={`https://maps.google.com/?q=${customer.latitude},${customer.longitude}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <Button size="sm" variant="outline" className="rounded-full font-bold gap-1.5 text-xs h-8 text-blue-600 border-blue-500/30 hover:bg-blue-500/10">
+                                  <Navigation className="h-3.5 w-3.5" />
+                                  Map
+                                </Button>
+                              </a>
+                            )}
+                          </div>
+
+                          {item.failureCategory && (
+                            <div className="flex items-start gap-2 text-xs bg-destructive/5 rounded-xl px-3 py-2 border border-destructive/20">
+                              <AlertCircle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
+                              <div>
+                                <span className="font-bold text-destructive">{formatCategory(item.failureCategory)}</span>
+                                {item.reason && <span className="text-muted-foreground"> · {item.reason}</span>}
+                              </div>
+                            </div>
+                          )}
+                          {!item.failureCategory && item.reason && (
+                            <p className="text-xs text-muted-foreground bg-background/70 rounded-xl px-3 py-2 border border-border/40">
+                              <span className="font-bold">Note:</span> {item.reason}
+                            </p>
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </Card>
+              </motion.div>
+            );
+          })
+        )}
+      </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between gap-2 pt-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="rounded-full font-bold"
+            disabled={tabPage <= 1}
+            onClick={() => onPageChange(Math.max(1, tabPage - 1))}
+          >
+            Previous
+          </Button>
+          <span className="text-xs text-muted-foreground font-medium">
+            Page {tabPage} of {totalPages} · {filteredItems.length} items
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="rounded-full font-bold"
+            disabled={tabPage >= totalPages}
+            onClick={() => onPageChange(Math.min(totalPages, tabPage + 1))}
+          >
+            Next
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
