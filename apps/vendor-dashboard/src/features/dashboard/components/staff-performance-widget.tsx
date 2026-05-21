@@ -42,7 +42,7 @@ export function StaffPerformanceWidget() {
                 {row.driver?.name?.charAt(0) ?? '?'}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-white/90 truncate">{row.driver?.name ?? 'Unknown'}</p>
+                <p className="text-sm font-bold text-foreground dark:text-white/90 truncate">{row.driver?.name ?? 'Unknown'}</p>
                 <div className="flex items-center gap-2 mt-0.5">
                   <div className="flex-1 h-1 bg-white/5 rounded-full overflow-hidden max-w-[60px]">
                     <div 
@@ -54,7 +54,7 @@ export function StaffPerformanceWidget() {
                 </div>
               </div>
               <div className="text-right shrink-0">
-                <p className="text-sm font-bold text-white/90 tabular-nums">
+                <p className="text-sm font-bold text-foreground dark:text-white/90 tabular-nums">
                   {row.stats.deliveredItems} <span className="text-[10px] text-muted-foreground/40 font-medium uppercase tracking-tighter">del.</span>
                 </p>
                 <p className="text-[11px] text-emerald-400 font-bold tabular-nums">

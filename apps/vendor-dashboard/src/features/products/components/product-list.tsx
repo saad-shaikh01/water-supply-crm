@@ -176,7 +176,7 @@ export function ProductList({ onEdit }: ProductListProps) {
                   <Package className="h-4 w-4" />
                 </div>
                 <div className="flex flex-col min-w-0">
-                  <span className="font-bold truncate text-sm text-white">{r.name}</span>
+                  <span className="font-bold truncate text-sm text-foreground dark:text-white">{r.name}</span>
                   <span className="text-[10px] text-muted-foreground/60 truncate italic">{r.description || 'No description'}</span>
                 </div>
               </div>

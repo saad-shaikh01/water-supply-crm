@@ -182,7 +182,7 @@ export function SheetList() {
                 <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0 border border-primary/10">
                   <Calendar className="h-4 w-4" />
                 </div>
-                <span className="font-bold text-sm text-white">
+                <span className="font-bold text-sm text-foreground dark:text-white">
                   {new Date(r.date).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}
                 </span>
               </div>
@@ -193,7 +193,7 @@ export function SheetList() {
             header: 'Route & Van',
             cell: (r) => (
               <div className="flex flex-col min-w-0 max-w-[150px]">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-white truncate">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-foreground dark:text-white truncate">
                   <MapPin className="h-3 w-3 text-primary shrink-0" />
                   {r.route?.name ?? '—'}
                 </div>
@@ -212,7 +212,7 @@ export function SheetList() {
                 <div className="h-6 w-6 rounded-full bg-white/5 border border-white/5 flex items-center justify-center shrink-0">
                   <User className="h-3 w-3 text-muted-foreground/60" />
                 </div>
-                <span className="text-xs font-semibold text-white/80 truncate">{r.driver?.name ?? '—'}</span>
+                <span className="text-xs font-semibold text-foreground dark:text-white/80 truncate">{r.driver?.name ?? '—'}</span>
               </div>
             )
           },
@@ -224,7 +224,7 @@ export function SheetList() {
                 const total = r.itemCounts.pending + r.itemCounts.completed + r.itemCounts.issues;
                 return (
                   <div className="flex items-center gap-2 whitespace-nowrap">
-                    <span className="text-xs font-bold text-white">{total}</span>
+                    <span className="text-xs font-bold text-foreground dark:text-white">{total}</span>
                     <div className="flex items-center gap-1.5 text-[10px] font-mono">
                       <span className="text-emerald-400">{r.itemCounts.completed}✓</span>
                       <span className="text-amber-400">{r.itemCounts.pending}⏳</span>
@@ -236,7 +236,7 @@ export function SheetList() {
                 );
               }
               return (
-                <span className="text-xs font-bold text-white whitespace-nowrap">{r._count?.items ?? 0} Items</span>
+                <span className="text-xs font-bold text-foreground dark:text-white whitespace-nowrap">{r._count?.items ?? 0} Items</span>
               );
             }
           },
@@ -245,9 +245,9 @@ export function SheetList() {
             header: 'Bottles',
             cell: (r) => (
               <div className="flex items-center gap-1.5 text-xs whitespace-nowrap">
-                <span className="font-bold text-white">{r.filledOutCount ?? 0}</span>
+                <span className="font-bold text-foreground dark:text-white">{r.filledOutCount ?? 0}</span>
                 <span className="text-muted-foreground/40">/</span>
-                <span className="font-bold text-white">{r.filledInCount ?? 0}</span>
+                <span className="font-bold text-foreground dark:text-white">{r.filledInCount ?? 0}</span>
                 <span className="text-muted-foreground/40 font-medium">in</span>
               </div>
             )

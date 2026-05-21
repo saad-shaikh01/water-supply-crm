@@ -216,7 +216,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                 </div>
                 <div className="flex flex-col min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="font-bold truncate text-sm text-white group-hover:text-primary transition-colors">{r.name}</span>
+                    <span className="font-bold truncate text-sm text-foreground dark:text-white group-hover:text-primary transition-colors">{r.name}</span>
                     {!r.isActive && (
                       <Badge variant="outline" className="text-[8px] px-1 py-0 h-3.5 text-muted-foreground border-muted-foreground/20 shrink-0">
                         OFF
@@ -253,7 +253,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             header: 'Route',
             cell: (r) => (
               <div className="max-w-[120px]">
-                <Badge variant="secondary" className="bg-white/5 text-white/60 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border-none truncate block text-center">
+                <Badge variant="secondary" className="bg-white/5 text-muted-foreground dark:text-white/60 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border-none truncate block text-center">
                   {r.route?.name ?? 'None'}
                 </Badge>
               </div>

@@ -60,7 +60,7 @@ export function RoutePerformanceWidget() {
             return (
               <div key={r.id} className="space-y-2 group/route">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm font-bold text-white/90">{r.name}</span>
+                  <span className="text-sm font-bold text-foreground dark:text-white/90">{r.name}</span>
                   <Badge className={cn(
                     "text-[10px] font-bold border px-2 py-0.5 rounded-full uppercase tracking-wider",
                     rate >= 80 ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
@@ -82,7 +82,7 @@ export function RoutePerformanceWidget() {
                       style={{ width: `${rate}%` }}
                     />
                   </div>
-                  <span className="text-[10px] text-white/40 font-bold tabular-nums shrink-0">
+                  <span className="text-[10px] text-muted-foreground dark:text-white/40 font-bold tabular-nums shrink-0">
                     {r.completedItems} <span className="opacity-30">/</span> {r.totalItems}
                   </span>
                 </div>

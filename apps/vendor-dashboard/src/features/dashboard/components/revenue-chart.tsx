@@ -4,10 +4,13 @@ import { useRevenueStats } from '../hooks/use-dashboard';
 import { Card, CardContent, CardHeader, CardTitle, Skeleton } from '@water-supply-crm/ui';
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import { useAuthStore } from '../../../store/auth.store';
+import { useTheme } from 'next-themes';
 
 export function RevenueChart() {
   const user = useAuthStore((s) => s.user);
   const isAdmin = user?.role === 'VENDOR_ADMIN';
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
 
   const to = new Date();
   const from = new Date();
@@ -49,14 +52,14 @@ export function RevenueChart() {
               tickFormatter={(value) => `₨${value}`}
             />
             <Tooltip
-              cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+              cursor={{ fill: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)' }}
               contentStyle={{
-                backgroundColor: 'rgba(10, 10, 15, 0.95)',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
+                backgroundColor: isDark ? 'rgba(10, 10, 15, 0.95)' : '#ffffff',
+                border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0,0,0,0.08)',
                 borderRadius: '12px',
                 fontSize: '12px',
                 fontWeight: 'bold',
-                color: '#fff',
+                color: isDark ? '#fff' : '#111',
                 backdropFilter: 'blur(10px)',
               }}
             />

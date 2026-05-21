@@ -48,16 +48,16 @@ export function DataTablePagination({
             <span className="text-foreground font-black">{total}</span>
           </p>
           
-          <div className="hidden lg:flex items-center gap-2 border-l border-white/10 pl-4">
+          <div className="hidden lg:flex items-center gap-2 border-l border-border pl-4">
             <p className="font-bold uppercase tracking-wider">Rows</p>
             <Select
               value={limit.toString()}
               onValueChange={(value) => onLimitChange(Number(value))}
             >
-              <SelectTrigger className="h-7 w-[65px] rounded-md bg-white/5 border-white/10 hover:bg-white/10 transition-colors text-[11px] font-bold">
+              <SelectTrigger className="h-7 w-[65px] rounded-md bg-muted/50 border-border hover:bg-muted transition-colors text-[11px] font-bold">
                 <SelectValue placeholder={limit} />
               </SelectTrigger>
-              <SelectContent side="top" className="rounded-xl border-white/10 shadow-2xl bg-[#0a0a0f]/95 backdrop-blur-xl">
+              <SelectContent side="top" className="rounded-xl border-border shadow-2xl bg-background/95 backdrop-blur-xl">
                 {pageSizeOptions.map((pageSize) => (
                   <SelectItem key={pageSize} value={pageSize.toString()} className="rounded-lg text-xs">
                     {pageSize}
@@ -74,7 +74,7 @@ export function DataTablePagination({
             <Button
               variant="outline"
               size="icon"
-              className="h-7 w-7 rounded-md bg-white/5 border-white/10 hover:bg-primary/10 hover:text-primary hover:border-primary/30 transition-all disabled:opacity-20"
+              className="h-7 w-7 rounded-md bg-muted/30 border-border hover:bg-primary/10 hover:text-primary hover:border-primary/30 transition-all disabled:opacity-30"
               onClick={() => onPageChange(1)}
               disabled={page <= 1}
             >
@@ -83,7 +83,7 @@ export function DataTablePagination({
             <Button
               variant="outline"
               size="icon"
-              className="h-7 w-7 rounded-md bg-white/5 border-white/10 hover:bg-primary/10 hover:text-primary hover:border-primary/30 transition-all disabled:opacity-20"
+              className="h-7 w-7 rounded-md bg-muted/30 border-border hover:bg-primary/10 hover:text-primary hover:border-primary/30 transition-all disabled:opacity-30"
               onClick={() => onPageChange(page - 1)}
               disabled={page <= 1}
             >
@@ -92,7 +92,7 @@ export function DataTablePagination({
           </div>
 
           <div className="flex items-center justify-center min-w-[80px] gap-2">
-            <div className="flex items-center gap-1.5 bg-white/5 px-2.5 py-1 rounded-md border border-white/10">
+            <div className="flex items-center gap-1.5 bg-muted/30 px-2.5 py-1 rounded-md border border-border">
               <span className="text-xs font-black text-primary tabular-nums">{page}</span>
               <span className="text-[10px] text-muted-foreground/30 font-bold">/</span>
               <span className="text-xs font-black text-foreground/70 tabular-nums">{totalPages || 1}</span>
@@ -103,7 +103,7 @@ export function DataTablePagination({
             <Button
               variant="outline"
               size="icon"
-              className="h-7 w-7 rounded-md bg-white/5 border-white/10 hover:bg-primary/10 hover:text-primary hover:border-primary/30 transition-all disabled:opacity-20"
+              className="h-7 w-7 rounded-md bg-muted/30 border-border hover:bg-primary/10 hover:text-primary hover:border-primary/30 transition-all disabled:opacity-30"
               onClick={() => onPageChange(page + 1)}
               disabled={page >= totalPages}
             >
@@ -112,7 +112,7 @@ export function DataTablePagination({
             <Button
               variant="outline"
               size="icon"
-              className="h-7 w-7 rounded-md bg-white/5 border-white/10 hover:bg-primary/10 hover:text-primary hover:border-primary/30 transition-all disabled:opacity-20"
+              className="h-7 w-7 rounded-md bg-muted/30 border-border hover:bg-primary/10 hover:text-primary hover:border-primary/30 transition-all disabled:opacity-30"
               onClick={() => onPageChange(totalPages)}
               disabled={page >= totalPages}
             >

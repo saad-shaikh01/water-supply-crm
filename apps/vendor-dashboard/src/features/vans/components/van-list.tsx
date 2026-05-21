@@ -157,7 +157,7 @@ export function VanList({ onEdit }: VanListProps) {
             key: 'plate', header: 'Plate Number',
             cell: (r) => (
               <div className={cn("flex items-center gap-2 whitespace-nowrap", !r.isActive && "opacity-60")}>
-                <span className="font-bold text-sm text-white">{r.plateNumber}</span>
+                <span className="font-bold text-sm text-foreground dark:text-white">{r.plateNumber}</span>
                 {r.isActive === false && (
                   <Badge variant="outline" className="text-[8px] px-1 py-0 h-3.5 text-muted-foreground border-muted-foreground/20 shrink-0">
                     OFF
@@ -174,7 +174,7 @@ export function VanList({ onEdit }: VanListProps) {
             key: 'driver',
             header: 'Default Driver',
             cell: (r) => r.defaultDriver
-              ? <span className="text-xs font-semibold text-white/80 truncate max-w-[120px] block">{r.defaultDriver.name}</span>
+              ? <span className="text-xs font-semibold text-foreground dark:text-white/80 truncate max-w-[120px] block">{r.defaultDriver.name}</span>
               : <span className="text-xs text-muted-foreground/40">—</span>
           },
           {
@@ -190,7 +190,7 @@ export function VanList({ onEdit }: VanListProps) {
               return (
                 <div className="flex items-center gap-1 whitespace-nowrap">
                   {visible.map((rt) => (
-                    <Badge key={rt.id} variant="secondary" className="text-[9px] font-bold px-1.5 py-0 bg-white/5 text-white/60 rounded-md border-none">
+                    <Badge key={rt.id} variant="secondary" className="text-[9px] font-bold px-1.5 py-0 bg-white/5 text-muted-foreground dark:text-white/60 rounded-md border-none">
                       {rt.name}
                     </Badge>
                   ))}

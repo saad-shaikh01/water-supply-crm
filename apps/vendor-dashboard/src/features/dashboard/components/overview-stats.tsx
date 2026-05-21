@@ -24,7 +24,7 @@ function StatCard({ title, value, icon: Icon, description, trend }: StatCardProp
         </div>
       </CardHeader>
       <CardContent>
-        <div className="text-3xl font-bold tracking-tight mb-2 text-white">{value}</div>
+        <div className="text-3xl font-bold tracking-tight mb-2 text-foreground dark:text-white">{value}</div>
         <div className="flex items-center gap-2">
           {trend && (
             <span className="premium-badge premium-badge-success flex items-center">

@@ -43,10 +43,10 @@ export function TopCustomersWidget() {
                 {i + 1}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold truncate text-white">{row.customer?.name ?? 'Unknown'}</p>
+                <p className="text-sm font-semibold truncate text-foreground dark:text-white">{row.customer?.name ?? 'Unknown'}</p>
                 <p className="text-[10px] font-mono text-muted-foreground/60">{row.customer?.customerCode ?? 'N/A'}</p>
               </div>
-              <Badge variant="outline" className="text-[10px] font-mono shrink-0 bg-white/5 border-white/10 text-white/70">
+              <Badge variant="outline" className="text-[10px] font-mono shrink-0 bg-white/5 border-white/10 text-muted-foreground dark:text-white/70">
                 ₨{Number(row.totalRevenue).toLocaleString()}
               </Badge>
             </div>

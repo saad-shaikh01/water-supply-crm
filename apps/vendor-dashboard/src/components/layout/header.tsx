@@ -136,7 +136,7 @@ export function Header() {
         <Sheet>
           <SheetTrigger asChild>
             <Button variant="ghost" size="icon" className="md:hidden hover:bg-white/5 rounded-xl h-12 w-12 border border-border">
-              <Menu className="h-6 w-6 text-white" />
+              <Menu className="h-6 w-6 text-foreground dark:text-white" />
             </Button>
           </SheetTrigger>
           <SheetContent side="left" className="p-0 w-80 border-r border-border bg-transparent">
@@ -149,7 +149,7 @@ export function Header() {
           <input 
             type="text" 
             placeholder="Search anything..." 
-            className="bg-transparent border-none outline-none text-sm w-full placeholder:text-muted-foreground/50 font-medium tracking-tight text-white"
+            className="bg-transparent border-none outline-none text-sm w-full placeholder:text-muted-foreground/50 font-medium tracking-tight text-foreground dark:text-white"
           />
           <kbd className="hidden lg:inline-flex h-5 select-none items-center gap-1 rounded border border-border bg-white/5 px-1.5 font-mono text-[10px] text-muted-foreground">
             <span className="text-xs">⌘</span>K
@@ -175,7 +175,7 @@ export function Header() {
                 variant="ghost"
                 size="icon"
                 aria-label="Open notifications"
-                className="relative text-muted-foreground hover:text-white hover:bg-white/5 rounded-xl h-11 w-11 transition-colors border border-transparent hover:border-border data-[state=open]:bg-white/5 data-[state=open]:text-white data-[state=open]:border-border"
+                className="relative text-muted-foreground hover:text-foreground dark:hover:text-white hover:bg-white/5 rounded-xl h-11 w-11 transition-colors border border-transparent hover:border-border data-[state=open]:bg-white/5 data-[state=open]:text-foreground dark:data-[state=open]:text-white data-[state=open]:border-border"
               >
                 <Bell className="h-5 w-5" />
                 {hasUnread && (
@@ -191,7 +191,7 @@ export function Header() {
             >
               <div className="px-4 py-3 border-b border-border/50 flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-bold text-white">Notifications</p>
+                  <p className="text-sm font-bold text-foreground dark:text-white">Notifications</p>
                   <p className="text-[11px] text-muted-foreground">
                     {isUnreadLoading
                       ? 'Loading...'
@@ -264,7 +264,7 @@ export function Header() {
                           />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center justify-between gap-3">
-                              <p className="text-sm font-semibold text-white truncate">{notification.title}</p>
+                              <p className="text-sm font-semibold text-foreground dark:text-white truncate">{notification.title}</p>
                               <span className="text-[10px] text-muted-foreground shrink-0">
                                 {formatTimestamp(notification.createdAt)}
                               </span>

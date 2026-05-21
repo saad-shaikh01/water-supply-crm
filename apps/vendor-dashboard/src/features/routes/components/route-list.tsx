@@ -178,7 +178,7 @@ export function RouteList({ onEdit }: RouteListProps) {
         columns={[
           { 
             key: 'name', header: 'Name', 
-            cell: (r) => <span className="font-bold text-sm text-white truncate max-w-[200px] block">{r.name}</span> 
+            cell: (r) => <span className="font-bold text-sm text-foreground dark:text-white truncate max-w-[200px] block">{r.name}</span>
           },
           { 
             key: 'van', header: 'Default Van', 

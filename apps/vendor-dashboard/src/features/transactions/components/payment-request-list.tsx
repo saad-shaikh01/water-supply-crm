@@ -127,10 +127,10 @@ export function PaymentRequestList() {
           <select
             value={status}
             onChange={(e) => { setStatus(e.target.value || null); resetPage(); }}
-            className="h-9 sm:h-10 rounded-xl bg-background/50 border-border/50 text-sm text-white px-3 pr-8 outline-none focus:ring-2 focus:ring-primary/30 appearance-none cursor-pointer min-w-[120px]"
+            className="h-9 sm:h-10 rounded-xl bg-background/50 border-border/50 text-sm text-foreground dark:text-white px-3 pr-8 outline-none focus:ring-2 focus:ring-primary/30 appearance-none cursor-pointer min-w-[120px]"
           >
             {STATUS_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value} className="bg-background text-white">
+              <option key={opt.value} value={opt.value} className="bg-background text-foreground dark:text-white">
                 {opt.label}
               </option>
             ))}
@@ -184,7 +184,7 @@ export function PaymentRequestList() {
           )}
           <button
             onClick={clearAll}
-            className="text-xs text-muted-foreground hover:text-white font-semibold underline-offset-4 hover:underline ml-1"
+            className="text-xs text-muted-foreground hover:text-foreground dark:hover:text-white font-semibold underline-offset-4 hover:underline ml-1"
           >
             Clear All
           </button>
@@ -204,11 +204,11 @@ export function PaymentRequestList() {
               <select
                 value={customerId}
                 onChange={(e) => { setCustomerId(e.target.value || null); resetPage(); }}
-                className="w-full h-10 rounded-xl bg-background/50 border-border text-sm text-white px-3 appearance-none cursor-pointer"
+                className="w-full h-10 rounded-xl bg-background/50 border-border text-sm text-foreground dark:text-white px-3 appearance-none cursor-pointer"
               >
                 <option value="">All Customers</option>
                 {customers.map((c) => (
-                  <option key={c.id} value={c.id} className="bg-background text-white">
+                  <option key={c.id} value={c.id} className="bg-background text-foreground dark:text-white">
                     {c.name}{c.customerCode ? ` (${c.customerCode})` : ''}
                   </option>
                 ))}
@@ -220,10 +220,10 @@ export function PaymentRequestList() {
               <select
                 value={method}
                 onChange={(e) => { setMethod(e.target.value || null); resetPage(); }}
-                className="w-full h-10 rounded-xl bg-background/50 border-border text-sm text-white px-3 appearance-none cursor-pointer"
+                className="w-full h-10 rounded-xl bg-background/50 border-border text-sm text-foreground dark:text-white px-3 appearance-none cursor-pointer"
               >
                 {METHOD_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value} className="bg-background text-white">
+                  <option key={opt.value} value={opt.value} className="bg-background text-foreground dark:text-white">
                     {opt.label}
                   </option>
                 ))}
@@ -280,7 +280,7 @@ export function PaymentRequestList() {
             header: 'Customer',
             cell: (r) => (
               <div className="flex flex-col min-w-0 max-w-[180px]">
-                <span className="font-bold text-sm text-white truncate">{r.customer?.name}</span>
+                <span className="font-bold text-sm text-foreground dark:text-white truncate">{r.customer?.name}</span>
                 <span className="text-[10px] text-muted-foreground/60 font-mono truncate">{r.customer?.customerCode}</span>
               </div>
             )
@@ -298,7 +298,7 @@ export function PaymentRequestList() {
             key: 'method',
             header: 'Method',
             cell: (r) => (
-              <Badge variant="outline" className="font-mono text-[9px] bg-white/5 border-white/10 text-white/60 px-1.5 py-0 rounded-md whitespace-nowrap">
+              <Badge variant="outline" className="font-mono text-[9px] bg-white/5 border-white/10 text-muted-foreground dark:text-white/60 px-1.5 py-0 rounded-md whitespace-nowrap">
                 {r.method.replace('MANUAL_', '').replace('_', ' ')}
               </Badge>
             )

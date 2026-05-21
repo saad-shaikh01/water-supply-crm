@@ -346,7 +346,7 @@ function OrdersContent() {
                 type="date"
                 value={bulkPlanDate}
                 onChange={(e) => setBulkPlanDate(e.target.value)}
-                className="h-8 rounded-xl border border-border/50 bg-accent/30 px-2 text-xs text-white font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+                className="h-8 rounded-xl border border-border/50 bg-accent/30 px-2 text-xs text-foreground dark:text-white font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
               />
               <Button
                 size="sm"
@@ -410,7 +410,7 @@ function OrdersContent() {
             header: 'Created',
             cell: (r: any) => (
               <div className="flex flex-col min-w-[80px]">
-                <span className="text-xs font-bold text-white tabular-nums">
+                <span className="text-xs font-bold text-foreground dark:text-white tabular-nums">
                   {new Date(r.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}
                 </span>
                 <span className="text-[10px] text-muted-foreground/60 font-medium">
@@ -424,7 +424,7 @@ function OrdersContent() {
             header: 'Customer',
             cell: (r: any) => (
               <div className="flex flex-col max-w-[200px] min-w-[150px]">
-                <p className="font-bold text-sm text-white truncate">{r.customer?.name}</p>
+                <p className="font-bold text-sm text-foreground dark:text-white truncate">{r.customer?.name}</p>
                 <p className="text-[10px] text-muted-foreground/70 font-mono truncate">{r.customer?.phoneNumber}</p>
               </div>
             ),
@@ -444,7 +444,7 @@ function OrdersContent() {
             header: 'Preferred Date',
             cell: (r: any) => (
               <div className="flex flex-col min-w-[100px]">
-                <span className="text-xs font-bold text-white whitespace-nowrap">
+                <span className="text-xs font-bold text-foreground dark:text-white whitespace-nowrap">
                   {formatDate(r.preferredDate)}
                 </span>
                 <span className="text-[10px] text-muted-foreground/60 italic font-medium">Requested</span>
@@ -475,7 +475,7 @@ function OrdersContent() {
                   <StatusBadge status={r.dispatchStatus ?? 'UNPLANNED'} />
                 </div>
                 {r.targetDate ? (
-                  <p className="text-[10px] text-white/70 mt-1 font-medium truncate">
+                  <p className="text-[10px] text-muted-foreground dark:text-white/70 mt-1 font-medium truncate">
                     {formatDate(r.targetDate)}{r.timeWindow ? ` • ${r.timeWindow}` : ''}
                   </p>
                 ) : (

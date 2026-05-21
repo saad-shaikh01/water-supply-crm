@@ -113,7 +113,7 @@ export function DataTable<T extends { id: string }>({
       {onPageChange && onLimitChange && (
         <div className="sticky bottom-4 z-30 mt-auto">
           <div className="mx-auto max-w-fit sm:max-w-none">
-            <div className="bg-[#0a0a0f]/80 backdrop-blur-2xl border border-white/10 rounded-2xl p-1 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.5)] overflow-hidden">
+            <div className="bg-background/95 dark:bg-[#0a0a0f]/80 backdrop-blur-2xl border border-border rounded-2xl p-1 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.2)] overflow-hidden">
               <DataTablePagination 
                 page={page}
                 limit={limit}

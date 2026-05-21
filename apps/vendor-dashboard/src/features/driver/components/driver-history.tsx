@@ -140,7 +140,7 @@ export function DriverHistory() {
                   <span className="text-foreground font-semibold">
                     ₨{(stats?.cashExpected ?? 0).toLocaleString()}
                   </span>
-                  <span className="mx-2 text-white/20">|</span>
+                  <span className="mx-2 text-border dark:text-white/20">|</span>
                   Collected:{' '}
                   <span className="text-foreground font-semibold">
                     ₨{(stats?.cashCollected ?? 0).toLocaleString()}

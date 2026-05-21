@@ -106,10 +106,10 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
           <select
             value={type || ''}
             onChange={(e) => { setType(e.target.value || null); resetPage(); }}
-            className="h-10 rounded-xl bg-background/50 border-border/50 text-sm text-white px-3 pr-8 outline-none focus:ring-2 focus:ring-primary/30 appearance-none cursor-pointer min-w-[140px]"
+            className="h-10 rounded-xl bg-background/50 border-border/50 text-sm text-foreground dark:text-white px-3 pr-8 outline-none focus:ring-2 focus:ring-primary/30 appearance-none cursor-pointer min-w-[140px]"
           >
             {TRANSACTION_TYPES.map((t) => (
-              <option key={t.value} value={t.value} className="bg-background text-white">
+              <option key={t.value} value={t.value} className="bg-background text-foreground dark:text-white">
                 {t.label}
               </option>
             ))}
@@ -176,7 +176,7 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
           )}
           <button 
             onClick={clearAll}
-            className="text-xs text-muted-foreground hover:text-white font-semibold underline-offset-4 hover:underline ml-1"
+            className="text-xs text-muted-foreground hover:text-foreground dark:hover:text-white font-semibold underline-offset-4 hover:underline ml-1"
           >
             Clear All
           </button>
@@ -197,10 +197,10 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
               <select
                 value={type || ''}
                 onChange={(e) => { setType(e.target.value || null); resetPage(); }}
-                className="w-full h-10 rounded-xl bg-background/50 border-border text-sm text-white px-3 appearance-none cursor-pointer"
+                className="w-full h-10 rounded-xl bg-background/50 border-border text-sm text-foreground dark:text-white px-3 appearance-none cursor-pointer"
               >
                 {TRANSACTION_TYPES.map((t) => (
-                  <option key={t.value} value={t.value} className="bg-background text-white">
+                  <option key={t.value} value={t.value} className="bg-background text-foreground dark:text-white">
                     {t.label}
                   </option>
                 ))}
@@ -213,11 +213,11 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
                 <select
                   value={customerId || ''}
                   onChange={(e) => { setCustomerId(e.target.value || null); resetPage(); }}
-                  className="w-full h-10 rounded-xl bg-background/50 border-border text-sm text-white px-3 appearance-none cursor-pointer"
+                  className="w-full h-10 rounded-xl bg-background/50 border-border text-sm text-foreground dark:text-white px-3 appearance-none cursor-pointer"
                 >
                   <option value="">All Customers</option>
                   {customers.map((c) => (
-                    <option key={c.id} value={c.id} className="bg-background text-white">
+                    <option key={c.id} value={c.id} className="bg-background text-foreground dark:text-white">
                       {c.name} ({c.customerCode})
                     </option>
                   ))}
@@ -230,11 +230,11 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
               <select
                 value={vanId || ''}
                 onChange={(e) => { setVanId(e.target.value || null); resetPage(); }}
-                className="w-full h-10 rounded-xl bg-background/50 border-border text-sm text-white px-3 appearance-none cursor-pointer"
+                className="w-full h-10 rounded-xl bg-background/50 border-border text-sm text-foreground dark:text-white px-3 appearance-none cursor-pointer"
               >
                 <option value="">All Vans</option>
                 {vans.map((v) => (
-                  <option key={v.id} value={v.id} className="bg-background text-white">
+                  <option key={v.id} value={v.id} className="bg-background text-foreground dark:text-white">
                     {v.plateNumber}
                   </option>
                 ))}
@@ -285,7 +285,7 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
             key: 'customer',
             header: 'Customer',
             cell: (r: typeof rows[0]) => (
-              <span className="font-bold text-sm text-white truncate max-w-[180px] block">{r.customer?.name ?? '—'}</span>
+              <span className="font-bold text-sm text-foreground dark:text-white truncate max-w-[180px] block">{r.customer?.name ?? '—'}</span>
             ),
           }]),
           {

@@ -46,6 +46,7 @@ export function CustomersTab({ from, to }: { from: string; to: string }) {
     borderRadius: '12px',
     fontSize: '12px',
     fontWeight: 'bold',
+    color: isDark ? '#fff' : '#111',
   };
 
   if (isLoading) {

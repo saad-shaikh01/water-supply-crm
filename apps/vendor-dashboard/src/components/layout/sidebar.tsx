@@ -66,7 +66,7 @@ export function Sidebar({ className }: { className?: string }) {
           <div className="p-2 rounded-xl bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors shadow-inner">
             <Droplets className="h-6 w-6" />
           </div>
-          <span className="text-xl font-bold text-white tracking-tight">
+          <span className="text-xl font-bold text-foreground dark:text-white tracking-tight">
             WATER<span className="text-primary">CRM</span>
           </span>
         </Link>
@@ -116,7 +116,7 @@ export function Sidebar({ className }: { className?: string }) {
       <div className="p-6 border-t border-border/50 bg-white/[0.01]">
         <div className="px-5 py-4 rounded-2xl bg-white/[0.03] border border-border/50 shadow-xl">
           <p className="text-[9px] uppercase tracking-widest font-bold text-primary">Operator</p>
-          <p className="text-sm font-bold truncate text-white mt-1">{user?.name || 'User'}</p>
+          <p className="text-sm font-bold truncate text-foreground dark:text-white mt-1">{user?.name || 'User'}</p>
           <div className="flex items-center gap-2 mt-1">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
             <p className="text-[10px] text-muted-foreground uppercase font-semibold tracking-tight">{user?.role?.replace('_', ' ')}</p>

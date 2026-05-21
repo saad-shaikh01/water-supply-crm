@@ -15,7 +15,7 @@ function fmt(n: number) {
 }
 
 function RateBadge({ rate }: { rate: number }) {
-  const color = rate >= 90 ? 'bg-emerald-500/20 text-emerald-400' : rate >= 70 ? 'bg-amber-500/20 text-amber-400' : 'bg-destructive/20 text-destructive';
+  const color = rate >= 90 ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : rate >= 70 ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' : 'bg-destructive/20 text-destructive';
   return (
     <span className={cn('px-2 py-0.5 rounded-full text-xs font-bold', color)}>
       {rate}%
@@ -34,6 +34,7 @@ export function StaffTab({ from, to }: { from: string; to: string }) {
     borderRadius: '12px',
     fontSize: '12px',
     fontWeight: 'bold',
+    color: isDark ? '#fff' : '#111',
   };
 
   if (isLoading) {

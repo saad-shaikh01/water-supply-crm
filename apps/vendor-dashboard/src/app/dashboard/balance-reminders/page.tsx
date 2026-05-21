@@ -157,7 +157,7 @@ export default function BalanceRemindersPage() {
                       <p className="text-[10px] font-bold text-muted-foreground uppercase">Pattern</p>
                       <div className="flex items-center gap-2">
                         <Badge className="bg-emerald-500/10 text-emerald-500 border-none text-[10px] font-black px-2">ACTIVE</Badge>
-                        <code className="text-sm font-mono bg-accent/50 px-2 py-0.5 rounded-lg text-white">{schedule.cronExpression}</code>
+                        <code className="text-sm font-mono bg-accent/50 px-2 py-0.5 rounded-lg text-foreground dark:text-white">{schedule.cronExpression}</code>
                       </div>
                     </div>
                     <Button
@@ -172,7 +172,7 @@ export default function BalanceRemindersPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="p-3 rounded-2xl bg-white/5 border border-white/5 space-y-1">
                       <p className="text-[10px] font-bold text-muted-foreground uppercase">Min Balance</p>
-                      <p className="text-sm font-black text-white">₨ {Number(schedule.minBalance ?? 0).toLocaleString()}</p>
+                      <p className="text-sm font-black text-foreground dark:text-white">₨ {Number(schedule.minBalance ?? 0).toLocaleString()}</p>
                     </div>
                     <div className="p-3 rounded-2xl bg-white/5 border border-white/5 space-y-1">
                       <p className="text-[10px] font-bold text-muted-foreground uppercase">Next Run</p>
@@ -189,7 +189,7 @@ export default function BalanceRemindersPage() {
                     <Bell className="h-6 w-6 text-muted-foreground/40" />
                   </div>
                   <div className="space-y-1">
-                    <p className="text-sm font-bold text-white">No active schedule</p>
+                    <p className="text-sm font-bold text-foreground dark:text-white">No active schedule</p>
                     <p className="text-xs text-muted-foreground">Automated reminders are currently disabled.</p>
                   </div>
                 </div>
@@ -369,7 +369,7 @@ export default function BalanceRemindersPage() {
                     type="month"
                     value={month}
                     onChange={(e) => { setMonth(e.target.value); setShowPreview(false); resetPreview(); }}
-                    className="w-full h-11 rounded-xl border border-border/50 bg-accent/30 px-3 text-sm text-white font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+                    className="w-full h-11 rounded-xl border border-border/50 bg-accent/30 px-3 text-sm text-foreground dark:text-white font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
                   />
                 </div>
                 <p className="text-[10px] text-muted-foreground ml-1">
@@ -382,7 +382,7 @@ export default function BalanceRemindersPage() {
                 <div className="flex items-center gap-2">
                   <FileText className="h-4 w-4 text-primary" />
                   <div>
-                    <p className="text-xs font-bold text-white">Include Statement Link</p>
+                    <p className="text-xs font-bold text-foreground dark:text-white">Include Statement Link</p>
                     <p className="text-[10px] text-muted-foreground">Attaches a secure 7-day PDF link to the message</p>
                   </div>
                 </div>
@@ -408,7 +408,7 @@ export default function BalanceRemindersPage() {
                 <div className="rounded-xl border border-border/50 overflow-hidden animate-in fade-in slide-in-from-top-2">
                   <div className="px-3 py-2 bg-white/5 border-b border-border/50 flex items-center gap-2">
                     <Info className="h-3.5 w-3.5 text-primary" />
-                    <span className="text-xs font-bold text-white uppercase tracking-wider">Preview</span>
+                    <span className="text-xs font-bold text-foreground dark:text-white uppercase tracking-wider">Preview</span>
                     {isPreviewing && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground ml-auto" />}
                   </div>
                   <div className="p-3 space-y-2">
@@ -416,7 +416,7 @@ export default function BalanceRemindersPage() {
                       <>
                         {sendMode === 'single' && selectedCustomer && (
                           <div className="text-xs space-y-1">
-                            <p className="text-white font-semibold">{selectedCustomer.name}</p>
+                            <p className="text-foreground dark:text-white font-semibold">{selectedCustomer.name}</p>
                             <p className="text-muted-foreground">
                               Balance ({formatMonthDisplay(month)}): ₨{Number(
                                 ([...(previewResult.wouldSend ?? []), ...(previewResult.skipped ?? [])].find((e: any) => e.customerId === selectedCustomerId)?.balance)
