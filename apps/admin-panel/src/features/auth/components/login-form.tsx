@@ -31,15 +31,15 @@ export function LoginForm() {
       <form onSubmit={handleSubmit(onSubmit)}>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
+            <Label htmlFor="identifier">Email</Label>
             <Input
-              id="email"
+              id="identifier"
               type="email"
               placeholder="admin@example.com"
-              {...register('email')}
+              {...register('identifier')}
             />
-            {errors.email && (
-              <p className="text-sm text-destructive">{errors.email.message}</p>
+            {errors.identifier && (
+              <p className="text-sm text-destructive">{errors.identifier.message}</p>
             )}
           </div>
           <div className="space-y-2">
