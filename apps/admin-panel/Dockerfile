@@ -39,12 +39,12 @@ ENV HOSTNAME=0.0.0.0
 # Copy the self-contained standalone server and its bundled node_modules
 COPY --from=builder /app/dist/apps/admin-panel/.next/standalone/ ./
 
-# Copy static build artifacts (CSS, JS chunks) next to the standalone server
-COPY --from=builder /app/dist/apps/admin-panel/.next/static/ ./.next/static/
+# Copy static build artifacts into the nested path the standalone server expects
+COPY --from=builder /app/dist/apps/admin-panel/.next/static/ ./apps/admin-panel/.next/static/
 
 # Copy public assets
-COPY --from=builder /app/dist/apps/admin-panel/public/ ./public/
+COPY --from=builder /app/dist/apps/admin-panel/public/ ./apps/admin-panel/public/
 
 EXPOSE 4200
 
-CMD ["node", "server.js"]
+CMD ["node", "apps/admin-panel/server.js"]
