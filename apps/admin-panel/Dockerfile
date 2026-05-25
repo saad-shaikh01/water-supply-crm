@@ -47,4 +47,5 @@ COPY --from=builder /app/dist/apps/admin-panel/public/ ./apps/admin-panel/public
 
 EXPOSE 4200
 
-CMD ["node", "apps/admin-panel/server.js"]
+WORKDIR /app/apps/admin-panel
+CMD ["node", "server.js"]

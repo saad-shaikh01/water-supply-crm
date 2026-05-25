@@ -66,4 +66,5 @@ COPY --from=builder /app/dist/apps/vendor-dashboard/public/ ./apps/vendor-dashbo
 
 EXPOSE 4201
 
-CMD ["node", "apps/vendor-dashboard/server.js"]
+WORKDIR /app/apps/vendor-dashboard
+CMD ["node", "server.js"]

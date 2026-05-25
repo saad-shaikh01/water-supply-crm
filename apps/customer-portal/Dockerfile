@@ -64,4 +64,5 @@ COPY --from=builder /app/dist/apps/customer-portal/public/ ./apps/customer-porta
 
 EXPOSE 4202
 
-CMD ["node", "apps/customer-portal/server.js"]
+WORKDIR /app/apps/customer-portal
+CMD ["node", "server.js"]
