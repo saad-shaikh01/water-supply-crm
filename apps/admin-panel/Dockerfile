@@ -4,7 +4,7 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Copy workspace manifests
-COPY package.json package-lock.json nx.json tsconfig.base.json postcss.config.js tailwind.config.base.js ./
+COPY package.json package-lock.json nx.json tsconfig.base.json postcss.config.js tailwind.config.base.js eslint.config.mjs ./
 
 # Install all dependencies (devDeps needed for Nx / Next.js build)
 RUN npm ci
@@ -40,7 +40,7 @@ ENV HOSTNAME=0.0.0.0
 COPY --from=builder /app/dist/apps/admin-panel/.next/standalone/ ./
 
 # Copy static build artifacts into the nested path the standalone server expects
-COPY --from=builder /app/dist/apps/admin-panel/.next/static/ ./apps/admin-panel/.next/static/
+COPY --from=builder /app/dist/apps/admin-panel/.next/static/ ./dist/apps/admin-panel/.next/static/
 
 # Copy public assets
 COPY --from=builder /app/dist/apps/admin-panel/public/ ./apps/admin-panel/public/
