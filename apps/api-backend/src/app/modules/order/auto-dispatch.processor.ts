@@ -29,7 +29,12 @@ export class AutoDispatchProcessor extends WorkerHost {
       where: { id: orderId },
       include: {
         customer: {
-          include: { deliverySchedules: { include: { van: true } } },
+          select: {
+            name: true,
+            phoneNumber: true,
+            userId: true,
+            deliverySchedules: { select: { vanId: true, dayOfWeek: true } },
+          },
         },
         product: { select: { name: true } },
       },

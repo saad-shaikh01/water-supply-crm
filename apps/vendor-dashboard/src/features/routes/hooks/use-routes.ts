@@ -21,6 +21,7 @@ export const useRoutes = () => {
     ...useQuery({
       queryKey: queryKeys.routes.all(params),
       queryFn: () => routesApi.getAll(params).then((r) => r.data),
+      staleTime: 15 * 60 * 1000,
     }),
     page,
     setPage,

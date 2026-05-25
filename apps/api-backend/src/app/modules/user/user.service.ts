@@ -68,14 +68,20 @@ export class UserService {
   async findByEmail(email: string) {
     return this.prisma.user.findUnique({
       where: { email },
-      include: { vendor: true, customer: true },
+      include: {
+        vendor: { select: { id: true, name: true } },
+        customer: { select: { id: true } },
+      },
     });
   }
 
   async findByPhoneNumber(phoneNumber: string) {
     return this.prisma.user.findUnique({
       where: { phoneNumber },
-      include: { vendor: true, customer: true },
+      include: {
+        vendor: { select: { id: true, name: true } },
+        customer: { select: { id: true } },
+      },
     });
   }
 
@@ -88,7 +94,10 @@ export class UserService {
   async findById(id: string) {
     return this.prisma.user.findUnique({
       where: { id },
-      include: { vendor: true, customer: true },
+      include: {
+        vendor: { select: { id: true, name: true } },
+        customer: { select: { id: true } },
+      },
     });
   }
 

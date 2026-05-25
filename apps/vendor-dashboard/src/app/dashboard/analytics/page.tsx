@@ -1,16 +1,33 @@
 'use client';
 
 import { Suspense, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useQueryState, parseAsString } from 'nuqs';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@water-supply-crm/ui';
 import { PageHeader } from '../../../components/shared/page-header';
 import { DateRangePicker } from '../../../components/shared/date-range-picker';
-import { FinancialTab } from '../../../features/analytics/components/financial-tab';
-import { DeliveriesTab } from '../../../features/analytics/components/deliveries-tab';
-import { CustomersTab } from '../../../features/analytics/components/customers-tab';
-import { StaffTab } from '../../../features/analytics/components/staff-tab';
-import { ExportSection } from '../../../features/analytics/components/export-section';
 import { useFinancialAnalytics, useDeliveryAnalytics, useCustomerAnalytics, useStaffAnalytics } from '../../../features/analytics/hooks/use-analytics';
+
+const FinancialTab = dynamic(
+  () => import('../../../features/analytics/components/financial-tab').then((m) => m.FinancialTab),
+  { loading: () => <div className="animate-pulse h-96 bg-muted rounded" /> }
+);
+const DeliveriesTab = dynamic(
+  () => import('../../../features/analytics/components/deliveries-tab').then((m) => m.DeliveriesTab),
+  { loading: () => <div className="animate-pulse h-96 bg-muted rounded" /> }
+);
+const CustomersTab = dynamic(
+  () => import('../../../features/analytics/components/customers-tab').then((m) => m.CustomersTab),
+  { loading: () => <div className="animate-pulse h-96 bg-muted rounded" /> }
+);
+const StaffTab = dynamic(
+  () => import('../../../features/analytics/components/staff-tab').then((m) => m.StaffTab),
+  { loading: () => <div className="animate-pulse h-96 bg-muted rounded" /> }
+);
+const ExportSection = dynamic(
+  () => import('../../../features/analytics/components/export-section').then((m) => m.ExportSection),
+  { loading: () => <div className="animate-pulse h-10 bg-muted rounded" /> }
+);
 
 function AnalyticsContent() {
   const [from] = useQueryState('from', parseAsString.withDefault(''));

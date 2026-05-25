@@ -206,9 +206,22 @@ export class CustomerService {
     const customer = await this.prisma.customer.findFirst({
       where: { id, vendorId },
       include: {
-        route: true,
-        wallets: { include: { product: true } },
-        customPrices: { include: { product: true } },
+        route: { select: { id: true, name: true } },
+        wallets: {
+          select: {
+            id: true,
+            balance: true,
+            product: { select: { id: true, name: true } },
+          },
+        },
+        customPrices: {
+          select: {
+            id: true,
+            productId: true,
+            customPrice: true,
+            product: { select: { id: true, name: true, basePrice: true } },
+          },
+        },
         deliverySchedules: {
           include: { van: { select: { id: true, plateNumber: true } } },
           orderBy: { dayOfWeek: 'asc' },
@@ -345,7 +358,7 @@ export class CustomerService {
       update: {
         customPrice: dto.price,
       },
-      include: { product: true },
+      include: { product: { select: { id: true, name: true, basePrice: true } } },
     });
 
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);

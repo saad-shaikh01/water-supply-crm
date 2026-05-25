@@ -7,8 +7,10 @@
   Body,
   Param,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { UserRole } from '@prisma/client';
 import { VanService } from './van.service';
@@ -34,7 +36,12 @@ export class VanController {
   }
 
   @Get()
-  findAll(@CurrentUser() user: AuthUser, @Query() query: PaginationQueryDto) {
+  findAll(
+    @CurrentUser() user: AuthUser,
+    @Query() query: PaginationQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    res.setHeader('Cache-Control', 'private, max-age=300');
     return this.vanService.findAllPaginated(user.vendorId, query);
   }
 

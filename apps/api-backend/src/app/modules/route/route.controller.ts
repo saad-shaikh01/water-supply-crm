@@ -7,8 +7,10 @@
   Body,
   Param,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { UserRole } from '@prisma/client';
 import { RouteService } from './route.service';
@@ -34,7 +36,12 @@ export class RouteController {
   }
 
   @Get()
-  findAll(@CurrentUser() user: AuthUser, @Query() query: RouteQueryDto) {
+  findAll(
+    @CurrentUser() user: AuthUser,
+    @Query() query: RouteQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    res.setHeader('Cache-Control', 'private, max-age=300');
     return this.routeService.findAllPaginated(user.vendorId, query);
   }
 

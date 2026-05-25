@@ -70,9 +70,9 @@ export class DailySheetService {
     const item = await this.prisma.dailySheetItem.findUnique({
       where: { id: itemId },
       include: {
-        customer: { include: { customPrices: true } },
-        product: true,
-        dailySheet: true,
+        customer: { select: { customPrices: { select: { productId: true, customPrice: true } } } },
+        product: { select: { basePrice: true } },
+        dailySheet: { select: { vendorId: true, date: true } },
       },
     });
 
@@ -665,7 +665,6 @@ export class DailySheetService {
     if (dto.vanId) {
       const van = await this.prisma.van.findFirst({
         where: { id: dto.vanId, vendorId },
-        include: { defaultDriver: true },
       });
       if (!van) throw new NotFoundException('Van not found');
       updateData.vanId = dto.vanId;
@@ -839,9 +838,9 @@ export class DailySheetService {
       this.prisma.dailySheet.findMany({
         where: { vendorId },
         include: {
-          route: true,
-          van: true,
-          driver: true,
+          route: { select: { id: true, name: true } },
+          van: { select: { id: true, plateNumber: true } },
+          driver: { select: { id: true, name: true } },
           _count: { select: { items: true } },
         },
         orderBy: { date: 'desc' },

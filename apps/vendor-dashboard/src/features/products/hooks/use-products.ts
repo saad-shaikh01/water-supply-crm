@@ -24,6 +24,7 @@ export const useProducts = () => {
     ...useQuery({
       queryKey: queryKeys.products.all(params),
       queryFn: (): Promise<PaginatedResponse<ProductSummary>> => productsApi.getAll(params).then((r) => r.data),
+      staleTime: 15 * 60 * 1000,
     }),
     page,
     setPage,

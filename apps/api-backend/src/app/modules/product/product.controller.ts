@@ -7,8 +7,10 @@
   Body,
   Param,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { UserRole } from '@prisma/client';
 import { ProductService } from './product.service';
@@ -34,7 +36,12 @@ export class ProductController {
   }
 
   @Get()
-  findAll(@CurrentUser() user: AuthUser, @Query() query: ProductQueryDto) {
+  findAll(
+    @CurrentUser() user: AuthUser,
+    @Query() query: ProductQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    res.setHeader('Cache-Control', 'private, max-age=300');
     return this.productService.findAll(user.vendorId, query);
   }
 

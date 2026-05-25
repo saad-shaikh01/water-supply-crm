@@ -22,6 +22,7 @@ export const useVans = () => {
     ...useQuery({
       queryKey: queryKeys.vans.all(params),
       queryFn: () => vansApi.getAll(params).then((r) => r.data),
+      staleTime: 15 * 60 * 1000,
     }),
     page,
     setPage,

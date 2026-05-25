@@ -53,14 +53,13 @@ export class DailySheetProcessor extends WorkerHost {
     const vans = await this.prisma.van.findMany({
       where: vanWhere,
       include: {
-        defaultDriver: true,
-        routes: { where: { vendorId }, orderBy: { createdAt: 'asc' }, take: 1 }, // van's home route — deterministic by creation order
+        routes: { where: { vendorId }, orderBy: { createdAt: 'asc' }, take: 1, select: { id: true } },
         deliverySchedules: {
           where: {
             dayOfWeek,
             customer: { isActive: true },
           },
-          include: { customer: true },
+          select: { customerId: true, routeSequence: true },
           orderBy: [{ routeSequence: 'asc' }, { customer: { name: 'asc' } }],
         },
       },
@@ -121,7 +120,7 @@ export class DailySheetProcessor extends WorkerHost {
           customerId: { in: customerIds },
           dailySheet: { vendorId, date: { lt: targetDate } },
         },
-        include: { customer: true },
+        select: { id: true, customerId: true, productId: true },
       });
 
       // Build unique set of rescheduled customerIds to avoid duplicates

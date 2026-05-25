@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")        // PgBouncer URL (transaction mode) in production
+  directUrl = env("DIRECT_DATABASE_URL") // Direct DB URL — used by Prisma migrate only
 }
 
 enum PaymentType {

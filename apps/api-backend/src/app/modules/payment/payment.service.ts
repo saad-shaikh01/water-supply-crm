@@ -50,7 +50,7 @@ export class PaymentService {
   async initiateRaastQr(customerId: string, dto: InitiatePaymentDto) {
     const customer = await this.prisma.customer.findUnique({
       where: { id: customerId },
-      include: { vendor: true },
+      include: { vendor: { select: { name: true } } },
     });
     if (!customer) throw new NotFoundException('Customer not found');
 

@@ -23,13 +23,20 @@ export class CacheInvalidationService {
     await this.cacheManager.del(key);
   }
 
-  /** Delete all Redis keys matching a glob pattern (uses KEYS — for low-frequency invalidation only). */
   private async delByPattern(pattern: string): Promise<void> {
     try {
       const client = (this.cacheManager as any).store?.client;
       if (!client) return;
-      const keys: string[] = await client.keys(pattern);
-      if (keys.length) await client.del(keys);
+
+      let cursor = 0;
+      const keysToDelete: string[] = [];
+      do {
+        const [nextCursor, keys] = await client.scan(cursor, { MATCH: pattern, COUNT: 100 });
+        cursor = Number(nextCursor);
+        keysToDelete.push(...keys);
+      } while (cursor !== 0);
+
+      if (keysToDelete.length) await client.del(keysToDelete);
     } catch (e) {
       this.logger.warn(`Cache pattern delete failed for "${pattern}": ${(e as Error).message}`);
     }
