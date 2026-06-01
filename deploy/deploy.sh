@@ -80,14 +80,20 @@ npx prisma generate --schema=libs/shared/database/prisma/schema.prisma
 
 # ── 5. Build all applications ─────────────────────────────────────────────────
 echo ""
-echo "==> [5/7] Building all applications (parallel=2)..."
+echo "==> [5/7] Building all applications (one at a time)..."
 # NEXT_PUBLIC_* vars from .env.prod are now in the environment and will be
 # baked into the Next.js client bundles during this step.
-npx nx run-many \
-  --target=build \
-  --projects=api-backend,admin-panel,vendor-dashboard,customer-portal \
-  --configuration=production \
-  --parallel=2
+echo "     Building api-backend..."
+npx nx build api-backend --configuration=production
+
+echo "     Building admin-panel..."
+npx nx build admin-panel --configuration=production
+
+echo "     Building vendor-dashboard..."
+npx nx build vendor-dashboard --configuration=production
+
+echo "     Building customer-portal..."
+npx nx build customer-portal --configuration=production
 
 # ── 6. Runtime directories ────────────────────────────────────────────────────
 echo ""
