@@ -67,7 +67,7 @@ npm ci --prefer-offline
 echo ""
 echo "==> [3/7] Starting Docker data layer (PostgreSQL + Redis)..."
 # --wait blocks until both healthchecks pass, so migrations run against a live DB
-docker compose -f docker-compose.prod.yml up -d --wait
+docker compose -f docker-compose.prod.yml up -d --wait --remove-orphans
 echo "     PostgreSQL  →  127.0.0.1:5432"
 echo "     Redis       →  127.0.0.1:6379"
 
