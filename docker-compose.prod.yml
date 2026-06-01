@@ -1,22 +1,22 @@
-# ─── Networks ──────────────────────────────────────────────────────────────────
-# wscrm_internal — isolated, no external egress.  Only data-layer services live
-#   here, plus api-backend which needs to reach them.
-# wscrm_proxy — shared app network for any reverse-proxy container.
-#   In the default VPS setup, app services also publish loopback-only host ports
-#   so host Nginx can proxy to 127.0.0.1 safely.
+# ─── Data Layer Only ────────────────────────────────────────────────────────────
+# PostgreSQL and Redis are the ONLY services that run in Docker.
+# The API backend and all Next.js frontends run directly on the host via PM2.
+#
+# Both containers publish exclusively to the loopback interface (127.0.0.1) so
+# host-level Nginx and PM2 processes can reach the databases without exposing
+# any database port to the public internet.
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml up -d --wait
+#   docker compose -f docker-compose.prod.yml down
+
 networks:
-  wscrm_internal:
-    driver: bridge
-    internal: true
-  wscrm_proxy:
+  wscrm_data:
     driver: bridge
 
-# ─── Volumes ───────────────────────────────────────────────────────────────────
 volumes:
   postgres_data:
   redis_data:
-  uploads_data:
-  whatsapp_session:   # Persists WhatsApp auth across container restarts — mount into api-backend
 
 services:
 
@@ -37,9 +37,11 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    ports:
+      # Loopback-only: host apps connect via 127.0.0.1:5432
+      - "127.0.0.1:5432:5432"
     networks:
-      - wscrm_internal
-    # No ports exposed — internal only
+      - wscrm_data
 
   # ── Redis ─────────────────────────────────────────────────────────────────────
   redis:
@@ -55,148 +57,8 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
-    networks:
-      - wscrm_internal
-    # No ports exposed — internal only
-
-  # ── API Backend ───────────────────────────────────────────────────────────────
-  api-backend:
-    build:
-      context: .
-      dockerfile: apps/api-backend/Dockerfile
-    container_name: wscrm-api
-    restart: unless-stopped
-    env_file:
-      - path: .env.prod
-        required: false   # must exist in production; optional for local config checks
-    environment:
-      NODE_ENV: production
-      PORT: "3100"
-      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public"
-      REDIS_URL: "redis://redis:6379"
-      REDIS_HOST: "redis"
-      REDIS_PORT: "6379"
-      # WhatsApp — set WHATSAPP_ENABLED=true in .env.prod to activate.
-      # Scan the QR code printed in container logs on first start.
-      WHATSAPP_SESSION_PATH: /app/whatsapp-session
-      CHROMIUM_PATH: /usr/bin/chromium-browser
-    volumes:
-      - uploads_data:/app/uploads
-      - whatsapp_session:/app/whatsapp-session
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3100/api/health/ready >/dev/null || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 45s
     ports:
-      - "127.0.0.1:3100:3100"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      # Loopback-only: host apps connect via 127.0.0.1:6379
+      - "127.0.0.1:6379:6379"
     networks:
-      - wscrm_internal
-      - wscrm_proxy
-
-  # ── Admin Panel ──────────────────────────────────────────────────────────────
-  admin-panel:
-    build:
-      context: .
-      dockerfile: apps/admin-panel/Dockerfile
-      args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
-    container_name: wscrm-admin
-    restart: unless-stopped
-    environment:
-      NODE_ENV: production
-      PORT: "4310"
-      HOSTNAME: "0.0.0.0"
-      NEXT_TELEMETRY_DISABLED: "1"
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4310/auth/login >/dev/null || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
-    ports:
-      - "127.0.0.1:4310:4310"
-    depends_on:
-      api-backend:
-        condition: service_healthy
-    networks:
-      - wscrm_proxy
-
-  # ── Vendor Dashboard ──────────────────────────────────────────────────────────
-  vendor-dashboard:
-    build:
-      context: .
-      dockerfile: apps/vendor-dashboard/Dockerfile
-      args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
-        NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN: ${NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN}
-        NEXT_PUBLIC_FIREBASE_API_KEY: ${NEXT_PUBLIC_FIREBASE_API_KEY}
-        NEXT_PUBLIC_FIREBASE_APP_ID: ${NEXT_PUBLIC_FIREBASE_APP_ID}
-        NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN}
-        NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID}
-        NEXT_PUBLIC_FIREBASE_MESSAGING_VAPID_KEY: ${NEXT_PUBLIC_FIREBASE_MESSAGING_VAPID_KEY}
-        NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${NEXT_PUBLIC_FIREBASE_PROJECT_ID}
-        NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET}
-        NEXT_PUBLIC_FIREBASE_VAPID_KEY: ${NEXT_PUBLIC_FIREBASE_VAPID_KEY}
-    container_name: wscrm-vendor
-    restart: unless-stopped
-    environment:
-      NODE_ENV: production
-      PORT: "4311"
-      HOSTNAME: "0.0.0.0"
-      NEXT_TELEMETRY_DISABLED: "1"
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4311/auth/login >/dev/null || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
-    ports:
-      - "127.0.0.1:4311:4311"
-    depends_on:
-      api-backend:
-        condition: service_healthy
-    networks:
-      - wscrm_proxy
-
-  # ── Customer Portal ───────────────────────────────────────────────────────────
-  customer-portal:
-    build:
-      context: .
-      dockerfile: apps/customer-portal/Dockerfile
-      args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
-        NEXT_PUBLIC_FIREBASE_API_KEY: ${NEXT_PUBLIC_FIREBASE_API_KEY}
-        NEXT_PUBLIC_FIREBASE_APP_ID: ${NEXT_PUBLIC_FIREBASE_APP_ID}
-        NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN}
-        NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID}
-        NEXT_PUBLIC_FIREBASE_MESSAGING_VAPID_KEY: ${NEXT_PUBLIC_FIREBASE_MESSAGING_VAPID_KEY}
-        NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${NEXT_PUBLIC_FIREBASE_PROJECT_ID}
-        NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET}
-        NEXT_PUBLIC_FIREBASE_VAPID_KEY: ${NEXT_PUBLIC_FIREBASE_VAPID_KEY}
-    container_name: wscrm-portal
-    restart: unless-stopped
-    environment:
-      NODE_ENV: production
-      PORT: "4312"
-      HOSTNAME: "0.0.0.0"
-      NEXT_TELEMETRY_DISABLED: "1"
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4312/auth/login >/dev/null || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
-    ports:
-      - "127.0.0.1:4312:4312"
-    depends_on:
-      api-backend:
-        condition: service_healthy
-    networks:
-      - wscrm_proxy
+      - wscrm_data
