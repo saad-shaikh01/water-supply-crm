@@ -21,8 +21,14 @@ export function middleware(request: NextRequest) {
   const token = request.cookies.get('auth_token')?.value;
   const { pathname } = request.nextUrl;
   const isAuthRoute = pathname.startsWith('/auth');
-  const loginUrl = new URL('/auth/login', request.url);
-  const homeUrl = new URL('/home', request.url);
+
+  const loginUrl = request.nextUrl.clone();
+  loginUrl.pathname = '/auth/login';
+  loginUrl.search = '';
+
+  const homeUrl = request.nextUrl.clone();
+  homeUrl.pathname = '/home';
+  homeUrl.search = '';
 
   if (!token) {
     if (!isAuthRoute) {

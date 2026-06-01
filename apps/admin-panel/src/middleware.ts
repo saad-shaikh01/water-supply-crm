@@ -5,14 +5,21 @@ export function middleware(request: NextRequest) {
   const token = request.cookies.get('auth_token')?.value;
   const { pathname } = request.nextUrl;
 
+  const redirectTo = (path: string) => {
+    const url = request.nextUrl.clone();
+    url.pathname = path;
+    url.search = '';
+    return NextResponse.redirect(url);
+  };
+
   // Protect all non-auth routes
   if (!token && !pathname.startsWith('/auth')) {
-    return NextResponse.redirect(new URL('/auth/login', request.url));
+    return redirectTo('/auth/login');
   }
 
   // Redirect authenticated users away from auth pages
   if (token && pathname.startsWith('/auth')) {
-    return NextResponse.redirect(new URL('/vendors', request.url));
+    return redirectTo('/vendors');
   }
 
   return NextResponse.next();
