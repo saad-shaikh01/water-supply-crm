@@ -71,6 +71,17 @@ docker compose -f docker-compose.prod.yml up -d --wait --remove-orphans
 echo "     PostgreSQL  →  127.0.0.1:5432"
 echo "     Redis       →  127.0.0.1:6379"
 
+# ── Write .env so Prisma picks up the correct DATABASE_URL ───────────────────
+# Prisma always reads from .env (ignoring shell vars), so we generate it from
+# the POSTGRES_* values already sourced from .env.prod above.
+_DB_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:5432/${POSTGRES_DB}?schema=public"
+cat > "${REPO_ROOT}/.env" <<EOF
+DATABASE_URL="${_DB_URL}"
+DIRECT_DATABASE_URL="${_DB_URL}"
+EOF
+echo "     .env  →  DATABASE_URL written (user: ${POSTGRES_USER}, db: ${POSTGRES_DB})"
+unset _DB_URL
+
 # ── 4. Database migrations ─────────────────────────────────────────────────────
 echo ""
 echo "==> [4/7] Running database migrations..."
