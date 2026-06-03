@@ -34,6 +34,7 @@ import { OrderModule } from './modules/order/order.module';
 import { TicketModule } from './modules/ticket/ticket.module';
 import { DeliveryIssueModule } from './modules/delivery-issue/delivery-issue.module';
 import { PaymentReminderModule } from './modules/payment-reminder/payment-reminder.module';
+import { DamageCaseModule } from './modules/damage-case/damage-case.module';
 
 @Module({
   imports: [
@@ -70,6 +71,7 @@ import { PaymentReminderModule } from './modules/payment-reminder/payment-remind
     TicketModule,
     DeliveryIssueModule,
     PaymentReminderModule,
+    DamageCaseModule,
   ],
   controllers: [AppController],
   providers: [
