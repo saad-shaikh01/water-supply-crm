@@ -18,6 +18,7 @@ import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { CustomerQueryDto } from './dto/customer-query.dto';
 import { SetCustomPriceDto } from './dto/set-custom-price.dto';
+import { BulkPricePreviewDto, BulkPriceUpdateDto } from './dto/bulk-price-update.dto';
 import { CreatePortalAccountDto } from './dto/create-portal-account.dto';
 import { StatementQueryDto } from './dto/statement-query.dto';
 import { ScheduleQueryDto } from './dto/schedule-query.dto';
@@ -44,6 +45,29 @@ export class CustomerController {
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
   findAll(@CurrentUser() user: AuthUser, @Query() query: CustomerQueryDto) {
     return this.customerService.findAllPaginated(user.vendorId, query);
+  }
+
+  /** POST /customers/pricing/preview — dry-run filter, returns count + customer list */
+  @Post('pricing/preview')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @Throttle({ short: { ttl: 1000, limit: 10 }, medium: { ttl: 60000, limit: 60 } })
+  previewBulkPricing(@CurrentUser() user: AuthUser, @Body() dto: BulkPricePreviewDto) {
+    return this.customerService.previewBulkPricing(user.vendorId, dto);
+  }
+
+  /** POST /customers/pricing/bulk-update — enqueue a background bulk price update job */
+  @Post('pricing/bulk-update')
+  @Roles(UserRole.VENDOR_ADMIN)
+  @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
+  enqueueBulkPriceUpdate(@CurrentUser() user: AuthUser, @Body() dto: BulkPriceUpdateDto) {
+    return this.customerService.enqueueBulkPriceUpdate(user.vendorId, dto);
+  }
+
+  /** GET /customers/pricing/bulk-update/:jobId/status — poll background job progress */
+  @Get('pricing/bulk-update/:jobId/status')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  getBulkUpdateJobStatus(@CurrentUser() user: AuthUser, @Param('jobId') jobId: string) {
+    return this.customerService.getBulkUpdateJobStatus(user.vendorId, jobId);
   }
 
   @Get(':id')

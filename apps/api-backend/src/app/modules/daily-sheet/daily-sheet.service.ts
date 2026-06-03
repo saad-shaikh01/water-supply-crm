@@ -86,6 +86,11 @@ export class DailySheetService {
         ? DeliveryStatus.EMPTY_ONLY
         : dto.status;
 
+    const customPrice = item.customer.customPrices.find(
+      (p) => p.productId === item.productId,
+    );
+    const price = customPrice ? customPrice.customPrice : item.product.basePrice;
+
     const result = await this.prisma.$transaction(async (tx) => {
       const updatedItem = await tx.dailySheetItem.update({
         where: { id: itemId },
@@ -97,6 +102,7 @@ export class DailySheetService {
           reason: dto.reason,
           failureCategory: dto.failureCategory,
           photoUrl: dto.photoUrl,
+          pricePerBottle: price,
         },
       });
 
@@ -104,13 +110,6 @@ export class DailySheetService {
         resolvedStatus === DeliveryStatus.COMPLETED ||
         resolvedStatus === DeliveryStatus.EMPTY_ONLY
       ) {
-        const customPrice = item.customer.customPrices.find(
-          (p) => p.productId === item.productId,
-        );
-        const price = customPrice
-          ? customPrice.customPrice
-          : item.product.basePrice;
-
         await this.ledger.recordDelivery({
           vendorId,
           customerId: item.customerId,
@@ -508,6 +507,7 @@ export class DailySheetService {
     );
 
     const getPrice = (item: any): number => {
+      if (item.pricePerBottle && item.pricePerBottle > 0) return item.pricePerBottle;
       const custom = item.customer?.customPrices?.find(
         (cp: any) => cp.productId === item.productId,
       );

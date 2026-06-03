@@ -4,4 +4,5 @@ export const QUEUE_NAMES = {
   BALANCE_REMINDERS: 'balance-reminders',
   ORDER_DISPATCH: 'order-dispatch',
   PAYMENT_REMINDERS: 'payment-reminders',
+  BULK_PRICE_UPDATE: 'bulk-price-update',
 } as const;

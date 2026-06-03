@@ -319,10 +319,11 @@ model DailySheetItem {
   deliveryType  DeliveryType   @default(SCHEDULED)
   sourceOrderId String?
 
-  filledDropped Int      @default(0)
-  emptyReceived Int      @default(0)
-  cashCollected Float    @default(0)
-  
+  filledDropped  Int   @default(0)
+  emptyReceived  Int   @default(0)
+  cashCollected  Float @default(0)
+  pricePerBottle Float @default(0)
+
   reason          String?  // Free text notes for unable-to-deliver
   failureCategory String?  // CUSTOMER_NOT_HOME | CUSTOMER_NOT_ANSWERING | CUSTOMER_SELF_PICKUP | VAN_BREAKDOWN | ACCESS_ISSUE | CUSTOMER_REFUSED | WEATHER | OTHER
   photoUrl        String?  // Optional photo evidence

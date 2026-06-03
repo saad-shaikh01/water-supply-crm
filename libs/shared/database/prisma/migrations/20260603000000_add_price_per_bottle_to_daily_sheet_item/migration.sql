@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "DailySheetItem" ADD COLUMN "pricePerBottle" DOUBLE PRECISION NOT NULL DEFAULT 0;

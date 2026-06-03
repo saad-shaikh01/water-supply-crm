@@ -6,4 +6,5 @@ export const JOB_NAMES = {
   SEND_FCM_NOTIFICATION: 'send-fcm-notification',
   AUTO_DISPATCH_ORDER: 'auto-dispatch-order',
   SEND_PAYMENT_REMINDERS: 'send-payment-reminders',
+  BULK_PRICE_UPDATE: 'bulk-price-update',
 } as const;

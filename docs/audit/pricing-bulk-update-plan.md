@@ -311,5 +311,6 @@ Bulk update destructive action hai — ek baar update hone ke baad manually reve
 - [x] Solution approach locked (filter-based bulk update)
 - [x] Real scenarios documented
 - [x] Historical price bug identified and fix designed
-- [ ] Bug fix implementation pending (pricePerBottle schema + migration)
-- [ ] Bulk update tool implementation pending
+- [x] Bug fix implemented — pricePerBottle on DailySheetItem, getPrice() uses stored value
+- [x] Bulk update tool implemented — BullMQ background job, 100-per-batch, progress polling
+- [x] Code reviewed and verified — one UI bug fixed (count > 50 check)

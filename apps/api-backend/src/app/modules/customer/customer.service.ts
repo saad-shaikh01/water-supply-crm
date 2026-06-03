@@ -3,8 +3,11 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { PrismaService } from '@water-supply-crm/database';
 import { Prisma } from '@prisma/client';
+import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
 import {
   CacheInvalidationService,
   CACHE_KEYS,
@@ -14,6 +17,10 @@ import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { CustomerQueryDto } from './dto/customer-query.dto';
 import { SetCustomPriceDto } from './dto/set-custom-price.dto';
+import {
+  BulkPriceFiltersDto,
+  BulkPriceUpdateDto,
+} from './dto/bulk-price-update.dto';
 import { CreatePortalAccountDto } from './dto/create-portal-account.dto';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { paginate } from '../../common/helpers/paginate';
@@ -29,6 +36,8 @@ export class CustomerService {
     private cache: CacheInvalidationService,
     private statementPdf: CustomerStatementPdfService,
     private audit: AuditService,
+    @InjectQueue(QUEUE_NAMES.BULK_PRICE_UPDATE)
+    private bulkPriceQueue: Queue,
   ) {}
 
   /** Follow a Google Maps short URL and extract lat/lng from the resolved full URL */
@@ -697,6 +706,148 @@ export class CustomerService {
     }
 
     return schedule;
+  }
+
+  private buildPricingWhere(vendorId: string, dto: BulkPriceFiltersDto) {
+    const where: any = { vendorId, isActive: true };
+
+    if (dto.area) {
+      where.address = { contains: dto.area, mode: 'insensitive' };
+    }
+
+    if (dto.billingType) {
+      where.paymentType = dto.billingType;
+    }
+
+    if (dto.vanId) {
+      where.deliverySchedules = { some: { vanId: dto.vanId } };
+    }
+
+    return where;
+  }
+
+  private resolveCustomerPrice(
+    customer: { customPrices: { productId: string; customPrice: number }[] },
+    productId: string,
+    basePrice: number,
+  ): number {
+    const cp = customer.customPrices.find((p) => p.productId === productId);
+    return cp ? cp.customPrice : basePrice;
+  }
+
+  async previewBulkPricing(vendorId: string, dto: BulkPriceFiltersDto) {
+    const product = await this.prisma.product.findFirst({
+      where: { id: dto.productId, vendorId },
+      select: { basePrice: true },
+    });
+    if (!product) throw new NotFoundException('Product not found');
+
+    const where = this.buildPricingWhere(vendorId, dto);
+
+    const customers = await this.prisma.customer.findMany({
+      where,
+      select: {
+        id: true,
+        name: true,
+        address: true,
+        customPrices: {
+          where: { productId: dto.productId },
+          select: { productId: true, customPrice: true },
+        },
+      },
+    });
+
+    const rows = customers
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        area: c.address,
+        currentPrice: this.resolveCustomerPrice(c, dto.productId, product.basePrice),
+      }))
+      .filter((r) => {
+        if (dto.priceFrom !== undefined && r.currentPrice < dto.priceFrom) return false;
+        if (dto.priceTo !== undefined && r.currentPrice > dto.priceTo) return false;
+        return true;
+      });
+
+    // Accurate total count, but only return 50 rows for display to keep payload small.
+    // Do NOT add a take limit on the findMany — that would make count inaccurate.
+    return { count: rows.length, customers: rows.slice(0, 50) };
+  }
+
+  /**
+   * Resolve the matched customers for a bulk price update and enqueue a background
+   * BullMQ job to perform the (potentially large) set of upserts in batches.
+   * Returns immediately with the job id so the request never times out.
+   */
+  async enqueueBulkPriceUpdate(vendorId: string, dto: BulkPriceUpdateDto) {
+    const product = await this.prisma.product.findFirst({
+      where: { id: dto.filters.productId, vendorId },
+      select: { basePrice: true },
+    });
+    if (!product) throw new NotFoundException('Product not found');
+
+    const where = this.buildPricingWhere(vendorId, dto.filters);
+
+    const customers = await this.prisma.customer.findMany({
+      where,
+      select: {
+        id: true,
+        customPrices: {
+          where: { productId: dto.filters.productId },
+          select: { productId: true, customPrice: true },
+        },
+      },
+    });
+
+    const customerIds: string[] = [];
+    const currentPrices: Record<string, number> = {};
+
+    for (const c of customers) {
+      const currentPrice = this.resolveCustomerPrice(c, dto.filters.productId, product.basePrice);
+      if (dto.filters.priceFrom !== undefined && currentPrice < dto.filters.priceFrom) continue;
+      if (dto.filters.priceTo !== undefined && currentPrice > dto.filters.priceTo) continue;
+      customerIds.push(c.id);
+      currentPrices[c.id] = currentPrice;
+    }
+
+    if (customerIds.length === 0) {
+      return { jobId: null, totalCustomers: 0 };
+    }
+
+    const job = await this.bulkPriceQueue.add(
+      JOB_NAMES.BULK_PRICE_UPDATE,
+      {
+        vendorId,
+        productId: dto.filters.productId,
+        customerIds,
+        currentPrices,
+        action: dto.action,
+      },
+      { attempts: 3, backoff: { type: 'exponential', delay: 2000 } },
+    );
+
+    return { jobId: job.id, totalCustomers: customerIds.length };
+  }
+
+  async getBulkUpdateJobStatus(vendorId: string, jobId: string) {
+    const job = await this.bulkPriceQueue.getJob(jobId);
+    if (!job) throw new NotFoundException('Job not found');
+
+    // Multi-tenant security: verify the job belongs to the requesting vendor.
+    if (job.data.vendorId !== vendorId) throw new NotFoundException('Job not found');
+
+    const state = await job.getState();
+    const progress = (job.progress as number) ?? 0;
+    const result = job.returnvalue as { updatedCount: number } | null;
+
+    return {
+      jobId: job.id,
+      state,
+      progress,
+      totalCustomers: job.data.customerIds.length,
+      updatedCount: result?.updatedCount ?? 0,
+    };
   }
 
   async getFinancialSummary(vendorId: string, customerId: string) {
