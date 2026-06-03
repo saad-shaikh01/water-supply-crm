@@ -45,4 +45,5 @@ Thumbs.db
 .next
 out
 .codex-int-done
-.claude
+.claude/settings.local.json
+.claude/worktrees/
