@@ -185,12 +185,12 @@ export function PricingPage() {
 
             <div className="space-y-1.5">
               <Label>Van / Route</Label>
-              <Select value={vanId} onValueChange={setVanId}>
+              <Select value={vanId || '__all__'} onValueChange={(v) => setVanId(v === '__all__' ? '' : v)}>
                 <SelectTrigger>
                   <SelectValue placeholder="All vans" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All vans</SelectItem>
+                  <SelectItem value="__all__">All vans</SelectItem>
                   {vans.map((v) => (
                     <SelectItem key={v.id} value={v.id}>{v.plateNumber}</SelectItem>
                   ))}
@@ -200,12 +200,12 @@ export function PricingPage() {
 
             <div className="space-y-1.5">
               <Label>Billing Type</Label>
-              <Select value={billingType} onValueChange={setBillingType}>
+              <Select value={billingType || '__all__'} onValueChange={(v) => setBillingType(v === '__all__' ? '' : v)}>
                 <SelectTrigger>
                   <SelectValue placeholder="All types" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All types</SelectItem>
+                  <SelectItem value="__all__">All types</SelectItem>
                   <SelectItem value="MONTHLY">Monthly</SelectItem>
                   <SelectItem value="CASH">Cash</SelectItem>
                 </SelectContent>
