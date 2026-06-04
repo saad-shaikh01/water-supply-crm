@@ -1,15 +1,16 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
   Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@water-supply-crm/ui';
-import { CheckCircle2, Droplets, Loader2, ShieldAlert } from 'lucide-react';
+import { Droplets, Loader2, ShieldAlert } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import type { DeliveryItem } from '@water-supply-crm/types';
 import { useUpdateDeliveryItem } from '../../hooks/use-daily-sheets';
+import { useReportDamage } from '../../../driver/hooks/use-damage-cases';
+import { DamagePhotoUpload } from '../../../driver/components/damage-photo-upload';
 
 const FAILURE_CATEGORIES = [
   { value: 'CUSTOMER_NOT_HOME', label: 'Customer Not Home' },
@@ -32,13 +33,22 @@ interface DeliveryDialogProps {
 
 export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialogProps) {
   const { mutate: updateItem, isPending } = useUpdateDeliveryItem(sheetId);
+  const { mutateAsync: reportDamage } = useReportDamage();
 
   const [deliveryMode, setDeliveryMode] = useState<'delivered' | 'unable'>('delivered');
   const [failureCategory, setFailureCategory] = useState('CUSTOMER_NOT_HOME');
   const [unableReason, setUnableReason] = useState('');
   const [itemForm, setItemForm] = useState<Partial<DeliveryItem>>({});
   const [awaitingConfirm, setAwaitingConfirm] = useState(false);
-  const [savedItem, setSavedItem] = useState<DeliveryItem | null>(null);
+
+  // Damage state
+  const [showDamage, setShowDamage] = useState(false);
+  const [damageForm, setDamageForm] = useState<{
+    severity: 'MINOR' | 'MODERATE' | 'SEVERE';
+    bottleCount: number;
+    photoKeys: string[];
+    description: string;
+  }>({ severity: 'MODERATE', bottleCount: 1, photoKeys: [], description: '' });
 
   const item = items.find((i) => i.id === open) ?? null;
 
@@ -50,7 +60,8 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
     setFailureCategory(item.failureCategory ?? 'CUSTOMER_NOT_HOME');
     setUnableReason(item.reason ?? '');
     setAwaitingConfirm(false);
-    setSavedItem(null);
+    setShowDamage(false);
+    setDamageForm({ severity: 'MODERATE', bottleCount: 1, photoKeys: [], description: '' });
     setItemForm({
       filledDropped: item.filledDropped || 1,
       emptyReceived: item.emptyReceived || 0,
@@ -88,14 +99,22 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
       { itemId: open, data: finalData },
       {
         onSuccess: () => {
-          // For successful deliveries show the "report damage?" step.
-          // For unable-to-deliver, just close — no damage to report.
-          if (deliveryMode === 'delivered' && item) {
-            setSavedItem(item);
-            setAwaitingConfirm(false);
-          } else {
-            onClose();
+          // Submit damage case fire-and-forget if driver reported damage
+          if (showDamage && item) {
+            reportDamage({
+              customerId: item.customerId,
+              productId: item.productId,
+              dailySheetItemId: item.id,
+              severity: damageForm.severity,
+              bottleCount: damageForm.bottleCount,
+              photoPaths: damageForm.photoKeys,
+              description: damageForm.description || undefined,
+            }).catch(() => {
+              // Silent fail — driver is already on next stop.
+              // The damage case can be reported manually from the sidebar.
+            });
           }
+          onClose();
         },
       },
     );
@@ -111,39 +130,7 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
           </DialogTitle>
         </DialogHeader>
 
-        {savedItem ? (
-          /* ── Post-save: offer damage report ── */
-          <div className="py-6 space-y-5">
-            <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-5 text-center space-y-2">
-              <CheckCircle2 className="h-8 w-8 text-emerald-500 mx-auto" />
-              <p className="font-bold text-emerald-700 dark:text-emerald-400">
-                Delivery saved — {savedItem.customer?.name}
-              </p>
-            </div>
-
-            <p className="text-sm text-center text-muted-foreground">
-              Did any empties come back damaged?
-            </p>
-
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => { setSavedItem(null); onClose(); }}
-                className="flex-1 py-3 rounded-2xl border border-border/50 bg-background text-sm font-bold text-muted-foreground hover:border-primary/30 transition-all"
-              >
-                No, Done
-              </button>
-              <Link
-                href={`/dashboard/damage-report?dailySheetItemId=${savedItem.id}&customerId=${savedItem.customerId}&productId=${savedItem.productId}`}
-                onClick={() => { setSavedItem(null); onClose(); }}
-                className="flex-1 py-3 rounded-2xl border border-destructive/30 bg-destructive/10 text-destructive text-sm font-bold flex items-center justify-center gap-2 hover:bg-destructive/20 transition-all"
-              >
-                <ShieldAlert className="h-4 w-4" />
-                Report Damage
-              </Link>
-            </div>
-          </div>
-        ) : awaitingConfirm ? (
+        {awaitingConfirm ? (
           <div className="py-6 space-y-5">
             <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-3">
               <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400">Confirm Delivery — {item?.customer?.name}</p>
@@ -245,6 +232,90 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
                   onChange={(e) => setItemForm((p) => ({ ...p, cashCollected: Number(e.target.value) }))}
                   className="h-12 text-lg font-black font-mono text-center bg-emerald-500/5 border-emerald-500/20 text-emerald-600 dark:text-emerald-400"
                 />
+              </div>
+
+              {/* Damaged empties section */}
+              <div className="rounded-2xl border border-border/40 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowDamage((v) => !v)}
+                  className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-muted-foreground hover:bg-card/60 transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <ShieldAlert className="h-4 w-4 text-amber-400" />
+                    Any empties damaged?
+                  </span>
+                  <span className={cn('text-xs font-bold transition-colors', showDamage ? 'text-destructive' : 'text-muted-foreground')}>
+                    {showDamage ? 'Yes — filling report' : 'No damage'}
+                  </span>
+                </button>
+
+                {showDamage && (
+                  <div className="px-4 pb-4 space-y-4 border-t border-border/40 pt-4 bg-destructive/5">
+                    {/* Severity */}
+                    <div className="space-y-2">
+                      <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Severity</Label>
+                      <div className="flex gap-2">
+                        {(['MINOR', 'MODERATE', 'SEVERE'] as const).map((s) => (
+                          <button
+                            key={s}
+                            type="button"
+                            onClick={() => setDamageForm((p) => ({ ...p, severity: s }))}
+                            className={cn(
+                              'flex-1 py-2 rounded-xl text-xs font-bold border transition-all',
+                              damageForm.severity === s
+                                ? s === 'MINOR'
+                                  ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400'
+                                  : s === 'MODERATE'
+                                    ? 'bg-amber-500/20 border-amber-500/50 text-amber-400'
+                                    : 'bg-rose-500/20 border-rose-500/50 text-rose-400'
+                                : 'bg-background border-border text-muted-foreground',
+                            )}
+                          >
+                            {s.charAt(0) + s.slice(1).toLowerCase()}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Count */}
+                    <div className="space-y-2">
+                      <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                        Damaged Count
+                      </Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={damageForm.bottleCount}
+                        onChange={(e) => setDamageForm((p) => ({ ...p, bottleCount: Math.max(1, Number(e.target.value)) }))}
+                        className="h-11 font-mono font-bold"
+                      />
+                    </div>
+
+                    {/* Photo upload */}
+                    <DamagePhotoUpload
+                      onPhotosChange={(keys) => setDamageForm((p) => ({ ...p, photoKeys: keys }))}
+                      maxPhotos={3}
+                    />
+
+                    {/* Notes */}
+                    <div className="space-y-2">
+                      <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                        Notes (optional)
+                      </Label>
+                      <Input
+                        placeholder="Describe the damage..."
+                        value={damageForm.description}
+                        onChange={(e) => setDamageForm((p) => ({ ...p, description: e.target.value }))}
+                        className="h-11"
+                      />
+                    </div>
+
+                    <p className="text-[11px] text-muted-foreground bg-amber-500/5 border border-amber-500/20 rounded-xl px-3 py-2">
+                      Damage report will be submitted automatically when you save this delivery.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           ) : (
