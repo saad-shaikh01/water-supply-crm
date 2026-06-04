@@ -19,7 +19,7 @@ import {
   Card,
   CardContent,
 } from '@water-supply-crm/ui';
-import { AlertCircle, ExternalLink } from 'lucide-react';
+import { AlertCircle, ExternalLink, ShieldAlert } from 'lucide-react';
 import { DamagePhotoUpload } from './damage-photo-upload';
 import { useReportDamage } from '../hooks/use-damage-cases';
 import { useAllCustomers } from '../../customers/hooks/use-customers';
@@ -39,6 +39,8 @@ type FormValues = z.infer<typeof schema>;
 
 interface DamageReportFormProps {
   dailySheetItemId?: string;
+  prefillCustomerId?: string;
+  prefillProductId?: string;
 }
 
 interface ConflictInfo {
@@ -56,7 +58,7 @@ function getDraftKey(dailySheetItemId?: string) {
   return `damage-draft-${dailySheetItemId ?? 'adhoc'}`;
 }
 
-export function DamageReportForm({ dailySheetItemId }: DamageReportFormProps) {
+export function DamageReportForm({ dailySheetItemId, prefillCustomerId, prefillProductId }: DamageReportFormProps) {
   const router = useRouter();
   const { mutateAsync: reportDamage, isPending } = useReportDamage();
   const { data: customersData } = useAllCustomers();
@@ -86,7 +88,7 @@ export function DamageReportForm({ dailySheetItemId }: DamageReportFormProps) {
     },
   });
 
-  // Rehydrate draft on mount
+  // Rehydrate draft on mount, then apply URL pre-fills (URL wins over draft)
   useEffect(() => {
     try {
       const raw = localStorage.getItem(draftKey);
@@ -101,7 +103,10 @@ export function DamageReportForm({ dailySheetItemId }: DamageReportFormProps) {
     } catch {
       // ignore
     }
-  }, [draftKey, setValue]);
+    // URL-provided context overrides draft (came from delivery dialog)
+    if (prefillCustomerId) setValue('customerId', prefillCustomerId, { shouldValidate: true });
+    if (prefillProductId)  setValue('productId',  prefillProductId,  { shouldValidate: true });
+  }, [draftKey, setValue, prefillCustomerId, prefillProductId]);
 
   // Persist draft on change
   const watchedValues = watch();
@@ -154,6 +159,14 @@ export function DamageReportForm({ dailySheetItemId }: DamageReportFormProps) {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      {/* Delivery context banner */}
+      {dailySheetItemId && (
+        <div className="flex items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-4 py-2.5 text-sm text-primary">
+          <ShieldAlert className="h-4 w-4 shrink-0" />
+          <span>Linked to delivery stop — customer &amp; product pre-filled</span>
+        </div>
+      )}
+
       {/* 409 Conflict alert */}
       {conflict && (
         <Card className="border-amber-500/40 bg-amber-500/10">

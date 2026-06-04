@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
   Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@water-supply-crm/ui';
-import { Droplets, Loader2 } from 'lucide-react';
+import { CheckCircle2, Droplets, Loader2, ShieldAlert } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import type { DeliveryItem } from '@water-supply-crm/types';
 import { useUpdateDeliveryItem } from '../../hooks/use-daily-sheets';
@@ -37,6 +38,7 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
   const [unableReason, setUnableReason] = useState('');
   const [itemForm, setItemForm] = useState<Partial<DeliveryItem>>({});
   const [awaitingConfirm, setAwaitingConfirm] = useState(false);
+  const [savedItem, setSavedItem] = useState<DeliveryItem | null>(null);
 
   const item = items.find((i) => i.id === open) ?? null;
 
@@ -48,6 +50,7 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
     setFailureCategory(item.failureCategory ?? 'CUSTOMER_NOT_HOME');
     setUnableReason(item.reason ?? '');
     setAwaitingConfirm(false);
+    setSavedItem(null);
     setItemForm({
       filledDropped: item.filledDropped || 1,
       emptyReceived: item.emptyReceived || 0,
@@ -81,7 +84,21 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
           cashCollected: 0,
           reason: unableReason || undefined,
         };
-    updateItem({ itemId: open, data: finalData }, { onSuccess: onClose });
+    updateItem(
+      { itemId: open, data: finalData },
+      {
+        onSuccess: () => {
+          // For successful deliveries show the "report damage?" step.
+          // For unable-to-deliver, just close — no damage to report.
+          if (deliveryMode === 'delivered' && item) {
+            setSavedItem(item);
+            setAwaitingConfirm(false);
+          } else {
+            onClose();
+          }
+        },
+      },
+    );
   };
 
   return (
@@ -94,7 +111,39 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
           </DialogTitle>
         </DialogHeader>
 
-        {awaitingConfirm ? (
+        {savedItem ? (
+          /* ── Post-save: offer damage report ── */
+          <div className="py-6 space-y-5">
+            <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-5 text-center space-y-2">
+              <CheckCircle2 className="h-8 w-8 text-emerald-500 mx-auto" />
+              <p className="font-bold text-emerald-700 dark:text-emerald-400">
+                Delivery saved — {savedItem.customer?.name}
+              </p>
+            </div>
+
+            <p className="text-sm text-center text-muted-foreground">
+              Did any empties come back damaged?
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => { setSavedItem(null); onClose(); }}
+                className="flex-1 py-3 rounded-2xl border border-border/50 bg-background text-sm font-bold text-muted-foreground hover:border-primary/30 transition-all"
+              >
+                No, Done
+              </button>
+              <Link
+                href={`/dashboard/damage-report?dailySheetItemId=${savedItem.id}&customerId=${savedItem.customerId}&productId=${savedItem.productId}`}
+                onClick={() => { setSavedItem(null); onClose(); }}
+                className="flex-1 py-3 rounded-2xl border border-destructive/30 bg-destructive/10 text-destructive text-sm font-bold flex items-center justify-center gap-2 hover:bg-destructive/20 transition-all"
+              >
+                <ShieldAlert className="h-4 w-4" />
+                Report Damage
+              </Link>
+            </div>
+          </div>
+        ) : awaitingConfirm ? (
           <div className="py-6 space-y-5">
             <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-3">
               <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400">Confirm Delivery — {item?.customer?.name}</p>
