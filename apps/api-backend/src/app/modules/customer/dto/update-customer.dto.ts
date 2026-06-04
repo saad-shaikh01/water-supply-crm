@@ -4,6 +4,7 @@ import {
   IsNumber,
   IsUUID,
   IsEnum,
+  IsBoolean,
   ValidateNested,
   IsArray,
 } from 'class-validator';
@@ -15,6 +16,10 @@ export class UpdateCustomerDto {
   @IsOptional()
   @IsEnum(PaymentType)
   paymentType?: PaymentType;
+
+  @IsOptional()
+  @IsBoolean()
+  isBillingExempt?: boolean;
 
   @IsOptional()
   @IsString()

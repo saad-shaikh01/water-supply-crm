@@ -70,6 +70,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     customerCode: string;
     paymentType?: 'MONTHLY' | 'CASH';
     isActive?: boolean;
+    isBillingExempt?: boolean;
     deliverySchedules?: Array<{ dayOfWeek: number; van?: { plateNumber: string } }>;
   }>;
   const total = customers?.meta?.total ?? 0;
@@ -290,14 +291,21 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             key: 'paymentType',
             header: 'Type',
             cell: (r) => (
-              <Badge className={cn(
-                "text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border-none whitespace-nowrap",
-                r.paymentType === 'MONTHLY'
-                  ? "bg-indigo-500/10 text-indigo-400"
-                  : "bg-emerald-500/10 text-emerald-400"
-              )}>
-                {r.paymentType ?? 'CASH'}
-              </Badge>
+              <div className="flex flex-col gap-1">
+                <Badge className={cn(
+                  "text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border-none whitespace-nowrap",
+                  r.paymentType === 'MONTHLY'
+                    ? "bg-indigo-500/10 text-indigo-400"
+                    : "bg-emerald-500/10 text-emerald-400"
+                )}>
+                  {r.paymentType ?? 'CASH'}
+                </Badge>
+                {r.isBillingExempt && (
+                  <Badge className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border-none whitespace-nowrap bg-amber-500/10 text-amber-500">
+                    Free
+                  </Badge>
+                )}
+              </div>
             )
           },
           {

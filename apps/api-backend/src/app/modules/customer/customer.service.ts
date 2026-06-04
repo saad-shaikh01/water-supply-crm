@@ -106,7 +106,7 @@ export class CustomerService {
       resolvedCoords = await this.resolveGoogleMapsLatLng(dto.googleMapsUrl);
     }
 
-    const { deliverySchedule, ...customerFields } = dto;
+    const { deliverySchedule, defaultProductId, defaultPrice, ...customerFields } = dto;
 
     const customer = await this.prisma.$transaction(async (tx) => {
       const customerCode = dto.customerCode ?? (await this.generateCustomerCode(vendorId, tx));
@@ -143,6 +143,14 @@ export class CustomerService {
             productId: product.id,
             balance: 0,
           },
+        });
+      }
+
+      if (defaultProductId !== undefined && defaultPrice !== undefined) {
+        await tx.customerProductPrice.upsert({
+          where: { customerId_productId: { customerId: customer.id, productId: defaultProductId } },
+          create: { customerId: customer.id, productId: defaultProductId, customPrice: defaultPrice },
+          update: { customPrice: defaultPrice },
         });
       }
 
@@ -304,6 +312,26 @@ export class CustomerService {
       entity: 'Customer',
       entityId: id,
     });
+
+    return updated;
+  }
+
+  async updateLocation(vendorId: string, id: string, latitude: number, longitude: number) {
+    const customer = await this.prisma.customer.findFirst({ where: { id, vendorId } });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const updated = await this.prisma.customer.update({
+      where: { id },
+      data: {
+        latitude,
+        longitude,
+        googleMapsUrl: `https://www.google.com/maps?q=${latitude},${longitude}`,
+      },
+    });
+
+    await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
+
+    await this.audit.log({ vendorId, action: 'UPDATE', entity: 'Customer', entityId: id });
 
     return updated;
   }

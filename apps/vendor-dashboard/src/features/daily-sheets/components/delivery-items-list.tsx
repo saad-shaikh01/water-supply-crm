@@ -1,13 +1,15 @@
 'use client';
 
+import { useState } from 'react';
 import { Card, CardContent, Button, Badge, Tabs, TabsList, TabsTrigger } from '@water-supply-crm/ui';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import {
   AlertCircle, ChevronDown, ChevronUp, ClipboardList,
-  MapPin, MessageCircle, Navigation, Phone,
+  LocateFixed, MapPin, MessageCircle, Navigation, Phone,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
 import type { DeliveryItem } from '@water-supply-crm/types';
 
 type TabKey = 'all' | 'pending' | 'completed' | 'issues';
@@ -43,6 +45,7 @@ interface DeliveryItemsListProps {
   onPageChange: (page: number) => void;
   onToggleExpand: (itemId: string | null) => void;
   onOpenDelivery: (item: DeliveryItem) => void;
+  onSaveLocation: (customerId: string, lat: number, lng: number) => Promise<void>;
 }
 
 export function DeliveryItemsList({
@@ -59,7 +62,39 @@ export function DeliveryItemsList({
   onPageChange,
   onToggleExpand,
   onOpenDelivery,
+  onSaveLocation,
 }: DeliveryItemsListProps) {
+  const [savingLocationItemId, setSavingLocationItemId] = useState<string | null>(null);
+
+  const handleGpsCapture = (item: DeliveryItem) => {
+    if (!navigator.geolocation) {
+      toast.error('Geolocation is not supported by your browser');
+      return;
+    }
+    setSavingLocationItemId(item.id);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          await onSaveLocation(item.customerId, pos.coords.latitude, pos.coords.longitude);
+          toast.success('Location saved');
+        } catch {
+          // error toast handled by mutation
+        } finally {
+          setSavingLocationItemId(null);
+        }
+      },
+      (err) => {
+        setSavingLocationItemId(null);
+        if (err.code === GeolocationPositionError.PERMISSION_DENIED) {
+          toast.error('Location access denied. Please allow location in your browser settings.');
+        } else {
+          toast.error('Could not get your current location');
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -261,6 +296,25 @@ export function DeliveryItemsList({
                                 </Button>
                               </a>
                             )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className={cn(
+                                'rounded-full font-bold gap-1.5 text-xs h-8',
+                                customer?.latitude && customer?.longitude
+                                  ? 'text-orange-600 border-orange-500/30 hover:bg-orange-500/10'
+                                  : 'text-emerald-600 border-emerald-500/30 hover:bg-emerald-500/10',
+                              )}
+                              disabled={savingLocationItemId === item.id}
+                              onClick={() => handleGpsCapture(item)}
+                            >
+                              <LocateFixed className="h-3.5 w-3.5" />
+                              {savingLocationItemId === item.id
+                                ? 'Saving…'
+                                : customer?.latitude && customer?.longitude
+                                  ? 'Change Location'
+                                  : 'Add Location'}
+                            </Button>
                           </div>
 
                           {item.failureCategory && (

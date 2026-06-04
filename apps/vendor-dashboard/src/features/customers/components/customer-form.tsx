@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { MapPin } from 'lucide-react';
+import { MapPin, Tag, ShieldOff } from 'lucide-react';
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter, SheetDescription,
   Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -12,6 +13,7 @@ import { customerSchema, type CustomerInput } from '../schemas';
 import { useCreateCustomer, useUpdateCustomer } from '../hooks/use-customers';
 import { useRoutes } from '../../routes/hooks/use-routes';
 import { useAllVans } from '../../vans/hooks/use-vans';
+import { productsApi } from '../../products/api/products.api';
 import { cn } from '@water-supply-crm/ui';
 
 interface CustomerFormProps {
@@ -53,6 +55,9 @@ const EMPTY_DEFAULTS: CustomerInput = {
   routeId: '',
   deliverySchedule: [],
   paymentType: 'CASH',
+  isBillingExempt: false,
+  defaultProductId: undefined,
+  defaultPrice: undefined,
 };
 
 export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps) {
@@ -61,10 +66,16 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
   const { mutate: update, isPending: isUpdating } = useUpdateCustomer();
   const { data: routesResponse } = useRoutes();
   const { data: vansResponse } = useAllVans();
+  const { data: productsResponse } = useQuery({
+    queryKey: ['products-form-list'],
+    queryFn: () => productsApi.getAll({ isActive: true, limit: 100 }).then((r) => r.data),
+    staleTime: 15 * 60 * 1000,
+  });
   const isPending = isCreating || isUpdating;
 
   const routes = (routesResponse as { data?: any[] } | undefined)?.data ?? [];
   const vans = (vansResponse as { data?: any[] } | undefined)?.data ?? [];
+  const allProducts = (productsResponse as { data?: any[] } | undefined)?.data ?? [];
   const activeVans = vans.filter((v: any) => v.isActive !== false);
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<CustomerInput>({
@@ -92,6 +103,7 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
           routeSequence: s.routeSequence ?? undefined,
         })),
         paymentType: (customer.paymentType as 'MONTHLY' | 'CASH') ?? 'CASH',
+        isBillingExempt: Boolean(customer.isBillingExempt),
         latitude: customer.latitude ? Number(customer.latitude) : undefined,
         longitude: customer.longitude ? Number(customer.longitude) : undefined,
       });
@@ -116,6 +128,8 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
       nearbyLandmark: data.nearbyLandmark || undefined,
       deliveryInstructions: data.deliveryInstructions || undefined,
       googleMapsUrl: data.googleMapsUrl || undefined,
+      defaultProductId: data.defaultProductId || undefined,
+      defaultPrice: (data.defaultPrice !== undefined && !isNaN(data.defaultPrice)) ? data.defaultPrice : undefined,
     };
     if (isEdit) {
       update({ id: String(customer!.id), data: payload }, { onSuccess: () => onOpenChange(false) });
@@ -268,6 +282,83 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
               </Select>
             </div>
           </div>
+
+          {/* ── Billing Exempt Toggle ──────────────────── */}
+          <button
+            type="button"
+            onClick={() => setValue('isBillingExempt', !watch('isBillingExempt'), { shouldValidate: true })}
+            className={cn(
+              'w-full flex items-center gap-3 rounded-xl border p-3.5 transition-all text-left',
+              watch('isBillingExempt')
+                ? 'border-amber-500/40 bg-amber-500/10'
+                : 'border-border/40 bg-accent/10 hover:border-border/60'
+            )}
+          >
+            <div className={cn(
+              'relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 transition-colors',
+              watch('isBillingExempt') ? 'bg-amber-500 border-amber-500' : 'bg-muted border-muted-foreground/30'
+            )}>
+              <span className={cn(
+                'pointer-events-none block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200',
+                watch('isBillingExempt') ? 'translate-x-4' : 'translate-x-0'
+              )} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className={cn(
+                'text-sm font-semibold flex items-center gap-1.5',
+                watch('isBillingExempt') ? 'text-amber-600' : 'text-foreground'
+              )}>
+                <ShieldOff className="h-3.5 w-3.5" />
+                Billing Exempt (Free Customer)
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Deliveries will be recorded but no charges applied. Bottle wallet still tracked.
+              </p>
+            </div>
+          </button>
+
+          {/* ── Default Pricing (create only) ─────────── */}
+          {!isEdit && (
+            <div className="space-y-4 p-4 rounded-2xl bg-accent/10 border border-border/30">
+              <p className="text-xs font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                <Tag className="h-3.5 w-3.5 text-primary" /> Default Pricing
+                <span className="font-normal normal-case tracking-normal text-[10px]">(optional)</span>
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold">Product</Label>
+                  <Select
+                    value={watch('defaultProductId') ?? ''}
+                    onValueChange={(v) => setValue('defaultProductId', v || undefined, { shouldValidate: true })}
+                  >
+                    <SelectTrigger className="bg-background/50 border-border/50 focus:border-primary/50 transition-all">
+                      <SelectValue placeholder="Select product..." />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-xl border-border/50 shadow-2xl">
+                      {allProducts.map((p: any) => (
+                        <SelectItem key={p.id} value={p.id} className="rounded-lg">
+                          {p.name} (Base: ₨{p.basePrice})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {errors.defaultProductId && <p className="text-[11px] font-medium text-destructive">{errors.defaultProductId.message}</p>}
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold">Custom Price (₨)</Label>
+                  <Input
+                    type="number"
+                    placeholder="e.g. 180"
+                    min={0}
+                    disabled={!watch('defaultProductId')}
+                    className="bg-background/50 border-border/50 focus:border-primary/50 transition-all disabled:opacity-40"
+                    {...register('defaultPrice', { valueAsNumber: true })}
+                  />
+                  {errors.defaultPrice && <p className="text-[11px] font-medium text-destructive">{errors.defaultPrice.message}</p>}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* ── Delivery Schedule Builder ───────────────── */}
           <div className="space-y-3 p-4 rounded-2xl bg-accent/10 border border-border/30">

@@ -3,6 +3,7 @@ import { useQueryState, parseAsInteger, parseAsString } from 'nuqs';
 import { toast } from 'sonner';
 import type { SheetDetail } from '@water-supply-crm/types';
 import { dailySheetsApi, type SheetQuery } from '../api/daily-sheets.api';
+import { customersApi } from '../../customers/api/customers.api';
 import { queryKeys } from '../../../lib/query-keys';
 import { useAuthStore } from '../../../store/auth.store';
 
@@ -168,5 +169,17 @@ export const useCheckinLoad = (sheetId: string) => {
       toast.success('Trip checked in');
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to check in'),
+  });
+};
+
+export const useUpdateCustomerLocation = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ customerId, latitude, longitude }: { customerId: string; latitude: number; longitude: number }) =>
+      customersApi.updateLocation(customerId, latitude, longitude),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
+    },
+    onError: () => toast.error('Failed to save location'),
   });
 };

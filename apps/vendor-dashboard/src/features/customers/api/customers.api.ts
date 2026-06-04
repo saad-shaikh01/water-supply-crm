@@ -20,6 +20,8 @@ export const customersApi = {
   getOne: (id: string) => apiClient.get(`/customers/${id}`),
   create: (data: Record<string, unknown>) => apiClient.post('/customers', data),
   update: (id: string, data: Record<string, unknown>) => apiClient.patch(`/customers/${id}`, data),
+  updateLocation: (id: string, latitude: number, longitude: number) =>
+    apiClient.patch(`/customers/${id}/location`, { latitude, longitude }),
   remove: (id: string) => apiClient.delete(`/customers/${id}`),
   deactivate: (id: string) => apiClient.patch(`/customers/${id}/deactivate`),
   reactivate: (id: string) => apiClient.patch(`/customers/${id}/reactivate`),

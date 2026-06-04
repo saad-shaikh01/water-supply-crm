@@ -4,8 +4,10 @@ import {
   IsNumber,
   IsUUID,
   IsEnum,
+  IsBoolean,
   ValidateNested,
   IsArray,
+  Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PaymentType } from '@prisma/client';
@@ -15,6 +17,10 @@ export class CreateCustomerDto {
   @IsOptional()
   @IsEnum(PaymentType)
   paymentType?: PaymentType = PaymentType.CASH;
+
+  @IsOptional()
+  @IsBoolean()
+  isBillingExempt?: boolean;
 
   @IsOptional()
   @IsString()
@@ -62,4 +68,13 @@ export class CreateCustomerDto {
   @IsOptional()
   @IsUUID()
   routeId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  defaultProductId?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  defaultPrice?: number;
 }

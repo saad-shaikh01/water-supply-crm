@@ -2,7 +2,7 @@
 
 import { useReducer, useMemo } from 'react';
 import { Card, CardContent, Skeleton } from '@water-supply-crm/ui';
-import { useDailySheet } from '../hooks/use-daily-sheets';
+import { useDailySheet, useUpdateCustomerLocation } from '../hooks/use-daily-sheets';
 import { dailySheetsApi } from '../api/daily-sheets.api';
 import { DeliveryDialog } from './dialogs/delivery-dialog';
 import { CheckinDialog } from './dialogs/checkin-dialog';
@@ -104,6 +104,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const isAdmin = user ? hasMinRole(user.role, 'VENDOR_ADMIN') : false;
 
   const { data, isLoading } = useDailySheet(sheetId);
+  const updateCustomerLocation = useUpdateCustomerLocation(sheetId);
   const [ui, dispatch] = useReducer(uiReducer, initialUiState);
 
   const items = useMemo(() => data?.items ?? [], [data]);
@@ -286,6 +287,9 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         onToggleExpand={(itemId) => dispatch({ type: 'SET_EXPANDED', itemId })}
         onOpenDelivery={(item) => {
           if (!isClosed) dispatch({ type: 'OPEN_DELIVERY', itemId: item.id });
+        }}
+        onSaveLocation={async (customerId, lat, lng) => {
+          await updateCustomerLocation.mutateAsync({ customerId, latitude: lat, longitude: lng });
         }}
       />
 

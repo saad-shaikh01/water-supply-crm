@@ -16,6 +16,7 @@ import { Response } from 'express';
 import { CustomerService } from './customer.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
+import { UpdateLocationDto } from './dto/update-location.dto';
 import { CustomerQueryDto } from './dto/customer-query.dto';
 import { SetCustomPriceDto } from './dto/set-custom-price.dto';
 import { BulkPricePreviewDto, BulkPriceUpdateDto } from './dto/bulk-price-update.dto';
@@ -171,6 +172,18 @@ export class CustomerController {
       'Content-Length': buffer.length,
     });
     res.end(buffer);
+  }
+
+  /** PATCH /customers/:id/location — pin GPS coordinates (accessible to drivers) */
+  @Patch(':id/location')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
+  updateLocation(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateLocationDto,
+  ) {
+    return this.customerService.updateLocation(user.vendorId, id, dto.latitude, dto.longitude);
   }
 
   /** PATCH /customers/:id/deactivate — soft-disable customer, preserves history */

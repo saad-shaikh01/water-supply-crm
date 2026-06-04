@@ -181,6 +181,7 @@ model Customer {
 
   paymentType      PaymentType @default(CASH)
   isActive         Boolean     @default(true)
+  isBillingExempt  Boolean     @default(false)
   financialBalance Float       @default(0) // Current outstanding amount (running balance)
 
   wallets           BottleWallet[]

@@ -18,6 +18,7 @@ export const customerSchema = z.object({
   // Service
   routeId: z.string().uuid('Valid Route is required'),
   paymentType: z.enum(['MONTHLY', 'CASH']),
+  isBillingExempt: z.boolean().optional(),
 
   // Delivery schedule — each active day maps to a van + optional sequence
   deliverySchedule: z.array(z.object({
@@ -25,6 +26,19 @@ export const customerSchema = z.object({
     vanId: z.string().uuid('Van is required'),
     routeSequence: z.number().int().positive().optional(),
   })).min(1, 'Add at least one delivery day'),
+
+  // Optional default custom price (create-only, hidden on edit)
+  defaultProductId: z.string().uuid().optional(),
+  defaultPrice: z.number().min(0).optional(),
+}).superRefine((data, ctx) => {
+  const hasProduct = !!data.defaultProductId;
+  const hasPrice = data.defaultPrice !== undefined;
+  if (hasProduct && !hasPrice) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Enter a price for the selected product', path: ['defaultPrice'] });
+  }
+  if (!hasProduct && hasPrice) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Select a product first', path: ['defaultProductId'] });
+  }
 });
 
 export const customPriceSchema = z.object({
