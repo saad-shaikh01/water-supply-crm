@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Users, Map, Package, Truck,
   ClipboardList, CreditCard, UserCog, Droplets, Banknote, Navigation,
-  Receipt, Bell, ScrollText, BarChart2, Home, History, ShoppingCart, MessageSquare, AlertTriangle, Tag
+  Receipt, Bell, ScrollText, BarChart2, Home, History, ShoppingCart, MessageSquare, AlertTriangle, Tag, ShieldAlert
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { useAuthStore } from '../../store/auth.store';
@@ -23,6 +23,7 @@ const navItems: NavItem[] = [
   // Driver
   { label: 'Home', href: '/dashboard/home', icon: Home, minRole: 'DRIVER', group: 'Driver' },
   { label: 'My History', href: '/dashboard/history', icon: History, minRole: 'DRIVER', group: 'Driver' },
+  { label: 'Report Damage', href: '/dashboard/damage-report', icon: ShieldAlert, minRole: 'DRIVER', group: 'Driver' },
   // Operations
   { label: 'Overview', href: '/dashboard/overview', icon: LayoutDashboard, minRole: 'STAFF', group: 'Operations' },
   { label: 'Customers', href: '/dashboard/customers', icon: Users, minRole: 'STAFF', group: 'Operations' },
