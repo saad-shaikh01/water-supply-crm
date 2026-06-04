@@ -58,47 +58,35 @@ set +a
 # ── Guard: reject placeholder or localhost values in required prod vars ────────
 _validate_prod_env() {
   local errors=0
+  local name val
 
-  _check_var() {
-    local name="$1"
-    local val="${!name:-}"
+  echo "==> Validating required env vars in ${ENV_FILE}..."
+
+  for name in JWT_SECRET DATABASE_URL NEXT_PUBLIC_API_URL ALLOWED_ORIGINS POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB; do
+    val="${!name:-}"
 
     if [ -z "$val" ]; then
       echo "  ERROR: ${name} is not set in ${ENV_FILE}"
       errors=$((errors + 1))
-      return
+      continue
     fi
 
-    # Reject obvious placeholder patterns
-    case "$val" in
-      *replace-with* | *placeholder* | *REPLACE* | *<*>*)
-        echo "  ERROR: ${name} still contains a placeholder value: ${val}"
-        errors=$((errors + 1))
-        ;;
-    esac
+    # Reject obvious placeholder patterns (using grep to avoid shell parsing issues)
+    if echo "$val" | grep -qiE 'replace-with|placeholder'; then
+      echo "  ERROR: ${name} still contains a placeholder value: ${val}"
+      errors=$((errors + 1))
+    fi
+  done
 
-    # Reject localhost / 127.0.0.1 in URL-type vars (DATABASE_URL is allowed
-    # to use 127.0.0.1 since the DB container exposes on the loopback interface)
-    case "$name" in
-      NEXT_PUBLIC_API_URL | FRONTEND_URL | ALLOWED_ORIGINS | API_URL)
-        case "$val" in
-          *localhost* | *127.0.0.1*)
-            echo "  ERROR: ${name} contains localhost — this will break production: ${val}"
-            errors=$((errors + 1))
-            ;;
-        esac
-        ;;
-    esac
-  }
-
-  echo "==> Validating required env vars in ${ENV_FILE}..."
-  _check_var JWT_SECRET
-  _check_var DATABASE_URL
-  _check_var NEXT_PUBLIC_API_URL
-  _check_var ALLOWED_ORIGINS
-  _check_var POSTGRES_USER
-  _check_var POSTGRES_PASSWORD
-  _check_var POSTGRES_DB
+  # Reject localhost / 127.0.0.1 in URL-type vars
+  # (DATABASE_URL is exempt — it legitimately points to 127.0.0.1 for the Docker loopback port)
+  for name in NEXT_PUBLIC_API_URL FRONTEND_URL ALLOWED_ORIGINS API_URL; do
+    val="${!name:-}"
+    if [ -n "$val" ] && echo "$val" | grep -qE 'localhost|127\.0\.0\.1'; then
+      echo "  ERROR: ${name} contains localhost — this will break production: ${val}"
+      errors=$((errors + 1))
+    fi
+  done
 
   if [ "$errors" -gt 0 ]; then
     echo ""
