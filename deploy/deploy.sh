@@ -9,15 +9,21 @@
 #   5. Runs pending Prisma migrations
 #   6. Builds all Nx applications for production
 #   7. Ensures runtime directories exist
-#   8. Starts or hot-reloads all PM2 processes with the refreshed env vars
+#   8. Deploys nginx config + reloads nginx (idempotent — certs must exist first)
+#   9. Starts or hot-reloads all PM2 processes with the refreshed env vars
 #
 # Usage:
 #   bash deploy/deploy.sh              # deploys from 'main'
 #   bash deploy/deploy.sh my-branch    # deploys from a specific branch
 #
-# First-time VPS setup (run once, not part of this script):
-#   npm install -g pm2
-#   pm2 startup   # follow the printed command to enable auto-start on reboot
+# First-time VPS setup (run ONCE before the first deploy):
+#   1. Install deps:  npm install -g pm2 && pm2 startup
+#   2. Provision SSL: sudo certbot certonly --standalone \
+#                       -d backend.testinglinq.com \
+#                       -d admin.testinglinq.com \
+#                       -d vendor.testinglinq.com \
+#                       -d portal.testinglinq.com
+#   3. Then run this script normally — nginx will pick up the certs.
 
 set -euo pipefail
 
@@ -30,8 +36,7 @@ echo "==> Checking prerequisites..."
 
 if [ ! -f "${ENV_FILE}" ]; then
   echo "ERROR: ${ENV_FILE} not found."
-  echo "       Create it from .env.example and populate all required values."
-  echo "       DATABASE_URL must use 127.0.0.1 (not the Docker service name)."
+  echo "       Copy .env.prod.example → .env.prod and populate all values."
   exit 1
 fi
 
@@ -43,56 +48,113 @@ for cmd in git node npx docker pm2; do
 done
 
 # ── Load .env.prod into the current shell ─────────────────────────────────────
-# This makes NEXT_PUBLIC_* vars available at build time and all secrets
-# available to pm2 when it captures the environment via --update-env.
+# All NEXT_PUBLIC_* vars must be in the shell before Nx builds so they are
+# baked into the Next.js client bundles at compile time.
 set -a
 # shellcheck disable=SC1090
 source "${ENV_FILE}"
 set +a
 
+# ── Guard: reject placeholder or localhost values in required prod vars ────────
+_validate_prod_env() {
+  local errors=0
+
+  _check_var() {
+    local name="$1"
+    local val="${!name:-}"
+
+    if [ -z "$val" ]; then
+      echo "  ERROR: ${name} is not set in ${ENV_FILE}"
+      errors=$((errors + 1))
+      return
+    fi
+
+    # Reject obvious placeholder patterns
+    case "$val" in
+      *replace-with* | *placeholder* | *REPLACE* | *<*>*)
+        echo "  ERROR: ${name} still contains a placeholder value: ${val}"
+        errors=$((errors + 1))
+        ;;
+    esac
+
+    # Reject localhost / 127.0.0.1 in URL-type vars (DATABASE_URL is allowed
+    # to use 127.0.0.1 since the DB container exposes on the loopback interface)
+    case "$name" in
+      NEXT_PUBLIC_API_URL | FRONTEND_URL | ALLOWED_ORIGINS | API_URL)
+        case "$val" in
+          *localhost* | *127.0.0.1*)
+            echo "  ERROR: ${name} contains localhost — this will break production: ${val}"
+            errors=$((errors + 1))
+            ;;
+        esac
+        ;;
+    esac
+  }
+
+  echo "==> Validating required env vars in ${ENV_FILE}..."
+  _check_var JWT_SECRET
+  _check_var DATABASE_URL
+  _check_var NEXT_PUBLIC_API_URL
+  _check_var ALLOWED_ORIGINS
+  _check_var POSTGRES_USER
+  _check_var POSTGRES_PASSWORD
+  _check_var POSTGRES_DB
+
+  if [ "$errors" -gt 0 ]; then
+    echo ""
+    echo "  Aborting: fix the ${errors} error(s) above in ${ENV_FILE} and re-run."
+    exit 1
+  fi
+
+  echo "     All required env vars look good."
+}
+
+_validate_prod_env
+
 cd "${REPO_ROOT}"
 
 # ── 1. Pull latest code ───────────────────────────────────────────────────────
 echo ""
-echo "==> [1/7] Pulling latest code (branch: ${BRANCH})..."
+echo "==> [1/8] Pulling latest code (branch: ${BRANCH})..."
 git fetch origin "${BRANCH}"
 git reset --hard "origin/${BRANCH}"
 
 # ── 2. Install Node dependencies ──────────────────────────────────────────────
 echo ""
-echo "==> [2/7] Installing Node.js dependencies..."
+echo "==> [2/8] Installing Node.js dependencies..."
 npm ci --prefer-offline
 
 # ── 3. Data layer ─────────────────────────────────────────────────────────────
 echo ""
-echo "==> [3/7] Starting Docker data layer (PostgreSQL + Redis)..."
-# --wait blocks until both healthchecks pass, so migrations run against a live DB
+echo "==> [3/8] Starting Docker data layer (PostgreSQL + Redis)..."
 docker compose -f docker-compose.prod.yml up -d --wait --remove-orphans
 echo "     PostgreSQL  →  127.0.0.1:5432"
 echo "     Redis       →  127.0.0.1:6379"
 
-# ── Write .env so Prisma picks up the correct DATABASE_URL ───────────────────
-# Prisma always reads from .env (ignoring shell vars), so we generate it from
-# the POSTGRES_* values already sourced from .env.prod above.
+# ── Write a minimal .env so Prisma CLI picks up DATABASE_URL ─────────────────
+# Prisma CLI always reads from .env in the project root (ignoring shell vars).
+# We generate it from POSTGRES_* values already sourced from .env.prod.
+# NOTE: This file is for Prisma CLI only. All other apps get their env vars
+# from the shell environment (sourced above) and from the PM2 ecosystem config.
 _DB_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:5432/${POSTGRES_DB}?schema=public"
 cat > "${REPO_ROOT}/.env" <<EOF
+# Auto-generated by deploy.sh for Prisma CLI — do not edit manually.
 DATABASE_URL="${_DB_URL}"
 DIRECT_DATABASE_URL="${_DB_URL}"
 EOF
-echo "     .env  →  DATABASE_URL written (user: ${POSTGRES_USER}, db: ${POSTGRES_DB})"
+echo "     .env  →  DATABASE_URL written for Prisma CLI (user: ${POSTGRES_USER}, db: ${POSTGRES_DB})"
 unset _DB_URL
 
 # ── 4. Database migrations ─────────────────────────────────────────────────────
 echo ""
-echo "==> [4/7] Running database migrations..."
+echo "==> [4/8] Running database migrations..."
 npx prisma migrate deploy --schema=libs/shared/database/prisma/schema.prisma
-# Regenerate Prisma client for the host Node.js runtime (not the Alpine Docker one)
 npx prisma generate --schema=libs/shared/database/prisma/schema.prisma
 
 # ── 5. Build all applications ─────────────────────────────────────────────────
 echo ""
-echo "==> [5/7] Building all applications (one at a time)..."
-# NEXT_PUBLIC_* vars from .env.prod are now in the environment and will be
+echo "==> [5/8] Building all applications..."
+# NEXT_PUBLIC_* vars are now in the environment from step 0 and will be
 # baked into the Next.js client bundles during this step.
 echo "     Building api-backend..."
 npx nx build api-backend --configuration=production
@@ -118,23 +180,58 @@ echo ""
 echo "==> [7/8] Syncing nginx config..."
 NGINX_CONF="/etc/nginx/sites-available/water-supply-crm.conf"
 NGINX_ENABLED="/etc/nginx/sites-enabled/water-supply-crm.conf"
+CERTBOT_LIVE="/etc/letsencrypt/live"
+
+# Verify that Let's Encrypt certs exist for all domains before deploying the
+# HTTPS-enabled nginx config.  If any cert is missing, print setup instructions
+# and abort so nginx doesn't fail to start with a missing cert reference.
+_MISSING_CERTS=0
+for domain in backend.testinglinq.com admin.testinglinq.com vendor.testinglinq.com portal.testinglinq.com; do
+  if [ ! -f "${CERTBOT_LIVE}/${domain}/fullchain.pem" ]; then
+    echo "  MISSING: SSL cert for ${domain}"
+    _MISSING_CERTS=$((_MISSING_CERTS + 1))
+  fi
+done
+
+if [ "${_MISSING_CERTS}" -gt 0 ]; then
+  echo ""
+  echo "  SSL certificates are missing for ${_MISSING_CERTS} domain(s)."
+  echo "  Run this ONCE on the VPS, then re-run deploy.sh:"
+  echo ""
+  echo "    sudo certbot certonly --standalone \\"
+  echo "      -d backend.testinglinq.com \\"
+  echo "      -d admin.testinglinq.com \\"
+  echo "      -d vendor.testinglinq.com \\"
+  echo "      -d portal.testinglinq.com"
+  echo ""
+  echo "  Note: stop nginx first if it is running on port 80:"
+  echo "    sudo systemctl stop nginx"
+  echo "    # run certbot certonly above"
+  echo "    sudo systemctl start nginx"
+  exit 1
+fi
+
 sudo cp "${REPO_ROOT}/deploy/nginx/water-supply-crm.conf" "${NGINX_CONF}"
 if [ ! -L "${NGINX_ENABLED}" ]; then
   sudo ln -s "${NGINX_CONF}" "${NGINX_ENABLED}"
 fi
-sudo nginx -t && sudo nginx -s reload
+
+# Test config before reloading; if it fails, print the error and abort so the
+# running nginx keeps serving the previous (working) config.
+if ! sudo nginx -t; then
+  echo ""
+  echo "  ERROR: nginx config test failed — previous config is still active."
+  echo "  Fix the error above and re-run deploy.sh."
+  exit 1
+fi
+
+sudo nginx -s reload
 echo "     nginx reloaded."
 
 # ── 8. PM2 start / reload ─────────────────────────────────────────────────────
 echo ""
 echo "==> [8/8] Starting / reloading PM2 processes..."
-# startOrRestart: starts the process if it does not yet exist in PM2's list,
-# or performs a hard restart (fork mode) / graceful reload (cluster mode) if
-# it is already running.  --update-env pushes the current shell env to each
-# running process so secrets are refreshed without a full stop/start.
 pm2 startOrRestart "${REPO_ROOT}/ecosystem.config.js" --update-env
-
-# Persist the process list so PM2 restores everything after a reboot.
 pm2 save
 
 echo ""

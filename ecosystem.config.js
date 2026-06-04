@@ -92,7 +92,12 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: '4310',
-        HOSTNAME: '127.0.0.1',
+        // HOSTNAME is intentionally omitted: the binding address is set via
+        // -H 127.0.0.1 in args.  Setting HOSTNAME here causes Next.js 15+
+        // to use the binding IP as the URL origin for middleware redirects
+        // instead of reading the Host header forwarded by nginx, which
+        // results in redirects to https://localhost:PORT/… instead of the
+        // real domain.
         NEXT_TELEMETRY_DISABLED: '1',
       },
       error_file: path.join(ROOT, 'logs/wscrm-admin-error.log'),
@@ -116,7 +121,7 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: '4311',
-        HOSTNAME: '127.0.0.1',
+        // See wscrm-admin comment above re: HOSTNAME omission.
         NEXT_TELEMETRY_DISABLED: '1',
       },
       error_file: path.join(ROOT, 'logs/wscrm-vendor-error.log'),
@@ -140,7 +145,7 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: '4312',
-        HOSTNAME: '127.0.0.1',
+        // See wscrm-admin comment above re: HOSTNAME omission.
         NEXT_TELEMETRY_DISABLED: '1',
       },
       error_file: path.join(ROOT, 'logs/wscrm-portal-error.log'),
