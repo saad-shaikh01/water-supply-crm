@@ -22,13 +22,16 @@ export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const isAuthRoute = pathname.startsWith('/auth');
 
-  const loginUrl = request.nextUrl.clone();
-  loginUrl.pathname = '/auth/login';
-  loginUrl.search = '';
+  const host =
+    request.headers.get('x-forwarded-host') ||
+    request.headers.get('host') ||
+    request.nextUrl.host;
+  const proto =
+    request.headers.get('x-forwarded-proto') ||
+    request.nextUrl.protocol.replace(':', '');
 
-  const homeUrl = request.nextUrl.clone();
-  homeUrl.pathname = '/home';
-  homeUrl.search = '';
+  const loginUrl = new URL('/auth/login', `${proto}://${host}`);
+  const homeUrl = new URL('/home', `${proto}://${host}`);
 
   if (!token) {
     if (!isAuthRoute) {

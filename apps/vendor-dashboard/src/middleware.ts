@@ -6,12 +6,21 @@ export function middleware(request: NextRequest) {
   const role = request.cookies.get('user_role')?.value;
   const { pathname } = request.nextUrl;
 
-  const redirectTo = (path: string) => {
-    const url = request.nextUrl.clone();
-    url.pathname = path;
-    url.search = '';
-    return NextResponse.redirect(url);
-  };
+  // Next.js 15/16 builds request.nextUrl from the internal server address
+  // (localhost:PORT), not from the Host header, when running behind a reverse
+  // proxy. We explicitly read x-forwarded-host / host so the redirect URL
+  // always uses the real public domain (vendor.testinglinq.com) rather than
+  // the loopback address.
+  const host =
+    request.headers.get('x-forwarded-host') ||
+    request.headers.get('host') ||
+    request.nextUrl.host;
+  const proto =
+    request.headers.get('x-forwarded-proto') ||
+    request.nextUrl.protocol.replace(':', '');
+
+  const redirectTo = (path: string) =>
+    NextResponse.redirect(new URL(path, `${proto}://${host}`));
 
   // Protect dashboard routes — redirect to login if no token
   if (!token && pathname.startsWith('/dashboard')) {
