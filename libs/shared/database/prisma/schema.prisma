@@ -52,6 +52,27 @@ enum ExpenseCategory {
   OTHER
 }
 
+enum DamageSeverity {
+  MINOR
+  MODERATE
+  SEVERE
+}
+
+enum DamageCaseStatus {
+  REPORTED
+  UNDER_REVIEW
+  CHARGED
+  WAIVED
+  REVERSED
+}
+
+enum WriteOffCategory {
+  CUSTOMER_NEGLIGENCE
+  NORMAL_WEAR
+  TRANSIT_ACCIDENT
+  UNKNOWN
+}
+
 model Vendor {
   id          String   @id @default(uuid())
   name        String
@@ -78,6 +99,7 @@ model Vendor {
   deliveryIssues          DeliveryIssue[]
   reminderScheduleConfig  ReminderScheduleConfig?
   driverLastLocations     DriverLastLocation[]
+  damageCases             DamageCase[]
 }
 
 model User {
@@ -100,6 +122,8 @@ model User {
   inAppNotifications    InAppNotification[]
   notificationPrefs     NotificationPreference[]
   driverLastLocation    DriverLastLocation?
+  driverDamageCases     DamageCase[] @relation("DriverDamageCases")
+  reviewedDamageCases   DamageCase[] @relation("DamageCaseReviewer")
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -121,6 +145,7 @@ model Product {
   transactions Transaction[]
   customPrices CustomerProductPrice[]
   orders      CustomerOrder[]
+  damageCases DamageCase[]
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -165,6 +190,7 @@ model Customer {
   deliverySchedules CustomerDeliverySchedule[]
   orders            CustomerOrder[]
   tickets           CustomerTicket[]
+  damageCases       DamageCase[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -331,6 +357,7 @@ model DailySheetItem {
 
   deliveryIssue DeliveryIssue?
   transactions  Transaction[]
+  damageCases   DamageCase[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -398,6 +425,7 @@ model Transaction {
   amount        Float?   // Positive for charge, negative for payment
 
   description   String?
+  damageCase    DamageCase?
 
   createdAt     DateTime @default(now())
 
@@ -768,4 +796,58 @@ model DriverLastLocation {
 
   @@index([vendorId])
   @@index([vendorId, lastSeenAt])
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Bottle Damage Cases
+// ──────────────────────────────────────────────────────────────────────────────
+
+model DamageCase {
+  id               String             @id @default(uuid())
+  vendorId         String
+  vendor           Vendor             @relation(fields: [vendorId], references: [id])
+  customerId       String
+  customer         Customer           @relation(fields: [customerId], references: [id])
+  productId        String
+  product          Product            @relation(fields: [productId], references: [id])
+  driverId         String
+  driver           User               @relation("DriverDamageCases", fields: [driverId], references: [id])
+  dailySheetItemId String?
+  dailySheetItem   DailySheetItem?    @relation(fields: [dailySheetItemId], references: [id])
+  severity         DamageSeverity
+  bottleCount      Int
+  description      String?
+  photoKeys        String[]
+  status           DamageCaseStatus   @default(REPORTED)
+  version          Int                @default(0)
+  chargeAmount     Float?
+  writeOffCategory WriteOffCategory?
+  reviewNote       String?
+  reviewedById     String?
+  reviewedBy       User?              @relation("DamageCaseReviewer", fields: [reviewedById], references: [id])
+  reviewedAt       DateTime?
+  transactionId    String?            @unique
+  transaction      Transaction?       @relation(fields: [transactionId], references: [id])
+  auditLogs        DamageCaseAuditLog[]
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@unique([dailySheetItemId, driverId, severity, vendorId])
+  @@index([vendorId, status])
+  @@index([customerId])
+  @@index([driverId])
+}
+
+model DamageCaseAuditLog {
+  id           String     @id @default(uuid())
+  damageCaseId String
+  damageCase   DamageCase @relation(fields: [damageCaseId], references: [id])
+  actorId      String
+  actorRole    String
+  action       String
+  payload      Json?
+  createdAt    DateTime   @default(now())
+
+  @@index([damageCaseId])
+  @@index([damageCaseId, createdAt])
 }
