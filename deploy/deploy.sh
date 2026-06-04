@@ -170,34 +170,22 @@ NGINX_CONF="/etc/nginx/sites-available/water-supply-crm.conf"
 NGINX_ENABLED="/etc/nginx/sites-enabled/water-supply-crm.conf"
 CERTBOT_LIVE="/etc/letsencrypt/live"
 
-# Verify that Let's Encrypt certs exist for all domains before deploying the
-# HTTPS-enabled nginx config.  If any cert is missing, print setup instructions
-# and abort so nginx doesn't fail to start with a missing cert reference.
-_MISSING_CERTS=0
-for domain in backend.testinglinq.com admin.testinglinq.com vendor.testinglinq.com portal.testinglinq.com; do
-  if [ ! -f "${CERTBOT_LIVE}/${domain}/fullchain.pem" ]; then
-    echo "  MISSING: SSL cert for ${domain}"
-    _MISSING_CERTS=$((_MISSING_CERTS + 1))
-  fi
-done
-
-if [ "${_MISSING_CERTS}" -gt 0 ]; then
+# All four domains share one SAN certificate stored under the primary domain.
+# Verify that certificate exists before deploying the HTTPS nginx config.
+_SAN_CERT="${CERTBOT_LIVE}/backend.testinglinq.com/fullchain.pem"
+if [ ! -f "${_SAN_CERT}" ]; then
   echo ""
-  echo "  SSL certificates are missing for ${_MISSING_CERTS} domain(s)."
+  echo "  SSL certificate not found at ${_SAN_CERT}"
   echo "  Run this ONCE on the VPS, then re-run deploy.sh:"
   echo ""
-  echo "    sudo certbot certonly --standalone \\"
+  echo "    sudo certbot certonly --nginx \\"
   echo "      -d backend.testinglinq.com \\"
   echo "      -d admin.testinglinq.com \\"
   echo "      -d vendor.testinglinq.com \\"
   echo "      -d portal.testinglinq.com"
-  echo ""
-  echo "  Note: stop nginx first if it is running on port 80:"
-  echo "    sudo systemctl stop nginx"
-  echo "    # run certbot certonly above"
-  echo "    sudo systemctl start nginx"
   exit 1
 fi
+echo "     SSL cert found: ${_SAN_CERT}"
 
 sudo cp "${REPO_ROOT}/deploy/nginx/water-supply-crm.conf" "${NGINX_CONF}"
 if [ ! -L "${NGINX_ENABLED}" ]; then
