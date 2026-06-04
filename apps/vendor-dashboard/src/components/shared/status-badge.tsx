@@ -26,13 +26,18 @@ const statusConfig: Record<string, { label: string; variant: 'default' | 'second
   // Order states
   APPROVED: { label: 'Approved', variant: 'success' },
   REJECTED: { label: 'Rejected', variant: 'destructive' },
-  UNDER_REVIEW: { label: 'Under Review', variant: 'warning' },
+  UNDER_REVIEW: { label: 'Under Review', variant: 'info' },
   DISPATCHED: { label: 'Dispatched', variant: 'info' },
   DELIVERED: { label: 'Delivered', variant: 'success' },
   UNPLANNED: { label: 'Unplanned', variant: 'outline' },
   INSERTED_IN_SHEET: { label: 'Inserted In Sheet', variant: 'info' },
   FAILED: { label: 'Failed', variant: 'destructive' },
   SELF_PICKUP_DONE: { label: 'Self Pickup', variant: 'success' },
+  // Damage case states
+  REPORTED: { label: 'Reported', variant: 'warning' },
+  CHARGED: { label: 'Charged', variant: 'destructive' },
+  WAIVED: { label: 'Waived', variant: 'secondary' },
+  REVERSED: { label: 'Reversed', variant: 'outline' },
 };
 
 export function StatusBadge({ status }: { status: Status }) {

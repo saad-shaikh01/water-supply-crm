@@ -35,6 +35,7 @@ const navItems: NavItem[] = [
   { label: 'Orders', href: '/dashboard/orders', icon: ShoppingCart, minRole: 'STAFF', group: 'Operations' },
   { label: 'Tickets', href: '/dashboard/tickets', icon: MessageSquare, minRole: 'STAFF', group: 'Operations' },
   { label: 'Delivery Issues', href: '/dashboard/delivery-issues', icon: AlertTriangle, minRole: 'STAFF', group: 'Operations' },
+  { label: 'Damage Cases', href: '/dashboard/damage-cases', icon: ShieldAlert, minRole: 'STAFF', group: 'Operations' },
   { label: 'Pricing', href: '/dashboard/pricing', icon: Tag, minRole: 'VENDOR_ADMIN', group: 'Operations' },
   // Finance
   { label: 'Transactions', href: '/dashboard/transactions', icon: CreditCard, minRole: 'STAFF', group: 'Finance' },
