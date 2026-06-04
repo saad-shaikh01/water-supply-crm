@@ -22,37 +22,43 @@ export class NotificationProcessor extends WorkerHost {
     const queuedAt = new Date(job.timestamp);
 
     try {
-      await this.handleJob(job);
-      await this.writeLog(job, 'SENT', queuedAt, null);
+      const failReason = await this.handleJob(job);
+      if (failReason) {
+        await this.writeLog(job, 'FAILED', queuedAt, failReason);
+      } else {
+        await this.writeLog(job, 'SENT', queuedAt, null);
+      }
     } catch (err: any) {
       await this.writeLog(job, 'FAILED', queuedAt, err?.message ?? 'Unknown error');
       throw err;
     }
   }
 
-  private async handleJob(job: Job): Promise<void> {
+  private async handleJob(job: Job): Promise<string | null> {
     switch (job.name) {
       case JOB_NAMES.SEND_WHATSAPP: {
         const { phoneNumber, message } = job.data;
         const sent = await this.whatsapp.sendMessage(phoneNumber, message);
         if (sent) {
           this.logger.log(`WhatsApp sent to ${phoneNumber}`);
+          return null;
         } else {
-          this.logger.warn(`WhatsApp not sent to ${phoneNumber} (disabled/rate-limited/not ready)`);
+          this.logger.warn(`WhatsApp not sent to ${phoneNumber} (number not on WhatsApp / disabled / not ready)`);
+          return 'Message not delivered — number may not be on WhatsApp or client not ready';
         }
-        break;
       }
       case JOB_NAMES.SEND_SMS:
         this.logger.log(`[Stub] Sending SMS to ${job.data.phoneNumber}: ${job.data.message}`);
-        break;
+        return null;
       case JOB_NAMES.SEND_FCM_NOTIFICATION: {
         const { userId, title, body, data } = job.data;
         const result = await this.fcm.sendToUser(userId, title, body, data);
         this.logger.log(`FCM sent to user ${userId}: ${result.sent} sent, ${result.failed} failed`);
-        break;
+        return null;
       }
       default:
         this.logger.warn(`Unknown notification job: ${job.name}`);
+        return null;
     }
   }
 

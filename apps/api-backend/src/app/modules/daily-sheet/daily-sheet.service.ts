@@ -23,6 +23,8 @@ import { LedgerService } from '../transaction/ledger.service';
 import { AuditService } from '../audit/audit.service';
 import { FcmService } from '../fcm/fcm.service';
 import { DeliveryIssueService } from '../delivery-issue/delivery-issue.service';
+import { NotificationService } from '../notifications/notification.service';
+import { MessageTemplates } from '../whatsapp/templates/message.templates';
 import { InsertOrderItemDto, SequenceMode } from './dto/insert-order-item.dto';
 import { paginate } from '../../common/helpers/paginate';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
@@ -38,6 +40,7 @@ export class DailySheetService {
     private fcm: FcmService,
     private deliveryIssue: DeliveryIssueService,
     private cache: CacheInvalidationService,
+    private notifications: NotificationService,
     @InjectQueue(QUEUE_NAMES.DAILY_SHEET_GENERATION)
     private sheetQueue: Queue,
   ) {}
@@ -70,8 +73,8 @@ export class DailySheetService {
     const item = await this.prisma.dailySheetItem.findUnique({
       where: { id: itemId },
       include: {
-        customer: { select: { customPrices: { select: { productId: true, customPrice: true } } } },
-        product: { select: { basePrice: true } },
+        customer: { select: { name: true, phoneNumber: true, customPrices: { select: { productId: true, customPrice: true } } } },
+        product: { select: { name: true, basePrice: true } },
         dailySheet: { select: { vendorId: true, date: true } },
       },
     });
@@ -141,6 +144,18 @@ export class DailySheetService {
           `${dto.filledDropped} bottle(s) delivered. Empty received: ${dto.emptyReceived}.`,
           { type: 'DELIVERY', itemId },
         ).catch((e: Error) => this.logger.warn(`FCM delivery-complete failed for item ${itemId}: ${e.message}`));
+
+        // WhatsApp: only send when bottles were actually dropped (not empty-only pickups)
+        if (resolvedStatus === DeliveryStatus.COMPLETED && item.customer.phoneNumber) {
+          const waMsg = MessageTemplates.deliveryCompleted(
+            item.customer.name,
+            item.product.name,
+            dto.filledDropped,
+            dto.cashCollected ?? 0,
+          );
+          this.notifications.queueWhatsApp(item.customer.phoneNumber, waMsg)
+            .catch((e: Error) => this.logger.warn(`WhatsApp delivery-complete failed for item ${itemId}: ${e.message}`));
+        }
       }
 
       // Auto-create delivery issue for failed/rescheduled deliveries
@@ -275,6 +290,9 @@ export class DailySheetService {
                 phoneNumber: true, paymentType: true, financialBalance: true,
                 wallets: {
                   select: { productId: true, balance: true, product: { select: { name: true } } },
+                },
+                customPrices: {
+                  select: { productId: true, customPrice: true },
                 },
               },
             },

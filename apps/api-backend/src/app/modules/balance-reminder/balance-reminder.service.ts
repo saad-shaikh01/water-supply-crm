@@ -118,19 +118,22 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       dto.month ?? this.currentMonth(),
       dto.includeStatement ?? false,
       dto.paymentType,
+      false,
+      'manual',
     );
   }
 
   async sendTargeted(vendorId: string, dto: SendTargetedDto) {
     const minBalance = dto.minBalance ?? DEFAULT_MIN_BALANCE;
     const dryRun = dto.dryRun ?? false;
+    const force = dto.force ?? false;
     const month = dto.month ?? this.currentMonth();
     const includeStatement = dto.includeStatement ?? false;
     const paymentType = dto.paymentType;
     const endDate = this.monthEndDate(month);
 
     if (dto.mode === 'eligible') {
-      return this.processVendorReminders(vendorId, minBalance, dryRun, month, includeStatement, paymentType);
+      return this.processVendorReminders(vendorId, minBalance, dryRun, month, includeStatement, paymentType, force, 'manual');
     }
 
     const customerIds = dto.customerIds ?? [];
@@ -172,12 +175,33 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
         continue;
       }
 
+      // Enforce cooldown unless force=true
+      if (!force) {
+        const cdKey = cooldownKey(vendorId, customer.id);
+        const onCooldown = await this.redis.exists(cdKey);
+        if (onCooldown) {
+          results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'skipped-cooldown', statementUrl: null });
+          skipped++;
+          continue;
+        }
+      }
+
       const messageSent = await this.whatsapp.sendMessage(customer.phoneNumber, message);
+      if (messageSent) {
+        await this.redis.set(cooldownKey(vendorId, customer.id), '1', 'EX', REMINDER_COOLDOWN_TTL);
+        sent++;
+      } else { skipped++; }
       results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: messageSent ? 'sent' : 'failed', statementUrl });
-      if (messageSent) { sent++; } else { skipped++; }
     }
 
-    this.logger.log(`Targeted reminders vendor=${vendorId} mode=${dto.mode} sent=${sent} skipped=${skipped} dryRun=${dryRun} month=${month}`);
+    this.logger.log(`Targeted reminders vendor=${vendorId} mode=${dto.mode} sent=${sent} skipped=${skipped} dryRun=${dryRun} force=${force} month=${month}`);
+
+    if (!dryRun) {
+      await this.prisma.reminderSendLog.create({
+        data: { vendorId, trigger: 'manual', mode: dto.mode, month, sent, skipped, includeStatement, dryRun },
+      });
+    }
+
     return { vendorId, sent, skipped, dryRun, month, includeStatement, customers: results };
   }
 
@@ -202,6 +226,18 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     // One batch query: get all transactions after month-end for all candidates
     const monthEndBalances = await this.getMonthEndBalanceMap(vendorId, candidates, endDate);
 
+    // Batch-check Redis cooldown keys for all candidates in one pipeline
+    const cooldownPipeline = this.redis.pipeline();
+    for (const c of candidates) {
+      cooldownPipeline.exists(cooldownKey(vendorId, c.id));
+    }
+    const cooldownResults = await cooldownPipeline.exec();
+    const onCooldownSet = new Set<string>(
+      candidates
+        .filter((_, i) => (cooldownResults?.[i]?.[1] as number) === 1)
+        .map((c) => c.id),
+    );
+
     type PreviewEntry = { customerId: string; name: string; balance: number; phone: string; paymentType: string; reason: string };
     const wouldSend: PreviewEntry[] = [];
     const skipped: PreviewEntry[] = [];
@@ -218,6 +254,9 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
         skipped.push(entry);
       } else if (monthBalance < minBalance) {
         entry.reason = 'skipped-low-balance';
+        skipped.push(entry);
+      } else if (onCooldownSet.has(c.id)) {
+        entry.reason = 'skipped-cooldown';
         skipped.push(entry);
       } else {
         entry.reason = 'would-send';
@@ -236,6 +275,8 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     month?: string,
     includeStatement = false,
     paymentType?: 'MONTHLY' | 'CASH',
+    force = false,
+    trigger: 'cron' | 'manual' = 'cron',
   ) {
     const targetMonth = month ?? this.currentMonth();
     const endDate = this.monthEndDate(targetMonth);
@@ -283,13 +324,15 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
         continue;
       }
 
-      // Enforce per-customer cooldown to prevent duplicate sends within the same day
-      const cdKey = cooldownKey(vendorId, customer.id);
-      const onCooldown = await this.redis.exists(cdKey);
-      if (onCooldown) {
-        results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'skipped-cooldown', statementUrl: null });
-        skipped++;
-        continue;
+      // Enforce per-customer cooldown unless force=true
+      if (!force) {
+        const cdKey = cooldownKey(vendorId, customer.id);
+        const onCooldown = await this.redis.exists(cdKey);
+        if (onCooldown) {
+          results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'skipped-cooldown', statementUrl: null });
+          skipped++;
+          continue;
+        }
       }
 
       if (includeStatement) {
@@ -302,7 +345,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
 
       const messageSent = await this.whatsapp.sendMessage(customer.phoneNumber, message);
       if (messageSent) {
-        await this.redis.set(cdKey, '1', 'EX', REMINDER_COOLDOWN_TTL);
+        await this.redis.set(cooldownKey(vendorId, customer.id), '1', 'EX', REMINDER_COOLDOWN_TTL);
         sent++;
       } else {
         skipped++;
@@ -310,8 +353,31 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: messageSent ? 'sent' : 'failed', statementUrl });
     }
 
-    this.logger.log(`Balance reminders vendor=${vendorId} sent=${sent} skipped=${skipped} dryRun=${dryRun} month=${targetMonth} includeStatement=${includeStatement}`);
+    this.logger.log(`Balance reminders vendor=${vendorId} sent=${sent} skipped=${skipped} dryRun=${dryRun} force=${force} month=${targetMonth} includeStatement=${includeStatement}`);
+
+    if (!dryRun) {
+      await this.prisma.reminderSendLog.create({
+        data: { vendorId, trigger, mode: 'eligible', month: targetMonth, sent, skipped, includeStatement, dryRun },
+      });
+    }
+
     return { vendorId, sent, skipped, dryRun, month: targetMonth, includeStatement, paymentType: paymentType ?? 'BOTH', customers: results };
+  }
+
+  // ─── History ────────────────────────────────────────────────────────────────
+
+  async getSendHistory(vendorId: string, page: number, limit: number) {
+    const skip = (page - 1) * limit;
+    const [logs, total] = await Promise.all([
+      this.prisma.reminderSendLog.findMany({
+        where: { vendorId },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.reminderSendLog.count({ where: { vendorId } }),
+    ]);
+    return { data: logs, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────────

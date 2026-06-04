@@ -272,14 +272,22 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
           {
             key: 'date',
             header: 'Date',
-            cell: (r) => (
-              <div className="flex items-center gap-2 text-muted-foreground/80 whitespace-nowrap">
-                <Calendar className="h-3 w-3 shrink-0" />
-                <span className="text-xs font-medium tabular-nums">
-                  {new Date(r.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
-                </span>
-              </div>
-            ),
+            cell: (r) => {
+              const d = new Date(r.createdAt);
+              return (
+                <div className="flex items-start gap-2 whitespace-nowrap">
+                  <Calendar className="h-3 w-3 shrink-0 mt-0.5 text-muted-foreground/80" />
+                  <div className="flex flex-col">
+                    <span className="text-xs font-medium tabular-nums text-muted-foreground/80">
+                      {d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </span>
+                    <span className="text-[10px] tabular-nums text-muted-foreground/50">
+                      {d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: true })}
+                    </span>
+                  </div>
+                </div>
+              );
+            },
           },
           ...(overrideCustomerId ? [] : [{
             key: 'customer',

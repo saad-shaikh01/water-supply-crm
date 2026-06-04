@@ -7,12 +7,14 @@ import { DailySheetProcessor } from './daily-sheet.processor';
 import { DailySheetPdfService } from './pdf/daily-sheet-pdf.service';
 import { AuditModule } from '../audit/audit.module';
 import { DeliveryIssueModule } from '../delivery-issue/delivery-issue.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
     BullModule.registerQueue({ name: QUEUE_NAMES.DAILY_SHEET_GENERATION }),
     AuditModule,
     DeliveryIssueModule,
+    NotificationsModule,
   ],
   controllers: [DailySheetController],
   providers: [DailySheetService, DailySheetProcessor, DailySheetPdfService],

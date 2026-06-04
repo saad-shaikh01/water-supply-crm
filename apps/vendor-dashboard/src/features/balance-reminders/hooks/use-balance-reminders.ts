@@ -66,3 +66,16 @@ export const usePreviewReminders = () => {
     onError: () => toast.error('Failed to load preview'),
   });
 };
+
+export const useWhatsAppStatus = () =>
+  useQuery({
+    queryKey: ['whatsapp-status'],
+    queryFn: () => balanceRemindersApi.getWhatsAppStatus().then((r) => r.data),
+    refetchInterval: 30_000,
+  });
+
+export const useReminderHistory = (page = 1, limit = 10) =>
+  useQuery({
+    queryKey: ['reminder-history', page, limit],
+    queryFn: () => balanceRemindersApi.getHistory(page, limit).then((r) => r.data),
+  });

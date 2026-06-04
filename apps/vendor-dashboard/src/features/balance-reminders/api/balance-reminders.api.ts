@@ -1,5 +1,11 @@
 import { apiClient } from '@water-supply-crm/data-access';
 
+export interface WhatsAppStatus {
+  enabled: boolean;
+  ready: boolean;
+  status: 'disabled' | 'connected' | 'disconnected';
+}
+
 export type PaymentTypeFilter = 'MONTHLY' | 'CASH' | undefined;
 
 export interface SendTargetedPayload {
@@ -28,4 +34,6 @@ export const balanceRemindersApi = {
   sendNow: (data?: Record<string, unknown>) => apiClient.post('/balance-reminders/send-now', data ?? {}),
   sendTargeted: (data: SendTargetedPayload) => apiClient.post('/balance-reminders/send-targeted', data),
   preview: (data: PreviewPayload) => apiClient.post('/balance-reminders/preview', data),
+  getWhatsAppStatus: () => apiClient.get<WhatsAppStatus>('/whatsapp/status'),
+  getHistory: (page = 1, limit = 10) => apiClient.get(`/balance-reminders/history?page=${page}&limit=${limit}`),
 };

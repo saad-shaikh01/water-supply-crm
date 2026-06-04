@@ -185,6 +185,27 @@ export function DeliveryItemsList({
                               <p className="text-[9px] font-bold uppercase text-muted-foreground">Phone</p>
                               <p className="text-sm font-black mt-0.5 truncate">{customer?.phoneNumber ?? '—'}</p>
                             </div>
+                            {(() => {
+                              const customEntry = customer?.customPrices?.find((cp) => cp.productId === item.productId);
+                              const basePrice = item.product?.basePrice;
+                              const rate = customEntry?.customPrice ?? basePrice;
+                              const isCustom = !!customEntry;
+                              return (
+                                <div className={cn(
+                                  'rounded-xl border px-3 py-2',
+                                  isCustom
+                                    ? 'bg-amber-500/10 border-amber-500/30'
+                                    : 'bg-background/70 border-border/40'
+                                )}>
+                                  <p className={cn('text-[9px] font-bold uppercase', isCustom ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')}>
+                                    {isCustom ? 'Custom Rate' : 'Rate'}
+                                  </p>
+                                  <p className={cn('text-base font-black mt-0.5', isCustom && 'text-amber-600 dark:text-amber-400')}>
+                                    {rate != null ? `₨${rate.toLocaleString()}` : '—'}
+                                  </p>
+                                </div>
+                              );
+                            })()}
                           </div>
 
                           {(customer?.floor || customer?.nearbyLandmark || customer?.deliveryInstructions) && (

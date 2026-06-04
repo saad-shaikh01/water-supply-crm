@@ -121,9 +121,10 @@ export interface DeliveryItem {
     paymentType?: PaymentTypeValue;
     financialBalance?: number;
     wallets?: CustomerWalletSummary[];
+    customPrices?: { productId: string; customPrice: number }[];
   };
   productId: string;
-  product?: { name: string };
+  product?: { name: string; basePrice?: number };
   status: DeliveryStatusType;
   filledDropped: number;
   emptyReceived: number;

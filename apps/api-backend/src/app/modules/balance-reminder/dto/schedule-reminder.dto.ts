@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsOptional, Min, IsBoolean, IsIn, IsArray, ArrayMinSize, Matches } from 'class-validator';
+import { IsString, IsNumber, IsOptional, Min, IsBoolean, IsIn, IsArray, ArrayMinSize, Matches, IsNotEmpty } from 'class-validator';
 
 export class ScheduleReminderDto {
   /**
@@ -10,6 +10,7 @@ export class ScheduleReminderDto {
    */
   @IsOptional()
   @IsString()
+  @IsNotEmpty()
   cronExpression?: string;
 
   /**

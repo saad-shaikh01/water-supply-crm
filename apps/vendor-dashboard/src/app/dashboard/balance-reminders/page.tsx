@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import {
   Bell, Send, Trash2, Clock, Users, CheckCircle2, Loader2, Calendar,
-  User, FileText, ChevronDown, ChevronRight, AlertCircle, Info,
+  User, FileText, ChevronDown, ChevronRight, AlertCircle, Info, Wifi, WifiOff, Zap, History,
+  ChevronLeft,
 } from 'lucide-react';
 import {
   Card, CardContent, CardHeader, CardTitle, Button, Input, Label,
@@ -18,6 +19,8 @@ import {
   useDeleteReminderSchedule,
   useSendTargeted,
   usePreviewReminders,
+  useWhatsAppStatus,
+  useReminderHistory,
 } from '../../../features/balance-reminders/hooks/use-balance-reminders';
 import { useAllCustomers } from '../../../features/customers/hooks/use-customers';
 import { cn } from '@water-supply-crm/ui';
@@ -48,6 +51,7 @@ export default function BalanceRemindersPage() {
   const { mutate: sendTargeted, isPending: isSending } = useSendTargeted();
   const { mutate: preview, isPending: isPreviewing, data: previewData, reset: resetPreview } = usePreviewReminders();
   const { data: allCustomersData } = useAllCustomers();
+  const { data: waStatus } = useWhatsAppStatus();
 
   // Schedule config state
   const [preset, setPreset] = useState('0 4 * * *');
@@ -63,6 +67,9 @@ export default function BalanceRemindersPage() {
   const [minBalance, setMinBalance] = useState('100');
   const [paymentTypeFilter, setPaymentTypeFilter] = useState<PaymentTypeFilter>('BOTH');
   const [showPreview, setShowPreview] = useState(false);
+  const [forceOverride, setForceOverride] = useState(false);
+  const [historyPage, setHistoryPage] = useState(1);
+  const { data: historyData, isLoading: isHistoryLoading } = useReminderHistory(historyPage, 8);
 
   // Sync schedule form with loaded data
   useEffect(() => {
@@ -97,7 +104,7 @@ export default function BalanceRemindersPage() {
   const resolvedPaymentType = paymentTypeFilter === 'BOTH' ? undefined : paymentTypeFilter;
 
   const buildSendPayload = (dryRun = false) => {
-    const base = { mode: sendMode, month, includeStatement, dryRun, paymentType: resolvedPaymentType };
+    const base = { mode: sendMode, month, includeStatement, dryRun, force: forceOverride, paymentType: resolvedPaymentType };
     if (sendMode === 'single') return { ...base, customerIds: [selectedCustomerId] };
     return { ...base, minBalance: Number(minBalance) };
   };
@@ -132,6 +139,27 @@ export default function BalanceRemindersPage() {
         title="Balance Reminders"
         description="Automatically notify customers with outstanding balances via WhatsApp"
       />
+
+      {/* WhatsApp connection status banner */}
+      {waStatus && (
+        <div className={cn(
+          'flex items-center gap-3 px-4 py-3 rounded-xl border text-sm font-medium',
+          waStatus.status === 'connected'
+            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'
+            : waStatus.status === 'disabled'
+            ? 'bg-amber-500/10 border-amber-500/20 text-amber-500'
+            : 'bg-destructive/10 border-destructive/20 text-destructive',
+        )}>
+          {waStatus.status === 'connected'
+            ? <Wifi className="h-4 w-4 flex-shrink-0" />
+            : <WifiOff className="h-4 w-4 flex-shrink-0" />}
+          <span>
+            {waStatus.status === 'connected' && 'WhatsApp is connected — messages will be delivered.'}
+            {waStatus.status === 'disabled' && 'WhatsApp is disabled (WHATSAPP_ENABLED is not set). Messages will not be sent.'}
+            {waStatus.status === 'disconnected' && 'WhatsApp is not authenticated. Scan the QR code in server logs to connect.'}
+          </span>
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* ── Left column: schedule ── */}
@@ -250,7 +278,7 @@ export default function BalanceRemindersPage() {
 
               <Button
                 onClick={handleSaveSchedule}
-                disabled={isSaving || (!cronValue && preset !== 'custom')}
+                disabled={isSaving || !cronValue}
                 className="w-full rounded-xl font-bold shadow-lg shadow-primary/20 h-12"
               >
                 {isSaving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</> : <><CheckCircle2 className="mr-2 h-4 w-4" /> Save Configuration</>}
@@ -375,6 +403,32 @@ export default function BalanceRemindersPage() {
                 <p className="text-[10px] text-muted-foreground ml-1">
                   The reminder will reference {month ? formatMonthDisplay(month) : 'the selected month'}.
                 </p>
+              </div>
+
+              {/* Force override cooldown toggle */}
+              <div className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
+                <div className="flex items-center gap-2">
+                  <Zap className="h-4 w-4 text-amber-400" />
+                  <div>
+                    <p className="text-xs font-bold text-foreground dark:text-white">Bypass 23h Cooldown</p>
+                    <p className="text-[10px] text-muted-foreground">Re-send even if customer received a reminder today</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setForceOverride((v) => !v); setShowPreview(false); resetPreview(); }}
+                  className={cn(
+                    'relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none',
+                    forceOverride ? 'bg-amber-400' : 'bg-white/20',
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'inline-block h-4 w-4 rounded-full bg-white shadow transition-transform',
+                      forceOverride ? 'translate-x-6' : 'translate-x-1',
+                    )}
+                  />
+                </button>
               </div>
 
               {/* Include statement toggle */}
@@ -503,6 +557,99 @@ export default function BalanceRemindersPage() {
           </Card>
         </div>
       </div>
+
+      {/* Send History */}
+      <Card className="bg-card/50 backdrop-blur-sm border-border/50 overflow-hidden">
+        <CardHeader className="pb-3 border-b border-border/50 bg-white/5">
+          <CardTitle className="text-sm font-bold flex items-center gap-2 uppercase tracking-widest text-muted-foreground">
+            <History className="h-4 w-4 text-primary" />
+            Send History
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-4">
+          {isHistoryLoading ? (
+            <div className="space-y-2">
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="h-10 rounded-xl bg-accent/30 animate-pulse" />
+              ))}
+            </div>
+          ) : !historyData || (historyData as any).total === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-center space-y-2">
+              <History className="h-8 w-8 text-muted-foreground/30" />
+              <p className="text-sm text-muted-foreground">No reminders have been sent yet.</p>
+            </div>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground border-b border-border/30">
+                      <th className="text-left pb-2 pr-4">Date</th>
+                      <th className="text-left pb-2 pr-4">Trigger</th>
+                      <th className="text-left pb-2 pr-4">Mode</th>
+                      <th className="text-left pb-2 pr-4">Month</th>
+                      <th className="text-right pb-2 pr-4">Sent</th>
+                      <th className="text-right pb-2">Skipped</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/20">
+                    {((historyData as any).data ?? []).map((log: any) => (
+                      <tr key={log.id} className="hover:bg-white/5 transition-colors">
+                        <td className="py-2.5 pr-4 text-muted-foreground whitespace-nowrap">
+                          {new Date(log.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </td>
+                        <td className="py-2.5 pr-4">
+                          <Badge className={cn(
+                            'text-[9px] font-black px-1.5 border-none',
+                            log.trigger === 'cron' ? 'bg-blue-500/10 text-blue-400' : 'bg-violet-500/10 text-violet-400',
+                          )}>
+                            {log.trigger.toUpperCase()}
+                          </Badge>
+                        </td>
+                        <td className="py-2.5 pr-4 text-muted-foreground capitalize">{log.mode}</td>
+                        <td className="py-2.5 pr-4 font-mono text-foreground dark:text-white">{log.month}</td>
+                        <td className="py-2.5 pr-4 text-right">
+                          <span className="text-emerald-400 font-bold">{log.sent}</span>
+                        </td>
+                        <td className="py-2.5 text-right text-muted-foreground">{log.skipped}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination */}
+              {(historyData as any).totalPages > 1 && (
+                <div className="flex items-center justify-between mt-4 pt-3 border-t border-border/30">
+                  <span className="text-[10px] text-muted-foreground">
+                    Page {(historyData as any).page} of {(historyData as any).totalPages}
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 rounded-lg text-xs"
+                      disabled={historyPage <= 1}
+                      onClick={() => setHistoryPage((p) => p - 1)}
+                    >
+                      <ChevronLeft className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 rounded-lg text-xs"
+                      disabled={historyPage >= (historyData as any).totalPages}
+                      onClick={() => setHistoryPage((p) => p + 1)}
+                    >
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       <ConfirmDialog
         open={deleteOpen}

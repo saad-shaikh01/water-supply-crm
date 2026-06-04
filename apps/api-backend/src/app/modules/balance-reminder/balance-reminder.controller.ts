@@ -4,6 +4,9 @@
   Post,
   Delete,
   Body,
+  Query,
+  ParseIntPipe,
+  DefaultValuePipe,
   UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
@@ -92,5 +95,18 @@ export class BalanceReminderController {
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 20 } })
   previewReminders(@CurrentUser() user: AuthUser, @Body() dto: PreviewDto) {
     return this.reminderService.previewReminders(user.vendorId, dto);
+  }
+
+  /**
+   * GET /balance-reminders/history?page=1&limit=10
+   * Paginated log of past reminder send operations (manual and cron).
+   */
+  @Get('history')
+  getSendHistory(
+    @CurrentUser() user: AuthUser,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+  ) {
+    return this.reminderService.getSendHistory(user.vendorId, page, Math.min(limit, 50));
   }
 }

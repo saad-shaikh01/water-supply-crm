@@ -98,6 +98,7 @@ model Vendor {
   tickets                 CustomerTicket[]
   deliveryIssues          DeliveryIssue[]
   reminderScheduleConfig  ReminderScheduleConfig?
+  reminderSendLogs        ReminderSendLog[]
   driverLastLocations     DriverLastLocation[]
   damageCases             DamageCase[]
 }
@@ -768,6 +769,22 @@ model ReminderScheduleConfig {
   updatedAt      DateTime @updatedAt
 
   @@index([vendorId])
+}
+
+model ReminderSendLog {
+  id               String   @id @default(uuid())
+  vendorId         String
+  vendor           Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  trigger          String   // 'manual' | 'cron'
+  mode             String   // 'eligible' | 'single' | 'selected'
+  month            String   // YYYY-MM
+  sent             Int
+  skipped          Int
+  includeStatement Boolean  @default(false)
+  dryRun           Boolean  @default(false)
+  createdAt        DateTime @default(now())
+
+  @@index([vendorId, createdAt])
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
