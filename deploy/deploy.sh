@@ -108,14 +108,26 @@ npx nx build customer-portal --configuration=production
 
 # ── 6. Runtime directories ────────────────────────────────────────────────────
 echo ""
-echo "==> [6/7] Ensuring runtime directories exist..."
+echo "==> [6/8] Ensuring runtime directories exist..."
 mkdir -p "${REPO_ROOT}/logs"
 mkdir -p "${REPO_ROOT}/uploads"
 mkdir -p "${REPO_ROOT}/uploads/whatsapp-session"
 
-# ── 7. PM2 start / reload ─────────────────────────────────────────────────────
+# ── 7. Sync nginx config ──────────────────────────────────────────────────────
 echo ""
-echo "==> [7/7] Starting / reloading PM2 processes..."
+echo "==> [7/8] Syncing nginx config..."
+NGINX_CONF="/etc/nginx/sites-available/water-supply-crm.conf"
+NGINX_ENABLED="/etc/nginx/sites-enabled/water-supply-crm.conf"
+sudo cp "${REPO_ROOT}/deploy/nginx/water-supply-crm.conf" "${NGINX_CONF}"
+if [ ! -L "${NGINX_ENABLED}" ]; then
+  sudo ln -s "${NGINX_CONF}" "${NGINX_ENABLED}"
+fi
+sudo nginx -t && sudo nginx -s reload
+echo "     nginx reloaded."
+
+# ── 8. PM2 start / reload ─────────────────────────────────────────────────────
+echo ""
+echo "==> [8/8] Starting / reloading PM2 processes..."
 # startOrRestart: starts the process if it does not yet exist in PM2's list,
 # or performs a hard restart (fork mode) / graceful reload (cluster mode) if
 # it is already running.  --update-env pushes the current shell env to each
@@ -127,7 +139,7 @@ pm2 save
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════╗"
-echo "║  Deployment complete!                                    ║"
+echo "║  Deployment complete! (8/8 steps)                        ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 echo ""
 pm2 list
