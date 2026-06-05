@@ -41,7 +41,24 @@ export class DailySheetProcessor extends WorkerHost {
       where: { vendorId, isActive: true },
     });
     if (!defaultProduct) {
-      this.logger.warn(`No active product found for vendor ${vendorId} — aborting`);
+      this.logger.error(`No active product found for vendor ${vendorId} — sheet generation aborted for date ${date}`);
+      // Notify VENDOR_ADMIN users in-app
+      const admins = await this.prisma.user.findMany({
+        where: { vendorId, role: 'VENDOR_ADMIN', isActive: true },
+        select: { id: true },
+      });
+      if (admins.length > 0) {
+        await this.prisma.inAppNotification.createMany({
+          data: admins.map((u) => ({
+            userId: u.id,
+            vendorId,
+            type: 'SYSTEM_ALERT',
+            title: 'Sheet Generation Failed',
+            message: `Daily sheet for ${date} could not be generated — no active product is configured. Please add a product.`,
+            entityId: null,
+          })),
+        });
+      }
       return { sheetIds: [], skippedVans: [], insertedOnDemandCount: 0, skippedOnDemand: [] };
     }
 
@@ -114,13 +131,26 @@ export class DailySheetProcessor extends WorkerHost {
 
       // Fetch any RESCHEDULED items from previous sheets for customers on this van's schedule
       const customerIds = schedules.map((s) => s.customerId);
+      const cutoffDate = new Date(targetDate);
+      cutoffDate.setDate(cutoffDate.getDate() - 60);
+
       const rescheduledItems = await this.prisma.dailySheetItem.findMany({
         where: {
           status: 'RESCHEDULED',
           customerId: { in: customerIds },
-          dailySheet: { vendorId, date: { lt: targetDate } },
+          dailySheet: { vendorId, date: { gte: cutoffDate, lt: targetDate } },
         },
         select: { id: true, customerId: true, productId: true },
+      });
+
+      // Auto-cancel RESCHEDULED items older than 60 days for these customers
+      await this.prisma.dailySheetItem.updateMany({
+        where: {
+          status: 'RESCHEDULED',
+          customerId: { in: customerIds },
+          dailySheet: { vendorId, date: { lt: cutoffDate } },
+        },
+        data: { status: 'CANCELLED' },
       });
 
       // Build unique set of rescheduled customerIds to avoid duplicates

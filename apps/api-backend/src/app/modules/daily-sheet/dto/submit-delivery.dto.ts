@@ -1,4 +1,4 @@
-import { IsEnum, IsInt, IsNumber, IsOptional, IsString, IsUrl, Min } from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, IsString, IsUrl, Min } from 'class-validator';
 import { DeliveryStatus } from '@prisma/client';
 
 export class SubmitDeliveryDto {
@@ -28,4 +28,8 @@ export class SubmitDeliveryDto {
   @IsOptional()
   @IsUrl()
   photoUrl?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  forceResubmit?: boolean;
 }

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import {
   CacheInvalidationService,
@@ -46,6 +46,22 @@ export class LedgerService {
       }
 
       // ── First-time posting ──
+      const walletForCheck = await tx.bottleWallet.findUnique({
+        where: {
+          customerId_productId: {
+            customerId: data.customerId,
+            productId: data.productId,
+          },
+        },
+      });
+      if (!walletForCheck || walletForCheck.balance + newBottleChange < 0) {
+        const available = (walletForCheck?.balance ?? 0) + data.filledDropped;
+        throw new BadRequestException(
+          `Cannot collect ${data.emptyReceived} empty bottle(s) — only ${available} available ` +
+          `(wallet: ${walletForCheck?.balance ?? 0} + dropped: ${data.filledDropped}).`,
+        );
+      }
+
       await tx.bottleWallet.update({
         where: {
           customerId_productId: {
@@ -127,6 +143,18 @@ export class LedgerService {
 
     const deltaBottle = computed.newBottleChange - oldBottleChange;
     const deltaFinancial = computed.newFinancialEffect - oldFinancialEffect;
+
+    if (deltaBottle < 0) {
+      const currentWallet = await tx.bottleWallet.findUnique({
+        where: { customerId_productId: { customerId: data.customerId, productId: data.productId } },
+      });
+      if (currentWallet && currentWallet.balance + deltaBottle < 0) {
+        throw new BadRequestException(
+          `Editing this delivery would make the bottle wallet negative ` +
+          `(current: ${currentWallet.balance}, delta: ${deltaBottle}).`,
+        );
+      }
+    }
 
     if (deltaBottle !== 0) {
       await tx.bottleWallet.update({

@@ -83,6 +83,32 @@ export class DailySheetService {
       throw new NotFoundException('Sheet item not found');
     }
 
+    const TERMINAL_STATUSES: string[] = ['COMPLETED', 'EMPTY_ONLY', 'NOT_AVAILABLE', 'CANCELLED'];
+    if (TERMINAL_STATUSES.includes(item.status) && !dto.forceResubmit) {
+      throw new ConflictException(
+        `Delivery already recorded as ${item.status}. Set forceResubmit=true to override.`
+      );
+    }
+    if (dto.forceResubmit && TERMINAL_STATUSES.includes(item.status)) {
+      await this.audit.log({
+        vendorId,
+        action: 'DELIVERY_EDIT_OVERRIDE',
+        entity: 'DailySheetItem',
+        entityId: itemId,
+        changes: {
+          before: { status: item.status, filledDropped: item.filledDropped, emptyReceived: item.emptyReceived },
+          after: { status: dto.status, filledDropped: dto.filledDropped, emptyReceived: dto.emptyReceived },
+        },
+      });
+    }
+
+    const activeLoad = await this.prisma.dailySheetLoad.findFirst({
+      where: { dailySheetId: item.dailySheetId, endedAt: null },
+    });
+    if (!activeLoad) {
+      throw new BadRequestException('No active trip. Start a trip before recording deliveries.');
+    }
+
     // Auto-detect EMPTY_ONLY: if submitted as COMPLETED with 0 filledDropped, it's an empty-only pickup
     const resolvedStatus =
       dto.status === DeliveryStatus.COMPLETED && dto.filledDropped === 0
@@ -442,6 +468,12 @@ export class DailySheetService {
     if (!load) throw new NotFoundException('Load trip not found');
     if (load.endedAt) throw new ConflictException('Trip already checked in');
 
+    if (dto.returnedFilled > load.loadedFilled) {
+      throw new BadRequestException(
+        `Cannot return more filled bottles (${dto.returnedFilled}) than were loaded (${load.loadedFilled}).`
+      );
+    }
+
     const checkinResult = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.dailySheetLoad.update({
         where: { id: loadId },
@@ -655,6 +687,13 @@ export class DailySheetService {
     }
     if (sheet.isClosed) {
       throw new ConflictException('Sheet is already closed');
+    }
+
+    const openTrip = await this.prisma.dailySheetLoad.findFirst({
+      where: { dailySheetId: sheetId, endedAt: null },
+    });
+    if (openTrip) {
+      throw new ConflictException('Cannot close sheet while a trip is still active. Driver must check in first.');
     }
 
     const pendingItems = (sheet.items as any[]).filter(

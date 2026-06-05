@@ -239,6 +239,12 @@ export class UserService {
 
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.USERS);
 
+    // Clear this driver from any van that still references them
+    await this.prisma.van.updateMany({
+      where: { defaultDriverId: id, vendorId },
+      data: { defaultDriverId: null },
+    });
+
     await this.audit.log({
       vendorId,
       action: 'DEACTIVATE',
@@ -294,6 +300,26 @@ export class UserService {
 
     if (!user) {
       throw new NotFoundException('User not found');
+    }
+
+    const [vanAssignment, activeDamages] = await Promise.all([
+      this.prisma.van.findFirst({
+        where: { defaultDriverId: id, vendorId },
+        select: { plateNumber: true },
+      }),
+      this.prisma.damageCase.count({
+        where: { driverId: id, status: { in: ['REPORTED', 'UNDER_REVIEW'] } },
+      }),
+    ]);
+    if (vanAssignment) {
+      throw new BadRequestException(
+        `Driver is the default driver of van "${vanAssignment.plateNumber}". Reassign the van first.`
+      );
+    }
+    if (activeDamages > 0) {
+      throw new BadRequestException(
+        `Driver has ${activeDamages} active damage case(s). Resolve them before deleting.`
+      );
     }
 
     if (user._count.dailySheets > 0) {

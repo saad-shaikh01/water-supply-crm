@@ -301,6 +301,14 @@ export class OrderService {
     return updated;
   }
 
+  private validateTargetDate(targetDate: string): void {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (new Date(targetDate) < today) {
+      throw new BadRequestException('Delivery date cannot be in the past.');
+    }
+  }
+
   private async getApprovedOrder(vendorId: string, orderId: string) {
     const order = await this.prisma.customerOrder.findUnique({ where: { id: orderId } });
     if (!order || order.vendorId !== vendorId) throw new NotFoundException('Order not found');
@@ -312,6 +320,7 @@ export class OrderService {
 
   async createDispatchPlan(vendorId: string, orderId: string, dto: DispatchPlanDto, userId: string) {
     const order = await this.getApprovedOrder(vendorId, orderId);
+    this.validateTargetDate(dto.targetDate);
     if (order.dispatchStatus !== DispatchStatus.UNPLANNED) {
       throw new BadRequestException('Dispatch plan already exists. Use PATCH to update.');
     }
@@ -342,6 +351,7 @@ export class OrderService {
 
   async updateDispatchPlan(vendorId: string, orderId: string, dto: DispatchPlanDto, userId: string) {
     const order = await this.getApprovedOrder(vendorId, orderId);
+    this.validateTargetDate(dto.targetDate);
     if (order.dispatchStatus === DispatchStatus.UNPLANNED) {
       throw new BadRequestException('No dispatch plan exists yet. Use POST to create.');
     }
@@ -420,6 +430,7 @@ export class OrderService {
 
   async bulkPlan(vendorId: string, dto: BulkPlanDto, reviewerId: string) {
     const targetDate = new Date(dto.targetDate);
+    this.validateTargetDate(dto.targetDate);
     const orders = await this.prisma.customerOrder.findMany({
       where: {
         id: { in: dto.orderIds },

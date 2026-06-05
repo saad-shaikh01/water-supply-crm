@@ -62,6 +62,26 @@ export class PaymentService {
       throw new BadRequestException('Amount must be positive');
     }
 
+    // Return existing non-expired QR if one already exists for this customer
+    const existingQr = await this.prisma.paymentRequest.findFirst({
+      where: {
+        customerId,
+        status: PaymentRequestStatus.PROCESSING,
+        qrExpiresAt: { gt: new Date() },
+      },
+    });
+    if (existingQr) {
+      return {
+        paymentRequestId: existingQr.id,
+        checkoutUrl: existingQr.checkoutUrl,
+        qrCodeData: existingQr.qrCodeData,
+        qrExpiresAt: existingQr.qrExpiresAt,
+        amount: existingQr.amount,
+        status: existingQr.status,
+        instructions: 'An active QR code already exists. Scan it to complete payment.',
+      };
+    }
+
     // Create pending payment request first (get our ID to pass to the gateway)
     const request = await this.prisma.paymentRequest.create({
       data: {
@@ -268,6 +288,16 @@ export class PaymentService {
 
   /** Vendor approves a manual payment → auto-record in ledger + WhatsApp */
   async approvePayment(vendorId: string, requestId: string, reviewedBy: string) {
+    // Atomic claim: only one concurrent approval can succeed
+    const claimed = await this.prisma.paymentRequest.updateMany({
+      where: { id: requestId, vendorId, status: PaymentRequestStatus.PENDING },
+      data: { status: PaymentRequestStatus.APPROVED, reviewedBy, reviewedAt: new Date() },
+    });
+    if (claimed.count === 0) {
+      throw new ConflictException('Payment already processed or not found.');
+    }
+
+    // Re-fetch after claim for customer details + notifications
     const request = await this.prisma.paymentRequest.findFirst({
       where: { id: requestId, vendorId },
       include: {
@@ -278,18 +308,6 @@ export class PaymentService {
     });
     if (!request) throw new NotFoundException('Payment request not found');
 
-    if (
-      request.status === PaymentRequestStatus.APPROVED ||
-      request.status === PaymentRequestStatus.PAID
-    ) {
-      throw new ConflictException('Payment already approved');
-    }
-    if (request.status === PaymentRequestStatus.REJECTED) {
-      throw new ConflictException(
-        'Cannot approve a rejected payment. Create a new one.',
-      );
-    }
-
     // Record in ledger (decrements financialBalance)
     await this.ledger.recordPayment(vendorId, {
       customerId: request.customerId,
@@ -298,16 +316,6 @@ export class PaymentService {
     });
 
     const newBalance = request.customer.financialBalance - request.amount;
-
-    // Update payment request status
-    await this.prisma.paymentRequest.update({
-      where: { id: requestId },
-      data: {
-        status: PaymentRequestStatus.APPROVED,
-        reviewedBy,
-        reviewedAt: new Date(),
-      },
-    });
 
     // WhatsApp notification to customer
     const message = MessageTemplates.paymentReceived(
@@ -450,15 +458,25 @@ export class PaymentService {
       return { received: true };
     }
 
-    if (
-      request.status === PaymentRequestStatus.PAID ||
-      request.status === PaymentRequestStatus.APPROVED
-    ) {
+    // Log amount mismatch for investigation (continue with stored amount regardless)
+    const gatewayAmountRs = amountCents / 100;
+    if (Math.round(gatewayAmountRs * 100) !== Math.round(request.amount * 100)) {
+      this.logger.error(
+        `WEBHOOK AMOUNT MISMATCH: order ${gatewayOrderId} — gateway: Rs.${gatewayAmountRs}, stored: Rs.${request.amount}. Processing with stored amount.`
+      );
+    }
+
+    // Atomic claim to prevent duplicate webhook processing
+    const claimed = await this.prisma.paymentRequest.updateMany({
+      where: { id: request.id, status: PaymentRequestStatus.PROCESSING },
+      data: { status: PaymentRequestStatus.PAID, gatewayTxId, reviewedAt: new Date() },
+    });
+    if (claimed.count === 0) {
       this.logger.warn(`Webhook: duplicate for ${gatewayOrderId} — already processed`);
       return { received: true };
     }
 
-    // Record payment in ledger
+    // Record payment in ledger (now safe — we own the record)
     await this.ledger.recordPayment(request.vendorId, {
       customerId: request.customerId,
       amount: request.amount,
@@ -466,15 +484,6 @@ export class PaymentService {
     });
 
     const newBalance = request.customer.financialBalance - request.amount;
-
-    await this.prisma.paymentRequest.update({
-      where: { id: request.id },
-      data: {
-        status: PaymentRequestStatus.PAID,
-        gatewayTxId,
-        reviewedAt: new Date(),
-      },
-    });
 
     // WhatsApp confirmation
     const message = MessageTemplates.paymentReceived(

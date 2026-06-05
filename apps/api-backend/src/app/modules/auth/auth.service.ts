@@ -25,11 +25,29 @@ export class AuthService {
   ) {}
 
   async validateUser(identifier: string, pass: string): Promise<any> {
+    const lockKey = `auth:lock:${identifier}`;
+    const failKey = `auth:fail:${identifier}`;
+
+    const isLocked = await this.cache.get(lockKey);
+    if (isLocked) {
+      throw new UnauthorizedException('Account temporarily locked due to too many failed attempts. Try again in 15 minutes.');
+    }
+
     const user = await this.userService.findByIdentifier(identifier);
     if (user && (await bcrypt.compare(pass, user.password))) {
+      await this.cache.del(failKey);
       const { password, ...result } = user;
       return result;
     }
+
+    // Track failed attempts
+    const fails = ((await this.cache.get<number>(failKey)) ?? 0) + 1;
+    if (fails >= 5) {
+      await this.cache.set(lockKey, true, 15 * 60 * 1000);
+      await this.cache.del(failKey);
+      throw new UnauthorizedException('Too many failed login attempts. Account locked for 15 minutes.');
+    }
+    await this.cache.set(failKey, fails, 15 * 60 * 1000);
     return null;
   }
 

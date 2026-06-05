@@ -105,11 +105,7 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
 
   const handleSaveClick = () => {
     if (!open) return;
-    if (deliveryMode === 'delivered') {
-      setAwaitingConfirm(true);
-      return;
-    }
-    doSave();
+    setAwaitingConfirm(true);
   };
 
   const doSave = () => {
@@ -120,6 +116,7 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
           filledDropped: itemForm.filledDropped ?? 1,
           emptyReceived: itemForm.emptyReceived ?? 0,
           cashCollected: itemForm.cashCollected ?? 0,
+          forceResubmit: !isFirstRecord,
         }
       : {
           status: 'NOT_AVAILABLE',
@@ -128,6 +125,7 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
           emptyReceived: 0,
           cashCollected: 0,
           reason: unableReason || undefined,
+          forceResubmit: !isFirstRecord,
         };
     updateItem(
       { itemId: open, data: finalData },
@@ -168,21 +166,31 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
           <div className="py-6 space-y-5">
             <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-3">
               <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400">Confirm Delivery — {item?.customer?.name}</p>
-              <div className="grid grid-cols-3 gap-3 text-center">
-                <div className="rounded-xl bg-background/70 border border-border/40 px-2 py-2">
-                  <p className="text-[9px] font-bold uppercase text-muted-foreground">Dropped</p>
-                  <p className="text-lg font-black font-mono">{itemForm.filledDropped ?? 1}</p>
+              {deliveryMode === 'delivered' && (
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div className="rounded-xl bg-background/70 border border-border/40 px-2 py-2">
+                    <p className="text-[9px] font-bold uppercase text-muted-foreground">Dropped</p>
+                    <p className="text-lg font-black font-mono">{itemForm.filledDropped ?? 1}</p>
+                  </div>
+                  <div className="rounded-xl bg-background/70 border border-border/40 px-2 py-2">
+                    <p className="text-[9px] font-bold uppercase text-muted-foreground">Empties</p>
+                    <p className="text-lg font-black font-mono">{itemForm.emptyReceived ?? 0}</p>
+                  </div>
+                  <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-2 py-2">
+                    <p className="text-[9px] font-bold uppercase text-muted-foreground">Cash</p>
+                    <p className="text-lg font-black font-mono text-emerald-600 dark:text-emerald-400">₨{itemForm.cashCollected ?? 0}</p>
+                  </div>
                 </div>
-                <div className="rounded-xl bg-background/70 border border-border/40 px-2 py-2">
-                  <p className="text-[9px] font-bold uppercase text-muted-foreground">Empties</p>
-                  <p className="text-lg font-black font-mono">{itemForm.emptyReceived ?? 0}</p>
+              )}
+              {deliveryMode === 'unable' && (
+                <div className="rounded-xl bg-background/70 border border-border/40 px-3 py-2">
+                  <p className="text-xs text-muted-foreground">Reason: <span className="font-bold">{failureCategory.replace(/_/g, ' ')}</span></p>
                 </div>
-                <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-2 py-2">
-                  <p className="text-[9px] font-bold uppercase text-muted-foreground">Cash</p>
-                  <p className="text-lg font-black font-mono text-emerald-600 dark:text-emerald-400">₨{itemForm.cashCollected ?? 0}</p>
-                </div>
-              </div>
-              <p className="text-[11px] text-muted-foreground">This will mark the delivery as <span className="font-bold text-emerald-600">COMPLETED</span> and update the customer&apos;s wallet and balance. This action cannot be undone without editing the record.</p>
+              )}
+              {deliveryMode === 'delivered'
+                ? <p className="text-[11px] text-muted-foreground">This will mark the delivery as <span className="font-bold text-emerald-600">COMPLETED</span> and update the customer&apos;s wallet and balance.</p>
+                : <p className="text-[11px] text-muted-foreground">This will mark the delivery as <span className="font-bold text-destructive">NOT AVAILABLE</span> and log a delivery issue. The customer will be rescheduled.</p>
+              }
             </div>
             <div className="flex gap-2">
               <button
@@ -205,6 +213,15 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
           </div>
         ) : (
         <div className="space-y-5 py-4">
+          {!isFirstRecord && (
+            <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-start gap-3 text-sm">
+              <span className="text-amber-500 mt-0.5">⚠</span>
+              <div>
+                <p className="font-bold text-amber-700 dark:text-amber-400">Already Recorded</p>
+                <p className="text-xs text-muted-foreground">This delivery was recorded as <span className="font-bold">{item?.status}</span>. Saving will override the existing record.</p>
+              </div>
+            </div>
+          )}
           {/* Delivered / Unable toggle */}
           <div className="flex gap-2">
             <button

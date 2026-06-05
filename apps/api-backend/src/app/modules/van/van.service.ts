@@ -77,6 +77,15 @@ export class VanService {
     const van = await this.prisma.van.findFirst({ where: { id, vendorId } });
     if (!van) throw new NotFoundException('Van not found');
 
+    const openSheets = await this.prisma.dailySheet.count({
+      where: { vanId: id, isClosed: false },
+    });
+    if (openSheets > 0) {
+      throw new ConflictException(
+        `Van has ${openSheets} open daily sheet(s). Close them before deactivating.`
+      );
+    }
+
     const updated = await this.prisma.van.update({
       where: { id },
       data: { isActive: false },
@@ -121,7 +130,7 @@ export class VanService {
       where: { id, vendorId },
       include: {
         _count: {
-          select: { dailySheets: { where: { isClosed: false } } },
+          select: { dailySheets: true },
         },
       },
     });
@@ -130,7 +139,7 @@ export class VanService {
     }
     if (van._count.dailySheets > 0) {
       throw new ConflictException(
-        'Cannot delete van with open daily sheets. Close all sheets first.',
+        'Cannot delete van with delivery history. Deactivate it instead.',
       );
     }
 

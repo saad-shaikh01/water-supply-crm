@@ -33,67 +33,46 @@ export class DamageCaseService {
   // ── report ────────────────────────────────────────────────────────────────
 
   async report(user: AuthUser, dto: ReportDamageCaseDto) {
-    try {
-      const damageCase = await this.prisma.damageCase.create({
-        data: {
-          vendorId: user.vendorId,
+    const damageCase = await this.prisma.damageCase.create({
+      data: {
+        vendorId: user.vendorId,
+        customerId: dto.customerId,
+        productId: dto.productId,
+        driverId: user.userId,
+        dailySheetItemId: dto.dailySheetItemId ?? null,
+        severity: dto.severity,
+        bottleCount: dto.bottleCount,
+        description: dto.description ?? null,
+        photoKeys: dto.photoKeys,
+        status: DamageCaseStatus.REPORTED,
+        version: 0,
+      },
+    });
+
+    await this.prisma.damageCaseAuditLog.create({
+      data: {
+        damageCaseId: damageCase.id,
+        actorId: user.userId,
+        actorRole: user.role,
+        action: 'REPORTED',
+        payload: {
           customerId: dto.customerId,
           productId: dto.productId,
-          driverId: user.userId,
-          dailySheetItemId: dto.dailySheetItemId ?? null,
           severity: dto.severity,
           bottleCount: dto.bottleCount,
-          description: dto.description ?? null,
-          photoKeys: dto.photoKeys,
-          status: DamageCaseStatus.REPORTED,
-          version: 0,
         },
-      });
+      },
+    });
 
-      await this.prisma.damageCaseAuditLog.create({
-        data: {
-          damageCaseId: damageCase.id,
-          actorId: user.userId,
-          actorRole: user.role,
-          action: 'REPORTED',
-          payload: {
-            customerId: dto.customerId,
-            productId: dto.productId,
-            severity: dto.severity,
-            bottleCount: dto.bottleCount,
-          },
-        },
-      });
+    // Notify STAFF + VENDOR_ADMIN via in-app notification (fire-and-forget)
+    this.notifyVendorStaff(
+      user.vendorId,
+      damageCase.id,
+      'New Damage Case Reported',
+      `A ${dto.severity.toLowerCase()} damage case has been reported (${dto.bottleCount} bottle(s)).`,
+    ).catch((e) => this.logger.warn(`Notification failed: ${e?.message}`));
 
-      // Notify STAFF + VENDOR_ADMIN via in-app notification (fire-and-forget)
-      this.notifyVendorStaff(
-        user.vendorId,
-        damageCase.id,
-        'New Damage Case Reported',
-        `A ${dto.severity.toLowerCase()} damage case has been reported (${dto.bottleCount} bottle(s)).`,
-      ).catch((e) => this.logger.warn(`Notification failed: ${e?.message}`));
-
-      return damageCase;
-    } catch (err: any) {
-      // Prisma unique constraint violation
-      if (err?.code === 'P2002' && dto.dailySheetItemId) {
-        const existing = await this.prisma.damageCase.findFirst({
-          where: {
-            dailySheetItemId: dto.dailySheetItemId,
-            driverId: user.userId,
-            severity: dto.severity,
-            vendorId: user.vendorId,
-          },
-          select: { id: true },
-        });
-        throw new ConflictException({
-          message: `A ${dto.severity} damage case already exists for this delivery stop. Update the bottle count on the existing case.`,
-          existingCaseId: existing?.id ?? null,
-          hint: existing ? `PATCH /damage-cases/${existing.id}` : undefined,
-        });
-      }
-      throw err;
-    }
+    return damageCase;
   }
 
   // ── update (bottleCount only, REPORTED status) ─────────────────────────
@@ -216,17 +195,6 @@ export class DamageCaseService {
         );
       }
 
-      // Decrement bottle wallet atomically
-      await tx.bottleWallet.update({
-        where: {
-          customerId_productId: {
-            customerId: damageCase.customerId,
-            productId: damageCase.productId,
-          },
-        },
-        data: { balance: { decrement: damageCase.bottleCount } },
-      });
-
       // Increment customer financial balance (charge the customer)
       await tx.customer.update({
         where: { id: damageCase.customerId },
@@ -322,23 +290,15 @@ export class DamageCaseService {
         );
       }
 
-      // Decrement bottle wallet atomically (physical bottles are gone)
-      await tx.bottleWallet.update({
-        where: {
-          customerId_productId: {
-            customerId: damageCase.customerId,
-            productId: damageCase.productId,
-          },
-        },
-        data: { balance: { decrement: damageCase.bottleCount } },
-      });
-
       // Condition 3: BottleWallet.balance is NOT reconciled from the sum of Transaction.bottleCount values.
       // The ledger service always updates BottleWallet.balance directly and independently creates a
       // Transaction row with bottleCount for analytics/dashboard reporting only. There is no cron or
       // reconciliation job that recomputes BottleWallet.balance from Transaction.bottleCount sums.
       // Therefore, we do NOT need to create a zero-amount Transaction row for bookkeeping consistency
       // of the wallet balance. The wallet is the source of truth — no Transaction row needed for WAIVE.
+      //
+      // Wallet balance is NOT decremented here — the delivery recordDelivery() already decremented it
+      // via emptyReceived. Decrementing again would double-count.
       //
       // If this assumption changes in the future (e.g. a reconciliation job is added), a
       // zero-amount Transaction with bottleCount: -damageCase.bottleCount should be created here.

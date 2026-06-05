@@ -851,7 +851,6 @@ model DamageCase {
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
 
-  @@unique([dailySheetItemId, driverId, severity, vendorId])
   @@index([vendorId, status])
   @@index([customerId])
   @@index([driverId])

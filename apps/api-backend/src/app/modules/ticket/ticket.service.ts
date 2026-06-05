@@ -197,6 +197,21 @@ export class TicketService {
     if (!ticket || ticket.vendorId !== vendorId) throw new NotFoundException('Ticket not found');
 
     const newStatus = dto.status ?? ticket.status;
+
+    if (dto.status && dto.status !== ticket.status) {
+      const validTransitions: Record<string, string[]> = {
+        OPEN: ['IN_PROGRESS', 'RESOLVED', 'CLOSED'],
+        IN_PROGRESS: ['RESOLVED', 'CLOSED'],
+        RESOLVED: ['CLOSED'],
+        CLOSED: [],
+      };
+      if (!validTransitions[ticket.status]?.includes(dto.status)) {
+        throw new BadRequestException(
+          `Cannot move ticket from ${ticket.status} to ${dto.status}.`
+        );
+      }
+    }
+
     const isResolving = newStatus === 'RESOLVED' && ticket.status !== 'RESOLVED';
 
     const updated = await this.prisma.customerTicket.update({

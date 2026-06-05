@@ -1,7 +1,7 @@
 # Water Supply CRM — Feature Gap Audit
 
-> Last updated: 2026-06-05  
-> Status: Live audit. Update as gaps are fixed.  
+> Last updated: 2026-06-06  
+> Status: All valid gaps fixed. See [FIXED] markers below.  
 > Purpose: Find every place the system allows something that real-world operations would never allow.
 > **Verification:** All gaps in this file have been verified by reading actual service code. Gaps that were found to be invalid (protected by $transaction or intentional design) have been removed.
 
@@ -21,7 +21,7 @@ These gaps can corrupt financial balances, inventory counts, or audit trails. Fi
 
 ---
 
-### GAP-001: Driver Can Record Deliveries Without Any Loadout
+### GAP-001: Driver Can Record Deliveries Without Any Loadout — [FIXED 2026-06-06]
 
 **Module:** Daily Sheet  
 **File:** `apps/api-backend/src/app/modules/daily-sheet/daily-sheet.service.ts` (line 72–207)
@@ -42,7 +42,7 @@ if (!activeLoad) throw new BadRequestException('No active trip. Start a trip bef
 
 ---
 
-### GAP-002: Sheet Can Be Closed While a Trip Is Still Active
+### GAP-002: Sheet Can Be Closed While a Trip Is Still Active — [FIXED 2026-06-06]
 
 **Module:** Daily Sheet  
 **File:** `apps/api-backend/src/app/modules/daily-sheet/daily-sheet.service.ts` (line 651–667)
@@ -63,7 +63,7 @@ if (openTrip) throw new ConflictException('Cannot close sheet while a trip is st
 
 ---
 
-### GAP-003: Driver Check-In Bottle Count Validation
+### GAP-003: Driver Check-In Bottle Count Validation — [FIXED 2026-06-06]
 
 **Module:** Daily Sheet — Check-In
 **File:** `apps/api-backend/src/app/modules/daily-sheet/daily-sheet.service.ts` (line ~520–556)
@@ -96,7 +96,8 @@ if (dto.returnedFilled > load.loadedFilled) {
 
 ---
 
-### GAP-004: Customer's Bottle Wallet Can Go Negative
+### GAP-004: Customer's Bottle Wallet Can Go Negative — [FIXED 2026-06-06]
+> **Audit correction:** Original proposed guard (`wallet.balance < emptyReceived`) was wrong — it rejects valid straight-swap deliveries. Implemented guard is `wallet.balance + filledDropped - emptyReceived < 0` (final balance after both drop and pickup).
 
 **Module:** Transaction / Ledger  
 **File:** `apps/api-backend/src/app/modules/transaction/ledger.service.ts` (line 21–97)
@@ -117,7 +118,8 @@ if (wallet.balance < dto.emptyReceived) {
 
 ---
 
-### GAP-005: Payment Double-Approval Race Condition
+### GAP-005: Payment Double-Approval Race Condition — [FIXED 2026-06-06]
+> Also fixed same race in `handlePaymobWebhook()`. Amount-mismatch logging added (GAP-022).
 
 **Module:** Payment  
 **File:** `apps/api-backend/src/app/modules/payment/payment.service.ts` (line 270–360)
@@ -148,7 +150,7 @@ These gaps cause operational confusion, driver errors, and incorrect reports.
 
 ---
 
-### GAP-008: Customer Can Be Deactivated With Pending Deliveries
+### GAP-008: Customer Can Be Deactivated With Pending Deliveries — [FIXED 2026-06-06]
 
 **Module:** Customer  
 **File:** `apps/api-backend/src/app/modules/customer/customer.service.ts` (line 576–602)
@@ -169,7 +171,7 @@ if (pendingItems > 0) throw new ConflictException('Customer has pending deliveri
 
 ---
 
-### GAP-009: Customer Can Be Deleted With Active Payment Requests and Orders
+### GAP-009: Customer Can Be Deleted With Active Payment Requests and Orders — [FIXED 2026-06-06]
 
 **Module:** Customer  
 **File:** `apps/api-backend/src/app/modules/customer/customer.service.ts` (line 339–366)
@@ -186,7 +188,7 @@ Expand the `_count` guard to check all related active records before allowing de
 ---
 
 
-### GAP-011: Order Delivery Can Be Planned for a Past Date
+### GAP-011: Order Delivery Can Be Planned for a Past Date — [FIXED 2026-06-06]
 
 **Module:** Order  
 **File:** `apps/api-backend/src/app/modules/order/order.service.ts` (line 313–341)
@@ -207,7 +209,7 @@ if (new Date(dto.targetDate) < today) {
 
 ---
 
-### GAP-012: Van Can Be Deactivated With Open Daily Sheets
+### GAP-012: Van Can Be Deactivated With Open Daily Sheets — [FIXED 2026-06-06]
 
 **Module:** Van  
 **File:** `apps/api-backend/src/app/modules/van/van.service.ts` (line 76–87)
@@ -228,7 +230,7 @@ if (openSheets > 0) throw new ConflictException('Van has open daily sheets. Clos
 
 ---
 
-### GAP-013: Van Can Be Deleted Even With Delivery History
+### GAP-013: Van Can Be Deleted Even With Delivery History — [FIXED 2026-06-06]
 
 **Module:** Van  
 **File:** `apps/api-backend/src/app/modules/van/van.service.ts` (line 119–141)
@@ -247,7 +249,7 @@ if (anySheets > 0) throw new ConflictException('Cannot delete van with delivery 
 
 ---
 
-### GAP-014: Driver Can Be Deleted While Assigned to a Van
+### GAP-014: Driver Can Be Deleted While Assigned to a Van — [FIXED 2026-06-06]
 
 **Module:** User  
 **File:** `apps/api-backend/src/app/modules/user/user.service.ts` (line 285–317)
@@ -263,7 +265,7 @@ Check `Van.defaultDriverId`, active damage cases, and pending daily sheet items 
 
 ---
 
-### GAP-015: Driver Can Be Deactivated Without Clearing Van Assignment
+### GAP-015: Driver Can Be Deactivated Without Clearing Van Assignment — [FIXED 2026-06-06]
 
 **Module:** User  
 **File:** `apps/api-backend/src/app/modules/user/user.service.ts` (line 219–250)
@@ -284,7 +286,8 @@ await this.prisma.van.updateMany({
 
 ---
 
-### GAP-016: Ticket Status Can Move Backward
+### GAP-016: Ticket Status Can Move Backward — [FIXED 2026-06-06]
+> Transition table extended to allow `OPEN → RESOLVED` (direct resolution without IN_PROGRESS) as a valid real-world shortcut.
 
 **Module:** Ticket  
 **File:** `apps/api-backend/src/app/modules/ticket/ticket.service.ts` (line 190–235)
@@ -312,7 +315,7 @@ if (!validTransitions[ticket.status]?.includes(dto.status)) {
 
 ---
 
-### GAP-017: Route Can Be Deleted While Daily Sheets Reference It
+### GAP-017: Route Can Be Deleted While Daily Sheets Reference It — [FIXED 2026-06-06]
 
 **Module:** Route  
 **File:** `apps/api-backend/src/app/modules/route/route.service.ts` (line 136–153)
@@ -331,7 +334,8 @@ if (sheets > 0) throw new ConflictException('Route has delivery history. Delete 
 
 ---
 
-### GAP-018: Damage Case Unique Constraint Blocks Multiple Damages Per Delivery
+### GAP-018: Damage Case Unique Constraint Blocks Multiple Damages Per Delivery — [FIXED 2026-06-06]
+> Schema migration `remove_damage_case_severity_unique` must be applied when DB is available: `npx prisma migrate dev --name remove_damage_case_severity_unique --schema=libs/shared/database/prisma/schema.prisma`
 
 **Module:** Damage Case  
 **File:** `libs/shared/database/prisma/schema.prisma` (model DamageCase)
@@ -351,7 +355,7 @@ Remove `severity` from the unique constraint. Use `bottleCount` or a `caseIndex`
 
 ---
 
-### GAP-019: No Brute Force Protection on Login
+### GAP-019: No Brute Force Protection on Login — [FIXED 2026-06-06]
 
 **Module:** Auth  
 **File:** `apps/api-backend/src/app/modules/auth/auth.service.ts` (line 27–34)
@@ -364,7 +368,7 @@ After 5 failed login attempts for the same username, lock the account for 15 min
 
 ---
 
-### GAP-020: Multiple Active QR Codes Per Customer
+### GAP-020: Multiple Active QR Codes Per Customer — [FIXED 2026-06-06]
 
 **Module:** Payment  
 **File:** `apps/api-backend/src/app/modules/payment/payment.service.ts` (line 50–113)
@@ -406,7 +410,8 @@ warna abhi "pending confirmation" likh do.]
 
 **Original proposed guard — DO NOT IMPLEMENT.**
 
-### GAP-022: No Validation on Webhook Payment Amount
+### GAP-022: No Validation on Webhook Payment Amount — [FIXED 2026-06-06]
+> Mismatch is logged as error and processing continues with stored amount (gateway not trusted for financial value). Fixed alongside GAP-005.
 
 **Module:** Payment  
 **File:** `apps/api-backend/src/app/modules/payment/payment.service.ts` (line 431–499)
@@ -419,7 +424,8 @@ After parsing the webhook, verify `parsedAmountCents / 100 === originalRequest.a
 
 ---
 
-### GAP-023: No Validation on Password Strength for Portal Accounts
+### GAP-023: No Validation on Password Strength for Portal Accounts — [FIXED 2026-06-06]
+> `@MinLength(8)` was already present. Added `@Matches(/\d/)` for the number requirement.
 
 **Module:** Customer  
 **File:** `apps/api-backend/src/app/modules/customer/customer.service.ts` (line 427–468)
@@ -438,7 +444,8 @@ These are silent data integrity issues that you'd only discover when reports don
 
 ---
 
-### GAP-024: No Periodic Ledger Balance Verification
+### GAP-024: No Periodic Ledger Balance Verification — [DEFERRED]
+> Full reconciliation job deferred. Phase 1–3 guards now prevent new corruption. Cron job to be added in a follow-up session.
 
 **Module:** Transaction / Ledger
 
@@ -452,7 +459,8 @@ A daily/weekly background job should scan for balance mismatches and alert the v
 
 ---
 
-### GAP-025: RESCHEDULED Items Older Than 90 Days Still Get Picked Up
+### GAP-025: RESCHEDULED Items Older Than 90 Days Still Get Picked Up — [FIXED 2026-06-06]
+> 60-day cutoff applied (not 90 as original doc said). Items older than 60 days are auto-cancelled on next sheet generation.
 
 **Module:** Daily Sheet Processor  
 **File:** `apps/api-backend/src/app/modules/daily-sheet/daily-sheet.processor.ts` (line 115–130)
@@ -465,7 +473,8 @@ Only rescheduled items from the last 30–60 days should be candidates for reins
 
 ---
 
-### GAP-026: Daily Sheet Generator Silently Skips If No Default Product
+### GAP-026: Daily Sheet Generator Silently Skips If No Default Product — [FIXED 2026-06-06]
+> Upgraded to `logger.error` + in-app notification to all VENDOR_ADMIN users.
 
 **Module:** Daily Sheet Processor  
 **File:** `apps/api-backend/src/app/modules/daily-sheet/daily-sheet.processor.ts` (line 40–46)
@@ -478,7 +487,7 @@ If no default product is found, the processor should throw or at minimum log an 
 
 ---
 
-### GAP-027: Reactivated Customer Has No Bottle Wallets
+### GAP-027: Reactivated Customer Has No Bottle Wallets — [FIXED 2026-06-06]
 
 **Module:** Product / Customer  
 **File:** `apps/api-backend/src/app/modules/product/product.service.ts`
@@ -497,7 +506,8 @@ These don't corrupt data but cause driver confusion and operational errors.
 
 ---
 
-### GAP-028: Driver Can Submit Same Delivery Multiple Times
+### GAP-028: Driver Can Submit Same Delivery Multiple Times — [FIXED 2026-06-06]
+> Backend blocks re-submission without `forceResubmit=true`; re-submitting with override writes an audit log entry. Frontend shows warning banner on already-recorded items and passes `forceResubmit: true`.
 
 **Module:** Daily Sheet (Frontend + Backend)
 
@@ -509,7 +519,8 @@ Once a delivery is marked COMPLETED, EMPTY_ONLY, or any terminal status, it shou
 
 ---
 
-### GAP-029: No Confirmation When Marking High-Value Deliveries
+### GAP-029: No Confirmation When Marking High-Value Deliveries — [FIXED 2026-06-06]
+> Confirmation dialog now shown for both Delivered and Unable-to-Deliver modes. Mode-appropriate messaging.
 
 **Module:** Driver App (Frontend)
 
@@ -521,7 +532,7 @@ Require a confirmation dialog for any non-COMPLETED status. "Are you sure you wa
 
 ---
 
-### GAP-030: No Visual Indicator That Loadout Is Missing
+### GAP-030: No Visual Indicator That Loadout Is Missing — [FIXED 2026-06-06]
 
 **Module:** Vendor Dashboard (Frontend)
 
@@ -586,7 +597,7 @@ No migrations needed for most of these — they are validation-only changes in s
 
 Bonus gap 
 
-### GAP-031: Damaged Bottle Double-Counted in Customer Wallet
+### GAP-031: Damaged Bottle Double-Counted in Customer Wallet — [FIXED 2026-06-06]
 
 **Module:** Damage Case / Ledger
 **Files:**
@@ -635,3 +646,4 @@ destroyed) is fix ka hissa NAHI. Wo alag se dekha jayega.
 4 hona chahiye → us delivery par 1 damage report karo → ek baar charge karo:
 wallet 4 hi rahe (3 nahi), aur financialBalance amount se barhe. Doosre customer
 par same scenario waive karo: wallet 4 rahe, financialBalance change na ho.
+

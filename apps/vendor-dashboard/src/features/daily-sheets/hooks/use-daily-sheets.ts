@@ -114,7 +114,7 @@ export const useUpdateDeliveryItem = (sheetId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
     retry: 2,
-    mutationFn: ({ itemId, data }: { itemId: string; data: Record<string, unknown> }) =>
+    mutationFn: ({ itemId, data }: { itemId: string; data: Record<string, unknown> & { forceResubmit?: boolean } }) =>
       dailySheetsApi.updateDeliveryItem(itemId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });

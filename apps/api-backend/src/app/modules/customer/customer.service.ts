@@ -339,7 +339,16 @@ export class CustomerService {
   async remove(vendorId: string, id: string) {
     const customer = await this.prisma.customer.findFirst({
       where: { id, vendorId },
-      include: { _count: { select: { transactions: true } } },
+      include: {
+        _count: {
+          select: {
+            transactions: true,
+            paymentRequests: { where: { status: { in: ['PENDING', 'PROCESSING'] } } },
+            orders: { where: { status: { in: ['PENDING', 'APPROVED'] } } },
+            damageCases: { where: { status: { in: ['REPORTED', 'UNDER_REVIEW', 'CHARGED'] } } },
+          },
+        },
+      },
     });
 
     if (!customer) {
@@ -350,6 +359,15 @@ export class CustomerService {
       throw new ConflictException(
         'Cannot delete customer with transaction history. Deactivate instead.',
       );
+    }
+    if (customer._count.paymentRequests > 0) {
+      throw new ConflictException('Cannot delete customer with open payment requests. Resolve them first.');
+    }
+    if (customer._count.orders > 0) {
+      throw new ConflictException('Cannot delete customer with open orders. Resolve them first.');
+    }
+    if (customer._count.damageCases > 0) {
+      throw new ConflictException('Cannot delete customer with active damage cases. Resolve them first.');
     }
 
     await this.prisma.customer.delete({ where: { id } });
@@ -577,6 +595,15 @@ export class CustomerService {
     const customer = await this.prisma.customer.findFirst({ where: { id, vendorId } });
     if (!customer) throw new NotFoundException('Customer not found');
 
+    const pendingItems = await this.prisma.dailySheetItem.count({
+      where: { customerId: id, status: 'PENDING', dailySheet: { isClosed: false } },
+    });
+    if (pendingItems > 0) {
+      throw new ConflictException(
+        `Customer has ${pendingItems} pending delivery item(s). Complete or cancel them before deactivating.`
+      );
+    }
+
     const updated = await this.prisma.customer.update({
       where: { id },
       data: { isActive: false },
@@ -597,6 +624,17 @@ export class CustomerService {
       select: { id: true, name: true, customerCode: true, isActive: true },
     });
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
+    // Ensure wallet records exist for all active products (customer may have missed product creation while inactive)
+    const activeProducts = await this.prisma.product.findMany({
+      where: { vendorId, isActive: true },
+      select: { id: true },
+    });
+    if (activeProducts.length > 0) {
+      await this.prisma.bottleWallet.createMany({
+        data: activeProducts.map((p) => ({ customerId: id, productId: p.id, balance: 0 })),
+        skipDuplicates: true,
+      });
+    }
     await this.audit.log({ vendorId, action: 'REACTIVATE', entity: 'Customer', entityId: id });
     return updated;
   }

@@ -213,6 +213,16 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         ))}
       </div>
 
+      {!hasAnyTrip && !isClosed && (
+        <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-start gap-3">
+          <span className="text-amber-500 text-lg mt-0.5 flex-shrink-0">⚠</span>
+          <div>
+            <p className="text-sm font-bold text-amber-700 dark:text-amber-400">No Loadout Recorded</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Driver has not started a trip yet. Deliveries cannot be recorded until a trip is started.</p>
+          </div>
+        </div>
+      )}
+
       {/* Stats Bar */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Card className="bg-card/50 backdrop-blur-sm">

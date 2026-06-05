@@ -136,7 +136,7 @@ export class RouteService {
   async remove(vendorId: string, id: string) {
     const route = await this.prisma.route.findFirst({
       where: { id, vendorId },
-      include: { _count: { select: { customers: true } } },
+      include: { _count: { select: { customers: true, dailySheets: true } } },
     });
     if (!route) {
       throw new NotFoundException('Route not found');
@@ -144,6 +144,11 @@ export class RouteService {
     if (route._count.customers > 0) {
       throw new ConflictException(
         'Cannot delete route with assigned customers. Reassign customers first.',
+      );
+    }
+    if (route._count.dailySheets > 0) {
+      throw new ConflictException(
+        'Route has delivery history and cannot be deleted. Remove all associations first.'
       );
     }
 
