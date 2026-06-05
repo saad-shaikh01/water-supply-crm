@@ -108,6 +108,9 @@ export class DailySheetService {
           failureCategory: dto.failureCategory,
           photoUrl: dto.photoUrl,
           pricePerBottle: price,
+          ...(resolvedStatus === DeliveryStatus.COMPLETED || resolvedStatus === DeliveryStatus.EMPTY_ONLY
+            ? { deliveredAt: new Date() }
+            : { deliveredAt: null }),
         },
       });
 
@@ -310,6 +313,38 @@ export class DailySheetService {
     if (!sheet) {
       throw new NotFoundException('Daily sheet not found');
     }
+
+    // Batch-fetch last completed filledDropped for each customer+product pair
+    const itemPairs = sheet.items.map((i) => ({
+      customerId: i.customerId,
+      productId: i.productId,
+    }));
+
+    if (itemPairs.length > 0) {
+      const lastDeliveries = await this.prisma.dailySheetItem.findMany({
+        where: {
+          status: { in: ['COMPLETED', 'EMPTY_ONLY'] },
+          dailySheetId: { not: sheet.id },
+          dailySheet: { vendorId },
+          OR: itemPairs.map((p) => ({
+            customerId: p.customerId,
+            productId: p.productId,
+          })),
+        },
+        orderBy: { updatedAt: 'desc' },
+        distinct: ['customerId', 'productId'],
+        select: { customerId: true, productId: true, filledDropped: true },
+      });
+
+      // Mutate items in-place to add lastFilledDropped (avoids TS return-type widening)
+      for (const it of sheet.items as any[]) {
+        const last = lastDeliveries.find(
+          (ld) => ld.customerId === it.customerId && ld.productId === it.productId,
+        );
+        it.lastFilledDropped = last?.filledDropped ?? null;
+      }
+    }
+
     return sheet;
   }
 

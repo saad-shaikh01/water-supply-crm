@@ -331,6 +331,16 @@ export function DeliveryItemsList({
                               <span className="font-bold">Note:</span> {item.reason}
                             </p>
                           )}
+                          {item.deliveredAt && (item.status === 'COMPLETED' || item.status === 'EMPTY_ONLY') && (
+                            <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                              <span className="font-bold">Delivered at:</span>
+                              {new Date(item.deliveredAt).toLocaleTimeString('en-US', {
+                                hour: 'numeric',
+                                minute: '2-digit',
+                                hour12: true,
+                              })}
+                            </p>
+                          )}
                         </div>
                       </motion.div>
                     )}

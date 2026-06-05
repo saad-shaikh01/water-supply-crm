@@ -1,6 +1,6 @@
 'use client';
 
-import { useReducer, useMemo } from 'react';
+import { useReducer, useMemo, useEffect, useRef } from 'react';
 import { Card, CardContent, Skeleton } from '@water-supply-crm/ui';
 import { useDailySheet, useUpdateCustomerLocation } from '../hooks/use-daily-sheets';
 import { dailySheetsApi } from '../api/daily-sheets.api';
@@ -108,6 +108,17 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const [ui, dispatch] = useReducer(uiReducer, initialUiState);
 
   const items = useMemo(() => data?.items ?? [], [data]);
+
+  // Auto-default to the Pending tab on first data load when pending items exist
+  const hasDefaultedTab = useRef(false);
+  useEffect(() => {
+    if (hasDefaultedTab.current || items.length === 0) return;
+    hasDefaultedTab.current = true;
+    const pendingCount = items.filter((i) => i.status === 'PENDING').length;
+    if (pendingCount > 0) {
+      dispatch({ type: 'SET_TAB', tab: 'pending' });
+    }
+  }, [items]);
   const loads = useMemo(() => data?.loads ?? [], [data]);
   const doneItems = useMemo(
     () => items.filter((i) => i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY'),

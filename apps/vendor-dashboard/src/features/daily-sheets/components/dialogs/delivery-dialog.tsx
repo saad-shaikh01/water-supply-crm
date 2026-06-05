@@ -52,6 +52,15 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
 
   const item = items.find((i) => i.id === open) ?? null;
 
+  const effectivePrice = (() => {
+    if (!item) return 0;
+    const custom = item.customer?.customPrices?.find(p => p.productId === item.productId);
+    return custom?.customPrice ?? item.product?.basePrice ?? 0;
+  })();
+  const isCustomPrice = !!(item?.customer?.customPrices?.find(p => p.productId === item?.productId));
+  const isMonthly = item?.customer?.paymentType === 'MONTHLY';
+  const isFirstRecord = item?.status === 'PENDING';
+
   // Initialize form state when a new item is opened
   useEffect(() => {
     if (!item) return;
@@ -62,12 +71,37 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
     setAwaitingConfirm(false);
     setShowDamage(false);
     setDamageForm({ severity: 'MODERATE', bottleCount: 1, photoKeys: [], description: '' });
+    const isFirst = item.status === 'PENDING';
+    const custom = item.customer?.customPrices?.find(p => p.productId === item.productId);
+    const price = custom?.customPrice ?? item.product?.basePrice ?? 0;
+    const isMonthlyInit = item.customer?.paymentType === 'MONTHLY';
+    const suggestedFilled = isFirst ? (item.lastFilledDropped ?? 1) : item.filledDropped;
+    const suggestedCash = isMonthlyInit
+      ? 0
+      : isFirst
+        ? Math.round(suggestedFilled * price)
+        : item.cashCollected;
+
     setItemForm({
-      filledDropped: item.filledDropped || 1,
-      emptyReceived: item.emptyReceived || 0,
-      cashCollected: item.cashCollected || 0,
+      filledDropped: suggestedFilled,
+      emptyReceived: item.emptyReceived > 0 ? item.emptyReceived : 0,
+      cashCollected: suggestedCash,
     });
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Recalculate cash when filledDropped changes (CASH customers, first-time record only)
+  useEffect(() => {
+    if (!item || deliveryMode !== 'delivered') return;
+    if (item.customer?.paymentType === 'MONTHLY') {
+      setItemForm((p) => ({ ...p, cashCollected: 0 }));
+      return;
+    }
+    if (item.status === 'PENDING') {
+      const custom2 = item.customer?.customPrices?.find((p) => p.productId === item.productId);
+      const price2 = custom2?.customPrice ?? item.product?.basePrice ?? 0;
+      setItemForm((p) => ({ ...p, cashCollected: Math.round((p.filledDropped ?? 0) * price2) }));
+    }
+  }, [itemForm.filledDropped, deliveryMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSaveClick = () => {
     if (!open) return;
@@ -222,16 +256,51 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
                     className="font-mono font-bold h-11"
                   />
                 </div>
+                {isFirstRecord && item?.lastFilledDropped != null && (
+                  <p className="text-[11px] text-muted-foreground -mt-1">
+                    Last delivery: <span className="font-bold">{item.lastFilledDropped} btl</span>
+                  </p>
+                )}
+                {(() => {
+                  const wb = item?.customer?.wallets?.find((w) => w.productId === item.productId)?.balance ?? 0;
+                  return wb > 0 ? (
+                    <p className="text-[11px] text-muted-foreground -mt-1">
+                      Expected: <span className="font-bold">{wb} btl</span> (wallet)
+                    </p>
+                  ) : null;
+                })()}
               </div>
+              {effectivePrice > 0 && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span>Rate:</span>
+                  <span className="font-bold font-mono">₨{effectivePrice.toLocaleString()}/bottle</span>
+                  {isCustomPrice && (
+                    <span className="px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 font-bold text-[10px]">
+                      Custom
+                    </span>
+                  )}
+                </div>
+              )}
               <div className="space-y-2">
                 <Label className="font-bold text-xs uppercase tracking-widest">Cash Collected (₨)</Label>
                 <Input
                   type="number"
                   min={0}
                   value={itemForm.cashCollected ?? 0}
-                  onChange={(e) => setItemForm((p) => ({ ...p, cashCollected: Number(e.target.value) }))}
-                  className="h-12 text-lg font-black font-mono text-center bg-emerald-500/5 border-emerald-500/20 text-emerald-600 dark:text-emerald-400"
+                  onChange={(e) => {
+                    if (!isMonthly) setItemForm((p) => ({ ...p, cashCollected: Number(e.target.value) }));
+                  }}
+                  disabled={isMonthly}
+                  className={cn(
+                    'h-12 text-lg font-black font-mono text-center',
+                    isMonthly
+                      ? 'bg-muted/50 text-muted-foreground cursor-not-allowed'
+                      : 'bg-emerald-500/5 border-emerald-500/20 text-emerald-600 dark:text-emerald-400',
+                  )}
                 />
+                {isMonthly && (
+                  <p className="text-[11px] text-muted-foreground">Monthly account — cash is billed, not collected on delivery.</p>
+                )}
               </div>
 
               {/* Damaged empties section */}

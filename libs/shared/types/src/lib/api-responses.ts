@@ -132,6 +132,9 @@ export interface DeliveryItem {
   reason?: string | null;
   failureCategory?: string | null;
   photoUrl?: string | null;
+  pricePerBottle?: number;
+  lastFilledDropped?: number | null;
+  deliveredAt?: string | null;
 }
 
 export interface LoadTrip {

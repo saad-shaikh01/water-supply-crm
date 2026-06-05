@@ -59,6 +59,7 @@ export const useDailySheet = (id: string) => {
 export const useGenerateSheet = () => {
   const queryClient = useQueryClient();
   return useMutation({
+    retry: 2,
     mutationFn: (data: Record<string, unknown>) => dailySheetsApi.generate(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['sheets'] });
@@ -86,6 +87,7 @@ export const useGenerationStatus = (jobId: string) => {
 export const useLoadOut = (sheetId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
+    retry: 2,
     mutationFn: (data: Record<string, unknown>) => dailySheetsApi.loadOut(sheetId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
@@ -98,6 +100,7 @@ export const useLoadOut = (sheetId: string) => {
 export const useCheckIn = (sheetId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
+    retry: 2,
     mutationFn: (data: Record<string, unknown>) => dailySheetsApi.checkIn(sheetId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
@@ -110,7 +113,8 @@ export const useCheckIn = (sheetId: string) => {
 export const useUpdateDeliveryItem = (sheetId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ itemId, data }: { itemId: string; data: Record<string, unknown> }) => 
+    retry: 2,
+    mutationFn: ({ itemId, data }: { itemId: string; data: Record<string, unknown> }) =>
       dailySheetsApi.updateDeliveryItem(itemId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
@@ -125,6 +129,7 @@ export const useUpdateDeliveryItem = (sheetId: string) => {
 export const useCloseSheet = (sheetId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
+    retry: 2,
     mutationFn: () => dailySheetsApi.close(sheetId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
@@ -138,6 +143,7 @@ export const useCloseSheet = (sheetId: string) => {
 export const useSwapAssignment = (sheetId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
+    retry: 2,
     mutationFn: (data: Record<string, unknown>) => dailySheetsApi.swapAssignment(sheetId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
@@ -150,6 +156,7 @@ export const useSwapAssignment = (sheetId: string) => {
 export const useCreateLoad = (sheetId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
+    retry: 2,
     mutationFn: (data: Record<string, unknown>) => dailySheetsApi.createLoad(sheetId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
@@ -162,6 +169,7 @@ export const useCreateLoad = (sheetId: string) => {
 export const useCheckinLoad = (sheetId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
+    retry: 2,
     mutationFn: ({ loadId, data }: { loadId: string; data: Record<string, unknown> }) =>
       dailySheetsApi.checkinLoad(sheetId, loadId, data),
     onSuccess: () => {
@@ -175,6 +183,7 @@ export const useCheckinLoad = (sheetId: string) => {
 export const useUpdateCustomerLocation = (sheetId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
+    retry: 2,
     mutationFn: ({ customerId, latitude, longitude }: { customerId: string; latitude: number; longitude: number }) =>
       customersApi.updateLocation(customerId, latitude, longitude),
     onSuccess: () => {
