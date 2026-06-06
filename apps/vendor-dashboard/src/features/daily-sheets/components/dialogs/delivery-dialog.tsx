@@ -318,6 +318,9 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
                 {isMonthly && (
                   <p className="text-[11px] text-muted-foreground">Monthly account — cash is billed, not collected on delivery.</p>
                 )}
+                {!isMonthly && isFirstRecord && itemForm.cashCollected === Math.round((itemForm.filledDropped ?? 0) * effectivePrice) && (
+                  <p className="text-[11px] text-muted-foreground">Auto-calculated · edit if needed</p>
+                )}
               </div>
 
               {/* Damaged empties section */}

@@ -48,7 +48,7 @@ export function SheetList() {
     if (sheet.isClosed) return 'CLOSED';
     // Checked-in: any return indicators present (cash, bottles back, or empties collected)
     if (sheet.cashCollected > 0 || sheet.filledInCount > 0 || sheet.emptyInCount > 0) return 'CHECKED_IN';
-    if (sheet.filledOutCount > 0) return 'LOADED';
+    if (sheet.filledOutCount > 0) return 'IN_PROGRESS';
     return 'OPEN';
   };
 
@@ -164,6 +164,18 @@ export function SheetList() {
         </SheetContent>
       </Sheet>
 
+      {!isLoading && rows.length === 0 && (
+        <div className="py-12 text-center text-muted-foreground space-y-2">
+          {(routeId || vanId || driverId || isClosed) ? (
+            <>
+              <p className="font-semibold">No results match your filters.</p>
+              <button onClick={() => { resetPage(); setIsClosed(null); }} className="text-xs text-primary underline hover:no-underline font-bold">Clear filters</button>
+            </>
+          ) : (
+            <p className="font-semibold">No delivery sheets have been generated yet.</p>
+          )}
+        </div>
+      )}
       <DataTable
         data={rows}
         isLoading={isLoading}

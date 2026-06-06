@@ -148,6 +148,14 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const isClosed = !!data?.isClosed;
   const currentStatus = isClosed ? 'CLOSED' : activeTrip ? 'LOADED' : hasAnyTrip ? 'CHECKED_IN' : 'OPEN';
   const bottlesInTruck = Math.max(0, (data?.filledOutCount ?? 0) - stats.filledDropped);
+
+  // Pre-fill values for check-in dialog
+  const activeLoad = data?.loads?.find((l: any) => !l.endedAt);
+  const loadedFilled = activeLoad?.loadedFilled ?? 0;
+  const doneItemsForCheckin = (data?.items ?? []).filter((i: any) => ['COMPLETED', 'EMPTY_ONLY'].includes(i.status));
+  const suggestedReturned = Math.max(0, loadedFilled - doneItemsForCheckin.reduce((s: number, i: any) => s + (i.filledDropped ?? 0), 0));
+  const suggestedEmpty = doneItemsForCheckin.reduce((s: number, i: any) => s + (i.emptyReceived ?? 0), 0);
+  const suggestedCash = doneItemsForCheckin.filter((i: any) => i.customer?.paymentType === 'CASH').reduce((s: number, i: any) => s + (i.cashCollected ?? 0), 0);
   const tabCount = (tab: TabKey) => items.filter((i) => tabFilter(tab, i)).length;
 
   const handleExportPdf = async () => {
@@ -275,7 +283,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
               <Truck className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-[10px] font-bold uppercase text-muted-foreground">In Truck</p>
+              <p className="text-[10px] font-bold uppercase text-muted-foreground" title="Bottles loaded but not yet recorded as delivered or returned">Not Yet Recorded</p>
               <p className="text-sm font-black">{bottlesInTruck} bottles</p>
             </div>
           </CardContent>
@@ -324,12 +332,14 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         onClose={() => dispatch({ type: 'CLOSE_NEW_TRIP' })}
         sheetId={sheetId}
         tripNumber={loads.length + 1}
-        defaultFilled={items.length * 2}
+        defaultFilled={items.reduce((sum: number, item: any) => sum + (item.lastFilledDropped ?? 1), 0)}
       />
       <CheckinDialog
         open={ui.checkinOpen}
         onClose={() => dispatch({ type: 'CLOSE_CHECKIN' })}
         sheetId={sheetId}
+        trip={activeLoad ?? undefined}
+        suggestedValues={{ returnedFilled: suggestedReturned, collectedEmpty: suggestedEmpty, cashHandedIn: suggestedCash }}
       />
       <SwapDialog
         open={ui.swapOpen}

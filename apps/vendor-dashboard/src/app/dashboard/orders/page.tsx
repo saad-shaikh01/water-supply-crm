@@ -6,6 +6,11 @@ import { CalendarDays, Check, CheckSquare, Loader2, SlidersHorizontal, Truck, X 
 import {
   Badge,
   Button,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   Label,
   Select,
   SelectContent,
@@ -80,6 +85,8 @@ function OrdersContent() {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [dispatchOrder, setDispatchOrder] = useState<any>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [approveOrderId, setApproveOrderId] = useState<string | null>(null);
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false);
   const previousDateRange = useRef(`${from}|${to}`);
 
   const { data: customerOptionsData } = useQuery({
@@ -93,6 +100,8 @@ function OrdersContent() {
 
   const rows = (data as any)?.data ?? [];
   const total = (data as any)?.meta?.total ?? 0;
+  const approveOrderRow = rows.find((r: any) => r.id === approveOrderId);
+  const selectedOrderRows = rows.filter((r: any) => selectedRows.has(r.id));
   const customers = ((customerOptionsData as { data?: Array<{ id: string; name: string; phoneNumber?: string }> } | undefined)?.data ?? []);
   const products = ((productOptionsData as { data?: Array<{ id: string; name: string }> } | undefined)?.data ?? []);
   const selectedCustomer = customers.find((customer) => customer.id === customerId);
@@ -336,18 +345,33 @@ function OrdersContent() {
               variant="outline"
               className="h-8 rounded-xl text-xs font-bold gap-1.5 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10"
               disabled={isBulkApproving}
-              onClick={() => bulkApprove([...selectedRows], { onSuccess: () => setSelectedRows(new Set()) })}
+              onClick={() => setShowBulkConfirm(true)}
             >
               {isBulkApproving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
               Approve All
             </Button>
             <div className="flex items-center gap-1.5">
-              <input
-                type="date"
-                value={bulkPlanDate}
-                onChange={(e) => setBulkPlanDate(e.target.value)}
-                className="h-8 rounded-xl border border-border/50 bg-accent/30 px-2 text-xs text-foreground dark:text-white font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
-              />
+              <div className="flex flex-col gap-1">
+                <div className="flex gap-1.5 flex-wrap">
+                  {[{label: 'Tomorrow', days: 1}, {label: 'In 2 Days', days: 2}, {label: 'Next Week', days: 7}].map(({label, days}) => {
+                    const d = new Date(); d.setDate(d.getDate() + days);
+                    const val = d.toISOString().slice(0, 10);
+                    return (
+                      <button key={label} type="button" onClick={() => setBulkPlanDate(val)}
+                        className={cn('px-2.5 py-1 rounded-lg text-xs font-bold border transition-all',
+                          bulkPlanDate === val ? 'bg-primary/10 border-primary/40 text-primary' : 'bg-background border-border/40 text-muted-foreground hover:border-primary/30')}>
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <input
+                  type="date"
+                  value={bulkPlanDate}
+                  onChange={(e) => setBulkPlanDate(e.target.value)}
+                  className="h-8 rounded-xl border border-border/50 bg-accent/30 px-2 text-xs text-foreground dark:text-white font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+                />
+              </div>
               <Button
                 size="sm"
                 variant="outline"
@@ -520,7 +544,7 @@ function OrdersContent() {
                       size="icon"
                       variant="ghost"
                       className="h-8 w-8 text-emerald-400 hover:bg-emerald-500/10 rounded-full border border-transparent hover:border-emerald-500/20 transition-colors"
-                      onClick={() => approve(r.id)}
+                      onClick={() => setApproveOrderId(r.id)}
                       disabled={isApproving}
                       title="Approve Order"
                     >
@@ -617,6 +641,83 @@ function OrdersContent() {
           });
         }}
       />
+
+      {/* Bulk Approve Confirmation Dialog */}
+      <Dialog open={showBulkConfirm} onOpenChange={setShowBulkConfirm}>
+        <DialogContent className="rounded-3xl max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black flex items-center gap-2">
+              <Check className="h-5 w-5 text-emerald-500" />
+              Approve {selectedOrderRows.length} Orders?
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-2 max-h-48 overflow-y-auto">
+            {selectedOrderRows.map((r: any) => (
+              <div key={r.id} className="flex justify-between text-sm border-b border-border/30 pb-1">
+                <span className="font-medium">{r.customer?.name ?? '—'}</span>
+                <span className="text-muted-foreground">{r.quantity} × {r.product?.name ?? '—'}</span>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowBulkConfirm(false)}>Cancel</Button>
+            <Button
+              className="rounded-xl font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
+              disabled={isBulkApproving}
+              onClick={() => {
+                bulkApprove([...selectedRows], {
+                  onSuccess: () => { setSelectedRows(new Set()); setShowBulkConfirm(false); },
+                });
+              }}
+            >
+              {isBulkApproving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Confirm Approve All
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Approve Order Dialog */}
+      <Dialog open={!!approveOrderId} onOpenChange={(o) => { if (!o) setApproveOrderId(null); }}>
+        <DialogContent className="rounded-3xl max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black text-emerald-500 flex items-center gap-2">
+              <Check className="h-6 w-6" /> Approve Order
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="rounded-xl bg-emerald-500/5 border border-emerald-500/20 px-4 py-3 space-y-2">
+              <p className="text-sm font-bold text-foreground">{approveOrderRow?.customer?.name}</p>
+              <p className="text-xs text-muted-foreground">
+                Product: <span className="font-bold text-foreground">{approveOrderRow?.product?.name}</span>
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Quantity: <span className="font-bold text-foreground">{approveOrderRow?.quantity}</span>
+              </p>
+              {approveOrderRow?.preferredDate && (
+                <p className="text-xs text-muted-foreground">
+                  Preferred date:{' '}
+                  <span className="font-bold text-foreground">
+                    {new Date(approveOrderRow.preferredDate).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                  </span>
+                </p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setApproveOrderId(null)}>Cancel</Button>
+            <Button
+              className="rounded-xl font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
+              onClick={() => {
+                approve(approveOrderId!, { onSuccess: () => setApproveOrderId(null) });
+              }}
+              disabled={isApproving}
+            >
+              {isApproving ? 'Approving...' : 'Confirm Approval'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

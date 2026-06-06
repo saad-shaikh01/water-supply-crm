@@ -41,6 +41,8 @@ export function TicketReplyDialog({ ticket, open, onOpenChange, onConfirm, isPen
   useEffect(() => {
     if (!ticket || !open) return;
 
+    setReply(ticket.vendorReply ?? '');
+
     if (ticket.status === 'OPEN') {
       setStatus('IN_PROGRESS');
       return;
@@ -52,7 +54,7 @@ export function TicketReplyDialog({ ticket, open, onOpenChange, onConfirm, isPen
     }
 
     setStatus('IN_PROGRESS');
-  }, [ticket, open]);
+  }, [ticket, open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isValid = reply.trim().length >= 5;
 

@@ -91,7 +91,11 @@ export function OrderDispatchDrawer({
     if (!order || !open) return;
 
     setForm({
-      targetDate: order.targetDate ? new Date(order.targetDate).toISOString().slice(0, 10) : '',
+      targetDate: order.targetDate
+        ? new Date(order.targetDate).toISOString().slice(0, 10)
+        : order.preferredDate
+        ? new Date(order.preferredDate).toISOString().slice(0, 10)
+        : '',
       timeWindow: order.timeWindow ?? '',
       vanId: order.dispatchVanId ?? '',
       driverId: order.dispatchDriverId ?? '',
@@ -121,7 +125,7 @@ export function OrderDispatchDrawer({
         </SheetHeader>
 
         <div className="space-y-6 py-6">
-          <div className="rounded-2xl bg-accent/30 p-4 border border-border/40 space-y-1.5">
+          <div className="rounded-2xl bg-background p-4 border border-border/40 space-y-1.5 sticky top-0 z-10">
             <p className="text-sm font-bold">{order?.customer?.name}</p>
             <p className="text-xs text-muted-foreground">{order?.product?.name} x {order?.quantity}</p>
             <p className="text-[11px] text-muted-foreground">Current dispatch status: {order?.dispatchStatus ?? 'UNPLANNED'}</p>

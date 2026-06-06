@@ -97,6 +97,7 @@ export function PaymentDialog({ open, onOpenChange, suggestedAmount = 0 }: Payme
   const [qrResponse, setQrResponse] = useState<any>(null);
   const [qrPaymentId, setQrPaymentId] = useState('');
   const [hasSyncedTerminalState, setHasSyncedTerminalState] = useState(false);
+  const [showManualSuccess, setShowManualSuccess] = useState(false);
 
   const { data: paymentStatus, isFetching: isStatusFetching } = usePaymentStatus(qrPaymentId);
 
@@ -144,8 +145,7 @@ export function PaymentDialog({ open, onOpenChange, suggestedAmount = 0 }: Payme
 
     submitManual(formData, {
       onSuccess: () => {
-        onOpenChange(false);
-        resetForm();
+        setShowManualSuccess(true);
       },
     });
   };
@@ -154,6 +154,7 @@ export function PaymentDialog({ open, onOpenChange, suggestedAmount = 0 }: Payme
     setQrResponse(null);
     setQrPaymentId('');
     setHasSyncedTerminalState(false);
+    setShowManualSuccess(false);
     setAmount(suggestedAmount > 0 ? suggestedAmount : '');
     setMethod('RAAST_QR');
     setManualMethod('MANUAL_RAAST');
@@ -200,6 +201,9 @@ export function PaymentDialog({ open, onOpenChange, suggestedAmount = 0 }: Payme
                     className="h-16 pl-12 text-3xl font-black font-mono rounded-2xl border-2 focus:ring-primary/20 transition-all bg-accent/20"
                   />
                 </div>
+                {suggestedAmount > 0 && (
+                  <p className="text-xs text-muted-foreground">Pre-filled with your outstanding balance. You can change this amount.</p>
+                )}
               </div>
 
               <Tabs value={method} onValueChange={(value) => setMethod(value as 'RAAST_QR' | 'MANUAL')} className="w-full">
@@ -235,76 +239,91 @@ export function PaymentDialog({ open, onOpenChange, suggestedAmount = 0 }: Payme
                   </TabsContent>
 
                   <TabsContent value="MANUAL" className="space-y-6">
-                    <div className="space-y-4">
-                      <div className="p-4 rounded-2xl bg-accent/30 border border-border/50">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">Vendor Raast ID</p>
-                        <p className="text-lg font-black font-mono">{info?.raastId || 'Not Configured'}</p>
-                        <p className="text-[10px] text-muted-foreground mt-1">Pay to this ID first, then submit details here.</p>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label className="text-xs font-black uppercase tracking-widest">Payment Method</Label>
-                        <div className="grid grid-cols-2 gap-2">
-                          {MANUAL_METHOD_OPTIONS.map((item) => (
-                            <button
-                              type="button"
-                              key={item.value}
-                              onClick={() => setManualMethod(item.value)}
-                              className={cn(
-                                'rounded-xl border px-3 py-2 text-sm font-semibold transition-colors',
-                                manualMethod === item.value
-                                  ? 'border-primary/40 bg-primary/10 text-primary'
-                                  : 'border-border bg-background hover:bg-muted/60'
-                              )}
-                            >
-                              {item.label}
-                            </button>
-                          ))}
+                    {showManualSuccess ? (
+                      <div className="py-8 text-center space-y-4">
+                        <div className="h-14 w-14 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto">
+                          <CheckCircle2 className="h-8 w-8 text-emerald-500" />
                         </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label className="text-xs font-black uppercase tracking-widest">Reference / TID</Label>
-                        <Input
-                          placeholder="Enter Transaction ID"
-                          value={refNo}
-                          onChange={(e) => setRefNo(e.target.value)}
-                          className="h-12 rounded-xl"
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label className="text-xs font-black uppercase tracking-widest">Screenshot (Optional)</Label>
-                        <div className="relative">
-                          <Input
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) => setFile(e.target.files?.[0] || null)}
-                            className="h-12 rounded-xl pt-3 cursor-pointer"
-                          />
-                          <Upload className="absolute right-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                        <div className="space-y-1">
+                          <p className="font-bold text-lg">Payment Submitted</p>
+                          <p className="text-sm text-muted-foreground">Your vendor will review and confirm your payment soon.</p>
                         </div>
+                        <Button className="rounded-xl" onClick={() => { setShowManualSuccess(false); onOpenChange(false); resetForm(); }}>Done</Button>
                       </div>
+                    ) : (
+                      <div className="space-y-6">
+                        <div className="space-y-4">
+                          <div className="p-4 rounded-2xl bg-accent/30 border border-border/50">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">Vendor Raast ID</p>
+                            <p className="text-lg font-black font-mono">{info?.raastId || 'Not Configured'}</p>
+                            <p className="text-[10px] text-muted-foreground mt-1">Pay to this ID first, then submit details here.</p>
+                          </div>
 
-                      <div className="space-y-2">
-                        <Label className="text-xs font-black uppercase tracking-widest">Customer Note (Optional)</Label>
-                        <textarea
-                          value={customerNote}
-                          onChange={(e) => setCustomerNote(e.target.value)}
-                          placeholder="Add context for vendor (bank account used, transfer details, etc.)"
-                          rows={3}
-                          className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-primary/40 focus:ring-2 focus:ring-primary/20"
-                        />
+                          <div className="space-y-2">
+                            <Label className="text-xs font-black uppercase tracking-widest">Payment Method</Label>
+                            <div className="grid grid-cols-2 gap-2">
+                              {MANUAL_METHOD_OPTIONS.map((item) => (
+                                <button
+                                  type="button"
+                                  key={item.value}
+                                  onClick={() => setManualMethod(item.value)}
+                                  className={cn(
+                                    'rounded-xl border px-3 py-2 text-sm font-semibold transition-colors',
+                                    manualMethod === item.value
+                                      ? 'border-primary/40 bg-primary/10 text-primary'
+                                      : 'border-border bg-background hover:bg-muted/60'
+                                  )}
+                                >
+                                  {item.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label className="text-xs font-black uppercase tracking-widest">Reference / TID</Label>
+                            <Input
+                              placeholder="Enter Transaction ID"
+                              value={refNo}
+                              onChange={(e) => setRefNo(e.target.value)}
+                              className="h-12 rounded-xl"
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label className="text-xs font-black uppercase tracking-widest">Screenshot (Optional)</Label>
+                            <div className="relative">
+                              <Input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => setFile(e.target.files?.[0] || null)}
+                                className="h-12 rounded-xl pt-3 cursor-pointer"
+                              />
+                              <Upload className="absolute right-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label className="text-xs font-black uppercase tracking-widest">Customer Note (Optional)</Label>
+                            <textarea
+                              value={customerNote}
+                              onChange={(e) => setCustomerNote(e.target.value)}
+                              placeholder="Add context for vendor (bank account used, transfer details, etc.)"
+                              rows={3}
+                              className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-primary/40 focus:ring-2 focus:ring-primary/20"
+                            />
+                          </div>
+                        </div>
+
+                        <Button
+                          className="w-full h-14 rounded-2xl font-black text-lg shadow-xl shadow-primary/20 active:scale-95 transition-all"
+                          onClick={handleSubmitManual}
+                          disabled={isSubmittingManual || !amount || !refNo}
+                        >
+                          {isSubmittingManual ? <Loader2 className="animate-spin" /> : 'Submit for Review'}
+                        </Button>
                       </div>
-                    </div>
-
-                    <Button
-                      className="w-full h-14 rounded-2xl font-black text-lg shadow-xl shadow-primary/20 active:scale-95 transition-all"
-                      onClick={handleSubmitManual}
-                      disabled={isSubmittingManual || !amount || !refNo}
-                    >
-                      {isSubmittingManual ? <Loader2 className="animate-spin" /> : 'Submit for Review'}
-                    </Button>
+                    )}
                   </TabsContent>
                 </div>
               </Tabs>

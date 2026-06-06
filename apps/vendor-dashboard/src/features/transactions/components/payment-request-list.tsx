@@ -75,6 +75,7 @@ export function PaymentRequestList() {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [approveTarget, setApproveTarget] = useState<any>(null);
 
   const requests = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
   const rows = (requests?.data ?? []) as Array<{
@@ -253,6 +254,18 @@ export function PaymentRequestList() {
         </SheetContent>
       </Sheet>
 
+      {!isLoading && rows.length === 0 && (
+        <div className="py-12 text-center text-muted-foreground space-y-2">
+          {(status || customerId || method || dateFrom || dateTo) ? (
+            <>
+              <p className="font-semibold">No results match your filters.</p>
+              <button onClick={clearAll} className="text-xs text-primary underline hover:no-underline font-bold">Clear filters</button>
+            </>
+          ) : (
+            <p className="font-semibold">No payment requests have been recorded yet.</p>
+          )}
+        </div>
+      )}
       <DataTable
         data={rows}
         isLoading={isLoading}
@@ -324,7 +337,7 @@ export function PaymentRequestList() {
                       size="icon"
                       variant="ghost"
                       className="h-7 w-7 text-emerald-400 hover:bg-emerald-500/10 rounded-full"
-                      onClick={() => approve(r.id)}
+                      onClick={() => setApproveTarget(r)}
                       disabled={isApproving}
                     >
                       <Check className="h-3.5 w-3.5" />
@@ -386,6 +399,38 @@ export function PaymentRequestList() {
               className="rounded-xl font-bold"
             >
               {isRejecting ? 'Rejecting...' : 'Confirm Rejection'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Approve Dialog */}
+      <Dialog open={!!approveTarget} onOpenChange={(o) => { if (!o) setApproveTarget(null); }}>
+        <DialogContent className="rounded-3xl max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black text-emerald-500 flex items-center gap-2">
+              <Check className="h-6 w-6" /> Approve Payment
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <p className="text-sm text-muted-foreground">
+              Confirm approval of <span className="font-bold text-foreground">₨ {approveTarget?.amount?.toLocaleString()}</span> from{' '}
+              <span className="font-bold text-foreground">{approveTarget?.customer?.name}</span>.
+            </p>
+            <div className="rounded-xl bg-emerald-500/5 border border-emerald-500/20 px-4 py-3 space-y-1">
+              <p className="text-xs text-muted-foreground">Method: <span className="font-bold text-foreground">{approveTarget?.method?.replace('MANUAL_', '').replace('_', ' ')}</span></p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setApproveTarget(null)}>Cancel</Button>
+            <Button
+              className="rounded-xl font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
+              onClick={() => {
+                approve(approveTarget.id, { onSuccess: () => setApproveTarget(null) });
+              }}
+              disabled={isApproving}
+            >
+              {isApproving ? 'Approving...' : 'Confirm Approval'}
             </Button>
           </DialogFooter>
         </DialogContent>

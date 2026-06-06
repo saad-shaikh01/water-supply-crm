@@ -25,6 +25,13 @@ const WRITE_OFF_OPTIONS: { value: WriteOffCategory; label: string }[] = [
   { value: 'UNKNOWN', label: 'Unknown' },
 ];
 
+const CATEGORY_DESCRIPTIONS: Record<string, string> = {
+  CUSTOMER_NEGLIGENCE: 'Customer broke or lost the bottle.',
+  NORMAL_WEAR: 'Bottle cracked due to age or regular use.',
+  TRANSIT_ACCIDENT: 'Damage occurred during transport.',
+  UNKNOWN: 'Cause could not be determined.',
+};
+
 interface ChargeCaseFormProps {
   caseId: string;
   version: number;
@@ -142,6 +149,9 @@ export function ChargeCaseForm({ caseId, version, hasPhotos, onSuccess }: Charge
                   </option>
                 ))}
               </select>
+              {CATEGORY_DESCRIPTIONS[writeOffCategory] && (
+                <p className="text-xs text-muted-foreground">{CATEGORY_DESCRIPTIONS[writeOffCategory]}</p>
+              )}
             </div>
 
             <div className="space-y-2">

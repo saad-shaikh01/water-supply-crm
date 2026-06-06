@@ -37,13 +37,17 @@ export function DamageCasesList() {
   const router = useRouter();
   const [filtersOpen, setFiltersOpen] = useState(false);
 
+  const now = new Date();
+  const thirtyDaysAgo = new Date(now);
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
   const [status, setStatus] = useQueryState('status', parseAsString.withDefault(''));
   const [severity, setSeverity] = useQueryState('severity', parseAsString.withDefault(''));
   const [search, setSearch] = useQueryState('search', parseAsString.withDefault(''));
-  const [dateFrom, setDateFrom] = useQueryState('dateFrom', parseAsString.withDefault(''));
-  const [dateTo, setDateTo] = useQueryState('dateTo', parseAsString.withDefault(''));
+  const [dateFrom, setDateFrom] = useQueryState('dateFrom', parseAsString.withDefault(thirtyDaysAgo.toISOString().slice(0, 10)));
+  const [dateTo, setDateTo] = useQueryState('dateTo', parseAsString.withDefault(now.toISOString().slice(0, 10)));
 
   const query = {
     page,
@@ -202,6 +206,18 @@ export function DamageCasesList() {
       )}
 
       {/* Table */}
+      {!isLoading && rows.length === 0 && (
+        <div className="py-12 text-center text-muted-foreground space-y-2">
+          {(status || severity || search || dateFrom || dateTo) ? (
+            <>
+              <p className="font-semibold">No results match your filters.</p>
+              <button onClick={clearAll} className="text-xs text-primary underline hover:no-underline font-bold">Clear filters</button>
+            </>
+          ) : (
+            <p className="font-semibold">No damage cases have been recorded yet.</p>
+          )}
+        </div>
+      )}
       <DataTable
         data={rows}
         isLoading={isLoading}

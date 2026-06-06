@@ -35,3 +35,14 @@ export const useCancelOrder = () => {
     },
   });
 };
+
+export const useLastOrder = () => {
+  return useQuery({
+    queryKey: ['portal-orders-last'],
+    queryFn: () => ordersApi.getAll({ page: 1, limit: 1 }).then((r) => {
+      const data = r.data;
+      const orders = Array.isArray(data) ? data : (data as any)?.data ?? [];
+      return orders[0] ?? null;
+    }),
+  });
+};

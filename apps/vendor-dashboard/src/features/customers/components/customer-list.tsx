@@ -33,6 +33,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const { mutate: reactivateCustomer, isPending: isReactivating } = useReactivateCustomer();
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deactivateId, setDeactivateId] = useState<string | null>(null);
+  const [reactivateId, setReactivateId] = useState<string | null>(null);
   const [editCustomer, setEditCustomer] = useState<Record<string, unknown> | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [paymentType, setPaymentType] = useQueryState('paymentType', parseAsString.withDefault(''));
@@ -357,8 +358,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                     </DropdownMenuItem>
                   ) : (
                     <DropdownMenuItem
-                      onClick={() => reactivateCustomer(r.id)}
-                      disabled={isReactivating}
+                      onClick={() => setReactivateId(r.id)}
                       className="rounded-lg cursor-pointer px-2 py-2 text-emerald-500 focus:text-emerald-500 focus:bg-emerald-500/10"
                     >
                       <Power className="mr-2 h-4 w-4" />
@@ -399,6 +399,16 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
         onConfirm={() => { if (deactivateId) { deactivateCustomer(deactivateId, { onSuccess: () => setDeactivateId(null) }); } }}
         isLoading={isDeactivating}
         confirmLabel="Deactivate"
+      />
+
+      <ConfirmDialog
+        open={!!reactivateId}
+        onOpenChange={(o) => { if (!o) setReactivateId(null); }}
+        title="Reactivate Customer"
+        description="This customer will be marked active again and will appear in daily sheets and delivery planning."
+        onConfirm={() => { if (reactivateId) { reactivateCustomer(reactivateId, { onSuccess: () => setReactivateId(null) }); } }}
+        isLoading={isReactivating}
+        confirmLabel="Reactivate"
       />
 
       <CustomerForm

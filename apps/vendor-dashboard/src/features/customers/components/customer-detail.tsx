@@ -32,6 +32,7 @@ import type { CustomerDetail as CustomerDetailType, CustomerConsumption, Custome
 import { CustomerForm } from './customer-form';
 import { PortalAccountDialog } from './dialogs/portal-account-dialog';
 import { CustomPriceDialog } from './dialogs/custom-price-dialog';
+import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 
 interface CustomerDetailProps {
   customerId: string;
@@ -56,7 +57,8 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
     return { dateFrom: from, dateTo: to };
   });
 
-  const { mutate: removeCustomPrice } = useRemoveCustomPrice();
+  const { mutate: removeCustomPrice, isPending: isRemovingPrice } = useRemoveCustomPrice();
+  const [removeCustomPriceId, setRemoveCustomPriceId] = useState<string | null>(null);
   const { data: consumptionData, isLoading: isLoadingConsumption } = useCustomerConsumption(customerId, consumptionMonth);
   const { data: scheduleData, isLoading: isLoadingSchedule } = useCustomerSchedule(customerId, scheduleRange);
 
@@ -440,7 +442,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 rounded-full hover:bg-destructive/10 hover:text-destructive"
-                            onClick={() => removeCustomPrice({ customerId, productId: p.productId })}
+                            onClick={() => setRemoveCustomPriceId(p.productId)}
                           >
                             <Trash2 className="h-3 w-3" />
                           </Button>
@@ -650,6 +652,16 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
         open={editOpen}
         onOpenChange={setEditOpen}
         customer={customer as unknown as Record<string, unknown>}
+      />
+
+      <ConfirmDialog
+        open={!!removeCustomPriceId}
+        onOpenChange={(o) => { if (!o) setRemoveCustomPriceId(null); }}
+        title="Remove Custom Price"
+        description="Remove the custom price for this product? The customer will revert to the standard base price."
+        onConfirm={() => { if (removeCustomPriceId) { removeCustomPrice({ customerId, productId: removeCustomPriceId }, { onSuccess: () => setRemoveCustomPriceId(null) }); } }}
+        isLoading={isRemovingPrice}
+        confirmLabel="Remove Price"
       />
     </div>
   );

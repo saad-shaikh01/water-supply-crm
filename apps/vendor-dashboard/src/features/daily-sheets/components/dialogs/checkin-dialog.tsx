@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
   Button, Input, Label,
@@ -13,16 +13,27 @@ interface CheckinDialogProps {
   open: string | null;
   onClose: () => void;
   sheetId: string;
+  trip?: { loadedFilled: number };
+  suggestedValues?: { returnedFilled: number; collectedEmpty: number; cashHandedIn: number };
 }
 
-export function CheckinDialog({ open, onClose, sheetId }: CheckinDialogProps) {
+export function CheckinDialog({ open, onClose, sheetId, trip, suggestedValues }: CheckinDialogProps) {
   const { mutate: checkinLoad, isPending } = useCheckinLoad(sheetId);
-  const [form, setForm] = useState({ returnedFilled: 0, collectedEmpty: 0, cashHandedIn: 0 });
+  const [form, setForm] = useState(
+    suggestedValues ?? { returnedFilled: 0, collectedEmpty: 0, cashHandedIn: 0 }
+  );
+
+  // Sync form with suggested values each time the dialog opens
+  useEffect(() => {
+    if (open) {
+      setForm(suggestedValues ?? { returnedFilled: 0, collectedEmpty: 0, cashHandedIn: 0 });
+    }
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleOpen = (isOpen: boolean) => {
     if (!isOpen) {
       onClose();
-      setForm({ returnedFilled: 0, collectedEmpty: 0, cashHandedIn: 0 });
+      setForm(suggestedValues ?? { returnedFilled: 0, collectedEmpty: 0, cashHandedIn: 0 });
     }
   };
 
@@ -35,6 +46,12 @@ export function CheckinDialog({ open, onClose, sheetId }: CheckinDialogProps) {
             Trip Check-In
           </DialogTitle>
         </DialogHeader>
+        {trip && (
+          <div className="rounded-xl bg-muted/30 border border-border/30 px-4 py-3 flex items-center justify-between text-sm">
+            <span className="text-muted-foreground font-medium">Trip Loaded</span>
+            <span className="font-black font-mono">{trip.loadedFilled} bottles</span>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-4 py-4">
           <div className="space-y-2">
             <Label className="font-bold text-xs uppercase tracking-widest">Filled Returned</Label>
@@ -46,6 +63,11 @@ export function CheckinDialog({ open, onClose, sheetId }: CheckinDialogProps) {
               className="font-mono font-bold"
             />
           </div>
+          {trip && form.returnedFilled > trip.loadedFilled && (
+            <p className="text-xs text-amber-500 col-span-2 -mt-2">
+              Returned count ({form.returnedFilled}) exceeds loaded count ({trip.loadedFilled}) — verify?
+            </p>
+          )}
           <div className="space-y-2">
             <Label className="font-bold text-xs uppercase tracking-widest">Empties Collected</Label>
             <Input

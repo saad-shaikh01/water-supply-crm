@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { Card, CardContent, Button, Badge } from '@water-supply-crm/ui';
 import { AlertCircle, Clock, Plus, Truck } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
@@ -30,6 +31,14 @@ export function LoadTripsSection({
   onReconcile,
   onCheckin,
 }: LoadTripsSectionProps) {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    if (!activeTrip) return;
+    const interval = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(interval);
+  }, [activeTrip]);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -115,7 +124,9 @@ export function LoadTripsSection({
                             <Clock className="h-2.5 w-2.5 text-muted-foreground" />
                             <span className="text-[10px] text-muted-foreground">
                               {formatTime(trip.startedAt)}
-                              {trip.endedAt && ` → ${formatTime(trip.endedAt)} (${duration}m)`}
+                              {trip.endedAt
+                                ? ` → ${formatTime(trip.endedAt)} (${duration}m)`
+                                : ` · ${Math.round((now.getTime() - new Date(trip.startedAt).getTime()) / 60000)}m elapsed`}
                             </span>
                           </div>
                         </div>

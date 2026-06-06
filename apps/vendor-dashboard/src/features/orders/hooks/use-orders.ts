@@ -7,7 +7,7 @@ import { dailySheetsApi } from '../../daily-sheets/api/daily-sheets.api';
 export const useOrders = () => {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
-  const [status, setStatus] = useQueryState('status', parseAsString.withDefault(''));
+  const [status, setStatus] = useQueryState('status', parseAsString.withDefault('PENDING'));
   const [search, setSearch] = useQueryState('search', parseAsString.withDefault(''));
   const [customerId, setCustomerId] = useQueryState('customerId', parseAsString.withDefault(''));
   const [productId, setProductId] = useQueryState('productId', parseAsString.withDefault(''));

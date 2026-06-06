@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Loader2, RotateCcw } from 'lucide-react';
+import { toast } from 'sonner';
 import {
   Button,
   Dialog,
@@ -38,7 +39,11 @@ export function ReversalButton({ caseId, version, chargeAmount, status, onSucces
       {
         onSuccess: () => {
           setConfirmOpen(false);
+          toast.success('Charge reversed successfully');
           onSuccess();
+        },
+        onError: () => {
+          toast.error('Failed to reverse charge');
         },
       },
     );

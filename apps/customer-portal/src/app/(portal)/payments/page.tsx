@@ -57,6 +57,18 @@ function PaymentsContent() {
         </Button>
       </div>
 
+      {profile && (
+        <div className="rounded-2xl border border-border/50 bg-card/60 p-4 flex items-center justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Outstanding Balance</p>
+            <p className="text-3xl font-black font-mono mt-1">₨{balance.toLocaleString()}</p>
+          </div>
+          <div className="h-12 w-12 rounded-2xl bg-primary/10 flex items-center justify-center">
+            <CreditCard className="h-6 w-6 text-primary" />
+          </div>
+        </div>
+      )}
+
       {isLoading ? (
         <ListLoadingState rows={3} />
       ) : isError ? (

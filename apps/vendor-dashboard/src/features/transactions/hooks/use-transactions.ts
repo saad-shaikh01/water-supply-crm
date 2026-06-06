@@ -14,14 +14,18 @@ const invalidatePaymentRequestDependencies = async (queryClient: ReturnType<type
 };
 
 export const useTransactions = (overrideCustomerId?: string) => {
+  const now = new Date();
+  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  const today = now.toISOString().slice(0, 10);
+
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
   const [search, setSearch] = useQueryState('search', parseAsString.withDefault(''));
   const [urlCustomerId, setCustomerId] = useQueryState('customerId', parseAsString.withDefault(''));
   const [vanId, setVanId] = useQueryState('vanId', parseAsString.withDefault(''));
   const [type, setType] = useQueryState('type', parseAsString.withDefault(''));
-  const [dateFrom, setDateFrom] = useQueryState('dateFrom', parseAsString.withDefault(''));
-  const [dateTo, setDateTo] = useQueryState('dateTo', parseAsString.withDefault(''));
+  const [dateFrom, setDateFrom] = useQueryState('dateFrom', parseAsString.withDefault(thisMonthStart));
+  const [dateTo, setDateTo] = useQueryState('dateTo', parseAsString.withDefault(today));
 
   const effectiveCustomerId = overrideCustomerId || urlCustomerId;
 
@@ -89,13 +93,17 @@ export const useAddAdjustment = () => {
 };
 
 export const usePaymentRequests = () => {
+  const now = new Date();
+  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  const today = now.toISOString().slice(0, 10);
+
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
   const [status, setStatus] = useQueryState('status', parseAsString.withDefault(''));
   const [customerId, setCustomerId] = useQueryState('customerId', parseAsString.withDefault(''));
   const [method, setMethod] = useQueryState('method', parseAsString.withDefault(''));
-  const [dateFrom, setDateFrom] = useQueryState('dateFrom', parseAsString.withDefault(''));
-  const [dateTo, setDateTo] = useQueryState('dateTo', parseAsString.withDefault(''));
+  const [dateFrom, setDateFrom] = useQueryState('dateFrom', parseAsString.withDefault(thisMonthStart));
+  const [dateTo, setDateTo] = useQueryState('dateTo', parseAsString.withDefault(today));
 
   const params = {
     page,

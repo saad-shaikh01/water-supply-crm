@@ -211,7 +211,12 @@ export function SheetGenerate({ open, onOpenChange }: SheetGenerateProps) {
 
             <div className="space-y-2">
               <h3 className="text-xl font-bold">
-                {isCompleted ? 'Success!' : isFailed ? 'Failed' : 'Generating Sheets...'}
+                {isCompleted ? 'Success!' : isFailed ? 'Failed' :
+                  status?.progress && typeof status.progress === 'object'
+                    ? `Generating sheets (${(status.progress as any).completedVans ?? 0} / ${(status.progress as any).totalVans ?? 0} vans)…`
+                    : status?.progress
+                    ? `Generating sheets (${status.progress}%)…`
+                    : 'Generating Sheets…'}
               </h3>
               <p className="text-sm text-muted-foreground max-w-[280px]">
                 {isCompleted ? `Successfully generated ${status.result?.sheetIds?.length || 0} delivery sheets.` :
@@ -225,7 +230,7 @@ export function SheetGenerate({ open, onOpenChange }: SheetGenerateProps) {
               <div className="w-full bg-accent h-2 rounded-full overflow-hidden">
                 <div
                   className="bg-primary h-full transition-all duration-500 ease-out"
-                  style={{ width: `${status?.progress || 10}%` }}
+                  style={{ width: `${typeof status?.progress === 'object' ? ((status.progress as any).percent ?? 10) : (status?.progress || 10)}%` }}
                 />
               </div>
             )}

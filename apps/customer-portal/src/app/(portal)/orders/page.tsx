@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from 'react';
 import { ShoppingCart, Plus, ChevronLeft, ChevronRight, X, Clock, CheckCircle2, XCircle, Ban } from 'lucide-react';
-import { Card, CardContent, Badge, Button } from '@water-supply-crm/ui';
+import { Card, CardContent, Badge, Button, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@water-supply-crm/ui';
 import { parseAsInteger, parseAsString, useQueryState } from 'nuqs';
 import { cn } from '@water-supply-crm/ui';
 import { useOrders, useCancelOrder } from '../../../features/orders/hooks/use-orders';
@@ -45,6 +45,7 @@ function OrdersContent() {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [status, setStatus] = useQueryState('status', parseAsString.withDefault(''));
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [cancelTargetId, setCancelTargetId] = useState<string | null>(null);
   const { data, isLoading, isError, refetch } = useOrders({ page, limit: 20, status: status || undefined });
   const { mutate: cancelOrder, isPending: isCancelling } = useCancelOrder();
 
@@ -203,7 +204,7 @@ function OrdersContent() {
                       variant="ghost"
                       className="rounded-xl h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0 transition-colors"
                       disabled={isCancelling}
-                      onClick={() => cancelOrder(order.id)}
+                      onClick={() => setCancelTargetId(order.id)}
                     >
                       <X className="h-4 w-4" />
                     </Button>
@@ -241,6 +242,33 @@ function OrdersContent() {
       )}
 
       <PlaceOrderDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+
+      {/* Cancel Order Confirmation Dialog */}
+      <Dialog open={!!cancelTargetId} onOpenChange={(o) => { if (!o) setCancelTargetId(null); }}>
+        <DialogContent className="rounded-3xl max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black text-destructive flex items-center gap-2">
+              <X className="h-6 w-6" /> Cancel this order?
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">This cannot be undone. Your order will be permanently cancelled.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setCancelTargetId(null)}>Keep Order</Button>
+            <Button
+              variant="destructive"
+              className="rounded-xl font-bold"
+              disabled={isCancelling}
+              onClick={() => {
+                cancelOrder(cancelTargetId!, { onSuccess: () => setCancelTargetId(null) });
+              }}
+            >
+              {isCancelling ? 'Cancelling...' : 'Confirm Cancel'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

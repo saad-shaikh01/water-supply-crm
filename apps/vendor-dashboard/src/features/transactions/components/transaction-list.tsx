@@ -259,6 +259,18 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
         </SheetContent>
       </Sheet>
 
+      {!isLoading && rows.length === 0 && (
+        <div className="py-12 text-center text-muted-foreground space-y-2">
+          {(customerId || vanId || type || dateFrom || dateTo || search) ? (
+            <>
+              <p className="font-semibold">No results match your filters.</p>
+              <button onClick={clearAll} className="text-xs text-primary underline hover:no-underline font-bold">Clear filters</button>
+            </>
+          ) : (
+            <p className="font-semibold">No transactions have been recorded yet.</p>
+          )}
+        </div>
+      )}
       <DataTable
         data={rows}
         isLoading={isLoading}

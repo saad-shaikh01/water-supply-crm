@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -85,6 +85,7 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
 
   const deliverySchedule = watch('deliverySchedule') || [];
   const googleMapsUrl = watch('googleMapsUrl');
+  const [lastSelectedVanId, setLastSelectedVanId] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     if (open && customer) {
@@ -146,12 +147,13 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
     if (idx > -1) {
       current.splice(idx, 1);
     } else {
-      current.push({ dayOfWeek: day, vanId: activeVans[0]?.id ?? '', routeSequence: undefined });
+      current.push({ dayOfWeek: day, vanId: lastSelectedVanId ?? activeVans[0]?.id ?? '', routeSequence: undefined });
     }
     setValue('deliverySchedule', current, { shouldValidate: true });
   };
 
   const updateDayVan = (day: number, vanId: string) => {
+    setLastSelectedVanId(vanId);
     const current = [...deliverySchedule];
     const idx = current.findIndex((s) => s.dayOfWeek === day);
     if (idx > -1) {

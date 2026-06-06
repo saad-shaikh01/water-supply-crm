@@ -9,6 +9,7 @@ import {
 } from '@water-supply-crm/ui';
 import { expenseSchema, type ExpenseInput } from '../schemas';
 import { useCreateExpense, useUpdateExpense } from '../hooks/use-expenses';
+import { useAllVans } from '../../vans/hooks/use-vans';
 
 const CATEGORIES = [
   { value: 'FUEL', label: 'Fuel' },
@@ -29,6 +30,9 @@ export function ExpenseForm({ open, onOpenChange, expense }: ExpenseFormProps) {
   const { mutate: create, isPending: isCreating } = useCreateExpense();
   const { mutate: update, isPending: isUpdating } = useUpdateExpense();
   const isPending = isCreating || isUpdating;
+  const { data: vansData } = useAllVans();
+  const vans = ((vansData as any)?.data ?? []) as Array<{ id: string; plateNumber: string; isActive: boolean }>;
+  const activeVans = vans.filter((v) => v.isActive !== false);
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<ExpenseInput>({
     resolver: zodResolver(expenseSchema),
@@ -96,6 +100,19 @@ export function ExpenseForm({ open, onOpenChange, expense }: ExpenseFormProps) {
               <Input type="date" {...register('date')} />
               {errors.date && <p className="text-sm text-destructive">{errors.date.message}</p>}
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Van (Optional)</Label>
+            <Select value={watch('vanId') ?? 'none'} onValueChange={(v) => setValue('vanId', v === 'none' ? undefined : v)}>
+              <SelectTrigger><SelectValue placeholder="No van" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No van</SelectItem>
+                {activeVans.map((v) => (
+                  <SelectItem key={v.id} value={v.id}>{v.plateNumber}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-2">

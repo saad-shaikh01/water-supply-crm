@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -13,7 +13,7 @@ import {
 } from '@water-supply-crm/ui';
 import { Loader2, ShoppingCart } from 'lucide-react';
 import { usePortalProducts } from '../../wallet/hooks/use-wallet';
-import { usePlaceOrder } from '../hooks/use-orders';
+import { usePlaceOrder, useLastOrder } from '../hooks/use-orders';
 
 interface PlaceOrderDialogProps {
   open: boolean;
@@ -23,6 +23,7 @@ interface PlaceOrderDialogProps {
 export function PlaceOrderDialog({ open, onOpenChange }: PlaceOrderDialogProps) {
   const { data: products = [] } = usePortalProducts();
   const { mutate: placeOrder, isPending } = usePlaceOrder();
+  const { data: lastOrder } = useLastOrder();
 
   const [productId, setProductId] = useState('');
   const [quantity, setQuantity] = useState(1);
@@ -35,6 +36,14 @@ export function PlaceOrderDialog({ open, onOpenChange }: PlaceOrderDialogProps) 
     setNote('');
     setPreferredDate('');
   };
+
+  // Pre-fill from last order when dialog opens
+  useEffect(() => {
+    if (open && lastOrder) {
+      if (lastOrder.productId) setProductId(lastOrder.productId);
+      if (lastOrder.quantity) setQuantity(lastOrder.quantity);
+    }
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSubmit = () => {
     if (!productId || quantity < 1) return;
@@ -59,8 +68,9 @@ export function PlaceOrderDialog({ open, onOpenChange }: PlaceOrderDialogProps) 
             <ShoppingCart className="h-5 w-5 text-primary" />
             Place an Order
           </DialogTitle>
-          <DialogDescription className="text-[11px] text-muted-foreground uppercase tracking-widest font-bold">
+          <DialogDescription className="text-[11px] text-muted-foreground uppercase tracking-widest font-bold flex items-center gap-2">
             Request extra delivery outside your schedule
+            {lastOrder && <span className="normal-case tracking-normal text-primary/70 font-bold text-[10px] bg-primary/10 px-2 py-0.5 rounded-full">Pre-filled from last order</span>}
           </DialogDescription>
         </DialogHeader>
 

@@ -87,6 +87,8 @@ export class DailySheetProcessor extends WorkerHost {
     const skippedOnDemand: { orderId: string; reason: string }[] = [];
     let insertedOnDemandCount = 0;
     const activeVans = vans.filter((v) => v.deliverySchedules.length > 0);
+    const totalVans = activeVans.length;
+    let completedVans = 0;
     let processed = 0;
 
     // Fetch planned on-demand orders queued for generation on target date
@@ -246,7 +248,9 @@ export class DailySheetProcessor extends WorkerHost {
 
       generatedSheetIds.push(sheet.id);
       processed++;
-      await job.updateProgress(Math.round((processed / Math.max(activeVans.length, 1)) * 100));
+      completedVans++;
+      const percent = Math.round((completedVans / Math.max(totalVans, 1)) * 100);
+      await job.updateProgress({ percent, completedVans, totalVans });
     }
 
     // Track any remaining planned orders not assigned to any van

@@ -29,6 +29,7 @@ export function ReconcileDialog({ open, onClose, sheetId }: ReconcileDialogProps
   const { mutate: closeSheet, isPending: isClosing } = useCloseSheet(sheetId);
   const [data, setData] = useState<ReconcileData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
 
   useEffect(() => {
     if (!open) { setData(null); return; }
@@ -40,7 +41,7 @@ export function ReconcileDialog({ open, onClose, sheetId }: ReconcileDialogProps
       .finally(() => setLoading(false));
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleClose = () => { setData(null); onClose(); };
+  const handleClose = () => { setData(null); setConfirmClose(false); onClose(); };
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose(); }}>
@@ -62,7 +63,11 @@ export function ReconcileDialog({ open, onClose, sheetId }: ReconcileDialogProps
             {data.pendingCount > 0 && (
               <div className="flex items-start gap-2 px-4 py-3 rounded-2xl bg-destructive/10 border border-destructive/20 text-sm font-semibold text-destructive">
                 <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-                {data.pendingCount} item(s) still PENDING — resolve them before closing.
+                <div className="flex-1">
+                  <span>{data.pendingCount} item(s) still PENDING — resolve them before closing.</span>
+                  {' '}
+                  <button type="button" onClick={onClose} className="text-xs font-bold text-amber-600 underline hover:no-underline">Go to Pending Items</button>
+                </div>
               </div>
             )}
 
@@ -163,14 +168,27 @@ export function ReconcileDialog({ open, onClose, sheetId }: ReconcileDialogProps
                 </div>
               </div>
             </div>
+          {confirmClose && (
+            <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4 space-y-3">
+              <p className="text-sm font-bold text-destructive">Close this sheet permanently?</p>
+              <p className="text-xs text-muted-foreground">This action requires admin intervention to undo.</p>
+              <div className="flex gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setConfirmClose(false)} className="flex-1">Cancel</Button>
+                <Button size="sm" variant="destructive" disabled={isClosing} onClick={() => closeSheet(undefined, { onSuccess: handleClose })} className="flex-1 rounded-xl font-bold">
+                  {isClosing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  Close Sheet
+                </Button>
+              </div>
+            </div>
+          )}
           </div>
         ) : null}
 
         <DialogFooter>
           <Button variant="ghost" onClick={handleClose}>Cancel</Button>
           <Button
-            onClick={() => closeSheet(undefined, { onSuccess: handleClose })}
-            disabled={isClosing || loading || !data || data.pendingCount > 0}
+            onClick={() => setConfirmClose(true)}
+            disabled={isClosing || loading || !data || data.pendingCount > 0 || confirmClose}
             className="rounded-xl font-bold min-w-[140px]"
           >
             {isClosing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}

@@ -3,7 +3,9 @@
 **Scope:** User, driver, and staff workflow friction only.  
 **Out of scope:** Data-integrity bugs, validation guards, security (see `feature-gap.md`).  
 **Method:** 5 parallel sub-agents read frontend + backend source; every finding has a file+line citation.  
-**Date:** 2026-06-05
+**Date:** 2026-06-05  
+**Implementation Status:** All findings resolved — see [DONE] / [ON HOLD] / [ALREADY IMPLEMENTED] / [MERGED] markers below.  
+**Implementation Date:** 2026-06-06
 
 ---
 
@@ -25,7 +27,7 @@ Findings are grouped into five phases ordered by **Impact × Effort** — fix Ph
 
 ---
 
-### UX-001: Check-in Modal Always Defaults to 0 / 0 / 0
+### UX-001: Check-in Modal Always Defaults to 0 / 0 / 0 — [DONE 2026-06-06]
 
 **Module:** Daily Sheet — Check-in  
 **File(s):**
@@ -45,7 +47,7 @@ Findings are grouped into five phases ordered by **Impact × Effort** — fix Ph
 
 ---
 
-### UX-002: Cash Not Reliably Auto-Calculated for CASH Deliveries
+### UX-002: Cash Not Reliably Auto-Calculated for CASH Deliveries — [DONE 2026-06-06] (UX-032 merged here)
 
 **Module:** Daily Sheet — Delivery Dialog  
 **File(s):**
@@ -63,7 +65,7 @@ Findings are grouped into five phases ordered by **Impact × Effort** — fix Ph
 
 ---
 
-### UX-003: Delivery Dialog Requires Two Taps Per Stop (Confirmation Screen)
+### UX-003: Delivery Dialog Requires Two Taps Per Stop (Confirmation Screen) — [ON HOLD — conflicts with GAP-028/029]
 
 **Module:** Daily Sheet — Delivery Dialog  
 **File(s):**
@@ -78,7 +80,7 @@ Findings are grouped into five phases ordered by **Impact × Effort** — fix Ph
 
 ---
 
-### UX-004: Payment Request Approval Has No Confirmation
+### UX-004: Payment Request Approval Has No Confirmation — [DONE 2026-06-06]
 
 **Module:** Orders / Payments  
 **File(s):**
@@ -93,7 +95,7 @@ Findings are grouped into five phases ordered by **Impact × Effort** — fix Ph
 
 ---
 
-### UX-005: Order Approval Has No Confirmation
+### UX-005: Order Approval Has No Confirmation — [DONE 2026-06-06]
 
 **Module:** Orders  
 **File(s):**
@@ -108,7 +110,7 @@ Findings are grouped into five phases ordered by **Impact × Effort** — fix Ph
 
 ---
 
-### UX-006: Customer Portal Order Cancellation Has No Confirmation
+### UX-006: Customer Portal Order Cancellation Has No Confirmation — [DONE 2026-06-06]
 
 **Module:** Customer Portal — Orders  
 **File(s):**
@@ -124,7 +126,7 @@ Findings are grouped into five phases ordered by **Impact × Effort** — fix Ph
 
 ---
 
-### UX-007: Reactivating a Customer Has No Confirmation
+### UX-007: Reactivating a Customer Has No Confirmation — [DONE 2026-06-06]
 
 **Module:** Customers  
 **File(s):**
@@ -139,7 +141,7 @@ Findings are grouped into five phases ordered by **Impact × Effort** — fix Ph
 
 ---
 
-### UX-008: Orders Page Defaults to "All" Status Instead of "PENDING"
+### UX-008: Orders Page Defaults to "All" Status Instead of "PENDING" — [DONE 2026-06-06]
 
 **Module:** Orders  
 **File(s):**
@@ -154,7 +156,7 @@ Findings are grouped into five phases ordered by **Impact × Effort** — fix Ph
 
 ---
 
-### UX-009: Transaction and Payment Request Date Filters Default to Empty (All-Time)
+### UX-009: Transaction and Payment Request Date Filters Default to Empty (All-Time) — [DONE 2026-06-06]
 
 **Module:** Transactions / Payments  
 **File(s):**
@@ -174,7 +176,7 @@ Findings are grouped into five phases ordered by **Impact × Effort** — fix Ph
 
 ---
 
-### UX-010: Bulk Order Approve Has No Confirmation
+### UX-010: Bulk Order Approve Has No Confirmation — [DONE 2026-06-06]
 
 **Module:** Orders  
 **File(s):**
@@ -189,7 +191,7 @@ Findings are grouped into five phases ordered by **Impact × Effort** — fix Ph
 
 ---
 
-### UX-011: Record Payment Form Does Not Show Customer's Outstanding Balance
+### UX-011: Record Payment Form Does Not Show Customer's Outstanding Balance — [DONE 2026-06-06]
 
 **Module:** Transactions  
 **File(s):**
@@ -204,7 +206,7 @@ Findings are grouped into five phases ordered by **Impact × Effort** — fix Ph
 
 ---
 
-### UX-012: Customer Portal Order Form Starts Blank (No Last-Order Pre-fill)
+### UX-012: Customer Portal Order Form Starts Blank (No Last-Order Pre-fill) — [DONE 2026-06-06]
 
 **Module:** Customer Portal — Orders  
 **File(s):**
@@ -223,7 +225,7 @@ Findings are grouped into five phases ordered by **Impact × Effort** — fix Ph
 
 ---
 
-### UX-013: Dispatch Target Date Not Pre-filled from Customer's Preferred Date
+### UX-013: Dispatch Target Date Not Pre-filled from Customer's Preferred Date — [DONE 2026-06-06]
 
 **Module:** Orders  
 **File(s):**
@@ -245,7 +247,7 @@ targetDate: order.targetDate
 
 ---
 
-### UX-014: Reconcile Dialog Blocks Close Without Linking to Pending Items
+### UX-014: Reconcile Dialog Blocks Close Without Linking to Pending Items — [DONE 2026-06-06]
 
 **Module:** Daily Sheet — Reconcile  
 **File(s):**
@@ -260,7 +262,7 @@ targetDate: order.targetDate
 
 ---
 
-### UX-015: Closing a Daily Sheet Has No Confirmation Step
+### UX-015: Closing a Daily Sheet Has No Confirmation Step — [DONE 2026-06-06]
 
 **Module:** Daily Sheet — Reconcile  
 **File(s):**
@@ -275,7 +277,7 @@ targetDate: order.targetDate
 
 ---
 
-### UX-016: Check-in Dialog Missing Trip Loadout as Reference
+### UX-016: Check-in Dialog Missing Trip Loadout as Reference — [DONE 2026-06-06]
 
 **Module:** Daily Sheet — Check-in  
 **File(s):**
@@ -290,7 +292,7 @@ targetDate: order.targetDate
 
 ---
 
-### UX-017: Price per Bottle Not Shown During Delivery Entry
+### UX-017: Price per Bottle Not Shown During Delivery Entry — [ALREADY IMPLEMENTED]
 
 **Module:** Daily Sheet — Delivery Dialog  
 **File(s):**
@@ -311,7 +313,7 @@ targetDate: order.targetDate
 
 ---
 
-### UX-018: Delivery Schedule Van Not Inherited Across Day Selections
+### UX-018: Delivery Schedule Van Not Inherited Across Day Selections — [DONE 2026-06-06]
 
 **Module:** Customers  
 **File(s):**
@@ -326,7 +328,7 @@ targetDate: order.targetDate
 
 ---
 
-### UX-019: Delete Custom Price Has No Confirmation
+### UX-019: Delete Custom Price Has No Confirmation — [DONE 2026-06-06]
 
 **Module:** Customers  
 **File(s):**
@@ -341,7 +343,7 @@ targetDate: order.targetDate
 
 ---
 
-### UX-020: Damage Case Date Filters Default to Empty
+### UX-020: Damage Case Date Filters Default to Empty — [DONE 2026-06-06]
 
 **Module:** Damage Cases  
 **File(s):**
@@ -356,7 +358,7 @@ targetDate: order.targetDate
 
 ---
 
-### UX-021: Write-off Category Dropdown Has No Guidance on When to Use Each Option
+### UX-021: Write-off Category Dropdown Has No Guidance on When to Use Each Option — [DONE 2026-06-06]
 
 **Module:** Damage Cases  
 **File(s):**
@@ -371,7 +373,7 @@ targetDate: order.targetDate
 
 ---
 
-### UX-022: Customer Portal Payments Page Doesn't Display Outstanding Balance Prominently
+### UX-022: Customer Portal Payments Page Doesn't Display Outstanding Balance Prominently — [DONE 2026-06-06]
 
 **Module:** Customer Portal — Payments  
 **File(s):**
@@ -386,7 +388,7 @@ targetDate: order.targetDate
 
 ---
 
-### UX-023: Expense Form Missing Van Association Field
+### UX-023: Expense Form Missing Van Association Field — [DONE 2026-06-06]
 
 **Module:** Expenses  
 **File(s):**
@@ -402,7 +404,7 @@ targetDate: order.targetDate
 
 ---
 
-### UX-024: Ticket Reply Textarea Not Pre-filled With Existing Vendor Reply
+### UX-024: Ticket Reply Textarea Not Pre-filled With Existing Vendor Reply — [DONE 2026-06-06]
 
 **Module:** Tickets  
 **File(s):**
@@ -423,7 +425,7 @@ useEffect(() => {
 
 ---
 
-### UX-025: New Trip Loadout Defaults to items.length × 2 (Often Wrong)
+### UX-025: New Trip Loadout Defaults to items.length × 2 (Often Wrong) — [DONE 2026-06-06]
 
 **Module:** Daily Sheet — New Trip  
 **File(s):**
@@ -447,7 +449,7 @@ const defaultFilled = items.reduce((sum, item) => sum + (item.lastFilledDropped 
 
 ---
 
-### UX-026: Daily Sheet Generation Shows Spinner But No Progress
+### UX-026: Daily Sheet Generation Shows Spinner But No Progress — [DONE 2026-06-06]
 
 **Module:** Daily Sheet — Generate  
 **File(s):**
@@ -462,7 +464,7 @@ const defaultFilled = items.reduce((sum, item) => sum + (item.lastFilledDropped 
 
 ---
 
-### UX-027: Payment Amount Accepted Without Warning When It Exceeds Balance
+### UX-027: Payment Amount Accepted Without Warning When It Exceeds Balance — [DONE 2026-06-06 — soft warning only, no block]
 
 **Module:** Transactions  
 **File(s):**
@@ -480,7 +482,7 @@ const defaultFilled = items.reduce((sum, item) => sum + (item.lastFilledDropped 
 
 ---
 
-### UX-028: Bulk Dispatch Date Requires Manual Typing; No Quick Presets
+### UX-028: Bulk Dispatch Date Requires Manual Typing; No Quick Presets — [DONE 2026-06-06]
 
 **Module:** Orders  
 **File(s):**
@@ -495,7 +497,7 @@ const defaultFilled = items.reduce((sum, item) => sum + (item.lastFilledDropped 
 
 ---
 
-### UX-029: Manual Payment Submission in Portal Has No Success Screen
+### UX-029: Manual Payment Submission in Portal Has No Success Screen — [DONE 2026-06-06]
 
 **Module:** Customer Portal — Payments  
 **File(s):**
@@ -514,7 +516,7 @@ const defaultFilled = items.reduce((sum, item) => sum + (item.lastFilledDropped 
 
 ---
 
-### UX-030: MONTHLY Customer Cash Field Remains Editable
+### UX-030: MONTHLY Customer Cash Field Remains Editable — [ALREADY IMPLEMENTED]
 
 **Module:** Daily Sheet — Delivery Dialog  
 **File(s):**
@@ -528,7 +530,7 @@ const defaultFilled = items.reduce((sum, item) => sum + (item.lastFilledDropped 
 
 ---
 
-### UX-031: Damage Reversal Button Missing Loading Spinner and Success Toast
+### UX-031: Damage Reversal Button Missing Loading Spinner and Success Toast — [DONE 2026-06-06]
 
 **Module:** Damage Cases  
 **File(s):**
@@ -542,7 +544,7 @@ const defaultFilled = items.reduce((sum, item) => sum + (item.lastFilledDropped 
 
 ---
 
-### UX-032: Delivery Cash Auto-Calculation Is Silent — Driver Doesn't Know Why Number Changed
+### UX-032: Delivery Cash Auto-Calculation Is Silent — Driver Doesn't Know Why Number Changed — [MERGED INTO UX-002]
 
 **Module:** Daily Sheet — Delivery Dialog  
 **File(s):**
@@ -556,7 +558,7 @@ const defaultFilled = items.reduce((sum, item) => sum + (item.lastFilledDropped 
 
 ---
 
-### UX-033: Damage Case and Transaction Empty States Not Context-Aware
+### UX-033: Damage Case and Transaction Empty States Not Context-Aware — [DONE 2026-06-06]
 
 **Module:** Damage Cases / Transactions  
 **File(s):**
@@ -572,7 +574,7 @@ const defaultFilled = items.reduce((sum, item) => sum + (item.lastFilledDropped 
 
 ---
 
-### UX-034: Sheet List Empty State Doesn't Explain Filter Context
+### UX-034: Sheet List Empty State Doesn't Explain Filter Context — [DONE 2026-06-06]
 
 **Module:** Daily Sheet — List  
 **File(s):**
@@ -586,7 +588,7 @@ const defaultFilled = items.reduce((sum, item) => sum + (item.lastFilledDropped 
 
 ---
 
-### UX-035: Check-in Numbers Not Validated Against Loaded Count
+### UX-035: Check-in Numbers Not Validated Against Loaded Count — [DONE 2026-06-06 — pre-submit warning only, complements GAP-003 backend guard]
 
 **Module:** Daily Sheet — Check-in  
 **File(s):**
@@ -600,7 +602,7 @@ const defaultFilled = items.reduce((sum, item) => sum + (item.lastFilledDropped 
 
 ---
 
-### UX-036: Sheet Status Badge Shows "LOADED" When a Trip Is Still Active
+### UX-036: Sheet Status Badge Shows "LOADED" When a Trip Is Still Active — [DONE 2026-06-06]
 
 **Module:** Daily Sheet — List  
 **File(s):**
@@ -614,7 +616,7 @@ const defaultFilled = items.reduce((sum, item) => sum + (item.lastFilledDropped 
 
 ---
 
-### UX-037: Active Trip Shows No Elapsed Time
+### UX-037: Active Trip Shows No Elapsed Time — [DONE 2026-06-06]
 
 **Module:** Daily Sheet — Load Trips  
 **File(s):**
@@ -628,7 +630,7 @@ const defaultFilled = items.reduce((sum, item) => sum + (item.lastFilledDropped 
 
 ---
 
-### UX-038: "Bottles In Truck" Stat Label Ambiguous
+### UX-038: "Bottles In Truck" Stat Label Ambiguous — [DONE 2026-06-06]
 
 **Module:** Daily Sheet — Detail  
 **File(s):**
@@ -642,7 +644,7 @@ const defaultFilled = items.reduce((sum, item) => sum + (item.lastFilledDropped 
 
 ---
 
-### UX-039: Dispatch Drawer Order Summary Is Small and Scrolls Away
+### UX-039: Dispatch Drawer Order Summary Is Small and Scrolls Away — [DONE 2026-06-06]
 
 **Module:** Orders  
 **File(s):**
@@ -656,7 +658,7 @@ const defaultFilled = items.reduce((sum, item) => sum + (item.lastFilledDropped 
 
 ---
 
-### UX-040: Payment Amount Pre-fill in Portal Dialog Has No Explanatory Label
+### UX-040: Payment Amount Pre-fill in Portal Dialog Has No Explanatory Label — [DONE 2026-06-06]
 
 **Module:** Customer Portal — Payments  
 **File(s):**
