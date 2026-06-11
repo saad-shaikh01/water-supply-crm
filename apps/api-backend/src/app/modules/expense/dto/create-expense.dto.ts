@@ -28,4 +28,8 @@ export class CreateExpenseDto {
   @IsOptional()
   @IsUUID()
   vanId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  dailySheetId?: string;
 }

@@ -317,6 +317,7 @@ model DailySheet {
   items         DailySheetItem[]
   transactions  Transaction[]
   loads         DailySheetLoad[]
+  expenses      Expense[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -363,6 +364,8 @@ model DailySheetItem {
   emptyReceived  Int   @default(0)
   cashCollected  Float @default(0)
   pricePerBottle Float @default(0)
+  bottleBalanceAfter    Int?
+  financialBalanceAfter Float?
 
   reason          String?  // Free text notes for unable-to-deliver
   failureCategory String?  // CUSTOMER_NOT_HOME | CUSTOMER_NOT_ANSWERING | CUSTOMER_SELF_PICKUP | VAN_BREAKDOWN | ACCESS_ISSUE | CUSTOMER_REFUSED | WEATHER | OTHER
@@ -669,6 +672,8 @@ model Expense {
   date        DateTime
   vanId       String?
   van         Van?            @relation(fields: [vanId], references: [id])
+  dailySheetId String?
+  dailySheet   DailySheet? @relation(fields: [dailySheetId], references: [id], onDelete: SetNull)
   createdById String
   createdBy   User            @relation(fields: [createdById], references: [id])
   createdAt   DateTime        @default(now())
@@ -676,6 +681,7 @@ model Expense {
 
   @@index([vendorId, date])
   @@index([vendorId, category])
+  @@index([dailySheetId])
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

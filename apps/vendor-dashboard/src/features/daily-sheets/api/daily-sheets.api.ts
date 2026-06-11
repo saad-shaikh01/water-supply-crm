@@ -43,4 +43,6 @@ export const dailySheetsApi = {
     apiClient.patch(`/daily-sheets/${id}/loads/${loadId}/checkin`, data),
   getLoads: (id: string) =>
     apiClient.get(`/daily-sheets/${id}/loads`),
+  getCustomerDeliveryHistory: (customerId: string, limit = 6) =>
+    apiClient.get(`/daily-sheets/customers/${customerId}/delivery-history`, { params: { limit } }),
 };

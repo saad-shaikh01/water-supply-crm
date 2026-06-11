@@ -9,6 +9,7 @@ export interface ExpenseQuery {
   from?: string;
   to?: string;
   vanId?: string;
+  dailySheetId?: string;
 }
 
 export interface ExpenseSummaryItem {

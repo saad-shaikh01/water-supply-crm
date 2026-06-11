@@ -135,6 +135,20 @@ export interface DeliveryItem {
   pricePerBottle?: number;
   lastFilledDropped?: number | null;
   deliveredAt?: string | null;
+  bottleBalanceAfter?: number | null;
+  financialBalanceAfter?: number | null;
+}
+
+export interface CustomerDeliveryHistoryItem {
+  id: string;
+  filledDropped: number;
+  emptyReceived: number;
+  cashCollected: number;
+  pricePerBottle: number;
+  bottleBalanceAfter: number | null;
+  financialBalanceAfter: number | null;
+  deliveredAt: string | null;
+  dailySheet: { date: string };
 }
 
 export interface LoadTrip {
@@ -146,6 +160,17 @@ export interface LoadTrip {
   cashHandedIn: number;
   startedAt: string;
   endedAt: string | null;
+}
+
+export interface SheetExpense {
+  id: string;
+  category: string;
+  amount: number;
+  description: string;
+  date: string;
+  vanId: string | null;
+  van: { id: string; plateNumber: string } | null;
+  createdBy: { id: string; name: string };
 }
 
 export interface SheetDetail {
@@ -161,6 +186,7 @@ export interface SheetDetail {
   driver: { id: string; name: string } | null;
   items: DeliveryItem[];
   loads: LoadTrip[];
+  expenses: SheetExpense[];
 }
 
 export interface VanSummary {

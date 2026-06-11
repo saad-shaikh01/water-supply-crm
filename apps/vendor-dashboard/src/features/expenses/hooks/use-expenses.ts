@@ -85,3 +85,29 @@ export const useDeleteExpense = () => {
     onError: () => toast.error('Failed to delete expense'),
   });
 };
+
+export const useCreateSheetExpense = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) => expensesApi.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [QUERY_KEY] });
+      queryClient.invalidateQueries({ queryKey: ['sheets', sheetId] });
+      toast.success('Expense recorded');
+    },
+    onError: () => toast.error('Failed to record expense'),
+  });
+};
+
+export const useDeleteSheetExpense = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => expensesApi.remove(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [QUERY_KEY] });
+      queryClient.invalidateQueries({ queryKey: ['sheets', sheetId] });
+      toast.success('Expense deleted');
+    },
+    onError: () => toast.error('Failed to delete expense'),
+  });
+};

@@ -23,9 +23,12 @@ interface ExpenseFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   expense?: Record<string, unknown> | null;
+  dailySheetId?: string;
+  defaultVanId?: string;
+  onAfterSuccess?: () => void;
 }
 
-export function ExpenseForm({ open, onOpenChange, expense }: ExpenseFormProps) {
+export function ExpenseForm({ open, onOpenChange, expense, dailySheetId, defaultVanId, onAfterSuccess }: ExpenseFormProps) {
   const isEdit = !!expense?.id;
   const { mutate: create, isPending: isCreating } = useCreateExpense();
   const { mutate: update, isPending: isUpdating } = useUpdateExpense();
@@ -51,16 +54,25 @@ export function ExpenseForm({ open, onOpenChange, expense }: ExpenseFormProps) {
         date: expense.date ? String(expense.date).slice(0, 10) : new Date().toISOString().slice(0, 10),
         vanId: expense.vanId ? String(expense.vanId) : undefined,
       });
+    } else if (open && !expense && defaultVanId) {
+      reset({
+        category: 'FUEL',
+        date: new Date().toISOString().slice(0, 10),
+        vanId: defaultVanId,
+      });
     } else if (!open) {
       reset({ category: 'FUEL', date: new Date().toISOString().slice(0, 10) });
     }
-  }, [open, expense, reset]);
+  }, [open, expense, reset, defaultVanId]);
 
   const onSubmit = (data: ExpenseInput) => {
     if (isEdit) {
-      update({ id: String(expense!.id), data }, { onSuccess: () => onOpenChange(false) });
+      update({ id: String(expense!.id), data }, { onSuccess: () => { onOpenChange(false); onAfterSuccess?.(); } });
     } else {
-      create(data, { onSuccess: () => onOpenChange(false) });
+      create(
+        { ...data, ...(dailySheetId && { dailySheetId }) },
+        { onSuccess: () => { onOpenChange(false); onAfterSuccess?.(); } },
+      );
     }
   };
 

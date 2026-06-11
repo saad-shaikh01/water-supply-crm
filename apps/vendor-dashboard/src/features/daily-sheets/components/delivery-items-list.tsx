@@ -1,16 +1,17 @@
 'use client';
 
 import { useState } from 'react';
-import { Card, CardContent, Button, Badge, Tabs, TabsList, TabsTrigger } from '@water-supply-crm/ui';
+import { Card, CardContent, Button, Badge, Tabs, TabsList, TabsTrigger, Skeleton } from '@water-supply-crm/ui';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import {
   AlertCircle, ChevronDown, ChevronUp, ClipboardList,
-  LocateFixed, MapPin, MessageCircle, Navigation, Phone,
+  History, LocateFixed, MapPin, MessageCircle, Navigation, Phone,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import type { DeliveryItem } from '@water-supply-crm/types';
+import { useCustomerDeliveryHistory } from '../hooks/use-daily-sheets';
 
 type TabKey = 'all' | 'pending' | 'completed' | 'issues';
 
@@ -30,6 +31,92 @@ const formatPhone = (phone?: string | null) => {
   if (!phone) return '';
   return phone.startsWith('0') ? `92${phone.slice(1)}` : phone;
 };
+
+function CustomerHistorySection({ customerId }: { customerId: string }) {
+  const [open, setOpen] = useState(false);
+  const { data, isLoading } = useCustomerDeliveryHistory(customerId, open);
+
+  return (
+    <div className="border-t border-border/40 pt-3 mt-1">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 text-xs font-bold text-muted-foreground hover:text-foreground transition-colors w-full text-left"
+      >
+        <History className="h-3.5 w-3.5" />
+        Last 6 Deliveries
+        {open ? (
+          <ChevronUp className="h-3.5 w-3.5 ml-auto" />
+        ) : (
+          <ChevronDown className="h-3.5 w-3.5 ml-auto" />
+        )}
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="overflow-hidden"
+          >
+            <div className="mt-2 overflow-x-auto rounded-xl border border-border/40">
+              {isLoading ? (
+                <div className="p-3 space-y-2">
+                  {[1, 2, 3].map((i) => (
+                    <Skeleton key={i} className="h-7 w-full rounded-lg" />
+                  ))}
+                </div>
+              ) : !data || data.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-4">
+                  No previous deliveries found
+                </p>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-border/40 bg-muted/30">
+                      <th className="text-left px-3 py-2 font-bold text-muted-foreground whitespace-nowrap">Date</th>
+                      <th className="text-center px-2 py-2 font-bold text-muted-foreground">↓ Fill</th>
+                      <th className="text-center px-2 py-2 font-bold text-muted-foreground">↑ Emp</th>
+                      <th className="text-center px-2 py-2 font-bold text-muted-foreground whitespace-nowrap">Btl Bal</th>
+                      <th className="text-right px-2 py-2 font-bold text-muted-foreground whitespace-nowrap">Amt Due</th>
+                      <th className="text-right px-2 py-2 font-bold text-muted-foreground whitespace-nowrap">Received</th>
+                      <th className="text-right px-3 py-2 font-bold text-muted-foreground whitespace-nowrap">Bal Due</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.map((row, i) => {
+                      const amountDue = row.filledDropped * row.pricePerBottle;
+                      const balDue = row.financialBalanceAfter;
+                      const dateStr = row.deliveredAt
+                        ? new Date(row.deliveredAt).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: '2-digit' })
+                        : new Date(row.dailySheet.date).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: '2-digit' });
+                      return (
+                        <tr key={row.id} className={cn('border-b border-border/30 last:border-0', i % 2 === 0 ? '' : 'bg-muted/10')}>
+                          <td className="px-3 py-2 whitespace-nowrap font-medium">{dateStr}</td>
+                          <td className="px-2 py-2 text-center font-bold text-orange-600">{row.filledDropped}</td>
+                          <td className="px-2 py-2 text-center font-bold text-purple-600">{row.emptyReceived}</td>
+                          <td className="px-2 py-2 text-center font-bold">
+                            {row.bottleBalanceAfter != null ? row.bottleBalanceAfter : '—'}
+                          </td>
+                          <td className="px-2 py-2 text-right">₨{amountDue.toLocaleString()}</td>
+                          <td className="px-2 py-2 text-right text-emerald-600 font-medium">₨{row.cashCollected.toLocaleString()}</td>
+                          <td className={cn('px-3 py-2 text-right font-bold', balDue == null ? '' : balDue > 0 ? 'text-destructive' : 'text-emerald-600')}>
+                            {balDue != null ? `₨${balDue.toLocaleString()}` : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
 
 interface DeliveryItemsListProps {
   items: DeliveryItem[];
@@ -341,6 +428,7 @@ export function DeliveryItemsList({
                               })}
                             </p>
                           )}
+                          <CustomerHistorySection customerId={item.customerId} />
                         </div>
                       </motion.div>
                     )}

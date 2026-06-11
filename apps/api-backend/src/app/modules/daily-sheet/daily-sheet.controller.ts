@@ -102,6 +102,20 @@ export class DailySheetController {
     return this.dailySheetService.findAllPaginated(user.vendorId, query);
   }
 
+  @Get('customers/:customerId/delivery-history')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  getCustomerDeliveryHistory(
+    @CurrentUser() user: AuthUser,
+    @Param('customerId') customerId: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.dailySheetService.getCustomerDeliveryHistory(
+      user.vendorId,
+      customerId,
+      limit ? parseInt(limit, 10) : 6,
+    );
+  }
+
   /**
    * GET /api/daily-sheets/:id/reconciliation-preview
    * Returns reconciliation breakdown WITHOUT closing the sheet.

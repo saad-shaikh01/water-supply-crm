@@ -27,7 +27,7 @@ export class ExpenseController {
   constructor(private readonly expenseService: ExpenseService) {}
 
   @Post()
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateExpenseDto) {
     return this.expenseService.create(user.vendorId, user.userId, dto);

@@ -155,6 +155,24 @@ export class DailySheetService {
           cashCollected: dto.cashCollected,
           pricePerBottle: price,
         });
+
+        const updatedWallet = await this.prisma.bottleWallet.findUnique({
+          where: { customerId_productId: { customerId: item.customerId, productId: item.productId } },
+          select: { balance: true },
+        });
+
+        const updatedCustomer = await this.prisma.customer.findUnique({
+          where: { id: item.customerId },
+          select: { financialBalance: true },
+        });
+
+        await tx.dailySheetItem.update({
+          where: { id: itemId },
+          data: {
+            bottleBalanceAfter: updatedWallet?.balance ?? null,
+            financialBalanceAfter: updatedCustomer?.financialBalance ?? null,
+          },
+        });
       }
 
       if (resolvedStatus !== 'PENDING') {
@@ -333,6 +351,13 @@ export class DailySheetService {
         },
         loads: {
           orderBy: { tripNumber: 'asc' },
+        },
+        expenses: {
+          include: {
+            van: { select: { id: true, plateNumber: true } },
+            createdBy: { select: { id: true, name: true } },
+          },
+          orderBy: { date: 'desc' },
         },
       },
     });
@@ -624,6 +649,11 @@ export class DailySheetService {
     );
     const driverDiscrepancy = totalCashRecorded - sheet.cashCollected;
 
+    const totalExpenses = ((sheet.expenses ?? []) as any[]).reduce(
+      (s: number, e: any) => s + e.amount,
+      0,
+    );
+
     const pendingCount = (sheet.items as any[]).filter(
       (i) => i.status === DeliveryStatus.PENDING,
     ).length;
@@ -646,10 +676,16 @@ export class DailySheetService {
         count: monthlyItems.length,
         billedToAccounts: monthlyBilled,
       },
+      expenses: {
+        total: totalExpenses,
+      },
       driver: {
         shouldHandIn: totalCashRecorded,
+        expensePaidFromCash: totalExpenses,
+        netToHandIn: Math.max(0, totalCashRecorded - totalExpenses),
         handedIn: sheet.cashCollected,
         discrepancy: driverDiscrepancy,
+        unexplainedDiscrepancy: driverDiscrepancy - totalExpenses,
       },
     };
   }
@@ -669,6 +705,9 @@ export class DailySheetService {
             },
             product: { select: { basePrice: true } },
           },
+        },
+        expenses: {
+          select: { amount: true },
         },
       },
     });
@@ -711,7 +750,7 @@ export class DailySheetService {
       where: { id: sheetId },
       data: {
         isClosed: true,
-        cashExpected: reconciliation.driver.shouldHandIn,
+        cashExpected: reconciliation.driver.netToHandIn,
       },
     });
 
@@ -944,5 +983,28 @@ export class DailySheetService {
       this.prisma.dailySheet.count({ where: { vendorId } }),
     ]);
     return { data: sheets, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  async getCustomerDeliveryHistory(vendorId: string, customerId: string, limit = 6) {
+    return this.prisma.dailySheetItem.findMany({
+      where: {
+        customerId,
+        status: { in: ['COMPLETED', 'EMPTY_ONLY'] },
+        dailySheet: { vendorId },
+      },
+      orderBy: { deliveredAt: 'desc' },
+      take: limit,
+      select: {
+        id: true,
+        filledDropped: true,
+        emptyReceived: true,
+        cashCollected: true,
+        pricePerBottle: true,
+        bottleBalanceAfter: true,
+        financialBalanceAfter: true,
+        deliveredAt: true,
+        dailySheet: { select: { date: true } },
+      },
+    });
   }
 }

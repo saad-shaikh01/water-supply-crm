@@ -20,6 +20,7 @@ export class ExpenseService {
         description: dto.description,
         date: new Date(dto.date),
         vanId: dto.vanId ?? null,
+        dailySheetId: dto.dailySheetId ?? null,
       },
       include: {
         van: { select: { id: true, plateNumber: true } },
@@ -29,11 +30,12 @@ export class ExpenseService {
   }
 
   async findAll(vendorId: string, query: ExpenseQueryDto) {
-    const { page = 1, limit = 20, category, from, to, vanId } = query;
+    const { page = 1, limit = 20, category, from, to, vanId, dailySheetId } = query;
 
     const where: any = { vendorId };
     if (category) where.category = category;
     if (vanId) where.vanId = vanId;
+    if (dailySheetId) where.dailySheetId = dailySheetId;
     if (from || to) {
       where.date = {};
       if (from) where.date.gte = new Date(from);
@@ -85,6 +87,7 @@ export class ExpenseService {
         ...(dto.description !== undefined && { description: dto.description }),
         ...(dto.date !== undefined && { date: new Date(dto.date as string) }),
         ...(dto.vanId !== undefined && { vanId: dto.vanId || null }),
+        ...(dto.dailySheetId !== undefined && { dailySheetId: dto.dailySheetId || null }),
       },
       include: {
         van: { select: { id: true, plateNumber: true } },

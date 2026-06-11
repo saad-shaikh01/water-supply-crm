@@ -16,7 +16,15 @@ interface ReconcileData {
   bottles: { dispatched: number; delivered: number; returned: number; discrepancy: number };
   cashCustomers: { count: number; billed: number; collected: number; addedToBalance: number };
   monthlyCustomers: { count: number; billedToAccounts: number };
-  driver: { shouldHandIn: number; handedIn: number; discrepancy: number };
+  expenses: { total: number };
+  driver: {
+    shouldHandIn: number;
+    expensePaidFromCash: number;
+    netToHandIn: number;
+    handedIn: number;
+    discrepancy: number;
+    unexplainedDiscrepancy: number;
+  };
 }
 
 interface ReconcileDialogProps {
@@ -144,25 +152,37 @@ export function ReconcileDialog({ open, onClose, sheetId }: ReconcileDialogProps
             {/* Driver handover */}
             <div className={cn(
               'rounded-2xl border overflow-hidden',
-              data.driver.discrepancy !== 0 ? 'border-destructive/30 bg-destructive/5' : 'border-emerald-500/30 bg-emerald-500/5',
+              data.driver.unexplainedDiscrepancy !== 0 ? 'border-destructive/30 bg-destructive/5' : 'border-emerald-500/30 bg-emerald-500/5',
             )}>
               <div className="px-4 py-2.5 border-b border-border/40 bg-muted/40">
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Driver Handover</p>
               </div>
-              <div className="p-4 grid grid-cols-3 gap-3 text-center">
-                <div>
-                  <p className="text-[9px] font-bold uppercase text-muted-foreground">Should Hand In</p>
-                  <p className="text-lg font-black font-mono">₨{data.driver.shouldHandIn.toLocaleString()}</p>
+              <div className="p-4 space-y-3">
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div>
+                    <p className="text-[9px] font-bold uppercase text-muted-foreground">Cash Collected</p>
+                    <p className="text-lg font-black font-mono">₨{data.driver.shouldHandIn.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-bold uppercase text-muted-foreground">Handed In</p>
+                    <p className="text-lg font-black font-mono">₨{data.driver.handedIn.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-bold uppercase text-muted-foreground">Net Expected</p>
+                    <p className="text-lg font-black font-mono text-primary">₨{data.driver.netToHandIn.toLocaleString()}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-[9px] font-bold uppercase text-muted-foreground">Handed In</p>
-                  <p className="text-lg font-black font-mono">₨{data.driver.handedIn.toLocaleString()}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] font-bold uppercase text-muted-foreground">Difference</p>
-                  <p className={cn('text-lg font-black font-mono', data.driver.discrepancy !== 0 ? 'text-destructive' : 'text-emerald-600')}>
-                    {data.driver.discrepancy !== 0
-                      ? `₨${Math.abs(data.driver.discrepancy).toLocaleString()} ${data.driver.discrepancy > 0 ? 'short' : 'over'} ⚠️`
+                {(data.expenses?.total ?? 0) > 0 && (
+                  <div className="rounded-xl bg-orange-500/10 border border-orange-500/20 px-3 py-2 flex items-center justify-between">
+                    <p className="text-[10px] font-bold uppercase text-orange-600">Expenses Paid from Cash</p>
+                    <p className="font-mono font-black text-sm text-orange-600">- ₨{(data.expenses?.total ?? 0).toLocaleString()}</p>
+                  </div>
+                )}
+                <div className="rounded-xl bg-background/70 border border-border/40 px-3 py-2 flex items-center justify-between">
+                  <p className="text-[9px] font-bold uppercase text-muted-foreground">Unexplained Difference</p>
+                  <p className={cn('font-mono font-black text-sm', data.driver.unexplainedDiscrepancy !== 0 ? 'text-destructive' : 'text-emerald-600')}>
+                    {data.driver.unexplainedDiscrepancy !== 0
+                      ? `₨${Math.abs(data.driver.unexplainedDiscrepancy).toLocaleString()} ${data.driver.unexplainedDiscrepancy > 0 ? 'short ⚠️' : 'over'}`
                       : '✓ Clear'}
                   </p>
                 </div>

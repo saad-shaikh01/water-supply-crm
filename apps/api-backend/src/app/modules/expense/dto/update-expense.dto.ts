@@ -32,4 +32,8 @@ export class UpdateExpenseDto {
   @IsOptional()
   @IsUUID()
   vanId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  dailySheetId?: string;
 }

@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useQueryState, parseAsInteger, parseAsString } from 'nuqs';
 import { toast } from 'sonner';
-import type { SheetDetail } from '@water-supply-crm/types';
+import type { SheetDetail, CustomerDeliveryHistoryItem } from '@water-supply-crm/types';
 import { dailySheetsApi, type SheetQuery } from '../api/daily-sheets.api';
 import { customersApi } from '../../customers/api/customers.api';
 import { queryKeys } from '../../../lib/query-keys';
@@ -190,5 +190,15 @@ export const useUpdateCustomerLocation = (sheetId: string) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
     },
     onError: () => toast.error('Failed to save location'),
+  });
+};
+
+export const useCustomerDeliveryHistory = (customerId: string, enabled: boolean) => {
+  return useQuery({
+    queryKey: ['customer-delivery-history', customerId],
+    queryFn: (): Promise<CustomerDeliveryHistoryItem[]> =>
+      dailySheetsApi.getCustomerDeliveryHistory(customerId).then((r) => r.data),
+    enabled: enabled && !!customerId,
+    staleTime: 1000 * 60 * 5,
   });
 };

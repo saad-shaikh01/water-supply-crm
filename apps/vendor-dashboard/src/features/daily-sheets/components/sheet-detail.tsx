@@ -12,7 +12,7 @@ import { ReconcileDialog } from './dialogs/reconcile-dialog';
 import { toast } from 'sonner';
 import {
   CheckCircle2, ClipboardList, DollarSign,
-  Droplets, Package, Truck, User,
+  Droplets, Package, Receipt, Truck, User,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@water-supply-crm/ui';
@@ -22,6 +22,7 @@ import { hasMinRole } from '../../../lib/rbac';
 import { SheetDetailHeader } from './sheet-detail-header';
 import { LoadTripsSection } from './load-trips-section';
 import { DeliveryItemsList } from './delivery-items-list';
+import { SheetExpensesSection } from './sheet-expenses-section';
 
 
 interface UiState {
@@ -232,7 +233,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
       )}
 
       {/* Stats Bar */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
         <Card className="bg-card/50 backdrop-blur-sm">
           <CardContent className="p-4 flex items-center gap-4">
             <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
@@ -288,6 +289,19 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             </div>
           </CardContent>
         </Card>
+        <Card className="bg-card/50 backdrop-blur-sm">
+          <CardContent className="p-4 flex items-center gap-4">
+            <div className="h-10 w-10 rounded-xl bg-destructive/10 flex items-center justify-center text-destructive">
+              <Receipt className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[10px] font-bold uppercase text-muted-foreground">Trip Expenses</p>
+              <p className="text-sm font-black text-destructive">
+                ₨ {(data?.expenses ?? []).reduce((s, e) => s + e.amount, 0).toLocaleString()}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <LoadTripsSection
@@ -299,6 +313,15 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         onNewTrip={() => dispatch({ type: 'OPEN_NEW_TRIP' })}
         onReconcile={() => dispatch({ type: 'OPEN_RECONCILE' })}
         onCheckin={(tripId) => dispatch({ type: 'OPEN_CHECKIN', tripId })}
+      />
+
+      <SheetExpensesSection
+        sheetId={sheetId}
+        vanId={data?.vanId ?? undefined}
+        date={data!.date}
+        expenses={data?.expenses ?? []}
+        isClosed={isClosed}
+        isAdminOrStaff={isAdminOrStaff}
       />
 
       <DeliveryItemsList
