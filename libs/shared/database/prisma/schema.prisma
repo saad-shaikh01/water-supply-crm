@@ -73,6 +73,18 @@ enum WriteOffCategory {
   UNKNOWN
 }
 
+enum DamageCaseType {
+  DAMAGE
+  LOST
+}
+
+enum BottleLossReason {
+  CUSTOMER_NOT_RETURNED
+  CUSTOMER_SAID_LOST
+  WRONG_ADDRESS
+  OTHER
+}
+
 model Vendor {
   id          String   @id @default(uuid())
   name        String
@@ -833,9 +845,11 @@ model DamageCase {
   driver           User               @relation("DriverDamageCases", fields: [driverId], references: [id])
   dailySheetItemId String?
   dailySheetItem   DailySheetItem?    @relation(fields: [dailySheetItemId], references: [id])
-  severity         DamageSeverity
+  caseType         DamageCaseType     @default(DAMAGE)
+  severity         DamageSeverity?
   bottleCount      Int
   description      String?
+  lossReason       BottleLossReason?
   photoKeys        String[]
   status           DamageCaseStatus   @default(REPORTED)
   version          Int                @default(0)

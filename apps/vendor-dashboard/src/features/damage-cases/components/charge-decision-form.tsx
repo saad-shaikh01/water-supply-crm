@@ -15,7 +15,7 @@ import {
 } from '@water-supply-crm/ui';
 import { toast } from 'sonner';
 import { useChargeCase } from '../hooks/use-damage-cases';
-import type { WriteOffCategory } from '../api/damage-cases.api';
+import type { WriteOffCategory, DamageCaseType } from '../api/damage-cases.api';
 import { useAuthStore } from '../../../store/auth.store';
 
 const WRITE_OFF_OPTIONS: { value: WriteOffCategory; label: string }[] = [
@@ -36,10 +36,11 @@ interface ChargeCaseFormProps {
   caseId: string;
   version: number;
   hasPhotos: boolean;
+  caseType: DamageCaseType;
   onSuccess: () => void;
 }
 
-export function ChargeCaseForm({ caseId, version, hasPhotos, onSuccess }: ChargeCaseFormProps) {
+export function ChargeCaseForm({ caseId, version, hasPhotos, caseType, onSuccess }: ChargeCaseFormProps) {
   const user = useAuthStore((s) => s.user);
   const [open, setOpen] = useState(false);
   const [chargeAmount, setChargeAmount] = useState('');
@@ -110,7 +111,7 @@ export function ChargeCaseForm({ caseId, version, hasPhotos, onSuccess }: Charge
           </DialogHeader>
 
           <div className="space-y-5 py-2">
-            {!hasPhotos && (
+            {caseType !== 'LOST' && !hasPhotos && (
               <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
                 <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
                 <p className="text-sm font-semibold text-amber-600 dark:text-amber-400">
@@ -175,7 +176,7 @@ export function ChargeCaseForm({ caseId, version, hasPhotos, onSuccess }: Charge
             <Button
               variant="destructive"
               onClick={handleSubmit}
-              disabled={isPending || !hasPhotos || !chargeAmount || parseFloat(chargeAmount) <= 0}
+              disabled={isPending || (caseType !== 'LOST' && !hasPhotos) || !chargeAmount || parseFloat(chargeAmount) <= 0}
               className="rounded-xl font-bold"
             >
               {isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}

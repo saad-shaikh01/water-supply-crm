@@ -44,11 +44,12 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
   // Damage state
   const [showDamage, setShowDamage] = useState(false);
   const [damageForm, setDamageForm] = useState<{
-    severity: 'MINOR' | 'MODERATE' | 'SEVERE';
+    caseType: 'DAMAGE' | 'LOST';
     bottleCount: number;
     photoKeys: string[];
     description: string;
-  }>({ severity: 'MODERATE', bottleCount: 1, photoKeys: [], description: '' });
+    lossReason: string;
+  }>({ caseType: 'DAMAGE', bottleCount: 1, photoKeys: [], description: '', lossReason: 'CUSTOMER_NOT_RETURNED' });
 
   const item = items.find((i) => i.id === open) ?? null;
 
@@ -70,7 +71,7 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
     setUnableReason(item.reason ?? '');
     setAwaitingConfirm(false);
     setShowDamage(false);
-    setDamageForm({ severity: 'MODERATE', bottleCount: 1, photoKeys: [], description: '' });
+    setDamageForm({ caseType: 'DAMAGE', bottleCount: 1, photoKeys: [], description: '', lossReason: 'CUSTOMER_NOT_RETURNED' });
     const isFirst = item.status === 'PENDING';
     const custom = item.customer?.customPrices?.find(p => p.productId === item.productId);
     const price = custom?.customPrice ?? item.product?.basePrice ?? 0;
@@ -137,10 +138,12 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
               customerId: item.customerId,
               productId: item.productId,
               dailySheetItemId: item.id,
-              severity: damageForm.severity,
+              caseType: damageForm.caseType,
+              severity: damageForm.caseType === 'DAMAGE' ? 'MODERATE' : undefined,
               bottleCount: damageForm.bottleCount,
-              photoPaths: damageForm.photoKeys,
+              photoPaths: damageForm.caseType === 'DAMAGE' ? damageForm.photoKeys : [],
               description: damageForm.description || undefined,
+              lossReason: damageForm.caseType === 'LOST' ? damageForm.lossReason : undefined,
             }).catch(() => {
               // Silent fail — driver is already on next stop.
               // The damage case can be reported manually from the sidebar.
@@ -323,54 +326,69 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
                 )}
               </div>
 
-              {/* Damaged empties section */}
+              {/* Bottle problem section */}
               <div className="rounded-2xl border border-border/40 overflow-hidden">
                 <button
                   type="button"
-                  onClick={() => setShowDamage((v) => !v)}
+                  onClick={() => {
+                    if (showDamage) {
+                      setShowDamage(false);
+                      setDamageForm({ caseType: 'DAMAGE', bottleCount: 1, photoKeys: [], description: '', lossReason: 'CUSTOMER_NOT_RETURNED' });
+                    } else {
+                      setShowDamage(true);
+                    }
+                  }}
                   className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-muted-foreground hover:bg-card/60 transition-colors"
                 >
                   <span className="flex items-center gap-2">
                     <ShieldAlert className="h-4 w-4 text-amber-400" />
-                    Any empties damaged?
+                    Bottle Problem?
                   </span>
                   <span className={cn('text-xs font-bold transition-colors', showDamage ? 'text-destructive' : 'text-muted-foreground')}>
-                    {showDamage ? 'Yes — filling report' : 'No damage'}
+                    {showDamage
+                      ? (damageForm.caseType === 'DAMAGE' ? 'Reporting damage' : 'Reporting lost')
+                      : 'No problem'}
                   </span>
                 </button>
 
                 {showDamage && (
                   <div className="px-4 pb-4 space-y-4 border-t border-border/40 pt-4 bg-destructive/5">
-                    {/* Severity */}
-                    <div className="space-y-2">
-                      <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Severity</Label>
-                      <div className="flex gap-2">
-                        {(['MINOR', 'MODERATE', 'SEVERE'] as const).map((s) => (
-                          <button
-                            key={s}
-                            type="button"
-                            onClick={() => setDamageForm((p) => ({ ...p, severity: s }))}
-                            className={cn(
-                              'flex-1 py-2 rounded-xl text-xs font-bold border transition-all',
-                              damageForm.severity === s
-                                ? s === 'MINOR'
-                                  ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400'
-                                  : s === 'MODERATE'
-                                    ? 'bg-amber-500/20 border-amber-500/50 text-amber-400'
-                                    : 'bg-rose-500/20 border-rose-500/50 text-rose-400'
-                                : 'bg-background border-border text-muted-foreground',
-                            )}
-                          >
-                            {s.charAt(0) + s.slice(1).toLowerCase()}
-                          </button>
-                        ))}
-                      </div>
+                    {/* Type selection */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDamageForm((p) => ({ ...p, caseType: 'DAMAGE' }))}
+                        className={cn(
+                          'flex flex-col items-center gap-1 py-3 px-2 rounded-xl text-xs font-bold border-2 transition-all',
+                          damageForm.caseType === 'DAMAGE'
+                            ? 'bg-amber-500/15 border-amber-500 text-amber-700 dark:text-amber-400'
+                            : 'bg-background border-border text-muted-foreground',
+                        )}
+                      >
+                        <span className="text-base">🔧</span>
+                        <span>Empty Damaged</span>
+                        <span className="text-[9px] font-normal opacity-70">Customer returned it broken</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDamageForm((p) => ({ ...p, caseType: 'LOST' }))}
+                        className={cn(
+                          'flex flex-col items-center gap-1 py-3 px-2 rounded-xl text-xs font-bold border-2 transition-all',
+                          damageForm.caseType === 'LOST'
+                            ? 'bg-rose-500/15 border-rose-500 text-rose-700 dark:text-rose-400'
+                            : 'bg-background border-border text-muted-foreground',
+                        )}
+                      >
+                        <span className="text-base">❓</span>
+                        <span>Bottle Not Given</span>
+                        <span className="text-[9px] font-normal opacity-70">Customer didn&apos;t return it</span>
+                      </button>
                     </div>
 
-                    {/* Count */}
+                    {/* Bottle count */}
                     <div className="space-y-2">
                       <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                        Damaged Count
+                        How many bottles?
                       </Label>
                       <Input
                         type="number"
@@ -381,27 +399,62 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
                       />
                     </div>
 
-                    {/* Photo upload */}
-                    <DamagePhotoUpload
-                      onPhotosChange={(keys) => setDamageForm((p) => ({ ...p, photoKeys: keys }))}
-                      maxPhotos={3}
-                    />
+                    {/* DAMAGE: photo upload + notes */}
+                    {damageForm.caseType === 'DAMAGE' && (
+                      <>
+                        <DamagePhotoUpload
+                          onPhotosChange={(keys) => setDamageForm((p) => ({ ...p, photoKeys: keys }))}
+                          maxPhotos={3}
+                        />
+                        <div className="space-y-2">
+                          <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                            Notes (optional)
+                          </Label>
+                          <Input
+                            placeholder="Describe the damage..."
+                            value={damageForm.description}
+                            onChange={(e) => setDamageForm((p) => ({ ...p, description: e.target.value }))}
+                            className="h-11"
+                          />
+                        </div>
+                      </>
+                    )}
 
-                    {/* Notes */}
-                    <div className="space-y-2">
-                      <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                        Notes (optional)
-                      </Label>
-                      <Input
-                        placeholder="Describe the damage..."
-                        value={damageForm.description}
-                        onChange={(e) => setDamageForm((p) => ({ ...p, description: e.target.value }))}
-                        className="h-11"
-                      />
-                    </div>
+                    {/* LOST: reason selection */}
+                    {damageForm.caseType === 'LOST' && (
+                      <div className="space-y-2">
+                        <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                          Why wasn&apos;t it returned?
+                        </Label>
+                        <div className="space-y-2">
+                          {[
+                            { value: 'CUSTOMER_NOT_RETURNED', label: "Customer didn't have it" },
+                            { value: 'CUSTOMER_SAID_LOST', label: 'Customer said it got lost' },
+                            { value: 'WRONG_ADDRESS', label: 'Left at wrong address' },
+                            { value: 'OTHER', label: 'Other reason' },
+                          ].map((opt) => (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              onClick={() => setDamageForm((p) => ({ ...p, lossReason: opt.value }))}
+                              className={cn(
+                                'w-full text-left px-3 py-2.5 rounded-xl text-sm font-semibold border-2 transition-all',
+                                damageForm.lossReason === opt.value
+                                  ? 'bg-rose-500/10 border-rose-500/60 text-rose-700 dark:text-rose-400'
+                                  : 'bg-background border-border text-muted-foreground',
+                              )}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     <p className="text-[11px] text-muted-foreground bg-amber-500/5 border border-amber-500/20 rounded-xl px-3 py-2">
-                      Damage report will be submitted automatically when you save this delivery.
+                      {damageForm.caseType === 'DAMAGE'
+                        ? 'Damage report will be submitted automatically when you save this delivery.'
+                        : 'Lost bottle report will be submitted automatically when you save this delivery.'}
                     </p>
                   </div>
                 )}

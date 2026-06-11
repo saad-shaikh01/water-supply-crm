@@ -3,10 +3,14 @@ import { apiClient } from '@water-supply-crm/data-access';
 export type DamageSeverity = 'MINOR' | 'MODERATE' | 'SEVERE';
 export type DamageCaseStatus = 'REPORTED' | 'UNDER_REVIEW' | 'CHARGED' | 'WAIVED' | 'REVERSED';
 export type WriteOffCategory = 'CUSTOMER_NEGLIGENCE' | 'NORMAL_WEAR' | 'TRANSIT_ACCIDENT' | 'UNKNOWN';
+export type DamageCaseType = 'DAMAGE' | 'LOST';
+export type BottleLossReason = 'CUSTOMER_NOT_RETURNED' | 'CUSTOMER_SAID_LOST' | 'WRONG_ADDRESS' | 'OTHER';
 
 export interface DamageCase {
   id: string;
-  severity: DamageSeverity;
+  severity?: DamageSeverity;
+  caseType: DamageCaseType;
+  lossReason?: BottleLossReason;
   status: DamageCaseStatus;
   bottleCount: number;
   photoKeys: string[];

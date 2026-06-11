@@ -17,6 +17,13 @@ const SEVERITY_COLORS: Record<string, string> = {
   SEVERE: 'bg-red-500/10 text-red-500 border border-red-500/20',
 };
 
+const LOSS_REASON_LABELS: Record<string, string> = {
+  CUSTOMER_NOT_RETURNED: "Customer didn't have it",
+  CUSTOMER_SAID_LOST: 'Customer said it got lost',
+  WRONG_ADDRESS: 'Left at wrong address',
+  OTHER: 'Other reason',
+};
+
 function MetaItem({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="space-y-1">
@@ -140,13 +147,37 @@ export function DamageCaseDetail({ caseId }: DamageCaseDetailProps) {
       <div className="rounded-2xl border border-border bg-white/[0.02] p-6">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
           <MetaItem
+            label="Case Type"
+            value={
+              damageCase.caseType === 'LOST' ? (
+                <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-500/10 text-rose-500 border border-rose-500/20">
+                  Lost Bottle
+                </span>
+              ) : (
+                <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                  Damage
+                </span>
+              )
+            }
+          />
+          {damageCase.caseType === 'LOST' && damageCase.lossReason && (
+            <MetaItem
+              label="Loss Reason"
+              value={LOSS_REASON_LABELS[damageCase.lossReason] ?? damageCase.lossReason}
+            />
+          )}
+          <MetaItem
             label="Severity"
             value={
-              <span
-                className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${SEVERITY_COLORS[damageCase.severity] ?? ''}`}
-              >
-                {damageCase.severity}
-              </span>
+              damageCase.severity ? (
+                <span
+                  className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${SEVERITY_COLORS[damageCase.severity] ?? ''}`}
+                >
+                  {damageCase.severity}
+                </span>
+              ) : (
+                <span className="text-sm text-muted-foreground">N/A</span>
+              )
             }
           />
           <MetaItem label="Bottle Count" value={damageCase.bottleCount} />
@@ -221,6 +252,7 @@ export function DamageCaseDetail({ caseId }: DamageCaseDetailProps) {
                   caseId={caseId}
                   version={damageCase.version}
                   hasPhotos={hasPhotos}
+                  caseType={damageCase.caseType}
                   onSuccess={() => refetch()}
                 />
                 <WaiveCaseForm

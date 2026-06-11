@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
-import { DamageCaseStatus, TransactionType } from '@prisma/client';
+import { DamageCaseStatus, DamageCaseType, TransactionType } from '@prisma/client';
 import { paginate } from '../../common/helpers/paginate';
 import { StorageService } from '../../common/storage/storage.service';
 import { InAppNotificationService } from '../notifications/in-app-notification.service';
@@ -40,7 +40,9 @@ export class DamageCaseService {
         productId: dto.productId,
         driverId: user.userId,
         dailySheetItemId: dto.dailySheetItemId ?? null,
-        severity: dto.severity,
+        caseType: dto.caseType ?? DamageCaseType.DAMAGE,
+        lossReason: dto.lossReason ?? null,
+        severity: dto.severity ?? null,
         bottleCount: dto.bottleCount,
         description: dto.description ?? null,
         photoKeys: dto.photoKeys,
@@ -69,7 +71,9 @@ export class DamageCaseService {
       user.vendorId,
       damageCase.id,
       'New Damage Case Reported',
-      `A ${dto.severity.toLowerCase()} damage case has been reported (${dto.bottleCount} bottle(s)).`,
+      dto.caseType === DamageCaseType.LOST
+        ? `A lost bottle case has been reported (${dto.bottleCount} bottle(s)).`
+        : `A ${dto.severity?.toLowerCase() ?? 'damage'} damage case has been reported (${dto.bottleCount} bottle(s)).`,
     ).catch((e) => this.logger.warn(`Notification failed: ${e?.message}`));
 
     return damageCase;
@@ -173,7 +177,7 @@ export class DamageCaseService {
       }
 
       // hasPhotos gate
-      if (damageCase.photoKeys.length === 0) {
+      if (damageCase.caseType !== DamageCaseType.LOST && damageCase.photoKeys.length === 0) {
         throw new BadRequestException(
           'At least one damage photo is required before charging.',
         );
@@ -195,6 +199,19 @@ export class DamageCaseService {
         );
       }
 
+      // For LOST cases: decrement bottle wallet (bottle was never returned — still outstanding in wallet)
+      if (damageCase.caseType === DamageCaseType.LOST) {
+        await tx.bottleWallet.update({
+          where: {
+            customerId_productId: {
+              customerId: damageCase.customerId,
+              productId: damageCase.productId,
+            },
+          },
+          data: { balance: { decrement: damageCase.bottleCount } },
+        });
+      }
+
       // Increment customer financial balance (charge the customer)
       await tx.customer.update({
         where: { id: damageCase.customerId },
@@ -209,7 +226,9 @@ export class DamageCaseService {
           customerId: damageCase.customerId,
           amount: dto.chargeAmount,
           bottleCount: -damageCase.bottleCount,
-          description: `Bottle damage charge – case #${id}`,
+          description: damageCase.caseType === DamageCaseType.LOST
+            ? `Lost bottle charge – case #${id}`
+            : `Bottle damage charge – case #${id}`,
         },
       });
 
@@ -290,6 +309,19 @@ export class DamageCaseService {
         );
       }
 
+      // For LOST cases: decrement bottle wallet (bottle was never returned — business absorbs cost)
+      if (damageCase.caseType === DamageCaseType.LOST) {
+        await tx.bottleWallet.update({
+          where: {
+            customerId_productId: {
+              customerId: damageCase.customerId,
+              productId: damageCase.productId,
+            },
+          },
+          data: { balance: { decrement: damageCase.bottleCount } },
+        });
+      }
+
       // Condition 3: BottleWallet.balance is NOT reconciled from the sum of Transaction.bottleCount values.
       // The ledger service always updates BottleWallet.balance directly and independently creates a
       // Transaction row with bottleCount for analytics/dashboard reporting only. There is no cron or
@@ -297,8 +329,8 @@ export class DamageCaseService {
       // Therefore, we do NOT need to create a zero-amount Transaction row for bookkeeping consistency
       // of the wallet balance. The wallet is the source of truth — no Transaction row needed for WAIVE.
       //
-      // Wallet balance is NOT decremented here — the delivery recordDelivery() already decremented it
-      // via emptyReceived. Decrementing again would double-count.
+      // Wallet balance is NOT decremented here (for DAMAGE cases) — the delivery recordDelivery() already
+      // decremented it via emptyReceived. Decrementing again would double-count.
       //
       // If this assumption changes in the future (e.g. a reconciliation job is added), a
       // zero-amount Transaction with bottleCount: -damageCase.bottleCount should be created here.
