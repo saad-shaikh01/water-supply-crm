@@ -381,6 +381,7 @@ export class DailySheetService {
     const sheet = await this.prisma.dailySheet.findFirst({
       where: { id, vendorId },
       include: {
+        vendor: { select: { name: true, address: true, logoUrl: true, raastId: true } },
         route: true,
         van: true,
         driver: true,
