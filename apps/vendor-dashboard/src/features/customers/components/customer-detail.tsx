@@ -1,10 +1,11 @@
 'use client';
 
 import { useState } from 'react';
+import * as Popover from '@radix-ui/react-popover';
 import {
   Tabs, TabsContent, TabsList, TabsTrigger,
   Card, CardContent, CardHeader, CardTitle,
-  Skeleton, Button, Badge,
+  Skeleton, Button, Badge, Input, Label,
 } from '@water-supply-crm/ui';
 import {
   useCustomer,
@@ -22,7 +23,8 @@ import {
   CreditCard, Droplets, Clock, Info,
   ShieldCheck, Trash2, Globe,
   Lock as LockIcon,
-  TrendingUp, FileText, ChevronLeft, ChevronRight,
+  TrendingUp, TrendingDown, FileText, ChevronDown,
+  CalendarRange,
   ExternalLink, Navigation, Building2, Landmark,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -33,6 +35,181 @@ import { CustomerForm } from './customer-form';
 import { PortalAccountDialog } from './dialogs/portal-account-dialog';
 import { CustomPriceDialog } from './dialogs/custom-price-dialog';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
+
+// ---------------------------------------------------------------------------
+// Consumption range picker (local — does NOT use nuqs to avoid clashing with
+// the Transactions tab which binds from/to URL params via DateRangePicker)
+// ---------------------------------------------------------------------------
+
+type ConsumptionPreset = 'LAST_30' | 'THIS_MONTH' | 'LAST_MONTH' | 'LAST_3_MONTHS' | 'ALL_TIME' | 'CUSTOM';
+
+interface ConsumptionRange {
+  preset: ConsumptionPreset;
+  from: string;
+  to: string;
+}
+
+function toIso(d: Date) {
+  return d.toISOString().slice(0, 10);
+}
+
+function fmtDisplay(dateStr: string) {
+  if (!dateStr) return '';
+  return new Date(dateStr + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+
+function buildPresetRange(preset: Exclude<ConsumptionPreset, 'CUSTOM' | 'ALL_TIME'>): { from: string; to: string } {
+  const today = new Date();
+  switch (preset) {
+    case 'LAST_30': {
+      const from = new Date(today);
+      from.setDate(from.getDate() - 29);
+      return { from: toIso(from), to: toIso(today) };
+    }
+    case 'THIS_MONTH': {
+      const from = new Date(today.getFullYear(), today.getMonth(), 1);
+      return { from: toIso(from), to: toIso(today) };
+    }
+    case 'LAST_MONTH': {
+      const from = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const to = new Date(today.getFullYear(), today.getMonth(), 0);
+      return { from: toIso(from), to: toIso(to) };
+    }
+    case 'LAST_3_MONTHS': {
+      const from = new Date(today);
+      from.setMonth(from.getMonth() - 3);
+      return { from: toIso(from), to: toIso(today) };
+    }
+  }
+}
+
+const CONSUMPTION_PRESETS: { label: string; value: ConsumptionPreset }[] = [
+  { label: 'Last 30 Days', value: 'LAST_30' },
+  { label: 'This Month', value: 'THIS_MONTH' },
+  { label: 'Last Month', value: 'LAST_MONTH' },
+  { label: 'Last 3 Months', value: 'LAST_3_MONTHS' },
+  { label: 'All Time', value: 'ALL_TIME' },
+  { label: 'Custom', value: 'CUSTOM' },
+];
+
+interface ConsumptionRangePickerProps {
+  value: ConsumptionRange;
+  onChange: (next: ConsumptionRange) => void;
+}
+
+function ConsumptionRangePicker({ value, onChange }: ConsumptionRangePickerProps) {
+  const [open, setOpen] = useState(false);
+
+  const activeLabel = CONSUMPTION_PRESETS.find((p) => p.value === value.preset)?.label ?? 'Custom';
+
+  const triggerLabel =
+    value.preset === 'CUSTOM'
+      ? `${value.from ? fmtDisplay(value.from) : '…'} → ${value.to ? fmtDisplay(value.to) : '…'}`
+      : value.preset === 'ALL_TIME'
+      ? 'All Time'
+      : activeLabel;
+
+  const handlePreset = (preset: ConsumptionPreset) => {
+    if (preset === 'ALL_TIME') {
+      onChange({ preset, from: '', to: '' });
+      setOpen(false);
+      return;
+    }
+    if (preset === 'CUSTOM') {
+      onChange({ ...value, preset });
+      return; // keep popover open so user can edit dates
+    }
+    const range = buildPresetRange(preset as Exclude<ConsumptionPreset, 'CUSTOM' | 'ALL_TIME'>);
+    onChange({ preset, ...range });
+    setOpen(false);
+  };
+
+  const handleFromChange = (from: string) => {
+    onChange({ preset: 'CUSTOM', from, to: value.to });
+  };
+
+  const handleToChange = (to: string) => {
+    onChange({ preset: 'CUSTOM', from: value.from, to });
+  };
+
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>
+        <button
+          type="button"
+          className="flex items-center gap-2 h-8 px-3 rounded-xl border text-xs font-semibold transition-colors bg-background/50 border-border/50 hover:border-primary/40 hover:bg-accent/50"
+        >
+          <CalendarRange className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <span className="truncate">{triggerLabel}</span>
+          <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          sideOffset={8}
+          align="end"
+          className={cn(
+            'z-50 w-72 rounded-2xl border border-border/60 bg-popover text-popover-foreground shadow-2xl p-4 space-y-4 outline-none',
+            'data-[state=open]:animate-in data-[state=closed]:animate-out',
+            'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
+            'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
+          )}
+        >
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">Quick Select</p>
+            <div className="flex flex-wrap gap-1.5">
+              {CONSUMPTION_PRESETS.map((p) => (
+                <button
+                  key={p.value}
+                  type="button"
+                  onClick={() => handlePreset(p.value)}
+                  className={cn(
+                    'px-2.5 py-1 text-[11px] font-semibold rounded-full border transition-all',
+                    value.preset === p.value
+                      ? 'bg-primary text-primary-foreground border-primary shadow-sm'
+                      : 'bg-card/40 text-muted-foreground border-border/50 hover:border-primary/40 hover:text-foreground',
+                  )}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {value.preset !== 'ALL_TIME' && (
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">Custom Range</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] uppercase font-bold text-muted-foreground">From</Label>
+                  <Input
+                    type="date"
+                    value={value.from}
+                    max={value.to || undefined}
+                    onChange={(e) => handleFromChange(e.target.value)}
+                    className="h-8 rounded-xl bg-background/50 border-border/50 text-xs"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] uppercase font-bold text-muted-foreground">To</Label>
+                  <Input
+                    type="date"
+                    value={value.to}
+                    min={value.from || undefined}
+                    onChange={(e) => handleToChange(e.target.value)}
+                    className="h-8 rounded-xl bg-background/50 border-border/50 text-xs"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+          <Button size="sm" className="w-full rounded-xl text-xs font-bold" onClick={() => setOpen(false)}>
+            Apply
+          </Button>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
 
 interface CustomerDetailProps {
   customerId: string;
@@ -49,7 +226,12 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
   const [editOpen, setEditOpen] = useState(false);
   const [portalOpen, setPortalOpen] = useState(false);
   const [customPriceOpen, setCustomPriceOpen] = useState(false);
-  const [consumptionMonth, setConsumptionMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [consumptionRange, setConsumptionRange] = useState<ConsumptionRange>(() => {
+    const today = new Date();
+    const from = new Date(today);
+    from.setDate(from.getDate() - 29);
+    return { preset: 'LAST_30', from: toIso(from), to: toIso(today) };
+  });
   const [scheduleRange, setScheduleRange] = useState<{ dateFrom: string; dateTo: string }>(() => {
     const now = new Date();
     const from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
@@ -59,29 +241,35 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
 
   const { mutate: removeCustomPrice, isPending: isRemovingPrice } = useRemoveCustomPrice();
   const [removeCustomPriceId, setRemoveCustomPriceId] = useState<string | null>(null);
-  const { data: consumptionData, isLoading: isLoadingConsumption } = useCustomerConsumption(customerId, consumptionMonth);
+  const { data: consumptionData, isLoading: isLoadingConsumption } = useCustomerConsumption(
+    customerId,
+    consumptionRange.preset === 'ALL_TIME'
+      ? { allTime: true }
+      : { from: consumptionRange.from, to: consumptionRange.to },
+  );
   const { data: scheduleData, isLoading: isLoadingSchedule } = useCustomerSchedule(customerId, scheduleRange);
+
+  // Derive a YYYY-MM month from the range end for the statement endpoint
+  const statementMonth = (
+    consumptionRange.preset === 'ALL_TIME'
+      ? new Date().toISOString()
+      : consumptionRange.to + 'T00:00:00Z'
+  ).slice(0, 7);
 
   const handleStatementDownload = async () => {
     try {
-      const res = await customersApi.getStatement(customerId, { month: consumptionMonth });
+      const res = await customersApi.getStatement(customerId, { month: statementMonth });
       const blob = res.data as Blob;
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `statement-${customerId}-${consumptionMonth}.pdf`;
+      a.download = `statement-${customerId}-${statementMonth}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     } catch {
       const { toast } = await import('sonner');
       toast.error('Statement not available for this period');
     }
-  };
-
-  const handleMonthChange = (dir: -1 | 1) => {
-    const d = new Date(consumptionMonth + '-01');
-    d.setMonth(d.getMonth() + dir);
-    setConsumptionMonth(d.toISOString().slice(0, 7));
   };
 
   if (isLoading) {
@@ -280,41 +468,55 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
 
           <TabsContent value="consumption">
             <Card className="rounded-3xl border-border/50 bg-card/30 backdrop-blur-sm">
-              <CardHeader className="border-b bg-muted/20 px-6 py-4 flex flex-row items-center justify-between">
+              <CardHeader className="border-b bg-muted/20 px-6 py-4 flex flex-row items-center justify-between gap-3 flex-wrap">
                 <CardTitle className="text-base font-bold flex items-center gap-2">
                   <TrendingUp className="h-4 w-4 text-primary" /> Consumption Rate
                 </CardTitle>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => handleMonthChange(-1)} className="h-7 w-7 rounded-lg border border-border/50 flex items-center justify-center hover:bg-accent transition-colors">
-                    <ChevronLeft className="h-3.5 w-3.5" />
-                  </button>
-                  <span className="text-xs font-bold min-w-[80px] text-center">{consumptionMonth}</span>
-                  <button onClick={() => handleMonthChange(1)} className="h-7 w-7 rounded-lg border border-border/50 flex items-center justify-center hover:bg-accent transition-colors">
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  </button>
-                  <Button size="sm" variant="outline" className="rounded-xl h-8 px-3 text-xs font-bold gap-1.5 ml-2" onClick={handleStatementDownload}>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <ConsumptionRangePicker value={consumptionRange} onChange={setConsumptionRange} />
+                  <Button size="sm" variant="outline" className="rounded-xl h-8 px-3 text-xs font-bold gap-1.5" onClick={handleStatementDownload}>
                     <FileText className="h-3.5 w-3.5" /> Statement PDF
                   </Button>
                 </div>
               </CardHeader>
               <CardContent className="p-6">
                 {isLoadingConsumption ? (
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    {[1, 2, 3, 4].map(i => <div key={i} className="h-24 bg-muted/30 rounded-2xl animate-pulse" />)}
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    {[1, 2, 3, 4, 5, 6].map(i => <div key={i} className="h-24 bg-muted/30 rounded-2xl animate-pulse" />)}
                   </div>
                 ) : (() => {
                   const c = consumptionData as CustomerConsumption | undefined;
                   if (!c) return <p className="text-sm text-muted-foreground text-center py-10">No data</p>;
-                  const { summary, byProduct } = c;
+                  const { summary, byProduct, trend } = c;
+
+                  // Trend chip helpers
+                  const showTrend = trend != null && trend.changePct != null;
+                  const trendPositive = (trend?.changePct ?? 0) >= 0;
+
+                  // Rate badge styling by status
+                  const rateBadgeClass = (status: string | null | undefined): string => {
+                    if (status === 'ON_TARGET') return 'bg-emerald-500/15 text-emerald-600 border-emerald-500/20';
+                    if (status === 'ATTENTION') return 'bg-amber-500/15 text-amber-600 border-amber-500/20';
+                    if (status === 'ACTION') return 'bg-red-500/15 text-red-600 border-red-500/20';
+                    return 'bg-muted/40 text-muted-foreground border-border/50';
+                  };
+
                   return (
                     <div className="space-y-6">
-                      {/* Summary stats */}
-                      <div className="grid gap-3 sm:grid-cols-4">
+                      {/* Summary stats — 6 cards */}
+                      <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
                         {[
-                          { label: 'Deliveries', value: summary?.deliveryCount ?? 0 },
-                          { label: 'Total Filled', value: summary?.totalFilledDropped ?? 0 },
-                          { label: 'Total Empties Returned', value: summary?.totalEmptyReceived ?? 0 },
-                          { label: 'Avg per Delivery', value: summary?.avgFilledPerDelivery ?? 0 },
+                          { label: 'Deliveries', value: String(summary?.deliveryCount ?? 0) },
+                          { label: 'Total Filled', value: String(summary?.totalFilledDropped ?? 0) },
+                          { label: 'Empties Returned', value: String(summary?.totalEmptyReceived ?? 0) },
+                          { label: 'Avg / Delivery', value: Number(summary?.avgFilledPerDelivery ?? 0).toFixed(1) },
+                          { label: 'Bottles / Day', value: Number(summary?.bottlesPerDay ?? 0).toFixed(2) },
+                          {
+                            label: 'Avg Gap',
+                            value: summary?.avgDaysBetweenDeliveries != null
+                              ? `${Number(summary.avgDaysBetweenDeliveries).toFixed(1)}d`
+                              : '—',
+                          },
                         ].map((s) => (
                           <div key={s.label} className="rounded-2xl bg-muted/30 p-4 text-center">
                             <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{s.label}</p>
@@ -322,23 +524,67 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                           </div>
                         ))}
                       </div>
+
+                      {/* Trend chip */}
+                      {showTrend && (
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={cn(
+                              'inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold border',
+                              trendPositive
+                                ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+                                : 'bg-red-500/10 text-red-600 border-red-500/20',
+                            )}
+                          >
+                            {trendPositive
+                              ? <TrendingUp className="h-3.5 w-3.5" />
+                              : <TrendingDown className="h-3.5 w-3.5" />}
+                            {trendPositive ? '+' : ''}{Number(trend!.changePct).toFixed(1)}% vs previous period
+                          </span>
+                        </div>
+                      )}
+
                       {/* Per-product breakdown */}
                       {(byProduct ?? []).length === 0 ? (
                         <p className="text-sm text-muted-foreground text-center py-6">No deliveries in this period</p>
                       ) : (
-                        <div className="divide-y divide-border/50 border border-border/50 rounded-2xl overflow-hidden">
-                          <div className="grid grid-cols-5 px-4 py-2 bg-muted/20 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                            <span>Product</span><span className="text-right">Deliveries</span><span className="text-right">Total Consumed</span><span className="text-right">Avg/Delivery</span><span className="text-right">Consumption Rate</span>
-                          </div>
-                          {(byProduct ?? []).map((p) => (
-                            <div key={p.product?.id} className="grid grid-cols-5 px-4 py-3 hover:bg-accent/20 transition-colors items-center">
-                              <span className="text-sm font-bold">{p.product?.name}</span>
-                              <span className="text-sm font-mono text-right">{p.deliveryCount}</span>
-                              <span className="text-sm font-mono text-right">{p.totalConsumed}</span>
-                              <span className="text-sm font-mono text-right">{p.avgPerDelivery}</span>
-                              <span className={`text-sm font-bold text-right ${p.consumptionRate === 'N/A' ? 'text-muted-foreground' : 'text-primary'}`}>{p.consumptionRate}</span>
+                        <div className="space-y-2">
+                          <div className="divide-y divide-border/50 border border-border/50 rounded-2xl overflow-hidden">
+                            <div className="grid grid-cols-7 px-4 py-2 bg-muted/20 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                              <span>Product</span>
+                              <span className="text-right">Deliveries</span>
+                              <span className="text-right">Total Consumed</span>
+                              <span className="text-right">Avg/Delivery</span>
+                              <span className="text-right">Bottles/Day</span>
+                              <span className="text-right">Stock Left</span>
+                              <span className="text-right">Rate</span>
                             </div>
-                          ))}
+                            {(byProduct ?? []).map((p) => (
+                              <div key={p.product?.id} className="grid grid-cols-7 px-4 py-3 hover:bg-accent/20 transition-colors items-center">
+                                <span className="text-sm font-bold">{p.product?.name}</span>
+                                <span className="text-sm font-mono text-right">{p.deliveryCount}</span>
+                                <span className="text-sm font-mono text-right">{p.totalConsumed}</span>
+                                <span className="text-sm font-mono text-right">{p.avgPerDelivery}</span>
+                                <span className="text-sm font-mono text-right">{Number(p.bottlesPerDay ?? 0).toFixed(2)}</span>
+                                <span className="text-sm font-mono text-right">
+                                  {p.estStockDaysLeft != null ? `${p.estStockDaysLeft}d` : '—'}
+                                </span>
+                                <div className="flex justify-end">
+                                  <span
+                                    className={cn(
+                                      'text-[10px] font-bold px-2 py-0.5 rounded-full border',
+                                      rateBadgeClass(p.rateStatus),
+                                    )}
+                                  >
+                                    {p.consumptionRate}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="text-[10px] text-muted-foreground px-1">
+                            Target: 80% · 70–90% on target · &lt;50% overstocked · &gt;100% running dry
+                          </p>
                         </div>
                       )}
                     </div>

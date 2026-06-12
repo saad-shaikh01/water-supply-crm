@@ -161,13 +161,23 @@ export const useRemovePortalAccount = () => {
   });
 };
 
-export const useCustomerConsumption = (id: string, month?: string) =>
-  useQuery({
-    queryKey: ['customers', id, 'consumption', month],
+export const useCustomerConsumption = (
+  id: string,
+  params: { from?: string; to?: string; allTime?: boolean },
+) => {
+  const resolvedParams: Record<string, string> = params.allTime
+    ? { allTime: 'true' }
+    : {
+        ...(params.from ? { from: params.from } : {}),
+        ...(params.to ? { to: params.to } : {}),
+      };
+  return useQuery({
+    queryKey: ['customers', id, 'consumption', resolvedParams],
     queryFn: (): Promise<CustomerConsumption> =>
-      customersApi.getConsumption(id, month ? { month } : undefined).then((r) => r.data),
+      customersApi.getConsumption(id, resolvedParams).then((r) => r.data),
     enabled: !!id,
   });
+};
 
 export const useCustomerSchedule = (id: string, params?: { dateFrom?: string; dateTo?: string }) =>
   useQuery({

@@ -65,9 +65,9 @@ function CaseRow({ item }: { item: DamageCase }) {
 
             {/* Severity */}
             <Badge
-              className={`text-[10px] border shrink-0 capitalize ${SEVERITY_COLOURS[item.severity] ?? ''}`}
+              className={`text-[10px] border shrink-0 capitalize ${(item.severity && SEVERITY_COLOURS[item.severity]) ?? ''}`}
             >
-              {item.severity.charAt(0) + item.severity.slice(1).toLowerCase()}
+              {item.severity ? item.severity.charAt(0) + item.severity.slice(1).toLowerCase() : '—'}
             </Badge>
 
             {/* Bottle count */}

@@ -23,6 +23,7 @@ import { BulkPricePreviewDto, BulkPriceUpdateDto } from './dto/bulk-price-update
 import { CreatePortalAccountDto } from './dto/create-portal-account.dto';
 import { StatementQueryDto } from './dto/statement-query.dto';
 import { ScheduleQueryDto } from './dto/schedule-query.dto';
+import { ConsumptionQueryDto } from './dto/consumption-query.dto';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -202,15 +203,15 @@ export class CustomerController {
     return this.customerService.reactivate(user.vendorId, id);
   }
 
-  /** GET /customers/:id/consumption?month=2026-02 — consumption rate & bottle stats */
+  /** GET /customers/:id/consumption — bottle consumption stats; supports ?month=YYYY-MM, ?from=YYYY-MM-DD&to=YYYY-MM-DD, ?allTime=true, or defaults to last 30 days */
   @Get(':id/consumption')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
   getConsumption(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
-    @Query() query: StatementQueryDto,
+    @Query() query: ConsumptionQueryDto,
   ) {
-    return this.customerService.getConsumptionStats(user.vendorId, id, query.month);
+    return this.customerService.getConsumptionStats(user.vendorId, id, query);
   }
 
   /** GET /customers/:id/schedule?from=2026-02-01&to=2026-02-28 — delivery calendar */

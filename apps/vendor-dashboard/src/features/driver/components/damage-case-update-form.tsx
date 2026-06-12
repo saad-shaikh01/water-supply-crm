@@ -71,7 +71,9 @@ export function DamageCaseUpdateForm({ caseId }: DamageCaseUpdateFormProps) {
             <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
               Severity
             </span>
-            <SeverityBadge severity={damageCase.severity} />
+            {damageCase.severity
+              ? <SeverityBadge severity={damageCase.severity} />
+              : <span className="text-sm font-semibold text-muted-foreground">—</span>}
           </div>
           {damageCase.customer && (
             <div className="flex items-center justify-between">

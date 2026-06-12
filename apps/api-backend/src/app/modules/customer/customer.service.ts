@@ -6,7 +6,7 @@ import {
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '@water-supply-crm/database';
-import { Prisma } from '@prisma/client';
+import { DamageCaseStatus, DamageCaseType, Prisma } from '@prisma/client';
 import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
 import {
   CacheInvalidationService,
@@ -26,6 +26,7 @@ import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { paginate } from '../../common/helpers/paginate';
 import { CustomerStatementPdfService } from './pdf/customer-statement-pdf.service';
 import { AuditService } from '../audit/audit.service';
+import { ConsumptionQueryDto } from './dto/consumption-query.dto';
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -639,7 +640,13 @@ export class CustomerService {
     return updated;
   }
 
-  async getConsumptionStats(vendorId: string, customerId: string, month?: string) {
+  async getConsumptionStats(vendorId: string, customerId: string, query: ConsumptionQueryDto) {
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    const r1 = (n: number) => Math.round(n * 10) / 10;
+    // Local-date formatting — toISOString() would shift dates across UTC boundaries
+    const toDateStr = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
     const customer = await this.prisma.customer.findFirst({
       where: { id: customerId, vendorId },
       include: {
@@ -648,17 +655,54 @@ export class CustomerService {
     });
     if (!customer) throw new NotFoundException('Customer not found');
 
-    const targetMonth = month ?? new Date().toISOString().slice(0, 7);
-    const [year, mon] = targetMonth.split('-').map(Number);
-    const startDate = new Date(year, mon - 1, 1);
-    const endDate = new Date(year, mon, 1);
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    let startDate: Date;
+    let endExclusive: Date;
+    let periodAllTime = false;
+
+    if (query.allTime === 'true') {
+      // Earliest DELIVERY transaction for this customer, fallback to customer.createdAt
+      const earliest = await this.prisma.transaction.findFirst({
+        where: { customerId, vendorId, type: 'DELIVERY' },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      });
+      startDate = earliest ? earliest.createdAt : customer.createdAt;
+      startDate = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+      endExclusive = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+      periodAllTime = true;
+    } else if (query.from || query.to) {
+      const toDate = query.to ? new Date(query.to) : new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const fromDate = query.from
+        ? new Date(query.from)
+        : new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() - 29);
+      startDate = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate());
+      endExclusive = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() + 1);
+    } else if (query.month) {
+      const [year, mon] = query.month.split('-').map(Number);
+      startDate = new Date(year, mon - 1, 1);
+      endExclusive = new Date(year, mon, 1);
+    } else {
+      // Default: last 30 days (today included)
+      const toDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const fromDate = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() - 29);
+      startDate = fromDate;
+      endExclusive = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() + 1);
+    }
+
+    const effectiveEnd = endExclusive <= now ? endExclusive : now;
+    const periodDays = Math.max(1, Math.ceil((effectiveEnd.getTime() - startDate.getTime()) / 86_400_000));
+    // period.to = last inclusive day (endExclusive - 1 day)
+    const periodTo = new Date(endExclusive.getTime() - 86_400_000);
 
     const deliveries = await this.prisma.transaction.findMany({
       where: {
         customerId,
         vendorId,
         type: 'DELIVERY',
-        createdAt: { gte: startDate, lt: endDate },
+        createdAt: { gte: startDate, lt: endExclusive },
       },
       select: {
         filledDropped: true,
@@ -671,42 +715,142 @@ export class CustomerService {
     const deliveryCount = deliveries.length;
     const totalFilled = deliveries.reduce((sum, t) => sum + (t.filledDropped ?? 0), 0);
     const totalEmpty = deliveries.reduce((sum, t) => sum + (t.emptyReceived ?? 0), 0);
-    const avgPerDelivery = deliveryCount > 0
-      ? Math.round((totalFilled / deliveryCount) * 100) / 100
-      : 0;
+    const avgPerDelivery = deliveryCount > 0 ? r2(totalFilled / deliveryCount) : 0;
+    const bottlesPerDay = r2(totalFilled / periodDays);
+    const avgDaysBetweenDeliveries = deliveryCount > 0 ? r1(periodDays / deliveryCount) : null;
 
-    // Per-wallet consumption rate: avgPerDelivery / walletBalance * 100
-    const walletStats = customer.wallets.map((w) => {
-      const walletDeliveries = deliveries.filter((d) => d.product?.id === w.productId);
-      const walletFilled = walletDeliveries.reduce((sum, d) => sum + (d.filledDropped ?? 0), 0);
-      const walletAvg = walletDeliveries.length > 0
-        ? Math.round((walletFilled / walletDeliveries.length) * 100) / 100
-        : 0;
-      const consumptionRate = w.balance > 0
-        ? Math.round((walletAvg / w.balance) * 10000) / 100
-        : null;
+    // Period includes present when effectiveEnd >= now (i.e. endExclusive is in the future or now)
+    const periodIncludesNow = endExclusive.getTime() > now.getTime();
 
-      return {
-        product: w.product,
-        currentWalletBalance: w.balance,
-        deliveryCount: walletDeliveries.length,
-        totalConsumed: walletFilled,
-        avgPerDelivery: walletAvg,
-        consumptionRate: consumptionRate !== null ? `${consumptionRate}%` : 'N/A',
+    // Per-wallet stats with periodEndWalletBalance reconstruction
+    const walletStats = await Promise.all(
+      customer.wallets.map(async (w) => {
+        const walletDeliveries = deliveries.filter((d) => d.product?.id === w.productId);
+        const walletFilled = walletDeliveries.reduce((sum, d) => sum + (d.filledDropped ?? 0), 0);
+        const walletEmpty = walletDeliveries.reduce((sum, d) => sum + (d.emptyReceived ?? 0), 0);
+        const walletAvg = walletDeliveries.length > 0 ? r2(walletFilled / walletDeliveries.length) : 0;
+
+        let periodEndWalletBalance: number;
+        if (periodIncludesNow) {
+          periodEndWalletBalance = w.balance;
+        } else {
+          // Reconstruct balance at period end by reversing changes made after endExclusive
+          const [txAgg, damageAgg] = await Promise.all([
+            this.prisma.transaction.aggregate({
+              where: {
+                customerId,
+                vendorId,
+                productId: w.productId,
+                type: { in: ['DELIVERY', 'ADJUSTMENT'] },
+                bottleCount: { not: null },
+                createdAt: { gte: endExclusive },
+              },
+              _sum: { bottleCount: true },
+            }),
+            this.prisma.damageCase.aggregate({
+              where: {
+                customerId,
+                productId: w.productId,
+                caseType: DamageCaseType.LOST,
+                status: { in: [DamageCaseStatus.CHARGED, DamageCaseStatus.WAIVED] },
+                reviewedAt: { gte: endExclusive },
+              },
+              _sum: { bottleCount: true },
+            }),
+          ]);
+          const txDeltaAfter = txAgg._sum.bottleCount ?? 0;
+          // LOST damage cases DECREMENT the wallet at review time, so add them back
+          const damageBottlesAfter = damageAgg._sum.bottleCount ?? 0;
+          periodEndWalletBalance = w.balance - txDeltaAfter + damageBottlesAfter;
+        }
+
+        const rateNum = periodEndWalletBalance > 0 ? r2((walletAvg / periodEndWalletBalance) * 100) : null;
+        const consumptionRate = rateNum !== null ? `${rateNum}%` : 'N/A';
+
+        let rateStatus: 'ON_TARGET' | 'ATTENTION' | 'ACTION' | null = null;
+        if (rateNum !== null) {
+          if (rateNum >= 70 && rateNum <= 90) rateStatus = 'ON_TARGET';
+          else if ((rateNum >= 50 && rateNum < 70) || (rateNum > 90 && rateNum <= 100)) rateStatus = 'ATTENTION';
+          else rateStatus = 'ACTION';
+        }
+
+        const walletBottlesPerDay = r2(walletFilled / periodDays);
+        const includesToday = effectiveEnd.getTime() >= startOfToday.getTime();
+        const estStockDaysLeft =
+          includesToday && walletBottlesPerDay > 0 ? r1(w.balance / walletBottlesPerDay) : null;
+
+        return {
+          product: w.product,
+          currentWalletBalance: w.balance,
+          periodEndWalletBalance,
+          deliveryCount: walletDeliveries.length,
+          totalConsumed: walletFilled,
+          totalEmptyReceived: walletEmpty,
+          avgPerDelivery: walletAvg,
+          bottlesPerDay: walletBottlesPerDay,
+          estStockDaysLeft,
+          consumptionRate,
+          rateStatus,
+        };
+      }),
+    );
+
+    // Trend: previous adjacent window of equal length (null when allTime)
+    let trend: {
+      prevFrom: string;
+      prevTo: string;
+      prevBottlesPerDay: number;
+      changePct: number | null;
+    } | null = null;
+
+    if (!periodAllTime) {
+      const windowMs = effectiveEnd.getTime() - startDate.getTime();
+      const prevStart = new Date(startDate.getTime() - windowMs);
+      const prevEndExclusive = startDate;
+
+      const prevAgg = await this.prisma.transaction.aggregate({
+        where: {
+          customerId,
+          vendorId,
+          type: 'DELIVERY',
+          createdAt: { gte: prevStart, lt: prevEndExclusive },
+        },
+        _sum: { filledDropped: true },
+      });
+
+      const prevFilled = prevAgg._sum.filledDropped ?? 0;
+      const prevBottlesPerDay = r2(prevFilled / periodDays);
+      const prevTo = new Date(prevEndExclusive.getTime() - 86_400_000);
+      const changePct =
+        prevBottlesPerDay > 0 ? r2(((bottlesPerDay - prevBottlesPerDay) / prevBottlesPerDay) * 100) : null;
+
+      trend = {
+        prevFrom: toDateStr(prevStart),
+        prevTo: toDateStr(prevTo),
+        prevBottlesPerDay,
+        changePct,
       };
-    });
+    }
 
     return {
       customerId: customer.id,
       customerName: customer.name,
-      period: targetMonth,
+      period: {
+        from: toDateStr(startDate),
+        to: toDateStr(periodTo),
+        days: periodDays,
+        allTime: periodAllTime,
+      },
       summary: {
         deliveryCount,
         totalFilledDropped: totalFilled,
         totalEmptyReceived: totalEmpty,
         avgFilledPerDelivery: avgPerDelivery,
+        bottlesPerDay,
+        avgDaysBetweenDeliveries,
       },
       byProduct: walletStats,
+      trend,
     };
   }
 

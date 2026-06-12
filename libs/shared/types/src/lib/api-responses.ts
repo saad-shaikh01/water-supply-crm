@@ -69,24 +69,52 @@ export interface CustomerDetail {
   user: { id: string; email: string } | null;
 }
 
+export interface ConsumptionPeriod {
+  from: string; // YYYY-MM-DD
+  to: string;   // YYYY-MM-DD
+  days: number; // elapsed days used for per-day rates
+  allTime: boolean;
+}
+
 export interface ConsumptionSummary {
   deliveryCount: number;
   totalFilledDropped: number;
   totalEmptyReceived: number;
   avgFilledPerDelivery: number;
+  bottlesPerDay: number;
+  avgDaysBetweenDeliveries: number | null;
 }
+
+export interface ConsumptionTrend {
+  prevFrom: string;
+  prevTo: string;
+  prevBottlesPerDay: number;
+  changePct: number | null;
+}
+
+export type ConsumptionRateStatus = 'ON_TARGET' | 'ATTENTION' | 'ACTION';
 
 export interface ConsumptionByProduct {
   product: Pick<ProductSummary, 'id' | 'name'>;
+  currentWalletBalance: number;
+  periodEndWalletBalance: number;
   deliveryCount: number;
   totalConsumed: number;
+  totalEmptyReceived: number;
   avgPerDelivery: number;
-  consumptionRate: string;
+  bottlesPerDay: number;
+  estStockDaysLeft: number | null;
+  consumptionRate: string; // e.g. "82.5%" or "N/A"
+  rateStatus: ConsumptionRateStatus | null;
 }
 
 export interface CustomerConsumption {
+  customerId: string;
+  customerName: string;
+  period: ConsumptionPeriod;
   summary: ConsumptionSummary;
   byProduct: ConsumptionByProduct[];
+  trend: ConsumptionTrend | null;
 }
 
 export interface CustomerScheduleItem {

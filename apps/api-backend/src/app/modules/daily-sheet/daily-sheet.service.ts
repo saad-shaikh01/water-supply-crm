@@ -294,9 +294,11 @@ export class DailySheetService {
       entity: 'DailySheetItem',
       entityId: itemId,
       changes: {
-        unlockedBy: user.userId,
-        windowMinutes,
-        expiresAt: expiresAt.toISOString(),
+        after: {
+          unlockedBy: user.userId,
+          windowMinutes,
+          expiresAt: expiresAt.toISOString(),
+        },
       },
     });
 

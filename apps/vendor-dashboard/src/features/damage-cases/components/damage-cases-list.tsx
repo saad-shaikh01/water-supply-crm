@@ -264,9 +264,9 @@ export function DamageCasesList() {
             header: 'Severity',
             cell: (r) => (
               <span
-                className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-bold ${SEVERITY_COLORS[r.severity] ?? ''}`}
+                className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-bold ${(r.severity && SEVERITY_COLORS[r.severity]) ?? ''}`}
               >
-                {r.severity}
+                {r.severity ?? '—'}
               </span>
             ),
           },
