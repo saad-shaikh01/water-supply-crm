@@ -202,3 +202,16 @@ export const useCustomerDeliveryHistory = (customerId: string, enabled: boolean)
     staleTime: 1000 * 60 * 5,
   });
 };
+
+export const useUnlockDeliveryEdit = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ itemId, windowMinutes }: { itemId: string; windowMinutes?: number }) =>
+      dailySheetsApi.unlockDeliveryEdit(itemId, windowMinutes ? { windowMinutes } : undefined),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
+      toast.success('Edit unlocked for 30 minutes');
+    },
+    onError: () => toast.error('Failed to unlock edit'),
+  });
+};

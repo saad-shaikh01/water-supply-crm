@@ -372,6 +372,8 @@ model DailySheetItem {
   photoUrl        String?  // Optional photo evidence
   deliveredAt     DateTime?  // Set when delivery is COMPLETED or EMPTY_ONLY
   rescheduledTo DateTime?
+  editUnlockedBy      String?    // userId of staff/admin who unlocked edit
+  editUnlockExpiresAt DateTime?  // when unlock window expires (null = locked)
 
   deliveryIssue DeliveryIssue?
   transactions  Transaction[]

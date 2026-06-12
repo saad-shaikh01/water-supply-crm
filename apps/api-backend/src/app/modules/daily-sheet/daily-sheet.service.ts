@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ConflictException,
   UnprocessableEntityException,
+  ForbiddenException,
   Logger,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
@@ -28,6 +29,8 @@ import { MessageTemplates } from '../whatsapp/templates/message.templates';
 import { InsertOrderItemDto, SequenceMode } from './dto/insert-order-item.dto';
 import { paginate } from '../../common/helpers/paginate';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
+import type { AuthUser } from '@water-supply-crm/types';
+import { UnlockEditDto } from './dto/unlock-edit.dto';
 
 @Injectable()
 export class DailySheetService {
@@ -69,7 +72,8 @@ export class DailySheetService {
     };
   }
 
-  async submitDelivery(vendorId: string, itemId: string, dto: SubmitDeliveryDto) {
+  async submitDelivery(user: AuthUser, itemId: string, dto: SubmitDeliveryDto) {
+    const vendorId = user.vendorId;
     const item = await this.prisma.dailySheetItem.findUnique({
       where: { id: itemId },
       include: {
@@ -88,6 +92,13 @@ export class DailySheetService {
       throw new ConflictException(
         `Delivery already recorded as ${item.status}. Set forceResubmit=true to override.`
       );
+    }
+    // Drivers can only force-resubmit if an active unlock window has been granted by staff
+    if (dto.forceResubmit && TERMINAL_STATUSES.includes(item.status) && user.role === 'DRIVER') {
+      const hasActiveUnlock = item.editUnlockExpiresAt && item.editUnlockExpiresAt > new Date();
+      if (!hasActiveUnlock) {
+        throw new ForbiddenException('Edit not permitted. Ask staff to unlock this delivery first.');
+      }
     }
     if (dto.forceResubmit && TERMINAL_STATUSES.includes(item.status)) {
       await this.audit.log({
@@ -137,6 +148,7 @@ export class DailySheetService {
           ...(resolvedStatus === DeliveryStatus.COMPLETED || resolvedStatus === DeliveryStatus.EMPTY_ONLY
             ? { deliveredAt: new Date() }
             : { deliveredAt: null }),
+          ...(dto.forceResubmit ? { editUnlockedBy: null, editUnlockExpiresAt: null } : {}),
         },
       });
 
@@ -248,6 +260,47 @@ export class DailySheetService {
     ]);
 
     return result;
+  }
+
+  async unlockDeliveryEdit(user: AuthUser, itemId: string, dto: UnlockEditDto) {
+    const item = await this.prisma.dailySheetItem.findUnique({
+      where: { id: itemId },
+      include: { dailySheet: { select: { vendorId: true } } },
+    });
+
+    if (!item || item.dailySheet.vendorId !== user.vendorId) {
+      throw new NotFoundException('Sheet item not found');
+    }
+
+    const TERMINAL_STATUSES = ['COMPLETED', 'EMPTY_ONLY', 'NOT_AVAILABLE', 'CANCELLED'];
+    if (!TERMINAL_STATUSES.includes(item.status)) {
+      throw new BadRequestException('Item is not in a terminal status');
+    }
+
+    const windowMinutes = dto.windowMinutes ?? 30;
+    const expiresAt = new Date(Date.now() + windowMinutes * 60 * 1000);
+
+    const updated = await this.prisma.dailySheetItem.update({
+      where: { id: itemId },
+      data: {
+        editUnlockedBy: user.userId,
+        editUnlockExpiresAt: expiresAt,
+      },
+    });
+
+    await this.audit.log({
+      vendorId: user.vendorId,
+      action: 'DELIVERY_EDIT_UNLOCK',
+      entity: 'DailySheetItem',
+      entityId: itemId,
+      changes: {
+        unlockedBy: user.userId,
+        windowMinutes,
+        expiresAt: expiresAt.toISOString(),
+      },
+    });
+
+    return updated;
   }
 
   async findAllPaginated(vendorId: string, query: DailySheetQueryDto) {

@@ -135,6 +135,8 @@ export interface DeliveryItem {
   pricePerBottle?: number;
   lastFilledDropped?: number | null;
   deliveredAt?: string | null;
+  editUnlockedBy?: string | null;
+  editUnlockExpiresAt?: string | null;
   bottleBalanceAfter?: number | null;
   financialBalanceAfter?: number | null;
 }

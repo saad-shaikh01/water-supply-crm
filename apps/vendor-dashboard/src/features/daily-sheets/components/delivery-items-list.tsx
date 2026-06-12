@@ -5,7 +5,7 @@ import { Card, CardContent, Button, Badge, Tabs, TabsList, TabsTrigger, Skeleton
 import { StatusBadge } from '../../../components/shared/status-badge';
 import {
   AlertCircle, ChevronDown, ChevronUp, ClipboardList,
-  History, LocateFixed, MapPin, MessageCircle, Navigation, Phone,
+  History, LocateFixed, Lock, Loader2, MapPin, MessageCircle, Navigation, Phone, Unlock,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -133,6 +133,10 @@ interface DeliveryItemsListProps {
   onToggleExpand: (itemId: string | null) => void;
   onOpenDelivery: (item: DeliveryItem) => void;
   onSaveLocation: (customerId: string, lat: number, lng: number) => Promise<void>;
+  isDriver: boolean;
+  isAdminOrStaff: boolean;
+  onUnlockEdit: (itemId: string) => void;
+  unlockingItemId: string | null;
 }
 
 export function DeliveryItemsList({
@@ -150,6 +154,10 @@ export function DeliveryItemsList({
   onToggleExpand,
   onOpenDelivery,
   onSaveLocation,
+  isDriver,
+  isAdminOrStaff,
+  onUnlockEdit,
+  unlockingItemId,
 }: DeliveryItemsListProps) {
   const [savingLocationItemId, setSavingLocationItemId] = useState<string | null>(null);
 
@@ -258,15 +266,69 @@ export function DeliveryItemsList({
 
                       <div className="flex items-center gap-3 shrink-0">
                         <StatusBadge status={item.status} />
-                        {!isClosed && (
+                        {!isClosed && item.status === 'PENDING' && (
                           <Button
                             size="sm"
-                            variant={item.status === 'PENDING' ? 'default' : 'outline'}
+                            variant="default"
                             className="rounded-full font-bold text-xs h-8 px-3"
                             onClick={() => onOpenDelivery(item)}
                           >
-                            {item.status === 'PENDING' ? 'Record' : 'Edit'}
+                            Record
                           </Button>
+                        )}
+                        {!isClosed && item.status !== 'PENDING' && (
+                          <div className="flex items-center gap-1">
+                            {isDriver ? (
+                              (() => {
+                                const hasActiveUnlock =
+                                  !!item.editUnlockExpiresAt &&
+                                  new Date(item.editUnlockExpiresAt) > new Date();
+                                return hasActiveUnlock ? (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="rounded-full font-bold text-xs h-8 px-3 border-amber-500/50 text-amber-600 dark:text-amber-400"
+                                    onClick={() => onOpenDelivery(item)}
+                                  >
+                                    Edit
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="rounded-full font-bold text-xs h-8 px-3 opacity-50 cursor-not-allowed"
+                                    disabled
+                                  >
+                                    <Lock className="h-3 w-3 mr-1" />
+                                    Edit
+                                  </Button>
+                                );
+                              })()
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="rounded-full font-bold text-xs h-8 px-3"
+                                onClick={() => onOpenDelivery(item)}
+                              >
+                                Edit
+                              </Button>
+                            )}
+                            {isAdminOrStaff && (
+                              <button
+                                className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-amber-600 hover:bg-amber-500/10 transition-colors"
+                                title="Unlock edit for driver"
+                                disabled={unlockingItemId === item.id}
+                                onClick={() => onUnlockEdit(item.id)}
+                              >
+                                {unlockingItemId === item.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Unlock className="h-3.5 w-3.5" />
+                                )}
+                              </button>
+                            )}
+                          </div>
                         )}
                         <button
                           className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
@@ -428,6 +490,18 @@ export function DeliveryItemsList({
                               })}
                             </p>
                           )}
+                          {item.editUnlockExpiresAt &&
+                            new Date(item.editUnlockExpiresAt) > new Date() && (
+                              <p className="text-[11px] font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                                <Unlock className="h-3 w-3" />
+                                Edit unlocked · expires{' '}
+                                {new Date(item.editUnlockExpiresAt).toLocaleTimeString('en-US', {
+                                  hour: 'numeric',
+                                  minute: '2-digit',
+                                  hour12: true,
+                                })}
+                              </p>
+                            )}
                           <CustomerHistorySection customerId={item.customerId} />
                         </div>
                       </motion.div>

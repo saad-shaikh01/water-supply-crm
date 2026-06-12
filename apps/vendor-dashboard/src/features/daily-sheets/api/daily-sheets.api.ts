@@ -45,4 +45,6 @@ export const dailySheetsApi = {
     apiClient.get(`/daily-sheets/${id}/loads`),
   getCustomerDeliveryHistory: (customerId: string, limit = 6) =>
     apiClient.get(`/daily-sheets/customers/${customerId}/delivery-history`, { params: { limit } }),
+  unlockDeliveryEdit: (itemId: string, data?: { windowMinutes?: number }) =>
+    apiClient.patch(`/daily-sheets/items/${itemId}/unlock-edit`, data ?? {}),
 };

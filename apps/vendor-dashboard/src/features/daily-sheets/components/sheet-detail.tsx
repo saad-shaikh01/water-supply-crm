@@ -2,7 +2,7 @@
 
 import { useReducer, useMemo, useEffect, useRef } from 'react';
 import { Card, CardContent, Skeleton } from '@water-supply-crm/ui';
-import { useDailySheet, useUpdateCustomerLocation } from '../hooks/use-daily-sheets';
+import { useDailySheet, useUpdateCustomerLocation, useUnlockDeliveryEdit } from '../hooks/use-daily-sheets';
 import { dailySheetsApi } from '../api/daily-sheets.api';
 import { DeliveryDialog } from './dialogs/delivery-dialog';
 import { CheckinDialog } from './dialogs/checkin-dialog';
@@ -106,6 +106,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
 
   const { data, isLoading } = useDailySheet(sheetId);
   const updateCustomerLocation = useUpdateCustomerLocation(sheetId);
+  const unlockDeliveryEdit = useUnlockDeliveryEdit(sheetId);
   const [ui, dispatch] = useReducer(uiReducer, initialUiState);
 
   const items = useMemo(() => data?.items ?? [], [data]);
@@ -338,11 +339,26 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         onPageChange={(page) => dispatch({ type: 'SET_PAGE', page })}
         onToggleExpand={(itemId) => dispatch({ type: 'SET_EXPANDED', itemId })}
         onOpenDelivery={(item) => {
-          if (!isClosed) dispatch({ type: 'OPEN_DELIVERY', itemId: item.id });
+          if (!isClosed) {
+            const isTerminal = ['COMPLETED', 'EMPTY_ONLY', 'NOT_AVAILABLE', 'CANCELLED'].includes(item.status);
+            if (isDriver && isTerminal) {
+              const hasUnlock = item.editUnlockExpiresAt && new Date(item.editUnlockExpiresAt) > new Date();
+              if (!hasUnlock) return;
+            }
+            dispatch({ type: 'OPEN_DELIVERY', itemId: item.id });
+          }
         }}
         onSaveLocation={async (customerId, lat, lng) => {
           await updateCustomerLocation.mutateAsync({ customerId, latitude: lat, longitude: lng });
         }}
+        isDriver={isDriver}
+        isAdminOrStaff={isAdminOrStaff}
+        onUnlockEdit={(itemId) => unlockDeliveryEdit.mutate({ itemId })}
+        unlockingItemId={
+          unlockDeliveryEdit.isPending
+            ? ((unlockDeliveryEdit.variables as any)?.itemId ?? null)
+            : null
+        }
       />
 
       <ReconcileDialog

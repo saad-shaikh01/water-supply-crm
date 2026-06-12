@@ -23,6 +23,7 @@ import { CreateLoadDto } from './dto/create-load.dto';
 import { CheckinLoadDto } from './dto/checkin-load.dto';
 import { DailySheetQueryDto } from './dto/daily-sheet-query.dto';
 import { InsertOrderItemDto } from './dto/insert-order-item.dto';
+import { UnlockEditDto } from './dto/unlock-edit.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -84,6 +85,17 @@ export class DailySheetController {
     );
   }
 
+  @Patch('items/:id/unlock-edit')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @Throttle({ short: { ttl: 1000, limit: 10 }, medium: { ttl: 60000, limit: 30 } })
+  unlockDeliveryEdit(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: UnlockEditDto,
+  ) {
+    return this.dailySheetService.unlockDeliveryEdit(user, id, dto);
+  }
+
   @Patch('items/:id')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
   @Throttle({ short: { ttl: 1000, limit: 10 }, medium: { ttl: 60000, limit: 60 } })
@@ -92,7 +104,7 @@ export class DailySheetController {
     @Param('id') id: string,
     @Body() dto: SubmitDeliveryDto,
   ) {
-    return this.dailySheetService.submitDelivery(user.vendorId, id, dto);
+    return this.dailySheetService.submitDelivery(user, id, dto);
   }
 
   // ── List + single ─────────────────────────────────────────────────────
