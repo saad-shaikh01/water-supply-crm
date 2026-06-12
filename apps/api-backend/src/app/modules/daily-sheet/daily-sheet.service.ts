@@ -683,6 +683,10 @@ export class DailySheetService {
     const totalDelivered = activeItems.reduce((s, i) => s + i.filledDropped, 0);
     const bottleDiscrepancy = sheet.filledOutCount - (sheet.filledInCount + totalDelivered);
 
+    // Empty bottle summary
+    const totalEmptyCollected = activeItems.reduce((s, i) => s + i.emptyReceived, 0);
+    const emptyDiscrepancy = totalEmptyCollected - sheet.emptyInCount;
+
     // Cash breakdown by payment type
     const cashItems = activeItems.filter((i) => i.customer?.paymentType === PaymentType.CASH);
     const monthlyItems = activeItems.filter((i) => i.customer?.paymentType === PaymentType.MONTHLY);
@@ -718,6 +722,11 @@ export class DailySheetService {
         delivered: totalDelivered,
         returned: sheet.filledInCount,
         discrepancy: bottleDiscrepancy,
+      },
+      empties: {
+        collectedFromCustomers: totalEmptyCollected,
+        returnedToWarehouse: sheet.emptyInCount,
+        discrepancy: emptyDiscrepancy,
       },
       cashCustomers: {
         count: cashItems.length,
@@ -816,6 +825,7 @@ export class DailySheetService {
         after: {
           bottleDiscrepancy: reconciliation.bottles.discrepancy,
           driverCashDiscrepancy: reconciliation.driver.discrepancy,
+          emptyDiscrepancy: reconciliation.empties.discrepancy,
         },
       },
     });

@@ -121,21 +121,30 @@ export class DailySheetPdfService {
     });
 
     // Discrepancy row
-    const delivered = sheet.items?.filter((i: any) => i.status === 'DELIVERED').length ?? 0;
-    const bottleDiscrepancy = sheet.filledOutCount - (sheet.filledInCount + sheet.emptyInCount) - delivered;
+    const activeItems = (sheet.items ?? []).filter((i: any) => i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY');
+    const delivered = activeItems.reduce((s: number, i: any) => s + (i.filledDropped ?? 0), 0);
+    const bottleDiscrepancy = sheet.filledOutCount - (sheet.filledInCount + delivered);
+    const emptyCollected = activeItems.reduce((s: number, i: any) => s + (i.emptyReceived ?? 0), 0);
+    const emptyDiscrepancy = emptyCollected - sheet.emptyInCount;
     const cashDiscrepancy = (sheet.cashCollected ?? 0) - (sheet.cashExpected ?? 0);
 
     doc.y = summaryY + 60;
 
     if (sheet.isClosed) {
-      const discColor = (bottleDiscrepancy !== 0 || cashDiscrepancy !== 0) ? '#fef2f2' : '#f0fdf4';
-      doc.rect(40, doc.y, pageWidth, 28).fill(discColor);
+      const discColor = (bottleDiscrepancy !== 0 || emptyDiscrepancy !== 0 || cashDiscrepancy !== 0) ? '#fef2f2' : '#f0fdf4';
+      const discRowY = doc.y;
+      doc.rect(40, discRowY, pageWidth, 28).fill(discColor);
       doc.fillColor('#374151').fontSize(9).font('Helvetica-Bold')
-        .text(`Bottle Discrepancy: ${bottleDiscrepancy > 0 ? '+' : ''}${bottleDiscrepancy}`, 50, doc.y + 8);
+        .text(`Bottle Disc.: ${bottleDiscrepancy > 0 ? '+' : ''}${bottleDiscrepancy}`, 50, discRowY + 8);
       doc.text(
-        `Cash Discrepancy: Rs. ${cashDiscrepancy >= 0 ? '+' : ''}${cashDiscrepancy.toFixed(2)}`,
-        280, doc.y + 8,
+        `Empty Disc.: ${emptyDiscrepancy > 0 ? '+' : ''}${emptyDiscrepancy}`,
+        220, discRowY + 8,
       );
+      doc.text(
+        `Cash Disc.: Rs. ${cashDiscrepancy >= 0 ? '+' : ''}${cashDiscrepancy.toFixed(2)}`,
+        390, discRowY + 8,
+      );
+      doc.y = discRowY + 28;
       doc.moveDown(0.8);
     }
 

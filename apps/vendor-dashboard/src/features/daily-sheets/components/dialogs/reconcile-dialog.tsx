@@ -25,6 +25,7 @@ interface ReconcileData {
     discrepancy: number;
     unexplainedDiscrepancy: number;
   };
+  empties: { collectedFromCustomers: number; returnedToWarehouse: number; discrepancy: number };
 }
 
 interface ReconcileDialogProps {
@@ -82,7 +83,7 @@ export function ReconcileDialog({ open, onClose, sheetId }: ReconcileDialogProps
             {/* Bottle reconciliation */}
             <div className="rounded-2xl border border-border/50 bg-accent/10 overflow-hidden">
               <div className="px-4 py-2.5 bg-muted/40 border-b border-border/40">
-                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Bottle Summary</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Filled Bottles</p>
               </div>
               <div className="p-4 grid grid-cols-2 gap-3">
                 <div>
@@ -106,6 +107,32 @@ export function ReconcileDialog({ open, onClose, sheetId }: ReconcileDialogProps
                 </div>
               </div>
             </div>
+
+            {/* Empty bottle reconciliation */}
+            {data.empties && (
+              <div className="rounded-2xl border border-border/50 bg-accent/10 overflow-hidden">
+                <div className="px-4 py-2.5 bg-muted/40 border-b border-border/40">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Empty Bottles</p>
+                </div>
+                <div className="p-4 grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-[10px] text-muted-foreground font-bold uppercase">Collected from Customers</p>
+                    <p className="text-xl font-black font-mono">{data.empties.collectedFromCustomers}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-muted-foreground font-bold uppercase">Returned to Warehouse</p>
+                    <p className="text-xl font-black font-mono">{data.empties.returnedToWarehouse}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-muted-foreground font-bold uppercase">Discrepancy</p>
+                    <p className={cn('text-xl font-black font-mono', data.empties.discrepancy !== 0 ? 'text-destructive' : 'text-emerald-600')}>
+                      {data.empties.discrepancy > 0 ? '+' : ''}{data.empties.discrepancy}
+                      {data.empties.discrepancy !== 0 && ' ⚠️'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Cash reconciliation */}
             <div className="rounded-2xl border border-border/50 bg-accent/10 overflow-hidden">
