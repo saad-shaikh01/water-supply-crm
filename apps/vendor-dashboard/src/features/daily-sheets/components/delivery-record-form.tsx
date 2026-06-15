@@ -77,7 +77,6 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
     return custom?.customPrice ?? item.product?.basePrice ?? 0;
   })();
   const isCustomPrice = !!item.customer?.customPrices?.find((p) => p.productId === item.productId);
-  const isMonthly = item.customer?.paymentType === 'MONTHLY';
   const isFirstRecord = item.status === 'PENDING';
 
   // Initialize form state when the form mounts for a given item
@@ -281,20 +280,9 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
                   type="number"
                   min={0}
                   value={itemForm.cashCollected ?? 0}
-                  onChange={(e) => {
-                    if (!isMonthly) setItemForm((p) => ({ ...p, cashCollected: Number(e.target.value) }));
-                  }}
-                  disabled={isMonthly}
-                  className={cn(
-                    'h-11 font-mono font-bold',
-                    isMonthly
-                      ? 'bg-muted/50 text-muted-foreground cursor-not-allowed'
-                      : 'bg-emerald-500/5 border-emerald-500/20 text-emerald-600 dark:text-emerald-400',
-                  )}
+                  onChange={(e) => setItemForm((p) => ({ ...p, cashCollected: Number(e.target.value) }))}
+                  className="h-11 font-mono font-bold bg-emerald-500/5 border-emerald-500/20 text-emerald-600 dark:text-emerald-400"
                 />
-                {isMonthly && (
-                  <p className="text-[11px] text-muted-foreground">Monthly account — cash is billed, not collected on delivery.</p>
-                )}
               </div>
             </div>
 
