@@ -119,12 +119,12 @@
     box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3) !important;
   }
 
-  /* Subtle borders in dark mode — generic cards/divs only.
-     Elements with explicit color-border classes (emerald, amber, rose, etc.)
-     are excluded so their semantic colors remain visible. */
-  .dark .border:not([class*="border-emerald"]):not([class*="border-amber"]):not([class*="border-rose"]):not([class*="border-red"]):not([class*="border-blue"]):not([class*="border-yellow"]):not([class*="border-purple"]):not([class*="border-orange"]):not([class*="border-green"]):not([class*="border-primary"]):not([class*="border-destructive"]),
-  .dark .border-t:not([class*="border-emerald"]):not([class*="border-amber"]):not([class*="border-rose"]):not([class*="border-red"]):not([class*="border-blue"]):not([class*="border-yellow"]):not([class*="border-purple"]):not([class*="border-orange"]):not([class*="border-green"]):not([class*="border-primary"]):not([class*="border-destructive"]),
-  .dark .border-b:not([class*="border-emerald"]):not([class*="border-amber"]):not([class*="border-rose"]):not([class*="border-red"]):not([class*="border-blue"]):not([class*="border-yellow"]):not([class*="border-purple"]):not([class*="border-orange"]):not([class*="border-green"]):not([class*="border-primary"]):not([class*="border-destructive"]) {
+  /* Subtle borders in dark mode for generic cards/divs.
+     Uses exact word match (~=) so hover:border-primary/20 does NOT
+     trigger the exclusion — only direct colored border classes do. */
+  .dark .border:not([class~="border-emerald-500/50"]):not([class~="border-emerald-500/40"]):not([class~="border-emerald-500/30"]):not([class~="border-emerald-500"]):not([class~="border-amber-500/50"]):not([class~="border-amber-500/40"]):not([class~="border-amber-500/30"]):not([class~="border-amber-500/20"]):not([class~="border-amber-500"]):not([class~="border-rose-500/50"]):not([class~="border-rose-500/40"]):not([class~="border-rose-500/30"]):not([class~="border-rose-500"]):not([class~="border-yellow-500/30"]):not([class~="border-blue-500/30"]):not([class~="border-purple-500/30"]):not([class~="border-primary/20"]):not([class~="border-primary/30"]):not([class~="border-destructive"]):not([class~="border-destructive/20"]),
+  .dark .border-t:not([class~="border-emerald-500/50"]):not([class~="border-emerald-500/40"]):not([class~="border-emerald-500/30"]):not([class~="border-emerald-500"]):not([class~="border-amber-500/50"]):not([class~="border-amber-500/40"]):not([class~="border-amber-500/30"]):not([class~="border-amber-500/20"]):not([class~="border-amber-500"]):not([class~="border-rose-500/50"]):not([class~="border-rose-500/40"]):not([class~="border-rose-500/30"]):not([class~="border-rose-500"]):not([class~="border-yellow-500/30"]):not([class~="border-blue-500/30"]):not([class~="border-purple-500/30"]):not([class~="border-primary/20"]):not([class~="border-primary/30"]):not([class~="border-destructive"]):not([class~="border-destructive/20"]),
+  .dark .border-b:not([class~="border-emerald-500/50"]):not([class~="border-emerald-500/40"]):not([class~="border-emerald-500/30"]):not([class~="border-emerald-500"]):not([class~="border-amber-500/50"]):not([class~="border-amber-500/40"]):not([class~="border-amber-500/30"]):not([class~="border-amber-500/20"]):not([class~="border-amber-500"]):not([class~="border-rose-500/50"]):not([class~="border-rose-500/40"]):not([class~="border-rose-500/30"]):not([class~="border-rose-500"]):not([class~="border-yellow-500/30"]):not([class~="border-blue-500/30"]):not([class~="border-purple-500/30"]):not([class~="border-primary/20"]):not([class~="border-primary/30"]):not([class~="border-destructive"]):not([class~="border-destructive/20"]) {
     border-color: rgb(255 255 255 / 0.05) !important;
   }
 
