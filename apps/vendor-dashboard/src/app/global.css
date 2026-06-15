@@ -119,6 +119,15 @@
     box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3) !important;
   }
 
+  /* Subtle borders in dark mode — generic cards/divs only.
+     Elements with explicit color-border classes (emerald, amber, rose, etc.)
+     are excluded so their semantic colors remain visible. */
+  .dark .border:not([class*="border-emerald"]):not([class*="border-amber"]):not([class*="border-rose"]):not([class*="border-red"]):not([class*="border-blue"]):not([class*="border-yellow"]):not([class*="border-purple"]):not([class*="border-orange"]):not([class*="border-green"]):not([class*="border-primary"]):not([class*="border-destructive"]),
+  .dark .border-t:not([class*="border-emerald"]):not([class*="border-amber"]):not([class*="border-rose"]):not([class*="border-red"]):not([class*="border-blue"]):not([class*="border-yellow"]):not([class*="border-purple"]):not([class*="border-orange"]):not([class*="border-green"]):not([class*="border-primary"]):not([class*="border-destructive"]),
+  .dark .border-b:not([class*="border-emerald"]):not([class*="border-amber"]):not([class*="border-rose"]):not([class*="border-red"]):not([class*="border-blue"]):not([class*="border-yellow"]):not([class*="border-purple"]):not([class*="border-orange"]):not([class*="border-green"]):not([class*="border-primary"]):not([class*="border-destructive"]) {
+    border-color: rgb(255 255 255 / 0.05) !important;
+  }
+
   .dark .bg-card {
     background-color: rgb(255 255 255 / 0.02) !important;
   }
