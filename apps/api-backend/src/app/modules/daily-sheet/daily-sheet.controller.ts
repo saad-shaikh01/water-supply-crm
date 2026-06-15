@@ -128,6 +128,20 @@ export class DailySheetController {
     );
   }
 
+  @Get('customers/:customerId/financial-summary')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  getCustomerFinancialSummary(
+    @CurrentUser() user: AuthUser,
+    @Param('customerId') customerId: string,
+    @Query('sheetId') sheetId: string,
+  ) {
+    return this.dailySheetService.getCustomerFinancialSummary(
+      user.vendorId,
+      customerId,
+      sheetId,
+    );
+  }
+
   /**
    * GET /api/daily-sheets/:id/reconciliation-preview
    * Returns reconciliation breakdown WITHOUT closing the sheet.

@@ -169,6 +169,13 @@ export interface DeliveryItem {
   financialBalanceAfter?: number | null;
 }
 
+export interface CustomerFinancialSummary {
+  prevMonthAmount: number;
+  currentMonthPaid: number;
+  prevMonthOutstanding: number;
+  currentOutstanding: number;
+}
+
 export interface CustomerDeliveryHistoryItem {
   id: string;
   filledDropped: number;

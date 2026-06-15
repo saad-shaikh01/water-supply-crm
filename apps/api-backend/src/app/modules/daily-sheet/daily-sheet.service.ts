@@ -1073,4 +1073,73 @@ export class DailySheetService {
       },
     });
   }
+
+  /**
+   * Per-customer monthly financial snapshot for the delivery record form.
+   * The "current" month is anchored to the daily sheet's date (not today),
+   * so opening an old sheet shows the figures for that sheet's month.
+   */
+  async getCustomerFinancialSummary(
+    vendorId: string,
+    customerId: string,
+    sheetId: string,
+  ) {
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: customerId, vendorId },
+      select: { financialBalance: true },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const sheet = await this.prisma.dailySheet.findFirst({
+      where: { id: sheetId, vendorId },
+      select: { date: true },
+    });
+    if (!sheet) throw new NotFoundException('Daily sheet not found');
+
+    const anchor = new Date(sheet.date);
+    const curMonthStart = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+    const nextMonthStart = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1);
+    const prevMonthStart = new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1);
+
+    // Previous month total charges (DELIVERY amounts are positive).
+    const prevCharges = await this.prisma.transaction.aggregate({
+      where: {
+        customerId,
+        vendorId,
+        type: 'DELIVERY',
+        createdAt: { gte: prevMonthStart, lt: curMonthStart },
+      },
+      _sum: { amount: true },
+    });
+    const prevMonthAmount = prevCharges._sum.amount ?? 0;
+
+    // Current month payments (PAYMENT amounts are negative — show absolute value).
+    const curPayments = await this.prisma.transaction.aggregate({
+      where: {
+        customerId,
+        vendorId,
+        type: 'PAYMENT',
+        createdAt: { gte: curMonthStart, lt: nextMonthStart },
+      },
+      _sum: { amount: true },
+    });
+    const currentMonthPaid = Math.abs(curPayments._sum.amount ?? 0);
+
+    // Balance at the end of the previous month = opening balance of the current
+    // month = live balance minus everything that happened from the current
+    // month onward.
+    const fromCurrentMonth = await this.prisma.transaction.aggregate({
+      where: { customerId, vendorId, createdAt: { gte: curMonthStart } },
+      _sum: { amount: true },
+    });
+    const prevMonthOutstanding =
+      customer.financialBalance - (fromCurrentMonth._sum.amount ?? 0);
+
+    return {
+      prevMonthAmount,
+      currentMonthPaid,
+      prevMonthOutstanding,
+      currentOutstanding: customer.financialBalance,
+    };
+  }
 }

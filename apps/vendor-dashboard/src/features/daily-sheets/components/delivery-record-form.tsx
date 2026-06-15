@@ -2,12 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import {
-  Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton,
 } from '@water-supply-crm/ui';
 import { ClipboardEdit, Loader2, ShieldAlert } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import type { DeliveryItem } from '@water-supply-crm/types';
-import { useUpdateDeliveryItem } from '../hooks/use-daily-sheets';
+import { useUpdateDeliveryItem, useCustomerFinancialSummary } from '../hooks/use-daily-sheets';
 import { useReportDamage } from '../../driver/hooks/use-damage-cases';
 import { DamagePhotoUpload } from '../../driver/components/damage-photo-upload';
 
@@ -21,6 +21,31 @@ const FAILURE_CATEGORIES = [
   { value: 'WEATHER', label: 'Weather / Road Issue' },
   { value: 'OTHER', label: 'Other' },
 ] as const;
+
+function StatBox({
+  label,
+  value,
+  tone = 'neutral',
+}: {
+  label: string;
+  value: number;
+  tone?: 'neutral' | 'paid' | 'balance';
+}) {
+  const valueClass =
+    tone === 'paid'
+      ? 'text-emerald-600 dark:text-emerald-400'
+      : tone === 'balance'
+        ? value > 0
+          ? 'text-destructive'
+          : 'text-emerald-600 dark:text-emerald-400'
+        : '';
+  return (
+    <div className="rounded-xl bg-background/70 border border-border/40 px-3 py-2">
+      <p className="text-[9px] font-bold uppercase text-muted-foreground">{label}</p>
+      <p className={cn('text-sm font-black mt-0.5', valueClass)}>₨{value.toLocaleString()}</p>
+    </div>
+  );
+}
 
 interface DeliveryRecordFormProps {
   item: DeliveryItem;
@@ -78,6 +103,14 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
 
   // Amount owed for this delivery — auto-calculated from drop count and the customer's rate.
   const amountDue = Math.round((itemForm.filledDropped ?? 0) * effectivePrice);
+
+  // Monthly financial snapshot (anchored to the sheet's month) — fetched lazily
+  // since this form only mounts when the card is expanded.
+  const { data: finSummary, isLoading: finLoading } = useCustomerFinancialSummary(
+    item.customerId,
+    sheetId,
+    true,
+  );
 
   const doSave = () => {
     const finalData: Record<string, unknown> = deliveryMode === 'delivered'
@@ -251,8 +284,19 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
               </div>
             </div>
 
-            {/* RIGHT COLUMN — reserved for upcoming content */}
-            <div />
+            {/* RIGHT COLUMN — customer monthly financial snapshot */}
+            <div className="space-y-2">
+              {finLoading ? (
+                [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[52px] w-full rounded-xl" />)
+              ) : (
+                <>
+                  <StatBox label="Prev Month Bill" value={finSummary?.prevMonthAmount ?? 0} />
+                  <StatBox label="Paid This Month" value={finSummary?.currentMonthPaid ?? 0} tone="paid" />
+                  <StatBox label="Prev Month Outstanding" value={finSummary?.prevMonthOutstanding ?? 0} tone="balance" />
+                  <StatBox label="Current Outstanding" value={finSummary?.currentOutstanding ?? 0} tone="balance" />
+                </>
+              )}
+            </div>
           </div>
 
           {/* Bottle problem section */}
