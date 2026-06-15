@@ -1,4 +1,5 @@
 import { apiClient } from '@water-supply-crm/data-access';
+import type { DeliveryItemNote } from '@water-supply-crm/types';
 
 export interface SheetQuery {
   page?: number;
@@ -49,4 +50,19 @@ export const dailySheetsApi = {
     apiClient.get(`/daily-sheets/customers/${customerId}/financial-summary`, { params: { sheetId } }),
   unlockDeliveryEdit: (itemId: string, data?: { windowMinutes?: number }) =>
     apiClient.patch(`/daily-sheets/items/${itemId}/unlock-edit`, data ?? {}),
+  // Notes
+  getItemNotes: (itemId: string) =>
+    apiClient.get<DeliveryItemNote[]>(`/daily-sheets/items/${itemId}/notes`),
+  addTextNote: (itemId: string, data: { type: 'TEXT'; text: string }) =>
+    apiClient.post<DeliveryItemNote>(`/daily-sheets/items/${itemId}/notes`, data),
+  addVoiceNote: (itemId: string, formData: FormData, duration?: number) =>
+    apiClient.post<DeliveryItemNote>(
+      `/daily-sheets/items/${itemId}/notes/voice${duration != null ? `?duration=${duration}` : ''}`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    ),
+  acknowledgeNote: (noteId: string) =>
+    apiClient.patch<DeliveryItemNote>(`/daily-sheets/items/notes/${noteId}/acknowledge`, {}),
+  getNoteAudioUrl: (noteId: string) =>
+    apiClient.get<{ signedUrl: string }>(`/daily-sheets/items/notes/${noteId}/audio`),
 };

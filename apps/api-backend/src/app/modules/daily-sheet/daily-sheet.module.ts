@@ -8,6 +8,7 @@ import { DailySheetPdfService } from './pdf/daily-sheet-pdf.service';
 import { AuditModule } from '../audit/audit.module';
 import { DeliveryIssueModule } from '../delivery-issue/delivery-issue.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { StorageModule } from '../../common/storage/storage.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     AuditModule,
     DeliveryIssueModule,
     NotificationsModule,
+    StorageModule,
   ],
   controllers: [DailySheetController],
   providers: [DailySheetService, DailySheetProcessor, DailySheetPdfService],

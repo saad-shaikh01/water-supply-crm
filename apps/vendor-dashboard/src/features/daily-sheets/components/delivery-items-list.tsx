@@ -5,7 +5,7 @@ import { Card, CardContent, Button, Badge, Tabs, TabsList, TabsTrigger, Skeleton
 import { StatusBadge } from '../../../components/shared/status-badge';
 import {
   AlertCircle, ChevronDown, ChevronUp, ClipboardList,
-  History, LocateFixed, Lock, Loader2, MapPin, MessageCircle, Navigation, Phone, Unlock,
+  History, LocateFixed, Lock, Loader2, MapPin, MessageCircle, Navigation, Phone, StickyNote, Unlock,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -13,6 +13,8 @@ import { toast } from 'sonner';
 import type { DeliveryItem } from '@water-supply-crm/types';
 import { useCustomerDeliveryHistory } from '../hooks/use-daily-sheets';
 import { DeliveryRecordForm } from './delivery-record-form';
+import { AddNoteDialog } from './add-note-dialog';
+import { ItemNotesPanel, DriverNoteGate } from './item-notes-panel';
 
 type TabKey = 'all' | 'pending' | 'completed' | 'issues';
 
@@ -161,6 +163,7 @@ export function DeliveryItemsList({
   unlockingItemId,
 }: DeliveryItemsListProps) {
   const [savingLocationItemId, setSavingLocationItemId] = useState<string | null>(null);
+  const [addNoteItem, setAddNoteItem] = useState<DeliveryItem | null>(null);
 
   const handleGpsCapture = (item: DeliveryItem) => {
     if (!navigator.geolocation) {
@@ -235,10 +238,23 @@ export function DeliveryItemsList({
             const walletBalance = matchedWallet?.balance ?? 0;
             const hasActiveEditUnlock =
               !!item.editUnlockExpiresAt && new Date(item.editUnlockExpiresAt) > new Date();
+
+            const notes = item.notes ?? [];
+            const pendingNotesCount = notes.filter((n) => !n.acknowledgedAt).length;
+            const allNotesAcknowledged = notes.length === 0 || pendingNotesCount === 0;
+
             // Whether the inline record/edit form may be shown for this item.
             const canRecord =
               !isClosed &&
+              allNotesAcknowledged &&
               (item.status === 'PENDING' || !isDriver || hasActiveEditUnlock);
+
+            // Driver sees the gate when there are unacknowledged notes
+            const showDriverGate =
+              isDriver &&
+              !isClosed &&
+              notes.length > 0 &&
+              !allNotesAcknowledged;
 
             return (
               <motion.div
@@ -272,6 +288,17 @@ export function DeliveryItemsList({
                       </div>
 
                       <div className="flex items-center gap-3 shrink-0">
+                        {notes.length > 0 && (
+                          <div className={cn(
+                            'flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full',
+                            pendingNotesCount > 0
+                              ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400'
+                              : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
+                          )}>
+                            <StickyNote className="h-2.5 w-2.5" />
+                            {pendingNotesCount > 0 ? `${pendingNotesCount} Note${pendingNotesCount > 1 ? 's' : ''} ⚠` : `${notes.length} Note${notes.length > 1 ? 's' : ''} ✓`}
+                          </div>
+                        )}
                         <StatusBadge status={item.status} />
                         {!isClosed && item.status === 'PENDING' && (
                           <Button
@@ -504,6 +531,39 @@ export function DeliveryItemsList({
                                 })}
                               </p>
                             )}
+                          {/* Admin/Staff: notes panel + Add Note button */}
+                          {isAdminOrStaff && !isClosed && (
+                            <div className="flex justify-end">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="rounded-full font-bold gap-1.5 text-xs h-8"
+                                onClick={() => setAddNoteItem(item)}
+                              >
+                                <StickyNote className="h-3.5 w-3.5" />
+                                Add Note
+                              </Button>
+                            </div>
+                          )}
+
+                          {notes.length > 0 && (
+                            <>
+                              {/* Driver gate: must acknowledge before delivery form */}
+                              {showDriverGate ? (
+                                <DriverNoteGate
+                                  notes={notes}
+                                  sheetId={sheetId}
+                                />
+                              ) : (
+                                <ItemNotesPanel
+                                  notes={notes}
+                                  sheetId={sheetId}
+                                  isDriver={isDriver}
+                                />
+                              )}
+                            </>
+                          )}
+
                           {canRecord && (
                             <DeliveryRecordForm
                               key={item.id}
@@ -549,6 +609,17 @@ export function DeliveryItemsList({
             Next
           </Button>
         </div>
+      )}
+
+      {addNoteItem && (
+        <AddNoteDialog
+          open={!!addNoteItem}
+          onClose={() => setAddNoteItem(null)}
+          itemId={addNoteItem.id}
+          sheetId={sheetId}
+          customerName={addNoteItem.customer?.name ?? 'Customer'}
+          sequence={addNoteItem.sequence}
+        />
       )}
     </div>
   );

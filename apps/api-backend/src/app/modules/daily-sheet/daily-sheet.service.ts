@@ -6,12 +6,13 @@ import {
   UnprocessableEntityException,
   ForbiddenException,
   Logger,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '@water-supply-crm/database';
 import { QUEUE_NAMES, JOB_NAMES, NOTIFICATION_EVENTS } from '@water-supply-crm/queue';
-import { DeliveryStatus, PaymentType, TransactionType } from '@prisma/client';
+import { DeliveryStatus, NoteType, PaymentType, TransactionType } from '@prisma/client';
 import { GenerateSheetsDto } from './dto/generate-sheets.dto';
 import { SubmitDeliveryDto } from './dto/submit-delivery.dto';
 import { LoadOutDto } from './dto/load-out.dto';
@@ -31,6 +32,8 @@ import { paginate } from '../../common/helpers/paginate';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
 import type { AuthUser } from '@water-supply-crm/types';
 import { UnlockEditDto } from './dto/unlock-edit.dto';
+import { CreateDeliveryNoteDto } from './dto/create-delivery-note.dto';
+import { StorageService } from '../../common/storage/storage.service';
 
 @Injectable()
 export class DailySheetService {
@@ -44,6 +47,7 @@ export class DailySheetService {
     private deliveryIssue: DeliveryIssueService,
     private cache: CacheInvalidationService,
     private notifications: NotificationService,
+    private storage: StorageService,
     @InjectQueue(QUEUE_NAMES.DAILY_SHEET_GENERATION)
     private sheetQueue: Queue,
   ) {}
@@ -111,6 +115,16 @@ export class DailySheetService {
           after: { status: dto.status, filledDropped: dto.filledDropped, emptyReceived: dto.emptyReceived },
         },
       });
+    }
+
+    // Block delivery if there are unacknowledged notes on this item
+    const unacknowledgedCount = await this.prisma.deliveryItemNote.count({
+      where: { dailySheetItemId: itemId, acknowledgedAt: null },
+    });
+    if (unacknowledgedCount > 0) {
+      throw new BadRequestException(
+        `This delivery has ${unacknowledgedCount} unacknowledged note(s). Driver must acknowledge all notes before recording delivery.`,
+      );
     }
 
     const activeLoad = await this.prisma.dailySheetLoad.findFirst({
@@ -402,6 +416,10 @@ export class DailySheetService {
               },
             },
             product: true,
+            notes: {
+              include: { createdBy: { select: { id: true, name: true } } },
+              orderBy: { createdAt: 'asc' },
+            },
           },
           orderBy: { sequence: 'asc' },
         },
@@ -1141,5 +1159,111 @@ export class DailySheetService {
       prevMonthOutstanding,
       currentOutstanding: customer.financialBalance,
     };
+  }
+
+  // ── Delivery Item Notes ───────────────────────────────────────────────────
+
+  private async resolveItemForNotes(vendorId: string, itemId: string) {
+    const item = await this.prisma.dailySheetItem.findUnique({
+      where: { id: itemId },
+      include: { dailySheet: { select: { vendorId: true } } },
+    });
+    if (!item || item.dailySheet.vendorId !== vendorId) {
+      throw new NotFoundException('Sheet item not found');
+    }
+    return item;
+  }
+
+  async getNotes(vendorId: string, itemId: string) {
+    await this.resolveItemForNotes(vendorId, itemId);
+    return this.prisma.deliveryItemNote.findMany({
+      where: { dailySheetItemId: itemId },
+      include: { createdBy: { select: { id: true, name: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async addTextNote(user: AuthUser, itemId: string, dto: CreateDeliveryNoteDto) {
+    await this.resolveItemForNotes(user.vendorId, itemId);
+    if (!dto.text?.trim()) {
+      throw new BadRequestException('Note text is required for TEXT type notes');
+    }
+    return this.prisma.deliveryItemNote.create({
+      data: {
+        vendorId: user.vendorId,
+        dailySheetItemId: itemId,
+        createdById: user.userId,
+        type: NoteType.TEXT,
+        text: dto.text.trim(),
+      },
+      include: { createdBy: { select: { id: true, name: true } } },
+    });
+  }
+
+  async addVoiceNote(
+    user: AuthUser,
+    itemId: string,
+    file: Express.Multer.File,
+    audioDuration?: number,
+  ) {
+    await this.resolveItemForNotes(user.vendorId, itemId);
+
+    let uploadResult: { key: string };
+    try {
+      uploadResult = await this.storage.upload(
+        'delivery-voice-notes',
+        file.buffer,
+        file.originalname,
+        file.mimetype,
+      );
+    } catch (err) {
+      this.logger.error('Voice note upload failed', err);
+      throw new InternalServerErrorException('Failed to upload voice note');
+    }
+
+    return this.prisma.deliveryItemNote.create({
+      data: {
+        vendorId: user.vendorId,
+        dailySheetItemId: itemId,
+        createdById: user.userId,
+        type: NoteType.VOICE,
+        audioKey: uploadResult.key,
+        audioDuration: audioDuration ?? null,
+      },
+      include: { createdBy: { select: { id: true, name: true } } },
+    });
+  }
+
+  async acknowledgeNote(user: AuthUser, noteId: string) {
+    const note = await this.prisma.deliveryItemNote.findUnique({
+      where: { id: noteId },
+      include: { item: { include: { dailySheet: { select: { vendorId: true } } } } },
+    });
+    if (!note || note.item.dailySheet.vendorId !== user.vendorId) {
+      throw new NotFoundException('Note not found');
+    }
+    if (note.acknowledgedAt) {
+      return note; // already acknowledged — idempotent
+    }
+    return this.prisma.deliveryItemNote.update({
+      where: { id: noteId },
+      data: { acknowledgedAt: new Date(), acknowledgedById: user.userId },
+      include: { createdBy: { select: { id: true, name: true } } },
+    });
+  }
+
+  async getNoteAudioUrl(vendorId: string, noteId: string) {
+    const note = await this.prisma.deliveryItemNote.findUnique({
+      where: { id: noteId },
+      include: { item: { include: { dailySheet: { select: { vendorId: true } } } } },
+    });
+    if (!note || note.item.dailySheet.vendorId !== vendorId) {
+      throw new NotFoundException('Note not found');
+    }
+    if (note.type !== NoteType.VOICE || !note.audioKey) {
+      throw new BadRequestException('This note does not have a voice recording');
+    }
+    const signedUrl = await this.storage.getSignedUrl(note.audioKey, 900);
+    return { signedUrl };
   }
 }

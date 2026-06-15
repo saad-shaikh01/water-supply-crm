@@ -8,7 +8,12 @@
   Query,
   Res,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { UserRole } from '@prisma/client';
@@ -24,11 +29,14 @@ import { CheckinLoadDto } from './dto/checkin-load.dto';
 import { DailySheetQueryDto } from './dto/daily-sheet-query.dto';
 import { InsertOrderItemDto } from './dto/insert-order-item.dto';
 import { UnlockEditDto } from './dto/unlock-edit.dto';
+import { CreateDeliveryNoteDto } from './dto/create-delivery-note.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
+
+const ALLOWED_AUDIO_MIMES = ['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/wav', 'audio/x-m4a'];
 
 @Controller('daily-sheets')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -83,6 +91,66 @@ export class DailySheetController {
       driverId,
       date,
     );
+  }
+
+  // ── Delivery Item Notes ───────────────────────────────────────────────────
+  // Static note routes MUST come before items/:id to avoid NestJS shadowing.
+
+  @Get('items/:id/notes')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  getItemNotes(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.dailySheetService.getNotes(user.vendorId, id);
+  }
+
+  @Post('items/:id/notes')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @Throttle({ short: { ttl: 1000, limit: 10 }, medium: { ttl: 60000, limit: 30 } })
+  addTextNote(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: CreateDeliveryNoteDto,
+  ) {
+    return this.dailySheetService.addTextNote(user, id, dto);
+  }
+
+  @Post('items/:id/notes/voice')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @Throttle({ short: { ttl: 2000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
+  @UseInterceptors(
+    FileInterceptor('audio', {
+      storage: memoryStorage(),
+      limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+      fileFilter: (_req, file, cb) => {
+        if (ALLOWED_AUDIO_MIMES.includes(file.mimetype)) {
+          cb(null, true);
+        } else {
+          cb(new Error('File type not allowed. Send audio/webm, audio/ogg, audio/mp4, or audio/mpeg.'), false);
+        }
+      },
+    }),
+  )
+  async addVoiceNote(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @UploadedFile() file?: Express.Multer.File,
+    @Query('duration') duration?: string,
+  ) {
+    if (!file) throw new BadRequestException('No audio file provided');
+    const audioDuration = duration ? parseInt(duration, 10) : undefined;
+    return this.dailySheetService.addVoiceNote(user, id, file, audioDuration);
+  }
+
+  @Patch('items/notes/:noteId/acknowledge')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @Throttle({ short: { ttl: 1000, limit: 20 }, medium: { ttl: 60000, limit: 60 } })
+  acknowledgeNote(@CurrentUser() user: AuthUser, @Param('noteId') noteId: string) {
+    return this.dailySheetService.acknowledgeNote(user, noteId);
+  }
+
+  @Get('items/notes/:noteId/audio')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  getNoteAudioUrl(@CurrentUser() user: AuthUser, @Param('noteId') noteId: string) {
+    return this.dailySheetService.getNoteAudioUrl(user.vendorId, noteId);
   }
 
   @Patch('items/:id/unlock-edit')

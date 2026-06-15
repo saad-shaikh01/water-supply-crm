@@ -132,6 +132,18 @@ export interface CustomerWalletSummary {
   product: { name: string };
 }
 
+export interface DeliveryItemNote {
+  id: string;
+  type: 'TEXT' | 'VOICE';
+  text: string | null;
+  audioKey: string | null;
+  audioDuration: number | null;
+  acknowledgedAt: string | null;
+  acknowledgedById: string | null;
+  createdAt: string;
+  createdBy: { id: string; name: string };
+}
+
 export interface DeliveryItem {
   id: string;
   sequence: number;
@@ -167,6 +179,7 @@ export interface DeliveryItem {
   editUnlockExpiresAt?: string | null;
   bottleBalanceAfter?: number | null;
   financialBalanceAfter?: number | null;
+  notes?: DeliveryItemNote[];
 }
 
 export interface CustomerFinancialSummary {

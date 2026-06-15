@@ -85,6 +85,11 @@ enum BottleLossReason {
   OTHER
 }
 
+enum NoteType {
+  TEXT
+  VOICE
+}
+
 model Vendor {
   id          String   @id @default(uuid())
   name        String
@@ -113,6 +118,7 @@ model Vendor {
   reminderSendLogs        ReminderSendLog[]
   driverLastLocations     DriverLastLocation[]
   damageCases             DamageCase[]
+  deliveryItemNotes       DeliveryItemNote[]
 }
 
 model User {
@@ -137,6 +143,7 @@ model User {
   driverLastLocation    DriverLastLocation?
   driverDamageCases     DamageCase[] @relation("DriverDamageCases")
   reviewedDamageCases   DamageCase[] @relation("DamageCaseReviewer")
+  createdDeliveryNotes  DeliveryItemNote[] @relation("NoteCreatedBy")
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -378,6 +385,7 @@ model DailySheetItem {
   deliveryIssue DeliveryIssue?
   transactions  Transaction[]
   damageCases   DamageCase[]
+  notes         DeliveryItemNote[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -890,4 +898,30 @@ model DamageCaseAuditLog {
 
   @@index([damageCaseId])
   @@index([damageCaseId, createdAt])
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Delivery Item Notes (admin notes + voice notes for driver)
+// ──────────────────────────────────────────────────────────────────────────────
+
+model DeliveryItemNote {
+  id               String    @id @default(uuid())
+  vendorId         String
+  vendor           Vendor    @relation(fields: [vendorId], references: [id])
+  dailySheetItemId String
+  item             DailySheetItem @relation(fields: [dailySheetItemId], references: [id], onDelete: Cascade)
+  createdById      String
+  createdBy        User      @relation("NoteCreatedBy", fields: [createdById], references: [id])
+  type             NoteType
+  text             String?
+  audioKey         String?   // Wasabi S3 key for voice notes
+  audioDuration    Int?      // duration in seconds
+  acknowledgedAt   DateTime?
+  acknowledgedById String?   // userId of driver who acknowledged (plain string, no relation needed)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([dailySheetItemId])
+  @@index([dailySheetItemId, acknowledgedAt])
+  @@index([vendorId])
 }
