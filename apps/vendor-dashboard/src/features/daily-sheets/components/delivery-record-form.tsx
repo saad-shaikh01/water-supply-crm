@@ -112,6 +112,18 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
     true,
   );
 
+  // Live preview: project how this delivery changes the customer's figures as the
+  // driver types. A delivery adds a charge (drop × rate) and the cash is a payment.
+  // For a re-record we first back out the item's already-saved contribution so the
+  // numbers don't double-count.
+  const savedCharge = isFirstRecord ? 0 : item.filledDropped * (item.pricePerBottle ?? effectivePrice);
+  const savedCash = isFirstRecord ? 0 : item.cashCollected;
+  const draftCharge = deliveryMode === 'delivered' ? amountDue : 0;
+  const draftCash = deliveryMode === 'delivered' ? (itemForm.cashCollected ?? 0) : 0;
+  const livePaidThisMonth = (finSummary?.currentMonthPaid ?? 0) - savedCash + draftCash;
+  const liveCurrentOutstanding =
+    (finSummary?.currentOutstanding ?? 0) - (savedCharge - savedCash) + (draftCharge - draftCash);
+
   const doSave = () => {
     const finalData: Record<string, unknown> = deliveryMode === 'delivered'
       ? {
@@ -221,6 +233,7 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
                     Last delivery: <span className="font-bold">{item.lastFilledDropped} btl</span>
                   </p>
                 )}
+                {/* Expected (wallet) hint hidden for now — not needed currently.
                 {(() => {
                   const wb = item.customer?.wallets?.find((w) => w.productId === item.productId)?.balance ?? 0;
                   return wb > 0 ? (
@@ -229,6 +242,7 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
                     </p>
                   ) : null;
                 })()}
+                */}
               </div>
 
               <div className="space-y-2">
@@ -291,9 +305,9 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
               ) : (
                 <>
                   <StatBox label="Prev Month Bill" value={finSummary?.prevMonthAmount ?? 0} />
-                  <StatBox label="Paid This Month" value={finSummary?.currentMonthPaid ?? 0} tone="paid" />
+                  <StatBox label="Paid This Month" value={livePaidThisMonth} tone="paid" />
                   <StatBox label="Prev Month Outstanding" value={finSummary?.prevMonthOutstanding ?? 0} tone="balance" />
-                  <StatBox label="Current Outstanding" value={finSummary?.currentOutstanding ?? 0} tone="balance" />
+                  <StatBox label="Current Outstanding" value={liveCurrentOutstanding} tone="balance" />
                 </>
               )}
             </div>
