@@ -64,15 +64,10 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
     setShowDamage(false);
     setDamageForm({ caseType: 'DAMAGE', bottleCount: 1, photoKeys: [], description: '', lossReason: 'CUSTOMER_NOT_RETURNED' });
     const isFirst = item.status === 'PENDING';
-    const custom = item.customer?.customPrices?.find((p) => p.productId === item.productId);
-    const price = custom?.customPrice ?? item.product?.basePrice ?? 0;
-    const isMonthlyInit = item.customer?.paymentType === 'MONTHLY';
-    const suggestedFilled = isFirst ? (item.lastFilledDropped ?? 1) : item.filledDropped;
-    const suggestedCash = isMonthlyInit
-      ? 0
-      : isFirst
-        ? Math.round(suggestedFilled * price)
-        : item.cashCollected;
+    // Drop & empties start at 0 by default — driver enters the real counts manually.
+    // Cash is never auto-calculated — the driver types whatever they actually collected.
+    const suggestedFilled = isFirst ? 0 : item.filledDropped;
+    const suggestedCash = isFirst ? 0 : item.cashCollected;
 
     setItemForm({
       filledDropped: suggestedFilled,
@@ -81,19 +76,8 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
     });
   }, [item.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Recalculate cash when filledDropped changes (CASH customers, first-time record only)
-  useEffect(() => {
-    if (deliveryMode !== 'delivered') return;
-    if (item.customer?.paymentType === 'MONTHLY') {
-      setItemForm((p) => ({ ...p, cashCollected: 0 }));
-      return;
-    }
-    if (item.status === 'PENDING') {
-      const custom2 = item.customer?.customPrices?.find((p) => p.productId === item.productId);
-      const price2 = custom2?.customPrice ?? item.product?.basePrice ?? 0;
-      setItemForm((p) => ({ ...p, cashCollected: Math.round((p.filledDropped ?? 0) * price2) }));
-    }
-  }, [itemForm.filledDropped, deliveryMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Amount owed for this delivery — auto-calculated from drop count and the customer's rate.
+  const amountDue = Math.round((itemForm.filledDropped ?? 0) * effectivePrice);
 
   const doSave = () => {
     const finalData: Record<string, unknown> = deliveryMode === 'delivered'
@@ -188,74 +172,87 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
       {deliveryMode === 'delivered' ? (
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="font-bold text-xs uppercase tracking-widest">Dropped</Label>
-              <Input
-                type="number"
-                min={0}
-                value={itemForm.filledDropped ?? 1}
-                onChange={(e) => setItemForm((p) => ({ ...p, filledDropped: Number(e.target.value) }))}
-                className="font-mono font-bold h-11"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="font-bold text-xs uppercase tracking-widest">Empties Received</Label>
-              <Input
-                type="number"
-                min={0}
-                value={itemForm.emptyReceived ?? 0}
-                onChange={(e) => setItemForm((p) => ({ ...p, emptyReceived: Number(e.target.value) }))}
-                className="font-mono font-bold h-11"
-              />
-            </div>
-            {isFirstRecord && item.lastFilledDropped != null && (
-              <p className="text-[11px] text-muted-foreground -mt-1">
-                Last delivery: <span className="font-bold">{item.lastFilledDropped} btl</span>
-              </p>
-            )}
-            {(() => {
-              const wb = item.customer?.wallets?.find((w) => w.productId === item.productId)?.balance ?? 0;
-              return wb > 0 ? (
-                <p className="text-[11px] text-muted-foreground -mt-1">
-                  Expected: <span className="font-bold">{wb} btl</span> (wallet)
+            {/* LEFT COLUMN — entry fields stacked vertically */}
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label className="font-bold text-xs uppercase tracking-widest">Dropped</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={itemForm.filledDropped ?? 0}
+                  onChange={(e) => setItemForm((p) => ({ ...p, filledDropped: Number(e.target.value) }))}
+                  className="font-mono font-bold h-11"
+                />
+                {isFirstRecord && item.lastFilledDropped != null && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Last delivery: <span className="font-bold">{item.lastFilledDropped} btl</span>
+                  </p>
+                )}
+                {(() => {
+                  const wb = item.customer?.wallets?.find((w) => w.productId === item.productId)?.balance ?? 0;
+                  return wb > 0 ? (
+                    <p className="text-[11px] text-muted-foreground">
+                      Expected: <span className="font-bold">{wb} btl</span> (wallet)
+                    </p>
+                  ) : null;
+                })()}
+              </div>
+
+              <div className="space-y-2">
+                <Label className="font-bold text-xs uppercase tracking-widest">Empties Received</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={itemForm.emptyReceived ?? 0}
+                  onChange={(e) => setItemForm((p) => ({ ...p, emptyReceived: Number(e.target.value) }))}
+                  className="font-mono font-bold h-11"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label className="font-bold text-xs uppercase tracking-widest">Balance (₨)</Label>
+                <Input
+                  type="number"
+                  value={amountDue}
+                  disabled
+                  readOnly
+                  className="font-mono font-bold h-11 bg-muted/50 text-muted-foreground cursor-not-allowed"
+                />
+                <p className="text-[11px] text-muted-foreground flex items-center gap-1 flex-wrap">
+                  Auto · Drop × {effectivePrice > 0 ? `₨${effectivePrice.toLocaleString()}` : 'Rate'}
+                  {isCustomPrice && (
+                    <span className="px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 font-bold text-[10px]">
+                      Custom
+                    </span>
+                  )}
                 </p>
-              ) : null;
-            })()}
-          </div>
-          {effectivePrice > 0 && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span>Rate:</span>
-              <span className="font-bold font-mono">₨{effectivePrice.toLocaleString()}/bottle</span>
-              {isCustomPrice && (
-                <span className="px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 font-bold text-[10px]">
-                  Custom
-                </span>
-              )}
+              </div>
+
+              <div className="space-y-2">
+                <Label className="font-bold text-xs uppercase tracking-widest">Cash Collected (₨)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={itemForm.cashCollected ?? 0}
+                  onChange={(e) => {
+                    if (!isMonthly) setItemForm((p) => ({ ...p, cashCollected: Number(e.target.value) }));
+                  }}
+                  disabled={isMonthly}
+                  className={cn(
+                    'h-11 font-mono font-bold',
+                    isMonthly
+                      ? 'bg-muted/50 text-muted-foreground cursor-not-allowed'
+                      : 'bg-emerald-500/5 border-emerald-500/20 text-emerald-600 dark:text-emerald-400',
+                  )}
+                />
+                {isMonthly && (
+                  <p className="text-[11px] text-muted-foreground">Monthly account — cash is billed, not collected on delivery.</p>
+                )}
+              </div>
             </div>
-          )}
-          <div className="space-y-2">
-            <Label className="font-bold text-xs uppercase tracking-widest">Cash Collected (₨)</Label>
-            <Input
-              type="number"
-              min={0}
-              value={itemForm.cashCollected ?? 0}
-              onChange={(e) => {
-                if (!isMonthly) setItemForm((p) => ({ ...p, cashCollected: Number(e.target.value) }));
-              }}
-              disabled={isMonthly}
-              className={cn(
-                'h-12 text-lg font-black font-mono text-center',
-                isMonthly
-                  ? 'bg-muted/50 text-muted-foreground cursor-not-allowed'
-                  : 'bg-emerald-500/5 border-emerald-500/20 text-emerald-600 dark:text-emerald-400',
-              )}
-            />
-            {isMonthly && (
-              <p className="text-[11px] text-muted-foreground">Monthly account — cash is billed, not collected on delivery.</p>
-            )}
-            {!isMonthly && isFirstRecord && itemForm.cashCollected === Math.round((itemForm.filledDropped ?? 0) * effectivePrice) && (
-              <p className="text-[11px] text-muted-foreground">Auto-calculated · edit if needed</p>
-            )}
+
+            {/* RIGHT COLUMN — reserved for upcoming content */}
+            <div />
           </div>
 
           {/* Bottle problem section */}
