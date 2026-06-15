@@ -815,7 +815,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                       width="100%"
                       height="100%"
                       loading="lazy"
-                      src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(customer.longitude) - 0.006},${Number(customer.latitude) - 0.004},${Number(customer.longitude) + 0.006},${Number(customer.latitude) + 0.004}&layer=mapnik&marker=${customer.latitude},${customer.longitude}`}
+                      src={`https://maps.google.com/maps?q=${customer.latitude},${customer.longitude}&z=17&output=embed`}
                       className="border-none w-full h-full"
                     />
                     {/* Overlay click → open full map */}
