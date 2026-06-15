@@ -12,6 +12,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import type { DeliveryItem } from '@water-supply-crm/types';
 import { useCustomerDeliveryHistory } from '../hooks/use-daily-sheets';
+import { DeliveryRecordForm } from './delivery-record-form';
 
 type TabKey = 'all' | 'pending' | 'completed' | 'issues';
 
@@ -119,6 +120,7 @@ function CustomerHistorySection({ customerId }: { customerId: string }) {
 }
 
 interface DeliveryItemsListProps {
+  sheetId: string;
   items: DeliveryItem[];
   paginatedItems: DeliveryItem[];
   filteredItems: DeliveryItem[];
@@ -131,7 +133,6 @@ interface DeliveryItemsListProps {
   onTabChange: (tab: string) => void;
   onPageChange: (page: number) => void;
   onToggleExpand: (itemId: string | null) => void;
-  onOpenDelivery: (item: DeliveryItem) => void;
   onSaveLocation: (customerId: string, lat: number, lng: number) => Promise<void>;
   isDriver: boolean;
   isAdminOrStaff: boolean;
@@ -140,6 +141,7 @@ interface DeliveryItemsListProps {
 }
 
 export function DeliveryItemsList({
+  sheetId,
   items,
   paginatedItems,
   filteredItems,
@@ -152,7 +154,6 @@ export function DeliveryItemsList({
   onTabChange,
   onPageChange,
   onToggleExpand,
-  onOpenDelivery,
   onSaveLocation,
   isDriver,
   isAdminOrStaff,
@@ -232,6 +233,12 @@ export function DeliveryItemsList({
             const customer = item.customer;
             const matchedWallet = customer?.wallets?.find((w) => w.productId === item.productId) ?? customer?.wallets?.[0];
             const walletBalance = matchedWallet?.balance ?? 0;
+            const hasActiveEditUnlock =
+              !!item.editUnlockExpiresAt && new Date(item.editUnlockExpiresAt) > new Date();
+            // Whether the inline record/edit form may be shown for this item.
+            const canRecord =
+              !isClosed &&
+              (item.status === 'PENDING' || !isDriver || hasActiveEditUnlock);
 
             return (
               <motion.div
@@ -271,7 +278,7 @@ export function DeliveryItemsList({
                             size="sm"
                             variant="default"
                             className="rounded-full font-bold text-xs h-8 px-3"
-                            onClick={() => onOpenDelivery(item)}
+                            onClick={() => onToggleExpand(isExpanded ? null : item.id)}
                           >
                             Record
                           </Button>
@@ -279,37 +286,32 @@ export function DeliveryItemsList({
                         {!isClosed && item.status !== 'PENDING' && (
                           <div className="flex items-center gap-1">
                             {isDriver ? (
-                              (() => {
-                                const hasActiveUnlock =
-                                  !!item.editUnlockExpiresAt &&
-                                  new Date(item.editUnlockExpiresAt) > new Date();
-                                return hasActiveUnlock ? (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="rounded-full font-bold text-xs h-8 px-3 border-amber-500/50 text-amber-600 dark:text-amber-400"
-                                    onClick={() => onOpenDelivery(item)}
-                                  >
-                                    Edit
-                                  </Button>
-                                ) : (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="rounded-full font-bold text-xs h-8 px-3 opacity-50 cursor-not-allowed"
-                                    disabled
-                                  >
-                                    <Lock className="h-3 w-3 mr-1" />
-                                    Edit
-                                  </Button>
-                                );
-                              })()
+                              hasActiveEditUnlock ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="rounded-full font-bold text-xs h-8 px-3 border-amber-500/50 text-amber-600 dark:text-amber-400"
+                                  onClick={() => onToggleExpand(isExpanded ? null : item.id)}
+                                >
+                                  Edit
+                                </Button>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="rounded-full font-bold text-xs h-8 px-3 opacity-50 cursor-not-allowed"
+                                  disabled
+                                >
+                                  <Lock className="h-3 w-3 mr-1" />
+                                  Edit
+                                </Button>
+                              )
                             ) : (
                               <Button
                                 size="sm"
                                 variant="outline"
                                 className="rounded-full font-bold text-xs h-8 px-3"
-                                onClick={() => onOpenDelivery(item)}
+                                onClick={() => onToggleExpand(isExpanded ? null : item.id)}
                               >
                                 Edit
                               </Button>
@@ -502,6 +504,15 @@ export function DeliveryItemsList({
                                 })}
                               </p>
                             )}
+                          {canRecord && (
+                            <DeliveryRecordForm
+                              key={item.id}
+                              item={item}
+                              sheetId={sheetId}
+                              onDone={() => onToggleExpand(null)}
+                            />
+                          )}
+
                           <CustomerHistorySection customerId={item.customerId} />
                         </div>
                       </motion.div>

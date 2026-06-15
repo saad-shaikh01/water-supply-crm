@@ -4,7 +4,6 @@ import { useReducer, useMemo, useEffect, useRef } from 'react';
 import { Card, CardContent, Skeleton } from '@water-supply-crm/ui';
 import { useDailySheet, useUpdateCustomerLocation, useUnlockDeliveryEdit } from '../hooks/use-daily-sheets';
 import { dailySheetsApi } from '../api/daily-sheets.api';
-import { DeliveryDialog } from './dialogs/delivery-dialog';
 import { CheckinDialog } from './dialogs/checkin-dialog';
 import { NewTripDialog } from './dialogs/new-trip-dialog';
 import { SwapDialog } from './dialogs/swap-dialog';
@@ -28,7 +27,6 @@ import { SheetExpensesSection } from './sheet-expenses-section';
 interface UiState {
   newTripOpen: boolean;
   checkinOpen: string | null;
-  deliveryOpen: string | null;
   swapOpen: boolean;
   reconcileOpen: boolean;
   activeTab: TabKey;
@@ -41,8 +39,6 @@ type UiAction =
   | { type: 'CLOSE_NEW_TRIP' }
   | { type: 'OPEN_CHECKIN'; tripId: string }
   | { type: 'CLOSE_CHECKIN' }
-  | { type: 'OPEN_DELIVERY'; itemId: string }
-  | { type: 'CLOSE_DELIVERY' }
   | { type: 'OPEN_SWAP' }
   | { type: 'CLOSE_SWAP' }
   | { type: 'OPEN_RECONCILE' }
@@ -54,7 +50,6 @@ type UiAction =
 const initialUiState: UiState = {
   newTripOpen: false,
   checkinOpen: null,
-  deliveryOpen: null,
   swapOpen: false,
   reconcileOpen: false,
   activeTab: 'all',
@@ -68,8 +63,6 @@ function uiReducer(state: UiState, action: UiAction): UiState {
     case 'CLOSE_NEW_TRIP': return { ...state, newTripOpen: false };
     case 'OPEN_CHECKIN': return { ...state, checkinOpen: action.tripId };
     case 'CLOSE_CHECKIN': return { ...state, checkinOpen: null };
-    case 'OPEN_DELIVERY': return { ...state, deliveryOpen: action.itemId };
-    case 'CLOSE_DELIVERY': return { ...state, deliveryOpen: null, expandedItemId: null };
     case 'OPEN_SWAP': return { ...state, swapOpen: true };
     case 'CLOSE_SWAP': return { ...state, swapOpen: false };
     case 'OPEN_RECONCILE': return { ...state, reconcileOpen: true };
@@ -326,6 +319,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
       />
 
       <DeliveryItemsList
+        sheetId={sheetId}
         items={items}
         paginatedItems={paginatedItems}
         filteredItems={filteredItems}
@@ -338,16 +332,6 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         onTabChange={(tab) => dispatch({ type: 'SET_TAB', tab: tab as TabKey })}
         onPageChange={(page) => dispatch({ type: 'SET_PAGE', page })}
         onToggleExpand={(itemId) => dispatch({ type: 'SET_EXPANDED', itemId })}
-        onOpenDelivery={(item) => {
-          if (!isClosed) {
-            const isTerminal = ['COMPLETED', 'EMPTY_ONLY', 'NOT_AVAILABLE', 'CANCELLED'].includes(item.status);
-            if (isDriver && isTerminal) {
-              const hasUnlock = item.editUnlockExpiresAt && new Date(item.editUnlockExpiresAt) > new Date();
-              if (!hasUnlock) return;
-            }
-            dispatch({ type: 'OPEN_DELIVERY', itemId: item.id });
-          }
-        }}
         onSaveLocation={async (customerId, lat, lng) => {
           await updateCustomerLocation.mutateAsync({ customerId, latitude: lat, longitude: lng });
         }}
@@ -388,12 +372,6 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         currentDriverName={data?.driver?.name}
         currentVanId={data?.vanId}
         currentVanPlate={data?.van?.plateNumber}
-      />
-      <DeliveryDialog
-        open={ui.deliveryOpen}
-        onClose={() => dispatch({ type: 'CLOSE_DELIVERY' })}
-        sheetId={sheetId}
-        items={items}
       />
     </div>
   );
