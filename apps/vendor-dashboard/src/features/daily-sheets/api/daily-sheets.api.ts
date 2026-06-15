@@ -59,7 +59,7 @@ export const dailySheetsApi = {
     apiClient.post<DeliveryItemNote>(
       `/daily-sheets/items/${itemId}/notes/voice${duration != null ? `?duration=${duration}` : ''}`,
       formData,
-      { headers: { 'Content-Type': 'multipart/form-data' } },
+      // Do NOT set Content-Type manually — axios sets it automatically with the correct boundary for FormData
     ),
   acknowledgeNote: (noteId: string) =>
     apiClient.patch<DeliveryItemNote>(`/daily-sheets/items/notes/${noteId}/acknowledge`, {}),

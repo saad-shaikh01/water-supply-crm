@@ -212,3 +212,16 @@ export const useRemoveCustomPrice = () => {
     onError: () => toast.error('Failed to remove custom price'),
   });
 };
+
+export const useUpdateCustomerLocation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ customerId, latitude, longitude }: { customerId: string; latitude: number; longitude: number }) =>
+      customersApi.updateLocation(customerId, latitude, longitude),
+    onSuccess: (_, { customerId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.customers.one(customerId) });
+      toast.success('Location updated');
+    },
+    onError: () => toast.error('Failed to update location'),
+  });
+};

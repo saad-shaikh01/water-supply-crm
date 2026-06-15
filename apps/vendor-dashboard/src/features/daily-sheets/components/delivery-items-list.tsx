@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Card, CardContent, Button, Badge, Tabs, TabsList, TabsTrigger, Skeleton } from '@water-supply-crm/ui';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import {
@@ -268,7 +269,7 @@ export function DeliveryItemsList({
                   item.status !== 'PENDING' ? 'bg-muted/30' : 'bg-card/50',
                   isExpanded ? 'border-primary/30 shadow-sm' : 'hover:border-primary/20',
                 )}>
-                  <CardContent className="p-4 sm:p-5">
+                  <CardContent className="p-4 sm:p-5 cursor-pointer" onClick={() => onToggleExpand(isExpanded ? null : item.id)}>
                     <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
                       <div className="flex items-center gap-3 flex-1 min-w-0">
                         <div className="h-9 w-9 rounded-full bg-accent flex items-center justify-center shrink-0 font-black text-sm">
@@ -276,7 +277,13 @@ export function DeliveryItemsList({
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <h4 className="font-bold text-sm truncate">{customer?.name}</h4>
+                            <Link
+                              href={`/dashboard/customers/${item.customerId}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="font-bold text-sm truncate hover:underline hover:text-primary transition-colors"
+                            >
+                              {customer?.name}
+                            </Link>
                             <Badge variant="outline" className="text-[9px] font-mono px-1.5">{customer?.customerCode}</Badge>
                           </div>
                           <p className="text-xs text-muted-foreground truncate flex items-center gap-1 mt-0.5">
@@ -305,7 +312,7 @@ export function DeliveryItemsList({
                             size="sm"
                             variant="default"
                             className="rounded-full font-bold text-xs h-10 px-4 min-w-[72px]"
-                            onClick={() => onToggleExpand(isExpanded ? null : item.id)}
+                            onClick={(e) => { e.stopPropagation(); onToggleExpand(isExpanded ? null : item.id); }}
                           >
                             {isExpanded ? 'Close' : 'Record'}
                           </Button>
@@ -318,7 +325,7 @@ export function DeliveryItemsList({
                                   size="sm"
                                   variant="outline"
                                   className="rounded-full font-bold text-xs h-10 px-4 border-amber-500/50 text-amber-600 dark:text-amber-400"
-                                  onClick={() => onToggleExpand(isExpanded ? null : item.id)}
+                                  onClick={(e) => { e.stopPropagation(); onToggleExpand(isExpanded ? null : item.id); }}
                                 >
                                   Edit
                                 </Button>
@@ -328,6 +335,7 @@ export function DeliveryItemsList({
                                   variant="outline"
                                   className="rounded-full font-bold text-xs h-10 px-4 opacity-50 cursor-not-allowed"
                                   disabled
+                                  onClick={(e) => e.stopPropagation()}
                                 >
                                   <Lock className="h-3 w-3 mr-1" />
                                   Locked
@@ -338,7 +346,7 @@ export function DeliveryItemsList({
                                 size="sm"
                                 variant="outline"
                                 className="rounded-full font-bold text-xs h-10 px-4"
-                                onClick={() => onToggleExpand(isExpanded ? null : item.id)}
+                                onClick={(e) => { e.stopPropagation(); onToggleExpand(isExpanded ? null : item.id); }}
                               >
                                 Edit
                               </Button>
@@ -348,7 +356,7 @@ export function DeliveryItemsList({
                                 className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-amber-600 hover:bg-amber-500/10 transition-colors"
                                 title="Unlock edit for driver"
                                 disabled={unlockingItemId === item.id}
-                                onClick={() => onUnlockEdit(item.id)}
+                                onClick={(e) => { e.stopPropagation(); onUnlockEdit(item.id); }}
                               >
                                 {unlockingItemId === item.id ? (
                                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -361,7 +369,7 @@ export function DeliveryItemsList({
                         )}
                         <button
                           className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                          onClick={() => onToggleExpand(isExpanded ? null : item.id)}
+                          onClick={(e) => { e.stopPropagation(); onToggleExpand(isExpanded ? null : item.id); }}
                         >
                           {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                         </button>

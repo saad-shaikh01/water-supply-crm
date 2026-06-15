@@ -33,6 +33,7 @@ import { cn } from '@water-supply-crm/ui';
 import type { CustomerDetail as CustomerDetailType, CustomerConsumption, CustomerScheduleItem } from '@water-supply-crm/types';
 import { CustomerForm } from './customer-form';
 import { PortalAccountDialog } from './dialogs/portal-account-dialog';
+import { EditLocationDialog } from './dialogs/edit-location-dialog';
 import { CustomPriceDialog } from './dialogs/custom-price-dialog';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 
@@ -226,6 +227,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
   const [editOpen, setEditOpen] = useState(false);
   const [portalOpen, setPortalOpen] = useState(false);
   const [customPriceOpen, setCustomPriceOpen] = useState(false);
+  const [locationOpen, setLocationOpen] = useState(false);
   const [consumptionRange, setConsumptionRange] = useState<ConsumptionRange>(() => {
     const today = new Date();
     const from = new Date(today);
@@ -802,9 +804,20 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
 
               <Card className="rounded-3xl border-border/50 bg-card/30 backdrop-blur-sm overflow-hidden flex flex-col">
                 <CardHeader className="border-b bg-muted/20 px-6 py-4">
-                  <CardTitle className="text-base font-bold flex items-center gap-2">
-                    <Navigation className="h-4 w-4 text-primary" /> Location
-                  </CardTitle>
+                  <div className="flex items-center justify-between w-full">
+                    <CardTitle className="text-base font-bold flex items-center gap-2">
+                      <Navigation className="h-4 w-4 text-primary" /> Location
+                    </CardTitle>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-xl h-8 text-xs font-bold"
+                      onClick={() => setLocationOpen(true)}
+                    >
+                      <Pencil className="h-3 w-3 mr-1" />
+                      {customer.latitude && customer.longitude ? 'Edit Location' : 'Add Location'}
+                    </Button>
+                  </div>
                 </CardHeader>
 
                 {/* Embedded OpenStreetMap — shown only when lat/lng available */}
@@ -881,6 +894,14 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
           </TabsContent>
         </div>
       </Tabs>
+
+      <EditLocationDialog
+        open={locationOpen}
+        onClose={() => setLocationOpen(false)}
+        customerId={customerId}
+        latitude={customer.latitude ?? null}
+        longitude={customer.longitude ?? null}
+      />
 
       <PortalAccountDialog
         open={portalOpen}
