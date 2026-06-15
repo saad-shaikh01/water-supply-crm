@@ -98,7 +98,7 @@ export function DamagePhotoUpload({
 
       {/* Photo grid */}
       {photos.length > 0 && (
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {photos.map((photo, i) => (
             <div
               key={i}
@@ -141,7 +141,7 @@ export function DamagePhotoUpload({
             type="button"
             variant="outline"
             size="sm"
-            className="flex-1 gap-2 rounded-xl"
+            className="flex-1 gap-2 rounded-xl h-12"
             onClick={() => cameraRef.current?.click()}
           >
             <Camera className="h-4 w-4" />
@@ -151,7 +151,7 @@ export function DamagePhotoUpload({
             type="button"
             variant="outline"
             size="sm"
-            className="flex-1 gap-2 rounded-xl"
+            className="flex-1 gap-2 rounded-xl h-12"
             onClick={() => galleryRef.current?.click()}
           >
             <ImagePlus className="h-4 w-4" />

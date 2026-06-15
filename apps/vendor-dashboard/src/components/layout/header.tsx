@@ -187,7 +187,7 @@ export function Header() {
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="end"
-              className="w-80 p-0 bg-background/95 backdrop-blur-xl border-border/50 rounded-2xl shadow-2xl"
+              className="w-80 max-w-[calc(100vw-2rem)] p-0 bg-background/95 backdrop-blur-xl border-border/50 rounded-2xl shadow-2xl"
             >
               <div className="px-4 py-3 border-b border-border/50 flex items-center justify-between gap-3">
                 <div>

@@ -277,10 +277,10 @@ export function DeliveryItemsList({
                           <Button
                             size="sm"
                             variant="default"
-                            className="rounded-full font-bold text-xs h-8 px-3"
+                            className="rounded-full font-bold text-xs h-10 px-4 min-w-[72px]"
                             onClick={() => onToggleExpand(isExpanded ? null : item.id)}
                           >
-                            Record
+                            {isExpanded ? 'Close' : 'Record'}
                           </Button>
                         )}
                         {!isClosed && item.status !== 'PENDING' && (
@@ -290,7 +290,7 @@ export function DeliveryItemsList({
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  className="rounded-full font-bold text-xs h-8 px-3 border-amber-500/50 text-amber-600 dark:text-amber-400"
+                                  className="rounded-full font-bold text-xs h-10 px-4 border-amber-500/50 text-amber-600 dark:text-amber-400"
                                   onClick={() => onToggleExpand(isExpanded ? null : item.id)}
                                 >
                                   Edit
@@ -299,18 +299,18 @@ export function DeliveryItemsList({
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  className="rounded-full font-bold text-xs h-8 px-3 opacity-50 cursor-not-allowed"
+                                  className="rounded-full font-bold text-xs h-10 px-4 opacity-50 cursor-not-allowed"
                                   disabled
                                 >
                                   <Lock className="h-3 w-3 mr-1" />
-                                  Edit
+                                  Locked
                                 </Button>
                               )
                             ) : (
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="rounded-full font-bold text-xs h-8 px-3"
+                                className="rounded-full font-bold text-xs h-10 px-4"
                                 onClick={() => onToggleExpand(isExpanded ? null : item.id)}
                               >
                                 Edit

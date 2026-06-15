@@ -118,7 +118,9 @@ export function Sidebar({ className }: { className?: string }) {
 
       <div className="p-6 border-t border-border/50 bg-white/[0.01]">
         <div className="px-5 py-4 rounded-2xl bg-white/[0.03] border border-border/50 shadow-xl">
-          <p className="text-[9px] uppercase tracking-widest font-bold text-primary">Operator</p>
+          <p className="text-[9px] uppercase tracking-widest font-bold text-primary">
+            {user?.role === 'DRIVER' ? 'Driver' : 'Operator'}
+          </p>
           <p className="text-sm font-bold truncate text-foreground dark:text-white mt-1">{user?.name || 'User'}</p>
           <div className="flex items-center gap-2 mt-1">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" />

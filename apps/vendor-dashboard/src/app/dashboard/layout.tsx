@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import { NuqsAdapter } from 'nuqs/adapters/next/app';
 import { Sidebar } from '../../components/layout/sidebar';
 import { Header } from '../../components/layout/header';
+import { DriverMobileNav } from '../../components/layout/driver-mobile-nav';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -13,7 +14,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className="flex-1 flex flex-col min-w-0">
           <Header />
           <main className="flex-1 overflow-y-auto overflow-x-hidden relative scroll-smooth">
-            <div className="max-w-7xl mx-auto p-4 md:p-8 relative z-10">
+            <div className="max-w-7xl mx-auto p-4 md:p-8 pb-24 md:pb-8 relative z-10">
               <Suspense fallback={
                 <div className="h-[60vh] flex flex-col items-center justify-center space-y-4 animate-in fade-in duration-500">
                   <div className="h-12 w-12 rounded-full border-4 border-primary/20 border-t-primary animate-spin" />
@@ -24,6 +25,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </Suspense>
             </div>
           </main>
+          <DriverMobileNav />
         </div>
       </div>
     </NuqsAdapter>

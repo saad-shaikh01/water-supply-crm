@@ -216,7 +216,7 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
 
       {deliveryMode === 'delivered' ? (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* LEFT COLUMN — entry fields stacked vertically */}
             <div className="space-y-4">
               <div className="space-y-2">
@@ -299,15 +299,15 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
             </div>
 
             {/* RIGHT COLUMN — customer monthly financial snapshot */}
-            <div className="space-y-2">
+            <div className="grid grid-cols-2 sm:grid-cols-1 gap-2">
               {finLoading ? (
                 [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[52px] w-full rounded-xl" />)
               ) : (
                 <>
                   <StatBox label="Prev Month Bill" value={finSummary?.prevMonthAmount ?? 0} />
                   <StatBox label="Paid This Month" value={livePaidThisMonth} tone="paid" />
-                  <StatBox label="Prev Month Outstanding" value={finSummary?.prevMonthOutstanding ?? 0} tone="balance" />
-                  <StatBox label="Current Outstanding" value={liveCurrentOutstanding} tone="balance" />
+                  <StatBox label="Prev Month Bal" value={finSummary?.prevMonthOutstanding ?? 0} tone="balance" />
+                  <StatBox label="Current Bal" value={liveCurrentOutstanding} tone="balance" />
                 </>
               )}
             </div>

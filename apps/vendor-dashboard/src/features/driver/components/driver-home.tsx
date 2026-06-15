@@ -65,7 +65,7 @@ export function DriverHome() {
   });
 
   return (
-    <div className="space-y-8 max-w-3xl">
+    <div className="space-y-6 sm:space-y-8 max-w-3xl pb-24 md:pb-0">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -116,7 +116,7 @@ export function DriverHome() {
                 </div>
                 <Link
                   href={`/dashboard/daily-sheets/${todaySheet.id}`}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary/10 text-primary text-sm font-semibold hover:bg-primary/20 transition-colors whitespace-nowrap"
+                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-primary/10 text-primary text-sm font-semibold hover:bg-primary/20 transition-colors whitespace-nowrap min-h-[44px]"
                 >
                   Open Sheet <ArrowRight className="h-3.5 w-3.5" />
                 </Link>
@@ -133,7 +133,7 @@ export function DriverHome() {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
         {/* This Week */}
         <div>
           <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-muted-foreground/60 mb-3">

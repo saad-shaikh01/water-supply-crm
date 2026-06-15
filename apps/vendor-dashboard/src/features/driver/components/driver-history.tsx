@@ -79,14 +79,14 @@ export function DriverHistory() {
   }
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6 max-w-3xl pb-24 md:pb-0">
       {/* Header + Month Selector */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-foreground">My History</h1>
         <select
           value={month}
           onChange={(e) => handleMonthChange(e.target.value)}
-          className="px-3 py-2 rounded-xl bg-card/60 border border-white/10 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+          className="px-3 py-2 rounded-xl bg-card/60 border border-border text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
         >
           {monthOptions.map((o) => (
             <option key={o.value} value={o.value}>
@@ -109,7 +109,7 @@ export function DriverHistory() {
               ))}
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-x-8 gap-y-2.5">
+            <div className="grid grid-cols-2 gap-x-4 sm:gap-x-8 gap-y-2.5">
               <StatRow label="Sheets" value={String(stats?.totalSheets ?? 0)} />
               <StatRow
                 label="Deliveries"
@@ -134,19 +134,22 @@ export function DriverHistory() {
                 label="Empties Received"
                 value={String(stats?.totalEmptiesReceived ?? 0)}
               />
-              <div className="flex items-center justify-between col-span-2 border-t border-white/5 pt-2.5 mt-1">
-                <div className="text-xs text-muted-foreground">
-                  Expected:{' '}
-                  <span className="text-foreground font-semibold">
-                    ₨{(stats?.cashExpected ?? 0).toLocaleString()}
+              <div className="col-span-2 border-t border-border pt-2.5 mt-1 space-y-1.5">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="text-xs text-muted-foreground">
+                    Expected:{' '}
+                    <span className="text-foreground font-semibold">
+                      ₨{(stats?.cashExpected ?? 0).toLocaleString()}
+                    </span>
                   </span>
-                  <span className="mx-2 text-border dark:text-white/20">|</span>
-                  Collected:{' '}
-                  <span className="text-foreground font-semibold">
-                    ₨{(stats?.cashCollected ?? 0).toLocaleString()}
+                  <span className="text-xs text-muted-foreground">
+                    Collected:{' '}
+                    <span className="text-foreground font-semibold">
+                      ₨{(stats?.cashCollected ?? 0).toLocaleString()}
+                    </span>
                   </span>
+                  <DiscrepancyBadge />
                 </div>
-                <DiscrepancyBadge />
               </div>
             </div>
           )}
@@ -169,7 +172,7 @@ export function DriverHistory() {
                     </span>
                     <span className="font-semibold text-foreground">{count}</span>
                   </div>
-                  <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
+                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
                     <div
                       className="h-full rounded-full bg-primary/60"
                       style={{ width: `${(count / maxFailureCount) * 100}%` }}

@@ -45,44 +45,38 @@ function CaseRow({ item }: { item: DamageCase }) {
       className="w-full text-left"
     >
       <Card className="bg-card/40 backdrop-blur-xl border border-white/10 rounded-2xl hover:border-primary/30 hover:bg-card/60 transition-all">
-        <CardContent className="p-4">
-          <div className="flex items-center gap-3">
-            {/* Date */}
-            <div className="flex items-center gap-1.5 text-muted-foreground shrink-0 w-20">
+        <CardContent className="p-4 space-y-2">
+          {/* Top row: date + customer name + arrow */}
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 text-muted-foreground shrink-0">
               <Calendar className="h-3 w-3" />
               <span className="text-xs font-medium">{formatDate(item.createdAt)}</span>
             </div>
-
-            {/* Customer name */}
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-foreground truncate">
-                {item.customer?.name ?? '—'}
-              </p>
-              {item.product && (
-                <p className="text-xs text-muted-foreground truncate">{item.product.name}</p>
-              )}
-            </div>
-
-            {/* Severity */}
-            <Badge
-              className={`text-[10px] border shrink-0 capitalize ${(item.severity && SEVERITY_COLOURS[item.severity]) ?? ''}`}
-            >
-              {item.severity ? item.severity.charAt(0) + item.severity.slice(1).toLowerCase() : '—'}
-            </Badge>
-
-            {/* Bottle count */}
-            <span className="text-xs font-mono font-semibold text-foreground shrink-0 w-8 text-right">
-              ×{item.bottleCount}
-            </span>
-
-            {/* Status */}
-            <Badge
-              className={`text-[10px] border shrink-0 ${STATUS_COLOURS[item.status] ?? ''}`}
-            >
-              {STATUS_LABELS[item.status] ?? item.status}
-            </Badge>
-
+            <p className="text-sm font-semibold text-foreground truncate flex-1 min-w-0">
+              {item.customer?.name ?? '—'}
+            </p>
             <ChevronRight className="h-4 w-4 text-muted-foreground/40 shrink-0" />
+          </div>
+          {/* Bottom row: product + severity + count + status */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {item.product && (
+              <span className="text-xs text-muted-foreground truncate flex-1 min-w-0">
+                {item.product.name}
+              </span>
+            )}
+            <div className="flex items-center gap-2 shrink-0 ml-auto">
+              <Badge
+                className={`text-[10px] border capitalize ${(item.severity && SEVERITY_COLOURS[item.severity]) ?? ''}`}
+              >
+                {item.severity ? item.severity.charAt(0) + item.severity.slice(1).toLowerCase() : '—'}
+              </Badge>
+              <span className="text-xs font-mono font-semibold text-foreground">
+                ×{item.bottleCount}
+              </span>
+              <Badge className={`text-[10px] border ${STATUS_COLOURS[item.status] ?? ''}`}>
+                {STATUS_LABELS[item.status] ?? item.status}
+              </Badge>
+            </div>
           </div>
         </CardContent>
       </Card>

@@ -204,12 +204,12 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         ].map((step, i) => (
           <div key={i} className="flex flex-col items-center gap-2">
             <div className={cn(
-              'h-10 w-10 rounded-full flex items-center justify-center transition-all duration-500',
+              'h-8 w-8 sm:h-10 sm:w-10 rounded-full flex items-center justify-center transition-all duration-500',
               step.active ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20' : 'bg-muted text-muted-foreground',
             )}>
-              <step.icon className="h-5 w-5" />
+              <step.icon className="h-4 w-4 sm:h-5 sm:w-5" />
             </div>
-            <span className={cn('text-[10px] font-bold uppercase tracking-widest', step.active ? 'text-primary' : 'text-muted-foreground')}>
+            <span className={cn('text-[10px] font-bold uppercase tracking-tight text-center leading-tight', step.active ? 'text-primary' : 'text-muted-foreground')}>
               {step.label}
             </span>
           </div>
@@ -227,9 +227,9 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
       )}
 
       {/* Stats Bar */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <Card className="bg-card/50 backdrop-blur-sm">
-          <CardContent className="p-4 flex items-center gap-4">
+          <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
             <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
               <User className="h-5 w-5" />
             </div>
@@ -240,7 +240,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
           </CardContent>
         </Card>
         <Card className="bg-card/50 backdrop-blur-sm">
-          <CardContent className="p-4 flex items-center gap-4">
+          <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
             <div className="h-10 w-10 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-500">
               <Droplets className="h-5 w-5" />
             </div>
@@ -251,7 +251,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
           </CardContent>
         </Card>
         <Card className="bg-card/50 backdrop-blur-sm">
-          <CardContent className="p-4 flex items-center gap-4">
+          <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
             <div className="h-10 w-10 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-500">
               <Package className="h-5 w-5" />
             </div>
@@ -262,7 +262,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
           </CardContent>
         </Card>
         <Card className="bg-card/50 backdrop-blur-sm">
-          <CardContent className="p-4 flex items-center gap-4">
+          <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
             <div className="h-10 w-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
               <CheckCircle2 className="h-5 w-5" />
             </div>
@@ -273,7 +273,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
           </CardContent>
         </Card>
         <Card className="bg-card/50 backdrop-blur-sm">
-          <CardContent className="p-4 flex items-center gap-4">
+          <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
             <div className="h-10 w-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500">
               <Truck className="h-5 w-5" />
             </div>
@@ -284,7 +284,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
           </CardContent>
         </Card>
         <Card className="bg-card/50 backdrop-blur-sm">
-          <CardContent className="p-4 flex items-center gap-4">
+          <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
             <div className="h-10 w-10 rounded-xl bg-destructive/10 flex items-center justify-center text-destructive">
               <Receipt className="h-5 w-5" />
             </div>
