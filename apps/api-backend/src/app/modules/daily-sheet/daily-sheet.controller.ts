@@ -164,6 +164,13 @@ export class DailySheetController {
     return this.dailySheetService.unlockDeliveryEdit(user, id, dto);
   }
 
+  @Patch('items/:id/request-edit')
+  @Roles(UserRole.DRIVER)
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
+  requestDeliveryEdit(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.dailySheetService.requestDeliveryEdit(user, id);
+  }
+
   @Patch('items/:id')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
   @Throttle({ short: { ttl: 1000, limit: 10 }, medium: { ttl: 60000, limit: 60 } })

@@ -107,6 +107,11 @@ export function Header() {
     });
 
   const getNotificationHref = (notification: InAppNotification) => {
+    // Deep-link directly to the specific daily sheet for edit requests
+    if (notification.type === 'DELIVERY_EDIT_REQUESTED' && notification.entityId) {
+      return `/dashboard/daily-sheets/${notification.entityId}`;
+    }
+
     let pathname = '/dashboard/overview';
 
     if (notification.type.startsWith('ORDER_')) {

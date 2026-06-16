@@ -6,7 +6,7 @@ import { Card, CardContent, Button, Badge, Tabs, TabsList, TabsTrigger, Skeleton
 import { StatusBadge } from '../../../components/shared/status-badge';
 import {
   AlertCircle, ChevronDown, ChevronUp, ClipboardList,
-  History, LocateFixed, Lock, Loader2, MapPin, MessageCircle, MessageSquare, Navigation, Phone, StickyNote, Unlock,
+  History, LocateFixed, Lock, Loader2, MapPin, MessageCircle, MessageSquare, Navigation, Phone, Send, StickyNote, Unlock,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -142,6 +142,8 @@ interface DeliveryItemsListProps {
   isAdminOrStaff: boolean;
   onUnlockEdit: (itemId: string) => void;
   unlockingItemId: string | null;
+  onRequestEdit: (itemId: string) => void;
+  requestingItemId: string | null;
 }
 
 export function DeliveryItemsList({
@@ -163,6 +165,8 @@ export function DeliveryItemsList({
   isAdminOrStaff,
   onUnlockEdit,
   unlockingItemId,
+  onRequestEdit,
+  requestingItemId,
 }: DeliveryItemsListProps) {
   const [savingLocationItemId, setSavingLocationItemId] = useState<string | null>(null);
   const [addNoteItem, setAddNoteItem] = useState<DeliveryItem | null>(null);
@@ -340,16 +344,31 @@ export function DeliveryItemsList({
                                 >
                                   Edit
                                 </Button>
+                              ) : item.editRequestedAt ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="rounded-full font-bold text-xs h-10 px-4 opacity-60 cursor-not-allowed border-blue-500/40 text-blue-500"
+                                  disabled
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <Send className="h-3 w-3 mr-1" />
+                                  Requested
+                                </Button>
                               ) : (
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  className="rounded-full font-bold text-xs h-10 px-4 opacity-50 cursor-not-allowed"
-                                  disabled
-                                  onClick={(e) => e.stopPropagation()}
+                                  className="rounded-full font-bold text-xs h-10 px-4 border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10"
+                                  disabled={requestingItemId === item.id}
+                                  onClick={(e) => { e.stopPropagation(); onRequestEdit(item.id); }}
                                 >
-                                  <Lock className="h-3 w-3 mr-1" />
-                                  Locked
+                                  {requestingItemId === item.id ? (
+                                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                  ) : (
+                                    <Lock className="h-3 w-3 mr-1" />
+                                  )}
+                                  Request Edit
                                 </Button>
                               )
                             ) : (
@@ -364,15 +383,25 @@ export function DeliveryItemsList({
                             )}
                             {isAdminOrStaff && (
                               <button
-                                className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-amber-600 hover:bg-amber-500/10 transition-colors"
-                                title="Unlock edit for driver"
+                                className={cn(
+                                  'h-8 w-8 rounded-full flex items-center justify-center transition-colors relative',
+                                  item.editRequestedAt && !hasActiveEditUnlock
+                                    ? 'text-amber-600 bg-amber-500/15 hover:bg-amber-500/25'
+                                    : 'text-muted-foreground hover:text-amber-600 hover:bg-amber-500/10',
+                                )}
+                                title={item.editRequestedAt && !hasActiveEditUnlock ? 'Driver requested edit — click to unlock' : 'Unlock edit for driver'}
                                 disabled={unlockingItemId === item.id}
                                 onClick={(e) => { e.stopPropagation(); onUnlockEdit(item.id); }}
                               >
                                 {unlockingItemId === item.id ? (
                                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                 ) : (
-                                  <Unlock className="h-3.5 w-3.5" />
+                                  <>
+                                    <Unlock className="h-3.5 w-3.5" />
+                                    {item.editRequestedAt && !hasActiveEditUnlock && (
+                                      <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                                    )}
+                                  </>
                                 )}
                               </button>
                             )}

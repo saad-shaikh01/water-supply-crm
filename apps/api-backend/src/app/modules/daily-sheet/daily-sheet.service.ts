@@ -26,6 +26,7 @@ import { AuditService } from '../audit/audit.service';
 import { FcmService } from '../fcm/fcm.service';
 import { DeliveryIssueService } from '../delivery-issue/delivery-issue.service';
 import { NotificationService } from '../notifications/notification.service';
+import { InAppNotificationService } from '../notifications/in-app-notification.service';
 import { MessageTemplates } from '../whatsapp/templates/message.templates';
 import { InsertOrderItemDto, SequenceMode } from './dto/insert-order-item.dto';
 import { paginate } from '../../common/helpers/paginate';
@@ -47,6 +48,7 @@ export class DailySheetService {
     private deliveryIssue: DeliveryIssueService,
     private cache: CacheInvalidationService,
     private notifications: NotificationService,
+    private inAppNotifications: InAppNotificationService,
     private storage: StorageService,
     @InjectQueue(QUEUE_NAMES.DAILY_SHEET_GENERATION)
     private sheetQueue: Queue,
@@ -162,7 +164,7 @@ export class DailySheetService {
           ...(resolvedStatus === DeliveryStatus.COMPLETED || resolvedStatus === DeliveryStatus.EMPTY_ONLY
             ? { deliveredAt: new Date() }
             : { deliveredAt: null }),
-          ...(dto.forceResubmit ? { editUnlockedBy: null, editUnlockExpiresAt: null } : {}),
+          ...(dto.forceResubmit ? { editUnlockedBy: null, editUnlockExpiresAt: null, editRequestedAt: null } : {}),
         },
       });
 
@@ -317,6 +319,7 @@ export class DailySheetService {
       data: {
         editUnlockedBy: user.userId,
         editUnlockExpiresAt: expiresAt,
+        editRequestedAt: null,
       },
     });
 
@@ -333,6 +336,68 @@ export class DailySheetService {
         },
       },
     });
+
+    return updated;
+  }
+
+  async requestDeliveryEdit(user: AuthUser, itemId: string) {
+    const item = await this.prisma.dailySheetItem.findUnique({
+      where: { id: itemId },
+      include: {
+        dailySheet: { select: { id: true, vendorId: true, driverId: true, date: true } },
+        customer: { select: { name: true } },
+      },
+    });
+
+    if (!item || item.dailySheet.vendorId !== user.vendorId) {
+      throw new NotFoundException('Sheet item not found');
+    }
+
+    if (item.dailySheet.driverId !== user.userId) {
+      throw new ForbiddenException('Only the assigned driver can request an edit');
+    }
+
+    const TERMINAL_STATUSES = ['COMPLETED', 'EMPTY_ONLY', 'NOT_AVAILABLE', 'CANCELLED'];
+    if (!TERMINAL_STATUSES.includes(item.status)) {
+      throw new BadRequestException('Item is not in a terminal status');
+    }
+
+    const updated = await this.prisma.dailySheetItem.update({
+      where: { id: itemId },
+      data: { editRequestedAt: new Date() },
+    });
+
+    // Notify all VENDOR_ADMIN and STAFF users for this vendor
+    const sheetId = item.dailySheet.id;
+    const customerName = item.customer?.name ?? 'Customer';
+    const driverName = user.name ?? 'Driver';
+    const dateStr = new Date(item.dailySheet.date).toLocaleDateString('en-PK', {
+      day: 'numeric', month: 'short',
+    });
+
+    const adminUsers = await this.prisma.user.findMany({
+      where: { vendorId: user.vendorId, role: { in: ['VENDOR_ADMIN', 'STAFF'] }, isActive: true },
+      select: { id: true },
+    });
+
+    await Promise.all(
+      adminUsers.map(async (admin) => {
+        await this.inAppNotifications.create({
+          userId: admin.id,
+          vendorId: user.vendorId,
+          type: 'DELIVERY_EDIT_REQUESTED',
+          title: `Edit Request — ${customerName}`,
+          message: `${driverName} requests to edit delivery #${item.sequence} for ${customerName} (${dateStr}).`,
+          entityId: sheetId,
+        });
+        await this.notifications.queueFcm(
+          admin.id,
+          `Edit Request — ${customerName}`,
+          `${driverName} wants to edit delivery #${item.sequence} for ${customerName} (${dateStr}).`,
+          { type: 'DELIVERY_EDIT_REQUESTED', sheetId },
+        );
+      }),
+    );
 
     return updated;
   }

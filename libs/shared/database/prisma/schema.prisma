@@ -381,6 +381,7 @@ model DailySheetItem {
   rescheduledTo DateTime?
   editUnlockedBy      String?    // userId of staff/admin who unlocked edit
   editUnlockExpiresAt DateTime?  // when unlock window expires (null = locked)
+  editRequestedAt     DateTime?  // set when driver requests edit; cleared on admin unlock
   whatsappSentAt      DateTime?  // set when delivery-complete WhatsApp is successfully sent
 
   deliveryIssue DeliveryIssue?

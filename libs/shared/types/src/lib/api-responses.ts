@@ -177,6 +177,7 @@ export interface DeliveryItem {
   deliveredAt?: string | null;
   editUnlockedBy?: string | null;
   editUnlockExpiresAt?: string | null;
+  editRequestedAt?: string | null;
   whatsappSentAt?: string | null;
   bottleBalanceAfter?: number | null;
   financialBalanceAfter?: number | null;

@@ -2,7 +2,7 @@
 
 import { useReducer, useMemo, useEffect, useRef } from 'react';
 import { Card, CardContent, Skeleton } from '@water-supply-crm/ui';
-import { useDailySheet, useUpdateCustomerLocation, useUnlockDeliveryEdit } from '../hooks/use-daily-sheets';
+import { useDailySheet, useUpdateCustomerLocation, useUnlockDeliveryEdit, useRequestDeliveryEdit } from '../hooks/use-daily-sheets';
 import { dailySheetsApi } from '../api/daily-sheets.api';
 import { CheckinDialog } from './dialogs/checkin-dialog';
 import { NewTripDialog } from './dialogs/new-trip-dialog';
@@ -100,20 +100,22 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const { data, isLoading } = useDailySheet(sheetId);
   const updateCustomerLocation = useUpdateCustomerLocation(sheetId);
   const unlockDeliveryEdit = useUnlockDeliveryEdit(sheetId);
+  const requestDeliveryEdit = useRequestDeliveryEdit(sheetId);
   const [ui, dispatch] = useReducer(uiReducer, initialUiState);
 
   const items = useMemo(() => data?.items ?? [], [data]);
 
-  // Auto-default to the Pending tab on first data load when pending items exist
+  // Drivers stay on 'all' tab so completed deliveries remain visible after recording.
+  // Non-driver users auto-switch to 'pending' on first load when pending items exist.
   const hasDefaultedTab = useRef(false);
   useEffect(() => {
-    if (hasDefaultedTab.current || items.length === 0) return;
+    if (isDriver || hasDefaultedTab.current || items.length === 0) return;
     hasDefaultedTab.current = true;
     const pendingCount = items.filter((i) => i.status === 'PENDING').length;
     if (pendingCount > 0) {
       dispatch({ type: 'SET_TAB', tab: 'pending' });
     }
-  }, [items]);
+  }, [items, isDriver]);
   const loads = useMemo(() => data?.loads ?? [], [data]);
   const doneItems = useMemo(
     () => items.filter((i) => i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY'),
@@ -341,6 +343,12 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         unlockingItemId={
           unlockDeliveryEdit.isPending
             ? ((unlockDeliveryEdit.variables as any)?.itemId ?? null)
+            : null
+        }
+        onRequestEdit={(itemId) => requestDeliveryEdit.mutate(itemId)}
+        requestingItemId={
+          requestDeliveryEdit.isPending
+            ? ((requestDeliveryEdit.variables as any) ?? null)
             : null
         }
       />

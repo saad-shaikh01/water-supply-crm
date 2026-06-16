@@ -232,6 +232,18 @@ export const useUnlockDeliveryEdit = (sheetId: string) => {
   });
 };
 
+export const useRequestDeliveryEdit = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (itemId: string) => dailySheetsApi.requestDeliveryEdit(itemId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
+      toast.success('Edit request sent to admin');
+    },
+    onError: () => toast.error('Failed to send edit request'),
+  });
+};
+
 export const useAddTextNote = (sheetId: string) => {
   const queryClient = useQueryClient();
   return useMutation({

@@ -50,6 +50,8 @@ export const dailySheetsApi = {
     apiClient.get(`/daily-sheets/customers/${customerId}/financial-summary`, { params: { sheetId } }),
   unlockDeliveryEdit: (itemId: string, data?: { windowMinutes?: number }) =>
     apiClient.patch(`/daily-sheets/items/${itemId}/unlock-edit`, data ?? {}),
+  requestDeliveryEdit: (itemId: string) =>
+    apiClient.patch(`/daily-sheets/items/${itemId}/request-edit`, {}),
   // Notes
   getItemNotes: (itemId: string) =>
     apiClient.get<DeliveryItemNote[]>(`/daily-sheets/items/${itemId}/notes`),
