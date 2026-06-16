@@ -1217,7 +1217,10 @@ export class DailySheetService {
         file.mimetype,
       );
     } catch (err) {
-      this.logger.error('Voice note upload failed', err);
+      this.logger.error(
+        `Voice note upload failed: ${(err as Error)?.message ?? String(err)}`,
+        (err as Error)?.stack,
+      );
       throw new InternalServerErrorException('Failed to upload voice note');
     }
 
