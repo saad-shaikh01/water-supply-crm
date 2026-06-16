@@ -140,6 +140,13 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
     </div>
   );
 
+  if (!data) return (
+    <div className="flex flex-col items-center justify-center py-24 text-center space-y-3">
+      <p className="text-sm font-bold text-foreground">Sheet not found</p>
+      <p className="text-xs text-muted-foreground">This daily sheet may have been deleted or you don&apos;t have access.</p>
+    </div>
+  );
+
   const activeTrip = loads.find((l) => !l.endedAt) ?? null;
   const hasAnyTrip = loads.length > 0;
   const isClosed = !!data?.isClosed;
