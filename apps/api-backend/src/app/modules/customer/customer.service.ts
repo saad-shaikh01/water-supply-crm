@@ -774,10 +774,22 @@ export class CustomerService {
           else rateStatus = 'ACTION';
         }
 
-        const walletBottlesPerDay = r2(walletFilled / periodDays);
+        // Use days since first delivery (not full period window) so a new customer
+        // with 1 delivery doesn't get their rate diluted across 30 empty days.
+        const firstDeliveryAt = walletDeliveries.length > 0
+          ? walletDeliveries.reduce((min, d) => (d.createdAt < min ? d.createdAt : min), walletDeliveries[0].createdAt)
+          : null;
+        const activeDays = firstDeliveryAt
+          ? Math.max(1, Math.ceil((effectiveEnd.getTime() - firstDeliveryAt.getTime()) / 86_400_000))
+          : periodDays;
+        const walletBottlesPerDay = r2(walletFilled / activeDays);
+
         const includesToday = effectiveEnd.getTime() >= startOfToday.getTime();
+        // Require at least 2 deliveries: with only 1 we can't know the cycle yet.
         const estStockDaysLeft =
-          includesToday && walletBottlesPerDay > 0 ? r1(w.balance / walletBottlesPerDay) : null;
+          includesToday && walletDeliveries.length >= 2 && walletBottlesPerDay > 0
+            ? r1(w.balance / walletBottlesPerDay)
+            : null;
 
         return {
           product: w.product,

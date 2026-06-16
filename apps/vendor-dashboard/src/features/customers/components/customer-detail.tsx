@@ -23,7 +23,7 @@ import {
   CreditCard, Droplets, Clock, Info,
   ShieldCheck, Trash2, Globe,
   Lock as LockIcon,
-  TrendingUp, TrendingDown, FileText, ChevronDown,
+  TrendingUp, TrendingDown, FileText, ChevronDown, Download,
   CalendarRange,
   ExternalLink, Navigation, Building2, Landmark,
 } from 'lucide-react';
@@ -92,6 +92,8 @@ const CONSUMPTION_PRESETS: { label: string; value: ConsumptionPreset }[] = [
   { label: 'All Time', value: 'ALL_TIME' },
   { label: 'Custom', value: 'CUSTOM' },
 ];
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 interface ConsumptionRangePickerProps {
   value: ConsumptionRange;
@@ -241,6 +243,13 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
     return { dateFrom: from, dateTo: to };
   });
 
+  const [statementYear, setStatementYear] = useState<number>(new Date().getFullYear());
+  const [statementMonth, setStatementMonth] = useState<string>(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [isDownloadingStatement, setIsDownloadingStatement] = useState(false);
+
   const { mutate: removeCustomPrice, isPending: isRemovingPrice } = useRemoveCustomPrice();
   const [removeCustomPriceId, setRemoveCustomPriceId] = useState<string | null>(null);
   const { data: consumptionData, isLoading: isLoadingConsumption } = useCustomerConsumption(
@@ -251,14 +260,8 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
   );
   const { data: scheduleData, isLoading: isLoadingSchedule } = useCustomerSchedule(customerId, scheduleRange);
 
-  // Derive a YYYY-MM month from the range end for the statement endpoint
-  const statementMonth = (
-    consumptionRange.preset === 'ALL_TIME'
-      ? new Date().toISOString()
-      : consumptionRange.to + 'T00:00:00Z'
-  ).slice(0, 7);
-
   const handleStatementDownload = async () => {
+    setIsDownloadingStatement(true);
     try {
       const res = await customersApi.getStatement(customerId, { month: statementMonth });
       const blob = res.data as Blob;
@@ -271,6 +274,8 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
     } catch {
       const { toast } = await import('sonner');
       toast.error('Statement not available for this period');
+    } finally {
+      setIsDownloadingStatement(false);
     }
   };
 
@@ -288,6 +293,10 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
 
   const customer = data as CustomerDetailType;
   const balance = Number(customer?.financialBalance ?? 0);
+
+  const joinYear = new Date(customer.createdAt).getFullYear();
+  const nowYear = new Date().getFullYear();
+  const statementYears = Array.from({ length: nowYear - joinYear + 1 }, (_, i) => joinYear + i);
   const isNegative = balance > 0; // Customer owes money
 
   return (
@@ -412,6 +421,9 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
           <TabsTrigger value="prices" className="rounded-xl font-bold px-5 py-2 transition-all">
             Custom Pricing
           </TabsTrigger>
+          <TabsTrigger value="statement" className="rounded-xl font-bold px-5 py-2 transition-all">
+            Statement
+          </TabsTrigger>
           <TabsTrigger value="info" className="rounded-xl font-bold px-5 py-2 transition-all">
             Full Info
           </TabsTrigger>
@@ -474,12 +486,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                 <CardTitle className="text-base font-bold flex items-center gap-2">
                   <TrendingUp className="h-4 w-4 text-primary" /> Consumption Rate
                 </CardTitle>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <ConsumptionRangePicker value={consumptionRange} onChange={setConsumptionRange} />
-                  <Button size="sm" variant="outline" className="rounded-xl h-8 px-3 text-xs font-bold gap-1.5" onClick={handleStatementDownload}>
-                    <FileText className="h-3.5 w-3.5" /> Statement PDF
-                  </Button>
-                </div>
+                <ConsumptionRangePicker value={consumptionRange} onChange={setConsumptionRange} />
               </CardHeader>
               <CardContent className="p-6">
                 {isLoadingConsumption ? (
@@ -551,7 +558,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                         <p className="text-sm text-muted-foreground text-center py-6">No deliveries in this period</p>
                       ) : (
                         <div className="space-y-2">
-                          <div className="divide-y divide-border/50 border border-border/50 rounded-2xl overflow-hidden">
+                          <div className="divide-y divide-border/20 border border-border/20 rounded-2xl overflow-hidden">
                             <div className="grid grid-cols-7 px-4 py-2 bg-muted/20 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
                               <span>Product</span>
                               <span className="text-right">Deliveries</span>
@@ -704,6 +711,102 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                     <p className="text-sm font-medium">Using standard base pricing for all products.</p>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="statement">
+            <Card className="rounded-3xl border-border/50 bg-card/30 backdrop-blur-sm">
+              <CardHeader className="border-b bg-muted/20 px-6 py-4 flex flex-row items-center justify-between gap-3 flex-wrap">
+                <CardTitle className="text-base font-bold flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-primary" /> Monthly Statement
+                </CardTitle>
+                <Button
+                  size="sm"
+                  className="rounded-xl h-8 px-4 text-xs font-bold gap-1.5"
+                  onClick={handleStatementDownload}
+                  disabled={isDownloadingStatement}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  {isDownloadingStatement ? 'Generating...' : 'Download PDF'}
+                </Button>
+              </CardHeader>
+              <CardContent className="p-6 space-y-6">
+                {/* Year selector */}
+                <div className="space-y-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Select Year</p>
+                  <div className="flex flex-wrap gap-2">
+                    {statementYears.map((year) => (
+                      <button
+                        key={year}
+                        type="button"
+                        onClick={() => setStatementYear(year)}
+                        className={cn(
+                          'px-5 py-1.5 text-xs font-bold rounded-full border transition-all',
+                          statementYear === year
+                            ? 'bg-primary text-primary-foreground border-primary shadow-sm shadow-primary/20'
+                            : 'bg-card/40 text-muted-foreground border-border/50 hover:border-primary/40 hover:text-foreground hover:bg-accent/50',
+                        )}
+                      >
+                        {year}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Month grid */}
+                <div className="space-y-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Select Month</p>
+                  <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                    {MONTH_NAMES.map((name, idx) => {
+                      const monthNum = idx + 1;
+                      const value = `${statementYear}-${String(monthNum).padStart(2, '0')}`;
+                      const now = new Date();
+                      const joinDate = new Date(customer.createdAt);
+                      const isAfterNow = statementYear === now.getFullYear() && monthNum > now.getMonth() + 1;
+                      const isBeforeJoin = statementYear === joinDate.getFullYear() && monthNum < joinDate.getMonth() + 1;
+                      const isDisabled = isAfterNow || isBeforeJoin;
+                      const isSelected = statementMonth === value;
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          disabled={isDisabled}
+                          onClick={() => setStatementMonth(value)}
+                          className={cn(
+                            'py-2.5 text-xs font-semibold rounded-xl border transition-all',
+                            isSelected
+                              ? 'bg-primary text-primary-foreground border-primary shadow-sm shadow-primary/20'
+                              : isDisabled
+                              ? 'opacity-30 cursor-not-allowed bg-muted/20 border-border/30 text-muted-foreground'
+                              : 'bg-card/40 text-muted-foreground border-border/50 hover:border-primary/40 hover:text-foreground hover:bg-accent/50',
+                          )}
+                        >
+                          {name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Preview card */}
+                <div className="p-4 rounded-2xl bg-muted/20 border border-border/40 flex items-center justify-between gap-4 flex-wrap">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                      <FileText className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold">{customer.name}</p>
+                      <p className="text-[10px] text-muted-foreground font-mono font-medium">{customer.customerCode}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-bold text-primary">
+                      {new Date(statementMonth + '-02').toLocaleDateString('en-PK', { month: 'long', year: 'numeric' })}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground font-medium">Selected Period</p>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
