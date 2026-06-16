@@ -6,7 +6,7 @@ import { Card, CardContent, Button, Badge, Tabs, TabsList, TabsTrigger, Skeleton
 import { StatusBadge } from '../../../components/shared/status-badge';
 import {
   AlertCircle, ChevronDown, ChevronUp, ClipboardList,
-  History, LocateFixed, Lock, Loader2, MapPin, MessageCircle, Navigation, Phone, StickyNote, Unlock,
+  History, LocateFixed, Lock, Loader2, MapPin, MessageCircle, MessageSquare, Navigation, Phone, StickyNote, Unlock,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -309,6 +309,15 @@ export function DeliveryItemsList({
                           </div>
                         )}
                         <StatusBadge status={item.status} />
+                        {item.whatsappSentAt && (
+                          <div
+                            title={`WhatsApp sent at ${new Date(item.whatsappSentAt).toLocaleTimeString()}`}
+                            className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                          >
+                            <MessageSquare className="h-3 w-3" />
+                            <span className="text-[9px] font-bold">WA</span>
+                          </div>
+                        )}
                         {!isClosed && item.status === 'PENDING' && (
                           <Button
                             size="sm"

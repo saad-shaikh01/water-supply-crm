@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { MapPin, Tag, ShieldOff } from 'lucide-react';
+import { MapPin, Tag, ShieldOff, LocateFixed, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter, SheetDescription,
   Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -15,6 +16,7 @@ import { useRoutes } from '../../routes/hooks/use-routes';
 import { useAllVans } from '../../vans/hooks/use-vans';
 import { productsApi } from '../../products/api/products.api';
 import { cn } from '@water-supply-crm/ui';
+import { reverseGeocode } from '../../../lib/geocoding';
 
 interface CustomerFormProps {
   open: boolean;
@@ -86,6 +88,35 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
   const deliverySchedule = watch('deliverySchedule') || [];
   const googleMapsUrl = watch('googleMapsUrl');
   const [lastSelectedVanId, setLastSelectedVanId] = useState<string | undefined>(undefined);
+  const [locating, setLocating] = useState(false);
+
+  const handleGpsCapture = () => {
+    if (!navigator.geolocation) {
+      toast.error('Geolocation is not supported by your browser');
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        setValue('latitude', latitude);
+        setValue('longitude', longitude);
+        setValue('googleMapsUrl', `https://www.google.com/maps?q=${latitude},${longitude}`);
+        const fetched = await reverseGeocode(latitude, longitude);
+        if (fetched) setValue('address', fetched);
+        setLocating(false);
+      },
+      (err) => {
+        setLocating(false);
+        if (err.code === GeolocationPositionError.PERMISSION_DENIED) {
+          toast.error('Location access denied — please allow location in browser settings');
+        } else {
+          toast.error('Could not get your current location');
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+  };
 
   useEffect(() => {
     if (open && customer) {
@@ -213,6 +244,20 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
               <Input placeholder="House No / Building, Street, Area" className="bg-background/50 border-border/50 focus:border-primary/50 transition-all" {...register('address')} />
               {errors.address && <p className="text-[11px] font-medium text-destructive">{errors.address.message}</p>}
             </div>
+
+            {/* GPS quick-fill */}
+            <button
+              type="button"
+              onClick={handleGpsCapture}
+              disabled={locating || isPending}
+              className="w-full flex items-center justify-center gap-2 h-10 rounded-xl border border-dashed border-primary/40 bg-primary/5 hover:bg-primary/10 hover:border-primary/60 transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm font-bold text-primary"
+            >
+              {locating ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Locating &amp; fetching address…</>
+              ) : (
+                <><LocateFixed className="h-4 w-4" /> Use Current Location</>
+              )}
+            </button>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">

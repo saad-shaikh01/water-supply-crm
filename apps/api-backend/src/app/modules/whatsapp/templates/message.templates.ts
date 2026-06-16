@@ -42,4 +42,12 @@ export const MessageTemplates = {
 
   orderDispatched: (customerName: string, productName: string, qty: number) =>
     `Assalam o Alaikum ${customerName}! 🚚\n\nAapka order aaj deliver ho raha hai:\n🔵 Product: ${productName}\n🫙 Quantity: ${qty}\n\nDriver raaste mein hai. Shukriya!`,
+
+  deliveryCorrected: (
+    customerName: string,
+    productName: string,
+    qty: number,
+    cashCollected: number,
+  ) =>
+    `Assalam o Alaikum ${customerName},\n\n⚠️ Maafi chahte hain — aapki aaj ki delivery mein ek ghalti hui thi jo hum ne correct kar di hai.\n\n✅ Corrected Details:\n🔵 Product: ${productName}\n🫙 Quantity: ${qty} bottles\n💰 Cash Collected: Rs. ${cashCollected}\n\nIs ghalti ke liye muafi chahte hain. Shukriya!`,
 };

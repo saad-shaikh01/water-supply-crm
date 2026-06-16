@@ -71,8 +71,29 @@ export const useWhatsAppStatus = () =>
   useQuery({
     queryKey: ['whatsapp-status'],
     queryFn: () => balanceRemindersApi.getWhatsAppStatus().then((r) => r.data),
-    refetchInterval: 30_000,
+    refetchInterval: 10_000,
   });
+
+export const useWhatsAppQr = (enabled: boolean) =>
+  useQuery({
+    queryKey: ['whatsapp-qr'],
+    queryFn: () => balanceRemindersApi.getWhatsAppQr().then((r) => r.data),
+    refetchInterval: enabled ? 15_000 : false,
+    enabled,
+  });
+
+export const useWhatsAppLogout = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => balanceRemindersApi.logoutWhatsApp(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['whatsapp-status'] });
+      queryClient.invalidateQueries({ queryKey: ['whatsapp-qr'] });
+      toast.success('WhatsApp disconnected — scan QR to reconnect');
+    },
+    onError: () => toast.error('Failed to disconnect WhatsApp'),
+  });
+};
 
 export const useReminderHistory = (page = 1, limit = 10) =>
   useQuery({

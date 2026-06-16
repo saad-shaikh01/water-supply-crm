@@ -2,15 +2,69 @@ import { Injectable } from '@nestjs/common';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import PDFDocument = require('pdfkit');
 
-const TYPE_COLOR: Record<string, string> = {
-  PAYMENT: '#16a34a',
-  DELIVERY: '#2563eb',
-  ADJUSTMENT: '#d97706',
-  COLLECTION: '#7c3aed',
-  LOAD_OUT: '#0891b2',
-  CHECK_IN: '#0891b2',
+// ── Brand ──────────────────────────────────────────────────────────────────
+const BRAND = 'Blue Ice';
+
+// ── Palette ────────────────────────────────────────────────────────────────
+const C = {
+  navy:     '#0f172a',
+  blue:     '#3b82f6',
+  muted:    '#64748b',
+  mutedLt:  '#94a3b8',
+  border:   '#e2e8f0',
+  surface:  '#f8fafc',
+  surface2: '#f1f5f9',
+  text:     '#1e293b',
+  textSoft: '#475569',
+  white:    '#ffffff',
+  red:      '#dc2626',
+  green:    '#059669',
+  amber:    '#d97706',
+  purple:   '#7c3aed',
+  cyan:     '#0891b2',
 };
 
+// ── Transaction type metadata ───────────────────────────────────────────────
+const TYPE_LABEL: Record<string, string> = {
+  PAYMENT:    'Payment',
+  DELIVERY:   'Delivery',
+  ADJUSTMENT: 'Adjustment',
+  COLLECTION: 'Collection',
+  LOAD_OUT:   'Load Out',
+  CHECK_IN:   'Check In',
+};
+
+const TYPE_COLOR: Record<string, string> = {
+  PAYMENT:    C.green,
+  DELIVERY:   C.blue,
+  ADJUSTMENT: C.amber,
+  COLLECTION: C.purple,
+  LOAD_OUT:   C.cyan,
+  CHECK_IN:   C.cyan,
+};
+
+// ── Page geometry ───────────────────────────────────────────────────────────
+const MARGIN    = 40;
+const PAGE_W    = 595.28;
+const PAGE_H    = 841.89;
+const CONTENT_W = PAGE_W - MARGIN * 2;   // 515.28
+const HEADER_H  = 88;
+const ACCENT_H  = 3;
+const ROW_H     = 22;
+const FOOTER_H  = 58;
+const FOOTER_Y  = PAGE_H - FOOTER_H;     // ~783
+
+// ── Table column geometry (widths sum to 515 = CONTENT_W) ──────────────────
+const COL = {
+  date:  { x: MARGIN,       w: 68  },   // 68
+  type:  { x: MARGIN + 68,  w: 74  },   // 74
+  desc:  { x: MARGIN + 142, w: 160 },   // 160
+  debit: { x: MARGIN + 302, w: 66  },   // 66
+  cred:  { x: MARGIN + 368, w: 66  },   // 66
+  bal:   { x: MARGIN + 434, w: 81  },   // 81  → total 515 ✓
+};
+
+// ── Service ─────────────────────────────────────────────────────────────────
 @Injectable()
 export class CustomerStatementPdfService {
   async generate(data: {
@@ -21,161 +75,319 @@ export class CustomerStatementPdfService {
     period: string;
   }): Promise<Buffer> {
     return new Promise((resolve, reject) => {
-      const doc = new PDFDocument({ margin: 40, size: 'A4' });
+      const doc = new PDFDocument({ margin: MARGIN, size: 'A4', bufferPages: true });
       const chunks: Buffer[] = [];
-
-      doc.on('data', (chunk) => chunks.push(chunk));
-      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('data', (c: Buffer) => chunks.push(c));
       doc.on('error', reject);
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
 
-      this.drawDocument(doc, data);
+      this.drawContent(doc, data);
+
+      // Stamp page-X-of-Y footer on every buffered page
+      const { count } = doc.bufferedPageRange();
+      for (let i = 0; i < count; i++) {
+        doc.switchToPage(i);
+        this.drawFooter(doc, i + 1, count);
+      }
+
+      doc.flushPages();
       doc.end();
     });
   }
 
-  private drawDocument(doc: PDFKit.PDFDocument, data: any): void {
-    const pageWidth = doc.page.width - 80;
+  // ── Document flow ──────────────────────────────────────────────────────────
+  private drawContent(doc: PDFKit.PDFDocument, data: any): void {
     const { customer, transactions, openingBalance, closingBalance, period } = data;
+    this.drawHeader(doc, period);
+    this.drawInfoStrip(doc, customer, period);
+    this.drawBalanceCards(doc, openingBalance, closingBalance);
+    doc.y += 12;
+    this.drawSectionLabel(doc, `Transaction History  (${transactions.length} record${transactions.length !== 1 ? 's' : ''})`);
+    doc.y += 6;
+    this.drawTableHeader(doc);
+    this.drawTableRows(doc, transactions, openingBalance);
+    this.drawTotalsRow(doc, transactions);
+  }
 
-    // ─── Header ────────────────────────────────────────────────────────────────
-    doc.rect(40, 40, pageWidth, 70).fill('#0ea5e9');
-    doc.fillColor('#ffffff').fontSize(18).font('Helvetica-Bold')
-      .text('Water Supply CRM — Customer Statement', 55, 52);
-    doc.fontSize(11).font('Helvetica')
-      .text(`Period: ${period}`, 55, 76);
-    doc.y = 125;
+  // ── Header ─────────────────────────────────────────────────────────────────
+  private drawHeader(doc: PDFKit.PDFDocument, period: string): void {
+    // Navy background — full bleed
+    doc.rect(0, 0, PAGE_W, HEADER_H).fill(C.navy);
 
-    // ─── Customer Info ──────────────────────────────────────────────────────────
-    this.drawSectionTitle(doc, 'Customer Information');
-    const infoY = doc.y + 4;
-    doc.fontSize(10).font('Helvetica-Bold').fillColor('#374151');
-    doc.text('Name:', 40, infoY);
-    doc.text('Code:', 40, infoY + 18);
-    doc.text('Address:', 40, infoY + 36);
-    doc.text('Phone:', 40, infoY + 54);
+    // Brand (left)
+    doc.fillColor(C.white).font('Helvetica-Bold').fontSize(26)
+       .text(BRAND, MARGIN + 8, 18, { lineBreak: false });
+    doc.fillColor(C.mutedLt).font('Helvetica').fontSize(9)
+       .text('Customer Account Statement', MARGIN + 8, 52, { lineBreak: false });
 
-    doc.font('Helvetica').fillColor('#1f2937');
-    doc.text(customer.name ?? '—', 120, infoY);
-    doc.text(customer.customerCode ?? '—', 120, infoY + 18);
-    doc.text(customer.address ?? '—', 120, infoY + 36);
-    doc.text(customer.phoneNumber ?? '—', 120, infoY + 54);
-    doc.y = infoY + 76;
+    // Period (right)
+    doc.fillColor(C.mutedLt).font('Helvetica').fontSize(7.5)
+       .text('STATEMENT PERIOD', MARGIN, 20, { width: CONTENT_W, align: 'right', lineBreak: false });
+    doc.fillColor(C.white).font('Helvetica-Bold').fontSize(14)
+       .text(period, MARGIN, 36, { width: CONTENT_W, align: 'right', lineBreak: false });
 
-    // ─── Balance Summary ────────────────────────────────────────────────────────
-    this.drawSectionTitle(doc, 'Balance Summary');
-    const summaryY = doc.y + 4;
-    const boxW = (pageWidth - 8) / 3;
+    // Blue accent bar
+    doc.rect(0, HEADER_H, PAGE_W, ACCENT_H).fill(C.blue);
 
-    const activity = closingBalance - openingBalance;
-    const boxes = [
-      { label: 'Opening Balance', value: `Rs. ${openingBalance.toFixed(2)}`, color: '#dbeafe', textColor: '#1d4ed8' },
-      { label: 'Period Activity', value: `Rs. ${activity >= 0 ? '+' : ''}${activity.toFixed(2)}`, color: '#fef9c3', textColor: '#a16207' },
-      { label: 'Closing Balance', value: `Rs. ${closingBalance.toFixed(2)}`, color: '#dcfce7', textColor: '#15803d' },
+    doc.y = HEADER_H + ACCENT_H + 16;
+  }
+
+  // ── Info strip ─────────────────────────────────────────────────────────────
+  private drawInfoStrip(doc: PDFKit.PDFDocument, customer: any, period: string): void {
+    const y     = doc.y;
+    const h     = 98;
+    const halfW = CONTENT_W / 2;
+    const lx    = MARGIN + 14;
+    const rx    = MARGIN + halfW + 14;
+    const lblW  = 52;
+
+    // Outer border
+    doc.rect(MARGIN, y, CONTENT_W, h).strokeColor(C.border).lineWidth(0.75).stroke();
+
+    // Vertical divider
+    doc.moveTo(MARGIN + halfW, y).lineTo(MARGIN + halfW, y + h)
+       .strokeColor(C.border).lineWidth(0.75).stroke();
+
+    // LEFT — Customer details
+    doc.fillColor(C.mutedLt).font('Helvetica-Bold').fontSize(6.5)
+       .text('CUSTOMER DETAILS', lx, y + 10, { lineBreak: false });
+
+    const leftRows: [string, string][] = [
+      ['Name',    customer.name        ?? '—'],
+      ['Code',    customer.customerCode ?? '—'],
+      ['Phone',   customer.phoneNumber  ?? '—'],
+      ['Address', customer.address      ?? '—'],
     ];
-
-    boxes.forEach((box, i) => {
-      const x = 40 + i * (boxW + 4);
-      doc.rect(x, summaryY, boxW, 52).fill(box.color);
-      doc.fillColor(box.textColor).fontSize(9).font('Helvetica-Bold')
-        .text(box.label, x + 6, summaryY + 8, { width: boxW - 12, align: 'center' });
-      doc.fontSize(14).font('Helvetica-Bold')
-        .text(box.value, x + 6, summaryY + 26, { width: boxW - 12, align: 'center' });
+    leftRows.forEach(([lbl, val], i) => {
+      const ry = y + 26 + i * 16;
+      doc.fillColor(C.muted).font('Helvetica').fontSize(7.5)
+         .text(lbl, lx, ry, { width: lblW, lineBreak: false });
+      doc.fillColor(C.text).font('Helvetica-Bold').fontSize(8)
+         .text(val, lx + lblW, ry, { width: halfW - lblW - 18, lineBreak: false });
     });
 
-    doc.y = summaryY + 60;
+    // RIGHT — Statement details
+    const refNo   = `BI-${(customer.customerCode ?? '0000').toUpperCase()}-${period.replace(/[^A-Za-z0-9]/g, '').toUpperCase()}`;
+    const genDate = new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' });
+    const status  = customer.isActive === false ? 'Inactive' : 'Active Account';
 
-    // ─── Transaction Table ──────────────────────────────────────────────────────
-    this.drawSectionTitle(doc, `Transactions (${transactions.length})`);
-    this.drawTransactionTable(doc, transactions, openingBalance, pageWidth);
+    doc.fillColor(C.mutedLt).font('Helvetica-Bold').fontSize(6.5)
+       .text('STATEMENT DETAILS', rx, y + 10, { lineBreak: false });
 
-    // ─── Footer ─────────────────────────────────────────────────────────────────
-    const pageBottom = doc.page.height - 40;
-    doc.fontSize(8).fillColor('#9ca3af').font('Helvetica')
-      .text(
-        `Generated by Water Supply CRM • ${new Date().toLocaleString('en-PK')}`,
-        40,
-        pageBottom - 15,
-        { width: pageWidth, align: 'center' },
-      );
+    const rightRows: [string, string][] = [
+      ['Period',    period],
+      ['Generated', genDate],
+      ['Reference', refNo],
+      ['Status',    status],
+    ];
+    rightRows.forEach(([lbl, val], i) => {
+      const ry = y + 26 + i * 16;
+      doc.fillColor(C.muted).font('Helvetica').fontSize(7.5)
+         .text(lbl, rx, ry, { width: lblW, lineBreak: false });
+      doc.fillColor(C.text).font('Helvetica-Bold').fontSize(8)
+         .text(val, rx + lblW, ry, { width: halfW - lblW - 16, lineBreak: false });
+    });
+
+    doc.y = y + h + 14;
   }
 
-  private drawSectionTitle(doc: PDFKit.PDFDocument, title: string): void {
-    doc.rect(40, doc.y, doc.page.width - 80, 22).fill('#f1f5f9');
-    doc.fillColor('#0f172a').fontSize(10).font('Helvetica-Bold')
-      .text(title, 48, doc.y + 5);
-    doc.moveDown(1.4);
+  // ── Balance cards ──────────────────────────────────────────────────────────
+  private drawBalanceCards(doc: PDFKit.PDFDocument, opening: number, closing: number): void {
+    const y       = doc.y;
+    const gap     = 8;
+    const cardW   = (CONTENT_W - gap * 2) / 3;
+    const cardH   = 68;
+    const barW    = 5;
+    const activity = closing - opening;
+
+    const cards = [
+      { label: 'OPENING BALANCE', sub: 'Balance brought forward', amt: opening,  bar: C.blue                     },
+      { label: 'PERIOD ACTIVITY',  sub: 'Net change this period',  amt: activity, bar: C.amber                    },
+      { label: 'CLOSING BALANCE', sub: 'Balance carried forward',  amt: closing,  bar: closing > 0 ? C.red : C.green },
+    ];
+
+    cards.forEach((card, i) => {
+      const cx = MARGIN + i * (cardW + gap);
+
+      // White fill
+      doc.rect(cx, y, cardW, cardH).fill(C.white);
+      // Accent bar
+      doc.rect(cx, y, barW, cardH).fill(card.bar);
+      // Border (drawn last, on top)
+      doc.rect(cx, y, cardW, cardH).lineWidth(0.75).strokeColor(C.border).stroke();
+
+      const tx = cx + barW + 9;
+      const tw = cardW - barW - 13;
+
+      doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(7)
+         .text(card.label, tx, y + 10, { width: tw, lineBreak: false });
+
+      const sign   = card.amt < 0 ? '− ' : '';
+      const amtStr = `Rs. ${sign}${Math.abs(card.amt).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      doc.fillColor(C.text).font('Helvetica-Bold').fontSize(13)
+         .text(amtStr, tx, y + 25, { width: tw, lineBreak: false });
+
+      doc.fillColor(C.mutedLt).font('Helvetica').fontSize(7)
+         .text(card.sub, tx, y + 50, { width: tw, lineBreak: false });
+    });
+
+    doc.y = y + cardH + 14;
   }
 
-  private drawTransactionTable(
-    doc: PDFKit.PDFDocument,
-    transactions: any[],
-    openingBalance: number,
-    pageWidth: number,
-  ): void {
-    const cols = { date: 70, type: 70, description: 160, debit: 60, credit: 60, balance: 70 };
+  // ── Section label ──────────────────────────────────────────────────────────
+  private drawSectionLabel(doc: PDFKit.PDFDocument, title: string): void {
+    const y = doc.y;
+    doc.rect(MARGIN, y, CONTENT_W, 20).fill(C.surface2);
+    doc.rect(MARGIN, y, 3, 20).fill(C.blue);
+    doc.fillColor(C.text).font('Helvetica-Bold').fontSize(8.5)
+       .text(title, MARGIN + 10, y + 5, { width: CONTENT_W - 14, lineBreak: false });
+    doc.y = y + 20;
+  }
 
-    const headerY = doc.y;
-    doc.rect(40, headerY, pageWidth, 20).fill('#0f172a');
-    doc.fillColor('#ffffff').fontSize(8).font('Helvetica-Bold');
+  // ── Table header ───────────────────────────────────────────────────────────
+  private drawTableHeader(doc: PDFKit.PDFDocument): void {
+    const y = doc.y;
+    doc.rect(MARGIN, y, CONTENT_W, ROW_H).fill(C.surface2);
+    doc.moveTo(MARGIN, y + ROW_H).lineTo(MARGIN + CONTENT_W, y + ROW_H)
+       .strokeColor(C.border).lineWidth(0.5).stroke();
 
-    let x = 40;
-    doc.text('Date', x + 2, headerY + 5, { width: cols.date }); x += cols.date;
-    doc.text('Type', x + 2, headerY + 5, { width: cols.type }); x += cols.type;
-    doc.text('Description', x + 2, headerY + 5, { width: cols.description }); x += cols.description;
-    doc.text('Debit', x + 2, headerY + 5, { width: cols.debit, align: 'right' }); x += cols.debit;
-    doc.text('Credit', x + 2, headerY + 5, { width: cols.credit, align: 'right' }); x += cols.credit;
-    doc.text('Balance', x + 2, headerY + 5, { width: cols.balance, align: 'right' });
+    doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(7);
+    doc.text('DATE',        COL.date.x  + 3, y + 7, { width: COL.date.w  - 4, lineBreak: false });
+    doc.text('TYPE',        COL.type.x  + 3, y + 7, { width: COL.type.w  - 4, lineBreak: false });
+    doc.text('DESCRIPTION', COL.desc.x  + 3, y + 7, { width: COL.desc.w  - 4, lineBreak: false });
+    doc.text('DEBIT',       COL.debit.x + 3, y + 7, { width: COL.debit.w - 6, align: 'right', lineBreak: false });
+    doc.text('CREDIT',      COL.cred.x  + 3, y + 7, { width: COL.cred.w  - 6, align: 'right', lineBreak: false });
+    doc.text('BALANCE',     COL.bal.x   + 3, y + 7, { width: COL.bal.w   - 6, align: 'right', lineBreak: false });
 
-    doc.y = headerY + 22;
+    doc.y = y + ROW_H;
+  }
 
+  // ── Table rows ─────────────────────────────────────────────────────────────
+  private drawTableRows(doc: PDFKit.PDFDocument, transactions: any[], openingBalance: number): void {
     if (!transactions.length) {
-      doc.fillColor('#6b7280').fontSize(9).font('Helvetica')
-        .text('No transactions in this period.', 40, doc.y + 8, { width: pageWidth, align: 'center' });
+      doc.fillColor(C.muted).font('Helvetica').fontSize(9)
+         .text('No transactions recorded for this period.', MARGIN, doc.y + 18, { width: CONTENT_W, align: 'center' });
+      doc.y += 46;
       return;
     }
 
-    let runningBalance = openingBalance;
+    let running = openingBalance;
 
-    transactions.forEach((tx, index) => {
-      if (doc.y > doc.page.height - 100) {
+    transactions.forEach((tx, idx) => {
+      // Overflow — leave room for footer
+      if (doc.y + ROW_H > FOOTER_Y - 20) {
         doc.addPage();
-        doc.y = 50;
+        doc.y = MARGIN;
+        this.drawTableHeader(doc);
       }
 
-      const rowY = doc.y;
-      const rowBg = index % 2 === 0 ? '#ffffff' : '#f8fafc';
-      doc.rect(40, rowY, pageWidth, 20).fill(rowBg);
+      const rowY  = doc.y;
+      const rowBg = idx % 2 === 0 ? C.white : C.surface;
+      doc.rect(MARGIN, rowY, CONTENT_W, ROW_H).fill(rowBg);
+      doc.moveTo(MARGIN, rowY + ROW_H).lineTo(MARGIN + CONTENT_W, rowY + ROW_H)
+         .strokeColor(C.surface2).lineWidth(0.5).stroke();
 
       const amount = tx.amount ?? 0;
-      // Positive amount = charge (debit), negative = payment (credit)
-      const isDebit = amount > 0;
-      const debit = isDebit ? amount : 0;
-      const credit = !isDebit ? Math.abs(amount) : 0;
-      runningBalance += amount;
+      const debit  = amount > 0 ? amount : 0;
+      const credit = amount < 0 ? Math.abs(amount) : 0;
+      running     += amount;
 
-      const typeColor = TYPE_COLOR[tx.type] ?? '#6b7280';
+      const typeColor = TYPE_COLOR[tx.type] ?? C.muted;
+      const typeLabel = TYPE_LABEL[tx.type]  ?? tx.type;
+      const desc      = tx.description ?? tx.product?.name ?? '—';
+      const dateStr   = new Date(tx.createdAt).toLocaleDateString('en-PK', { day: '2-digit', month: 'short' });
+      const ty        = rowY + 6;
 
-      doc.fillColor('#1f2937').fontSize(8).font('Helvetica');
-      x = 40;
-      doc.text(
-        new Date(tx.createdAt).toLocaleDateString('en-PK', { day: '2-digit', month: 'short' }),
-        x + 2, rowY + 5, { width: cols.date - 4 },
-      ); x += cols.date;
+      // Date
+      doc.fillColor(C.textSoft).font('Helvetica').fontSize(8)
+         .text(dateStr, COL.date.x + 3, ty, { width: COL.date.w - 4, lineBreak: false });
 
-      doc.fillColor(typeColor).font('Helvetica-Bold')
-        .text(tx.type, x + 2, rowY + 5, { width: cols.type - 4 }); x += cols.type;
+      // Type — colored bold
+      doc.fillColor(typeColor).font('Helvetica-Bold').fontSize(7.5)
+         .text(typeLabel, COL.type.x + 3, ty, { width: COL.type.w - 4, lineBreak: false });
 
-      doc.fillColor('#1f2937').font('Helvetica')
-        .text(tx.description ?? tx.product?.name ?? '—', x + 2, rowY + 5, { width: cols.description - 4 }); x += cols.description;
+      // Description
+      doc.fillColor(C.text).font('Helvetica').fontSize(8)
+         .text(desc, COL.desc.x + 3, ty, { width: COL.desc.w - 4, lineBreak: false });
 
-      doc.text(debit > 0 ? `Rs.${debit.toFixed(2)}` : '', x + 2, rowY + 5, { width: cols.debit - 4, align: 'right' }); x += cols.debit;
-      doc.fillColor('#16a34a')
-        .text(credit > 0 ? `Rs.${credit.toFixed(2)}` : '', x + 2, rowY + 5, { width: cols.credit - 4, align: 'right' }); x += cols.credit;
+      // Debit (red)
+      if (debit > 0) {
+        doc.fillColor(C.red).font('Helvetica-Bold').fontSize(8)
+           .text(this.rs(debit), COL.debit.x + 3, ty, { width: COL.debit.w - 6, align: 'right', lineBreak: false });
+      }
 
-      doc.fillColor('#1f2937')
-        .text(`Rs.${runningBalance.toFixed(2)}`, x + 2, rowY + 5, { width: cols.balance - 4, align: 'right' });
+      // Credit (green)
+      if (credit > 0) {
+        doc.fillColor(C.green).font('Helvetica-Bold').fontSize(8)
+           .text(this.rs(credit), COL.cred.x + 3, ty, { width: COL.cred.w - 6, align: 'right', lineBreak: false });
+      }
 
-      doc.y = rowY + 20;
+      // Running balance
+      const balColor = running > 0 ? C.red : running < 0 ? C.green : C.text;
+      doc.fillColor(balColor).font('Helvetica-Bold').fontSize(8)
+         .text(this.rs(Math.abs(running)), COL.bal.x + 3, ty, { width: COL.bal.w - 6, align: 'right', lineBreak: false });
+
+      doc.y = rowY + ROW_H;
     });
+  }
+
+  // ── Totals row ─────────────────────────────────────────────────────────────
+  private drawTotalsRow(doc: PDFKit.PDFDocument, transactions: any[]): void {
+    if (!transactions.length) return;
+    if (doc.y + 28 > FOOTER_Y - 20) { doc.addPage(); doc.y = MARGIN; }
+
+    const totalDebit  = transactions.reduce((s, tx) => s + (tx.amount > 0 ? tx.amount        : 0), 0);
+    const totalCredit = transactions.reduce((s, tx) => s + (tx.amount < 0 ? Math.abs(tx.amount) : 0), 0);
+
+    const y = doc.y;
+    doc.rect(MARGIN, y, CONTENT_W, 26).fill(C.surface2);
+    doc.moveTo(MARGIN, y).lineTo(MARGIN + CONTENT_W, y)
+       .strokeColor(C.border).lineWidth(0.75).stroke();
+
+    doc.fillColor(C.text).font('Helvetica-Bold').fontSize(7.5)
+       .text('PERIOD TOTALS', COL.date.x + 3, y + 8,
+         { width: COL.date.w + COL.type.w + COL.desc.w - 6, lineBreak: false });
+
+    if (totalDebit > 0) {
+      doc.fillColor(C.red).font('Helvetica-Bold').fontSize(8)
+         .text(this.rs(totalDebit), COL.debit.x + 3, y + 8, { width: COL.debit.w - 6, align: 'right', lineBreak: false });
+    }
+    if (totalCredit > 0) {
+      doc.fillColor(C.green).font('Helvetica-Bold').fontSize(8)
+         .text(this.rs(totalCredit), COL.cred.x + 3, y + 8, { width: COL.cred.w - 6, align: 'right', lineBreak: false });
+    }
+
+    doc.y = y + 26;
+  }
+
+  // ── Footer — stamped on every page after buffering ─────────────────────────
+  private drawFooter(doc: PDFKit.PDFDocument, pageNum: number, totalPages: number): void {
+    const stamp = new Date().toLocaleString('en-PK', {
+      day: '2-digit', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+
+    // Separator
+    doc.moveTo(MARGIN, FOOTER_Y + 8).lineTo(PAGE_W - MARGIN, FOOTER_Y + 8)
+       .strokeColor(C.border).lineWidth(0.75).stroke();
+
+    // Brand + timestamp (left)
+    doc.fillColor(C.muted).font('Helvetica').fontSize(7.5)
+       .text(`${BRAND}  •  Generated ${stamp}`, MARGIN, FOOTER_Y + 18, { lineBreak: false });
+
+    // Page X of Y (right)
+    doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(7.5)
+       .text(`Page ${pageNum} of ${totalPages}`, MARGIN, FOOTER_Y + 18,
+         { width: CONTENT_W, align: 'right', lineBreak: false });
+
+    // Confidentiality note
+    doc.fillColor(C.mutedLt).font('Helvetica').fontSize(6.5)
+       .text('This statement is confidential. For queries, contact your supplier.',
+         MARGIN, FOOTER_Y + 34, { width: CONTENT_W, lineBreak: false });
+  }
+
+  // ── Helper: format rupee amount ────────────────────────────────────────────
+  private rs(n: number): string {
+    return `Rs.${n.toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
 }

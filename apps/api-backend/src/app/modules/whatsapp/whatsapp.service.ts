@@ -20,6 +20,14 @@ export class WhatsAppService {
     return this.provider.isReady();
   }
 
+  getQr(): string | null {
+    return this.provider.getQr();
+  }
+
+  async logout(): Promise<void> {
+    await this.provider.logout();
+  }
+
   async sendMessage(phone: string, message: string): Promise<boolean> {
     if (!phone || !message) return false;
 

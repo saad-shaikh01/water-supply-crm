@@ -20,6 +20,8 @@ import {
   useSendTargeted,
   usePreviewReminders,
   useWhatsAppStatus,
+  useWhatsAppQr,
+  useWhatsAppLogout,
   useReminderHistory,
 } from '../../../features/balance-reminders/hooks/use-balance-reminders';
 import { useAllCustomers } from '../../../features/customers/hooks/use-customers';
@@ -52,6 +54,9 @@ export default function BalanceRemindersPage() {
   const { mutate: preview, isPending: isPreviewing, data: previewData, reset: resetPreview } = usePreviewReminders();
   const { data: allCustomersData } = useAllCustomers();
   const { data: waStatus } = useWhatsAppStatus();
+  const isDisconnected = waStatus?.status === 'disconnected';
+  const { data: qrData } = useWhatsAppQr(isDisconnected);
+  const { mutate: logoutWhatsApp, isPending: isLoggingOut } = useWhatsAppLogout();
 
   // Schedule config state
   const [preset, setPreset] = useState('0 4 * * *');
@@ -140,25 +145,78 @@ export default function BalanceRemindersPage() {
         description="Automatically notify customers with outstanding balances via WhatsApp"
       />
 
-      {/* WhatsApp connection status banner */}
+      {/* WhatsApp connection card */}
       {waStatus && (
-        <div className={cn(
-          'flex items-center gap-3 px-4 py-3 rounded-xl border text-sm font-medium',
-          waStatus.status === 'connected'
-            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'
-            : waStatus.status === 'disabled'
-            ? 'bg-amber-500/10 border-amber-500/20 text-amber-500'
-            : 'bg-destructive/10 border-destructive/20 text-destructive',
-        )}>
-          {waStatus.status === 'connected'
-            ? <Wifi className="h-4 w-4 flex-shrink-0" />
-            : <WifiOff className="h-4 w-4 flex-shrink-0" />}
-          <span>
-            {waStatus.status === 'connected' && 'WhatsApp is connected — messages will be delivered.'}
-            {waStatus.status === 'disabled' && 'WhatsApp is disabled (WHATSAPP_ENABLED is not set). Messages will not be sent.'}
-            {waStatus.status === 'disconnected' && 'WhatsApp is not authenticated. Scan the QR code in server logs to connect.'}
-          </span>
-        </div>
+        <Card className="bg-card/50 backdrop-blur-sm border-border/50 overflow-hidden">
+          <CardContent className="p-4">
+            {waStatus.status === 'connected' && (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-full bg-emerald-500/15 flex items-center justify-center flex-shrink-0">
+                    <Wifi className="h-4 w-4 text-emerald-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-emerald-500">WhatsApp Connected</p>
+                    <p className="text-xs text-muted-foreground">Messages will be delivered to customers.</p>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => logoutWhatsApp()}
+                  disabled={isLoggingOut}
+                  className="rounded-xl border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive h-8 text-xs font-bold"
+                >
+                  {isLoggingOut
+                    ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Disconnecting…</>
+                    : <><WifiOff className="h-3.5 w-3.5 mr-1.5" /> Disconnect</>}
+                </Button>
+              </div>
+            )}
+
+            {waStatus.status === 'disabled' && (
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-full bg-amber-500/15 flex items-center justify-center flex-shrink-0">
+                  <WifiOff className="h-4 w-4 text-amber-500" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-amber-500">WhatsApp Disabled</p>
+                  <p className="text-xs text-muted-foreground">Set WHATSAPP_ENABLED=true in server environment to enable.</p>
+                </div>
+              </div>
+            )}
+
+            {waStatus.status === 'disconnected' && (
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                <div className="flex items-center gap-3 flex-1">
+                  <div className="h-9 w-9 rounded-full bg-destructive/15 flex items-center justify-center flex-shrink-0">
+                    <WifiOff className="h-4 w-4 text-destructive" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-destructive">WhatsApp Not Connected</p>
+                    <p className="text-xs text-muted-foreground">
+                      {qrData?.qr ? 'Scan the QR code with your WhatsApp to connect.' : 'QR code is loading…'}
+                    </p>
+                  </div>
+                </div>
+                {qrData?.qr && (
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="p-2 bg-white rounded-xl shadow-lg">
+                      <img src={qrData.qr} alt="WhatsApp QR Code" className="h-36 w-36" />
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">Refreshes every 15s</p>
+                  </div>
+                )}
+                {!qrData?.qr && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading QR…
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">

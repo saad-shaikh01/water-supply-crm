@@ -37,10 +37,15 @@ export class NotificationProcessor extends WorkerHost {
   private async handleJob(job: Job): Promise<string | null> {
     switch (job.name) {
       case JOB_NAMES.SEND_WHATSAPP: {
-        const { phoneNumber, message } = job.data;
+        const { phoneNumber, message, entityType, entityId } = job.data;
         const sent = await this.whatsapp.sendMessage(phoneNumber, message);
         if (sent) {
           this.logger.log(`WhatsApp sent to ${phoneNumber}`);
+          if (entityType === 'DELIVERY_ITEM' && entityId) {
+            await this.prisma.dailySheetItem
+              .update({ where: { id: entityId }, data: { whatsappSentAt: new Date() } })
+              .catch((e: Error) => this.logger.warn(`Failed to update whatsappSentAt for item ${entityId}: ${e.message}`));
+          }
           return null;
         } else {
           this.logger.warn(`WhatsApp not sent to ${phoneNumber} (number not on WhatsApp / disabled / not ready)`);

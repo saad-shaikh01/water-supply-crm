@@ -34,7 +34,7 @@ export function middleware(request: NextRequest) {
 
   // DRIVER can only access allowed driver routes
   if (token && role === 'DRIVER' && pathname.startsWith('/dashboard')) {
-    const driverAllowed = ['/dashboard/daily-sheets', '/dashboard/home', '/dashboard/history'];
+    const driverAllowed = ['/dashboard/daily-sheets', '/dashboard/home', '/dashboard/history', '/dashboard/customers'];
     if (!driverAllowed.some((p) => pathname.startsWith(p))) {
       return redirectTo('/dashboard/home');
     }

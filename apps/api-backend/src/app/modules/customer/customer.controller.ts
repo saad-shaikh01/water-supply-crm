@@ -37,7 +37,7 @@ export class CustomerController {
   constructor(private readonly customerService: CustomerService) {}
 
   @Post()
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateCustomerDto) {
     return this.customerService.create(user.vendorId, dto);

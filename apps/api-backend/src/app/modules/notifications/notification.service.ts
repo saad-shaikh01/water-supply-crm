@@ -9,10 +9,15 @@ export class NotificationService {
     @InjectQueue(QUEUE_NAMES.NOTIFICATIONS) private notificationQueue: Queue,
   ) {}
 
-  async queueWhatsApp(phoneNumber: string, message: string, idempotencyKey?: string) {
+  async queueWhatsApp(
+    phoneNumber: string,
+    message: string,
+    idempotencyKey?: string,
+    meta?: { entityType?: string; entityId?: string },
+  ) {
     return this.notificationQueue.add(
       JOB_NAMES.SEND_WHATSAPP,
-      { phoneNumber, message },
+      { phoneNumber, message, ...meta },
       idempotencyKey ? { jobId: idempotencyKey } : undefined,
     );
   }

@@ -222,14 +222,32 @@ export class DailySheetService {
 
         // WhatsApp: only send when bottles were actually dropped (not empty-only pickups)
         if (resolvedStatus === DeliveryStatus.COMPLETED && item.customer.phoneNumber) {
-          const waMsg = MessageTemplates.deliveryCompleted(
-            item.customer.name,
-            item.product.name,
-            dto.filledDropped,
-            dto.cashCollected ?? 0,
-          );
-          this.notifications.queueWhatsApp(item.customer.phoneNumber, waMsg)
-            .catch((e: Error) => this.logger.warn(`WhatsApp delivery-complete failed for item ${itemId}: ${e.message}`));
+          const isCorrection = !!item.whatsappSentAt;
+          const waMsg = isCorrection
+            ? MessageTemplates.deliveryCorrected(
+                item.customer.name,
+                item.product.name,
+                dto.filledDropped,
+                dto.cashCollected ?? 0,
+              )
+            : MessageTemplates.deliveryCompleted(
+                item.customer.name,
+                item.product.name,
+                dto.filledDropped,
+                dto.cashCollected ?? 0,
+              );
+          // Reset whatsappSentAt so processor stamps it fresh after sending
+          if (isCorrection) {
+            await this.prisma.dailySheetItem
+              .update({ where: { id: itemId }, data: { whatsappSentAt: null } })
+              .catch(() => {});
+          }
+          this.notifications.queueWhatsApp(
+            item.customer.phoneNumber,
+            waMsg,
+            undefined,
+            { entityType: 'DELIVERY_ITEM', entityId: itemId },
+          ).catch((e: Error) => this.logger.warn(`WhatsApp delivery-${isCorrection ? 'correction' : 'complete'} failed for item ${itemId}: ${e.message}`));
         }
       }
 

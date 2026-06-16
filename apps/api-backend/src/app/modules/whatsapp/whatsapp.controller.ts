@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { WhatsAppService } from './whatsapp.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
@@ -7,7 +7,6 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 export class WhatsAppController {
   constructor(private readonly whatsapp: WhatsAppService) {}
 
-  /** GET /whatsapp/status — returns connection state of the WhatsApp client */
   @Get('status')
   getStatus() {
     const enabled = process.env['WHATSAPP_ENABLED'] === 'true';
@@ -17,5 +16,17 @@ export class WhatsAppController {
       ready,
       status: !enabled ? 'disabled' : ready ? 'connected' : 'disconnected',
     };
+  }
+
+  @Get('qr')
+  getQr() {
+    const qr = this.whatsapp.getQr();
+    return { qr };
+  }
+
+  @Post('logout')
+  async logout() {
+    await this.whatsapp.logout();
+    return { success: true };
   }
 }

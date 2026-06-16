@@ -9,6 +9,7 @@ export class WhatsAppWebProvider
   private client: any = null;
   private ready = false;
   private enabled = false;
+  private qrDataUrl: string | null = null;
 
   async onModuleInit() {
     if (process.env.WHATSAPP_ENABLED !== 'true') {
@@ -17,9 +18,11 @@ export class WhatsAppWebProvider
       );
       return;
     }
-
     this.enabled = true;
+    await this.initClient();
+  }
 
+  private async initClient() {
     try {
       // webpackIgnore prevents webpack from trying to bundle these optional packages
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -27,7 +30,7 @@ export class WhatsAppWebProvider
       const { Client, LocalAuth } = await import(/* webpackIgnore: true */ 'whatsapp-web.js');
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
       // @ts-ignore — optional peer dependency, installed separately
-      const qrcode = await import(/* webpackIgnore: true */ 'qrcode-terminal');
+      const QRCode = await import(/* webpackIgnore: true */ 'qrcode');
 
       this.client = new Client({
         authStrategy: new LocalAuth({
@@ -52,17 +55,23 @@ export class WhatsAppWebProvider
         },
       });
 
-      this.client.on('qr', (qr: string) => {
-        qrcode.generate(qr, { small: true });
+      this.client.on('qr', async (qr: string) => {
         this.logger.log('📱 WhatsApp QR Code generated — Scan with your phone!');
+        try {
+          this.qrDataUrl = await QRCode.default.toDataURL(qr);
+        } catch {
+          this.qrDataUrl = null;
+        }
       });
 
       this.client.on('authenticated', () => {
         this.logger.log('✅ WhatsApp authenticated successfully');
+        this.qrDataUrl = null;
       });
 
       this.client.on('ready', () => {
         this.ready = true;
+        this.qrDataUrl = null;
         this.logger.log('🟢 WhatsApp client is READY — Messages will be sent');
       });
 
@@ -77,11 +86,11 @@ export class WhatsAppWebProvider
       });
 
       await this.client.initialize();
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(
-        'Failed to initialize WhatsApp client. Make sure whatsapp-web.js is installed.',
-        error,
+        `Failed to initialize WhatsApp client: ${error?.message ?? error}`,
       );
+      if (error?.stack) this.logger.error(error.stack);
     }
   }
 
@@ -93,6 +102,24 @@ export class WhatsAppWebProvider
 
   isReady(): boolean {
     return this.ready;
+  }
+
+  getQr(): string | null {
+    return this.qrDataUrl;
+  }
+
+  async logout(): Promise<void> {
+    if (!this.client) return;
+    try {
+      await this.client.logout().catch(() => {});
+      await this.client.destroy().catch(() => {});
+    } finally {
+      this.client = null;
+      this.ready = false;
+      this.qrDataUrl = null;
+    }
+    // Re-initialize so a new QR is generated
+    await this.initClient();
   }
 
   async sendMessage(phone: string, message: string): Promise<boolean> {

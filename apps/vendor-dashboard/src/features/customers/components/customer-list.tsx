@@ -27,6 +27,7 @@ interface CustomerListProps {
 export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const user = useAuthStore((s) => s.user);
   const isAdmin = user ? hasMinRole(user.role, 'VENDOR_ADMIN') : false;
+  const isDriver = user?.role === 'DRIVER';
   const { data, isLoading, page, setPage, limit, setLimit, isActive, setIsActive } = useCustomers();
   const { mutate: deleteCustomer, isPending: isDeleting } = useDeleteCustomer();
   const { mutate: deactivateCustomer, isPending: isDeactivating } = useDeactivateCustomer();
@@ -343,10 +344,12 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                       <span className="font-medium text-sm">View Profile</span>
                     </Link>
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setEditCustomer(r as Record<string, unknown>)} className="rounded-lg cursor-pointer px-2 py-2">
-                    <Pencil className="mr-2 h-4 w-4 text-orange-500" />
-                    <span className="font-medium text-sm">Edit Details</span>
-                  </DropdownMenuItem>
+                  {!isDriver && (
+                    <DropdownMenuItem onClick={() => setEditCustomer(r as Record<string, unknown>)} className="rounded-lg cursor-pointer px-2 py-2">
+                      <Pencil className="mr-2 h-4 w-4 text-orange-500" />
+                      <span className="font-medium text-sm">Edit Details</span>
+                    </DropdownMenuItem>
+                  )}
                   {isAdmin && <div className="h-[1px] bg-border/50 my-1" />}
                   {isAdmin && (r.isActive !== false ? (
                     <DropdownMenuItem

@@ -35,5 +35,7 @@ export const balanceRemindersApi = {
   sendTargeted: (data: SendTargetedPayload) => apiClient.post('/balance-reminders/send-targeted', data),
   preview: (data: PreviewPayload) => apiClient.post('/balance-reminders/preview', data),
   getWhatsAppStatus: () => apiClient.get<WhatsAppStatus>('/whatsapp/status'),
+  getWhatsAppQr: () => apiClient.get<{ qr: string | null }>('/whatsapp/qr'),
+  logoutWhatsApp: () => apiClient.post('/whatsapp/logout', {}),
   getHistory: (page = 1, limit = 10) => apiClient.get(`/balance-reminders/history?page=${page}&limit=${limit}`),
 };
