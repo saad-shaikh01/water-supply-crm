@@ -901,6 +901,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
         customerId={customerId}
         latitude={customer.latitude ?? null}
         longitude={customer.longitude ?? null}
+        currentAddress={customer.address ?? ''}
       />
 
       <PortalAccountDialog

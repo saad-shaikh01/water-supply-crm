@@ -332,8 +332,8 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         onTabChange={(tab) => dispatch({ type: 'SET_TAB', tab: tab as TabKey })}
         onPageChange={(page) => dispatch({ type: 'SET_PAGE', page })}
         onToggleExpand={(itemId) => dispatch({ type: 'SET_EXPANDED', itemId })}
-        onSaveLocation={async (customerId, lat, lng) => {
-          await updateCustomerLocation.mutateAsync({ customerId, latitude: lat, longitude: lng });
+        onSaveLocation={async (customerId, lat, lng, address) => {
+          await updateCustomerLocation.mutateAsync({ customerId, latitude: lat, longitude: lng, address });
         }}
         isDriver={isDriver}
         isAdminOrStaff={isAdminOrStaff}

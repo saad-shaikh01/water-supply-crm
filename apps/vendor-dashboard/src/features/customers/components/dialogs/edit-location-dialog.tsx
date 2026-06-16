@@ -3,11 +3,12 @@
 import { useState } from 'react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-  Button, Badge,
+  Button, Badge, Input, Label,
 } from '@water-supply-crm/ui';
 import { MapPin, LocateFixed, ExternalLink, Navigation, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useUpdateCustomerLocation } from '../../hooks/use-customers';
+import { reverseGeocode } from '../../../../lib/geocoding';
 
 interface EditLocationDialogProps {
   open: boolean;
@@ -15,17 +16,28 @@ interface EditLocationDialogProps {
   customerId: string;
   latitude: number | null;
   longitude: number | null;
+  currentAddress: string;
 }
 
-export function EditLocationDialog({ open, onClose, customerId, latitude, longitude }: EditLocationDialogProps) {
+
+export function EditLocationDialog({
+  open,
+  onClose,
+  customerId,
+  latitude,
+  longitude,
+  currentAddress,
+}: EditLocationDialogProps) {
   const [lat, setLat] = useState<number | null>(latitude);
   const [lng, setLng] = useState<number | null>(longitude);
+  const [address, setAddress] = useState(currentAddress);
   const [locating, setLocating] = useState(false);
   const { mutate: updateLocation, isPending } = useUpdateCustomerLocation();
 
   const handleClose = () => {
     setLat(latitude);
     setLng(longitude);
+    setAddress(currentAddress);
     setLocating(false);
     onClose();
   };
@@ -37,9 +49,13 @@ export function EditLocationDialog({ open, onClose, customerId, latitude, longit
     }
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setLat(pos.coords.latitude);
-        setLng(pos.coords.longitude);
+      async (pos) => {
+        const newLat = pos.coords.latitude;
+        const newLng = pos.coords.longitude;
+        setLat(newLat);
+        setLng(newLng);
+        const fetched = await reverseGeocode(newLat, newLng);
+        if (fetched) setAddress(fetched);
         setLocating(false);
       },
       (err) => {
@@ -56,11 +72,16 @@ export function EditLocationDialog({ open, onClose, customerId, latitude, longit
 
   const handleSave = () => {
     if (lat == null || lng == null) return;
-    updateLocation({ customerId, latitude: lat, longitude: lng }, { onSuccess: handleClose });
+    updateLocation(
+      { customerId, latitude: lat, longitude: lng, address: address || undefined },
+      { onSuccess: handleClose },
+    );
   };
 
-  const hasNewCoords = lat != null && lng != null;
+  const hasCoords = lat != null && lng != null;
   const coordsChanged = lat !== latitude || lng !== longitude;
+  const addressChanged = address !== currentAddress;
+  const canSave = hasCoords && (coordsChanged || addressChanged);
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose(); }}>
@@ -71,7 +92,7 @@ export function EditLocationDialog({ open, onClose, customerId, latitude, longit
             Edit Location
           </DialogTitle>
           <p className="text-xs text-muted-foreground font-medium mt-1">
-            Use GPS to set the customer's delivery coordinates
+            GPS se coordinates aur address dono update honge
           </p>
         </DialogHeader>
 
@@ -85,29 +106,45 @@ export function EditLocationDialog({ open, onClose, customerId, latitude, longit
             {locating ? (
               <>
                 <Loader2 className="h-5 w-5 text-primary animate-spin" />
-                <span className="text-sm font-bold text-primary">Locating…</span>
+                <span className="text-sm font-bold text-primary">Locating & fetching address…</span>
               </>
             ) : (
               <>
                 <LocateFixed className="h-5 w-5 text-primary group-hover:scale-110 transition-transform" />
                 <span className="text-sm font-bold text-primary">
-                  {hasNewCoords ? 'Update with Current Location' : 'Use Current Location'}
+                  {hasCoords ? 'Update with Current Location' : 'Use Current Location'}
                 </span>
               </>
             )}
           </button>
 
-          {/* Coordinates Display */}
-          {hasNewCoords ? (
+          {/* Address field */}
+          <div className="space-y-2">
+            <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground">
+              Address
+            </Label>
+            <Input
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="Address enter karein ya GPS se auto-fill karein"
+              className="h-11 text-sm"
+              disabled={isPending}
+            />
+            <p className="text-[10px] text-muted-foreground">
+              GPS press karne par automatically fill ho jata hai — edit bhi kar sakte hain
+            </p>
+          </div>
+
+          {/* Coordinates + Map Preview */}
+          {hasCoords && (
             <div className="space-y-3">
-              {/* Coords badge */}
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black uppercase tracking-widest text-muted-foreground">
-                  Captured Coordinates
+                  Coordinates
                 </span>
                 {coordsChanged && (
                   <Badge variant="outline" className="text-[10px] font-bold text-emerald-600 border-emerald-500/40 bg-emerald-500/5">
-                    New
+                    Updated
                   </Badge>
                 )}
               </div>
@@ -138,11 +175,13 @@ export function EditLocationDialog({ open, onClose, customerId, latitude, longit
                 </a>
               </div>
             </div>
-          ) : (
+          )}
+
+          {!hasCoords && (
             <div className="flex flex-col items-center justify-center gap-2 py-6 rounded-2xl bg-accent/10 border border-dashed border-border/40">
               <MapPin className="h-8 w-8 text-muted-foreground/30" />
               <p className="text-xs text-muted-foreground/60 font-semibold text-center">
-                No location set — press the button above to capture GPS coordinates
+                GPS button dabayein — coordinates aur address dono set ho jayenge
               </p>
             </div>
           )}
@@ -154,7 +193,7 @@ export function EditLocationDialog({ open, onClose, customerId, latitude, longit
           </Button>
           <Button
             onClick={handleSave}
-            disabled={isPending || !hasNewCoords || !coordsChanged}
+            disabled={isPending || !canSave}
             className="rounded-xl font-bold shadow-lg shadow-primary/20"
           >
             {isPending ? (

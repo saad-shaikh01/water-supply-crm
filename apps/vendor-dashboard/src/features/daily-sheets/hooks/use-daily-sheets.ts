@@ -184,8 +184,10 @@ export const useUpdateCustomerLocation = (sheetId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
     retry: 2,
-    mutationFn: ({ customerId, latitude, longitude }: { customerId: string; latitude: number; longitude: number }) =>
-      customersApi.updateLocation(customerId, latitude, longitude),
+    mutationFn: async ({ customerId, latitude, longitude, address }: { customerId: string; latitude: number; longitude: number; address?: string }) => {
+      await customersApi.updateLocation(customerId, latitude, longitude);
+      if (address) await customersApi.update(customerId, { address });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
     },

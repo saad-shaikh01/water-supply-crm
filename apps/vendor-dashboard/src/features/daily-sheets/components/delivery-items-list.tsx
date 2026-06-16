@@ -13,6 +13,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import type { DeliveryItem } from '@water-supply-crm/types';
 import { useCustomerDeliveryHistory } from '../hooks/use-daily-sheets';
+import { reverseGeocode } from '../../../lib/geocoding';
 import { DeliveryRecordForm } from './delivery-record-form';
 import { AddNoteDialog } from './add-note-dialog';
 import { ItemNotesPanel, DriverNoteGate } from './item-notes-panel';
@@ -136,7 +137,7 @@ interface DeliveryItemsListProps {
   onTabChange: (tab: string) => void;
   onPageChange: (page: number) => void;
   onToggleExpand: (itemId: string | null) => void;
-  onSaveLocation: (customerId: string, lat: number, lng: number) => Promise<void>;
+  onSaveLocation: (customerId: string, lat: number, lng: number, address?: string) => Promise<void>;
   isDriver: boolean;
   isAdminOrStaff: boolean;
   onUnlockEdit: (itemId: string) => void;
@@ -175,7 +176,8 @@ export function DeliveryItemsList({
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         try {
-          await onSaveLocation(item.customerId, pos.coords.latitude, pos.coords.longitude);
+          const address = await reverseGeocode(pos.coords.latitude, pos.coords.longitude);
+          await onSaveLocation(item.customerId, pos.coords.latitude, pos.coords.longitude, address || undefined);
           toast.success('Location saved');
         } catch {
           // error toast handled by mutation

@@ -216,8 +216,10 @@ export const useRemoveCustomPrice = () => {
 export const useUpdateCustomerLocation = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ customerId, latitude, longitude }: { customerId: string; latitude: number; longitude: number }) =>
-      customersApi.updateLocation(customerId, latitude, longitude),
+    mutationFn: async ({ customerId, latitude, longitude, address }: { customerId: string; latitude: number; longitude: number; address?: string }) => {
+      await customersApi.updateLocation(customerId, latitude, longitude);
+      if (address) await customersApi.update(customerId, { address });
+    },
     onSuccess: (_, { customerId }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.customers.one(customerId) });
       toast.success('Location updated');
