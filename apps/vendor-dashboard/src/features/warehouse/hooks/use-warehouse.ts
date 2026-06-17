@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { warehouseApi } from '../api/warehouse.api';
+import { warehouseApi, WarehouseSummaryResponse } from '../api/warehouse.api';
 import { queryKeys } from '../../../lib/query-keys';
 
 // ── Stock ───────────────────────────────────────────────────────────────────
@@ -45,6 +45,19 @@ export const useRepairBatches = (params: {
   useQuery({
     queryKey: queryKeys.warehouse.repairs(params),
     queryFn: () => warehouseApi.getRepairBatches(params).then((r) => r.data),
+  });
+
+// ── Summary ─────────────────────────────────────────────────────────────────
+
+export const useWarehouseSummary = (params: {
+  groupBy?: 'week' | 'month';
+  productId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}) =>
+  useQuery({
+    queryKey: queryKeys.warehouse.summary(params),
+    queryFn: () => warehouseApi.getSummary(params).then((r) => r.data),
   });
 
 // ── Opening Balance ─────────────────────────────────────────────────────────

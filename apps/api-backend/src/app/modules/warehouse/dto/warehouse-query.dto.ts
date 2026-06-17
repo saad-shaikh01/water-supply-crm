@@ -55,3 +55,21 @@ export class RepairBatchQueryDto {
   @IsString()
   status?: string;
 }
+
+export class WarehouseSummaryDto {
+  @IsOptional()
+  @IsEnum(['week', 'month'])
+  groupBy?: 'week' | 'month' = 'month';
+
+  @IsOptional()
+  @IsString()
+  productId?: string;
+
+  @IsOptional()
+  @IsString()
+  dateFrom?: string;
+
+  @IsOptional()
+  @IsString()
+  dateTo?: string;
+}

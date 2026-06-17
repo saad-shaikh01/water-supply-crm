@@ -14,7 +14,7 @@ import { SendRepairDto } from './dto/send-repair.dto';
 import { ReturnRepairDto } from './dto/return-repair.dto';
 import { WriteOffDto } from './dto/write-off.dto';
 import { AdjustmentDto } from './dto/adjustment.dto';
-import { WarehouseTransactionQueryDto, RepairBatchQueryDto } from './dto/warehouse-query.dto';
+import { WarehouseTransactionQueryDto, RepairBatchQueryDto, WarehouseSummaryDto } from './dto/warehouse-query.dto';
 
 @Injectable()
 export class WarehouseService {
@@ -145,6 +145,135 @@ export class WarehouseService {
     ]);
 
     return { data, total, page, limit };
+  }
+
+  async getSummary(vendorId: string, dto: WarehouseSummaryDto) {
+    const where: Prisma.WarehouseTransactionWhereInput = { vendorId };
+    if (dto.productId) where.productId = dto.productId;
+    if (dto.dateFrom || dto.dateTo) {
+      where.createdAt = {};
+      if (dto.dateFrom) (where.createdAt as any).gte = new Date(dto.dateFrom);
+      if (dto.dateTo) {
+        const end = new Date(dto.dateTo);
+        end.setHours(23, 59, 59, 999);
+        (where.createdAt as any).lte = end;
+      }
+    }
+
+    const transactions = await this.prisma.warehouseTransaction.findMany({
+      where,
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const getPeriodKey = (date: Date): string => {
+      if (dto.groupBy === 'week') {
+        const d = new Date(date);
+        const day = d.getDay() || 7;
+        d.setDate(d.getDate() + 4 - day);
+        const yearStart = new Date(d.getFullYear(), 0, 1);
+        const weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+        return `${d.getFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+      }
+      return date.toISOString().slice(0, 7);
+    };
+
+    type PeriodRow = {
+      period: string;
+      filledIn: number;
+      sentToVans: number;
+      returnedFilled: number;
+      refilled: number;
+      emptiesCollected: number;
+      damagedTotal: number;
+      leakedTotal: number;
+      sentForRepair: number;
+      returnedFromRepair: number;
+      writtenOff: number;
+    };
+
+    const periodMap = new Map<string, PeriodRow>();
+
+    const getOrInit = (key: string): PeriodRow => {
+      if (!periodMap.has(key)) {
+        periodMap.set(key, {
+          period: key,
+          filledIn: 0, sentToVans: 0, returnedFilled: 0, refilled: 0,
+          emptiesCollected: 0, damagedTotal: 0, leakedTotal: 0,
+          sentForRepair: 0, returnedFromRepair: 0, writtenOff: 0,
+        });
+      }
+      return periodMap.get(key)!;
+    };
+
+    for (const tx of transactions) {
+      const row = getOrInit(getPeriodKey(tx.createdAt));
+      switch (tx.type) {
+        case 'FILL_IN':
+          row.filledIn += tx.filledDelta;
+          break;
+        case 'OPENING_BALANCE':
+          row.filledIn += tx.filledDelta; // filled portion counts as stock arriving
+          break;
+        case 'LOAD_OUT':
+          row.sentToVans += Math.abs(tx.filledDelta);
+          break;
+        case 'CHECK_IN_FILLED':
+          row.returnedFilled += tx.filledDelta;
+          break;
+        case 'REFILL':
+          row.refilled += tx.filledDelta;
+          break;
+        case 'CHECK_IN_EMPTY':
+          row.emptiesCollected += tx.emptyDelta;
+          break;
+        case 'MARK_DAMAGED':
+        case 'CHECK_IN_DAMAGED':
+          row.damagedTotal += tx.damagedDelta;
+          break;
+        case 'MARK_LEAKED':
+        case 'CHECK_IN_LEAKED':
+          row.leakedTotal += tx.leakedDelta;
+          break;
+        case 'SEND_REPAIR':
+          row.sentForRepair += tx.repairDelta;
+          break;
+        case 'RETURN_REPAIR':
+          row.returnedFromRepair += tx.emptyDelta;
+          break;
+        case 'WRITE_OFF':
+          row.writtenOff +=
+            Math.abs(tx.damagedDelta) +
+            Math.abs(tx.leakedDelta) +
+            Math.abs(tx.repairDelta);
+          break;
+        // ADJUSTMENT, DISCREPANCY_ADJUST: omitted from summary rows
+      }
+    }
+
+    const rows = Array.from(periodMap.values()).sort((a, b) =>
+      a.period.localeCompare(b.period),
+    );
+
+    const zero: PeriodRow = {
+      period: 'TOTAL', filledIn: 0, sentToVans: 0, returnedFilled: 0, refilled: 0,
+      emptiesCollected: 0, damagedTotal: 0, leakedTotal: 0, sentForRepair: 0,
+      returnedFromRepair: 0, writtenOff: 0,
+    };
+    const totals = rows.reduce((acc, r) => ({
+      ...acc,
+      filledIn: acc.filledIn + r.filledIn,
+      sentToVans: acc.sentToVans + r.sentToVans,
+      returnedFilled: acc.returnedFilled + r.returnedFilled,
+      refilled: acc.refilled + r.refilled,
+      emptiesCollected: acc.emptiesCollected + r.emptiesCollected,
+      damagedTotal: acc.damagedTotal + r.damagedTotal,
+      leakedTotal: acc.leakedTotal + r.leakedTotal,
+      sentForRepair: acc.sentForRepair + r.sentForRepair,
+      returnedFromRepair: acc.returnedFromRepair + r.returnedFromRepair,
+      writtenOff: acc.writtenOff + r.writtenOff,
+    }), zero);
+
+    return { rows, totals, groupBy: dto.groupBy ?? 'month' };
   }
 
   // ─── Private helpers ──────────────────────────────────────────────────────

@@ -19,7 +19,7 @@ import { SendRepairDto } from './dto/send-repair.dto';
 import { ReturnRepairDto } from './dto/return-repair.dto';
 import { WriteOffDto } from './dto/write-off.dto';
 import { AdjustmentDto } from './dto/adjustment.dto';
-import { WarehouseTransactionQueryDto, RepairBatchQueryDto } from './dto/warehouse-query.dto';
+import { WarehouseTransactionQueryDto, RepairBatchQueryDto, WarehouseSummaryDto } from './dto/warehouse-query.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -53,6 +53,12 @@ export class WarehouseController {
   @Roles(UserRole.STAFF, UserRole.VENDOR_ADMIN, UserRole.SUPER_ADMIN)
   getRepairBatches(@CurrentUser() user: AuthUser, @Query() query: RepairBatchQueryDto) {
     return this.warehouse.getRepairBatches(user.vendorId, query);
+  }
+
+  @Get('summary')
+  @Roles(UserRole.STAFF, UserRole.VENDOR_ADMIN, UserRole.SUPER_ADMIN)
+  getSummary(@CurrentUser() user: AuthUser, @Query() dto: WarehouseSummaryDto) {
+    return this.warehouse.getSummary(user.vendorId, dto);
   }
 
   @Post('opening-balance')

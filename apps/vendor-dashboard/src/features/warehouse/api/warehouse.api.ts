@@ -61,6 +61,26 @@ export interface WarehouseUniverse {
   byProduct: WarehouseStock[];
 }
 
+export interface WarehouseSummaryRow {
+  period: string;
+  filledIn: number;
+  sentToVans: number;
+  returnedFilled: number;
+  refilled: number;
+  emptiesCollected: number;
+  damagedTotal: number;
+  leakedTotal: number;
+  sentForRepair: number;
+  returnedFromRepair: number;
+  writtenOff: number;
+}
+
+export interface WarehouseSummaryResponse {
+  rows: WarehouseSummaryRow[];
+  totals: WarehouseSummaryRow;
+  groupBy: 'week' | 'month';
+}
+
 export interface PaginatedResponse<T> {
   data: T[];
   total: number;
@@ -89,6 +109,12 @@ export const warehouseApi = {
     status?: string;
   }) =>
     apiClient.get<PaginatedResponse<RepairBatch>>('/warehouse/repairs', { params }),
+  getSummary: (params: {
+    groupBy?: 'week' | 'month';
+    productId?: string;
+    dateFrom?: string;
+    dateTo?: string;
+  }) => apiClient.get<WarehouseSummaryResponse>('/warehouse/summary', { params }),
   openingBalance: (data: {
     productId: string;
     filledCount: number;

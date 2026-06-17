@@ -37,5 +37,6 @@ export const queryKeys = {
     universe: () => ['warehouse', 'universe'] as const,
     transactions: (params: object) => ['warehouse', 'transactions', params] as const,
     repairs: (params: object) => ['warehouse', 'repairs', params] as const,
+    summary: (params: object) => ['warehouse', 'summary', params] as const,
   },
 };

@@ -39,6 +39,7 @@ const navItems: NavItem[] = [
   { label: 'Damage Cases', href: '/dashboard/damage-cases', icon: ShieldAlert, minRole: 'STAFF', group: 'Operations' },
   { label: 'Warehouse', href: '/dashboard/warehouse', icon: Warehouse, minRole: 'STAFF', group: 'Operations' },
   { label: 'Repairs', href: '/dashboard/warehouse/repairs', icon: Wrench, minRole: 'STAFF', group: 'Operations' },
+  { label: 'Summary', href: '/dashboard/warehouse/summary', icon: BarChart2, minRole: 'STAFF', group: 'Operations' },
   { label: 'Pricing', href: '/dashboard/pricing', icon: Tag, minRole: 'VENDOR_ADMIN', group: 'Operations' },
   // Finance
   { label: 'Transactions', href: '/dashboard/transactions', icon: CreditCard, minRole: 'STAFF', group: 'Finance' },
