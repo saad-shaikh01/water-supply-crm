@@ -191,7 +191,7 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
           type="button"
           onClick={() => setDeliveryMode('delivered')}
           className={cn(
-            'flex-1 py-3 px-4 rounded-2xl text-sm font-bold border-2 transition-all',
+            'flex-1 py-2.5 px-2 sm:px-4 rounded-2xl text-xs sm:text-sm font-bold border-2 transition-all',
             deliveryMode === 'delivered'
               ? 'bg-emerald-500/10 border-emerald-500 text-emerald-700 dark:text-emerald-400'
               : 'bg-background border-border/50 text-muted-foreground hover:border-emerald-500/30',
@@ -203,7 +203,7 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
           type="button"
           onClick={() => setDeliveryMode('unable')}
           className={cn(
-            'flex-1 py-3 px-4 rounded-2xl text-sm font-bold border-2 transition-all',
+            'flex-1 py-2.5 px-2 sm:px-4 rounded-2xl text-xs sm:text-sm font-bold border-2 transition-all',
             deliveryMode === 'unable'
               ? 'bg-destructive/10 border-destructive text-destructive'
               : 'bg-background border-border/50 text-muted-foreground hover:border-destructive/30',
@@ -253,6 +253,14 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
                   onChange={(e) => setItemForm((p) => ({ ...p, emptyReceived: Number(e.target.value) }))}
                   className="font-mono font-bold h-11"
                 />
+                {(() => {
+                  const wb = item.customer?.wallets?.find((w) => w.productId === item.productId)?.balance ?? 0;
+                  return wb > 0 ? (
+                    <p className="text-[11px] text-muted-foreground">
+                      Bottle wallet: <span className="font-bold">{wb} btl</span>
+                    </p>
+                  ) : null;
+                })()}
               </div>
 
               <div className="space-y-2">
@@ -287,7 +295,7 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
             </div>
 
             {/* RIGHT COLUMN — customer monthly financial snapshot */}
-            <div className="grid grid-cols-2 sm:grid-cols-1 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {finLoading ? (
                 [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[52px] w-full rounded-xl" />)
               ) : (

@@ -24,7 +24,6 @@ const emptyForm = {
   filledDropped: 1,
   emptyReceived: 0,
   cashCollected: 0,
-  priceOverride: '',
   correctionNote: '',
 };
 
@@ -103,26 +102,14 @@ export function CorrectionEntryDialog({ open, onClose, sheetId }: CorrectionEntr
 
   const handleSubmit = () => {
     if (!form.customerId || !form.productId || form.correctionNote.trim().length < 3) return;
-    const payload: {
-      customerId: string;
-      productId: string;
-      filledDropped: number;
-      emptyReceived: number;
-      cashCollected: number;
-      correctionNote: string;
-      priceOverride?: number;
-    } = {
+    addCorrectionItem({
       customerId: form.customerId,
       productId: form.productId,
       filledDropped: form.filledDropped,
       emptyReceived: form.emptyReceived,
       cashCollected: form.cashCollected,
       correctionNote: form.correctionNote.trim(),
-    };
-    if (form.priceOverride !== '' && Number(form.priceOverride) >= 0) {
-      payload.priceOverride = Number(form.priceOverride);
-    }
-    addCorrectionItem(payload, { onSuccess: onClose });
+    }, { onSuccess: onClose });
   };
 
   const isValid =
@@ -221,7 +208,7 @@ export function CorrectionEntryDialog({ open, onClose, sheetId }: CorrectionEntr
           )}
 
           {/* Numeric Fields */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">Filled Dropped</Label>
               <Input
@@ -249,17 +236,6 @@ export function CorrectionEntryDialog({ open, onClose, sheetId }: CorrectionEntr
                 min={0}
                 value={form.cashCollected}
                 onChange={(e) => setForm((p) => ({ ...p, cashCollected: Number(e.target.value) }))}
-                className="font-mono font-bold"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">Price/Bottle Override (optional)</Label>
-              <Input
-                type="number"
-                min={0}
-                placeholder="—"
-                value={form.priceOverride}
-                onChange={(e) => setForm((p) => ({ ...p, priceOverride: e.target.value }))}
                 className="font-mono font-bold"
               />
             </div>

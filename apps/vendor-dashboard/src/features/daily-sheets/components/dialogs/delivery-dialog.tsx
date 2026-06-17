@@ -265,6 +265,11 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
                     onChange={(e) => setItemForm((p) => ({ ...p, filledDropped: Number(e.target.value) }))}
                     className="font-mono font-bold h-11"
                   />
+                  {isFirstRecord && item?.lastFilledDropped != null && (
+                    <p className="text-[11px] text-muted-foreground">
+                      Last delivery: <span className="font-bold">{item.lastFilledDropped} btl</span>
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label className="font-bold text-xs uppercase tracking-widest">Empties Received</Label>
@@ -275,20 +280,15 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
                     onChange={(e) => setItemForm((p) => ({ ...p, emptyReceived: Number(e.target.value) }))}
                     className="font-mono font-bold h-11"
                   />
+                  {(() => {
+                    const wb = item?.customer?.wallets?.find((w) => w.productId === item.productId)?.balance ?? 0;
+                    return wb > 0 ? (
+                      <p className="text-[11px] text-muted-foreground">
+                        Bottle wallet: <span className="font-bold">{wb} btl</span>
+                      </p>
+                    ) : null;
+                  })()}
                 </div>
-                {isFirstRecord && item?.lastFilledDropped != null && (
-                  <p className="text-[11px] text-muted-foreground -mt-1">
-                    Last delivery: <span className="font-bold">{item.lastFilledDropped} btl</span>
-                  </p>
-                )}
-                {(() => {
-                  const wb = item?.customer?.wallets?.find((w) => w.productId === item.productId)?.balance ?? 0;
-                  return wb > 0 ? (
-                    <p className="text-[11px] text-muted-foreground -mt-1">
-                      Expected: <span className="font-bold">{wb} btl</span> (wallet)
-                    </p>
-                  ) : null;
-                })()}
               </div>
               {effectivePrice > 0 && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
