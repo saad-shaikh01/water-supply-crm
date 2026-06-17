@@ -47,7 +47,7 @@ export function LoadTripsSection({
           Load Trips
           <Badge variant="secondary" className="font-bold text-xs">{loads.length}</Badge>
         </h3>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {!isClosed && !activeTrip && isAdminOrStaff && (
             <Button
               size="sm"

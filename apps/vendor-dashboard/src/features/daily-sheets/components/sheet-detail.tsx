@@ -208,7 +208,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         {[
           { label: 'Generated', active: true, icon: ClipboardList },
           { label: 'Loaded', active: hasAnyTrip || isClosed, icon: Package },
-          { label: 'Checked In', active: (hasAnyTrip && !activeTrip) || isClosed, icon: DollarSign },
+          { label: 'Check-In', active: (hasAnyTrip && !activeTrip) || isClosed, icon: DollarSign },
           { label: 'Closed', active: isClosed, icon: CheckCircle2 },
         ].map((step, i) => (
           <div key={i} className="flex flex-col items-center gap-2">
@@ -218,7 +218,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             )}>
               <step.icon className="h-4 w-4 sm:h-5 sm:w-5" />
             </div>
-            <span className={cn('text-[10px] font-bold uppercase tracking-tight text-center leading-tight', step.active ? 'text-primary' : 'text-muted-foreground')}>
+            <span className={cn('text-[9px] sm:text-[10px] font-bold uppercase tracking-tight text-center leading-tight', step.active ? 'text-primary' : 'text-muted-foreground')}>
               {step.label}
             </span>
           </div>
@@ -239,67 +239,67 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <Card className="bg-card/50 backdrop-blur-sm">
           <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
-            <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+            <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary shrink-0">
               <User className="h-5 w-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-[10px] font-bold uppercase text-muted-foreground">Driver</p>
-              <p className="text-sm font-black">{data?.driver?.name}</p>
+              <p className="text-sm font-black truncate">{data?.driver?.name}</p>
             </div>
           </CardContent>
         </Card>
         <Card className="bg-card/50 backdrop-blur-sm">
           <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
-            <div className="h-10 w-10 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-500">
+            <div className="h-10 w-10 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-500 shrink-0">
               <Droplets className="h-5 w-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-[10px] font-bold uppercase text-muted-foreground">Filled Dropped</p>
-              <p className="text-sm font-black">{stats.filledDropped} <span className="text-xs font-normal text-muted-foreground">of {data?.filledOutCount}</span></p>
+              <p className="text-sm font-black truncate">{stats.filledDropped} <span className="text-xs font-normal text-muted-foreground">of {data?.filledOutCount}</span></p>
             </div>
           </CardContent>
         </Card>
         <Card className="bg-card/50 backdrop-blur-sm">
           <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
-            <div className="h-10 w-10 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-500">
+            <div className="h-10 w-10 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-500 shrink-0">
               <Package className="h-5 w-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-[10px] font-bold uppercase text-muted-foreground">Empty Received</p>
-              <p className="text-sm font-black">{stats.emptyReceived} <span className="text-xs font-normal text-muted-foreground">bottles</span></p>
+              <p className="text-sm font-black truncate">{stats.emptyReceived} <span className="text-xs font-normal text-muted-foreground">bottles</span></p>
             </div>
           </CardContent>
         </Card>
         <Card className="bg-card/50 backdrop-blur-sm">
           <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
-            <div className="h-10 w-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+            <div className="h-10 w-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500 shrink-0">
               <CheckCircle2 className="h-5 w-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-[10px] font-bold uppercase text-muted-foreground">Cash Collected</p>
-              <p className="text-sm font-black">₨ {stats.cashCollected.toLocaleString()}</p>
+              <p className="text-sm font-black truncate">₨ {stats.cashCollected.toLocaleString()}</p>
             </div>
           </CardContent>
         </Card>
         <Card className="bg-card/50 backdrop-blur-sm">
           <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
-            <div className="h-10 w-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500">
+            <div className="h-10 w-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500 shrink-0">
               <Truck className="h-5 w-5" />
             </div>
-            <div>
-              <p className="text-[10px] font-bold uppercase text-muted-foreground" title="Bottles loaded but not yet recorded as delivered or returned">Not Yet Recorded</p>
-              <p className="text-sm font-black">{bottlesInTruck} bottles</p>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase text-muted-foreground" title="Bottles loaded but not yet recorded as delivered or returned">Unrecorded</p>
+              <p className="text-sm font-black truncate">{bottlesInTruck} bottles</p>
             </div>
           </CardContent>
         </Card>
         <Card className="bg-card/50 backdrop-blur-sm">
           <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
-            <div className="h-10 w-10 rounded-xl bg-destructive/10 flex items-center justify-center text-destructive">
+            <div className="h-10 w-10 rounded-xl bg-destructive/10 flex items-center justify-center text-destructive shrink-0">
               <Receipt className="h-5 w-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-[10px] font-bold uppercase text-muted-foreground">Trip Expenses</p>
-              <p className="text-sm font-black text-destructive">
+              <p className="text-sm font-black text-destructive truncate">
                 ₨ {(data?.expenses ?? []).reduce((s, e) => s + e.amount, 0).toLocaleString()}
               </p>
             </div>

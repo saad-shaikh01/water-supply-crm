@@ -37,8 +37,8 @@ export function SheetDetailHeader({
         <ArrowLeft className="h-5 w-5" />
       </Button>
       <div className="flex-1">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-black tracking-tight">
+        <div className="flex items-center gap-2 flex-wrap">
+          <h1 className="text-xl sm:text-2xl font-black tracking-tight">
             {new Date(date).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}
           </h1>
           <StatusBadge status={currentStatus} />

@@ -300,7 +300,7 @@ export function DeliveryItemsList({
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-3 shrink-0">
+                      <div className="flex items-center gap-2 flex-wrap shrink-0">
                         {notes.length > 0 && (
                           <div className={cn(
                             'flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full',
@@ -326,7 +326,7 @@ export function DeliveryItemsList({
                           <Button
                             size="sm"
                             variant="default"
-                            className="rounded-full font-bold text-xs h-10 px-4 min-w-[72px]"
+                            className="rounded-full font-bold text-xs h-8 sm:h-10 px-3 sm:px-4 sm:min-w-[72px]"
                             onClick={(e) => { e.stopPropagation(); onToggleExpand(isExpanded ? null : item.id); }}
                           >
                             {isExpanded ? 'Close' : 'Record'}
