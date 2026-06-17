@@ -1,17 +1,19 @@
 'use client';
 
 import { useReducer, useMemo, useEffect, useRef } from 'react';
-import { Card, CardContent, Skeleton } from '@water-supply-crm/ui';
+import { Button, Card, CardContent, Skeleton } from '@water-supply-crm/ui';
 import { useDailySheet, useUpdateCustomerLocation, useUnlockDeliveryEdit, useRequestDeliveryEdit } from '../hooks/use-daily-sheets';
 import { dailySheetsApi } from '../api/daily-sheets.api';
 import { CheckinDialog } from './dialogs/checkin-dialog';
 import { NewTripDialog } from './dialogs/new-trip-dialog';
 import { SwapDialog } from './dialogs/swap-dialog';
 import { ReconcileDialog } from './dialogs/reconcile-dialog';
+import { AdhocDeliveryDialog } from './dialogs/adhoc-delivery-dialog';
+import { CorrectionEntryDialog } from './dialogs/correction-entry-dialog';
 import { toast } from 'sonner';
 import {
   CheckCircle2, ClipboardList, DollarSign,
-  Droplets, Package, Receipt, Truck, User,
+  Droplets, Package, Plus, Receipt, Truck, User,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@water-supply-crm/ui';
@@ -29,6 +31,8 @@ interface UiState {
   checkinOpen: string | null;
   swapOpen: boolean;
   reconcileOpen: boolean;
+  adhocOpen: boolean;
+  correctionOpen: boolean;
   activeTab: TabKey;
   tabPage: number;
   expandedItemId: string | null;
@@ -43,6 +47,10 @@ type UiAction =
   | { type: 'CLOSE_SWAP' }
   | { type: 'OPEN_RECONCILE' }
   | { type: 'CLOSE_RECONCILE' }
+  | { type: 'OPEN_ADHOC' }
+  | { type: 'CLOSE_ADHOC' }
+  | { type: 'OPEN_CORRECTION' }
+  | { type: 'CLOSE_CORRECTION' }
   | { type: 'SET_TAB'; tab: TabKey }
   | { type: 'SET_PAGE'; page: number }
   | { type: 'SET_EXPANDED'; itemId: string | null };
@@ -52,6 +60,8 @@ const initialUiState: UiState = {
   checkinOpen: null,
   swapOpen: false,
   reconcileOpen: false,
+  adhocOpen: false,
+  correctionOpen: false,
   activeTab: 'all',
   tabPage: 1,
   expandedItemId: null,
@@ -67,6 +77,10 @@ function uiReducer(state: UiState, action: UiAction): UiState {
     case 'CLOSE_SWAP': return { ...state, swapOpen: false };
     case 'OPEN_RECONCILE': return { ...state, reconcileOpen: true };
     case 'CLOSE_RECONCILE': return { ...state, reconcileOpen: false };
+    case 'OPEN_ADHOC': return { ...state, adhocOpen: true };
+    case 'CLOSE_ADHOC': return { ...state, adhocOpen: false };
+    case 'OPEN_CORRECTION': return { ...state, correctionOpen: true };
+    case 'CLOSE_CORRECTION': return { ...state, correctionOpen: false };
     case 'SET_TAB': return { ...state, activeTab: action.tab, tabPage: 1, expandedItemId: null };
     case 'SET_PAGE': return { ...state, tabPage: action.page };
     case 'SET_EXPANDED': return { ...state, expandedItemId: action.itemId };
@@ -327,6 +341,34 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         isAdminOrStaff={isAdminOrStaff}
       />
 
+      {/* Ad-hoc / Correction Entry Actions */}
+      {isAdminOrStaff && !isClosed && (
+        <div className="flex justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => dispatch({ type: 'OPEN_ADHOC' })}
+            className="gap-2"
+          >
+            <Plus className="h-4 w-4" />
+            Add Ad-hoc Delivery
+          </Button>
+        </div>
+      )}
+      {isAdmin && isClosed && (
+        <div className="flex justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => dispatch({ type: 'OPEN_CORRECTION' })}
+            className="gap-2 border-amber-500/50 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20"
+          >
+            <Plus className="h-4 w-4" />
+            Add Missed Delivery
+          </Button>
+        </div>
+      )}
+
       <DeliveryItemsList
         sheetId={sheetId}
         items={items}
@@ -387,6 +429,16 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         currentDriverName={data?.driver?.name}
         currentVanId={data?.vanId}
         currentVanPlate={data?.van?.plateNumber}
+      />
+      <AdhocDeliveryDialog
+        open={ui.adhocOpen}
+        onClose={() => dispatch({ type: 'CLOSE_ADHOC' })}
+        sheetId={sheetId}
+      />
+      <CorrectionEntryDialog
+        open={ui.correctionOpen}
+        onClose={() => dispatch({ type: 'CLOSE_CORRECTION' })}
+        sheetId={sheetId}
       />
     </div>
   );

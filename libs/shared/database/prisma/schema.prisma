@@ -423,6 +423,10 @@ model DailySheetItem {
   editRequestedAt     DateTime?  // set when driver requests edit; cleared on admin unlock
   whatsappSentAt      DateTime?  // set when delivery-complete WhatsApp is successfully sent
 
+  isCorrection       Boolean   @default(false)   // true when added to a closed sheet retroactively
+  correctionAddedAt  DateTime?                   // timestamp when correction was recorded
+  correctionNote     String?                     // mandatory reason (required by service layer)
+
   deliveryIssue DeliveryIssue?
   transactions  Transaction[]
   damageCases   DamageCase[]

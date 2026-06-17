@@ -29,6 +29,8 @@ import { NotificationService } from '../notifications/notification.service';
 import { InAppNotificationService } from '../notifications/in-app-notification.service';
 import { MessageTemplates } from '../whatsapp/templates/message.templates';
 import { InsertOrderItemDto, SequenceMode } from './dto/insert-order-item.dto';
+import { AddAdhocItemDto } from './dto/add-adhoc-item.dto';
+import { AddCorrectionItemDto } from './dto/add-correction-item.dto';
 import { paginate } from '../../common/helpers/paginate';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
 import type { AuthUser } from '@water-supply-crm/types';
@@ -605,6 +607,214 @@ export class DailySheetService {
 
       return item;
     });
+  }
+
+  async addAdhocItem(user: AuthUser, sheetId: string, dto: AddAdhocItemDto) {
+    const vendorId = user.vendorId;
+
+    const sheet = await this.prisma.dailySheet.findFirst({
+      where: { id: sheetId, vendorId },
+      include: { _count: { select: { items: true } } },
+    });
+    if (!sheet) throw new NotFoundException('Daily sheet not found');
+    if (sheet.isClosed) throw new ConflictException('Cannot add ad-hoc delivery to a closed sheet. Use correction entry for closed sheets.');
+
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: dto.customerId, vendorId },
+      include: { customPrices: { select: { productId: true, customPrice: true } } },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const product = await this.prisma.product.findFirst({
+      where: { id: dto.productId, vendorId },
+    });
+    if (!product) throw new NotFoundException('Product not found');
+
+    const customPrice = customer.customPrices.find((p) => p.productId === dto.productId);
+    const price =
+      dto.priceOverride !== undefined
+        ? dto.priceOverride
+        : customer.isBillingExempt
+          ? 0
+          : customPrice
+            ? customPrice.customPrice
+            : product.basePrice;
+
+    const sequence = sheet._count.items + 1;
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const item = await tx.dailySheetItem.create({
+        data: {
+          dailySheetId: sheetId,
+          customerId: dto.customerId,
+          productId: dto.productId,
+          sequence,
+          deliveryType: 'ON_DEMAND',
+          status: DeliveryStatus.COMPLETED,
+          filledDropped: dto.filledDropped,
+          emptyReceived: dto.emptyReceived,
+          cashCollected: dto.cashCollected,
+          pricePerBottle: price,
+          deliveredAt: new Date(),
+        },
+      });
+
+      await this.ledger.recordDelivery({
+        vendorId,
+        customerId: dto.customerId,
+        productId: dto.productId,
+        dailySheetId: sheetId,
+        dailySheetItemId: item.id,
+        filledDropped: dto.filledDropped,
+        emptyReceived: dto.emptyReceived,
+        cashCollected: dto.cashCollected,
+        pricePerBottle: price,
+      });
+
+      const updatedWallet = await this.prisma.bottleWallet.findUnique({
+        where: { customerId_productId: { customerId: dto.customerId, productId: dto.productId } },
+        select: { balance: true },
+      });
+      const updatedCustomer = await this.prisma.customer.findUnique({
+        where: { id: dto.customerId },
+        select: { financialBalance: true },
+      });
+
+      return tx.dailySheetItem.update({
+        where: { id: item.id },
+        data: {
+          bottleBalanceAfter: updatedWallet?.balance ?? null,
+          financialBalanceAfter: updatedCustomer?.financialBalance ?? null,
+        },
+      });
+    });
+
+    await this.audit.log({
+      vendorId,
+      action: 'ADHOC_DELIVERY_ADDED',
+      entity: 'DailySheetItem',
+      entityId: result.id,
+      changes: { after: { customerId: dto.customerId, productId: dto.productId, filledDropped: dto.filledDropped } },
+    });
+
+    const sheetDate = sheet.date.toISOString().slice(0, 10);
+    await Promise.all([
+      this.cache.invalidateDailyDashboard(vendorId, sheetDate),
+      this.cache.invalidateOverview(vendorId),
+      this.cache.invalidateAnalytics(vendorId),
+    ]);
+
+    return result;
+  }
+
+  async addCorrectionItem(user: AuthUser, sheetId: string, dto: AddCorrectionItemDto) {
+    const vendorId = user.vendorId;
+
+    const sheet = await this.prisma.dailySheet.findFirst({
+      where: { id: sheetId, vendorId },
+      include: { _count: { select: { items: true } } },
+    });
+    if (!sheet) throw new NotFoundException('Daily sheet not found');
+    if (!sheet.isClosed) throw new ConflictException('Correction entries can only be added to closed sheets. For open sheets, use ad-hoc delivery.');
+
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: dto.customerId, vendorId },
+      include: { customPrices: { select: { productId: true, customPrice: true } } },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const product = await this.prisma.product.findFirst({
+      where: { id: dto.productId, vendorId },
+    });
+    if (!product) throw new NotFoundException('Product not found');
+
+    const customPrice = customer.customPrices.find((p) => p.productId === dto.productId);
+    const price =
+      dto.priceOverride !== undefined
+        ? dto.priceOverride
+        : customer.isBillingExempt
+          ? 0
+          : customPrice
+            ? customPrice.customPrice
+            : product.basePrice;
+
+    const sequence = sheet._count.items + 1;
+    const now = new Date();
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const item = await tx.dailySheetItem.create({
+        data: {
+          dailySheetId: sheetId,
+          customerId: dto.customerId,
+          productId: dto.productId,
+          sequence,
+          deliveryType: 'ON_DEMAND',
+          status: DeliveryStatus.COMPLETED,
+          filledDropped: dto.filledDropped,
+          emptyReceived: dto.emptyReceived,
+          cashCollected: dto.cashCollected,
+          pricePerBottle: price,
+          deliveredAt: sheet.date,
+          isCorrection: true,
+          correctionAddedAt: now,
+          correctionNote: dto.correctionNote,
+        },
+      });
+
+      await this.ledger.recordDelivery({
+        vendorId,
+        customerId: dto.customerId,
+        productId: dto.productId,
+        dailySheetId: sheetId,
+        dailySheetItemId: item.id,
+        filledDropped: dto.filledDropped,
+        emptyReceived: dto.emptyReceived,
+        cashCollected: dto.cashCollected,
+        pricePerBottle: price,
+      });
+
+      const updatedWallet = await this.prisma.bottleWallet.findUnique({
+        where: { customerId_productId: { customerId: dto.customerId, productId: dto.productId } },
+        select: { balance: true },
+      });
+      const updatedCustomer = await this.prisma.customer.findUnique({
+        where: { id: dto.customerId },
+        select: { financialBalance: true },
+      });
+
+      return tx.dailySheetItem.update({
+        where: { id: item.id },
+        data: {
+          bottleBalanceAfter: updatedWallet?.balance ?? null,
+          financialBalanceAfter: updatedCustomer?.financialBalance ?? null,
+        },
+      });
+    });
+
+    await this.audit.log({
+      vendorId,
+      action: 'CORRECTION_ENTRY_ADDED',
+      entity: 'DailySheetItem',
+      entityId: result.id,
+      changes: {
+        after: {
+          customerId: dto.customerId,
+          productId: dto.productId,
+          filledDropped: dto.filledDropped,
+          correctionNote: dto.correctionNote,
+          sheetDate: sheet.date.toISOString().slice(0, 10),
+        },
+      },
+    });
+
+    const sheetDate = sheet.date.toISOString().slice(0, 10);
+    await Promise.all([
+      this.cache.invalidateDailyDashboard(vendorId, sheetDate),
+      this.cache.invalidateOverview(vendorId),
+      this.cache.invalidateAnalytics(vendorId),
+    ]);
+
+    return result;
   }
 
   async createLoad(vendorId: string, sheetId: string, dto: CreateLoadDto) {

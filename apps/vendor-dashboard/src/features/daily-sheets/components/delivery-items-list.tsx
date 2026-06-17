@@ -313,6 +313,16 @@ export function DeliveryItemsList({
                           </div>
                         )}
                         <StatusBadge status={item.status} />
+                        {item.isCorrection && (
+                          <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                            CORRECTION
+                          </span>
+                        )}
+                        {!item.isCorrection && item.deliveryType === 'ON_DEMAND' && !item.sourceOrderId && (
+                          <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
+                            AD-HOC
+                          </span>
+                        )}
                         {item.whatsappSentAt && (
                           <div
                             title={`WhatsApp sent at ${new Date(item.whatsappSentAt).toLocaleTimeString()}`}

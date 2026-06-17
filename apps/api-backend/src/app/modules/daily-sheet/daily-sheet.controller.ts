@@ -28,6 +28,8 @@ import { CreateLoadDto } from './dto/create-load.dto';
 import { CheckinLoadDto } from './dto/checkin-load.dto';
 import { DailySheetQueryDto } from './dto/daily-sheet-query.dto';
 import { InsertOrderItemDto } from './dto/insert-order-item.dto';
+import { AddAdhocItemDto } from './dto/add-adhoc-item.dto';
+import { AddCorrectionItemDto } from './dto/add-correction-item.dto';
 import { UnlockEditDto } from './dto/unlock-edit.dto';
 import { CreateDeliveryNoteDto } from './dto/create-delivery-note.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -242,6 +244,28 @@ export class DailySheetController {
     @Body() dto: InsertOrderItemDto,
   ) {
     return this.dailySheetService.insertItemFromOrder(user.vendorId, id, dto);
+  }
+
+  @Post(':id/items/adhoc')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
+  addAdhocItem(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: AddAdhocItemDto,
+  ) {
+    return this.dailySheetService.addAdhocItem(user, id, dto);
+  }
+
+  @Post(':id/items/correction')
+  @Roles(UserRole.VENDOR_ADMIN)
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
+  addCorrectionItem(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: AddCorrectionItemDto,
+  ) {
+    return this.dailySheetService.addCorrectionItem(user, id, dto);
   }
 
   // ── Sheet lifecycle ───────────────────────────────────────────────────

@@ -182,6 +182,11 @@ export interface DeliveryItem {
   bottleBalanceAfter?: number | null;
   financialBalanceAfter?: number | null;
   notes?: DeliveryItemNote[];
+  deliveryType?: 'SCHEDULED' | 'ON_DEMAND';
+  sourceOrderId?: string | null;
+  isCorrection?: boolean;
+  correctionAddedAt?: string | null;
+  correctionNote?: string | null;
 }
 
 export interface CustomerFinancialSummary {

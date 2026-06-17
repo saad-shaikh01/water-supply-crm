@@ -126,6 +126,34 @@ export const useUpdateDeliveryItem = (sheetId: string) => {
   });
 };
 
+export const useAddAdhocItem = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { customerId: string; productId: string; filledDropped: number; emptyReceived: number; cashCollected: number; priceOverride?: number }) =>
+      dailySheetsApi.addAdhocItem(sheetId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
+      queryClient.invalidateQueries({ queryKey: ['sheets'] });
+      toast.success('Ad-hoc delivery recorded');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to add delivery'),
+  });
+};
+
+export const useAddCorrectionItem = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { customerId: string; productId: string; filledDropped: number; emptyReceived: number; cashCollected: number; priceOverride?: number; correctionNote: string }) =>
+      dailySheetsApi.addCorrectionItem(sheetId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
+      queryClient.invalidateQueries({ queryKey: ['sheets'] });
+      toast.success('Correction entry recorded');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to add correction'),
+  });
+};
+
 export const useCloseSheet = (sheetId: string) => {
   const queryClient = useQueryClient();
   return useMutation({

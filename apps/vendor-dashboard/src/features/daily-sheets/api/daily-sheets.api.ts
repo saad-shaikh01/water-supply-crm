@@ -29,6 +29,14 @@ export const dailySheetsApi = {
     id: string,
     data: { orderId: string; sequenceMode?: 'APPEND' | 'CUSTOM'; sequence?: number },
   ) => apiClient.post(`/daily-sheets/${id}/items/from-order`, data),
+  addAdhocItem: (
+    id: string,
+    data: { customerId: string; productId: string; filledDropped: number; emptyReceived: number; cashCollected: number; priceOverride?: number },
+  ) => apiClient.post(`/daily-sheets/${id}/items/adhoc`, data),
+  addCorrectionItem: (
+    id: string,
+    data: { customerId: string; productId: string; filledDropped: number; emptyReceived: number; cashCollected: number; priceOverride?: number; correctionNote: string },
+  ) => apiClient.post(`/daily-sheets/${id}/items/correction`, data),
   updateDeliveryItem: (itemId: string, data: Record<string, unknown>) =>
     apiClient.patch(`/daily-sheets/items/${itemId}`, data),
   swapAssignment: (id: string, data: Record<string, unknown>) =>
