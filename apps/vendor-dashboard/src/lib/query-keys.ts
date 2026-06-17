@@ -32,4 +32,10 @@ export const queryKeys = {
   transactions: {
     all: (params: object) => ['transactions', params] as const,
   },
+  warehouse: {
+    stock: (vendorId?: string) => ['warehouse', 'stock', ...(vendorId ? [vendorId] : [])] as const,
+    universe: () => ['warehouse', 'universe'] as const,
+    transactions: (params: object) => ['warehouse', 'transactions', params] as const,
+    repairs: (params: object) => ['warehouse', 'repairs', params] as const,
+  },
 };

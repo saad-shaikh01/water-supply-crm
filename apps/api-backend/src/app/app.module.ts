@@ -35,6 +35,7 @@ import { TicketModule } from './modules/ticket/ticket.module';
 import { DeliveryIssueModule } from './modules/delivery-issue/delivery-issue.module';
 import { PaymentReminderModule } from './modules/payment-reminder/payment-reminder.module';
 import { DamageCaseModule } from './modules/damage-case/damage-case.module';
+import { WarehouseModule } from './modules/warehouse/warehouse.module';
 
 @Module({
   imports: [
@@ -72,6 +73,7 @@ import { DamageCaseModule } from './modules/damage-case/damage-case.module';
     DeliveryIssueModule,
     PaymentReminderModule,
     DamageCaseModule,
+    WarehouseModule,
   ],
   controllers: [AppController],
   providers: [

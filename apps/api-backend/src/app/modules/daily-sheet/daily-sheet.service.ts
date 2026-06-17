@@ -35,6 +35,7 @@ import type { AuthUser } from '@water-supply-crm/types';
 import { UnlockEditDto } from './dto/unlock-edit.dto';
 import { CreateDeliveryNoteDto } from './dto/create-delivery-note.dto';
 import { StorageService } from '../../common/storage/storage.service';
+import { WarehouseService } from '../warehouse/warehouse.service';
 
 @Injectable()
 export class DailySheetService {
@@ -50,6 +51,7 @@ export class DailySheetService {
     private notifications: NotificationService,
     private inAppNotifications: InAppNotificationService,
     private storage: StorageService,
+    private warehouse: WarehouseService,
     @InjectQueue(QUEUE_NAMES.DAILY_SHEET_GENERATION)
     private sheetQueue: Queue,
   ) {}
@@ -624,15 +626,19 @@ export class DailySheetService {
     });
     const tripNumber = (lastLoad?.tripNumber ?? 0) + 1;
 
-    const [load] = await this.prisma.$transaction([
-      this.prisma.dailySheetLoad.create({
-        data: { dailySheetId: sheetId, tripNumber, loadedFilled: dto.loadedFilled },
-      }),
-      this.prisma.dailySheet.update({
+    const load = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.dailySheetLoad.create({
+        data: { dailySheetId: sheetId, tripNumber, loadedFilled: dto.loadedFilled, productId: dto.productId },
+      });
+      await tx.dailySheet.update({
         where: { id: sheetId },
         data: { filledOutCount: { increment: dto.loadedFilled } },
-      }),
-    ]);
+      });
+      if (dto.productId) {
+        await this.warehouse.recordLoadOut(vendorId, dto.productId, dto.loadedFilled, sheetId, tx);
+      }
+      return created;
+    });
 
     return load;
   }
@@ -663,6 +669,8 @@ export class DailySheetService {
           returnedFilled: dto.returnedFilled,
           collectedEmpty: dto.collectedEmpty,
           cashHandedIn: dto.cashHandedIn,
+          damagedOnVan: dto.damagedOnVan,
+          leakedOnVan: dto.leakedOnVan,
           endedAt: new Date(),
         },
       });
@@ -676,6 +684,13 @@ export class DailySheetService {
           cashCollected: { increment: dto.cashHandedIn },
         },
       });
+
+      if (load.productId) {
+        await this.warehouse.recordCheckinFilled(vendorId, load.productId, dto.returnedFilled, sheetId, tx);
+        await this.warehouse.recordCheckinEmpty(vendorId, load.productId, dto.collectedEmpty, sheetId, tx);
+        await this.warehouse.recordCheckinDamaged(vendorId, load.productId, dto.damagedOnVan, sheetId, tx);
+        await this.warehouse.recordCheckinLeaked(vendorId, load.productId, dto.leakedOnVan, sheetId, tx);
+      }
 
       return updated;
     });

@@ -1,12 +1,14 @@
 import { IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 
-export class CreateLoadDto {
+export class RefillDto {
+  @IsUUID()
+  productId!: string;
+
   @IsInt()
   @Min(1)
-  loadedFilled!: number;
+  quantity!: number;
 
   @IsOptional()
   @IsString()
-  @IsUUID()
-  productId?: string;
+  notes?: string;
 }

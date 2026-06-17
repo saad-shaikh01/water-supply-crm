@@ -20,20 +20,30 @@ interface CheckinDialogProps {
 export function CheckinDialog({ open, onClose, sheetId, trip, suggestedValues }: CheckinDialogProps) {
   const { mutate: checkinLoad, isPending } = useCheckinLoad(sheetId);
   const [form, setForm] = useState(
-    suggestedValues ?? { returnedFilled: 0, collectedEmpty: 0, cashHandedIn: 0 }
+    suggestedValues
+      ? { ...suggestedValues, damagedOnVan: 0, leakedOnVan: 0 }
+      : { returnedFilled: 0, collectedEmpty: 0, cashHandedIn: 0, damagedOnVan: 0, leakedOnVan: 0 }
   );
 
   // Sync form with suggested values each time the dialog opens
   useEffect(() => {
     if (open) {
-      setForm(suggestedValues ?? { returnedFilled: 0, collectedEmpty: 0, cashHandedIn: 0 });
+      setForm(
+        suggestedValues
+          ? { ...suggestedValues, damagedOnVan: 0, leakedOnVan: 0 }
+          : { returnedFilled: 0, collectedEmpty: 0, cashHandedIn: 0, damagedOnVan: 0, leakedOnVan: 0 },
+      );
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleOpen = (isOpen: boolean) => {
     if (!isOpen) {
       onClose();
-      setForm(suggestedValues ?? { returnedFilled: 0, collectedEmpty: 0, cashHandedIn: 0 });
+      setForm(
+        suggestedValues
+          ? { ...suggestedValues, damagedOnVan: 0, leakedOnVan: 0 }
+          : { returnedFilled: 0, collectedEmpty: 0, cashHandedIn: 0, damagedOnVan: 0, leakedOnVan: 0 },
+      );
     }
   };
 
@@ -76,6 +86,26 @@ export function CheckinDialog({ open, onClose, sheetId, trip, suggestedValues }:
               value={form.collectedEmpty}
               onChange={(e) => setForm((p) => ({ ...p, collectedEmpty: Number(e.target.value) }))}
               className="font-mono font-bold"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label className="font-bold text-xs uppercase tracking-widest text-orange-500">Damaged on Van</Label>
+            <Input
+              type="number"
+              min={0}
+              value={form.damagedOnVan}
+              onChange={(e) => setForm((p) => ({ ...p, damagedOnVan: Number(e.target.value) }))}
+              className="font-mono font-bold border-orange-500/30 focus-visible:ring-orange-500/30"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label className="font-bold text-xs uppercase tracking-widest text-red-500">Leaked on Van</Label>
+            <Input
+              type="number"
+              min={0}
+              value={form.leakedOnVan}
+              onChange={(e) => setForm((p) => ({ ...p, leakedOnVan: Number(e.target.value) }))}
+              className="font-mono font-bold border-red-500/30 focus-visible:ring-red-500/30"
             />
           </div>
           <div className="col-span-2 space-y-2">

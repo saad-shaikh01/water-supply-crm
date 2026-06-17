@@ -85,6 +85,30 @@ enum BottleLossReason {
   OTHER
 }
 
+enum WarehouseTransactionType {
+  OPENING_BALANCE
+  FILL_IN
+  LOAD_OUT
+  CHECK_IN_FILLED
+  CHECK_IN_EMPTY
+  CHECK_IN_DAMAGED
+  CHECK_IN_LEAKED
+  REFILL
+  MARK_DAMAGED
+  MARK_LEAKED
+  SEND_REPAIR
+  RETURN_REPAIR
+  WRITE_OFF
+  DISCREPANCY_ADJUST
+  ADJUSTMENT
+}
+
+enum RepairBatchStatus {
+  SENT
+  PARTIALLY_RETURNED
+  COMPLETED
+}
+
 enum NoteType {
   TEXT
   VOICE
@@ -119,6 +143,9 @@ model Vendor {
   driverLastLocations     DriverLastLocation[]
   damageCases             DamageCase[]
   deliveryItemNotes       DeliveryItemNote[]
+  warehouseStocks         WarehouseStock[]
+  warehouseTransactions   WarehouseTransaction[]
+  repairBatches           RepairBatch[]
 }
 
 model User {
@@ -144,6 +171,8 @@ model User {
   driverDamageCases     DamageCase[] @relation("DriverDamageCases")
   reviewedDamageCases   DamageCase[] @relation("DamageCaseReviewer")
   createdDeliveryNotes  DeliveryItemNote[] @relation("NoteCreatedBy")
+  createdWarehouseTx    WarehouseTransaction[] @relation("WarehouseTxCreatedBy")
+  createdRepairBatches  RepairBatch[]          @relation("RepairBatchCreatedBy")
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -166,6 +195,10 @@ model Product {
   customPrices CustomerProductPrice[]
   orders      CustomerOrder[]
   damageCases DamageCase[]
+  warehouseStocks       WarehouseStock[]
+  warehouseTransactions WarehouseTransaction[]
+  repairBatches         RepairBatch[]
+  loads                 DailySheetLoad[]       @relation("LoadProduct")
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -325,6 +358,7 @@ model DailySheet {
   transactions  Transaction[]
   loads         DailySheetLoad[]
   expenses      Expense[]
+  warehouseTransactions WarehouseTransaction[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -344,11 +378,16 @@ model DailySheetLoad {
   returnedFilled Int        @default(0)  // filled returned at end of trip
   collectedEmpty Int        @default(0)  // empties collected from customers
   cashHandedIn   Float      @default(0)  // cash given to warehouse at check-in
+  productId      String?    // which product was loaded (null = legacy records)
+  product        Product?   @relation("LoadProduct", fields: [productId], references: [id])
+  damagedOnVan   Int        @default(0)  // bottles damaged during transit
+  leakedOnVan    Int        @default(0)  // bottles that leaked during transit
   startedAt      DateTime   @default(now())
   endedAt        DateTime?  // null = trip still in progress
 
   @@index([dailySheetId])
   @@index([dailySheetId, tripNumber])
+  @@index([productId])
 }
 
 model DailySheetItem {
@@ -926,4 +965,77 @@ model DeliveryItemNote {
   @@index([dailySheetItemId])
   @@index([dailySheetItemId, acknowledgedAt])
   @@index([vendorId])
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Warehouse Inventory
+// ──────────────────────────────────────────────────────────────────────────────
+
+model WarehouseStock {
+  id            String   @id @default(uuid())
+  vendorId      String
+  productId     String
+  filledCount   Int      @default(0)
+  emptyCount    Int      @default(0)
+  damagedCount  Int      @default(0)
+  leakedCount   Int      @default(0)
+  inRepairCount Int      @default(0)
+  updatedAt     DateTime @updatedAt
+
+  vendor  Vendor  @relation(fields: [vendorId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([vendorId, productId])
+  @@index([vendorId])
+}
+
+model WarehouseTransaction {
+  id            String                  @id @default(uuid())
+  vendorId      String
+  productId     String
+  type          WarehouseTransactionType
+  filledDelta   Int                     @default(0)
+  emptyDelta    Int                     @default(0)
+  damagedDelta  Int                     @default(0)
+  leakedDelta   Int                     @default(0)
+  repairDelta   Int                     @default(0)
+  notes         String?
+  dailySheetId  String?
+  repairBatchId String?
+  createdById   String?
+  createdAt     DateTime                @default(now())
+
+  vendor      Vendor       @relation(fields: [vendorId], references: [id])
+  product     Product      @relation(fields: [productId], references: [id])
+  dailySheet  DailySheet?  @relation(fields: [dailySheetId], references: [id])
+  repairBatch RepairBatch? @relation(fields: [repairBatchId], references: [id])
+  createdBy   User?        @relation("WarehouseTxCreatedBy", fields: [createdById], references: [id])
+
+  @@index([vendorId, createdAt])
+  @@index([vendorId, type])
+  @@index([productId])
+  @@index([dailySheetId])
+}
+
+model RepairBatch {
+  id                String            @id @default(uuid())
+  vendorId          String
+  productId         String
+  shopName          String
+  bottlesSent       Int
+  bottlesReturned   Int               @default(0)
+  bottlesWrittenOff Int               @default(0)
+  status            RepairBatchStatus @default(SENT)
+  sentAt            DateTime          @default(now())
+  returnedAt        DateTime?
+  notes             String?
+  createdById       String?
+
+  vendor       Vendor               @relation(fields: [vendorId], references: [id])
+  product      Product              @relation(fields: [productId], references: [id])
+  createdBy    User?                @relation("RepairBatchCreatedBy", fields: [createdById], references: [id])
+  transactions WarehouseTransaction[]
+
+  @@index([vendorId])
+  @@index([vendorId, status])
 }

@@ -12,4 +12,12 @@ export class CheckinLoadDto {
   @IsNumber()
   @Min(0)
   cashHandedIn!: number;
+
+  @IsInt()
+  @Min(0)
+  damagedOnVan!: number;
+
+  @IsInt()
+  @Min(0)
+  leakedOnVan!: number;
 }

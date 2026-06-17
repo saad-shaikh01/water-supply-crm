@@ -5,7 +5,8 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Users, Map, Package, Truck,
   ClipboardList, CreditCard, UserCog, Droplets, Banknote, Navigation,
-  Receipt, Bell, ScrollText, BarChart2, Home, History, ShoppingCart, MessageSquare, AlertTriangle, Tag, ShieldAlert
+  Receipt, Bell, ScrollText, BarChart2, Home, History, ShoppingCart, MessageSquare, AlertTriangle, Tag, ShieldAlert,
+  Warehouse, Wrench
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { useAuthStore } from '../../store/auth.store';
@@ -36,6 +37,8 @@ const navItems: NavItem[] = [
   { label: 'Tickets', href: '/dashboard/tickets', icon: MessageSquare, minRole: 'STAFF', group: 'Operations' },
   { label: 'Delivery Issues', href: '/dashboard/delivery-issues', icon: AlertTriangle, minRole: 'STAFF', group: 'Operations' },
   { label: 'Damage Cases', href: '/dashboard/damage-cases', icon: ShieldAlert, minRole: 'STAFF', group: 'Operations' },
+  { label: 'Warehouse', href: '/dashboard/warehouse', icon: Warehouse, minRole: 'STAFF', group: 'Operations' },
+  { label: 'Repairs', href: '/dashboard/warehouse/repairs', icon: Wrench, minRole: 'STAFF', group: 'Operations' },
   { label: 'Pricing', href: '/dashboard/pricing', icon: Tag, minRole: 'VENDOR_ADMIN', group: 'Operations' },
   // Finance
   { label: 'Transactions', href: '/dashboard/transactions', icon: CreditCard, minRole: 'STAFF', group: 'Finance' },

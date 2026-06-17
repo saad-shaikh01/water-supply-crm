@@ -9,6 +9,7 @@ import { AuditModule } from '../audit/audit.module';
 import { DeliveryIssueModule } from '../delivery-issue/delivery-issue.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { StorageModule } from '../../common/storage/storage.module';
+import { WarehouseModule } from '../warehouse/warehouse.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { StorageModule } from '../../common/storage/storage.module';
     DeliveryIssueModule,
     NotificationsModule,
     StorageModule,
+    WarehouseModule,
   ],
   controllers: [DailySheetController],
   providers: [DailySheetService, DailySheetProcessor, DailySheetPdfService],
