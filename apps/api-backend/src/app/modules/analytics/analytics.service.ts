@@ -168,6 +168,8 @@ export class AnalyticsService {
           status: true,
           deliveryType: true,
           reason: true,
+          filledDropped: true,
+          emptyReceived: true,
           dailySheet: {
             select: {
               date: true,
@@ -291,6 +293,10 @@ export class AnalyticsService {
         ? Math.round((retryDelivered / resolvedIssues.length) * 100)
         : null;
 
+    const completedItems = items.filter((i) => completedStatuses.has(i.status));
+    const bottlesDelivered = completedItems.reduce((s, i) => s + i.filledDropped, 0);
+    const bottlesReturned = completedItems.reduce((s, i) => s + i.emptyReceived, 0);
+
     const result = {
       summary: { total, completed, missed, pending, completionRate },
       byDay,
@@ -302,6 +308,11 @@ export class AnalyticsService {
         issueAgingBuckets,
         onDemandFulfillmentRate,
         retrySuccessRate,
+      },
+      bottleStats: {
+        delivered: bottlesDelivered,
+        returned: bottlesReturned,
+        net: bottlesDelivered - bottlesReturned,
       },
     };
 
