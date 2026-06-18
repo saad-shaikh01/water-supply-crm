@@ -128,31 +128,31 @@ function CollapsibleNavGroup({
       <button
         onClick={() => setIsOpen((prev) => !prev)}
         className={cn(
-          'group w-full flex items-center gap-4 px-4 py-3 rounded-xl text-sm font-semibold transition-colors',
+          'group w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
           isAnyChildActive
-            ? 'text-primary'
-            : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'
+            ? 'text-zinc-900 dark:text-primary'
+            : 'text-zinc-500 hover:bg-zinc-100/80 hover:text-zinc-900 dark:text-muted-foreground dark:hover:bg-white/5 dark:hover:text-foreground'
         )}
       >
         <Icon
           className={cn(
-            'h-5 w-5 flex-shrink-0 transition-colors',
+            'h-4 w-4 flex-shrink-0 transition-colors',
             isAnyChildActive
               ? 'text-primary'
-              : 'text-muted-foreground group-hover:text-primary'
+              : 'text-zinc-400 group-hover:text-primary dark:text-muted-foreground'
           )}
         />
-        <span className="tracking-tight flex-1 text-left">{item.label}</span>
+        <span className="flex-1 text-left tracking-tight">{item.label}</span>
         <ChevronDown
           className={cn(
-            'h-4 w-4 flex-shrink-0 transition-transform duration-200 text-muted-foreground/60',
+            'h-3.5 w-3.5 flex-shrink-0 transition-transform duration-200 text-zinc-400 dark:text-muted-foreground/60',
             isOpen && 'rotate-180'
           )}
         />
       </button>
 
       {isOpen && (
-        <div className="ml-5 mt-0.5 mb-1 border-l border-border/40 pl-3 space-y-0.5">
+        <div className="ml-4 mt-0.5 mb-1 border-l border-zinc-200 dark:border-border/40 pl-3 space-y-0.5">
           {visibleChildren.map((child) => {
             const ChildIcon = child.icon;
             const isActive = pathname.startsWith(child.href);
@@ -161,21 +161,21 @@ function CollapsibleNavGroup({
                 key={child.href}
                 href={child.href}
                 className={cn(
-                  'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                  'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
                   isActive
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'
+                    ? 'bg-zinc-100 text-zinc-900 font-medium dark:bg-primary/10 dark:text-primary'
+                    : 'text-zinc-500 hover:bg-zinc-100/80 hover:text-zinc-900 dark:text-muted-foreground dark:hover:bg-white/5 dark:hover:text-foreground'
                 )}
               >
                 <ChildIcon
                   className={cn(
-                    'h-4 w-4 flex-shrink-0',
-                    isActive ? 'text-primary' : 'text-muted-foreground'
+                    'h-3.5 w-3.5 flex-shrink-0',
+                    isActive ? 'text-primary' : 'text-zinc-400 dark:text-muted-foreground'
                   )}
                 />
                 <span>{child.label}</span>
                 {isActive && (
-                  <div className="ml-auto w-1 h-1 bg-primary rounded-full shadow-[0_0_10px_rgba(99,102,241,1)]" />
+                  <div className="ml-auto w-1 h-1 bg-primary rounded-full shadow-[0_0_8px_rgba(99,102,241,0.8)]" />
                 )}
               </Link>
             );
@@ -197,26 +197,26 @@ export function Sidebar({ className }: { className?: string }) {
   });
 
   return (
-    <aside className={cn('flex flex-col border-r border-border bg-white/[0.02] backdrop-blur-3xl', className)}>
-      <div className="h-20 flex items-center px-8 border-b border-border/50 bg-transparent">
-        <Link href="/dashboard/overview" className="flex items-center gap-3 group">
-          <div className="p-2 rounded-xl bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors shadow-inner">
-            <Droplets className="h-6 w-6" />
+    <aside className={cn('flex flex-col border-r border-zinc-200/80 bg-white dark:border-border dark:bg-zinc-950', className)}>
+      <div className="h-16 flex items-center px-6 border-b border-zinc-200/80 dark:border-border/50">
+        <Link href="/dashboard/overview" className="flex items-center gap-2.5 group">
+          <div className="p-1.5 rounded-lg bg-primary/10 text-primary group-hover:bg-primary group-hover:text-white transition-colors">
+            <Droplets className="h-5 w-5" />
           </div>
-          <span className="text-xl font-bold text-foreground dark:text-white tracking-tight">
+          <span className="text-lg font-bold text-zinc-900 dark:text-white tracking-tight">
             WATER<span className="text-primary">CRM</span>
           </span>
         </Link>
       </div>
 
-      <nav className="flex-1 p-6 overflow-y-auto scrollbar-none space-y-8">
+      <nav className="flex-1 px-3 py-4 overflow-y-auto scrollbar-none space-y-6">
         {GROUPS.map((group) => {
           const groupItems = visibleItems.filter((item) => item.group === group);
           if (groupItems.length === 0) return null;
 
           return (
             <div key={group} className="space-y-0.5">
-              <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-muted-foreground/40 px-4 mb-3">
+              <p className="text-[10px] uppercase tracking-[0.18em] font-semibold text-zinc-400 dark:text-muted-foreground/40 px-3 mb-2">
                 {group}
               </p>
               {groupItems.map((item) => {
@@ -238,21 +238,23 @@ export function Sidebar({ className }: { className?: string }) {
                     key={item.href}
                     href={item.href!}
                     className={cn(
-                      'group relative flex items-center gap-4 px-4 py-3 rounded-xl text-sm font-semibold transition-colors',
+                      'group relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors',
                       isActive
-                        ? 'bg-primary/10 text-primary border border-primary/20 shadow-[0_0_20px_rgba(99,102,241,0.1)]'
-                        : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'
+                        ? 'bg-zinc-100 text-zinc-900 font-medium dark:bg-primary/10 dark:text-primary dark:border dark:border-primary/20'
+                        : 'text-zinc-500 hover:bg-zinc-100/80 hover:text-zinc-900 dark:text-muted-foreground dark:hover:bg-white/5 dark:hover:text-foreground'
                     )}
                   >
                     <Icon
                       className={cn(
-                        'h-5 w-5 transition-colors',
-                        isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-primary'
+                        'h-4 w-4 flex-shrink-0 transition-colors',
+                        isActive
+                          ? 'text-primary'
+                          : 'text-zinc-400 group-hover:text-primary dark:text-muted-foreground'
                       )}
                     />
                     <span className="tracking-tight">{item.label}</span>
                     {isActive && (
-                      <div className="absolute right-4 w-1 h-1 bg-primary rounded-full shadow-[0_0_10px_rgba(99,102,241,1)]" />
+                      <div className="absolute right-3 w-1 h-1 bg-primary rounded-full shadow-[0_0_8px_rgba(99,102,241,0.8)]" />
                     )}
                   </Link>
                 );
@@ -262,15 +264,15 @@ export function Sidebar({ className }: { className?: string }) {
         })}
       </nav>
 
-      <div className="p-6 border-t border-border/50 bg-white/[0.01]">
-        <div className="px-5 py-4 rounded-2xl bg-white/[0.03] border border-border/50 shadow-xl">
+      <div className="px-3 py-4 border-t border-zinc-200/80 dark:border-border/50">
+        <div className="px-4 py-3 rounded-xl bg-zinc-50 border border-zinc-200/80 dark:bg-white/[0.03] dark:border-border/50">
           <p className="text-[9px] uppercase tracking-widest font-bold text-primary">
             {user?.role === 'DRIVER' ? 'Driver' : 'Operator'}
           </p>
-          <p className="text-sm font-bold truncate text-foreground dark:text-white mt-1">{user?.name || 'User'}</p>
-          <div className="flex items-center gap-2 mt-1">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
-            <p className="text-[10px] text-muted-foreground uppercase font-semibold tracking-tight">
+          <p className="text-sm font-semibold truncate text-zinc-900 dark:text-white mt-0.5">{user?.name || 'User'}</p>
+          <div className="flex items-center gap-1.5 mt-1">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.6)]" />
+            <p className="text-[10px] text-zinc-400 dark:text-muted-foreground uppercase font-medium tracking-tight">
               {user?.role?.replace('_', ' ')}
             </p>
           </div>
