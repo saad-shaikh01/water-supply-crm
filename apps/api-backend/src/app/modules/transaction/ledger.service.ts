@@ -18,19 +18,22 @@ export class LedgerService {
     private cache: CacheInvalidationService,
   ) {}
 
-  async recordDelivery(data: {
-    vendorId: string;
-    customerId: string;
-    productId: string;
-    dailySheetId: string;
-    /** Links transactions to the source item — enables idempotent re-posting on edit. */
-    dailySheetItemId?: string;
-    filledDropped: number;
-    emptyReceived: number;
-    cashCollected: number;
-    pricePerBottle: number;
-  }) {
-    return this.prisma.$transaction(async (tx) => {
+  async recordDelivery(
+    data: {
+      vendorId: string;
+      customerId: string;
+      productId: string;
+      dailySheetId: string;
+      /** Links transactions to the source item — enables idempotent re-posting on edit. */
+      dailySheetItemId?: string;
+      filledDropped: number;
+      emptyReceived: number;
+      cashCollected: number;
+      pricePerBottle: number;
+    },
+    txClient?: Prisma.TransactionClient,
+  ) {
+    const run = async (tx: Prisma.TransactionClient) => {
       const totalAmount = data.filledDropped * data.pricePerBottle;
       const newBottleChange = data.filledDropped - data.emptyReceived;
       const newFinancialEffect = totalAmount - data.cashCollected;
@@ -109,7 +112,9 @@ export class LedgerService {
 
       await this.cache.invalidateCustomerWallets(data.vendorId, data.customerId);
       return { success: true };
-    });
+    };
+
+    return txClient ? run(txClient) : this.prisma.$transaction(run);
   }
 
   private async applyIdempotentRepost(

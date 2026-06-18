@@ -186,7 +186,7 @@ export class DailySheetService {
           emptyReceived: dto.emptyReceived,
           cashCollected: dto.cashCollected,
           pricePerBottle: price,
-        });
+        }, tx);
 
         const updatedWallet = await this.prisma.bottleWallet.findUnique({
           where: { customerId_productId: { customerId: item.customerId, productId: item.productId } },
@@ -726,7 +726,7 @@ export class DailySheetService {
         emptyReceived: dto.emptyReceived,
         cashCollected: dto.cashCollected,
         pricePerBottle: price,
-      });
+      }, tx);
 
       const updatedWallet = await this.prisma.bottleWallet.findUnique({
         where: { customerId_productId: { customerId: dto.customerId, productId: dto.productId } },
@@ -828,7 +828,7 @@ export class DailySheetService {
         emptyReceived: dto.emptyReceived,
         cashCollected: dto.cashCollected,
         pricePerBottle: price,
-      });
+      }, tx);
 
       const updatedWallet = await this.prisma.bottleWallet.findUnique({
         where: { customerId_productId: { customerId: dto.customerId, productId: dto.productId } },
