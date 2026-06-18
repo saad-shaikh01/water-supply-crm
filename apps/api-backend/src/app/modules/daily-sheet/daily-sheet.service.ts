@@ -556,7 +556,7 @@ export class DailySheetService {
         it.lastFilledDropped = last?.filledDropped ?? null;
       }
 
-      // Batch 30-day consumption rate (bottles/day per customer+product)
+      // Batch 30-day empty return rate: emptyReceived / filledDropped × 100
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       const recentDeliveries30d = await this.prisma.dailySheetItem.findMany({
         where: {
@@ -565,17 +565,21 @@ export class DailySheetService {
           updatedAt: { gte: thirtyDaysAgo },
           OR: itemPairs.map((p) => ({ customerId: p.customerId, productId: p.productId })),
         },
-        select: { customerId: true, productId: true, filledDropped: true },
+        select: { customerId: true, productId: true, filledDropped: true, emptyReceived: true },
       });
-      const consumptionMap = new Map<string, number>();
+      const filledMap = new Map<string, number>();
+      const emptyMap = new Map<string, number>();
       for (const d of recentDeliveries30d) {
         const key = `${d.customerId}:${d.productId}`;
-        consumptionMap.set(key, (consumptionMap.get(key) ?? 0) + d.filledDropped);
+        filledMap.set(key, (filledMap.get(key) ?? 0) + d.filledDropped);
+        emptyMap.set(key, (emptyMap.get(key) ?? 0) + d.emptyReceived);
       }
       for (const it of sheet.items as any[]) {
-        const total = consumptionMap.get(`${it.customerId}:${it.productId}`) ?? 0;
+        const key = `${it.customerId}:${it.productId}`;
+        const filled = filledMap.get(key) ?? 0;
+        const empty = emptyMap.get(key) ?? 0;
         if (it.customer) {
-          it.customer.consumptionRate30d = total > 0 ? Math.round((total / 30) * 10) / 10 : null;
+          it.customer.consumptionRate30d = filled > 0 ? Math.round((empty / filled) * 100) : null;
         }
       }
     }

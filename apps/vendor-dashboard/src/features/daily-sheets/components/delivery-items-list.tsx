@@ -308,8 +308,13 @@ export function DeliveryItemsList({
                               ₨{(customer?.financialBalance ?? 0).toLocaleString()}
                             </span>
                             {customer?.consumptionRate30d != null && (
-                              <span className="text-[9px] text-muted-foreground font-medium">
-                                30d: {customer.consumptionRate30d}/day
+                              <span className={cn(
+                                'text-[9px] font-bold',
+                                customer.consumptionRate30d >= 80
+                                  ? 'text-emerald-600 dark:text-emerald-400'
+                                  : 'text-destructive',
+                              )}>
+                                {customer.consumptionRate30d}%
                               </span>
                             )}
                             {item.status !== 'PENDING' && item.filledDropped > 0 && (
