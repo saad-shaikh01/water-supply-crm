@@ -110,7 +110,10 @@ git reset --hard "origin/${BRANCH}"
 # ── 2. Install Node dependencies ──────────────────────────────────────────────
 echo ""
 echo "==> [2/8] Installing Node.js dependencies..."
-npm ci --prefer-offline
+# npm ci requires a perfectly frozen lock file; this monorepo uses
+# --legacy-peer-deps throughout so npm ci will always fail when deps diverge.
+# npm install with the same flag is the safe equivalent here.
+npm install --legacy-peer-deps --prefer-offline
 
 # ── 3. Data layer ─────────────────────────────────────────────────────────────
 echo ""
