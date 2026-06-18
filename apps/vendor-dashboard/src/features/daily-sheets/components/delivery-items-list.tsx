@@ -299,14 +299,22 @@ export function DeliveryItemsList({
                             {customer?.floor ? ` · ${customer.floor}` : ''}
                           </p>
                           <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                            <span className={cn(
-                              'text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none',
-                              (customer?.financialBalance ?? 0) > 0
-                                ? 'bg-destructive/15 text-destructive'
-                                : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
-                            )}>
-                              ₨{(customer?.financialBalance ?? 0).toLocaleString()}
-                            </span>
+                            {(() => {
+                              const isMonthly = customer?.paymentType === 'MONTHLY';
+                              const financialValue = isMonthly
+                                ? (customer?.previousMonthOutstanding ?? 0)
+                                : (customer?.financialBalance ?? 0);
+                              return (
+                                <span className={cn(
+                                  'text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none',
+                                  financialValue > 0
+                                    ? 'bg-destructive/15 text-destructive'
+                                    : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
+                                )}>
+                                  ₨{financialValue.toLocaleString()}
+                                </span>
+                              );
+                            })()}
                             {customer?.consumptionRate30d != null && (
                               <span className={cn(
                                 'text-[9px] font-bold',
@@ -473,12 +481,21 @@ export function DeliveryItemsList({
                               <p className="text-[9px] font-bold uppercase text-muted-foreground">Bottle Wallet</p>
                               <p className="text-base font-black mt-0.5">{walletBalance} btl</p>
                             </div>
-                            <div className="rounded-xl bg-background/70 border border-border/40 px-3 py-2">
-                              <p className="text-[9px] font-bold uppercase text-muted-foreground">Balance Due</p>
-                              <p className={cn('text-base font-black mt-0.5', (customer?.financialBalance ?? 0) > 0 ? 'text-destructive' : 'text-emerald-600')}>
-                                ₨{(customer?.financialBalance ?? 0).toLocaleString()}
-                              </p>
-                            </div>
+                            {(() => {
+                              const isMonthly = customer?.paymentType === 'MONTHLY';
+                              const financialLabel = isMonthly ? 'Prev. Month Outstanding' : 'Balance Due';
+                              const financialValue = isMonthly
+                                ? (customer?.previousMonthOutstanding ?? 0)
+                                : (customer?.financialBalance ?? 0);
+                              return (
+                                <div className="rounded-xl bg-background/70 border border-border/40 px-3 py-2">
+                                  <p className="text-[9px] font-bold uppercase text-muted-foreground">{financialLabel}</p>
+                                  <p className={cn('text-base font-black mt-0.5', financialValue > 0 ? 'text-destructive' : 'text-emerald-600')}>
+                                    ₨{financialValue.toLocaleString()}
+                                  </p>
+                                </div>
+                              );
+                            })()}
                             <div className="rounded-xl bg-background/70 border border-border/40 px-3 py-2">
                               <p className="text-[9px] font-bold uppercase text-muted-foreground">Payment</p>
                               <p className="text-base font-black mt-0.5">{customer?.paymentType ?? '—'}</p>

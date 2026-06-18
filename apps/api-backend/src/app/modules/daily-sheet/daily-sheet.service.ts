@@ -582,6 +582,36 @@ export class DailySheetService {
           it.customer.consumptionRate30d = filled > 0 ? Math.round((empty / filled) * 100) : null;
         }
       }
+
+      // Batch prev-month outstanding for MONTHLY customers (single groupBy query)
+      const monthlyCustomerIds = [
+        ...new Set(
+          (sheet.items as any[])
+            .filter((it) => it.customer?.paymentType === 'MONTHLY')
+            .map((it) => it.customerId as string),
+        ),
+      ];
+      if (monthlyCustomerIds.length > 0) {
+        const sheetDate = new Date((sheet as any).date);
+        const curMonthStart = new Date(sheetDate.getFullYear(), sheetDate.getMonth(), 1);
+        const curMonthTxns = await this.prisma.transaction.groupBy({
+          by: ['customerId'],
+          where: {
+            customerId: { in: monthlyCustomerIds },
+            vendorId,
+            createdAt: { gte: curMonthStart },
+          },
+          _sum: { amount: true },
+        });
+        const txnMap = new Map(curMonthTxns.map((t) => [t.customerId, t._sum.amount ?? 0]));
+        for (const it of sheet.items as any[]) {
+          if (it.customer?.paymentType === 'MONTHLY') {
+            const fromThisMonth = txnMap.get(it.customerId) ?? 0;
+            it.customer.previousMonthOutstanding =
+              (it.customer.financialBalance ?? 0) - fromThisMonth;
+          }
+        }
+      }
     }
 
     return sheet;
