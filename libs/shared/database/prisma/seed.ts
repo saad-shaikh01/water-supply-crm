@@ -96,7 +96,7 @@ async function main() {
   console.log('--- Creating Demo Vendor: AquaPure Karachi ---');
   const vendor = await prisma.vendor.create({
     data: {
-      name: 'AquaPure Karachi',
+      name: 'Blue Ice',
       slug: VENDOR_SLUG,
       address: 'Karachi, Pakistan',
       raastId: '03001234567',
