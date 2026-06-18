@@ -653,14 +653,22 @@ export function DeliveryItemsList({
                             </>
                           )}
 
-                          {canRecord && (
+                          {canRecord ? (
                             <DeliveryRecordForm
                               key={item.id}
                               item={item}
                               sheetId={sheetId}
                               onDone={() => onToggleExpand(null)}
                             />
-                          )}
+                          ) : item.status !== 'PENDING' ? (
+                            <DeliveryRecordForm
+                              key={`${item.id}-ro`}
+                              item={item}
+                              sheetId={sheetId}
+                              onDone={() => onToggleExpand(null)}
+                              readOnly
+                            />
+                          ) : null}
 
                           <CustomerHistorySection customerId={item.customerId} />
                         </div>

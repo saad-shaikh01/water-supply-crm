@@ -51,9 +51,10 @@ interface DeliveryRecordFormProps {
   item: DeliveryItem;
   sheetId: string;
   onDone: () => void;
+  readOnly?: boolean;
 }
 
-export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordFormProps) {
+export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: DeliveryRecordFormProps) {
   const { mutate: updateItem, isPending } = useUpdateDeliveryItem(sheetId);
   const { mutateAsync: reportDamage } = useReportDamage();
 
@@ -169,13 +170,20 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
   };
 
   return (
-    <div className="rounded-2xl border border-primary/30 bg-background/70 p-4 space-y-5">
-      <p className="text-sm font-black flex items-center gap-2">
-        <ClipboardEdit className="h-4 w-4 text-primary" />
-        {isFirstRecord ? 'Record Delivery' : 'Edit Delivery'}
-      </p>
+    <div className={cn('rounded-2xl border bg-background/70 p-4 space-y-5', readOnly ? 'border-border/50' : 'border-primary/30')}>
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-black flex items-center gap-2">
+          <ClipboardEdit className="h-4 w-4 text-primary" />
+          {readOnly ? 'Delivery Record' : isFirstRecord ? 'Record Delivery' : 'Edit Delivery'}
+        </p>
+        {readOnly && (
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border/50 tracking-wide">
+            Read Only
+          </span>
+        )}
+      </div>
 
-      {!isFirstRecord && (
+      {!isFirstRecord && !readOnly && (
         <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-start gap-3 text-sm">
           <span className="text-amber-500 mt-0.5">⚠</span>
           <div>
@@ -189,9 +197,11 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
       <div className="flex gap-2">
         <button
           type="button"
-          onClick={() => setDeliveryMode('delivered')}
+          onClick={() => !readOnly && setDeliveryMode('delivered')}
+          disabled={readOnly}
           className={cn(
             'flex-1 py-2.5 px-2 sm:px-4 rounded-2xl text-xs sm:text-sm font-bold border-2 transition-all',
+            readOnly && 'cursor-default',
             deliveryMode === 'delivered'
               ? 'bg-emerald-500/10 border-emerald-500 text-emerald-700 dark:text-emerald-400'
               : 'bg-background border-border/50 text-muted-foreground hover:border-emerald-500/30',
@@ -201,9 +211,11 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
         </button>
         <button
           type="button"
-          onClick={() => setDeliveryMode('unable')}
+          onClick={() => !readOnly && setDeliveryMode('unable')}
+          disabled={readOnly}
           className={cn(
             'flex-1 py-2.5 px-2 sm:px-4 rounded-2xl text-xs sm:text-sm font-bold border-2 transition-all',
+            readOnly && 'cursor-default',
             deliveryMode === 'unable'
               ? 'bg-destructive/10 border-destructive text-destructive'
               : 'bg-background border-border/50 text-muted-foreground hover:border-destructive/30',
@@ -215,7 +227,7 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
 
       {deliveryMode === 'delivered' ? (
         <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className={cn('grid gap-4', readOnly ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2')}>
             {/* LEFT COLUMN — entry fields stacked vertically */}
             <div className="space-y-4">
               <div className="space-y-2">
@@ -225,7 +237,8 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
                   min={0}
                   value={itemForm.filledDropped ?? 0}
                   onChange={(e) => setItemForm((p) => ({ ...p, filledDropped: Number(e.target.value) }))}
-                  className="font-mono font-bold h-11"
+                  className={cn('font-mono font-bold h-11', readOnly && 'bg-muted/40 cursor-default')}
+                  readOnly={readOnly}
                 />
                 {isFirstRecord && item.lastFilledDropped != null && (
                   <p className="text-[11px] text-muted-foreground">
@@ -251,7 +264,8 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
                   min={0}
                   value={itemForm.emptyReceived ?? 0}
                   onChange={(e) => setItemForm((p) => ({ ...p, emptyReceived: Number(e.target.value) }))}
-                  className="font-mono font-bold h-11"
+                  className={cn('font-mono font-bold h-11', readOnly && 'bg-muted/40 cursor-default')}
+                  readOnly={readOnly}
                 />
                 {(() => {
                   const wb = item.customer?.wallets?.find((w) => w.productId === item.productId)?.balance ?? 0;
@@ -270,7 +284,7 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
                   value={amountDue}
                   disabled
                   readOnly
-                  className="font-mono font-bold h-11 bg-muted/50 text-muted-foreground cursor-not-allowed"
+                  className={cn('font-mono font-bold h-11 bg-muted/50 cursor-not-allowed', readOnly ? 'text-foreground opacity-90' : 'text-muted-foreground')}
                 />
                 <p className="text-[11px] text-muted-foreground flex items-center gap-1 flex-wrap">
                   Auto · Drop × {effectivePrice > 0 ? `₨${effectivePrice.toLocaleString()}` : 'Rate'}
@@ -289,28 +303,31 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
                   min={0}
                   value={itemForm.cashCollected ?? 0}
                   onChange={(e) => setItemForm((p) => ({ ...p, cashCollected: Number(e.target.value) }))}
-                  className="h-11 font-mono font-bold bg-emerald-500/5 border-emerald-500/20 text-emerald-600 dark:text-emerald-400"
+                  className={cn('h-11 font-mono font-bold bg-emerald-500/5 border-emerald-500/20 text-emerald-600 dark:text-emerald-400', readOnly && 'cursor-default')}
+                  readOnly={readOnly}
                 />
               </div>
             </div>
 
-            {/* RIGHT COLUMN — customer monthly financial snapshot */}
-            <div className="grid grid-cols-2 gap-2">
-              {finLoading ? (
-                [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[52px] w-full rounded-xl" />)
-              ) : (
-                <>
-                  <StatBox label="Prev Month Bill" value={finSummary?.prevMonthAmount ?? 0} />
-                  <StatBox label="Paid This Month" value={livePaidThisMonth} tone="paid" />
-                  <StatBox label="Prev Month Bal" value={finSummary?.prevMonthOutstanding ?? 0} tone="balance" />
-                  <StatBox label="Current Bal" value={liveCurrentOutstanding} tone="balance" />
-                </>
-              )}
-            </div>
+            {/* RIGHT COLUMN — customer monthly financial snapshot (hidden in read-only audit view) */}
+            {!readOnly && (
+              <div className="grid grid-cols-2 gap-2">
+                {finLoading ? (
+                  [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[52px] w-full rounded-xl" />)
+                ) : (
+                  <>
+                    <StatBox label="Prev Month Bill" value={finSummary?.prevMonthAmount ?? 0} />
+                    <StatBox label="Paid This Month" value={livePaidThisMonth} tone="paid" />
+                    <StatBox label="Prev Month Bal" value={finSummary?.prevMonthOutstanding ?? 0} tone="balance" />
+                    <StatBox label="Current Bal" value={liveCurrentOutstanding} tone="balance" />
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* Bottle problem section */}
-          <div className="rounded-2xl border border-border/40 overflow-hidden">
+          {/* Bottle problem section — only relevant when actively recording */}
+          {!readOnly && <div className="rounded-2xl border border-border/40 overflow-hidden">
             <button
               type="button"
               onClick={() => {
@@ -441,16 +458,16 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
                 </p>
               </div>
             )}
-          </div>
+          </div>}
         </div>
       ) : (
         <div className="space-y-4">
           <div className="space-y-2">
             <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
-              Reason Category <span className="text-destructive">*</span>
+              Reason Category {!readOnly && <span className="text-destructive">*</span>}
             </Label>
-            <Select value={failureCategory} onValueChange={setFailureCategory}>
-              <SelectTrigger className="h-11 rounded-xl">
+            <Select value={failureCategory} onValueChange={readOnly ? undefined : setFailureCategory} disabled={readOnly}>
+              <SelectTrigger className={cn('h-11 rounded-xl', readOnly && 'bg-muted/40 cursor-default')}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="rounded-xl border-border/50 shadow-2xl">
@@ -464,30 +481,35 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
           </div>
           <div className="space-y-2">
             <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
-              Notes (optional)
+              Notes {readOnly ? '' : '(optional)'}
             </Label>
             <Input
               placeholder="Additional details..."
               value={unableReason}
               onChange={(e) => setUnableReason(e.target.value)}
-              className="h-11"
+              className={cn('h-11', readOnly && 'bg-muted/40 cursor-default')}
+              readOnly={readOnly}
             />
           </div>
-          <p className="text-[11px] text-muted-foreground bg-blue-500/5 border border-blue-500/20 rounded-xl px-3 py-2">
-            This reports an issue for ops planning. Drivers cannot reschedule or cancel from this screen.
-          </p>
+          {!readOnly && (
+            <p className="text-[11px] text-muted-foreground bg-blue-500/5 border border-blue-500/20 rounded-xl px-3 py-2">
+              This reports an issue for ops planning. Drivers cannot reschedule or cancel from this screen.
+            </p>
+          )}
         </div>
       )}
 
-      <div className="flex gap-2 pt-1">
-        <Button variant="ghost" onClick={onDone} disabled={isPending} className="rounded-xl font-bold">
-          Discard
-        </Button>
-        <Button onClick={doSave} disabled={isPending} className="flex-1 rounded-xl font-bold">
-          {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-          Save Record
-        </Button>
-      </div>
+      {!readOnly && (
+        <div className="flex gap-2 pt-1">
+          <Button variant="ghost" onClick={onDone} disabled={isPending} className="rounded-xl font-bold">
+            Discard
+          </Button>
+          <Button onClick={doSave} disabled={isPending} className="flex-1 rounded-xl font-bold">
+            {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            Save Record
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
