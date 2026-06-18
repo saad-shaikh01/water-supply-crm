@@ -113,7 +113,7 @@ echo "==> [2/8] Installing Node.js dependencies..."
 # npm ci requires a perfectly frozen lock file; this monorepo uses
 # --legacy-peer-deps throughout so npm ci will always fail when deps diverge.
 # npm install with the same flag is the safe equivalent here.
-npm install --legacy-peer-deps --prefer-offline
+npm install --legacy-peer-deps
 
 # ── 3. Data layer ─────────────────────────────────────────────────────────────
 echo ""
@@ -147,6 +147,13 @@ echo ""
 echo "==> [5/8] Building all applications..."
 # NEXT_PUBLIC_* vars are now in the environment from step 0 and will be
 # baked into the Next.js client bundles during this step.
+
+# Clear Nx daemon and project-graph cache before building.
+# Required after any change to next.config.js plugins (e.g. adding next-pwa):
+# the cached graph was built without the new plugin and will fail to reprocess.
+echo "     Resetting Nx cache..."
+npx nx reset
+
 echo "     Building api-backend..."
 npx nx build api-backend --configuration=production
 
