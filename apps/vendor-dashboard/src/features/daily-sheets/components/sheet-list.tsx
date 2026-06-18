@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Eye, Calendar, MapPin, User, Truck, SlidersHorizontal, Droplets, DollarSign, AlertTriangle, Zap } from 'lucide-react';
 import {
@@ -19,6 +20,7 @@ import { useAuthStore } from '../../../store/auth.store';
 import { cn } from '@water-supply-crm/ui';
 
 export function SheetList() {
+  const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const { data, isLoading, page, setPage, limit, setLimit, routeId, vanId, driverId } = useDailySheets();
   const [isClosed, setIsClosed] = useQueryState('isClosed', parseAsString.withDefault(''));
@@ -305,7 +307,13 @@ export function SheetList() {
             header: '',
             width: '60px',
             cell: (r) => (
-              <Button variant="ghost" size="icon" asChild className="hover:bg-primary/10 hover:text-primary rounded-full transition-all">
+              <Button
+                variant="ghost"
+                size="icon"
+                asChild
+                className="hover:bg-primary/10 hover:text-primary rounded-full transition-all"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <Link href={`/dashboard/daily-sheets/${r.id}`}>
                   <Eye className="h-4 w-4" />
                 </Link>
@@ -313,6 +321,7 @@ export function SheetList() {
             ),
           },
         ]}
+        onRowClick={(r) => router.push(`/dashboard/daily-sheets/${r.id}`)}
       />
     </div>
   );

@@ -215,7 +215,7 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
 
       {deliveryMode === 'delivered' ? (
         <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* LEFT COLUMN — entry fields stacked vertically */}
             <div className="space-y-4">
               <div className="space-y-2">
@@ -295,7 +295,7 @@ export function DeliveryRecordForm({ item, sheetId, onDone }: DeliveryRecordForm
             </div>
 
             {/* RIGHT COLUMN — customer monthly financial snapshot */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               {finLoading ? (
                 [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[52px] w-full rounded-xl" />)
               ) : (

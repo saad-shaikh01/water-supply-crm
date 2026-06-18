@@ -25,6 +25,7 @@ interface DataTableProps<T> {
   onPageChange?: (page: number) => void;
   onLimitChange?: (limit: number) => void;
   emptyMessage?: string;
+  onRowClick?: (row: T) => void;
 }
 
 export function DataTable<T extends { id: string }>({
@@ -37,6 +38,7 @@ export function DataTable<T extends { id: string }>({
   onPageChange,
   onLimitChange,
   emptyMessage = 'No data found',
+  onRowClick,
 }: DataTableProps<T>) {
   // Component implementation
   if (isLoading) {
@@ -88,9 +90,13 @@ export function DataTable<T extends { id: string }>({
               </TableRow>
             ) : (
               data.map((row) => (
-                <TableRow 
-                  key={row.id} 
-                  className="group/row transition-colors border-b border-border/50 last:border-0 hover:bg-white/[0.04]"
+                <TableRow
+                  key={row.id}
+                  className={cn(
+                    "group/row transition-colors border-b border-border/50 last:border-0 hover:bg-white/[0.04]",
+                    onRowClick && "cursor-pointer active:bg-white/[0.06]"
+                  )}
+                  onClick={onRowClick ? () => onRowClick(row) : undefined}
                 >
                   {columns.map((col) => (
                     <TableCell key={col.key} className="py-3 px-4 sm:py-4 sm:px-6">

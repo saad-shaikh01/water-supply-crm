@@ -43,9 +43,17 @@ export function SheetDetailHeader({
           </h1>
           <StatusBadge status={currentStatus} />
         </div>
-        <p className="text-muted-foreground text-sm flex items-center gap-2 mt-1 font-medium">
-          <MapPin className="h-3 w-3" /> {routeName ?? 'No Route'} • <Truck className="h-3 w-3 ml-1" /> {vanPlateNumber}
-        </p>
+        <div className="text-muted-foreground text-sm flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 font-medium">
+          <span className="flex items-center gap-1 whitespace-nowrap">
+            <MapPin className="h-3 w-3 shrink-0" />
+            {routeName ?? 'No Route'}
+          </span>
+          <span className="text-muted-foreground/40">•</span>
+          <span className="flex items-center gap-1 whitespace-nowrap">
+            <Truck className="h-3 w-3 shrink-0" />
+            {vanPlateNumber}
+          </span>
+        </div>
       </div>
       <div className="flex gap-2">
         {!isClosed && isAdmin && (

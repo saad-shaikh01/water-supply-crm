@@ -300,7 +300,7 @@ export function DeliveryItemsList({
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 flex-wrap shrink-0">
+                      <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto sm:shrink-0">
                         {notes.length > 0 && (
                           <div className={cn(
                             'flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full',
@@ -437,7 +437,7 @@ export function DeliveryItemsList({
                         className="overflow-hidden"
                       >
                         <div className="border-t border-border/50 bg-accent/10 p-4 sm:p-5 space-y-4">
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                             <div className="rounded-xl bg-background/70 border border-border/40 px-3 py-2">
                               <p className="text-[9px] font-bold uppercase text-muted-foreground">Bottle Wallet</p>
                               <p className="text-base font-black mt-0.5">{walletBalance} btl</p>
