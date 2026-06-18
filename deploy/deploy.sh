@@ -153,6 +153,15 @@ npx nx build admin-panel --configuration=production
 echo "     Building vendor-dashboard..."
 npx nx build vendor-dashboard --configuration=production
 
+# Nx copies apps/vendor-dashboard/public/ to dist/ during the build above,
+# but next-pwa also writes sw.js + workbox-*.js into the *source* public/
+# dir at the end of the webpack run.  Force-sync here so the dist public/
+# always contains the freshly generated service-worker files, manifest.json,
+# and the icons/ folder regardless of Nx's copy order.
+echo "     Syncing vendor-dashboard PWA assets (public/ → dist)..."
+cp -r "${REPO_ROOT}/apps/vendor-dashboard/public/." \
+      "${REPO_ROOT}/dist/apps/vendor-dashboard/public/"
+
 echo "     Building customer-portal..."
 npx nx build customer-portal --configuration=production
 

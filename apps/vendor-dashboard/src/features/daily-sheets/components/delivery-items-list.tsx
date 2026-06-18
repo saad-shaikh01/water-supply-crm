@@ -63,7 +63,7 @@ function CustomerHistorySection({ customerId }: { customerId: string }) {
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.18 }}
-            className="overflow-hidden"
+            className="overflow-hidden w-full"
           >
             <div className="mt-2 overflow-x-auto rounded-xl border border-border/40">
               {isLoading ? (
@@ -269,6 +269,7 @@ export function DeliveryItemsList({
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: idx * 0.03 }}
+                className="min-w-0 w-full"
               >
                 <Card className={cn(
                   'overflow-hidden border-border/50 transition-all',
@@ -434,7 +435,7 @@ export function DeliveryItemsList({
                         animate={{ height: 'auto', opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
                         transition={{ duration: 0.2 }}
-                        className="overflow-hidden"
+                        className="overflow-hidden w-full"
                       >
                         <div className="border-t border-border/50 bg-accent/10 p-4 sm:p-5 space-y-4">
                           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
