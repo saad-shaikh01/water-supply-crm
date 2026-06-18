@@ -555,6 +555,29 @@ export class DailySheetService {
         );
         it.lastFilledDropped = last?.filledDropped ?? null;
       }
+
+      // Batch 30-day consumption rate (bottles/day per customer+product)
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const recentDeliveries30d = await this.prisma.dailySheetItem.findMany({
+        where: {
+          status: { in: ['COMPLETED', 'EMPTY_ONLY'] },
+          dailySheet: { vendorId },
+          updatedAt: { gte: thirtyDaysAgo },
+          OR: itemPairs.map((p) => ({ customerId: p.customerId, productId: p.productId })),
+        },
+        select: { customerId: true, productId: true, filledDropped: true },
+      });
+      const consumptionMap = new Map<string, number>();
+      for (const d of recentDeliveries30d) {
+        const key = `${d.customerId}:${d.productId}`;
+        consumptionMap.set(key, (consumptionMap.get(key) ?? 0) + d.filledDropped);
+      }
+      for (const it of sheet.items as any[]) {
+        const total = consumptionMap.get(`${it.customerId}:${it.productId}`) ?? 0;
+        if (it.customer) {
+          it.customer.consumptionRate30d = total > 0 ? Math.round((total / 30) * 10) / 10 : null;
+        }
+      }
     }
 
     return sheet;

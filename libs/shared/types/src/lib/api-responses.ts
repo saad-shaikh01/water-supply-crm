@@ -160,6 +160,7 @@ export interface DeliveryItem {
     phoneNumber?: string | null;
     paymentType?: PaymentTypeValue;
     financialBalance?: number;
+    consumptionRate30d?: number | null;
     wallets?: CustomerWalletSummary[];
     customPrices?: { productId: string; customPrice: number }[];
   };

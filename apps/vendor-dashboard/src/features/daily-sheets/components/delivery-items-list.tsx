@@ -298,6 +298,31 @@ export function DeliveryItemsList({
                             {customer?.address}
                             {customer?.floor ? ` · ${customer.floor}` : ''}
                           </p>
+                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                            <span className={cn(
+                              'text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none',
+                              (customer?.financialBalance ?? 0) > 0
+                                ? 'bg-destructive/15 text-destructive'
+                                : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
+                            )}>
+                              ₨{(customer?.financialBalance ?? 0).toLocaleString()}
+                            </span>
+                            {customer?.consumptionRate30d != null && (
+                              <span className="text-[9px] text-muted-foreground font-medium">
+                                30d: {customer.consumptionRate30d}/day
+                              </span>
+                            )}
+                            {item.status !== 'PENDING' && item.filledDropped > 0 && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none bg-orange-500/15 text-orange-700 dark:text-orange-400">
+                                ↓{item.filledDropped}
+                              </span>
+                            )}
+                            {item.status !== 'PENDING' && item.emptyReceived > 0 && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none bg-purple-500/15 text-purple-700 dark:text-purple-400">
+                                ↑{item.emptyReceived}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
 
