@@ -134,14 +134,7 @@ export class WhatsAppWebProvider
     }
 
     try {
-      // Format: remove +, spaces, dashes → append @c.us
-      const cleaned = phone.replace(/[\s\-\+]/g, '');
-      // Add country code if missing (Pakistan default: 92)
-      const withCode = cleaned.startsWith('0')
-        ? `92${cleaned.slice(1)}`
-        : cleaned;
-      const chatId = `${withCode}@c.us`;
-
+      const chatId = this.toChatId(phone);
       await this.client.sendMessage(chatId, message);
       this.logger.log(`✅ WhatsApp sent to ${phone}`);
       return true;
@@ -149,5 +142,41 @@ export class WhatsAppWebProvider
       this.logger.error(`Failed to send WhatsApp to ${phone}`, error);
       return false;
     }
+  }
+
+  async sendDocument(phone: string, pdfBuffer: Buffer, filename: string, caption?: string): Promise<boolean> {
+    if (!this.enabled) {
+      this.logger.debug(`[WhatsApp DISABLED] Would send PDF to ${phone}: ${filename}`);
+      return false;
+    }
+
+    if (!this.ready || !this.client) {
+      this.logger.warn(`WhatsApp not ready — PDF to ${phone} dropped`);
+      return false;
+    }
+
+    try {
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore — optional peer dependency
+      const { MessageMedia } = await import(/* webpackIgnore: true */ 'whatsapp-web.js');
+      const base64 = pdfBuffer.toString('base64');
+      const media = new MessageMedia('application/pdf', base64, filename);
+      const chatId = this.toChatId(phone);
+      await this.client.sendMessage(chatId, media, {
+        sendMediaAsDocument: true,
+        caption: caption ?? '',
+      });
+      this.logger.log(`✅ WhatsApp PDF sent to ${phone}: ${filename}`);
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to send WhatsApp PDF to ${phone}`, error);
+      return false;
+    }
+  }
+
+  private toChatId(phone: string): string {
+    const cleaned = phone.replace(/[\s\-\+]/g, '');
+    const withCode = cleaned.startsWith('0') ? `92${cleaned.slice(1)}` : cleaned;
+    return `${withCode}@c.us`;
   }
 }

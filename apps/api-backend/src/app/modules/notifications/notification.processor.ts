@@ -4,6 +4,7 @@ import { Job } from 'bullmq';
 import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
 import { PrismaService } from '@water-supply-crm/database';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.service';
 import { FcmService } from '../fcm/fcm.service';
 
 @Processor(QUEUE_NAMES.NOTIFICATIONS)
@@ -12,6 +13,7 @@ export class NotificationProcessor extends WorkerHost {
 
   constructor(
     private readonly whatsapp: WhatsAppService,
+    private readonly pdfService: DeliveryReceiptPdfService,
     private readonly fcm: FcmService,
     private readonly prisma: PrismaService,
   ) {
@@ -52,6 +54,24 @@ export class NotificationProcessor extends WorkerHost {
           return 'Message not delivered — number may not be on WhatsApp or client not ready';
         }
       }
+      case JOB_NAMES.SEND_WHATSAPP_PDF: {
+        const { phoneNumber, receiptData, entityType, entityId } = job.data;
+        const pdfBuffer = await this.pdfService.generate(receiptData as any);
+        const filename = `delivery-receipt-${receiptData['deliveryDate']}.pdf`;
+        const caption = `Assalam o Alaikum ${receiptData['customerName']}! ✅\n\nAapki delivery receipt attached hai. Shukriya!`;
+        const sent = await this.whatsapp.sendDocument(phoneNumber, pdfBuffer, filename, caption);
+        if (sent) {
+          this.logger.log(`WhatsApp PDF sent to ${phoneNumber}`);
+          if (entityType === 'DELIVERY_ITEM' && entityId) {
+            await this.prisma.dailySheetItem
+              .update({ where: { id: entityId }, data: { whatsappSentAt: new Date() } })
+              .catch((e: Error) => this.logger.warn(`Failed to update whatsappSentAt for item ${entityId}: ${e.message}`));
+          }
+          return null;
+        } else {
+          return 'PDF not delivered — WhatsApp not ready or number not registered';
+        }
+      }
       case JOB_NAMES.SEND_SMS:
         this.logger.log(`[Stub] Sending SMS to ${job.data.phoneNumber}: ${job.data.message}`);
         return null;
@@ -74,7 +94,7 @@ export class NotificationProcessor extends WorkerHost {
     error: string | null,
   ): Promise<void> {
     const channel =
-      job.name === JOB_NAMES.SEND_WHATSAPP ? 'WHATSAPP'
+      job.name === JOB_NAMES.SEND_WHATSAPP || job.name === JOB_NAMES.SEND_WHATSAPP_PDF ? 'WHATSAPP'
       : job.name === JOB_NAMES.SEND_SMS ? 'SMS'
       : 'FCM';
 

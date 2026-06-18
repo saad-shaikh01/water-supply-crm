@@ -22,6 +22,17 @@ export class NotificationService {
     );
   }
 
+  async queueWhatsAppPdf(
+    phoneNumber: string,
+    receiptData: Record<string, unknown>,
+    meta?: { entityType?: string; entityId?: string },
+  ) {
+    return this.notificationQueue.add(
+      JOB_NAMES.SEND_WHATSAPP_PDF,
+      { phoneNumber, receiptData, ...meta },
+    );
+  }
+
   async queueSMS(phoneNumber: string, message: string, idempotencyKey?: string) {
     return this.notificationQueue.add(
       JOB_NAMES.SEND_SMS,

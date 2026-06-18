@@ -27,7 +27,6 @@ import { FcmService } from '../fcm/fcm.service';
 import { DeliveryIssueService } from '../delivery-issue/delivery-issue.service';
 import { NotificationService } from '../notifications/notification.service';
 import { InAppNotificationService } from '../notifications/in-app-notification.service';
-import { MessageTemplates } from '../whatsapp/templates/message.templates';
 import { InsertOrderItemDto, SequenceMode } from './dto/insert-order-item.dto';
 import { AddAdhocItemDto } from './dto/add-adhoc-item.dto';
 import { AddCorrectionItemDto } from './dto/add-correction-item.dto';
@@ -89,7 +88,7 @@ export class DailySheetService {
       include: {
         customer: { select: { name: true, phoneNumber: true, isBillingExempt: true, customPrices: { select: { productId: true, customPrice: true } } } },
         product: { select: { name: true, basePrice: true } },
-        dailySheet: { select: { vendorId: true, date: true } },
+        dailySheet: { select: { vendorId: true, date: true, vendor: { select: { name: true } } } },
       },
     });
 
@@ -154,6 +153,9 @@ export class DailySheetService {
       : (customPrice ? customPrice.customPrice : item.product.basePrice);
 
     const result = await this.prisma.$transaction(async (tx) => {
+      let updatedWallet: { balance: number } | null = null;
+      let updatedCustomer: { financialBalance: number } | null = null;
+
       const updatedItem = await tx.dailySheetItem.update({
         where: { id: itemId },
         data: {
@@ -188,12 +190,12 @@ export class DailySheetService {
           pricePerBottle: price,
         }, tx);
 
-        const updatedWallet = await this.prisma.bottleWallet.findUnique({
+        updatedWallet = await this.prisma.bottleWallet.findUnique({
           where: { customerId_productId: { customerId: item.customerId, productId: item.productId } },
           select: { balance: true },
         });
 
-        const updatedCustomer = await this.prisma.customer.findUnique({
+        updatedCustomer = await this.prisma.customer.findUnique({
           where: { id: item.customerId },
           select: { financialBalance: true },
         });
@@ -226,34 +228,34 @@ export class DailySheetService {
           { type: 'DELIVERY', itemId },
         ).catch((e: Error) => this.logger.warn(`FCM delivery-complete failed for item ${itemId}: ${e.message}`));
 
-        // WhatsApp: only send when bottles were actually dropped (not empty-only pickups)
+        // WhatsApp PDF receipt: only when bottles were actually dropped (not empty-only pickups)
         if (resolvedStatus === DeliveryStatus.COMPLETED && item.customer.phoneNumber) {
           const isCorrection = !!item.whatsappSentAt;
-          const waMsg = isCorrection
-            ? MessageTemplates.deliveryCorrected(
-                item.customer.name,
-                item.product.name,
-                dto.filledDropped,
-                dto.cashCollected ?? 0,
-              )
-            : MessageTemplates.deliveryCompleted(
-                item.customer.name,
-                item.product.name,
-                dto.filledDropped,
-                dto.cashCollected ?? 0,
-              );
           // Reset whatsappSentAt so processor stamps it fresh after sending
           if (isCorrection) {
             await this.prisma.dailySheetItem
               .update({ where: { id: itemId }, data: { whatsappSentAt: null } })
               .catch(() => {});
           }
-          this.notifications.queueWhatsApp(
+          const now = new Date();
+          const receiptData = {
+            customerName: item.customer.name,
+            productName: item.product.name,
+            filledDropped: dto.filledDropped,
+            emptyReceived: dto.emptyReceived ?? 0,
+            cashCollected: dto.cashCollected ?? 0,
+            pricePerBottle: price,
+            financialBalanceAfter: updatedCustomer?.financialBalance ?? 0,
+            bottleBalanceAfter: updatedWallet?.balance ?? 0,
+            deliveryDate: item.dailySheet.date.toISOString().slice(0, 10),
+            deliveryTime: now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
+            vendorName: item.dailySheet.vendor?.name ?? 'Water Supply',
+          };
+          this.notifications.queueWhatsAppPdf(
             item.customer.phoneNumber,
-            waMsg,
-            undefined,
+            receiptData,
             { entityType: 'DELIVERY_ITEM', entityId: itemId },
-          ).catch((e: Error) => this.logger.warn(`WhatsApp delivery-${isCorrection ? 'correction' : 'complete'} failed for item ${itemId}: ${e.message}`));
+          ).catch((e: Error) => this.logger.warn(`WhatsApp PDF delivery-${isCorrection ? 'correction' : 'complete'} failed for item ${itemId}: ${e.message}`));
         }
       }
 

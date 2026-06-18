@@ -28,6 +28,11 @@ export class WhatsAppService {
     await this.provider.logout();
   }
 
+  async sendDocument(phone: string, pdfBuffer: Buffer, filename: string, caption?: string): Promise<boolean> {
+    if (!phone || !pdfBuffer) return false;
+    return this.provider.sendDocument(phone, pdfBuffer, filename, caption);
+  }
+
   async sendMessage(phone: string, message: string): Promise<boolean> {
     if (!phone || !message) return false;
 
