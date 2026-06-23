@@ -1,6 +1,6 @@
 'use client';
 
-import { useReducer, useMemo, useEffect, useRef } from 'react';
+import { useReducer, useMemo, useEffect, useRef, useState } from 'react';
 import { Button, Card, CardContent, Skeleton } from '@water-supply-crm/ui';
 import { useDailySheet, useUpdateCustomerLocation, useUnlockDeliveryEdit, useRequestDeliveryEdit } from '../hooks/use-daily-sheets';
 import { dailySheetsApi } from '../api/daily-sheets.api';
@@ -14,7 +14,7 @@ import { BulkImportDialog } from './dialogs/bulk-import-dialog';
 import { toast } from 'sonner';
 import {
   CheckCircle2, ClipboardList, DollarSign,
-  Droplets, Package, Plus, Receipt, Truck, Upload, User,
+  Droplets, Loader2, Package, Plus, Receipt, Truck, Upload, User,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@water-supply-crm/ui';
@@ -25,6 +25,8 @@ import { SheetDetailHeader } from './sheet-detail-header';
 import { LoadTripsSection } from './load-trips-section';
 import { DeliveryItemsList } from './delivery-items-list';
 import { SheetExpensesSection } from './sheet-expenses-section';
+import { sortBySequence, sortByNearest } from '../utils/sort-items';
+import { useDriverLocation } from '../hooks/use-driver-location';
 
 
 interface UiState {
@@ -99,6 +101,7 @@ interface SheetDetailProps {
 }
 
 type TabKey = 'all' | 'pending' | 'completed' | 'issues';
+type SortMode = 'sequence' | 'nearest';
 
 const ITEMS_PER_PAGE = 20;
 
@@ -123,6 +126,8 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const unlockDeliveryEdit = useUnlockDeliveryEdit(sheetId);
   const requestDeliveryEdit = useRequestDeliveryEdit(sheetId);
   const [ui, dispatch] = useReducer(uiReducer, initialUiState);
+  const [sortMode, setSortMode] = useState<SortMode>('sequence');
+  const { location: driverLocation, requestLocation } = useDriverLocation();
 
   const items = useMemo(() => data?.items ?? [], [data]);
 
@@ -147,11 +152,27 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
     emptyReceived: doneItems.reduce((acc, i) => acc + i.emptyReceived, 0),
     cashCollected: doneItems.reduce((acc, i) => acc + i.cashCollected, 0),
   }), [doneItems]);
-  const filteredItems = useMemo(() => items.filter((i) => tabFilter(ui.activeTab, i)), [items, ui.activeTab]);
+  const sortedItems = useMemo(() => {
+    if (sortMode === 'nearest' && driverLocation.status === 'success') {
+      return sortByNearest(items, driverLocation.lat, driverLocation.lng);
+    }
+    return sortBySequence(items);
+  }, [items, sortMode, driverLocation]);
+
+  const filteredItems = useMemo(() => sortedItems.filter((i) => tabFilter(ui.activeTab, i)), [sortedItems, ui.activeTab]);
   const totalPages = useMemo(() => Math.max(1, Math.ceil(filteredItems.length / ITEMS_PER_PAGE)), [filteredItems]);
   const paginatedItems = useMemo(
     () => filteredItems.slice((ui.tabPage - 1) * ITEMS_PER_PAGE, ui.tabPage * ITEMS_PER_PAGE),
     [filteredItems, ui.tabPage],
+  );
+
+  const coordsAvailableCount = useMemo(
+    () => items.filter((i) => i.customer?.latitude != null && i.customer?.longitude != null).length,
+    [items],
+  );
+  const missingCoordsCount = useMemo(
+    () => (sortMode !== 'nearest' ? 0 : items.length - coordsAvailableCount),
+    [items, sortMode, coordsAvailableCount],
   );
 
   if (isLoading) return (
@@ -182,6 +203,14 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const suggestedEmpty = doneItemsForCheckin.reduce((s: number, i: any) => s + (i.emptyReceived ?? 0), 0);
   const suggestedCash = doneItemsForCheckin.filter((i: any) => i.customer?.paymentType === 'CASH').reduce((s: number, i: any) => s + (i.cashCollected ?? 0), 0);
   const tabCount = (tab: TabKey) => items.filter((i) => tabFilter(tab, i)).length;
+
+  const handleSortModeChange = (mode: SortMode) => {
+    setSortMode(mode);
+    dispatch({ type: 'SET_PAGE', page: 1 });
+    if (mode === 'nearest' && driverLocation.status === 'idle') {
+      requestLocation();
+    }
+  };
 
   const handleExportPdf = async () => {
     try {
@@ -384,6 +413,57 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
           </Button>
         </div>
       )}
+
+      {/* Sort Controls */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Sort</span>
+          <div className="flex rounded-xl border border-border/50 overflow-hidden divide-x divide-border/50">
+            {([
+              { mode: 'sequence' as SortMode, label: 'Sheet Order' },
+              { mode: 'nearest' as SortMode, label: 'Nearest First' },
+            ] as const).map(({ mode, label }) => (
+              <button
+                key={mode}
+                onClick={() => handleSortModeChange(mode)}
+                className={cn(
+                  'px-3 py-1.5 text-xs font-bold transition-colors',
+                  sortMode === mode
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-background text-muted-foreground hover:bg-muted',
+                )}
+              >
+                {mode === 'nearest' && driverLocation.status === 'loading' ? (
+                  <span className="flex items-center gap-1.5">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Locating…
+                  </span>
+                ) : (
+                  label
+                )}
+              </button>
+            ))}
+          </div>
+          {items.length > 0 && (
+            <span className="text-[10px] text-muted-foreground">
+              {coordsAvailableCount}/{items.length} with location
+            </span>
+          )}
+        </div>
+
+        {sortMode === 'nearest' && driverLocation.status === 'error' && (
+          <p className="text-xs text-destructive font-medium">
+            {driverLocation.message} — Enable location access in your browser settings.
+          </p>
+        )}
+
+        {sortMode === 'nearest' && missingCoordsCount > 0 && (
+          <p className="text-[11px] text-muted-foreground">
+            {missingCoordsCount} customer{missingCoordsCount > 1 ? 's have' : ' has'} no saved
+            coordinates and {missingCoordsCount > 1 ? 'appear' : 'appears'} at the end.
+          </p>
+        )}
+      </div>
 
       <DeliveryItemsList
         sheetId={sheetId}
