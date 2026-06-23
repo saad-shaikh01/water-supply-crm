@@ -5,6 +5,7 @@ import { DailySheetService } from './daily-sheet.service';
 import { DailySheetController } from './daily-sheet.controller';
 import { DailySheetProcessor } from './daily-sheet.processor';
 import { DailySheetPdfService } from './pdf/daily-sheet-pdf.service';
+import { BulkImportService } from './bulk-import.service';
 import { AuditModule } from '../audit/audit.module';
 import { DeliveryIssueModule } from '../delivery-issue/delivery-issue.module';
 import { NotificationsModule } from '../notifications/notifications.module';
@@ -21,6 +22,6 @@ import { WarehouseModule } from '../warehouse/warehouse.module';
     WarehouseModule,
   ],
   controllers: [DailySheetController],
-  providers: [DailySheetService, DailySheetProcessor, DailySheetPdfService],
+  providers: [DailySheetService, DailySheetProcessor, DailySheetPdfService, BulkImportService],
 })
 export class DailySheetModule {}

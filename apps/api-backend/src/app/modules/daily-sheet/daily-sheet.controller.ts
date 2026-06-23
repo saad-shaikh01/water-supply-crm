@@ -19,6 +19,9 @@ import { Throttle } from '@nestjs/throttler';
 import { UserRole } from '@prisma/client';
 import { DailySheetService } from './daily-sheet.service';
 import { DailySheetPdfService } from './pdf/daily-sheet-pdf.service';
+import { BulkImportService } from './bulk-import.service';
+import { BulkImportConfirmDto } from './dto/bulk-import-confirm.dto';
+import { GlobalImportConfirmDto } from './dto/global-import-confirm.dto';
 import { GenerateSheetsDto } from './dto/generate-sheets.dto';
 import { SubmitDeliveryDto } from './dto/submit-delivery.dto';
 import { LoadOutDto } from './dto/load-out.dto';
@@ -39,6 +42,10 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 
 const ALLOWED_AUDIO_MIMES = ['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/wav', 'audio/x-m4a'];
+const ALLOWED_EXCEL_MIMES = [
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
+];
 
 @Controller('daily-sheets')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -46,6 +53,7 @@ export class DailySheetController {
   constructor(
     private readonly dailySheetService: DailySheetService,
     private readonly pdfService: DailySheetPdfService,
+    private readonly bulkImportService: BulkImportService,
   ) {}
 
   // ── Static routes MUST come before /:id ──────────────────────────────
@@ -182,6 +190,106 @@ export class DailySheetController {
     @Body() dto: SubmitDeliveryDto,
   ) {
     return this.dailySheetService.submitDelivery(user, id, dto);
+  }
+
+  // ── Bulk Import — all routes use static 'bulk-import/' prefix ────────
+  // Static prefix guarantees NestJS resolves these before any /:id routes.
+
+  @Get('bulk-import/template')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  async downloadSheetTemplate(
+    @CurrentUser() user: AuthUser,
+    @Query('sheetId') sheetId: string,
+    @Res() res: Response,
+  ) {
+    if (!sheetId) throw new BadRequestException('sheetId query parameter is required');
+    const buffer = await this.bulkImportService.generateSheetTemplate(sheetId, user.vendorId);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="import-template-${sheetId.slice(0, 8)}.xlsx"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.end(buffer);
+  }
+
+  @Get('bulk-import/global-template')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  async downloadGlobalTemplate(@Res() res: Response) {
+    const buffer = await this.bulkImportService.generateGlobalTemplate();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="global-import-template.xlsx"');
+    res.setHeader('Content-Length', buffer.length);
+    res.end(buffer);
+  }
+
+  @Post('bulk-import/preview')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @Throttle({ short: { ttl: 5000, limit: 3 }, medium: { ttl: 60000, limit: 20 } })
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 10 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        if (ALLOWED_EXCEL_MIMES.includes(file.mimetype)) {
+          cb(null, true);
+        } else {
+          cb(new Error('Only .xlsx files are accepted.'), false);
+        }
+      },
+    }),
+  )
+  async previewSheetImport(
+    @CurrentUser() user: AuthUser,
+    @Query('sheetId') sheetId: string,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    if (!sheetId) throw new BadRequestException('sheetId query parameter is required');
+    if (!file) throw new BadRequestException('No Excel file provided');
+    return this.bulkImportService.previewSheetImport(sheetId, user.vendorId, file);
+  }
+
+  @Post('bulk-import/global-preview')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @Throttle({ short: { ttl: 5000, limit: 3 }, medium: { ttl: 60000, limit: 20 } })
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 10 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        if (ALLOWED_EXCEL_MIMES.includes(file.mimetype)) {
+          cb(null, true);
+        } else {
+          cb(new Error('Only .xlsx files are accepted.'), false);
+        }
+      },
+    }),
+  )
+  async previewGlobalImport(
+    @CurrentUser() user: AuthUser,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('No Excel file provided');
+    return this.bulkImportService.previewGlobalImport(user.vendorId, file);
+  }
+
+  @Post('bulk-import/confirm')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @Throttle({ short: { ttl: 2000, limit: 1 }, medium: { ttl: 60000, limit: 10 } })
+  confirmSheetImport(
+    @CurrentUser() user: AuthUser,
+    @Query('sheetId') sheetId: string,
+    @Body() dto: BulkImportConfirmDto,
+  ) {
+    if (!sheetId) throw new BadRequestException('sheetId query parameter is required');
+    return this.bulkImportService.confirmSheetImport(sheetId, user.vendorId, dto);
+  }
+
+  @Post('bulk-import/global-confirm')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @Throttle({ short: { ttl: 2000, limit: 1 }, medium: { ttl: 60000, limit: 10 } })
+  confirmGlobalImport(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: GlobalImportConfirmDto,
+  ) {
+    return this.bulkImportService.confirmGlobalImport(user.vendorId, dto);
   }
 
   // ── List + single ─────────────────────────────────────────────────────
