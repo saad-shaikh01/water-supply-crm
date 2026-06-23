@@ -27,7 +27,7 @@ const nextConfig = {
   // See: https://nx.dev/recipes/next/next-config-setup
   nx: {},
   output: 'standalone',
-  transpilePackages: ['react-map-gl', 'mapbox-gl', '@vis.gl/react-mapbox', '@vis.gl/react-maplibre'],
+  transpilePackages: ['react-map-gl', 'mapbox-gl', '@vis.gl/react-mapbox', '@vis.gl/react-maplibre', '@vis.gl/react-google-maps'],
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: 's3.wasabisys.com' },

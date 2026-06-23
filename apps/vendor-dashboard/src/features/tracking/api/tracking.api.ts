@@ -10,20 +10,31 @@ export interface DriverLocation {
   bearing?: number;
   /** 'offline' is a server-sent sentinel — hook removes the driver from state on receipt */
   status: 'ONLINE' | 'DELIVERING' | 'AWAY' | 'offline';
-  /** Freshness metadata from backend (TRK-BE-003) */
+  /** Freshness metadata from backend */
   freshness: 'LIVE' | 'STALE' | 'OFFLINE';
-  /** Seconds since last update (TRK-BE-003) */
+  /** Seconds since last update */
   lastSeenSeconds: number;
-  /** Context from active sheet (TRK-BE-007) */
+  /** Context from active sheet */
   vanId?: string;
   dailySheetId?: string;
   updatedAt: string;
 }
 
+export interface UpdateLocationPayload {
+  latitude: number;
+  longitude: number;
+  speed?: number;
+  bearing?: number;
+  status?: 'ONLINE' | 'DELIVERING' | 'AWAY';
+}
+
 export const trackingApi = {
-  getActiveDrivers: () => 
+  getActiveDrivers: () =>
     apiClient.get<DriverLocation[]>('/tracking/active'),
-  
-  getDriverLocation: (driverId: string) => 
+
+  getDriverLocation: (driverId: string) =>
     apiClient.get<{ location: DriverLocation | null }>(`/tracking/driver/${driverId}`),
+
+  updateLocation: (payload: UpdateLocationPayload) =>
+    apiClient.post<{ success: boolean; updatedAt: string }>('/tracking/location', payload),
 };

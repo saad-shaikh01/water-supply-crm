@@ -27,6 +27,7 @@ import { DeliveryItemsList } from './delivery-items-list';
 import { SheetExpensesSection } from './sheet-expenses-section';
 import { sortBySequence, sortByNearest } from '../utils/sort-items';
 import { useDriverLocation } from '../hooks/use-driver-location';
+import { useLocationPublisher } from '../hooks/use-location-publisher';
 
 
 interface UiState {
@@ -128,6 +129,10 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const [ui, dispatch] = useReducer(uiReducer, initialUiState);
   const [sortMode, setSortMode] = useState<SortMode>('sequence');
   const { location: driverLocation, requestLocation } = useDriverLocation();
+
+  // Continuously publish driver GPS to the tracking backend while the sheet is open.
+  // Enables live map tracking for the vendor without any manual driver action.
+  useLocationPublisher(sheetId, isDriver && !(data?.isClosed ?? true));
 
   const items = useMemo(() => data?.items ?? [], [data]);
 
