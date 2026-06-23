@@ -292,6 +292,14 @@ export function DeliveryItemsList({
                               {customer?.name}
                             </Link>
                             <Badge variant="outline" className="text-[9px] font-mono px-1.5">{customer?.customerCode}</Badge>
+                            {customer?.paymentType && (
+                              <Badge
+                                variant={customer.paymentType === 'MONTHLY' ? 'info' : 'success'}
+                                className="text-[9px] px-1.5"
+                              >
+                                {customer.paymentType === 'MONTHLY' ? 'Monthly' : 'Cash'}
+                              </Badge>
+                            )}
                           </div>
                           <p className="text-xs text-muted-foreground truncate flex items-center gap-1 mt-0.5">
                             <MapPin className="h-2.5 w-2.5 shrink-0" />
