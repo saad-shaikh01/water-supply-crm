@@ -2,7 +2,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useQueryState, parseAsInteger, parseAsString } from 'nuqs';
 import { toast } from 'sonner';
 import type { SheetDetail, CustomerDeliveryHistoryItem, CustomerFinancialSummary, DeliveryItemNote } from '@water-supply-crm/types';
-import { dailySheetsApi, type SheetQuery } from '../api/daily-sheets.api';
+import {
+  dailySheetsApi,
+  type SheetQuery,
+  type SheetImportPreviewResponse,
+  type ImportRowConfirmDto,
+  type GlobalImportPreviewResponse,
+  type GlobalImportGroupDto,
+} from '../api/daily-sheets.api';
 import { customersApi } from '../../customers/api/customers.api';
 import { queryKeys } from '../../../lib/query-keys';
 import { useAuthStore } from '../../../store/auth.store';
@@ -317,5 +324,52 @@ export const useNoteAudioUrl = (noteId: string, enabled: boolean) => {
     enabled: enabled && !!noteId,
     staleTime: 1000 * 60 * 10, // 10 min (signed URL valid for 15 min)
     gcTime: 1000 * 60 * 12,
+  });
+};
+
+export const usePreviewBulkImport = (sheetId: string) => {
+  return useMutation({
+    mutationFn: (file: File): Promise<SheetImportPreviewResponse> =>
+      dailySheetsApi.previewBulkImport(sheetId, file).then((r) => r.data),
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? 'Failed to parse file. Check the format and try again.'),
+  });
+};
+
+export const useConfirmBulkImport = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (rows: ImportRowConfirmDto[]) =>
+      dailySheetsApi.confirmBulkImport(sheetId, rows).then((r) => r.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
+      queryClient.invalidateQueries({ queryKey: ['sheets'] });
+      toast.success('Deliveries imported successfully');
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? 'Import failed. Please try again.'),
+  });
+};
+
+export const usePreviewGlobalBulkImport = () => {
+  return useMutation({
+    mutationFn: (file: File): Promise<GlobalImportPreviewResponse> =>
+      dailySheetsApi.previewGlobalBulkImport(file).then((r) => r.data),
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? 'Failed to parse file. Check the format and try again.'),
+  });
+};
+
+export const useConfirmGlobalBulkImport = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (groups: GlobalImportGroupDto[]) =>
+      dailySheetsApi.confirmGlobalBulkImport(groups).then((r) => r.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sheets'] });
+      toast.success('Global import completed');
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? 'Global import failed. Please try again.'),
   });
 };

@@ -1,6 +1,86 @@
 import { apiClient } from '@water-supply-crm/data-access';
 import type { DeliveryItemNote } from '@water-supply-crm/types';
 
+export interface PreviewRowResult {
+  rowIndex: number;
+  itemId: string | null;
+  customerName: string;
+  customerCode: string;
+  productName: string;
+  currentDbStatus: string;
+  importStatus: string;
+  filledDropped: number;
+  emptyReturned: number;
+  cashCollected: number;
+  failureReason?: string;
+  errors: string[];
+  warnings: string[];
+}
+
+export interface SheetImportPreviewResponse {
+  sheetId: string;
+  valid: PreviewRowResult[];
+  invalid: PreviewRowResult[];
+  summary: { total: number; valid: number; invalid: number };
+}
+
+export interface ImportRowConfirmDto {
+  itemId: string;
+  status: 'COMPLETED' | 'SKIPPED' | 'FAILED';
+  filledDropped: number;
+  emptyReturned: number;
+  cashCollected: number;
+  failureReason?: string;
+  failureCategory?: string;
+}
+
+export interface SheetImportConfirmResponse {
+  sheetId: string;
+  processed: number;
+  errors: Array<{ itemId: string; customerCode?: string; message: string }>;
+}
+
+export interface GlobalPreviewGroup {
+  date: string;
+  vanPlateNumber: string;
+  sheetId: string | null;
+  sheetFound: boolean;
+  isClosed: boolean;
+  blockReason?: string;
+  valid: PreviewRowResult[];
+  invalid: PreviewRowResult[];
+}
+
+export interface GlobalImportPreviewResponse {
+  groups: GlobalPreviewGroup[];
+  summary: {
+    totalRows: number;
+    validRows: number;
+    invalidRows: number;
+    blockedGroups: number;
+  };
+}
+
+export interface GlobalImportGroupDto {
+  sheetId: string;
+  rows: ImportRowConfirmDto[];
+}
+
+export interface GlobalConfirmGroupResult {
+  sheetId: string;
+  date: string;
+  vanPlateNumber: string;
+  success: boolean;
+  processed: number;
+  error?: string;
+}
+
+export interface GlobalImportConfirmResponse {
+  results: GlobalConfirmGroupResult[];
+  totalProcessed: number;
+  failedGroups: number;
+}
+
 export interface SheetQuery {
   page?: number;
   limit?: number;
@@ -77,4 +157,44 @@ export const dailySheetsApi = {
     apiClient.patch<DeliveryItemNote>(`/daily-sheets/items/notes/${noteId}/acknowledge`, {}),
   getNoteAudioUrl: (noteId: string) =>
     apiClient.get<{ signedUrl: string }>(`/daily-sheets/items/notes/${noteId}/audio`),
+  // Bulk import
+  downloadBulkImportTemplate: (sheetId: string) =>
+    apiClient.get('/daily-sheets/bulk-import/template', {
+      params: { sheetId },
+      responseType: 'blob',
+    }),
+  previewBulkImport: (sheetId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return apiClient.post<SheetImportPreviewResponse>(
+      '/daily-sheets/bulk-import/preview',
+      formData,
+      { params: { sheetId }, headers: { 'Content-Type': undefined } },
+    );
+  },
+  confirmBulkImport: (sheetId: string, rows: ImportRowConfirmDto[]) =>
+    apiClient.post<SheetImportConfirmResponse>(
+      '/daily-sheets/bulk-import/confirm',
+      { rows },
+      { params: { sheetId } },
+    ),
+  // Global bulk import
+  downloadGlobalBulkImportTemplate: () =>
+    apiClient.get('/daily-sheets/bulk-import/global-template', {
+      responseType: 'blob',
+    }),
+  previewGlobalBulkImport: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return apiClient.post<GlobalImportPreviewResponse>(
+      '/daily-sheets/bulk-import/global-preview',
+      formData,
+      { headers: { 'Content-Type': undefined } },
+    );
+  },
+  confirmGlobalBulkImport: (groups: GlobalImportGroupDto[]) =>
+    apiClient.post<GlobalImportConfirmResponse>(
+      '/daily-sheets/bulk-import/global-confirm',
+      { groups },
+    ),
 };

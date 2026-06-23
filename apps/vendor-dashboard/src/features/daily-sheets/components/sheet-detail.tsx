@@ -10,10 +10,11 @@ import { SwapDialog } from './dialogs/swap-dialog';
 import { ReconcileDialog } from './dialogs/reconcile-dialog';
 import { AdhocDeliveryDialog } from './dialogs/adhoc-delivery-dialog';
 import { CorrectionEntryDialog } from './dialogs/correction-entry-dialog';
+import { BulkImportDialog } from './dialogs/bulk-import-dialog';
 import { toast } from 'sonner';
 import {
   CheckCircle2, ClipboardList, DollarSign,
-  Droplets, Package, Plus, Receipt, Truck, User,
+  Droplets, Package, Plus, Receipt, Truck, Upload, User,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@water-supply-crm/ui';
@@ -33,6 +34,7 @@ interface UiState {
   reconcileOpen: boolean;
   adhocOpen: boolean;
   correctionOpen: boolean;
+  bulkImportOpen: boolean;
   activeTab: TabKey;
   tabPage: number;
   expandedItemId: string | null;
@@ -51,6 +53,8 @@ type UiAction =
   | { type: 'CLOSE_ADHOC' }
   | { type: 'OPEN_CORRECTION' }
   | { type: 'CLOSE_CORRECTION' }
+  | { type: 'OPEN_BULK_IMPORT' }
+  | { type: 'CLOSE_BULK_IMPORT' }
   | { type: 'SET_TAB'; tab: TabKey }
   | { type: 'SET_PAGE'; page: number }
   | { type: 'SET_EXPANDED'; itemId: string | null };
@@ -62,6 +66,7 @@ const initialUiState: UiState = {
   reconcileOpen: false,
   adhocOpen: false,
   correctionOpen: false,
+  bulkImportOpen: false,
   activeTab: 'all',
   tabPage: 1,
   expandedItemId: null,
@@ -81,6 +86,8 @@ function uiReducer(state: UiState, action: UiAction): UiState {
     case 'CLOSE_ADHOC': return { ...state, adhocOpen: false };
     case 'OPEN_CORRECTION': return { ...state, correctionOpen: true };
     case 'CLOSE_CORRECTION': return { ...state, correctionOpen: false };
+    case 'OPEN_BULK_IMPORT': return { ...state, bulkImportOpen: true };
+    case 'CLOSE_BULK_IMPORT': return { ...state, bulkImportOpen: false };
     case 'SET_TAB': return { ...state, activeTab: action.tab, tabPage: 1, expandedItemId: null };
     case 'SET_PAGE': return { ...state, tabPage: action.page };
     case 'SET_EXPANDED': return { ...state, expandedItemId: action.itemId };
@@ -343,7 +350,16 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
 
       {/* Ad-hoc / Correction Entry Actions */}
       {isAdminOrStaff && !isClosed && (
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => dispatch({ type: 'OPEN_BULK_IMPORT' })}
+            className="gap-2"
+          >
+            <Upload className="h-4 w-4" />
+            Import Deliveries
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -438,6 +454,11 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
       <CorrectionEntryDialog
         open={ui.correctionOpen}
         onClose={() => dispatch({ type: 'CLOSE_CORRECTION' })}
+        sheetId={sheetId}
+      />
+      <BulkImportDialog
+        open={ui.bulkImportOpen}
+        onClose={() => dispatch({ type: 'CLOSE_BULK_IMPORT' })}
         sheetId={sheetId}
       />
     </div>
