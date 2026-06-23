@@ -2,7 +2,10 @@
 
 import { useRouter } from 'next/navigation';
 import { useQueryState, parseAsString, parseAsInteger } from 'nuqs';
-import { Card, CardContent, Badge, Skeleton } from '@water-supply-crm/ui';
+import {
+  Card, CardContent, Badge, Skeleton,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@water-supply-crm/ui';
 import { ChevronLeft, ChevronRight, ArrowRight } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { useDriverStats } from '../hooks/use-driver';
@@ -36,13 +39,17 @@ function formatSheetDate(dateStr: string) {
 export function DriverHistory() {
   const router = useRouter();
   const monthOptions = buildMonthOptions();
+  const [driverId] = useQueryState('driverId', parseAsString.withDefault(''));
   const [month, setMonth] = useQueryState(
     'month',
     parseAsString.withDefault(getCurrentMonth()),
   );
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
 
-  const { data: stats, isLoading } = useDriverStats({ month });
+  const { data: stats, isLoading } = useDriverStats({
+    driverId: driverId || undefined,
+    month,
+  });
 
   const allSheets = stats?.sheets ?? [];
   const totalPages = Math.max(1, Math.ceil(allSheets.length / PAGE_SIZE));
@@ -83,17 +90,18 @@ export function DriverHistory() {
       {/* Header + Month Selector */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-foreground">My History</h1>
-        <select
-          value={month}
-          onChange={(e) => handleMonthChange(e.target.value)}
-          className="px-3 py-2 rounded-xl bg-card/60 border border-border text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-        >
-          {monthOptions.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+        <Select value={month} onValueChange={handleMonthChange}>
+          <SelectTrigger className="w-44 rounded-xl bg-background/50 border-border h-9 text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="rounded-xl border-border shadow-2xl">
+            {monthOptions.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Monthly Stats */}
