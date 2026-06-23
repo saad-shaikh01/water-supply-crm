@@ -33,8 +33,6 @@ const navItems: NavItem[] = [
   // Driver
   { label: 'Home', href: '/dashboard/home', icon: Home, minRole: 'DRIVER', group: 'Driver' },
   { label: 'My History', href: '/dashboard/history', icon: History, minRole: 'DRIVER', group: 'Driver' },
-  { label: 'Report Damage', href: '/dashboard/damage-report', icon: ShieldAlert, minRole: 'DRIVER', group: 'Driver' },
-
   // Operations — core flat links
   { label: 'Overview', href: '/dashboard/overview', icon: LayoutDashboard, minRole: 'STAFF', group: 'Operations' },
   { label: 'Customers', href: '/dashboard/customers', icon: Users, minRole: 'DRIVER', group: 'Operations' },
