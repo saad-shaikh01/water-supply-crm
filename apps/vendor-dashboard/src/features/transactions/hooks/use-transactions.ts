@@ -14,18 +14,18 @@ const invalidatePaymentRequestDependencies = async (queryClient: ReturnType<type
 };
 
 export const useTransactions = (overrideCustomerId?: string) => {
-  const now = new Date();
-  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-  const today = now.toISOString().slice(0, 10);
-
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
   const [search, setSearch] = useQueryState('search', parseAsString.withDefault(''));
   const [urlCustomerId, setCustomerId] = useQueryState('customerId', parseAsString.withDefault(''));
   const [vanId, setVanId] = useQueryState('vanId', parseAsString.withDefault(''));
   const [type, setType] = useQueryState('type', parseAsString.withDefault(''));
-  const [dateFrom, setDateFrom] = useQueryState('dateFrom', parseAsString.withDefault(thisMonthStart));
-  const [dateTo, setDateTo] = useQueryState('dateTo', parseAsString.withDefault(today));
+  // Default to empty (not current-month) so "Clear All" can actually clear the
+  // date filter. nuqs reverts to the default when set to null, so a non-empty
+  // default made the date chip impossible to remove. Use the "This Month"
+  // preset button to re-apply the current-month range on demand.
+  const [dateFrom, setDateFrom] = useQueryState('dateFrom', parseAsString.withDefault(''));
+  const [dateTo, setDateTo] = useQueryState('dateTo', parseAsString.withDefault(''));
 
   const effectiveCustomerId = overrideCustomerId || urlCustomerId;
 
