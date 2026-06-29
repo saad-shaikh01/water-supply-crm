@@ -55,6 +55,17 @@ function parseTranDate(s) {
   return new Date(Date.UTC(y, mo - 1, d));
 }
 
+// Opening_Date is "25-Jun-25" (D-Mon-YY). Returns null if blank/unparseable.
+const MONTHS = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
+function parseOpening(s) {
+  const m = /^(\d{1,2})-([A-Za-z]{3})-(\d{2,4})$/.exec((s || '').trim());
+  if (!m) return null;
+  const mon = MONTHS[m[2].toLowerCase()];
+  if (mon === undefined) return null;
+  let yr = +m[3]; if (yr < 100) yr += 2000;
+  return new Date(Date.UTC(yr, mon, +m[1]));
+}
+
 // ── Parse Master_Data ───────────────────────────────────────────────────────
 function parseMaster() {
   const raw = fs.readFileSync(path.join(__dirname, 'Master_Data_complete.html'), 'utf8');
@@ -85,6 +96,9 @@ function parseMaster() {
       bottleBalance: Math.round(Number(g('Bottle_Balance')) || 0),
       outstanding: Number(g('Outstanding_Bal')) || 0,
       routeSeq: Number(g('Route_Seq')) || 0,
+      area: g('Area'),
+      openingDate: parseOpening(g('Opening_Date')),
+      primaryVanCode: schedule.length ? schedule[0].vanCode : null,
       schedule,
     };
   });
@@ -243,6 +257,38 @@ async function main() {
   }
   console.log(`✅ Vendor, product, ${Object.keys(vanByCode).length} vans + drivers\n`);
 
+  // ── Routes: one per Area (name = area); blank-area customers fall back to a
+  //    per-van route "Route V1/V2/V3". defaultVan = dominant van of the area. ──
+  const areaVanCount = {}; // area → { vanCode → n }
+  for (const c of customers) {
+    if (!c.area) continue;
+    (areaVanCount[c.area] ??= {});
+    if (c.primaryVanCode) areaVanCount[c.area][c.primaryVanCode] = (areaVanCount[c.area][c.primaryVanCode] || 0) + 1;
+  }
+  const dominantVanId = (area) => {
+    const top = Object.entries(areaVanCount[area] || {}).sort((a, b) => b[1] - a[1])[0];
+    return top ? vanByCode[top[0]]?.id ?? null : null;
+  };
+  const routeByArea = {};
+  for (const area of Object.keys(areaVanCount).sort()) {
+    const r = await prisma.route.create({ data: { name: area, vendorId: vendor.id, defaultVanId: dominantVanId(area) } });
+    routeByArea[area] = r.id;
+  }
+  const routeByVanCode = {};
+  const blankVans = new Set(customers.filter((c) => !c.area && c.primaryVanCode).map((c) => c.primaryVanCode));
+  for (const code of [...blankVans].sort()) {
+    const r = await prisma.route.create({ data: { name: `Route ${code}`, vendorId: vendor.id, defaultVanId: vanByCode[code]?.id ?? null } });
+    routeByVanCode[code] = r.id;
+  }
+  console.log(`✅ ${Object.keys(routeByArea).length} area routes + ${blankVans.size} van routes\n`);
+
+  // earliest transaction date per customer (for accurate createdAt / join date)
+  const earliestTxnByCode = {};
+  for (const t of trans) {
+    const cur = earliestTxnByCode[t.code];
+    if (!cur || t.date < cur) earliestTxnByCode[t.code] = t.date;
+  }
+
   // ── Customers ──
   const custIdByCode = {};
   const custVanByDay = {};   // code → { dayOfWeek → vanId }
@@ -250,17 +296,27 @@ async function main() {
   console.log('--- Creating customers ---');
   let n = 0;
   for (const c of customers) {
+    // routeId: Area's route, or the van fallback route for blank-area customers
+    const routeId = c.area ? (routeByArea[c.area] ?? null) : (c.primaryVanCode ? (routeByVanCode[c.primaryVanCode] ?? null) : null);
+    // createdAt = earliest of Opening_Date and first transaction (real join date)
+    const dateCands = [];
+    if (c.openingDate) dateCands.push(c.openingDate.getTime());
+    if (earliestTxnByCode[c.code]) dateCands.push(earliestTxnByCode[c.code].getTime());
+    const createdAt = dateCands.length ? new Date(Math.min(...dateCands)) : undefined;
+
     const customer = await prisma.customer.create({
       data: {
         customerCode: c.code, name: c.name, phoneNumber: c.phone || '-',
-        address: c.address, floor: c.floor, vendorId: vendor.id,
+        address: c.address, floor: c.floor, vendorId: vendor.id, routeId,
         paymentType: c.paymentType, isActive: c.isActive, financialBalance: c.outstanding,
+        ...(createdAt ? { createdAt } : {}),
       },
     });
     custIdByCode[c.code] = customer.id;
 
-    if (c.bottleBalance !== 0)
-      await prisma.bottleWallet.create({ data: { customerId: customer.id, productId: product.id, balance: c.bottleBalance } });
+    // Every customer gets a wallet for the product (0-balance when none held) so
+    // the consumption per-product breakdown renders for everyone.
+    await prisma.bottleWallet.create({ data: { customerId: customer.id, productId: product.id, balance: c.bottleBalance } });
     if (c.rate && c.rate !== PRODUCT_BASE_PRICE)
       await prisma.customerProductPrice.create({ data: { customerId: customer.id, productId: product.id, customPrice: c.rate } });
 
@@ -359,7 +415,9 @@ async function main() {
   console.log(`  Vendor    : ${VENDOR_NAME} (${VENDOR_SLUG})`);
   console.log(`  Product   : ${PRODUCT_NAME} @ ₨${PRODUCT_BASE_PRICE}`);
   console.log(`  Vans      : ${Object.keys(vanByCode).join(', ')}`);
+  console.log(`  Routes    : ${Object.keys(routeByArea).length} area + ${blankVans.size} van (blank-area)`);
   console.log(`  Customers : ${customers.length}  (logins: ${loginable.length}, no-login: ${noLogin})`);
+  console.log(`  Wallets   : ${customers.length} (one per customer)`);
   console.log(`  Sheets    : ${sheetRows.length}`);
   console.log(`  Items     : ${items.length}`);
   console.log(`  Txns      : ${txns.length}`);

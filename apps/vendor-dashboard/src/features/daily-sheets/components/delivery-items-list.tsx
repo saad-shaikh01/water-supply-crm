@@ -314,12 +314,12 @@ export function DeliveryItemsList({
                                 : (customer?.financialBalance ?? 0);
                               return (
                                 <span className={cn(
-                                  'text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none',
+                                  'text-sm font-black px-2.5 py-1 rounded-lg leading-none border',
                                   financialValue > 0
-                                    ? 'bg-destructive/15 text-destructive'
-                                    : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
+                                    ? 'bg-destructive/15 text-destructive border-destructive/30'
+                                    : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30',
                                 )}>
-                                  ₨{financialValue.toLocaleString()}
+                                  {isMonthly ? 'Outstanding ' : 'Due '}₨{financialValue.toLocaleString()}
                                 </span>
                               );
                             })()}

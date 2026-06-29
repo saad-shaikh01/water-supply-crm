@@ -269,11 +269,12 @@ export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: 
                 />
                 {(() => {
                   const wb = item.customer?.wallets?.find((w) => w.productId === item.productId)?.balance ?? 0;
-                  return wb > 0 ? (
-                    <p className="text-[11px] text-muted-foreground">
-                      Bottle wallet: <span className="font-bold">{wb} btl</span>
-                    </p>
-                  ) : null;
+                  return (
+                    <div className="mt-1.5 flex items-center justify-between rounded-xl bg-primary/10 border border-primary/30 px-3 py-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wide text-primary">Bottle Wallet</span>
+                      <span className="text-lg font-black text-primary leading-none">{wb}<span className="text-xs font-bold ml-1">btl</span></span>
+                    </div>
+                  );
                 })()}
               </div>
 
