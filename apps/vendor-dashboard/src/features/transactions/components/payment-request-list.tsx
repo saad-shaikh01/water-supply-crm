@@ -9,6 +9,7 @@ import {
 } from '@water-supply-crm/ui';
 import { toast } from 'sonner';
 import { DataTable } from '../../../components/shared/data-table';
+import { CustomerLink } from '../../../components/shared/customer-link';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import { usePaymentRequests, useApproveRequest, useRejectRequest } from '../hooks/use-transactions';
 import { transactionsApi } from '../api/transactions.api';
@@ -85,7 +86,7 @@ export function PaymentRequestList() {
     status: string;
     createdAt: string;
     referenceNo?: string;
-    customer?: { name: string; customerCode: string };
+    customer?: { id: string; name: string; customerCode: string };
     screenshotPath?: string;
   }>;
   const total = requests?.meta?.total ?? 0;
@@ -293,7 +294,7 @@ export function PaymentRequestList() {
             header: 'Customer',
             cell: (r) => (
               <div className="flex flex-col min-w-0 max-w-[180px]">
-                <span className="font-bold text-sm text-foreground dark:text-white truncate">{r.customer?.name}</span>
+                <CustomerLink id={r.customer?.id} name={r.customer?.name} className="font-bold text-sm text-foreground dark:text-white truncate" />
                 <span className="text-[10px] text-muted-foreground/60 font-mono truncate">{r.customer?.customerCode}</span>
               </div>
             )

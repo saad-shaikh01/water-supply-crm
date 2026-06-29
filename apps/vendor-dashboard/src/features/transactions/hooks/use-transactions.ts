@@ -93,17 +93,15 @@ export const useAddAdjustment = () => {
 };
 
 export const usePaymentRequests = () => {
-  const now = new Date();
-  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-  const today = now.toISOString().slice(0, 10);
-
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
   const [status, setStatus] = useQueryState('status', parseAsString.withDefault(''));
   const [customerId, setCustomerId] = useQueryState('customerId', parseAsString.withDefault(''));
   const [method, setMethod] = useQueryState('method', parseAsString.withDefault(''));
-  const [dateFrom, setDateFrom] = useQueryState('dateFrom', parseAsString.withDefault(thisMonthStart));
-  const [dateTo, setDateTo] = useQueryState('dateTo', parseAsString.withDefault(today));
+  // Empty default so "Clear" can actually remove the date filter (a non-empty
+  // default would revert to the current-month range when cleared).
+  const [dateFrom, setDateFrom] = useQueryState('dateFrom', parseAsString.withDefault(''));
+  const [dateTo, setDateTo] = useQueryState('dateTo', parseAsString.withDefault(''));
 
   const params = {
     page,

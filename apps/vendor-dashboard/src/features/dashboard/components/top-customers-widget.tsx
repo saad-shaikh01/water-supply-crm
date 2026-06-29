@@ -3,6 +3,7 @@
 import { Trophy } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, Skeleton, Badge } from '@water-supply-crm/ui';
 import { useTopCustomers } from '../hooks/use-dashboard';
+import { CustomerLink } from '../../../components/shared/customer-link';
 import { cn } from '@water-supply-crm/ui';
 
 export function TopCustomersWidget() {
@@ -43,7 +44,7 @@ export function TopCustomersWidget() {
                 {i + 1}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold truncate text-foreground dark:text-white">{row.customer?.name ?? 'Unknown'}</p>
+                <CustomerLink id={row.customer?.id} name={row.customer?.name ?? 'Unknown'} className="text-sm font-semibold truncate text-foreground dark:text-white block" />
                 <p className="text-[10px] font-mono text-muted-foreground/60">{row.customer?.customerCode ?? 'N/A'}</p>
               </div>
               <Badge variant="outline" className="text-[10px] font-mono shrink-0 bg-white/5 border-white/10 text-muted-foreground dark:text-white/70">

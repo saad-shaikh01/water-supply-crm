@@ -219,7 +219,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                 </div>
                 <div className="flex flex-col min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="font-bold truncate text-sm text-foreground dark:text-white group-hover:text-primary transition-colors">{r.name}</span>
+                    <Link href={`/dashboard/customers/${r.id}`} className="font-bold truncate text-sm text-foreground dark:text-white hover:text-primary hover:underline transition-colors">{r.name}</Link>
                     {!r.isActive && (
                       <Badge variant="outline" className="text-[8px] px-1 py-0 h-3.5 text-muted-foreground border-muted-foreground/20 shrink-0">
                         OFF

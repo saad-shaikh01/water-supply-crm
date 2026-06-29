@@ -7,6 +7,7 @@ import { Badge, Button, Input, Label } from '@water-supply-crm/ui';
 import { cn } from '@water-supply-crm/ui';
 import { useQueryState, parseAsInteger, parseAsString } from 'nuqs';
 import { DataTable } from '../../../components/shared/data-table';
+import { CustomerLink } from '../../../components/shared/customer-link';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import { useDamageCases } from '../hooks/use-damage-cases';
 import type { DamageCaseStatus, DamageSeverity } from '../api/damage-cases.api';
@@ -37,17 +38,15 @@ export function DamageCasesList() {
   const router = useRouter();
   const [filtersOpen, setFiltersOpen] = useState(false);
 
-  const now = new Date();
-  const thirtyDaysAgo = new Date(now);
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
   const [status, setStatus] = useQueryState('status', parseAsString.withDefault(''));
   const [severity, setSeverity] = useQueryState('severity', parseAsString.withDefault(''));
   const [search, setSearch] = useQueryState('search', parseAsString.withDefault(''));
-  const [dateFrom, setDateFrom] = useQueryState('dateFrom', parseAsString.withDefault(thirtyDaysAgo.toISOString().slice(0, 10)));
-  const [dateTo, setDateTo] = useQueryState('dateTo', parseAsString.withDefault(now.toISOString().slice(0, 10)));
+  // Empty default so "Clear" can actually remove the date filter (a non-empty
+  // default would revert to the last-30-days range when cleared).
+  const [dateFrom, setDateFrom] = useQueryState('dateFrom', parseAsString.withDefault(''));
+  const [dateTo, setDateTo] = useQueryState('dateTo', parseAsString.withDefault(''));
 
   const query = {
     page,
@@ -252,7 +251,7 @@ export function DamageCasesList() {
             header: 'Customer',
             cell: (r) => (
               <div className="flex flex-col min-w-0 max-w-[180px]">
-                <span className="font-bold text-sm text-foreground dark:text-white truncate">{r.customer?.name ?? '—'}</span>
+                <CustomerLink id={r.customer?.id} name={r.customer?.name} className="font-bold text-sm text-foreground dark:text-white truncate" />
                 {r.customer?.customerCode && (
                   <span className="text-[10px] text-muted-foreground/60 font-mono">{r.customer.customerCode}</span>
                 )}

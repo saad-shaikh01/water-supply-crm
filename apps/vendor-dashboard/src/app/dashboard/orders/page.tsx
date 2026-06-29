@@ -131,7 +131,7 @@ function OrdersContent() {
   }, [from, to, setPage]);
 
   const activeChips = [
-    status ? { label: `Status: ${statusLabel}`, clear: () => { setPage(1); setStatus(null); } } : null,
+    status ? { label: `Status: ${statusLabel}`, clear: () => { setPage(1); setStatus(''); } } : null,
     search ? { label: `Search: ${search}`, clear: () => { setPage(1); setSearch(null); } } : null,
     customerId
       ? {
@@ -163,7 +163,7 @@ function OrdersContent() {
 
   const clearAll = () => {
     setPage(1);
-    setStatus(null);
+    setStatus('');
     setSearch(null);
     setCustomerId(null);
     setProductId(null);
@@ -181,7 +181,7 @@ function OrdersContent() {
       <div className="space-y-3">
         <div className="flex gap-1.5 sm:gap-2 flex-wrap">
           <div className="sm:hidden w-full mb-1">
-            <Select value={status || 'all'} onValueChange={(v) => { setStatus(v === 'all' ? null : v); setPage(1); }}>
+            <Select value={status || 'all'} onValueChange={(v) => { setStatus(v === 'all' ? '' : v); setPage(1); }}>
               <SelectTrigger className="w-full rounded-xl bg-background/50 border-border/50 h-9 text-xs font-bold">
                 <SelectValue placeholder="Status: All" />
               </SelectTrigger>
@@ -196,7 +196,7 @@ function OrdersContent() {
             {STATUS_OPTIONS.map((opt) => (
               <button
                 key={opt.value}
-                onClick={() => { setStatus(opt.value || null); setPage(1); }}
+                onClick={() => { setStatus(opt.value); setPage(1); }}
                 className={cn(
                   'px-4 py-2 rounded-xl text-xs font-bold transition-all border',
                   status === opt.value

@@ -20,6 +20,7 @@ import {
 } from '@water-supply-crm/ui';
 import { AlertTriangle, CheckCircle2, Clock3, X } from 'lucide-react';
 import { DataTable } from '../../../components/shared/data-table';
+import { CustomerLink } from '../../../components/shared/customer-link';
 import { DateRangePicker } from '../../../components/shared/date-range-picker';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import {
@@ -290,7 +291,7 @@ export function DeliveryIssuesInbox() {
             header: 'Customer',
             cell: (row: DeliveryIssueRow) => (
               <div>
-                <p className="text-sm font-bold">{row.dailySheetItem?.customer?.name}</p>
+                <CustomerLink id={row.dailySheetItem?.customer?.id} name={row.dailySheetItem?.customer?.name} className="text-sm font-bold" />
                 <p className="text-[10px] text-muted-foreground">{row.dailySheetItem?.customer?.customerCode}</p>
               </div>
             ),

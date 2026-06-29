@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Button, Badge, Sheet, SheetContent, SheetHeader, SheetTitle, Label } from '@water-supply-crm/ui';
 import { Plus, FileText, Calendar, Wallet, X, SlidersHorizontal, Search } from 'lucide-react';
 import { DataTable } from '../../../components/shared/data-table';
@@ -54,7 +55,7 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   const txData = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
-  const rows = (txData?.data ?? []) as Array<{ id: string; type: string; amount: number; createdAt: string; customer?: { name: string }; description?: string }>;
+  const rows = (txData?.data ?? []) as Array<{ id: string; type: string; amount: number; createdAt: string; customer?: { id: string; name: string }; description?: string }>;
   const total = txData?.meta?.total ?? 0;
 
   const vans = ((vansData as any)?.data ?? []) as Array<{ id: string; plateNumber: string }>;
@@ -304,9 +305,12 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
           ...(overrideCustomerId ? [] : [{
             key: 'customer',
             header: 'Customer',
-            cell: (r: typeof rows[0]) => (
-              <span className="font-bold text-sm text-foreground dark:text-white truncate max-w-[180px] block">{r.customer?.name ?? '—'}</span>
-            ),
+            cell: (r: typeof rows[0]) =>
+              r.customer?.id ? (
+                <Link href={`/dashboard/customers/${r.customer.id}`} className="font-bold text-sm text-foreground dark:text-white hover:text-primary hover:underline transition-colors truncate max-w-[180px] block">{r.customer.name}</Link>
+              ) : (
+                <span className="font-bold text-sm text-foreground dark:text-white truncate max-w-[180px] block">{r.customer?.name ?? '—'}</span>
+              ),
           }]),
           {
             key: 'type',

@@ -80,7 +80,7 @@ function parseMaster() {
       address: addr || g('Area') || '-',
       floor: g('Floor') || null,
       paymentType: bt === 'cash' ? PaymentType.CASH : PaymentType.MONTHLY, // Monthly + Billing → MONTHLY
-      isActive: g('Cust_Status') === '1',
+      isActive: g('Cust_Status') === '0', // Cust_Status: 0 = ACTIVE, 1 = CLOSED
       rate: Number(g('Rate')) || 0,
       bottleBalance: Math.round(Number(g('Bottle_Balance')) || 0),
       outstanding: Number(g('Outstanding_Bal')) || 0,
