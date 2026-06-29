@@ -174,8 +174,11 @@ export class CustomerService {
   async findAllPaginated(vendorId: string, query: CustomerQueryDto) {
     const { page = 1, limit = 20, search, routeId, paymentType, isActive, balanceMin, balanceMax, sort = 'name', sortDir = 'asc' } = query;
 
-    // Default: show only active customers unless explicitly asked for inactive
-    const where: any = { vendorId, isActive: isActive !== undefined ? isActive : true };
+    // Filter by status only when explicitly requested. When no isActive param is
+    // sent (the "All Status" option in the UI), return both active and inactive
+    // so the list count matches reality instead of silently hiding inactive ones.
+    const where: any = { vendorId };
+    if (isActive !== undefined) where.isActive = isActive;
 
     if (search) {
       where.OR = [
