@@ -1,13 +1,11 @@
 /**
- * Idempotent backfill: create one Route per Van for vendor BLUE ICE and set
- * each customer's `routeId` to their primary van's route.
+ * Idempotent backfill: create one Route per distinct `Area` for vendor BLUE ICE
+ * and set each customer's `routeId` to their Area's route.
  *
- * Route NAME = the dominant `Area` (from Master_Data_complete.html) among the
- * customers whose primary van is that van, suffixed with the van code for
- * uniqueness (e.g. "Safoora (V1)"). Falls back to "Route <code>" if no area.
- *
- * Primary van = the van of the customer's earliest scheduled weekday
- * (derived from CustomerDeliverySchedule in the DB — the source of truth).
+ * Route NAME = the Area value verbatim (from Master_Data_complete.html), e.g.
+ * "Gulshan", "Johar", "DHA". Each route's defaultVan = the dominant primary-van
+ * among that area's customers (so the Van/Driver column populates).
+ * Customers with a blank Area are left with routeId = null.
  *
  * Safe to re-run: nulls existing blue-ice routeIds, deletes blue-ice routes,
  * then recreates. Touches ONLY Route + Customer.routeId — no other data.
@@ -55,51 +53,59 @@ async function main() {
 
   const vans = await prisma.van.findMany({ where: { vendorId: vendor.id }, select: { id: true, plateNumber: true } });
   const vanByCode = Object.fromEntries(vans.map((v) => [v.plateNumber, v]));
-  const codeByVanId = Object.fromEntries(vans.map((v) => [v.id, v.plateNumber]));
-  console.log('Vans:', vans.map((v) => v.plateNumber).join(', '));
 
-  // Dominant area per van code (from Master, keyed by primary van)
-  const areaCount = {}; // vanCode → { area → n }
+  // Each distinct (non-blank) Area = one Route. defaultVan = the dominant
+  // primary-van among that area's customers (so the Van/Driver column populates).
+  const areaVanCount = {}; // area → { vanCode → n }
   for (const { area, primaryVanCode } of Object.values(master)) {
-    if (!primaryVanCode) continue;
-    (areaCount[primaryVanCode] ??= {});
-    if (area) areaCount[primaryVanCode][area] = (areaCount[primaryVanCode][area] || 0) + 1;
+    if (!area) continue;
+    (areaVanCount[area] ??= {});
+    if (primaryVanCode) areaVanCount[area][primaryVanCode] = (areaVanCount[area][primaryVanCode] || 0) + 1;
   }
-  const dominantArea = (code) => {
-    const m = areaCount[code] || {};
-    const top = Object.entries(m).sort((a, b) => b[1] - a[1])[0];
-    return top ? top[0] : null;
+  const dominantVanId = (area) => {
+    const top = Object.entries(areaVanCount[area] || {}).sort((a, b) => b[1] - a[1])[0];
+    return top ? vanByCode[top[0]]?.id ?? null : null;
   };
 
   // ── Reset (idempotent) ──
   await prisma.customer.updateMany({ where: { vendorId: vendor.id }, data: { routeId: null } });
   await prisma.route.deleteMany({ where: { vendorId: vendor.id } });
 
-  // ── Create one route per van ──
-  const routeByVanCode = {};
-  for (const v of vans) {
-    const area = dominantArea(v.plateNumber);
-    const name = area ? `${area} (${v.plateNumber})` : `Route ${v.plateNumber}`;
+  // ── Create one route per Area (name = area) ──
+  const areas = Object.keys(areaVanCount).sort();
+  const routeByArea = {};
+  for (const area of areas) {
     const route = await prisma.route.create({
-      data: { name, vendorId: vendor.id, defaultVanId: v.id },
+      data: { name: area, vendorId: vendor.id, defaultVanId: dominantVanId(area) },
     });
-    routeByVanCode[v.plateNumber] = route.id;
-    console.log(`  Route created: "${name}" → van ${v.plateNumber}`);
+    routeByArea[area] = route.id;
   }
 
-  // ── Assign customers by primary van (lowest dayOfWeek in DB schedule) ──
-  const customers = await prisma.customer.findMany({
-    where: { vendorId: vendor.id },
-    select: { id: true, deliverySchedules: { select: { vanId: true, dayOfWeek: true } } },
-  });
+  // ── Blank-area customers → grouped by their van. Create "Route <van>" for
+  //    each van code that any blank-area customer uses. ──
+  const blankVanCodes = new Set();
+  for (const { area, primaryVanCode } of Object.values(master)) {
+    if (!area && primaryVanCode) blankVanCodes.add(primaryVanCode);
+  }
+  const routeByVanCode = {};
+  for (const code of [...blankVanCodes].sort()) {
+    const route = await prisma.route.create({
+      data: { name: `Route ${code}`, vendorId: vendor.id, defaultVanId: vanByCode[code]?.id ?? null },
+    });
+    routeByVanCode[code] = route.id;
+  }
+  console.log(`Created ${areas.length} area routes + ${blankVanCodes.size} van routes (for blank-area customers)`);
+
+  // ── Assign customers: area → area route; blank area → their van route ──
+  const customers = await prisma.customer.findMany({ where: { vendorId: vendor.id }, select: { id: true, customerCode: true } });
   const idsByRoute = {}; // routeId → [customerId]
-  let noSchedule = 0;
+  let noRoute = 0;
   for (const c of customers) {
-    if (!c.deliverySchedules.length) { noSchedule++; continue; }
-    const primary = [...c.deliverySchedules].sort((a, b) => a.dayOfWeek - b.dayOfWeek)[0];
-    const vanCode = codeByVanId[primary.vanId];
-    const routeId = routeByVanCode[vanCode];
-    if (!routeId) continue;
+    const info = master[c.customerCode];
+    let routeId = null;
+    if (info?.area) routeId = routeByArea[info.area];
+    else if (info?.primaryVanCode) routeId = routeByVanCode[info.primaryVanCode];
+    if (!routeId) { noRoute++; continue; }
     (idsByRoute[routeId] ??= []).push(c.id);
   }
   for (const [routeId, ids] of Object.entries(idsByRoute)) {
@@ -109,15 +115,18 @@ async function main() {
   }
 
   // ── Report ──
+  const blankAssigned = [...blankVanCodes].reduce((s, code) => s + (idsByRoute[routeByVanCode[code]] || []).length, 0);
   console.log('\n═══════════════════════════════════════════');
   console.log('  ✅ ROUTE BACKFILL COMPLETE');
   console.log('───────────────────────────────────────────');
-  for (const v of vans) {
-    const routeId = routeByVanCode[v.plateNumber];
-    const n = (idsByRoute[routeId] || []).length;
-    console.log(`  ${v.plateNumber}: ${n} customers`);
-  }
-  console.log(`  No schedule (routeId left null): ${noSchedule}`);
+  console.log(`  Area routes    : ${areas.length}`);
+  console.log(`  Van routes     : ${blankVanCodes.size} (blank-area fallback)`);
+  const sorted = areas.map((a) => [a, (idsByRoute[routeByArea[a]] || []).length]).sort((x, y) => y[1] - x[1]);
+  for (const [a, n] of sorted.slice(0, 10)) console.log(`    ${a}: ${n}`);
+  if (sorted.length > 10) console.log(`    … +${sorted.length - 10} more areas`);
+  for (const code of [...blankVanCodes].sort()) console.log(`    Route ${code}: ${(idsByRoute[routeByVanCode[code]] || []).length} (blank-area)`);
+  console.log(`  Blank-area customers routed by van: ${blankAssigned}`);
+  console.log(`  Customers left with NO route: ${noRoute}`);
   console.log('═══════════════════════════════════════════\n');
 }
 
