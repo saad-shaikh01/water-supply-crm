@@ -37,7 +37,9 @@ const SUPER_ADMIN = { email: 'super@watercrm.com', password: 'Super@123456', nam
 const VENDOR_ADMIN = { email: 'admin@blueice.com', password: 'Admin@123456', name: 'BLUE ICE Admin' };
 const STAFF = { email: 'staff@blueice.com', password: 'Staff@123456', name: 'BLUE ICE Staff' };
 const DRIVER_PASS = 'Driver@123';
-const CUSTOMER_DEFAULT_PASS = null; // null → password = each customer's own code
+// Customer portal logins are NOT created by default — customers self-register.
+// Flip to true to auto-create a CUSTOMER User per customer (login = phone, password = code).
+const CREATE_CUSTOMER_LOGINS = false;
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env['DATABASE_URL'] } } });
 
@@ -332,8 +334,8 @@ async function main() {
     }
     custVanByDay[c.code] = dayMap;
 
-    // portal login
-    if (c.phone && phoneCount[c.phone] === 1) {
+    // portal login — disabled by default (customers self-register). See CREATE_CUSTOMER_LOGINS.
+    if (CREATE_CUSTOMER_LOGINS && c.phone && phoneCount[c.phone] === 1) {
       const pwd = await bcrypt.hash(c.code, BCRYPT_ROUNDS);
       await prisma.user.create({
         data: { email: `${c.code.toLowerCase()}@${VENDOR_SLUG}.local`, password: pwd, name: c.name,
@@ -416,7 +418,7 @@ async function main() {
   console.log(`  Product   : ${PRODUCT_NAME} @ ₨${PRODUCT_BASE_PRICE}`);
   console.log(`  Vans      : ${Object.keys(vanByCode).join(', ')}`);
   console.log(`  Routes    : ${Object.keys(routeByArea).length} area + ${blankVans.size} van (blank-area)`);
-  console.log(`  Customers : ${customers.length}  (logins: ${loginable.length}, no-login: ${noLogin})`);
+  console.log(`  Customers : ${customers.length}  (portal logins: ${CREATE_CUSTOMER_LOGINS ? loginable.length : 'none — customers self-register'})`);
   console.log(`  Wallets   : ${customers.length} (one per customer)`);
   console.log(`  Sheets    : ${sheetRows.length}`);
   console.log(`  Items     : ${items.length}`);
@@ -426,7 +428,7 @@ async function main() {
   console.log(`  VENDOR_ADMIN : ${VENDOR_ADMIN.email} / ${VENDOR_ADMIN.password}`);
   console.log(`  STAFF        : ${STAFF.email} / ${STAFF.password}`);
   console.log(`  DRIVERS      : driver-v1@${VENDOR_SLUG}.local … / ${DRIVER_PASS}`);
-  console.log('  CUSTOMERS    : phone = username · password = customerCode');
+  console.log(`  CUSTOMERS    : ${CREATE_CUSTOMER_LOGINS ? 'phone = username · password = customerCode' : 'no portal logins (self-register)'}`);
   console.log('═══════════════════════════════════════════\n');
 }
 
