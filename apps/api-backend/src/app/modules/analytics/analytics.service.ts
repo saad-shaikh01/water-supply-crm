@@ -112,8 +112,10 @@ export class AnalyticsService {
     // Revenue by route
     const routeRevMap = new Map<string, { routeId: string; routeName: string; revenue: number }>();
     for (const sheet of sheets) {
-      const key = sheet.routeId;
-      const entry = routeRevMap.get(key) ?? { routeId: sheet.routeId, routeName: sheet.route.name, revenue: 0 };
+      // DailySheet.routeId is nullable (sheets can be generated per-van without a
+      // route). Bucket route-less sheets under "Unassigned" instead of crashing.
+      const key = sheet.routeId ?? 'unassigned';
+      const entry = routeRevMap.get(key) ?? { routeId: key, routeName: sheet.route?.name ?? 'Unassigned', revenue: 0 };
       entry.revenue += sheet.cashCollected;
       routeRevMap.set(key, entry);
     }
@@ -241,8 +243,10 @@ export class AnalyticsService {
     // By route
     const byRouteMap = new Map<string, { routeName: string; completed: number; total: number }>();
     for (const item of items) {
-      const routeId = item.dailySheet.route.id;
-      const entry = byRouteMap.get(routeId) ?? { routeName: item.dailySheet.route.name, completed: 0, total: 0 };
+      // dailySheet.route may be null (route-less per-van sheets) — don't crash.
+      const route = item.dailySheet.route;
+      const routeId = route?.id ?? 'unassigned';
+      const entry = byRouteMap.get(routeId) ?? { routeName: route?.name ?? 'Unassigned', completed: 0, total: 0 };
       entry.total++;
       if (completedStatuses.has(item.status)) entry.completed++;
       byRouteMap.set(routeId, entry);
