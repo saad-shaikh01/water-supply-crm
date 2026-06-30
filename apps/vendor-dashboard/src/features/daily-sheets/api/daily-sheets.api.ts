@@ -40,6 +40,33 @@ export interface SheetImportConfirmResponse {
   errors: Array<{ itemId: string; customerCode?: string; message: string }>;
 }
 
+export interface AdhocPreviewRow {
+  rowIndex: number;
+  customerId: string;
+  customerCode: string;
+  customerName: string;
+  importStatus: string;
+  filledDropped: number;
+  emptyReturned: number;
+  cashCollected: number;
+  failureReason?: string;
+  warnings: string[];
+}
+
+export interface AmbiguousPreviewRow {
+  rowIndex: number;
+  customerId: string;
+  customerCode: string;
+  customerName: string;
+  importStatus: string;
+  filledDropped: number;
+  emptyReturned: number;
+  cashCollected: number;
+  failureReason?: string;
+  warnings: string[];
+  availableVans: Array<{ vanId: string; plateNumber: string }>;
+}
+
 export interface GlobalPreviewGroup {
   date: string;
   vanPlateNumber: string;
@@ -48,22 +75,37 @@ export interface GlobalPreviewGroup {
   isClosed: boolean;
   blockReason?: string;
   valid: PreviewRowResult[];
+  adhoc: AdhocPreviewRow[];
   invalid: PreviewRowResult[];
 }
 
 export interface GlobalImportPreviewResponse {
   groups: GlobalPreviewGroup[];
+  ambiguous: AmbiguousPreviewRow[];
   summary: {
     totalRows: number;
     validRows: number;
+    adhocRows: number;
     invalidRows: number;
     blockedGroups: number;
+    ambiguousRows: number;
   };
+}
+
+export interface AdhocImportRowDto {
+  customerId: string;
+  sheetId: string;
+  status: string;
+  filledDropped: number;
+  emptyReturned: number;
+  cashCollected: number;
+  failureReason?: string;
 }
 
 export interface GlobalImportGroupDto {
   sheetId: string;
   rows: ImportRowConfirmDto[];
+  adhocRows: AdhocImportRowDto[];
 }
 
 export interface GlobalConfirmGroupResult {

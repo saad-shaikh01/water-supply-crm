@@ -16,6 +16,7 @@ import { dailySheetsApi } from '../../api/daily-sheets.api';
 import type {
   GlobalImportPreviewResponse,
   GlobalPreviewGroup,
+  AmbiguousPreviewRow,
   GlobalImportConfirmResponse,
 } from '../../api/daily-sheets.api';
 import { usePreviewGlobalBulkImport, useConfirmGlobalBulkImport } from '../../hooks/use-daily-sheets';
@@ -66,6 +67,8 @@ export function GlobalImportDialog({ open, onClose, onOpenSheetGenerate }: Globa
   const [confirmResult, setConfirmResult] = useState<GlobalImportConfirmResponse | null>(null);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [ignoredKeys, setIgnoredKeys] = useState<Set<string>>(new Set());
+  // rowIndex → selected vanId (for ambiguous rows)
+  const [vanSelections, setVanSelections] = useState<Map<number, string>>(new Map());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const previewMutation = usePreviewGlobalBulkImport();
@@ -81,6 +84,7 @@ export function GlobalImportDialog({ open, onClose, onOpenSheetGenerate }: Globa
     setConfirmResult(null);
     setExpandedKeys(new Set());
     setIgnoredKeys(new Set());
+    setVanSelections(new Map());
     previewMutation.reset();
     confirmMutation.reset();
   };
@@ -168,19 +172,70 @@ export function GlobalImportDialog({ open, onClose, onOpenSheetGenerate }: Globa
 
   const handleConfirm = async () => {
     if (!preview) return;
-    const groups = preview.groups
-      .filter((g) => !isBlocked(g) && g.valid.length > 0)
-      .map((g) => ({
-        sheetId: g.sheetId!,
-        rows: g.valid.map((r) => ({
-          itemId: r.itemId!,
-          status: r.importStatus as 'COMPLETED' | 'SKIPPED' | 'FAILED',
-          filledDropped: r.filledDropped,
-          emptyReturned: r.emptyReturned,
-          cashCollected: r.cashCollected,
-          failureReason: r.failureReason,
-        })),
-      }));
+
+    // Build groups: regular valid rows + auto-resolved adhoc rows per sheet
+    const groupMap = new Map<string, { rows: typeof preview.groups[0]['valid']; adhoc: typeof preview.groups[0]['adhoc'] }>();
+    for (const g of preview.groups) {
+      if (isBlocked(g) || ignoredKeys.has(groupKey(g))) continue;
+      if (g.valid.length === 0 && g.adhoc.length === 0) continue;
+      groupMap.set(g.sheetId!, { rows: g.valid, adhoc: g.adhoc });
+    }
+
+    // User-resolved ambiguous rows — each has a selected vanId → lookup open sheetId
+    for (const ambRow of (preview.ambiguous ?? [])) {
+      const selectedVanId = vanSelections.get(ambRow.rowIndex);
+      if (!selectedVanId) continue;
+      // find sheetId from preview groups where vanPlateNumber matches the selected van
+      // (we stored availableVans with vanId; we need to map vanId → sheetId via group's sheetId)
+      // The group has vanPlateNumber; we need to match by vanId. Since preview groups are per sheetId,
+      // find the group whose van matches the selectedVanId — we do this by looking at ambRow.availableVans
+      const selectedVan = ambRow.availableVans.find((v) => v.vanId === selectedVanId);
+      if (!selectedVan) continue;
+      // find the group with matching vanPlateNumber on the same date
+      const matchingGroup = preview.groups.find(
+        (g) => !isBlocked(g) && g.vanPlateNumber === selectedVan.plateNumber,
+      );
+      if (!matchingGroup?.sheetId) continue;
+
+      const existing = groupMap.get(matchingGroup.sheetId) ?? { rows: [], adhoc: [] };
+      existing.adhoc = [
+        ...existing.adhoc,
+        {
+          rowIndex: ambRow.rowIndex,
+          customerId: ambRow.customerId,
+          customerCode: ambRow.customerCode,
+          customerName: ambRow.customerName,
+          importStatus: ambRow.importStatus,
+          filledDropped: ambRow.filledDropped,
+          emptyReturned: ambRow.emptyReturned,
+          cashCollected: ambRow.cashCollected,
+          failureReason: ambRow.failureReason,
+          warnings: ambRow.warnings,
+        },
+      ];
+      groupMap.set(matchingGroup.sheetId, existing);
+    }
+
+    const groups = [...groupMap.entries()].map(([sheetId, { rows, adhoc }]) => ({
+      sheetId,
+      rows: rows.map((r) => ({
+        itemId: r.itemId!,
+        status: r.importStatus as 'COMPLETED' | 'SKIPPED' | 'FAILED',
+        filledDropped: r.filledDropped,
+        emptyReturned: r.emptyReturned,
+        cashCollected: r.cashCollected,
+        failureReason: r.failureReason,
+      })),
+      adhocRows: adhoc.map((a) => ({
+        customerId: a.customerId,
+        sheetId,
+        status: a.importStatus as 'COMPLETED' | 'SKIPPED' | 'FAILED',
+        filledDropped: a.filledDropped,
+        emptyReturned: a.emptyReturned,
+        cashCollected: a.cashCollected,
+        failureReason: a.failureReason,
+      })),
+    }));
 
     if (groups.length === 0) return;
 
@@ -194,15 +249,20 @@ export function GlobalImportDialog({ open, onClose, onOpenSheetGenerate }: Globa
   };
 
   const groups = preview?.groups ?? [];
+  const ambiguousRows = preview?.ambiguous ?? [];
   const unblockedGroups = groups.filter((g) => !isBlocked(g));
   const blockedGroups = groups.filter((g) => isBlocked(g));
   const hasUnignoredBlocked = blockedGroups.some((g) => !ignoredKeys.has(groupKey(g)));
-  const importableRows = unblockedGroups.reduce((sum, g) => sum + g.valid.length, 0);
-  const importableSheets = unblockedGroups.filter((g) => g.valid.length > 0).length;
-  const canConfirm = !hasUnignoredBlocked && importableRows > 0;
+  const importableRows = unblockedGroups.reduce((sum, g) => sum + g.valid.length + g.adhoc.length, 0);
+  const resolvedAmbiguousCount = ambiguousRows.filter((r) => vanSelections.has(r.rowIndex)).length;
+  const importableSheets = unblockedGroups.filter((g) => g.valid.length > 0 || g.adhoc.length > 0).length;
+  const hasUnresolvedAmbiguous = ambiguousRows.length > 0 && resolvedAmbiguousCount < ambiguousRows.length;
+  const canConfirm = !hasUnignoredBlocked && !hasUnresolvedAmbiguous && (importableRows + resolvedAmbiguousCount) > 0;
 
-  // All unique sanitization warnings from valid rows of unblocked groups
-  const allWarnings = unblockedGroups.flatMap((g) => g.valid.flatMap((r) => r.warnings));
+  const allWarnings = unblockedGroups.flatMap((g) => [
+    ...g.valid.flatMap((r) => r.warnings),
+    ...g.adhoc.flatMap((r) => r.warnings),
+  ]);
   const uniqueWarnings = [...new Set(allWarnings)];
 
   return (
@@ -345,19 +405,20 @@ export function GlobalImportDialog({ open, onClose, onOpenSheetGenerate }: Globa
                 className="space-y-4 py-4"
               >
                 {/* Summary cards */}
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-5 gap-2">
                   {[
                     { label: 'Total Rows', value: preview.summary.totalRows, color: 'text-foreground' },
-                    { label: 'Valid', value: preview.summary.validRows, color: 'text-emerald-600' },
+                    { label: 'Scheduled', value: preview.summary.validRows, color: 'text-emerald-600' },
+                    { label: 'Ad-hoc', value: preview.summary.adhocRows, color: 'text-blue-600' },
                     {
                       label: 'Invalid',
                       value: preview.summary.invalidRows,
                       color: preview.summary.invalidRows > 0 ? 'text-destructive' : 'text-muted-foreground',
                     },
                     {
-                      label: 'Blocked',
-                      value: preview.summary.blockedGroups,
-                      color: preview.summary.blockedGroups > 0 ? 'text-amber-600' : 'text-muted-foreground',
+                      label: 'Resolve',
+                      value: preview.summary.ambiguousRows,
+                      color: preview.summary.ambiguousRows > 0 ? 'text-violet-600' : 'text-muted-foreground',
                     },
                   ].map((s) => (
                     <div key={s.label} className="rounded-2xl border border-border/50 bg-muted/20 p-3 text-center">
@@ -366,6 +427,16 @@ export function GlobalImportDialog({ open, onClose, onOpenSheetGenerate }: Globa
                     </div>
                   ))}
                 </div>
+
+                {/* Ambiguous unresolved warning */}
+                {hasUnresolvedAmbiguous && (
+                  <div className="rounded-2xl bg-violet-500/10 border border-violet-500/30 px-4 py-3 flex items-start gap-2.5">
+                    <AlertTriangle className="h-4 w-4 text-violet-600 shrink-0 mt-0.5" />
+                    <p className="text-xs font-semibold text-violet-700 dark:text-violet-400">
+                      {ambiguousRows.length - resolvedAmbiguousCount} customer{ambiguousRows.length - resolvedAmbiguousCount !== 1 ? 's' : ''} still need a van selection. Assign all vans above to proceed.
+                    </p>
+                  </div>
+                )}
 
                 {/* Blocked groups warning */}
                 {blockedGroups.length > 0 && hasUnignoredBlocked && (
@@ -397,6 +468,52 @@ export function GlobalImportDialog({ open, onClose, onOpenSheetGenerate }: Globa
                   </div>
                 )}
 
+                {/* ── Needs Resolution — ambiguous rows ───────────────── */}
+                {ambiguousRows.length > 0 && (
+                  <div className="rounded-2xl border border-violet-500/40 bg-violet-500/5 overflow-hidden">
+                    <div className="px-4 py-3 flex items-center gap-2 border-b border-violet-500/20">
+                      <AlertTriangle className="h-4 w-4 text-violet-600 shrink-0" />
+                      <p className="text-xs font-black text-violet-700 dark:text-violet-400 flex-1">
+                        Needs Resolution — {ambiguousRows.length} customer{ambiguousRows.length !== 1 ? 's' : ''} delivered by multiple vans. Select a van for each.
+                      </p>
+                      <span className="text-[10px] font-bold text-violet-600">
+                        {resolvedAmbiguousCount}/{ambiguousRows.length} resolved
+                      </span>
+                    </div>
+                    <div className="divide-y divide-violet-500/10 max-h-52 overflow-y-auto">
+                      {ambiguousRows.map((row) => {
+                        const selected = vanSelections.get(row.rowIndex);
+                        return (
+                          <div key={row.rowIndex} className="px-4 py-2.5 flex items-center gap-3">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-bold truncate">{row.customerName || row.customerCode}</p>
+                              <p className="text-[10px] text-muted-foreground font-mono">{row.customerCode}</p>
+                            </div>
+                            <select
+                              value={selected ?? ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setVanSelections((prev) => {
+                                  const next = new Map(prev);
+                                  if (val) next.set(row.rowIndex, val);
+                                  else next.delete(row.rowIndex);
+                                  return next;
+                                });
+                              }}
+                              className="rounded-lg border border-border/60 bg-background px-2 py-1 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-violet-500/40 cursor-pointer"
+                            >
+                              <option value="">— Select van —</option>
+                              {row.availableVans.map((v) => (
+                                <option key={v.vanId} value={v.vanId}>{v.plateNumber}</option>
+                              ))}
+                            </select>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {/* Groups accordion */}
                 <div className="space-y-2">
                   {groups.map((g) => {
@@ -404,7 +521,7 @@ export function GlobalImportDialog({ open, onClose, onOpenSheetGenerate }: Globa
                     const blocked = isBlocked(g);
                     const ignored = ignoredKeys.has(key);
                     const expanded = expandedKeys.has(key);
-                    const totalRows = g.valid.length + g.invalid.length;
+                    const totalRows = g.valid.length + g.adhoc.length + g.invalid.length;
 
                     return (
                       <div
@@ -541,11 +658,11 @@ export function GlobalImportDialog({ open, onClose, onOpenSheetGenerate }: Globa
                                 </div>
                               )}
 
-                              {/* Valid rows */}
-                              {g.valid.length > 0 ? (
+                              {/* Scheduled valid rows */}
+                              {g.valid.length > 0 && (
                                 <div className="space-y-1.5">
                                   <p className="text-[10px] font-bold uppercase text-emerald-600">
-                                    {g.valid.length} valid row{g.valid.length !== 1 ? 's' : ''}
+                                    {g.valid.length} scheduled row{g.valid.length !== 1 ? 's' : ''}
                                   </p>
                                   <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 overflow-hidden">
                                     <div className="max-h-48 overflow-y-auto">
@@ -565,9 +682,7 @@ export function GlobalImportDialog({ open, onClose, onOpenSheetGenerate }: Globa
                                                 {row.customerName || row.customerCode}
                                               </td>
                                               <td className="px-3 py-1.5 text-center">
-                                                <span className="font-mono text-[9px] font-bold text-emerald-600">
-                                                  {row.importStatus}
-                                                </span>
+                                                <span className="font-mono text-[9px] font-bold text-emerald-600">{row.importStatus}</span>
                                               </td>
                                               <td className="px-3 py-1.5 text-right font-mono font-bold">{row.filledDropped}</td>
                                               <td className="px-3 py-1.5 text-right font-mono text-emerald-600">
@@ -580,12 +695,52 @@ export function GlobalImportDialog({ open, onClose, onOpenSheetGenerate }: Globa
                                     </div>
                                   </div>
                                 </div>
-                              ) : (
-                                !blocked && (
-                                  <div className="rounded-xl border border-muted/30 bg-muted/10 px-3 py-4 text-center">
-                                    <p className="text-xs text-muted-foreground">No valid rows in this group.</p>
+                              )}
+
+                              {/* Ad-hoc rows (auto-resolved via schedule) */}
+                              {g.adhoc.length > 0 && (
+                                <div className="space-y-1.5">
+                                  <p className="text-[10px] font-bold uppercase text-blue-600">
+                                    {g.adhoc.length} ad-hoc row{g.adhoc.length !== 1 ? 's' : ''} — will be created
+                                  </p>
+                                  <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 overflow-hidden">
+                                    <div className="max-h-36 overflow-y-auto">
+                                      <table className="w-full text-xs">
+                                        <thead className="sticky top-0">
+                                          <tr className="border-b border-blue-500/20 bg-blue-500/10">
+                                            <th className="text-left px-3 py-1.5 text-[9px] font-bold uppercase text-muted-foreground">Customer</th>
+                                            <th className="text-center px-3 py-1.5 text-[9px] font-bold uppercase text-muted-foreground">Status</th>
+                                            <th className="text-right px-3 py-1.5 text-[9px] font-bold uppercase text-muted-foreground">Filled</th>
+                                            <th className="text-right px-3 py-1.5 text-[9px] font-bold uppercase text-muted-foreground">Cash</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-blue-500/10">
+                                          {g.adhoc.map((row) => (
+                                            <tr key={row.rowIndex} className="hover:bg-blue-500/5 transition-colors">
+                                              <td className="px-3 py-1.5 font-semibold max-w-[180px] truncate">
+                                                {row.customerName || row.customerCode}
+                                                <span className="ml-1.5 text-[8px] font-bold text-blue-500 border border-blue-400/40 rounded px-1 py-0.5">AD-HOC</span>
+                                              </td>
+                                              <td className="px-3 py-1.5 text-center">
+                                                <span className="font-mono text-[9px] font-bold text-blue-600">{row.importStatus}</span>
+                                              </td>
+                                              <td className="px-3 py-1.5 text-right font-mono font-bold">{row.filledDropped}</td>
+                                              <td className="px-3 py-1.5 text-right font-mono text-blue-600">
+                                                {row.cashCollected > 0 ? `₨${row.cashCollected.toLocaleString()}` : '—'}
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
                                   </div>
-                                )
+                                </div>
+                              )}
+
+                              {!blocked && g.valid.length === 0 && g.adhoc.length === 0 && (
+                                <div className="rounded-xl border border-muted/30 bg-muted/10 px-3 py-4 text-center">
+                                  <p className="text-xs text-muted-foreground">No importable rows in this group.</p>
+                                </div>
                               )}
                             </div>
                           </div>

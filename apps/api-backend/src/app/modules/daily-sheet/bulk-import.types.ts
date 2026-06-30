@@ -54,6 +54,36 @@ export interface SheetImportPreviewResponse {
   };
 }
 
+// A row that resolved to a specific sheet via CustomerDeliverySchedule
+// (customer not scheduled that day, but single van inferred from weekly schedule)
+export interface AdhocPreviewRow {
+  rowIndex: number;
+  customerId: string;
+  customerCode: string;
+  customerName: string;
+  importStatus: string;
+  filledDropped: number;
+  emptyReturned: number;
+  cashCollected: number;
+  failureReason?: string;
+  warnings: string[];
+}
+
+// A row where customer has schedules on 2+ different vans — user must pick one
+export interface AmbiguousPreviewRow {
+  rowIndex: number;
+  customerId: string;
+  customerCode: string;
+  customerName: string;
+  importStatus: string;
+  filledDropped: number;
+  emptyReturned: number;
+  cashCollected: number;
+  failureReason?: string;
+  warnings: string[];
+  availableVans: Array<{ vanId: string; plateNumber: string }>; // options to pick from
+}
+
 export interface GlobalPreviewGroup {
   date: string;
   vanPlateNumber: string;
@@ -62,16 +92,20 @@ export interface GlobalPreviewGroup {
   isClosed: boolean;
   blockReason?: string;
   valid: PreviewRowResult[];
+  adhoc: AdhocPreviewRow[];   // auto-resolved ad-hoc (single van inferred)
   invalid: PreviewRowResult[];
 }
 
 export interface GlobalImportPreviewResponse {
   groups: GlobalPreviewGroup[];
+  ambiguous: AmbiguousPreviewRow[]; // needs user van selection — shown in "Needs Resolution" section
   summary: {
     totalRows: number;
     validRows: number;
+    adhocRows: number;
     invalidRows: number;
     blockedGroups: number;
+    ambiguousRows: number;
   };
 }
 

@@ -10,11 +10,13 @@ import { PrismaService } from '@water-supply-crm/database';
 import { LedgerService } from '../transaction/ledger.service';
 import { AuditService } from '../audit/audit.service';
 import { BulkImportConfirmDto, ImportRowDto } from './dto/bulk-import-confirm.dto';
-import { GlobalImportConfirmDto } from './dto/global-import-confirm.dto';
+import { GlobalImportConfirmDto, AdhocImportRowDto } from './dto/global-import-confirm.dto';
 import {
   SanitizedSheetRow,
   SanitizedGlobalRow,
   PreviewRowResult,
+  AdhocPreviewRow,
+  AmbiguousPreviewRow,
   SheetImportPreviewResponse,
   GlobalPreviewGroup,
   GlobalImportPreviewResponse,
@@ -659,16 +661,47 @@ export class BulkImportService {
       resolutionMap.get(item.customerId)!.push(item);
     }
 
-    // ── Step 4: Per-row resolution ────────────────────────────────────────────
+    // ── Step 4: Batch-fetch CustomerDeliverySchedule for fallback resolution ─
+    // Only needed for customers who have no DailySheetItem on the selected date.
+    // We'll determine which customers need this after the first resolution pass.
+    // Fetch all schedules for all resolved customers upfront (one query).
+    type VanScheduleEntry = { vanId: string; van: { plateNumber: string } };
+    const scheduleMap = new Map<string, VanScheduleEntry[]>(); // customerId → schedules
+
+    if (resolvedCustomerIds.length > 0) {
+      const schedules = await this.prisma.customerDeliverySchedule.findMany({
+        where: { customerId: { in: resolvedCustomerIds } },
+        select: { customerId: true, vanId: true, van: { select: { plateNumber: true } } },
+      });
+      for (const s of schedules) {
+        if (!scheduleMap.has(s.customerId)) scheduleMap.set(s.customerId, []);
+        scheduleMap.get(s.customerId)!.push({ vanId: s.vanId, van: s.van });
+      }
+    }
+
+    // Batch-fetch open sheets for the selected date — used to validate van sheets
+    // when routing ad-hoc rows.
+    const openSheetsForDate = await this.prisma.dailySheet.findMany({
+      where: { vendorId, isClosed: false, date: { gte: startOfDay, lte: endOfDay } },
+      select: { id: true, vanId: true, van: { select: { plateNumber: true } } },
+    });
+    const openSheetByVanId = new Map(openSheetsForDate.map((s) => [s.vanId, s]));
+
+    // ── Step 5: Per-row resolution ────────────────────────────────────────────
+    type RowResolutionKind = 'scheduled' | 'adhoc-auto' | 'adhoc-ambiguous' | 'closed' | 'error';
+
     interface RowResolution {
       row: RawGlobalRow;
+      kind: RowResolutionKind;
       itemId: string | null;
       resolvedItem: ResolvedSheetItem | null;
+      customerId: string | null;
       sheetId: string | null;
       vanPlateNumber: string;
       isClosed: boolean;
       sheetFound: boolean;
       rowErrors: string[];
+      availableVans?: Array<{ vanId: string; plateNumber: string }>;
     }
 
     const resolutions: RowResolution[] = [];
@@ -677,8 +710,8 @@ export class BulkImportService {
       const customerId = codeToCustomerId.get(row.customerCode);
       if (!customerId) {
         resolutions.push({
-          row, itemId: null, resolvedItem: null, sheetId: null, vanPlateNumber: '',
-          isClosed: false, sheetFound: false,
+          row, kind: 'error', itemId: null, resolvedItem: null, customerId: null,
+          sheetId: null, vanPlateNumber: '', isClosed: false, sheetFound: false,
           rowErrors: [`Customer with code "${row.customerCode}" not found.`],
         });
         continue;
@@ -688,33 +721,74 @@ export class BulkImportService {
       const openItems = items.filter((i) => !i.dailySheet.isClosed);
       const closedItems = items.filter((i) => i.dailySheet.isClosed);
 
+      // ── Case A: Sheet is closed ───────────────────────────────────────────
       if (openItems.length === 0 && closedItems.length > 0) {
         const closed = closedItems[0];
         resolutions.push({
-          row, itemId: null, resolvedItem: null,
+          row, kind: 'closed', itemId: null, resolvedItem: null, customerId,
           sheetId: closed.dailySheetId, vanPlateNumber: closed.dailySheet.van.plateNumber,
           isClosed: true, sheetFound: true, rowErrors: [],
         });
         continue;
       }
 
+      // ── Case B: No scheduled item on this date → try schedule-based fallback
       if (openItems.length === 0) {
+        const schedules = scheduleMap.get(customerId) ?? [];
+        const uniqueVanIds = [...new Set(schedules.map((s) => s.vanId))];
+
+        if (uniqueVanIds.length === 0) {
+          resolutions.push({
+            row, kind: 'error', itemId: null, resolvedItem: null, customerId,
+            sheetId: null, vanPlateNumber: '', isClosed: false, sheetFound: false,
+            rowErrors: [
+              `Customer "${row.customerCode}" has no delivery schedule configured and no open sheet on ${dateStr}.`,
+            ],
+          });
+          continue;
+        }
+
+        if (uniqueVanIds.length === 1) {
+          // Single van — auto-resolve ad-hoc
+          const vanId = uniqueVanIds[0];
+          const openSheet = openSheetByVanId.get(vanId);
+          if (!openSheet) {
+            resolutions.push({
+              row, kind: 'error', itemId: null, resolvedItem: null, customerId,
+              sheetId: null, vanPlateNumber: schedules[0].van.plateNumber,
+              isClosed: false, sheetFound: false,
+              rowErrors: [
+                `No open sheet for van "${schedules[0].van.plateNumber}" on ${dateStr}. Generate the sheet first.`,
+              ],
+            });
+          } else {
+            resolutions.push({
+              row, kind: 'adhoc-auto', itemId: null, resolvedItem: null, customerId,
+              sheetId: openSheet.id, vanPlateNumber: openSheet.van.plateNumber,
+              isClosed: false, sheetFound: true, rowErrors: [],
+            });
+          }
+          continue;
+        }
+
+        // Multiple vans — ambiguous, needs user selection
         resolutions.push({
-          row, itemId: null, resolvedItem: null, sheetId: null, vanPlateNumber: '',
-          isClosed: false, sheetFound: false,
-          rowErrors: [
-            `No open delivery found for customer "${row.customerCode}" on ${dateStr}. ` +
-              `Ensure a daily sheet has been generated for this customer's van.`,
-          ],
+          row, kind: 'adhoc-ambiguous', itemId: null, resolvedItem: null, customerId,
+          sheetId: null, vanPlateNumber: '', isClosed: false, sheetFound: false,
+          rowErrors: [],
+          availableVans: schedules
+            .filter((s, i, arr) => arr.findIndex((x) => x.vanId === s.vanId) === i)
+            .map((s) => ({ vanId: s.vanId, plateNumber: s.van.plateNumber })),
         });
         continue;
       }
 
+      // ── Case C: Multiple open sheets (shouldn't happen normally) ─────────
       const uniqueSheetIds = [...new Set(openItems.map((i) => i.dailySheetId))];
       if (uniqueSheetIds.length > 1) {
         resolutions.push({
-          row, itemId: null, resolvedItem: null, sheetId: null, vanPlateNumber: '',
-          isClosed: false, sheetFound: false,
+          row, kind: 'error', itemId: null, resolvedItem: null, customerId,
+          sheetId: null, vanPlateNumber: '', isClosed: false, sheetFound: false,
           rowErrors: [
             `Customer "${row.customerCode}" appears on multiple open sheets on ${dateStr}. Cannot auto-resolve — edit manually.`,
           ],
@@ -722,12 +796,12 @@ export class BulkImportService {
         continue;
       }
 
+      // ── Case D: Multiple items on same sheet (multiple products) ─────────
       const sheetId = uniqueSheetIds[0];
       const itemsOnSheet = openItems.filter((i) => i.dailySheetId === sheetId);
-
       if (itemsOnSheet.length > 1) {
         resolutions.push({
-          row, itemId: null, resolvedItem: null,
+          row, kind: 'error', itemId: null, resolvedItem: null, customerId,
           sheetId, vanPlateNumber: openItems[0].dailySheet.van.plateNumber,
           isClosed: false, sheetFound: true,
           rowErrors: [
@@ -738,25 +812,45 @@ export class BulkImportService {
         continue;
       }
 
+      // ── Case E: ✅ Normal scheduled resolution ───────────────────────────
       const resolved = itemsOnSheet[0];
       resolutions.push({
-        row, itemId: resolved.id, resolvedItem: resolved,
+        row, kind: 'scheduled', itemId: resolved.id, resolvedItem: resolved, customerId,
         sheetId, vanPlateNumber: resolved.dailySheet.van.plateNumber,
         isClosed: false, sheetFound: true, rowErrors: [],
       });
     }
 
-    // ── Step 5: Group by sheetId (all rows share same date) ──────────────────
+    // ── Step 6: Separate ambiguous rows (go to top-level, not into groups) ──
+    const ambiguousRows: AmbiguousPreviewRow[] = resolutions
+      .filter((r) => r.kind === 'adhoc-ambiguous')
+      .map((r) => ({
+        rowIndex: r.row.rowIndex,
+        customerId: r.customerId!,
+        customerCode: r.row.customerCode,
+        customerName: r.row.customerName,
+        importStatus: r.row.status,
+        filledDropped: r.row.filledDropped,
+        emptyReturned: r.row.emptyReturned,
+        cashCollected: r.row.cashCollected,
+        failureReason: r.row.failureReason,
+        warnings: r.row.sanitizationWarnings,
+        availableVans: r.availableVans!,
+      }));
+
+    // ── Step 7: Group non-ambiguous rows by sheetId ───────────────────────
     const groupMap = new Map<string, RowResolution[]>();
     for (const res of resolutions) {
+      if (res.kind === 'adhoc-ambiguous') continue; // handled separately
       const gKey = res.sheetId ?? 'UNRESOLVED';
       if (!groupMap.has(gKey)) groupMap.set(gKey, []);
       groupMap.get(gKey)!.push(res);
     }
 
-    // ── Step 6: Build GlobalPreviewGroup[] ───────────────────────────────────
+    // ── Step 8: Build GlobalPreviewGroup[] ───────────────────────────────────
     const groups: GlobalPreviewGroup[] = [];
     let totalValid = 0;
+    let totalAdhoc = 0;
     let totalInvalid = 0;
     let blockedGroupCount = 0;
 
@@ -791,7 +885,7 @@ export class BulkImportService {
 
         groups.push({
           date: dateStr, vanPlateNumber, sheetId, sheetFound, isClosed, blockReason,
-          valid: [], invalid: invalidRows,
+          valid: [], adhoc: [], invalid: invalidRows,
         });
         totalInvalid += invalidRows.length;
         blockedGroupCount++;
@@ -799,9 +893,26 @@ export class BulkImportService {
       }
 
       const valid: PreviewRowResult[] = [];
+      const adhoc: AdhocPreviewRow[] = [];
       const invalid: PreviewRowResult[] = [];
 
       for (const res of gResolutions) {
+        if (res.kind === 'adhoc-auto') {
+          adhoc.push({
+            rowIndex: res.row.rowIndex,
+            customerId: res.customerId!,
+            customerCode: res.row.customerCode,
+            customerName: res.row.customerName,
+            importStatus: res.row.status,
+            filledDropped: res.row.filledDropped,
+            emptyReturned: res.row.emptyReturned,
+            cashCollected: res.row.cashCollected,
+            failureReason: res.row.failureReason,
+            warnings: res.row.sanitizationWarnings,
+          });
+          continue;
+        }
+
         if (res.rowErrors.length > 0 || !res.resolvedItem) {
           invalid.push({
             rowIndex: res.row.rowIndex,
@@ -847,21 +958,25 @@ export class BulkImportService {
       }
 
       totalValid += valid.length;
+      totalAdhoc += adhoc.length;
       totalInvalid += invalid.length;
 
       groups.push({
         date: dateStr, vanPlateNumber, sheetId: sheetId!, sheetFound: true, isClosed: false,
-        valid, invalid,
+        valid, adhoc, invalid,
       });
     }
 
     return {
       groups,
+      ambiguous: ambiguousRows,
       summary: {
-        totalRows: totalValid + totalInvalid,
+        totalRows: totalValid + totalAdhoc + totalInvalid + ambiguousRows.length,
         validRows: totalValid,
+        adhocRows: totalAdhoc,
         invalidRows: totalInvalid,
         blockedGroups: blockedGroupCount,
+        ambiguousRows: ambiguousRows.length,
       },
     };
   }
@@ -928,6 +1043,77 @@ export class BulkImportService {
     });
 
     return { sheetId, processed: dto.rows.length, errors: [] };
+  }
+
+  private async createAndApplyAdhocRow(
+    tx: Prisma.TransactionClient,
+    row: AdhocImportRowDto,
+    sheet: { id: string; date: Date; vendorId: string },
+    defaultProductId: string,
+    vendorId: string,
+  ): Promise<void> {
+    const customer = await tx.customer.findFirst({
+      where: { id: row.customerId, vendorId },
+      select: {
+        isBillingExempt: true,
+        customPrices: { select: { productId: true, customPrice: true } },
+      },
+    });
+    if (!customer) throw new BadRequestException(`Customer ${row.customerId} not found`);
+
+    const product = await tx.product.findFirst({
+      where: { id: defaultProductId, vendorId },
+      select: { basePrice: true },
+    });
+    if (!product) throw new BadRequestException('Default product not found');
+
+    const customPrice = customer.customPrices.find((p) => p.productId === defaultProductId);
+    const price = customer.isBillingExempt ? 0 : (customPrice?.customPrice ?? product.basePrice);
+
+    const resolvedStatus =
+      row.status === 'COMPLETED' && row.filledDropped === 0 ? 'EMPTY_ONLY' : row.status;
+    const isDelivered = resolvedStatus === 'COMPLETED' || resolvedStatus === 'EMPTY_ONLY';
+
+    const lastItem = await tx.dailySheetItem.findFirst({
+      where: { dailySheetId: sheet.id },
+      orderBy: { sequence: 'desc' },
+      select: { sequence: true },
+    });
+    const nextSequence = (lastItem?.sequence ?? 0) + 1;
+
+    const newItem = await tx.dailySheetItem.create({
+      data: {
+        dailySheetId: sheet.id,
+        customerId: row.customerId,
+        productId: defaultProductId,
+        sequence: nextSequence,
+        deliveryType: 'ON_DEMAND',
+        status: resolvedStatus as any,
+        filledDropped: row.filledDropped,
+        emptyReceived: row.emptyReturned,
+        cashCollected: row.cashCollected,
+        pricePerBottle: price,
+        reason: row.failureReason ?? null,
+        deliveredAt: isDelivered ? sheet.date : null,
+      },
+    });
+
+    if (isDelivered) {
+      await this.ledger.recordDelivery(
+        {
+          vendorId,
+          customerId: row.customerId,
+          productId: defaultProductId,
+          dailySheetId: sheet.id,
+          dailySheetItemId: newItem.id,
+          filledDropped: row.filledDropped,
+          emptyReceived: row.emptyReturned,
+          cashCollected: row.cashCollected,
+          pricePerBottle: price,
+        },
+        tx,
+      );
+    }
   }
 
   async confirmGlobalImport(
@@ -998,11 +1184,27 @@ export class BulkImportService {
         continue;
       }
 
+      // Fetch default product once per vendor (needed for ad-hoc item creation)
+      const defaultProduct = group.adhocRows.length > 0
+        ? await this.prisma.product.findFirst({ where: { vendorId, isActive: true }, select: { id: true } })
+        : null;
+
+      if (group.adhocRows.length > 0 && !defaultProduct) {
+        results.push({ sheetId: group.sheetId, date: dateStr, vanPlateNumber: plateNumber, success: false, processed: 0, error: 'No active product found — cannot create ad-hoc delivery items.' });
+        failedGroups++;
+        continue;
+      }
+
+      const processedCount = group.rows.length + group.adhocRows.length;
+
       try {
         await this.prisma.$transaction(
           async (tx) => {
             for (const row of group.rows) {
               await this.applyImportRow(tx, row, sheet, dbItems, vendorId);
+            }
+            for (const adhocRow of group.adhocRows) {
+              await this.createAndApplyAdhocRow(tx, adhocRow, sheet, defaultProduct!.id, vendorId);
             }
           },
           { timeout: 30000, maxWait: 5000 },
@@ -1013,11 +1215,11 @@ export class BulkImportService {
           action: 'GLOBAL_BULK_IMPORT_GROUP_CONFIRMED',
           entity: 'DailySheet',
           entityId: group.sheetId,
-          changes: { after: { processedRows: group.rows.length } },
+          changes: { after: { processedRows: processedCount, adhocCreated: group.adhocRows.length } },
         });
 
-        results.push({ sheetId: group.sheetId, date: dateStr, vanPlateNumber: plateNumber, success: true, processed: group.rows.length });
-        totalProcessed += group.rows.length;
+        results.push({ sheetId: group.sheetId, date: dateStr, vanPlateNumber: plateNumber, success: true, processed: processedCount });
+        totalProcessed += processedCount;
       } catch (err) {
         results.push({ sheetId: group.sheetId, date: dateStr, vanPlateNumber: plateNumber, success: false, processed: 0, error: err instanceof Error ? err.message : 'Transaction failed' });
         failedGroups++;
