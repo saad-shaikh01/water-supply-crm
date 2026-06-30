@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   Card,
   CardContent,
@@ -56,6 +56,12 @@ export function PricingPage() {
   const products = (productsData?.data as Array<{ id: string; name: string }>) ?? [];
 
   const [productId, setProductId] = useState('');
+
+  useEffect(() => {
+    if (products.length === 1 && !productId) {
+      setProductId(products[0].id);
+    }
+  }, [products]);
   const [priceFrom, setPriceFrom] = useState('');
   const [priceTo, setPriceTo] = useState('');
   const [area, setArea] = useState('');

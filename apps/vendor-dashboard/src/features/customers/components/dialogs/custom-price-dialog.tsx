@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
   Button, Input, Label,
@@ -21,6 +21,12 @@ export function CustomPriceDialog({ open, onClose, customerId }: CustomPriceDial
   const allProducts = productsData?.data ?? [];
 
   const [form, setForm] = useState({ productId: '', customPrice: '' });
+
+  useEffect(() => {
+    if (allProducts.length === 1 && !form.productId) {
+      setForm((p) => ({ ...p, productId: allProducts[0].id }));
+    }
+  }, [allProducts, open]);
 
   const handleClose = () => {
     setForm({ productId: '', customPrice: '' });

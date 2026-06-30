@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { MapPin, Tag, ShieldOff, LocateFixed, Loader2 } from 'lucide-react';
+import { MapPin, Tag, ShieldOff, LocateFixed, Loader2, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter, SheetDescription,
@@ -12,7 +12,7 @@ import {
 } from '@water-supply-crm/ui';
 import { customerSchema, type CustomerInput } from '../schemas';
 import { useCreateCustomer, useUpdateCustomer } from '../hooks/use-customers';
-import { useRoutes } from '../../routes/hooks/use-routes';
+import { useRoutes, useCreateRoute } from '../../routes/hooks/use-routes';
 import { useAllVans } from '../../vans/hooks/use-vans';
 import { productsApi } from '../../products/api/products.api';
 import { cn } from '@water-supply-crm/ui';
@@ -66,7 +66,11 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
   const isEdit = !!customer?.id;
   const { mutate: create, isPending: isCreating } = useCreateCustomer();
   const { mutate: update, isPending: isUpdating } = useUpdateCustomer();
+  const { mutateAsync: createRoute, isPending: isCreatingRoute } = useCreateRoute();
   const { data: routesResponse } = useRoutes();
+
+  const [showNewRoute, setShowNewRoute] = useState(false);
+  const [newRouteName, setNewRouteName] = useState('');
   const { data: vansResponse } = useAllVans();
   const { data: productsResponse } = useQuery({
     queryKey: ['products-form-list'],
@@ -80,7 +84,7 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
   const allProducts = (productsResponse as { data?: any[] } | undefined)?.data ?? [];
   const activeVans = vans.filter((v: any) => v.isActive !== false);
 
-  const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<CustomerInput>({
+  const { register, handleSubmit, reset, setValue, watch, getValues, formState: { errors } } = useForm<CustomerInput>({
     resolver: zodResolver(customerSchema),
     defaultValues: EMPTY_DEFAULTS,
   });
@@ -144,6 +148,30 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
     }
   }, [open, customer, reset]);
 
+  const handleCreateRoute = async () => {
+    const name = newRouteName.trim();
+    if (!name) return;
+    try {
+      const res = await createRoute({ name });
+      const newId = (res as any)?.data?.id ?? (res as any)?.id;
+      if (newId) {
+        setValue('routeId', newId, { shouldValidate: true });
+        setShowNewRoute(false);
+        setNewRouteName('');
+        toast.success(`Route "${name}" created and selected`);
+      }
+    } catch {
+      // error toast handled by useCreateRoute
+    }
+  };
+
+  // Auto-select product when only one exists and none is chosen yet
+  useEffect(() => {
+    if (allProducts.length === 1 && !getValues('defaultProductId')) {
+      setValue('defaultProductId', allProducts[0].id);
+    }
+  }, [allProducts, open]);
+
   // Auto-parse lat/lng when Google Maps URL changes
   useEffect(() => {
     if (googleMapsUrl) {
@@ -156,6 +184,7 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
   const onSubmit = (data: CustomerInput) => {
     const payload = {
       ...data,
+      routeId: data.routeId || undefined,
       floor: data.floor || undefined,
       nearbyLandmark: data.nearbyLandmark || undefined,
       deliveryInstructions: data.deliveryInstructions || undefined,
@@ -302,17 +331,61 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
           {/* ── Service ────────────────────────────────── */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label className="text-sm font-semibold">Route <span className="text-destructive">*</span></Label>
-              <Select value={watch('routeId')} onValueChange={(v) => setValue('routeId', v, { shouldValidate: true })}>
+              <Label className="text-sm font-semibold">Route <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
+              <Select
+                value={watch('routeId') ?? ''}
+                onValueChange={(v) => {
+                  if (v === '__new__') {
+                    setShowNewRoute(true);
+                    setValue('routeId', '', { shouldValidate: false });
+                  } else {
+                    setShowNewRoute(false);
+                    setValue('routeId', v, { shouldValidate: true });
+                  }
+                }}
+              >
                 <SelectTrigger className="bg-accent/30 border-border/50 focus:border-primary/50 transition-all">
-                  <SelectValue placeholder="Select route" />
+                  <SelectValue placeholder="Select route (optional)" />
                 </SelectTrigger>
                 <SelectContent className="rounded-xl border-border/50 shadow-2xl">
                   {routes.map((r: any) => (
                     <SelectItem key={r.id} value={r.id} className="rounded-lg">{r.name}</SelectItem>
                   ))}
+                  <SelectItem value="__new__" className="rounded-lg text-primary font-semibold">
+                    <span className="flex items-center gap-1.5"><Plus className="h-3.5 w-3.5" />Create new route...</span>
+                  </SelectItem>
                 </SelectContent>
               </Select>
+              {showNewRoute && (
+                <div className="flex gap-2 items-center">
+                  <Input
+                    autoFocus
+                    placeholder="Route name (e.g. DHA Phase 5)"
+                    value={newRouteName}
+                    onChange={(e) => setNewRouteName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreateRoute(); } }}
+                    className="h-9 text-sm"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleCreateRoute}
+                    disabled={!newRouteName.trim() || isCreatingRoute}
+                    className="shrink-0 h-9"
+                  >
+                    {isCreatingRoute ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Create'}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => { setShowNewRoute(false); setNewRouteName(''); }}
+                    className="shrink-0 h-9 px-2"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              )}
               {errors.routeId && <p className="text-[11px] font-medium text-destructive">{errors.routeId.message}</p>}
             </div>
 

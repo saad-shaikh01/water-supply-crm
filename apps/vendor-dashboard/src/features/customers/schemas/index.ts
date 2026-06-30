@@ -16,7 +16,7 @@ export const customerSchema = z.object({
   longitude: z.number().optional(),
 
   // Service
-  routeId: z.string().uuid('Valid Route is required'),
+  routeId: z.string().uuid().optional().or(z.literal('')),
   paymentType: z.enum(['MONTHLY', 'CASH']),
   isBillingExempt: z.boolean().optional(),
 

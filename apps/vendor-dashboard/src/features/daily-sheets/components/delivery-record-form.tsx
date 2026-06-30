@@ -89,14 +89,14 @@ export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: 
     setShowDamage(false);
     setDamageForm({ caseType: 'DAMAGE', bottleCount: 1, photoKeys: [], description: '', lossReason: 'CUSTOMER_NOT_RETURNED' });
     const isFirst = item.status === 'PENDING';
-    // Drop & empties start at 0 by default — driver enters the real counts manually.
-    // Cash is never auto-calculated — the driver types whatever they actually collected.
-    const suggestedFilled = isFirst ? 0 : item.filledDropped;
-    const suggestedCash = isFirst ? 0 : item.cashCollected;
+    // Drop & empties start empty for new records — driver enters the real counts manually.
+    // For re-records, pre-fill with previously saved values.
+    const suggestedFilled = isFirst ? undefined : item.filledDropped;
+    const suggestedCash = isFirst ? undefined : item.cashCollected;
 
     setItemForm({
       filledDropped: suggestedFilled,
-      emptyReceived: item.emptyReceived > 0 ? item.emptyReceived : 0,
+      emptyReceived: item.emptyReceived > 0 ? item.emptyReceived : undefined,
       cashCollected: suggestedCash,
     });
   }, [item.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -235,8 +235,8 @@ export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: 
                 <Input
                   type="number"
                   min={0}
-                  value={itemForm.filledDropped ?? 0}
-                  onChange={(e) => setItemForm((p) => ({ ...p, filledDropped: Number(e.target.value) }))}
+                  value={itemForm.filledDropped ?? ''}
+                  onChange={(e) => setItemForm((p) => ({ ...p, filledDropped: e.target.value === '' ? undefined : Number(e.target.value) }))}
                   className={cn('font-mono font-bold h-11', readOnly && 'bg-muted/40 cursor-default')}
                   readOnly={readOnly}
                 />
@@ -262,8 +262,8 @@ export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: 
                 <Input
                   type="number"
                   min={0}
-                  value={itemForm.emptyReceived ?? 0}
-                  onChange={(e) => setItemForm((p) => ({ ...p, emptyReceived: Number(e.target.value) }))}
+                  value={itemForm.emptyReceived ?? ''}
+                  onChange={(e) => setItemForm((p) => ({ ...p, emptyReceived: e.target.value === '' ? undefined : Number(e.target.value) }))}
                   className={cn('font-mono font-bold h-11', readOnly && 'bg-muted/40 cursor-default')}
                   readOnly={readOnly}
                 />
@@ -302,8 +302,8 @@ export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: 
                 <Input
                   type="number"
                   min={0}
-                  value={itemForm.cashCollected ?? 0}
-                  onChange={(e) => setItemForm((p) => ({ ...p, cashCollected: Number(e.target.value) }))}
+                  value={itemForm.cashCollected ?? ''}
+                  onChange={(e) => setItemForm((p) => ({ ...p, cashCollected: e.target.value === '' ? undefined : Number(e.target.value) }))}
                   className={cn('h-11 font-mono font-bold bg-emerald-500/5 border-emerald-500/20 text-emerald-600 dark:text-emerald-400', readOnly && 'cursor-default')}
                   readOnly={readOnly}
                 />

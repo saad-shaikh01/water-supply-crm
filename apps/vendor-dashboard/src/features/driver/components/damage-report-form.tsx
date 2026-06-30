@@ -88,6 +88,14 @@ export function DamageReportForm({ dailySheetItemId, prefillCustomerId, prefillP
     },
   });
 
+  // Auto-select product when only one exists and none is chosen yet
+  useEffect(() => {
+    const allProducts = (productsData as { data?: any[] } | undefined)?.data ?? [];
+    if (allProducts.length === 1 && !watch('productId') && !prefillProductId) {
+      setValue('productId', allProducts[0].id, { shouldValidate: true });
+    }
+  }, [productsData]);
+
   // Rehydrate draft on mount, then apply URL pre-fills (URL wins over draft)
   useEffect(() => {
     try {

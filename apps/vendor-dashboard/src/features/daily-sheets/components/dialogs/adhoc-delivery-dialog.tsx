@@ -21,9 +21,9 @@ const emptyForm = {
   customerId: '',
   customerName: '',
   productId: '',
-  filledDropped: 1,
-  emptyReceived: 0,
-  cashCollected: 0,
+  filledDropped: undefined as number | undefined,
+  emptyReceived: undefined as number | undefined,
+  cashCollected: undefined as number | undefined,
 };
 
 export function AdhocDeliveryDialog({ open, onClose, sheetId }: AdhocDeliveryDialogProps) {
@@ -36,15 +36,15 @@ export function AdhocDeliveryDialog({ open, onClose, sheetId }: AdhocDeliveryDia
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Reset form when dialog opens/closes
+  // Reset form when dialog opens — pre-fill productId if already loaded
   useEffect(() => {
     if (open) {
-      setForm(emptyForm);
+      setForm({ ...emptyForm, productId: products.length > 0 ? products[0].id : '' });
       setSearchQuery('');
       setDebouncedQuery('');
       setShowDropdown(false);
     }
-  }, [open]);
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounce the search query
   useEffect(() => {
@@ -104,13 +104,13 @@ export function AdhocDeliveryDialog({ open, onClose, sheetId }: AdhocDeliveryDia
     addAdhocItem({
       customerId: form.customerId,
       productId: form.productId,
-      filledDropped: form.filledDropped,
-      emptyReceived: form.emptyReceived,
-      cashCollected: form.cashCollected,
+      filledDropped: form.filledDropped ?? 0,
+      emptyReceived: form.emptyReceived ?? 0,
+      cashCollected: form.cashCollected ?? 0,
     }, { onSuccess: onClose });
   };
 
-  const isValid = !!form.customerId && !!form.productId && form.filledDropped >= 0;
+  const isValid = !!form.customerId && !!form.productId;
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -200,8 +200,8 @@ export function AdhocDeliveryDialog({ open, onClose, sheetId }: AdhocDeliveryDia
               <Input
                 type="number"
                 min={0}
-                value={form.filledDropped}
-                onChange={(e) => setForm((p) => ({ ...p, filledDropped: Number(e.target.value) }))}
+                value={form.filledDropped ?? ''}
+                onChange={(e) => setForm((p) => ({ ...p, filledDropped: e.target.value === '' ? undefined : Number(e.target.value) }))}
                 className="font-mono font-bold"
               />
             </div>
@@ -210,8 +210,8 @@ export function AdhocDeliveryDialog({ open, onClose, sheetId }: AdhocDeliveryDia
               <Input
                 type="number"
                 min={0}
-                value={form.emptyReceived}
-                onChange={(e) => setForm((p) => ({ ...p, emptyReceived: Number(e.target.value) }))}
+                value={form.emptyReceived ?? ''}
+                onChange={(e) => setForm((p) => ({ ...p, emptyReceived: e.target.value === '' ? undefined : Number(e.target.value) }))}
                 className="font-mono font-bold"
               />
             </div>
@@ -220,8 +220,8 @@ export function AdhocDeliveryDialog({ open, onClose, sheetId }: AdhocDeliveryDia
               <Input
                 type="number"
                 min={0}
-                value={form.cashCollected}
-                onChange={(e) => setForm((p) => ({ ...p, cashCollected: Number(e.target.value) }))}
+                value={form.cashCollected ?? ''}
+                onChange={(e) => setForm((p) => ({ ...p, cashCollected: e.target.value === '' ? undefined : Number(e.target.value) }))}
                 className="font-mono font-bold"
               />
             </div>
