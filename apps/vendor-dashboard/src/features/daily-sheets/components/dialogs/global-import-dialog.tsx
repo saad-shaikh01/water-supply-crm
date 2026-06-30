@@ -8,7 +8,7 @@ import {
 } from '@water-supply-crm/ui';
 import {
   Upload, FileSpreadsheet, AlertCircle, CheckCircle2, XCircle,
-  Loader2, Download, X, AlertTriangle, ChevronDown, Truck, CalendarDays,
+  Loader2, Download, X, AlertTriangle, ChevronDown, Truck, CalendarDays, Calendar,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { toast } from 'sonner';
@@ -55,8 +55,11 @@ interface GlobalImportDialogProps {
 }
 
 export function GlobalImportDialog({ open, onClose, onOpenSheetGenerate }: GlobalImportDialogProps) {
+  const todayStr = () => new Date().toISOString().slice(0, 10);
+
   const [step, setStep] = useState<Step>('upload');
   const [file, setFile] = useState<File | null>(null);
+  const [date, setDate] = useState<string>(todayStr());
   const [fileError, setFileError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [preview, setPreview] = useState<GlobalImportPreviewResponse | null>(null);
@@ -71,6 +74,7 @@ export function GlobalImportDialog({ open, onClose, onOpenSheetGenerate }: Globa
   const reset = () => {
     setStep('upload');
     setFile(null);
+    setDate(todayStr());
     setFileError(null);
     setIsDragging(false);
     setPreview(null);
@@ -128,9 +132,9 @@ export function GlobalImportDialog({ open, onClose, onOpenSheetGenerate }: Globa
   };
 
   const handlePreview = async () => {
-    if (!file) return;
+    if (!file || !date) return;
     try {
-      const result = await previewMutation.mutateAsync(file);
+      const result = await previewMutation.mutateAsync({ file, date });
       setPreview(result);
       // Start with blocked groups expanded so user notices them immediately
       const initialExpanded = new Set<string>();
@@ -226,7 +230,7 @@ export function GlobalImportDialog({ open, onClose, onOpenSheetGenerate }: Globa
               >
                 <div className="flex items-start justify-between gap-3 px-1">
                   <p className="text-sm text-muted-foreground leading-relaxed">
-                    Download the global master template, fill delivery data for any number of customers and dates, then upload here. Each row is matched by CustomerCode and date — the van is resolved automatically from the customer's delivery schedule.
+                    Select a delivery date, download the template, fill in delivery data, then upload. Each row is matched by CustomerCode — the van is resolved automatically.
                   </p>
                   <Button
                     variant="outline"
@@ -237,6 +241,21 @@ export function GlobalImportDialog({ open, onClose, onOpenSheetGenerate }: Globa
                     <Download className="h-3.5 w-3.5" />
                     Template
                   </Button>
+                </div>
+
+                {/* Date picker */}
+                <div className="rounded-2xl border border-border/60 bg-muted/20 px-4 py-3 flex items-center gap-3">
+                  <Calendar className="h-4 w-4 text-primary shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-xs font-bold text-foreground mb-0.5">Delivery Date</p>
+                    <p className="text-[11px] text-muted-foreground">All rows in the file will be imported for this date.</p>
+                  </div>
+                  <input
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    className="rounded-lg border border-border/60 bg-background px-3 py-1.5 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 cursor-pointer"
+                  />
                 </div>
 
                 <div
@@ -680,7 +699,7 @@ export function GlobalImportDialog({ open, onClose, onOpenSheetGenerate }: Globa
             <>
               <Button variant="ghost" onClick={handleClose}>Cancel</Button>
               <Button
-                disabled={!file || previewMutation.isPending}
+                disabled={!file || !date || previewMutation.isPending}
                 onClick={handlePreview}
                 className="rounded-xl font-bold min-w-[150px]"
               >

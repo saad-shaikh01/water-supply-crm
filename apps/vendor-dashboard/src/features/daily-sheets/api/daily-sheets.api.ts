@@ -183,11 +183,11 @@ export const dailySheetsApi = {
     apiClient.get('/daily-sheets/bulk-import/global-template', {
       responseType: 'blob',
     }),
-  previewGlobalBulkImport: (file: File) => {
+  previewGlobalBulkImport: (file: File, date: string) => {
     const formData = new FormData();
     formData.append('file', file);
     return apiClient.post<GlobalImportPreviewResponse>(
-      '/daily-sheets/bulk-import/global-preview',
+      `/daily-sheets/bulk-import/global-preview?date=${encodeURIComponent(date)}`,
       formData,
       { headers: { 'Content-Type': undefined } },
     );

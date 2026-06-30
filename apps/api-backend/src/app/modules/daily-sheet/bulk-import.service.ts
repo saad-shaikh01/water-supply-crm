@@ -386,7 +386,6 @@ export class BulkImportService {
     const ws = workbook.addWorksheet('Global Deliveries');
 
     ws.columns = [
-      { header: 'DeliveryDate', key: 'deliveryDate', width: 15 },
       { header: 'CustomerCode', key: 'customerCode', width: 14 },
       { header: 'CustomerName', key: 'customerName', width: 26 },
       { header: 'Status', key: 'status', width: 14 },
@@ -404,7 +403,6 @@ export class BulkImportService {
     ws.views = [{ state: 'frozen', ySplit: 1 }];
 
     const sampleRow = ws.addRow({
-      deliveryDate: 'YYYY-MM-DD',
       customerCode: 'C-0001',
       customerName: 'Customer Name',
       status: 'COMPLETED',
@@ -527,23 +525,29 @@ export class BulkImportService {
 
   async previewGlobalImport(
     vendorId: string,
+    date: string,
     file: Express.Multer.File,
   ): Promise<GlobalImportPreviewResponse> {
+    const dateObj = new Date(date);
+    if (isNaN(dateObj.getTime())) {
+      throw new BadRequestException(`Invalid date "${date}". Use YYYY-MM-DD.`);
+    }
+    const dateStr = dateObj.toISOString().slice(0, 10);
+    const startOfDay = new Date(dateStr); startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(dateStr); endOfDay.setHours(23, 59, 59, 999);
+
     const workbook = new ExcelJS.Workbook();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await workbook.xlsx.load(file.buffer as any);
     const ws = workbook.getWorksheet(1);
     if (!ws) throw new BadRequestException('No worksheet found in the uploaded file');
 
-    const REQUIRED = [
-      'DeliveryDate', 'CustomerCode', 'Status', 'FilledDropped', 'EmptyReturned', 'CashCollected',
-    ];
+    const REQUIRED = ['CustomerCode', 'Status', 'FilledDropped', 'EmptyReturned', 'CashCollected'];
     const colIndex = this.resolveColumnIndex(ws.getRow(1), REQUIRED, ['CustomerName', 'FailureReason']);
 
     // ── Step 1: Parse all raw rows flat ─────────────────────────────────────
     interface RawGlobalRow {
       rowIndex: number;
-      deliveryDate: string;
       customerCode: string;
       customerName: string;
       status: string;
@@ -557,9 +561,8 @@ export class BulkImportService {
     const rawRows: RawGlobalRow[] = [];
     ws.eachRow((row, rowNum) => {
       if (rowNum === 1) return;
-      const rawDate = this.sanitizeCellValue(row.getCell(colIndex['DeliveryDate']).value);
       const rawCode = this.sanitizeCellValue(row.getCell(colIndex['CustomerCode']).value).toUpperCase();
-      if (!rawDate && !rawCode) return;
+      if (!rawCode) return;
 
       const fResult = this.parseNonNegativeInt(row.getCell(colIndex['FilledDropped']).value);
       const eResult = this.parseNonNegativeInt(row.getCell(colIndex['EmptyReturned']).value);
@@ -567,7 +570,6 @@ export class BulkImportService {
 
       rawRows.push({
         rowIndex: rowNum,
-        deliveryDate: rawDate,
         customerCode: rawCode,
         customerName: colIndex['CustomerName']
           ? this.sanitizeCellValue(row.getCell(colIndex['CustomerName']).value)
@@ -591,7 +593,7 @@ export class BulkImportService {
     });
     const codeToCustomerId = new Map(customers.map((c) => [c.customerCode, c.id]));
 
-    // ── Step 3: Batch-fetch DailySheetItems across the full date range ───────
+    // ── Step 3: Batch-fetch DailySheetItems for the selected date ────────────
     type ResolvedSheetItem = {
       id: string;
       customerId: string;
@@ -614,23 +616,14 @@ export class BulkImportService {
     };
 
     const resolvedCustomerIds = customers.map((c) => c.id);
-    const validDateObjs = rawRows
-      .map((r) => new Date(r.deliveryDate))
-      .filter((d) => !isNaN(d.getTime()));
-
     let allSheetItems: ResolvedSheetItem[] = [];
-    if (resolvedCustomerIds.length > 0 && validDateObjs.length > 0) {
-      const timestamps = validDateObjs.map((d) => d.getTime());
-      const minDate = new Date(Math.min(...timestamps));
-      const maxDate = new Date(Math.max(...timestamps));
-      minDate.setHours(0, 0, 0, 0);
-      maxDate.setHours(23, 59, 59, 999);
 
+    if (resolvedCustomerIds.length > 0) {
       allSheetItems = (await this.prisma.dailySheetItem.findMany({
         where: {
           customerId: { in: resolvedCustomerIds },
           isCorrection: false,
-          dailySheet: { vendorId, date: { gte: minDate, lte: maxDate } },
+          dailySheet: { vendorId, date: { gte: startOfDay, lte: endOfDay } },
         },
         select: {
           id: true,
@@ -659,13 +652,11 @@ export class BulkImportService {
       })) as ResolvedSheetItem[];
     }
 
-    // resolution map: `customerId::YYYY-MM-DD` → item[]
+    // resolution map: customerId → item[] (date is fixed, no date key needed)
     const resolutionMap = new Map<string, ResolvedSheetItem[]>();
     for (const item of allSheetItems) {
-      const dateStr = item.dailySheet.date.toISOString().slice(0, 10);
-      const key = `${item.customerId}::${dateStr}`;
-      if (!resolutionMap.has(key)) resolutionMap.set(key, []);
-      resolutionMap.get(key)!.push(item);
+      if (!resolutionMap.has(item.customerId)) resolutionMap.set(item.customerId, []);
+      resolutionMap.get(item.customerId)!.push(item);
     }
 
     // ── Step 4: Per-row resolution ────────────────────────────────────────────
@@ -683,19 +674,7 @@ export class BulkImportService {
     const resolutions: RowResolution[] = [];
 
     for (const row of rawRows) {
-      const dateObj = new Date(row.deliveryDate);
-      if (isNaN(dateObj.getTime())) {
-        resolutions.push({
-          row, itemId: null, resolvedItem: null, sheetId: null, vanPlateNumber: '',
-          isClosed: false, sheetFound: false,
-          rowErrors: [`Invalid date format "${row.deliveryDate}". Use YYYY-MM-DD.`],
-        });
-        continue;
-      }
-
-      const dateStr = dateObj.toISOString().slice(0, 10);
       const customerId = codeToCustomerId.get(row.customerCode);
-
       if (!customerId) {
         resolutions.push({
           row, itemId: null, resolvedItem: null, sheetId: null, vanPlateNumber: '',
@@ -705,7 +684,7 @@ export class BulkImportService {
         continue;
       }
 
-      const items = resolutionMap.get(`${customerId}::${dateStr}`) ?? [];
+      const items = resolutionMap.get(customerId) ?? [];
       const openItems = items.filter((i) => !i.dailySheet.isClosed);
       const closedItems = items.filter((i) => i.dailySheet.isClosed);
 
@@ -737,7 +716,7 @@ export class BulkImportService {
           row, itemId: null, resolvedItem: null, sheetId: null, vanPlateNumber: '',
           isClosed: false, sheetFound: false,
           rowErrors: [
-            `Customer "${row.customerCode}" has deliveries on multiple open sheets on ${dateStr}. Cannot auto-resolve — edit manually.`,
+            `Customer "${row.customerCode}" appears on multiple open sheets on ${dateStr}. Cannot auto-resolve — edit manually.`,
           ],
         });
         continue;
@@ -759,7 +738,6 @@ export class BulkImportService {
         continue;
       }
 
-      // ✅ Exactly 1 open item — resolved
       const resolved = itemsOnSheet[0];
       resolutions.push({
         row, itemId: resolved.id, resolvedItem: resolved,
@@ -768,14 +746,10 @@ export class BulkImportService {
       });
     }
 
-    // ── Step 5: Group by `dateStr::sheetId` (or `date::UNRESOLVED`) ──────────
+    // ── Step 5: Group by sheetId (all rows share same date) ──────────────────
     const groupMap = new Map<string, RowResolution[]>();
     for (const res of resolutions) {
-      const dateStr = (() => {
-        const d = new Date(res.row.deliveryDate);
-        return isNaN(d.getTime()) ? res.row.deliveryDate : d.toISOString().slice(0, 10);
-      })();
-      const gKey = res.sheetId ? `${dateStr}::${res.sheetId}` : `${dateStr}::UNRESOLVED`;
+      const gKey = res.sheetId ?? 'UNRESOLVED';
       if (!groupMap.has(gKey)) groupMap.set(gKey, []);
       groupMap.get(gKey)!.push(res);
     }
@@ -788,19 +762,15 @@ export class BulkImportService {
 
     for (const [gKey, gResolutions] of groupMap) {
       const firstRes = gResolutions[0];
-      const dateD = new Date(firstRes.row.deliveryDate);
-      const date = isNaN(dateD.getTime())
-        ? firstRes.row.deliveryDate
-        : dateD.toISOString().slice(0, 10);
       const vanPlateNumber = firstRes.vanPlateNumber || '—';
       const sheetId = firstRes.sheetId;
-      const sheetFound = !gKey.endsWith('::UNRESOLVED') && gResolutions.some((r) => r.sheetFound);
+      const sheetFound = gKey !== 'UNRESOLVED' && gResolutions.some((r) => r.sheetFound);
       const isClosed = gResolutions.some((r) => r.isClosed);
       const isGroupBlocked = !sheetFound || isClosed;
 
       if (isGroupBlocked) {
         const blockReason = isClosed
-          ? `The daily sheet for van "${vanPlateNumber}" on ${date} is closed.`
+          ? `The daily sheet for van "${vanPlateNumber}" on ${dateStr} is closed.`
           : firstRes.rowErrors[0] ?? 'Could not match rows to an open daily sheet.';
 
         const invalidRows: PreviewRowResult[] = gResolutions.map((res) => ({
@@ -820,7 +790,7 @@ export class BulkImportService {
         }));
 
         groups.push({
-          date, vanPlateNumber, sheetId, sheetFound, isClosed, blockReason,
+          date: dateStr, vanPlateNumber, sheetId, sheetFound, isClosed, blockReason,
           valid: [], invalid: invalidRows,
         });
         totalInvalid += invalidRows.length;
@@ -828,7 +798,6 @@ export class BulkImportService {
         continue;
       }
 
-      // Normal open group — process rows through validation pipeline
       const valid: PreviewRowResult[] = [];
       const invalid: PreviewRowResult[] = [];
 
@@ -881,7 +850,7 @@ export class BulkImportService {
       totalInvalid += invalid.length;
 
       groups.push({
-        date, vanPlateNumber, sheetId: sheetId!, sheetFound: true, isClosed: false,
+        date: dateStr, vanPlateNumber, sheetId: sheetId!, sheetFound: true, isClosed: false,
         valid, invalid,
       });
     }

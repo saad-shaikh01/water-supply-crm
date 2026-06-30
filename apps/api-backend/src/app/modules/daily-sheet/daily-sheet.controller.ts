@@ -264,10 +264,12 @@ export class DailySheetController {
   )
   async previewGlobalImport(
     @CurrentUser() user: AuthUser,
+    @Query('date') date: string,
     @UploadedFile() file?: Express.Multer.File,
   ) {
+    if (!date) throw new BadRequestException('date query parameter is required (YYYY-MM-DD)');
     if (!file) throw new BadRequestException('No Excel file provided');
-    return this.bulkImportService.previewGlobalImport(user.vendorId, file);
+    return this.bulkImportService.previewGlobalImport(user.vendorId, date, file);
   }
 
   @Post('bulk-import/confirm')

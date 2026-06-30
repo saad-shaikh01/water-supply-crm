@@ -353,8 +353,8 @@ export const useConfirmBulkImport = (sheetId: string) => {
 
 export const usePreviewGlobalBulkImport = () => {
   return useMutation({
-    mutationFn: (file: File): Promise<GlobalImportPreviewResponse> =>
-      dailySheetsApi.previewGlobalBulkImport(file).then((r) => r.data),
+    mutationFn: ({ file, date }: { file: File; date: string }): Promise<GlobalImportPreviewResponse> =>
+      dailySheetsApi.previewGlobalBulkImport(file, date).then((r) => r.data),
     onError: (e: any) =>
       toast.error(e?.response?.data?.message ?? 'Failed to parse file. Check the format and try again.'),
   });
