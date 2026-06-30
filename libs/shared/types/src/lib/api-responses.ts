@@ -192,7 +192,6 @@ export interface DeliveryItem {
 }
 
 export interface CustomerFinancialSummary {
-  prevMonthAmount: number;
   currentMonthPaid: number;
   prevMonthOutstanding: number;
   currentOutstanding: number;

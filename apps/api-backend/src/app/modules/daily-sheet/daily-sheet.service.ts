@@ -1484,19 +1484,6 @@ export class DailySheetService {
     const anchor = new Date(sheet.date);
     const curMonthStart = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
     const nextMonthStart = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1);
-    const prevMonthStart = new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1);
-
-    // Previous month total charges (DELIVERY amounts are positive).
-    const prevCharges = await this.prisma.transaction.aggregate({
-      where: {
-        customerId,
-        vendorId,
-        type: 'DELIVERY',
-        createdAt: { gte: prevMonthStart, lt: curMonthStart },
-      },
-      _sum: { amount: true },
-    });
-    const prevMonthAmount = prevCharges._sum.amount ?? 0;
 
     // Current month payments (PAYMENT amounts are negative — show absolute value).
     const curPayments = await this.prisma.transaction.aggregate({
@@ -1521,7 +1508,6 @@ export class DailySheetService {
       customer.financialBalance - (fromCurrentMonth._sum.amount ?? 0);
 
     return {
-      prevMonthAmount,
       currentMonthPaid,
       prevMonthOutstanding,
       currentOutstanding: customer.financialBalance,

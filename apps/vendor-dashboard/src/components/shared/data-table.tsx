@@ -130,7 +130,7 @@ export function DataTable<T extends { id: string }>({
                       <div className={cn(
                         "text-sm font-medium transition-colors text-foreground/90 group-hover:text-primary",
                         // Auto-apply tabular-nums if column looks like a number
-                        (col.header.toLowerCase().includes('balance') || col.header.toLowerCase().includes('amount')) && "tabular-nums"
+                        (typeof col.header === 'string' && (col.header.toLowerCase().includes('balance') || col.header.toLowerCase().includes('amount'))) && "tabular-nums"
                       )}>
                         {col.cell(row)}
                       </div>

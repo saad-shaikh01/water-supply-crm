@@ -387,9 +387,8 @@ export class BulkImportService {
 
     ws.columns = [
       { header: 'DeliveryDate', key: 'deliveryDate', width: 15 },
-      { header: 'VanPlateNumber', key: 'vanPlateNumber', width: 16 },
       { header: 'CustomerCode', key: 'customerCode', width: 14 },
-      { header: 'Product', key: 'product', width: 18 },
+      { header: 'CustomerName', key: 'customerName', width: 26 },
       { header: 'Status', key: 'status', width: 14 },
       { header: 'FilledDropped', key: 'filledDropped', width: 14 },
       { header: 'EmptyReturned', key: 'emptyReturned', width: 14 },
@@ -406,9 +405,8 @@ export class BulkImportService {
 
     const sampleRow = ws.addRow({
       deliveryDate: 'YYYY-MM-DD',
-      vanPlateNumber: 'VAN-PLATE',
       customerCode: 'C-0001',
-      product: 'Product Name',
+      customerName: 'Customer Name',
       status: 'COMPLETED',
       filledDropped: 0,
       emptyReturned: 0,
@@ -538,35 +536,42 @@ export class BulkImportService {
     if (!ws) throw new BadRequestException('No worksheet found in the uploaded file');
 
     const REQUIRED = [
-      'DeliveryDate', 'VanPlateNumber', 'CustomerCode', 'Product',
-      'Status', 'FilledDropped', 'EmptyReturned', 'CashCollected',
+      'DeliveryDate', 'CustomerCode', 'Status', 'FilledDropped', 'EmptyReturned', 'CashCollected',
     ];
     const colIndex = this.resolveColumnIndex(ws.getRow(1), REQUIRED, ['CustomerName', 'FailureReason']);
 
-    const groupMap = new Map<string, SanitizedGlobalRowWithIndex[]>();
+    // ── Step 1: Parse all raw rows flat ─────────────────────────────────────
+    interface RawGlobalRow {
+      rowIndex: number;
+      deliveryDate: string;
+      customerCode: string;
+      customerName: string;
+      status: string;
+      filledDropped: number;
+      emptyReturned: number;
+      cashCollected: number;
+      failureReason?: string;
+      sanitizationWarnings: string[];
+    }
 
+    const rawRows: RawGlobalRow[] = [];
     ws.eachRow((row, rowNum) => {
       if (rowNum === 1) return;
-
       const rawDate = this.sanitizeCellValue(row.getCell(colIndex['DeliveryDate']).value);
-      const rawVan = this.sanitizeCellValue(row.getCell(colIndex['VanPlateNumber']).value).toUpperCase();
-
-      if (!rawDate && !rawVan) return;
+      const rawCode = this.sanitizeCellValue(row.getCell(colIndex['CustomerCode']).value).toUpperCase();
+      if (!rawDate && !rawCode) return;
 
       const fResult = this.parseNonNegativeInt(row.getCell(colIndex['FilledDropped']).value);
       const eResult = this.parseNonNegativeInt(row.getCell(colIndex['EmptyReturned']).value);
       const cResult = this.parseNonNegativeDecimal(row.getCell(colIndex['CashCollected']).value);
 
-      const sanitized: SanitizedGlobalRowWithIndex = {
+      rawRows.push({
         rowIndex: rowNum,
         deliveryDate: rawDate,
-        vanPlateNumber: rawVan,
-        itemId: '',
-        customerCode: this.sanitizeCellValue(row.getCell(colIndex['CustomerCode']).value),
+        customerCode: rawCode,
         customerName: colIndex['CustomerName']
           ? this.sanitizeCellValue(row.getCell(colIndex['CustomerName']).value)
           : '',
-        productName: this.sanitizeCellValue(row.getCell(colIndex['Product']).value),
         status: this.sanitizeCellValue(row.getCell(colIndex['Status']).value).toUpperCase().replace(/\s+/g, ''),
         filledDropped: fResult.value,
         emptyReturned: eResult.value,
@@ -574,134 +579,299 @@ export class BulkImportService {
         failureReason: colIndex['FailureReason']
           ? this.sanitizeCellValue(row.getCell(colIndex['FailureReason']).value) || undefined
           : undefined,
-        sanitizationWarnings: [fResult.warning, eResult.warning, cResult.warning].filter(
-          Boolean,
-        ) as string[],
-      };
-
-      const groupKey = `${rawDate}::${rawVan}`;
-      if (!groupMap.has(groupKey)) groupMap.set(groupKey, []);
-      groupMap.get(groupKey)!.push(sanitized);
+        sanitizationWarnings: [fResult.warning, eResult.warning, cResult.warning].filter(Boolean) as string[],
+      });
     });
 
+    // ── Step 2: Batch-resolve customers ──────────────────────────────────────
+    const uniqueCodes = [...new Set(rawRows.map((r) => r.customerCode).filter(Boolean))];
+    const customers = await this.prisma.customer.findMany({
+      where: { customerCode: { in: uniqueCodes }, vendorId },
+      select: { id: true, customerCode: true },
+    });
+    const codeToCustomerId = new Map(customers.map((c) => [c.customerCode, c.id]));
+
+    // ── Step 3: Batch-fetch DailySheetItems across the full date range ───────
+    type ResolvedSheetItem = {
+      id: string;
+      customerId: string;
+      productId: string;
+      status: string;
+      customer: {
+        customerCode: string;
+        name: string;
+        isBillingExempt: boolean;
+        customPrices: Array<{ productId: string; customPrice: number }>;
+      };
+      product: { name: string; basePrice: number };
+      dailySheetId: string;
+      dailySheet: {
+        id: string;
+        date: Date;
+        isClosed: boolean;
+        van: { plateNumber: string };
+      };
+    };
+
+    const resolvedCustomerIds = customers.map((c) => c.id);
+    const validDateObjs = rawRows
+      .map((r) => new Date(r.deliveryDate))
+      .filter((d) => !isNaN(d.getTime()));
+
+    let allSheetItems: ResolvedSheetItem[] = [];
+    if (resolvedCustomerIds.length > 0 && validDateObjs.length > 0) {
+      const timestamps = validDateObjs.map((d) => d.getTime());
+      const minDate = new Date(Math.min(...timestamps));
+      const maxDate = new Date(Math.max(...timestamps));
+      minDate.setHours(0, 0, 0, 0);
+      maxDate.setHours(23, 59, 59, 999);
+
+      allSheetItems = (await this.prisma.dailySheetItem.findMany({
+        where: {
+          customerId: { in: resolvedCustomerIds },
+          isCorrection: false,
+          dailySheet: { vendorId, date: { gte: minDate, lte: maxDate } },
+        },
+        select: {
+          id: true,
+          customerId: true,
+          productId: true,
+          status: true,
+          customer: {
+            select: {
+              customerCode: true,
+              name: true,
+              isBillingExempt: true,
+              customPrices: { select: { productId: true, customPrice: true } },
+            },
+          },
+          product: { select: { name: true, basePrice: true } },
+          dailySheetId: true,
+          dailySheet: {
+            select: {
+              id: true,
+              date: true,
+              isClosed: true,
+              van: { select: { plateNumber: true } },
+            },
+          },
+        },
+      })) as ResolvedSheetItem[];
+    }
+
+    // resolution map: `customerId::YYYY-MM-DD` → item[]
+    const resolutionMap = new Map<string, ResolvedSheetItem[]>();
+    for (const item of allSheetItems) {
+      const dateStr = item.dailySheet.date.toISOString().slice(0, 10);
+      const key = `${item.customerId}::${dateStr}`;
+      if (!resolutionMap.has(key)) resolutionMap.set(key, []);
+      resolutionMap.get(key)!.push(item);
+    }
+
+    // ── Step 4: Per-row resolution ────────────────────────────────────────────
+    interface RowResolution {
+      row: RawGlobalRow;
+      itemId: string | null;
+      resolvedItem: ResolvedSheetItem | null;
+      sheetId: string | null;
+      vanPlateNumber: string;
+      isClosed: boolean;
+      sheetFound: boolean;
+      rowErrors: string[];
+    }
+
+    const resolutions: RowResolution[] = [];
+
+    for (const row of rawRows) {
+      const dateObj = new Date(row.deliveryDate);
+      if (isNaN(dateObj.getTime())) {
+        resolutions.push({
+          row, itemId: null, resolvedItem: null, sheetId: null, vanPlateNumber: '',
+          isClosed: false, sheetFound: false,
+          rowErrors: [`Invalid date format "${row.deliveryDate}". Use YYYY-MM-DD.`],
+        });
+        continue;
+      }
+
+      const dateStr = dateObj.toISOString().slice(0, 10);
+      const customerId = codeToCustomerId.get(row.customerCode);
+
+      if (!customerId) {
+        resolutions.push({
+          row, itemId: null, resolvedItem: null, sheetId: null, vanPlateNumber: '',
+          isClosed: false, sheetFound: false,
+          rowErrors: [`Customer with code "${row.customerCode}" not found.`],
+        });
+        continue;
+      }
+
+      const items = resolutionMap.get(`${customerId}::${dateStr}`) ?? [];
+      const openItems = items.filter((i) => !i.dailySheet.isClosed);
+      const closedItems = items.filter((i) => i.dailySheet.isClosed);
+
+      if (openItems.length === 0 && closedItems.length > 0) {
+        const closed = closedItems[0];
+        resolutions.push({
+          row, itemId: null, resolvedItem: null,
+          sheetId: closed.dailySheetId, vanPlateNumber: closed.dailySheet.van.plateNumber,
+          isClosed: true, sheetFound: true, rowErrors: [],
+        });
+        continue;
+      }
+
+      if (openItems.length === 0) {
+        resolutions.push({
+          row, itemId: null, resolvedItem: null, sheetId: null, vanPlateNumber: '',
+          isClosed: false, sheetFound: false,
+          rowErrors: [
+            `No open delivery found for customer "${row.customerCode}" on ${dateStr}. ` +
+              `Ensure a daily sheet has been generated for this customer's van.`,
+          ],
+        });
+        continue;
+      }
+
+      const uniqueSheetIds = [...new Set(openItems.map((i) => i.dailySheetId))];
+      if (uniqueSheetIds.length > 1) {
+        resolutions.push({
+          row, itemId: null, resolvedItem: null, sheetId: null, vanPlateNumber: '',
+          isClosed: false, sheetFound: false,
+          rowErrors: [
+            `Customer "${row.customerCode}" has deliveries on multiple open sheets on ${dateStr}. Cannot auto-resolve — edit manually.`,
+          ],
+        });
+        continue;
+      }
+
+      const sheetId = uniqueSheetIds[0];
+      const itemsOnSheet = openItems.filter((i) => i.dailySheetId === sheetId);
+
+      if (itemsOnSheet.length > 1) {
+        resolutions.push({
+          row, itemId: null, resolvedItem: null,
+          sheetId, vanPlateNumber: openItems[0].dailySheet.van.plateNumber,
+          isClosed: false, sheetFound: true,
+          rowErrors: [
+            `Customer "${row.customerCode}" has ${itemsOnSheet.length} delivery items on this sheet ` +
+              `(multiple products). Cannot resolve without a Product column.`,
+          ],
+        });
+        continue;
+      }
+
+      // ✅ Exactly 1 open item — resolved
+      const resolved = itemsOnSheet[0];
+      resolutions.push({
+        row, itemId: resolved.id, resolvedItem: resolved,
+        sheetId, vanPlateNumber: resolved.dailySheet.van.plateNumber,
+        isClosed: false, sheetFound: true, rowErrors: [],
+      });
+    }
+
+    // ── Step 5: Group by `dateStr::sheetId` (or `date::UNRESOLVED`) ──────────
+    const groupMap = new Map<string, RowResolution[]>();
+    for (const res of resolutions) {
+      const dateStr = (() => {
+        const d = new Date(res.row.deliveryDate);
+        return isNaN(d.getTime()) ? res.row.deliveryDate : d.toISOString().slice(0, 10);
+      })();
+      const gKey = res.sheetId ? `${dateStr}::${res.sheetId}` : `${dateStr}::UNRESOLVED`;
+      if (!groupMap.has(gKey)) groupMap.set(gKey, []);
+      groupMap.get(gKey)!.push(res);
+    }
+
+    // ── Step 6: Build GlobalPreviewGroup[] ───────────────────────────────────
     const groups: GlobalPreviewGroup[] = [];
     let totalValid = 0;
     let totalInvalid = 0;
-    let blockedGroups = 0;
+    let blockedGroupCount = 0;
 
-    for (const [groupKey, rows] of groupMap) {
-      const separatorIdx = groupKey.indexOf('::');
-      const date = groupKey.slice(0, separatorIdx);
-      const vanPlateNumber = groupKey.slice(separatorIdx + 2);
+    for (const [gKey, gResolutions] of groupMap) {
+      const firstRes = gResolutions[0];
+      const dateD = new Date(firstRes.row.deliveryDate);
+      const date = isNaN(dateD.getTime())
+        ? firstRes.row.deliveryDate
+        : dateD.toISOString().slice(0, 10);
+      const vanPlateNumber = firstRes.vanPlateNumber || '—';
+      const sheetId = firstRes.sheetId;
+      const sheetFound = !gKey.endsWith('::UNRESOLVED') && gResolutions.some((r) => r.sheetFound);
+      const isClosed = gResolutions.some((r) => r.isClosed);
+      const isGroupBlocked = !sheetFound || isClosed;
 
-      const dateObj = new Date(date);
-      if (isNaN(dateObj.getTime())) {
-        const invalidRows: PreviewRowResult[] = rows.map((r) => ({
-          rowIndex: r.rowIndex,
+      if (isGroupBlocked) {
+        const blockReason = isClosed
+          ? `The daily sheet for van "${vanPlateNumber}" on ${date} is closed.`
+          : firstRes.rowErrors[0] ?? 'Could not match rows to an open daily sheet.';
+
+        const invalidRows: PreviewRowResult[] = gResolutions.map((res) => ({
+          rowIndex: res.row.rowIndex,
           itemId: null,
-          customerName: r.customerName,
-          customerCode: r.customerCode,
-          productName: r.productName,
+          customerName: res.row.customerName,
+          customerCode: res.row.customerCode,
+          productName: res.resolvedItem?.product.name ?? '',
           currentDbStatus: 'UNKNOWN',
-          importStatus: r.status,
-          filledDropped: r.filledDropped,
-          emptyReturned: r.emptyReturned,
-          cashCollected: r.cashCollected,
-          failureReason: r.failureReason,
-          errors: [`Invalid date format "${date}". Use YYYY-MM-DD.`],
-          warnings: [],
+          importStatus: res.row.status,
+          filledDropped: res.row.filledDropped,
+          emptyReturned: res.row.emptyReturned,
+          cashCollected: res.row.cashCollected,
+          failureReason: res.row.failureReason,
+          errors: res.rowErrors.length > 0 ? res.rowErrors : [blockReason],
+          warnings: res.row.sanitizationWarnings,
         }));
+
         groups.push({
-          date, vanPlateNumber, sheetId: null, sheetFound: false, isClosed: false,
-          blockReason: `Invalid date format "${date}". Use YYYY-MM-DD.`,
+          date, vanPlateNumber, sheetId, sheetFound, isClosed, blockReason,
           valid: [], invalid: invalidRows,
         });
-        totalInvalid += rows.length;
-        blockedGroups++;
+        totalInvalid += invalidRows.length;
+        blockedGroupCount++;
         continue;
       }
 
-      const van = await this.prisma.van.findFirst({
-        where: { plateNumber: vanPlateNumber, vendorId },
-        select: { id: true },
-      });
-
-      if (!van) {
-        const invalidRows: PreviewRowResult[] = rows.map((r) => ({
-          rowIndex: r.rowIndex,
-          itemId: null,
-          customerName: r.customerName,
-          customerCode: r.customerCode,
-          productName: r.productName,
-          currentDbStatus: 'UNKNOWN',
-          importStatus: r.status,
-          filledDropped: r.filledDropped,
-          emptyReturned: r.emptyReturned,
-          cashCollected: r.cashCollected,
-          failureReason: r.failureReason,
-          errors: [`Van with plate number "${vanPlateNumber}" not found.`],
-          warnings: [],
-        }));
-        groups.push({
-          date, vanPlateNumber, sheetId: null, sheetFound: false, isClosed: false,
-          blockReason: `Van with plate number "${vanPlateNumber}" not found.`,
-          valid: [], invalid: invalidRows,
-        });
-        totalInvalid += rows.length;
-        blockedGroups++;
-        continue;
-      }
-
-      const startOfDay = new Date(date);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(date);
-      endOfDay.setHours(23, 59, 59, 999);
-
-      const sheet = await this.prisma.dailySheet.findFirst({
-        where: { vanId: van.id, vendorId, date: { gte: startOfDay, lte: endOfDay } },
-        select: { id: true, isClosed: true },
-      });
-
-      if (!sheet) {
-        groups.push({
-          date, vanPlateNumber, sheetId: null, sheetFound: false, isClosed: false,
-          blockReason: `No daily sheet exists for van "${vanPlateNumber}" on ${date}. Generate the sheet first.`,
-          valid: [], invalid: [],
-        });
-        blockedGroups++;
-        continue;
-      }
-
-      if (sheet.isClosed) {
-        groups.push({
-          date, vanPlateNumber, sheetId: sheet.id, sheetFound: true, isClosed: true,
-          blockReason: `The daily sheet for van "${vanPlateNumber}" on ${date} is closed.`,
-          valid: [], invalid: [],
-        });
-        blockedGroups++;
-        continue;
-      }
-
-      const dbItems = await this.fetchSheetItemsForPreview(sheet.id);
-      const fallbackMap = this.buildFallbackMap(dbItems);
-      const dbItemMap = new Map(dbItems.map((i) => [i.id, i]));
-
+      // Normal open group — process rows through validation pipeline
       const valid: PreviewRowResult[] = [];
       const invalid: PreviewRowResult[] = [];
 
-      for (const row of rows) {
-        const resolvedItemId = this.resolveItemId('', row.customerCode, row.productName, fallbackMap);
-        const dbItem = resolvedItemId ? dbItemMap.get(resolvedItemId) : undefined;
-        const itemErrors: string[] = [];
-
-        if (!resolvedItemId) {
-          itemErrors.push(
-            `Could not identify customer "${row.customerCode}" / product "${row.productName}" ` +
-              `in the sheet for ${vanPlateNumber} on ${date}.`,
-          );
+      for (const res of gResolutions) {
+        if (res.rowErrors.length > 0 || !res.resolvedItem) {
+          invalid.push({
+            rowIndex: res.row.rowIndex,
+            itemId: null,
+            customerName: res.row.customerName,
+            customerCode: res.row.customerCode,
+            productName: '',
+            currentDbStatus: 'UNKNOWN',
+            importStatus: res.row.status,
+            filledDropped: res.row.filledDropped,
+            emptyReturned: res.row.emptyReturned,
+            cashCollected: res.row.cashCollected,
+            failureReason: res.row.failureReason,
+            errors: res.rowErrors,
+            warnings: res.row.sanitizationWarnings,
+          });
+          continue;
         }
 
-        const result = this.buildPreviewRowResult(row.rowIndex, row, resolvedItemId ?? null, dbItem, itemErrors);
+        const sanitized: SanitizedSheetRow = {
+          itemId: res.itemId!,
+          customerCode: res.row.customerCode,
+          customerName: res.row.customerName,
+          productName: res.resolvedItem.product.name,
+          status: res.row.status,
+          filledDropped: res.row.filledDropped,
+          emptyReturned: res.row.emptyReturned,
+          cashCollected: res.row.cashCollected,
+          failureReason: res.row.failureReason,
+          sanitizationWarnings: res.row.sanitizationWarnings,
+        };
+
+        const result = this.buildPreviewRowResult(
+          res.row.rowIndex,
+          sanitized,
+          res.itemId,
+          res.resolvedItem as SheetItemForPreview,
+          [],
+        );
 
         if (result.errors.length > 0) invalid.push(result);
         else valid.push(result);
@@ -711,7 +881,7 @@ export class BulkImportService {
       totalInvalid += invalid.length;
 
       groups.push({
-        date, vanPlateNumber, sheetId: sheet.id, sheetFound: true, isClosed: false,
+        date, vanPlateNumber, sheetId: sheetId!, sheetFound: true, isClosed: false,
         valid, invalid,
       });
     }
@@ -722,7 +892,7 @@ export class BulkImportService {
         totalRows: totalValid + totalInvalid,
         validRows: totalValid,
         invalidRows: totalInvalid,
-        blockedGroups,
+        blockedGroups: blockedGroupCount,
       },
     };
   }

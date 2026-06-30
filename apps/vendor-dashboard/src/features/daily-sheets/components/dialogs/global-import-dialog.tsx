@@ -226,7 +226,7 @@ export function GlobalImportDialog({ open, onClose, onOpenSheetGenerate }: Globa
               >
                 <div className="flex items-start justify-between gap-3 px-1">
                   <p className="text-sm text-muted-foreground leading-relaxed">
-                    Download the global master template, fill delivery data for any number of vans and dates, then upload here. Each date + van combination maps to its open daily sheet.
+                    Download the global master template, fill delivery data for any number of customers and dates, then upload here. Each row is matched by CustomerCode and date — the van is resolved automatically from the customer's delivery schedule.
                   </p>
                   <Button
                     variant="outline"

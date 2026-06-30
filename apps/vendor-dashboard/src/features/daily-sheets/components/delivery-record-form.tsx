@@ -123,6 +123,18 @@ export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: 
   const livePaidThisMonth = (finSummary?.currentMonthPaid ?? 0) - savedCash + draftCash;
   const liveCurrentOutstanding =
     (finSummary?.currentOutstanding ?? 0) - (savedCharge - savedCash) + (draftCharge - draftCash);
+  // Remaining balance carried over from before this month, reduced by payments made
+  // this month (incl. the cash being entered now), floored at 0.
+  const livePrevMonthRemaining = Math.max((finSummary?.prevMonthOutstanding ?? 0) - livePaidThisMonth, 0);
+
+  // Bottle wallet preview — wallet balance moves by (dropped − received). The stored
+  // wallet value already reflects this item's last save, so back that out first.
+  const walletBalance = item.customer?.wallets?.find((w) => w.productId === item.productId)?.balance ?? 0;
+  const savedBottleChange = isFirstRecord ? 0 : item.filledDropped - item.emptyReceived;
+  const draftBottleChange = deliveryMode === 'delivered'
+    ? (itemForm.filledDropped ?? 0) - (itemForm.emptyReceived ?? 0)
+    : 0;
+  const liveWalletBalance = walletBalance - savedBottleChange + draftBottleChange;
 
   const doSave = () => {
     const finalData: Record<string, unknown> = deliveryMode === 'delivered'
@@ -267,15 +279,10 @@ export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: 
                   className={cn('font-mono font-bold h-11', readOnly && 'bg-muted/40 cursor-default')}
                   readOnly={readOnly}
                 />
-                {(() => {
-                  const wb = item.customer?.wallets?.find((w) => w.productId === item.productId)?.balance ?? 0;
-                  return (
-                    <div className="mt-1.5 flex items-center justify-between rounded-xl bg-primary/10 border border-primary/30 px-3 py-2">
-                      <span className="text-[11px] font-bold uppercase tracking-wide text-primary">Bottle Wallet</span>
-                      <span className="text-lg font-black text-primary leading-none">{wb}<span className="text-xs font-bold ml-1">btl</span></span>
-                    </div>
-                  );
-                })()}
+                <div className="mt-1.5 flex items-center justify-between rounded-xl bg-primary/10 border border-primary/30 px-3 py-2">
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-primary">Bottle Wallet</span>
+                  <span className="text-lg font-black text-primary leading-none">{liveWalletBalance}<span className="text-xs font-bold ml-1">btl</span></span>
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -317,9 +324,9 @@ export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: 
                   [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[52px] w-full rounded-xl" />)
                 ) : (
                   <>
-                    <StatBox label="Prev Month Bill" value={finSummary?.prevMonthAmount ?? 0} />
-                    <StatBox label="Paid This Month" value={livePaidThisMonth} tone="paid" />
                     <StatBox label="Prev Month Bal" value={finSummary?.prevMonthOutstanding ?? 0} tone="balance" />
+                    <StatBox label="Paid This Month" value={livePaidThisMonth} tone="paid" />
+                    <StatBox label="Prev Month Outstanding" value={livePrevMonthRemaining} tone="balance" />
                     <StatBox label="Current Bal" value={liveCurrentOutstanding} tone="balance" />
                   </>
                 )}
