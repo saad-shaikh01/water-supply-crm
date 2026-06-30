@@ -13,11 +13,11 @@ export const useCustomers = () => {
   const [vanId] = useQueryState('vanId', parseAsString.withDefault(''));
   const [dayOfWeek] = useQueryState('dayOfWeek', parseAsInteger.withDefault(0));
   const [paymentType] = useQueryState('paymentType', parseAsString.withDefault(''));
-  const [isActive, setIsActive] = useQueryState('isActive', parseAsString.withDefault(''));
+  const [isActive, setIsActive] = useQueryState('isActive', parseAsString.withDefault('true'));
   const [balanceMin] = useQueryState('balanceMin', parseAsFloat.withDefault(NaN));
   const [balanceMax] = useQueryState('balanceMax', parseAsFloat.withDefault(NaN));
-  const [sort] = useQueryState('sort', parseAsString.withDefault(''));
-  const [sortDir] = useQueryState('sortDir', parseAsString.withDefault(''));
+  const [sort, setSort] = useQueryState('sort', parseAsString.withDefault(''));
+  const [sortDir, setSortDir] = useQueryState('sortDir', parseAsString.withDefault(''));
 
   const params = {
     search: search || undefined,
@@ -55,7 +55,9 @@ export const useCustomers = () => {
     balanceMin,
     balanceMax,
     sort,
+    setSort,
     sortDir,
+    setSortDir,
   };
 };
 

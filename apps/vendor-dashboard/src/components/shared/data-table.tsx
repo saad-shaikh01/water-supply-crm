@@ -5,14 +5,16 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
   Button, Skeleton, DataTablePagination
 } from '@water-supply-crm/ui';
-import { Inbox } from 'lucide-react';
+import { Inbox, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 
 interface Column<T> {
   key: string;
-  header: string;
+  header: ReactNode;
   cell: (row: T) => ReactNode;
   width?: string;
+  sortable?: boolean;
+  sortField?: string;
 }
 
 interface DataTableProps<T> {
@@ -26,6 +28,9 @@ interface DataTableProps<T> {
   onLimitChange?: (limit: number) => void;
   emptyMessage?: string;
   onRowClick?: (row: T) => void;
+  sortKey?: string;
+  sortDir?: string;
+  onSort?: (field: string) => void;
 }
 
 export function DataTable<T extends { id: string }>({
@@ -39,6 +44,9 @@ export function DataTable<T extends { id: string }>({
   onLimitChange,
   emptyMessage = 'No data found',
   onRowClick,
+  sortKey,
+  sortDir,
+  onSort,
 }: DataTableProps<T>) {
   // Component implementation
   if (isLoading) {
@@ -62,15 +70,34 @@ export function DataTable<T extends { id: string }>({
         <Table>
           <TableHeader>
             <TableRow className="bg-white/[0.01] hover:bg-white/[0.01] border-b border-border">
-              {columns.map((col) => (
-                <TableHead 
-                  key={col.key} 
-                  className="h-12 sm:h-14 text-[10px] uppercase tracking-[0.25em] font-bold text-muted-foreground"
-                  style={col.width ? { width: col.width } : undefined}
-                >
-                  {col.header}
-                </TableHead>
-              ))}
+              {columns.map((col) => {
+                const field = col.sortField ?? col.key;
+                const isActive = col.sortable && sortKey === field;
+                return (
+                  <TableHead
+                    key={col.key}
+                    className="h-12 sm:h-14 text-[10px] uppercase tracking-[0.25em] font-bold text-muted-foreground"
+                    style={col.width ? { width: col.width } : undefined}
+                  >
+                    {col.sortable && typeof col.header === 'string' ? (
+                      <button
+                        onClick={() => onSort?.(field)}
+                        className={cn(
+                          "flex items-center gap-1 hover:text-foreground transition-colors",
+                          isActive && "text-primary"
+                        )}
+                      >
+                        {col.header}
+                        {isActive && sortDir === 'asc' && <ChevronUp className="h-3 w-3" />}
+                        {isActive && sortDir === 'desc' && <ChevronDown className="h-3 w-3" />}
+                        {!isActive && <ChevronsUpDown className="h-3 w-3 opacity-40" />}
+                      </button>
+                    ) : (
+                      col.header
+                    )}
+                  </TableHead>
+                );
+              })}
             </TableRow>
           </TableHeader>
           <TableBody>

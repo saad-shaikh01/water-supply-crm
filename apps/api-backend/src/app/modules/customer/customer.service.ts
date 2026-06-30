@@ -64,32 +64,14 @@ export class CustomerService {
   }
 
   private async generateCustomerCode(vendorId: string, tx: Prisma.TransactionClient): Promise<string> {
-    const vendor = await tx.vendor.findUnique({
-      where: { id: vendorId },
-      select: { name: true },
-    });
-
-    // Prefix: first letter of each word in vendor name, max 3 chars (e.g. "AquaPure Karachi" → "AK")
-    const prefix = (vendor?.name ?? 'C')
-      .split(/\s+/)
-      .map((w: string) => w[0]?.toUpperCase() ?? '')
-      .join('')
-      .slice(0, 3) || 'C';
-
-    // Find highest existing sequential code for this vendor
-    const last = await tx.customer.findFirst({
-      where: { vendorId, customerCode: { startsWith: `${prefix}-` } },
-      orderBy: { customerCode: 'desc' },
-      select: { customerCode: true },
-    });
-
-    let next = 1;
-    if (last) {
-      const num = parseInt(last.customerCode.split('-').pop() ?? '0', 10);
-      if (!isNaN(num)) next = num + 1;
-    }
-
-    return `${prefix}-${String(next).padStart(4, '0')}`;
+    // Use raw SQL to get the max numeric value from L#### codes — avoids string sort issues
+    const result = await tx.$queryRaw<{ maxnum: number | null }[]>`
+      SELECT MAX(CAST(SUBSTRING("customerCode", 2) AS INTEGER)) as maxnum
+      FROM "Customer"
+      WHERE "vendorId" = ${vendorId} AND "customerCode" ~ '^L[0-9]+$'
+    `;
+    const maxNum = result[0]?.maxnum ?? 0;
+    return `L${maxNum + 1}`;
   }
 
   async create(vendorId: string, dto: CreateCustomerDto) {

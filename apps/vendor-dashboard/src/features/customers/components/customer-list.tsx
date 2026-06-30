@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useQueryState, parseAsString, parseAsInteger } from 'nuqs';
-import { MoreHorizontal, Pencil, Trash2, Eye, MapPin, Phone, PowerOff, Power, SlidersHorizontal, X } from 'lucide-react';
+import { MoreHorizontal, Pencil, Trash2, Eye, MapPin, Phone, PowerOff, Power, SlidersHorizontal, X, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import {
   Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuTrigger, Badge, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -28,7 +28,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const user = useAuthStore((s) => s.user);
   const isAdmin = user ? hasMinRole(user.role, 'VENDOR_ADMIN') : false;
   const isDriver = user?.role === 'DRIVER';
-  const { data, isLoading, page, setPage, limit, setLimit, isActive, setIsActive } = useCustomers();
+  const { data, isLoading, page, setPage, limit, setLimit, isActive, setIsActive, sort, setSort, sortDir, setSortDir } = useCustomers();
   const { mutate: deleteCustomer, isPending: isDeleting } = useDeleteCustomer();
   const { mutate: deactivateCustomer, isPending: isDeactivating } = useDeactivateCustomer();
   const { mutate: reactivateCustomer, isPending: isReactivating } = useReactivateCustomer();
@@ -46,9 +46,22 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   // Reset to page 1 whenever any filter changes
   const resetPage = () => setPage(1);
 
+  const handleSort = (field: string) => {
+    resetPage();
+    if (sort !== field) {
+      setSort(field);
+      setSortDir('asc');
+    } else if (sortDir === 'asc') {
+      setSortDir('desc');
+    } else {
+      setSort(null);
+      setSortDir(null);
+    }
+  };
+
   const activeFilters = [
     paymentType ? { label: `Type: ${paymentType}`, clear: () => { resetPage(); setPaymentType(null); } } : null,
-    isActive ? { label: isActive === 'true' ? 'Active' : 'Inactive', clear: () => { resetPage(); setIsActive(null); } } : null,
+    isActive !== 'all' ? { label: isActive === 'true' ? 'Active' : 'Inactive', clear: () => { resetPage(); setIsActive('all'); } } : null,
     dayOfWeek ? { label: `Day: ${DAY_NAMES[dayOfWeek] ?? dayOfWeek}`, clear: () => { resetPage(); setDayOfWeek(null); } } : null,
     vanId ? { label: 'Van filter', clear: () => { resetPage(); setVanId(null); } } : null,
   ].filter(Boolean) as Array<{ label: string; clear: () => void }>;
@@ -56,7 +69,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const clearAllFilters = () => {
     resetPage();
     setPaymentType(null);
-    setIsActive(null);
+    setIsActive('all');
     setDayOfWeek(null);
     setVanId(null);
   };
@@ -156,7 +169,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             </div>
             <div className="space-y-2">
               <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Status</Label>
-              <Select value={isActive || 'all'} onValueChange={(v) => { resetPage(); setIsActive(v === 'all' ? null : v); }}>
+              <Select value={isActive} onValueChange={(v) => { resetPage(); setIsActive(v); }}>
                 <SelectTrigger className="rounded-xl bg-background/50 border-border h-10">
                   <SelectValue placeholder="All Status" />
                 </SelectTrigger>
@@ -207,11 +220,42 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
         total={total}
         onPageChange={setPage}
         onLimitChange={setLimit}
+        sortKey={sort}
+        sortDir={sortDir}
+        onSort={handleSort}
         emptyMessage="No customers found. Start by adding one!"
         columns={[
           {
             key: 'name',
-            header: 'Customer',
+            header: (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleSort('name')}
+                  className={cn(
+                    "flex items-center gap-0.5 text-[10px] uppercase tracking-[0.25em] font-bold hover:text-foreground transition-colors",
+                    sort === 'name' ? "text-primary" : "text-muted-foreground"
+                  )}
+                >
+                  Name
+                  {sort === 'name' && sortDir === 'asc' && <ChevronUp className="h-3 w-3" />}
+                  {sort === 'name' && sortDir === 'desc' && <ChevronDown className="h-3 w-3" />}
+                  {sort !== 'name' && <ChevronsUpDown className="h-3 w-3 opacity-40" />}
+                </button>
+                <span className="text-muted-foreground/30">/</span>
+                <button
+                  onClick={() => handleSort('customerCode')}
+                  className={cn(
+                    "flex items-center gap-0.5 text-[10px] uppercase tracking-[0.25em] font-bold hover:text-foreground transition-colors",
+                    sort === 'customerCode' ? "text-primary" : "text-muted-foreground"
+                  )}
+                >
+                  Code
+                  {sort === 'customerCode' && sortDir === 'asc' && <ChevronUp className="h-3 w-3" />}
+                  {sort === 'customerCode' && sortDir === 'desc' && <ChevronDown className="h-3 w-3" />}
+                  {sort !== 'customerCode' && <ChevronsUpDown className="h-3 w-3 opacity-40" />}
+                </button>
+              </div>
+            ),
             cell: (r) => (
               <div className={cn("flex items-center gap-3 max-w-[220px]", !r.isActive && "opacity-60")}>
                 <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold shrink-0 text-xs">
@@ -226,7 +270,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                       </Badge>
                     )}
                   </div>
-                  <span className="text-[10px] uppercase tracking-tighter text-muted-foreground/60 font-mono truncate">{r.customerCode}</span>
+                  <span className="text-[14px] font-mono font-semibold text-primary/70 truncate">{r.customerCode}</span>
                 </div>
               </div>
             )
@@ -313,6 +357,8 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
           {
             key: 'balance',
             header: 'Balance',
+            sortable: true,
+            sortField: 'financialBalance',
             cell: (r) => {
               const balance = Number(r.financialBalance ?? 0);
               const isOwed = balance > 0;
