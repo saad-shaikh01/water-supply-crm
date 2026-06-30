@@ -123,11 +123,7 @@ export class CustomerStatementPdfService {
     month?: string;
   }): Promise<Buffer> {
     return new Promise((resolve, reject) => {
-      const doc = new PDFDocument({
-        margins: { top: MARGIN, left: MARGIN, right: MARGIN, bottom: 6 },
-        size: 'A4',
-        bufferPages: true,
-      });
+      const doc = new PDFDocument({ margin: MARGIN, size: 'A4', bufferPages: true });
       const chunks: Buffer[] = [];
       doc.on('data', (c: Buffer) => chunks.push(c));
       doc.on('error', reject);
@@ -151,16 +147,16 @@ export class CustomerStatementPdfService {
     const { customer, transactions, openingBalance, closingBalance, period, month } = data;
     const { deliveryRows, otherRows, ratePerBottle } = this.buildRows(transactions, openingBalance);
 
-    this.drawBrandHeader(doc);
-    this.drawStatementTitle(doc);
+    this.drawBrandHeader(doc); console.error("after brand", doc.bufferedPageRange().count, doc.y);
+    this.drawStatementTitle(doc); console.error("after title", doc.bufferedPageRange().count, doc.y);
     doc.y += 14;
-    this.drawInfoCards(doc, customer, period, month, closingBalance, ratePerBottle);
+    this.drawInfoCards(doc, customer, period, month, closingBalance, ratePerBottle); console.error("after infocards", doc.bufferedPageRange().count, doc.y);
 
     doc.y += 18;
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(13)
       .text('Delivery History', MARGIN, doc.y, { lineBreak: false });
     doc.y += 20;
-    this.drawDeliveryCard(doc, deliveryRows, openingBalance);
+    this.drawDeliveryCard(doc, deliveryRows, openingBalance); console.error("after deliverycard", doc.bufferedPageRange().count, doc.y);
 
     if (otherRows.length) {
       doc.y += 18;
@@ -171,9 +167,9 @@ export class CustomerStatementPdfService {
     }
 
     doc.y += 16;
-    this.drawClosingBalanceBar(doc, closingBalance);
+    this.drawClosingBalanceBar(doc, closingBalance); console.error("after closingbar", doc.bufferedPageRange().count, doc.y);
     doc.y += 18;
-    this.drawThankYouFooter(doc);
+    this.drawThankYouFooter(doc); console.error("after thankyou", doc.bufferedPageRange().count, doc.y);
   }
 
   // ── Row building / grouping ──────────────────────────────────────────────
@@ -252,13 +248,11 @@ export class CustomerStatementPdfService {
 
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(19)
       .text(COMPANY_NAME, MARGIN, y, { lineBreak: false });
-    const nameBottom = y + 19 * 1.15;
     doc.fillColor(C.muted).font('Helvetica').fontSize(8.5)
-      .text(COMPANY_ADDRESS, MARGIN, nameBottom + 4, { lineBreak: false });
-    const addressBottom = nameBottom + 4 + 8.5 * 1.15;
+      .text(COMPANY_ADDRESS, MARGIN, doc.y + 5, { lineBreak: false });
     doc.fillColor(C.muted).font('Helvetica').fontSize(8.5)
-      .text(COMPANY_PHONES, MARGIN, addressBottom + 2, { lineBreak: false });
-    const leftBottom = addressBottom + 2 + 8.5 * 1.15;
+      .text(COMPANY_PHONES, MARGIN, doc.y + 2, { lineBreak: false });
+    const leftBottom = doc.y;
 
     let logoBottom = y;
     try {
@@ -490,7 +484,7 @@ export class CustomerStatementPdfService {
     drawLine: (line: T, x: number, y: number, index: number) => void,
   ): void {
     let drawn = 0;
-    while (drawn < lines.length) {
+    while (drawn < lines.length) { console.error("LOOP drawn="+drawn+" doc.y="+doc.y);
       const availH = FOOTER_Y - 16 - doc.y;
       const maxLines = Math.max(1, Math.floor((availH - headerH) / ROW_H));
       const linesThisCard = Math.min(maxLines, lines.length - drawn);
@@ -505,7 +499,7 @@ export class CustomerStatementPdfService {
 
       drawn += linesThisCard;
       doc.y = cardY + cardH;
-      if (drawn < lines.length) {
+      if (drawn < lines.length) { console.error("ADDPAGE drawn="+drawn+"/"+lines.length);
         doc.addPage();
         doc.y = MARGIN;
       }
@@ -514,7 +508,7 @@ export class CustomerStatementPdfService {
 
   // ── Closing balance summary bar ─────────────────────────────────────────────
   private drawClosingBalanceBar(doc: PDFKit.PDFDocument, closingBalance: number): void {
-    if (doc.y + 32 > FOOTER_Y - 10) { doc.addPage(); doc.y = MARGIN; }
+    console.error("CLOSEBAR doc.y="+doc.y); if (doc.y + 32 > FOOTER_Y - 10) { console.error("CLOSEBAR ADDPAGE"); doc.addPage(); doc.y = MARGIN; }
     const y = doc.y;
     const color = closingBalance > 0 ? C.closeRed : C.closeGrn;
     doc.roundedRect(MARGIN, y, CONTENT_W, 32, RADIUS).fill(C.navy);
@@ -527,7 +521,7 @@ export class CustomerStatementPdfService {
 
   // ── Thank-you / payment footer (appears once at end of document) ───────────
   private drawThankYouFooter(doc: PDFKit.PDFDocument): void {
-    if (doc.y + 76 > FOOTER_Y - 10) { doc.addPage(); doc.y = MARGIN; }
+    console.error("THANKYOU doc.y="+doc.y); if (doc.y + 76 > FOOTER_Y - 10) { console.error("THANKYOU ADDPAGE"); doc.addPage(); doc.y = MARGIN; }
     const y = doc.y;
 
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(10)

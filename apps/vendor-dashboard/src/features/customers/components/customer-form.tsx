@@ -165,12 +165,12 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
     }
   };
 
-  // Auto-select product when only one exists and none is chosen yet
+  // Auto-select product when only one exists and none is chosen yet (create only — these fields are hidden on edit)
   useEffect(() => {
-    if (allProducts.length === 1 && !getValues('defaultProductId')) {
+    if (!isEdit && allProducts.length === 1 && !getValues('defaultProductId')) {
       setValue('defaultProductId', allProducts[0].id);
     }
-  }, [allProducts, open]);
+  }, [allProducts, open, isEdit]);
 
   // Auto-parse lat/lng when Google Maps URL changes
   useEffect(() => {
