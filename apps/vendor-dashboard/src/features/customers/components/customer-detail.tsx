@@ -311,11 +311,27 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
           <ArrowLeft className="h-5 w-5 group-hover:-translate-x-1 transition-transform" />
         </Button>
         <div className="flex-1">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-3xl font-bold tracking-tight">{customer.name}</h1>
-            <Badge variant="outline" className="font-mono text-[10px] tracking-tighter uppercase px-2 py-0">
+            <Badge
+              variant="outline"
+              className="font-mono text-sm font-black tracking-wide uppercase px-3 py-1 rounded-lg border-primary/40 bg-primary/10 text-primary"
+            >
               {customer.customerCode}
             </Badge>
+            <Badge className={cn(
+              "text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border-none whitespace-nowrap",
+              customer.paymentType === 'MONTHLY'
+                ? "bg-indigo-500/10 text-indigo-400"
+                : "bg-emerald-500/10 text-emerald-400"
+            )}>
+              {customer.paymentType ?? 'CASH'}
+            </Badge>
+            {customer.isBillingExempt && (
+              <Badge className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border-none whitespace-nowrap bg-amber-500/10 text-amber-500">
+                Free
+              </Badge>
+            )}
           </div>
           <p className="text-muted-foreground flex items-center gap-2 mt-1">
             <Phone className="h-3 w-3" /> {customer.phoneNumber}
@@ -837,6 +853,24 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                       <div className="space-y-1">
                         <dt className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Primary Address</dt>
                         <dd className="text-sm font-bold">{customer.address}</dd>
+                      </div>
+                      <div className="space-y-1">
+                        <dt className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Customer Type</dt>
+                        <dd className="flex items-center gap-2">
+                          <Badge className={cn(
+                            "text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border-none whitespace-nowrap",
+                            customer.paymentType === 'MONTHLY'
+                              ? "bg-indigo-500/10 text-indigo-400"
+                              : "bg-emerald-500/10 text-emerald-400"
+                          )}>
+                            {customer.paymentType ?? 'CASH'}
+                          </Badge>
+                          {customer.isBillingExempt && (
+                            <Badge className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border-none whitespace-nowrap bg-amber-500/10 text-amber-500">
+                              Free
+                            </Badge>
+                          )}
+                        </dd>
                       </div>
                     </dl>
                   </CardContent>

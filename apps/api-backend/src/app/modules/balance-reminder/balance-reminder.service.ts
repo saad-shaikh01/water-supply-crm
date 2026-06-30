@@ -434,7 +434,10 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
 
       const transactions = await this.prisma.transaction.findMany({
         where: { customerId, vendorId, createdAt: { gte: startDate, lt: endDate } },
-        include: { product: { select: { name: true } } },
+        include: {
+          product: { select: { name: true } },
+          dailySheetItem: { select: { bottleBalanceAfter: true } },
+        },
         orderBy: { createdAt: 'asc' },
       });
 
@@ -449,13 +452,18 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       const openingBalance = closingBalance - periodActivity;
       const period = new Date(year, mon - 1, 1).toLocaleString('en-PK', { month: 'long', year: 'numeric' });
 
-      const pdfBuffer = await this.statementPdf.generate({ customer, transactions, openingBalance, closingBalance, period });
-      const { key } = await this.storage.upload('statement-reminders', pdfBuffer, `statement-${customerId}-${month}.pdf`, 'application/pdf');
+      const pdfBuffer = await this.statementPdf.generate({ customer, transactions, openingBalance, closingBalance, period, month });
+      const filename = `${this.sanitizeForFilename(customer.customerCode)}-${this.sanitizeForFilename(customer.name)}-${this.sanitizeForFilename(period)}.pdf`;
+      const { key } = await this.storage.upload('statement-reminders', pdfBuffer, filename, 'application/pdf');
       return await this.storage.getSignedUrl(key, STATEMENT_URL_TTL_SECONDS);
     } catch (err) {
       this.logger.warn(`Statement generation failed for customer ${customerId} (${month}): ${err}`);
       return null;
     }
+  }
+
+  private sanitizeForFilename(value: string | undefined | null): string {
+    return (value ?? '').trim().replace(/[^a-zA-Z0-9-]+/g, '_').replace(/^_+|_+$/g, '') || 'unknown';
   }
 
   private currentMonth(): string {

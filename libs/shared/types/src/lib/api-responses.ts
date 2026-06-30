@@ -58,6 +58,7 @@ export interface CustomerDetail {
   googleMapsUrl: string | null;
   financialBalance: number;
   paymentType: PaymentTypeValue;
+  isBillingExempt: boolean;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;

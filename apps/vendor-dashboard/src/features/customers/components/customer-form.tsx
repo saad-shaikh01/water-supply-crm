@@ -12,7 +12,7 @@ import {
 } from '@water-supply-crm/ui';
 import { customerSchema, type CustomerInput } from '../schemas';
 import { useCreateCustomer, useUpdateCustomer } from '../hooks/use-customers';
-import { useRoutes, useCreateRoute } from '../../routes/hooks/use-routes';
+import { useAllRoutes, useCreateRoute } from '../../routes/hooks/use-routes';
 import { useAllVans } from '../../vans/hooks/use-vans';
 import { productsApi } from '../../products/api/products.api';
 import { cn } from '@water-supply-crm/ui';
@@ -67,7 +67,7 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
   const { mutate: create, isPending: isCreating } = useCreateCustomer();
   const { mutate: update, isPending: isUpdating } = useUpdateCustomer();
   const { mutateAsync: createRoute, isPending: isCreatingRoute } = useCreateRoute();
-  const { data: routesResponse } = useRoutes();
+  const { data: routesResponse } = useAllRoutes();
 
   const [showNewRoute, setShowNewRoute] = useState(false);
   const [newRouteName, setNewRouteName] = useState('');
@@ -199,6 +199,22 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
     }
   };
 
+  const findFirstErrorMessage = (node: unknown): string | undefined => {
+    if (!node || typeof node !== 'object') return undefined;
+    if ('message' in node && typeof (node as { message?: unknown }).message === 'string') {
+      return (node as { message: string }).message;
+    }
+    for (const value of Object.values(node as Record<string, unknown>)) {
+      const found = findFirstErrorMessage(value);
+      if (found) return found;
+    }
+    return undefined;
+  };
+
+  const onInvalid = (formErrors: typeof errors) => {
+    toast.error(findFirstErrorMessage(formErrors) ?? 'Please fix the highlighted fields before submitting');
+  };
+
   const isDayActive = (day: number) => deliverySchedule.some((s) => s.dayOfWeek === day);
 
   const toggleDay = (day: number) => {
@@ -246,7 +262,7 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
           </SheetDescription>
         </SheetHeader>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 py-6 px-1">
+        <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="space-y-6 py-6 px-1">
 
           {/* ── Basic Info ─────────────────────────────── */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

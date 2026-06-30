@@ -34,6 +34,24 @@ export const useRoutes = () => {
   };
 };
 
+export const useAllRoutes = () => {
+  return useQuery({
+    queryKey: ['routes', 'all'],
+    queryFn: async () => {
+      const first = await routesApi.getAll({ limit: 100, page: 1 }).then((r) => r.data);
+      const totalPages: number = (first as any).totalPages ?? 1;
+      if (totalPages <= 1) return first;
+      const rest = await Promise.all(
+        Array.from({ length: totalPages - 1 }, (_, i) =>
+          routesApi.getAll({ limit: 100, page: i + 2 }).then((r) => (r.data as any).data)
+        )
+      );
+      return { ...(first as any), data: [...(first as any).data, ...rest.flat()] };
+    },
+    staleTime: 15 * 60 * 1000,
+  });
+};
+
 export const useCreateRoute = () => {
   const queryClient = useQueryClient();
   return useMutation({

@@ -57,7 +57,7 @@ export class NotificationProcessor extends WorkerHost {
       case JOB_NAMES.SEND_WHATSAPP_PDF: {
         const { phoneNumber, receiptData, entityType, entityId } = job.data;
         const pdfBuffer = await this.pdfService.generate(receiptData as any);
-        const filename = `delivery-receipt-${receiptData['deliveryDate']}.pdf`;
+        const filename = `${this.sanitizeForFilename(receiptData['customerCode'] as string)}-${this.sanitizeForFilename(receiptData['customerName'] as string)}-${receiptData['deliveryDate']}.pdf`;
         const caption = `Assalam o Alaikum ${receiptData['customerName']}! ✅\n\nAapki delivery receipt attached hai. Shukriya!`;
         const sent = await this.whatsapp.sendDocument(phoneNumber, pdfBuffer, filename, caption);
         if (sent) {
@@ -85,6 +85,10 @@ export class NotificationProcessor extends WorkerHost {
         this.logger.warn(`Unknown notification job: ${job.name}`);
         return null;
     }
+  }
+
+  private sanitizeForFilename(value: string | undefined | null): string {
+    return (value ?? '').trim().replace(/[^a-zA-Z0-9-]+/g, '_').replace(/^_+|_+$/g, '') || 'unknown';
   }
 
   private async writeLog(

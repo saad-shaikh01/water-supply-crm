@@ -541,7 +541,10 @@ export class CustomerService {
         vendorId,
         createdAt: { gte: startDate, lt: endDate },
       },
-      include: { product: { select: { name: true } } },
+      include: {
+        product: { select: { name: true } },
+        dailySheetItem: { select: { bottleBalanceAfter: true } },
+      },
       orderBy: { createdAt: 'asc' },
     });
 
@@ -569,6 +572,7 @@ export class CustomerService {
       openingBalance,
       closingBalance,
       period,
+      month: targetMonth,
     };
   }
 

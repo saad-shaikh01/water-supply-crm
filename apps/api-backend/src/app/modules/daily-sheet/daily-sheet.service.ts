@@ -86,7 +86,7 @@ export class DailySheetService {
     const item = await this.prisma.dailySheetItem.findUnique({
       where: { id: itemId },
       include: {
-        customer: { select: { name: true, phoneNumber: true, isBillingExempt: true, customPrices: { select: { productId: true, customPrice: true } } } },
+        customer: { select: { name: true, customerCode: true, phoneNumber: true, isBillingExempt: true, customPrices: { select: { productId: true, customPrice: true } } } },
         product: { select: { name: true, basePrice: true } },
         dailySheet: { select: { vendorId: true, date: true, vendor: { select: { name: true } } } },
       },
@@ -240,6 +240,7 @@ export class DailySheetService {
           const now = new Date();
           const receiptData = {
             customerName: item.customer.name,
+            customerCode: item.customer.customerCode,
             productName: item.product.name,
             filledDropped: dto.filledDropped,
             emptyReceived: dto.emptyReceived ?? 0,
