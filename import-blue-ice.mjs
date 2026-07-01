@@ -25,7 +25,7 @@ const DRY = process.argv.includes('--dry');
 const VENDOR_NAME = 'BLUE ICE';
 const VENDOR_SLUG = 'blue-ice';
 const PRODUCT_NAME = '19 Ltr Bottle';
-const PRODUCT_BASE_PRICE = 140;
+const PRODUCT_BASE_PRICE = 240;
 const BCRYPT_ROUNDS = 10;
 const BATCH = 1000;
 
