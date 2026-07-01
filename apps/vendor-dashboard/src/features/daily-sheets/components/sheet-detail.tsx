@@ -1,7 +1,7 @@
 'use client';
 
 import { useReducer, useMemo, useEffect, useRef, useState } from 'react';
-import { Button, Card, CardContent, Skeleton } from '@water-supply-crm/ui';
+import { Button, Card, CardContent, Input, Skeleton } from '@water-supply-crm/ui';
 import { useDailySheet, useUpdateCustomerLocation, useUnlockDeliveryEdit, useRequestDeliveryEdit } from '../hooks/use-daily-sheets';
 import { dailySheetsApi } from '../api/daily-sheets.api';
 import { CheckinDialog } from './dialogs/checkin-dialog';
@@ -14,7 +14,7 @@ import { BulkImportDialog } from './dialogs/bulk-import-dialog';
 import { toast } from 'sonner';
 import {
   CheckCircle2, ClipboardList, DollarSign,
-  Droplets, Loader2, Package, Plus, Receipt, Truck, Upload, User,
+  Droplets, Loader2, Package, Plus, Receipt, Search, Truck, Upload, User, X,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@water-supply-crm/ui';
@@ -25,7 +25,7 @@ import { SheetDetailHeader } from './sheet-detail-header';
 import { LoadTripsSection } from './load-trips-section';
 import { DeliveryItemsList } from './delivery-items-list';
 import { SheetExpensesSection } from './sheet-expenses-section';
-import { sortBySequence, sortByNearest } from '../utils/sort-items';
+import { sortBySequence, sortByNearest, sortByCustomerCode } from '../utils/sort-items';
 import { useDriverLocation } from '../hooks/use-driver-location';
 import { useLocationPublisher } from '../hooks/use-location-publisher';
 
@@ -102,7 +102,7 @@ interface SheetDetailProps {
 }
 
 type TabKey = 'all' | 'pending' | 'completed' | 'issues';
-type SortMode = 'sequence' | 'nearest';
+type SortMode = 'sequence' | 'nearest' | 'customerCode';
 
 const ITEMS_PER_PAGE = 20;
 
@@ -128,6 +128,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const requestDeliveryEdit = useRequestDeliveryEdit(sheetId);
   const [ui, dispatch] = useReducer(uiReducer, initialUiState);
   const [sortMode, setSortMode] = useState<SortMode>('sequence');
+  const [searchQuery, setSearchQuery] = useState('');
   const { location: driverLocation, requestLocation } = useDriverLocation();
 
   // Continuously publish driver GPS to the tracking backend while the sheet is open.
@@ -161,10 +162,25 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
     if (sortMode === 'nearest' && driverLocation.status === 'success') {
       return sortByNearest(items, driverLocation.lat, driverLocation.lng);
     }
+    if (sortMode === 'customerCode') {
+      return sortByCustomerCode(items);
+    }
     return sortBySequence(items);
   }, [items, sortMode, driverLocation]);
 
-  const filteredItems = useMemo(() => sortedItems.filter((i) => tabFilter(ui.activeTab, i)), [sortedItems, ui.activeTab]);
+  const searchFilteredItems = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return sortedItems;
+    return sortedItems.filter((i) =>
+      i.customer?.name?.toLowerCase().includes(query) ||
+      i.customer?.customerCode?.toLowerCase().includes(query),
+    );
+  }, [sortedItems, searchQuery]);
+
+  const filteredItems = useMemo(
+    () => searchFilteredItems.filter((i) => tabFilter(ui.activeTab, i)),
+    [searchFilteredItems, ui.activeTab],
+  );
   const totalPages = useMemo(() => Math.max(1, Math.ceil(filteredItems.length / ITEMS_PER_PAGE)), [filteredItems]);
   const paginatedItems = useMemo(
     () => filteredItems.slice((ui.tabPage - 1) * ITEMS_PER_PAGE, ui.tabPage * ITEMS_PER_PAGE),
@@ -207,7 +223,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const suggestedReturned = Math.max(0, loadedFilled - doneItemsForCheckin.reduce((s: number, i: any) => s + (i.filledDropped ?? 0), 0));
   const suggestedEmpty = doneItemsForCheckin.reduce((s: number, i: any) => s + (i.emptyReceived ?? 0), 0);
   const suggestedCash = doneItemsForCheckin.filter((i: any) => i.customer?.paymentType === 'CASH').reduce((s: number, i: any) => s + (i.cashCollected ?? 0), 0);
-  const tabCount = (tab: TabKey) => items.filter((i) => tabFilter(tab, i)).length;
+  const tabCount = (tab: TabKey) => searchFilteredItems.filter((i) => tabFilter(tab, i)).length;
 
   const handleSortModeChange = (mode: SortMode) => {
     setSortMode(mode);
@@ -215,6 +231,11 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
     if (mode === 'nearest' && driverLocation.status === 'idle') {
       requestLocation();
     }
+  };
+
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value);
+    dispatch({ type: 'SET_PAGE', page: 1 });
   };
 
   const handleExportPdf = async () => {
@@ -419,14 +440,33 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         </div>
       )}
 
-      {/* Sort Controls */}
+      {/* Search + Sort Controls */}
       <div className="space-y-2">
+        <div className="relative group max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+          <Input
+            value={searchQuery}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            placeholder="Search customer name or code..."
+            className="pl-9 pr-9 w-full rounded-xl bg-background/50 border-border/50 focus:ring-primary/20 transition-all"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => handleSearchChange('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded-md hover:bg-muted text-muted-foreground"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Sort</span>
           <div className="flex rounded-xl border border-border/50 overflow-hidden divide-x divide-border/50">
             {([
               { mode: 'sequence' as SortMode, label: 'Sheet Order' },
               { mode: 'nearest' as SortMode, label: 'Nearest First' },
+              { mode: 'customerCode' as SortMode, label: 'Customer Code' },
             ] as const).map(({ mode, label }) => (
               <button
                 key={mode}

@@ -15,6 +15,33 @@ export function sortBySequence(items: DeliveryItem[]): DeliveryItem[] {
   return [...items].sort((a, b) => a.sequence - b.sequence);
 }
 
+// Customer codes are generated as "L" + an un-padded number (L1, L2, ... L23),
+// so a plain string sort would put "L10" before "L2". Numeric codes are sorted
+// numerically; anything not matching that pattern falls back to string sort at the end.
+export function sortByCustomerCode(items: DeliveryItem[]): DeliveryItem[] {
+  const codeNum = (code: string | undefined): number | null => {
+    if (!code) return null;
+    const match = /^L(\d+)$/i.exec(code);
+    return match ? parseInt(match[1], 10) : null;
+  };
+
+  const numbered: DeliveryItem[] = [];
+  const other: DeliveryItem[] = [];
+
+  for (const item of items) {
+    if (codeNum(item.customer?.customerCode) != null) {
+      numbered.push(item);
+    } else {
+      other.push(item);
+    }
+  }
+
+  numbered.sort((a, b) => codeNum(a.customer?.customerCode)! - codeNum(b.customer?.customerCode)!);
+  other.sort((a, b) => (a.customer?.customerCode ?? '').localeCompare(b.customer?.customerCode ?? ''));
+
+  return [...numbered, ...other];
+}
+
 export function sortByNearest(
   items: DeliveryItem[],
   driverLat: number,
