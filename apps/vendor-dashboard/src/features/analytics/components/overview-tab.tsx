@@ -107,6 +107,16 @@ export function OverviewTab({ from, to, onNavigate }: { from: string; to: string
   const outstandingBalance = f?.outstandingBalance ?? 0;
   const topCustomers = (c?.topByRevenue ?? []).slice(0, 5);
 
+  const { CASH: cashCustomerCount = 0, MONTHLY: monthlyCustomerCount = 0 } = c?.paymentTypeBreakdown ?? {};
+  const cashByPaymentType = f?.cashByPaymentType ?? {
+    CASH: { expected: 0, collected: 0 },
+    MONTHLY: { expected: 0, collected: 0 },
+  };
+  const collectionsByType = [
+    { label: 'Cash', Expected: cashByPaymentType.CASH.expected, Collected: cashByPaymentType.CASH.collected },
+    { label: 'Monthly', Expected: cashByPaymentType.MONTHLY.expected, Collected: cashByPaymentType.MONTHLY.collected },
+  ];
+
   const staffLeaderboard = (s?.staff ?? []).slice(0, 5);
 
   const profitByDay = (f?.profit?.byDay ?? []).map((p: any) => ({
@@ -200,6 +210,38 @@ export function OverviewTab({ from, to, onNavigate }: { from: string; to: string
               </BarChart>
             </ResponsiveContainer>
           )}
+        </SectionCard>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        {/* Customer payment mix */}
+        <SectionCard title="Customer Payment Mix" onViewAll={() => onNavigate('customers')}>
+          <div className="flex items-center justify-center gap-12 py-6">
+            <div className="text-center">
+              <p className="text-3xl font-bold text-blue-500">{cashCustomerCount}</p>
+              <p className="text-xs text-muted-foreground mt-1 uppercase tracking-widest font-bold">Cash Customers</p>
+            </div>
+            <div className="h-16 w-px bg-border" />
+            <div className="text-center">
+              <p className="text-3xl font-bold text-emerald-500">{monthlyCustomerCount}</p>
+              <p className="text-xs text-muted-foreground mt-1 uppercase tracking-widest font-bold">Monthly Customers</p>
+            </div>
+          </div>
+        </SectionCard>
+
+        {/* Cash collected vs expected by payment type */}
+        <SectionCard title="Collections by Payment Type" onViewAll={() => onNavigate('financial')}>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={collectionsByType} layout="vertical" margin={{ left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} horizontal={false} />
+              <XAxis type="number" stroke="#888" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `₨${(v / 1000).toFixed(0)}k`} />
+              <YAxis type="category" dataKey="label" stroke="#888" fontSize={11} tickLine={false} axisLine={false} width={70} />
+              <Tooltip contentStyle={tooltipStyle} formatter={(v: any) => fmt(v)} />
+              <Legend />
+              <Bar dataKey="Expected" fill="#94a3b8" radius={[0, 4, 4, 0]} barSize={16} />
+              <Bar dataKey="Collected" fill="#10b981" radius={[0, 4, 4, 0]} barSize={16} />
+            </BarChart>
+          </ResponsiveContainer>
         </SectionCard>
       </div>
 

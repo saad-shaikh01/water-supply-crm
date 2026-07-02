@@ -532,6 +532,9 @@ export class CustomerService {
 
     const customer = await this.prisma.customer.findFirst({
       where: { id: customerId, vendorId },
+      include: {
+        customPrices: { select: { productId: true, customPrice: true } },
+      },
     });
     if (!customer) throw new NotFoundException('Customer not found');
 
@@ -542,11 +545,19 @@ export class CustomerService {
         createdAt: { gte: startDate, lt: endDate },
       },
       include: {
-        product: { select: { name: true } },
+        product: { select: { name: true, basePrice: true } },
         dailySheetItem: { select: { bottleBalanceAfter: true } },
       },
       orderBy: { createdAt: 'asc' },
     });
+
+    // Actual rate for this customer: their custom price if one is set for the
+    // product they're delivered, otherwise the product's base price — not an
+    // average derived from amounts charged (which can be skewed by adjustments).
+    const lastDelivery = [...transactions].reverse().find((t) => t.type === 'DELIVERY' && t.productId && t.product);
+    const ratePerBottle = lastDelivery
+      ? this.resolveCustomerPrice(customer, lastDelivery.productId as string, lastDelivery.product!.basePrice)
+      : 0;
 
     const periodActivity = transactions.reduce((sum, t) => sum + (t.amount ?? 0), 0);
 
@@ -573,6 +584,7 @@ export class CustomerService {
       closingBalance,
       period,
       month: targetMonth,
+      ratePerBottle,
     };
   }
 

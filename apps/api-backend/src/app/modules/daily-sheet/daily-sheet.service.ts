@@ -38,6 +38,7 @@ import { UnlockEditDto } from './dto/unlock-edit.dto';
 import { CreateDeliveryNoteDto } from './dto/create-delivery-note.dto';
 import { StorageService } from '../../common/storage/storage.service';
 import { WarehouseService } from '../warehouse/warehouse.service';
+import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.service';
 
 const AUTO_GENERATE_CRON = '5 19 * * *'; // 00:05 AM PKT (UTC+5), shortly after the PKT date rolls over
 const AUTO_GENERATE_JOB_ID = 'daily-sheet-auto-generation';
@@ -57,6 +58,7 @@ export class DailySheetService implements OnModuleInit {
     private inAppNotifications: InAppNotificationService,
     private storage: StorageService,
     private warehouse: WarehouseService,
+    private deliveryReceiptPdf: DeliveryReceiptPdfService,
     @InjectQueue(QUEUE_NAMES.DAILY_SHEET_GENERATION)
     private sheetQueue: Queue,
   ) {}
@@ -1662,5 +1664,37 @@ export class DailySheetService implements OnModuleInit {
     }
     const signedUrl = await this.storage.getSignedUrl(item.photoKey, 900);
     return { signedUrl };
+  }
+
+  async getDeliveryReceiptPdf(vendorId: string, itemId: string): Promise<Buffer> {
+    const item = await this.prisma.dailySheetItem.findUnique({
+      where: { id: itemId },
+      include: {
+        customer: { select: { name: true } },
+        product: { select: { name: true } },
+        dailySheet: { select: { date: true, vendorId: true, vendor: { select: { name: true } } } },
+      },
+    });
+    if (!item || item.dailySheet.vendorId !== vendorId) {
+      throw new NotFoundException('Delivery item not found');
+    }
+    if (item.status !== DeliveryStatus.COMPLETED) {
+      throw new BadRequestException('Receipt is only available for completed deliveries');
+    }
+
+    const deliveredAt = item.deliveredAt ?? item.dailySheet.date;
+    return this.deliveryReceiptPdf.generate({
+      customerName: item.customer.name,
+      productName: item.product.name,
+      filledDropped: item.filledDropped,
+      emptyReceived: item.emptyReceived,
+      cashCollected: item.cashCollected,
+      pricePerBottle: item.pricePerBottle,
+      financialBalanceAfter: item.financialBalanceAfter ?? 0,
+      bottleBalanceAfter: item.bottleBalanceAfter ?? 0,
+      deliveryDate: item.dailySheet.date.toISOString().slice(0, 10),
+      deliveryTime: deliveredAt.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
+      vendorName: item.dailySheet.vendor?.name ?? 'Water Supply',
+    });
   }
 }

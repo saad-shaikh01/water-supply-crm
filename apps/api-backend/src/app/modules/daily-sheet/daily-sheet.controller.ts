@@ -205,6 +205,26 @@ export class DailySheetController {
     return this.dailySheetService.getDeliveryPhotoUrl(user.vendorId, id);
   }
 
+  /**
+   * GET /api/daily-sheets/items/:id/receipt
+   * Downloads a single delivery's receipt/invoice PDF.
+   * Roles: VENDOR_ADMIN, STAFF, DRIVER
+   */
+  @Get('items/:id/receipt')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  async downloadDeliveryReceipt(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const pdfBuffer = await this.dailySheetService.getDeliveryReceiptPdf(user.vendorId, id);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="receipt-${id}.pdf"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.end(pdfBuffer);
+  }
+
   @Patch('items/:id/unlock-edit')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
   @Throttle({ short: { ttl: 1000, limit: 10 }, medium: { ttl: 60000, limit: 30 } })

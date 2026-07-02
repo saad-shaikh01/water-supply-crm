@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import PDFDocument = require('pdfkit');
+import { drawShadowShape, brandGradient, drawClippedWatermark } from '../../../common/pdf/pdf-theme.util';
 
 // ── Company identity (hardcoded — single vendor for now) ────────────────────
 const COMPANY_NAME    = 'DASANI ENTERPRISES';
@@ -15,9 +16,10 @@ const BANK_NAME       = 'Meezan Bank';
 const BANK_ACCOUNT_NO = '9933-0104414597';
 const EASYPAISA_NO    = '03162677954';
 
-// Blue Ice brand logo — copied from apps/vendor-dashboard/public/logo.png,
+// Blue Ice brand assets — copied from apps/vendor-dashboard/public,
 // bundled to dist alongside main.js via webpack `assets` config
 const LOGO_PATH = path.join(__dirname, 'assets', 'blue-ice-logo.png');
+const ICON_PATH = path.join(__dirname, 'assets', 'blue-ice-icon.png');
 
 // ── Palette ────────────────────────────────────────────────────────────────
 const C = {
@@ -63,6 +65,7 @@ const PAGE_H    = 841.89;
 const CONTENT_W = PAGE_W - MARGIN * 2; // 515.28
 const ROW_H     = 22;
 const RADIUS    = 10;
+const BANNER_H  = 76;
 const FOOTER_H  = 22;
 const FOOTER_Y  = PAGE_H - FOOTER_H;
 
@@ -121,6 +124,8 @@ export class CustomerStatementPdfService {
     closingBalance: number;
     period: string;
     month?: string;
+    /** Customer's actual assigned rate (custom price if set, else product base price). */
+    ratePerBottle?: number;
   }): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({
@@ -149,11 +154,11 @@ export class CustomerStatementPdfService {
   // ── Document flow ──────────────────────────────────────────────────────────
   private drawContent(doc: PDFKit.PDFDocument, data: any): void {
     const { customer, transactions, openingBalance, closingBalance, period, month } = data;
-    const { deliveryRows, otherRows, ratePerBottle } = this.buildRows(transactions, openingBalance);
+    const { deliveryRows, otherRows, ratePerBottle: computedRatePerBottle } = this.buildRows(transactions, openingBalance);
+    const ratePerBottle = data.ratePerBottle ?? computedRatePerBottle;
 
-    this.drawBrandHeader(doc);
-    this.drawStatementTitle(doc);
-    doc.y += 14;
+    this.drawBrandBanner(doc);
+    doc.y += 18;
     this.drawInfoCards(doc, customer, period, month, closingBalance, ratePerBottle);
 
     doc.y += 18;
@@ -170,8 +175,6 @@ export class CustomerStatementPdfService {
       this.drawOtherCard(doc, otherRows);
     }
 
-    doc.y += 16;
-    this.drawClosingBalanceBar(doc, closingBalance);
     doc.y += 18;
     this.drawThankYouFooter(doc);
   }
@@ -239,50 +242,45 @@ export class CustomerStatementPdfService {
 
   // ── Soft-shadow rounded card background ─────────────────────────────────────
   private shadowCard(doc: PDFKit.PDFDocument, x: number, y: number, w: number, h: number): void {
-    doc.fillOpacity(0.10);
-    doc.roundedRect(x + 2, y + 3, w, h, RADIUS).fill(C.navy);
-    doc.fillOpacity(1);
-    doc.roundedRect(x, y, w, h, RADIUS).fill(C.white);
-    doc.roundedRect(x, y, w, h, RADIUS).lineWidth(0.75).strokeColor(C.border).stroke();
+    drawShadowShape(doc, x, y, w, h, RADIUS, C.white, { shadowColor: C.navy, borderColor: C.border });
   }
 
-  // ── Brand header: company identity (left) + Blue Ice logo (right) ──────────
-  private drawBrandHeader(doc: PDFKit.PDFDocument): void {
+  // ── Brand banner: gradient card with logo box (left) + company identity (right) ─
+  private drawBrandBanner(doc: PDFKit.PDFDocument): void {
     const y = MARGIN;
+    const h = BANNER_H;
 
-    doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(19)
-      .text(COMPANY_NAME, MARGIN, y, { lineBreak: false });
-    const nameBottom = y + 19 * 1.15;
-    doc.fillColor(C.muted).font('Helvetica').fontSize(8.5)
-      .text(COMPANY_ADDRESS, MARGIN, nameBottom + 4, { lineBreak: false });
-    const addressBottom = nameBottom + 4 + 8.5 * 1.15;
-    doc.fillColor(C.muted).font('Helvetica').fontSize(8.5)
-      .text(COMPANY_PHONES, MARGIN, addressBottom + 2, { lineBreak: false });
-    const leftBottom = addressBottom + 2 + 8.5 * 1.15;
+    drawShadowShape(doc, MARGIN, y, CONTENT_W, h, RADIUS, brandGradient(doc, MARGIN, y, CONTENT_W, h), {
+      shadowColor: C.navy,
+      shadowOpacity: 0.13,
+    });
 
-    let logoBottom = y;
+    // White logo chip
+    const chipW = 118;
+    const chipH = 48;
+    const chipX = MARGIN + 14;
+    const chipY = y + (h - chipH) / 2;
+    doc.roundedRect(chipX, chipY, chipW, chipH, 8).fill(C.white);
     try {
       if (fs.existsSync(LOGO_PATH)) {
-        const logoW = 130;
-        doc.image(LOGO_PATH, MARGIN + CONTENT_W - logoW, y - 4, { width: logoW });
-        logoBottom = y - 4 + logoW * 0.27;
+        doc.image(LOGO_PATH, chipX + 8, chipY + 10, { width: chipW - 16 });
       }
     } catch {
-      // logo missing/unreadable — header still reads fine with just text
+      // logo missing/unreadable — chip still reads fine as a blank white box
     }
 
-    doc.y = Math.max(leftBottom, logoBottom);
+    // Company identity — right-aligned
+    doc.fillColor(C.white).font('Helvetica-Bold').fontSize(15)
+      .text(COMPANY_NAME, MARGIN, y + 16, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
+    doc.fillColor('#ffffff', 0.82).font('Helvetica').fontSize(8)
+      .text(COMPANY_ADDRESS, MARGIN, y + 35, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
+    doc.fillColor('#ffffff', 0.82).font('Helvetica').fontSize(8)
+      .text(COMPANY_PHONES, MARGIN, y + 47, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
+
+    doc.y = y + h + 3;
   }
 
-  private drawStatementTitle(doc: PDFKit.PDFDocument): void {
-    const y = doc.y + 14;
-    doc.roundedRect(MARGIN, y, 4, 22, 2).fill(C.accent);
-    doc.fillColor(C.navy).font('Helvetica-Bold').fontSize(19)
-      .text('STATEMENT', MARGIN + 12, y + 2, { lineBreak: false });
-    doc.y = y + 22;
-  }
-
-  // ── Customer card + period/billing card ─────────────────────────────────────
+  // ── Single info card: customer | period/billing details | due-amount chip ──
   private drawInfoCards(
     doc: PDFKit.PDFDocument,
     customer: any,
@@ -291,31 +289,30 @@ export class CustomerStatementPdfService {
     closingBalance: number,
     ratePerBottle: number,
   ): void {
-    const y      = doc.y;
-    const boxH   = 100;
-    const gap    = 14;
-    const rightW = 190;
-    const leftW  = CONTENT_W - rightW - gap;
+    const y     = doc.y;
+    const boxH  = 92;
+    const col1W = 185;
+    const col3W = 145;
+    const col2W = CONTENT_W - col1W - col3W;
+    const x1 = MARGIN;
+    const x2 = MARGIN + col1W;
+    const x3 = MARGIN + col1W + col2W;
 
-    // LEFT — customer card
-    this.shadowCard(doc, MARGIN, y, leftW, boxH);
-    doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(13)
-      .text(customer.name ?? '—', MARGIN + 14, y + 22, { width: leftW - 28, align: 'center' });
-    doc.fillColor(C.muted).font('Helvetica').fontSize(8.5)
-      .text(customer.address ?? '—', MARGIN + 14, y + 46, { width: leftW - 28, align: 'center' });
-    doc.fillColor(C.muted).font('Helvetica').fontSize(8.5)
-      .text(customer.phoneNumber ?? '—', MARGIN + 14, y + 70, { width: leftW - 28, align: 'center' });
+    this.shadowCard(doc, MARGIN, y, CONTENT_W, boxH);
+    doc.moveTo(x2, y + 12).lineTo(x2, y + boxH - 12).strokeColor(C.border).lineWidth(0.75).stroke();
+    doc.moveTo(x3, y + 12).lineTo(x3, y + boxH - 12).strokeColor(C.border).lineWidth(0.75).stroke();
 
-    // RIGHT — period / billing card
-    const rx = MARGIN + leftW + gap;
-    this.shadowCard(doc, rx, y, rightW, boxH);
+    // COL 1 — customer identity (bounded + ellipsis so long names/addresses never
+    // overflow into the divider or the phone line below)
+    const col1TextW = col1W - 24;
+    doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(11.5)
+      .text(customer.name ?? '—', x1 + 14, y + 14, { width: col1TextW, height: 27, ellipsis: true });
+    doc.fillColor(C.muted).font('Helvetica').fontSize(8)
+      .text(customer.address ?? '—', x1 + 14, y + 45, { width: col1TextW, height: 19, ellipsis: true });
+    doc.fillColor(C.muted).font('Helvetica').fontSize(8)
+      .text(customer.phoneNumber ?? '—', x1 + 14, y + 68, { width: col1TextW, height: 10, ellipsis: true });
 
-    const shortPeriod = month ? this.shortMonthLabel(month) : period;
-    doc.roundedRect(rx, y, rightW, 24, RADIUS).fill(C.navy);
-    doc.rect(rx, y + 12, rightW, 12).fill(C.navy); // square off the bottom of the header band
-    doc.fillColor(C.white).font('Helvetica-Bold').fontSize(12)
-      .text(shortPeriod, rx, y + 6, { width: rightW, align: 'center', lineBreak: false });
-
+    // COL 2 — period + billing details
     const fromTo = month ? this.monthBounds(month) : null;
     const rows: [string, string][] = [
       ['From',         fromTo?.from ?? '—'],
@@ -323,17 +320,30 @@ export class CustomerStatementPdfService {
       ['Cust Code',    customer.customerCode ?? '—'],
       ['Pay Mode',     customer.paymentType === 'MONTHLY' ? 'Monthly' : 'Cash'],
       ['Rate Per Btl', ratePerBottle > 0 ? `Rs. ${ratePerBottle.toFixed(0)}` : '—'],
-      ['Bill Amount',  `Rs. ${this.absFmt(closingBalance)}`],
     ];
-
-    const rowH = (boxH - 24) / rows.length;
+    const rowH = (boxH - 16) / rows.length;
     rows.forEach(([lbl, val], i) => {
-      const ry = y + 24 + i * rowH;
+      const ry = y + 8 + i * rowH;
       doc.fillColor(C.muted).font('Helvetica').fontSize(7.5)
-        .text(lbl, rx + 10, ry + rowH / 2 - 4, { width: rightW * 0.5, lineBreak: false });
+        .text(lbl, x2 + 12, ry + rowH / 2 - 4, { width: col2W * 0.48, lineBreak: false });
       doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(8.5)
-        .text(val, rx, ry + rowH / 2 - 4, { width: rightW - 10, align: 'right', lineBreak: false });
+        .text(val, x2, ry + rowH / 2 - 4, { width: col2W - 14, align: 'right', lineBreak: false });
     });
+
+    // COL 3 — bold due-amount chip
+    const chipPad = 8;
+    const chipX = x3 + chipPad;
+    const chipY = y + chipPad;
+    const chipW = col3W - chipPad * 2;
+    const chipH = boxH - chipPad * 2;
+    const shortPeriod = month ? this.shortMonthLabel(month) : period;
+    doc.roundedRect(chipX, chipY, chipW, chipH, 8).fill(C.navy);
+    doc.fillColor('#ffffff', 0.75).font('Helvetica-Bold').fontSize(7)
+      .text(shortPeriod.toUpperCase(), chipX, chipY + 10, { width: chipW, align: 'center', lineBreak: false });
+    doc.fillColor('#ffffff', 0.75).font('Helvetica').fontSize(7)
+      .text('BILL AMOUNT', chipX, chipY + 22, { width: chipW, align: 'center', lineBreak: false });
+    doc.fillColor(C.white).font('Helvetica-Bold').fontSize(16)
+      .text(`Rs. ${this.absFmt(closingBalance)}`, chipX, chipY + chipH / 2 + 2, { width: chipW, align: 'center', lineBreak: false });
 
     doc.y = y + boxH;
   }
@@ -350,6 +360,7 @@ export class CustomerStatementPdfService {
       ROW_H,
       (x, y, w) => this.drawDeliveryTableHeader(doc, x, y, w),
       (line, x, y) => this.drawDeliveryLine(doc, line, x, y),
+      { watermark: true },
     );
 
     if (!rows.length) {
@@ -380,7 +391,7 @@ export class CustomerStatementPdfService {
         .text(this.rs(line.openingBalance), DCOL.due.x + 3, y + 7, { width: DCOL.due.w - 6, align: 'right', lineBreak: false });
       doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
         .text(this.rs(line.openingBalance), DCOL.amt.x + 3, y + 7, { width: DCOL.amt.w - 10, align: 'right', lineBreak: false });
-      doc.moveTo(x + 10, y + ROW_H).lineTo(x + DCOL.amt.x + DCOL.amt.w - MARGIN + 10, y + ROW_H)
+      doc.moveTo(x + 10, y + ROW_H).lineTo(x + CONTENT_W - 10, y + ROW_H)
         .strokeColor(C.border).lineWidth(0.5).stroke();
       return;
     }
@@ -422,7 +433,7 @@ export class CustomerStatementPdfService {
     const totalEmpty   = rows.reduce((s, r) => s + r.emptyPickup, 0);
     const finalBalance = rows.length ? rows[rows.length - 1].runningBalance : openingBalance;
 
-    doc.moveTo(x + 10, y).lineTo(x + DCOL.amt.x + DCOL.amt.w - MARGIN + 10, y).strokeColor(C.navyText).lineWidth(1).stroke();
+    doc.moveTo(x + 10, y).lineTo(x + CONTENT_W - 10, y).strokeColor(C.navyText).lineWidth(1).stroke();
     const ty = y + 7;
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
       .text('TOTAL', DCOL.date.x + 6, ty, { width: DCOL.date.w + DCOL.trans.w - 6, lineBreak: false });
@@ -488,6 +499,7 @@ export class CustomerStatementPdfService {
     headerH: number,
     drawHeader: (x: number, y: number, w: number) => void,
     drawLine: (line: T, x: number, y: number, index: number) => void,
+    opts: { watermark?: boolean } = {},
   ): void {
     let drawn = 0;
     while (drawn < lines.length) {
@@ -498,6 +510,9 @@ export class CustomerStatementPdfService {
       const cardY = doc.y;
 
       this.shadowCard(doc, MARGIN, cardY, CONTENT_W, cardH);
+      if (opts.watermark && drawn === 0) {
+        drawClippedWatermark(doc, ICON_PATH, MARGIN, cardY, CONTENT_W, cardH);
+      }
       drawHeader(MARGIN, cardY + 6, CONTENT_W);
       for (let li = 0; li < linesThisCard; li++) {
         drawLine(lines[drawn + li], MARGIN, cardY + 6 + headerH + li * ROW_H, drawn + li);
@@ -510,19 +525,6 @@ export class CustomerStatementPdfService {
         doc.y = MARGIN;
       }
     }
-  }
-
-  // ── Closing balance summary bar ─────────────────────────────────────────────
-  private drawClosingBalanceBar(doc: PDFKit.PDFDocument, closingBalance: number): void {
-    if (doc.y + 32 > FOOTER_Y - 10) { doc.addPage(); doc.y = MARGIN; }
-    const y = doc.y;
-    const color = closingBalance > 0 ? C.closeRed : C.closeGrn;
-    doc.roundedRect(MARGIN, y, CONTENT_W, 32, RADIUS).fill(C.navy);
-    doc.fillColor(C.white).font('Helvetica-Bold').fontSize(10)
-      .text('CLOSING BALANCE', MARGIN + 16, y + 11, { lineBreak: false });
-    doc.fillColor(color).font('Helvetica-Bold').fontSize(13)
-      .text(`Rs. ${this.absFmt(closingBalance)}`, MARGIN, y + 9, { width: CONTENT_W - 16, align: 'right', lineBreak: false });
-    doc.y = y + 32;
   }
 
   // ── Thank-you / payment footer (appears once at end of document) ───────────

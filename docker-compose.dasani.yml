@@ -1,0 +1,63 @@
+# ─── Data Layer Only — DASANI ENTERPRISES tenant ────────────────────────────────
+# Fully isolated PostgreSQL + Redis for the Dasani production deployment.
+# Runs alongside (not instead of) docker-compose.prod.yml's wscrm-postgres /
+# wscrm-redis, on different loopback ports so both stacks coexist on one VPS.
+#
+# Usage:
+#   docker compose --env-file .env.live -f docker-compose.dasani.yml up -d --wait
+#   docker compose --env-file .env.live -f docker-compose.dasani.yml down
+
+networks:
+  dasani_data:
+    driver: bridge
+
+volumes:
+  dasani_postgres_data:
+  dasani_redis_data:
+
+services:
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────────
+  dasani-postgres:
+    image: postgres:15-alpine
+    container_name: dasani-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - dasani_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    ports:
+      # Loopback-only. Deliberately NOT 5432 — that port is already taken by
+      # wscrm-postgres (testinglinq). Dasani's api-backend connects via 5433.
+      - "127.0.0.1:5433:5432"
+    networks:
+      - dasani_data
+
+  # ── Redis ─────────────────────────────────────────────────────────────────────
+  dasani-redis:
+    image: redis:7-alpine
+    container_name: dasani-redis
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - dasani_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    ports:
+      # Loopback-only. Deliberately NOT 6379 — that port is already taken by
+      # wscrm-redis (testinglinq). Dasani's api-backend connects via 6380.
+      - "127.0.0.1:6380:6379"
+    networks:
+      - dasani_data

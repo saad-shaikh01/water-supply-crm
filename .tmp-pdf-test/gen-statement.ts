@@ -6,9 +6,9 @@ async function main() {
   const svc = new CustomerStatementPdfService();
 
   const customer = {
-    name: 'SentraCore Systems Kashif',
-    address: 'G-44/4-G, Razi Road Block 6 PECHS',
-    phoneNumber: '923162677954',
+    name: 'Muhammad Abdullah Bin Sohail Khan Trading & General Stores',
+    address: 'Shop No. 14-B, Ground Floor, Al-Rehman Plaza, Near Baitussalam Masjid, Gulistan-e-Johar Block 15, Karachi',
+    phoneNumber: '+92 316 2677954 / +92 345 2364698',
     customerCode: 'L3491',
     paymentType: 'CASH',
   };
@@ -43,6 +43,7 @@ async function main() {
     closingBalance,
     period: 'June 2026',
     month: '2026-06',
+    ratePerBottle: 150, // simulates the customer's actual custom/base price, not a transaction average
   });
 
   fs.writeFileSync(__dirname + '/statement-test.pdf', buffer);

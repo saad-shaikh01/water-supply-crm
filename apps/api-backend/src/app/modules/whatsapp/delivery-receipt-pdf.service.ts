@@ -1,5 +1,8 @@
 import { Injectable } from '@nestjs/common';
+import * as fs from 'fs';
+import * as path from 'path';
 import PDFDocument from 'pdfkit';
+import { drawShadowShape, brandGradient, drawWatermark } from '../../common/pdf/pdf-theme.util';
 
 export interface DeliveryReceiptData {
   customerName: string;
@@ -15,96 +18,146 @@ export interface DeliveryReceiptData {
   vendorName: string;
 }
 
+// Blue Ice brand logo — same asset used by the customer statement PDF.
+const LOGO_PATH = path.join(__dirname, 'assets', 'blue-ice-logo.png');
+
+const C = {
+  navy:     '#0f172a',
+  navyText: '#111827',
+  muted:    '#6b7280',
+  mutedLt:  '#9ca3af',
+  border:   '#e5e7eb',
+  surface:  '#f8fafc',
+  text:     '#1e293b',
+  white:    '#ffffff',
+  red:      '#dc2626',
+  green:    '#059669',
+  closeRed: '#fca5a5',
+  closeGrn: '#86efac',
+};
+
+const MARGIN    = 36;
+const PAGE_W    = 419.53; // A5
+const PAGE_H    = 595.28;
+const CONTENT_W = PAGE_W - MARGIN * 2;
+const RADIUS    = 10;
+const BANNER_H  = 70;
+const ROW_H     = 22;
+
+interface DetailRow {
+  label: string;
+  value: string;
+  valueColor?: string;
+  emphasize?: boolean;
+}
+
 @Injectable()
 export class DeliveryReceiptPdfService {
   async generate(data: DeliveryReceiptData): Promise<Buffer> {
     return new Promise((resolve, reject) => {
-      const doc = new PDFDocument({ size: 'A5', margin: 40 });
+      const doc = new PDFDocument({ size: 'A5', margin: MARGIN });
       const chunks: Buffer[] = [];
 
       doc.on('data', (chunk: Buffer) => chunks.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      const W = doc.page.width - 80; // usable width
+      drawWatermark(doc, LOGO_PATH, PAGE_W, PAGE_H);
 
-      // ── Header ──────────────────────────────────────────────────────────
-      doc.fillColor('#1a56db').fontSize(18).font('Helvetica-Bold')
-        .text(data.vendorName, 40, 40, { width: W, align: 'center' });
-
-      doc.fillColor('#374151').fontSize(10).font('Helvetica')
-        .text('Delivery Receipt', 40, doc.y + 4, { width: W, align: 'center' });
-
-      // Divider
-      const y1 = doc.y + 10;
-      doc.moveTo(40, y1).lineTo(40 + W, y1).strokeColor('#1a56db').lineWidth(1.5).stroke();
-
-      // ── Date / Time ──────────────────────────────────────────────────────
-      doc.moveDown(0.6);
-      this.row(doc, 40, W, 'Date', data.deliveryDate);
-      this.row(doc, 40, W, 'Time', data.deliveryTime);
-
-      // ── Customer ──────────────────────────────────────────────────────────
-      doc.moveDown(0.4);
-      this.sectionTitle(doc, 40, W, 'Customer');
-      this.row(doc, 40, W, 'Name', data.customerName);
-
-      // ── Delivery Details ──────────────────────────────────────────────────
-      doc.moveDown(0.4);
-      this.sectionTitle(doc, 40, W, 'Delivery Details');
-      this.row(doc, 40, W, 'Product', data.productName);
-      this.row(doc, 40, W, 'Bottles Delivered', `${data.filledDropped}`);
-      this.row(doc, 40, W, 'Empty Received', `${data.emptyReceived}`);
-      this.row(doc, 40, W, 'Price / Bottle', `Rs. ${data.pricePerBottle.toFixed(2)}`);
+      this.drawBanner(doc, data);
 
       const deliveryAmount = data.filledDropped * data.pricePerBottle;
-      this.row(doc, 40, W, 'Delivery Amount', `Rs. ${deliveryAmount.toFixed(2)}`);
+      const rows: DetailRow[] = [
+        { label: 'Date / Time',       value: `${data.deliveryDate}  ·  ${data.deliveryTime}` },
+        { label: 'Customer',          value: data.customerName },
+        { label: 'Product',           value: data.productName },
+        { label: 'Bottles Delivered', value: `${data.filledDropped}` },
+        { label: 'Empty Received',    value: `${data.emptyReceived}` },
+        { label: 'Price / Bottle',    value: `Rs. ${data.pricePerBottle.toFixed(2)}` },
+        { label: 'Delivery Amount',   value: `Rs. ${deliveryAmount.toFixed(2)}`, emphasize: true },
+        { label: 'Cash Collected',    value: `Rs. ${data.cashCollected.toFixed(2)}` },
+        { label: 'Bottle Balance',    value: `${data.bottleBalanceAfter} bottles` },
+      ];
+      this.drawDetailCard(doc, rows);
 
-      // ── Payment ──────────────────────────────────────────────────────────
-      doc.moveDown(0.4);
-      this.sectionTitle(doc, 40, W, 'Payment');
-      this.row(doc, 40, W, 'Cash Collected', `Rs. ${data.cashCollected.toFixed(2)}`);
+      doc.y += 14;
+      this.drawBalanceBar(doc, data.financialBalanceAfter);
 
-      // Highlight outstanding balance
-      const balanceColor = data.financialBalanceAfter < 0 ? '#dc2626' : '#16a34a';
-      this.row(doc, 40, W, 'Outstanding Balance', `Rs. ${Math.abs(data.financialBalanceAfter).toFixed(2)}`, balanceColor);
-
-      this.row(doc, 40, W, 'Bottle Balance', `${data.bottleBalanceAfter} bottles`);
-
-      // ── Footer ──────────────────────────────────────────────────────────
-      const y2 = doc.y + 16;
-      doc.moveTo(40, y2).lineTo(40 + W, y2).strokeColor('#d1d5db').lineWidth(0.8).stroke();
-
-      doc.fillColor('#6b7280').fontSize(8).font('Helvetica')
+      doc.y += 16;
+      doc.fillColor(C.muted).font('Helvetica').fontSize(7.5)
         .text(
           'Shukriya! Is receipt ke baray mein koi sawaal ho toh apne vendor se rabta karein.',
-          40, y2 + 8,
-          { width: W, align: 'center' },
+          MARGIN, doc.y, { width: CONTENT_W, align: 'center' },
         );
 
       doc.end();
     });
   }
 
-  private sectionTitle(doc: PDFKit.PDFDocument, x: number, w: number, title: string) {
-    doc.fillColor('#1a56db').fontSize(9).font('Helvetica-Bold')
-      .text(title.toUpperCase(), x, doc.y, { width: w });
-    doc.moveDown(0.15);
+  // ── Brand banner: gradient card with logo chip (left) + vendor identity (right) ─
+  private drawBanner(doc: PDFKit.PDFDocument, data: DeliveryReceiptData): void {
+    const y = MARGIN;
+
+    drawShadowShape(doc, MARGIN, y, CONTENT_W, BANNER_H, RADIUS, brandGradient(doc, MARGIN, y, CONTENT_W, BANNER_H), {
+      shadowColor: C.navy,
+      shadowOpacity: 0.13,
+    });
+
+    const chipW = 72;
+    const chipH = 32;
+    const chipX = MARGIN + 12;
+    const chipY = y + (BANNER_H - chipH) / 2;
+    doc.roundedRect(chipX, chipY, chipW, chipH, 7).fill(C.white);
+    try {
+      if (fs.existsSync(LOGO_PATH)) {
+        doc.image(LOGO_PATH, chipX + 5, chipY + 7, { width: chipW - 10 });
+      }
+    } catch {
+      // logo missing/unreadable — chip still reads fine as a blank white box
+    }
+
+    doc.fillColor(C.white).font('Helvetica-Bold').fontSize(13)
+      .text(data.vendorName, MARGIN, y + 20, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
+    doc.fillColor('#ffffff', 0.82).font('Helvetica').fontSize(7.5)
+      .text('Purified Drinking Water', MARGIN, y + 38, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
+
+    doc.y = y + BANNER_H + 3;
   }
 
-  private row(
-    doc: PDFKit.PDFDocument,
-    x: number,
-    w: number,
-    label: string,
-    value: string,
-    valueColor = '#111827',
-  ) {
+  // ── Zebra-striped detail card ────────────────────────────────────────────────
+  private drawDetailCard(doc: PDFKit.PDFDocument, rows: DetailRow[]): void {
     const y = doc.y;
-    doc.fillColor('#6b7280').fontSize(9).font('Helvetica')
-      .text(label, x, y, { width: w / 2 });
-    doc.fillColor(valueColor).fontSize(9).font('Helvetica-Bold')
-      .text(value, x + w / 2, y, { width: w / 2, align: 'right' });
-    doc.moveDown(0.35);
+    const h = rows.length * ROW_H + 8;
+
+    drawShadowShape(doc, MARGIN, y, CONTENT_W, h, RADIUS, C.white, { shadowColor: C.navy, borderColor: C.border });
+
+    rows.forEach((row, i) => {
+      const ry = y + 4 + i * ROW_H;
+      if (i % 2 !== 0) {
+        doc.rect(MARGIN + 1, ry, CONTENT_W - 2, ROW_H).fill(C.surface);
+      }
+      if (row.emphasize) {
+        doc.moveTo(MARGIN + 10, ry).lineTo(MARGIN + CONTENT_W - 10, ry).strokeColor(C.border).lineWidth(0.75).stroke();
+      }
+      const ty = ry + 6.5;
+      doc.fillColor(row.emphasize ? C.navyText : C.muted).font(row.emphasize ? 'Helvetica-Bold' : 'Helvetica').fontSize(8.5)
+        .text(row.label, MARGIN + 12, ty, { width: CONTENT_W * 0.55, lineBreak: false });
+      doc.fillColor(row.valueColor ?? C.text).font('Helvetica-Bold').fontSize(8.5)
+        .text(row.value, MARGIN, ty, { width: CONTENT_W - 12, align: 'right', lineBreak: false });
+    });
+
+    doc.y = y + h;
+  }
+
+  // ── Outstanding balance summary bar ─────────────────────────────────────────
+  private drawBalanceBar(doc: PDFKit.PDFDocument, financialBalanceAfter: number): void {
+    const y = doc.y;
+    const color = financialBalanceAfter < 0 ? C.closeRed : C.closeGrn;
+    doc.roundedRect(MARGIN, y, CONTENT_W, 32, RADIUS).fill(C.navy);
+    doc.fillColor(C.white).font('Helvetica-Bold').fontSize(9.5)
+      .text('OUTSTANDING BALANCE', MARGIN + 14, y + 11, { lineBreak: false });
+    doc.fillColor(color).font('Helvetica-Bold').fontSize(12)
+      .text(`Rs. ${Math.abs(financialBalanceAfter).toFixed(2)}`, MARGIN, y + 9, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
+    doc.y = y + 32;
   }
 }

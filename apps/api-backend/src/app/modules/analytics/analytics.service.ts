@@ -44,7 +44,7 @@ export class AnalyticsService {
 
     const dateFilter = buildDateFilter(from, to);
 
-    const [transactions, expenses, sheets, customers] = await Promise.all([
+    const [transactions, expenses, sheets, customers, deliveryItems] = await Promise.all([
       this.prisma.transaction.findMany({
         where: {
           vendorId,
@@ -89,6 +89,20 @@ export class AnalyticsService {
       this.prisma.customer.aggregate({
         where: { vendorId },
         _sum: { financialBalance: true },
+      }),
+      this.prisma.dailySheetItem.findMany({
+        where: {
+          dailySheet: {
+            vendorId,
+            ...(dateFilter && { date: dateFilter }),
+          },
+        },
+        select: {
+          cashCollected: true,
+          filledDropped: true,
+          pricePerBottle: true,
+          customer: { select: { paymentType: true } },
+        },
       }),
     ]);
 
@@ -160,12 +174,25 @@ export class AnalyticsService {
     const totalCollected = sheets.reduce((s, sh) => s + sh.cashCollected, 0);
     const collectionRate = totalExpected > 0 ? Math.round((totalCollected / totalExpected) * 100) : 0;
 
+    // Cash expected/collected split by customer payment type (itemized, since
+    // DailySheet.cashExpected/cashCollected are sheet-wide totals with no
+    // per-customer-type breakdown).
+    const cashByPaymentType = { CASH: { expected: 0, collected: 0 }, MONTHLY: { expected: 0, collected: 0 } };
+    for (const item of deliveryItems) {
+      const pt = item.customer?.paymentType;
+      const bucket = pt === PaymentType.CASH ? cashByPaymentType.CASH : pt === PaymentType.MONTHLY ? cashByPaymentType.MONTHLY : null;
+      if (!bucket) continue;
+      bucket.expected += item.filledDropped * item.pricePerBottle;
+      bucket.collected += item.cashCollected;
+    }
+
     const result = {
       revenue: { total: totalRevenue, byDay: revenueByDay },
       expenses: { total: totalExpenses, byCategory: expensesByCategory, byDay: expensesByDay },
       profit: { total: totalRevenue - totalExpenses, byDay: profitByDay },
       revenueByRoute,
       cashByVan,
+      cashByPaymentType,
       revenueByPaymentType,
       collectionRate,
       outstandingBalance: customers._sum.financialBalance ?? 0,

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Card, CardContent, Button, Badge, Tabs, TabsList, TabsTrigger, Skeleton, Dialog, DialogContent, DialogHeader, DialogTitle } from '@water-supply-crm/ui';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import {
-  AlertCircle, Camera, ChevronDown, ChevronUp, ClipboardList,
+  AlertCircle, Camera, ChevronDown, ChevronUp, ClipboardList, Download,
   History, LocateFixed, Lock, Loader2, MapPin, MessageCircle, MessageSquare, Navigation, Phone, Send, StickyNote, Unlock,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
@@ -13,6 +13,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import type { DeliveryItem } from '@water-supply-crm/types';
 import { useCustomerDeliveryHistory, useDeliveryPhotoUrl } from '../hooks/use-daily-sheets';
+import { dailySheetsApi } from '../api/daily-sheets.api';
 import { reverseGeocode } from '../../../lib/geocoding';
 import { DeliveryRecordForm } from './delivery-record-form';
 import { AddNoteDialog } from './add-note-dialog';
@@ -171,6 +172,25 @@ export function DeliveryItemsList({
   const [savingLocationItemId, setSavingLocationItemId] = useState<string | null>(null);
   const [addNoteItem, setAddNoteItem] = useState<DeliveryItem | null>(null);
   const [viewPhotoItemId, setViewPhotoItemId] = useState<string | null>(null);
+  const [downloadingReceiptId, setDownloadingReceiptId] = useState<string | null>(null);
+
+  const handleDownloadReceipt = async (item: DeliveryItem) => {
+    setDownloadingReceiptId(item.id);
+    try {
+      const res = await dailySheetsApi.downloadReceipt(item.id);
+      const blob = res.data as Blob;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `receipt-${item.customer?.customerCode ?? item.id}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error('Receipt not available for this delivery');
+    } finally {
+      setDownloadingReceiptId(null);
+    }
+  };
 
   const handleGpsCapture = (item: DeliveryItem) => {
     if (!navigator.geolocation) {
@@ -588,6 +608,22 @@ export function DeliveryItemsList({
                                   Map
                                 </Button>
                               </a>
+                            )}
+                            {item.status === 'COMPLETED' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="rounded-full font-bold gap-1.5 text-xs h-8 text-indigo-600 border-indigo-500/30 hover:bg-indigo-500/10"
+                                disabled={downloadingReceiptId === item.id}
+                                onClick={(e) => { e.stopPropagation(); handleDownloadReceipt(item); }}
+                              >
+                                {downloadingReceiptId === item.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Download className="h-3.5 w-3.5" />
+                                )}
+                                Receipt
+                              </Button>
                             )}
                             <Button
                               size="sm"
