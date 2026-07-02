@@ -7,6 +7,7 @@ import {
   ForbiddenException,
   Logger,
   InternalServerErrorException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -38,8 +39,11 @@ import { CreateDeliveryNoteDto } from './dto/create-delivery-note.dto';
 import { StorageService } from '../../common/storage/storage.service';
 import { WarehouseService } from '../warehouse/warehouse.service';
 
+const AUTO_GENERATE_CRON = '5 19 * * *'; // 00:05 AM PKT (UTC+5), shortly after the PKT date rolls over
+const AUTO_GENERATE_JOB_ID = 'daily-sheet-auto-generation';
+
 @Injectable()
-export class DailySheetService {
+export class DailySheetService implements OnModuleInit {
   private readonly logger = new Logger(DailySheetService.name);
 
   constructor(
@@ -56,6 +60,27 @@ export class DailySheetService {
     @InjectQueue(QUEUE_NAMES.DAILY_SHEET_GENERATION)
     private sheetQueue: Queue,
   ) {}
+
+  async onModuleInit() {
+    await this.scheduleAutoGeneration();
+  }
+
+  private async scheduleAutoGeneration() {
+    const existing = await this.sheetQueue.getRepeatableJobs();
+    if (existing.some((j) => j.id === AUTO_GENERATE_JOB_ID)) return;
+
+    await this.sheetQueue.add(
+      JOB_NAMES.AUTO_GENERATE_DAILY_SHEETS,
+      {},
+      {
+        repeat: { pattern: AUTO_GENERATE_CRON, utc: true },
+        jobId: AUTO_GENERATE_JOB_ID,
+        removeOnComplete: 30,
+        removeOnFail: 20,
+      },
+    );
+    this.logger.log(`Daily sheet auto-generation scheduled (${AUTO_GENERATE_CRON} UTC)`);
+  }
 
   async generate(vendorId: string, dto: GenerateSheetsDto) {
     const job = await this.sheetQueue.add(JOB_NAMES.GENERATE_SHEETS, {

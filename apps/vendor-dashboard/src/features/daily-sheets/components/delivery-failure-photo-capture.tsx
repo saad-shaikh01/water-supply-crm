@@ -10,6 +10,39 @@ interface DeliveryFailurePhotoCaptureProps {
   onPhotoChange: (key: string | null) => void;
 }
 
+const MAX_DIMENSION = 1600;
+const JPEG_QUALITY = 0.82;
+
+// Phone cameras routinely produce 8-20MB photos. Holding that much image data in
+// memory (preview blob + upload buffer) on a low-RAM device increases the odds the
+// OS kills the backgrounded tab. Downscale/re-encode client-side before upload.
+async function compressImage(file: File): Promise<File> {
+  try {
+    const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    const scale = Math.min(1, MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
+    const width = Math.round(bitmap.width * scale);
+    const height = Math.round(bitmap.height * scale);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      bitmap.close();
+      return file;
+    }
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    bitmap.close();
+
+    const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', JPEG_QUALITY));
+    if (!blob) return file;
+    return new File([blob], file.name.replace(/\.\w+$/, '.jpg'), { type: 'image/jpeg' });
+  } catch {
+    // Compression unsupported/failed — fall back to the original file rather than blocking capture.
+    return file;
+  }
+}
+
 export function DeliveryFailurePhotoCapture({ photoKey, onPhotoChange }: DeliveryFailurePhotoCaptureProps) {
   const cameraRef = useRef<HTMLInputElement>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -17,12 +50,13 @@ export function DeliveryFailurePhotoCapture({ photoKey, onPhotoChange }: Deliver
   const [error, setError] = useState<string | null>(null);
   const { mutate: uploadPhoto } = useUploadDeliveryPhoto();
 
-  function handleFile(file: File | null) {
+  async function handleFile(file: File | null) {
     if (!file) return;
     setError(null);
     setPreviewUrl(URL.createObjectURL(file));
     setLoading(true);
-    uploadPhoto(file, {
+    const uploadFile = await compressImage(file);
+    uploadPhoto(uploadFile, {
       onSuccess: (data) => {
         setLoading(false);
         onPhotoChange(data.key);

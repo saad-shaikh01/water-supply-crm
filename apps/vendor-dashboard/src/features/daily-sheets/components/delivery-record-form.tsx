@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton,
 } from '@water-supply-crm/ui';
@@ -22,6 +22,72 @@ const FAILURE_CATEGORIES = [
   { value: 'WEATHER', label: 'Weather / Road Issue' },
   { value: 'OTHER', label: 'Other' },
 ] as const;
+
+interface DamageFormState {
+  caseType: 'DAMAGE' | 'LOST';
+  bottleCount: number;
+  photoKeys: string[];
+  description: string;
+  lossReason: string;
+}
+
+const DEFAULT_DAMAGE_FORM: DamageFormState = {
+  caseType: 'DAMAGE',
+  bottleCount: 1,
+  photoKeys: [],
+  description: '',
+  lossReason: 'CUSTOMER_NOT_RETURNED',
+};
+
+// Mobile browsers (esp. lower-RAM Android/iOS) frequently kill and reload the
+// tab when it's backgrounded — launching the camera, phone dialer, or WhatsApp
+// all trigger this. A full reload wipes React state, so we mirror in-progress
+// form state to sessionStorage and restore it on the next mount for the same item.
+const DRAFT_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+
+interface DeliveryDraft {
+  deliveryMode: 'delivered' | 'unable';
+  failureCategory: string;
+  unableReason: string;
+  photoKey: string | null;
+  itemForm: Partial<DeliveryItem>;
+  showDamage: boolean;
+  damageForm: DamageFormState;
+  savedAt: number;
+}
+
+const draftKey = (itemId: string) => `daily-sheet-draft:${itemId}`;
+
+function readDraft(itemId: string): DeliveryDraft | null {
+  try {
+    const raw = sessionStorage.getItem(draftKey(itemId));
+    if (!raw) return null;
+    const draft = JSON.parse(raw) as DeliveryDraft;
+    if (Date.now() - draft.savedAt > DRAFT_TTL_MS) {
+      sessionStorage.removeItem(draftKey(itemId));
+      return null;
+    }
+    return draft;
+  } catch {
+    return null;
+  }
+}
+
+function writeDraft(itemId: string, draft: Omit<DeliveryDraft, 'savedAt'>) {
+  try {
+    sessionStorage.setItem(draftKey(itemId), JSON.stringify({ ...draft, savedAt: Date.now() }));
+  } catch {
+    // sessionStorage unavailable/full — draft recovery is best-effort only
+  }
+}
+
+function clearDraft(itemId: string) {
+  try {
+    sessionStorage.removeItem(draftKey(itemId));
+  } catch {
+    // ignore
+  }
+}
 
 function StatBox({
   label,
@@ -67,13 +133,7 @@ export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: 
 
   // Damage state
   const [showDamage, setShowDamage] = useState(false);
-  const [damageForm, setDamageForm] = useState<{
-    caseType: 'DAMAGE' | 'LOST';
-    bottleCount: number;
-    photoKeys: string[];
-    description: string;
-    lossReason: string;
-  }>({ caseType: 'DAMAGE', bottleCount: 1, photoKeys: [], description: '', lossReason: 'CUSTOMER_NOT_RETURNED' });
+  const [damageForm, setDamageForm] = useState<DamageFormState>(DEFAULT_DAMAGE_FORM);
 
   const effectivePrice = (() => {
     const custom = item.customer?.customPrices?.find((p) => p.productId === item.productId);
@@ -82,15 +142,27 @@ export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: 
   const isCustomPrice = !!item.customer?.customPrices?.find((p) => p.productId === item.productId);
   const isFirstRecord = item.status === 'PENDING';
 
-  // Initialize form state when the form mounts for a given item
+  // Initialize form state when the form mounts for a given item — restoring an
+  // unsaved draft (if the tab was reloaded mid-entry) takes priority over defaults.
   useEffect(() => {
+    const draft = !readOnly ? readDraft(item.id) : null;
+    if (draft) {
+      setDeliveryMode(draft.deliveryMode);
+      setFailureCategory(draft.failureCategory);
+      setUnableReason(draft.unableReason);
+      setPhotoKey(draft.photoKey);
+      setItemForm(draft.itemForm);
+      setShowDamage(draft.showDamage);
+      setDamageForm(draft.damageForm);
+      return;
+    }
     const isUnable = item.status === 'RESCHEDULED' || item.status === 'CANCELLED' || item.status === 'NOT_AVAILABLE';
     setDeliveryMode(item.status === 'PENDING' ? 'delivered' : isUnable ? 'unable' : 'delivered');
     setFailureCategory(item.failureCategory ?? 'CUSTOMER_NOT_HOME');
     setUnableReason(item.reason ?? '');
     setPhotoKey(item.photoKey ?? null);
     setShowDamage(false);
-    setDamageForm({ caseType: 'DAMAGE', bottleCount: 1, photoKeys: [], description: '', lossReason: 'CUSTOMER_NOT_RETURNED' });
+    setDamageForm(DEFAULT_DAMAGE_FORM);
     const isFirst = item.status === 'PENDING';
     // Drop & empties start empty for new records — driver enters the real counts manually.
     // For re-records, pre-fill with previously saved values.
@@ -103,6 +175,20 @@ export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: 
       cashCollected: suggestedCash,
     });
   }, [item.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Mirror in-progress state to sessionStorage so a browser-triggered reload
+  // (camera/dialer/WhatsApp backgrounding the tab) doesn't lose driver progress.
+  const draftWriteTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (readOnly) return;
+    if (draftWriteTimeout.current) clearTimeout(draftWriteTimeout.current);
+    draftWriteTimeout.current = setTimeout(() => {
+      writeDraft(item.id, { deliveryMode, failureCategory, unableReason, photoKey, itemForm, showDamage, damageForm });
+    }, 400);
+    return () => {
+      if (draftWriteTimeout.current) clearTimeout(draftWriteTimeout.current);
+    };
+  }, [item.id, readOnly, deliveryMode, failureCategory, unableReason, photoKey, itemForm, showDamage, damageForm]);
 
   // Amount owed for this delivery — auto-calculated from drop count and the customer's rate.
   const amountDue = Math.round((itemForm.filledDropped ?? 0) * effectivePrice);
@@ -179,6 +265,7 @@ export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: 
               // The damage case can be reported manually from the sidebar.
             });
           }
+          clearDraft(item.id);
           onDone();
         },
       },
@@ -345,7 +432,7 @@ export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: 
               onClick={() => {
                 if (showDamage) {
                   setShowDamage(false);
-                  setDamageForm({ caseType: 'DAMAGE', bottleCount: 1, photoKeys: [], description: '', lossReason: 'CUSTOMER_NOT_RETURNED' });
+                  setDamageForm(DEFAULT_DAMAGE_FORM);
                 } else {
                   setShowDamage(true);
                 }
@@ -516,7 +603,12 @@ export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: 
 
       {!readOnly && (
         <div className="flex gap-2 pt-1">
-          <Button variant="ghost" onClick={onDone} disabled={isPending} className="rounded-xl font-bold">
+          <Button
+            variant="ghost"
+            onClick={() => { clearDraft(item.id); onDone(); }}
+            disabled={isPending}
+            className="rounded-xl font-bold"
+          >
             Discard
           </Button>
           <Button onClick={doSave} disabled={isPending} className="flex-1 rounded-xl font-bold">

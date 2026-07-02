@@ -8,6 +8,10 @@ import { PageHeader } from '../../../components/shared/page-header';
 import { DateRangePicker } from '../../../components/shared/date-range-picker';
 import { useFinancialAnalytics, useDeliveryAnalytics, useCustomerAnalytics, useStaffAnalytics } from '../../../features/analytics/hooks/use-analytics';
 
+const OverviewTab = dynamic(
+  () => import('../../../features/analytics/components/overview-tab').then((m) => m.OverviewTab),
+  { loading: () => <div className="animate-pulse h-96 bg-muted rounded" /> }
+);
 const FinancialTab = dynamic(
   () => import('../../../features/analytics/components/financial-tab').then((m) => m.FinancialTab),
   { loading: () => <div className="animate-pulse h-96 bg-muted rounded" /> }
@@ -32,7 +36,7 @@ const ExportSection = dynamic(
 function AnalyticsContent() {
   const [from] = useQueryState('from', parseAsString.withDefault(''));
   const [to] = useQueryState('to', parseAsString.withDefault(''));
-  const [activeTab, setActiveTab] = useState('financial');
+  const [activeTab, setActiveTab] = useState('overview');
 
   const { data: financialData } = useFinancialAnalytics(from, to);
   const { data: deliveriesData } = useDeliveryAnalytics(from, to);
@@ -57,6 +61,9 @@ function AnalyticsContent() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="bg-card/40 backdrop-blur-xl border border-white/10 rounded-2xl p-1 h-auto">
+          <TabsTrigger value="overview" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground font-semibold">
+            Overview
+          </TabsTrigger>
           <TabsTrigger value="financial" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground font-semibold">
             Financial
           </TabsTrigger>
@@ -71,6 +78,9 @@ function AnalyticsContent() {
           </TabsTrigger>
         </TabsList>
 
+        <TabsContent value="overview" className="mt-4">
+          <OverviewTab from={from} to={to} onNavigate={setActiveTab} />
+        </TabsContent>
         <TabsContent value="financial" className="mt-4">
           <FinancialTab from={from} to={to} />
         </TabsContent>

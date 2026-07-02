@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bell, CheckCheck, Loader2, Menu, Search } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { UserNav } from './user-nav';
 import { Sidebar } from './sidebar';
 import { ThemeToggle } from './theme-toggle';
@@ -32,9 +32,15 @@ interface InAppNotification {
 
 export function Header() {
   const router = useRouter();
+  const pathname = usePathname();
   const user = useAuthStore((state) => state.user);
   const queryClient = useQueryClient();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    setMobileSidebarOpen(false);
+  }, [pathname]);
 
   const {
     data: notificationsResponse,
@@ -138,7 +144,7 @@ export function Header() {
   return (
     <header className="h-20 bg-white/[0.02] backdrop-blur-3xl flex items-center justify-between px-6 md:px-12 sticky top-0 z-40 shrink-0 border-b border-border shadow-2xl">
       <div className="flex items-center gap-8 flex-1">
-        <Sheet>
+        <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
           <SheetTrigger asChild>
             <Button variant="ghost" size="icon" className="md:hidden hover:bg-white/5 rounded-xl h-12 w-12 border border-border">
               <Menu className="h-6 w-6 text-foreground dark:text-white" />

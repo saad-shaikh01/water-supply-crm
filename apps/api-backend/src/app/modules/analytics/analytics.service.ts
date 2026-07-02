@@ -49,13 +49,18 @@ export class AnalyticsService {
         where: {
           vendorId,
           type: TransactionType.DELIVERY,
-          ...(dateFilter && { createdAt: dateFilter }),
+          // DELIVERY transactions are always linked to the daily sheet they were
+          // posted from — filter/group by the sheet's business date, not createdAt
+          // (createdAt is the DB insert time, which can lag the actual delivery
+          // date when a sheet is entered late).
+          ...(dateFilter && { dailySheet: { date: dateFilter } }),
         },
         select: {
           amount: true,
           createdAt: true,
           customerId: true,
           customer: { select: { paymentType: true } },
+          dailySheet: { select: { date: true } },
         },
         orderBy: { createdAt: 'asc' },
       }),
@@ -77,6 +82,8 @@ export class AnalyticsService {
           cashCollected: true,
           routeId: true,
           route: { select: { id: true, name: true } },
+          vanId: true,
+          van: { select: { id: true, plateNumber: true } },
         },
       }),
       this.prisma.customer.aggregate({
@@ -88,8 +95,12 @@ export class AnalyticsService {
     // Revenue totals
     const totalRevenue = transactions.reduce((s, t) => s + (t.amount ?? 0), 0);
 
-    // Revenue by day
-    const revenueByDayMap = groupSum(transactions, (t) => t.createdAt.toISOString().slice(0, 10), (t) => t.amount ?? 0);
+    // Revenue by day (bucketed by the sheet's business date, not createdAt)
+    const revenueByDayMap = groupSum(
+      transactions,
+      (t) => (t.dailySheet?.date ?? t.createdAt).toISOString().slice(0, 10),
+      (t) => t.amount ?? 0,
+    );
     const revenueByDay = Array.from(revenueByDayMap.entries()).map(([date, amount]) => ({ date, amount }));
 
     // Expenses totals and by category
@@ -121,6 +132,21 @@ export class AnalyticsService {
     }
     const revenueByRoute = Array.from(routeRevMap.values()).sort((a, b) => b.revenue - a.revenue);
 
+    // Cash collected by van
+    const vanCashMap = new Map<string, { vanId: string; plateNumber: string; cashExpected: number; cashCollected: number }>();
+    for (const sheet of sheets) {
+      const entry = vanCashMap.get(sheet.vanId) ?? {
+        vanId: sheet.vanId,
+        plateNumber: sheet.van?.plateNumber ?? 'Unknown',
+        cashExpected: 0,
+        cashCollected: 0,
+      };
+      entry.cashExpected += sheet.cashExpected;
+      entry.cashCollected += sheet.cashCollected;
+      vanCashMap.set(sheet.vanId, entry);
+    }
+    const cashByVan = Array.from(vanCashMap.values()).sort((a, b) => b.cashCollected - a.cashCollected);
+
     // Revenue by payment type
     const revenueByPaymentType = { CASH: 0, MONTHLY: 0 };
     for (const t of transactions) {
@@ -139,6 +165,7 @@ export class AnalyticsService {
       expenses: { total: totalExpenses, byCategory: expensesByCategory, byDay: expensesByDay },
       profit: { total: totalRevenue - totalExpenses, byDay: profitByDay },
       revenueByRoute,
+      cashByVan,
       revenueByPaymentType,
       collectionRate,
       outstandingBalance: customers._sum.financialBalance ?? 0,
@@ -351,7 +378,8 @@ export class AnalyticsService {
           vendorId,
           type: TransactionType.DELIVERY,
           customerId: { not: null },
-          ...(dateFilter && { createdAt: dateFilter }),
+          // Same reasoning as getFinancial: filter by the sheet's business date.
+          ...(dateFilter && { dailySheet: { date: dateFilter } }),
         },
         _sum: { amount: true },
         orderBy: { _sum: { amount: 'desc' } },

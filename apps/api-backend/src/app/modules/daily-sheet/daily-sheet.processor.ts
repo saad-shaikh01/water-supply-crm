@@ -2,7 +2,7 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { PrismaService } from '@water-supply-crm/database';
-import { QUEUE_NAMES } from '@water-supply-crm/queue';
+import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
 
 interface GenerateSheetsJobData {
   vendorId: string;
@@ -25,9 +25,50 @@ export class DailySheetProcessor extends WorkerHost {
     super();
   }
 
-  async process(job: Job<GenerateSheetsJobData>): Promise<GenerationResult> {
-    const { vendorId, date, vanIds } = job.data;
-    this.logger.log(`Processing sheet generation job ${job.id} for vendor ${vendorId}, date ${date}`);
+  async process(job: Job): Promise<GenerationResult | void> {
+    if (job.name === JOB_NAMES.AUTO_GENERATE_DAILY_SHEETS) {
+      return this.runAutoGeneration();
+    }
+    const { vendorId, date, vanIds } = job.data as GenerateSheetsJobData;
+    return this.generateForVendor(vendorId, date, vanIds, job);
+  }
+
+  /**
+   * Fans out to every active vendor for "today" (PKT). Computed via pure UTC
+   * math rather than local Date methods since the host container's TZ is not
+   * guaranteed to be PKT.
+   */
+  private async runAutoGeneration(): Promise<void> {
+    const pktNow = new Date(Date.now() + 5 * 60 * 60 * 1000);
+    const dateStr = pktNow.toISOString().slice(0, 10);
+
+    const vendors = await this.prisma.vendor.findMany({
+      where: { isActive: true },
+      select: { id: true },
+    });
+
+    let succeeded = 0;
+    let failed = 0;
+    for (const vendor of vendors) {
+      try {
+        await this.generateForVendor(vendor.id, dateStr);
+        succeeded++;
+      } catch (err) {
+        failed++;
+        this.logger.error(
+          `Auto-generation failed for vendor ${vendor.id} on ${dateStr}: ${(err as Error)?.message ?? String(err)}`,
+          (err as Error)?.stack,
+        );
+      }
+    }
+
+    this.logger.log(
+      `Auto-generation for ${dateStr}: ${succeeded}/${vendors.length} vendors processed, ${failed} failed`,
+    );
+  }
+
+  private async generateForVendor(vendorId: string, date: string, vanIds?: string[], job?: Job): Promise<GenerationResult> {
+    this.logger.log(`Processing sheet generation for vendor ${vendorId}, date ${date}`);
 
     const targetDate = new Date(date);
     const dayOfWeek = targetDate.getDay();
@@ -250,7 +291,7 @@ export class DailySheetProcessor extends WorkerHost {
       processed++;
       completedVans++;
       const percent = Math.round((completedVans / Math.max(totalVans, 1)) * 100);
-      await job.updateProgress({ percent, completedVans, totalVans });
+      if (job) await job.updateProgress({ percent, completedVans, totalVans });
     }
 
     // Track any remaining planned orders not assigned to any van
@@ -259,7 +300,7 @@ export class DailySheetProcessor extends WorkerHost {
     }
 
     this.logger.log(
-      `Job ${job.id} completed: ${generatedSheetIds.length} sheets created, ` +
+      `Job ${job?.id ?? `auto/${vendorId}`} completed: ${generatedSheetIds.length} sheets created, ` +
       `${skippedVans.length} vans skipped, ${insertedOnDemandCount} on-demand orders inserted`,
     );
     return { sheetIds: generatedSheetIds, skippedVans, insertedOnDemandCount, skippedOnDemand };
