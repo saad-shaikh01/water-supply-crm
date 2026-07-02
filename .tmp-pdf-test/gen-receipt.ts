@@ -7,6 +7,7 @@ async function main() {
 
   const buffer = await svc.generate({
     customerName: 'SentraCore Systems Kashif',
+    customerCode: 'L3491',
     productName: 'Blue Ice 19L',
     filledDropped: 5,
     emptyReceived: 4,
@@ -17,6 +18,7 @@ async function main() {
     deliveryDate: '02-Jul-2026',
     deliveryTime: '02:15 PM',
     vendorName: 'DASANI ENTERPRISES',
+    previousMonthOutstanding: -3500,
   });
 
   fs.writeFileSync(__dirname + '/receipt-test.pdf', buffer);

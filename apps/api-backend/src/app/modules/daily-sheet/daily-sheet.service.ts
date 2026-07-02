@@ -113,7 +113,7 @@ export class DailySheetService implements OnModuleInit {
     const item = await this.prisma.dailySheetItem.findUnique({
       where: { id: itemId },
       include: {
-        customer: { select: { name: true, customerCode: true, phoneNumber: true, isBillingExempt: true, customPrices: { select: { productId: true, customPrice: true } } } },
+        customer: { select: { name: true, customerCode: true, phoneNumber: true, paymentType: true, isBillingExempt: true, customPrices: { select: { productId: true, customPrice: true } } } },
         product: { select: { name: true, basePrice: true } },
         dailySheet: { select: { vendorId: true, date: true, vendor: { select: { name: true } } } },
       },
@@ -265,6 +265,15 @@ export class DailySheetService implements OnModuleInit {
               .catch(() => {});
           }
           const now = new Date();
+          const previousMonthOutstanding =
+            item.customer.paymentType === PaymentType.MONTHLY
+              ? await this.getPreviousMonthOutstanding(
+                  vendorId,
+                  item.customerId,
+                  updatedCustomer?.financialBalance ?? 0,
+                  item.dailySheet.date,
+                )
+              : undefined;
           const receiptData = {
             customerName: item.customer.name,
             customerCode: item.customer.customerCode,
@@ -278,6 +287,7 @@ export class DailySheetService implements OnModuleInit {
             deliveryDate: item.dailySheet.date.toISOString().slice(0, 10),
             deliveryTime: now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
             vendorName: item.dailySheet.vendor?.name ?? 'Water Supply',
+            previousMonthOutstanding,
           };
           this.notifications.queueWhatsAppPdf(
             item.customer.phoneNumber,
@@ -1670,7 +1680,7 @@ export class DailySheetService implements OnModuleInit {
     const item = await this.prisma.dailySheetItem.findUnique({
       where: { id: itemId },
       include: {
-        customer: { select: { name: true } },
+        customer: { select: { name: true, customerCode: true, paymentType: true, financialBalance: true } },
         product: { select: { name: true } },
         dailySheet: { select: { date: true, vendorId: true, vendor: { select: { name: true } } } },
       },
@@ -1682,9 +1692,15 @@ export class DailySheetService implements OnModuleInit {
       throw new BadRequestException('Receipt is only available for completed deliveries');
     }
 
+    const previousMonthOutstanding =
+      item.customer.paymentType === PaymentType.MONTHLY
+        ? await this.getPreviousMonthOutstanding(vendorId, item.customerId, item.customer.financialBalance, item.dailySheet.date)
+        : undefined;
+
     const deliveredAt = item.deliveredAt ?? item.dailySheet.date;
     return this.deliveryReceiptPdf.generate({
       customerName: item.customer.name,
+      customerCode: item.customer.customerCode,
       productName: item.product.name,
       filledDropped: item.filledDropped,
       emptyReceived: item.emptyReceived,
@@ -1695,6 +1711,22 @@ export class DailySheetService implements OnModuleInit {
       deliveryDate: item.dailySheet.date.toISOString().slice(0, 10),
       deliveryTime: deliveredAt.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
       vendorName: item.dailySheet.vendor?.name ?? 'Water Supply',
+      previousMonthOutstanding,
     });
+  }
+
+  /** Balance carried in from before the current calendar month (MONTHLY customers only). */
+  private async getPreviousMonthOutstanding(
+    vendorId: string,
+    customerId: string,
+    currentFinancialBalance: number,
+    referenceDate: Date,
+  ): Promise<number> {
+    const curMonthStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1);
+    const agg = await this.prisma.transaction.aggregate({
+      where: { customerId, vendorId, createdAt: { gte: curMonthStart } },
+      _sum: { amount: true },
+    });
+    return (currentFinancialBalance ?? 0) - (agg._sum.amount ?? 0);
   }
 }

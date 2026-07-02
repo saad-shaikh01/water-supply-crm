@@ -6,6 +6,7 @@ import { drawShadowShape, brandGradient, drawWatermark } from '../../common/pdf/
 
 export interface DeliveryReceiptData {
   customerName: string;
+  customerCode: string;
   productName: string;
   filledDropped: number;
   emptyReceived: number;
@@ -16,10 +17,16 @@ export interface DeliveryReceiptData {
   deliveryDate: string; // YYYY-MM-DD
   deliveryTime: string; // HH:MM
   vendorName: string;
+  /** MONTHLY customers only — balance carried in from before this month. */
+  previousMonthOutstanding?: number;
 }
 
 // Blue Ice brand logo — same asset used by the customer statement PDF.
 const LOGO_PATH = path.join(__dirname, 'assets', 'blue-ice-logo.png');
+
+// Company identity — same detail shown in the customer statement's header (single vendor for now).
+const COMPANY_ADDRESS = 'B-145 Block 13 D/1 Gulshan-e-Iqbal, Korangi Creek Korangi';
+const COMPANY_PHONES  = 'Cell# 0316-2677954, 0345-2364698';
 
 const C = {
   navy:     '#0f172a',
@@ -41,7 +48,7 @@ const PAGE_W    = 419.53; // A5
 const PAGE_H    = 595.28;
 const CONTENT_W = PAGE_W - MARGIN * 2;
 const RADIUS    = 10;
-const BANNER_H  = 70;
+const BANNER_H  = 76;
 const ROW_H     = 22;
 
 interface DetailRow {
@@ -70,6 +77,7 @@ export class DeliveryReceiptPdfService {
       const rows: DetailRow[] = [
         { label: 'Date / Time',       value: `${data.deliveryDate}  ·  ${data.deliveryTime}` },
         { label: 'Customer',          value: data.customerName },
+        { label: 'Customer Code',     value: data.customerCode },
         { label: 'Product',           value: data.productName },
         { label: 'Bottles Delivered', value: `${data.filledDropped}` },
         { label: 'Empty Received',    value: `${data.emptyReceived}` },
@@ -80,8 +88,13 @@ export class DeliveryReceiptPdfService {
       ];
       this.drawDetailCard(doc, rows);
 
+      if (data.previousMonthOutstanding != null) {
+        doc.y += 14;
+        this.drawBalanceBar(doc, 'PREVIOUS MONTH OUTSTANDING', data.previousMonthOutstanding);
+      }
+
       doc.y += 14;
-      this.drawBalanceBar(doc, data.financialBalanceAfter);
+      this.drawBalanceBar(doc, 'OUTSTANDING BALANCE', data.financialBalanceAfter);
 
       doc.y += 16;
       doc.fillColor(C.muted).font('Helvetica').fontSize(7.5)
@@ -117,9 +130,11 @@ export class DeliveryReceiptPdfService {
     }
 
     doc.fillColor(C.white).font('Helvetica-Bold').fontSize(13)
-      .text(data.vendorName, MARGIN, y + 20, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
+      .text(data.vendorName, MARGIN, y + 16, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
     doc.fillColor('#ffffff', 0.82).font('Helvetica').fontSize(7.5)
-      .text('Purified Drinking Water', MARGIN, y + 38, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
+      .text(COMPANY_ADDRESS, MARGIN, y + 35, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
+    doc.fillColor('#ffffff', 0.82).font('Helvetica').fontSize(7.5)
+      .text(COMPANY_PHONES, MARGIN, y + 47, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
 
     doc.y = y + BANNER_H + 3;
   }
@@ -149,15 +164,16 @@ export class DeliveryReceiptPdfService {
     doc.y = y + h;
   }
 
-  // ── Outstanding balance summary bar ─────────────────────────────────────────
-  private drawBalanceBar(doc: PDFKit.PDFDocument, financialBalanceAfter: number): void {
+  // ── Balance summary bar (reused for both outstanding-balance and
+  //    previous-month-outstanding, same box design) ───────────────────────────
+  private drawBalanceBar(doc: PDFKit.PDFDocument, label: string, amount: number): void {
     const y = doc.y;
-    const color = financialBalanceAfter < 0 ? C.closeRed : C.closeGrn;
+    const color = amount < 0 ? C.closeRed : C.closeGrn;
     doc.roundedRect(MARGIN, y, CONTENT_W, 32, RADIUS).fill(C.navy);
     doc.fillColor(C.white).font('Helvetica-Bold').fontSize(9.5)
-      .text('OUTSTANDING BALANCE', MARGIN + 14, y + 11, { lineBreak: false });
+      .text(label, MARGIN + 14, y + 11, { width: CONTENT_W * 0.55, lineBreak: false });
     doc.fillColor(color).font('Helvetica-Bold').fontSize(12)
-      .text(`Rs. ${Math.abs(financialBalanceAfter).toFixed(2)}`, MARGIN, y + 9, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
+      .text(`Rs. ${Math.abs(amount).toFixed(2)}`, MARGIN, y + 9, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
     doc.y = y + 32;
   }
 }

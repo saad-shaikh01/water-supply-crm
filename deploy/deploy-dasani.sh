@@ -116,10 +116,17 @@ _validate_env
 cd "${REPO_ROOT}"
 
 # ── 1. Pull latest code ───────────────────────────────────────────────────────
+# .env.live holds live secrets and must never be clobbered by `git reset --hard`,
+# regardless of whether it is git-tracked or whether local edits were ever
+# pushed to origin. Back it up before the reset and restore it right after.
 echo ""
 echo "==> [1/8] Pulling latest code (branch: ${BRANCH})..."
+cp "${ENV_FILE}" "${ENV_FILE}.deploy-backup"
 git fetch origin "${BRANCH}"
 git reset --hard "origin/${BRANCH}"
+cp "${ENV_FILE}.deploy-backup" "${ENV_FILE}"
+rm -f "${ENV_FILE}.deploy-backup"
+echo "     .env.live preserved across reset."
 
 # ── 2. Install Node dependencies ──────────────────────────────────────────────
 echo ""

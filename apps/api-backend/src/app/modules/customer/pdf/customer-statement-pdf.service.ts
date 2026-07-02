@@ -9,6 +9,8 @@ import { drawShadowShape, brandGradient, drawClippedWatermark } from '../../../c
 const COMPANY_NAME    = 'DASANI ENTERPRISES';
 const COMPANY_ADDRESS = 'B-145 Block 13 D/1 Gulshan-e-Iqbal, Korangi Creek Korangi';
 const COMPANY_PHONES  = 'Cell# 0316-2677954, 0345-2364698';
+const COMPANY_WEBSITE = 'blueice.com.pk';
+const COMPANY_EMAIL   = 'info@blueice.com.pk';
 
 // Payment / footer details (hardcoded — single vendor for now)
 const BANK_TITLE      = 'DASANI ENTERPRISES';
@@ -159,7 +161,9 @@ export class CustomerStatementPdfService {
 
     this.drawBrandBanner(doc);
     doc.y += 18;
-    this.drawInfoCards(doc, customer, period, month, closingBalance, ratePerBottle);
+    this.drawSectionTitle(doc, 'MONTHLY STATEMENT', period);
+    doc.y += 12;
+    this.drawInfoCards(doc, customer, month, closingBalance, ratePerBottle);
 
     doc.y += 18;
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(13)
@@ -280,11 +284,21 @@ export class CustomerStatementPdfService {
     doc.y = y + h + 3;
   }
 
+  // ── Document heading: accent bar + label (left), period (right) ────────────
+  private drawSectionTitle(doc: PDFKit.PDFDocument, label: string, period: string): void {
+    const y = doc.y;
+    doc.roundedRect(MARGIN, y, 4, 16, 2).fill(C.accent);
+    doc.fillColor(C.navy).font('Helvetica-Bold').fontSize(13)
+      .text(label, MARGIN + 12, y + 1, { lineBreak: false });
+    doc.fillColor(C.muted).font('Helvetica').fontSize(9)
+      .text(period, MARGIN, y + 2, { width: CONTENT_W - 4, align: 'right', lineBreak: false });
+    doc.y = y + 16;
+  }
+
   // ── Single info card: customer | period/billing details | due-amount chip ──
   private drawInfoCards(
     doc: PDFKit.PDFDocument,
     customer: any,
-    period: string,
     month: string | undefined,
     closingBalance: number,
     ratePerBottle: number,
@@ -305,19 +319,25 @@ export class CustomerStatementPdfService {
     // COL 1 — customer identity (bounded + ellipsis so long names/addresses never
     // overflow into the divider or the phone line below)
     const col1TextW = col1W - 24;
+
+    // Customer code — plain label/value line above the name, same bold treatment as the name
+    doc.fillColor(C.muted).font('Helvetica').fontSize(8)
+      .text('Customer Code: ', x1 + 14, y + 10, { continued: true, lineBreak: false })
+      .fillColor(C.navyText).font('Helvetica-Bold')
+      .text(customer.customerCode ?? '—', { lineBreak: false });
+
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(11.5)
-      .text(customer.name ?? '—', x1 + 14, y + 14, { width: col1TextW, height: 27, ellipsis: true });
+      .text(customer.name ?? '—', x1 + 14, y + 24, { width: col1TextW, height: 14, ellipsis: true });
     doc.fillColor(C.muted).font('Helvetica').fontSize(8)
-      .text(customer.address ?? '—', x1 + 14, y + 45, { width: col1TextW, height: 19, ellipsis: true });
+      .text(customer.address ?? '—', x1 + 14, y + 44, { width: col1TextW, height: 18, ellipsis: true });
     doc.fillColor(C.muted).font('Helvetica').fontSize(8)
-      .text(customer.phoneNumber ?? '—', x1 + 14, y + 68, { width: col1TextW, height: 10, ellipsis: true });
+      .text(customer.phoneNumber ?? '—', x1 + 14, y + 66, { width: col1TextW, height: 10, ellipsis: true });
 
     // COL 2 — period + billing details
     const fromTo = month ? this.monthBounds(month) : null;
     const rows: [string, string][] = [
       ['From',         fromTo?.from ?? '—'],
       ['To',           fromTo?.to ?? '—'],
-      ['Cust Code',    customer.customerCode ?? '—'],
       ['Pay Mode',     customer.paymentType === 'MONTHLY' ? 'Monthly' : 'Cash'],
       ['Rate Per Btl', ratePerBottle > 0 ? `Rs. ${ratePerBottle.toFixed(0)}` : '—'],
     ];
@@ -336,14 +356,11 @@ export class CustomerStatementPdfService {
     const chipY = y + chipPad;
     const chipW = col3W - chipPad * 2;
     const chipH = boxH - chipPad * 2;
-    const shortPeriod = month ? this.shortMonthLabel(month) : period;
     doc.roundedRect(chipX, chipY, chipW, chipH, 8).fill(C.navy);
-    doc.fillColor('#ffffff', 0.75).font('Helvetica-Bold').fontSize(7)
-      .text(shortPeriod.toUpperCase(), chipX, chipY + 10, { width: chipW, align: 'center', lineBreak: false });
     doc.fillColor('#ffffff', 0.75).font('Helvetica').fontSize(7)
-      .text('BILL AMOUNT', chipX, chipY + 22, { width: chipW, align: 'center', lineBreak: false });
+      .text('BALANCE DUE', chipX, chipY + chipH / 2 - 14, { width: chipW, align: 'center', lineBreak: false });
     doc.fillColor(C.white).font('Helvetica-Bold').fontSize(16)
-      .text(`Rs. ${this.absFmt(closingBalance)}`, chipX, chipY + chipH / 2 + 2, { width: chipW, align: 'center', lineBreak: false });
+      .text(`Rs. ${this.absFmt(closingBalance)}`, chipX, chipY + chipH / 2 + 4, { width: chipW, align: 'center', lineBreak: false });
 
     doc.y = y + boxH;
   }
@@ -529,7 +546,7 @@ export class CustomerStatementPdfService {
 
   // ── Thank-you / payment footer (appears once at end of document) ───────────
   private drawThankYouFooter(doc: PDFKit.PDFDocument): void {
-    if (doc.y + 76 > FOOTER_Y - 10) { doc.addPage(); doc.y = MARGIN; }
+    if (doc.y + 110 > FOOTER_Y - 10) { doc.addPage(); doc.y = MARGIN; }
     const y = doc.y;
 
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(10)
@@ -565,7 +582,15 @@ export class CustomerStatementPdfService {
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(9)
       .text(EASYPAISA_NO, dividerX + 14, py + 38, { width: CONTENT_W - (dividerX - MARGIN) - 14, lineBreak: false });
 
-    doc.y = py + 26 + rows.length * 13 + 6;
+    const cy = py + 26 + rows.length * 13 + 10;
+    doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
+      .text(COMPANY_WEBSITE, MARGIN, cy, { width: CONTENT_W, align: 'right', lineBreak: false });
+    doc.fillColor(C.muted).font('Helvetica').fontSize(7.5)
+      .text(COMPANY_EMAIL, MARGIN, cy + 11, { width: CONTENT_W, align: 'right', lineBreak: false });
+    doc.fillColor(C.muted).font('Helvetica').fontSize(7.5)
+      .text(COMPANY_PHONES, MARGIN, cy + 22, { width: CONTENT_W, align: 'right', lineBreak: false });
+
+    doc.y = cy + 22 + 10;
   }
 
   // ── Per-page footer (page number + timestamp) ───────────────────────────────
@@ -578,11 +603,6 @@ export class CustomerStatementPdfService {
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
-  private shortMonthLabel(month: string): string {
-    const [year, mon] = month.split('-').map(Number);
-    return new Date(year, mon - 1, 1).toLocaleString('en-PK', { month: 'short', year: '2-digit' });
-  }
-
   private monthBounds(month: string): { from: string; to: string } {
     const [year, mon] = month.split('-').map(Number);
     const from = new Date(year, mon - 1, 1);
