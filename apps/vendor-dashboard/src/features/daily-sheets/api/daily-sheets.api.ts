@@ -199,6 +199,18 @@ export const dailySheetsApi = {
     apiClient.patch<DeliveryItemNote>(`/daily-sheets/items/notes/${noteId}/acknowledge`, {}),
   getNoteAudioUrl: (noteId: string) =>
     apiClient.get<{ signedUrl: string }>(`/daily-sheets/items/notes/${noteId}/audio`),
+  // Delivery failure photo
+  uploadDeliveryPhoto: (file: File): Promise<{ key: string }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return apiClient
+      .post<{ key: string }>('/daily-sheets/items/upload-photo', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data);
+  },
+  getDeliveryPhotoUrl: (itemId: string) =>
+    apiClient.get<{ signedUrl: string }>(`/daily-sheets/items/${itemId}/photo-url`),
   // Bulk import
   downloadBulkImportTemplate: (sheetId: string) =>
     apiClient.get('/daily-sheets/bulk-import/template', {

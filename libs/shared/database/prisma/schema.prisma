@@ -415,7 +415,7 @@ model DailySheetItem {
 
   reason          String?  // Free text notes for unable-to-deliver
   failureCategory String?  // CUSTOMER_NOT_HOME | CUSTOMER_NOT_ANSWERING | CUSTOMER_SELF_PICKUP | VAN_BREAKDOWN | ACCESS_ISSUE | CUSTOMER_REFUSED | WEATHER | OTHER
-  photoUrl        String?  // Optional photo evidence
+  photoKey        String?  // Optional photo evidence (Wasabi object key)
   deliveredAt     DateTime?  // Set when delivery is COMPLETED or EMPTY_ONLY
   rescheduledTo DateTime?
   editUnlockedBy      String?    // userId of staff/admin who unlocked edit

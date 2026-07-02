@@ -10,6 +10,7 @@ import type { DeliveryItem } from '@water-supply-crm/types';
 import { useUpdateDeliveryItem, useCustomerFinancialSummary } from '../hooks/use-daily-sheets';
 import { useReportDamage } from '../../driver/hooks/use-damage-cases';
 import { DamagePhotoUpload } from '../../driver/components/damage-photo-upload';
+import { DeliveryFailurePhotoCapture } from './delivery-failure-photo-capture';
 
 const FAILURE_CATEGORIES = [
   { value: 'CUSTOMER_NOT_HOME', label: 'Customer Not Home' },
@@ -61,6 +62,7 @@ export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: 
   const [deliveryMode, setDeliveryMode] = useState<'delivered' | 'unable'>('delivered');
   const [failureCategory, setFailureCategory] = useState('CUSTOMER_NOT_HOME');
   const [unableReason, setUnableReason] = useState('');
+  const [photoKey, setPhotoKey] = useState<string | null>(null);
   const [itemForm, setItemForm] = useState<Partial<DeliveryItem>>({});
 
   // Damage state
@@ -86,6 +88,7 @@ export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: 
     setDeliveryMode(item.status === 'PENDING' ? 'delivered' : isUnable ? 'unable' : 'delivered');
     setFailureCategory(item.failureCategory ?? 'CUSTOMER_NOT_HOME');
     setUnableReason(item.reason ?? '');
+    setPhotoKey(item.photoKey ?? null);
     setShowDamage(false);
     setDamageForm({ caseType: 'DAMAGE', bottleCount: 1, photoKeys: [], description: '', lossReason: 'CUSTOMER_NOT_RETURNED' });
     const isFirst = item.status === 'PENDING';
@@ -152,6 +155,7 @@ export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: 
           emptyReceived: 0,
           cashCollected: 0,
           reason: unableReason || undefined,
+          photoKey: photoKey || undefined,
           forceResubmit: !isFirstRecord,
         };
     updateItem(
@@ -499,6 +503,9 @@ export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: 
               readOnly={readOnly}
             />
           </div>
+          {!readOnly && (
+            <DeliveryFailurePhotoCapture photoKey={photoKey} onPhotoChange={setPhotoKey} />
+          )}
           {!readOnly && (
             <p className="text-[11px] text-muted-foreground bg-blue-500/5 border border-blue-500/20 rounded-xl px-3 py-2">
               This reports an issue for ops planning. Drivers cannot reschedule or cancel from this screen.

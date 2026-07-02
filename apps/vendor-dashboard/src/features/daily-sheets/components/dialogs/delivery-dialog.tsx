@@ -11,6 +11,7 @@ import type { DeliveryItem } from '@water-supply-crm/types';
 import { useUpdateDeliveryItem } from '../../hooks/use-daily-sheets';
 import { useReportDamage } from '../../../driver/hooks/use-damage-cases';
 import { DamagePhotoUpload } from '../../../driver/components/damage-photo-upload';
+import { DeliveryFailurePhotoCapture } from '../delivery-failure-photo-capture';
 
 const FAILURE_CATEGORIES = [
   { value: 'CUSTOMER_NOT_HOME', label: 'Customer Not Home' },
@@ -38,6 +39,7 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
   const [deliveryMode, setDeliveryMode] = useState<'delivered' | 'unable'>('delivered');
   const [failureCategory, setFailureCategory] = useState('CUSTOMER_NOT_HOME');
   const [unableReason, setUnableReason] = useState('');
+  const [photoKey, setPhotoKey] = useState<string | null>(null);
   const [itemForm, setItemForm] = useState<Partial<DeliveryItem>>({});
   const [awaitingConfirm, setAwaitingConfirm] = useState(false);
 
@@ -69,6 +71,7 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
     setDeliveryMode(item.status === 'PENDING' ? 'delivered' : isUnable ? 'unable' : 'delivered');
     setFailureCategory(item.failureCategory ?? 'CUSTOMER_NOT_HOME');
     setUnableReason(item.reason ?? '');
+    setPhotoKey(item.photoKey ?? null);
     setAwaitingConfirm(false);
     setShowDamage(false);
     setDamageForm({ caseType: 'DAMAGE', bottleCount: 1, photoKeys: [], description: '', lossReason: 'CUSTOMER_NOT_RETURNED' });
@@ -126,6 +129,7 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
           emptyReceived: 0,
           cashCollected: 0,
           reason: unableReason || undefined,
+          photoKey: photoKey || undefined,
           forceResubmit: !isFirstRecord,
         };
     updateItem(
@@ -186,8 +190,11 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
                 </div>
               )}
               {deliveryMode === 'unable' && (
-                <div className="rounded-xl bg-background/70 border border-border/40 px-3 py-2">
+                <div className="rounded-xl bg-background/70 border border-border/40 px-3 py-2 space-y-1">
                   <p className="text-xs text-muted-foreground">Reason: <span className="font-bold">{failureCategory.replace(/_/g, ' ')}</span></p>
+                  {photoKey && (
+                    <p className="text-xs text-emerald-600 dark:text-emerald-400 font-bold">Photo attached ✓</p>
+                  )}
                 </div>
               )}
               {deliveryMode === 'delivered'
@@ -490,6 +497,7 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
                   className="h-11"
                 />
               </div>
+              <DeliveryFailurePhotoCapture photoKey={photoKey} onPhotoChange={setPhotoKey} />
               <p className="text-[11px] text-muted-foreground bg-blue-500/5 border border-blue-500/20 rounded-xl px-3 py-2">
                 This reports an issue for ops planning. Drivers cannot reschedule or cancel from this screen.
               </p>

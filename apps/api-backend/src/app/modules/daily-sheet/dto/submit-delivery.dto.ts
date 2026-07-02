@@ -1,4 +1,4 @@
-import { IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, IsString, IsUrl, Min } from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 import { DeliveryStatus } from '@prisma/client';
 
 export class SubmitDeliveryDto {
@@ -26,8 +26,8 @@ export class SubmitDeliveryDto {
   failureCategory?: string;
 
   @IsOptional()
-  @IsUrl()
-  photoUrl?: string;
+  @IsString()
+  photoKey?: string;
 
   @IsOptional()
   @IsBoolean()

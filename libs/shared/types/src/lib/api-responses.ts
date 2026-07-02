@@ -174,7 +174,7 @@ export interface DeliveryItem {
   cashCollected: number;
   reason?: string | null;
   failureCategory?: string | null;
-  photoUrl?: string | null;
+  photoKey?: string | null;
   pricePerBottle?: number;
   lastFilledDropped?: number | null;
   deliveredAt?: string | null;

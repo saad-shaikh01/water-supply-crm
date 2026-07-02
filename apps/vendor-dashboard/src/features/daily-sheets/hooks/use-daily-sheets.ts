@@ -327,6 +327,23 @@ export const useNoteAudioUrl = (noteId: string, enabled: boolean) => {
   });
 };
 
+export const useDeliveryPhotoUrl = (itemId: string, enabled: boolean) => {
+  return useQuery({
+    queryKey: ['delivery-photo-url', itemId],
+    queryFn: (): Promise<{ signedUrl: string }> =>
+      dailySheetsApi.getDeliveryPhotoUrl(itemId).then((r) => r.data),
+    enabled: enabled && !!itemId,
+    staleTime: 1000 * 60 * 10, // 10 min (signed URL valid for 15 min)
+    gcTime: 1000 * 60 * 12,
+  });
+};
+
+export const useUploadDeliveryPhoto = () => {
+  return useMutation({
+    mutationFn: (file: File) => dailySheetsApi.uploadDeliveryPhoto(file),
+  });
+};
+
 export const usePreviewBulkImport = (sheetId: string) => {
   return useMutation({
     mutationFn: (file: File): Promise<SheetImportPreviewResponse> =>

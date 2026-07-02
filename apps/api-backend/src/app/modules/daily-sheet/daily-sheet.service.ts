@@ -165,7 +165,7 @@ export class DailySheetService {
           cashCollected: dto.cashCollected,
           reason: dto.reason,
           failureCategory: dto.failureCategory,
-          photoUrl: dto.photoUrl,
+          photoKey: dto.photoKey,
           pricePerBottle: price,
           ...(resolvedStatus === DeliveryStatus.COMPLETED || resolvedStatus === DeliveryStatus.EMPTY_ONLY
             ? { deliveredAt: new Date() }
@@ -1621,6 +1621,21 @@ export class DailySheetService {
       throw new BadRequestException('This note does not have a voice recording');
     }
     const signedUrl = await this.storage.getSignedUrl(note.audioKey, 900);
+    return { signedUrl };
+  }
+
+  async getDeliveryPhotoUrl(vendorId: string, itemId: string) {
+    const item = await this.prisma.dailySheetItem.findUnique({
+      where: { id: itemId },
+      include: { dailySheet: { select: { vendorId: true } } },
+    });
+    if (!item || item.dailySheet.vendorId !== vendorId) {
+      throw new NotFoundException('Delivery item not found');
+    }
+    if (!item.photoKey) {
+      throw new BadRequestException('This delivery item does not have a photo attached');
+    }
+    const signedUrl = await this.storage.getSignedUrl(item.photoKey, 900);
     return { signedUrl };
   }
 }

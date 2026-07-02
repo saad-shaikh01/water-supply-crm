@@ -14,12 +14,14 @@
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
+import { extname } from 'path';
 import { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { UserRole } from '@prisma/client';
 import { DailySheetService } from './daily-sheet.service';
 import { DailySheetPdfService } from './pdf/daily-sheet-pdf.service';
 import { BulkImportService } from './bulk-import.service';
+import { StorageService } from '../../common/storage/storage.service';
 import { BulkImportConfirmDto } from './dto/bulk-import-confirm.dto';
 import { GlobalImportConfirmDto } from './dto/global-import-confirm.dto';
 import { GenerateSheetsDto } from './dto/generate-sheets.dto';
@@ -46,6 +48,7 @@ const ALLOWED_EXCEL_MIMES = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.ms-excel',
 ];
+const ALLOWED_DELIVERY_PHOTO_EXTS = ['.jpg', '.jpeg', '.png', '.webp'];
 
 @Controller('daily-sheets')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -54,6 +57,7 @@ export class DailySheetController {
     private readonly dailySheetService: DailySheetService,
     private readonly pdfService: DailySheetPdfService,
     private readonly bulkImportService: BulkImportService,
+    private readonly storage: StorageService,
   ) {}
 
   // ── Static routes MUST come before /:id ──────────────────────────────
@@ -105,6 +109,38 @@ export class DailySheetController {
 
   // ── Delivery Item Notes ───────────────────────────────────────────────────
   // Static note routes MUST come before items/:id to avoid NestJS shadowing.
+
+  /**
+   * POST /daily-sheets/items/upload-photo
+   * Upload a single "unable to deliver" evidence photo to Wasabi.
+   * Returns { key } — store the key in SubmitDeliveryDto.photoKey.
+   */
+  @Post('items/upload-photo')
+  @Roles(UserRole.DRIVER, UserRole.STAFF, UserRole.VENDOR_ADMIN)
+  @Throttle({ short: { ttl: 2000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+      fileFilter: (_req, file, cb) => {
+        if (ALLOWED_DELIVERY_PHOTO_EXTS.includes(extname(file.originalname).toLowerCase())) {
+          cb(null, true);
+        } else {
+          cb(new Error('Only JPG, PNG, WEBP images are allowed for delivery photos'), false);
+        }
+      },
+    }),
+  )
+  async uploadDeliveryPhoto(@UploadedFile() file?: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file provided');
+    const { key } = await this.storage.upload(
+      'delivery-photos',
+      file.buffer,
+      file.originalname,
+      file.mimetype,
+    );
+    return { key };
+  }
 
   @Get('items/:id/notes')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
@@ -161,6 +197,12 @@ export class DailySheetController {
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
   getNoteAudioUrl(@CurrentUser() user: AuthUser, @Param('noteId') noteId: string) {
     return this.dailySheetService.getNoteAudioUrl(user.vendorId, noteId);
+  }
+
+  @Get('items/:id/photo-url')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  getDeliveryPhotoUrl(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.dailySheetService.getDeliveryPhotoUrl(user.vendorId, id);
   }
 
   @Patch('items/:id/unlock-edit')

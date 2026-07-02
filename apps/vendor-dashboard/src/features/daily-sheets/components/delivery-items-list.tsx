@@ -2,17 +2,17 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Card, CardContent, Button, Badge, Tabs, TabsList, TabsTrigger, Skeleton } from '@water-supply-crm/ui';
+import { Card, CardContent, Button, Badge, Tabs, TabsList, TabsTrigger, Skeleton, Dialog, DialogContent, DialogHeader, DialogTitle } from '@water-supply-crm/ui';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import {
-  AlertCircle, ChevronDown, ChevronUp, ClipboardList,
+  AlertCircle, Camera, ChevronDown, ChevronUp, ClipboardList,
   History, LocateFixed, Lock, Loader2, MapPin, MessageCircle, MessageSquare, Navigation, Phone, Send, StickyNote, Unlock,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import type { DeliveryItem } from '@water-supply-crm/types';
-import { useCustomerDeliveryHistory } from '../hooks/use-daily-sheets';
+import { useCustomerDeliveryHistory, useDeliveryPhotoUrl } from '../hooks/use-daily-sheets';
 import { reverseGeocode } from '../../../lib/geocoding';
 import { DeliveryRecordForm } from './delivery-record-form';
 import { AddNoteDialog } from './add-note-dialog';
@@ -170,6 +170,7 @@ export function DeliveryItemsList({
 }: DeliveryItemsListProps) {
   const [savingLocationItemId, setSavingLocationItemId] = useState<string | null>(null);
   const [addNoteItem, setAddNoteItem] = useState<DeliveryItem | null>(null);
+  const [viewPhotoItemId, setViewPhotoItemId] = useState<string | null>(null);
 
   const handleGpsCapture = (item: DeliveryItem) => {
     if (!navigator.geolocation) {
@@ -610,12 +611,24 @@ export function DeliveryItemsList({
                           </div>
 
                           {item.failureCategory && (
-                            <div className="flex items-start gap-2 text-xs bg-destructive/5 rounded-xl px-3 py-2 border border-destructive/20">
-                              <AlertCircle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
-                              <div>
-                                <span className="font-bold text-destructive">{formatCategory(item.failureCategory)}</span>
-                                {item.reason && <span className="text-muted-foreground"> · {item.reason}</span>}
+                            <div className="flex items-start justify-between gap-2 text-xs bg-destructive/5 rounded-xl px-3 py-2 border border-destructive/20">
+                              <div className="flex items-start gap-2">
+                                <AlertCircle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
+                                <div>
+                                  <span className="font-bold text-destructive">{formatCategory(item.failureCategory)}</span>
+                                  {item.reason && <span className="text-muted-foreground"> · {item.reason}</span>}
+                                </div>
                               </div>
+                              {item.photoKey && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); setViewPhotoItemId(item.id); }}
+                                  className="flex items-center gap-1 shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
+                                >
+                                  <Camera className="h-3.5 w-3.5" />
+                                  View Photo
+                                </button>
+                              )}
                             </div>
                           )}
                           {!item.failureCategory && item.reason && (
@@ -743,6 +756,41 @@ export function DeliveryItemsList({
           sequence={addNoteItem.sequence}
         />
       )}
+
+      {viewPhotoItemId && (
+        <DeliveryPhotoViewDialog
+          itemId={viewPhotoItemId}
+          onClose={() => setViewPhotoItemId(null)}
+        />
+      )}
     </div>
+  );
+}
+
+function DeliveryPhotoViewDialog({ itemId, onClose }: { itemId: string; onClose: () => void }) {
+  const { data, isLoading } = useDeliveryPhotoUrl(itemId, !!itemId);
+
+  return (
+    <Dialog open={!!itemId} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="rounded-3xl max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="text-lg font-black">Delivery Photo</DialogTitle>
+        </DialogHeader>
+        <div className="flex items-center justify-center min-h-[200px]">
+          {isLoading ? (
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          ) : data?.signedUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={data.signedUrl}
+              alt="Delivery failure evidence"
+              className="max-h-[70vh] w-full object-contain rounded-xl"
+            />
+          ) : (
+            <p className="text-sm text-muted-foreground">Photo not available</p>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
