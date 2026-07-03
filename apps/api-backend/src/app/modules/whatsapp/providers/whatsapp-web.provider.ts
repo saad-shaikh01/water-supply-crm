@@ -31,6 +31,9 @@ export class WhatsAppWebProvider
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
       // @ts-ignore — optional peer dependency, installed separately
       const QRCode = await import(/* webpackIgnore: true */ 'qrcode');
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore — optional peer dependency, installed separately
+      const qrcodeTerminal = await import(/* webpackIgnore: true */ 'qrcode-terminal');
 
       this.client = new Client({
         authStrategy: new LocalAuth({
@@ -57,6 +60,11 @@ export class WhatsAppWebProvider
 
       this.client.on('qr', async (qr: string) => {
         this.logger.log('📱 WhatsApp QR Code generated — Scan with your phone!');
+        try {
+          (qrcodeTerminal.default ?? qrcodeTerminal).generate(qr, { small: true });
+        } catch {
+          // terminal QR is best-effort; dashboard QR below is the fallback
+        }
         try {
           this.qrDataUrl = await QRCode.default.toDataURL(qr);
         } catch {

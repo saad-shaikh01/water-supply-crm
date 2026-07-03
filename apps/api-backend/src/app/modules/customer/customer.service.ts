@@ -154,7 +154,7 @@ export class CustomerService {
   }
 
   async findAllPaginated(vendorId: string, query: CustomerQueryDto) {
-    const { page = 1, limit = 20, search, routeId, paymentType, isActive, balanceMin, balanceMax, sort = 'name', sortDir = 'asc' } = query;
+    const { page = 1, limit = 20, search, routeId, paymentType, vanId, dayOfWeek, isActive, balanceMin, balanceMax, sort = 'name', sortDir = 'asc' } = query;
 
     // Filter by status only when explicitly requested. When no isActive param is
     // sent (the "All Status" option in the UI), return both active and inactive
@@ -176,6 +176,18 @@ export class CustomerService {
 
     if (paymentType) {
       where.paymentType = paymentType;
+    }
+
+    // Van/day filters match against the per-day delivery schedule. When both
+    // are set, require a single schedule entry satisfying both (that van on
+    // that day), not separate entries.
+    if (vanId || dayOfWeek !== undefined) {
+      where.deliverySchedules = {
+        some: {
+          ...(vanId ? { vanId } : {}),
+          ...(dayOfWeek !== undefined ? { dayOfWeek } : {}),
+        },
+      };
     }
 
     if (balanceMin !== undefined || balanceMax !== undefined) {

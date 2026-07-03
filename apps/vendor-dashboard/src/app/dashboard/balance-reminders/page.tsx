@@ -25,6 +25,7 @@ import {
   useReminderHistory,
 } from '../../../features/balance-reminders/hooks/use-balance-reminders';
 import { useAllCustomers } from '../../../features/customers/hooks/use-customers';
+import { useAllVans } from '../../../features/vans/hooks/use-vans';
 import { cn } from '@water-supply-crm/ui';
 
 const PRESETS = [
@@ -32,6 +33,15 @@ const PRESETS = [
   { label: 'Weekly Monday 9 AM', value: '0 4 * * 1' },
   { label: 'Monthly 1st at 9 AM', value: '0 4 1 * *' },
   { label: 'Custom', value: 'custom' },
+];
+
+const WEEKDAYS = [
+  { label: 'Monday', value: '1' },
+  { label: 'Tuesday', value: '2' },
+  { label: 'Wednesday', value: '3' },
+  { label: 'Thursday', value: '4' },
+  { label: 'Friday', value: '5' },
+  { label: 'Saturday', value: '6' },
 ];
 
 function currentMonth() {
@@ -53,6 +63,7 @@ export default function BalanceRemindersPage() {
   const { mutate: sendTargeted, isPending: isSending } = useSendTargeted();
   const { mutate: preview, isPending: isPreviewing, data: previewData, reset: resetPreview } = usePreviewReminders();
   const { data: allCustomersData } = useAllCustomers();
+  const { data: allVansData } = useAllVans();
   const { data: waStatus } = useWhatsAppStatus();
   const isDisconnected = waStatus?.status === 'disconnected';
   const { data: qrData } = useWhatsAppQr(isDisconnected);
@@ -71,6 +82,8 @@ export default function BalanceRemindersPage() {
   const [includeStatement, setIncludeStatement] = useState(false);
   const [minBalance, setMinBalance] = useState('100');
   const [paymentTypeFilter, setPaymentTypeFilter] = useState<PaymentTypeFilter>('BOTH');
+  const [vanFilter, setVanFilter] = useState('all');
+  const [dayFilter, setDayFilter] = useState('all');
   const [showPreview, setShowPreview] = useState(false);
   const [forceOverride, setForceOverride] = useState(false);
   const [historyPage, setHistoryPage] = useState(1);
@@ -107,17 +120,19 @@ export default function BalanceRemindersPage() {
   const selectedCustomer = allCustomers.find((c: any) => c.id === selectedCustomerId);
 
   const resolvedPaymentType = paymentTypeFilter === 'BOTH' ? undefined : paymentTypeFilter;
+  const resolvedVanId = vanFilter === 'all' ? undefined : vanFilter;
+  const resolvedDayOfWeek = dayFilter === 'all' ? undefined : Number(dayFilter);
 
   const buildSendPayload = (dryRun = false) => {
     const base = { mode: sendMode, month, includeStatement, dryRun, force: forceOverride, paymentType: resolvedPaymentType };
     if (sendMode === 'single') return { ...base, customerIds: [selectedCustomerId] };
-    return { ...base, minBalance: Number(minBalance) };
+    return { ...base, minBalance: Number(minBalance), vanId: resolvedVanId, dayOfWeek: resolvedDayOfWeek };
   };
 
   const buildPreviewPayload = () => {
     const base = { mode: sendMode, month, includeStatement, paymentType: resolvedPaymentType };
     if (sendMode === 'single') return { ...base, customerIds: [selectedCustomerId] };
-    return { ...base, minBalance: Number(minBalance) };
+    return { ...base, minBalance: Number(minBalance), vanId: resolvedVanId, dayOfWeek: resolvedDayOfWeek };
   };
 
   const handlePreview = () => {
@@ -403,6 +418,53 @@ export default function BalanceRemindersPage() {
                   <p className="text-[10px] text-muted-foreground ml-1">
                     {paymentTypeFilter === 'BOTH' ? 'All active customers with balance ≥ threshold.' : `Only ${paymentTypeFilter.toLowerCase()} customers.`}
                   </p>
+                </div>
+              )}
+
+              {/* Van + delivery day filters (eligible mode only) */}
+              {sendMode === 'eligible' && (
+                <div className="grid grid-cols-2 gap-3 animate-in fade-in slide-in-from-top-2">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Van</Label>
+                    <Select
+                      value={vanFilter}
+                      onValueChange={(v) => { setVanFilter(v); setShowPreview(false); resetPreview(); }}
+                    >
+                      <SelectTrigger className="bg-accent/30 border-border/50 h-11 rounded-xl">
+                        <SelectValue placeholder="All vans" />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-xl border-border shadow-2xl max-h-64">
+                        <SelectItem value="all">All Vans</SelectItem>
+                        {(((allVansData as any)?.data ?? []) as any[]).map((v: any) => (
+                          <SelectItem key={v.id} value={v.id}>{v.plateNumber}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Delivery Day</Label>
+                    <Select
+                      value={dayFilter}
+                      onValueChange={(v) => { setDayFilter(v); setShowPreview(false); resetPreview(); }}
+                    >
+                      <SelectTrigger className="bg-accent/30 border-border/50 h-11 rounded-xl">
+                        <SelectValue placeholder="All days" />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-xl border-border shadow-2xl">
+                        <SelectItem value="all">All Days</SelectItem>
+                        {WEEKDAYS.map((d) => (
+                          <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {(vanFilter !== 'all' || dayFilter !== 'all') && (
+                    <p className="text-[10px] text-muted-foreground ml-1 col-span-2">
+                      Only customers scheduled
+                      {vanFilter !== 'all' ? ` on van ${(((allVansData as any)?.data ?? []) as any[]).find((v: any) => v.id === vanFilter)?.plateNumber ?? ''}` : ''}
+                      {dayFilter !== 'all' ? ` for ${WEEKDAYS.find((d) => d.value === dayFilter)?.label}` : ''} deliveries.
+                    </p>
+                  )}
                 </div>
               )}
 

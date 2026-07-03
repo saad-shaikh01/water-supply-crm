@@ -16,6 +16,8 @@ export interface SendTargetedPayload {
   month?: string;
   includeStatement?: boolean;
   paymentType?: PaymentTypeFilter;
+  vanId?: string;
+  dayOfWeek?: number;
 }
 
 export interface PreviewPayload {
@@ -25,6 +27,8 @@ export interface PreviewPayload {
   month?: string;
   includeStatement?: boolean;
   paymentType?: PaymentTypeFilter;
+  vanId?: string;
+  dayOfWeek?: number;
 }
 
 export const balanceRemindersApi = {

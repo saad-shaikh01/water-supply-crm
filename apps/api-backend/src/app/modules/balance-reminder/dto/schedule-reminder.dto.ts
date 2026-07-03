@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsOptional, Min, IsBoolean, IsIn, IsArray, ArrayMinSize, Matches, IsNotEmpty } from 'class-validator';
+import { IsString, IsNumber, IsOptional, Min, Max, IsInt, IsBoolean, IsIn, IsArray, ArrayMinSize, Matches, IsNotEmpty } from 'class-validator';
 
 export class ScheduleReminderDto {
   /**
@@ -61,6 +61,18 @@ export class SendNowDto {
   @IsOptional()
   @IsIn(['MONTHLY', 'CASH'])
   paymentType?: 'MONTHLY' | 'CASH';
+
+  /** Restrict to customers assigned to this van (via delivery schedule) */
+  @IsOptional()
+  @IsString()
+  vanId?: string;
+
+  /** Restrict to customers with a delivery on this weekday (1=Mon … 6=Sat) */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(6)
+  dayOfWeek?: number;
 }
 
 export class PreviewDto {
@@ -103,6 +115,18 @@ export class PreviewDto {
   @IsOptional()
   @IsIn(['MONTHLY', 'CASH'])
   paymentType?: 'MONTHLY' | 'CASH';
+
+  /** Restrict to customers assigned to this van (via delivery schedule) */
+  @IsOptional()
+  @IsString()
+  vanId?: string;
+
+  /** Restrict to customers with a delivery on this weekday (1=Mon … 6=Sat) */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(6)
+  dayOfWeek?: number;
 }
 
 export class SendTargetedDto {
@@ -170,4 +194,16 @@ export class SendTargetedDto {
   @IsOptional()
   @IsIn(['MONTHLY', 'CASH'])
   paymentType?: 'MONTHLY' | 'CASH';
+
+  /** Restrict to customers assigned to this van (via delivery schedule) */
+  @IsOptional()
+  @IsString()
+  vanId?: string;
+
+  /** Restrict to customers with a delivery on this weekday (1=Mon … 6=Sat) */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(6)
+  dayOfWeek?: number;
 }

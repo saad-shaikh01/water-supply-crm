@@ -19,6 +19,9 @@ const cooldownKey = (vendorId: string, customerId: string) => `balance-reminder-
 /** Signed statement URL is valid for 7 days — long enough for customer to act */
 const STATEMENT_URL_TTL_SECONDS = 7 * 24 * 60 * 60;
 
+/** Pause between consecutive WhatsApp sends — avoids burst pattern that triggers Meta anti-spam */
+const SEND_DELAY_MS = 5000;
+
 /** Stable response shape returned by all schedule-related endpoints */
 export interface ReminderScheduleStatus {
   vendorId: string;
@@ -120,6 +123,8 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       dto.paymentType,
       false,
       'manual',
+      dto.vanId,
+      dto.dayOfWeek,
     );
   }
 
@@ -133,7 +138,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     const endDate = this.monthEndDate(month);
 
     if (dto.mode === 'eligible') {
-      return this.processVendorReminders(vendorId, minBalance, dryRun, month, includeStatement, paymentType, force, 'manual');
+      return this.processVendorReminders(vendorId, minBalance, dryRun, month, includeStatement, paymentType, force, 'manual', dto.vanId, dto.dayOfWeek);
     }
 
     const customerIds = dto.customerIds ?? [];
@@ -157,7 +162,8 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     let skipped = 0;
     const results: Array<{ customerId: string; name: string; balance: number; status: string; statementUrl?: string | null }> = [];
 
-    for (const customer of customers) {
+    for (let i = 0; i < customers.length; i++) {
+      const customer = customers[i];
       const monthBalance = monthEndBalances.get(customer.id) ?? customer.financialBalance;
       let statementUrl: string | null = null;
 
@@ -192,6 +198,10 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
         sent++;
       } else { skipped++; }
       results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: messageSent ? 'sent' : 'failed', statementUrl });
+
+      if (i < customers.length - 1) {
+        await this.sleep(SEND_DELAY_MS);
+      }
     }
 
     this.logger.log(`Targeted reminders vendor=${vendorId} mode=${dto.mode} sent=${sent} skipped=${skipped} dryRun=${dryRun} force=${force} month=${month}`);
@@ -214,7 +224,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     const endDate = this.monthEndDate(month);
 
     const whereBase = mode === 'eligible'
-      ? { vendorId, ...(paymentType ? { paymentType } : {}) }
+      ? { vendorId, ...(paymentType ? { paymentType } : {}), ...this.scheduleFilter(dto.vanId, dto.dayOfWeek) }
       : { id: { in: dto.customerIds ?? [] }, vendorId };
 
     const candidates = await this.prisma.customer.findMany({
@@ -277,6 +287,8 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     paymentType?: 'MONTHLY' | 'CASH',
     force = false,
     trigger: 'cron' | 'manual' = 'cron',
+    vanId?: string,
+    dayOfWeek?: number,
   ) {
     const targetMonth = month ?? this.currentMonth();
     const endDate = this.monthEndDate(targetMonth);
@@ -287,6 +299,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       where: {
         vendorId,
         ...(paymentType ? { paymentType } : {}),
+        ...this.scheduleFilter(vanId, dayOfWeek),
         isActive: true,
         phoneNumber: { not: '' },
       },
@@ -314,7 +327,8 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     let skipped = 0;
     const results: Array<{ customerId: string; name: string; balance: number; status: string; statementUrl?: string | null }> = [];
 
-    for (const customer of eligible) {
+    for (let i = 0; i < eligible.length; i++) {
+      const customer = eligible[i];
       const monthBalance = monthEndBalances.get(customer.id) ?? customer.financialBalance;
       let statementUrl: string | null = null;
 
@@ -351,6 +365,10 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
         skipped++;
       }
       results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: messageSent ? 'sent' : 'failed', statementUrl });
+
+      if (i < eligible.length - 1) {
+        await this.sleep(SEND_DELAY_MS);
+      }
     }
 
     this.logger.log(`Balance reminders vendor=${vendorId} sent=${sent} skipped=${skipped} dryRun=${dryRun} force=${force} month=${targetMonth} includeStatement=${includeStatement}`);
@@ -381,6 +399,27 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
+
+  /**
+   * Prisma where-fragment restricting customers by their delivery schedule.
+   * vanId and dayOfWeek combine into a single `some` so both must match the SAME
+   * schedule entry (e.g. "Van A on Monday", not "Van A any day AND any van Monday").
+   */
+  private scheduleFilter(vanId?: string, dayOfWeek?: number) {
+    if (!vanId && !dayOfWeek) return {};
+    return {
+      deliverySchedules: {
+        some: {
+          ...(vanId ? { vanId } : {}),
+          ...(dayOfWeek ? { dayOfWeek } : {}),
+        },
+      },
+    };
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
 
   /**
    * Batch-calculates the balance each customer had at the END of the given month.
