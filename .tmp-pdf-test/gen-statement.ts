@@ -34,7 +34,7 @@ async function main() {
 
   const openingBalance = 0;
   const periodActivity = transactions.reduce((s, t) => s + t.amount, 0);
-  const closingBalance = openingBalance + periodActivity;
+  const closingBalance = openingBalance + periodActivity - 1070; // force a credit (overpaid) balance to test the fix
 
   const buffer = await svc.generate({
     customer,

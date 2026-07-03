@@ -73,6 +73,12 @@ export class SendNowDto {
   @Min(1)
   @Max(6)
   dayOfWeek?: number;
+
+  /** Customer IDs manually excluded from this send (hand-picked in preview) */
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  excludeCustomerIds?: string[];
 }
 
 export class PreviewDto {
@@ -128,6 +134,8 @@ export class PreviewDto {
   @Max(6)
   dayOfWeek?: number;
 }
+
+// (PreviewDto needs no excludeCustomerIds — exclusion is picked client-side from preview results)
 
 export class SendTargetedDto {
   /**
@@ -206,4 +214,10 @@ export class SendTargetedDto {
   @Min(1)
   @Max(6)
   dayOfWeek?: number;
+
+  /** Customer IDs manually excluded from this send (hand-picked in preview) */
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  excludeCustomerIds?: string[];
 }

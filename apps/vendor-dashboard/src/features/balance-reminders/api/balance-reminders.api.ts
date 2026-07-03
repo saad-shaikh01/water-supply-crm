@@ -18,6 +18,7 @@ export interface SendTargetedPayload {
   paymentType?: PaymentTypeFilter;
   vanId?: string;
   dayOfWeek?: number;
+  excludeCustomerIds?: string[];
 }
 
 export interface PreviewPayload {

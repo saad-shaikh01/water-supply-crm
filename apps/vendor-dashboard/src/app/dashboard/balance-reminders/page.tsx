@@ -45,6 +45,26 @@ const WEEKDAYS = [
   { label: 'Saturday', value: '6' },
 ];
 
+const REASON_LABELS: Record<string, string> = {
+  'would-send': 'WILL SEND',
+  'skipped-cooldown': 'COOLDOWN',
+  'skipped-no-phone': 'NO PHONE',
+  'skipped-low-balance': 'LOW BALANCE',
+  'skipped-inactive': 'INACTIVE',
+  'skipped-new-customer': 'NEW CUSTOMER',
+  'skipped-excluded': 'EXCLUDED',
+};
+
+const REASON_STYLES: Record<string, string> = {
+  'would-send': 'bg-emerald-500/10 text-emerald-400',
+  'skipped-cooldown': 'bg-amber-500/10 text-amber-400',
+  'skipped-no-phone': 'bg-destructive/10 text-destructive',
+  'skipped-low-balance': 'bg-white/10 text-muted-foreground',
+  'skipped-inactive': 'bg-white/10 text-muted-foreground',
+  'skipped-new-customer': 'bg-blue-500/10 text-blue-400',
+  'skipped-excluded': 'bg-violet-500/10 text-violet-400',
+};
+
 function currentMonth() {
   return new Date().toISOString().slice(0, 7);
 }
@@ -86,6 +106,9 @@ export default function BalanceRemindersPage() {
   const [vanFilter, setVanFilter] = useState('all');
   const [dayFilter, setDayFilter] = useState('all');
   const [showPreview, setShowPreview] = useState(false);
+  const [previewTab, setPreviewTab] = useState<'send' | 'skipped'>('send');
+  const [previewSearch, setPreviewSearch] = useState('');
+  const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
   const [forceOverride, setForceOverride] = useState(false);
   const [historyPage, setHistoryPage] = useState(1);
   const { data: historyData, isLoading: isHistoryLoading } = useReminderHistory(historyPage, 8);
@@ -121,7 +144,6 @@ export default function BalanceRemindersPage() {
     });
 
   const allCustomers: any[] = (allCustomersData as any)?.data ?? [];
-  const selectedCustomer = allCustomers.find((c: any) => c.id === selectedCustomerId);
 
   const resolvedPaymentType = paymentTypeFilter === 'BOTH' ? undefined : paymentTypeFilter;
   const resolvedVanId = vanFilter === 'all' ? undefined : vanFilter;
@@ -130,7 +152,13 @@ export default function BalanceRemindersPage() {
   const buildSendPayload = (dryRun = false) => {
     const base = { mode: sendMode, month, includeStatement, dryRun, force: forceOverride, paymentType: resolvedPaymentType };
     if (sendMode === 'single') return { ...base, customerIds: [selectedCustomerId] };
-    return { ...base, minBalance: Number(minBalance), vanId: resolvedVanId, dayOfWeek: resolvedDayOfWeek };
+    return {
+      ...base,
+      minBalance: Number(minBalance),
+      vanId: resolvedVanId,
+      dayOfWeek: resolvedDayOfWeek,
+      excludeCustomerIds: excludedIds.size > 0 ? Array.from(excludedIds) : undefined,
+    };
   };
 
   const buildPreviewPayload = () => {
@@ -140,8 +168,20 @@ export default function BalanceRemindersPage() {
   };
 
   const handlePreview = () => {
+    setPreviewTab('send');
+    setPreviewSearch('');
+    setExcludedIds(new Set());
     setShowPreview(true);
     preview(buildPreviewPayload());
+  };
+
+  const toggleExcluded = (customerId: string) => {
+    setExcludedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(customerId)) next.delete(customerId);
+      else next.add(customerId);
+      return next;
+    });
   };
 
   const handleSend = () => {
@@ -156,6 +196,10 @@ export default function BalanceRemindersPage() {
   const canSend = sendMode === 'eligible' || (sendMode === 'single' && !!selectedCustomerId);
 
   const previewResult = (previewData as any)?.data;
+  const excludedInPreview = previewResult
+    ? ((previewResult.wouldSend ?? []) as any[]).filter((e) => excludedIds.has(e.customerId)).length
+    : 0;
+  const effectiveSendCount = previewResult ? previewResult.totalWouldSend - excludedInPreview : 0;
 
   return (
     <div className="space-y-8">
@@ -581,65 +625,6 @@ export default function BalanceRemindersPage() {
                 </button>
               </div>
 
-              {/* Preview panel */}
-              {showPreview && (
-                <div className="rounded-xl border border-border/50 overflow-hidden animate-in fade-in slide-in-from-top-2">
-                  <div className="px-3 py-2 bg-white/5 border-b border-border/50 flex items-center gap-2">
-                    <Info className="h-3.5 w-3.5 text-primary" />
-                    <span className="text-xs font-bold text-foreground dark:text-white uppercase tracking-wider">Preview</span>
-                    {isPreviewing && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground ml-auto" />}
-                  </div>
-                  <div className="p-3 space-y-2">
-                    {previewResult ? (
-                      <>
-                        {sendMode === 'single' && selectedCustomer && (
-                          <div className="text-xs space-y-1">
-                            <p className="text-foreground dark:text-white font-semibold">{selectedCustomer.name}</p>
-                            <p className="text-muted-foreground">
-                              Balance ({formatMonthDisplay(month)}): ₨{Number(
-                                ([...(previewResult.wouldSend ?? []), ...(previewResult.skipped ?? [])].find((e: any) => e.customerId === selectedCustomerId)?.balance)
-                                ?? selectedCustomer.financialBalance ?? 0
-                              ).toLocaleString()} &nbsp;·&nbsp;
-                              Phone: {selectedCustomer.phoneNumber || <span className="text-destructive">No phone</span>}
-                            </p>
-                            {includeStatement && (
-                              <p className="text-primary/80 text-[10px]">Statement PDF will be generated and linked for {formatMonthDisplay(month)}.</p>
-                            )}
-                          </div>
-                        )}
-                        {sendMode === 'eligible' && (
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-3 text-xs">
-                              <span className="text-emerald-400 font-bold">{previewResult.totalWouldSend} will receive</span>
-                              <span className="text-muted-foreground">{previewResult.totalSkipped} skipped</span>
-                            </div>
-                            {previewResult.totalSkipped > 0 && (
-                              <div className="text-[10px] text-muted-foreground space-y-0.5">
-                                {Object.entries(
-                                  (previewResult.skipped ?? []).reduce((acc: Record<string, number>, s: any) => {
-                                    acc[s.reason] = (acc[s.reason] ?? 0) + 1;
-                                    return acc;
-                                  }, {})
-                                ).map(([reason, count]) => (
-                                  <p key={reason}>{String(count)}× {reason.replace('skipped-', '').replace(/-/g, ' ')}</p>
-                                ))}
-                              </div>
-                            )}
-                            {includeStatement && (
-                              <p className="text-primary/80 text-[10px]">Statement PDFs will be generated for each recipient for {formatMonthDisplay(month)}.</p>
-                            )}
-                          </div>
-                        )}
-                      </>
-                    ) : isPreviewing ? (
-                      <p className="text-xs text-muted-foreground">Loading preview…</p>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">Preview unavailable.</p>
-                    )}
-                  </div>
-                </div>
-              )}
-
               {/* Validation warning for single mode */}
               {sendMode === 'single' && !selectedCustomerId && (
                 <div className="flex items-center gap-2 text-xs text-amber-400/80 px-1">
@@ -780,6 +765,165 @@ export default function BalanceRemindersPage() {
         </CardContent>
       </Card>
 
+      {/* Preview dialog */}
+      <Dialog open={showPreview} onOpenChange={(open) => { if (!open) { setShowPreview(false); resetPreview(); } }}>
+        <DialogContent className="rounded-3xl max-w-2xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Info className="h-4 w-4 text-primary" />
+              Preview — {formatMonthDisplay(month)}
+            </DialogTitle>
+          </DialogHeader>
+
+          {isPreviewing || !previewResult ? (
+            <div className="flex items-center justify-center py-12 gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading preview…
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4 overflow-hidden">
+              {/* Summary + skip-reason breakdown */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Badge className="bg-emerald-500/10 text-emerald-400 text-[10px] font-black px-2 border-none">
+                  {effectiveSendCount} WILL RECEIVE
+                </Badge>
+                {excludedInPreview > 0 && (
+                  <Badge className="bg-violet-500/10 text-violet-400 text-[10px] font-black px-2 border-none">
+                    {excludedInPreview} EXCLUDED BY YOU
+                  </Badge>
+                )}
+                {Object.entries(
+                  (previewResult.skipped ?? []).reduce((acc: Record<string, number>, s: any) => {
+                    acc[s.reason] = (acc[s.reason] ?? 0) + 1;
+                    return acc;
+                  }, {})
+                ).map(([reason, count]) => (
+                  <Badge key={reason} className={cn('text-[10px] font-black px-2 border-none', REASON_STYLES[reason] ?? 'bg-white/10 text-muted-foreground')}>
+                    {String(count)} {REASON_LABELS[reason] ?? reason.toUpperCase()}
+                  </Badge>
+                ))}
+                {includeStatement && (
+                  <Badge className="bg-primary/10 text-primary text-[10px] font-bold px-2 border-none">
+                    With Statement PDF
+                  </Badge>
+                )}
+              </div>
+
+              {/* Tabs */}
+              <div className="grid grid-cols-2 gap-2">
+                {(['send', 'skipped'] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setPreviewTab(t)}
+                    className={cn(
+                      'px-3 py-2 rounded-xl text-xs font-bold border transition-colors',
+                      previewTab === t
+                        ? 'bg-primary/15 border-primary/40 text-primary'
+                        : 'bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10',
+                    )}
+                  >
+                    {t === 'send' ? `Will Receive (${previewResult.totalWouldSend})` : `Skipped (${previewResult.totalSkipped})`}
+                  </button>
+                ))}
+              </div>
+
+              <Input
+                placeholder="Search by name, code or phone…"
+                value={previewSearch}
+                onChange={(e) => setPreviewSearch(e.target.value)}
+                className="bg-accent/30 border-border/50 h-9 rounded-xl text-xs"
+              />
+
+              {/* Customer list */}
+              <div className="overflow-y-auto rounded-xl border border-border/40 divide-y divide-border/20 min-h-0">
+                {((previewTab === 'send' ? previewResult.wouldSend : previewResult.skipped) ?? [])
+                  .filter((e: any) => {
+                    if (!previewSearch) return true;
+                    const q = previewSearch.toLowerCase();
+                    return (
+                      e.name?.toLowerCase().includes(q) ||
+                      e.customerCode?.toLowerCase().includes(q) ||
+                      e.phone?.toLowerCase().includes(q)
+                    );
+                  })
+                  .map((e: any) => {
+                    const isExcluded = excludedIds.has(e.customerId);
+                    return (
+                      <div
+                        key={e.customerId}
+                        className={cn(
+                          'flex items-center justify-between px-3 py-2 text-xs hover:bg-white/5',
+                          isExcluded && 'opacity-50',
+                        )}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className={cn('font-semibold text-foreground dark:text-white truncate', isExcluded && 'line-through')}>
+                            {e.name}
+                            {e.customerCode && <span className="ml-1.5 font-mono text-[10px] text-muted-foreground">({e.customerCode})</span>}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">
+                            ₨{Number(e.balance ?? 0).toLocaleString()}
+                            {' · '}{e.phone || <span className="text-destructive">no phone</span>}
+                            {' · '}{e.paymentType === 'MONTHLY' ? 'Monthly' : 'Cash'}
+                          </p>
+                        </div>
+                        <Badge className={cn(
+                          'text-[9px] font-black px-1.5 border-none flex-shrink-0 ml-3',
+                          isExcluded ? REASON_STYLES['skipped-excluded'] : (REASON_STYLES[e.reason] ?? 'bg-white/10 text-muted-foreground'),
+                        )}>
+                          {isExcluded ? 'EXCLUDED' : (REASON_LABELS[e.reason] ?? String(e.reason).toUpperCase())}
+                        </Badge>
+                        {previewTab === 'send' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => toggleExcluded(e.customerId)}
+                            className={cn(
+                              'h-6 px-2 ml-2 rounded-lg text-[10px] font-bold flex-shrink-0',
+                              isExcluded
+                                ? 'text-emerald-400 hover:text-emerald-400 hover:bg-emerald-500/10'
+                                : 'text-destructive hover:text-destructive hover:bg-destructive/10',
+                            )}
+                          >
+                            {isExcluded ? 'Undo' : 'Skip'}
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+                {((previewTab === 'send' ? previewResult.wouldSend : previewResult.skipped) ?? []).length === 0 && (
+                  <p className="text-xs text-muted-foreground italic py-6 text-center">
+                    {previewTab === 'send' ? 'No customers will receive this reminder.' : 'No customers were skipped.'}
+                  </p>
+                )}
+              </div>
+
+              {/* Footer actions */}
+              <div className="flex gap-2 pt-1">
+                <Button
+                  variant="outline"
+                  onClick={() => { setShowPreview(false); resetPreview(); }}
+                  className="flex-1 rounded-xl h-10 text-xs font-bold border-border/50 bg-white/5 hover:bg-white/10"
+                >
+                  Close
+                </Button>
+                <Button
+                  onClick={handleSend}
+                  disabled={isSending || effectiveSendCount === 0}
+                  className="flex-1 rounded-xl h-10 text-xs font-bold shadow-lg shadow-primary/20"
+                >
+                  {isSending ? (
+                    <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Sending…</>
+                  ) : (
+                    <><Send className="mr-1.5 h-3.5 w-3.5" /> Send to {effectiveSendCount}</>
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Send detail dialog */}
       <Dialog open={!!detailLogId} onOpenChange={(open) => { if (!open) setDetailLogId(null); }}>
         <DialogContent className="rounded-3xl max-w-2xl max-h-[85vh] flex flex-col">
@@ -869,11 +1013,11 @@ export default function BalanceRemindersPage() {
                           </div>
                           <Badge className={cn(
                             'text-[9px] font-black px-1.5 border-none flex-shrink-0 ml-3',
-                            d.status === 'sent' && 'bg-emerald-500/10 text-emerald-400',
-                            d.status === 'failed' && 'bg-destructive/10 text-destructive',
-                            d.status === 'skipped-cooldown' && 'bg-amber-500/10 text-amber-400',
+                            d.status === 'sent' ? 'bg-emerald-500/10 text-emerald-400'
+                              : d.status === 'failed' ? 'bg-destructive/10 text-destructive'
+                              : (REASON_STYLES[d.status] ?? 'bg-white/10 text-muted-foreground'),
                           )}>
-                            {d.status === 'sent' ? 'SENT' : d.status === 'failed' ? 'FAILED' : d.status === 'skipped-cooldown' ? 'COOLDOWN' : String(d.status).toUpperCase()}
+                            {d.status === 'sent' ? 'SENT' : d.status === 'failed' ? 'FAILED' : (REASON_LABELS[d.status] ?? String(d.status).toUpperCase())}
                           </Badge>
                         </div>
                       ))}

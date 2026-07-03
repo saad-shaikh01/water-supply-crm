@@ -125,6 +125,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       'manual',
       dto.vanId,
       dto.dayOfWeek,
+      dto.excludeCustomerIds,
     );
   }
 
@@ -138,7 +139,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     const endDate = this.monthEndDate(month);
 
     if (dto.mode === 'eligible') {
-      return this.processVendorReminders(vendorId, minBalance, dryRun, month, includeStatement, paymentType, force, 'manual', dto.vanId, dto.dayOfWeek);
+      return this.processVendorReminders(vendorId, minBalance, dryRun, month, includeStatement, paymentType, force, 'manual', dto.vanId, dto.dayOfWeek, dto.excludeCustomerIds);
     }
 
     const customerIds = dto.customerIds ?? [];
@@ -233,7 +234,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
 
     const candidates = await this.prisma.customer.findMany({
       where: whereBase,
-      select: { id: true, name: true, phoneNumber: true, financialBalance: true, isActive: true, paymentType: true },
+      select: { id: true, name: true, customerCode: true, phoneNumber: true, financialBalance: true, isActive: true, paymentType: true, createdAt: true },
       orderBy: { financialBalance: 'desc' },
     });
 
@@ -252,19 +253,22 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
         .map((c) => c.id),
     );
 
-    type PreviewEntry = { customerId: string; name: string; balance: number; phone: string; paymentType: string; reason: string };
+    type PreviewEntry = { customerId: string; name: string; customerCode: string; balance: number; phone: string; paymentType: string; reason: string };
     const wouldSend: PreviewEntry[] = [];
     const skipped: PreviewEntry[] = [];
 
     for (const c of candidates) {
       const monthBalance = monthEndBalances.get(c.id) ?? c.financialBalance;
-      const entry: PreviewEntry = { customerId: c.id, name: c.name, balance: monthBalance, phone: c.phoneNumber, paymentType: c.paymentType, reason: '' };
+      const entry: PreviewEntry = { customerId: c.id, name: c.name, customerCode: c.customerCode, balance: monthBalance, phone: c.phoneNumber, paymentType: c.paymentType, reason: '' };
 
       if (!c.isActive) {
         entry.reason = 'skipped-inactive';
         skipped.push(entry);
       } else if (!c.phoneNumber || c.phoneNumber.trim() === '') {
         entry.reason = 'skipped-no-phone';
+        skipped.push(entry);
+      } else if (c.createdAt >= endDate) {
+        entry.reason = 'skipped-new-customer';
         skipped.push(entry);
       } else if (monthBalance < minBalance) {
         entry.reason = 'skipped-low-balance';
@@ -293,9 +297,11 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     trigger: 'cron' | 'manual' = 'cron',
     vanId?: string,
     dayOfWeek?: number,
+    excludeCustomerIds?: string[],
   ) {
     const targetMonth = month ?? this.currentMonth();
     const endDate = this.monthEndDate(targetMonth);
+    const excludeSet = new Set(excludeCustomerIds ?? []);
 
     // Fetch all active candidates with phone — do NOT filter by balance at DB level
     // because we need month-end balance (historical), not today's live balance.
@@ -307,7 +313,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
         isActive: true,
         phoneNumber: { not: '' },
       },
-      select: { id: true, name: true, phoneNumber: true, financialBalance: true },
+      select: { id: true, name: true, phoneNumber: true, financialBalance: true, createdAt: true },
       orderBy: { financialBalance: 'desc' },
     });
 
@@ -335,6 +341,20 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       const customer = eligible[i];
       const monthBalance = monthEndBalances.get(customer.id) ?? customer.financialBalance;
       let statementUrl: string | null = null;
+
+      // Customer joined after the billing month ended — no statement/reminder applies
+      if (customer.createdAt >= endDate) {
+        results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'skipped-new-customer', statementUrl: null });
+        skipped++;
+        continue;
+      }
+
+      // Manually excluded in preview
+      if (excludeSet.has(customer.id)) {
+        results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'skipped-excluded', statementUrl: null });
+        skipped++;
+        continue;
+      }
 
       if (dryRun) {
         results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'would-send', statementUrl: includeStatement ? '(signed URL generated at send time)' : null });

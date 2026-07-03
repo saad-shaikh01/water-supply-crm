@@ -356,10 +356,16 @@ export class CustomerStatementPdfService {
     const chipY = y + chipPad;
     const chipW = col3W - chipPad * 2;
     const chipH = boxH - chipPad * 2;
+    // closingBalance > 0 means the customer owes money; <= 0 means they're paid up
+    // or in credit — showing "BALANCE DUE" with the absolute amount in that case
+    // would be misleading, so the label and color flip accordingly.
+    const isCredit = closingBalance < 0;
+    const chipLabel = isCredit ? 'CREDIT BALANCE' : 'BALANCE DUE';
+    const chipAmountColor = isCredit ? C.closeGrn : C.white;
     doc.roundedRect(chipX, chipY, chipW, chipH, 8).fill(C.navy);
     doc.fillColor('#ffffff', 0.75).font('Helvetica').fontSize(7)
-      .text('BALANCE DUE', chipX, chipY + chipH / 2 - 14, { width: chipW, align: 'center', lineBreak: false });
-    doc.fillColor(C.white).font('Helvetica-Bold').fontSize(16)
+      .text(chipLabel, chipX, chipY + chipH / 2 - 14, { width: chipW, align: 'center', lineBreak: false });
+    doc.fillColor(chipAmountColor).font('Helvetica-Bold').fontSize(16)
       .text(`Rs. ${this.absFmt(closingBalance)}`, chipX, chipY + chipH / 2 + 4, { width: chipW, align: 'center', lineBreak: false });
 
     doc.y = y + boxH;
