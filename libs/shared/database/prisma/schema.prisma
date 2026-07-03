@@ -857,6 +857,12 @@ model ReminderSendLog {
   skipped          Int
   includeStatement Boolean  @default(false)
   dryRun           Boolean  @default(false)
+  minBalance       Float?   // threshold used (eligible mode)
+  paymentType      String?  // 'MONTHLY' | 'CASH' — null = both
+  vanId            String?  // delivery-schedule van filter, if applied
+  dayOfWeek        Int?     // delivery-schedule day filter (1=Mon … 6=Sat), if applied
+  force            Boolean  @default(false)
+  details          Json?    // per-customer results: [{ customerId, name, balance, status }]
   createdAt        DateTime @default(now())
 
   @@index([vendorId, createdAt])

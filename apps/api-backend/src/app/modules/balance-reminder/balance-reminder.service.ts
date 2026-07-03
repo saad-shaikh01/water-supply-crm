@@ -208,7 +208,11 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
 
     if (!dryRun) {
       await this.prisma.reminderSendLog.create({
-        data: { vendorId, trigger: 'manual', mode: dto.mode, month, sent, skipped, includeStatement, dryRun },
+        data: {
+          vendorId, trigger: 'manual', mode: dto.mode, month, sent, skipped, includeStatement, dryRun,
+          force,
+          details: this.toLogDetails(results),
+        },
       });
     }
 
@@ -375,7 +379,15 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
 
     if (!dryRun) {
       await this.prisma.reminderSendLog.create({
-        data: { vendorId, trigger, mode: 'eligible', month: targetMonth, sent, skipped, includeStatement, dryRun },
+        data: {
+          vendorId, trigger, mode: 'eligible', month: targetMonth, sent, skipped, includeStatement, dryRun,
+          minBalance,
+          paymentType: paymentType ?? null,
+          vanId: vanId ?? null,
+          dayOfWeek: dayOfWeek ?? null,
+          force,
+          details: this.toLogDetails(results),
+        },
       });
     }
 
@@ -392,10 +404,17 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
+        // details (per-customer JSON, up to 100s of entries) is fetched per-row
+        // via getSendLogDetail — keep the list payload light.
+        omit: { details: true },
       }),
       this.prisma.reminderSendLog.count({ where: { vendorId } }),
     ]);
     return { data: logs, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  async getSendLogDetail(vendorId: string, id: string) {
+    return this.prisma.reminderSendLog.findFirst({ where: { id, vendorId } });
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -419,6 +438,13 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /** Strip statementUrl (signed URLs expire in 7 days — pointless to persist) before logging results */
+  private toLogDetails(
+    results: Array<{ customerId: string; name: string; balance: number; status: string }>,
+  ) {
+    return results.map(({ customerId, name, balance, status }) => ({ customerId, name, balance, status }));
   }
 
   /**

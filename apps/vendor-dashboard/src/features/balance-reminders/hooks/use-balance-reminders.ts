@@ -100,3 +100,10 @@ export const useReminderHistory = (page = 1, limit = 10) =>
     queryKey: ['reminder-history', page, limit],
     queryFn: () => balanceRemindersApi.getHistory(page, limit).then((r) => r.data),
   });
+
+export const useReminderHistoryDetail = (id: string | null) =>
+  useQuery({
+    queryKey: ['reminder-history-detail', id],
+    queryFn: () => balanceRemindersApi.getHistoryDetail(id as string).then((r) => r.data),
+    enabled: !!id,
+  });

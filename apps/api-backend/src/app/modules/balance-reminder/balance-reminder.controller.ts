@@ -4,6 +4,7 @@
   Post,
   Delete,
   Body,
+  Param,
   Query,
   ParseIntPipe,
   DefaultValuePipe,
@@ -108,5 +109,14 @@ export class BalanceReminderController {
     @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
   ) {
     return this.reminderService.getSendHistory(user.vendorId, page, Math.min(limit, 50));
+  }
+
+  /**
+   * GET /balance-reminders/history/:id
+   * Full detail of one send operation — filters used + per-customer results.
+   */
+  @Get('history/:id')
+  getSendLogDetail(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.reminderService.getSendLogDetail(user.vendorId, id);
   }
 }

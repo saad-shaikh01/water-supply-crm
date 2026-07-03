@@ -42,4 +42,5 @@ export const balanceRemindersApi = {
   getWhatsAppQr: () => apiClient.get<{ qr: string | null }>('/whatsapp/qr'),
   logoutWhatsApp: () => apiClient.post('/whatsapp/logout', {}),
   getHistory: (page = 1, limit = 10) => apiClient.get(`/balance-reminders/history?page=${page}&limit=${limit}`),
+  getHistoryDetail: (id: string) => apiClient.get(`/balance-reminders/history/${id}`),
 };

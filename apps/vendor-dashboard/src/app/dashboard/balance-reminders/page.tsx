@@ -9,7 +9,7 @@ import {
 import {
   Card, CardContent, CardHeader, CardTitle, Button, Input, Label,
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-  Badge,
+  Badge, Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@water-supply-crm/ui';
 import { PageHeader } from '../../../components/shared/page-header';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
@@ -23,6 +23,7 @@ import {
   useWhatsAppQr,
   useWhatsAppLogout,
   useReminderHistory,
+  useReminderHistoryDetail,
 } from '../../../features/balance-reminders/hooks/use-balance-reminders';
 import { useAllCustomers } from '../../../features/customers/hooks/use-customers';
 import { useAllVans } from '../../../features/vans/hooks/use-vans';
@@ -88,6 +89,9 @@ export default function BalanceRemindersPage() {
   const [forceOverride, setForceOverride] = useState(false);
   const [historyPage, setHistoryPage] = useState(1);
   const { data: historyData, isLoading: isHistoryLoading } = useReminderHistory(historyPage, 8);
+  const [detailLogId, setDetailLogId] = useState<string | null>(null);
+  const [detailSearch, setDetailSearch] = useState('');
+  const { data: logDetail, isLoading: isDetailLoading } = useReminderHistoryDetail(detailLogId);
 
   // Sync schedule form with loaded data
   useEffect(() => {
@@ -684,6 +688,7 @@ export default function BalanceRemindersPage() {
           <CardTitle className="text-sm font-bold flex items-center gap-2 uppercase tracking-widest text-muted-foreground">
             <History className="h-4 w-4 text-primary" />
             Send History
+            <span className="ml-auto text-[10px] font-medium normal-case tracking-normal text-muted-foreground/60">Click a row for details</span>
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-4">
@@ -714,7 +719,11 @@ export default function BalanceRemindersPage() {
                   </thead>
                   <tbody className="divide-y divide-border/20">
                     {((historyData as any).data ?? []).map((log: any) => (
-                      <tr key={log.id} className="hover:bg-white/5 transition-colors">
+                      <tr
+                        key={log.id}
+                        className="hover:bg-white/5 transition-colors cursor-pointer"
+                        onClick={() => { setDetailSearch(''); setDetailLogId(log.id); }}
+                      >
                         <td className="py-2.5 pr-4 text-muted-foreground whitespace-nowrap">
                           {new Date(log.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                         </td>
@@ -770,6 +779,115 @@ export default function BalanceRemindersPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Send detail dialog */}
+      <Dialog open={!!detailLogId} onOpenChange={(open) => { if (!open) setDetailLogId(null); }}>
+        <DialogContent className="rounded-3xl max-w-2xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <History className="h-4 w-4 text-primary" />
+              Reminder Send Detail
+            </DialogTitle>
+          </DialogHeader>
+
+          {isDetailLoading || !logDetail ? (
+            <div className="flex items-center justify-center py-12 gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4 overflow-hidden">
+              {/* Filter / context chips */}
+              <div className="flex flex-wrap gap-1.5">
+                <Badge className={cn(
+                  'text-[9px] font-black px-1.5 border-none',
+                  (logDetail as any).trigger === 'cron' ? 'bg-blue-500/10 text-blue-400' : 'bg-violet-500/10 text-violet-400',
+                )}>
+                  {String((logDetail as any).trigger).toUpperCase()}
+                </Badge>
+                <Badge className="bg-white/10 text-foreground dark:text-white text-[9px] font-bold px-1.5 border-none capitalize">
+                  {(logDetail as any).mode}
+                </Badge>
+                <Badge className="bg-white/10 text-foreground dark:text-white text-[9px] font-bold px-1.5 border-none font-mono">
+                  {(logDetail as any).month}
+                </Badge>
+                {(logDetail as any).minBalance != null && (
+                  <Badge className="bg-white/10 text-foreground dark:text-white text-[9px] font-bold px-1.5 border-none">
+                    Min ₨{Number((logDetail as any).minBalance).toLocaleString()}
+                  </Badge>
+                )}
+                <Badge className="bg-white/10 text-foreground dark:text-white text-[9px] font-bold px-1.5 border-none">
+                  {(logDetail as any).paymentType ?? 'Monthly + Cash'}
+                </Badge>
+                {(logDetail as any).vanId && (
+                  <Badge className="bg-primary/10 text-primary text-[9px] font-bold px-1.5 border-none">
+                    Van: {(((allVansData as any)?.data ?? []) as any[]).find((v: any) => v.id === (logDetail as any).vanId)?.plateNumber ?? (logDetail as any).vanId}
+                  </Badge>
+                )}
+                {(logDetail as any).dayOfWeek != null && (
+                  <Badge className="bg-primary/10 text-primary text-[9px] font-bold px-1.5 border-none">
+                    {WEEKDAYS.find((d) => d.value === String((logDetail as any).dayOfWeek))?.label ?? `Day ${(logDetail as any).dayOfWeek}`}
+                  </Badge>
+                )}
+                {(logDetail as any).force && (
+                  <Badge className="bg-amber-500/10 text-amber-400 text-[9px] font-bold px-1.5 border-none">
+                    Cooldown Bypassed
+                  </Badge>
+                )}
+                {(logDetail as any).includeStatement && (
+                  <Badge className="bg-emerald-500/10 text-emerald-400 text-[9px] font-bold px-1.5 border-none">
+                    With Statement
+                  </Badge>
+                )}
+              </div>
+
+              {/* Summary */}
+              <div className="flex items-center gap-4 text-xs">
+                <span className="text-muted-foreground">
+                  {new Date((logDetail as any).createdAt).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                </span>
+                <span className="text-emerald-400 font-bold">{(logDetail as any).sent} sent</span>
+                <span className="text-muted-foreground">{(logDetail as any).skipped} skipped</span>
+              </div>
+
+              {/* Per-customer results */}
+              {Array.isArray((logDetail as any).details) && (logDetail as any).details.length > 0 ? (
+                <>
+                  <Input
+                    placeholder="Search customer…"
+                    value={detailSearch}
+                    onChange={(e) => setDetailSearch(e.target.value)}
+                    className="bg-accent/30 border-border/50 h-9 rounded-xl text-xs"
+                  />
+                  <div className="overflow-y-auto rounded-xl border border-border/40 divide-y divide-border/20 min-h-0">
+                    {((logDetail as any).details as any[])
+                      .filter((d) => !detailSearch || d.name?.toLowerCase().includes(detailSearch.toLowerCase()))
+                      .map((d) => (
+                        <div key={d.customerId} className="flex items-center justify-between px-3 py-2 text-xs hover:bg-white/5">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-semibold text-foreground dark:text-white truncate">{d.name}</p>
+                            <p className="text-[10px] text-muted-foreground">₨{Number(d.balance ?? 0).toLocaleString()}</p>
+                          </div>
+                          <Badge className={cn(
+                            'text-[9px] font-black px-1.5 border-none flex-shrink-0 ml-3',
+                            d.status === 'sent' && 'bg-emerald-500/10 text-emerald-400',
+                            d.status === 'failed' && 'bg-destructive/10 text-destructive',
+                            d.status === 'skipped-cooldown' && 'bg-amber-500/10 text-amber-400',
+                          )}>
+                            {d.status === 'sent' ? 'SENT' : d.status === 'failed' ? 'FAILED' : d.status === 'skipped-cooldown' ? 'COOLDOWN' : String(d.status).toUpperCase()}
+                          </Badge>
+                        </div>
+                      ))}
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-muted-foreground italic py-4 text-center">
+                  No per-customer detail recorded for this send (sent before detail logging was added).
+                </p>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDialog
         open={deleteOpen}
