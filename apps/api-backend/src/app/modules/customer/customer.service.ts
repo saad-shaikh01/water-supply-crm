@@ -566,10 +566,24 @@ export class CustomerService {
     // Actual rate for this customer: their custom price if one is set for the
     // product they're delivered, otherwise the product's base price — not an
     // average derived from amounts charged (which can be skewed by adjustments).
-    const lastDelivery = [...transactions].reverse().find((t) => t.type === 'DELIVERY' && t.productId && t.product);
-    const ratePerBottle = lastDelivery
-      ? this.resolveCustomerPrice(customer, lastDelivery.productId as string, lastDelivery.product!.basePrice)
-      : 0;
+    // Falls back past this month's window since a month with zero deliveries
+    // (e.g. a MONTHLY customer skipped this period) still has an assigned rate.
+    let ratePerBottle = 0;
+    const lastDeliveryInPeriod = [...transactions].reverse().find((t) => t.type === 'DELIVERY' && t.productId && t.product);
+    if (lastDeliveryInPeriod) {
+      ratePerBottle = this.resolveCustomerPrice(customer, lastDeliveryInPeriod.productId as string, lastDeliveryInPeriod.product!.basePrice);
+    } else {
+      const lastDeliveryEver = await this.prisma.transaction.findFirst({
+        where: { customerId, vendorId, type: 'DELIVERY', productId: { not: null } },
+        orderBy: { createdAt: 'desc' },
+        include: { product: { select: { basePrice: true } } },
+      });
+      if (lastDeliveryEver?.productId && lastDeliveryEver.product) {
+        ratePerBottle = this.resolveCustomerPrice(customer, lastDeliveryEver.productId, lastDeliveryEver.product.basePrice);
+      } else if (customer.customPrices.length > 0) {
+        ratePerBottle = customer.customPrices[0].customPrice;
+      }
+    }
 
     const periodActivity = transactions.reduce((sum, t) => sum + (t.amount ?? 0), 0);
 

@@ -338,7 +338,7 @@ export class CustomerStatementPdfService {
     const rows: [string, string][] = [
       ['From',         fromTo?.from ?? '—'],
       ['To',           fromTo?.to ?? '—'],
-      ['Pay Mode',     customer.paymentType === 'MONTHLY' ? 'Monthly' : 'Cash'],
+      ['Cust Type',    customer.paymentType === 'MONTHLY' ? 'Monthly' : 'Cash'],
       ['Rate Per Btl', ratePerBottle > 0 ? `Rs. ${ratePerBottle.toFixed(0)}` : '—'],
     ];
     const rowH = (boxH - 16) / rows.length;
@@ -552,7 +552,7 @@ export class CustomerStatementPdfService {
 
   // ── Thank-you / payment footer (appears once at end of document) ───────────
   private drawThankYouFooter(doc: PDFKit.PDFDocument): void {
-    if (doc.y + 110 > FOOTER_Y - 10) { doc.addPage(); doc.y = MARGIN; }
+    if (doc.y + 165 > FOOTER_Y - 10) { doc.addPage(); doc.y = MARGIN; }
     const y = doc.y;
 
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(10)
@@ -560,35 +560,38 @@ export class CustomerStatementPdfService {
     doc.fillColor(C.muted).font('Helvetica').fontSize(8)
       .text(`Please make all payments to ${BANK_TITLE}`, MARGIN, doc.y + 3, { width: CONTENT_W, align: 'center' });
 
-    const py = doc.y + 14;
-    doc.moveTo(MARGIN, py).lineTo(MARGIN + CONTENT_W, py).strokeColor(C.border).lineWidth(0.75).stroke();
+    doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(8.5)
+      .text('FOR ONLINE PAYMENTS', MARGIN, doc.y + 16, { width: CONTENT_W, align: 'center', lineBreak: false });
 
-    doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(8)
-      .text('FOR ONLINE PAYMENTS', MARGIN, py + 10, { width: CONTENT_W, align: 'center' });
+    const cardsY = doc.y + 14;
+    const gap    = 14;
+    const cardW  = (CONTENT_W - gap) / 2;
+    const cardH  = 78;
 
-    const dividerX = MARGIN + CONTENT_W * 0.6;
-    const rows: [string, string][] = [
-      ['Acc Title', BANK_TITLE],
-      ['Acc No',    BANK_ACCOUNT_NO],
-      ['Bank',      BANK_NAME],
-    ];
-    rows.forEach(([lbl, val], i) => {
-      const ry = py + 26 + i * 13;
-      doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(7)
-        .text(lbl.toUpperCase(), MARGIN, ry, { width: 60, lineBreak: false });
-      doc.fillColor(C.navyText).font('Helvetica').fontSize(8)
-        .text(val, MARGIN + 64, ry, { width: dividerX - MARGIN - 78, lineBreak: false });
+    this.drawPaymentCard(doc, MARGIN, cardsY, cardW, cardH, 'B', C.cyan, 'BANK TRANSFER', (bx, by, bw) => {
+      const rows: [string, string][] = [
+        ['Acc Title', BANK_TITLE],
+        ['Acc No',    BANK_ACCOUNT_NO],
+        ['Bank',      BANK_NAME],
+      ];
+      rows.forEach(([lbl, val], i) => {
+        const ry = by + i * 12;
+        doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(6.5)
+          .text(lbl.toUpperCase(), bx, ry, { width: bw * 0.32, lineBreak: false });
+        doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
+          .text(val, bx + bw * 0.32, ry - 0.5, { width: bw - bw * 0.32, lineBreak: false });
+      });
     });
 
-    doc.moveTo(dividerX, py + 24).lineTo(dividerX, py + 24 + rows.length * 13)
-      .strokeColor(C.border).lineWidth(0.75).stroke();
+    const epX = MARGIN + cardW + gap;
+    this.drawPaymentCard(doc, epX, cardsY, cardW, cardH, 'E', C.green, 'EASYPAISA', (bx, by, bw) => {
+      doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(6.5)
+        .text('ACCOUNT NUMBER', bx, by, { width: bw, lineBreak: false });
+      doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(13)
+        .text(EASYPAISA_NO, bx, by + 11, { width: bw, lineBreak: false });
+    });
 
-    doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(7)
-      .text('EASYPAISA ACC NO', dividerX + 14, py + 26, { width: CONTENT_W - (dividerX - MARGIN) - 14, lineBreak: false });
-    doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(9)
-      .text(EASYPAISA_NO, dividerX + 14, py + 38, { width: CONTENT_W - (dividerX - MARGIN) - 14, lineBreak: false });
-
-    const cy = py + 26 + rows.length * 13 + 10;
+    const cy = cardsY + cardH + 12;
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
       .text(COMPANY_WEBSITE, MARGIN, cy, { width: CONTENT_W, align: 'right', lineBreak: false });
     doc.fillColor(C.muted).font('Helvetica').fontSize(7.5)
@@ -597,6 +600,25 @@ export class CustomerStatementPdfService {
       .text(COMPANY_PHONES, MARGIN, cy + 22, { width: CONTENT_W, align: 'right', lineBreak: false });
 
     doc.y = cy + 22 + 10;
+  }
+
+  // ── Payment method card: shadow card + colored icon chip + title + custom body ─
+  private drawPaymentCard(
+    doc: PDFKit.PDFDocument,
+    x: number, y: number, w: number, h: number,
+    icon: string, iconColor: string, title: string,
+    drawBody: (bodyX: number, bodyY: number, bodyW: number) => void,
+  ): void {
+    drawShadowShape(doc, x, y, w, h, RADIUS, C.white, { shadowColor: C.navy, borderColor: C.border, shadowOpacity: 0.08 });
+
+    const iconSize = 20;
+    doc.roundedRect(x + 10, y + 10, iconSize, iconSize, 5).fill(iconColor);
+    doc.fillColor(C.white).font('Helvetica-Bold').fontSize(9)
+      .text(icon, x + 10, y + 15, { width: iconSize, align: 'center', lineBreak: false });
+    doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(8.5)
+      .text(title, x + 10 + iconSize + 8, y + 16, { width: w - iconSize - 28, lineBreak: false });
+
+    drawBody(x + 10, y + 38, w - 20);
   }
 
   // ── Per-page footer (page number + timestamp) ───────────────────────────────
