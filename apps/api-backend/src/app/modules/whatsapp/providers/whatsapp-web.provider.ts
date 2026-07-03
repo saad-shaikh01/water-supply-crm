@@ -10,6 +10,11 @@ export class WhatsAppWebProvider
   private ready = false;
   private enabled = false;
   private qrDataUrl: string | null = null;
+  private initAttempts = 0;
+
+  /** Puppeteer startup races ("Requesting main frame too early!") are transient — retry a few times */
+  private static readonly MAX_INIT_RETRIES = 3;
+  private static readonly INIT_RETRY_DELAY_MS = 10_000;
 
   async onModuleInit() {
     if (process.env.WHATSAPP_ENABLED !== 'true') {
@@ -19,7 +24,9 @@ export class WhatsAppWebProvider
       return;
     }
     this.enabled = true;
-    await this.initClient();
+    // Fire-and-forget: Chromium startup (+ retries) can take a minute —
+    // don't hold the whole NestJS bootstrap hostage to it.
+    void this.initClient();
   }
 
   private async initClient() {
@@ -94,11 +101,26 @@ export class WhatsAppWebProvider
       });
 
       await this.client.initialize();
+      this.initAttempts = 0;
     } catch (error: any) {
       this.logger.error(
         `Failed to initialize WhatsApp client: ${error?.message ?? error}`,
       );
       if (error?.stack) this.logger.error(error.stack);
+
+      // Tear down the half-initialized client so the retry starts clean
+      await this.client?.destroy?.().catch(() => {});
+      this.client = null;
+
+      if (this.initAttempts < WhatsAppWebProvider.MAX_INIT_RETRIES) {
+        this.initAttempts++;
+        this.logger.warn(
+          `Retrying WhatsApp init in ${WhatsAppWebProvider.INIT_RETRY_DELAY_MS / 1000}s (attempt ${this.initAttempts}/${WhatsAppWebProvider.MAX_INIT_RETRIES})…`,
+        );
+        await new Promise((r) => setTimeout(r, WhatsAppWebProvider.INIT_RETRY_DELAY_MS));
+        return this.initClient();
+      }
+      this.logger.error('WhatsApp init failed after all retries — restart the app to try again');
     }
   }
 
