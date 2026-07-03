@@ -500,7 +500,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       const pdf = await this.generateStatementPdf(vendorId, customer.id, month);
       if (pdf) {
         const caption = hasDue
-          ? MessageTemplates.balanceReminderWithAttachedStatement(customer.name, balance, this.formatMonthLabel(month))
+          ? MessageTemplates.balanceReminderWithAttachedStatement(customer.name, balance)
           : MessageTemplates.statementWithClearBalance(customer.name, this.formatMonthLabel(month), balance);
         return this.whatsapp.sendDocument(customer.phoneNumber, pdf.buffer, pdf.filename, caption);
       }

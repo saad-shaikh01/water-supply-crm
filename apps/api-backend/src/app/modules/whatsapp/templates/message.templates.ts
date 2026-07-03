@@ -15,7 +15,7 @@ export const MessageTemplates = {
     `Assalam o Alaikum ${customerName}! 💚\n\nAapki payment receive hui:\n💰 Amount: Rs. ${amount}\n📊 Remaining Balance: Rs. ${remainingBalance.toFixed(2)}\n\nShukriya apna business karne ke liye!`,
 
   balanceReminder: (customerName: string, balance: number) =>
-    `Assalam o Alaikum ${customerName},\n\nYe aapka outstanding balance reminder hai:\n💰 Due Amount: Rs. ${balance.toFixed(2)}\n\nKindly jald payment karein. Shukriya!`,
+    `Assalamu Alaikum, ${customerName}\n\nThis is a friendly reminder about your outstanding balance of Rs. ${balance.toFixed(2)}.\n\nWe would appreciate your prompt payment.\n\nThank you for choosing Blue Ice.`,
 
   balanceReminderWithStatement: (
     customerName: string,
@@ -28,23 +28,24 @@ export const MessageTemplates = {
   balanceReminderWithAttachedStatement: (
     customerName: string,
     balance: number,
-    month: string,
   ) =>
-    `Assalam o Alaikum ${customerName},\n\nYe aapka ${month} ka balance reminder hai:\n💰 Due Amount: Rs. ${balance.toFixed(2)}\n\n📄 Aapka ${month} ka statement PDF attached hai.\n\nKindly jald payment karein. Shukriya!`,
+    `Assalamu Alaikum, ${customerName}\n\nPlease find your invoice attached.\n\nKindly review the invoice for your account details and current balance Rs. ${balance.toFixed(2)}.\n\nWe would appreciate your prompt payment.\n\nThank you for choosing Blue Ice.`,
 
   /** Balance is 0 (or in advance) — no payment ask, just a friendly confirmation */
   balanceClear: (customerName: string, balance: number) =>
-    balance < 0
-      ? `Assalam o Alaikum ${customerName}! 💚\n\nAapka koi outstanding balance nahi hai.\n💰 Aapke account mein Rs. ${Math.abs(balance).toFixed(2)} advance maujood hai.\n\nShukriya!`
-      : `Assalam o Alaikum ${customerName}! 💚\n\nAapka account bilkul clear hai — koi outstanding balance nahi.\n\nShukriya!`,
+    `Assalamu Alaikum, ${customerName}\n\n${
+      balance < 0
+        ? `There is no outstanding balance on your account.\nYou have an advance credit of Rs. ${Math.abs(balance).toFixed(2)}.`
+        : 'Your account is all clear — there is no outstanding balance.'
+    }\n\nThank you for choosing Blue Ice.`,
 
   /** Statement PDF attached for a customer whose balance is 0 (or in advance) */
   statementWithClearBalance: (customerName: string, month: string, balance: number) =>
-    `Assalam o Alaikum ${customerName}! 💚\n\n📄 Ye aapka ${month} ka statement hai (PDF attached).\n\n${
+    `Assalamu Alaikum, ${customerName}\n\nPlease find your ${month} statement attached.\n\n${
       balance < 0
-        ? `💰 Aapke account mein Rs. ${Math.abs(balance).toFixed(2)} advance maujood hai.`
-        : 'Aapka koi outstanding balance nahi hai — account clear hai.'
-    }\n\nShukriya!`,
+        ? `There is no outstanding balance on your account.\nYou have an advance credit of Rs. ${Math.abs(balance).toFixed(2)}.`
+        : 'There is no outstanding balance on your account — it is all clear.'
+    }\n\nThank you for choosing Blue Ice.`,
 
   deliveryScheduled: (customerName: string, date: string) =>
     `Assalam o Alaikum ${customerName}! 📅\n\nAapki delivery schedule hui hai:\n📆 Date: ${date}\n\nDriver aapke ghar aayega. Shukriya!`,
