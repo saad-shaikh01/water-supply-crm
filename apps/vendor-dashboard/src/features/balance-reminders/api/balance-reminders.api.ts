@@ -42,6 +42,15 @@ export const balanceRemindersApi = {
   getWhatsAppStatus: () => apiClient.get<WhatsAppStatus>('/whatsapp/status'),
   getWhatsAppQr: () => apiClient.get<{ qr: string | null }>('/whatsapp/qr'),
   logoutWhatsApp: () => apiClient.post('/whatsapp/logout', {}),
-  getHistory: (page = 1, limit = 10) => apiClient.get(`/balance-reminders/history?page=${page}&limit=${limit}`),
+  getHistory: (page = 1, limit = 10, filters?: { dateFrom?: string; dateTo?: string; result?: string }) =>
+    apiClient.get('/balance-reminders/history', {
+      params: {
+        page,
+        limit,
+        dateFrom: filters?.dateFrom || undefined,
+        dateTo: filters?.dateTo || undefined,
+        result: filters?.result || undefined,
+      },
+    }),
   getHistoryDetail: (id: string) => apiClient.get(`/balance-reminders/history/${id}`),
 };

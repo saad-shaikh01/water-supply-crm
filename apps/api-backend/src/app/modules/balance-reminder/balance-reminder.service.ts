@@ -393,11 +393,28 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
 
   // ─── History ────────────────────────────────────────────────────────────────
 
-  async getSendHistory(vendorId: string, page: number, limit: number) {
+  async getSendHistory(
+    vendorId: string,
+    page: number,
+    limit: number,
+    filters?: { dateFrom?: string; dateTo?: string; result?: string },
+  ) {
+    const where: any = { vendorId };
+
+    if (filters?.dateFrom || filters?.dateTo) {
+      where.createdAt = {};
+      if (filters.dateFrom) where.createdAt.gte = new Date(`${filters.dateFrom}T00:00:00`);
+      if (filters.dateTo) where.createdAt.lte = new Date(`${filters.dateTo}T23:59:59.999`);
+    }
+
+    // result filter: logs where at least one message was sent / skipped
+    if (filters?.result === 'sent') where.sent = { gt: 0 };
+    else if (filters?.result === 'skipped') where.skipped = { gt: 0 };
+
     const skip = (page - 1) * limit;
     const [logs, total] = await Promise.all([
       this.prisma.reminderSendLog.findMany({
-        where: { vendorId },
+        where,
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
@@ -405,7 +422,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
         // via getSendLogDetail — keep the list payload light.
         omit: { details: true },
       }),
-      this.prisma.reminderSendLog.count({ where: { vendorId } }),
+      this.prisma.reminderSendLog.count({ where }),
     ]);
     return { data: logs, total, page, limit, totalPages: Math.ceil(total / limit) };
   }

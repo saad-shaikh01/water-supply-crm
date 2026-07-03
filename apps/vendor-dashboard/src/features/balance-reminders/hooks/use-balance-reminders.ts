@@ -95,10 +95,15 @@ export const useWhatsAppLogout = () => {
   });
 };
 
-export const useReminderHistory = (page = 1, limit = 10) =>
+export const useReminderHistory = (
+  page = 1,
+  limit = 10,
+  filters?: { dateFrom?: string; dateTo?: string; result?: string },
+) =>
   useQuery({
-    queryKey: ['reminder-history', page, limit],
-    queryFn: () => balanceRemindersApi.getHistory(page, limit).then((r) => r.data),
+    queryKey: ['reminder-history', page, limit, filters?.dateFrom ?? '', filters?.dateTo ?? '', filters?.result ?? ''],
+    queryFn: () => balanceRemindersApi.getHistory(page, limit, filters).then((r) => r.data),
+    placeholderData: (prev) => prev,
   });
 
 export const useReminderHistoryDetail = (id: string | null) =>

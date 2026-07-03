@@ -99,16 +99,24 @@ export class BalanceReminderController {
   }
 
   /**
-   * GET /balance-reminders/history?page=1&limit=10
+   * GET /balance-reminders/history?page=1&limit=10&dateFrom=2026-07-01&dateTo=2026-07-31&result=sent
    * Paginated log of past reminder send operations (manual and cron).
+   * result: 'sent' (sent > 0) | 'skipped' (skipped > 0) | omit for all.
    */
   @Get('history')
   getSendHistory(
     @CurrentUser() user: AuthUser,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('result') result?: string,
   ) {
-    return this.reminderService.getSendHistory(user.vendorId, page, Math.min(limit, 50));
+    return this.reminderService.getSendHistory(user.vendorId, page, Math.min(limit, 50), {
+      dateFrom: /^\d{4}-\d{2}-\d{2}$/.test(dateFrom ?? '') ? dateFrom : undefined,
+      dateTo: /^\d{4}-\d{2}-\d{2}$/.test(dateTo ?? '') ? dateTo : undefined,
+      result: result === 'sent' || result === 'skipped' ? result : undefined,
+    });
   }
 
   /**

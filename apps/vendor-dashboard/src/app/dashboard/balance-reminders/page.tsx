@@ -110,10 +110,18 @@ export default function BalanceRemindersPage() {
   const [showPreview, setShowPreview] = useState(false);
   const [previewTab, setPreviewTab] = useState<'send' | 'skipped'>('send');
   const [previewSearch, setPreviewSearch] = useState('');
+  const [previewReasonFilter, setPreviewReasonFilter] = useState('all');
   const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
   const [forceOverride, setForceOverride] = useState(false);
   const [historyPage, setHistoryPage] = useState(1);
-  const { data: historyData, isLoading: isHistoryLoading } = useReminderHistory(historyPage, 8);
+  const [historyDateFrom, setHistoryDateFrom] = useState('');
+  const [historyDateTo, setHistoryDateTo] = useState('');
+  const [historyResult, setHistoryResult] = useState<'all' | 'sent' | 'skipped'>('all');
+  const { data: historyData, isLoading: isHistoryLoading } = useReminderHistory(historyPage, 8, {
+    dateFrom: historyDateFrom || undefined,
+    dateTo: historyDateTo || undefined,
+    result: historyResult === 'all' ? undefined : historyResult,
+  });
   const [detailLogId, setDetailLogId] = useState<string | null>(null);
   const [detailSearch, setDetailSearch] = useState('');
   const { data: logDetail, isLoading: isDetailLoading } = useReminderHistoryDetail(detailLogId);
@@ -183,6 +191,7 @@ export default function BalanceRemindersPage() {
   const handlePreview = () => {
     setPreviewTab('send');
     setPreviewSearch('');
+    setPreviewReasonFilter('all');
     setExcludedIds(new Set());
     setShowPreview(true);
     preview(buildPreviewPayload());
@@ -737,6 +746,55 @@ export default function BalanceRemindersPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-4">
+          {/* History filters */}
+          <div className="flex flex-wrap items-end gap-3 mb-4">
+            <div className="space-y-1">
+              <Label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">From</Label>
+              <input
+                type="date"
+                value={historyDateFrom}
+                onChange={(e) => { setHistoryDateFrom(e.target.value); setHistoryPage(1); }}
+                className="h-8 rounded-lg border border-border/50 bg-accent/30 px-2 text-xs text-foreground dark:text-white font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">To</Label>
+              <input
+                type="date"
+                value={historyDateTo}
+                onChange={(e) => { setHistoryDateTo(e.target.value); setHistoryPage(1); }}
+                className="h-8 rounded-lg border border-border/50 bg-accent/30 px-2 text-xs text-foreground dark:text-white font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+              />
+            </div>
+            <div className="flex gap-1.5">
+              {(['all', 'sent', 'skipped'] as const).map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => { setHistoryResult(r); setHistoryPage(1); }}
+                  className={cn(
+                    'px-3 h-8 rounded-lg text-xs font-bold border transition-colors',
+                    historyResult === r
+                      ? 'bg-primary/15 border-primary/40 text-primary'
+                      : 'bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10',
+                  )}
+                >
+                  {r === 'all' ? 'All' : r === 'sent' ? 'Sent' : 'Skipped'}
+                </button>
+              ))}
+            </div>
+            {(historyDateFrom || historyDateTo || historyResult !== 'all') && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => { setHistoryDateFrom(''); setHistoryDateTo(''); setHistoryResult('all'); setHistoryPage(1); }}
+                className="h-8 px-2 rounded-lg text-xs text-muted-foreground"
+              >
+                Clear
+              </Button>
+            )}
+          </div>
+
           {isHistoryLoading ? (
             <div className="space-y-2">
               {[...Array(3)].map((_, i) => (
@@ -746,7 +804,11 @@ export default function BalanceRemindersPage() {
           ) : !historyData || (historyData as any).total === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-center space-y-2">
               <History className="h-8 w-8 text-muted-foreground/30" />
-              <p className="text-sm text-muted-foreground">No reminders have been sent yet.</p>
+              <p className="text-sm text-muted-foreground">
+                {historyDateFrom || historyDateTo || historyResult !== 'all'
+                  ? 'No sends match these filters.'
+                  : 'No reminders have been sent yet.'}
+              </p>
             </div>
           ) : (
             <>
@@ -874,7 +936,7 @@ export default function BalanceRemindersPage() {
                   <button
                     key={t}
                     type="button"
-                    onClick={() => setPreviewTab(t)}
+                    onClick={() => { setPreviewTab(t); setPreviewReasonFilter('all'); }}
                     className={cn(
                       'px-3 py-2 rounded-xl text-xs font-bold border transition-colors',
                       previewTab === t
@@ -887,6 +949,44 @@ export default function BalanceRemindersPage() {
                 ))}
               </div>
 
+              {/* Reason filter chips — skipped tab only */}
+              {previewTab === 'skipped' && (previewResult.skipped ?? []).length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewReasonFilter('all')}
+                    className={cn(
+                      'px-2.5 h-7 rounded-lg text-[10px] font-bold border transition-colors',
+                      previewReasonFilter === 'all'
+                        ? 'bg-primary/15 border-primary/40 text-primary'
+                        : 'bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10',
+                    )}
+                  >
+                    All ({previewResult.totalSkipped})
+                  </button>
+                  {Object.entries(
+                    (previewResult.skipped ?? []).reduce((acc: Record<string, number>, s: any) => {
+                      acc[s.reason] = (acc[s.reason] ?? 0) + 1;
+                      return acc;
+                    }, {})
+                  ).map(([reason, count]) => (
+                    <button
+                      key={reason}
+                      type="button"
+                      onClick={() => setPreviewReasonFilter(reason)}
+                      className={cn(
+                        'px-2.5 h-7 rounded-lg text-[10px] font-bold border transition-colors',
+                        previewReasonFilter === reason
+                          ? 'bg-primary/15 border-primary/40 text-primary'
+                          : 'bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10',
+                      )}
+                    >
+                      {REASON_LABELS[reason] ?? reason.toUpperCase()} ({String(count)})
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <Input
                 placeholder="Search by name, code or phone…"
                 value={previewSearch}
@@ -898,6 +998,7 @@ export default function BalanceRemindersPage() {
               <div className="overflow-y-auto rounded-xl border border-border/40 divide-y divide-border/20 min-h-0">
                 {((previewTab === 'send' ? previewResult.wouldSend : previewResult.skipped) ?? [])
                   .filter((e: any) => {
+                    if (previewTab === 'skipped' && previewReasonFilter !== 'all' && e.reason !== previewReasonFilter) return false;
                     if (!previewSearch) return true;
                     const q = previewSearch.toLowerCase();
                     return (
