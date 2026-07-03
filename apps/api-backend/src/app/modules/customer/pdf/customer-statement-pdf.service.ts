@@ -155,13 +155,13 @@ export class CustomerStatementPdfService {
 
   // ── Document flow ──────────────────────────────────────────────────────────
   private drawContent(doc: PDFKit.PDFDocument, data: any): void {
-    const { customer, transactions, openingBalance, closingBalance, period, month } = data;
+    const { customer, transactions, openingBalance, closingBalance, month } = data;
     const { deliveryRows, otherRows, ratePerBottle: computedRatePerBottle } = this.buildRows(transactions, openingBalance);
     const ratePerBottle = data.ratePerBottle ?? computedRatePerBottle;
 
     this.drawBrandBanner(doc);
     doc.y += 18;
-    this.drawSectionTitle(doc, 'MONTHLY STATEMENT', period);
+    this.drawSectionTitle(doc, 'MONTHLY STATEMENT');
     doc.y += 12;
     this.drawInfoCards(doc, customer, month, closingBalance, ratePerBottle);
 
@@ -284,14 +284,12 @@ export class CustomerStatementPdfService {
     doc.y = y + h + 3;
   }
 
-  // ── Document heading: accent bar + label (left), period (right) ────────────
-  private drawSectionTitle(doc: PDFKit.PDFDocument, label: string, period: string): void {
+  // ── Document heading: accent bar + label ────────────────────────────────────
+  private drawSectionTitle(doc: PDFKit.PDFDocument, label: string): void {
     const y = doc.y;
     doc.roundedRect(MARGIN, y, 4, 16, 2).fill(C.accent);
     doc.fillColor(C.navy).font('Helvetica-Bold').fontSize(13)
       .text(label, MARGIN + 12, y + 1, { lineBreak: false });
-    doc.fillColor(C.muted).font('Helvetica').fontSize(9)
-      .text(period, MARGIN, y + 2, { width: CONTENT_W - 4, align: 'right', lineBreak: false });
     doc.y = y + 16;
   }
 
