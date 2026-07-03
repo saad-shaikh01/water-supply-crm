@@ -6,7 +6,6 @@ import { PrismaService } from '@water-supply-crm/database';
 import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
 import { MessageTemplates } from '../whatsapp/templates/message.templates';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
-import { StorageService } from '../../common/storage/storage.service';
 import { CustomerStatementPdfService } from '../customer/pdf/customer-statement-pdf.service';
 import { ScheduleReminderDto, SendNowDto, SendTargetedDto, PreviewDto } from './dto/schedule-reminder.dto';
 
@@ -15,9 +14,6 @@ const DEFAULT_MIN_BALANCE = 100;
 const REPEATABLE_JOB_ID = (vendorId: string) => `balance-reminder:${vendorId}`;
 const REMINDER_COOLDOWN_TTL = 23 * 60 * 60; // 23 hours — prevent re-sending within same day
 const cooldownKey = (vendorId: string, customerId: string) => `balance-reminder-cooldown:${vendorId}:${customerId}`;
-
-/** Signed statement URL is valid for 7 days — long enough for customer to act */
-const STATEMENT_URL_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 /** Pause between consecutive WhatsApp sends — avoids burst pattern that triggers Meta anti-spam */
 const SEND_DELAY_MS = 5000;
@@ -41,7 +37,6 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     private readonly reminderQueue: Queue,
     private readonly prisma: PrismaService,
     private readonly whatsapp: WhatsAppService,
-    private readonly storage: StorageService,
     private readonly statementPdf: CustomerStatementPdfService,
   ) {}
 
@@ -166,18 +161,9 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     for (let i = 0; i < customers.length; i++) {
       const customer = customers[i];
       const monthBalance = monthEndBalances.get(customer.id) ?? customer.financialBalance;
-      let statementUrl: string | null = null;
-
-      if (includeStatement && !dryRun) {
-        statementUrl = await this.generateStatementUrl(vendorId, customer.id, month);
-      }
-
-      const message = statementUrl
-        ? MessageTemplates.balanceReminderWithStatement(customer.name, monthBalance, this.formatMonthLabel(month), statementUrl)
-        : MessageTemplates.balanceReminder(customer.name, monthBalance);
 
       if (dryRun) {
-        results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'would-send', statementUrl: includeStatement ? '(signed URL generated at send time)' : null });
+        results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'would-send', statementUrl: includeStatement ? '(statement PDF attached at send time)' : null });
         skipped++;
         continue;
       }
@@ -193,12 +179,12 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
-      const messageSent = await this.whatsapp.sendMessage(customer.phoneNumber, message);
+      const messageSent = await this.sendReminder(vendorId, customer, monthBalance, month, includeStatement);
       if (messageSent) {
         await this.redis.set(cooldownKey(vendorId, customer.id), '1', 'EX', REMINDER_COOLDOWN_TTL);
         sent++;
       } else { skipped++; }
-      results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: messageSent ? 'sent' : 'failed', statementUrl });
+      results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: messageSent ? 'sent' : 'failed', statementUrl: null });
 
       if (i < customers.length - 1) {
         await this.sleep(SEND_DELAY_MS);
@@ -340,7 +326,6 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     for (let i = 0; i < eligible.length; i++) {
       const customer = eligible[i];
       const monthBalance = monthEndBalances.get(customer.id) ?? customer.financialBalance;
-      let statementUrl: string | null = null;
 
       // Customer joined after the billing month ended — no statement/reminder applies
       if (customer.createdAt >= endDate) {
@@ -357,7 +342,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       }
 
       if (dryRun) {
-        results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'would-send', statementUrl: includeStatement ? '(signed URL generated at send time)' : null });
+        results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'would-send', statementUrl: includeStatement ? '(statement PDF attached at send time)' : null });
         skipped++;
         continue;
       }
@@ -373,22 +358,14 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
-      if (includeStatement) {
-        statementUrl = await this.generateStatementUrl(vendorId, customer.id, targetMonth);
-      }
-
-      const message = statementUrl
-        ? MessageTemplates.balanceReminderWithStatement(customer.name, monthBalance, this.formatMonthLabel(targetMonth), statementUrl)
-        : MessageTemplates.balanceReminder(customer.name, monthBalance);
-
-      const messageSent = await this.whatsapp.sendMessage(customer.phoneNumber, message);
+      const messageSent = await this.sendReminder(vendorId, customer, monthBalance, targetMonth, includeStatement);
       if (messageSent) {
         await this.redis.set(cooldownKey(vendorId, customer.id), '1', 'EX', REMINDER_COOLDOWN_TTL);
         sent++;
       } else {
         skipped++;
       }
-      results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: messageSent ? 'sent' : 'failed', statementUrl });
+      results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: messageSent ? 'sent' : 'failed', statementUrl: null });
 
       if (i < eligible.length - 1) {
         await this.sleep(SEND_DELAY_MS);
@@ -504,11 +481,42 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Generate the monthly statement PDF for a customer, upload it to private storage,
-   * and return a pre-signed URL valid for 7 days.
-   * Returns null on any error so the reminder still sends without the link.
+   * Send one balance reminder. With includeStatement, the monthly statement PDF
+   * is generated and sent as a WhatsApp document attachment (same pattern as
+   * delivery receipts). Falls back to the plain text reminder if the PDF
+   * cannot be generated, so the customer still gets notified.
    */
-  private async generateStatementUrl(vendorId: string, customerId: string, month: string): Promise<string | null> {
+  private async sendReminder(
+    vendorId: string,
+    customer: { id: string; name: string; phoneNumber: string },
+    balance: number,
+    month: string,
+    includeStatement: boolean,
+  ): Promise<boolean> {
+    // Balance cleared (or in advance) — congratulate, never ask for payment
+    const hasDue = balance > 0;
+
+    if (includeStatement) {
+      const pdf = await this.generateStatementPdf(vendorId, customer.id, month);
+      if (pdf) {
+        const caption = hasDue
+          ? MessageTemplates.balanceReminderWithAttachedStatement(customer.name, balance, this.formatMonthLabel(month))
+          : MessageTemplates.statementWithClearBalance(customer.name, this.formatMonthLabel(month), balance);
+        return this.whatsapp.sendDocument(customer.phoneNumber, pdf.buffer, pdf.filename, caption);
+      }
+    }
+
+    const text = hasDue
+      ? MessageTemplates.balanceReminder(customer.name, balance)
+      : MessageTemplates.balanceClear(customer.name, balance);
+    return this.whatsapp.sendMessage(customer.phoneNumber, text);
+  }
+
+  /**
+   * Generate the monthly statement PDF for a customer.
+   * Returns null on any error so the reminder still sends as plain text.
+   */
+  private async generateStatementPdf(vendorId: string, customerId: string, month: string): Promise<{ buffer: Buffer; filename: string } | null> {
     try {
       const [year, mon] = month.split('-').map(Number);
       const startDate = new Date(year, mon - 1, 1);
@@ -537,10 +545,11 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       const openingBalance = closingBalance - periodActivity;
       const period = new Date(year, mon - 1, 1).toLocaleString('en-PK', { month: 'long', year: 'numeric' });
 
-      const pdfBuffer = await this.statementPdf.generate({ customer, transactions, openingBalance, closingBalance, period, month });
-      const filename = `${this.sanitizeForFilename(customer.customerCode)}-${this.sanitizeForFilename(customer.name)}-${this.sanitizeForFilename(period)}.pdf`;
-      const { key } = await this.storage.upload('statement-reminders', pdfBuffer, filename, 'application/pdf');
-      return await this.storage.getSignedUrl(key, STATEMENT_URL_TTL_SECONDS);
+      const buffer = await this.statementPdf.generate({ customer, transactions, openingBalance, closingBalance, period, month });
+      // Format: customercode_shortname_month e.g. L0042_Ahmed_June_2026.pdf
+      const shortName = (customer.name ?? '').trim().split(/\s+/)[0] || 'customer';
+      const filename = `${this.sanitizeForFilename(customer.customerCode)}_${this.sanitizeForFilename(shortName)}_${this.sanitizeForFilename(period)}.pdf`;
+      return { buffer, filename };
     } catch (err) {
       this.logger.warn(`Statement generation failed for customer ${customerId} (${month}): ${err}`);
       return null;

@@ -102,7 +102,7 @@ export default function BalanceRemindersPage() {
   const [debouncedCustomerSearch, setDebouncedCustomerSearch] = useState('');
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
   const [month, setMonth] = useState(currentMonth());
-  const [includeStatement, setIncludeStatement] = useState(false);
+  const [includeStatement, setIncludeStatement] = useState(true);
   const [minBalance, setMinBalance] = useState('100');
   const [paymentTypeFilter, setPaymentTypeFilter] = useState<PaymentTypeFilter>('BOTH');
   const [vanFilter, setVanFilter] = useState('all');
@@ -664,8 +664,8 @@ export default function BalanceRemindersPage() {
                 <div className="flex items-center gap-2">
                   <FileText className="h-4 w-4 text-primary" />
                   <div>
-                    <p className="text-xs font-bold text-foreground dark:text-white">Include Statement Link</p>
-                    <p className="text-[10px] text-muted-foreground">Attaches a secure 7-day PDF link to the message</p>
+                    <p className="text-xs font-bold text-foreground dark:text-white">Attach Statement PDF</p>
+                    <p className="text-[10px] text-muted-foreground">Sends the monthly statement PDF file with the message</p>
                   </div>
                 </div>
                 <button
@@ -719,7 +719,7 @@ export default function BalanceRemindersPage() {
 
               <p className="text-[10px] text-muted-foreground italic px-1">
                 {includeStatement
-                  ? 'Each recipient will receive a WhatsApp message with their statement link (valid 7 days).'
+                  ? 'Each recipient will receive a WhatsApp message with their monthly statement PDF attached.'
                   : 'Recipients will receive a WhatsApp balance reminder message.'}
               </p>
             </CardContent>

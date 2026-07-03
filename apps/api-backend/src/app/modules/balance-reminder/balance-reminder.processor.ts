@@ -27,6 +27,9 @@ export class BalanceReminderProcessor extends WorkerHost {
       const result = await this.reminderService.processVendorReminders(
         vendorId,
         minBalance ?? 100,
+        false, // dryRun
+        undefined, // month → current
+        true, // includeStatement — statement PDF attaches on scheduled sends too
       );
       this.logger.log(
         `Completed reminders for vendor ${vendorId}: sent=${result.sent}, skipped=${result.skipped}`,

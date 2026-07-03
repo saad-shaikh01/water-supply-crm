@@ -25,6 +25,27 @@ export const MessageTemplates = {
   ) =>
     `Assalam o Alaikum ${customerName},\n\nYe aapka ${month} ka balance reminder hai:\n💰 Due Amount: Rs. ${balance.toFixed(2)}\n\n📄 Aapka maheena ka statement yahan dekhen:\n${statementUrl}\n\nKindly jald payment karein. Shukriya!`,
 
+  balanceReminderWithAttachedStatement: (
+    customerName: string,
+    balance: number,
+    month: string,
+  ) =>
+    `Assalam o Alaikum ${customerName},\n\nYe aapka ${month} ka balance reminder hai:\n💰 Due Amount: Rs. ${balance.toFixed(2)}\n\n📄 Aapka ${month} ka statement PDF attached hai.\n\nKindly jald payment karein. Shukriya!`,
+
+  /** Balance is 0 (or in advance) — no payment ask, just a friendly confirmation */
+  balanceClear: (customerName: string, balance: number) =>
+    balance < 0
+      ? `Assalam o Alaikum ${customerName}! 💚\n\nAapka koi outstanding balance nahi hai.\n💰 Aapke account mein Rs. ${Math.abs(balance).toFixed(2)} advance maujood hai.\n\nShukriya!`
+      : `Assalam o Alaikum ${customerName}! 💚\n\nAapka account bilkul clear hai — koi outstanding balance nahi.\n\nShukriya!`,
+
+  /** Statement PDF attached for a customer whose balance is 0 (or in advance) */
+  statementWithClearBalance: (customerName: string, month: string, balance: number) =>
+    `Assalam o Alaikum ${customerName}! 💚\n\n📄 Ye aapka ${month} ka statement hai (PDF attached).\n\n${
+      balance < 0
+        ? `💰 Aapke account mein Rs. ${Math.abs(balance).toFixed(2)} advance maujood hai.`
+        : 'Aapka koi outstanding balance nahi hai — account clear hai.'
+    }\n\nShukriya!`,
+
   deliveryScheduled: (customerName: string, date: string) =>
     `Assalam o Alaikum ${customerName}! 📅\n\nAapki delivery schedule hui hai:\n📆 Date: ${date}\n\nDriver aapke ghar aayega. Shukriya!`,
 
