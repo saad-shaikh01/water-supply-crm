@@ -1,5 +1,6 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import { IWhatsAppProvider } from './whatsapp-provider.interface';
+import { normalizePhone } from '../phone.util';
 
 @Injectable()
 export class WhatsAppWebProvider
@@ -205,8 +206,7 @@ export class WhatsAppWebProvider
   }
 
   private toChatId(phone: string): string {
-    const cleaned = phone.replace(/[\s\-\+]/g, '');
-    const withCode = cleaned.startsWith('0') ? `92${cleaned.slice(1)}` : cleaned;
-    return `${withCode}@c.us`;
+    // Digits only, always with country code — see phone.util.ts
+    return `${normalizePhone(phone)}@c.us`;
   }
 }

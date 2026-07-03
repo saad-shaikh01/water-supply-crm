@@ -5,6 +5,7 @@ import Redis from 'ioredis';
 import { PrismaService } from '@water-supply-crm/database';
 import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
 import { MessageTemplates } from '../whatsapp/templates/message.templates';
+import { isSendablePhone } from '../whatsapp/phone.util';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { CustomerStatementPdfService } from '../customer/pdf/customer-statement-pdf.service';
 import { ScheduleReminderDto, SendNowDto, SendTargetedDto, PreviewDto } from './dto/schedule-reminder.dto';
@@ -15,8 +16,13 @@ const REPEATABLE_JOB_ID = (vendorId: string) => `balance-reminder:${vendorId}`;
 const REMINDER_COOLDOWN_TTL = 23 * 60 * 60; // 23 hours — prevent re-sending within same day
 const cooldownKey = (vendorId: string, customerId: string) => `balance-reminder-cooldown:${vendorId}:${customerId}`;
 
-/** Pause between consecutive WhatsApp sends — avoids burst pattern that triggers Meta anti-spam */
-const SEND_DELAY_MS = 5000;
+/**
+ * Pause between consecutive WhatsApp sends — avoids burst pattern that triggers
+ * Meta anti-spam. Randomized per message: a fixed interval is itself a bot
+ * signature, so never use a static delay.
+ */
+const SEND_DELAY_MIN_MS = 5000;
+const SEND_DELAY_MAX_MS = 12000;
 
 /** Stable response shape returned by all schedule-related endpoints */
 export interface ReminderScheduleStatus {
@@ -162,10 +168,28 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       const customer = customers[i];
       const monthBalance = monthEndBalances.get(customer.id) ?? customer.financialBalance;
 
+      // Junk phone ("-", partial digits etc.) — never attempt a send
+      if (!this.isValidPhone(customer.phoneNumber)) {
+        results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'skipped-invalid-phone', statementUrl: null });
+        skipped++;
+        continue;
+      }
+
       if (dryRun) {
         results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'would-send', statementUrl: includeStatement ? '(statement PDF attached at send time)' : null });
         skipped++;
         continue;
+      }
+
+      // WhatsApp dropped mid-batch — abort instead of burning 5s per remaining customer
+      if (!this.whatsapp.isReady()) {
+        this.logger.warn(`WhatsApp disconnected mid-batch — aborting, ${customers.length - i} customers remaining`);
+        for (let j = i; j < customers.length; j++) {
+          const c = customers[j];
+          results.push({ customerId: c.id, name: c.name, balance: monthEndBalances.get(c.id) ?? c.financialBalance, status: 'skipped-disconnected', statementUrl: null });
+          skipped++;
+        }
+        break;
       }
 
       // Enforce cooldown unless force=true
@@ -187,7 +211,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: messageSent ? 'sent' : 'failed', statementUrl: null });
 
       if (i < customers.length - 1) {
-        await this.sleep(SEND_DELAY_MS);
+        await this.sendDelay();
       }
     }
 
@@ -252,6 +276,9 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
         skipped.push(entry);
       } else if (!c.phoneNumber || c.phoneNumber.trim() === '') {
         entry.reason = 'skipped-no-phone';
+        skipped.push(entry);
+      } else if (!this.isValidPhone(c.phoneNumber)) {
+        entry.reason = 'skipped-invalid-phone';
         skipped.push(entry);
       } else if (c.createdAt >= endDate) {
         entry.reason = 'skipped-new-customer';
@@ -341,10 +368,28 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
         continue;
       }
 
+      // Junk phone ("-", partial digits etc.) — never attempt a send
+      if (!this.isValidPhone(customer.phoneNumber)) {
+        results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'skipped-invalid-phone', statementUrl: null });
+        skipped++;
+        continue;
+      }
+
       if (dryRun) {
         results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'would-send', statementUrl: includeStatement ? '(statement PDF attached at send time)' : null });
         skipped++;
         continue;
+      }
+
+      // WhatsApp dropped mid-batch — abort instead of burning 5s per remaining customer
+      if (!this.whatsapp.isReady()) {
+        this.logger.warn(`WhatsApp disconnected mid-batch — aborting, ${eligible.length - i} customers remaining`);
+        for (let j = i; j < eligible.length; j++) {
+          const c = eligible[j];
+          results.push({ customerId: c.id, name: c.name, balance: monthEndBalances.get(c.id) ?? c.financialBalance, status: 'skipped-disconnected', statementUrl: null });
+          skipped++;
+        }
+        break;
       }
 
       // Enforce per-customer cooldown unless force=true
@@ -368,7 +413,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: messageSent ? 'sent' : 'failed', statementUrl: null });
 
       if (i < eligible.length - 1) {
-        await this.sleep(SEND_DELAY_MS);
+        await this.sendDelay();
       }
     }
 
@@ -452,6 +497,21 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /** Random human-like pause between sends (SEND_DELAY_MIN_MS–SEND_DELAY_MAX_MS) */
+  private sendDelay(): Promise<void> {
+    const ms = SEND_DELAY_MIN_MS + Math.floor(Math.random() * (SEND_DELAY_MAX_MS - SEND_DELAY_MIN_MS));
+    return this.sleep(ms);
+  }
+
+  /**
+   * A phone is sendable if it normalizes to digits-only WITH country code
+   * (see phone.util.ts). Catches junk like "-", "n/a" or partial numbers
+   * that would otherwise produce a broken WhatsApp chat id.
+   */
+  private isValidPhone(phone: string | null | undefined): boolean {
+    return isSendablePhone(phone);
   }
 
   /** Strip statementUrl (signed URLs expire in 7 days — pointless to persist) before logging results */

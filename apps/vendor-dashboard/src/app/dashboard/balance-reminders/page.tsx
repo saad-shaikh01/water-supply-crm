@@ -53,6 +53,8 @@ const REASON_LABELS: Record<string, string> = {
   'skipped-inactive': 'INACTIVE',
   'skipped-new-customer': 'NEW CUSTOMER',
   'skipped-excluded': 'EXCLUDED',
+  'skipped-disconnected': 'DISCONNECTED',
+  'skipped-invalid-phone': 'INVALID PHONE',
 };
 
 const REASON_STYLES: Record<string, string> = {
@@ -63,6 +65,8 @@ const REASON_STYLES: Record<string, string> = {
   'skipped-inactive': 'bg-white/10 text-muted-foreground',
   'skipped-new-customer': 'bg-blue-500/10 text-blue-400',
   'skipped-excluded': 'bg-violet-500/10 text-violet-400',
+  'skipped-disconnected': 'bg-destructive/10 text-destructive',
+  'skipped-invalid-phone': 'bg-destructive/10 text-destructive',
 };
 
 function currentMonth() {
