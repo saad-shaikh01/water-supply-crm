@@ -25,7 +25,7 @@ import {
   useReminderHistory,
   useReminderHistoryDetail,
 } from '../../../features/balance-reminders/hooks/use-balance-reminders';
-import { useAllCustomers } from '../../../features/customers/hooks/use-customers';
+import { useCustomerSearch } from '../../../features/customers/hooks/use-customers';
 import { useAllVans } from '../../../features/vans/hooks/use-vans';
 import { cn } from '@water-supply-crm/ui';
 
@@ -83,7 +83,6 @@ export default function BalanceRemindersPage() {
   const { mutate: deleteSchedule, isPending: isDeleting } = useDeleteReminderSchedule();
   const { mutate: sendTargeted, isPending: isSending } = useSendTargeted();
   const { mutate: preview, isPending: isPreviewing, data: previewData, reset: resetPreview } = usePreviewReminders();
-  const { data: allCustomersData } = useAllCustomers();
   const { data: allVansData } = useAllVans();
   const { data: waStatus } = useWhatsAppStatus();
   const isDisconnected = waStatus?.status === 'disconnected';
@@ -99,6 +98,9 @@ export default function BalanceRemindersPage() {
   // Manual send state
   const [sendMode, setSendMode] = useState<SendMode>('eligible');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [debouncedCustomerSearch, setDebouncedCustomerSearch] = useState('');
+  const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
   const [month, setMonth] = useState(currentMonth());
   const [includeStatement, setIncludeStatement] = useState(false);
   const [minBalance, setMinBalance] = useState('100');
@@ -115,6 +117,18 @@ export default function BalanceRemindersPage() {
   const [detailLogId, setDetailLogId] = useState<string | null>(null);
   const [detailSearch, setDetailSearch] = useState('');
   const { data: logDetail, isLoading: isDetailLoading } = useReminderHistoryDetail(detailLogId);
+
+  // Debounce combobox search so we don't hit the API on every keystroke
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedCustomerSearch(customerSearch), 300);
+    return () => clearTimeout(t);
+  }, [customerSearch]);
+
+  const { data: customerSearchData, isFetching: isSearchingCustomers } = useCustomerSearch(
+    debouncedCustomerSearch,
+    sendMode === 'single',
+  );
+  const customerResults: any[] = (customerSearchData as any)?.data ?? [];
 
   // Sync schedule form with loaded data
   useEffect(() => {
@@ -143,7 +157,6 @@ export default function BalanceRemindersPage() {
       weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
     });
 
-  const allCustomers: any[] = (allCustomersData as any)?.data ?? [];
 
   const resolvedPaymentType = paymentTypeFilter === 'BOTH' ? undefined : paymentTypeFilter;
   const resolvedVanId = vanFilter === 'all' ? undefined : vanFilter;
@@ -516,27 +529,74 @@ export default function BalanceRemindersPage() {
                 </div>
               )}
 
-              {/* Customer picker (single mode) */}
+              {/* Customer picker (single mode) — server-side searchable combobox */}
               {sendMode === 'single' && (
                 <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
                   <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Customer</Label>
-                  <Select
-                    value={selectedCustomerId}
-                    onValueChange={(v) => { setSelectedCustomerId(v); setShowPreview(false); resetPreview(); }}
-                  >
-                    <SelectTrigger className="bg-accent/30 border-border/50 h-11 rounded-xl">
-                      <SelectValue placeholder="Select customer…" />
-                    </SelectTrigger>
-                    <SelectContent className="rounded-xl border-border shadow-2xl max-h-64">
-                      {allCustomers.map((c: any) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name}
-                          {c.customerCode ? ` (${c.customerCode})` : ''}
-                          {c.financialBalance != null ? ` — ₨${Number(c.financialBalance).toLocaleString()}` : ''}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="relative">
+                    <Input
+                      placeholder="Search by name, code or phone…"
+                      value={customerSearch}
+                      onChange={(e) => {
+                        setCustomerSearch(e.target.value);
+                        setSelectedCustomerId('');
+                        setCustomerDropdownOpen(true);
+                        setShowPreview(false);
+                        resetPreview();
+                      }}
+                      onFocus={() => setCustomerDropdownOpen(true)}
+                      onBlur={() => setTimeout(() => setCustomerDropdownOpen(false), 150)}
+                      className={cn(
+                        'bg-accent/30 border-border/50 h-11 rounded-xl pr-9',
+                        selectedCustomerId && 'border-primary/40',
+                      )}
+                    />
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                      {isSearchingCustomers
+                        ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                        : selectedCustomerId
+                          ? <CheckCircle2 className="h-4 w-4 text-primary" />
+                          : <User className="h-4 w-4 text-muted-foreground/50" />}
+                    </div>
+
+                    {customerDropdownOpen && (
+                      <div className="absolute z-50 mt-1 w-full rounded-xl border border-border bg-popover shadow-2xl max-h-64 overflow-y-auto">
+                        {customerResults.length > 0 ? (
+                          customerResults.map((c: any) => (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                setSelectedCustomerId(c.id);
+                                setCustomerSearch(`${c.name}${c.customerCode ? ` (${c.customerCode})` : ''}`);
+                                setCustomerDropdownOpen(false);
+                                setShowPreview(false);
+                                resetPreview();
+                              }}
+                              className={cn(
+                                'w-full text-left px-3 py-2 text-xs hover:bg-accent/50 transition-colors',
+                                selectedCustomerId === c.id && 'bg-primary/10',
+                              )}
+                            >
+                              <p className="font-semibold text-foreground dark:text-white truncate">
+                                {c.name}
+                                {c.customerCode && <span className="ml-1.5 font-mono text-[10px] text-muted-foreground">({c.customerCode})</span>}
+                              </p>
+                              <p className="text-[10px] text-muted-foreground">
+                                {c.financialBalance != null ? `₨${Number(c.financialBalance).toLocaleString()}` : ''}
+                                {c.phoneNumber ? ` · ${c.phoneNumber}` : ''}
+                              </p>
+                            </button>
+                          ))
+                        ) : (
+                          <p className="px-3 py-4 text-xs text-muted-foreground text-center">
+                            {isSearchingCustomers ? 'Searching…' : debouncedCustomerSearch ? 'No customers found.' : 'Type to search customers…'}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 

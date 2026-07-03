@@ -66,7 +66,8 @@ export const useAllCustomers = () => {
     queryKey: ['customers', 'all'],
     queryFn: async () => {
       const first = await customersApi.getAll({ limit: 100, page: 1 }).then((r) => r.data);
-      const totalPages: number = (first as any).totalPages ?? 1;
+      // paginate() nests pagination info under `meta` — totalPages is NOT top-level
+      const totalPages: number = (first as any).meta?.totalPages ?? (first as any).totalPages ?? 1;
       if (totalPages <= 1) return first;
       const rest = await Promise.all(
         Array.from({ length: totalPages - 1 }, (_, i) =>
@@ -75,6 +76,22 @@ export const useAllCustomers = () => {
       );
       return { ...(first as any), data: [...(first as any).data, ...rest.flat()] };
     },
+  });
+};
+
+/**
+ * Server-side customer search for comboboxes — searches name, customerCode and
+ * phoneNumber on the backend. Debounce the input before passing it here.
+ */
+export const useCustomerSearch = (search: string, enabled = true) => {
+  return useQuery({
+    queryKey: ['customers', 'combobox-search', search],
+    queryFn: () =>
+      customersApi
+        .getAll({ search: search || undefined, isActive: true, limit: 20, page: 1 })
+        .then((r) => r.data),
+    enabled,
+    placeholderData: (prev) => prev,
   });
 };
 
