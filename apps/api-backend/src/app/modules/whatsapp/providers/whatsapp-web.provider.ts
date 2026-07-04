@@ -64,6 +64,16 @@ export class WhatsAppWebProvider
             process.env.PUPPETEER_EXECUTABLE_PATH ||
             undefined,
         },
+        // Pin the WhatsApp Web version. Without this, whatsapp-web.js loads
+        // whatever Meta serves — version drift breaks the 'ready' event
+        // ("authenticated but never ready"). Override via env if a newer pin
+        // is needed: https://github.com/wppconnect-team/wa-version/tree/main/html
+        webVersionCache: {
+          type: 'remote',
+          remotePath:
+            process.env.WHATSAPP_WEB_VERSION_URL ||
+            'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1042620056-alpha.html',
+        },
       });
 
       this.client.on('qr', async (qr: string) => {
