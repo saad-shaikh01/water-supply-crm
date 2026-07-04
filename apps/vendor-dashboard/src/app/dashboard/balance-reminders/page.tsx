@@ -86,6 +86,7 @@ export default function BalanceRemindersPage() {
   const { mutate: setSchedule, isPending: isSaving } = useSetReminderSchedule();
   const { mutate: deleteSchedule, isPending: isDeleting } = useDeleteReminderSchedule();
   const { mutate: sendTargeted, isPending: isSending } = useSendTargeted();
+  const { mutate: sendToOne } = useSendTargeted();
   const { mutate: preview, isPending: isPreviewing, data: previewData, reset: resetPreview } = usePreviewReminders();
   const { data: allVansData } = useAllVans();
   const { data: waStatus } = useWhatsAppStatus();
@@ -116,6 +117,8 @@ export default function BalanceRemindersPage() {
   const [previewSearch, setPreviewSearch] = useState('');
   const [previewReasonFilter, setPreviewReasonFilter] = useState('all');
   const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
+  const [sentIds, setSentIds] = useState<Set<string>>(new Set());
+  const [sendingCustomerId, setSendingCustomerId] = useState<string | null>(null);
   const [forceOverride, setForceOverride] = useState(false);
   const [historyPage, setHistoryPage] = useState(1);
   const [historyDateFrom, setHistoryDateFrom] = useState('');
@@ -197,8 +200,26 @@ export default function BalanceRemindersPage() {
     setPreviewSearch('');
     setPreviewReasonFilter('all');
     setExcludedIds(new Set());
+    setSentIds(new Set());
+    setSendingCustomerId(null);
     setShowPreview(true);
     preview(buildPreviewPayload());
+  };
+
+  /** Send to exactly one customer from the preview list (same logic as single mode) */
+  const handleSendToOne = (customerId: string) => {
+    setSendingCustomerId(customerId);
+    sendToOne(
+      { mode: 'single', customerIds: [customerId], month, includeStatement, force: forceOverride } as any,
+      {
+        onSuccess: () => {
+          setSentIds((prev) => new Set(prev).add(customerId));
+          // Exclude from any subsequent bulk send so they don't get a duplicate
+          setExcludedIds((prev) => new Set(prev).add(customerId));
+        },
+        onSettled: () => setSendingCustomerId(null),
+      },
+    );
   };
 
   const toggleExcluded = (customerId: string) => {
@@ -1012,13 +1033,16 @@ export default function BalanceRemindersPage() {
                     );
                   })
                   .map((e: any) => {
-                    const isExcluded = excludedIds.has(e.customerId);
+                    const isSent = sentIds.has(e.customerId);
+                    const isRowSending = sendingCustomerId === e.customerId;
+                    const isExcluded = !isSent && excludedIds.has(e.customerId);
                     return (
                       <div
                         key={e.customerId}
                         className={cn(
                           'flex items-center justify-between px-3 py-2 text-xs hover:bg-white/5',
                           isExcluded && 'opacity-50',
+                          isSent && 'bg-emerald-500/5',
                         )}
                       >
                         <div className="min-w-0 flex-1">
@@ -1034,24 +1058,41 @@ export default function BalanceRemindersPage() {
                         </div>
                         <Badge className={cn(
                           'text-[9px] font-black px-1.5 border-none flex-shrink-0 ml-3',
-                          isExcluded ? REASON_STYLES['skipped-excluded'] : (REASON_STYLES[e.reason] ?? 'bg-white/10 text-muted-foreground'),
+                          isSent
+                            ? 'bg-emerald-500/10 text-emerald-400'
+                            : isExcluded
+                              ? REASON_STYLES['skipped-excluded']
+                              : (REASON_STYLES[e.reason] ?? 'bg-white/10 text-muted-foreground'),
                         )}>
-                          {isExcluded ? 'EXCLUDED' : (REASON_LABELS[e.reason] ?? String(e.reason).toUpperCase())}
+                          {isSent ? 'SENT' : isExcluded ? 'EXCLUDED' : (REASON_LABELS[e.reason] ?? String(e.reason).toUpperCase())}
                         </Badge>
-                        {previewTab === 'send' && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => toggleExcluded(e.customerId)}
-                            className={cn(
-                              'h-6 px-2 ml-2 rounded-lg text-[10px] font-bold flex-shrink-0',
-                              isExcluded
-                                ? 'text-emerald-400 hover:text-emerald-400 hover:bg-emerald-500/10'
-                                : 'text-destructive hover:text-destructive hover:bg-destructive/10',
-                            )}
-                          >
-                            {isExcluded ? 'Undo' : 'Skip'}
-                          </Button>
+                        {previewTab === 'send' && !isSent && (
+                          <>
+                            <Button
+                              size="sm"
+                              onClick={() => handleSendToOne(e.customerId)}
+                              disabled={isRowSending || !!sendingCustomerId || isSending || isExcluded}
+                              className="h-6 px-2 ml-2 rounded-lg text-[10px] font-bold flex-shrink-0 bg-emerald-600 hover:bg-emerald-500 text-white shadow-none"
+                            >
+                              {isRowSending
+                                ? <Loader2 className="h-3 w-3 animate-spin" />
+                                : <><Send className="h-2.5 w-2.5 mr-1" /> Send</>}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => toggleExcluded(e.customerId)}
+                              disabled={isRowSending}
+                              className={cn(
+                                'h-6 px-2 ml-1.5 rounded-lg text-[10px] font-bold flex-shrink-0',
+                                isExcluded
+                                  ? 'text-emerald-400 hover:text-emerald-400 hover:bg-emerald-500/10'
+                                  : 'text-destructive hover:text-destructive hover:bg-destructive/10',
+                              )}
+                            >
+                              {isExcluded ? 'Undo' : 'Skip'}
+                            </Button>
+                          </>
                         )}
                       </div>
                     );
