@@ -55,9 +55,9 @@ export class WhatsAppWebProvider
             '--disable-dev-shm-usage',
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
-            '--no-zygote',
-            '--single-process',
             '--disable-gpu',
+            // NOTE: '--single-process' and '--no-zygote' removed — they cause
+            // page crashes / stuck "authenticated but never ready" states.
           ],
           executablePath:
             process.env.CHROMIUM_PATH ||
