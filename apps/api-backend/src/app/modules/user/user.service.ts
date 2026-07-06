@@ -5,6 +5,7 @@ import { CacheInvalidationService } from '@water-supply-crm/caching';
 import { CACHE_KEYS, CACHE_TTLS } from '@water-supply-crm/caching';
 import * as bcrypt from 'bcrypt';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { NO_LOGIN_ROLES } from './dto/create-user.dto';
 import { UserQueryDto } from './dto/user-query.dto';
 import { AuditService } from '../audit/audit.service';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
@@ -19,27 +20,34 @@ export class UserService {
   ) {}
 
   async create(data: {
-    email: string;
-    password: string;
+    email?: string;
+    password?: string;
     name: string;
     role: UserRole;
     vendorId?: string;
     phoneNumber?: string;
   }) {
-    const existing = await this.prisma.user.findUnique({
-      where: { email: data.email },
-    });
-
-    if (existing) {
-      throw new ConflictException('User with this email already exists');
+    // Email/password may be omitted only for no-login field staff
+    if (!NO_LOGIN_ROLES.includes(data.role)) {
+      if (!data.email) throw new BadRequestException('Email is required for this role');
+      if (!data.password) throw new BadRequestException('Password is required for this role');
     }
 
-    const hashedPassword = await bcrypt.hash(data.password, 10);
+    if (data.email) {
+      const existing = await this.prisma.user.findUnique({
+        where: { email: data.email },
+      });
+      if (existing) {
+        throw new ConflictException('User with this email already exists');
+      }
+    }
+
+    const hashedPassword = data.password ? await bcrypt.hash(data.password, 10) : null;
 
     let user;
     try {
       user = await this.prisma.user.create({
-        data: { ...data, password: hashedPassword },
+        data: { ...data, email: data.email ?? null, password: hashedPassword },
       });
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
@@ -245,6 +253,11 @@ export class UserService {
       data: { defaultDriverId: null },
     });
 
+    // Remove from any van's default crew template (past sheet crew snapshots stay)
+    await this.prisma.vanDefaultCrew.deleteMany({
+      where: { userId: id, van: { vendorId } },
+    });
+
     await this.audit.log({
       vendorId,
       action: 'DEACTIVATE',
@@ -293,7 +306,7 @@ export class UserService {
       where: { id, vendorId },
       include: {
         _count: {
-          select: { dailySheets: true },
+          select: { dailySheets: true, crewAssignments: true },
         },
       },
     });
@@ -327,6 +340,14 @@ export class UserService {
         `Cannot delete user — they have ${user._count.dailySheets} daily sheet(s) on record. Deactivate instead to preserve history.`,
       );
     }
+    if (user._count.crewAssignments > 0) {
+      throw new BadRequestException(
+        `Cannot delete user — they appear in the crew of ${user._count.crewAssignments} daily sheet(s). Deactivate instead to preserve history.`,
+      );
+    }
+
+    // Default-crew template rows are just config — safe to remove with the user
+    await this.prisma.vanDefaultCrew.deleteMany({ where: { userId: id } });
 
     await this.prisma.user.delete({ where: { id } });
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.USERS);
@@ -352,6 +373,7 @@ export class UserService {
   async changeOwnPassword(userId: string, currentPassword: string, newPassword: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
+    if (!user.password) throw new BadRequestException('This account has no password set');
 
     const valid = await bcrypt.compare(currentPassword, user.password);
     if (!valid) throw new BadRequestException('Current password is incorrect');

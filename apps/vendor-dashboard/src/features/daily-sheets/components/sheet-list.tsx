@@ -31,6 +31,7 @@ export function SheetList() {
     id: string;
     date: string;
     isClosed: boolean;
+    crewConfirmed?: boolean;
     filledOutCount: number;
     filledInCount: number;
     emptyInCount: number;
@@ -280,6 +281,11 @@ export function SheetList() {
             header: 'Signals',
             cell: (r) => (
               <div className="flex items-center gap-1.5 whitespace-nowrap">
+                {!r.isClosed && r.crewConfirmed === false && (
+                  <Badge variant="outline" className="h-5 px-1.5 border-amber-500/20 bg-amber-500/10 text-amber-400 text-[9px] font-bold">
+                    CREW?
+                  </Badge>
+                )}
                 {r.issueCount !== undefined && r.issueCount > 0 && (
                   <Badge variant="outline" className="h-5 px-1.5 border-rose-500/20 bg-rose-500/10 text-rose-400 text-[9px] font-bold">
                     {r.issueCount} ERR

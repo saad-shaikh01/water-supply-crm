@@ -182,9 +182,22 @@ export const useSwapAssignment = (sheetId: string) => {
     mutationFn: (data: Record<string, unknown>) => dailySheetsApi.swapAssignment(sheetId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
-      toast.success('Assignment updated');
+      toast.success('Assignment updated — crew needs re-confirmation');
     },
-    onError: () => toast.error('Failed to update assignment'),
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to update assignment'),
+  });
+};
+
+export const useConfirmCrew = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    retry: 2,
+    mutationFn: () => dailySheetsApi.confirmCrew(sheetId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
+      toast.success("Today's crew confirmed");
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to confirm crew'),
   });
 };
 

@@ -147,6 +147,33 @@ export class DailySheetPdfService {
     });
 
     doc.y = y + h + 16;
+    this.drawCrewStrip(doc, sheet);
+  }
+
+  // ─── Crew strip (salesman / loaders + confirmation) ──────────────────────
+  private drawCrewStrip(doc: PDFKit.PDFDocument, sheet: any): void {
+    const crew: any[] = sheet.crew ?? [];
+    if (crew.length === 0) return;
+
+    const salesman = crew.find((c) => c.role === 'SALESMAN');
+    const loaders = crew.filter((c) => c.role === 'LOADER');
+    const parts: string[] = [];
+    if (salesman) parts.push(`Salesman: ${salesman.user?.name ?? '—'}`);
+    if (loaders.length > 0) {
+      parts.push(`Loader${loaders.length > 1 ? 's' : ''}: ${loaders.map((l) => l.user?.name ?? '—').join(', ')}`);
+    }
+    const confirmed = sheet.crewConfirmed
+      ? `  •  Crew confirmed${sheet.crewConfirmedBy?.name ? ` by ${sheet.crewConfirmedBy.name}` : ''}`
+      : '  •  Crew not confirmed';
+
+    const y = doc.y - 8;
+    doc.fillColor(PALETTE.muted).fontSize(6.5).font('Helvetica-Bold')
+      .text('CREW', MARGIN, y, { characterSpacing: 0.8, lineBreak: false });
+    doc.fillColor(PALETTE.slate).fontSize(8).font('Helvetica')
+      .text(parts.join('  •  ') + confirmed, MARGIN + 34, y - 1, {
+        width: CONTENT_W - 34, height: 10, ellipsis: true, lineBreak: false,
+      });
+    doc.y = y + 18;
   }
 
   // ─── Section title with accent bar ───────────────────────────────────────

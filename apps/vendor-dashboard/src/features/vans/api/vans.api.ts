@@ -8,4 +8,6 @@ export const vansApi = {
   remove: (id: string) => apiClient.delete(`/vans/${id}`),
   deactivate: (id: string) => apiClient.patch(`/vans/${id}/deactivate`),
   reactivate: (id: string) => apiClient.patch(`/vans/${id}/reactivate`),
+  updateDefaultCrew: (id: string, crew: Array<{ userId: string; role: string }>) =>
+    apiClient.put(`/vans/${id}/default-crew`, { crew }),
 };

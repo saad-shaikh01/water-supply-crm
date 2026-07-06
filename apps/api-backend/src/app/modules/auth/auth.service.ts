@@ -34,7 +34,8 @@ export class AuthService {
     }
 
     const user = await this.userService.findByIdentifier(identifier);
-    if (user && (await bcrypt.compare(pass, user.password))) {
+    // user.password is null for no-login field staff (SALESMAN/LOADER) — always reject
+    if (user && user.password && (await bcrypt.compare(pass, user.password))) {
       await this.cache.del(failKey);
       const { password, ...result } = user;
       return result;

@@ -7,6 +7,7 @@ import { dailySheetsApi } from '../api/daily-sheets.api';
 import { CheckinDialog } from './dialogs/checkin-dialog';
 import { NewTripDialog } from './dialogs/new-trip-dialog';
 import { SwapDialog } from './dialogs/swap-dialog';
+import { CrewConfirmDialog } from './dialogs/crew-confirm-dialog';
 import { ReconcileDialog } from './dialogs/reconcile-dialog';
 import { AdhocDeliveryDialog } from './dialogs/adhoc-delivery-dialog';
 import { CorrectionEntryDialog } from './dialogs/correction-entry-dialog';
@@ -34,6 +35,7 @@ interface UiState {
   newTripOpen: boolean;
   checkinOpen: string | null;
   swapOpen: boolean;
+  crewConfirmOpen: boolean;
   reconcileOpen: boolean;
   adhocOpen: boolean;
   correctionOpen: boolean;
@@ -50,6 +52,8 @@ type UiAction =
   | { type: 'CLOSE_CHECKIN' }
   | { type: 'OPEN_SWAP' }
   | { type: 'CLOSE_SWAP' }
+  | { type: 'OPEN_CREW_CONFIRM' }
+  | { type: 'CLOSE_CREW_CONFIRM' }
   | { type: 'OPEN_RECONCILE' }
   | { type: 'CLOSE_RECONCILE' }
   | { type: 'OPEN_ADHOC' }
@@ -66,6 +70,7 @@ const initialUiState: UiState = {
   newTripOpen: false,
   checkinOpen: null,
   swapOpen: false,
+  crewConfirmOpen: false,
   reconcileOpen: false,
   adhocOpen: false,
   correctionOpen: false,
@@ -81,8 +86,10 @@ function uiReducer(state: UiState, action: UiAction): UiState {
     case 'CLOSE_NEW_TRIP': return { ...state, newTripOpen: false };
     case 'OPEN_CHECKIN': return { ...state, checkinOpen: action.tripId };
     case 'CLOSE_CHECKIN': return { ...state, checkinOpen: null };
-    case 'OPEN_SWAP': return { ...state, swapOpen: true };
+    case 'OPEN_SWAP': return { ...state, swapOpen: true, crewConfirmOpen: false };
     case 'CLOSE_SWAP': return { ...state, swapOpen: false };
+    case 'OPEN_CREW_CONFIRM': return { ...state, crewConfirmOpen: true };
+    case 'CLOSE_CREW_CONFIRM': return { ...state, crewConfirmOpen: false };
     case 'OPEN_RECONCILE': return { ...state, reconcileOpen: true };
     case 'CLOSE_RECONCILE': return { ...state, reconcileOpen: false };
     case 'OPEN_ADHOC': return { ...state, adhocOpen: true };
@@ -136,6 +143,17 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   useLocationPublisher(sheetId, isDriver && !(data?.isClosed ?? true));
 
   const items = useMemo(() => data?.items ?? [], [data]);
+
+  // Mandatory crew check: auto-open the confirmation dialog the first time a
+  // staff/admin opens an open sheet whose crew is not yet confirmed.
+  const hasPromptedCrewConfirm = useRef(false);
+  useEffect(() => {
+    if (!data || hasPromptedCrewConfirm.current) return;
+    if (isAdminOrStaff && !data.isClosed && !data.crewConfirmed) {
+      hasPromptedCrewConfirm.current = true;
+      dispatch({ type: 'OPEN_CREW_CONFIRM' });
+    }
+  }, [data, isAdminOrStaff]);
 
   // Drivers stay on 'all' tab so completed deliveries remain visible after recording.
   // Non-driver users auto-switch to 'pending' on first load when pending items exist.
@@ -269,9 +287,13 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         date={data!.date}
         routeName={data?.route?.name ?? null}
         vanPlateNumber={data?.van?.plateNumber ?? null}
+        driverName={data?.driver?.name ?? null}
+        crew={data?.crew ?? []}
+        crewConfirmed={!!data?.crewConfirmed}
+        crewConfirmedByName={data?.crewConfirmedBy?.name ?? null}
         currentStatus={currentStatus}
         isClosed={isClosed}
-        isAdmin={isAdmin}
+        canEditCrew={isAdminOrStaff}
         isDriver={isDriver}
         onBack={() => router.back()}
         onSwap={() => dispatch({ type: 'OPEN_SWAP' })}
@@ -300,6 +322,27 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
           </div>
         ))}
       </div>
+
+      {!data.crewConfirmed && !isClosed && (
+        <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-center gap-3 flex-wrap">
+          <span className="text-amber-500 text-lg flex-shrink-0">⚠</span>
+          <div className="flex-1 min-w-[200px]">
+            <p className="text-sm font-bold text-amber-700 dark:text-amber-400">Crew Not Confirmed</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Today&apos;s crew must be confirmed before a trip can start.
+            </p>
+          </div>
+          {isAdminOrStaff && (
+            <Button
+              size="sm"
+              className="rounded-full font-bold"
+              onClick={() => dispatch({ type: 'OPEN_CREW_CONFIRM' })}
+            >
+              Review &amp; Confirm
+            </Button>
+          )}
+        </div>
+      )}
 
       {!hasAnyTrip && !isClosed && (
         <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-start gap-3">
@@ -389,7 +432,15 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         activeTrip={activeTrip}
         hasAnyTrip={hasAnyTrip}
         isAdminOrStaff={isAdminOrStaff}
-        onNewTrip={() => dispatch({ type: 'OPEN_NEW_TRIP' })}
+        onNewTrip={() => {
+          // Backend also enforces this — trips cannot start with an unconfirmed crew
+          if (!data.crewConfirmed) {
+            toast.warning('Confirm today’s crew before starting a trip');
+            dispatch({ type: 'OPEN_CREW_CONFIRM' });
+            return;
+          }
+          dispatch({ type: 'OPEN_NEW_TRIP' });
+        }}
         onReconcile={() => dispatch({ type: 'OPEN_RECONCILE' })}
         onCheckin={(tripId) => dispatch({ type: 'OPEN_CHECKIN', tripId })}
       />
@@ -570,6 +621,17 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         currentDriverName={data?.driver?.name}
         currentVanId={data?.vanId}
         currentVanPlate={data?.van?.plateNumber}
+        currentCrew={data?.crew ?? []}
+        // Editing resets the confirmation — bring the user straight back to confirm
+        onSaved={() => { if (!isClosed) dispatch({ type: 'OPEN_CREW_CONFIRM' }); }}
+      />
+      <CrewConfirmDialog
+        open={ui.crewConfirmOpen}
+        onClose={() => dispatch({ type: 'CLOSE_CREW_CONFIRM' })}
+        sheetId={sheetId}
+        driverName={data?.driver?.name ?? null}
+        crew={data?.crew ?? []}
+        onEditCrew={() => dispatch({ type: 'OPEN_SWAP' })}
       />
       <AdhocDeliveryDialog
         open={ui.adhocOpen}

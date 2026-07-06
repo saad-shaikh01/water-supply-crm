@@ -232,6 +232,15 @@ export interface SheetExpense {
   createdBy: { id: string; name: string };
 }
 
+export type CrewRole = 'DRIVER' | 'SALESMAN' | 'LOADER';
+
+export interface SheetCrewMember {
+  id: string;
+  userId: string;
+  role: CrewRole;
+  user: { id: string; name: string; role: string };
+}
+
 export interface SheetDetail {
   id: string;
   date: string;
@@ -243,6 +252,10 @@ export interface SheetDetail {
   route: { id: string; name: string } | null;
   van: { id: string; plateNumber: string } | null;
   driver: { id: string; name: string } | null;
+  crew: SheetCrewMember[];
+  crewConfirmed: boolean;
+  crewConfirmedAt: string | null;
+  crewConfirmedBy: { id: string; name: string } | null;
   items: DeliveryItem[];
   loads: LoadTrip[];
   expenses: SheetExpense[];

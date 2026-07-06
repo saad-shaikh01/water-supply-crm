@@ -3,6 +3,7 @@
   Get,
   Post,
   Patch,
+  Put,
   Delete,
   Body,
   Param,
@@ -16,6 +17,7 @@ import { UserRole } from '@prisma/client';
 import { VanService } from './van.service';
 import { CreateVanDto } from './dto/create-van.dto';
 import { UpdateVanDto } from './dto/update-van.dto';
+import { UpdateDefaultCrewDto } from './dto/update-default-crew.dto';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -59,6 +61,18 @@ export class VanController {
     @Body() dto: UpdateVanDto,
   ) {
     return this.vanService.update(user.vendorId, id, dto);
+  }
+
+  /** PUT /vans/:id/default-crew — full-replace the van's default supporting crew */
+  @Put(':id/default-crew')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
+  updateDefaultCrew(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateDefaultCrewDto,
+  ) {
+    return this.vanService.updateDefaultCrew(user.vendorId, id, dto);
   }
 
   @Patch(':id/deactivate')

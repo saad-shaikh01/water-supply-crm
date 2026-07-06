@@ -13,6 +13,18 @@ export const useAllDrivers = () => {
   });
 };
 
+/**
+ * All active users eligible for van crews (drivers, salesmen, loaders).
+ * Filtered client-side by role in the crew editor.
+ */
+export const useCrewCandidates = () => {
+  return useQuery({
+    queryKey: ['users', 'crew-candidates'],
+    queryFn: (): Promise<PaginatedResponse<{ id: string; name: string; role: string }>> =>
+      usersApi.getAll({ limit: 200, isActive: true }).then((r) => r.data),
+  });
+};
+
 export const useUsers = () => {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));

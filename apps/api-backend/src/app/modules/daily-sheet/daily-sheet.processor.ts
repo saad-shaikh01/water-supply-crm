@@ -112,6 +112,10 @@ export class DailySheetProcessor extends WorkerHost {
       where: vanWhere,
       include: {
         routes: { where: { vendorId }, orderBy: { createdAt: 'asc' }, take: 1, select: { id: true } },
+        defaultCrew: {
+          where: { user: { isActive: true } },
+          select: { userId: true, role: true },
+        },
         deliverySchedules: {
           where: {
             dayOfWeek,
@@ -249,6 +253,10 @@ export class DailySheetProcessor extends WorkerHost {
         })),
       ];
 
+      // Snapshot the van's default supporting crew onto the sheet. The crew
+      // must be explicitly confirmed (crewConfirmed=false) before trips start.
+      const crewSnapshot = van.defaultCrew.filter((c) => c.userId !== van.defaultDriverId);
+
       const sheet = await this.prisma.dailySheet.create({
         data: {
           vendorId,
@@ -257,6 +265,9 @@ export class DailySheetProcessor extends WorkerHost {
           driverId: van.defaultDriverId,
           date: targetDate,
           items: { create: allItems },
+          crew: {
+            create: crewSnapshot.map((c) => ({ userId: c.userId, role: c.role })),
+          },
         },
       });
 

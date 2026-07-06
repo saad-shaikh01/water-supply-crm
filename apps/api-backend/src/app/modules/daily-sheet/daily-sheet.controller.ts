@@ -472,7 +472,7 @@ export class DailySheetController {
   }
 
   @Patch(':id/swap-assignment')
-  @Roles(UserRole.VENDOR_ADMIN)
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   swapAssignment(
     @CurrentUser() user: AuthUser,
@@ -480,6 +480,18 @@ export class DailySheetController {
     @Body() dto: SwapDriverDto,
   ) {
     return this.dailySheetService.swapAssignment(user.vendorId, id, dto);
+  }
+
+  /**
+   * POST /daily-sheets/:id/confirm-crew
+   * Confirms today's crew — mandatory before any trip can start.
+   * Any later driver/crew change resets the confirmation.
+   */
+  @Post(':id/confirm-crew')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 20 } })
+  confirmCrew(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.dailySheetService.confirmCrew(user.vendorId, id, user);
   }
 
   // ── Load trips (multi-trip per sheet) ────────────────────────────────

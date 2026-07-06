@@ -11,7 +11,9 @@ import {
 } from '@water-supply-crm/caching';
 import { CreateVanDto } from './dto/create-van.dto';
 import { UpdateVanDto } from './dto/update-van.dto';
+import { UpdateDefaultCrewDto } from './dto/update-default-crew.dto';
 import { paginate } from '../../common/helpers/paginate';
+import { validateSupportCrew } from '../../common/helpers/crew-validation';
 
 @Injectable()
 export class VanService {
@@ -31,6 +33,10 @@ export class VanService {
   private vanInclude = {
     defaultDriver: { select: { id: true, name: true, email: true } },
     routes: { select: { id: true, name: true } },
+    defaultCrew: {
+      include: { user: { select: { id: true, name: true, role: true, isActive: true } } },
+      orderBy: { createdAt: 'asc' as const },
+    },
   };
 
   async findAllPaginated(vendorId: string, query: any) {
@@ -121,6 +127,27 @@ export class VanService {
       data: dto,
       include: this.vanInclude,
     });
+    await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.VANS);
+    return updated;
+  }
+
+  /** Full-replace the van's default supporting crew (salesman/loaders). */
+  async updateDefaultCrew(vendorId: string, id: string, dto: UpdateDefaultCrewDto) {
+    const van = await this.prisma.van.findFirst({ where: { id, vendorId } });
+    if (!van) throw new NotFoundException('Van not found');
+
+    await validateSupportCrew(this.prisma, vendorId, dto.crew, van.defaultDriverId);
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.vanDefaultCrew.deleteMany({ where: { vanId: id } });
+      if (dto.crew.length > 0) {
+        await tx.vanDefaultCrew.createMany({
+          data: dto.crew.map((m) => ({ vanId: id, userId: m.userId, role: m.role })),
+        });
+      }
+      return tx.van.findFirst({ where: { id }, include: this.vanInclude });
+    });
+
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.VANS);
     return updated;
   }

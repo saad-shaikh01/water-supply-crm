@@ -286,6 +286,7 @@ export class CustomerPortalService {
   ) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
+    if (!user.password) throw new BadRequestException('This account has no password set');
 
     const valid = await bcrypt.compare(currentPassword, user.password);
     if (!valid)

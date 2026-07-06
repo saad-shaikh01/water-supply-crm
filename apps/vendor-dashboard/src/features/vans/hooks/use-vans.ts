@@ -65,6 +65,20 @@ export const useUpdateVan = () => {
   });
 };
 
+export const useUpdateVanDefaultCrew = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, crew }: { id: string; crew: Array<{ userId: string; role: string }> }) =>
+      vansApi.updateDefaultCrew(id, crew),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.vans.all() });
+      queryClient.invalidateQueries({ queryKey: ['vans', 'all'] });
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? 'Failed to update default crew'),
+  });
+};
+
 export const useDeleteVan = () => {
   const queryClient = useQueryClient();
   return useMutation({

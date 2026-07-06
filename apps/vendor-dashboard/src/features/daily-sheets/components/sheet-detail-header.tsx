@@ -2,15 +2,20 @@
 
 import { Button } from '@water-supply-crm/ui';
 import { StatusBadge } from '../../../components/shared/status-badge';
-import { ArrowLeft, ArrowRightLeft, Download, MapPin, Printer, Truck } from 'lucide-react';
+import { ArrowLeft, ArrowRightLeft, Download, MapPin, Printer, ShieldAlert, ShieldCheck, Truck, User, Users } from 'lucide-react';
+import type { SheetCrewMember } from '@water-supply-crm/types';
 
 interface SheetDetailHeaderProps {
   date: string;
   routeName: string | null;
   vanPlateNumber: string | null;
+  driverName: string | null;
+  crew: SheetCrewMember[];
+  crewConfirmed: boolean;
+  crewConfirmedByName: string | null;
   currentStatus: string;
   isClosed: boolean;
-  isAdmin: boolean;
+  canEditCrew: boolean;
   isDriver: boolean;
   onBack: () => void;
   onSwap: () => void;
@@ -22,15 +27,22 @@ export function SheetDetailHeader({
   date,
   routeName,
   vanPlateNumber,
+  driverName,
+  crew,
+  crewConfirmed,
+  crewConfirmedByName,
   currentStatus,
   isClosed,
-  isAdmin,
+  canEditCrew,
   isDriver,
   onBack,
   onSwap,
   onExportPdf,
   onPrintInvoice,
 }: SheetDetailHeaderProps) {
+  const salesman = crew.find((c) => c.role === 'SALESMAN');
+  const loaders = crew.filter((c) => c.role === 'LOADER');
+
   return (
     <div className="flex flex-col sm:flex-row sm:items-center gap-4">
       <Button variant="ghost" size="icon" onClick={onBack} className="rounded-full">
@@ -54,15 +66,57 @@ export function SheetDetailHeader({
             {vanPlateNumber}
           </span>
         </div>
+        {/* Crew line */}
+        <div className="text-muted-foreground text-xs flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 font-medium">
+          <span className="flex items-center gap-1 whitespace-nowrap">
+            <User className="h-3 w-3 shrink-0" />
+            Driver: <span className="font-bold text-foreground">{driverName ?? '—'}</span>
+          </span>
+          {salesman && (
+            <>
+              <span className="text-muted-foreground/40">•</span>
+              <span className="whitespace-nowrap">
+                Salesman: <span className="font-bold text-foreground">{salesman.user.name}</span>
+              </span>
+            </>
+          )}
+          {loaders.length > 0 && (
+            <>
+              <span className="text-muted-foreground/40">•</span>
+              <span className="flex items-center gap-1">
+                <Users className="h-3 w-3 shrink-0" />
+                Loader{loaders.length > 1 ? 's' : ''}:{' '}
+                <span className="font-bold text-foreground">
+                  {loaders.map((l) => l.user.name).join(', ')}
+                </span>
+              </span>
+            </>
+          )}
+          <span className="text-muted-foreground/40">•</span>
+          {crewConfirmed ? (
+            <span
+              className="flex items-center gap-1 text-emerald-600 font-bold whitespace-nowrap"
+              title={crewConfirmedByName ? `Confirmed by ${crewConfirmedByName}` : undefined}
+            >
+              <ShieldCheck className="h-3 w-3 shrink-0" />
+              Crew confirmed
+            </span>
+          ) : (
+            <span className="flex items-center gap-1 text-amber-600 font-bold whitespace-nowrap">
+              <ShieldAlert className="h-3 w-3 shrink-0" />
+              Crew not confirmed
+            </span>
+          )}
+        </div>
       </div>
       <div className="flex gap-2">
-        {!isClosed && isAdmin && (
+        {!isClosed && canEditCrew && (
           <Button
             variant="outline"
             size="icon"
             className="rounded-full"
             onClick={onSwap}
-            title="Swap van assignment"
+            title="Edit crew & assignment"
           >
             <ArrowRightLeft className="h-4 w-4" />
           </Button>

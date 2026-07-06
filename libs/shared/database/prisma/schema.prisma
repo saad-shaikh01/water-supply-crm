@@ -18,7 +18,18 @@ enum UserRole {
   VENDOR_ADMIN
   STAFF
   DRIVER
+  SALESMAN
+  LOADER
   CUSTOMER
+}
+
+// Role a person performs on a specific van/trip. Kept separate from UserRole
+// (auth) so a spare DRIVER-role user can ride along as a LOADER, and future
+// roles (e.g. HELPER, SUPERVISOR) are a one-line addition.
+enum CrewRole {
+  DRIVER
+  SALESMAN
+  LOADER
 }
 
 enum DeliveryStatus {
@@ -150,8 +161,8 @@ model Vendor {
 
 model User {
   id            String   @id @default(uuid())
-  email         String   @unique
-  password      String
+  email         String?  @unique // null for no-login staff (SALESMAN/LOADER)
+  password      String?  // null = login disabled (no-login staff)
   name          String
   phoneNumber   String?  @unique
   role          UserRole
@@ -173,6 +184,9 @@ model User {
   createdDeliveryNotes  DeliveryItemNote[] @relation("NoteCreatedBy")
   createdWarehouseTx    WarehouseTransaction[] @relation("WarehouseTxCreatedBy")
   createdRepairBatches  RepairBatch[]          @relation("RepairBatchCreatedBy")
+  crewAssignments       DailySheetCrew[]       @relation("CrewMember")
+  vanDefaultCrew        VanDefaultCrew[]       @relation("VanDefaultCrewMember")
+  confirmedCrewSheets   DailySheet[]           @relation("CrewConfirmedBy")
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -325,9 +339,27 @@ model Van {
   dailySheets       DailySheet[]
   expenses          Expense[]
   deliverySchedules CustomerDeliverySchedule[]
+  defaultCrew       VanDefaultCrew[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+}
+
+// Template crew for a van — copied onto each generated DailySheet.
+// The default DRIVER stays on Van.defaultDriverId (workflow-critical);
+// this table holds the supporting crew (salesman, loaders, future roles).
+model VanDefaultCrew {
+  id     String   @id @default(uuid())
+  vanId  String
+  van    Van      @relation(fields: [vanId], references: [id], onDelete: Cascade)
+  userId String
+  user   User     @relation("VanDefaultCrewMember", fields: [userId], references: [id])
+  role   CrewRole
+
+  createdAt DateTime @default(now())
+
+  @@unique([vanId, userId])
+  @@index([userId])
 }
 
 model DailySheet {
@@ -344,9 +376,17 @@ model DailySheet {
   
   driverId      String
   driver        User     @relation("DriverSheets", fields: [driverId], references: [id])
-  
+
   isClosed      Boolean  @default(false)
-  
+
+  // Crew confirmation workflow — the day's crew (auto-stamped from the van's
+  // default crew) must be explicitly confirmed before any trip can start.
+  // Any crew/driver change resets crewConfirmed to false.
+  crewConfirmed     Boolean   @default(false)
+  crewConfirmedAt   DateTime?
+  crewConfirmedById String?
+  crewConfirmedBy   User?     @relation("CrewConfirmedBy", fields: [crewConfirmedById], references: [id])
+
   // Reconciliation fields
   filledOutCount Int     @default(0)
   filledInCount  Int     @default(0)
@@ -359,6 +399,7 @@ model DailySheet {
   loads         DailySheetLoad[]
   expenses      Expense[]
   warehouseTransactions WarehouseTransaction[]
+  crew          DailySheetCrew[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -367,6 +408,24 @@ model DailySheet {
   @@index([vendorId, routeId, date])
   @@index([driverId, date])
   @@index([vanId, date])
+}
+
+// Snapshot of the supporting crew (salesman, loaders) that actually went out
+// on this sheet's van. The driver is NOT duplicated here — DailySheet.driverId
+// remains the single source of truth for the accountable driver.
+model DailySheetCrew {
+  id           String     @id @default(uuid())
+  dailySheetId String
+  dailySheet   DailySheet @relation(fields: [dailySheetId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User       @relation("CrewMember", fields: [userId], references: [id])
+  role         CrewRole
+
+  createdAt DateTime @default(now())
+
+  @@unique([dailySheetId, userId])
+  @@index([userId])
+  @@index([dailySheetId])
 }
 
 model DailySheetLoad {

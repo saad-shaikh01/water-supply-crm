@@ -32,6 +32,7 @@ import { InsertOrderItemDto, SequenceMode } from './dto/insert-order-item.dto';
 import { AddAdhocItemDto } from './dto/add-adhoc-item.dto';
 import { AddCorrectionItemDto } from './dto/add-correction-item.dto';
 import { paginate } from '../../common/helpers/paginate';
+import { validateSupportCrew } from '../../common/helpers/crew-validation';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
 import type { AuthUser } from '@water-supply-crm/types';
 import { UnlockEditDto } from './dto/unlock-edit.dto';
@@ -501,6 +502,9 @@ export class DailySheetService implements OnModuleInit {
           route: { select: { id: true, name: true } },
           van: { select: { id: true, plateNumber: true } },
           driver: { select: { id: true, name: true } },
+          crew: {
+            include: { user: { select: { id: true, name: true, role: true } } },
+          },
           items: {
             select: {
               status: true,
@@ -550,6 +554,11 @@ export class DailySheetService implements OnModuleInit {
         route: true,
         van: true,
         driver: true,
+        crew: {
+          include: { user: { select: { id: true, name: true, role: true } } },
+          orderBy: { createdAt: 'asc' },
+        },
+        crewConfirmedBy: { select: { id: true, name: true } },
         items: {
           include: {
             customer: {
@@ -944,6 +953,9 @@ export class DailySheetService implements OnModuleInit {
     });
     if (!sheet) throw new NotFoundException('Daily sheet not found');
     if (sheet.isClosed) throw new ConflictException('Cannot update a closed sheet');
+    if (!sheet.crewConfirmed) {
+      throw new ConflictException('Crew confirmation is required before starting the trip.');
+    }
 
     // Only one active trip at a time
     const activeTrip = await this.prisma.dailySheetLoad.findFirst({
@@ -1053,6 +1065,9 @@ export class DailySheetService implements OnModuleInit {
     }
     if (sheet.isClosed) {
       throw new ConflictException('Cannot update a closed sheet');
+    }
+    if (!sheet.crewConfirmed) {
+      throw new ConflictException('Crew confirmation is required before starting the trip.');
     }
 
     const updated = await this.prisma.dailySheet.update({
@@ -1294,9 +1309,9 @@ export class DailySheetService implements OnModuleInit {
   }
 
   async swapAssignment(vendorId: string, sheetId: string, dto: SwapDriverDto) {
-    if (!dto.driverId && !dto.vanId) {
+    if (!dto.driverId && !dto.vanId && !dto.crew) {
       throw new UnprocessableEntityException(
-        'Provide at least one of: driverId, vanId',
+        'Provide at least one of: driverId, vanId, crew',
       );
     }
 
@@ -1329,14 +1344,43 @@ export class DailySheetService implements OnModuleInit {
       updateData.driverId = dto.driverId;
     }
 
-    const updated = await this.prisma.dailySheet.update({
-      where: { id: sheetId },
-      data: updateData,
-      include: {
-        driver: { select: { id: true, name: true } },
-        van: { select: { id: true, plateNumber: true } },
-        route: { select: { id: true, name: true } },
-      },
+    const finalDriverId = updateData.driverId ?? sheet.driverId;
+    if (dto.crew) {
+      await validateSupportCrew(this.prisma, vendorId, dto.crew, finalDriverId);
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (dto.crew) {
+        await tx.dailySheetCrew.deleteMany({ where: { dailySheetId: sheetId } });
+        if (dto.crew.length > 0) {
+          await tx.dailySheetCrew.createMany({
+            data: dto.crew.map((m) => ({ dailySheetId: sheetId, userId: m.userId, role: m.role })),
+          });
+        }
+      } else if (updateData.driverId) {
+        // New driver may have been in the supporting crew — remove the duplicate
+        await tx.dailySheetCrew.deleteMany({
+          where: { dailySheetId: sheetId, userId: finalDriverId },
+        });
+      }
+
+      // Any assignment change invalidates the previous confirmation — the
+      // updated crew must be explicitly re-confirmed before trips start.
+      return tx.dailySheet.update({
+        where: { id: sheetId },
+        data: {
+          ...updateData,
+          crewConfirmed: false,
+          crewConfirmedAt: null,
+          crewConfirmedById: null,
+        },
+        include: {
+          driver: { select: { id: true, name: true } },
+          van: { select: { id: true, plateNumber: true } },
+          route: { select: { id: true, name: true } },
+          crew: { include: { user: { select: { id: true, name: true, role: true } } } },
+        },
+      });
     });
 
     await this.audit.log({
@@ -1344,7 +1388,66 @@ export class DailySheetService implements OnModuleInit {
       action: 'SWAP_ASSIGNMENT',
       entity: 'DailySheet',
       entityId: sheetId,
-      changes: { after: updateData },
+      changes: {
+        after: {
+          ...updateData,
+          ...(dto.crew ? { crew: dto.crew } : {}),
+          crewConfirmed: false,
+        },
+      },
+    });
+
+    return updated;
+  }
+
+  /**
+   * Confirms the sheet's crew for the day. Trips cannot start until the crew
+   * is confirmed; any later crew/driver change resets the confirmation.
+   */
+  async confirmCrew(vendorId: string, sheetId: string, user: AuthUser) {
+    const sheet = await this.prisma.dailySheet.findFirst({
+      where: { id: sheetId, vendorId },
+    });
+    if (!sheet) throw new NotFoundException('Daily sheet not found');
+    if (sheet.isClosed) throw new ConflictException('Cannot confirm crew on a closed sheet');
+
+    const crewInclude = {
+      driver: { select: { id: true, name: true } },
+      crew: { include: { user: { select: { id: true, name: true, role: true } } } },
+      crewConfirmedBy: { select: { id: true, name: true } },
+    };
+
+    if (sheet.crewConfirmed) {
+      // Idempotent — return current state without overwriting the original confirmer
+      return this.prisma.dailySheet.findFirst({
+        where: { id: sheetId },
+        include: crewInclude,
+      });
+    }
+
+    const updated = await this.prisma.dailySheet.update({
+      where: { id: sheetId },
+      data: {
+        crewConfirmed: true,
+        crewConfirmedAt: new Date(),
+        crewConfirmedById: user.userId,
+      },
+      include: crewInclude,
+    });
+
+    await this.audit.log({
+      vendorId,
+      action: 'CONFIRM_CREW',
+      entity: 'DailySheet',
+      entityId: sheetId,
+      changes: {
+        after: {
+          crewConfirmed: true,
+          crewConfirmedBy: user.userId,
+          driverId: updated.driverId,
+          crew: updated.crew.map((c) => ({ userId: c.userId, role: c.role })),
+        },
+      },
     });
 
     return updated;
@@ -1365,6 +1468,9 @@ export class DailySheetService implements OnModuleInit {
       include: {
         route: { select: { id: true, name: true } },
         van: { select: { id: true, plateNumber: true } },
+        crew: {
+          include: { user: { select: { id: true, name: true, role: true } } },
+        },
         _count: { select: { items: true } },
       },
       orderBy: { date: 'desc' },

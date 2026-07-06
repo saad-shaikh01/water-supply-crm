@@ -1,14 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
   Button, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@water-supply-crm/ui';
 import { ArrowRightLeft, Loader2, User, Truck } from 'lucide-react';
+import type { SheetCrewMember } from '@water-supply-crm/types';
 import { useSwapAssignment } from '../../hooks/use-daily-sheets';
 import { useAllVans } from '../../../vans/hooks/use-vans';
 import { useAllDrivers } from '../../../users/hooks/use-users';
+import {
+  CrewEditor, crewArrayToSelection, crewSelectionToArray, emptyCrewSelection,
+  type CrewSelection,
+} from '../../../../components/shared/crew-editor';
 
 interface SwapDialogProps {
   open: boolean;
@@ -18,11 +23,15 @@ interface SwapDialogProps {
   currentDriverName?: string | null;
   currentVanId?: string | null;
   currentVanPlate?: string | null;
+  currentCrew?: SheetCrewMember[];
+  /** Called after a successful save (e.g. to reopen the crew confirmation). */
+  onSaved?: () => void;
 }
 
 export function SwapDialog({
   open, onClose, sheetId,
   currentDriverId, currentDriverName, currentVanId, currentVanPlate,
+  currentCrew, onSaved,
 }: SwapDialogProps) {
   const { mutate: swapAssignment, isPending } = useSwapAssignment(sheetId);
   const { data: vansData } = useAllVans();
@@ -31,19 +40,37 @@ export function SwapDialog({
   const allDrivers = driversData?.data ?? [];
 
   const [form, setForm] = useState<{ vanId?: string; driverId?: string }>({});
+  const [crew, setCrew] = useState<CrewSelection>(emptyCrewSelection);
+
+  // Seed crew editor from the sheet's current crew each time the dialog opens
+  useEffect(() => {
+    if (open) setCrew(crewArrayToSelection(currentCrew));
+  }, [open, currentCrew]);
 
   const handleClose = () => {
     setForm({});
     onClose();
   };
 
+  const handleSave = () => {
+    swapAssignment(
+      { ...form, crew: crewSelectionToArray(crew) },
+      {
+        onSuccess: () => {
+          handleClose();
+          onSaved?.();
+        },
+      },
+    );
+  };
+
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose(); }}>
-      <DialogContent className="rounded-3xl max-w-sm">
+      <DialogContent className="rounded-3xl max-w-sm max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-xl font-black flex items-center gap-2">
             <ArrowRightLeft className="h-5 w-5 text-primary" />
-            Swap Assignment
+            Edit Crew &amp; Assignment
           </DialogTitle>
         </DialogHeader>
 
@@ -83,6 +110,15 @@ export function SwapDialog({
             )}
           </div>
 
+          {/* Supporting crew section */}
+          <div className="space-y-3 p-4 rounded-2xl bg-accent/20 border border-border/30">
+            <CrewEditor
+              value={crew}
+              onChange={setCrew}
+              excludeUserId={form.driverId ?? currentDriverId}
+            />
+          </div>
+
           {/* Van section */}
           <div className="space-y-3 p-4 rounded-2xl bg-accent/20 border border-border/30">
             <div className="flex items-center justify-between">
@@ -119,19 +155,21 @@ export function SwapDialog({
           </div>
 
           <p className="text-[11px] text-muted-foreground bg-muted/40 rounded-xl px-3 py-2">
-            These changes apply to this sheet only. To permanently change a van&apos;s default driver, update the van in Settings.
+            These changes apply to this sheet only and reset the crew confirmation — the updated
+            crew must be confirmed again before a trip can start. To change a van&apos;s defaults,
+            update the van in Settings.
           </p>
         </div>
 
         <DialogFooter>
           <Button variant="ghost" onClick={handleClose}>Cancel</Button>
           <Button
-            onClick={() => swapAssignment(form, { onSuccess: handleClose })}
-            disabled={isPending || (!form.vanId && !form.driverId)}
+            onClick={handleSave}
+            disabled={isPending}
             className="rounded-xl font-bold"
           >
             {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-            Confirm Swap
+            Save Changes
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
@@ -8,8 +8,12 @@ import {
   Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from '@water-supply-crm/ui';
 import { vanSchema, type VanInput } from '../schemas';
-import { useCreateVan, useUpdateVan } from '../hooks/use-vans';
+import { useCreateVan, useUpdateVan, useUpdateVanDefaultCrew } from '../hooks/use-vans';
 import { useAllDrivers } from '../../users/hooks/use-users';
+import {
+  CrewEditor, crewArrayToSelection, crewSelectionToArray, emptyCrewSelection,
+  type CrewSelection,
+} from '../../../components/shared/crew-editor';
 import { Truck, User } from 'lucide-react';
 
 interface VanFormProps {
@@ -22,10 +26,13 @@ export function VanForm({ open, onOpenChange, van }: VanFormProps) {
   const isEdit = !!van?.id;
   const { mutate: create, isPending: isCreating } = useCreateVan();
   const { mutate: update, isPending: isUpdating } = useUpdateVan();
+  const { mutate: updateCrew, isPending: isSavingCrew } = useUpdateVanDefaultCrew();
   const { data: driversResponse } = useAllDrivers();
-  const isPending = isCreating || isUpdating;
+  const isPending = isCreating || isUpdating || isSavingCrew;
 
   const drivers = (driversResponse as { data?: any[] } | undefined)?.data ?? [];
+
+  const [crew, setCrew] = useState<CrewSelection>(emptyCrewSelection);
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<VanInput>({
     resolver: zodResolver(vanSchema),
@@ -34,12 +41,14 @@ export function VanForm({ open, onOpenChange, van }: VanFormProps) {
 
   useEffect(() => {
     if (open && van) {
-      reset({ 
-        plateNumber: String(van.plateNumber ?? ''), 
-        defaultDriverId: van.defaultDriverId ? String(van.defaultDriverId) : null 
+      reset({
+        plateNumber: String(van.plateNumber ?? ''),
+        defaultDriverId: van.defaultDriverId ? String(van.defaultDriverId) : null
       });
+      setCrew(crewArrayToSelection(van.defaultCrew as Array<{ userId: string; role: string }> | undefined));
     } else if (!open) {
       reset({ plateNumber: '', defaultDriverId: null });
+      setCrew(emptyCrewSelection);
     }
   }, [open, van, reset]);
 
@@ -51,11 +60,17 @@ export function VanForm({ open, onOpenChange, van }: VanFormProps) {
         ? (data.defaultDriverId || null)
         : (data.defaultDriverId || undefined),
     };
-    
+
+    const saveCrew = (vanId: string) =>
+      updateCrew(
+        { id: vanId, crew: crewSelectionToArray(crew) },
+        { onSuccess: () => onOpenChange(false) },
+      );
+
     if (isEdit) {
-      update({ id: String(van!.id), data: payload }, { onSuccess: () => onOpenChange(false) });
+      update({ id: String(van!.id), data: payload }, { onSuccess: () => saveCrew(String(van!.id)) });
     } else {
-      create(payload, { onSuccess: () => onOpenChange(false) });
+      create(payload, { onSuccess: (res: any) => saveCrew(String(res?.data?.id)) });
     }
   };
 
@@ -106,6 +121,17 @@ export function VanForm({ open, onOpenChange, van }: VanFormProps) {
             </Select>
             <p className="text-[11px] text-muted-foreground mt-1">
               The assigned driver will be automatically selected for new daily sheets.
+            </p>
+          </div>
+
+          <div className="space-y-2 p-4 rounded-2xl bg-accent/20 border border-border/30">
+            <CrewEditor
+              value={crew}
+              onChange={setCrew}
+              excludeUserId={watch('defaultDriverId')}
+            />
+            <p className="text-[11px] text-muted-foreground mt-1">
+              The default crew is copied onto each generated daily sheet and confirmed there each morning.
             </p>
           </div>
 
