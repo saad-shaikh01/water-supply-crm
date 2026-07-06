@@ -40,7 +40,8 @@ import { StorageService } from '../../common/storage/storage.service';
 import { WarehouseService } from '../warehouse/warehouse.service';
 import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.service';
 
-const AUTO_GENERATE_CRON = '5 19 * * *'; // 00:05 AM PKT (UTC+5), shortly after the PKT date rolls over
+const AUTO_GENERATE_CRON = '5 0 * * *'; // 00:05 AM, evaluated in AUTO_GENERATE_TZ
+const AUTO_GENERATE_TZ = 'Asia/Karachi';
 const AUTO_GENERATE_JOB_ID = 'daily-sheet-auto-generation';
 
 @Injectable()
@@ -64,24 +65,47 @@ export class DailySheetService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    await this.scheduleAutoGeneration();
+    try {
+      await this.scheduleAutoGeneration();
+    } catch (err) {
+      this.logger.error(
+        `Failed to schedule daily sheet auto-generation: ${(err as Error)?.message ?? String(err)}`,
+        (err as Error)?.stack,
+      );
+    }
   }
 
   private async scheduleAutoGeneration() {
-    const existing = await this.sheetQueue.getRepeatableJobs();
-    if (existing.some((j) => j.id === AUTO_GENERATE_JOB_ID)) return;
+    // Clean up the legacy repeatable job (registered via add() + jobId in older
+    // builds). Its cron pattern was frozen at first registration and never
+    // updated on redeploy, so it must be removed before the scheduler takes over.
+    const legacy = await this.sheetQueue.getRepeatableJobs();
+    for (const j of legacy) {
+      if (j.id === AUTO_GENERATE_JOB_ID && j.key !== AUTO_GENERATE_JOB_ID) {
+        await this.sheetQueue.removeRepeatableByKey(j.key);
+        this.logger.warn(
+          `Removed legacy auto-generation repeatable job (key=${j.key}, pattern=${j.pattern}, tz=${j.tz ?? 'server-local'})`,
+        );
+      }
+    }
 
-    await this.sheetQueue.add(
-      JOB_NAMES.AUTO_GENERATE_DAILY_SHEETS,
-      {},
+    // upsertJobScheduler is idempotent and updates the pattern/tz if they
+    // changed since the last deploy — unlike add({ repeat }) which is
+    // first-write-wins.
+    const nextJob = await this.sheetQueue.upsertJobScheduler(
+      AUTO_GENERATE_JOB_ID,
+      { pattern: AUTO_GENERATE_CRON, tz: AUTO_GENERATE_TZ },
       {
-        repeat: { pattern: AUTO_GENERATE_CRON, utc: true },
-        jobId: AUTO_GENERATE_JOB_ID,
-        removeOnComplete: 30,
-        removeOnFail: 20,
+        name: JOB_NAMES.AUTO_GENERATE_DAILY_SHEETS,
+        opts: { removeOnComplete: 30, removeOnFail: 20 },
       },
     );
-    this.logger.log(`Daily sheet auto-generation scheduled (${AUTO_GENERATE_CRON} UTC)`);
+    const nextRun = nextJob
+      ? new Date(nextJob.timestamp + (nextJob.delay ?? 0)).toISOString()
+      : 'unknown';
+    this.logger.log(
+      `Daily sheet auto-generation scheduled (${AUTO_GENERATE_CRON} ${AUTO_GENERATE_TZ}) — next run at ${nextRun}`,
+    );
   }
 
   async generate(vendorId: string, dto: GenerateSheetsDto) {

@@ -9,17 +9,22 @@ This project has two automated background jobs that need to run in production. F
 **No VPS setup needed for this one.** It runs *inside* the API app itself (BullMQ repeatable job), not as an OS-level cron job.
 
 - It self-schedules automatically the moment the API process (`wscrm-api` under PM2) starts up — see `apps/api-backend/src/app/modules/daily-sheet/daily-sheet.service.ts` (`onModuleInit` → `scheduleAutoGeneration()`).
-- It fires every day at **00:05 AM PKT** and generates that day's delivery sheets for every active vendor (skipping any van with no customers scheduled that day).
+- It fires every day at **00:05 AM PKT** (BullMQ job scheduler, `tz: Asia/Karachi` — server timezone doesn't matter) and generates that day's delivery sheets for every active vendor (skipping any van with no customers scheduled that day).
 - **How to confirm it's active on the VPS**: after deploying/restarting the app, check the logs:
   ```bash
-  pm2 logs wscrm-api --lines 50 | grep "auto-generation"
+  pm2 logs wscrm-api --lines 100 | grep "auto-generation"
   ```
-  You should see:
+  You should see (on **every** restart, with the exact next fire time):
   ```
-  Daily sheet auto-generation scheduled (5 19 * * * UTC)
+  Daily sheet auto-generation scheduled (5 0 * * * Asia/Karachi) — next run at 2026-07-06T19:05:00.000Z
   ```
-  This log line only appears the **first time** the job gets registered (it dedupes on restart via `getRepeatableJobs()`), so if you restart the app again and don't see the line, that's expected — it means the schedule is already in place.
-- Nothing to add to crontab. Nothing to install. It just works as long as `wscrm-api` is running under PM2.
+  (`19:05 UTC` = `00:05 PKT`.) If a `Removed legacy auto-generation repeatable job` warning appears once on the first restart after deploying this version, that's expected — it's clearing the old registration whose schedule was frozen in Redis.
+- **The morning after**, confirm the run itself:
+  ```bash
+  pm2 logs wscrm-api --lines 200 | grep "Auto-generation for"
+  ```
+  You should see e.g. `Auto-generation for 2026-07-07: 1/1 vendors processed, 0 failed`.
+- Nothing to add to crontab. Nothing to install. It just works as long as `wscrm-api` is running under PM2 **and Redis is running with `maxmemory-policy noeviction`** (BullMQ requirement — if Redis evicts keys under memory pressure, scheduled jobs silently disappear; check with `redis-cli config get maxmemory-policy`).
 
 ---
 

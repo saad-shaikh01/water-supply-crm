@@ -21,9 +21,9 @@ const emptyForm = {
   customerId: '',
   customerName: '',
   productId: '',
-  filledDropped: 1,
-  emptyReceived: 0,
-  cashCollected: 0,
+  filledDropped: undefined as number | undefined,
+  emptyReceived: undefined as number | undefined,
+  cashCollected: undefined as number | undefined,
   correctionNote: '',
 };
 
@@ -88,11 +88,12 @@ export function CorrectionEntryDialog({ open, onClose, sheetId }: CorrectionEntr
     (productsData as any)?.data ?? (productsData as any)?.items ?? [];
 
   // Auto-select first product when products load and none selected
+  // (re-runs on form.productId so the reset-on-open doesn't leave it empty)
   useEffect(() => {
     if (products.length > 0 && !form.productId) {
       setForm((p) => ({ ...p, productId: products[0].id }));
     }
-  }, [products]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [products, form.productId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSelectCustomer = (customer: { id: string; name: string }) => {
     setForm((p) => ({ ...p, customerId: customer.id, customerName: customer.name }));
@@ -105,9 +106,9 @@ export function CorrectionEntryDialog({ open, onClose, sheetId }: CorrectionEntr
     addCorrectionItem({
       customerId: form.customerId,
       productId: form.productId,
-      filledDropped: form.filledDropped,
-      emptyReceived: form.emptyReceived,
-      cashCollected: form.cashCollected,
+      filledDropped: form.filledDropped ?? 0,
+      emptyReceived: form.emptyReceived ?? 0,
+      cashCollected: form.cashCollected ?? 0,
       correctionNote: form.correctionNote.trim(),
     }, { onSuccess: onClose });
   };
@@ -115,7 +116,6 @@ export function CorrectionEntryDialog({ open, onClose, sheetId }: CorrectionEntr
   const isValid =
     !!form.customerId &&
     !!form.productId &&
-    form.filledDropped >= 0 &&
     form.correctionNote.trim().length >= 3;
 
   return (
@@ -214,8 +214,8 @@ export function CorrectionEntryDialog({ open, onClose, sheetId }: CorrectionEntr
               <Input
                 type="number"
                 min={0}
-                value={form.filledDropped}
-                onChange={(e) => setForm((p) => ({ ...p, filledDropped: Number(e.target.value) }))}
+                value={form.filledDropped ?? ''}
+                onChange={(e) => setForm((p) => ({ ...p, filledDropped: e.target.value === '' ? undefined : Number(e.target.value) }))}
                 className="font-mono font-bold"
               />
             </div>
@@ -224,8 +224,8 @@ export function CorrectionEntryDialog({ open, onClose, sheetId }: CorrectionEntr
               <Input
                 type="number"
                 min={0}
-                value={form.emptyReceived}
-                onChange={(e) => setForm((p) => ({ ...p, emptyReceived: Number(e.target.value) }))}
+                value={form.emptyReceived ?? ''}
+                onChange={(e) => setForm((p) => ({ ...p, emptyReceived: e.target.value === '' ? undefined : Number(e.target.value) }))}
                 className="font-mono font-bold"
               />
             </div>
@@ -234,8 +234,8 @@ export function CorrectionEntryDialog({ open, onClose, sheetId }: CorrectionEntr
               <Input
                 type="number"
                 min={0}
-                value={form.cashCollected}
-                onChange={(e) => setForm((p) => ({ ...p, cashCollected: Number(e.target.value) }))}
+                value={form.cashCollected ?? ''}
+                onChange={(e) => setForm((p) => ({ ...p, cashCollected: e.target.value === '' ? undefined : Number(e.target.value) }))}
                 className="font-mono font-bold"
               />
             </div>
