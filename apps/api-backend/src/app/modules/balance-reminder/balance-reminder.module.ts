@@ -6,6 +6,7 @@ import { BalanceReminderProcessor } from './balance-reminder.processor';
 import { BalanceReminderController } from './balance-reminder.controller';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { StorageModule } from '../../common/storage/storage.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { CustomerStatementPdfService } from '../customer/pdf/customer-statement-pdf.service';
 
 @Module({
@@ -13,6 +14,7 @@ import { CustomerStatementPdfService } from '../customer/pdf/customer-statement-
     BullModule.registerQueue({ name: QUEUE_NAMES.BALANCE_REMINDERS }),
     WhatsAppModule,
     StorageModule,
+    NotificationsModule,
   ],
   controllers: [BalanceReminderController],
   providers: [BalanceReminderService, BalanceReminderProcessor, CustomerStatementPdfService],

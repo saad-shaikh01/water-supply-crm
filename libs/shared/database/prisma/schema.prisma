@@ -125,6 +125,22 @@ enum NoteType {
   VOICE
 }
 
+// Coarse notification category the vendor can switch on/off per channel.
+// Distinct from NotificationPreference (per-recipient user opt-in): this is a
+// vendor-level master gate deciding whether a flow is emitted at all.
+enum NotificationType {
+  DELIVERY_RECEIPT
+  MONTHLY_STATEMENT
+  PAYMENT_RECEIVED
+  ORDER_UPDATE
+  TICKET_REPLY
+}
+
+enum NotificationChannel {
+  WHATSAPP
+  PUSH
+}
+
 model Vendor {
   id          String   @id @default(uuid())
   name        String
@@ -157,6 +173,7 @@ model Vendor {
   warehouseStocks         WarehouseStock[]
   warehouseTransactions   WarehouseTransaction[]
   repairBatches           RepairBatch[]
+  notificationSettings    NotificationSetting[]
 }
 
 model User {
@@ -865,6 +882,22 @@ model NotificationPreference {
 
   @@unique([userId, eventType, channel])
   @@index([userId])
+}
+
+// Vendor-level master switch for a notification flow on a given channel.
+// A missing row means "enabled" (default), so vendors only store overrides.
+model NotificationSetting {
+  id        String              @id @default(uuid())
+  vendorId  String
+  vendor    Vendor              @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  channel   NotificationChannel
+  enabled   Boolean             @default(true)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  @@unique([vendorId, type, channel])
+  @@index([vendorId])
 }
 
 model NotificationLog {

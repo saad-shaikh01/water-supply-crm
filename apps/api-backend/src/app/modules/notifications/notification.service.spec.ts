@@ -1,14 +1,17 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getQueueToken } from '@nestjs/bullmq';
 import { NotificationService } from './notification.service';
+import { NotificationSettingsService } from './notification-settings.service';
 import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
 
 describe('NotificationService', () => {
   let service: NotificationService;
   let mockQueue: { add: jest.Mock };
+  let mockSettings: { isEnabled: jest.Mock };
 
   beforeEach(async () => {
     mockQueue = { add: jest.fn().mockResolvedValue({ id: 'job-1' }) };
+    mockSettings = { isEnabled: jest.fn().mockResolvedValue(true) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -16,6 +19,10 @@ describe('NotificationService', () => {
         {
           provide: getQueueToken(QUEUE_NAMES.NOTIFICATIONS),
           useValue: mockQueue,
+        },
+        {
+          provide: NotificationSettingsService,
+          useValue: mockSettings,
         },
       ],
     }).compile();
@@ -137,6 +144,56 @@ describe('NotificationService', () => {
       expect(fcmCall[2].jobId).toBe(`ntf:order.approved:${orderId}:fcm`);
       // Keys must differ so one channel doesn't block the other
       expect(waCall[2].jobId).not.toBe(fcmCall[2].jobId);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // vendor master-switch gating
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('vendor gating', () => {
+    it('does NOT enqueue WhatsApp when the vendor disabled the flow', async () => {
+      mockSettings.isEnabled.mockResolvedValue(false);
+
+      const result = await service.queueWhatsApp('+923001234567', 'Hi', undefined, {
+        vendorId: 'v1',
+        type: 'ORDER_UPDATE' as never,
+      });
+
+      expect(result).toBeNull();
+      expect(mockQueue.add).not.toHaveBeenCalled();
+      expect(mockSettings.isEnabled).toHaveBeenCalledWith('v1', 'ORDER_UPDATE', 'WHATSAPP');
+    });
+
+    it('does NOT enqueue FCM when the vendor disabled the push channel', async () => {
+      mockSettings.isEnabled.mockResolvedValue(false);
+
+      const result = await service.queueFcm('user-1', 'T', 'B', undefined, undefined, {
+        vendorId: 'v1',
+        type: 'ORDER_UPDATE' as never,
+      });
+
+      expect(result).toBeNull();
+      expect(mockQueue.add).not.toHaveBeenCalled();
+      expect(mockSettings.isEnabled).toHaveBeenCalledWith('v1', 'ORDER_UPDATE', 'PUSH');
+    });
+
+    it('enqueues normally when no gate info is provided (ungated caller)', async () => {
+      await service.queueWhatsApp('+923001234567', 'Hi');
+
+      expect(mockSettings.isEnabled).not.toHaveBeenCalled();
+      expect(mockQueue.add).toHaveBeenCalledTimes(1);
+    });
+
+    it('enqueues when the vendor has the flow enabled', async () => {
+      mockSettings.isEnabled.mockResolvedValue(true);
+
+      await service.queueWhatsApp('+923001234567', 'Hi', undefined, {
+        vendorId: 'v1',
+        type: 'ORDER_UPDATE' as never,
+      });
+
+      expect(mockQueue.add).toHaveBeenCalledTimes(1);
     });
   });
 });

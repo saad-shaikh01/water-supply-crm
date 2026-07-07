@@ -2,6 +2,7 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { PrismaService } from '@water-supply-crm/database';
+import { NotificationType } from '@prisma/client';
 import { QUEUE_NAMES, JOB_NAMES, NOTIFICATION_EVENTS } from '@water-supply-crm/queue';
 import { NotificationService } from '../notifications/notification.service';
 import { FcmService } from '../fcm/fcm.service';
@@ -149,7 +150,7 @@ export class AutoDispatchProcessor extends WorkerHost {
       const dateStr = targetDate.toLocaleDateString('en-PK', { weekday: 'long', day: 'numeric', month: 'long' });
       const waMsg = MessageTemplates.orderPlanned(customer.name, productName, qty, dateStr);
       const waKey = `ntf:${NOTIFICATION_EVENTS.ORDER_PLANNED}:${orderId}:wa`;
-      await this.notifications.queueWhatsApp(customer.phoneNumber, waMsg, waKey);
+      await this.notifications.queueWhatsApp(customer.phoneNumber, waMsg, waKey, { vendorId: order.vendorId, type: NotificationType.ORDER_UPDATE });
 
       if (customer.userId) {
         const fcmKey = `ntf:${NOTIFICATION_EVENTS.ORDER_PLANNED}:${orderId}:fcm`;
@@ -159,12 +160,13 @@ export class AutoDispatchProcessor extends WorkerHost {
           `Your order for ${productName} is planned for ${dateStr}.`,
           { type: NOTIFICATION_EVENTS.ORDER_PLANNED, orderId },
           fcmKey,
+          { vendorId: order.vendorId, type: NotificationType.ORDER_UPDATE },
         );
       }
     } else if (mode === 'dispatched') {
       const waMsg = MessageTemplates.orderDispatched(customer.name, productName, qty);
       const waKey = `ntf:${NOTIFICATION_EVENTS.ORDER_DISPATCHED}:${orderId}:wa`;
-      await this.notifications.queueWhatsApp(customer.phoneNumber, waMsg, waKey);
+      await this.notifications.queueWhatsApp(customer.phoneNumber, waMsg, waKey, { vendorId: order.vendorId, type: NotificationType.ORDER_UPDATE });
 
       if (customer.userId) {
         const fcmKey = `ntf:${NOTIFICATION_EVENTS.ORDER_DISPATCHED}:${orderId}:fcm`;
@@ -174,6 +176,7 @@ export class AutoDispatchProcessor extends WorkerHost {
           `Your ${productName} order is being delivered today!`,
           { type: NOTIFICATION_EVENTS.ORDER_DISPATCHED, orderId },
           fcmKey,
+          { vendorId: order.vendorId, type: NotificationType.ORDER_UPDATE },
         );
       }
     }

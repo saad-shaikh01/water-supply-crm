@@ -7,7 +7,7 @@ import {
   Inject,
 } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
-import { PaymentRequestStatus, PaymentMethod } from '@prisma/client';
+import { PaymentRequestStatus, PaymentMethod, NotificationType, NotificationChannel } from '@prisma/client';
 import { paginate } from '../../common/helpers/paginate';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { PaymentQueryDto } from './dto/payment-query.dto';
@@ -24,6 +24,7 @@ import { AuditService } from '../audit/audit.service';
 import { FcmService } from '../fcm/fcm.service';
 import { NOTIFICATION_EVENTS } from '@water-supply-crm/queue';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
+import { NotificationSettingsService } from '../notifications/notification-settings.service';
 
 @Injectable()
 export class PaymentService {
@@ -37,6 +38,7 @@ export class PaymentService {
     private readonly audit: AuditService,
     private readonly fcm: FcmService,
     private readonly cache: CacheInvalidationService,
+    private readonly notifSettings: NotificationSettingsService,
   ) {}
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -328,17 +330,20 @@ export class PaymentService {
         request.customer.phoneNumber,
         message,
         `ntf:${NOTIFICATION_EVENTS.PAYMENT_APPROVED}:${requestId}:wa`,
+        { vendorId, type: NotificationType.PAYMENT_RECEIVED },
       )
       .catch((e) =>
         this.logger.warn(`WhatsApp notification failed: ${e.message}`),
       );
 
-    this.fcm.sendToCustomer(
-      request.customerId,
-      'Payment Approved ✅',
-      `Rs. ${request.amount} payment approved. New balance: Rs. ${Math.max(0, newBalance)}`,
-      { type: 'PAYMENT_APPROVED', requestId },
-    ).catch(() => null);
+    if (await this.notifSettings.isEnabled(vendorId, NotificationType.PAYMENT_RECEIVED, NotificationChannel.PUSH)) {
+      this.fcm.sendToCustomer(
+        request.customerId,
+        'Payment Approved ✅',
+        `Rs. ${request.amount} payment approved. New balance: Rs. ${Math.max(0, newBalance)}`,
+        { type: 'PAYMENT_APPROVED', requestId },
+      ).catch(() => null);
+    }
 
     this.logger.log(
       `Payment approved: ${requestId} Rs.${request.amount} for customer ${request.customerId}`,
@@ -408,6 +413,7 @@ export class PaymentService {
         request.customer.phoneNumber,
         message,
         `ntf:${NOTIFICATION_EVENTS.PAYMENT_REJECTED}:${requestId}:wa`,
+        { vendorId, type: NotificationType.PAYMENT_RECEIVED },
       )
       .catch((e) =>
         this.logger.warn(`WhatsApp notification failed: ${e.message}`),
@@ -422,12 +428,14 @@ export class PaymentService {
       changes: { after: { reason } },
     });
 
-    this.fcm.sendToCustomer(
-      request.customerId,
-      'Payment Rejected ❌',
-      `Rs. ${request.amount} payment rejected. Reason: ${reason}`,
-      { type: 'PAYMENT_REJECTED', requestId },
-    ).catch(() => null);
+    if (await this.notifSettings.isEnabled(vendorId, NotificationType.PAYMENT_RECEIVED, NotificationChannel.PUSH)) {
+      this.fcm.sendToCustomer(
+        request.customerId,
+        'Payment Rejected ❌',
+        `Rs. ${request.amount} payment rejected. Reason: ${reason}`,
+        { type: 'PAYMENT_REJECTED', requestId },
+      ).catch(() => null);
+    }
 
     return { message: 'Payment rejected', requestId, reason };
   }
@@ -496,6 +504,7 @@ export class PaymentService {
         request.customer.phoneNumber,
         message,
         `ntf:${NOTIFICATION_EVENTS.PAYMENT_APPROVED}:${request.id}:wa`,
+        { vendorId: request.vendorId, type: NotificationType.PAYMENT_RECEIVED },
       )
       .catch((e) =>
         this.logger.warn(`WhatsApp notification failed: ${e.message}`),

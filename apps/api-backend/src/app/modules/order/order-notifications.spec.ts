@@ -114,6 +114,7 @@ describe('OrderService — notification triggers', () => {
         pendingOrder.customer.phoneNumber,
         expect.any(String),
         `ntf:${NOTIFICATION_EVENTS.ORDER_APPROVED}:${ORDER_ID}:wa`,
+        { vendorId: VENDOR_ID, type: 'ORDER_UPDATE' },
       );
 
       expect(mockNotifications.queueFcm).toHaveBeenCalledWith(
@@ -122,6 +123,7 @@ describe('OrderService — notification triggers', () => {
         expect.any(String),
         expect.objectContaining({ type: 'ORDER_APPROVED', orderId: ORDER_ID }),
         `ntf:${NOTIFICATION_EVENTS.ORDER_APPROVED}:${ORDER_ID}:fcm`,
+        { vendorId: VENDOR_ID, type: 'ORDER_UPDATE' },
       );
     });
 
@@ -190,6 +192,7 @@ describe('OrderService — notification triggers', () => {
         pendingOrder.customer.phoneNumber,
         expect.stringContaining('Out of stock'),
         `ntf:${NOTIFICATION_EVENTS.ORDER_REJECTED}:${ORDER_ID}:wa`,
+        { vendorId: VENDOR_ID, type: 'ORDER_UPDATE' },
       );
 
       expect(mockNotifications.queueFcm).toHaveBeenCalledWith(
@@ -198,6 +201,7 @@ describe('OrderService — notification triggers', () => {
         expect.any(String),
         expect.objectContaining({ type: 'ORDER_REJECTED', orderId: ORDER_ID }),
         `ntf:${NOTIFICATION_EVENTS.ORDER_REJECTED}:${ORDER_ID}:fcm`,
+        { vendorId: VENDOR_ID, type: 'ORDER_UPDATE' },
       );
     });
 

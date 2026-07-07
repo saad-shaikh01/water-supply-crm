@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Users, Map, Package, Truck,
   ClipboardList, CreditCard, UserCog, Droplets, Banknote, Navigation,
-  Receipt, Bell, ScrollText, BarChart2, Home, History, ShoppingCart,
+  Receipt, Bell, BellRing, ScrollText, BarChart2, Home, History, ShoppingCart,
   MessageSquare, AlertTriangle, Tag, ShieldAlert, Warehouse, Wrench, ChevronDown,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
@@ -89,6 +89,7 @@ const navItems: NavItem[] = [
   // Settings
   { label: 'Users', href: '/dashboard/users', icon: UserCog, minRole: 'VENDOR_ADMIN', group: 'Settings' },
   { label: 'Balance Reminders', href: '/dashboard/balance-reminders', icon: Bell, minRole: 'VENDOR_ADMIN', group: 'Settings' },
+  { label: 'Notification Controls', href: '/dashboard/notification-settings', icon: BellRing, minRole: 'VENDOR_ADMIN', group: 'Settings' },
   { label: 'Audit Logs', href: '/dashboard/audit-logs', icon: ScrollText, minRole: 'VENDOR_ADMIN', group: 'Settings' },
 ];
 

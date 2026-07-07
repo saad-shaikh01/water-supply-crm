@@ -3,10 +3,12 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import Redis from 'ioredis';
 import { PrismaService } from '@water-supply-crm/database';
+import { NotificationType, NotificationChannel } from '@prisma/client';
 import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
 import { MessageTemplates } from '../whatsapp/templates/message.templates';
 import { isSendablePhone } from '../whatsapp/phone.util';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { NotificationSettingsService } from '../notifications/notification-settings.service';
 import { CustomerStatementPdfService } from '../customer/pdf/customer-statement-pdf.service';
 import { ScheduleReminderDto, SendNowDto, SendTargetedDto, PreviewDto } from './dto/schedule-reminder.dto';
 
@@ -43,6 +45,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     private readonly reminderQueue: Queue,
     private readonly prisma: PrismaService,
     private readonly whatsapp: WhatsAppService,
+    private readonly notifSettings: NotificationSettingsService,
     private readonly statementPdf: CustomerStatementPdfService,
   ) {}
 
@@ -570,6 +573,11 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     month: string,
     includeStatement: boolean,
   ): Promise<boolean> {
+    // Vendor master switch: statement/reminder flow can be turned off per vendor
+    if (!(await this.notifSettings.isEnabled(vendorId, NotificationType.MONTHLY_STATEMENT, NotificationChannel.WHATSAPP))) {
+      return false;
+    }
+
     // Balance cleared (or in advance) — congratulate, never ask for payment
     const hasDue = balance > 0;
 

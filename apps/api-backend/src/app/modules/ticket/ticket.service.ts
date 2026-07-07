@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, ForbiddenException, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
+import { NotificationType } from '@prisma/client';
 import { paginate } from '../../common/helpers/paginate';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { ReplyTicketDto } from './dto/reply-ticket.dto';
@@ -231,7 +232,7 @@ export class TicketService {
 
     const waMsg = MessageTemplates.ticketReplied(ticket.customer.name, ticket.subject);
     this.notifications
-      .queueWhatsApp(ticket.customer.phoneNumber, waMsg, waKey)
+      .queueWhatsApp(ticket.customer.phoneNumber, waMsg, waKey, { vendorId, type: NotificationType.TICKET_REPLY })
       .catch((e) => this.logger.warn(`WhatsApp notify failed for ticket ${ticketId}: ${e.message}`));
 
     if (ticket.customer.userId) {
@@ -242,6 +243,7 @@ export class TicketService {
           `Your ticket "${ticket.subject}" has been ${isResolving ? 'resolved' : 'replied to'}.`,
           { type: isResolving ? 'TICKET_RESOLVED' : 'TICKET_REPLIED', ticketId },
           fcmKey,
+          { vendorId, type: NotificationType.TICKET_REPLY },
         )
         .catch(() => null);
     }

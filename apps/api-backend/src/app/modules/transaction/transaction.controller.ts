@@ -8,7 +8,7 @@
   UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { UserRole } from '@prisma/client';
+import { UserRole, NotificationType } from '@prisma/client';
 import { LedgerService } from './ledger.service';
 import { RecordPaymentDto } from './dto/record-payment.dto';
 import { RecordAdjustmentDto } from './dto/record-adjustment.dto';
@@ -59,7 +59,10 @@ export class TransactionController {
     if (transaction.customer?.phoneNumber) {
       const message = `Payment of ${dto.amount} received. New balance: ${transaction.customer.financialBalance}. Thank you!`;
       await this.notificationService
-        .queueWhatsApp(transaction.customer.phoneNumber, message)
+        .queueWhatsApp(transaction.customer.phoneNumber, message, undefined, {
+          vendorId: user.vendorId,
+          type: NotificationType.PAYMENT_RECEIVED,
+        })
         .catch(() => {});
     }
 

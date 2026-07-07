@@ -13,7 +13,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '@water-supply-crm/database';
 import { QUEUE_NAMES, JOB_NAMES, NOTIFICATION_EVENTS } from '@water-supply-crm/queue';
-import { DeliveryStatus, NoteType, PaymentType, TransactionType } from '@prisma/client';
+import { DeliveryStatus, NoteType, PaymentType, TransactionType, NotificationType, NotificationChannel } from '@prisma/client';
 import { GenerateSheetsDto } from './dto/generate-sheets.dto';
 import { SubmitDeliveryDto } from './dto/submit-delivery.dto';
 import { LoadOutDto } from './dto/load-out.dto';
@@ -40,6 +40,7 @@ import { CreateDeliveryNoteDto } from './dto/create-delivery-note.dto';
 import { StorageService } from '../../common/storage/storage.service';
 import { WarehouseService } from '../warehouse/warehouse.service';
 import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.service';
+import { NotificationSettingsService } from '../notifications/notification-settings.service';
 
 const AUTO_GENERATE_CRON = '5 0 * * *'; // 00:05 AM, evaluated in AUTO_GENERATE_TZ
 const AUTO_GENERATE_TZ = 'Asia/Karachi';
@@ -61,6 +62,7 @@ export class DailySheetService implements OnModuleInit {
     private storage: StorageService,
     private warehouse: WarehouseService,
     private deliveryReceiptPdf: DeliveryReceiptPdfService,
+    private notifSettings: NotificationSettingsService,
     @InjectQueue(QUEUE_NAMES.DAILY_SHEET_GENERATION)
     private sheetQueue: Queue,
   ) {}
@@ -204,6 +206,14 @@ export class DailySheetService implements OnModuleInit {
       ? 0
       : (customPrice ? customPrice.customPrice : item.product.basePrice);
 
+    // Resolve the delivery push master-switch BEFORE the transaction so the
+    // gate check never adds I/O inside the interactive transaction.
+    const deliveryPushEnabled = await this.notifSettings.isEnabled(
+      vendorId,
+      NotificationType.DELIVERY_RECEIPT,
+      NotificationChannel.PUSH,
+    );
+
     const result = await this.prisma.$transaction(async (tx) => {
       let updatedWallet: { balance: number } | null = null;
       let updatedCustomer: { financialBalance: number } | null = null;
@@ -273,12 +283,14 @@ export class DailySheetService implements OnModuleInit {
 
       // FCM: notify customer on completed delivery (fire-and-forget)
       if (resolvedStatus === DeliveryStatus.COMPLETED || resolvedStatus === DeliveryStatus.EMPTY_ONLY) {
-        this.fcm.sendToCustomer(
-          item.customerId,
-          'Delivery Completed',
-          `${dto.filledDropped} bottle(s) delivered. Empty received: ${dto.emptyReceived}.`,
-          { type: 'DELIVERY', itemId },
-        ).catch((e: Error) => this.logger.warn(`FCM delivery-complete failed for item ${itemId}: ${e.message}`));
+        if (deliveryPushEnabled) {
+          this.fcm.sendToCustomer(
+            item.customerId,
+            'Delivery Completed',
+            `${dto.filledDropped} bottle(s) delivered. Empty received: ${dto.emptyReceived}.`,
+            { type: 'DELIVERY', itemId },
+          ).catch((e: Error) => this.logger.warn(`FCM delivery-complete failed for item ${itemId}: ${e.message}`));
+        }
 
         // WhatsApp PDF receipt: only when bottles were actually dropped (not empty-only pickups)
         if (resolvedStatus === DeliveryStatus.COMPLETED && item.customer.phoneNumber) {
@@ -317,7 +329,7 @@ export class DailySheetService implements OnModuleInit {
           this.notifications.queueWhatsAppPdf(
             item.customer.phoneNumber,
             receiptData,
-            { entityType: 'DELIVERY_ITEM', entityId: itemId },
+            { entityType: 'DELIVERY_ITEM', entityId: itemId, vendorId, type: NotificationType.DELIVERY_RECEIPT },
           ).catch((e: Error) => this.logger.warn(`WhatsApp PDF delivery-${isCorrection ? 'correction' : 'complete'} failed for item ${itemId}: ${e.message}`));
         }
       }
@@ -333,11 +345,13 @@ export class DailySheetService implements OnModuleInit {
         );
       }
 
-      // FCM: notify customer on any delivery failure (fire-and-forget)
+      // FCM: notify customer on any delivery failure (fire-and-forget).
+      // Gated with the delivery push flow so the vendor's master switch applies.
       if (
-        resolvedStatus === DeliveryStatus.NOT_AVAILABLE ||
-        resolvedStatus === DeliveryStatus.RESCHEDULED ||
-        resolvedStatus === DeliveryStatus.CANCELLED
+        deliveryPushEnabled &&
+        (resolvedStatus === DeliveryStatus.NOT_AVAILABLE ||
+          resolvedStatus === DeliveryStatus.RESCHEDULED ||
+          resolvedStatus === DeliveryStatus.CANCELLED)
       ) {
         const failureBody = dto.reason
           ? `Your delivery could not be completed. Reason: ${dto.reason}`

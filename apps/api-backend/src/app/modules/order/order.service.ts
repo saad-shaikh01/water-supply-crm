@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, ForbiddenException, BadRequestException,
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '@water-supply-crm/database';
-import { DispatchStatus } from '@prisma/client';
+import { DispatchStatus, NotificationType } from '@prisma/client';
 import { paginate } from '../../common/helpers/paginate';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { RejectOrderDto } from './dto/reject-order.dto';
@@ -227,7 +227,7 @@ export class OrderService {
       order.quantity,
     );
     this.notifications
-      .queueWhatsApp(order.customer.phoneNumber, waMsg, waKey)
+      .queueWhatsApp(order.customer.phoneNumber, waMsg, waKey, { vendorId, type: NotificationType.ORDER_UPDATE })
       .catch((e) => this.logger.warn(`WhatsApp notify failed for order ${orderId}: ${e.message}`));
 
     if (order.customer.userId) {
@@ -238,6 +238,7 @@ export class OrderService {
           `Your order for ${order.product.name} (qty: ${order.quantity}) has been approved.`,
           { type: 'ORDER_APPROVED', orderId },
           fcmKey,
+          { vendorId, type: NotificationType.ORDER_UPDATE },
         )
         .catch((e: Error) => this.logger.warn(`FCM order-approved failed for user ${order.customer.userId}: ${e.message}`));
     }
@@ -283,7 +284,7 @@ export class OrderService {
       dto.rejectionReason,
     );
     this.notifications
-      .queueWhatsApp(order.customer.phoneNumber, waMsg, waKey)
+      .queueWhatsApp(order.customer.phoneNumber, waMsg, waKey, { vendorId, type: NotificationType.ORDER_UPDATE })
       .catch((e) => this.logger.warn(`WhatsApp notify failed for order ${orderId}: ${e.message}`));
 
     if (order.customer.userId) {
@@ -294,6 +295,7 @@ export class OrderService {
           `Your order for ${order.product.name} was rejected.${dto.rejectionReason ? ` Reason: ${dto.rejectionReason}` : ''}`,
           { type: 'ORDER_REJECTED', orderId },
           fcmKey,
+          { vendorId, type: NotificationType.ORDER_UPDATE },
         )
         .catch((e: Error) => this.logger.warn(`FCM order-rejected failed for user ${order.customer.userId}: ${e.message}`));
     }
@@ -344,7 +346,7 @@ export class OrderService {
       },
     });
 
-    this.sendPlanNotification(orderId, updated.customer, updated.product.name, updated.quantity, new Date(dto.targetDate));
+    this.sendPlanNotification(vendorId, orderId, updated.customer, updated.product.name, updated.quantity, new Date(dto.targetDate));
 
     return updated;
   }
@@ -378,7 +380,7 @@ export class OrderService {
       },
     });
 
-    this.sendPlanNotification(orderId, updated.customer, updated.product.name, updated.quantity, new Date(dto.targetDate));
+    this.sendPlanNotification(vendorId, orderId, updated.customer, updated.product.name, updated.quantity, new Date(dto.targetDate));
 
     return updated;
   }
@@ -405,7 +407,7 @@ export class OrderService {
     for (const order of orders) {
       const waKey = `ntf:${NOTIFICATION_EVENTS.ORDER_APPROVED}:${order.id}:wa`;
       const waMsg = MessageTemplates.orderApproved(order.customer.name, order.product.name, order.quantity);
-      this.notifications.queueWhatsApp(order.customer.phoneNumber, waMsg, waKey).catch(() => null);
+      this.notifications.queueWhatsApp(order.customer.phoneNumber, waMsg, waKey, { vendorId, type: NotificationType.ORDER_UPDATE }).catch(() => null);
 
       if (order.customer.userId) {
         const fcmKey = `ntf:${NOTIFICATION_EVENTS.ORDER_APPROVED}:${order.id}:fcm`;
@@ -415,6 +417,7 @@ export class OrderService {
           `Your order for ${order.product.name} has been approved.`,
           { type: 'ORDER_APPROVED', orderId: order.id },
           fcmKey,
+          { vendorId, type: NotificationType.ORDER_UPDATE },
         ).catch(() => null);
       }
 
@@ -460,13 +463,14 @@ export class OrderService {
     });
 
     for (const order of orders) {
-      this.sendPlanNotification(order.id, order.customer, order.product.name, order.quantity, targetDate);
+      this.sendPlanNotification(vendorId, order.id, order.customer, order.product.name, order.quantity, targetDate);
     }
 
     return { planned: plannedIds.length, skipped: dto.orderIds.length - plannedIds.length };
   }
 
   private sendPlanNotification(
+    vendorId: string,
     orderId: string,
     customer: { name: string; phoneNumber: string; userId: string | null },
     productName: string,
@@ -478,7 +482,7 @@ export class OrderService {
     const waKey = `ntf:${NOTIFICATION_EVENTS.ORDER_PLANNED}:${orderId}:wa`;
 
     this.notifications
-      .queueWhatsApp(customer.phoneNumber, waMsg, waKey)
+      .queueWhatsApp(customer.phoneNumber, waMsg, waKey, { vendorId, type: NotificationType.ORDER_UPDATE })
       .catch((e) => this.logger.warn(`WhatsApp plan-notify failed for order ${orderId}: ${e.message}`));
 
     if (customer.userId) {
@@ -490,6 +494,7 @@ export class OrderService {
           `Your order for ${productName} is planned for ${dateStr}.`,
           { type: NOTIFICATION_EVENTS.ORDER_PLANNED, orderId },
           fcmKey,
+          { vendorId, type: NotificationType.ORDER_UPDATE },
         )
         .catch((e: Error) => this.logger.warn(`FCM plan-notify failed for order ${orderId}: ${e.message}`));
     }
