@@ -15,7 +15,13 @@ export class CacheInvalidationService {
 
   async invalidateVendorEntity(vendorId: string, entity: string): Promise<void> {
     const key = this.vendorKey(vendorId, entity);
-    await this.cacheManager.del(key);
+    // Clear both the bare key and every suffixed variant. Paginated/filtered
+    // list caches are stored under `vendor:{id}:{entity}:p:...` keys, so a plain
+    // del of the bare key alone would leave those stale until their TTL expired.
+    await Promise.all([
+      this.cacheManager.del(key),
+      this.delByPattern(`${key}:*`),
+    ]);
   }
 
   async invalidateCustomerWallets(vendorId: string, customerId: string): Promise<void> {
