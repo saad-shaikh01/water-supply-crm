@@ -3,7 +3,9 @@
   "version": "0.0.0",
   "license": "MIT",
   "scripts": {
-    "seed": "DATABASE_URL=$DATABASE_URL ts-node --project libs/shared/database/tsconfig.lib.json libs/shared/database/prisma/seed.ts"
+    "seed": "DATABASE_URL=$DATABASE_URL ts-node --project libs/shared/database/tsconfig.lib.json libs/shared/database/prisma/seed.ts",
+    "rbac:seed": "node -r ./scripts/register-ts-paths.cjs libs/shared/database/prisma/rbac-seed.ts",
+    "authz:check": "node scripts/check-no-legacy-authz.cjs && node scripts/check-authz-coverage.cjs"
   },
   "prisma": {
     "schema": "libs/shared/database/prisma/schema.prisma",

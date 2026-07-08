@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { UserModule } from '../user/user.module';
+import { AuthzModule } from '../authz/authz.module';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
@@ -9,6 +10,7 @@ import { JwtStrategy } from './jwt.strategy';
 @Module({
   imports: [
     UserModule,
+    AuthzModule,
     PassportModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'super-secret-key',

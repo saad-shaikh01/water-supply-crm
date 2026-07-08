@@ -5,24 +5,20 @@
   Body,
   Param,
   Query,
-  UseGuards,
   NotFoundException,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { UserRole } from '@prisma/client';
 import { PaymentService } from './payment.service';
 import { PaymentQueryDto } from './dto/payment-query.dto';
 import { ApprovePaymentDto, RejectPaymentDto } from './dto/review-payment.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 import { StorageService } from '../../common/storage/storage.service';
 
+// Reads require payments:view (class-level); approve/reject override with their own perms.
 @Controller('payment-requests')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+@RequirePermissions('payments:view')
 export class PaymentAdminController {
   constructor(
     private readonly paymentService: PaymentService,
@@ -69,7 +65,7 @@ export class PaymentAdminController {
    * Only VENDOR_ADMIN can approve.
    */
   @Patch(':id/approve')
-  @Roles(UserRole.VENDOR_ADMIN)
+  @RequirePermissions('payments:approve')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 20 } })
   approve(
     @CurrentUser() user: AuthUser,
@@ -85,7 +81,7 @@ export class PaymentAdminController {
    * Only VENDOR_ADMIN can reject.
    */
   @Patch(':id/reject')
-  @Roles(UserRole.VENDOR_ADMIN)
+  @RequirePermissions('payments:reject')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 20 } })
   reject(
     @CurrentUser() user: AuthUser,

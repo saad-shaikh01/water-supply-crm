@@ -5,7 +5,6 @@
   Body,
   Param,
   Query,
-  UseGuards,
   UseInterceptors,
   UploadedFile,
   BadRequestException,
@@ -14,14 +13,11 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { extname } from 'path';
 import { Throttle } from '@nestjs/throttler';
-import { UserRole } from '@prisma/client';
 import { TicketService } from './ticket.service';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { TicketQueryDto } from './dto/ticket-query.dto';
 import { CreateTicketMessageDto } from './dto/create-ticket-message.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequireCustomer } from '../../common/decorators/authz-markers.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 import { StorageService } from '../../common/storage/storage.service';
@@ -32,8 +28,7 @@ const ALLOWED_ATTACHMENT_EXTS = [
 ];
 
 @Controller('portal/tickets')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.CUSTOMER)
+@RequireCustomer()
 export class TicketPortalController {
   constructor(
     private readonly ticketService: TicketService,

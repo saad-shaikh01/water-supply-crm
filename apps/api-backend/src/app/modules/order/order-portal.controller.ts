@@ -1,17 +1,13 @@
-﻿import { Controller, Get, Post, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+﻿import { Controller, Get, Post, Delete, Body, Param, Query } from '@nestjs/common';
 import { OrderService } from './order.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OrderQueryDto } from './dto/order-query.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequireCustomer } from '../../common/decorators/authz-markers.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 
 @Controller('portal/orders')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.CUSTOMER)
+@RequireCustomer()
 export class OrderPortalController {
   constructor(private readonly orderService: OrderService) {}
 

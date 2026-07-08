@@ -2,6 +2,9 @@
 
 **Status:** 🧊 **FROZEN (2026-07-08)** — the single source of truth for backend, frontend, middleware, guards, seeders, and the permission-management UI. Passed the 9-point verification pass. **Permission names must not change without explicit owner approval.**
 **Date:** 2026-07-08
+
+> **Amendment R1 (Phase C, owner-approved 2026-07-08):** added **`customers:view_financial`** (financial-summary + consumption views, separate from operational `customers:view`) and **`customers:update_location`** (GPS pinning, separate from general `customers:update`). This separates operational from financial customer viewing, and location updates from general editing, so drivers are not broadened to sensitive data.
+> **Amendment R2 (Phase C / Batch 16, owner-approved 2026-07-08):** added **`daily_sheets:correct`** (admin-only financial correction entry, separate from `daily_sheets:update`) to preserve the `VENDOR_ADMIN`-only boundary on sheet corrections. **Totals updated: 123 permissions, 100 actions.**
 **Convention:** `resource:action` (canonical separator `:`). `resource:page` = reserved route/navigation permission. See [rbac-design.md](./rbac-design.md).
 **Grounding:** Derived from the *actual* controller endpoints and `/dashboard/*` routes in the repo (verified 2026-07-08), not the illustrative draft in design-doc §5. **This catalog supersedes design-doc §5** — deltas are listed in §D.
 
@@ -49,9 +52,11 @@ Each row: permission → the existing feature/endpoint(s) it gates. `page` sorts
 | Permission | Gates |
 |---|---|
 | `customers:page` | Open `/dashboard/customers` |
-| `customers:view` | `GET /customers`, `:id`, `:id/transactions`, `:id/statement`, `:id/consumption`, `:id/schedule`, `:id/financial-summary` |
+| `customers:view` | `GET /customers`, `:id`, `:id/transactions`, `:id/schedule` (operational views) |
+| `customers:view_financial` | `GET /customers/:id/financial-summary`, `:id/consumption` (financial/analytics views) |
 | `customers:create` | `POST /customers` |
-| `customers:update` | `PATCH /customers/:id`, `:id/location` |
+| `customers:update` | `PATCH /customers/:id` (general edit) |
+| `customers:update_location` | `PATCH /customers/:id/location` (GPS pinning) |
 | `customers:deactivate` | `PATCH /customers/:id/deactivate` |
 | `customers:restore` | `PATCH /customers/:id/reactivate` |
 | `customers:delete` | `DELETE /customers/:id` |
@@ -390,9 +395,9 @@ The draft was illustrative; this catalog is endpoint-verified. Changes:
 
 | Metric | Count |
 |---|---|
-| **Total permissions** | **120** |
+| **Total permissions** | **123** (120 + Amendments R1, R2) |
 | Page permissions (`:page`) | 23 |
-| Action permissions | 97 |
+| Action permissions | 100 |
 | Navigable modules (page-bearing resources) | 23 |
 | Non-navigable resources | 1 (`whatsapp`) |
 | **Total resources** | **24** |

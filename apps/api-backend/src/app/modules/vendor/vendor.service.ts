@@ -10,6 +10,8 @@ import { CreateVendorDto } from './dto/create-vendor.dto';
 import { UpdateVendorDto } from './dto/update-vendor.dto';
 import { UserService } from '../user/user.service';
 import { UserRole } from '@prisma/client';
+import { ForbiddenException } from '@nestjs/common';
+import type { AuthUser } from '@water-supply-crm/types';
 import * as bcrypt from 'bcrypt';
 import { AuditService } from '../audit/audit.service';
 import { paginate } from '../../common/helpers/paginate';
@@ -100,7 +102,14 @@ export class VendorService {
     return withCounts;
   }
 
-  async findOne(id: string) {
+  /**
+   * Vendor detail. Tenant scoping (defense-in-depth, beyond the route marker):
+   * SUPER_ADMIN may read any vendor; a VENDOR_ADMIN may read ONLY their own vendor.
+   */
+  async findOne(id: string, caller?: AuthUser) {
+    if (caller && caller.role !== UserRole.SUPER_ADMIN && caller.vendorId !== id) {
+      throw new ForbiddenException('You can only access your own vendor.');
+    }
     const vendor = await this.prisma.vendor.findUnique({ where: { id } });
     if (!vendor) throw new NotFoundException('Vendor not found');
     return vendor;

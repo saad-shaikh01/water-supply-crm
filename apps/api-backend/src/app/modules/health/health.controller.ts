@@ -7,8 +7,11 @@ import {
 } from '@nestjs/terminus';
 import { PrismaHealthIndicator } from './indicators/prisma.health';
 import { RedisHealthIndicator } from './indicators/redis.health';
+import { Public } from '../../common/decorators/public.decorator';
 
+// Infra probes — public (no auth); called by Docker/K8s liveness/readiness.
 @Controller('health')
+@Public()
 export class HealthController {
   constructor(
     private readonly health: HealthCheckService,

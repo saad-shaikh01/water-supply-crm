@@ -1,7 +1,7 @@
-﻿import { Controller, Get, Patch, Body, UseGuards } from '@nestjs/common';
+﻿import { Controller, Get, Patch, Body } from '@nestjs/common';
 import { NotificationPreferenceService } from './notification-preference.service';
 import { UpsertPreferenceDto } from './dto/upsert-preference.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { AuthenticatedOnly } from '../../common/decorators/authz-markers.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 
@@ -10,7 +10,7 @@ import type { AuthUser } from '@water-supply-crm/types';
  * Keyed by userId + eventType + channel — any authenticated user manages their own prefs.
  */
 @Controller('notifications/preferences')
-@UseGuards(JwtAuthGuard)
+@AuthenticatedOnly()
 export class NotificationPreferencesController {
   constructor(private readonly prefService: NotificationPreferenceService) {}
 

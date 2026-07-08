@@ -1,4 +1,4 @@
-﻿import {
+import {
   Body,
   Controller,
   Get,
@@ -6,32 +6,28 @@
   ParseUUIDPipe,
   Patch,
   Query,
-  UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { UserRole } from '@prisma/client';
 import { DeliveryIssueService } from './delivery-issue.service';
 import { DeliveryIssueQueryDto } from './dto/delivery-issue-query.dto';
 import { PlanIssueDto } from './dto/plan-issue.dto';
 import { ResolveIssueDto } from './dto/resolve-issue.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 
 @Controller('delivery-issues')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
 export class DeliveryIssueController {
   constructor(private readonly issueService: DeliveryIssueService) {}
 
   @Get()
+  @RequirePermissions('delivery_issues:view')
   findAll(@CurrentUser() user: AuthUser, @Query() query: DeliveryIssueQueryDto) {
     return this.issueService.findAll(user.vendorId, query);
   }
 
   @Get(':id')
+  @RequirePermissions('delivery_issues:view')
   findOne(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
@@ -40,6 +36,7 @@ export class DeliveryIssueController {
   }
 
   @Patch(':id/plan')
+  @RequirePermissions('delivery_issues:plan')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
   plan(
     @CurrentUser() user: AuthUser,
@@ -50,6 +47,7 @@ export class DeliveryIssueController {
   }
 
   @Patch(':id/resolve')
+  @RequirePermissions('delivery_issues:resolve')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
   resolve(
     @CurrentUser() user: AuthUser,

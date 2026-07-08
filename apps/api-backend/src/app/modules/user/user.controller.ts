@@ -7,28 +7,24 @@
   Param,
   Body,
   Query,
-  UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { UserRole } from '@prisma/client';
 import { UserService } from './user.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { UserQueryDto } from './dto/user-query.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
+import { AuthenticatedOnly } from '../../common/decorators/authz-markers.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 
 @Controller('users')
-@UseGuards(JwtAuthGuard, RolesGuard)
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
   @Post()
-  @Roles(UserRole.VENDOR_ADMIN)
+  @RequirePermissions('users:create')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   async create(@CurrentUser() user: AuthUser, @Body() dto: CreateUserDto) {
     return this.userService.create({
@@ -38,19 +34,19 @@ export class UserController {
   }
 
   @Get()
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('users:view')
   async findAll(@CurrentUser() user: AuthUser, @Query() query: UserQueryDto) {
     return this.userService.findAllPaginated(user.vendorId, query);
   }
 
   @Get(':id')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('users:view')
   async findOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.userService.findOneByVendor(user.vendorId, id);
   }
 
   @Patch(':id')
-  @Roles(UserRole.VENDOR_ADMIN)
+  @RequirePermissions('users:update')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   async update(
     @CurrentUser() user: AuthUser,
@@ -62,20 +58,21 @@ export class UserController {
 
   /** PATCH /users/:id/deactivate — soft-disable (isActive = false), preserves all history */
   @Patch(':id/deactivate')
-  @Roles(UserRole.VENDOR_ADMIN)
+  @RequirePermissions('users:deactivate')
   async deactivate(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.userService.deactivate(user.vendorId, id);
   }
 
   /** PATCH /users/:id/reactivate — re-enable a previously deactivated user */
   @Patch(':id/reactivate')
-  @Roles(UserRole.VENDOR_ADMIN)
+  @RequirePermissions('users:restore')
   async reactivate(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.userService.reactivate(user.vendorId, id);
   }
 
   /** PATCH /users/me/change-password — user changes their own password */
   @Patch('me/change-password')
+  @AuthenticatedOnly()
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   changePassword(@CurrentUser() user: AuthUser, @Body() dto: ChangePasswordDto) {
     return this.userService.changeOwnPassword(user.userId, dto.currentPassword, dto.newPassword);
@@ -83,7 +80,7 @@ export class UserController {
 
   /** DELETE /users/:id — permanent delete, blocked if user has any daily sheets */
   @Delete(':id')
-  @Roles(UserRole.VENDOR_ADMIN)
+  @RequirePermissions('users:delete')
   async remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.userService.remove(user.vendorId, id);
   }

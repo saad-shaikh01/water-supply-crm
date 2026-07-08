@@ -6,7 +6,6 @@
   UnauthorizedException,
   HttpCode,
   HttpStatus,
-  UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
@@ -14,15 +13,21 @@ import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { Public } from '../../common/decorators/public.decorator';
+import { AuthenticatedOnly } from '../../common/decorators/authz-markers.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
+import { PermissionService } from '../authz/permission.service';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(
+    private authService: AuthService,
+    private permissionService: PermissionService,
+  ) {}
 
   @Post('login')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @Throttle({
     short: { ttl: 1000, limit: 3 },
@@ -41,12 +46,21 @@ export class AuthController {
   }
 
   @Get('me')
-  @UseGuards(JwtAuthGuard)
+  @AuthenticatedOnly()
   async getProfile(@CurrentUser() user: AuthUser) {
-    return this.authService.getProfile(user.userId);
+    const [profile, permissions] = await Promise.all([
+      this.authService.getProfile(user.userId),
+      this.permissionService.getEffectivePermissions(user.userId),
+    ]);
+    return {
+      ...profile,
+      permissions,
+      pagePermissions: permissions.filter((p) => p.endsWith(':page')),
+    };
   }
 
   @Post('forgot-password')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @Throttle({
     short: { ttl: 1000, limit: 1 },
@@ -59,6 +73,7 @@ export class AuthController {
   }
 
   @Post('reset-password')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @Throttle({
     short: { ttl: 1000, limit: 1 },
@@ -76,6 +91,7 @@ export class AuthController {
    * Old refresh token is immediately invalidated (rotation).
    */
   @Post('refresh')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   async refresh(@Body() dto: RefreshTokenDto) {
@@ -87,6 +103,7 @@ export class AuthController {
    * Invalidates the refresh token — user must login again after this.
    */
   @Post('logout')
+  @Public()
   @HttpCode(HttpStatus.OK)
   async logout(@Body() dto: RefreshTokenDto) {
     await this.authService.logout(dto.refreshToken);

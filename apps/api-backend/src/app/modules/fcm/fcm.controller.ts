@@ -4,16 +4,16 @@
   Delete,
   Get,
   Body,
-  UseGuards,
 } from '@nestjs/common';
 import { FcmService } from './fcm.service';
 import { RegisterFcmTokenDto } from './dto/register-fcm-token.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { AuthenticatedOnly } from '../../common/decorators/authz-markers.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 
+// Self-service: any authenticated user registers/lists their own device tokens.
 @Controller('fcm')
-@UseGuards(JwtAuthGuard)
+@AuthenticatedOnly()
 export class FcmController {
   constructor(private readonly fcmService: FcmService) {}
 

@@ -5,7 +5,6 @@
   Body,
   Param,
   Query,
-  UseGuards,
   UseInterceptors,
   UploadedFile,
 } from '@nestjs/common';
@@ -13,21 +12,17 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { extname } from 'path';
 import { Throttle } from '@nestjs/throttler';
-import { UserRole } from '@prisma/client';
 import { PaymentService } from './payment.service';
 import { InitiatePaymentDto } from './dto/initiate-payment.dto';
 import { SubmitManualPaymentDto } from './dto/submit-manual-payment.dto';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequireCustomer } from '../../common/decorators/authz-markers.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 import { StorageService } from '../../common/storage/storage.service';
 
 @Controller('portal/payments')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.CUSTOMER)
+@RequireCustomer()
 export class PaymentPortalController {
   constructor(
     private readonly paymentService: PaymentService,

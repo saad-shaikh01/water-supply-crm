@@ -1,0 +1,10 @@
+{
+  "//": "Runtime tsconfig for standalone operational scripts (e.g. prisma seeders) run via ts-node. Lives at the repo root so tsconfig-paths resolves the workspace path aliases (@water-supply-crm/*) against the correct base URL. Extends the base so there is a single source of path mappings.",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "types": ["node"]
+  }
+}

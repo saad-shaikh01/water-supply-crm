@@ -7,7 +7,6 @@ import {
   Body,
   Param,
   Query,
-  UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { UserRole } from '@prisma/client';
@@ -16,13 +15,13 @@ import { CreateVendorDto } from './dto/create-vendor.dto';
 import { UpdateVendorDto } from './dto/update-vendor.dto';
 import { ResetAdminPasswordDto } from './dto/reset-admin-password.dto';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequireSuperAdmin, RequireRoles } from '../../common/decorators/authz-markers.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthUser } from '@water-supply-crm/types';
 
+// Domain B — platform surface. Super-admin only by default (outside the vendor catalog).
 @Controller('vendors')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.SUPER_ADMIN) // All vendor endpoints are SUPER_ADMIN only by default
+@RequireSuperAdmin()
 export class VendorController {
   constructor(private readonly vendorService: VendorService) {}
 
@@ -39,11 +38,15 @@ export class VendorController {
     return this.vendorService.findAllPaginated(query);
   }
 
-  /** GET /vendors/:id — Vendor detail */
+  /**
+   * GET /vendors/:id — Vendor detail.
+   * SUPER_ADMIN (any vendor) or VENDOR_ADMIN (their own). NOTE (C6): the service does
+   * not scope VENDOR_ADMIN to their own vendorId — cross-tenant read risk to fix.
+   */
   @Get(':id')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
-  findOne(@Param('id') id: string) {
-    return this.vendorService.findOne(id);
+  @RequireRoles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)
+  findOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.vendorService.findOne(id, user);
   }
 
   /** GET /vendors/:id/stats — Deep stats for a vendor */

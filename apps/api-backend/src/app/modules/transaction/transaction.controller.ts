@@ -1,28 +1,24 @@
-﻿import {
+import {
   Controller,
   Get,
   Post,
   Body,
   Param,
   Query,
-  UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { UserRole, NotificationType } from '@prisma/client';
+import { NotificationType } from '@prisma/client';
 import { LedgerService } from './ledger.service';
 import { RecordPaymentDto } from './dto/record-payment.dto';
 import { RecordAdjustmentDto } from './dto/record-adjustment.dto';
 import { TransactionQueryDto } from './dto/transaction-query.dto';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 import { NotificationService } from '../notifications/notification.service';
 
 @Controller('transactions')
-@UseGuards(JwtAuthGuard, RolesGuard)
 export class TransactionController {
   constructor(
     private readonly ledgerService: LedgerService,
@@ -30,25 +26,19 @@ export class TransactionController {
   ) {}
 
   @Get()
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('transactions:view')
   findAll(@CurrentUser() user: AuthUser, @Query() query: TransactionQueryDto) {
     return this.ledgerService.findAllPaginated(user.vendorId, query);
   }
 
-  /**
-   * GET /transactions/summary
-   * Aggregate summary for the active filter window.
-   * Accepts the same query params as GET /transactions (except page/limit/type).
-   * Returns: { totalCharges, totalCollections, totalAdjustments, chargeCount, paymentCount, adjustmentCount, totalCount, net }
-   */
   @Get('summary')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('transactions:view')
   getSummary(@CurrentUser() user: AuthUser, @Query() query: TransactionQueryDto) {
     return this.ledgerService.getTransactionSummary(user.vendorId, query);
   }
 
   @Post('payments')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('transactions:record_payment')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
   async recordPayment(@CurrentUser() user: AuthUser, @Body() dto: RecordPaymentDto) {
     const transaction = await this.ledgerService.recordPayment(
@@ -70,7 +60,7 @@ export class TransactionController {
   }
 
   @Post('adjustments')
-  @Roles(UserRole.VENDOR_ADMIN)
+  @RequirePermissions('transactions:adjust')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   recordAdjustment(
     @CurrentUser() user: AuthUser,
@@ -79,8 +69,10 @@ export class TransactionController {
     return this.ledgerService.recordAdjustment(user.vendorId, dto);
   }
 
+  // Customer-centric ledger views (surfaced on the customer page) → customers:view,
+  // which preserves DRIVER access (driver holds customers:view).
   @Get('customers/:customerId')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @RequirePermissions('customers:view')
   findByCustomer(
     @CurrentUser() user: AuthUser,
     @Param('customerId') customerId: string,
@@ -94,7 +86,7 @@ export class TransactionController {
   }
 
   @Get('customers/:customerId/summary')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @RequirePermissions('customers:view')
   getCustomerSummary(
     @CurrentUser() user: AuthUser,
     @Param('customerId') customerId: string,

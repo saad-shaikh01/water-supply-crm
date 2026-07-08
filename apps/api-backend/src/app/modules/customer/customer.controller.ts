@@ -1,4 +1,4 @@
-﻿import {
+import {
   Controller,
   Get,
   Post,
@@ -7,11 +7,9 @@
   Body,
   Param,
   Query,
-  UseGuards,
   Res,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { UserRole } from '@prisma/client';
 import { Response } from 'express';
 import { CustomerService } from './customer.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
@@ -25,33 +23,32 @@ import { StatementQueryDto } from './dto/statement-query.dto';
 import { ScheduleQueryDto } from './dto/schedule-query.dto';
 import { ConsumptionQueryDto } from './dto/consumption-query.dto';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 
 @Controller('customers')
-@UseGuards(JwtAuthGuard, RolesGuard)
 export class CustomerController {
   constructor(private readonly customerService: CustomerService) {}
 
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
   @Post()
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @RequirePermissions('customers:create')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateCustomerDto) {
     return this.customerService.create(user.vendorId, dto);
   }
 
   @Get()
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @RequirePermissions('customers:view')
   findAll(@CurrentUser() user: AuthUser, @Query() query: CustomerQueryDto) {
     return this.customerService.findAllPaginated(user.vendorId, query);
   }
 
+  // ── Pricing (governed by the pricing permission set, not customer perms) ────
   /** POST /customers/pricing/preview — dry-run filter, returns count + customer list */
   @Post('pricing/preview')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('pricing:view')
   @Throttle({ short: { ttl: 1000, limit: 10 }, medium: { ttl: 60000, limit: 60 } })
   previewBulkPricing(@CurrentUser() user: AuthUser, @Body() dto: BulkPricePreviewDto) {
     return this.customerService.previewBulkPricing(user.vendorId, dto);
@@ -59,7 +56,7 @@ export class CustomerController {
 
   /** POST /customers/pricing/bulk-update — enqueue a background bulk price update job */
   @Post('pricing/bulk-update')
-  @Roles(UserRole.VENDOR_ADMIN)
+  @RequirePermissions('pricing:update')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   enqueueBulkPriceUpdate(@CurrentUser() user: AuthUser, @Body() dto: BulkPriceUpdateDto) {
     return this.customerService.enqueueBulkPriceUpdate(user.vendorId, dto);
@@ -67,19 +64,19 @@ export class CustomerController {
 
   /** GET /customers/pricing/bulk-update/:jobId/status — poll background job progress */
   @Get('pricing/bulk-update/:jobId/status')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('pricing:view')
   getBulkUpdateJobStatus(@CurrentUser() user: AuthUser, @Param('jobId') jobId: string) {
     return this.customerService.getBulkUpdateJobStatus(user.vendorId, jobId);
   }
 
   @Get(':id')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @RequirePermissions('customers:view')
   findOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.customerService.findOne(user.vendorId, id);
   }
 
   @Patch(':id')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('customers:update')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   update(
     @CurrentUser() user: AuthUser,
@@ -90,14 +87,15 @@ export class CustomerController {
   }
 
   @Delete(':id')
-  @Roles(UserRole.VENDOR_ADMIN)
+  @RequirePermissions('customers:delete')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.customerService.remove(user.vendorId, id);
   }
 
+  // Per-customer custom pricing → pricing:update (a pricing capability).
   @Post(':id/custom-prices')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('pricing:update')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   setCustomPrice(
     @CurrentUser() user: AuthUser,
@@ -108,7 +106,7 @@ export class CustomerController {
   }
 
   @Delete(':id/custom-prices/:productId')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('pricing:update')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   removeCustomPrice(
     @CurrentUser() user: AuthUser,
@@ -118,8 +116,9 @@ export class CustomerController {
     return this.customerService.removeCustomPrice(user.vendorId, id, productId);
   }
 
+  // ── Financial views (on-screen) → customers:view ──────────────────────────
   @Get(':id/transactions')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @RequirePermissions('customers:view')
   getTransactionHistory(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -132,9 +131,10 @@ export class CustomerController {
     );
   }
 
-  /** POST /customers/:id/portal-account — create login for customer (VENDOR_ADMIN only) */
+  // ── Portal account management → customers:manage_portal (admin-only) ────────
+  /** POST /customers/:id/portal-account — create login for customer */
   @Post(':id/portal-account')
-  @Roles(UserRole.VENDOR_ADMIN)
+  @RequirePermissions('customers:manage_portal')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   createPortalAccount(
     @CurrentUser() user: AuthUser,
@@ -146,15 +146,16 @@ export class CustomerController {
 
   /** DELETE /customers/:id/portal-account — remove customer login access */
   @Delete(':id/portal-account')
-  @Roles(UserRole.VENDOR_ADMIN)
+  @RequirePermissions('customers:manage_portal')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   removePortalAccount(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.customerService.removePortalAccount(user.vendorId, id);
   }
 
+  // Statement PDF is a downloadable financial export → customers:export.
   /** GET /customers/:id/statement?month=2026-01 — customer financial statement PDF */
   @Get(':id/statement')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('customers:export')
   async getStatement(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -175,9 +176,9 @@ export class CustomerController {
     res.end(buffer);
   }
 
-  /** PATCH /customers/:id/location — pin GPS coordinates (accessible to drivers) */
+  /** PATCH /customers/:id/location — pin GPS coordinates (field/driver capability) */
   @Patch(':id/location')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @RequirePermissions('customers:update_location')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
   updateLocation(
     @CurrentUser() user: AuthUser,
@@ -189,7 +190,7 @@ export class CustomerController {
 
   /** PATCH /customers/:id/deactivate — soft-disable customer, preserves history */
   @Patch(':id/deactivate')
-  @Roles(UserRole.VENDOR_ADMIN)
+  @RequirePermissions('customers:deactivate')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   deactivate(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.customerService.deactivate(user.vendorId, id);
@@ -197,15 +198,15 @@ export class CustomerController {
 
   /** PATCH /customers/:id/reactivate — re-enable a deactivated customer */
   @Patch(':id/reactivate')
-  @Roles(UserRole.VENDOR_ADMIN)
+  @RequirePermissions('customers:restore')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   reactivate(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.customerService.reactivate(user.vendorId, id);
   }
 
-  /** GET /customers/:id/consumption — bottle consumption stats; supports ?month=YYYY-MM, ?from=YYYY-MM-DD&to=YYYY-MM-DD, ?allTime=true, or defaults to last 30 days */
+  /** GET /customers/:id/consumption — bottle consumption stats (financial/analytics). */
   @Get(':id/consumption')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('customers:view_financial')
   getConsumption(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -214,9 +215,9 @@ export class CustomerController {
     return this.customerService.getConsumptionStats(user.vendorId, id, query);
   }
 
-  /** GET /customers/:id/schedule?from=2026-02-01&to=2026-02-28 — delivery calendar */
+  /** GET /customers/:id/schedule — delivery calendar */
   @Get(':id/schedule')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @RequirePermissions('customers:view')
   getSchedule(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -230,9 +231,9 @@ export class CustomerController {
     );
   }
 
-  /** GET /customers/:id/financial-summary — current/last month paid, due, bottles, last delivery */
+  /** GET /customers/:id/financial-summary — current/last month paid, due, bottles. */
   @Get(':id/financial-summary')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('customers:view_financial')
   getFinancialSummary(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,

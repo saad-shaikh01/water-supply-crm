@@ -8,7 +8,6 @@ import {
   Post,
   Query,
   UploadedFile,
-  UseGuards,
   UseInterceptors,
   BadRequestException,
 } from '@nestjs/common';
@@ -16,7 +15,6 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { extname } from 'path';
 import { Throttle } from '@nestjs/throttler';
-import { UserRole } from '@prisma/client';
 import { DamageCaseService } from './damage-case.service';
 import { StorageService } from '../../common/storage/storage.service';
 import { ReportDamageCaseDto } from './dto/report-damage-case.dto';
@@ -24,16 +22,13 @@ import { UpdateDamageCaseDto } from './dto/update-damage-case.dto';
 import { ChargeDamageCaseDto } from './dto/charge-damage-case.dto';
 import { WaiveDamageCaseDto } from './dto/waive-damage-case.dto';
 import { DamageCaseQueryDto } from './dto/damage-case-query.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 
 const ALLOWED_PHOTO_EXTS = ['.jpg', '.jpeg', '.png', '.webp'];
 
 @Controller('damage-cases')
-@UseGuards(JwtAuthGuard, RolesGuard)
 export class DamageCaseController {
   constructor(
     private readonly damageCaseService: DamageCaseService,
@@ -48,7 +43,7 @@ export class DamageCaseController {
    * Returns { key } — store the key in the ReportDamageCaseDto.photoKeys array.
    */
   @Post('upload-photo')
-  @Roles(UserRole.DRIVER, UserRole.STAFF, UserRole.VENDOR_ADMIN)
+  @RequirePermissions('damage_cases:create')
   @Throttle({ short: { ttl: 2000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
   @UseInterceptors(
     FileInterceptor('file', {
@@ -79,7 +74,7 @@ export class DamageCaseController {
    * Driver's own damage cases (paginated).
    */
   @Get('my-cases')
-  @Roles(UserRole.DRIVER)
+  @RequirePermissions('damage_cases:view')
   getMyCases(
     @CurrentUser() user: AuthUser,
     @Query() query: DamageCaseQueryDto,
@@ -92,7 +87,7 @@ export class DamageCaseController {
    * Report a new damage case.
    */
   @Post()
-  @Roles(UserRole.DRIVER, UserRole.STAFF, UserRole.VENDOR_ADMIN)
+  @RequirePermissions('damage_cases:create')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
   report(
     @CurrentUser() user: AuthUser,
@@ -105,8 +100,10 @@ export class DamageCaseController {
    * GET /damage-cases
    * List all damage cases for this vendor (STAFF/VENDOR_ADMIN only).
    */
+  // findAll lists the FULL vendor queue (service does not scope by driver) → gated by
+  // damage_cases:review (staff/admin management view); drivers use my-cases for their own.
   @Get()
-  @Roles(UserRole.STAFF, UserRole.VENDOR_ADMIN)
+  @RequirePermissions('damage_cases:review')
   findAll(
     @CurrentUser() user: AuthUser,
     @Query() query: DamageCaseQueryDto,
@@ -121,7 +118,7 @@ export class DamageCaseController {
    * Get a single damage case. DRIVERs only see their own cases.
    */
   @Get(':id')
-  @Roles(UserRole.DRIVER, UserRole.STAFF, UserRole.VENDOR_ADMIN)
+  @RequirePermissions('damage_cases:view')
   findOne(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
@@ -134,7 +131,7 @@ export class DamageCaseController {
    * Update bottleCount (REPORTED status only, optimistic locking).
    */
   @Patch(':id')
-  @Roles(UserRole.DRIVER, UserRole.STAFF, UserRole.VENDOR_ADMIN)
+  @RequirePermissions('damage_cases:update')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
   update(
     @CurrentUser() user: AuthUser,
@@ -149,7 +146,7 @@ export class DamageCaseController {
    * Move REPORTED → UNDER_REVIEW.
    */
   @Patch(':id/review')
-  @Roles(UserRole.STAFF, UserRole.VENDOR_ADMIN)
+  @RequirePermissions('damage_cases:review')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
   review(
     @CurrentUser() user: AuthUser,
@@ -163,7 +160,7 @@ export class DamageCaseController {
    * Charge the customer for the damage (UNDER_REVIEW → CHARGED).
    */
   @Patch(':id/charge')
-  @Roles(UserRole.VENDOR_ADMIN)
+  @RequirePermissions('damage_cases:charge')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 15 } })
   charge(
     @CurrentUser() user: AuthUser,
@@ -178,7 +175,7 @@ export class DamageCaseController {
    * Waive the charge (UNDER_REVIEW → WAIVED).
    */
   @Patch(':id/waive')
-  @Roles(UserRole.VENDOR_ADMIN)
+  @RequirePermissions('damage_cases:waive')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 15 } })
   waive(
     @CurrentUser() user: AuthUser,
@@ -193,7 +190,7 @@ export class DamageCaseController {
    * Reverse a charge (CHARGED → REVERSED). Credits money only — bottle wallet NOT restored.
    */
   @Patch(':id/reverse')
-  @Roles(UserRole.VENDOR_ADMIN)
+  @RequirePermissions('damage_cases:reverse')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 15 } })
   reverse(
     @CurrentUser() user: AuthUser,
@@ -207,8 +204,9 @@ export class DamageCaseController {
    * GET /damage-cases/:id/audit-log
    * Retrieve the full audit log for a damage case.
    */
+  // Full audit trail = staff/admin management view (drivers excluded) → damage_cases:review.
   @Get(':id/audit-log')
-  @Roles(UserRole.STAFF, UserRole.VENDOR_ADMIN)
+  @RequirePermissions('damage_cases:review')
   getAuditLog(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,

@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { PaymentService } from './payment.service';
+import { Public } from '../../common/decorators/public.decorator';
 
 /**
  * Webhook controller — NO JWT auth (called by payment gateways)
@@ -25,6 +26,7 @@ export class WebhookController {
   constructor(private readonly paymentService: PaymentService) {}
 
   @Post('paymob')
+  @Public()
   @HttpCode(200)
   async handlePaymob(
     @Body() payload: any,

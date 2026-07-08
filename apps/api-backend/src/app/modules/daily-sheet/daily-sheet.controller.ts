@@ -1,4 +1,4 @@
-﻿import {
+import {
   Controller,
   Get,
   Post,
@@ -7,7 +7,6 @@
   Patch,
   Query,
   Res,
-  UseGuards,
   UseInterceptors,
   UploadedFile,
   BadRequestException,
@@ -37,9 +36,7 @@ import { AddAdhocItemDto } from './dto/add-adhoc-item.dto';
 import { AddCorrectionItemDto } from './dto/add-correction-item.dto';
 import { UnlockEditDto } from './dto/unlock-edit.dto';
 import { CreateDeliveryNoteDto } from './dto/create-delivery-note.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 
@@ -51,7 +48,6 @@ const ALLOWED_EXCEL_MIMES = [
 const ALLOWED_DELIVERY_PHOTO_EXTS = ['.jpg', '.jpeg', '.png', '.webp'];
 
 @Controller('daily-sheets')
-@UseGuards(JwtAuthGuard, RolesGuard)
 export class DailySheetController {
   constructor(
     private readonly dailySheetService: DailySheetService,
@@ -63,20 +59,21 @@ export class DailySheetController {
   // ── Static routes MUST come before /:id ──────────────────────────────
 
   @Post('generate')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('daily_sheets:generate')
   @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 3 } })
   generate(@CurrentUser() user: AuthUser, @Body() dto: GenerateSheetsDto) {
     return this.dailySheetService.generate(user.vendorId, dto);
   }
 
+  // Polling a generation job's progress belongs to the generate capability.
   @Get('generation-status/:jobId')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('daily_sheets:generate')
   getGenerationStatus(@Param('jobId') jobId: string) {
     return this.dailySheetService.getGenerationStatus(jobId);
   }
 
   @Get('driver/:driverId/stats')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @RequirePermissions('daily_sheets:view')
   getDriverStats(
     @CurrentUser() user: AuthUser,
     @Param('driverId') driverId: string,
@@ -94,7 +91,7 @@ export class DailySheetController {
   }
 
   @Get('driver/:driverId')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @RequirePermissions('daily_sheets:view')
   getSheetsByDriver(
     @CurrentUser() user: AuthUser,
     @Param('driverId') driverId: string,
@@ -110,13 +107,9 @@ export class DailySheetController {
   // ── Delivery Item Notes ───────────────────────────────────────────────────
   // Static note routes MUST come before items/:id to avoid NestJS shadowing.
 
-  /**
-   * POST /daily-sheets/items/upload-photo
-   * Upload a single "unable to deliver" evidence photo to Wasabi.
-   * Returns { key } — store the key in SubmitDeliveryDto.photoKey.
-   */
+  /** POST /daily-sheets/items/upload-photo — delivery evidence photo (driver flow). */
   @Post('items/upload-photo')
-  @Roles(UserRole.DRIVER, UserRole.STAFF, UserRole.VENDOR_ADMIN)
+  @RequirePermissions('daily_sheets:update')
   @Throttle({ short: { ttl: 2000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
   @UseInterceptors(
     FileInterceptor('file', {
@@ -143,13 +136,14 @@ export class DailySheetController {
   }
 
   @Get('items/:id/notes')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @RequirePermissions('daily_sheets:view')
   getItemNotes(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.dailySheetService.getNotes(user.vendorId, id);
   }
 
+  // Note authoring shares daily_sheets:update (see Batch 16 report — accepted broadening).
   @Post('items/:id/notes')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('daily_sheets:update')
   @Throttle({ short: { ttl: 1000, limit: 10 }, medium: { ttl: 60000, limit: 30 } })
   addTextNote(
     @CurrentUser() user: AuthUser,
@@ -160,7 +154,7 @@ export class DailySheetController {
   }
 
   @Post('items/:id/notes/voice')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('daily_sheets:update')
   @Throttle({ short: { ttl: 2000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   @UseInterceptors(
     FileInterceptor('audio', {
@@ -186,32 +180,30 @@ export class DailySheetController {
     return this.dailySheetService.addVoiceNote(user, id, file, audioDuration);
   }
 
+  // Driver-side edit-lock interactions (request/ack) live under :update; the staff
+  // override (unlock-edit) is :manage_edit_locks.
   @Patch('items/notes/:noteId/acknowledge')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @RequirePermissions('daily_sheets:update')
   @Throttle({ short: { ttl: 1000, limit: 20 }, medium: { ttl: 60000, limit: 60 } })
   acknowledgeNote(@CurrentUser() user: AuthUser, @Param('noteId') noteId: string) {
     return this.dailySheetService.acknowledgeNote(user, noteId);
   }
 
   @Get('items/notes/:noteId/audio')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @RequirePermissions('daily_sheets:view')
   getNoteAudioUrl(@CurrentUser() user: AuthUser, @Param('noteId') noteId: string) {
     return this.dailySheetService.getNoteAudioUrl(user.vendorId, noteId);
   }
 
   @Get('items/:id/photo-url')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @RequirePermissions('daily_sheets:view')
   getDeliveryPhotoUrl(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.dailySheetService.getDeliveryPhotoUrl(user.vendorId, id);
   }
 
-  /**
-   * GET /api/daily-sheets/items/:id/receipt
-   * Downloads a single delivery's receipt/invoice PDF.
-   * Roles: VENDOR_ADMIN, STAFF, DRIVER
-   */
+  /** GET /daily-sheets/items/:id/receipt — single delivery receipt PDF (view/print). */
   @Get('items/:id/receipt')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @RequirePermissions('daily_sheets:view')
   async downloadDeliveryReceipt(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -225,8 +217,9 @@ export class DailySheetController {
     res.end(pdfBuffer);
   }
 
+  // Staff override that grants edit access on a locked delivery — NOT a driver capability.
   @Patch('items/:id/unlock-edit')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('daily_sheets:manage_edit_locks')
   @Throttle({ short: { ttl: 1000, limit: 10 }, medium: { ttl: 60000, limit: 30 } })
   unlockDeliveryEdit(
     @CurrentUser() user: AuthUser,
@@ -236,15 +229,16 @@ export class DailySheetController {
     return this.dailySheetService.unlockDeliveryEdit(user, id, dto);
   }
 
+  // Driver requests an unlock on their own delivery → part of the driver edit flow (:update).
   @Patch('items/:id/request-edit')
-  @Roles(UserRole.DRIVER)
+  @RequirePermissions('daily_sheets:update')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   requestDeliveryEdit(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.dailySheetService.requestDeliveryEdit(user, id);
   }
 
   @Patch('items/:id')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @RequirePermissions('daily_sheets:update')
   @Throttle({ short: { ttl: 1000, limit: 10 }, medium: { ttl: 60000, limit: 60 } })
   submitDelivery(
     @CurrentUser() user: AuthUser,
@@ -255,10 +249,9 @@ export class DailySheetController {
   }
 
   // ── Bulk Import — all routes use static 'bulk-import/' prefix ────────
-  // Static prefix guarantees NestJS resolves these before any /:id routes.
 
   @Get('bulk-import/template')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('daily_sheets:bulk_import')
   async downloadSheetTemplate(
     @CurrentUser() user: AuthUser,
     @Query('sheetId') sheetId: string,
@@ -273,7 +266,7 @@ export class DailySheetController {
   }
 
   @Get('bulk-import/global-template')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('daily_sheets:bulk_import')
   async downloadGlobalTemplate(@Res() res: Response) {
     const buffer = await this.bulkImportService.generateGlobalTemplate();
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -283,7 +276,7 @@ export class DailySheetController {
   }
 
   @Post('bulk-import/preview')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('daily_sheets:bulk_import')
   @Throttle({ short: { ttl: 5000, limit: 3 }, medium: { ttl: 60000, limit: 20 } })
   @UseInterceptors(
     FileInterceptor('file', {
@@ -309,7 +302,7 @@ export class DailySheetController {
   }
 
   @Post('bulk-import/global-preview')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('daily_sheets:bulk_import')
   @Throttle({ short: { ttl: 5000, limit: 3 }, medium: { ttl: 60000, limit: 20 } })
   @UseInterceptors(
     FileInterceptor('file', {
@@ -335,7 +328,7 @@ export class DailySheetController {
   }
 
   @Post('bulk-import/confirm')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('daily_sheets:bulk_import')
   @Throttle({ short: { ttl: 2000, limit: 1 }, medium: { ttl: 60000, limit: 10 } })
   confirmSheetImport(
     @CurrentUser() user: AuthUser,
@@ -347,7 +340,7 @@ export class DailySheetController {
   }
 
   @Post('bulk-import/global-confirm')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('daily_sheets:bulk_import')
   @Throttle({ short: { ttl: 2000, limit: 1 }, medium: { ttl: 60000, limit: 10 } })
   confirmGlobalImport(
     @CurrentUser() user: AuthUser,
@@ -358,13 +351,15 @@ export class DailySheetController {
 
   // ── List + single ─────────────────────────────────────────────────────
 
+  // Was unprotected (no @Roles) → now gated by daily_sheets:view.
   @Get()
+  @RequirePermissions('daily_sheets:view')
   findAll(@CurrentUser() user: AuthUser, @Query() query: DailySheetQueryDto) {
     return this.dailySheetService.findAllPaginated(user.vendorId, query);
   }
 
   @Get('customers/:customerId/delivery-history')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @RequirePermissions('daily_sheets:view')
   getCustomerDeliveryHistory(
     @CurrentUser() user: AuthUser,
     @Param('customerId') customerId: string,
@@ -377,8 +372,10 @@ export class DailySheetController {
     );
   }
 
+  // Customer balance in the delivery/COD context → daily_sheets:view (driver keeps it);
+  // distinct from the customer-page financial-summary (customers:view_financial, staff).
   @Get('customers/:customerId/financial-summary')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @RequirePermissions('daily_sheets:view')
   getCustomerFinancialSummary(
     @CurrentUser() user: AuthUser,
     @Param('customerId') customerId: string,
@@ -391,24 +388,23 @@ export class DailySheetController {
     );
   }
 
-  /**
-   * GET /api/daily-sheets/:id/reconciliation-preview
-   * Returns reconciliation breakdown WITHOUT closing the sheet.
-   * Used to show the confirmation dialog before close.
-   */
+  // Pre-close reconciliation preview → daily_sheets:close (staff pre-close review).
   @Get(':id/reconciliation-preview')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('daily_sheets:close')
   getReconciliationPreview(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.dailySheetService.getReconciliationPreview(user.vendorId, id);
   }
 
+  // Was unprotected (no @Roles) → now gated by daily_sheets:view.
   @Get(':id')
+  @RequirePermissions('daily_sheets:view')
   findOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.dailySheetService.findOne(user.vendorId, id);
   }
 
+  // Item management (from-order/adhoc) shares :update (accepted broadening — Batch 16 report).
   @Post(':id/items/from-order')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('daily_sheets:update')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   insertItemFromOrder(
     @CurrentUser() user: AuthUser,
@@ -419,7 +415,7 @@ export class DailySheetController {
   }
 
   @Post(':id/items/adhoc')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('daily_sheets:update')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   addAdhocItem(
     @CurrentUser() user: AuthUser,
@@ -429,8 +425,9 @@ export class DailySheetController {
     return this.dailySheetService.addAdhocItem(user, id, dto);
   }
 
+  // Financial correction entry — admin-only (dedicated permission).
   @Post(':id/items/correction')
-  @Roles(UserRole.VENDOR_ADMIN)
+  @RequirePermissions('daily_sheets:correct')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   addCorrectionItem(
     @CurrentUser() user: AuthUser,
@@ -443,7 +440,7 @@ export class DailySheetController {
   // ── Sheet lifecycle ───────────────────────────────────────────────────
 
   @Patch(':id/load-out')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('daily_sheets:load_out')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   loadOut(
     @CurrentUser() user: AuthUser,
@@ -454,7 +451,7 @@ export class DailySheetController {
   }
 
   @Patch(':id/check-in')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('daily_sheets:check_in')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   checkIn(
     @CurrentUser() user: AuthUser,
@@ -465,14 +462,14 @@ export class DailySheetController {
   }
 
   @Post(':id/close')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('daily_sheets:close')
   @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 3 } })
   closeSheet(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.dailySheetService.closeSheet(user.vendorId, id);
   }
 
   @Patch(':id/swap-assignment')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('daily_sheets:swap_assignment')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   swapAssignment(
     @CurrentUser() user: AuthUser,
@@ -485,19 +482,18 @@ export class DailySheetController {
   /**
    * POST /daily-sheets/:id/confirm-crew
    * Confirms today's crew — mandatory before any trip can start.
-   * Any later driver/crew change resets the confirmation.
    */
   @Post(':id/confirm-crew')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('daily_sheets:confirm_crew')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 20 } })
   confirmCrew(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.dailySheetService.confirmCrew(user.vendorId, id, user);
   }
 
-  // ── Load trips (multi-trip per sheet) ────────────────────────────────
+  // ── Load trips (multi-trip per sheet) — driver + staff ───────────────
 
   @Post(':id/loads')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @RequirePermissions('daily_sheets:load_out')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 20 } })
   createLoad(
     @CurrentUser() user: AuthUser,
@@ -508,7 +504,7 @@ export class DailySheetController {
   }
 
   @Patch(':id/loads/:loadId/checkin')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @RequirePermissions('daily_sheets:check_in')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   checkinLoad(
     @CurrentUser() user: AuthUser,
@@ -520,18 +516,14 @@ export class DailySheetController {
   }
 
   @Get(':id/loads')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @RequirePermissions('daily_sheets:view')
   getLoads(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.dailySheetService.getLoads(user.vendorId, id);
   }
 
-  /**
-   * GET /api/daily-sheets/:id/invoice
-   * Opens an inline PDF invoice (all items with address/wallet detail).
-   * Roles: VENDOR_ADMIN, STAFF, DRIVER
-   */
+  /** GET /daily-sheets/:id/invoice — inline PDF invoice (driver + staff, a read). */
   @Get(':id/invoice')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
+  @RequirePermissions('daily_sheets:view')
   async exportInvoice(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -551,13 +543,9 @@ export class DailySheetController {
     res.end(pdfBuffer);
   }
 
-  /**
-   * GET /api/daily-sheets/:id/export
-   * Downloads a PDF of the daily sheet (A4, printable).
-   * Roles: VENDOR_ADMIN, STAFF
-   */
+  /** GET /daily-sheets/:id/export — downloadable full-sheet PDF (staff). */
   @Get(':id/export')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('daily_sheets:export')
   async exportPdf(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,

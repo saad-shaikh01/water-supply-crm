@@ -141,6 +141,12 @@ enum NotificationChannel {
   PUSH
 }
 
+// RBAC per-user override effect. DENY always wins over role grants + ALLOW overrides.
+enum PermissionEffect {
+  ALLOW
+  DENY
+}
+
 model Vendor {
   id          String   @id @default(uuid())
   name        String
@@ -174,6 +180,7 @@ model Vendor {
   warehouseTransactions   WarehouseTransaction[]
   repairBatches           RepairBatch[]
   notificationSettings    NotificationSetting[]
+  roles                   Role[]
 }
 
 model User {
@@ -186,7 +193,13 @@ model User {
   isActive      Boolean  @default(true)
   vendorId      String?
   vendor        Vendor?  @relation(fields: [vendorId], references: [id])
-  
+
+  // RBAC: assigned custom/preset Role (permission source of truth). The legacy `role`
+  // enum above is retained as a coarse category during the RBAC migration (design §13).
+  roleId              String?
+  roleRef             Role?    @relation("RoleMembers", fields: [roleId], references: [id], onDelete: SetNull)
+  permissionOverrides UserPermissionOverride[]
+
   // Relations for specific roles
   assignedVan         Van?     @relation("VanDriver")
   dailySheets         DailySheet[] @relation("DriverSheets")
@@ -209,6 +222,67 @@ model User {
   updatedAt     DateTime @updatedAt
 
   @@index([vendorId])
+  @@index([roleId])
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// RBAC — Roles & Permissions (see docs/rbac-permission-catalog.md, frozen)
+// Permission strings live in code (@water-supply-crm/authz); these tables store only
+// grants. Wildcards ("*", "resource:*") are valid permission values.
+// ──────────────────────────────────────────────────────────────────────────────
+
+// A named bundle of permissions. System roles (isSystem=true) are seeded per vendor
+// from ROLE_PRESETS and cannot be deleted; their `key` is locked. vendorId is null
+// only for the global super_admin template.
+model Role {
+  id          String   @id @default(uuid())
+  vendorId    String?
+  vendor      Vendor?  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  key         String   // stable machine key, e.g. "vendor_admin" — unique per vendor
+  name        String   // editable display name
+  description String?
+  color       String?  // UI chip color
+  isSystem    Boolean  @default(false) // preset role — key locked, non-deletable
+  isDefault   Boolean  @default(false) // auto-assigned to new users of a category
+
+  permissions RolePermission[]
+  users       User[]   @relation("RoleMembers")
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([vendorId, key])
+  @@index([vendorId])
+}
+
+// A single permission grant on a role. Presence = granted. `permission` is validated
+// against the code catalog on write; may be an exact permission or a wildcard.
+model RolePermission {
+  id         String   @id @default(uuid())
+  roleId     String
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission String
+  createdAt  DateTime @default(now())
+
+  @@unique([roleId, permission])
+  @@index([roleId])
+}
+
+// Per-user override layered on top of role permissions. DENY always wins; expiresAt
+// enables temporary permissions (a periodic job prunes expired rows).
+model UserPermissionOverride {
+  id          String           @id @default(uuid())
+  userId      String
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission  String
+  effect      PermissionEffect
+  expiresAt   DateTime?        // null = permanent
+  grantedById String?          // granter's user id — soft ref, no FK (matches AuditLog)
+  createdAt   DateTime         @default(now())
+
+  @@unique([userId, permission])
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model Product {

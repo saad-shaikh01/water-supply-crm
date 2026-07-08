@@ -6,21 +6,16 @@
   Post,
   Req,
   Res,
-  UseGuards,
 } from '@nestjs/common';
 import { filter, map } from 'rxjs/operators';
 import { Request, Response } from 'express';
-import { UserRole } from '@prisma/client';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { RolesGuard } from '../../common/guards/roles.guard';
+import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 import { TrackingService } from './tracking.service';
 import { UpdateLocationDto } from './dto/update-location.dto';
 
 @Controller('tracking')
-@UseGuards(JwtAuthGuard, RolesGuard)
 export class TrackingController {
   constructor(private readonly trackingService: TrackingService) {}
 
@@ -29,7 +24,7 @@ export class TrackingController {
    * Drivers call this to push their GPS location.
    */
   @Post('location')
-  @Roles(UserRole.DRIVER, UserRole.STAFF, UserRole.VENDOR_ADMIN)
+  @RequirePermissions('tracking:report_location')
   async updateLocation(
     @CurrentUser() user: AuthUser,
     @Body() dto: UpdateLocationDto,
@@ -48,7 +43,7 @@ export class TrackingController {
    * Returns a snapshot of all active drivers for the vendor.
    */
   @Get('active')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.SUPER_ADMIN)
+  @RequirePermissions('tracking:view')
   async getActiveDrivers(@CurrentUser() user: AuthUser) {
     return this.trackingService.getActiveDrivers(user.vendorId);
   }
@@ -58,7 +53,7 @@ export class TrackingController {
    * Returns the last known location for a single driver.
    */
   @Get('driver/:driverId')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.SUPER_ADMIN)
+  @RequirePermissions('tracking:view')
   async getDriverLocation(
     @CurrentUser() user: AuthUser,
     @Param('driverId') driverId: string,
@@ -72,7 +67,7 @@ export class TrackingController {
    * Server-Sent Events stream — dashboard clients subscribe here.
    * Sends live location updates for the authenticated vendor's drivers.
    *
-   * Auth: Guarded by JwtAuthGuard + RolesGuard before SSE headers are flushed.
+   * Auth: Guarded by JwtAuthGuard + PermissionsGuard before SSE headers are flushed.
    * Browser EventSource cannot send custom headers, so pass the JWT as a query
    * parameter: `/api/tracking/subscribe?token=<jwt>`
    * JwtStrategy extracts and validates it via `fromExtractors`.
@@ -82,7 +77,7 @@ export class TrackingController {
    *   es.onmessage = (e) => { const location = JSON.parse(e.data); ... };
    */
   @Get('subscribe')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.SUPER_ADMIN)
+  @RequirePermissions('tracking:view')
   subscribe(@CurrentUser() user: AuthUser, @Res() res: Response, @Req() req: Request) {
     // SSE headers — flushed only after JwtAuthGuard succeeds
     res.setHeader('Content-Type', 'text/event-stream');

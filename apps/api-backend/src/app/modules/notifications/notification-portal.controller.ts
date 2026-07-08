@@ -1,22 +1,14 @@
-﻿import { Controller, Get, Patch, Param, Query, UseGuards } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+﻿import { Controller, Get, Patch, Param, Query } from '@nestjs/common';
 import { InAppNotificationService } from './in-app-notification.service';
 import { NotificationFeedQueryDto } from './dto/notification-feed-query.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { AuthenticatedOnly } from '../../common/decorators/authz-markers.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 
+// In-app notification bell — every authenticated identity (customer + vendor staff) sees
+// their OWN feed (service scopes by userId). Domain D: @AuthenticatedOnly, not customer-only.
 @Controller('portal/notifications')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(
-  UserRole.CUSTOMER,
-  UserRole.DRIVER,
-  UserRole.STAFF,
-  UserRole.VENDOR_ADMIN,
-  UserRole.SUPER_ADMIN,
-)
+@AuthenticatedOnly()
 export class NotificationPortalController {
   constructor(private readonly notifService: InAppNotificationService) {}
 

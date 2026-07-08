@@ -8,21 +8,15 @@
   Query,
   ParseIntPipe,
   DefaultValuePipe,
-  UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { UserRole } from '@prisma/client';
 import { BalanceReminderService } from './balance-reminder.service';
 import { ScheduleReminderDto, SendNowDto, SendTargetedDto, PreviewDto } from './dto/schedule-reminder.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 
 @Controller('balance-reminders')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.VENDOR_ADMIN)
 export class BalanceReminderController {
   constructor(private readonly reminderService: BalanceReminderService) {}
 
@@ -33,6 +27,7 @@ export class BalanceReminderController {
    * Default: runs daily at 9 AM PKT (04:00 UTC), minBalance=100
    */
   @Post('schedule')
+  @RequirePermissions('balance_reminders:configure')
   @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 3 } })
   scheduleReminders(
     @CurrentUser() user: AuthUser,
@@ -46,6 +41,7 @@ export class BalanceReminderController {
    * Check if reminders are scheduled and when the next run is.
    */
   @Get('schedule')
+  @RequirePermissions('balance_reminders:view')
   getSchedule(@CurrentUser() user: AuthUser) {
     return this.reminderService.getScheduleStatus(user.vendorId);
   }
@@ -55,6 +51,7 @@ export class BalanceReminderController {
    * Disable automatic balance reminders.
    */
   @Delete('schedule')
+  @RequirePermissions('balance_reminders:configure')
   @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 3 } })
   cancelReminders(@CurrentUser() user: AuthUser) {
     return this.reminderService.cancelReminders(user.vendorId);
@@ -67,6 +64,7 @@ export class BalanceReminderController {
    * Use dryRun=true to preview who would receive messages.
    */
   @Post('send-now')
+  @RequirePermissions('balance_reminders:send')
   @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 3 } })
   sendNow(@CurrentUser() user: AuthUser, @Body() dto: SendNowDto) {
     return this.reminderService.sendNow(user.vendorId, dto);
@@ -81,6 +79,7 @@ export class BalanceReminderController {
    *   mode=eligible — all customers above minBalance threshold
    */
   @Post('send-targeted')
+  @RequirePermissions('balance_reminders:send')
   @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 5 } })
   sendTargeted(@CurrentUser() user: AuthUser, @Body() dto: SendTargetedDto) {
     return this.reminderService.sendTargeted(user.vendorId, dto);
@@ -93,6 +92,7 @@ export class BalanceReminderController {
    * Response: { wouldSend: [...], skipped: [{ ..., reason: 'skipped-low-balance' | ... }], totalWouldSend, totalSkipped }
    */
   @Post('preview')
+  @RequirePermissions('balance_reminders:view')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 20 } })
   previewReminders(@CurrentUser() user: AuthUser, @Body() dto: PreviewDto) {
     return this.reminderService.previewReminders(user.vendorId, dto);
@@ -104,6 +104,7 @@ export class BalanceReminderController {
    * result: 'sent' (sent > 0) | 'skipped' (skipped > 0) | omit for all.
    */
   @Get('history')
+  @RequirePermissions('balance_reminders:view')
   getSendHistory(
     @CurrentUser() user: AuthUser,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
@@ -124,6 +125,7 @@ export class BalanceReminderController {
    * Full detail of one send operation — filters used + per-customer results.
    */
   @Get('history/:id')
+  @RequirePermissions('balance_reminders:view')
   getSendLogDetail(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.reminderService.getSendLogDetail(user.vendorId, id);
   }

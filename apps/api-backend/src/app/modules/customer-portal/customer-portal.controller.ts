@@ -1,5 +1,4 @@
-﻿import { Controller, Get, Post, Query, Body, UseGuards, Res } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+﻿import { Controller, Get, Post, Query, Body, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { CustomerPortalService } from './customer-portal.service';
 import { PortalTransactionsQueryDto } from './dto/portal-transactions-query.dto';
@@ -7,15 +6,12 @@ import { PortalDeliveriesQueryDto } from './dto/portal-deliveries-query.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { StatementQueryDto } from '../customer/dto/statement-query.dto';
 import { ScheduleQueryDto } from '../customer/dto/schedule-query.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequireCustomer } from '../../common/decorators/authz-markers.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 
 @Controller('portal')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.CUSTOMER)
+@RequireCustomer()
 export class CustomerPortalController {
   constructor(private readonly portalService: CustomerPortalService) {}
 

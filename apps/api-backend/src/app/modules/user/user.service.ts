@@ -8,6 +8,8 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { NO_LOGIN_ROLES } from './dto/create-user.dto';
 import { UserQueryDto } from './dto/user-query.dto';
 import { AuditService } from '../audit/audit.service';
+import { PermissionService } from '../authz/permission.service';
+import { AuthzPolicyService } from '../authz/authz-policy.service';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { paginate } from '../../common/helpers/paginate';
 
@@ -17,6 +19,8 @@ export class UserService {
     private prisma: PrismaService,
     private cache: CacheInvalidationService,
     private audit: AuditService,
+    private permissions: PermissionService,
+    private policy: AuthzPolicyService,
   ) {}
 
   async create(data: {
@@ -233,19 +237,21 @@ export class UserService {
       throw new NotFoundException('User not found');
     }
 
-    const updated = await this.prisma.user.update({
-      where: { id },
-      data: { isActive: false },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        isActive: true,
+    // Last-admin protection, concurrency-safe (check + write in one serializable txn).
+    const updated = await this.prisma.$transaction(
+      async (tx) => {
+        await this.policy.assertNotLastAdmin(vendorId, id, tx as never);
+        return tx.user.update({
+          where: { id },
+          data: { isActive: false },
+          select: { id: true, email: true, name: true, role: true, isActive: true },
+        });
       },
-    });
+      { isolationLevel: 'Serializable' },
+    );
 
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.USERS);
+    await this.permissions.invalidateUser(id); // clear cached effective permissions
 
     // Clear this driver from any van that still references them
     await this.prisma.van.updateMany({
@@ -349,8 +355,16 @@ export class UserService {
     // Default-crew template rows are just config — safe to remove with the user
     await this.prisma.vanDefaultCrew.deleteMany({ where: { userId: id } });
 
-    await this.prisma.user.delete({ where: { id } });
+    // Last-admin protection, concurrency-safe (check + delete in one serializable txn).
+    await this.prisma.$transaction(
+      async (tx) => {
+        await this.policy.assertNotLastAdmin(vendorId, id, tx as never);
+        await tx.user.delete({ where: { id } });
+      },
+      { isolationLevel: 'Serializable' },
+    );
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.USERS);
+    await this.permissions.invalidateUser(id); // clear cached effective permissions
 
     await this.audit.log({
       vendorId,

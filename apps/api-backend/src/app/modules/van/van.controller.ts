@@ -1,4 +1,4 @@
-﻿import {
+import {
   Controller,
   Get,
   Post,
@@ -9,35 +9,32 @@
   Param,
   Query,
   Res,
-  UseGuards,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
-import { UserRole } from '@prisma/client';
 import { VanService } from './van.service';
 import { CreateVanDto } from './dto/create-van.dto';
 import { UpdateVanDto } from './dto/update-van.dto';
 import { UpdateDefaultCrewDto } from './dto/update-default-crew.dto';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 
 @Controller('vans')
-@UseGuards(JwtAuthGuard, RolesGuard)
 export class VanController {
   constructor(private readonly vanService: VanService) {}
 
   @Post()
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('vans:create')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateVanDto) {
     return this.vanService.create(user.vendorId, dto);
   }
 
+  // Was open to any authenticated user (no @Roles) → now gated by vans:view.
   @Get()
+  @RequirePermissions('vans:view')
   findAll(
     @CurrentUser() user: AuthUser,
     @Query() query: PaginationQueryDto,
@@ -48,12 +45,13 @@ export class VanController {
   }
 
   @Get(':id')
+  @RequirePermissions('vans:view')
   findOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.vanService.findOne(user.vendorId, id);
   }
 
   @Patch(':id')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('vans:update')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   update(
     @CurrentUser() user: AuthUser,
@@ -65,7 +63,7 @@ export class VanController {
 
   /** PUT /vans/:id/default-crew — full-replace the van's default supporting crew */
   @Put(':id/default-crew')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('vans:manage_crew')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   updateDefaultCrew(
     @CurrentUser() user: AuthUser,
@@ -76,21 +74,21 @@ export class VanController {
   }
 
   @Patch(':id/deactivate')
-  @Roles(UserRole.VENDOR_ADMIN)
+  @RequirePermissions('vans:deactivate')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   deactivate(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.vanService.deactivate(user.vendorId, id);
   }
 
   @Patch(':id/reactivate')
-  @Roles(UserRole.VENDOR_ADMIN)
+  @RequirePermissions('vans:restore')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   reactivate(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.vanService.reactivate(user.vendorId, id);
   }
 
   @Delete(':id')
-  @Roles(UserRole.VENDOR_ADMIN)
+  @RequirePermissions('vans:delete')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.vanService.remove(user.vendorId, id);

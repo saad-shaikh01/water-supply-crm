@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
-import { APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { PermissionsGuard } from './common/guards/permissions.guard';
 import { DatabaseModule } from '@water-supply-crm/database';
 import { SharedLoggingModule } from '@water-supply-crm/logging';
 import { RateLimitingModule } from '@water-supply-crm/rate-limiting';
@@ -10,6 +12,7 @@ import { AppService } from './app.service';
 import { VendorContextInterceptor } from './common/interceptors/vendor-context.interceptor';
 import { VendorModule } from './modules/vendor/vendor.module';
 import { UserModule } from './modules/user/user.module';
+import { AuthzModule } from './modules/authz/authz.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ProductModule } from './modules/product/product.module';
 import { RouteModule } from './modules/route/route.module';
@@ -48,6 +51,7 @@ import { WarehouseModule } from './modules/warehouse/warehouse.module';
     // Feature modules
     VendorModule,
     UserModule,
+    AuthzModule,
     AuthModule,
     ProductModule,
     RouteModule,
@@ -82,6 +86,11 @@ import { WarehouseModule } from './modules/warehouse/warehouse.module';
       provide: APP_INTERCEPTOR,
       useClass: VendorContextInterceptor,
     },
+    // Global authorization chain (runs after the global ThrottlerGuard):
+    //   1. JwtAuthGuard   — authenticates every request except @Public()
+    //   2. PermissionsGuard — deny-by-default; enforces the route's authorization marker
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: PermissionsGuard },
   ],
 })
 export class AppModule {}

@@ -15,6 +15,7 @@
     "skipDefaultLibCheck": true,
     "baseUrl": ".",
     "paths": {
+      "@water-supply-crm/authz": ["libs/shared/authz/src/index.ts"],
       "@water-supply-crm/ui": ["libs/shared/ui/src/index.ts"],
       "@water-supply-crm/ui/styles.css": ["libs/shared/ui/src/styles.css"],
       "@water-supply-crm/types": ["libs/shared/types/src/index.ts"],
