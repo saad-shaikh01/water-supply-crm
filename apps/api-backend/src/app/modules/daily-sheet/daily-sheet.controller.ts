@@ -32,6 +32,8 @@ import { SwapDriverDto } from './dto/swap-driver.dto';
 import { CreateLoadDto } from './dto/create-load.dto';
 import { CheckinLoadDto } from './dto/checkin-load.dto';
 import { DailySheetQueryDto } from './dto/daily-sheet-query.dto';
+import { ExportPreviewQueryDto } from './dto/export-preview-query.dto';
+import { ExportCsvQueryDto } from './dto/export-csv-query.dto';
 import { InsertOrderItemDto } from './dto/insert-order-item.dto';
 import { AddAdhocItemDto } from './dto/add-adhoc-item.dto';
 import { AddCorrectionItemDto } from './dto/add-correction-item.dto';
@@ -382,6 +384,28 @@ export class DailySheetController {
     @Body() dto: GlobalImportConfirmDto,
   ) {
     return this.bulkImportService.confirmGlobalImport(user.vendorId, dto);
+  }
+
+  // ── CSV Export — static 'export/' prefix, same reasoning as bulk-import ──
+
+  @Post('export/preview')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  getExportPreview(@CurrentUser() user: AuthUser, @Body() dto: ExportPreviewQueryDto) {
+    return this.dailySheetService.getExportPreview(user.vendorId, dto);
+  }
+
+  @Get('export/csv')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  async downloadExportCsv(
+    @CurrentUser() user: AuthUser,
+    @Query() query: ExportCsvQueryDto,
+    @Res() res: Response,
+  ) {
+    const csv = await this.dailySheetService.generateExportCsv(user.vendorId, query);
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="daily-sheets-export-${query.date}.csv"`);
+    res.end(csv);
   }
 
   // ── List + single ─────────────────────────────────────────────────────

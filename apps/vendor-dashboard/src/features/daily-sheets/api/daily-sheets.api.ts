@@ -123,6 +123,19 @@ export interface GlobalImportConfirmResponse {
   failedGroups: number;
 }
 
+export interface ExportPreviewVan {
+  vanId: string;
+  plateNumber: string;
+  completed: number;
+  pending: number;
+  cancelled: number;
+}
+
+export interface ExportPreviewResponse {
+  perVan: ExportPreviewVan[];
+  totals: { completed: number; pending: number; cancelled: number };
+}
+
 export interface MoveDeliveryItemsData {
   itemIds: string[];
   destinationVanId: string;
@@ -281,4 +294,12 @@ export const dailySheetsApi = {
       '/daily-sheets/bulk-import/global-confirm',
       { groups },
     ),
+  // CSV export
+  getExportPreview: (data: { date: string; vanIds?: string[] }) =>
+    apiClient.post('/daily-sheets/export/preview', data).then((r) => r.data),
+  downloadExportCsv: (date: string, vanIds?: string[]) =>
+    apiClient.get('/daily-sheets/export/csv', {
+      params: { date, vanIds: vanIds?.length ? vanIds.join(',') : undefined },
+      responseType: 'blob',
+    }),
 };

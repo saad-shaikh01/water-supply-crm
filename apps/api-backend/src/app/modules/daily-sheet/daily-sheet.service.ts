@@ -795,6 +795,114 @@ export class DailySheetService implements OnModuleInit {
     return paginate(data, total, page, limit);
   }
 
+  // ── CSV Export ────────────────────────────────────────────────────────
+
+  // Resolves the van list for export: explicit vanIds (validated to belong
+  // to the vendor) or, if omitted, every active van for the vendor.
+  private async resolveExportVans(vendorId: string, vanIds?: string[]) {
+    if (vanIds && vanIds.length > 0) {
+      const vans = await this.prisma.van.findMany({
+        where: { id: { in: vanIds }, vendorId },
+        select: { id: true, plateNumber: true },
+      });
+      if (vans.length !== vanIds.length) {
+        throw new BadRequestException('One or more selected vans were not found');
+      }
+      return vans;
+    }
+    return this.prisma.van.findMany({
+      where: { vendorId, isActive: true },
+      select: { id: true, plateNumber: true },
+    });
+  }
+
+  async getExportPreview(vendorId: string, dto: { date: string; vanIds?: string[] }) {
+    const vans = await this.resolveExportVans(vendorId, dto.vanIds);
+
+    const d = new Date(dto.date);
+    const next = new Date(d);
+    next.setDate(d.getDate() + 1);
+
+    const perVan = await Promise.all(
+      vans.map(async (van) => {
+        const sheet = await this.prisma.dailySheet.findFirst({
+          where: { vendorId, vanId: van.id, date: { gte: d, lt: next } },
+          select: { items: { select: { status: true } } },
+        });
+
+        const items = sheet?.items ?? [];
+        const completed = items.filter(
+          (i) => i.status === DeliveryStatus.COMPLETED || i.status === DeliveryStatus.EMPTY_ONLY,
+        ).length;
+        const pending = items.filter((i) => i.status === DeliveryStatus.PENDING).length;
+        const cancelledStatuses: string[] = ['CANCELLED', 'NOT_AVAILABLE', 'RESCHEDULED'];
+        const cancelled = items.filter((i) => cancelledStatuses.includes(i.status)).length;
+
+        return { vanId: van.id, plateNumber: van.plateNumber, completed, pending, cancelled };
+      }),
+    );
+
+    const totals = perVan.reduce(
+      (acc, v) => ({
+        completed: acc.completed + v.completed,
+        pending: acc.pending + v.pending,
+        cancelled: acc.cancelled + v.cancelled,
+      }),
+      { completed: 0, pending: 0, cancelled: 0 },
+    );
+
+    return { perVan, totals };
+  }
+
+  // Escapes a CSV field: wraps in double-quotes (doubling internal quotes)
+  // whenever the value contains a comma or a quote.
+  private csvEscape(value: unknown): string {
+    const s = value == null ? '' : String(value);
+    return s.includes(',') || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s;
+  }
+
+  async generateExportCsv(vendorId: string, dto: { date: string; vanIds?: string[] }): Promise<string> {
+    const vans = await this.resolveExportVans(vendorId, dto.vanIds);
+    const vanIds = vans.map((v) => v.id);
+
+    const header = 'Code,Customer Name,Type,Bot Balance,Outstanding Amount,Drop,Empty,Amount Received';
+    if (vanIds.length === 0) {
+      return header;
+    }
+
+    const d = new Date(dto.date);
+    const next = new Date(d);
+    next.setDate(d.getDate() + 1);
+
+    const items = await this.prisma.dailySheetItem.findMany({
+      where: {
+        status: { in: [DeliveryStatus.COMPLETED, DeliveryStatus.EMPTY_ONLY] },
+        dailySheet: { vendorId, vanId: { in: vanIds }, date: { gte: d, lt: next } },
+      },
+      include: {
+        customer: { select: { customerCode: true, name: true } },
+      },
+      orderBy: { sequence: 'asc' },
+    });
+
+    const rows = items.map((item) =>
+      [
+        item.customer.customerCode,
+        item.customer.name,
+        '',
+        item.bottleBalanceAfter,
+        item.financialBalanceAfter,
+        item.filledDropped,
+        item.emptyReceived,
+        item.cashCollected,
+      ]
+        .map((v) => this.csvEscape(v))
+        .join(','),
+    );
+
+    return [header, ...rows].join('\n');
+  }
+
   async findOne(vendorId: string, id: string) {
     const sheet = await this.prisma.dailySheet.findFirst({
       where: { id, vendorId },

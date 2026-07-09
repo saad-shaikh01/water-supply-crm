@@ -9,6 +9,7 @@ import {
   type ImportRowConfirmDto,
   type GlobalImportPreviewResponse,
   type GlobalImportGroupDto,
+  type ExportPreviewResponse,
   type MoveDeliveryItemsData,
   type MoveDeliveryItemsResponse,
   type DestinationOption,
@@ -414,6 +415,15 @@ export const usePreviewGlobalBulkImport = () => {
       dailySheetsApi.previewGlobalBulkImport(file, date).then((r) => r.data),
     onError: (e: any) =>
       toast.error(e?.response?.data?.message ?? 'Failed to parse file. Check the format and try again.'),
+  });
+};
+
+export const useExportPreview = () => {
+  return useMutation({
+    mutationFn: (data: { date: string; vanIds?: string[] }): Promise<ExportPreviewResponse> =>
+      dailySheetsApi.getExportPreview(data),
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? 'Failed to load export preview. Please try again.'),
   });
 };
 
