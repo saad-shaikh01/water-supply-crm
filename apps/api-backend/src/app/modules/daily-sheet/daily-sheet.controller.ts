@@ -35,6 +35,7 @@ import { DailySheetQueryDto } from './dto/daily-sheet-query.dto';
 import { InsertOrderItemDto } from './dto/insert-order-item.dto';
 import { AddAdhocItemDto } from './dto/add-adhoc-item.dto';
 import { AddCorrectionItemDto } from './dto/add-correction-item.dto';
+import { MoveDeliveryItemsDto } from './dto/move-delivery-items.dto';
 import { UnlockEditDto } from './dto/unlock-edit.dto';
 import { CreateDeliveryNoteDto } from './dto/create-delivery-note.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -107,8 +108,35 @@ export class DailySheetController {
     );
   }
 
+  /**
+   * GET /daily-sheets/destination-options?date=YYYY-MM-DD
+   * Per-active-van projection for the move-customer destination picker:
+   * whether a sheet already exists for that van+date, and whether it's
+   * closed — lets the frontend render "will create new sheet" / "adds to
+   * open sheet" / "unavailable (closed)" without N+1 requests.
+   */
+  @Get('destination-options')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  getDestinationOptions(@CurrentUser() user: AuthUser, @Query('date') date: string) {
+    if (!date) throw new BadRequestException('date query parameter is required (YYYY-MM-DD)');
+    return this.dailySheetService.getDestinationOptions(user.vendorId, date);
+  }
+
   // ── Delivery Item Notes ───────────────────────────────────────────────────
   // Static note routes MUST come before items/:id to avoid NestJS shadowing.
+
+  /**
+   * PATCH /daily-sheets/items/move
+   * Moves one or more customers' pending/failed deliveries to a different
+   * van's sheet (same date or a future date), auto-creating the destination
+   * sheet if it doesn't exist yet. Must stay before items/:id (line below).
+   */
+  @Patch('items/move')
+  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
+  moveDeliveryItems(@CurrentUser() user: AuthUser, @Body() dto: MoveDeliveryItemsDto) {
+    return this.dailySheetService.moveDeliveryItems(user, dto);
+  }
 
   /**
    * POST /daily-sheets/items/upload-photo

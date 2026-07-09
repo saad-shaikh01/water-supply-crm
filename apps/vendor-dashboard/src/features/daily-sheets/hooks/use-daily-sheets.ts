@@ -9,6 +9,9 @@ import {
   type ImportRowConfirmDto,
   type GlobalImportPreviewResponse,
   type GlobalImportGroupDto,
+  type MoveDeliveryItemsData,
+  type MoveDeliveryItemsResponse,
+  type DestinationOption,
 } from '../api/daily-sheets.api';
 import { customersApi } from '../../customers/api/customers.api';
 import { queryKeys } from '../../../lib/query-keys';
@@ -198,6 +201,30 @@ export const useConfirmCrew = (sheetId: string) => {
       toast.success("Today's crew confirmed");
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to confirm crew'),
+  });
+};
+
+export const useDestinationOptions = (date: string, enabled = true) => {
+  return useQuery({
+    queryKey: ['daily-sheets', 'destination-options', date],
+    queryFn: (): Promise<DestinationOption[]> => dailySheetsApi.getDestinationOptions(date),
+    enabled: enabled && !!date,
+  });
+};
+
+export const useMoveDeliveryItems = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: MoveDeliveryItemsData): Promise<MoveDeliveryItemsResponse> =>
+      dailySheetsApi.moveDeliveryItems(data),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(result.destinationSheetId) });
+      queryClient.invalidateQueries({ queryKey: ['sheets'] });
+      const who = result.movedCount > 1 ? `${result.movedCount} customers` : 'Customer';
+      toast.success(`${who} moved${result.createdNewSheet ? ' — new sheet created' : ''}`);
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to move customer'),
   });
 };
 

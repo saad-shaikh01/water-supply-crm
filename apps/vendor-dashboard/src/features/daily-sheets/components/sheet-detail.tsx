@@ -7,6 +7,7 @@ import { dailySheetsApi } from '../api/daily-sheets.api';
 import { CheckinDialog } from './dialogs/checkin-dialog';
 import { NewTripDialog } from './dialogs/new-trip-dialog';
 import { SwapDialog } from './dialogs/swap-dialog';
+import { MoveCustomerDialog } from './dialogs/move-customer-dialog';
 import { CrewConfirmDialog } from './dialogs/crew-confirm-dialog';
 import { ReconcileDialog } from './dialogs/reconcile-dialog';
 import { AdhocDeliveryDialog } from './dialogs/adhoc-delivery-dialog';
@@ -136,6 +137,9 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const [ui, dispatch] = useReducer(uiReducer, initialUiState);
   const [sortMode, setSortMode] = useState<SortMode>('sequence');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [moveTargetIds, setMoveTargetIds] = useState<string[] | null>(null);
   const { location: driverLocation, requestLocation } = useDriverLocation();
 
   // Continuously publish driver GPS to the tracking backend while the sheet is open.
@@ -166,6 +170,12 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
       dispatch({ type: 'SET_TAB', tab: 'pending' });
     }
   }, [items, isDriver]);
+  // Selection is scoped to the active tab's list — clear it if the tab changes underneath it.
+  useEffect(() => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }, [ui.activeTab]);
+
   const loads = useMemo(() => data?.loads ?? [], [data]);
   const doneItems = useMemo(
     () => items.filter((i) => i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY'),
@@ -254,6 +264,28 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const handleSearchChange = (value: string) => {
     setSearchQuery(value);
     dispatch({ type: 'SET_PAGE', page: 1 });
+  };
+
+  const handleToggleSelectMode = () => {
+    setSelectMode((v) => !v);
+    setSelectedIds(new Set());
+  };
+
+  const handleToggleSelected = (itemId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  };
+
+  const handleMoveClose = () => setMoveTargetIds(null);
+
+  const handleMoved = () => {
+    setMoveTargetIds(null);
+    setSelectMode(false);
+    setSelectedIds(new Set());
   };
 
   const handleExportPdf = async () => {
@@ -592,6 +624,12 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             ? ((requestDeliveryEdit.variables as any) ?? null)
             : null
         }
+        selectMode={selectMode}
+        onToggleSelectMode={handleToggleSelectMode}
+        selectedIds={selectedIds}
+        onToggleSelected={handleToggleSelected}
+        onMoveItem={(itemId) => setMoveTargetIds([itemId])}
+        onMoveSelected={() => setMoveTargetIds(Array.from(selectedIds))}
       />
 
       <ReconcileDialog
@@ -647,6 +685,18 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         open={ui.bulkImportOpen}
         onClose={() => dispatch({ type: 'CLOSE_BULK_IMPORT' })}
         sheetId={sheetId}
+      />
+      <MoveCustomerDialog
+        open={!!moveTargetIds}
+        onClose={handleMoveClose}
+        sheetId={sheetId}
+        sourceDate={data!.date}
+        sourceVanId={data?.vanId}
+        items={(moveTargetIds ?? []).map((id) => {
+          const item = items.find((i) => i.id === id);
+          return { id, customerName: item?.customer?.name ?? 'Customer' };
+        })}
+        onMoved={handleMoved}
       />
     </div>
   );

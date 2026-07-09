@@ -13,7 +13,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '@water-supply-crm/database';
 import { QUEUE_NAMES, JOB_NAMES, NOTIFICATION_EVENTS } from '@water-supply-crm/queue';
-import { DeliveryStatus, NoteType, PaymentType, TransactionType, NotificationType, NotificationChannel } from '@prisma/client';
+import { DeliveryStatus, NoteType, PaymentType, TransactionType, NotificationType, NotificationChannel, Prisma, CrewRole } from '@prisma/client';
 import { GenerateSheetsDto } from './dto/generate-sheets.dto';
 import { SubmitDeliveryDto } from './dto/submit-delivery.dto';
 import { LoadOutDto } from './dto/load-out.dto';
@@ -31,6 +31,7 @@ import { InAppNotificationService } from '../notifications/in-app-notification.s
 import { InsertOrderItemDto, SequenceMode } from './dto/insert-order-item.dto';
 import { AddAdhocItemDto } from './dto/add-adhoc-item.dto';
 import { AddCorrectionItemDto } from './dto/add-correction-item.dto';
+import { MoveDeliveryItemsDto } from './dto/move-delivery-items.dto';
 import { paginate } from '../../common/helpers/paginate';
 import { validateSupportCrew } from '../../common/helpers/crew-validation';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
@@ -132,6 +133,240 @@ export class DailySheetService implements OnModuleInit {
       progress: job.progress,
       result: state === 'completed' ? job.returnvalue : undefined,
       failedReason: state === 'failed' ? job.failedReason : undefined,
+    };
+  }
+
+  /**
+   * Get-or-create a van's sheet for a given date. Used both by a standalone
+   * caller (e.g. the customer-move feature, which needs a destination sheet
+   * that may not exist yet) — never by the bulk generation processor's hot
+   * loop, which already has the van/product/orders in scope and calls
+   * `createSheetForVan` directly to avoid redundant per-van queries.
+   */
+  async ensureSheetForVanDate(
+    db: Prisma.TransactionClient | PrismaService,
+    vendorId: string,
+    vanId: string,
+    date: string,
+  ): Promise<{ sheet: { id: string; isClosed: boolean }; createdNewSheet: boolean }> {
+    const targetDate = new Date(date);
+    const startOfDay = new Date(targetDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(targetDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const existing = await db.dailySheet.findFirst({
+      where: { vendorId, vanId, date: { gte: startOfDay, lt: endOfDay } },
+    });
+    if (existing) {
+      return { sheet: existing, createdNewSheet: false };
+    }
+
+    const dayOfWeek = targetDate.getDay();
+
+    const van = await db.van.findFirst({
+      where: { id: vanId, vendorId },
+      include: {
+        routes: { where: { vendorId }, orderBy: { createdAt: 'asc' }, take: 1, select: { id: true } },
+        defaultCrew: {
+          where: { user: { isActive: true } },
+          select: { userId: true, role: true },
+        },
+        deliverySchedules: {
+          where: { dayOfWeek, customer: { isActive: true } },
+          select: { customerId: true, routeSequence: true },
+          orderBy: [{ routeSequence: 'asc' }, { customer: { name: 'asc' } }],
+        },
+      },
+    });
+    if (!van) {
+      throw new NotFoundException('Van not found');
+    }
+    if (!van.defaultDriverId) {
+      throw new ConflictException('Destination van has no default driver assigned — cannot create a sheet');
+    }
+
+    const defaultProduct = await db.product.findFirst({ where: { vendorId, isActive: true } });
+    if (!defaultProduct) {
+      throw new ConflictException('No active product is configured for this vendor — cannot create a sheet');
+    }
+
+    const plannedOrders = await db.customerOrder.findMany({
+      where: {
+        vendorId,
+        status: 'APPROVED',
+        dispatchStatus: 'PLANNED',
+        dispatchMode: 'QUEUE_FOR_GENERATION',
+        targetDate: { gte: startOfDay, lte: endOfDay },
+        OR: [{ dispatchVanId: van.id }, { dispatchVanId: null }],
+      },
+    });
+
+    const { sheet } = await this.createSheetForVan(
+      db,
+      vendorId,
+      van,
+      targetDate,
+      dayOfWeek,
+      defaultProduct,
+      plannedOrders,
+    );
+    return { sheet, createdNewSheet: true };
+  }
+
+  /**
+   * Builds and creates a single van's sheet for a date: regular schedule
+   * items, rescheduled-item pull-forward (auto-cancelling anything older
+   * than 60 days), and eligible on-demand orders. Extracted verbatim from
+   * `DailySheetProcessor.generateForVendor`'s per-van loop body so the
+   * nightly/manual generation path and the one-off `ensureSheetForVanDate`
+   * caller share identical sheet-creation behavior. `plannedOrders` is
+   * filtered internally to this van (or unassigned); the caller is
+   * responsible for removing any orders this call consumed from a
+   * vendor-wide pool shared across multiple vans (see the processor).
+   */
+  async createSheetForVan(
+    db: Prisma.TransactionClient | PrismaService,
+    vendorId: string,
+    van: {
+      id: string;
+      defaultDriverId: string | null;
+      routes: { id: string }[];
+      defaultCrew: { userId: string; role: CrewRole }[];
+      deliverySchedules: { customerId: string; routeSequence: number | null }[];
+    },
+    targetDate: Date,
+    dayOfWeek: number,
+    defaultProduct: { id: string },
+    plannedOrders: { id: string; customerId: string; productId: string; dispatchVanId: string | null }[],
+  ): Promise<{
+    sheet: { id: string; isClosed: boolean };
+    eligibleOnDemandOrderIds: string[];
+    alreadyInsertedOnDemandOrderIds: string[];
+  }> {
+    const startOfDay = new Date(targetDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(targetDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const schedules = van.deliverySchedules;
+    const routeId = van.routes[0]?.id ?? null;
+
+    // Fetch any RESCHEDULED items from previous sheets for customers on this van's schedule
+    const customerIds = schedules.map((s) => s.customerId);
+    const cutoffDate = new Date(targetDate);
+    cutoffDate.setDate(cutoffDate.getDate() - 60);
+
+    const rescheduledItems = await db.dailySheetItem.findMany({
+      where: {
+        status: 'RESCHEDULED',
+        customerId: { in: customerIds },
+        dailySheet: { vendorId, date: { gte: cutoffDate, lt: targetDate } },
+      },
+      select: { id: true, customerId: true, productId: true },
+    });
+
+    // Auto-cancel RESCHEDULED items older than 60 days for these customers
+    await db.dailySheetItem.updateMany({
+      where: {
+        status: 'RESCHEDULED',
+        customerId: { in: customerIds },
+        dailySheet: { vendorId, date: { lt: cutoffDate } },
+      },
+      data: { status: 'CANCELLED' },
+    });
+
+    // Build unique set of rescheduled customerIds to avoid duplicates
+    const rescheduledCustomerIds = new Set(rescheduledItems.map((i) => i.customerId));
+
+    // Regular scheduled customers (exclude those already covered by rescheduled)
+    const regularSchedules = schedules.filter((s) => !rescheduledCustomerIds.has(s.customerId));
+
+    // On-demand orders assigned to this van (or unassigned)
+    const vanOnDemandOrders = plannedOrders.filter(
+      (o) => o.dispatchVanId === van.id || o.dispatchVanId === null,
+    );
+
+    // Idempotency: skip orders already inserted into any sheet for this vendor+date
+    const alreadyInsertedOrderIds = new Set<string>();
+    if (vanOnDemandOrders.length > 0) {
+      const existingItems = await db.dailySheetItem.findMany({
+        where: {
+          sourceOrderId: { in: vanOnDemandOrders.map((o) => o.id) },
+          dailySheet: { vendorId, date: { gte: startOfDay, lte: endOfDay } },
+        },
+        select: { sourceOrderId: true },
+      });
+      existingItems.forEach((i) => {
+        if (i.sourceOrderId) alreadyInsertedOrderIds.add(i.sourceOrderId);
+      });
+    }
+
+    const eligibleOnDemandOrders = vanOnDemandOrders.filter(
+      (o) => !alreadyInsertedOrderIds.has(o.id),
+    );
+
+    const baseCount = regularSchedules.length + rescheduledItems.length;
+    const allItems = [
+      ...regularSchedules.map((s, index) => ({
+        customerId: s.customerId,
+        sequence: s.routeSequence ?? index + 1,
+        productId: defaultProduct.id,
+        deliveryType: 'SCHEDULED' as const,
+      })),
+      ...rescheduledItems.map((item, index) => ({
+        customerId: item.customerId,
+        sequence: regularSchedules.length + index + 1,
+        productId: item.productId,
+        deliveryType: 'SCHEDULED' as const,
+      })),
+      ...eligibleOnDemandOrders.map((order, index) => ({
+        customerId: order.customerId,
+        productId: order.productId,
+        sequence: baseCount + index + 1,
+        deliveryType: 'ON_DEMAND' as const,
+        sourceOrderId: order.id,
+      })),
+    ];
+
+    // Snapshot the van's default supporting crew onto the sheet. The crew
+    // must be explicitly confirmed (crewConfirmed=false) before trips start.
+    const crewSnapshot = van.defaultCrew.filter((c) => c.userId !== van.defaultDriverId);
+
+    const sheet = await db.dailySheet.create({
+      data: {
+        vendorId,
+        routeId,
+        vanId: van.id,
+        driverId: van.defaultDriverId as string,
+        date: targetDate,
+        items: { create: allItems },
+        crew: {
+          create: crewSnapshot.map((c) => ({ userId: c.userId, role: c.role })),
+        },
+      },
+    });
+
+    // Mark old RESCHEDULED items as CANCELLED (moved to new sheet)
+    if (rescheduledItems.length > 0) {
+      await db.dailySheetItem.updateMany({
+        where: { id: { in: rescheduledItems.map((i) => i.id) } },
+        data: { status: 'CANCELLED' },
+      });
+    }
+
+    // Update on-demand orders to INSERTED_IN_SHEET
+    if (eligibleOnDemandOrders.length > 0) {
+      await db.customerOrder.updateMany({
+        where: { id: { in: eligibleOnDemandOrders.map((o) => o.id) } },
+        data: { dispatchStatus: 'INSERTED_IN_SHEET', dispatchedAt: new Date() },
+      });
+    }
+
+    return {
+      sheet,
+      eligibleOnDemandOrderIds: eligibleOnDemandOrders.map((o) => o.id),
+      alreadyInsertedOnDemandOrderIds: Array.from(alreadyInsertedOrderIds),
     };
   }
 
@@ -786,6 +1021,12 @@ export class DailySheetService implements OnModuleInit {
 
     const sequence = sheet._count.items + 1;
 
+    // Leave the delivery pending when the admin only picked a customer and left
+    // Drop, Empty, and Cash all blank — the driver still needs to complete it.
+    const hasDeliveryValues =
+      dto.filledDropped > 0 || dto.emptyReceived > 0 || dto.cashCollected > 0;
+    const resolvedStatus = hasDeliveryValues ? DeliveryStatus.COMPLETED : DeliveryStatus.PENDING;
+
     const result = await this.prisma.$transaction(async (tx) => {
       const item = await tx.dailySheetItem.create({
         data: {
@@ -794,26 +1035,28 @@ export class DailySheetService implements OnModuleInit {
           productId: dto.productId,
           sequence,
           deliveryType: 'ON_DEMAND',
-          status: DeliveryStatus.COMPLETED,
+          status: resolvedStatus,
           filledDropped: dto.filledDropped,
           emptyReceived: dto.emptyReceived,
           cashCollected: dto.cashCollected,
           pricePerBottle: price,
-          deliveredAt: new Date(),
+          deliveredAt: hasDeliveryValues ? new Date() : null,
         },
       });
 
-      await this.ledger.recordDelivery({
-        vendorId,
-        customerId: dto.customerId,
-        productId: dto.productId,
-        dailySheetId: sheetId,
-        dailySheetItemId: item.id,
-        filledDropped: dto.filledDropped,
-        emptyReceived: dto.emptyReceived,
-        cashCollected: dto.cashCollected,
-        pricePerBottle: price,
-      }, tx);
+      if (hasDeliveryValues) {
+        await this.ledger.recordDelivery({
+          vendorId,
+          customerId: dto.customerId,
+          productId: dto.productId,
+          dailySheetId: sheetId,
+          dailySheetItemId: item.id,
+          filledDropped: dto.filledDropped,
+          emptyReceived: dto.emptyReceived,
+          cashCollected: dto.cashCollected,
+          pricePerBottle: price,
+        }, tx);
+      }
 
       const updatedWallet = await this.prisma.bottleWallet.findUnique({
         where: { customerId_productId: { customerId: dto.customerId, productId: dto.productId } },
@@ -1465,6 +1708,207 @@ export class DailySheetService implements OnModuleInit {
     });
 
     return updated;
+  }
+
+  private static readonly MOVE_ELIGIBLE_STATUSES: DeliveryStatus[] = [
+    'PENDING',
+    'NOT_AVAILABLE',
+    'RESCHEDULED',
+  ];
+
+  /**
+   * Move one or more customers' pending/failed deliveries to a different
+   * van's sheet (same date or a future date). This is an in-place mutation
+   * of the existing DailySheetItem row (dailySheetId/sequence/status) — not
+   * a copy-and-cancel — because DeliveryIssue/DamageCase/DeliveryItemNote
+   * all reference the item by id, and analytics.service.ts's getDeliveries
+   * counts CANCELLED as a missed delivery, which a cancelled-source-item
+   * design would have permanently miscounted for moved customers.
+   */
+  async moveDeliveryItems(user: AuthUser, dto: MoveDeliveryItemsDto) {
+    const vendorId = user.vendorId;
+
+    const items = await this.prisma.dailySheetItem.findMany({
+      where: { id: { in: dto.itemIds } },
+      include: {
+        dailySheet: {
+          select: { id: true, vendorId: true, vanId: true, date: true, isClosed: true },
+        },
+        customer: { select: { id: true, name: true } },
+      },
+    });
+
+    if (items.length !== dto.itemIds.length) {
+      throw new NotFoundException('One or more delivery items not found');
+    }
+    for (const item of items) {
+      if (item.dailySheet.vendorId !== vendorId) {
+        throw new NotFoundException('One or more delivery items not found');
+      }
+    }
+    for (const item of items) {
+      if (!DailySheetService.MOVE_ELIGIBLE_STATUSES.includes(item.status)) {
+        throw new ConflictException(
+          `${item.customer.name}'s delivery is ${item.status} and cannot be moved`,
+        );
+      }
+    }
+
+    const destinationDate = new Date(dto.destinationDate);
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    if (destinationDate < todayStart) {
+      throw new BadRequestException('Cannot move to a past date');
+    }
+
+    const destinationVan = await this.prisma.van.findFirst({
+      where: { id: dto.destinationVanId, vendorId, isActive: true },
+    });
+    if (!destinationVan) {
+      throw new NotFoundException('Destination van not found');
+    }
+
+    const startOfDestDay = new Date(destinationDate);
+    startOfDestDay.setHours(0, 0, 0, 0);
+    const endOfDestDay = new Date(destinationDate);
+    endOfDestDay.setHours(23, 59, 59, 999);
+
+    for (const item of items) {
+      const sameVan = item.dailySheet.vanId === dto.destinationVanId;
+      const sameDay = item.dailySheet.date >= startOfDestDay && item.dailySheet.date <= endOfDestDay;
+      if (sameVan && sameDay) {
+        throw new ConflictException(
+          `${item.customer.name} is already on this van's sheet for this date`,
+        );
+      }
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      let ensured: { sheet: { id: string; isClosed: boolean }; createdNewSheet: boolean };
+      try {
+        ensured = await this.ensureSheetForVanDate(tx, vendorId, dto.destinationVanId, dto.destinationDate);
+      } catch (err) {
+        // Lost a concurrent race to create the same (vendorId, vanId, date) sheet —
+        // the other transaction already committed it; fetch and use that one instead.
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+          const existing = await tx.dailySheet.findFirst({
+            where: { vendorId, vanId: dto.destinationVanId, date: { gte: startOfDestDay, lte: endOfDestDay } },
+          });
+          if (!existing) throw err;
+          ensured = { sheet: existing, createdNewSheet: false };
+        } else {
+          throw err;
+        }
+      }
+
+      if (ensured.sheet.isClosed) {
+        throw new ConflictException('Cannot move to a closed sheet');
+      }
+
+      const destinationSheetId = ensured.sheet.id;
+
+      const existingDestItems = await tx.dailySheetItem.findMany({
+        where: {
+          dailySheetId: destinationSheetId,
+          status: { not: 'CANCELLED' },
+          OR: items.map((i) => ({ customerId: i.customerId, productId: i.productId })),
+        },
+        select: { customerId: true, customer: { select: { name: true } } },
+      });
+      if (existingDestItems.length > 0) {
+        const names = existingDestItems.map((i) => i.customer.name).join(', ');
+        throw new ConflictException(
+          `${names} already ${existingDestItems.length > 1 ? 'have' : 'has'} an active delivery on the destination sheet`,
+        );
+      }
+
+      const maxSeq = await tx.dailySheetItem.aggregate({
+        where: { dailySheetId: destinationSheetId },
+        _max: { sequence: true },
+      });
+      let nextSequence = (maxSeq._max.sequence ?? 0) + 1;
+
+      for (const item of items) {
+        const before = {
+          dailySheetId: item.dailySheetId,
+          vanId: item.dailySheet.vanId,
+          date: item.dailySheet.date,
+          sequence: item.sequence,
+          status: item.status,
+        };
+
+        const updated = await tx.dailySheetItem.update({
+          where: { id: item.id },
+          data: { dailySheetId: destinationSheetId, sequence: nextSequence, status: 'PENDING' },
+        });
+        nextSequence++;
+
+        await this.audit.log({
+          vendorId,
+          userId: user.userId,
+          userName: user.name,
+          action: 'CUSTOMER_DELIVERY_MOVED',
+          entity: 'DailySheetItem',
+          entityId: item.id,
+          changes: {
+            before,
+            after: {
+              dailySheetId: destinationSheetId,
+              vanId: dto.destinationVanId,
+              date: dto.destinationDate,
+              sequence: updated.sequence,
+              status: updated.status,
+            },
+          },
+        });
+      }
+
+      return {
+        destinationSheetId,
+        createdNewSheet: ensured.createdNewSheet,
+        movedCount: items.length,
+      };
+    });
+  }
+
+  /**
+   * Per-van projection for the move-customer destination picker: which vans
+   * already have a sheet for the given date (and whether it's closed), so
+   * the frontend can show "will create new sheet" vs "adds to open sheet"
+   * vs "unavailable (closed)" without N+1 requests.
+   */
+  async getDestinationOptions(vendorId: string, date: string) {
+    const targetDate = new Date(date);
+    const startOfDay = new Date(targetDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(targetDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const vans = await this.prisma.van.findMany({
+      where: { vendorId, isActive: true },
+      select: {
+        id: true,
+        plateNumber: true,
+        defaultDriver: { select: { name: true } },
+        dailySheets: {
+          where: { date: { gte: startOfDay, lte: endOfDay } },
+          select: { id: true, isClosed: true },
+          take: 1,
+        },
+      },
+    });
+
+    return vans.map((van) => {
+      const sheet = van.dailySheets[0];
+      return {
+        vanId: van.id,
+        plateNumber: van.plateNumber,
+        driverName: van.defaultDriver?.name ?? null,
+        hasSheetForDate: !!sheet,
+        sheetId: sheet?.id,
+        isClosed: sheet?.isClosed ?? false,
+      };
+    });
   }
 
   async getSheetsByDriver(vendorId: string, driverId: string, date?: string) {

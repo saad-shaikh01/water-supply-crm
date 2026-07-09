@@ -123,6 +123,28 @@ export interface GlobalImportConfirmResponse {
   failedGroups: number;
 }
 
+export interface MoveDeliveryItemsData {
+  itemIds: string[];
+  destinationVanId: string;
+  destinationDate: string;
+  note?: string;
+}
+
+export interface MoveDeliveryItemsResponse {
+  destinationSheetId: string;
+  createdNewSheet: boolean;
+  movedCount: number;
+}
+
+export interface DestinationOption {
+  vanId: string;
+  plateNumber: string;
+  driverName: string | null;
+  hasSheetForDate: boolean;
+  sheetId?: string;
+  isClosed: boolean;
+}
+
 export interface SheetQuery {
   page?: number;
   limit?: number;
@@ -165,6 +187,10 @@ export const dailySheetsApi = {
     apiClient.patch(`/daily-sheets/${id}/swap-assignment`, data),
   confirmCrew: (id: string) =>
     apiClient.post(`/daily-sheets/${id}/confirm-crew`),
+  moveDeliveryItems: (data: MoveDeliveryItemsData) =>
+    apiClient.patch<MoveDeliveryItemsResponse>('/daily-sheets/items/move', data).then((r) => r.data),
+  getDestinationOptions: (date: string) =>
+    apiClient.get<DestinationOption[]>('/daily-sheets/destination-options', { params: { date } }).then((r) => r.data),
   exportPdf: (id: string) =>
     apiClient.get(`/daily-sheets/${id}/export`, { responseType: 'blob' }),
   exportInvoice: (id: string) =>
