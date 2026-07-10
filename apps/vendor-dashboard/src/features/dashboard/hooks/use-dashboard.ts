@@ -24,16 +24,9 @@ export const useTopCustomers = (limit = 5) => {
   });
 };
 
-export const useRoutePerformance = (date?: string) => {
+export const useMonthlySummary = (months = 6) => {
   return useQuery({
-    queryKey: ['dashboard', 'route-performance', date],
-    queryFn: () => dashboardApi.getRoutePerformance(date).then((r) => r.data),
-  });
-};
-
-export const useStaffPerformance = (from?: string, to?: string) => {
-  return useQuery({
-    queryKey: ['dashboard', 'staff-performance', from, to],
-    queryFn: () => dashboardApi.getStaffPerformance(from, to).then((r) => r.data),
+    queryKey: ['dashboard', 'monthly-summary', months],
+    queryFn: () => dashboardApi.getMonthlySummary(months).then((r) => r.data),
   });
 };

@@ -17,14 +17,9 @@ const TopCustomersWidget = dynamic(() => import('../../../features/dashboard/com
   loading: () => <Skeleton className="h-[350px] w-full rounded-3xl" />
 });
 
-const RoutePerformanceWidget = dynamic(() => import('../../../features/dashboard/components/route-performance-widget').then(mod => mod.RoutePerformanceWidget), {
+const MonthlySummaryWidget = dynamic(() => import('../../../features/dashboard/components/monthly-summary-widget').then(mod => mod.MonthlySummaryWidget), {
   ssr: false,
-  loading: () => <Skeleton className="h-[350px] w-full rounded-3xl" />
-});
-
-const StaffPerformanceWidget = dynamic(() => import('../../../features/dashboard/components/staff-performance-widget').then(mod => mod.StaffPerformanceWidget), {
-  ssr: false,
-  loading: () => <Skeleton className="h-[350px] w-full rounded-3xl" />
+  loading: () => <Skeleton className="h-[500px] w-full rounded-3xl" />
 });
 
 export default function OverviewPage() {
@@ -46,10 +41,7 @@ export default function OverviewPage() {
         </div>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
-        <RoutePerformanceWidget />
-        <StaffPerformanceWidget />
-      </div>
+      <MonthlySummaryWidget />
     </div>
   );
 }

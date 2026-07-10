@@ -7,8 +7,6 @@ export const dashboardApi = {
     apiClient.get('/dashboard/revenue', { params: { dateFrom, dateTo } }),
   getTopCustomers: (limit = 5) =>
     apiClient.get('/dashboard/top-customers', { params: { limit } }),
-  getRoutePerformance: (date?: string) =>
-    apiClient.get('/dashboard/route-performance', { params: { date } }),
-  getStaffPerformance: (from?: string, to?: string) =>
-    apiClient.get('/dashboard/performance/staff', { params: { from, to } }),
+  getMonthlySummary: (months = 6) =>
+    apiClient.get('/dashboard/monthly-summary', { params: { months } }),
 };

@@ -398,6 +398,69 @@ export class DashboardService {
     return result;
   }
 
+  /** Last N months of bottle/cash performance, bucketed by DailySheet business date. */
+  async getMonthlySummary(vendorId: string, months = 6) {
+    const cacheKey = this.cache.vendorKey(
+      vendorId,
+      `${CACHE_KEYS.DASHBOARD}:monthly-summary:${months}`,
+    );
+    const cached = await this.cache.get<any>(cacheKey);
+    if (cached) return cached;
+
+    const now = new Date();
+    const rangeStart = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
+
+    const completedStatuses = new Set(['COMPLETED', 'EMPTY_ONLY']);
+
+    const [items, sheets] = await Promise.all([
+      this.prisma.dailySheetItem.findMany({
+        where: {
+          dailySheet: { vendorId, date: { gte: rangeStart } },
+          status: { in: Array.from(completedStatuses) as any },
+        },
+        select: {
+          filledDropped: true,
+          emptyReceived: true,
+          dailySheet: { select: { date: true } },
+        },
+      }),
+      this.prisma.dailySheet.findMany({
+        where: { vendorId, date: { gte: rangeStart } },
+        select: { date: true, cashExpected: true, cashCollected: true },
+      }),
+    ]);
+
+    const result = Array.from({ length: months }, (_, idx) => {
+      const monthIndex = months - 1 - idx;
+      const monthStart = new Date(now.getFullYear(), now.getMonth() - monthIndex, 1);
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() - monthIndex + 1, 0, 23, 59, 59, 999);
+
+      const monthItems = items.filter(
+        (i) => i.dailySheet.date >= monthStart && i.dailySheet.date <= monthEnd,
+      );
+      const monthSheets = sheets.filter(
+        (s) => s.date >= monthStart && s.date <= monthEnd,
+      );
+
+      const bottlesDelivered = monthItems.reduce((s, i) => s + i.filledDropped, 0);
+      const emptyReceived = monthItems.reduce((s, i) => s + i.emptyReceived, 0);
+      const cashExpected = monthSheets.reduce((s, sh) => s + sh.cashExpected, 0);
+      const cashCollected = monthSheets.reduce((s, sh) => s + sh.cashCollected, 0);
+
+      return {
+        month: monthStart.toLocaleString('en', { month: 'short', year: 'numeric' }),
+        bottlesDelivered,
+        emptyReceived,
+        cashExpected,
+        cashCollected,
+        collectionRate: cashExpected > 0 ? Math.round((cashCollected / cashExpected) * 100) : 0,
+      };
+    });
+
+    await this.cache.set(cacheKey, result, CACHE_TTLS.DASHBOARD);
+    return result;
+  }
+
   /** Platform-level overview — SUPER_ADMIN only */
   async getPlatformOverview() {
     const cacheKey = 'platform:dashboard:overview';

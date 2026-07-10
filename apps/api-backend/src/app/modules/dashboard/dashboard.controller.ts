@@ -68,4 +68,14 @@ export class DashboardController {
       query.dateTo,
     );
   }
+
+  /** GET /dashboard/monthly-summary?months=6 */
+  @Get('monthly-summary')
+  @RequirePermissions('dashboard:view')
+  getMonthlySummary(
+    @CurrentUser() user: AuthUser,
+    @Query() query: DashboardQueryDto,
+  ) {
+    return this.dashboardService.getMonthlySummary(user.vendorId, query.months);
+  }
 }

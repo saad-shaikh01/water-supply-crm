@@ -75,21 +75,13 @@ export function ExpenseList() {
         </div>
       )}
 
-      {/* Gross Profit / Total Summary */}
+      {/* Total Summary */}
       {summaryData && (
         <div className="flex flex-wrap gap-4 p-4 rounded-2xl bg-card/30 border border-border/50">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Total Expenses</p>
             <p className="font-black font-mono text-lg text-destructive">₨ {Number(summaryData?.grandTotal ?? 0).toLocaleString()}</p>
           </div>
-          {summaryData?.grossProfit !== undefined && (
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Gross Profit</p>
-              <p className={cn("font-black font-mono text-lg", summaryData.grossProfit >= 0 ? "text-emerald-500" : "text-destructive")}>
-                ₨ {Number(summaryData.grossProfit).toLocaleString()}
-              </p>
-            </div>
-          )}
           {category && (
             <Button variant="ghost" size="sm" className="rounded-full text-xs self-center" onClick={() => setCategory(null)}>
               Clear filter ×
