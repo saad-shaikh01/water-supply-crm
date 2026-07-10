@@ -155,10 +155,12 @@ export class DailySheetPdfService {
     const crew: any[] = sheet.crew ?? [];
     if (crew.length === 0) return;
 
-    const salesman = crew.find((c) => c.role === 'SALESMAN');
+    const salesmen = crew.filter((c) => c.role === 'SALESMAN');
     const loaders = crew.filter((c) => c.role === 'LOADER');
     const parts: string[] = [];
-    if (salesman) parts.push(`Salesman: ${salesman.user?.name ?? '—'}`);
+    if (salesmen.length > 0) {
+      parts.push(`Salesm${salesmen.length > 1 ? 'en' : 'an'}: ${salesmen.map((s) => s.user?.name ?? '—').join(', ')}`);
+    }
     if (loaders.length > 0) {
       parts.push(`Loader${loaders.length > 1 ? 's' : ''}: ${loaders.map((l) => l.user?.name ?? '—').join(', ')}`);
     }

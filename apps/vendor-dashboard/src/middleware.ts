@@ -32,13 +32,12 @@ export function middleware(request: NextRequest) {
     return redirectTo(role === 'DRIVER' ? '/dashboard/home' : '/dashboard/overview');
   }
 
-  // DRIVER can only access allowed driver routes
-  if (token && role === 'DRIVER' && pathname.startsWith('/dashboard')) {
-    const driverAllowed = ['/dashboard/daily-sheets', '/dashboard/home', '/dashboard/history', '/dashboard/customers'];
-    if (!driverAllowed.some((p) => pathname.startsWith(p))) {
-      return redirectTo('/dashboard/home');
-    }
-  }
+  // Per-route access is enforced by RouteGuard (client, via the live PAGE_REGISTRY + granted
+  // permissions from `/auth/me`) and by each endpoint's backend RBAC guard — both read the
+  // admin-configurable permission set. Middleware only has the `user_role` cookie, a static
+  // snapshot that can't reflect per-role permission edits, so it must not gate by role here;
+  // doing so previously hardcoded a DRIVER allowlist that silently overrode granted permissions
+  // (e.g. Expenses access) with a redirect before RouteGuard ever ran.
 
   return NextResponse.next();
 }

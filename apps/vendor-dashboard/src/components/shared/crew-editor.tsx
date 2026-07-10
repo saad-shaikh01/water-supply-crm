@@ -1,29 +1,26 @@
 'use client';
 
 import {
-  Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Badge, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@water-supply-crm/ui';
-import { Users } from 'lucide-react';
+import { Users, X } from 'lucide-react';
 import { useCrewCandidates } from '../../features/users/hooks/use-users';
 
 export interface CrewSelection {
-  salesmanId: string | null;
-  loader1Id: string | null;
-  loader2Id: string | null;
+  salesmanIds: string[];
+  loaderIds: string[];
 }
 
 export const emptyCrewSelection: CrewSelection = {
-  salesmanId: null,
-  loader1Id: null,
-  loader2Id: null,
+  salesmanIds: [],
+  loaderIds: [],
 };
 
 /** Converts the editor selection to the API's crew array (full-replace). */
 export function crewSelectionToArray(sel: CrewSelection) {
   const crew: Array<{ userId: string; role: 'SALESMAN' | 'LOADER' }> = [];
-  if (sel.salesmanId) crew.push({ userId: sel.salesmanId, role: 'SALESMAN' });
-  if (sel.loader1Id) crew.push({ userId: sel.loader1Id, role: 'LOADER' });
-  if (sel.loader2Id && sel.loader2Id !== sel.loader1Id) crew.push({ userId: sel.loader2Id, role: 'LOADER' });
+  sel.salesmanIds.forEach((userId) => crew.push({ userId, role: 'SALESMAN' }));
+  sel.loaderIds.forEach((userId) => crew.push({ userId, role: 'LOADER' }));
   return crew;
 }
 
@@ -31,18 +28,19 @@ export function crewSelectionToArray(sel: CrewSelection) {
 export function crewArrayToSelection(
   crew?: Array<{ userId: string; role: string }> | null,
 ): CrewSelection {
-  const salesman = crew?.find((c) => c.role === 'SALESMAN');
-  const loaders = crew?.filter((c) => c.role === 'LOADER') ?? [];
   return {
-    salesmanId: salesman?.userId ?? null,
-    loader1Id: loaders[0]?.userId ?? null,
-    loader2Id: loaders[1]?.userId ?? null,
+    salesmanIds: crew?.filter((c) => c.role === 'SALESMAN').map((c) => c.userId) ?? [],
+    loaderIds: crew?.filter((c) => c.role === 'LOADER').map((c) => c.userId) ?? [],
   };
 }
 
 // User roles eligible per crew slot (spare drivers/salesmen may ride along)
 const SALESMAN_ELIGIBLE = ['SALESMAN', 'DRIVER'];
 const LOADER_ELIGIBLE = ['LOADER', 'SALESMAN', 'DRIVER'];
+
+// Controlled Select value that never matches a real option, so the trigger
+// always shows its placeholder — picking an item just appends to the list.
+const ADD = '__add__';
 
 interface CrewEditorProps {
   value: CrewSelection;
@@ -51,52 +49,77 @@ interface CrewEditorProps {
   excludeUserId?: string | null;
 }
 
-const NONE = 'none';
-
 export function CrewEditor({ value, onChange, excludeUserId }: CrewEditorProps) {
   const { data } = useCrewCandidates();
   const users = (data?.data ?? []) as Array<{ id: string; name: string; role: string }>;
+  const usersById = new Map(users.map((u) => [u.id, u]));
+  const picked = new Set([...value.salesmanIds, ...value.loaderIds]);
 
-  const optionsFor = (eligibleRoles: string[], selfValue: string | null) =>
-    users.filter(
-      (u) =>
-        eligibleRoles.includes(u.role) &&
-        u.id !== excludeUserId &&
-        // hide people already picked in another slot (but keep this slot's own pick)
-        (u.id === selfValue ||
-          ![value.salesmanId, value.loader1Id, value.loader2Id].includes(u.id)),
-    );
-
-  const slot = (
+  const group = (
     label: string,
     key: keyof CrewSelection,
     slotRole: string,
     eligibleRoles: string[],
-    noneLabel: string,
-  ) => (
-    <div className="space-y-1.5">
-      <Label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{label}</Label>
-      <Select
-        value={value[key] ?? NONE}
-        onValueChange={(v) => onChange({ ...value, [key]: v === NONE ? null : v })}
-      >
-        <SelectTrigger className="h-10">
-          <SelectValue placeholder={noneLabel} />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={NONE}>{noneLabel}</SelectItem>
-          {optionsFor(eligibleRoles, value[key]).map((u) => (
-            <SelectItem key={u.id} value={u.id}>
-              {u.name}
-              {u.role !== slotRole && (
-                <span className="text-muted-foreground text-xs ml-1">({u.role.toLowerCase()})</span>
-              )}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
+    addLabel: string,
+    emptyLabel: string,
+  ) => {
+    const ids = value[key];
+    const options = users.filter(
+      (u) => eligibleRoles.includes(u.role) && u.id !== excludeUserId && !picked.has(u.id),
+    );
+    const add = (userId: string) => onChange({ ...value, [key]: [...ids, userId] });
+    const remove = (userId: string) => onChange({ ...value, [key]: ids.filter((id) => id !== userId) });
+
+    return (
+      <div className="space-y-1.5">
+        <Label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{label}</Label>
+
+        {ids.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {ids.map((id) => {
+              const u = usersById.get(id);
+              return (
+                <Badge key={id} variant="secondary" className="normal-case gap-1 pr-1 text-xs font-semibold">
+                  {u?.name ?? 'Unknown'}
+                  {u && u.role !== slotRole && (
+                    <span className="lowercase text-muted-foreground/70">({u.role.toLowerCase()})</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => remove(id)}
+                    className="ml-0.5 rounded-full p-0.5 hover:bg-background/60"
+                    aria-label={`Remove ${u?.name ?? 'member'}`}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              );
+            })}
+          </div>
+        )}
+
+        {options.length > 0 ? (
+          <Select value={ADD} onValueChange={add}>
+            <SelectTrigger className="h-9 text-xs">
+              <SelectValue placeholder={addLabel} />
+            </SelectTrigger>
+            <SelectContent>
+              {options.map((u) => (
+                <SelectItem key={u.id} value={u.id}>
+                  {u.name}
+                  {u.role !== slotRole && (
+                    <span className="ml-1 text-xs text-muted-foreground">({u.role.toLowerCase()})</span>
+                  )}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : ids.length === 0 ? (
+          <p className="text-xs italic text-muted-foreground">{emptyLabel}</p>
+        ) : null}
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-3">
@@ -104,11 +127,8 @@ export function CrewEditor({ value, onChange, excludeUserId }: CrewEditorProps) 
         <Users className="h-3.5 w-3.5" />
         Supporting Crew
       </div>
-      {slot('Salesman', 'salesmanId', 'SALESMAN', SALESMAN_ELIGIBLE, 'No salesman')}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {slot('Loader 1', 'loader1Id', 'LOADER', LOADER_ELIGIBLE, 'No loader')}
-        {slot('Loader 2', 'loader2Id', 'LOADER', LOADER_ELIGIBLE, 'No second loader')}
-      </div>
+      {group('Salesmen', 'salesmanIds', 'SALESMAN', SALESMAN_ELIGIBLE, 'Add salesman', 'No salesmen assigned')}
+      {group('Loaders', 'loaderIds', 'LOADER', LOADER_ELIGIBLE, 'Add loader', 'No loaders assigned')}
     </div>
   );
 }

@@ -40,7 +40,7 @@ export function SheetDetailHeader({
   onExportPdf,
   onPrintInvoice,
 }: SheetDetailHeaderProps) {
-  const salesman = crew.find((c) => c.role === 'SALESMAN');
+  const salesmen = crew.filter((c) => c.role === 'SALESMAN');
   const loaders = crew.filter((c) => c.role === 'LOADER');
 
   return (
@@ -72,11 +72,14 @@ export function SheetDetailHeader({
             <User className="h-3 w-3 shrink-0" />
             Driver: <span className="font-bold text-foreground">{driverName ?? '—'}</span>
           </span>
-          {salesman && (
+          {salesmen.length > 0 && (
             <>
               <span className="text-muted-foreground/40">•</span>
               <span className="whitespace-nowrap">
-                Salesman: <span className="font-bold text-foreground">{salesman.user.name}</span>
+                Salesm{salesmen.length > 1 ? 'en' : 'an'}:{' '}
+                <span className="font-bold text-foreground">
+                  {salesmen.map((s) => s.user.name).join(', ')}
+                </span>
               </span>
             </>
           )}

@@ -7,13 +7,6 @@ export interface CrewMemberInput {
   role: CrewRole;
 }
 
-// Max members per supporting-crew role. Service-layer constants (not schema)
-// so limits can evolve without a migration.
-export const SUPPORT_CREW_LIMITS: Partial<Record<CrewRole, number>> = {
-  [CrewRole.SALESMAN]: 1,
-  [CrewRole.LOADER]: 2,
-};
-
 // Which user (auth) roles may fill each crew role. Spare drivers/salesmen are
 // allowed to ride along in "lower" crew roles.
 const ALLOWED_USER_ROLES: Partial<Record<CrewRole, UserRole[]>> = {
@@ -43,13 +36,6 @@ export async function validateSupportCrew(
   }
   if (excludeUserId && ids.includes(excludeUserId)) {
     throw new BadRequestException('The driver cannot also be assigned as supporting crew');
-  }
-
-  for (const [role, limit] of Object.entries(SUPPORT_CREW_LIMITS)) {
-    const count = crew.filter((m) => m.role === role).length;
-    if (count > (limit as number)) {
-      throw new BadRequestException(`At most ${limit} ${role.toLowerCase()}(s) can be assigned`);
-    }
   }
 
   if (ids.length === 0) return new Map<string, { id: string; name: string; role: UserRole }>();

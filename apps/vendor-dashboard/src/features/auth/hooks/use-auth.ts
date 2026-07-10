@@ -219,7 +219,12 @@ export const useLogin = () => {
       setCookie('refresh_token', data.refresh_token, { maxAge: 60 * 60 * 24 * 7 }); // 7 days
       setCookie('user_role', data.user.role, { maxAge: 60 * 60 * 24 * 7 });
       setUser({ ...data.user, role: data.user.role as UserRole });
-      queryClient.setQueryData(queryKeys.auth.me, data.user);
+      // Login response only carries identity (AuthUser), not the effective permission set —
+      // seeding the `auth.me` cache with it would starve usePermissionsQuery of the real
+      // `/auth/me` fetch for its staleTime window, so RouteGuard sees an empty permission set
+      // and denies access until a refresh forces a fresh fetch. Invalidate instead so the
+      // dashboard's first render fetches the authoritative profile with permissions.
+      queryClient.invalidateQueries({ queryKey: queryKeys.auth.me });
       if (data.user.role === 'DRIVER') {
         router.push('/dashboard/home');
       } else {

@@ -26,7 +26,7 @@ export function CrewConfirmDialog({
 }: CrewConfirmDialogProps) {
   const { mutate: confirmCrew, isPending } = useConfirmCrew(sheetId);
 
-  const salesman = crew.find((c) => c.role === 'SALESMAN');
+  const salesmen = crew.filter((c) => c.role === 'SALESMAN');
   const loaders = crew.filter((c) => c.role === 'LOADER');
 
   const row = (label: string, names: string[], missingLabel: string) => (
@@ -63,7 +63,11 @@ export function CrewConfirmDialog({
 
           <div className="rounded-2xl border border-border/50 bg-accent/20 divide-y divide-border/40">
             {row('Driver', driverName ? [driverName] : [], 'No driver')}
-            {row('Salesman', salesman ? [salesman.user.name] : [], 'No salesman')}
+            {row(
+              salesmen.length > 1 ? 'Salesmen' : 'Salesman',
+              salesmen.map((s) => s.user.name),
+              'No salesman',
+            )}
             {row(
               loaders.length > 1 ? 'Loaders' : 'Loader',
               loaders.map((l) => l.user.name),
