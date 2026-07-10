@@ -14,16 +14,21 @@ interface AuthUser {
 
 interface AuthState {
   user: AuthUser | null;
+  /** False until `StoreHydration` finishes restoring persisted state after mount. */
+  isHydrated: boolean;
   setUser: (user: AuthUser) => void;
   clearUser: () => void;
+  setHydrated: (hydrated: boolean) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
       user: null,
+      isHydrated: false,
       setUser: (user) => set({ user }),
       clearUser: () => set({ user: null }),
+      setHydrated: (hydrated) => set({ isHydrated: hydrated }),
     }),
     { name: 'vendor-auth-store', skipHydration: true }
   )

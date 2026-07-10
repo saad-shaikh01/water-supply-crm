@@ -189,25 +189,33 @@ function CollapsibleNavGroup({
 export function Sidebar({ className }: { className?: string }) {
   const pathname = usePathname();
   const user = useAuthStore((s) => s.user);
-  const { can } = usePermissions();
+  const isHydrated = useAuthStore((s) => s.isHydrated);
+  const { can, isLoading: permissionsLoading } = usePermissions();
+
+  // Until the auth store has rehydrated AND permissions have resolved, we can't tell
+  // "user has no access" from "haven't checked yet" — show a skeleton instead of
+  // silently filtering every item out (which read as the sidebar going blank).
+  const isReady = isHydrated && !permissionsLoading;
 
   const canAccess = (href: string) => {
     const permission = pagePermissionForPath(href);
     return permission ? can(permission) : false;
   };
 
-  const visibleItems = navItems.filter((item) => {
-    if (!user) return false;
-    // Driver nav is a display mode reserved for DRIVER users, same as DriverMobileNav;
-    // each item's own visibility still resolves through the page registry below.
-    if (item.group === 'Driver') {
-      return user.role === 'DRIVER' && (item.href ? canAccess(item.href) : true);
-    }
-    // Collapsible groups have no href of their own — CollapsibleNavGroup hides the
-    // whole group once none of its children resolve to a granted page permission.
-    if (item.children) return true;
-    return item.href ? canAccess(item.href) : false;
-  });
+  const visibleItems = isReady
+    ? navItems.filter((item) => {
+        if (!user) return false;
+        // Driver nav is a display mode reserved for DRIVER users, same as DriverMobileNav;
+        // each item's own visibility still resolves through the page registry below.
+        if (item.group === 'Driver') {
+          return user.role === 'DRIVER' && (item.href ? canAccess(item.href) : true);
+        }
+        // Collapsible groups have no href of their own — CollapsibleNavGroup hides the
+        // whole group once none of its children resolve to a granted page permission.
+        if (item.children) return true;
+        return item.href ? canAccess(item.href) : false;
+      })
+    : [];
 
   return (
     <aside className={cn('flex flex-col border-r border-zinc-200/80 bg-white dark:border-border dark:bg-zinc-950', className)}>
@@ -223,7 +231,14 @@ export function Sidebar({ className }: { className?: string }) {
       </div>
 
       <nav className="flex-1 px-3 py-4 overflow-y-auto scrollbar-none space-y-6">
-        {GROUPS.map((group) => {
+        {!isReady ? (
+          <div className="space-y-1.5 px-1 animate-pulse" aria-hidden="true">
+            {Array.from({ length: 7 }).map((_, i) => (
+              <div key={i} className="h-9 rounded-lg bg-zinc-100 dark:bg-white/5" />
+            ))}
+          </div>
+        ) : (
+        GROUPS.map((group) => {
           const groupItems = visibleItems.filter((item) => item.group === group);
           if (groupItems.length === 0) return null;
 
@@ -273,7 +288,8 @@ export function Sidebar({ className }: { className?: string }) {
               })}
             </div>
           );
-        })}
+        })
+        )}
       </nav>
 
       <div className="px-3 py-4 border-t border-zinc-200/80 dark:border-border/50">

@@ -10,7 +10,11 @@ import { useAuthStore } from '../../store/auth.store';
  */
 export function StoreHydration() {
   useEffect(() => {
-    useAuthStore.persist.rehydrate();
+    // Await rehydration before flipping `isHydrated` — otherwise consumers could see
+    // `isHydrated: true` for a render or two while `user` is still `null`.
+    Promise.resolve(useAuthStore.persist.rehydrate()).then(() => {
+      useAuthStore.getState().setHydrated(true);
+    });
   }, []);
 
   return null;
