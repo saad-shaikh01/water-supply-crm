@@ -21,7 +21,7 @@ export const useCrewCandidates = () => {
   return useQuery({
     queryKey: ['users', 'crew-candidates'],
     queryFn: (): Promise<PaginatedResponse<{ id: string; name: string; role: string }>> =>
-      usersApi.getAll({ limit: 200, isActive: true }).then((r) => r.data),
+      usersApi.getAll({ limit: 100, isActive: true }).then((r) => r.data),
   });
 };
 

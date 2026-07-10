@@ -1,5 +1,6 @@
 import {
   Injectable,
+  BadRequestException,
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
@@ -21,6 +22,7 @@ import {
   BulkPriceFiltersDto,
   BulkPriceUpdateDto,
 } from './dto/bulk-price-update.dto';
+import { BulkScheduleUpdateDto } from './dto/bulk-schedule-update.dto';
 import { CreatePortalAccountDto } from './dto/create-portal-account.dto';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { paginate } from '../../common/helpers/paginate';
@@ -1096,6 +1098,89 @@ export class CustomerService {
       progress,
       totalCustomers: job.data.customerIds.length,
       updatedCount: result?.updatedCount ?? 0,
+    };
+  }
+
+  /**
+   * Bulk-reassign the delivery schedule (van and/or day) for an explicit set of
+   * selected customers, in a single interactive transaction.
+   *  - vanId only: keep each customer's existing day(s), repoint their schedule rows to the new van.
+   *  - dayOfWeek only: replace each customer's entire schedule with one entry on that
+   *    day, keeping their existing van (skipped if they have no van to carry over).
+   *  - both: replace each customer's entire schedule with one entry on that day/van.
+   */
+  async bulkUpdateSchedule(vendorId: string, dto: BulkScheduleUpdateDto) {
+    if (!dto.vanId && dto.dayOfWeek === undefined) {
+      throw new BadRequestException('Provide a van, a delivery day, or both');
+    }
+
+    const customers = await this.prisma.customer.findMany({
+      where: { id: { in: dto.customerIds }, vendorId },
+      select: {
+        id: true,
+        name: true,
+        deliverySchedules: { select: { vanId: true } },
+      },
+    });
+
+    if (customers.length === 0) {
+      throw new NotFoundException('No matching customers found');
+    }
+
+    if (dto.vanId) {
+      const van = await this.prisma.van.findFirst({
+        where: { id: dto.vanId, vendorId, isActive: true },
+        select: { id: true },
+      });
+      if (!van) throw new NotFoundException('Van not found or inactive');
+    }
+
+    const skipped: Array<{ customerId: string; name: string; reason: string }> = [];
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const customer of customers) {
+        if (dto.dayOfWeek !== undefined) {
+          const vanId = dto.vanId ?? customer.deliverySchedules[0]?.vanId;
+          if (!vanId) {
+            skipped.push({ customerId: customer.id, name: customer.name, reason: 'No van assigned' });
+            continue;
+          }
+          await tx.customerDeliverySchedule.deleteMany({ where: { customerId: customer.id } });
+          await tx.customerDeliverySchedule.create({
+            data: { customerId: customer.id, vanId, dayOfWeek: dto.dayOfWeek },
+          });
+        } else if (dto.vanId) {
+          await tx.customerDeliverySchedule.updateMany({
+            where: { customerId: customer.id },
+            data: { vanId: dto.vanId },
+          });
+        }
+      }
+    });
+
+    await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
+
+    const updatedCount = customers.length - skipped.length;
+
+    await this.audit.log({
+      vendorId,
+      action: 'BULK_UPDATE',
+      entity: 'CustomerDeliverySchedule',
+      changes: {
+        after: {
+          customerIds: dto.customerIds,
+          vanId: dto.vanId,
+          dayOfWeek: dto.dayOfWeek,
+          updatedCount,
+        },
+      },
+    });
+
+    return {
+      requestedCount: dto.customerIds.length,
+      updatedCount,
+      skippedCount: skipped.length,
+      skipped,
     };
   }
 

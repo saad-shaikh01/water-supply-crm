@@ -39,4 +39,6 @@ export const customersApi = {
     apiClient.get(`/customers/${id}/statement`, { params, responseType: 'blob' }),
   getSchedule: (id: string, params?: Record<string, unknown>) =>
     apiClient.get(`/customers/${id}/schedule`, { params }),
+  bulkUpdateSchedule: (data: { customerIds: string[]; vanId?: string; dayOfWeek?: number }) =>
+    apiClient.post('/customers/schedule/bulk-update', data),
 };

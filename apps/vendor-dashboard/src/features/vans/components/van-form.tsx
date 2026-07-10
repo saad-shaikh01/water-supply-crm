@@ -76,8 +76,8 @@ export function VanForm({ open, onOpenChange, van }: VanFormProps) {
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-md bg-background/95 backdrop-blur-xl border-l border-border/50">
-        <SheetHeader className="pb-6 border-b">
+      <SheetContent className="w-full sm:max-w-md bg-background/95 backdrop-blur-xl border-l border-border/50 flex flex-col gap-0 p-0">
+        <SheetHeader className="px-6 pt-6 pb-6 border-b shrink-0">
           <SheetTitle className="text-2xl font-bold flex items-center gap-2">
             <Truck className="h-6 w-6 text-primary" />
             {isEdit ? 'Update Van' : 'Register Van'}
@@ -87,55 +87,57 @@ export function VanForm({ open, onOpenChange, van }: VanFormProps) {
           </SheetDescription>
         </SheetHeader>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 py-8">
-          <div className="space-y-2">
-            <Label className="text-sm font-semibold">Plate Number</Label>
-            <Input 
-              placeholder="ABC-1234" 
-              className="bg-accent/30 border-border/50 h-11 focus:border-primary/50 transition-all uppercase"
-              {...register('plateNumber')} 
-            />
-            {errors.plateNumber && <p className="text-xs font-medium text-destructive">{errors.plateNumber.message}</p>}
+        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+          <div className="flex-1 overflow-y-auto px-6 py-8 space-y-6">
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold">Plate Number</Label>
+              <Input
+                placeholder="ABC-1234"
+                className="bg-accent/30 border-border/50 h-11 focus:border-primary/50 transition-all uppercase"
+                {...register('plateNumber')}
+              />
+              {errors.plateNumber && <p className="text-xs font-medium text-destructive">{errors.plateNumber.message}</p>}
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold">Default Driver</Label>
+              <Select
+                value={watch('defaultDriverId') || 'none'}
+                onValueChange={(v) => setValue('defaultDriverId', v === 'none' ? null : v)}
+              >
+                <SelectTrigger className="bg-accent/30 border-border/50 h-11 focus:border-primary/50 transition-all">
+                  <SelectValue placeholder="Assign a default driver" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No default driver</SelectItem>
+                  {drivers.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      <div className="flex items-center gap-2">
+                        <User className="h-3 w-3" />
+                        {d.name}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                The assigned driver will be automatically selected for new daily sheets.
+              </p>
+            </div>
+
+            <div className="space-y-2 p-4 rounded-2xl bg-accent/20 border border-border/30">
+              <CrewEditor
+                value={crew}
+                onChange={setCrew}
+                excludeUserId={watch('defaultDriverId')}
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                The default crew is copied onto each generated daily sheet and confirmed there each morning.
+              </p>
+            </div>
           </div>
 
-          <div className="space-y-2">
-            <Label className="text-sm font-semibold">Default Driver</Label>
-            <Select 
-              value={watch('defaultDriverId') || 'none'} 
-              onValueChange={(v) => setValue('defaultDriverId', v === 'none' ? null : v)}
-            >
-              <SelectTrigger className="bg-accent/30 border-border/50 h-11 focus:border-primary/50 transition-all">
-                <SelectValue placeholder="Assign a default driver" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No default driver</SelectItem>
-                {drivers.map((d) => (
-                  <SelectItem key={d.id} value={d.id}>
-                    <div className="flex items-center gap-2">
-                      <User className="h-3 w-3" />
-                      {d.name}
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-[11px] text-muted-foreground mt-1">
-              The assigned driver will be automatically selected for new daily sheets.
-            </p>
-          </div>
-
-          <div className="space-y-2 p-4 rounded-2xl bg-accent/20 border border-border/30">
-            <CrewEditor
-              value={crew}
-              onChange={setCrew}
-              excludeUserId={watch('defaultDriverId')}
-            />
-            <p className="text-[11px] text-muted-foreground mt-1">
-              The default crew is copied onto each generated daily sheet and confirmed there each morning.
-            </p>
-          </div>
-
-          <SheetFooter className="pt-6 border-t gap-3 sm:gap-0">
+          <SheetFooter className="px-6 py-4 border-t gap-3 sm:gap-0 shrink-0">
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               Discard
             </Button>

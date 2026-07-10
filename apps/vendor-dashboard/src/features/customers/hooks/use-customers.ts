@@ -242,6 +242,32 @@ export const useRemoveCustomPrice = () => {
   });
 };
 
+export interface BulkScheduleUpdateResult {
+  requestedCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  skipped: Array<{ customerId: string; name: string; reason: string }>;
+}
+
+export const useBulkUpdateSchedule = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { customerIds: string[]; vanId?: string; dayOfWeek?: number }): Promise<BulkScheduleUpdateResult> =>
+      customersApi.bulkUpdateSchedule(data).then((r) => r.data),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      if (result.skippedCount > 0) {
+        toast.warning(
+          `Updated ${result.updatedCount} of ${result.requestedCount} customer(s) — ${result.skippedCount} skipped (no van assigned)`,
+        );
+      } else {
+        toast.success(`Updated schedule for ${result.updatedCount} customer(s)`);
+      }
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to update schedule'),
+  });
+};
+
 export const useUpdateCustomerLocation = () => {
   const queryClient = useQueryClient();
   return useMutation({

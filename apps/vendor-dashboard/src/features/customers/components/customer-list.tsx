@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useQueryState, parseAsString, parseAsInteger } from 'nuqs';
-import { MoreHorizontal, Pencil, Trash2, Eye, MapPin, Phone, PowerOff, Power, SlidersHorizontal, X, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
+import { MoreHorizontal, Pencil, Trash2, Eye, MapPin, Phone, PowerOff, Power, SlidersHorizontal, X, ChevronUp, ChevronDown, ChevronsUpDown, CalendarClock } from 'lucide-react';
 import {
   Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuTrigger, Badge, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -16,6 +16,7 @@ import { RouteFilter } from '../../../components/shared/filters/route-filter';
 import { VanFilter } from '../../../components/shared/filters/van-filter';
 import { useCustomers, useDeleteCustomer, useDeactivateCustomer, useReactivateCustomer } from '../hooks/use-customers';
 import { CustomerForm } from './customer-form';
+import { BulkScheduleUpdateDialog } from './bulk-schedule-update-dialog';
 import { cn } from '@water-supply-crm/ui';
 import { useCan } from '../../authz/hooks/use-can';
 
@@ -37,6 +38,8 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const [reactivateId, setReactivateId] = useState<string | null>(null);
   const [editCustomer, setEditCustomer] = useState<Record<string, unknown> | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkScheduleOpen, setBulkScheduleOpen] = useState(false);
   const [paymentType, setPaymentType] = useQueryState('paymentType', parseAsString.withDefault(''));
   const [vanId, setVanId] = useQueryState('vanId', parseAsString.withDefault(''));
   const [dayOfWeek, setDayOfWeek] = useQueryState('dayOfWeek', parseAsInteger.withDefault(0));
@@ -89,6 +92,23 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     deliverySchedules?: Array<{ dayOfWeek: number; van?: { plateNumber: string } }>;
   }>;
   const total = customers?.meta?.total ?? 0;
+
+  const toggleRow = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllOnPage = () => {
+    const allSelected = rows.length > 0 && rows.every((r) => selectedIds.has(r.id));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      rows.forEach((r) => (allSelected ? next.delete(r.id) : next.add(r.id)));
+      return next;
+    });
+  };
 
   return (
     <div className="space-y-4">
@@ -212,6 +232,24 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
         </SheetContent>
       </Sheet>
 
+      {/* Bulk action bar */}
+      {canUpdate && selectedIds.size > 0 && (
+        <div className="flex items-center justify-between gap-3 bg-primary/5 border border-primary/20 rounded-2xl px-4 py-3">
+          <span className="text-sm font-semibold text-primary">
+            {selectedIds.size} customer{selectedIds.size !== 1 ? 's' : ''} selected
+          </span>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
+              Clear
+            </Button>
+            <Button size="sm" onClick={() => setBulkScheduleOpen(true)} className="gap-1.5">
+              <CalendarClock className="h-4 w-4" />
+              Bulk Schedule Update
+            </Button>
+          </div>
+        </div>
+      )}
+
       <DataTable
         data={rows}
         isLoading={isLoading}
@@ -224,6 +262,10 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
         sortDir={sortDir}
         onSort={handleSort}
         emptyMessage="No customers found. Start by adding one!"
+        selectable={canUpdate}
+        selectedIds={selectedIds}
+        onToggleRow={toggleRow}
+        onToggleAll={toggleAllOnPage}
         columns={[
           {
             key: 'name',
@@ -464,6 +506,13 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
         open={!!editCustomer}
         onOpenChange={(o) => { if (!o) setEditCustomer(null); }}
         customer={editCustomer}
+      />
+
+      <BulkScheduleUpdateDialog
+        open={bulkScheduleOpen}
+        onOpenChange={setBulkScheduleOpen}
+        customerIds={[...selectedIds]}
+        onSuccess={() => setSelectedIds(new Set())}
       />
     </div>
   );

@@ -31,6 +31,12 @@ interface DataTableProps<T> {
   sortKey?: string;
   sortDir?: string;
   onSort?: (field: string) => void;
+  /** Enables a leading checkbox column for multi-row selection. */
+  selectable?: boolean;
+  selectedIds?: Set<string>;
+  onToggleRow?: (id: string) => void;
+  /** Toggles selection for every row currently rendered on this page. */
+  onToggleAll?: () => void;
 }
 
 export function DataTable<T extends { id: string }>({
@@ -47,7 +53,12 @@ export function DataTable<T extends { id: string }>({
   sortKey,
   sortDir,
   onSort,
+  selectable,
+  selectedIds,
+  onToggleRow,
+  onToggleAll,
 }: DataTableProps<T>) {
+  const allOnPageSelected = selectable && !!data?.length && data.every((row) => selectedIds?.has(row.id));
   // Component implementation
   if (isLoading) {
     return (
@@ -70,6 +81,17 @@ export function DataTable<T extends { id: string }>({
         <Table>
           <TableHeader>
             <TableRow className="bg-white/[0.01] hover:bg-white/[0.01] border-b border-border">
+              {selectable && (
+                <TableHead className="h-12 sm:h-14 w-10">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded accent-primary cursor-pointer"
+                    checked={!!allOnPageSelected}
+                    onChange={() => onToggleAll?.()}
+                    aria-label="Select all rows on this page"
+                  />
+                </TableHead>
+              )}
               {columns.map((col) => {
                 const field = col.sortField ?? col.key;
                 const isActive = col.sortable && sortKey === field;
@@ -104,7 +126,7 @@ export function DataTable<T extends { id: string }>({
             {!data?.length ? (
               <TableRow>
                 <TableCell
-                  colSpan={columns.length}
+                  colSpan={columns.length + (selectable ? 1 : 0)}
                   className="h-72 text-center"
                 >
                   <div className="flex flex-col items-center justify-center space-y-4">
@@ -125,6 +147,17 @@ export function DataTable<T extends { id: string }>({
                   )}
                   onClick={onRowClick ? () => onRowClick(row) : undefined}
                 >
+                  {selectable && (
+                    <TableCell className="py-3 px-4 sm:py-4 sm:px-6 w-10" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded accent-primary cursor-pointer"
+                        checked={!!selectedIds?.has(row.id)}
+                        onChange={() => onToggleRow?.(row.id)}
+                        aria-label={`Select row ${row.id}`}
+                      />
+                    </TableCell>
+                  )}
                   {columns.map((col) => (
                     <TableCell key={col.key} className="py-3 px-4 sm:py-4 sm:px-6">
                       <div className={cn(

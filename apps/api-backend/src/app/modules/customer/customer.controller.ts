@@ -18,6 +18,7 @@ import { UpdateLocationDto } from './dto/update-location.dto';
 import { CustomerQueryDto } from './dto/customer-query.dto';
 import { SetCustomPriceDto } from './dto/set-custom-price.dto';
 import { BulkPricePreviewDto, BulkPriceUpdateDto } from './dto/bulk-price-update.dto';
+import { BulkScheduleUpdateDto } from './dto/bulk-schedule-update.dto';
 import { CreatePortalAccountDto } from './dto/create-portal-account.dto';
 import { StatementQueryDto } from './dto/statement-query.dto';
 import { ScheduleQueryDto } from './dto/schedule-query.dto';
@@ -67,6 +68,15 @@ export class CustomerController {
   @RequirePermissions('pricing:view')
   getBulkUpdateJobStatus(@CurrentUser() user: AuthUser, @Param('jobId') jobId: string) {
     return this.customerService.getBulkUpdateJobStatus(user.vendorId, jobId);
+  }
+
+  // ── Bulk schedule update (governed by customers:update, same as the per-customer PATCH) ──
+  /** POST /customers/schedule/bulk-update — reassign van and/or delivery day for selected customers */
+  @Post('schedule/bulk-update')
+  @RequirePermissions('customers:update')
+  @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
+  bulkUpdateSchedule(@CurrentUser() user: AuthUser, @Body() dto: BulkScheduleUpdateDto) {
+    return this.customerService.bulkUpdateSchedule(user.vendorId, dto);
   }
 
   @Get(':id')
