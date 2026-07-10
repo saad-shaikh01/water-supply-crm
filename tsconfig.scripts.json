@@ -6,5 +6,12 @@
     "moduleResolution": "node",
     "esModuleInterop": true,
     "types": ["node"]
+  },
+  "ts-node": {
+    "//": "Some shared libs declare \"type\": \"module\" in their package.json (needed by Next.js/Turbopack for the browser build). Standalone scripts here still run as CommonJS via ts-node, so force those libs' source files to be loaded as CJS for this runtime only — does not affect the libs' own package.json or the app builds.",
+    "moduleTypes": {
+      "libs/shared/authz/**/*": "cjs",
+      "libs/shared/data-access/**/*": "cjs"
+    }
   }
 }
