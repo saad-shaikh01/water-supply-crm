@@ -9,6 +9,10 @@ import {
   type ImportRowConfirmDto,
   type GlobalImportPreviewResponse,
   type GlobalImportGroupDto,
+  type ExportPreviewResponse,
+  type MoveDeliveryItemsData,
+  type MoveDeliveryItemsResponse,
+  type DestinationOption,
 } from '../api/daily-sheets.api';
 import { customersApi } from '../../customers/api/customers.api';
 import { queryKeys } from '../../../lib/query-keys';
@@ -201,6 +205,30 @@ export const useConfirmCrew = (sheetId: string) => {
   });
 };
 
+export const useDestinationOptions = (date: string, enabled = true) => {
+  return useQuery({
+    queryKey: ['daily-sheets', 'destination-options', date],
+    queryFn: (): Promise<DestinationOption[]> => dailySheetsApi.getDestinationOptions(date),
+    enabled: enabled && !!date,
+  });
+};
+
+export const useMoveDeliveryItems = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: MoveDeliveryItemsData): Promise<MoveDeliveryItemsResponse> =>
+      dailySheetsApi.moveDeliveryItems(data),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(result.destinationSheetId) });
+      queryClient.invalidateQueries({ queryKey: ['sheets'] });
+      const who = result.movedCount > 1 ? `${result.movedCount} customers` : 'Customer';
+      toast.success(`${who} moved${result.createdNewSheet ? ' — new sheet created' : ''}`);
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to move customer'),
+  });
+};
+
 export const useCreateLoad = (sheetId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -387,6 +415,15 @@ export const usePreviewGlobalBulkImport = () => {
       dailySheetsApi.previewGlobalBulkImport(file, date).then((r) => r.data),
     onError: (e: any) =>
       toast.error(e?.response?.data?.message ?? 'Failed to parse file. Check the format and try again.'),
+  });
+};
+
+export const useExportPreview = () => {
+  return useMutation({
+    mutationFn: (data: { date: string; vanIds?: string[] }): Promise<ExportPreviewResponse> =>
+      dailySheetsApi.getExportPreview(data),
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? 'Failed to load export preview. Please try again.'),
   });
 };
 

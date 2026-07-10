@@ -495,6 +495,7 @@ model DailySheet {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  @@unique([vendorId, vanId, date])
   @@index([vendorId, date])
   @@index([vendorId, routeId, date])
   @@index([driverId, date])

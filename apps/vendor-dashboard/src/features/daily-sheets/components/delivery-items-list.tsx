@@ -5,8 +5,8 @@ import Link from 'next/link';
 import { Card, CardContent, Button, Badge, Tabs, TabsList, TabsTrigger, Skeleton, Dialog, DialogContent, DialogHeader, DialogTitle } from '@water-supply-crm/ui';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import {
-  AlertCircle, Camera, ChevronDown, ChevronUp, ClipboardList, Download,
-  History, LocateFixed, Lock, Loader2, MapPin, MessageCircle, MessageSquare, Navigation, Phone, Send, StickyNote, Unlock,
+  AlertCircle, Camera, Check, CheckSquare, ChevronDown, ChevronUp, ClipboardList, Download,
+  History, LocateFixed, Lock, Loader2, MapPin, MessageCircle, MessageSquare, Navigation, Phone, Send, StickyNote, Truck, Unlock, X,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -32,6 +32,9 @@ const CATEGORY_LABELS: Record<string, string> = {
   OTHER: 'Other',
 };
 const formatCategory = (cat: string) => CATEGORY_LABELS[cat] ?? cat;
+
+/** Statuses eligible to move to a different van/sheet — mirrors the backend's MOVE_ELIGIBLE_STATUSES. */
+const MOVE_ELIGIBLE_STATUSES = ['PENDING', 'NOT_AVAILABLE', 'RESCHEDULED'];
 
 const formatPhone = (phone?: string | null) => {
   if (!phone) return '';
@@ -146,6 +149,12 @@ interface DeliveryItemsListProps {
   unlockingItemId: string | null;
   onRequestEdit: (itemId: string) => void;
   requestingItemId: string | null;
+  selectMode: boolean;
+  onToggleSelectMode: () => void;
+  selectedIds: Set<string>;
+  onToggleSelected: (itemId: string) => void;
+  onMoveItem: (itemId: string) => void;
+  onMoveSelected: () => void;
 }
 
 export function DeliveryItemsList({
@@ -170,6 +179,12 @@ export function DeliveryItemsList({
   unlockingItemId,
   onRequestEdit,
   requestingItemId,
+  selectMode,
+  onToggleSelectMode,
+  selectedIds,
+  onToggleSelected,
+  onMoveItem,
+  onMoveSelected,
 }: DeliveryItemsListProps) {
   const [savingLocationItemId, setSavingLocationItemId] = useState<string | null>(null);
   const [addNoteItem, setAddNoteItem] = useState<DeliveryItem | null>(null);
@@ -224,6 +239,9 @@ export function DeliveryItemsList({
     );
   };
 
+  const eligibleForMoveCount = items.filter((i) => MOVE_ELIGIBLE_STATUSES.includes(i.status)).length;
+  const canBulkMove = canUpdate && !isClosed && eligibleForMoveCount > 0;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -231,9 +249,22 @@ export function DeliveryItemsList({
           <ClipboardList className="h-5 w-5 text-primary" />
           Delivery Queue
         </h3>
-        <p className="text-xs text-muted-foreground font-medium">
-          {items.filter((i) => i.status !== 'PENDING').length} / {items.length} done
-        </p>
+        <div className="flex items-center gap-3">
+          <p className="text-xs text-muted-foreground font-medium">
+            {items.filter((i) => i.status !== 'PENDING').length} / {items.length} done
+          </p>
+          {canBulkMove && (
+            <Button
+              size="sm"
+              variant={selectMode ? 'default' : 'outline'}
+              className="rounded-full font-bold text-xs h-8 gap-1.5"
+              onClick={onToggleSelectMode}
+            >
+              <CheckSquare className="h-3.5 w-3.5" />
+              {selectMode ? 'Cancel Select' : 'Select'}
+            </Button>
+          )}
+        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={onTabChange}>
@@ -286,6 +317,9 @@ export function DeliveryItemsList({
               notes.length > 0 &&
               !allNotesAcknowledged;
 
+            const isEligibleForMove = MOVE_ELIGIBLE_STATUSES.includes(item.status);
+            const isSelected = selectedIds.has(item.id);
+
             return (
               <motion.div
                 key={item.id}
@@ -298,12 +332,30 @@ export function DeliveryItemsList({
                   'overflow-hidden border-border/50 transition-all',
                   item.status !== 'PENDING' ? 'bg-muted/30' : 'bg-card/50',
                   isExpanded ? 'border-primary/30 shadow-sm' : 'hover:border-primary/20',
+                  selectMode && !isEligibleForMove && 'opacity-40',
+                  selectMode && isEligibleForMove && isSelected && 'border-primary/50 ring-1 ring-primary/40',
                 )}>
-                  <CardContent className="p-4 sm:p-5 cursor-pointer" onClick={() => onToggleExpand(isExpanded ? null : item.id)}>
+                  <CardContent
+                    className={cn('p-4 sm:p-5', (!selectMode || isEligibleForMove) && 'cursor-pointer')}
+                    onClick={() => {
+                      if (selectMode) {
+                        if (isEligibleForMove) onToggleSelected(item.id);
+                        return;
+                      }
+                      onToggleExpand(isExpanded ? null : item.id);
+                    }}
+                  >
                     <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
                       <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <div className="h-9 w-9 rounded-full bg-accent flex items-center justify-center shrink-0 font-black text-sm">
-                          {item.sequence}
+                        <div className={cn(
+                          'h-9 w-9 rounded-full flex items-center justify-center shrink-0 font-black text-sm transition-colors',
+                          selectMode && isEligibleForMove && isSelected
+                            ? 'bg-primary text-primary-foreground'
+                            : selectMode && isEligibleForMove
+                              ? 'bg-accent ring-2 ring-primary/30'
+                              : 'bg-accent',
+                        )}>
+                          {selectMode && isEligibleForMove && isSelected ? <Check className="h-4 w-4" /> : item.sequence}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
@@ -370,7 +422,7 @@ export function DeliveryItemsList({
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto sm:shrink-0">
+                      <div className={cn('flex items-center gap-2 flex-wrap w-full sm:w-auto sm:shrink-0', selectMode && 'hidden')}>
                         {notes.length > 0 && (
                           <div className={cn(
                             'flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full',
@@ -486,6 +538,15 @@ export function DeliveryItemsList({
                               </button>
                             )}
                           </div>
+                        )}
+                        {canUpdate && !isClosed && isEligibleForMove && (
+                          <button
+                            className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                            title="Move to another van/sheet"
+                            onClick={(e) => { e.stopPropagation(); onMoveItem(item.id); }}
+                          >
+                            <Truck className="h-3.5 w-3.5" />
+                          </button>
                         )}
                         <button
                           className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
@@ -780,6 +841,29 @@ export function DeliveryItemsList({
             onClick={() => onPageChange(Math.min(totalPages, tabPage + 1))}
           >
             Next
+          </Button>
+        </div>
+      )}
+
+      {selectMode && selectedIds.size > 0 && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 rounded-full border border-border/50 bg-background/95 backdrop-blur-xl shadow-2xl px-4 py-2.5">
+          <span className="text-xs font-bold whitespace-nowrap">{selectedIds.size} selected</span>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="rounded-full font-bold text-xs h-8 gap-1"
+            onClick={onToggleSelectMode}
+          >
+            <X className="h-3.5 w-3.5" />
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            className="rounded-full font-bold text-xs h-8 gap-1.5"
+            onClick={onMoveSelected}
+          >
+            <Truck className="h-3.5 w-3.5" />
+            Move Selected
           </Button>
         </div>
       )}

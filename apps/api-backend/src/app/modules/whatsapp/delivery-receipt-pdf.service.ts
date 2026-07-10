@@ -25,12 +25,14 @@ export interface DeliveryReceiptData {
 const LOGO_PATH = path.join(__dirname, 'assets', 'blue-ice-logo.png');
 
 // Company identity — same detail shown in the customer statement's header (single vendor for now).
+const COMPANY_NAME    = 'DASANI ENTERPRISES';
 const COMPANY_ADDRESS = 'B-145 Block 13 D/1 Gulshan-e-Iqbal, Korangi Creek Korangi';
 const COMPANY_PHONES  = 'Cell# 0316-2677954, 0345-2364698';
 
 const C = {
   navy:     '#0f172a',
   navyText: '#111827',
+  accent:   '#b91c1c',
   muted:    '#6b7280',
   mutedLt:  '#9ca3af',
   border:   '#e5e7eb',
@@ -73,18 +75,22 @@ export class DeliveryReceiptPdfService {
 
       this.drawBanner(doc, data);
 
+      doc.y += 10;
+      this.drawSectionTitle(doc, 'INVOICE');
+      doc.y += 8;
+
       const deliveryAmount = data.filledDropped * data.pricePerBottle;
       const rows: DetailRow[] = [
         { label: 'Date / Time',       value: `${data.deliveryDate}  ·  ${data.deliveryTime}` },
         { label: 'Customer',          value: data.customerName },
         { label: 'Customer Code',     value: data.customerCode },
         { label: 'Product',           value: data.productName },
+        { label: 'Price / Bottle',    value: `Rs. ${data.pricePerBottle.toFixed(2)}` },
         { label: 'Bottles Delivered', value: `${data.filledDropped}` },
         { label: 'Empty Received',    value: `${data.emptyReceived}` },
-        { label: 'Price / Bottle',    value: `Rs. ${data.pricePerBottle.toFixed(2)}` },
+        { label: 'Balance Bottles',   value: `${data.bottleBalanceAfter} bottles` },
         { label: 'Delivery Amount',   value: `Rs. ${deliveryAmount.toFixed(2)}`, emphasize: true },
         { label: 'Cash Collected',    value: `Rs. ${data.cashCollected.toFixed(2)}` },
-        { label: 'Bottle Balance',    value: `${data.bottleBalanceAfter} bottles` },
       ];
       this.drawDetailCard(doc, rows);
 
@@ -99,7 +105,7 @@ export class DeliveryReceiptPdfService {
       doc.y += 16;
       doc.fillColor(C.muted).font('Helvetica').fontSize(7.5)
         .text(
-          'Shukriya! Is receipt ke baray mein koi sawaal ho toh apne vendor se rabta karein.',
+          'Thank you! For any questions about this receipt, please contact your vendor.',
           MARGIN, doc.y, { width: CONTENT_W, align: 'center' },
         );
 
@@ -130,13 +136,22 @@ export class DeliveryReceiptPdfService {
     }
 
     doc.fillColor(C.white).font('Helvetica-Bold').fontSize(13)
-      .text(data.vendorName, MARGIN, y + 16, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
+      .text(COMPANY_NAME, MARGIN, y + 16, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
     doc.fillColor('#ffffff', 0.82).font('Helvetica').fontSize(7.5)
       .text(COMPANY_ADDRESS, MARGIN, y + 35, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
     doc.fillColor('#ffffff', 0.82).font('Helvetica').fontSize(7.5)
       .text(COMPANY_PHONES, MARGIN, y + 47, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
 
     doc.y = y + BANNER_H + 3;
+  }
+
+  // ── Document heading: accent bar + label (same treatment as the statement PDF) ─
+  private drawSectionTitle(doc: PDFKit.PDFDocument, label: string): void {
+    const y = doc.y;
+    doc.roundedRect(MARGIN, y, 3.5, 13, 2).fill(C.accent);
+    doc.fillColor(C.navy).font('Helvetica-Bold').fontSize(11)
+      .text(label, MARGIN + 10, y + 1, { lineBreak: false });
+    doc.y = y + 13;
   }
 
   // ── Zebra-striped detail card ────────────────────────────────────────────────

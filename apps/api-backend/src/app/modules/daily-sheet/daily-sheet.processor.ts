@@ -3,6 +3,7 @@ import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { PrismaService } from '@water-supply-crm/database';
 import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
+import { DailySheetService } from './daily-sheet.service';
 
 interface GenerateSheetsJobData {
   vendorId: string;
@@ -21,7 +22,10 @@ interface GenerationResult {
 export class DailySheetProcessor extends WorkerHost {
   private readonly logger = new Logger(DailySheetProcessor.name);
 
-  constructor(private prisma: PrismaService) {
+  constructor(
+    private prisma: PrismaService,
+    private dailySheetService: DailySheetService,
+  ) {
     super();
   }
 
@@ -173,130 +177,30 @@ export class DailySheetProcessor extends WorkerHost {
         continue;
       }
 
-      // Van's home route (nullable)
-      const routeId = van.routes[0]?.id ?? null;
-
-      // Fetch any RESCHEDULED items from previous sheets for customers on this van's schedule
-      const customerIds = schedules.map((s) => s.customerId);
-      const cutoffDate = new Date(targetDate);
-      cutoffDate.setDate(cutoffDate.getDate() - 60);
-
-      const rescheduledItems = await this.prisma.dailySheetItem.findMany({
-        where: {
-          status: 'RESCHEDULED',
-          customerId: { in: customerIds },
-          dailySheet: { vendorId, date: { gte: cutoffDate, lt: targetDate } },
-        },
-        select: { id: true, customerId: true, productId: true },
-      });
-
-      // Auto-cancel RESCHEDULED items older than 60 days for these customers
-      await this.prisma.dailySheetItem.updateMany({
-        where: {
-          status: 'RESCHEDULED',
-          customerId: { in: customerIds },
-          dailySheet: { vendorId, date: { lt: cutoffDate } },
-        },
-        data: { status: 'CANCELLED' },
-      });
-
-      // Build unique set of rescheduled customerIds to avoid duplicates
-      const rescheduledCustomerIds = new Set(rescheduledItems.map((i) => i.customerId));
-
-      // Regular scheduled customers (exclude those already covered by rescheduled)
-      const regularSchedules = schedules.filter((s) => !rescheduledCustomerIds.has(s.customerId));
-
-      // On-demand orders assigned to this van (or unassigned, picked up by first van in loop)
-      const vanOnDemandOrders = plannedOrders.filter(
-        (o) => o.dispatchVanId === van.id || o.dispatchVanId === null,
-      );
-
-      // Idempotency: skip orders already inserted into any sheet for this vendor+date
-      const alreadyInsertedOrderIds = new Set<string>();
-      if (vanOnDemandOrders.length > 0) {
-        const existingItems = await this.prisma.dailySheetItem.findMany({
-          where: {
-            sourceOrderId: { in: vanOnDemandOrders.map((o) => o.id) },
-            dailySheet: { vendorId, date: { gte: startOfDay, lte: endOfDay } },
-          },
-          select: { sourceOrderId: true },
-        });
-        existingItems.forEach((i) => {
-          if (i.sourceOrderId) alreadyInsertedOrderIds.add(i.sourceOrderId);
-        });
-      }
-
-      const eligibleOnDemandOrders = vanOnDemandOrders.filter(
-        (o) => !alreadyInsertedOrderIds.has(o.id),
-      );
-
-      const baseCount = regularSchedules.length + rescheduledItems.length;
-      const allItems = [
-        ...regularSchedules.map((s, index) => ({
-          customerId: s.customerId,
-          sequence: s.routeSequence ?? index + 1,
-          productId: defaultProduct.id,
-          deliveryType: 'SCHEDULED' as const,
-        })),
-        ...rescheduledItems.map((item, index) => ({
-          customerId: item.customerId,
-          sequence: regularSchedules.length + index + 1,
-          productId: item.productId,
-          deliveryType: 'SCHEDULED' as const,
-        })),
-        ...eligibleOnDemandOrders.map((order, index) => ({
-          customerId: order.customerId,
-          productId: order.productId,
-          sequence: baseCount + index + 1,
-          deliveryType: 'ON_DEMAND' as const,
-          sourceOrderId: order.id,
-        })),
-      ];
-
-      // Snapshot the van's default supporting crew onto the sheet. The crew
-      // must be explicitly confirmed (crewConfirmed=false) before trips start.
-      const crewSnapshot = van.defaultCrew.filter((c) => c.userId !== van.defaultDriverId);
-
-      const sheet = await this.prisma.dailySheet.create({
-        data: {
+      const { sheet, eligibleOnDemandOrderIds, alreadyInsertedOnDemandOrderIds } =
+        await this.dailySheetService.createSheetForVan(
+          this.prisma,
           vendorId,
-          routeId,
-          vanId: van.id,
-          driverId: van.defaultDriverId,
-          date: targetDate,
-          items: { create: allItems },
-          crew: {
-            create: crewSnapshot.map((c) => ({ userId: c.userId, role: c.role })),
-          },
-        },
-      });
+          van,
+          targetDate,
+          dayOfWeek,
+          defaultProduct,
+          plannedOrders,
+        );
 
-      // Mark old RESCHEDULED items as CANCELLED (moved to new sheet)
-      if (rescheduledItems.length > 0) {
-        await this.prisma.dailySheetItem.updateMany({
-          where: { id: { in: rescheduledItems.map((i) => i.id) } },
-          data: { status: 'CANCELLED' },
-        });
-      }
-
-      // Update on-demand orders to INSERTED_IN_SHEET
-      if (eligibleOnDemandOrders.length > 0) {
-        await this.prisma.customerOrder.updateMany({
-          where: { id: { in: eligibleOnDemandOrders.map((o) => o.id) } },
-          data: { dispatchStatus: 'INSERTED_IN_SHEET', dispatchedAt: new Date() },
-        });
-        insertedOnDemandCount += eligibleOnDemandOrders.length;
+      if (eligibleOnDemandOrderIds.length > 0) {
+        insertedOnDemandCount += eligibleOnDemandOrderIds.length;
         // Remove processed orders from plannedOrders to avoid double-insertion across vans
-        eligibleOnDemandOrders.forEach((o) => {
-          const idx = plannedOrders.findIndex((p) => p.id === o.id);
+        eligibleOnDemandOrderIds.forEach((id) => {
+          const idx = plannedOrders.findIndex((p) => p.id === id);
           if (idx !== -1) plannedOrders.splice(idx, 1);
         });
       }
 
       // Track skipped on-demand orders (already inserted or have vanId mismatch)
-      vanOnDemandOrders
-        .filter((o) => alreadyInsertedOrderIds.has(o.id))
-        .forEach((o) => skippedOnDemand.push({ orderId: o.id, reason: 'already_inserted' }));
+      alreadyInsertedOnDemandOrderIds.forEach((orderId) =>
+        skippedOnDemand.push({ orderId, reason: 'already_inserted' }),
+      );
 
       generatedSheetIds.push(sheet.id);
       processed++;
