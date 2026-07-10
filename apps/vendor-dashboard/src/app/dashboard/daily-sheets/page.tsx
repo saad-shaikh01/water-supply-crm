@@ -8,11 +8,17 @@ import { SheetList } from '../../../features/daily-sheets/components/sheet-list'
 import { SheetGenerate } from '../../../features/daily-sheets/components/sheet-generate';
 import { GlobalImportDialog } from '../../../features/daily-sheets/components/dialogs/global-import-dialog';
 import { ExportDialog } from '../../../features/daily-sheets/components/dialogs/export-dialog';
+import { usePermissions } from '../../../features/authz/hooks/use-permissions';
 
 export default function DailySheetsPage() {
   const [generateOpen, setGenerateOpen] = useState(false);
   const [globalImportOpen, setGlobalImportOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const { can } = usePermissions();
+
+  const canBulkImport = can('daily_sheets:bulk_import');
+  const canExport = can('daily_sheets:export');
+  const canGenerate = can('daily_sheets:generate');
 
   return (
     <>
@@ -21,29 +27,35 @@ export default function DailySheetsPage() {
         description="Manage daily delivery operations"
         action={
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setGlobalImportOpen(true)}
-              className="rounded-full px-4 sm:px-5 py-3 sm:py-6 h-auto transition-all hover:scale-105 active:scale-95 flex items-center gap-2 text-sm sm:text-base font-bold w-full sm:w-auto justify-center"
-            >
-              <FileSpreadsheet className="h-4 w-4 sm:h-5 sm:w-5" />
-              Global Import
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => setExportOpen(true)}
-              className="rounded-full px-4 sm:px-5 py-3 sm:py-6 h-auto transition-all hover:scale-105 active:scale-95 flex items-center gap-2 text-sm sm:text-base font-bold w-full sm:w-auto justify-center"
-            >
-              <Download className="h-4 w-4 sm:h-5 sm:w-5" />
-              Export CSV
-            </Button>
-            <Button
-              onClick={() => setGenerateOpen(true)}
-              className="rounded-full px-4 sm:px-5 py-3 sm:py-6 h-auto shadow-lg shadow-primary/20 transition-all hover:scale-105 active:scale-95 flex items-center gap-2 text-sm sm:text-base font-bold w-full sm:w-auto justify-center"
-            >
-              <Plus className="h-4 w-4 sm:h-5 sm:w-5" />
-              Generate Sheet
-            </Button>
+            {canBulkImport && (
+              <Button
+                variant="outline"
+                onClick={() => setGlobalImportOpen(true)}
+                className="rounded-full px-4 sm:px-5 py-3 sm:py-6 h-auto transition-all hover:scale-105 active:scale-95 flex items-center gap-2 text-sm sm:text-base font-bold w-full sm:w-auto justify-center"
+              >
+                <FileSpreadsheet className="h-4 w-4 sm:h-5 sm:w-5" />
+                Global Import
+              </Button>
+            )}
+            {canExport && (
+              <Button
+                variant="outline"
+                onClick={() => setExportOpen(true)}
+                className="rounded-full px-4 sm:px-5 py-3 sm:py-6 h-auto transition-all hover:scale-105 active:scale-95 flex items-center gap-2 text-sm sm:text-base font-bold w-full sm:w-auto justify-center"
+              >
+                <Download className="h-4 w-4 sm:h-5 sm:w-5" />
+                Export CSV
+              </Button>
+            )}
+            {canGenerate && (
+              <Button
+                onClick={() => setGenerateOpen(true)}
+                className="rounded-full px-4 sm:px-5 py-3 sm:py-6 h-auto shadow-lg shadow-primary/20 transition-all hover:scale-105 active:scale-95 flex items-center gap-2 text-sm sm:text-base font-bold w-full sm:w-auto justify-center"
+              >
+                <Plus className="h-4 w-4 sm:h-5 sm:w-5" />
+                Generate Sheet
+              </Button>
+            )}
           </div>
         }
       />
