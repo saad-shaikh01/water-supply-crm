@@ -1,14 +1,18 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter,
-  Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton,
 } from '@water-supply-crm/ui';
 import { userSchema, isNoLoginRole, type UserInput } from '../schemas';
 import { useCreateUser, useUpdateUser } from '../hooks/use-users';
+import { useUserAccess, useAssignRole } from '../hooks/use-user-access';
+import { UserOverridesDialog } from './user-overrides-dialog';
+import { useRoles } from '../../roles/hooks/use-roles';
+import { Can } from '../../authz/components/can';
 
 interface UserFormProps {
   open: boolean;
@@ -18,9 +22,15 @@ interface UserFormProps {
 
 export function UserForm({ open, onOpenChange, user }: UserFormProps) {
   const isEdit = !!user?.id;
+  const userId = isEdit ? String(user!.id) : null;
   const { mutate: create, isPending: isCreating } = useCreateUser();
   const { mutate: update, isPending: isUpdating } = useUpdateUser();
   const isPending = isCreating || isUpdating;
+
+  const { data: userAccess, isLoading: isLoadingAccess, isError: isAccessError } = useUserAccess(userId);
+  const { data: roles } = useRoles();
+  const { mutate: assignRole, isPending: isAssigning } = useAssignRole();
+  const [overridesOpen, setOverridesOpen] = useState(false);
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<UserInput>({
     resolver: zodResolver(userSchema),
@@ -58,15 +68,16 @@ export function UserForm({ open, onOpenChange, user }: UserFormProps) {
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-[400px] sm:w-[540px]">
-        <SheetHeader><SheetTitle>{isEdit ? 'Edit User' : 'Add User'}</SheetTitle></SheetHeader>
+    <>
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent className="w-[400px] sm:w-[540px]">
+          <SheetHeader><SheetTitle>{isEdit ? 'Edit User' : 'Add User'}</SheetTitle></SheetHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 mt-6">
           <div className="space-y-2">
-            <Label>Role</Label>
+            <Label>Category</Label>
             <Select value={role} onValueChange={(v) => setValue('role', v as UserInput['role'])}>
               <SelectTrigger>
-                <SelectValue placeholder="Select role" />
+                <SelectValue placeholder="Select category" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="VENDOR_ADMIN">Vendor Admin</SelectItem>
@@ -78,6 +89,49 @@ export function UserForm({ open, onOpenChange, user }: UserFormProps) {
             </Select>
             {errors.role && <p className="text-sm text-destructive">{errors.role.message}</p>}
           </div>
+          {isEdit && (
+            <Can permission="roles:assign">
+              <div className="space-y-2">
+                <Label>Access Role</Label>
+                {isLoadingAccess ? (
+                  <Skeleton className="h-11 w-full rounded-xl" />
+                ) : isAccessError ? (
+                  <p className="text-sm text-destructive">Failed to load this user&apos;s access role.</p>
+                ) : (
+                  <Select
+                    value={userAccess?.role?.id ?? ''}
+                    onValueChange={(roleId) => assignRole({ userId: userId as string, roleId })}
+                    disabled={isAssigning || !roles?.length}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="No role assigned" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {roles?.map((r) => (
+                        <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Controls what this user can access in the dashboard — separate from the Category
+                  above, and saved immediately when changed.
+                </p>
+              </div>
+            </Can>
+          )}
+          {isEdit && (
+            <Can permission="roles:manage_overrides">
+              <div className="space-y-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => setOverridesOpen(true)}>
+                  Manage Permission Overrides
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  Fine-tune individual permissions for this user beyond their Access Role.
+                </p>
+              </div>
+            </Can>
+          )}
           <div className="space-y-2">
             <Label>Name</Label>
             <Input placeholder="Full name" {...register('name')} />
@@ -113,5 +167,12 @@ export function UserForm({ open, onOpenChange, user }: UserFormProps) {
         </form>
       </SheetContent>
     </Sheet>
+    <UserOverridesDialog
+      open={overridesOpen}
+      onOpenChange={setOverridesOpen}
+      userId={userId}
+      userName={user ? String(user.name ?? '') : undefined}
+    />
+    </>
   );
 }

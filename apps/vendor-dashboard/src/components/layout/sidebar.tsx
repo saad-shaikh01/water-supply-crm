@@ -6,50 +6,52 @@ import {
   LayoutDashboard, Users, Map, Package, Truck,
   ClipboardList, CreditCard, UserCog, Droplets, Banknote, Navigation,
   Receipt, Bell, BellRing, ScrollText, BarChart2, Home, History, ShoppingCart,
-  MessageSquare, AlertTriangle, Tag, ShieldAlert, Warehouse, Wrench, ChevronDown,
+  MessageSquare, AlertTriangle, Tag, ShieldAlert, Warehouse, Wrench, ChevronDown, KeyRound,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
+import { pagePermissionForPath } from '@water-supply-crm/authz';
 import { useAuthStore } from '../../store/auth.store';
-import { hasMinRole, type Role } from '../../lib/rbac';
+import { usePermissions } from '../../features/authz/hooks/use-permissions';
 import { useState, useEffect } from 'react';
 
 interface ChildNavItem {
   label: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
-  minRole: Role;
 }
 
 interface NavItem {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
-  minRole: Role;
   group: string;
   href?: string;
   children?: ChildNavItem[];
 }
 
+// Every href below resolves to a `:page` permission via the shared PAGE_REGISTRY
+// (@water-supply-crm/authz) — no permission is hardcoded here, so this list can never
+// drift from the frozen catalog. See `canAccess()` in `Sidebar`/`CollapsibleNavGroup`.
 const navItems: NavItem[] = [
-  // Driver
-  { label: 'Home', href: '/dashboard/home', icon: Home, minRole: 'DRIVER', group: 'Driver' },
-  { label: 'My History', href: '/dashboard/history', icon: History, minRole: 'DRIVER', group: 'Driver' },
+  // Driver — display mode only shown to DRIVER users (see visibleItems filter below);
+  // each item's own visibility still resolves through the page registry.
+  { label: 'Home', href: '/dashboard/home', icon: Home, group: 'Driver' },
+  { label: 'My History', href: '/dashboard/history', icon: History, group: 'Driver' },
   // Operations — core flat links
-  { label: 'Overview', href: '/dashboard/overview', icon: LayoutDashboard, minRole: 'STAFF', group: 'Operations' },
-  { label: 'Customers', href: '/dashboard/customers', icon: Users, minRole: 'DRIVER', group: 'Operations' },
-  { label: 'Daily Sheets', href: '/dashboard/daily-sheets', icon: ClipboardList, minRole: 'DRIVER', group: 'Operations' },
+  { label: 'Overview', href: '/dashboard/overview', icon: LayoutDashboard, group: 'Operations' },
+  { label: 'Customers', href: '/dashboard/customers', icon: Users, group: 'Operations' },
+  { label: 'Daily Sheets', href: '/dashboard/daily-sheets', icon: ClipboardList, group: 'Operations' },
 
   // Operations — collapsible: Inventory & Supply
   {
     label: 'Inventory & Supply',
     icon: Package,
-    minRole: 'STAFF',
     group: 'Operations',
     children: [
-      { label: 'Products', href: '/dashboard/products', icon: Package, minRole: 'STAFF' },
-      { label: 'Routes', href: '/dashboard/routes', icon: Map, minRole: 'STAFF' },
-      { label: 'Vans', href: '/dashboard/vans', icon: Truck, minRole: 'STAFF' },
-      { label: 'Live Tracking', href: '/dashboard/tracking', icon: Navigation, minRole: 'STAFF' },
-      { label: 'Pricing', href: '/dashboard/pricing', icon: Tag, minRole: 'VENDOR_ADMIN' },
+      { label: 'Products', href: '/dashboard/products', icon: Package },
+      { label: 'Routes', href: '/dashboard/routes', icon: Map },
+      { label: 'Vans', href: '/dashboard/vans', icon: Truck },
+      { label: 'Live Tracking', href: '/dashboard/tracking', icon: Navigation },
+      { label: 'Pricing', href: '/dashboard/pricing', icon: Tag },
     ],
   },
 
@@ -57,12 +59,11 @@ const navItems: NavItem[] = [
   {
     label: 'Warehouse',
     icon: Warehouse,
-    minRole: 'STAFF',
     group: 'Operations',
     children: [
-      { label: 'Stock Overview', href: '/dashboard/warehouse', icon: Warehouse, minRole: 'STAFF' },
-      { label: 'Repairs', href: '/dashboard/warehouse/repairs', icon: Wrench, minRole: 'STAFF' },
-      { label: 'Summary', href: '/dashboard/warehouse/summary', icon: BarChart2, minRole: 'STAFF' },
+      { label: 'Stock Overview', href: '/dashboard/warehouse', icon: Warehouse },
+      { label: 'Repairs', href: '/dashboard/warehouse/repairs', icon: Wrench },
+      { label: 'Summary', href: '/dashboard/warehouse/summary', icon: BarChart2 },
     ],
   },
 
@@ -70,27 +71,27 @@ const navItems: NavItem[] = [
   {
     label: 'Customer Services',
     icon: MessageSquare,
-    minRole: 'STAFF',
     group: 'Operations',
     children: [
-      { label: 'Orders', href: '/dashboard/orders', icon: ShoppingCart, minRole: 'STAFF' },
-      { label: 'Tickets', href: '/dashboard/tickets', icon: MessageSquare, minRole: 'STAFF' },
-      { label: 'Delivery Issues', href: '/dashboard/delivery-issues', icon: AlertTriangle, minRole: 'STAFF' },
-      { label: 'Damage Cases', href: '/dashboard/damage-cases', icon: ShieldAlert, minRole: 'STAFF' },
+      { label: 'Orders', href: '/dashboard/orders', icon: ShoppingCart },
+      { label: 'Tickets', href: '/dashboard/tickets', icon: MessageSquare },
+      { label: 'Delivery Issues', href: '/dashboard/delivery-issues', icon: AlertTriangle },
+      { label: 'Damage Cases', href: '/dashboard/damage-cases', icon: ShieldAlert },
     ],
   },
 
   // Finance
-  { label: 'Transactions', href: '/dashboard/transactions', icon: CreditCard, minRole: 'STAFF', group: 'Finance' },
-  { label: 'Payment Requests', href: '/dashboard/payment-requests', icon: Banknote, minRole: 'STAFF', group: 'Finance' },
-  { label: 'Expenses', href: '/dashboard/expenses', icon: Receipt, minRole: 'STAFF', group: 'Finance' },
-  { label: 'Analytics', href: '/dashboard/analytics', icon: BarChart2, minRole: 'VENDOR_ADMIN', group: 'Finance' },
+  { label: 'Transactions', href: '/dashboard/transactions', icon: CreditCard, group: 'Finance' },
+  { label: 'Payment Requests', href: '/dashboard/payment-requests', icon: Banknote, group: 'Finance' },
+  { label: 'Expenses', href: '/dashboard/expenses', icon: Receipt, group: 'Finance' },
+  { label: 'Analytics', href: '/dashboard/analytics', icon: BarChart2, group: 'Finance' },
 
   // Settings
-  { label: 'Users', href: '/dashboard/users', icon: UserCog, minRole: 'VENDOR_ADMIN', group: 'Settings' },
-  { label: 'Balance Reminders', href: '/dashboard/balance-reminders', icon: Bell, minRole: 'VENDOR_ADMIN', group: 'Settings' },
-  { label: 'Notification Controls', href: '/dashboard/notification-settings', icon: BellRing, minRole: 'VENDOR_ADMIN', group: 'Settings' },
-  { label: 'Audit Logs', href: '/dashboard/audit-logs', icon: ScrollText, minRole: 'VENDOR_ADMIN', group: 'Settings' },
+  { label: 'Users', href: '/dashboard/users', icon: UserCog, group: 'Settings' },
+  { label: 'Roles & Access', href: '/dashboard/settings/roles', icon: KeyRound, group: 'Settings' },
+  { label: 'Balance Reminders', href: '/dashboard/balance-reminders', icon: Bell, group: 'Settings' },
+  { label: 'Notification Controls', href: '/dashboard/notification-settings', icon: BellRing, group: 'Settings' },
+  { label: 'Audit Logs', href: '/dashboard/audit-logs', icon: ScrollText, group: 'Settings' },
 ];
 
 const GROUPS = ['Driver', 'Operations', 'Finance', 'Settings'];
@@ -98,15 +99,15 @@ const GROUPS = ['Driver', 'Operations', 'Finance', 'Settings'];
 function CollapsibleNavGroup({
   item,
   pathname,
-  userRole,
 }: {
   item: NavItem & { children: ChildNavItem[] };
   pathname: string;
-  userRole: Role;
 }) {
-  const visibleChildren = item.children.filter((child) =>
-    hasMinRole(userRole, child.minRole)
-  );
+  const { can } = usePermissions();
+  const visibleChildren = item.children.filter((child) => {
+    const permission = pagePermissionForPath(child.href);
+    return permission ? can(permission) : false;
+  });
 
   const isAnyChildActive = visibleChildren.some((child) =>
     pathname.startsWith(child.href)
@@ -188,11 +189,24 @@ function CollapsibleNavGroup({
 export function Sidebar({ className }: { className?: string }) {
   const pathname = usePathname();
   const user = useAuthStore((s) => s.user);
+  const { can } = usePermissions();
+
+  const canAccess = (href: string) => {
+    const permission = pagePermissionForPath(href);
+    return permission ? can(permission) : false;
+  };
 
   const visibleItems = navItems.filter((item) => {
     if (!user) return false;
-    if (item.group === 'Driver') return user.role === 'DRIVER';
-    return hasMinRole(user.role, item.minRole);
+    // Driver nav is a display mode reserved for DRIVER users, same as DriverMobileNav;
+    // each item's own visibility still resolves through the page registry below.
+    if (item.group === 'Driver') {
+      return user.role === 'DRIVER' && (item.href ? canAccess(item.href) : true);
+    }
+    // Collapsible groups have no href of their own — CollapsibleNavGroup hides the
+    // whole group once none of its children resolve to a granted page permission.
+    if (item.children) return true;
+    return item.href ? canAccess(item.href) : false;
   });
 
   return (
@@ -225,7 +239,6 @@ export function Sidebar({ className }: { className?: string }) {
                       key={item.label}
                       item={item as NavItem & { children: ChildNavItem[] }}
                       pathname={pathname}
-                      userRole={user.role as Role}
                     />
                   );
                 }

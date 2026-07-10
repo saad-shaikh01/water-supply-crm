@@ -4,10 +4,9 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { apiClient } from '@water-supply-crm/data-access';
 import { authApi } from '../api/auth.api';
-import { useAuthStore } from '../../../store/auth.store';
+import { useAuthStore, type UserRole } from '../../../store/auth.store';
 import { queryKeys } from '../../../lib/query-keys';
 import type { LoginInput } from '../schemas';
-import type { Role } from '../../../lib/rbac';
 
 const FCM_TOKEN_STORAGE_KEY = 'vendor-dashboard-fcm-token';
 const FIREBASE_SCRIPT_ID = 'vendor-dashboard-firebase-app';
@@ -219,7 +218,7 @@ export const useLogin = () => {
       setCookie('auth_token', data.access_token, { maxAge: 60 * 60 * 24 });       // 1 day
       setCookie('refresh_token', data.refresh_token, { maxAge: 60 * 60 * 24 * 7 }); // 7 days
       setCookie('user_role', data.user.role, { maxAge: 60 * 60 * 24 * 7 });
-      setUser({ ...data.user, role: data.user.role as Role });
+      setUser({ ...data.user, role: data.user.role as UserRole });
       queryClient.setQueryData(queryKeys.auth.me, data.user);
       if (data.user.role === 'DRIVER') {
         router.push('/dashboard/home');

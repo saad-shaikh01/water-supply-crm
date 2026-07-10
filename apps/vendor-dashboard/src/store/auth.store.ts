@@ -1,12 +1,14 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Role } from '../lib/rbac';
+
+/** All identity roles a vendor-dashboard user can hold (mirrors the backend `UserRole` enum). */
+export type UserRole = 'SUPER_ADMIN' | 'VENDOR_ADMIN' | 'STAFF' | 'DRIVER' | 'SALESMAN' | 'LOADER' | 'CUSTOMER';
 
 interface AuthUser {
   id: string;
   name: string;
   email: string;
-  role: Role;
+  role: UserRole;
   vendorId: string;
 }
 

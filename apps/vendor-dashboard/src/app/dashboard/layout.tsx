@@ -3,6 +3,7 @@ import { NuqsAdapter } from 'nuqs/adapters/next/app';
 import { Sidebar } from '../../components/layout/sidebar';
 import { Header } from '../../components/layout/header';
 import { DriverMobileNav } from '../../components/layout/driver-mobile-nav';
+import { RouteGuard } from '../../components/authz/route-guard';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -21,7 +22,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <p className="text-sm font-bold text-muted-foreground animate-pulse">Loading Dashboard...</p>
                 </div>
               }>
-                {children}
+                <RouteGuard>{children}</RouteGuard>
               </Suspense>
             </div>
           </main>

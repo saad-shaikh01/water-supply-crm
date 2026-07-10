@@ -140,7 +140,8 @@ interface DeliveryItemsListProps {
   onToggleExpand: (itemId: string | null) => void;
   onSaveLocation: (customerId: string, lat: number, lng: number, address?: string) => Promise<void>;
   isDriver: boolean;
-  isAdminOrStaff: boolean;
+  canManageEditLocks: boolean;
+  canUpdate: boolean;
   onUnlockEdit: (itemId: string) => void;
   unlockingItemId: string | null;
   onRequestEdit: (itemId: string) => void;
@@ -163,7 +164,8 @@ export function DeliveryItemsList({
   onToggleExpand,
   onSaveLocation,
   isDriver,
-  isAdminOrStaff,
+  canManageEditLocks,
+  canUpdate,
   onUnlockEdit,
   unlockingItemId,
   onRequestEdit,
@@ -459,7 +461,7 @@ export function DeliveryItemsList({
                                 Edit
                               </Button>
                             )}
-                            {isAdminOrStaff && (
+                            {canManageEditLocks && (
                               <button
                                 className={cn(
                                   'h-8 w-8 rounded-full flex items-center justify-center transition-colors relative',
@@ -695,7 +697,7 @@ export function DeliveryItemsList({
                               </p>
                             )}
                           {/* Admin/Staff: notes panel + Add Note button */}
-                          {isAdminOrStaff && !isClosed && (
+                          {canUpdate && !isClosed && (
                             <div className="flex justify-end">
                               <Button
                                 size="sm"

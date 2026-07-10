@@ -24,6 +24,14 @@ export const queryKeys = {
   },
   users: {
     all: (params?: object) => ['users', ...(params ? [params] : [])],
+    access: (id: string) => ['users', id, 'access'] as const,
+  },
+  roles: {
+    all: () => ['roles'] as const,
+    one: (id: string) => ['roles', id] as const,
+  },
+  permissions: {
+    catalog: () => ['permissions', 'catalog'] as const,
   },
   sheets: {
     all: (params: object) => ['sheets', params] as const,

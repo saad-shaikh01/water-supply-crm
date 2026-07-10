@@ -15,7 +15,8 @@ interface LoadTripsSectionProps {
   isClosed: boolean;
   activeTrip: LoadTrip | null;
   hasAnyTrip: boolean;
-  isAdminOrStaff: boolean;
+  canLoadOut: boolean;
+  canClose: boolean;
   onNewTrip: () => void;
   onReconcile: () => void;
   onCheckin: (tripId: string) => void;
@@ -26,7 +27,8 @@ export function LoadTripsSection({
   isClosed,
   activeTrip,
   hasAnyTrip,
-  isAdminOrStaff,
+  canLoadOut,
+  canClose,
   onNewTrip,
   onReconcile,
   onCheckin,
@@ -48,7 +50,7 @@ export function LoadTripsSection({
           <Badge variant="secondary" className="font-bold text-xs">{loads.length}</Badge>
         </h3>
         <div className="flex flex-wrap gap-2">
-          {!isClosed && !activeTrip && isAdminOrStaff && (
+          {!isClosed && !activeTrip && canLoadOut && (
             <Button
               size="sm"
               onClick={onNewTrip}
@@ -58,7 +60,7 @@ export function LoadTripsSection({
               New Load-Out
             </Button>
           )}
-          {!isClosed && !activeTrip && hasAnyTrip && isAdminOrStaff && (
+          {!isClosed && !activeTrip && hasAnyTrip && canClose && (
             <Button
               size="sm"
               variant="default"
@@ -76,7 +78,7 @@ export function LoadTripsSection({
           <CardContent className="p-8 flex flex-col items-center gap-3 text-center">
             <Truck className="h-8 w-8 text-muted-foreground/30" />
             <p className="text-sm font-bold text-muted-foreground">No trips yet</p>
-            {isAdminOrStaff && (
+            {canLoadOut && (
               <p className="text-xs text-muted-foreground/60 max-w-[220px]">
                 Start a Load-Out to record the first trip for this sheet.
               </p>

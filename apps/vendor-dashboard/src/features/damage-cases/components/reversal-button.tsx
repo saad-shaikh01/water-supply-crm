@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from '@water-supply-crm/ui';
 import { useReverseCase } from '../hooks/use-damage-cases';
-import { useAuthStore } from '../../../store/auth.store';
+import { useCan } from '../../authz/hooks/use-can';
 import type { DamageCaseStatus } from '../api/damage-cases.api';
 
 interface ReversalButtonProps {
@@ -24,14 +24,14 @@ interface ReversalButtonProps {
 }
 
 export function ReversalButton({ caseId, version, chargeAmount, status, onSuccess }: ReversalButtonProps) {
-  const user = useAuthStore((s) => s.user);
+  const canReverse = useCan('damage_cases:reverse');
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const { mutate: reverseCase, isPending } = useReverseCase();
 
-  // Only render for CHARGED status + VENDOR_ADMIN or SUPER_ADMIN
+  // Only render for CHARGED status + damage_cases:reverse
   if (status !== 'CHARGED') return null;
-  if (!user || (user.role !== 'VENDOR_ADMIN' && user.role !== 'SUPER_ADMIN')) return null;
+  if (!canReverse) return null;
 
   const handleConfirm = () => {
     reverseCase(

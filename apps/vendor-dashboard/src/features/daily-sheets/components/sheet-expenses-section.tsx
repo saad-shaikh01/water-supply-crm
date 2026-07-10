@@ -23,7 +23,8 @@ interface SheetExpensesSectionProps {
   date: string;
   expenses: SheetExpense[];
   isClosed: boolean;
-  isAdminOrStaff: boolean;
+  canCreate: boolean;
+  canDelete: boolean;
 }
 
 export function SheetExpensesSection({
@@ -32,7 +33,8 @@ export function SheetExpensesSection({
   date,
   expenses,
   isClosed,
-  isAdminOrStaff,
+  canCreate,
+  canDelete,
 }: SheetExpensesSectionProps) {
   const [addOpen, setAddOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -40,13 +42,14 @@ export function SheetExpensesSection({
 
   const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
 
-  const canEdit = isAdminOrStaff && !isClosed;
+  const canAdd = canCreate && !isClosed;
+  const canRemove = canDelete && !isClosed;
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-black uppercase tracking-widest text-muted-foreground">Trip Expenses</h3>
-        {canEdit && (
+        {canAdd && (
           <Button
             variant="outline"
             size="sm"
@@ -97,7 +100,7 @@ export function SheetExpensesSection({
                       {new Date(expense.date).toLocaleDateString('en-PK', { day: 'numeric', month: 'short' })}
                     </p>
                   </div>
-                  {canEdit && (
+                  {canRemove && (
                     <Button
                       variant="ghost"
                       size="icon"

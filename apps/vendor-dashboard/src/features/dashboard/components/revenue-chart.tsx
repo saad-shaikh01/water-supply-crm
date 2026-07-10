@@ -3,12 +3,13 @@
 import { useRevenueStats } from '../hooks/use-dashboard';
 import { Card, CardContent, CardHeader, CardTitle, Skeleton } from '@water-supply-crm/ui';
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
-import { useAuthStore } from '../../../store/auth.store';
+import { useCan } from '../../authz/hooks/use-can';
 import { useTheme } from 'next-themes';
 
 export function RevenueChart() {
-  const user = useAuthStore((s) => s.user);
-  const isAdmin = user?.role === 'VENDOR_ADMIN';
+  // GET /dashboard/revenue is gated server-side by analytics:view (not a VENDOR_ADMIN-only
+  // role check) — manager/accountant/vendor_admin/super_admin presets all hold it.
+  const canView = useCan('analytics:view');
   const { theme } = useTheme();
   const isDark = theme === 'dark';
 
@@ -17,10 +18,10 @@ export function RevenueChart() {
   from.setDate(to.getDate() - 7);
 
   const formatDate = (date: Date) => date.toISOString().split('T')[0];
-  
-  const { data, isLoading } = useRevenueStats(formatDate(from), formatDate(to), isAdmin);
 
-  if (!isAdmin) return null;
+  const { data, isLoading } = useRevenueStats(formatDate(from), formatDate(to), canView);
+
+  if (!canView) return null;
   if (isLoading) return <Skeleton className="h-[350px] w-full rounded-2xl bg-white/[0.03]" />;
 
   const chartData = (data as any[] ?? []).map((d: any) => ({

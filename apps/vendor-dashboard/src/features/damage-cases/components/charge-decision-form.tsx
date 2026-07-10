@@ -16,7 +16,7 @@ import {
 import { toast } from 'sonner';
 import { useChargeCase } from '../hooks/use-damage-cases';
 import type { WriteOffCategory, DamageCaseType } from '../api/damage-cases.api';
-import { useAuthStore } from '../../../store/auth.store';
+import { useCan } from '../../authz/hooks/use-can';
 
 const WRITE_OFF_OPTIONS: { value: WriteOffCategory; label: string }[] = [
   { value: 'CUSTOMER_NEGLIGENCE', label: 'Customer Negligence' },
@@ -41,7 +41,7 @@ interface ChargeCaseFormProps {
 }
 
 export function ChargeCaseForm({ caseId, version, hasPhotos, caseType, onSuccess }: ChargeCaseFormProps) {
-  const user = useAuthStore((s) => s.user);
+  const canCharge = useCan('damage_cases:charge');
   const [open, setOpen] = useState(false);
   const [chargeAmount, setChargeAmount] = useState('');
   const [writeOffCategory, setWriteOffCategory] = useState<WriteOffCategory>('CUSTOMER_NEGLIGENCE');
@@ -49,10 +49,7 @@ export function ChargeCaseForm({ caseId, version, hasPhotos, caseType, onSuccess
 
   const { mutate: chargeCase, isPending } = useChargeCase();
 
-  // Only render for VENDOR_ADMIN or SUPER_ADMIN
-  if (!user || (user.role !== 'VENDOR_ADMIN' && user.role !== 'SUPER_ADMIN')) {
-    return null;
-  }
+  if (!canCharge) return null;
 
   const handleSubmit = () => {
     const amount = parseFloat(chargeAmount);

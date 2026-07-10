@@ -21,7 +21,7 @@ import { useRouter } from 'next/navigation';
 import { cn } from '@water-supply-crm/ui';
 import type { DeliveryItem, LoadTrip } from '@water-supply-crm/types';
 import { useAuthStore } from '../../../store/auth.store';
-import { hasMinRole } from '../../../lib/rbac';
+import { usePermissions } from '../../authz/hooks/use-permissions';
 import { SheetDetailHeader } from './sheet-detail-header';
 import { LoadTripsSection } from './load-trips-section';
 import { DeliveryItemsList } from './delivery-items-list';
@@ -126,8 +126,17 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const isDriver = user?.role === 'DRIVER';
-  const isAdminOrStaff = user ? hasMinRole(user.role, 'STAFF') : false;
-  const isAdmin = user ? hasMinRole(user.role, 'VENDOR_ADMIN') : false;
+  const { can } = usePermissions();
+  const canConfirmCrew = can('daily_sheets:confirm_crew');
+  const canSwapAssignment = can('daily_sheets:swap_assignment');
+  const canBulkImport = can('daily_sheets:bulk_import');
+  const canUpdateSheet = can('daily_sheets:update');
+  const canCorrect = can('daily_sheets:correct');
+  const canLoadOut = can('daily_sheets:load_out');
+  const canCloseSheet = can('daily_sheets:close');
+  const canCreateExpense = can('expenses:create');
+  const canDeleteExpense = can('expenses:delete');
+  const canManageEditLocks = can('daily_sheets:manage_edit_locks');
 
   const { data, isLoading } = useDailySheet(sheetId);
   const updateCustomerLocation = useUpdateCustomerLocation(sheetId);
@@ -149,11 +158,11 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const hasPromptedCrewConfirm = useRef(false);
   useEffect(() => {
     if (!data || hasPromptedCrewConfirm.current) return;
-    if (isAdminOrStaff && !data.isClosed && !data.crewConfirmed) {
+    if (canConfirmCrew && !data.isClosed && !data.crewConfirmed) {
       hasPromptedCrewConfirm.current = true;
       dispatch({ type: 'OPEN_CREW_CONFIRM' });
     }
-  }, [data, isAdminOrStaff]);
+  }, [data, canConfirmCrew]);
 
   // Drivers stay on 'all' tab so completed deliveries remain visible after recording.
   // Non-driver users auto-switch to 'pending' on first load when pending items exist.
@@ -293,7 +302,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         crewConfirmedByName={data?.crewConfirmedBy?.name ?? null}
         currentStatus={currentStatus}
         isClosed={isClosed}
-        canEditCrew={isAdminOrStaff}
+        canEditCrew={canSwapAssignment}
         isDriver={isDriver}
         onBack={() => router.back()}
         onSwap={() => dispatch({ type: 'OPEN_SWAP' })}
@@ -332,7 +341,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
               Today&apos;s crew must be confirmed before a trip can start.
             </p>
           </div>
-          {isAdminOrStaff && (
+          {canConfirmCrew && (
             <Button
               size="sm"
               className="rounded-full font-bold"
@@ -431,7 +440,8 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         isClosed={isClosed}
         activeTrip={activeTrip}
         hasAnyTrip={hasAnyTrip}
-        isAdminOrStaff={isAdminOrStaff}
+        canLoadOut={canLoadOut}
+        canClose={canCloseSheet}
         onNewTrip={() => {
           // Backend also enforces this — trips cannot start with an unconfirmed crew
           if (!data.crewConfirmed) {
@@ -451,33 +461,38 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         date={data!.date}
         expenses={data?.expenses ?? []}
         isClosed={isClosed}
-        isAdminOrStaff={isAdminOrStaff}
+        canCreate={canCreateExpense}
+        canDelete={canDeleteExpense}
       />
 
       {/* Ad-hoc / Correction Entry Actions */}
-      {isAdminOrStaff && !isClosed && (
+      {(canBulkImport || canUpdateSheet) && !isClosed && (
         <div className="flex justify-end gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => dispatch({ type: 'OPEN_BULK_IMPORT' })}
-            className="gap-2"
-          >
-            <Upload className="h-4 w-4" />
-            Import Deliveries
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => dispatch({ type: 'OPEN_ADHOC' })}
-            className="gap-2"
-          >
-            <Plus className="h-4 w-4" />
-            Add Ad-hoc Delivery
-          </Button>
+          {canBulkImport && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => dispatch({ type: 'OPEN_BULK_IMPORT' })}
+              className="gap-2"
+            >
+              <Upload className="h-4 w-4" />
+              Import Deliveries
+            </Button>
+          )}
+          {canUpdateSheet && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => dispatch({ type: 'OPEN_ADHOC' })}
+              className="gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              Add Ad-hoc Delivery
+            </Button>
+          )}
         </div>
       )}
-      {isAdmin && isClosed && (
+      {canCorrect && isClosed && (
         <div className="flex justify-end">
           <Button
             variant="outline"
@@ -579,7 +594,8 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
           await updateCustomerLocation.mutateAsync({ customerId, latitude: lat, longitude: lng, address });
         }}
         isDriver={isDriver}
-        isAdminOrStaff={isAdminOrStaff}
+        canManageEditLocks={canManageEditLocks}
+        canUpdate={canUpdateSheet}
         onUnlockEdit={(itemId) => unlockDeliveryEdit.mutate({ itemId })}
         unlockingItemId={
           unlockDeliveryEdit.isPending

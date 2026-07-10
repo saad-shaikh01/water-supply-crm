@@ -15,7 +15,7 @@ import {
 import { toast } from 'sonner';
 import { useWaiveCase } from '../hooks/use-damage-cases';
 import type { WriteOffCategory } from '../api/damage-cases.api';
-import { useAuthStore } from '../../../store/auth.store';
+import { useCan } from '../../authz/hooks/use-can';
 
 const WRITE_OFF_OPTIONS: { value: WriteOffCategory; label: string }[] = [
   { value: 'CUSTOMER_NEGLIGENCE', label: 'Customer Negligence' },
@@ -31,17 +31,14 @@ interface WaiveCaseFormProps {
 }
 
 export function WaiveCaseForm({ caseId, version, onSuccess }: WaiveCaseFormProps) {
-  const user = useAuthStore((s) => s.user);
+  const canWaive = useCan('damage_cases:waive');
   const [open, setOpen] = useState(false);
   const [writeOffCategory, setWriteOffCategory] = useState<WriteOffCategory>('NORMAL_WEAR');
   const [reviewNote, setReviewNote] = useState('');
 
   const { mutate: waiveCase, isPending } = useWaiveCase();
 
-  // Only render for VENDOR_ADMIN or SUPER_ADMIN
-  if (!user || (user.role !== 'VENDOR_ADMIN' && user.role !== 'SUPER_ADMIN')) {
-    return null;
-  }
+  if (!canWaive) return null;
 
   const handleSubmit = () => {
     waiveCase(

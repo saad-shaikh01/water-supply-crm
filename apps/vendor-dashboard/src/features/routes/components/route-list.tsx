@@ -20,8 +20,7 @@ import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { SearchInput } from '../../../components/shared/filters/search-input';
 import { useRoutes, useDeleteRoute } from '../hooks/use-routes';
 import { useAllVans } from '../../vans/hooks/use-vans';
-import { useAuthStore } from '../../../store/auth.store';
-import { hasMinRole } from '../../../lib/rbac';
+import { useCan } from '../../authz/hooks/use-can';
 import { SlidersHorizontal } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 
@@ -30,8 +29,7 @@ interface RouteListProps {
 }
 
 export function RouteList({ onEdit }: RouteListProps) {
-  const user = useAuthStore((s) => s.user);
-  const isAdmin = user ? hasMinRole(user.role, 'VENDOR_ADMIN') : false;
+  const canDelete = useCan('routes:delete');
   const {
     data,
     isLoading,
@@ -201,8 +199,8 @@ export function RouteList({ onEdit }: RouteListProps) {
                   <DropdownMenuItem onClick={() => onEdit(r as Record<string, unknown>)} className="rounded-lg cursor-pointer px-2 py-2">
                     <Pencil className="mr-2 h-4 w-4 text-orange-500" /> <span className="font-medium text-sm">Edit Route</span>
                   </DropdownMenuItem>
-                  {isAdmin && <div className="h-[1px] bg-border/50 my-1" />}
-                  {isAdmin && (
+                  {canDelete && <div className="h-[1px] bg-border/50 my-1" />}
+                  {canDelete && (
                     <DropdownMenuItem onClick={() => setDeleteId(r.id)} className="rounded-lg cursor-pointer px-2 py-2 text-destructive focus:text-destructive focus:bg-destructive/10">
                       <Trash2 className="mr-2 h-4 w-4" /> <span className="font-medium text-sm">Delete Route</span>
                     </DropdownMenuItem>
