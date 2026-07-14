@@ -1,5 +1,4 @@
 import { apiClient } from '@water-supply-crm/data-access';
-import type { DeliveryItemNote } from '@water-supply-crm/types';
 
 export interface PreviewRowResult {
   rowIndex: number;
@@ -223,23 +222,6 @@ export const dailySheetsApi = {
     apiClient.patch(`/daily-sheets/items/${itemId}/unlock-edit`, data ?? {}),
   requestDeliveryEdit: (itemId: string) =>
     apiClient.patch(`/daily-sheets/items/${itemId}/request-edit`, {}),
-  // Notes
-  getItemNotes: (itemId: string) =>
-    apiClient.get<DeliveryItemNote[]>(`/daily-sheets/items/${itemId}/notes`),
-  addTextNote: (itemId: string, data: { type: 'TEXT'; text: string }) =>
-    apiClient.post<DeliveryItemNote>(`/daily-sheets/items/${itemId}/notes`, data),
-  addVoiceNote: (itemId: string, formData: FormData, duration?: number) =>
-    apiClient.post<DeliveryItemNote>(
-      `/daily-sheets/items/${itemId}/notes/voice${duration != null ? `?duration=${duration}` : ''}`,
-      formData,
-      // Unset the instance-level 'application/json' default so the browser sets
-      // multipart/form-data with the correct boundary automatically.
-      { headers: { 'Content-Type': undefined } },
-    ),
-  acknowledgeNote: (noteId: string) =>
-    apiClient.patch<DeliveryItemNote>(`/daily-sheets/items/notes/${noteId}/acknowledge`, {}),
-  getNoteAudioUrl: (noteId: string) =>
-    apiClient.get<{ signedUrl: string }>(`/daily-sheets/items/notes/${noteId}/audio`),
   // Delivery failure photo
   uploadDeliveryPhoto: (file: File): Promise<{ key: string }> => {
     const formData = new FormData();

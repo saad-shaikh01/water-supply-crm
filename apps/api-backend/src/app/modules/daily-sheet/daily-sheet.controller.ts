@@ -22,7 +22,6 @@ import { DailySheetService } from './daily-sheet.service';
 import { DailySheetPdfService } from './pdf/daily-sheet-pdf.service';
 import { BulkImportService } from './bulk-import.service';
 import { StorageService } from '../../common/storage/storage.service';
-import { MessageService } from '../communication/message.service';
 import { BulkImportConfirmDto } from './dto/bulk-import-confirm.dto';
 import { GlobalImportConfirmDto } from './dto/global-import-confirm.dto';
 import { GenerateSheetsDto } from './dto/generate-sheets.dto';
@@ -40,14 +39,12 @@ import { AddAdhocItemDto } from './dto/add-adhoc-item.dto';
 import { AddCorrectionItemDto } from './dto/add-correction-item.dto';
 import { MoveDeliveryItemsDto } from './dto/move-delivery-items.dto';
 import { UnlockEditDto } from './dto/unlock-edit.dto';
-import { CreateDeliveryNoteDto } from './dto/create-delivery-note.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 
-const ALLOWED_AUDIO_MIMES = ['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/wav', 'audio/x-m4a'];
 const ALLOWED_EXCEL_MIMES = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.ms-excel',
@@ -62,7 +59,6 @@ export class DailySheetController {
     private readonly pdfService: DailySheetPdfService,
     private readonly bulkImportService: BulkImportService,
     private readonly storage: StorageService,
-    private readonly messageService: MessageService,
   ) {}
 
   // ── Static routes MUST come before /:id ──────────────────────────────
@@ -172,68 +168,6 @@ export class DailySheetController {
       file.mimetype,
     );
     return { key };
-  }
-
-  // DEPRECATED adapters over the Communication Center (removed in Phase 7).
-  // Routes, roles, throttles and response shapes are unchanged so deployed
-  // frontends keep working; writes create/extend the item's Conversation with
-  // requiresAck=true (legacy notes were always blocking instructions).
-
-  @Get('items/:id/notes')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
-  getItemNotes(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.messageService.getMessagesForItem(user.vendorId, id);
-  }
-
-  @Post('items/:id/notes')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
-  @Throttle({ short: { ttl: 1000, limit: 10 }, medium: { ttl: 60000, limit: 30 } })
-  addTextNote(
-    @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
-    @Body() dto: CreateDeliveryNoteDto,
-  ) {
-    return this.messageService.sendTextForItem(user, id, dto.text);
-  }
-
-  @Post('items/:id/notes/voice')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
-  @Throttle({ short: { ttl: 2000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
-  @UseInterceptors(
-    FileInterceptor('audio', {
-      storage: memoryStorage(),
-      limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
-      fileFilter: (_req, file, cb) => {
-        if (ALLOWED_AUDIO_MIMES.includes(file.mimetype)) {
-          cb(null, true);
-        } else {
-          cb(new Error('File type not allowed. Send audio/webm, audio/ogg, audio/mp4, or audio/mpeg.'), false);
-        }
-      },
-    }),
-  )
-  async addVoiceNote(
-    @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
-    @UploadedFile() file?: Express.Multer.File,
-    @Query('duration') duration?: string,
-  ) {
-    if (!file) throw new BadRequestException('No audio file provided');
-    const audioDuration = duration ? parseInt(duration, 10) : undefined;
-    return this.messageService.sendVoiceForItem(user, id, file, audioDuration);
-  }
-
-  @Patch('items/notes/:noteId/acknowledge')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
-  @Throttle({ short: { ttl: 1000, limit: 20 }, medium: { ttl: 60000, limit: 60 } })
-  acknowledgeNote(@CurrentUser() user: AuthUser, @Param('noteId') noteId: string) {
-    return this.messageService.acknowledge(user, noteId);
-  }
-
-  @Get('items/notes/:noteId/audio')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
-  getNoteAudioUrl(@CurrentUser() user: AuthUser, @Param('noteId') noteId: string) {
-    return this.messageService.getAudioUrl(user.vendorId, noteId);
   }
 
   @Get('items/:id/photo-url')

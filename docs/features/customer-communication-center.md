@@ -1,6 +1,6 @@
 # Customer Communication Center — Living Design Document
 
-**Status: ARCHITECTURE LOCKED — implementation in progress**
+**Status: ARCHITECTURE LOCKED — all 7 phases complete (2026-07-14)**
 
 This document is the single source of truth for the Customer Communication Center feature.
 Every implementation phase MUST follow this architecture exactly. Any agent implementing a
@@ -489,11 +489,44 @@ Phases are the sub-agent hand-off boundaries. Update this section + Change Log p
   - Reverse-direction "preselect" does not reset the list panel's filters or scroll/highlight
     a row in the list — only the locked text's literal scope ("inbox preselects via nuqs");
     scroll+highlight is specified only for "the selected delivery" (the sheet-side row).
-- ⬜ **Phase 7 — Cleanup + AI seams.** Delete adapter endpoints + dead frontend
-  (AddNoteDialog, ItemNotesPanel, legacy api fns, `DeliveryItemNote` type alias); drop the
-  full notes include from sheet `findOne` (replace with per-item
-  `{messageCount, pendingAckCount}` summary); document `onMessageCreated` hook +
-  transcription/summary job contracts.
+- ✅ **Phase 7 — Cleanup + AI seams** (2026-07-14). Deleted `add-note-dialog.tsx` and
+  `item-notes-panel.tsx` (orphaned since Phase 2). Deleted the five deprecated adapter
+  endpoints from `daily-sheet.controller.ts` (`GET/POST items/:id/notes`,
+  `POST items/:id/notes/voice`, `PATCH items/notes/:noteId/acknowledge`,
+  `GET items/notes/:noteId/audio`) along with the `MessageService` injection that only
+  existed to serve them, `dto/create-delivery-note.dto.ts`, and the now-unneeded
+  `CommunicationModule` import in `daily-sheet.module.ts`. Removed the four dead legacy
+  hooks (`useAddTextNote`/`useAddVoiceNote`/`useAcknowledgeNote`/`useNoteAudioUrl`) and their
+  five API client functions. Removed the `DeliveryItemNote` deprecated type alias. Replaced
+  the full `notes` include in `findOne` with a lightweight per-item
+  `{messageCount, pendingAckCount}` summary (see §11.1 below for the exact mechanism). AI
+  extension points documented in §14.
+  Implementation notes:
+  - The Prisma relation field `DailySheetItem.notes` (pointing at `ConversationMessage`) was
+    **kept as-is**, not renamed to `messages` as §4.2 offered as an option — a field rename
+    touches `schema.prisma`, and this phase's instructions said "Do NOT change database
+    schema." The relation stays named `notes` at the Prisma-client level; only the shape
+    returned by the `findOne` API response changed (no migration either way).
+  - `messageCount` comes from the existing transactional rollup (`Conversation.messageCount`,
+    maintained since Phase 1/2 on every message insert) via a lightweight
+    `conversation: {select:{messageCount:true}}` include — not a live count.
+    `pendingAckCount` uses a filtered Prisma `_count` on the same `notes` relation the
+    delivery gate already queries directly, so the "requiresAck" business rule itself is
+    unchanged, only how the sheet payload summarizes it.
+  - The delivery gate's own query in `updateDeliveryItem` (a direct
+    `conversationMessage.count(...)`) was **not touched** — it was always independent of
+    `findOne`'s include, so this cleanup could not have altered gate behavior even
+    accidentally.
+
+### 11.1 Sheet payload summary (Phase 7 mechanism, non-normative detail)
+
+`DailySheetService.findOne`'s `items` include now fetches
+`conversation: {select:{messageCount:true}}` and
+`_count: {select:{notes:{where:{requiresAck:true, acknowledgedAt:null, deletedAt:null}}}}`
+instead of the full ordered message array. Immediately after the null-check, each item is
+mutated in place (the same idiom this method already uses for `lastFilledDropped`/
+`consumptionRate30d`) to flatten those into `messageCount`/`pendingAckCount` and delete the
+raw `conversation`/`_count` sub-objects before the response leaves the service.
 
 ## 12. Risks (watch during implementation)
 
@@ -516,10 +549,90 @@ Phases are the sub-agent hand-off boundaries. Update this section + Change Log p
 4. Driver inbox surface — **default: same `/dashboard/communications` page, server-scoped**
   (no separate driver page). Affects Phase 3.
 
-## 14. Change Log
+## 14. AI Extension Points (documented, NOT implemented)
+
+The schema and backend seams below were reserved since Phase 1 specifically so that AI
+features can be added later **without any redesign or migration**. Nothing in this section is
+built — this is a map of where each future capability plugs in, for whoever implements it.
+
+### 14.1 Schema fields already in place
+
+| Field | Model | Purpose (future) |
+|---|---|---|
+| `ConversationMessage.transcription` | `String?` | Voice message → text, written by a future transcription job. |
+| `ConversationMessage.metadata` | `Json?` | Per-message AI output: sentiment, embeddings reference, extracted entities, etc. |
+| `Conversation.summary` | `String?` | Rolling AI-generated summary of the whole thread (for the inbox list preview or a "TL;DR" in the header). |
+| `Conversation.metadata` | `Json?` | Conversation-level AI state: follow-up reminder flags, topic tags, embeddings reference for AI search. |
+
+All four are nullable and have carried zero data since Phase 1 — adding a job that starts
+writing to them is a pure application-layer change, no `ALTER TABLE`.
+
+### 14.2 The `onMessageCreated` hook
+
+`MessageService.onMessageCreated` (private method, called at the end of `createMessage`,
+fire-and-forget) is the single seam every future per-message AI job attaches to. Phase 4
+already proved the pattern by using it for notification fan-out:
+
+```
+createMessage()
+  → conversationMessage.create + conversation.update (rollups)   [transactional]
+  → onMessageCreated(message, user, conversation)                [fire-and-forget]
+      → notifyRecipients(...)   [Phase 4, implemented]
+      → (future) enqueueTranscription(...)   if message.type === 'VOICE'
+      → (future) enqueueSummaryRefresh(...)  if conversation should re-summarize
+```
+
+A future implementer adds additional fire-and-forget calls inside `onMessageCreated` (or
+inside `notifyRecipients`'s sibling, following the same "log-and-swallow, never block the
+send response" contract already established there) — no change to the transactional insert,
+no change to the message-send API contract.
+
+### 14.3 Recommended (not built) job contracts
+
+**Transcription** — new BullMQ job (existing `notifications` queue or a new dedicated queue,
+implementer's choice), enqueued from `onMessageCreated` when `message.type === MessageType.VOICE`:
+1. Job payload: `{ messageId, audioKey }`.
+2. Processor: fetch the audio from Wasabi (`StorageService`, already used for playback),
+   run it through a transcription provider, write the result to
+   `ConversationMessage.transcription` via `prisma.conversationMessage.update`.
+3. No new endpoint needed for reads — `ConversationMessage` is already returned in full by
+   `GET /conversations/:id/messages`; the frontend just needs to render `transcription` when
+   present (e.g., under the voice player, dimmed, while it's being generated it's simply
+   absent).
+
+**Conversation summary** — triggered either per-message (debounced) or on a schedule:
+1. Job payload: `{ conversationId }`.
+2. Processor: pull recent messages (`transcription` for voice ones, `text` for text ones),
+   summarize, write to `Conversation.summary`.
+3. Consumption: inbox row preview could prefer `summary` over `lastMessagePreview` when
+   present; `conversation-header.tsx` could show it as a collapsible "Summary" line.
+
+**Smart follow-up reminders** — a scheduled job scanning `Conversation` rows where
+`waitingOn` (derived, not stored — recompute the same way `ConversationService.waitingOn`
+already does) has been non-null for longer than some threshold, writing a reminder flag into
+`Conversation.metadata` and (reusing Phase 4's exact notification path)
+`InAppNotificationService.create` + `NotificationService.queueFcm`.
+
+**AI search** — reads `ConversationMessage.text`/`transcription` (once populated) plus
+`Conversation.summary`; the existing `search` filter on `GET /conversations` (currently a
+plain `contains`/`ILIKE` on `lastMessagePreview`/customer fields) is the natural place to
+extend with embeddings/semantic search, or a parallel endpoint if the two approaches need to
+coexist.
+
+None of the above should require touching `Conversation`/`ConversationMessage`'s columns,
+relations, or indexes as they exist today.
+
+## 15. Change Log
 
 | Date | Phase | Change |
 |---|---|---|
 | 2026-07-14 | Phase 0 | Document created from the approved architecture-lock plan. Open questions 2–4 recorded with adopted defaults; Q1 resolved per owner sign-off. |
 | 2026-07-14 | Phase 0 | Owner approved defaults for open questions 2–4 (drivers can initiate; no auto-close; shared inbox page). Architecture frozen. |
 | 2026-07-14 | Phase 1 | Backend implemented (schema, migration+backfill, communication module, adapters, requiresAck gate, denormalization syncs). Clarifications recorded under Completed Phases: move-sync extension of §5.6, second controller file for `/messages/*`, `?requiresAck` on voice sends. Migration not yet applied to any database. |
+| 2026-07-14 | Phase 1 | Migration applied to local dev Postgres during Phase 2's verification (unplanned but real — backfill validated against 44 prior migrations' worth of data, first live test the SQL had). |
+| 2026-07-14 | Phase 2 | Shared `ConversationThread` + Daily Sheet integration. `VoiceRecorder` moved to `components/shared/`; `delivery-items-list.tsx` swaps the old notes UI for the embedded thread; drivers can now reply. `conversationId`-direct entry point on `ConversationThread` deliberately deferred (no caller yet). Fixed the `VoiceNotePlayer` render-phase setState bug during the lift. |
+| 2026-07-14 | Phase 3 | Communication Center inbox (`/dashboard/communications`), list/filters/search, sidebar entries (Operations + Driver groups, no badge yet). `ConversationThread`'s `itemId` path reused unchanged for the inbox — no new hook needed after all. |
+| 2026-07-14 | Phase 4 | Read state (`ConversationRead` watermarks wired end-to-end), sidebar unread badge, polling (thread 15s / inbox 30s / badge 60s), `onMessageCreated` fan-out to `InAppNotification` + queued FCM, gated per-recipient by `NotificationPreference`. Known gaps flagged: no in-flight dedupe on mark-read; `Promise.all` fan-out logs only the first failure per message. |
+| 2026-07-14 | Phase 5 | Status workflow UI (Resolve/Close/Reopen), "Waiting on" chip + filter. Entirely frontend — the backend (transitions, guard, audit, auto-reopen) was already complete from Phase 1. Fixed a real bug found while wiring this in: `page.tsx`'s `selected` conversation was a stale snapshot that didn't reflect status changes without a resync effect. |
+| 2026-07-14 | Phase 6 | Deep linking both directions. Forward: `?item=` in `sheet-detail.tsx` (locate/tab/page/expand/scroll/highlight/clear). Reverse: `?conversation=` in the inbox, via the `conversationId`-direct entry point deferred since Phase 2 (`getById`/`useConversation`, its first real caller). Corrected a route-path typo in §6.1 (`/dashboard/sheets/` → `/dashboard/daily-sheets/`) — not an architectural change. |
+| 2026-07-14 | Phase 7 | Final cleanup. Deleted dead frontend (AddNoteDialog, ItemNotesPanel/DriverNoteGate, 4 legacy hooks, 5 legacy API fns), deleted backend adapter endpoints + their DTO + the now-unneeded `CommunicationModule` import, removed the `DeliveryItemNote` type alias, replaced `findOne`'s full notes include with a `{messageCount, pendingAckCount}` summary. AI extension points documented in §15. Backfilled this table's Phase 2–6 rows (previously only the narrative "Completed Phases" section was kept current each phase). |

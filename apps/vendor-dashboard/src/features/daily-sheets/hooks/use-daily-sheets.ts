@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useQueryState, parseAsInteger, parseAsString } from 'nuqs';
 import { toast } from 'sonner';
-import type { SheetDetail, CustomerDeliveryHistoryItem, CustomerFinancialSummary, DeliveryItemNote } from '@water-supply-crm/types';
+import type { SheetDetail, CustomerDeliveryHistoryItem, CustomerFinancialSummary } from '@water-supply-crm/types';
 import {
   dailySheetsApi,
   type SheetQuery,
@@ -317,54 +317,6 @@ export const useRequestDeliveryEdit = (sheetId: string) => {
       toast.success('Edit request sent to admin');
     },
     onError: () => toast.error('Failed to send edit request'),
-  });
-};
-
-export const useAddTextNote = (sheetId: string) => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ itemId, text }: { itemId: string; text: string }) =>
-      dailySheetsApi.addTextNote(itemId, { type: 'TEXT', text }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
-      toast.success('Note added');
-    },
-    onError: () => toast.error('Failed to add note'),
-  });
-};
-
-export const useAddVoiceNote = (sheetId: string) => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ itemId, formData, duration }: { itemId: string; formData: FormData; duration?: number }) =>
-      dailySheetsApi.addVoiceNote(itemId, formData, duration),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
-      toast.success('Voice note uploaded');
-    },
-    onError: () => toast.error('Failed to upload voice note'),
-  });
-};
-
-export const useAcknowledgeNote = (sheetId: string) => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (noteId: string) => dailySheetsApi.acknowledgeNote(noteId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
-    },
-    onError: () => toast.error('Failed to acknowledge note'),
-  });
-};
-
-export const useNoteAudioUrl = (noteId: string, enabled: boolean) => {
-  return useQuery({
-    queryKey: ['note-audio-url', noteId],
-    queryFn: (): Promise<{ signedUrl: string }> =>
-      dailySheetsApi.getNoteAudioUrl(noteId).then((r) => r.data),
-    enabled: enabled && !!noteId,
-    staleTime: 1000 * 60 * 10, // 10 min (signed URL valid for 15 min)
-    gcTime: 1000 * 60 * 12,
   });
 };
 

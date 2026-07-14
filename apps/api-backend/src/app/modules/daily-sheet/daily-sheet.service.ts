@@ -933,10 +933,17 @@ export class DailySheetService implements OnModuleInit {
               },
             },
             product: true,
-            notes: {
-              where: { deletedAt: null },
-              include: { createdBy: { select: { id: true, name: true } } },
-              orderBy: { createdAt: 'asc' },
+            // Communication Center summary (Phase 7) — the full message list
+            // moved to ConversationThread's own fetch (GET /conversations/:id/
+            // messages); the sheet payload only needs enough to render the row
+            // chip and (via pendingAckCount) the requiresAck delivery gate.
+            // Conversation.messageCount is the existing transactional rollup
+            // (Phase 1/2) — no live count needed for the total.
+            conversation: { select: { messageCount: true } },
+            _count: {
+              select: {
+                notes: { where: { requiresAck: true, acknowledgedAt: null, deletedAt: null } },
+              },
             },
           },
           orderBy: { sequence: 'asc' },
@@ -955,6 +962,17 @@ export class DailySheetService implements OnModuleInit {
     });
     if (!sheet) {
       throw new NotFoundException('Daily sheet not found');
+    }
+
+    // Communication Center summary (Phase 7): collapse the conversation/_count
+    // sub-objects into two flat numbers and drop the raw shapes from the
+    // response — same in-place-mutation idiom as lastFilledDropped/
+    // consumptionRate30d below.
+    for (const it of sheet.items as any[]) {
+      it.messageCount = it.conversation?.messageCount ?? 0;
+      it.pendingAckCount = it._count.notes;
+      delete it.conversation;
+      delete it._count;
     }
 
     // Batch-fetch last completed filledDropped for each customer+product pair
@@ -2278,12 +2296,6 @@ export class DailySheetService implements OnModuleInit {
       currentOutstanding: customer.financialBalance,
     };
   }
-
-  // ── Delivery Item Notes ───────────────────────────────────────────────────
-  // The note system evolved into the Communication Center (Conversation +
-  // ConversationMessage). The legacy /items/:id/notes endpoints now delegate
-  // to MessageService adapters directly from the controller; the only note
-  // logic left in this service is the requiresAck delivery gate above.
 
   async getDeliveryPhotoUrl(vendorId: string, itemId: string) {
     const item = await this.prisma.dailySheetItem.findUnique({

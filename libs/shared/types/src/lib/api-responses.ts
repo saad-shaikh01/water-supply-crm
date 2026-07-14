@@ -134,8 +134,8 @@ export interface CustomerWalletSummary {
 }
 
 // Customer Communication Center (docs/features/customer-communication-center.md).
-// ConversationMessage evolved from the old DeliveryItemNote table; DeliveryItemNote
-// is kept as an alias so the not-yet-migrated notes UI keeps compiling until Phase 7.
+// ConversationMessage evolved from the old DeliveryItemNote table (Phase 1);
+// the DeliveryItemNote alias itself was removed in Phase 7.
 export interface ConversationMessage {
   id: string;
   type: 'TEXT' | 'VOICE';
@@ -148,9 +148,6 @@ export interface ConversationMessage {
   createdAt: string;
   createdBy: { id: string; name: string };
 }
-
-/** @deprecated Alias for ConversationMessage — removed in Phase 7. */
-export type DeliveryItemNote = ConversationMessage;
 
 export interface ConversationContext {
   id: string;
@@ -205,7 +202,12 @@ export interface DeliveryItem {
   whatsappSentAt?: string | null;
   bottleBalanceAfter?: number | null;
   financialBalanceAfter?: number | null;
-  notes?: DeliveryItemNote[];
+  // Communication Center summary (Phase 7) — replaces the old full `notes`
+  // array; ConversationThread fetches full message history itself when the
+  // card is expanded. pendingAckCount alone drives the requiresAck delivery
+  // gate and the row chip's "N Pending ⚠" state.
+  messageCount?: number;
+  pendingAckCount?: number;
   deliveryType?: 'SCHEDULED' | 'ON_DEMAND';
   sourceOrderId?: string | null;
   isCorrection?: boolean;

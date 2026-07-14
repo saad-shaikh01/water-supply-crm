@@ -318,12 +318,13 @@ export function DeliveryItemsList({
             const hasActiveEditUnlock =
               !!item.editUnlockExpiresAt && new Date(item.editUnlockExpiresAt) > new Date();
 
-            // Delivery gate now keys on requiresAck instruction messages only —
+            // Delivery gate keys on requiresAck instruction messages only —
             // casual conversation replies never block recording (Communication
-            // Center §9). `item.notes` is the ConversationMessage relation,
-            // still eagerly embedded in the sheet payload for this chip.
-            const messages = item.notes ?? [];
-            const pendingAckCount = messages.filter((n) => n.requiresAck && !n.acknowledgedAt).length;
+            // Center §9). messageCount/pendingAckCount are the lightweight
+            // summary the sheet payload carries (Phase 7) — the full message
+            // list itself lives behind ConversationThread's own fetch.
+            const messageCount = item.messageCount ?? 0;
+            const pendingAckCount = item.pendingAckCount ?? 0;
             const allAcksCleared = pendingAckCount === 0;
 
             // Whether the inline record/edit form may be shown for this item.
@@ -441,7 +442,7 @@ export function DeliveryItemsList({
                       </div>
 
                       <div className={cn('flex items-center gap-2 flex-wrap w-full sm:w-auto sm:shrink-0', selectMode && 'hidden')}>
-                        {messages.length > 0 && (
+                        {messageCount > 0 && (
                           <div className={cn(
                             'flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full',
                             pendingAckCount > 0
@@ -449,7 +450,7 @@ export function DeliveryItemsList({
                               : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
                           )}>
                             <StickyNote className="h-2.5 w-2.5" />
-                            {pendingAckCount > 0 ? `${pendingAckCount} Pending ⚠` : `${messages.length} Msg${messages.length > 1 ? 's' : ''} ✓`}
+                            {pendingAckCount > 0 ? `${pendingAckCount} Pending ⚠` : `${messageCount} Msg${messageCount > 1 ? 's' : ''} ✓`}
                           </div>
                         )}
                         <StatusBadge status={item.status} />

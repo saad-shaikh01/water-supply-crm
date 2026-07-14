@@ -11,7 +11,6 @@ import { DeliveryIssueModule } from '../delivery-issue/delivery-issue.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { StorageModule } from '../../common/storage/storage.module';
 import { WarehouseModule } from '../warehouse/warehouse.module';
-import { CommunicationModule } from '../communication/communication.module';
 
 @Module({
   imports: [
@@ -21,8 +20,6 @@ import { CommunicationModule } from '../communication/communication.module';
     NotificationsModule,
     StorageModule,
     WarehouseModule,
-    // Legacy note-endpoint adapters delegate to the Communication Center.
-    CommunicationModule,
   ],
   controllers: [DailySheetController],
   providers: [DailySheetService, DailySheetProcessor, DailySheetPdfService, BulkImportService],
