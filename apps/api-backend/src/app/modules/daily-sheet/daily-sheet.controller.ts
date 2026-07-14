@@ -22,6 +22,7 @@ import { DailySheetService } from './daily-sheet.service';
 import { DailySheetPdfService } from './pdf/daily-sheet-pdf.service';
 import { BulkImportService } from './bulk-import.service';
 import { StorageService } from '../../common/storage/storage.service';
+import { MessageService } from '../communication/message.service';
 import { BulkImportConfirmDto } from './dto/bulk-import-confirm.dto';
 import { GlobalImportConfirmDto } from './dto/global-import-confirm.dto';
 import { GenerateSheetsDto } from './dto/generate-sheets.dto';
@@ -61,6 +62,7 @@ export class DailySheetController {
     private readonly pdfService: DailySheetPdfService,
     private readonly bulkImportService: BulkImportService,
     private readonly storage: StorageService,
+    private readonly messageService: MessageService,
   ) {}
 
   // ── Static routes MUST come before /:id ──────────────────────────────
@@ -172,10 +174,15 @@ export class DailySheetController {
     return { key };
   }
 
+  // DEPRECATED adapters over the Communication Center (removed in Phase 7).
+  // Routes, roles, throttles and response shapes are unchanged so deployed
+  // frontends keep working; writes create/extend the item's Conversation with
+  // requiresAck=true (legacy notes were always blocking instructions).
+
   @Get('items/:id/notes')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
   getItemNotes(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.dailySheetService.getNotes(user.vendorId, id);
+    return this.messageService.getMessagesForItem(user.vendorId, id);
   }
 
   @Post('items/:id/notes')
@@ -186,7 +193,7 @@ export class DailySheetController {
     @Param('id') id: string,
     @Body() dto: CreateDeliveryNoteDto,
   ) {
-    return this.dailySheetService.addTextNote(user, id, dto);
+    return this.messageService.sendTextForItem(user, id, dto.text);
   }
 
   @Post('items/:id/notes/voice')
@@ -213,20 +220,20 @@ export class DailySheetController {
   ) {
     if (!file) throw new BadRequestException('No audio file provided');
     const audioDuration = duration ? parseInt(duration, 10) : undefined;
-    return this.dailySheetService.addVoiceNote(user, id, file, audioDuration);
+    return this.messageService.sendVoiceForItem(user, id, file, audioDuration);
   }
 
   @Patch('items/notes/:noteId/acknowledge')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
   @Throttle({ short: { ttl: 1000, limit: 20 }, medium: { ttl: 60000, limit: 60 } })
   acknowledgeNote(@CurrentUser() user: AuthUser, @Param('noteId') noteId: string) {
-    return this.dailySheetService.acknowledgeNote(user, noteId);
+    return this.messageService.acknowledge(user, noteId);
   }
 
   @Get('items/notes/:noteId/audio')
   @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF, UserRole.DRIVER)
   getNoteAudioUrl(@CurrentUser() user: AuthUser, @Param('noteId') noteId: string) {
-    return this.dailySheetService.getNoteAudioUrl(user.vendorId, noteId);
+    return this.messageService.getAudioUrl(user.vendorId, noteId);
   }
 
   @Get('items/:id/photo-url')

@@ -1,9 +1,11 @@
 import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
-import { NoteType } from '@prisma/client';
+import { MessageType } from '@prisma/client';
 
+// Legacy adapter DTO (Communication Center Phase 7 removes it with the
+// deprecated /daily-sheets/items/.../notes endpoints).
 export class CreateDeliveryNoteDto {
-  @IsEnum(NoteType)
-  type!: NoteType;
+  @IsEnum(MessageType)
+  type!: MessageType;
 
   @IsOptional()
   @IsString()

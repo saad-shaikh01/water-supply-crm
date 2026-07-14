@@ -6,14 +6,13 @@ import {
   UnprocessableEntityException,
   ForbiddenException,
   Logger,
-  InternalServerErrorException,
   OnModuleInit,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '@water-supply-crm/database';
 import { QUEUE_NAMES, JOB_NAMES, NOTIFICATION_EVENTS } from '@water-supply-crm/queue';
-import { DeliveryStatus, NoteType, PaymentType, TransactionType, NotificationType, NotificationChannel, Prisma, CrewRole } from '@prisma/client';
+import { DeliveryStatus, PaymentType, TransactionType, NotificationType, NotificationChannel, Prisma, CrewRole } from '@prisma/client';
 import { GenerateSheetsDto } from './dto/generate-sheets.dto';
 import { SubmitDeliveryDto } from './dto/submit-delivery.dto';
 import { LoadOutDto } from './dto/load-out.dto';
@@ -37,7 +36,6 @@ import { validateSupportCrew } from '../../common/helpers/crew-validation';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
 import type { AuthUser } from '@water-supply-crm/types';
 import { UnlockEditDto } from './dto/unlock-edit.dto';
-import { CreateDeliveryNoteDto } from './dto/create-delivery-note.dto';
 import { StorageService } from '../../common/storage/storage.service';
 import { WarehouseService } from '../warehouse/warehouse.service';
 import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.service';
@@ -411,9 +409,11 @@ export class DailySheetService implements OnModuleInit {
       });
     }
 
-    // Block delivery if there are unacknowledged notes on this item
-    const unacknowledgedCount = await this.prisma.deliveryItemNote.count({
-      where: { dailySheetItemId: itemId, acknowledgedAt: null },
+    // Block delivery while instruction messages (requiresAck) on this item are
+    // unacknowledged. Casual conversation replies do NOT block (Communication
+    // Center §9); pre-existing notes were backfilled requiresAck=true.
+    const unacknowledgedCount = await this.prisma.conversationMessage.count({
+      where: { dailySheetItemId: itemId, requiresAck: true, acknowledgedAt: null, deletedAt: null },
     });
     if (unacknowledgedCount > 0) {
       throw new BadRequestException(
@@ -934,6 +934,7 @@ export class DailySheetService implements OnModuleInit {
             },
             product: true,
             notes: {
+              where: { deletedAt: null },
               include: { createdBy: { select: { id: true, name: true } } },
               orderBy: { createdAt: 'asc' },
             },
@@ -1729,6 +1730,19 @@ export class DailySheetService implements OnModuleInit {
         });
       }
 
+      // Keep the Communication Center's denormalized inbox context in sync
+      // (LOCKED §5.6). Display/filter data only — driver access checks always
+      // resolve the sheet's current driver, never these columns.
+      if (updateData.driverId || updateData.vanId) {
+        await tx.conversation.updateMany({
+          where: { dailySheetId: sheetId },
+          data: {
+            ...(updateData.driverId ? { driverId: updateData.driverId } : {}),
+            ...(updateData.vanId ? { vanId: updateData.vanId } : {}),
+          },
+        });
+      }
+
       // Any assignment change invalidates the previous confirmation — the
       // updated crew must be explicitly re-confirmed before trips start.
       return tx.dailySheet.update({
@@ -1828,7 +1842,7 @@ export class DailySheetService implements OnModuleInit {
    * Move one or more customers' pending/failed deliveries to a different
    * van's sheet (same date or a future date). This is an in-place mutation
    * of the existing DailySheetItem row (dailySheetId/sequence/status) — not
-   * a copy-and-cancel — because DeliveryIssue/DamageCase/DeliveryItemNote
+   * a copy-and-cancel — because DeliveryIssue/DamageCase/ConversationMessage
    * all reference the item by id, and analytics.service.ts's getDeliveries
    * counts CANCELLED as a missed delivery, which a cancelled-source-item
    * design would have permanently miscounted for moved customers.
@@ -1970,6 +1984,23 @@ export class DailySheetService implements OnModuleInit {
           },
         });
       }
+
+      // Conversations move with their items — re-sync the denormalized inbox
+      // context (sheet/van/driver/date) to the destination sheet (LOCKED §5.6
+      // consistency rule; display/filter data only, never authorization).
+      const destSheet = await tx.dailySheet.findUniqueOrThrow({
+        where: { id: destinationSheetId },
+        select: { vanId: true, driverId: true, date: true },
+      });
+      await tx.conversation.updateMany({
+        where: { dailySheetItemId: { in: items.map((i) => i.id) } },
+        data: {
+          dailySheetId: destinationSheetId,
+          vanId: destSheet.vanId,
+          driverId: destSheet.driverId,
+          deliveryDate: destSheet.date,
+        },
+      });
 
       return {
         destinationSheetId,
@@ -2249,113 +2280,10 @@ export class DailySheetService implements OnModuleInit {
   }
 
   // ── Delivery Item Notes ───────────────────────────────────────────────────
-
-  private async resolveItemForNotes(vendorId: string, itemId: string) {
-    const item = await this.prisma.dailySheetItem.findUnique({
-      where: { id: itemId },
-      include: { dailySheet: { select: { vendorId: true } } },
-    });
-    if (!item || item.dailySheet.vendorId !== vendorId) {
-      throw new NotFoundException('Sheet item not found');
-    }
-    return item;
-  }
-
-  async getNotes(vendorId: string, itemId: string) {
-    await this.resolveItemForNotes(vendorId, itemId);
-    return this.prisma.deliveryItemNote.findMany({
-      where: { dailySheetItemId: itemId },
-      include: { createdBy: { select: { id: true, name: true } } },
-      orderBy: { createdAt: 'asc' },
-    });
-  }
-
-  async addTextNote(user: AuthUser, itemId: string, dto: CreateDeliveryNoteDto) {
-    await this.resolveItemForNotes(user.vendorId, itemId);
-    if (!dto.text?.trim()) {
-      throw new BadRequestException('Note text is required for TEXT type notes');
-    }
-    return this.prisma.deliveryItemNote.create({
-      data: {
-        vendorId: user.vendorId,
-        dailySheetItemId: itemId,
-        createdById: user.userId,
-        type: NoteType.TEXT,
-        text: dto.text.trim(),
-      },
-      include: { createdBy: { select: { id: true, name: true } } },
-    });
-  }
-
-  async addVoiceNote(
-    user: AuthUser,
-    itemId: string,
-    file: Express.Multer.File,
-    audioDuration?: number,
-  ) {
-    await this.resolveItemForNotes(user.vendorId, itemId);
-
-    let uploadResult: { key: string };
-    try {
-      uploadResult = await this.storage.upload(
-        'delivery-voice-notes',
-        file.buffer,
-        file.originalname,
-        file.mimetype,
-      );
-    } catch (err) {
-      this.logger.error(
-        `Voice note upload failed: ${(err as Error)?.message ?? String(err)}`,
-        (err as Error)?.stack,
-      );
-      throw new InternalServerErrorException('Failed to upload voice note');
-    }
-
-    return this.prisma.deliveryItemNote.create({
-      data: {
-        vendorId: user.vendorId,
-        dailySheetItemId: itemId,
-        createdById: user.userId,
-        type: NoteType.VOICE,
-        audioKey: uploadResult.key,
-        audioDuration: audioDuration ?? null,
-      },
-      include: { createdBy: { select: { id: true, name: true } } },
-    });
-  }
-
-  async acknowledgeNote(user: AuthUser, noteId: string) {
-    const note = await this.prisma.deliveryItemNote.findUnique({
-      where: { id: noteId },
-      include: { item: { include: { dailySheet: { select: { vendorId: true } } } } },
-    });
-    if (!note || note.item.dailySheet.vendorId !== user.vendorId) {
-      throw new NotFoundException('Note not found');
-    }
-    if (note.acknowledgedAt) {
-      return note; // already acknowledged — idempotent
-    }
-    return this.prisma.deliveryItemNote.update({
-      where: { id: noteId },
-      data: { acknowledgedAt: new Date(), acknowledgedById: user.userId },
-      include: { createdBy: { select: { id: true, name: true } } },
-    });
-  }
-
-  async getNoteAudioUrl(vendorId: string, noteId: string) {
-    const note = await this.prisma.deliveryItemNote.findUnique({
-      where: { id: noteId },
-      include: { item: { include: { dailySheet: { select: { vendorId: true } } } } },
-    });
-    if (!note || note.item.dailySheet.vendorId !== vendorId) {
-      throw new NotFoundException('Note not found');
-    }
-    if (note.type !== NoteType.VOICE || !note.audioKey) {
-      throw new BadRequestException('This note does not have a voice recording');
-    }
-    const signedUrl = await this.storage.getSignedUrl(note.audioKey, 900);
-    return { signedUrl };
-  }
+  // The note system evolved into the Communication Center (Conversation +
+  // ConversationMessage). The legacy /items/:id/notes endpoints now delegate
+  // to MessageService adapters directly from the controller; the only note
+  // logic left in this service is the requiresAck delivery gate above.
 
   async getDeliveryPhotoUrl(vendorId: string, itemId: string) {
     const item = await this.prisma.dailySheetItem.findUnique({
