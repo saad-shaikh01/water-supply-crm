@@ -178,6 +178,7 @@ export interface DeliveryItem {
     longitude?: number | null;
     phoneNumber?: string | null;
     paymentType?: PaymentTypeValue;
+    isBillingExempt?: boolean;
     financialBalance?: number;
     previousMonthOutstanding?: number;
     consumptionRate30d?: number | null;

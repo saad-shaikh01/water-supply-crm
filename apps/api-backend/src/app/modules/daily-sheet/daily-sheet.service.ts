@@ -971,7 +971,7 @@ export class DailySheetService implements OnModuleInit {
                 id: true, name: true, customerCode: true,
                 address: true, floor: true, nearbyLandmark: true,
                 deliveryInstructions: true, latitude: true, longitude: true,
-                phoneNumber: true, paymentType: true, financialBalance: true,
+                phoneNumber: true, paymentType: true, isBillingExempt: true, financialBalance: true,
                 wallets: {
                   select: { productId: true, balance: true, product: { select: { name: true } } },
                 },

@@ -348,4 +348,107 @@ describe('DailySheetService.submitDelivery — Collection Policy gate', () => {
       );
     });
   });
+
+  // ── Overpayment: no upper bound (§3.2, §3.3) ──────────────────────────────
+
+  it('accepts overpayment far above the required amount — no ceiling exists', async () => {
+    mockPrisma.dailySheetItem.findUnique.mockResolvedValue(buildBaseItem());
+    // remaining = 2000, required = 1500
+    mockPrisma.transaction.aggregate
+      .mockResolvedValueOnce({ _sum: { amount: 0 } })
+      .mockResolvedValueOnce({ _sum: { amount: 0 } });
+    wireHappyPathTransaction();
+
+    await service.submitDelivery(STAFF_USER, ITEM_ID, {
+      status: DeliveryStatus.COMPLETED,
+      filledDropped: 1,
+      emptyReceived: 0,
+      cashCollected: 5000, // far more than the Rs.1500 requirement
+    } as any);
+
+    expect(mockLedger.recordDelivery).toHaveBeenCalledWith(
+      expect.objectContaining({ cashCollected: 5000 }),
+      expect.anything(),
+    );
+  });
+
+  // ── Multiple items, same customer, same sheet (Edge Case §11.5) ──────────
+
+  describe('multiple items, same customer, same sheet', () => {
+    it("an earlier item's accepted cash reduces the required amount for a later item on the same visit", async () => {
+      // Item A: no current-month activity has posted yet. remaining = 2000,
+      // required = 1500.
+      mockPrisma.dailySheetItem.findUnique.mockResolvedValueOnce(buildBaseItem({ id: 'item-A' }));
+      mockPrisma.transaction.aggregate
+        .mockResolvedValueOnce({ _sum: { amount: 0 } }) // fromCurrentMonth
+        .mockResolvedValueOnce({ _sum: { amount: 0 } }); // curPayments
+      wireHappyPathTransaction();
+
+      await service.submitDelivery(STAFF_USER, 'item-A', {
+        status: DeliveryStatus.COMPLETED,
+        filledDropped: 1,
+        emptyReceived: 0,
+        cashCollected: 1500,
+      } as any);
+      expect(mockLedger.recordDelivery).toHaveBeenCalledWith(
+        expect.objectContaining({ dailySheetItemId: 'item-A', cashCollected: 1500 }),
+        expect.anything(),
+      );
+
+      // Item B: a different item, same customer/sheet. Item A's payment has
+      // now posted (reflected in currentMonthPaid); item B's own saved cash
+      // is still 0 (a fresh PENDING item), so no back-out applies to it.
+      // remaining = 2000 - (1500 - 0) = 500; required = max(0, 450-300) = 150
+      // — a much smaller amount than item A needed, and it must be accepted.
+      mockPrisma.dailySheetItem.findUnique.mockResolvedValueOnce(
+        buildBaseItem({ id: 'item-B', productId: 'product-002' }),
+      );
+      mockPrisma.transaction.aggregate
+        .mockResolvedValueOnce({ _sum: { amount: 0 } }) // fromCurrentMonth: charge(1500)+payment(-1500) nets to 0
+        .mockResolvedValueOnce({ _sum: { amount: -1500 } }); // curPayments: item A's posted payment
+
+      await service.submitDelivery(STAFF_USER, 'item-B', {
+        status: DeliveryStatus.COMPLETED,
+        filledDropped: 1,
+        emptyReceived: 0,
+        cashCollected: 150,
+      } as any);
+
+      expect(mockLedger.recordDelivery).toHaveBeenCalledWith(
+        expect.objectContaining({ dailySheetItemId: 'item-B', cashCollected: 150 }),
+        expect.anything(),
+      );
+    });
+  });
+
+  // ── Month boundary / late-recorded sheets (Edge Case §11.9) ──────────────
+
+  it('anchors the remaining-outstanding window to dailySheet.date, never to "today"', async () => {
+    const JANUARY_SHEET_DATE = new Date(2026, 0, 15); // local time, unambiguous month
+    mockPrisma.dailySheetItem.findUnique.mockResolvedValue(
+      buildBaseItem({
+        dailySheet: { vendorId: VENDOR_ID, date: JANUARY_SHEET_DATE, vendor: { name: 'Test Vendor' } },
+      }),
+    );
+    mockPrisma.transaction.aggregate
+      .mockResolvedValueOnce({ _sum: { amount: 0 } })
+      .mockResolvedValueOnce({ _sum: { amount: 0 } });
+    wireHappyPathTransaction();
+
+    await service.submitDelivery(STAFF_USER, ITEM_ID, {
+      status: DeliveryStatus.COMPLETED,
+      filledDropped: 1,
+      emptyReceived: 0,
+      cashCollected: 1500,
+    } as any);
+
+    const [fromCurrentMonthCall, curPaymentsCall] = mockPrisma.transaction.aggregate.mock.calls;
+    const januaryStart = new Date(2026, 0, 1);
+    const februaryStart = new Date(2026, 1, 1);
+
+    // The aggregation window must follow the sheet's own month (January),
+    // not the wall-clock month the test actually runs in.
+    expect(fromCurrentMonthCall[0].where.createdAt).toEqual({ gte: januaryStart });
+    expect(curPaymentsCall[0].where.createdAt).toEqual({ gte: januaryStart, lt: februaryStart });
+  });
 });

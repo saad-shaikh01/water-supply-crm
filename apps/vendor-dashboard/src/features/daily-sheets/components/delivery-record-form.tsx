@@ -308,15 +308,11 @@ export function DeliveryRecordForm({
   // recomputed on every keystroke exactly like the live-preview figures above; never
   // persisted anywhere (not in itemForm, not in the sessionStorage draft).
   //
-  // NOTE: `isBillingExempt` is not part of the DeliveryItem.customer shared type and is
-  // not currently selected by the sheet-detail query this form's `item` prop comes
-  // from, so it is always undefined here and defaults to `false` below (accessed via a
-  // local, defensive cast rather than widening the shared type — out of this phase's
-  // scope). This is a pre-existing gap inherited from an earlier phase (documented, not
-  // fixed, per this phase's explicit scope) — see the implementation report. The
-  // backend gate in submitDelivery has the real value and remains the authoritative,
-  // correct check regardless of this frontend limitation.
-  const isBillingExempt = (item.customer as { isBillingExempt?: boolean } | undefined)?.isBillingExempt ?? false;
+  // isBillingExempt is now part of the shared DeliveryItem.customer type and selected
+  // by the sheet-detail query (Phase 4 fix — previously missing, worked around with a
+  // defensive cast defaulting to false; see docs/features/monthly-customer-collection-
+  // policy.md Phase 3/4 change log entries for the prior gap).
+  const isBillingExempt = item.customer?.isBillingExempt ?? false;
   const policyResult: CollectionPolicyResult | null = collectionPolicy
     ? evaluateCollectionPolicy(collectionPolicy, {
         paymentType: item.customer?.paymentType,

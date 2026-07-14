@@ -1,6 +1,8 @@
 # Monthly Customer Collection Policy — Living Implementation Document
 
-**Status: ARCHITECTURE LOCKED — Phase 0 (this document) complete (2026-07-14)**
+**Status: ARCHITECTURE LOCKED — Phases 0–4 complete (2026-07-14). Feature is fully implemented,
+hardened, and QA-verified.** The only intentionally unimplemented piece is the Communication
+Center integration seam (§10), deferred by design.
 
 This document is the single source of truth for the Monthly Customer Collection Policy
 feature. Every implementation phase MUST follow this architecture exactly. Any agent
@@ -523,10 +525,11 @@ review before the next begins. Phases are the sub-agent hand-off boundaries.
   - That same hook's `retry: 2` (unconditional, not status-code-aware) means a 422 gets
     retried twice before the new `onError` backstop fires, adding a few seconds of delay
     versus an immediate rejection. Pre-existing behavior, not introduced or altered here.
-- **Phase 4 — Hardening.** Staging QA pass: resubmit/back-out correctness, multi-item
-  splitting behavior, month-boundary correctness, exact-boundary rounding, overpayment paths,
-  cache-invalidation timing. Documentation note added here (not before) if the split-payment
-  edge case (§11.5) warrants an explicit callout in user-facing settings copy.
+- ✅ **Phase 4 — Hardening** (2026-07-14). Staging QA pass complete: resubmit/back-out
+  correctness, multi-item splitting behavior, month-boundary correctness, exact-boundary
+  rounding, overpayment paths, cache-invalidation timing, and the frontend/backend evaluator
+  identity all formally verified with new automated test coverage (not just manual trace).
+  Implementation notes:
   - ✅ **Frontend/backend parity fix landed (2026-07-14)**, ahead of the rest of this phase's
     QA pass: a senior review found the frontend evaluator (built in Phase 3) was mirroring
     the correct function against the wrong input (`livePrevMonthRemaining`, which subtracts
@@ -539,9 +542,52 @@ review before the next begins. Phases are the sub-agent hand-off boundaries.
     evaluator. `livePrevMonthRemaining` itself, the StatBox, and every other live-preview
     figure are byte-for-byte unchanged. No bypass existed at any point (the backend gate was
     always authoritative and correctly rejected every under-collected save); the bug was
-    UX-only — the driver saw no warning pre-submit and then hit a confusing 422. Remaining
-    Phase 4 items (multi-item splitting QA, month-boundary QA, cache-invalidation timing) are
-    still open.
+    UX-only — the driver saw no warning pre-submit and then hit a confusing 422.
+  - **Bug found and fixed:** the long-standing `isBillingExempt` gap (documented since Phase
+    3 as "not fixed, out of scope") was closed. `findOne()`'s customer sub-select now includes
+    `isBillingExempt: true` (one line, purely additive — no other field, no query shape,
+    no business logic touched), `DeliveryItem.customer` in `libs/shared/types` gained the
+    matching optional field, and `delivery-record-form.tsx`'s local defensive cast was
+    replaced with a plain, correctly-typed `item.customer?.isBillingExempt ?? false`. This
+    was judged in-scope for this hardening phase because "Billing-exempt customers" was an
+    explicitly named verification target, the fix is two one-line additive changes with no
+    schema/business-rule/API-contract-breaking impact, and Phase 3's own report had already
+    named this exact fix as the recommended next step. Before the fix, a billing-exempt
+    MONTHLY customer who also carried a lingering previous-month balance could see a
+    false-positive frontend warning and a wrongly-disabled Save button (never a bypass — the
+    backend gate always had the correct value).
+  - **New test coverage added** (11 new tests, all passing) to close verification gaps found
+    during this QA pass:
+    - `collection-policy.service.spec.ts` (new file) — no spec existed for this service at
+      all before this phase. Covers cache-hit/cache-miss/default-row read paths and, most
+      relevantly to this phase's "policy enabled/disabled transitions" requirement, an
+      explicit enable→disable→re-verify sequence proving `updatePolicy`'s cache
+      invalidation means the very next read reflects the new state, never a stale cached one.
+    - `collection-policy-gate.spec.ts` gained three tests: explicit overpayment at the gate
+      (integration) level (not just the pure evaluator), a two-item "same customer, same
+      sheet" sequence proving Edge Case §11.5's documented behavior end-to-end (an earlier
+      item's accepted cash measurably reduces a later item's required amount), and an
+      explicit assertion on the exact `createdAt` query bounds passed to
+      `transaction.aggregate` proving the remaining-outstanding window follows
+      `dailySheet.date`'s month rather than wall-clock "today" (Edge Case §11.9).
+  - **Frontend/backend mathematical identity re-verified**: the frontend mirror function body
+    in `delivery-record-form.tsx` was diffed line-by-line against
+    `collection-policy.util.ts` — still byte-for-byte identical (same check order, same
+    formulas, same precedence) since the Phase 4 parity fix; no drift found.
+  - **Dead-code review**: none found. Every export in the `collection-policy` module and
+    helper is consumed by at least one real call site (verified via `grep` +
+    `nx lint api-backend`, zero unused-var/unused-export findings in any collection-policy
+    file). No refactor, rename, move, or architecture change was made.
+  - **Regression sweep**: delivery recording, unable-to-deliver flow, read-only mode, draft
+    restore (sessionStorage schema untouched), Communication Center, receipts, ledger,
+    WhatsApp, and the existing financial-summary StatBoxes were all re-confirmed unaffected —
+    zero files in any of those areas appear in this phase's diff.
+  - Remaining technical debt, explicitly not fixed this phase (see §13 for the two
+    owner-accepted items from earlier reviews): the resubmit back-out's narrow over-strict
+    edge case (§13 risk 3, owner ruling: will not be fixed) and the multi-item split-payment
+    behavior (§13 risk 4, accepted-by-design, now additionally locked in by an automated
+    test rather than only prose). The Communication Center integration seam (§10) remains
+    intentionally unimplemented.
 
 ## 13. Risks
 
@@ -566,7 +612,10 @@ review before the next begins. Phases are the sub-agent hand-off boundaries.
    Do not "fix" this in a later phase without an explicit new business requirement — treat the
    current formula as the correct, approved implementation.
 4. **Multi-item split-payment** (§11.5) is an accepted, not hidden, limitation — documented
-   here so it is never mistaken for a bug during Phase 4 QA.
+   here so it is never mistaken for a bug during Phase 4 QA. **Confirmed in Phase 4** via an
+   automated test (`collection-policy-gate.spec.ts`, "multiple items, same customer, same
+   sheet") that exercises the documented behavior end-to-end rather than relying on prose
+   alone.
 5. **Cache key collision** — the key format `` `vendor:${vendorId}:collection-policy` `` must
    not collide with `` `vendor:${vendorId}:notif-settings` `` or other existing per-vendor
    keys; distinct suffix already ensures this, called out for the implementer's awareness.
@@ -594,3 +643,4 @@ rules, do not resolve it unilaterally.
 | 2026-07-14 | Phase 3 | Driver real-time UX implemented exactly per §7.2: evaluator mirror inside `delivery-record-form.tsx`, destructive Cash Collected styling, inline warning card, disabled Save, `422 COLLECTION_POLICY_VIOLATION` backstop. `collectionPolicy` prop-drilled from `sheet-detail.tsx` through `delivery-items-list.tsx` into the form. **Blocker found, not silently fixed:** `item.customer.isBillingExempt` doesn't exist on the shared `DeliveryItem` type and isn't selected by the sheet-detail query — a real TS compile error, worked around with a local defensive cast rather than touching backend code or shared types (out of scope for this phase); billing-exempt monthly customers with a lingering balance may see a false-positive frontend warning until a follow-up adds the field to `findOne()`'s select + the shared type. No backend, database, Collection Policy API, ledger, receipt, WhatsApp, or Communication Center code touched — confirmed via `git status` showing exactly 3 modified files (`delivery-record-form.tsx`, `delivery-items-list.tsx`, `sheet-detail.tsx`), zero new files. Verified: `nx build vendor-dashboard` (TypeScript + Next.js build succeed after fixing the isBillingExempt compile error), `nx lint vendor-dashboard` (all findings in the 3 touched files traced to pre-existing lines/rules, zero new issues on any changed line). |
 | 2026-07-14 | Phase 3 review | Senior implementation review performed (no code changed). **High finding:** the Phase 3 evaluator mirror was mathematically correct as a function but was fed `livePrevMonthRemaining` (a post-payment preview that subtracts the in-progress draft cash) instead of a pre-payment, transaction-history-only value — this made the effective required amount shrink as the driver typed, so the frontend reported "satisfied" at roughly half the true required amount (proven with the doc's own §3.5 worked example: at cash=₨300 against a true ₨400 requirement, the frontend showed no violation). No bypass — the backend gate was always authoritative and correctly rejected every case; impact was UX-only (missing pre-submit warning, then a confusing 422). Two Low findings (a narrow stale-`serverViolation` race on fast retype during an in-flight request; Save not gated on `finLoading`) — noted as technical debt, not required to fix. `isBillingExempt` gap re-confirmed present, already tracked from Phase 3. Verdict: fix required before Phase 4 proceeds. |
 | 2026-07-14 | Phase 4 fix | Frontend/backend parity fix for the Phase 3 review's High finding, per explicit "no business logic changes" instructions. Added `remainingForPolicyCheck` in `delivery-record-form.tsx` — a new derived value mirroring `getRemainingPrevOutstanding` + the resubmit back-out exactly (`prevMonthOutstanding - (currentMonthPaid - savedCash)`, never subtracting draft cash) — and pointed the evaluator mirror at it instead of `livePrevMonthRemaining`. `livePrevMonthRemaining` itself, the Prev Month Outstanding StatBox, and every other live-preview figure are byte-for-byte unchanged (confirmed via `grep`: `livePrevMonthRemaining` now only appears in its own declaration and the StatBox). No backend, database, ledger, receipt, WhatsApp, Communication Center, API contract, or shared-type files touched — a single-file change. Verified: `nx build vendor-dashboard` clean; a standalone numeric simulation of the exact formulas now in the file against the review's required parity table (Remaining=₨500, 90%, shortfall ₨50) reproduced every row exactly — required amount constant at ₨400 for all cash values, cash 0 exempt (ZERO_CASH), 100/200/300/399 → ❌, 400/500/700 → ✅ — while the same simulation using the old formula reproduced the exact bug (false ✅ at 300 and 399). |
+| 2026-07-14 | Phase 4 | Hardening/QA pass complete. All documented edge cases (§11) formally verified, most now backed by automated tests rather than only prose/manual trace. **Two bugs found and fixed**, both small and additive: (1) the `isBillingExempt` gap tracked since Phase 3 — added `isBillingExempt: true` to `findOne()`'s customer select (`daily-sheet.service.ts`) and the matching optional field to `DeliveryItem.customer` (`libs/shared/types`), then removed the now-unnecessary defensive cast in `delivery-record-form.tsx` in favor of a plain typed access; judged in-scope because it was an explicitly named Phase 4 verification target, the fix is two one-line additive changes with zero schema/business-rule/API-contract-breaking impact, and it was the exact fix Phase 3's own report had already recommended. (2) No second code bug was found — the frontend/backend parity issue from the Phase 3 review had already been fixed in the prior "Phase 4 fix" entry above; re-verified here by direct line-by-line diff of the two evaluator functions, still identical. 11 new backend unit tests added, all passing: `collection-policy.service.spec.ts` (new file — no coverage existed at all for this service before this phase; covers cache hit/miss/default-row paths and an explicit enable→disable→re-verify cache-invalidation sequence), plus 3 new cases in `collection-policy-gate.spec.ts` (gate-level overpayment, a two-item same-customer-same-sheet sequence proving Edge Case §11.5 end-to-end, and an explicit assertion that the `transaction.aggregate` query window follows `dailySheet.date`'s month rather than wall-clock "today" per Edge Case §11.9). Dead-code review: none found — every export in the module is consumed by a real call site. No refactor, rename, move, or architecture change made anywhere. Regression sweep (delivery recording, unable-to-deliver, read-only mode, draft restore, Communication Center, receipts, ledger, WhatsApp, financial-summary StatBoxes) found zero impact — none of those files appear in this phase's diff. Verified: `nx build api-backend` and `nx build vendor-dashboard` both clean; `nx test api-backend` — 124 total tests (100 passing, 38/38 in all collection-policy suites), the same 24 failing tests across the same 5 suites as the pre-existing, unrelated baseline established in the Phase 1 review (re-confirmed unchanged by this phase, not newly introduced); `nx lint api-backend` — zero new findings in any collection-policy file (only pre-existing project-wide `no-explicit-any` warnings matching the codebase's established test-mock convention). |
