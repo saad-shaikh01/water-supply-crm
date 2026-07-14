@@ -7,7 +7,7 @@ import {
 } from '@water-supply-crm/ui';
 import { Mic, FileText, Loader2 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
-import { VoiceRecorder } from './voice-recorder';
+import { VoiceRecorder } from '../../../components/shared/voice-recorder';
 import { useAddTextNote, useAddVoiceNote } from '../hooks/use-daily-sheets';
 
 interface AddNoteDialogProps {

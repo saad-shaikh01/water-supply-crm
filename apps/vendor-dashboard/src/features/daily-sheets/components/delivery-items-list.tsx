@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, Button, Badge, Tabs, TabsList, TabsTrigger, Skeleton, Dialog, DialogContent, DialogHeader, DialogTitle } from '@water-supply-crm/ui';
 import { StatusBadge } from '../../../components/shared/status-badge';
@@ -16,8 +16,7 @@ import { useCustomerDeliveryHistory, useDeliveryPhotoUrl } from '../hooks/use-da
 import { dailySheetsApi } from '../api/daily-sheets.api';
 import { reverseGeocode } from '../../../lib/geocoding';
 import { DeliveryRecordForm } from './delivery-record-form';
-import { AddNoteDialog } from './add-note-dialog';
-import { ItemNotesPanel, DriverNoteGate } from './item-notes-panel';
+import { ConversationThread } from '../../communication/components/conversation-thread';
 
 type TabKey = 'all' | 'pending' | 'completed' | 'issues';
 
@@ -136,6 +135,9 @@ interface DeliveryItemsListProps {
   tabPage: number;
   totalPages: number;
   expandedItemId: string | null;
+  /** Item awaiting scroll-into-view + highlight after a Communication Center deep link (Phase 6). */
+  deepLinkItemId: string | null;
+  onDeepLinkComplete: () => void;
   isClosed: boolean;
   tabCount: (tab: TabKey) => number;
   onTabChange: (tab: string) => void;
@@ -165,6 +167,8 @@ export function DeliveryItemsList({
   tabPage,
   totalPages,
   expandedItemId,
+  deepLinkItemId,
+  onDeepLinkComplete,
   isClosed,
   tabCount,
   onTabChange,
@@ -185,9 +189,25 @@ export function DeliveryItemsList({
   onMoveSelected,
 }: DeliveryItemsListProps) {
   const [savingLocationItemId, setSavingLocationItemId] = useState<string | null>(null);
-  const [addNoteItem, setAddNoteItem] = useState<DeliveryItem | null>(null);
   const [viewPhotoItemId, setViewPhotoItemId] = useState<string | null>(null);
   const [downloadingReceiptId, setDownloadingReceiptId] = useState<string | null>(null);
+  const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // Deep-link scroll + highlight (Phase 6). The row container is mounted for
+  // every item in `paginatedItems` regardless of expanded state, so once
+  // sheet-detail.tsx's locate effect has switched to the right tab/page, the
+  // target row's ref is already attached on this same render — no need to
+  // wait for the AnimatePresence expand transition, which only animates the
+  // inner detail panel, not the row itself.
+  useEffect(() => {
+    if (!deepLinkItemId) return;
+    const el = itemRefs.current[deepLinkItemId];
+    if (!el) return;
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    const timer = setTimeout(() => onDeepLinkComplete(), 2000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLinkItemId]);
 
   const handleDownloadReceipt = async (item: DeliveryItem) => {
     setDownloadingReceiptId(item.id);
@@ -298,29 +318,28 @@ export function DeliveryItemsList({
             const hasActiveEditUnlock =
               !!item.editUnlockExpiresAt && new Date(item.editUnlockExpiresAt) > new Date();
 
-            const notes = item.notes ?? [];
-            const pendingNotesCount = notes.filter((n) => !n.acknowledgedAt).length;
-            const allNotesAcknowledged = notes.length === 0 || pendingNotesCount === 0;
+            // Delivery gate now keys on requiresAck instruction messages only —
+            // casual conversation replies never block recording (Communication
+            // Center §9). `item.notes` is the ConversationMessage relation,
+            // still eagerly embedded in the sheet payload for this chip.
+            const messages = item.notes ?? [];
+            const pendingAckCount = messages.filter((n) => n.requiresAck && !n.acknowledgedAt).length;
+            const allAcksCleared = pendingAckCount === 0;
 
             // Whether the inline record/edit form may be shown for this item.
             const canRecord =
               !isClosed &&
-              allNotesAcknowledged &&
+              allAcksCleared &&
               (item.status === 'PENDING' || !isDriver || hasActiveEditUnlock);
-
-            // Driver sees the gate when there are unacknowledged notes
-            const showDriverGate =
-              isDriver &&
-              !isClosed &&
-              notes.length > 0 &&
-              !allNotesAcknowledged;
 
             const isEligibleForMove = MOVE_ELIGIBLE_STATUSES.includes(item.status);
             const isSelected = selectedIds.has(item.id);
+            const isDeepLinkTarget = item.id === deepLinkItemId;
 
             return (
               <motion.div
                 key={item.id}
+                ref={(el: HTMLDivElement | null) => { itemRefs.current[item.id] = el; }}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: idx * 0.03 }}
@@ -332,6 +351,7 @@ export function DeliveryItemsList({
                   isExpanded ? 'border-primary/30 shadow-sm' : 'hover:border-primary/20',
                   selectMode && !isEligibleForMove && 'opacity-40',
                   selectMode && isEligibleForMove && isSelected && 'border-primary/50 ring-1 ring-primary/40',
+                  isDeepLinkTarget && 'ring-2 ring-primary ring-offset-2 ring-offset-background animate-pulse',
                 )}>
                   <CardContent
                     className={cn('p-4 sm:p-5', (!selectMode || isEligibleForMove) && 'cursor-pointer')}
@@ -421,15 +441,15 @@ export function DeliveryItemsList({
                       </div>
 
                       <div className={cn('flex items-center gap-2 flex-wrap w-full sm:w-auto sm:shrink-0', selectMode && 'hidden')}>
-                        {notes.length > 0 && (
+                        {messages.length > 0 && (
                           <div className={cn(
                             'flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full',
-                            pendingNotesCount > 0
+                            pendingAckCount > 0
                               ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400'
                               : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
                           )}>
                             <StickyNote className="h-2.5 w-2.5" />
-                            {pendingNotesCount > 0 ? `${pendingNotesCount} Note${pendingNotesCount > 1 ? 's' : ''} ⚠` : `${notes.length} Note${notes.length > 1 ? 's' : ''} ✓`}
+                            {pendingAckCount > 0 ? `${pendingAckCount} Pending ⚠` : `${messages.length} Msg${messages.length > 1 ? 's' : ''} ✓`}
                           </div>
                         )}
                         <StatusBadge status={item.status} />
@@ -755,38 +775,15 @@ export function DeliveryItemsList({
                                 })}
                               </p>
                             )}
-                          {/* Admin/Staff: notes panel + Add Note button */}
-                          {isAdminOrStaff && !isClosed && (
-                            <div className="flex justify-end">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="rounded-full font-bold gap-1.5 text-xs h-8"
-                                onClick={() => setAddNoteItem(item)}
-                              >
-                                <StickyNote className="h-3.5 w-3.5" />
-                                Add Note
-                              </Button>
-                            </div>
-                          )}
-
-                          {notes.length > 0 && (
-                            <>
-                              {/* Driver gate: must acknowledge before delivery form */}
-                              {showDriverGate ? (
-                                <DriverNoteGate
-                                  notes={notes}
-                                  sheetId={sheetId}
-                                />
-                              ) : (
-                                <ItemNotesPanel
-                                  notes={notes}
-                                  sheetId={sheetId}
-                                  isDriver={isDriver}
-                                />
-                              )}
-                            </>
-                          )}
+                          {/* Communication Center: embedded conversation thread (replaces the old Add Note dialog + notes panel/gate). */}
+                          <ConversationThread
+                            itemId={item.id}
+                            sheetId={sheetId}
+                            variant="embedded"
+                            isDriver={isDriver}
+                            itemIsPending={item.status === 'PENDING'}
+                            isClosed={isClosed}
+                          />
 
                           {canRecord ? (
                             <DeliveryRecordForm
@@ -864,17 +861,6 @@ export function DeliveryItemsList({
             Move Selected
           </Button>
         </div>
-      )}
-
-      {addNoteItem && (
-        <AddNoteDialog
-          open={!!addNoteItem}
-          onClose={() => setAddNoteItem(null)}
-          itemId={addNoteItem.id}
-          sheetId={sheetId}
-          customerName={addNoteItem.customer?.name ?? 'Customer'}
-          sequence={addNoteItem.sequence}
-        />
       )}
 
       {viewPhotoItemId && (

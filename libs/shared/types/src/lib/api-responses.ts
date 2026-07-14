@@ -133,16 +133,37 @@ export interface CustomerWalletSummary {
   product: { name: string };
 }
 
-export interface DeliveryItemNote {
+// Customer Communication Center (docs/features/customer-communication-center.md).
+// ConversationMessage evolved from the old DeliveryItemNote table; DeliveryItemNote
+// is kept as an alias so the not-yet-migrated notes UI keeps compiling until Phase 7.
+export interface ConversationMessage {
   id: string;
   type: 'TEXT' | 'VOICE';
   text: string | null;
   audioKey: string | null;
   audioDuration: number | null;
+  requiresAck: boolean;
   acknowledgedAt: string | null;
   acknowledgedById: string | null;
   createdAt: string;
   createdBy: { id: string; name: string };
+}
+
+/** @deprecated Alias for ConversationMessage — removed in Phase 7. */
+export type DeliveryItemNote = ConversationMessage;
+
+export interface ConversationContext {
+  id: string;
+  status: 'OPEN' | 'RESOLVED' | 'CLOSED';
+  waitingOn: 'DRIVER' | 'OFFICE' | null;
+  messageCount: number;
+  lastMessageAt: string | null;
+  lastMessagePreview: string | null;
+  customer: { id: string; name: string; customerCode: string; phoneNumber: string | null };
+  dailySheet: { id: string; date: string; isClosed: boolean };
+  van: { id: string; plateNumber: string };
+  driver: { id: string; name: string };
+  item: { id: string; sequence: number; status: DeliveryStatusType; product: { id: string; name: string } };
 }
 
 export interface DeliveryItem {

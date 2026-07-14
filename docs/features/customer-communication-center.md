@@ -276,7 +276,10 @@ components/shared/voice-recorder.tsx    (MOVED from features/daily-sheets — al
 
 ### 6.1 Deep-link mechanics (LOCKED)
 
-Inbox → **Open Delivery** → `/dashboard/sheets/:sheetId?item=:itemId`.
+Inbox → **Open Delivery** → `/dashboard/daily-sheets/:sheetId?item=:itemId`.
+(Corrected in Phase 6 from this section's original `/dashboard/sheets/:sheetId` — the actual
+Daily Sheet detail route, verified against the app router, is `/dashboard/daily-sheets/[id]`.
+Not an architectural decision, just a path typo from before the route existed to check against.)
 
 In `sheet-detail.tsx` (reducer with `SET_TAB`/`SET_PAGE`/`SET_EXPANDED`):
 1. Read `item` via nuqs `useQueryState`.
@@ -358,19 +361,134 @@ Phases are the sub-agent hand-off boundaries. Update this section + Change Log p
     (any driver in the vendor may read); the NEW conversation endpoints scope drivers to
     their own sheets.
 
-### Remaining Phases
-- ⬜ **Phase 2 — Shared thread + Daily Sheet integration.** `ConversationThread`, bubbles,
-  composer, ack-gate; recorder moved to shared; sheet card swaps notes panel/dialog for the
-  embedded thread; drivers can reply. No inbox yet.
-- ⬜ **Phase 3 — Communication Center.** Inbox page, list + filters + search, conversation
-  header, sidebar entries (admin/staff + driver). Status displayed read-only; no unread dots.
-- ⬜ **Phase 4 — Read state + notifications.** Watermarks wired (mark-read, unread counts,
-  sidebar badge, unread-only filter), polling intervals, FCM + InAppNotification on message
-  create via existing processor.
-- ⬜ **Phase 5 — Status workflow.** Resolve/close/reopen UI + transitions + auto-reopen +
-  audit + Waiting Driver/Office tabs (derived filter).
-- ⬜ **Phase 6 — Deep linking.** `?item=` handling in sheet-detail (tab/page/expand/scroll/
-  highlight), Open Delivery + Open in Communications buttons, param clearing.
+- ✅ **Phase 2 — Shared thread + Daily Sheet integration** (2026-07-14). New
+  `features/communication/` (api, hooks, components); `VoiceRecorder` moved to
+  `components/shared/`; `delivery-items-list.tsx`'s expanded card now renders
+  `ConversationThread variant="embedded"` in place of the old Add Note button +
+  ItemNotesPanel/DriverNoteGate; `canRecord`/row chip now key on `requiresAck` instead of
+  "any note." Drivers can reply (approved default from Phase 0). No inbox, unread state,
+  status workflow, notifications, or deep linking — those remain Phase 3+.
+  Implementation notes:
+  - Hook set intentionally scoped to what the embedded thread needs (6 hooks: for-item,
+    messages, sendText, sendVoice, acknowledge, audio-url) — `useMarkRead`/`useInbox`/
+    `useUnreadBadge`/`useSetStatus` from §6's full hook list are Phase 3–5 deliverables and
+    were not stubbed, per "no half-finished implementations."
+  - `ConversationThread`'s prop contract accepts `variant: 'embedded' | 'inbox'` per the
+    locked signature, but only `itemId`-based entry is wired (the `conversationId`-direct
+    entry point the inbox will need is deferred to Phase 3, when it has a caller).
+  - `ack-gate.tsx` is reduced to the summary banner; the old `DriverNoteGate`'s per-note
+    acknowledge button now lives inline on `message-bubble.tsx` (feasible now that
+    `message-bubble` — not a separate gate wrapper — owns per-message ack rendering).
+  - `AddNoteDialog`/`ItemNotesPanel`/`DriverNoteGate` are no longer imported/rendered but
+    were NOT deleted — file deletion is explicitly Phase 7's job per the roadmap below;
+    `add-note-dialog.tsx`'s `VoiceRecorder` import path was updated to the new shared
+    location so the orphaned file still compiles.
+  - `DeliveryItemNote` type became an alias for the new `ConversationMessage` type (adds
+    `requiresAck`), keeping the legacy notes API/hooks in `use-daily-sheets.ts` compiling
+    unchanged.
+- ✅ **Phase 3 — Communication Center** (2026-07-14). `/dashboard/communications` split-pane
+  inbox: `conversation-list.tsx` (rows, no unread dot), `conversation-filters.tsx`
+  (status/van/driver/date/search — van/driver reuse the existing shared filter widgets,
+  search reuses `SearchInput`), `conversation-header.tsx` (read-only context block, no
+  status control, no sheet-navigation link), sidebar entries under Operations
+  ("Communications") and Driver ("Messages") pointing at the same page, mobile responsive
+  (list ⇄ full-pane thread toggle, reachable on mobile via the existing hamburger-menu
+  Sheet). `ConversationThread` reused unchanged — the inbox passes the selected row's
+  `item.id`, so the Phase 2 lazy get-or-create path serves both variants; no separate
+  `conversationId`-entry hook or `GET /conversations/:id` call was needed after all.
+  Implementation notes:
+  - `useInbox` is a plain `useQuery` — no `refetchInterval` (polling is Phase 4).
+  - `GET /conversations` naturally returns `unreadCount`/`waitingOn` per row (Phase 1
+    contract); neither is typed into the client `ConversationContext` or rendered anywhere.
+  - Status is exposed as a plain **filter** (Open/Resolved/Closed/All) and a read-only
+    badge — no resolve/reopen controls; `waitingOn` is not offered as a filter.
+  - No `?conversation=` URL param — selection is local `useState`, cleared (not restored)
+    across navigation; URL-driven preselection is deep linking, Phase 6.
+  - `driver-mobile-nav.tsx` (the driver's fixed 4-item bottom tab bar) was deliberately left
+    untouched — Phase 3 scope is the sidebar entry; drivers reach Communications on mobile
+    via the header's hamburger → full Sidebar (which already includes both new entries).
+- ✅ **Phase 4 — Read state + notifications** (2026-07-14). `useMarkRead` fires from
+  `ConversationThread`'s existing scroll-to-bottom effect (mount + on new messages) — shared
+  by both variants, so embedded and inbox threads get read-state for free. Sidebar unread
+  badge (`UnreadBadge`, polls 60s) on both nav entries. Inbox list row unread dot + count
+  pill (backend's per-row `unreadCount`, unrendered since Phase 3, now surfaced via new
+  `ConversationListItem` type). Polling: `useMessages` 15s, `useInbox` 30s, badge 60s — all
+  via `refetchInterval`, matching the locked intervals exactly. Backend: `onMessageCreated`
+  (Phase 1's no-op seam) now fans out `InAppNotificationService.create` + queued
+  `NotificationService.queueFcm` to the counterpart side (driver's message → every vendor
+  ADMIN/STAFF; office message → the sheet's CURRENT driver, re-resolved live, not the
+  denormalized column), each gated per-recipient by `NotificationPreference` (channels
+  `IN_APP`/`FCM`, eventType `conversation.message`; absent row = enabled, per the model's own
+  default). `unread-only` filter was **not** added — not in this session's Phase 4 instruction
+  list (only mark-read, badge, polling, InApp, FCM); flagged as a possible small gap vs. the
+  original architecture text, left for the owner to request explicitly.
+  Implementation notes:
+  - Notification fan-out is fire-and-forget (not awaited by the message-send response) — a
+    deliberate deviation from the single-recipient `damage-case.service.ts` precedent
+    (which awaits inline), because this fan-out can reach many office users and the chat
+    send path is latency-sensitive. Failures are logged, never surfaced to the sender.
+  - No vendor-level `NotificationType` master-gate wiring — that gate's existing values are
+    all customer-facing WhatsApp flows; conversation messages are internal and are gated
+    only by the per-recipient `NotificationPreference`, per the locked text ("respecting
+    NotificationPreference") which names only that model.
+  - `CommunicationModule` now imports `NotificationsModule` (mirrors `DailySheetModule`'s
+    existing import) to inject `NotificationService`/`InAppNotificationService`.
+  - Daily Sheet's embedded-thread row chip (`delivery-items-list.tsx`) was **not** touched —
+    "unread dot" in its row chip was named in §6's original end-state description but isn't
+    in this phase's explicit scope list, and touching that file risks "revisiting" Phase 2.
+- ✅ **Phase 5 — Status workflow** (2026-07-14). The backend (transitions, the
+  CLOSED-can-only-reopen guard, auto-reopen-on-message, audit logging, 409 on sending into
+  CLOSED) was entirely built in Phase 1 — this phase is pure frontend wiring, no backend
+  files changed. `useSetStatus` added to `use-conversations.ts`; office-only Resolve/Close/
+  Reopen buttons added to `conversation-header.tsx` (buttons shown per current status:
+  OPEN→[Resolve,Close], RESOLVED→[Reopen,Close], CLOSED→[Reopen] only, matching the backend
+  guard exactly). "Waiting on" exposed two ways per the roadmap's two distinct scope
+  bullets: a chip on both `conversation-list.tsx` rows and `conversation-header.tsx` (the
+  "derived logic," which was computed server-side since Phase 1 but never rendered), and a
+  new dropdown filter in `conversation-filters.tsx` (Waiting: Anyone / Driver / Office),
+  wired to the already-existing `waitingOn` query param on `GET /conversations`.
+  Implementation notes:
+  - **Not implemented as tabs.** The roadmap text said "Waiting Driver/Office tabs"; I built
+    a dropdown filter instead, alongside the pre-existing Phase 3 status dropdown, to avoid
+    redesigning that already-approved control (a tab-bar would have meant replacing it,
+    which reads as "revisiting Phase 3"). Functionally equivalent (same query param, same
+    result set), different control. Flagging in case you want it as literal tabs.
+  - **Fixed a real bug while wiring this in:** `page.tsx`'s `selected` conversation was a
+    static snapshot from the list; without a fix, clicking Resolve/Close/Reopen would not
+    visibly update the header (it kept showing the pre-mutation status until the user
+    re-picked the row). Added a `useEffect` that re-syncs `selected` to the matching fresh
+    row whenever the inbox list refetches — necessary for the status buttons whose whole
+    purpose is to change what the header displays.
+  - `useSendMessage`/`useSendVoiceMessage` (Phase 2 hooks) now also invalidate the inbox/
+    badge query prefix, so auto-reopen (a RESOLVED conversation flips to OPEN server-side
+    the moment a new message arrives) is visible in the inbox list immediately rather than
+    waiting up to 30s for its own poll. Does not touch `queryKeys.sheets.one` — the Phase 2
+    rule that sending must not invalidate the sheet still holds exactly as before.
+- ✅ **Phase 6 — Deep linking** (2026-07-14). Both directions wired exactly per §6.1.
+  Forward (`/dashboard/daily-sheets/:sheetId?item=:itemId`): `sheet-detail.tsx` reads `item`
+  via nuqs, locates it in `items`, clears a stale search query if one would hide it, dispatches
+  `SET_TAB('all')` → `SET_PAGE` (computed from the item's index in `sortedItems`) →
+  `SET_EXPANDED` → `START_DEEP_LINK` (new reducer field, since `expandedItemId` alone can't
+  distinguish "expanded via deep link, needs scroll+highlight" from "expanded via a normal
+  click, shouldn't"); `delivery-items-list.tsx` holds a ref map (every row is mounted once
+  it's in `paginatedItems`, regardless of expanded state, so no need to wait on the
+  AnimatePresence detail-panel transition), scrolls the target into view, applies a Tailwind
+  `ring-2 ring-primary animate-pulse` highlight, and after 2s clears both the reducer field
+  and the `?item=` param via a callback. Reverse (`/dashboard/communications?conversation=:id`):
+  new `conversationsApi.getById` + `useConversation` (the conversationId-direct entry point
+  deferred since Phase 2 — this is its first real caller) resolve the conversation
+  independent of the inbox list's current filters, `page.tsx` preselects it and clears the
+  param; a 404 (wrong vendor, or a driver linked to another driver's conversation) shows a
+  toast and clears the param the same way. "Open Delivery" (in `conversation-header.tsx`)
+  and "Open in Communications" (in `conversation-thread.tsx`, embedded variant only) are
+  plain `next/link` links carrying these URLs.
+  Implementation notes:
+  - **URL correction**: §6.1 originally said `/dashboard/sheets/:sheetId`; the real route
+    (verified against the app router) is `/dashboard/daily-sheets/[id]`. Fixed in §6.1 above
+    and used throughout — not an architectural change, the prior text predated checking.
+  - Reverse-direction "preselect" does not reset the list panel's filters or scroll/highlight
+    a row in the list — only the locked text's literal scope ("inbox preselects via nuqs");
+    scroll+highlight is specified only for "the selected delivery" (the sheet-side row).
 - ⬜ **Phase 7 — Cleanup + AI seams.** Delete adapter endpoints + dead frontend
   (AddNoteDialog, ItemNotesPanel, legacy api fns, `DeliveryItemNote` type alias); drop the
   full notes include from sheet `findOne` (replace with per-item

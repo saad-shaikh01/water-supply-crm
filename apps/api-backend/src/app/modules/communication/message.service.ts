@@ -11,6 +11,8 @@ import { ConversationStatus, MessageType, UserRole } from '@prisma/client';
 import { StorageService } from '../../common/storage/storage.service';
 import { AuditService } from '../audit/audit.service';
 import { ConversationService } from './conversation.service';
+import { InAppNotificationService } from '../notifications/in-app-notification.service';
+import { NotificationService } from '../notifications/notification.service';
 import type { AuthUser } from '@water-supply-crm/types';
 
 // Same Wasabi prefix as the legacy note system — existing audio keys and new
@@ -18,6 +20,10 @@ import type { AuthUser } from '@water-supply-crm/types';
 const VOICE_PREFIX = 'delivery-voice-notes';
 const PREVIEW_LENGTH = 120;
 const VOICE_PREVIEW = '🎤 Voice message';
+
+// NotificationPreference.eventType key for this feature (Phase 4).
+const NOTIFICATION_EVENT_TYPE = 'conversation.message';
+const IN_APP_NOTIFICATION_TYPE = 'CONVERSATION_MESSAGE';
 
 const CREATED_BY_INCLUDE = { createdBy: { select: { id: true, name: true } } };
 
@@ -30,6 +36,8 @@ export class MessageService {
     private readonly storage: StorageService,
     private readonly audit: AuditService,
     private readonly conversations: ConversationService,
+    private readonly inAppNotifications: InAppNotificationService,
+    private readonly notifications: NotificationService,
   ) {}
 
   // ── read ────────────────────────────────────────────────────────────────────
@@ -178,18 +186,125 @@ export class MessageService {
       return created;
     });
 
-    this.onMessageCreated(message);
+    this.onMessageCreated(message, user, conversation);
     return message;
   }
 
   /**
    * Post-create hook seam (LOCKED architecture §5.7). Phase 4 attaches
    * FCM/in-app notifications here; future AI phases attach transcription and
-   * summary queue jobs. Intentionally a no-op in Phase 1.
+   * summary queue jobs.
+   *
+   * Fire-and-forget (not awaited by the caller): the notification fan-out
+   * can reach every office user, and the message-send response must not
+   * wait on that round trip. Failures are logged, never surfaced to the
+   * sender — a notification failure must not look like a failed send.
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  private onMessageCreated(_message: { id: string; conversationId: string }): void {
-    // no-op until Phase 4
+  private onMessageCreated(
+    message: { id: string; type: MessageType; text: string | null },
+    user: AuthUser,
+    conversation: { id: string },
+  ): void {
+    this.notifyRecipients(message, user, conversation).catch((err) => {
+      this.logger.warn(
+        `Conversation message notification failed: ${(err as Error)?.message ?? String(err)}`,
+      );
+    });
+  }
+
+  /**
+   * Notifies the "counterpart side" (LOCKED §5.4): a driver's message
+   * notifies every ADMIN/STAFF of the vendor (shared office inbox, no
+   * Participant table — same derivation rule as conversation access); an
+   * office message notifies the sheet's CURRENT driver, resolved fresh here
+   * rather than trusting the denormalized Conversation.driverId.
+   */
+  private async notifyRecipients(
+    message: { id: string; type: MessageType; text: string | null },
+    user: AuthUser,
+    conversation: { id: string },
+  ) {
+    const context = await this.prisma.conversation.findUnique({
+      where: { id: conversation.id },
+      select: {
+        customer: { select: { name: true } },
+        item: { select: { sequence: true, dailySheet: { select: { driverId: true } } } },
+      },
+    });
+    if (!context) return;
+
+    const preview =
+      message.type === MessageType.VOICE ? VOICE_PREVIEW : (message.text ?? '').slice(0, PREVIEW_LENGTH);
+    const title = user.name;
+    const body = `${context.customer.name} · Stop #${context.item.sequence}: ${preview}`;
+
+    const recipientIds =
+      user.role === UserRole.DRIVER
+        ? (
+            await this.prisma.user.findMany({
+              where: {
+                vendorId: user.vendorId,
+                role: { in: [UserRole.VENDOR_ADMIN, UserRole.STAFF] },
+                isActive: true,
+              },
+              select: { id: true },
+            })
+          ).map((u) => u.id)
+        : [context.item.dailySheet.driverId];
+
+    await Promise.all(
+      recipientIds.map((userId) =>
+        this.notifyUser(userId, user.vendorId, conversation.id, message.id, title, body),
+      ),
+    );
+  }
+
+  private async notifyUser(
+    userId: string,
+    vendorId: string,
+    conversationId: string,
+    messageId: string,
+    title: string,
+    body: string,
+  ) {
+    const [inAppEnabled, pushEnabled] = await Promise.all([
+      this.isPreferenceEnabled(userId, 'IN_APP'),
+      this.isPreferenceEnabled(userId, 'FCM'),
+    ]);
+
+    if (inAppEnabled) {
+      await this.inAppNotifications.create({
+        userId,
+        vendorId,
+        type: IN_APP_NOTIFICATION_TYPE,
+        title,
+        message: body,
+        entityId: conversationId,
+      });
+    }
+    if (pushEnabled) {
+      await this.notifications.queueFcm(
+        userId,
+        title,
+        body,
+        { type: IN_APP_NOTIFICATION_TYPE, conversationId },
+        `conversation-message-${messageId}-${userId}`,
+      );
+    }
+  }
+
+  /**
+   * Per-user opt-out (NotificationPreference — distinct from the vendor-level
+   * NotificationType/NotificationChannel master gate used by customer-facing
+   * WhatsApp flows, which does not apply to this internal driver/office
+   * feature). Absent row = not yet customized = enabled, matching the
+   * model's own `enabled Boolean @default(true)`.
+   */
+  private async isPreferenceEnabled(userId: string, channel: 'IN_APP' | 'FCM'): Promise<boolean> {
+    const pref = await this.prisma.notificationPreference.findUnique({
+      where: { userId_eventType_channel: { userId, eventType: NOTIFICATION_EVENT_TYPE, channel } },
+    });
+    return pref?.enabled ?? true;
   }
 
   // ── acknowledge / audio (unchanged semantics from the note system) ─────────

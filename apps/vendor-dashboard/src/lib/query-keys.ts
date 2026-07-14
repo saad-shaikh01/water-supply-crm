@@ -39,4 +39,10 @@ export const queryKeys = {
     repairs: (params: object) => ['warehouse', 'repairs', params] as const,
     summary: (params: object) => ['warehouse', 'summary', params] as const,
   },
+  // Customer Communication Center (docs/features/customer-communication-center.md).
+  communication: {
+    forItem: (itemId: string) => ['conversation', 'for-item', itemId] as const,
+    messages: (conversationId: string) => ['conversation-messages', conversationId] as const,
+    inbox: (params: object) => ['conversations', params] as const,
+  },
 };

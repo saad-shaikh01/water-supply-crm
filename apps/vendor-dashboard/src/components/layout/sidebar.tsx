@@ -7,11 +7,13 @@ import {
   ClipboardList, CreditCard, UserCog, Droplets, Banknote, Navigation,
   Receipt, Bell, BellRing, ScrollText, BarChart2, Home, History, ShoppingCart,
   MessageSquare, AlertTriangle, Tag, ShieldAlert, Warehouse, Wrench, ChevronDown,
+  Inbox,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { useAuthStore } from '../../store/auth.store';
 import { hasMinRole, type Role } from '../../lib/rbac';
 import { useState, useEffect } from 'react';
+import { UnreadBadge } from '../../features/communication/components/unread-badge';
 
 interface ChildNavItem {
   label: string;
@@ -27,16 +29,23 @@ interface NavItem {
   group: string;
   href?: string;
   children?: ChildNavItem[];
+  /** Communication Center unread count pill (Phase 4). */
+  unreadBadge?: boolean;
 }
 
 const navItems: NavItem[] = [
   // Driver
   { label: 'Home', href: '/dashboard/home', icon: Home, minRole: 'DRIVER', group: 'Driver' },
   { label: 'My History', href: '/dashboard/history', icon: History, minRole: 'DRIVER', group: 'Driver' },
+  // Communication Center — same page, server-scoped per role; kept as two
+  // labeled entries (one per group) matching the locked architecture (docs/
+  // features/customer-communication-center.md §6), not two separate pages.
+  { label: 'Messages', href: '/dashboard/communications', icon: Inbox, minRole: 'DRIVER', group: 'Driver', unreadBadge: true },
   // Operations — core flat links
   { label: 'Overview', href: '/dashboard/overview', icon: LayoutDashboard, minRole: 'STAFF', group: 'Operations' },
   { label: 'Customers', href: '/dashboard/customers', icon: Users, minRole: 'DRIVER', group: 'Operations' },
   { label: 'Daily Sheets', href: '/dashboard/daily-sheets', icon: ClipboardList, minRole: 'DRIVER', group: 'Operations' },
+  { label: 'Communications', href: '/dashboard/communications', icon: Inbox, minRole: 'STAFF', group: 'Operations', unreadBadge: true },
 
   // Operations — collapsible: Inventory & Supply
   {
@@ -252,6 +261,7 @@ export function Sidebar({ className }: { className?: string }) {
                       )}
                     />
                     <span className="tracking-tight">{item.label}</span>
+                    {item.unreadBadge && <UnreadBadge />}
                     {isActive && (
                       <div className="absolute right-3 w-1 h-1 bg-primary rounded-full shadow-[0_0_8px_rgba(99,102,241,0.8)]" />
                     )}
