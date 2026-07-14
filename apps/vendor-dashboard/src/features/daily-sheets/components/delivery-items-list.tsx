@@ -11,7 +11,7 @@ import {
 import { cn } from '@water-supply-crm/ui';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import type { DeliveryItem } from '@water-supply-crm/types';
+import type { DeliveryItem, CollectionPolicy } from '@water-supply-crm/types';
 import { useCustomerDeliveryHistory, useDeliveryPhotoUrl } from '../hooks/use-daily-sheets';
 import { dailySheetsApi } from '../api/daily-sheets.api';
 import { reverseGeocode } from '../../../lib/geocoding';
@@ -128,6 +128,8 @@ function CustomerHistorySection({ customerId }: { customerId: string }) {
 
 interface DeliveryItemsListProps {
   sheetId: string;
+  /** Vendor's Collection Policy config, attached to the sheet payload (Phase 1 §6.4). */
+  collectionPolicy?: CollectionPolicy;
   items: DeliveryItem[];
   paginatedItems: DeliveryItem[];
   filteredItems: DeliveryItem[];
@@ -160,6 +162,7 @@ interface DeliveryItemsListProps {
 
 export function DeliveryItemsList({
   sheetId,
+  collectionPolicy,
   items,
   paginatedItems,
   filteredItems,
@@ -791,6 +794,7 @@ export function DeliveryItemsList({
                               key={item.id}
                               item={item}
                               sheetId={sheetId}
+                              collectionPolicy={collectionPolicy}
                               onDone={() => onToggleExpand(null)}
                             />
                           ) : item.status !== 'PENDING' ? (
@@ -798,6 +802,7 @@ export function DeliveryItemsList({
                               key={`${item.id}-ro`}
                               item={item}
                               sheetId={sheetId}
+                              collectionPolicy={collectionPolicy}
                               onDone={() => onToggleExpand(null)}
                               readOnly
                             />

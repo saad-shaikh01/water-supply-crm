@@ -16,6 +16,7 @@ import { StorageService } from '../../common/storage/storage.service';
 import { WarehouseService } from '../warehouse/warehouse.service';
 import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.service';
 import { NotificationSettingsService } from '../notifications/notification-settings.service';
+import { CollectionPolicyService } from '../collection-policy/collection-policy.service';
 import type { AuthUser } from '@water-supply-crm/types';
 import type { MoveDeliveryItemsDto } from './dto/move-delivery-items.dto';
 
@@ -67,6 +68,7 @@ async function buildService(mockAudit: ReturnType<typeof buildMockAudit>) {
       { provide: WarehouseService, useValue: {} },
       { provide: DeliveryReceiptPdfService, useValue: {} },
       { provide: NotificationSettingsService, useValue: {} },
+      { provide: CollectionPolicyService, useValue: {} },
       {
         provide: getQueueToken(QUEUE_NAMES.DAILY_SHEET_GENERATION),
         useValue: { add: jest.fn(), getJob: jest.fn(), getRepeatableJobs: jest.fn().mockResolvedValue([]), upsertJobScheduler: jest.fn() },

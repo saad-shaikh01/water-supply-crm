@@ -37,6 +37,7 @@ import { PaymentReminderModule } from './modules/payment-reminder/payment-remind
 import { DamageCaseModule } from './modules/damage-case/damage-case.module';
 import { WarehouseModule } from './modules/warehouse/warehouse.module';
 import { CommunicationModule } from './modules/communication/communication.module';
+import { CollectionPolicyModule } from './modules/collection-policy/collection-policy.module';
 
 @Module({
   imports: [
@@ -76,6 +77,7 @@ import { CommunicationModule } from './modules/communication/communication.modul
     DamageCaseModule,
     WarehouseModule,
     CommunicationModule,
+    CollectionPolicyModule,
   ],
   controllers: [AppController],
   providers: [

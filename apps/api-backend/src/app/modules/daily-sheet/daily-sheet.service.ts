@@ -40,6 +40,8 @@ import { StorageService } from '../../common/storage/storage.service';
 import { WarehouseService } from '../warehouse/warehouse.service';
 import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.service';
 import { NotificationSettingsService } from '../notifications/notification-settings.service';
+import { CollectionPolicyService } from '../collection-policy/collection-policy.service';
+import { evaluateCollectionPolicy } from '../../common/helpers/collection-policy.util';
 
 const AUTO_GENERATE_CRON = '5 0 * * *'; // 00:05 AM, evaluated in AUTO_GENERATE_TZ
 const AUTO_GENERATE_TZ = 'Asia/Karachi';
@@ -62,6 +64,7 @@ export class DailySheetService implements OnModuleInit {
     private warehouse: WarehouseService,
     private deliveryReceiptPdf: DeliveryReceiptPdfService,
     private notifSettings: NotificationSettingsService,
+    private collectionPolicy: CollectionPolicyService,
     @InjectQueue(QUEUE_NAMES.DAILY_SHEET_GENERATION)
     private sheetQueue: Queue,
   ) {}
@@ -373,7 +376,7 @@ export class DailySheetService implements OnModuleInit {
     const item = await this.prisma.dailySheetItem.findUnique({
       where: { id: itemId },
       include: {
-        customer: { select: { name: true, customerCode: true, phoneNumber: true, paymentType: true, isBillingExempt: true, customPrices: { select: { productId: true, customPrice: true } } } },
+        customer: { select: { name: true, customerCode: true, phoneNumber: true, paymentType: true, isBillingExempt: true, financialBalance: true, customPrices: { select: { productId: true, customPrice: true } } } },
         product: { select: { name: true, basePrice: true } },
         dailySheet: { select: { vendorId: true, date: true, vendor: { select: { name: true } } } },
       },
@@ -419,6 +422,51 @@ export class DailySheetService implements OnModuleInit {
       throw new BadRequestException(
         `This delivery has ${unacknowledgedCount} unacknowledged note(s). Driver must acknowledge all notes before recording delivery.`,
       );
+    }
+
+    // Monthly Customer Collection Policy — minimum-collection gate. Runs before
+    // any transaction/ledger write and never alters how cash is applied once
+    // accepted (docs/features/monthly-customer-collection-policy.md §6.3).
+    if (item.customer.paymentType === PaymentType.MONTHLY && !item.customer.isBillingExempt) {
+      const policy = await this.collectionPolicy.getPolicy(vendorId);
+      if (policy.enabled) {
+        const { prevMonthOutstanding, currentMonthPaid } = await this.getRemainingPrevOutstanding(
+          vendorId,
+          item.customerId,
+          item.customer.financialBalance,
+          item.dailySheet.date,
+        );
+        // Back out this item's own previously saved cash (resubmit correctness).
+        // Safe unconditionally: a first-time submission's saved cashCollected is 0.
+        const remainingPreviousOutstanding = Math.max(
+          prevMonthOutstanding - (currentMonthPaid - item.cashCollected),
+          0,
+        );
+        const policyResult = evaluateCollectionPolicy(policy, {
+          paymentType: item.customer.paymentType,
+          isBillingExempt: item.customer.isBillingExempt,
+          remainingPreviousOutstanding,
+          cashCollected: dto.cashCollected,
+        });
+
+        if (policyResult.applies && !policyResult.satisfied) {
+          throw new UnprocessableEntityException({
+            code: 'COLLECTION_POLICY_VIOLATION',
+            message:
+              "Cash collected does not satisfy the vendor's minimum collection policy for the previous month's outstanding balance.",
+            ...policyResult,
+          });
+        }
+        if (policyResult.reason === 'ZERO_CASH') {
+          await this.audit.log({
+            vendorId,
+            action: 'COLLECTION_POLICY_ZERO_CASH',
+            entity: 'DailySheetItem',
+            entityId: itemId,
+            changes: { after: policyResult },
+          });
+        }
+      }
     }
 
     const activeLoad = await this.prisma.dailySheetLoad.findFirst({
@@ -1062,6 +1110,11 @@ export class DailySheetService implements OnModuleInit {
         }
       }
     }
+
+    // Attach the vendor's Collection Policy config once at the sheet level so
+    // drivers can validate Cash Collected without an extra per-item request
+    // (docs/features/monthly-customer-collection-policy.md §6.4). Cached read.
+    (sheet as any).collectionPolicy = await this.collectionPolicy.getPolicy(vendorId);
 
     return sheet;
   }
@@ -2364,5 +2417,38 @@ export class DailySheetService implements OnModuleInit {
       _sum: { amount: true },
     });
     return (currentFinancialBalance ?? 0) - (agg._sum.amount ?? 0);
+  }
+
+  /**
+   * Prev-month outstanding (opening balance) and this-month payments, anchored
+   * to referenceDate's month — the same aggregation getCustomerFinancialSummary()
+   * exposes to the frontend. Used only by the Collection Policy gate/sheet
+   * attachment; deliberately independent of getPreviousMonthOutstanding() above,
+   * which serves receipts/WhatsApp and must not be touched by this feature.
+   */
+  private async getRemainingPrevOutstanding(
+    vendorId: string,
+    customerId: string,
+    financialBalance: number,
+    referenceDate: Date,
+  ): Promise<{ prevMonthOutstanding: number; currentMonthPaid: number }> {
+    const curMonthStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1);
+    const nextMonthStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 1);
+
+    const [fromCurrentMonth, curPayments] = await Promise.all([
+      this.prisma.transaction.aggregate({
+        where: { customerId, vendorId, createdAt: { gte: curMonthStart } },
+        _sum: { amount: true },
+      }),
+      this.prisma.transaction.aggregate({
+        where: { customerId, vendorId, type: 'PAYMENT', createdAt: { gte: curMonthStart, lt: nextMonthStart } },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    const prevMonthOutstanding = (financialBalance ?? 0) - (fromCurrentMonth._sum.amount ?? 0);
+    const currentMonthPaid = Math.abs(curPayments._sum.amount ?? 0);
+
+    return { prevMonthOutstanding, currentMonthPaid };
   }
 }

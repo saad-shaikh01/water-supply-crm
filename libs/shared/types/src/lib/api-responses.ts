@@ -221,6 +221,29 @@ export interface CustomerFinancialSummary {
   currentOutstanding: number;
 }
 
+/** Vendor-configurable Monthly Customer Collection Policy (minimum-collection floor). */
+export interface CollectionPolicy {
+  enabled: boolean;
+  minOutstandingThreshold: number;
+  minCollectionPercentage: number;
+  allowedShortfall: number;
+}
+
+/**
+ * Result of evaluating a delivery's cash collected against the vendor's
+ * CollectionPolicy. `applies=false` means the policy is exempt for this
+ * submission (see `reason`); `applies=true && satisfied=false` means the
+ * driver must collect at least `requiredAmount` or set cash to 0.
+ */
+export interface CollectionPolicyResult {
+  applies: boolean;
+  satisfied: boolean;
+  reason?: 'DISABLED' | 'NOT_MONTHLY' | 'BILLING_EXEMPT' | 'ZERO_CASH' | 'BELOW_THRESHOLD' | 'BELOW_MINIMUM';
+  requiredAmount: number;
+  collectedAmount: number;
+  remainingPreviousOutstanding: number;
+}
+
 export interface CustomerDeliveryHistoryItem {
   id: string;
   filledDropped: number;
@@ -282,6 +305,7 @@ export interface SheetDetail {
   items: DeliveryItem[];
   loads: LoadTrip[];
   expenses: SheetExpense[];
+  collectionPolicy?: CollectionPolicy;
 }
 
 export interface VanSummary {

@@ -7,7 +7,7 @@ import {
   ClipboardList, CreditCard, UserCog, Droplets, Banknote, Navigation,
   Receipt, Bell, BellRing, ScrollText, BarChart2, Home, History, ShoppingCart,
   MessageSquare, AlertTriangle, Tag, ShieldAlert, Warehouse, Wrench, ChevronDown,
-  Inbox,
+  Inbox, Percent,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { useAuthStore } from '../../store/auth.store';
@@ -99,6 +99,7 @@ const navItems: NavItem[] = [
   { label: 'Users', href: '/dashboard/users', icon: UserCog, minRole: 'VENDOR_ADMIN', group: 'Settings' },
   { label: 'Balance Reminders', href: '/dashboard/balance-reminders', icon: Bell, minRole: 'VENDOR_ADMIN', group: 'Settings' },
   { label: 'Notification Controls', href: '/dashboard/notification-settings', icon: BellRing, minRole: 'VENDOR_ADMIN', group: 'Settings' },
+  { label: 'Collection Policy', href: '/dashboard/collection-policy', icon: Percent, minRole: 'VENDOR_ADMIN', group: 'Settings' },
   { label: 'Audit Logs', href: '/dashboard/audit-logs', icon: ScrollText, minRole: 'VENDOR_ADMIN', group: 'Settings' },
 ];
 

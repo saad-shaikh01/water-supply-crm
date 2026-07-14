@@ -6,7 +6,9 @@ import {
 } from '@water-supply-crm/ui';
 import { ClipboardEdit, Loader2, ShieldAlert } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
-import type { DeliveryItem } from '@water-supply-crm/types';
+import type {
+  DeliveryItem, CollectionPolicy, CollectionPolicyResult, PaymentTypeValue,
+} from '@water-supply-crm/types';
 import { useUpdateDeliveryItem, useCustomerFinancialSummary } from '../hooks/use-daily-sheets';
 import { useReportDamage } from '../../driver/hooks/use-damage-cases';
 import { DamagePhotoUpload } from '../../driver/components/damage-photo-upload';
@@ -114,14 +116,71 @@ function StatBox({
   );
 }
 
+/**
+ * Frontend mirror of the backend's evaluateCollectionPolicy
+ * (apps/api-backend/src/app/common/helpers/collection-policy.util.ts). The
+ * frontend cannot import backend code, so this re-implements the same ~10
+ * lines of arithmetic against the shared CollectionPolicy/CollectionPolicyResult
+ * types (docs/features/monthly-customer-collection-policy.md §4, §7.2). Pure,
+ * no I/O — check order matches the backend exactly, including the
+ * BELOW_THRESHOLD-before-ZERO_CASH precedence.
+ */
+function evaluateCollectionPolicy(
+  policy: CollectionPolicy,
+  input: {
+    paymentType: PaymentTypeValue | undefined;
+    isBillingExempt: boolean;
+    remainingPreviousOutstanding: number;
+    cashCollected: number;
+  },
+): CollectionPolicyResult {
+  const remainingPreviousOutstanding = Math.max(input.remainingPreviousOutstanding, 0);
+  const collectedAmount = input.cashCollected;
+  const base = { collectedAmount, remainingPreviousOutstanding };
+
+  if (!policy.enabled) {
+    return { applies: false, satisfied: true, reason: 'DISABLED', requiredAmount: 0, ...base };
+  }
+  if (input.paymentType !== 'MONTHLY') {
+    return { applies: false, satisfied: true, reason: 'NOT_MONTHLY', requiredAmount: 0, ...base };
+  }
+  if (input.isBillingExempt) {
+    return { applies: false, satisfied: true, reason: 'BILLING_EXEMPT', requiredAmount: 0, ...base };
+  }
+  if (remainingPreviousOutstanding < policy.minOutstandingThreshold) {
+    return { applies: false, satisfied: true, reason: 'BELOW_THRESHOLD', requiredAmount: 0, ...base };
+  }
+  if (collectedAmount <= 0) {
+    return { applies: false, satisfied: true, reason: 'ZERO_CASH', requiredAmount: 0, ...base };
+  }
+
+  const requiredAmount = Math.max(
+    0,
+    Math.round((remainingPreviousOutstanding * policy.minCollectionPercentage) / 100) - policy.allowedShortfall,
+  );
+  const satisfied = collectedAmount >= requiredAmount;
+
+  return {
+    applies: true,
+    satisfied,
+    reason: satisfied ? undefined : 'BELOW_MINIMUM',
+    requiredAmount,
+    ...base,
+  };
+}
+
 interface DeliveryRecordFormProps {
   item: DeliveryItem;
   sheetId: string;
+  /** Vendor's Collection Policy config, attached to the sheet payload (Phase 1 §6.4). */
+  collectionPolicy?: CollectionPolicy;
   onDone: () => void;
   readOnly?: boolean;
 }
 
-export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: DeliveryRecordFormProps) {
+export function DeliveryRecordForm({
+  item, sheetId, collectionPolicy, onDone, readOnly = false,
+}: DeliveryRecordFormProps) {
   const { mutate: updateItem, isPending } = useUpdateDeliveryItem(sheetId);
   const { mutateAsync: reportDamage } = useReportDamage();
 
@@ -134,6 +193,11 @@ export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: 
   // Damage state
   const [showDamage, setShowDamage] = useState(false);
   const [damageForm, setDamageForm] = useState<DamageFormState>(DEFAULT_DAMAGE_FORM);
+
+  // Collection Policy: the backend's 422 backstop result (stale-client / direct-API-call
+  // cases where the local mirror below didn't already catch the violation). Cleared as
+  // soon as the driver edits cash or mode again — never persisted.
+  const [serverViolation, setServerViolation] = useState<CollectionPolicyResult | null>(null);
 
   const effectivePrice = (() => {
     const custom = item.customer?.customPrices?.find((p) => p.productId === item.productId);
@@ -190,6 +254,12 @@ export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: 
     };
   }, [item.id, readOnly, deliveryMode, failureCategory, unableReason, photoKey, itemForm, showDamage, damageForm]);
 
+  // Clear a stale server-side policy violation as soon as the driver changes the cash
+  // amount or delivery mode — the next save attempt should be judged fresh.
+  useEffect(() => {
+    setServerViolation(null);
+  }, [itemForm.cashCollected, deliveryMode]);
+
   // Amount owed for this delivery — auto-calculated from drop count and the customer's rate.
   const amountDue = Math.round((itemForm.filledDropped ?? 0) * effectivePrice);
 
@@ -214,7 +284,52 @@ export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: 
     (finSummary?.currentOutstanding ?? 0) - (savedCharge - savedCash) + (draftCharge - draftCash);
   // Remaining balance carried over from before this month, reduced by payments made
   // this month (incl. the cash being entered now), floored at 0.
+  // Used ONLY for the Prev Month Outstanding StatBox / live financial preview below —
+  // NOT for Collection Policy validation (see remainingForPolicyCheck).
   const livePrevMonthRemaining = Math.max((finSummary?.prevMonthOutstanding ?? 0) - livePaidThisMonth, 0);
+
+  // Collection Policy validation base — deliberately NOT livePrevMonthRemaining.
+  // livePrevMonthRemaining is a post-payment preview (it subtracts draftCash, the
+  // amount currently being typed), which the backend gate never does: submitDelivery
+  // computes remainingPreviousOutstanding purely from transaction history, backing out
+  // only the item's own previously-saved cash on a resubmit (savedCash) — never the new
+  // candidate amount. Mirroring livePrevMonthRemaining here made the effective required
+  // amount shrink as the driver typed more cash, producing false-negative validation
+  // (docs/features/monthly-customer-collection-policy.md §7.2 review, Phase 4 fix).
+  // This mirrors daily-sheet.service.ts's getRemainingPrevOutstanding +
+  // `prevMonthOutstanding - (currentMonthPaid - item.cashCollected)` exactly.
+  const remainingForPolicyCheck = Math.max(
+    (finSummary?.prevMonthOutstanding ?? 0) - ((finSummary?.currentMonthPaid ?? 0) - savedCash),
+    0,
+  );
+
+  // Collection Policy — real-time mirror of the backend evaluator
+  // (docs/features/monthly-customer-collection-policy.md §7.2). Derived state only,
+  // recomputed on every keystroke exactly like the live-preview figures above; never
+  // persisted anywhere (not in itemForm, not in the sessionStorage draft).
+  //
+  // NOTE: `isBillingExempt` is not part of the DeliveryItem.customer shared type and is
+  // not currently selected by the sheet-detail query this form's `item` prop comes
+  // from, so it is always undefined here and defaults to `false` below (accessed via a
+  // local, defensive cast rather than widening the shared type — out of this phase's
+  // scope). This is a pre-existing gap inherited from an earlier phase (documented, not
+  // fixed, per this phase's explicit scope) — see the implementation report. The
+  // backend gate in submitDelivery has the real value and remains the authoritative,
+  // correct check regardless of this frontend limitation.
+  const isBillingExempt = (item.customer as { isBillingExempt?: boolean } | undefined)?.isBillingExempt ?? false;
+  const policyResult: CollectionPolicyResult | null = collectionPolicy
+    ? evaluateCollectionPolicy(collectionPolicy, {
+        paymentType: item.customer?.paymentType,
+        isBillingExempt,
+        remainingPreviousOutstanding: remainingForPolicyCheck,
+        cashCollected: itemForm.cashCollected ?? 0,
+      })
+    : null;
+  const localViolation = policyResult?.applies && !policyResult.satisfied ? policyResult : null;
+  // Server backstop (422 COLLECTION_POLICY_VIOLATION) takes over only when the local
+  // mirror didn't already catch it — stale-client / direct-API-call cases.
+  const violation = localViolation ?? serverViolation;
+  const showPolicyViolation = !readOnly && deliveryMode === 'delivered' && !!violation;
 
   // Bottle wallet preview — wallet balance moves by (dropped − received). The stored
   // wallet value already reflects this item's last save, so back that out first.
@@ -267,6 +382,22 @@ export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: 
           }
           clearDraft(item.id);
           onDone();
+        },
+        // Backend backstop (docs/features/monthly-customer-collection-policy.md §7.2
+        // step 5): covers stale-client / direct-API-call cases the local mirror above
+        // didn't already catch. Renders the same warning card using the server's values.
+        onError: (error: unknown) => {
+          const body = (error as any)?.response?.data; // eslint-disable-line @typescript-eslint/no-explicit-any
+          if (body?.code === 'COLLECTION_POLICY_VIOLATION') {
+            setServerViolation({
+              applies: body.applies,
+              satisfied: body.satisfied,
+              reason: body.reason,
+              requiredAmount: body.requiredAmount,
+              collectedAmount: body.collectedAmount,
+              remainingPreviousOutstanding: body.remainingPreviousOutstanding,
+            });
+          }
         },
       },
     );
@@ -402,9 +533,29 @@ export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: 
                   min={0}
                   value={itemForm.cashCollected ?? ''}
                   onChange={(e) => setItemForm((p) => ({ ...p, cashCollected: e.target.value === '' ? undefined : Number(e.target.value) }))}
-                  className={cn('h-11 font-mono font-bold bg-emerald-500/5 border-emerald-500/20 text-emerald-600 dark:text-emerald-400', readOnly && 'cursor-default')}
+                  className={cn(
+                    'h-11 font-mono font-bold',
+                    showPolicyViolation
+                      ? 'bg-destructive/5 border-destructive text-destructive'
+                      : 'bg-emerald-500/5 border-emerald-500/20 text-emerald-600 dark:text-emerald-400',
+                    readOnly && 'cursor-default',
+                  )}
                   readOnly={readOnly}
                 />
+                {showPolicyViolation && violation && (
+                  <div className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 flex items-start gap-3 text-sm">
+                    <span className="text-destructive mt-0.5">⚠</span>
+                    <div>
+                      <p className="font-bold text-destructive">Collection Policy Not Met</p>
+                      <p className="text-xs text-muted-foreground">
+                        Cash collected does not satisfy the vendor&apos;s minimum collection
+                        policy for the previous month&apos;s outstanding balance. Collect at
+                        least <span className="font-bold">₨{violation.requiredAmount.toLocaleString()}</span>,
+                        or set Cash Collected to 0 if no payment is being collected today.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -611,7 +762,7 @@ export function DeliveryRecordForm({ item, sheetId, onDone, readOnly = false }: 
           >
             Discard
           </Button>
-          <Button onClick={doSave} disabled={isPending} className="flex-1 rounded-xl font-bold">
+          <Button onClick={doSave} disabled={isPending || showPolicyViolation} className="flex-1 rounded-xl font-bold">
             {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
             Save Record
           </Button>

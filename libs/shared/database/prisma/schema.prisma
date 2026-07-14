@@ -185,6 +185,7 @@ model Vendor {
   warehouseTransactions   WarehouseTransaction[]
   repairBatches           RepairBatch[]
   notificationSettings    NotificationSetting[]
+  collectionPolicyConfig  CollectionPolicyConfig?
 }
 
 model User {
@@ -954,6 +955,23 @@ model ReminderScheduleConfig {
   minBalance     Int      @default(100)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+
+  @@index([vendorId])
+}
+
+/// Monthly Customer Collection Policy — vendor-configurable minimum-collection
+/// floor evaluated against the customer's remaining previous month outstanding.
+/// Missing row = policy disabled (mirrors NotificationSetting's convention).
+model CollectionPolicyConfig {
+  id                      String   @id @default(uuid())
+  vendorId                String   @unique
+  vendor                  Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  enabled                 Boolean  @default(false)
+  minOutstandingThreshold Float    @default(1000)
+  minCollectionPercentage Float    @default(90)
+  allowedShortfall        Float    @default(300)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 
   @@index([vendorId])
 }
