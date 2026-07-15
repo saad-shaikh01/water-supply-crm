@@ -8,3 +8,24 @@ export const collectionPolicySchema = z.object({
 });
 
 export type CollectionPolicyInput = z.infer<typeof collectionPolicySchema>;
+
+export const cashCollectionPolicySchema = z
+  .object({
+    enabled: z.boolean(),
+    allowedCreditDeliveries: z
+      .number()
+      .int('Must be a whole number')
+      .min(0, 'Must be 0 or more')
+      .max(10, 'Must be 10 or less'),
+    minExposureFloor: z.number().min(0, 'Must be 0 or more'),
+    maxOutstandingCeiling: z.number().min(0, 'Must be 0 or more').nullable(),
+  })
+  .refine(
+    (data) => data.maxOutstandingCeiling == null || data.maxOutstandingCeiling >= data.minExposureFloor,
+    {
+      message: 'Absolute limit must be empty or at least the minimum amount',
+      path: ['maxOutstandingCeiling'],
+    },
+  );
+
+export type CashCollectionPolicyInput = z.infer<typeof cashCollectionPolicySchema>;

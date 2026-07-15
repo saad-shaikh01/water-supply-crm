@@ -1,418 +1,582 @@
-# Cash Customer Collection Policy — Planning & Architecture Document
+# Cash Customer Collection Policy — Architecture Document (v2: Adaptive Credit Model)
 
-**Status: PROPOSED — Phase 0 draft (2026-07-14), awaiting product-owner review. NOTHING IMPLEMENTED.**
+**Status: ARCHITECTURE LOCKED (owner, 2026-07-15) — final validation passed (see Change Log). Implementation NOT STARTED; ready for Phase 1.**
 
-This document is the planning counterpart to `docs/features/monthly-customer-collection-policy.md`
-(the "monthly policy", fully implemented through Phase 3 + parity fix). It designs the equivalent
-collection control for **CASH** customers. It is not a copy of the monthly policy: the business
-model, the enforcement base, the zero-payment rule, and the trigger condition are all deliberately
-different, for reasons argued below. Once the owner locks §4, this document becomes the single
-source of truth for implementation, phase-by-phase, under the same workflow rules as the monthly
-doc (implement one phase, verify, update Completed Phases + Change Log, stop for review).
+**v2 supersedes the v1 fixed-cap design** (same file, 2026-07-14) after owner review: a fixed
+rupee cap gives small customers excessive credit and large customers almost none. v2 replaces
+§4–§7 (the business model) with an adaptive, consumption-proportional credit system. Everything
+mechanical that v1 got right — gate placement, ledger-exact resubmit back-out, the 3-input
+evaluator discipline, caching, RBAC, the Communication Center seam, `PAYMENT_NOT_MADE` — carries
+forward unchanged and is restated here so this document remains standalone. The v1 architecture
+review's findings (rollout cliff, corrections escape hatch, multi-item ordering, reverse
+staleness, worked examples) are folded in.
 
-Everything in this document was verified against the current codebase (2026-07-14), not assumed:
-`submitDelivery` (daily-sheet.service.ts:374–663), `ledger.recordDelivery` + `applyIdempotentRepost`
-(ledger.service.ts:21–213), `getCustomerFinancialSummary` (daily-sheet.service.ts:2303),
-`findOne()` sheet attachment (daily-sheet.service.ts:955–1120), the collection-policy
-module/cache/controller, the driver form's live-preview math (delivery-record-form.tsx:263–341),
-and the Communication Center doc §10 seam.
+All code facts verified against the current codebase (2026-07-15): `submitDelivery`
+(daily-sheet.service.ts:374–663), `ledger.recordDelivery` + `applyIdempotentRepost`
+(ledger.service.ts:21–213), `getCustomerFinancialSummary` (:2303), `findOne()` sheet batch +
+attachments (:955–1120, incl. the existing `lastFilledDropped` batch at :1026–1054),
+`Transaction` indexes (`@@index([customerId, createdAt])`), the collection-policy module, the
+driver form's derived values (delivery-record-form.tsx:263–341), and the Communication Center
+doc §10.
 
 ---
 
 ## 1. Problem Statement
 
-`PaymentType.CASH` customers are supposed to pay per delivery, but nothing in the system enforces
-that. `submitDelivery` accepts any `cashCollected` — including 0 — for a CASH customer, and
-`ledger.recordDelivery` posts `charge − cash` onto `Customer.financialBalance`. A driver who
-repeatedly accepts "I'll pay next time" silently converts a pay-on-delivery customer into an
-unsecured credit account with no limit, no visibility at the doorstep, and no policy the vendor
-can configure. The monthly policy explicitly scoped CASH customers out (§2 of that doc); this
-feature is the missing half.
+CASH customers are supposed to pay per delivery, but nothing enforces it: `submitDelivery`
+accepts any `cashCollected` including 0, and the ledger accumulates `charge − cash` onto
+`Customer.financialBalance` without limit. The business does **not** want hard COD — temporary
+credit is a legitimate service ("no change today, pay next visit"). It wants a **controlled
+credit system**:
 
-The problem is **not** "CASH customers must always pay in full" — small, short-lived balances are
-normal doorstep reality (no change, customer stepped out, pays double next visit). The problem is
-that the debt is **unbounded**.
+- customers may temporarily run a tab,
+- the tab must be proportional to the customer's own consumption (₨2,000 of slack means five
+  free deliveries to a ₨400/visit household but less than one to a ₨3,000/visit shop),
+- the tab must not become permanent — a customer sitting at their limit forever, paying just
+  enough to stay there, is locked vendor capital,
+- and the driver must only ever see one number: *collect at least ₨X* (or: nothing required).
+
+The v1 fixed cap solved unboundedness but failed proportionality and permanence: its equilibrium
+is "every customer parks at the cap."
 
 ## 2. Goals
 
-- Give the vendor one configurable control over how much unpaid balance a CASH customer may
-  accumulate before the next delivery is blocked.
-- Enforce it at the same point, with the same mechanics, as the monthly policy: a pre-transaction
-  gate inside `submitDelivery`, a pure evaluator, a real-time frontend mirror, a `422` backstop.
-- Make the doorstep experience predictable: the driver sees the exact minimum amount to collect
-  *before* handing bottles over, as a single number.
-- Reuse the financial figures the system already computes (`Customer.financialBalance`,
-  `getCustomerFinancialSummary().currentOutstanding`, the driver form's existing
-  `savedCharge`/`savedCash` back-out) — no new accounting concepts.
-- Zero changes to `ledger.service.ts`; the policy only decides whether a submission may proceed.
-- Same tenancy, RBAC, caching, and audit conventions as the monthly policy.
-- Default-off, additive-only migration — no vendor's behavior changes until an admin opts in.
+- One vendor-configurable policy that gives every CASH customer a credit allowance that
+  **scales with their own actual billing** — no per-customer configuration.
+- Built-in **recovery pressure**: a customer above their natural allowance is pulled back down
+  a bit on every visit, geometrically, without any special workflow.
+- Enforcement at the same point and with the same mechanics as the monthly policy: a
+  pre-transaction gate in `submitDelivery`, a pure evaluator, a real-time frontend mirror, a
+  `422` backstop.
+- Driver contract limited to four states: *no payment required / collect at least ₨X / reduce
+  bottles / Unable to Deliver*.
+- Reuse existing financial primitives only (`financialBalance`, the item's own ledger rows,
+  `getCustomerFinancialSummary`) — **no consumption-history estimator in the enforcement path**
+  (§7 explains why none is needed).
+- Zero ledger changes; default-off; additive migration; existing tenancy/RBAC/cache/audit
+  conventions.
 
 ## 3. Non-Goals
 
-- **No approval workflow** — no pending states, queues, notifications, or review screens
-  (same owner-established constraint as monthly §2).
-- **No payment-to-delivery allocation model.** The ledger is a running balance; payments are not
-  matched to specific deliveries. This feature does not introduce allocation (see §5.2's rejection
-  of the unpaid-delivery-count design, which would require it).
-- **No upper limit on cash collected** — overpayment/credit flows through the ledger exactly as
-  today, identical to monthly rule §3.2.
-- **MONTHLY customers are completely out of scope** — the two policies never overlap; each
-  evaluator hard-exempts the other's payment type.
-- **No per-customer credit limits in v1** — designed-for extensibility point (§17), not v1 scope.
-- **No changes to the monthly policy's schema, endpoints, evaluator, or locked rules.** The
-  shared settings page and module gain *siblings*, never modifications.
-- Admin correction-entry, ad-hoc delivery, order-insert, damage-case, and bulk-import flows call
-  `ledger.recordDelivery` directly (daily-sheet.service.ts:1228, 1331; bulk-import.service.ts;
-  damage-case.service.ts) and are **not gated** — the same deliberate stance as monthly §9.3.
-  Staff-only correction paths are the pressure-relief valve, not a loophole to close.
+- **No approval workflows, pending states, queues, or review screens** (owner-established, as
+  monthly §2).
+- **No payment allocation / FIFO accounting / debt aging.** The ledger stays a running balance;
+  "old debt" is only ever measured as *the size* of the balance, never its age (§4.5 shows this
+  is sufficient).
+- **No upper limit on cash collected** — overpayment/credit posts through the untouched ledger.
+- **No per-customer configuration in v1** — the whole point of the adaptive model is that
+  per-customer behavior emerges from vendor-level settings. (Per-customer override remains a
+  documented extension, §20.)
+- **MONTHLY customers out of scope**; the two policies are mutually exclusive by payment type.
+- **No changes to the monthly policy's** schema, endpoints, evaluator, or locked rules — this
+  feature adds siblings only.
+- Admin correction-entry, ad-hoc, order-insert, bulk-import, and damage flows call
+  `ledger.recordDelivery` directly and are **not gated** (deliberate, as monthly §9.3 — the
+  trusted staff paths are the escape valve, see §15.9).
 
 ## 4. Business Rules (PROPOSED — owner must lock before Phase 1)
 
-### 4.1 The one rule: an outstanding-balance cap
+### 4.1 The impossibility result that shapes the design
 
-The vendor configures a single number, `maxOutstandingBalance` — the most a CASH customer is
-allowed to owe **after** a delivery is recorded. The driver must collect whatever cash is needed
-to keep the customer at or under that line:
+The brief asks for two things simultaneously: *"allow customers to temporarily use credit"*
+(a zero-payment zone) and *"the system should naturally encourage outstanding to decrease over
+time"* (no parking). These are incompatible in their naive forms:
+
+> **If any policy offers a zero-required zone up to some level X, the rational steady state of
+> every customer is X.** Free credit up to X *is* an invitation to carry X forever. This is why
+> the v1 cap parks everyone at the cap, and why any "credit window W + recovery above W" design
+> parks everyone at (or oscillating around) W.
+
+Both sketched models from the brief fail on this, with numbers:
+
+- **"Required = today's bill + 25% × outstanding, whenever outstanding > 0"** — since required
+  ≥ today's bill always, outstanding can *never grow*. The credit window is unusable from the
+  first rupee of debt; this is COD-plus, not a credit system. Contradicts the credit-window goal
+  outright.
+- **"Free under window W; bill + 25% × outstanding at/above W"** (the two-regime fix) — take
+  W = 800, bill = 300: the customer coasts free to 800, gets one heavy visit
+  (required = 300 + 200 = 500 → outstanding 600), is back under W, coasts free up again…
+  outstanding oscillates in the 600–800 band **forever**. Average locked capital ≈ W. The
+  recovery never compounds because every recovery visit re-opens the free zone. Parking with
+  extra steps, plus a cliff at W that drivers experience as arbitrary.
+
+The resolution is to make the required amount **smoothly proportional** rather than
+zone-triggered — no free zone (above a small de-minimis floor), no cliff, no parking spot.
+
+### 4.2 The core rule: proportional settlement
+
+One integer knob: **`allowedCreditDeliveries` (N)** — "how many typical deliveries' worth of
+tab a customer may carry." Everything else derives from it:
 
 ```
-projectedBalance = preDeliveryBalance + todayCharge − cashCollected
-requiredAmount   = max(0, round(preDeliveryBalance + todayCharge − maxOutstandingBalance))
-valid            ⇔ cashCollected ≥ requiredAmount
+exposure       = preDeliveryBalance + todayCharge          // what they'd owe paying nothing
+requiredAmount = exposure / (N + 1)                        // the proportional-settlement rule
+valid          ⇔ cashCollected ≥ requiredAmount
 ```
 
-Where:
+with two auxiliary vendor settings:
 
-- `preDeliveryBalance` = the customer's live `financialBalance` with **this item's own prior
-  ledger effect backed out** (resubmit correctness, §4.6). May be negative (customer credit) —
-  credit legitimately increases headroom; it is never floored.
-- `todayCharge` = `filledDropped × price`, using the **identical** price resolution
-  `submitDelivery` already performs (custom price → base price; `isBillingExempt` → 0).
-- Comparison is `≥`, rounding via `Math.round` — same conventions as monthly §11.10.
+- **`minExposureFloor`** — de-minimis: the policy is exempt while `exposure ≤ floor` (don't
+  block a delivery over trivial amounts; the analog of monthly's `minOutstandingThreshold`).
+- **`maxOutstandingCeiling`** (nullable, default null) — optional absolute safety net:
+  `requiredAmount = max(exposure/(N+1), exposure − ceiling)`, bounding worst-case single-visit
+  exposure (§4.6). The v1 cap survives as this optional term.
 
-### 4.2 When the policy applies
+Final formula (see §14 for the exact evaluator):
 
-The policy applies iff **all** of the following hold; if any fails, the submission saves exactly
-as today (a first-class exemption path, mirroring monthly §3.6):
+```
+requiredAmount = clamp( max( exposure/(N+1),  ceiling ? exposure − ceiling : 0 ),  0,  exposure )
+```
+
+`requiredAmount ≤ exposure` always — compliance never demands overpayment past zero, and paying
+exactly the required amount never pushes a customer into credit.
+
+### 4.3 Why this single rule delivers both of the owner's concepts — emergently
+
+Algebra, not configuration. If a customer always pays exactly the required amount:
+
+```
+O' = (O + B) − (O + B)/(N + 1) = (N/(N+1)) × (O + B)
+```
+
+This recurrence contracts toward a **fixed point O\* = N × B** — i.e. the customer's
+steady-state tab is exactly *N typical bills*. The owner's "Credit Window = Typical Bill ×
+Allowed Credit Deliveries" **emerges from the arithmetic**, using the customer's *actual* bills,
+with no consumption estimator, no history query, and no window to compute, cache, or explain.
+
+Equivalently, the rule can be rewritten as:
+
+```
+requiredAmount = todayCharge + (O − N×B) / (N + 1)
+```
+
+— **today's bill, plus 1/(N+1) of the excess above the emergent window** (or minus the same
+fraction of the unused headroom below it). The owner's "recovery percentage" also emerges: a
+customer above their window pays their bill *plus* a geometric bite of the excess every visit;
+a customer below it enjoys credit. Three behaviors, one formula:
+
+| Customer state | Required vs. today's bill | Effect over visits |
+|---|---|---|
+| Tab below N×bill | **less** than the bill | credit genuinely usable; tab drifts up toward N×B |
+| Tab at N×bill | **exactly** the bill | steady state: "pays one bill per visit" |
+| Tab above N×bill (spike, legacy debt) | **more** than the bill | tab declines geometrically back to N×B |
+
+There is no level at which paying ₨100 forever works: at any tab above N×B the required amount
+strictly exceeds the bill, so under-paying customers are pulled down every single visit. The
+"₨800 tab, pays ₨100 forever" scenario from the brief is structurally impossible.
+
+`N` is directly meaningful to the vendor: **N = 0 → COD** (required = full exposure, every
+visit settles everything); N = 1 → tab of one delivery; N = 2 → two; N = 3 → three. The derived
+rate 1/(N+1) never appears in any UI.
+
+### 4.4 Worked examples (normative — these are the Phase 1 test fixtures and Phase 3 parity table)
+
+Config: N = 2, floor = 500, ceiling = null. Amounts rounded per §4.8. `O` = pre-delivery
+balance, `B` = today's charge.
+
+**A. New customer converging to their emergent window (B = 300 every visit, always pays the minimum):**
+
+| Visit | O before | Exposure | Required | O after |
+|---|---|---|---|---|
+| 1 | 0 | 300 | 0 (≤ floor) | 300 |
+| 2 | 300 | 600 | 200 | 400 |
+| 3 | 400 | 700 | 230 | 470 |
+| 4 | 470 | 770 | 250 | 520 |
+| 5 | 520 | 820 | 270 | 550 |
+| 6–8 | 550→590 | 850→890 | 280–290 | 570→600 |
+| 9+ | **600** | 900 | **300 (= B)** | **600 = N×B** (exact, simulated) |
+
+**B. Legacy/over-window debt recovering geometrically (O = 1,500, B = 300):**
+
+| Visit | O before | Exposure | Required | O after |
+|---|---|---|---|---|
+| 1 | 1,500 | 1,800 | 600 (= B + 300 recovery) | 1,200 |
+| 2 | 1,200 | 1,500 | 500 | 1,000 |
+| 3 | 1,000 | 1,300 | 430 | 870 |
+| 4 | 870 | 1,170 | 390 | 780 |
+| 5–10 | 780→630 | | 360→310 | geometric decline |
+| 11+ | **620** | 920 | **300 (= B)** | settles at 620 — inside the equilibrium band **[600, 630)**; parked capital recovered |
+
+**C. Consumption spike (party order): O = 600 (at window), B = 3,000:** exposure = 3,600 →
+required = 1,200; the customer gets ₨2,400 of temporary credit on the spike, then case-B
+recovery pulls the tab back to N × (normal bill) over the following visits. Exactly
+"temporarily use credit, gradually recover."
+
+**D. Big customer, same config (B = 3,000):** floor irrelevant; emergent window = 6,000;
+steady-state required = 3,000/visit. Same knob, proportionally correct — the fixed cap's core
+defect is gone.
+
+**E. COD vendor (N = 0):** required = exposure — full settlement of today plus any old debt,
+every visit.
+
+**F. Credit balance:** O = −500 (customer prepaid), B = 300 → exposure = −200 ≤ floor → exempt.
+Credit is consumed before any requirement resumes.
+
+**G. Ceiling engaged:** ceiling = 5,000, O = 4,000, B = 3,000 → exposure = 7,000 →
+max(2,333, 2,000) → rounds to **2,330**; at O = 6,000, B = 3,000 → max(3,000, 4,000) =
+**4,000** — the safety net binds only when the proportional rule would leave absolute exposure
+above the ceiling.
+
+**H. The chronic small-payer (the canonical business scenario this feature exists for —
+B = 300, customer wants to pay ₨100 every visit):**
+
+| Visit | O before | Exposure | Required | What happens |
+|---|---|---|---|---|
+| 1 | 0 | 300 | 0 (≤ floor) | pays ₨100 by choice → O = 200 |
+| 2 | 200 | 500 | 0 (≤ floor) | pays ₨100 by choice → O = 400 |
+| 3 | 400 | 700 | 230 | **₨100 no longer accepted** — collects ≥ 230 → O ≤ 470 |
+| 4 | ~470 | ~770 | ~250 | requirement keeps ramping → settles at O\* = 600, required = 300 |
+
+Note the deliberate divergence from the intuitive "coast freely to the maximum, then recover"
+narrative: there is no coast-to-max phase. The requirement ramps in smoothly the moment the
+floor is crossed and rises with the tab — the customer never experiences a cliff, the vendor's
+exposure never spikes to a "maximum" first, and the end state is identical (tab ≈ N bills,
+paying one bill per visit). This is the no-parking property (§4.1) seen from the customer's
+side.
+
+### 4.5 When the policy applies
+
+All of the following, else the submission saves exactly as today (first-class exemption path):
 
 1. Vendor policy `enabled`.
 2. `customer.paymentType === CASH`.
 3. `customer.isBillingExempt === false`.
-4. The submission **posts a charge**: resolved status is ledger-posting (`COMPLETED` /
-   `EMPTY_ONLY`) **and** `todayCharge > 0`. In practice this means `COMPLETED` with
-   `filledDropped > 0` — `EMPTY_ONLY` is by definition `filledDropped = 0` and is therefore
-   always exempt.
-5. `requiredAmount > 0` (i.e. the projected balance at the entered cash would exceed the cap —
-   equivalently, the balance-plus-charge exceeds the cap even before cash is considered; if the
-   customer is comfortably under the limit the policy is invisible).
+4. The submission **posts a charge**: resolved status is ledger-posting (`COMPLETED`/
+   `EMPTY_ONLY`) and `todayCharge > 0` — in practice, `COMPLETED` with `filledDropped > 0`.
+   Failure records and empty-only pickups (which *reduce* vendor exposure) are never blocked;
+   the caller encodes status by passing `chargeAmount = 0` for non-posting statuses.
+5. `exposure > minExposureFloor` (else `WITHIN_FLOOR`).
+6. `requiredAmount > 0` after clamping (else `WITHIN_FLOOR` semantics do not arise; a zero
+   requirement means the policy is invisible).
 
-### 4.3 Zero payment is NOT an exemption — the key divergence from monthly
+"Old unpaid deliveries" affect new ones **only** through the balance — debt size, never debt
+age. No allocation assumption anywhere: the only payment ever attributed to a delivery is the
+item-linked delivery-time cash the ledger already links.
 
-The monthly policy treats `cashCollected = 0` as an always-valid business case (monthly §3.7),
-because monthly customers are on a billing cycle and zero-collection visits are normal. **Copying
-that rule here would make the cap decorative**: any driver could bypass the entire policy by
-typing 0. For CASH customers the rules are inverted:
+### 4.6 The one-big-order loophole and the optional ceiling
 
-- Zero cash is fine **as long as the customer stays under the cap** — this is the "configurable
-  tolerance" and "small balance" behavior, and it needs no special case: `requiredAmount` is
-  simply 0.
-- Once the cap would be breached, **some payment is mandatory** — exactly `requiredAmount`, which
-  the driver sees as one number. There is no zero-cash escape hatch.
-- The driver's legitimate options when the customer cannot pay `requiredAmount`:
-  1. Collect at least `requiredAmount` (partial settlement — always enough to get under the cap).
-  2. **Reduce `filledDropped`** — a smaller drop lowers `todayCharge`, which lowers
-     `requiredAmount` live in the form. Delivering 1 bottle instead of 3 to a maxed-out customer
-     is a real, useful doorstep outcome.
-  3. **Record "Unable to Deliver"** with a payment-related failure category (§6.4) — the truthful
-     record when the vendor's answer is "no payment, no bottles." Failure submissions carry
-     `filledDropped = 0` → `todayCharge = 0` → always exempt (§4.2.4), so recording the failure
-     is never itself blocked.
+The proportional rule's per-visit credit extension scales with today's order: a customer could
+order very large once, pay 1/(N+1), and churn. Two mitigations, deliberately layered:
 
-This is the entire driver-facing mental model: *"Cash customers can owe up to ₨L. If this
-delivery would put them over, collect at least the number shown."*
+- **Physical**: the vendor hands over the bottles; unusually large CASH orders are a human
+  decision the policy cannot and should not replace.
+- **Configurable**: `maxOutstandingCeiling` bounds post-visit exposure absolutely for vendors
+  who want it (example G). Nullable — vendors who trust the proportional rule alone leave it
+  off. This is the entire remaining role of the v1 cap.
 
-### 4.4 What the cap expresses (and what the rejected knobs would have)
+### 4.7 Zero payment, overpayment, credit, partial payment
 
-`maxOutstandingBalance` spans the whole strictness spectrum with one number:
+- **Zero cash** is valid exactly while `exposure ≤ floor` (or policy exempt otherwise). Above
+  the floor, some payment is always required — this is the price of no-parking (§4.1), and it is
+  intentional: the "free skip" the fixed-cap model allowed is precisely what let customers ratchet
+  up to the limit. The floor keeps genuine de-minimis skips ("no change for a ₨300 first
+  delivery") frictionless.
+- **Partial payment**: any `cash ≥ requiredAmount` — which below the window is *less* than
+  today's bill. Partial payment is the normal, expected case, not an exception.
+- **Overpayment**: unbounded above, posts as credit via the untouched ledger; existing credit
+  raises headroom automatically (example F).
 
-| Vendor intent | Setting |
-|---|---|
-| Strict COD — every visit settles everything including today | `0` |
-| "One delivery's worth of slack" | ≈ typical order value (e.g. 500) |
-| "Roughly N unpaid deliveries tolerated" | ≈ N × typical order value |
-| Effectively off for large accounts | large value, or `enabled = false` |
+### 4.8 Rounding — LOCKED (owner, 2026-07-15)
 
-### 4.5 Overpayment, credit, and old debt
+`requiredAmount` is rounded **down to the nearest ₨10** (`floor(x/10)×10`): ₨343 → ₨340,
+₨347 → ₨340, ₨359 → ₨350 — doorstep-friendly denominations, always lenient. Comparison is
+`Collected ≥ RoundedRequired`. **Only the minimum requirement is rounded**: the driver records
+the actual collected amount (paying ₨500 against a ₨340 requirement stores ₨500), and the
+ledger always posts the actual amount — the gate never alters `cashCollected`.
 
-- No ceiling on `cashCollected` — identical to monthly §3.2. Overpayment produces negative
-  `financialBalance` (credit) via the untouched ledger.
-- Existing credit raises headroom automatically (negative `preDeliveryBalance`).
-- Old unpaid deliveries affect new ones **only** through the balance — that is the mechanism,
-  not a side effect. No per-delivery aging, no FIFO, no allocation.
+Validated consequences (see Change Log, final validation):
+- The map stays a contraction; the exact fixed point widens to the **equilibrium band
+  `[N×B, N×B + 10(N+1))`** — at most ₨30 wide at N = 2. A minimum-payer settles somewhere in
+  that band (simulated: exactly 600 approaching from below, 620 recovering from legacy debt).
+- Under N = 0 (COD) the round-down leaves a residual tab of at most ₨9 that oscillates and
+  never accumulates — COD means "settled to within ₨9", by design.
+- Deliberate divergence from monthly's round-to-rupee (this value is driver-facing cash;
+  monthly's is not).
 
-### 4.6 Resubmit / edit correctness
+### 4.9 Resubmit / edit correctness (carried from v1, unchanged)
 
-When an already-recorded item is force-resubmitted, the customer's `financialBalance` already
-contains that item's previous posting. The gate must evaluate against the balance **as if this
-item had never posted**, then apply the new figures:
+`preDeliveryBalance = customer.financialBalance − thisItemPriorLedgerEffect`, where the prior
+effect is reconstructed **from the item's own ledger rows** (`Transaction.findFirst` by
+`dailySheetItemId` for DELIVERY, plus the PAYMENT row's negative amount) — the identical
+reconstruction `applyIdempotentRepost` performs (ledger.service.ts:134–147), so the gate
+predicts by construction the exact balance a repost will produce, including the phantom-row
+case (`COMPLETED → NOT_AVAILABLE` resubmits leave ledger rows behind). Field-based back-out
+(monthly's approach) remains rejected for the reasons recorded in v1: over-strict in the
+phantom case and slightly under-strict after prior overpayment. The helper lives as a **private
+method in `daily-sheet.service.ts`** — `ledger.service.ts` must not be touched.
 
-```
-preDeliveryBalance = customer.financialBalance − thisItemPriorLedgerEffect
-```
+### 4.10 Enforcement scope
 
-`thisItemPriorLedgerEffect` is reconstructed **from the item's own ledger rows**
-(`transaction.findFirst({ dailySheetItemId, type: DELIVERY })` amount **plus** the PAYMENT row's
-negative amount) — the exact same reconstruction `applyIdempotentRepost` performs
-(ledger.service.ts:134–147). This guarantees the gate predicts precisely the balance the repost
-will produce, by construction.
+One code path, all roles (VENDOR_ADMIN, STAFF, DRIVER), no bypass flag — identical to monthly
+§3.9/§9.1. Corrections that would *lower* recorded cash below the required amount have no
+in-product path by design; the documented escape hatch is a VENDOR_ADMIN temporarily raising
+`N`/disabling the policy (audited via §16), making the correction, and restoring — rare,
+auditable, and no new mechanism (§15.9).
 
-*Rejected alternative:* deriving the prior effect from item fields
-(`item.filledDropped × item.pricePerBottle − item.cashCollected`), as the monthly gate does with
-its saved cash. It is one query cheaper but diverges from ledger truth in the known
-phantom-ledger-row scenario (a `COMPLETED → NOT_AVAILABLE` resubmit zeroes the item's fields but
-leaves its ledger rows in place, because non-posting statuses never call `recordDelivery`). The
-field-based back-out would then usually be over-strict, and in the prior-overpayment case
-slightly *under*-strict — a genuine (if rare) bypass direction. Two indexed `findFirst`s buy
-exactness; the monthly owner-accepted over-strictness ruling (monthly §13.3) was specific to that
-feature and is not inherited here.
+## 5. Credit Window Design
 
-### 4.7 Multiple deliveries, same customer, same day
+**There is no stored, computed, or configured credit window.** The window is the emergent fixed
+point O\* = N × B of the settlement recurrence (§4.3):
 
-Each submission re-reads the live balance, and each accepted posting updates it transactionally —
-so a second item (second product, or a second visit) evaluates against the balance *including*
-the first item's charge and cash. Correct and self-consistent. A driver could split cash across
-items to satisfy each item's smaller requirement — but unlike the monthly policy (where splitting
-weakens the floor, accepted as monthly §11.5), here splitting cannot beat the cap: the final
-projected balance after all items is what it is, and the last item's gate sees it. The cap is
-**order-independent** — a structurally nicer property than the monthly percentage rule.
+- It scales to each customer automatically, using their *actual* current bills — a customer
+  whose consumption doubles sees their allowance double *on the next delivery*, with zero lag,
+  zero recompute, zero cache.
+- It requires no cold-start rule (new customers converge from zero, example A), no staleness
+  handling (inactive customers hold a real balance, not a decaying estimate), and no
+  manipulation surface (there is no stored number to game — see §7 for the gaming analysis of
+  the alternatives).
+- It is explainable to a vendor in one sentence: *"customers can run a tab of about N
+  deliveries; each visit they pay roughly one bill."*
 
-### 4.8 Enforcement scope
+### 5.1 Credit-model alternatives compared (recommendation: emergent)
 
-One code path, all roles (VENDOR_ADMIN, STAFF, DRIVER) — identical to monthly §3.9/§9.1. No
-role bypass flag. Staff needing an exceptional save use the out-of-scope correction flows (§3),
-or the admin temporarily adjusts the cap (audited, §13).
-
-### 4.9 Evaluated ideas from the brief — keep / drop record
-
-| Idea | Verdict | Reasoning |
-|---|---|---|
-| Balance threshold / debt cap | **KEPT — it is the whole design** | Ledger-native (`financialBalance` is the one number the system already maintains transactionally); one knob; transparent; order-independent. |
-| Minimum payment percentage (of charge or of outstanding) | **Dropped** | Percentage-of-outstanding produces a moving target that shrinks as the customer pays (the exact ambiguity that caused the monthly Phase 3 parity bug), ignores today's charge, and bounds debt only asymptotically and opaquely. Percentage-of-today's-charge doesn't bound accumulated debt at all. Both add a second number for the driver to reason about. The cap achieves the actual business goal (bounded rupees at risk) with strictly simpler rules. Re-addable later as a second `max(...)` term in the evaluator without contract changes (§17). |
-| Unpaid delivery count limit | **Dropped** | "Unpaid delivery" is not representable in this ledger: payments are unallocated (a standalone `recordPayment` reduces the balance without touching any delivery). Defining it needs a FIFO allocation subsystem — a new accounting model, high complexity, and gameable (many small deliveries ≠ one large one). The cap expresses the same intent in rupees, which is what the vendor actually risks. Vendors wanting "≈3 unpaid deliveries" set cap ≈ 3 × order value. |
-| Configurable tolerance / allowed shortfall | **Dropped** | A shortfall on top of a cap is arithmetically just a bigger cap. Redundant knob; fold it in. |
-| Partial payment rules | **Subsumed** | Any payment ≥ `requiredAmount` is a valid partial payment by construction. |
-| Balance-based relief / small-balance behavior | **Subsumed** | Below the cap the policy is invisible — automatically, with no threshold knob. |
-| Payment progress indicators | **Kept, minimal** | A limit-aware balance chip on the collapsed item card + a "Balance After" figure vs. the limit in the form (§6). No gauges/progress bars. |
-| Configurable vendor settings | **Kept, minimal** | Two fields: `enabled`, `maxOutstandingBalance`. |
-| Balance thresholds for applicability | **Dropped as a separate knob** | The cap *is* the threshold. |
-
-## 5. Design Alternatives Compared (recommendation: A)
-
-| | A — Balance cap (recommended) | B — % of current outstanding (monthly-clone) | C — Unpaid-delivery count | D — Hybrid (cap + % of charge) |
+| Credit model | Proportional to customer? | Parking behavior | Infrastructure cost | Verdict |
 |---|---|---|---|---|
-| Driver mental model | "Owe at most ₨L" — one number | "Pay X% of what you owe" — target moves as they type/pay | "Only N unpaid slips" — but 'unpaid' invisible to driver | Two rules to explain |
-| Bounds debt | Hard bound, transparent | Asymptotic, opaque | Only if delivery sizes are uniform | Hard bound |
-| Ledger fit | Native (`financialBalance`) | Needs "outstanding" definition for CASH (no month anchor exists) | Needs new allocation subsystem | Native |
-| Today's charge handled | Yes, in formula | No — % of old debt ignores new debt being created | No | Yes |
-| Edge cases | Few (no month boundaries at all) | Month-anchoring questions for a payment type that has no billing month | Many (allocation, backdating, corrections) | A's plus percentage interactions |
-| Config surface | 2 fields | 4 fields | 3 fields + new subsystem | 3–4 fields |
-| Known bug-class risk | Low — evaluator takes 3 independent inputs | High — repeats the "remaining vs. preview" ambiguity that bit monthly Phase 3 | High | Medium |
+| **Fixed amount** (v1 cap) | No — the owner's core objection: excessive for small customers, nothing for large | Parks at the cap | None | Rejected (owner, v1) |
+| **Typical bill × multiplier** (explicit stored window) | Yes, if the estimator is good | Parks at the window (§4.1) | Estimator + per-customer cache + invalidation on every delivery + cold-start rule (§7) | Rejected |
+| **Average / median / rolling / time-based consumption** | These are estimator *variants* of the row above, not distinct credit models — see §7's table for their individual failure modes | Same parking | Same, varying | Rejected for enforcement |
+| **Risk score** (payment-history score → per-customer limit) | Yes, in theory | Depends on what the score feeds — still parks if it feeds a window | Highest by far: a scoring model, training/tuning, drift monitoring, storage, and an explainability apparatus | Rejected — opaque limits are indefensible at the doorstep ("why is my limit lower than his?") and to the vendor's own staff. The emergent model already *is* deterministic risk adaptation: a customer who under-pays sees their requirement ramp (example H); a customer who pays well is untouched. Scoring belongs in the display/insight layer (§20), never enforcement. |
+| **Emergent window** (recommended, §4.3) | Automatically — uses the customer's actual current bills | None — no free zone to park in (above the de-minimis floor) | Zero | **Recommended** |
 
-## 6. Recommended UX
+An **explicit** window (`window = typicalBill × N`, stored or computed per customer) is worth
+singling out because it is the intuitive design: it needs a consumption estimator (§7's entire
+problem space), a place to cache it, an invalidation story, a cold-start rule, and — fatally —
+it recreates parking at the window edge (§4.1) unless combined with exactly the smooth rule
+that makes the explicit window redundant.
 
-### 6.1 Admin settings (vendor-dashboard)
+## 6. Recovery Model
 
-The existing `/dashboard/collection-policy` page becomes the home of **both** policies: the
-current form is retitled as a "Monthly Customers" card and a sibling "Cash Customers" card is
-added below it (enable toggle + one numeric field + inline explainer with a worked example:
-*"Limit ₨2,000: a customer owing ₨1,800 taking a ₨500 delivery must pay at least ₨300."*).
-Same RHF+Zod conventions as `features/collection-policy/` (no `.default()` on Zod fields;
-`defaultValues` in the hook). Helper copy must warn that a cap smaller than a typical single
-delivery forces near-COD behavior. No sidebar change (the entry already exists, VENDOR_ADMIN-gated).
+**There is no separate recovery mechanism.** Recovery is the same formula operating above the
+emergent window: `required = bill + excess/(N+1)` (§4.3), producing geometric decline at rate
+1/(N+1) per visit (example B: 1,500 → 1,200 → 1,000 → 867 → … → 600). Properties:
 
-### 6.2 Driver — before expanding the card (the doorstep pre-warning)
+- **Compounding**: unlike the two-regime design (§4.1), there is no free zone to fall back into
+  mid-recovery; the pull continues smoothly all the way to the emergent window.
+- **Proportional pain**: a slightly-over customer pays slightly more than their bill; a legacy
+  debtor pays substantially more. No cliffs.
+- **Recovery speed is the same knob**: smaller N = faster recovery and smaller window — one
+  coherent "strictness" dial, not two settings that can be configured into contradiction
+  (e.g. a generous window with brutal recovery, or vice versa).
 
-The collapsed item row already shows the CASH customer's current balance
-(delivery-items-list.tsx:408–411 renders `customer.financialBalance` for non-monthly customers)
-and the sheet payload already carries the balance and will carry the policy (§8). Add a
-tone/label only: the existing balance chip turns **red with a "Payment required" hint** when
-`financialBalance ≥ cap`, amber when ≥ 80% of cap. Zero new requests, zero new components —
-drivers know *before ringing the bell* that this stop needs collection.
+### 6.1 Recovery-model alternatives compared (recommendation: emergent, exposure-based)
 
-### 6.3 Driver — inside the record form
+| Recovery model | Behavior | Verdict |
+|---|---|---|
+| **Unconditional surcharge** (`required = bill + r × O` whenever O > 0) | Required ≥ bill always → outstanding can never grow → the credit system forbids credit. | Rejected (§4.1, with numbers) |
+| **Two-regime** (free under window W; surcharge at/above W) | Oscillates in a band just under W forever; recovery never compounds; cliff at W. | Rejected (§4.1, with numbers) |
+| **Flat surcharge above a threshold** (`required = bill + F`) | Two-regime parking *plus* disproportion: a flat ₨200 bite is brutal for the ₨300 customer and meaningless for the ₨4,000 customer — the exact defect that killed the fixed cap, relocated into recovery. | Rejected |
+| **Outstanding-only base** (`required = O / N`, today's bill excluded) | Same equilibrium family (O\* = N×B, required = bill at steady state) — the closest competitor. But: a customer with a clean tab pays **₨0 on any first order, however large** (a ₨4,000 one-off extends ₨4,000 of credit unchecked — the one-big-order loophole with no proportional brake), and the driver's reduce-bottles lever vanishes (B absent from the formula, so dropping fewer bottles changes nothing). | Rejected in favor of the exposure base, which charges 1/(N+1) of the spike itself and keeps quantity a real doorstep lever |
+| **Interest / ageing-based** (tab accrues charges, or required scales with debt age) | Accruing interest means posting new charge transactions — a change to accounting semantics, forbidden (§3). Scaling by age means knowing which rupees are old — payment allocation, forbidden (§3). | Rejected on non-goals; see §15.19 for why size is a sufficient ageing proxy |
+| **Emergent proportional settlement** (`required = exposure/(N+1)`) | Recovery = the same formula above the window; geometric, compounding, cliff-free, proportional to both customer size and debt size. | **Recommended** |
 
-Mirrors the monthly policy's Phase 3 pattern exactly (destructive input styling, inline warning
-card, disabled Save, derived-state-only, no draft-schema change):
+The brief's literal recovery formula (`bill + r × outstanding`) is rejected with the analysis
+in §4.1: unconditioned, it forbids credit entirely; threshold-conditioned, it oscillates and
+parks. Both worked-number demonstrations are normative — QA should reproduce them when
+challenging this design.
 
-- The evaluator mirror runs on every keystroke against `(preDeliveryBalance, todayCharge,
-  cashCollected)` — all three already exist as derived values in the form
-  (`finSummary.currentOutstanding − (savedCharge − savedCash)`, `amountDue`, and
-  `itemForm.cashCollected`; delivery-record-form.tsx:264–304).
-- Warning card copy: *"This delivery would leave the customer owing ₨{projectedBalance}, above
-  the ₨{cap} limit. Collect at least **₨{requiredAmount}**, reduce the bottles dropped, or record
-  Unable to Deliver if no payment can be made."*
-- For CASH customers, the right-column stat panel (currently monthly-oriented: Prev Month Bal /
-  Paid This Month / Prev Month Outstanding) is replaced with CASH-relevant boxes: **Current Bal**
-  (pre-delivery), **Today's Bill** (`amountDue`), **Balance After** (the existing
-  `liveCurrentOutstanding`), **Limit** (the cap). The `StatBox` component is reused as-is.
-- Backend `422` backstop: `onError` handles `CASH_COLLECTION_POLICY_VIOLATION` identically to
-  the existing `COLLECTION_POLICY_VIOLATION` branch, rendering the same card from server values.
+## 7. Customer Consumption Model
 
-### 6.4 New failure category (small, high-leverage)
+The brief's "biggest question" — how to measure normal consumption — is answered by the
+recommended architecture with: **you don't, for enforcement.** Today's actual bill is the
+consumption signal, and the recurrence turns it into a trailing, self-updating allowance.
+For completeness and to justify that conclusion, the requested evaluation of estimator options
+(as inputs to a hypothetical explicit-window design, and for any future display/AI use):
 
-Add `PAYMENT_NOT_MADE` ("Customer Unable to Pay") to the Unable-to-Deliver category list.
-`DailySheetItem.failureCategory` is a plain `String?` — **no migration**, one frontend list entry
-plus the doc comment on the column. This makes the blocked-and-walked-away outcome a truthful,
-queryable record; it is also the data trail the Communication Center seam (§16) and future AI
-(§17) read — playing the role monthly's `COLLECTION_POLICY_ZERO_CASH` audit event plays, without
-a new audit action (see §13 for why blocked attempts themselves are not audited).
+| Option | Accuracy | Perf/complexity | Manipulation | Seasonality / pattern change | New customers | Inactive customers |
+|---|---|---|---|---|---|---|
+| Mean of last 10 deliveries | Good | One indexed query (`Transaction @@index([customerId, createdAt])`, type DELIVERY, take 10) + per-customer cache + invalidation on every delivery | Inflatable by a few large orders (raises own window) | Lags ~10 visits | No data — needs fallback rule | Stale value persists indefinitely |
+| Mean of last 20 | Smoother | Same, slower to adapt | Harder to inflate | Lags ~20 visits | Same | Same |
+| Last 30 days | Recency-correct | Cheap aggregate | Time-boxed inflation | **Frequency-sensitive**: weekly vs. daily customers get very different sample sizes | No data | **Zero window after a vacation → blocks everything** — dangerous |
+| Last 60 days | Smoother | Same | Same | Slower | Same | Same failure, delayed |
+| Median of last 10 | **Best of the stored options** — robust to party-order spikes | Same as mean-10 plus a sort | Very resistant (must shift half the sample) | Lags | Same | Same |
+| Weighted moving average | Smooth | Highest: stored state or full-history scan; unexplainable to vendors ("why is my window ₨713?") | Moderate | Best adaptation of the stored options | Same | Decays wrongly |
 
-## 7. Backend Architecture
+Every row shares four structural costs the emergent model has none of: an extra query or a
+denormalized-and-invalidated cached value per customer; a cold-start rule; an explainability
+burden ("the number that blocked me changed overnight"); and a gaming surface. And every row
+still terminates in an explicit window that parks (§4.1).
 
-### 7.1 Ownership — extend the existing `collection-policy` module (no new module)
+**Recommendations:**
+- **Enforcement: no estimator.** (This is the recommendation for *this codebase* specifically:
+  the ledger's running balance plus today's charge are already in the gate's hands with zero
+  additional infrastructure.)
+- **Pre-doorbell display estimate** (§8.2): `lastFilledDropped × effective price` — already
+  batch-attached to every sheet item (daily-sheet.service.ts:1026–1054). Accuracy is irrelevant
+  here because the form recomputes exactly once the real drop count is typed.
+- **If a stored estimator is ever genuinely needed** (AI insights, §20): median of the last 10
+  DELIVERY transactions per customer, computed offline/on-demand, never in the gate.
 
-Collection policy is one domain with two payment-type-specific rule sets. The existing module
-gains sibling members; nothing existing is modified in behavior:
+## 8. Recommended UX
+
+### 8.1 Admin settings
+
+Second card ("Cash Customers") on the existing `/dashboard/collection-policy` page, next to the
+monthly card; `features/collection-policy/` conventions (RHF + Zod, no `.default()` on Zod
+fields, `defaultValues` in the hook). Fields: enable toggle, **Allowed Credit Deliveries**
+(integer stepper, 0–10, helper: *"0 = cash on delivery. 2 = customers may carry about two
+deliveries' worth of tab."*), **Minimum Amount** (floor, helper: *"Deliveries are never blocked
+while the total owed is at or below this."*), **Absolute Limit** (optional ceiling, helper:
+*"Hard maximum any customer may owe, regardless of size. Leave empty for none."*). Include the
+§4.4-A/B mini-example rendered from the entered values (pure display arithmetic — the same
+worked-example table, live). **Phase 2 must include the impact hint** (v1 review R1, promoted):
+*"With these settings, N of your active CASH customers would owe a payment on their next
+delivery; M of them more than ₨1,000"* — one read-only aggregate over `Customer.financialBalance`.
+
+### 8.2 Driver — collapsed card (pre-doorbell)
+
+The card already shows the CASH customer's balance (delivery-items-list.tsx:408–411). Add
+tone + an **estimated collect amount** — `(financialBalance + lastFilledDropped × price) / (N+1)`,
+floored/rounded per §4.8, shown as *"Collect ~₨X"* when it exceeds 0 — computed entirely from
+data already on the sheet payload (policy attachment §9.3, `financialBalance`,
+`lastFilledDropped`, custom prices). Zero new requests. The driver knows the ballpark before
+ringing the bell; the form gives the exact figure.
+
+### 8.3 Driver — record form
+
+Identical interaction pattern to monthly Phase 3 (destructive input treatment, inline warning
+card, disabled Save, derived-state only, sessionStorage draft untouched, `422` backstop):
+
+- Mirror recomputes per keystroke from `(preDeliveryBalance, todayCharge, cashCollected)` — all
+  three already exist as derived values (`finSummary.currentOutstanding − (savedCharge −
+  savedCash)`, `amountDue`, `itemForm.cashCollected`).
+- Warning copy (drivers see amounts, never formulas): *"Collect at least **₨{required}** for
+  this delivery. The customer's tab (₨{currentBalance}) plus today's bill is above their
+  allowance. Reduce the bottles dropped, or record Unable to Deliver if no payment can be
+  made."*
+- CASH stat panel replaces the monthly-oriented StatBoxes: **Current Tab**, **Today's Bill**,
+  **Collect at least** (the required amount, green when met), **Tab After** (the existing
+  `liveCurrentOutstanding`). `StatBox` reused as-is.
+- Multi-item guidance (v1 review R3): the warning card, when the sheet has other unrecorded
+  items for the same customer, appends *"enter the customer's cash on the first product you
+  record."*
+- `422 CASH_COLLECTION_POLICY_VIOLATION` handled alongside the existing monthly branch.
+
+### 8.4 New failure category
+
+`PAYMENT_NOT_MADE` ("Customer Unable to Pay") added to the Unable-to-Deliver list.
+`failureCategory` is a free `@IsString()` column — no migration, one frontend list entry. It is
+the queryable record of blocked-and-walked-away outcomes, the Communication Center seam's data
+trail (§19), and rides the existing auto-delivery-issue path (submitDelivery:620–629) for free.
+
+## 9. Backend Architecture
+
+### 9.1 Ownership
+
+Extend the existing `collection-policy` module (no new module — one domain, two payment-type
+rule sets):
 
 ```
 modules/collection-policy/
-├── collection-policy.module.ts        (unchanged exports + same service)
 ├── collection-policy.controller.ts    (+ GET/PATCH /collection-policy/cash)
 ├── collection-policy.service.ts       (+ getCashPolicy, updateCashPolicy; second cache key)
-└── dto/
-    ├── update-collection-policy.dto.ts        (untouched)
-    └── update-cash-collection-policy.dto.ts   (new)
+└── dto/ + update-cash-collection-policy.dto.ts
 
-common/helpers/collection-policy.util.ts       (+ evaluateCashCollectionPolicy — second pure fn,
-                                                same file: one domain-helper home, mirrors the
-                                                existing function's doc-comment style)
+common/helpers/collection-policy.util.ts   (+ evaluateCashCollectionPolicy — second pure fn)
 ```
 
-*Rejected alternative:* a separate `cash-collection-policy` module — more files, a second
-controller and DI wiring, for a feature that shares the domain, the settings page, the cache
-service, and the consuming gate. The monthly doc locks the monthly feature's *behavior*, not the
-module's right to grow additive siblings; this document's change-log entry in the monthly doc
-records the addition.
+### 9.2 Gate placement in `submitDelivery`
 
-### 7.2 Gate placement in `submitDelivery`
+Immediately after the monthly-policy gate block (~line 470), before the active-trip check; all
+resolution pre-`$transaction`; the two policy gates are mutually exclusive by payment type.
 
-New gate immediately **after** the existing monthly-policy gate block (line ~470) and before the
-active-trip check — same pre-`$transaction` discipline (all gates resolve before the transaction
-starts; no I/O added inside it). The two policy gates are mutually exclusive by payment type, so
-ordering between them is cosmetic; adjacency keeps the "collection policy" story in one place.
-
-Gate logic:
-
-1. `if (item.customer.paymentType !== CASH || item.customer.isBillingExempt) skip` (cheap
-   pre-filter before any I/O, mirroring line 430's monthly pre-filter).
-2. `policy = collectionPolicy.getCashPolicy(vendorId)` — cached read. `if (!policy.enabled) skip`.
-3. Resolve `price` and `resolvedStatus`. **Implementation note:** both are currently computed
-   *after* the active-trip check (lines 480–490); hoist those two existing computations above the
-   gate block (behavior-neutral — they are pure functions of the DTO and already-loaded item) so
-   the gate and the transaction share one definition. Do not duplicate the price logic.
+1. Pre-filter: `paymentType === CASH && !isBillingExempt`, else skip (no I/O).
+2. `getCashPolicy(vendorId)` (cached); skip if `!enabled`.
+3. **Hoist** the existing `price` and `resolvedStatus` computations (currently :480–490) above
+   the gate block — behavior-neutral, single definition shared by gate and transaction. Do not
+   duplicate the price logic.
 4. `todayCharge = isPostingStatus(resolvedStatus) ? dto.filledDropped * price : 0`.
-5. `preDeliveryBalance = item.customer.financialBalance − priorLedgerEffect(itemId)` per §4.6
-   (two indexed `transaction.findFirst` calls, or one `findMany` on `dailySheetItemId`).
-6. `result = evaluateCashCollectionPolicy(policy, { paymentType, isBillingExempt,
-   currentBalance: preDeliveryBalance, chargeAmount: todayCharge, cashCollected: dto.cashCollected })`.
-7. `if (result.applies && !result.satisfied)` → throw `UnprocessableEntityException` with body
-   `{ code: 'CASH_COLLECTION_POLICY_VIOLATION', message: …, ...result }` (§10).
+5. `preDeliveryBalance` per §4.9 (ledger-row back-out, private helper in this service).
+6. Evaluate (§14); on `applies && !satisfied` → `422` with
+   `{ code: 'CASH_COLLECTION_POLICY_VIOLATION', message, ...result }`.
 
-`ledger.recordDelivery` and everything downstream: **untouched**.
+`ledger.recordDelivery` and everything downstream: untouched.
 
-### 7.3 Sheet-level attachment
+### 9.3 Sheet attachment
 
-`findOne()` already attaches `sheet.collectionPolicy` via one cached read
-(daily-sheet.service.ts:1117). Add the sibling line: `sheet.cashCollectionPolicy = await
-this.collectionPolicy.getCashPolicy(vendorId)`. No per-item computation is needed at all — the
-CASH policy's base (`customer.financialBalance`) is already in every item's customer select
-(line 974), unlike monthly's batch `previousMonthOutstanding` computation. This feature adds
-**zero** queries to sheet load beyond the cached policy read.
+One line beside the existing monthly attachment (:1117):
+`sheet.cashCollectionPolicy = await this.collectionPolicy.getCashPolicy(vendorId)` — cached
+read; the model needs no per-item batch work at all (`financialBalance` and `lastFilledDropped`
+are already on every item).
 
-## 8. Database Changes
+## 10. Frontend Architecture
 
-One new model, one additive migration, following the now-twice-established
-"per-vendor config row, missing row = disabled" convention (`CollectionPolicyConfig`,
-`ReminderScheduleConfig`):
+- `features/collection-policy/` gains cash api/hooks/schema/form files mirroring the existing
+  four; the page composes both cards.
+- `delivery-record-form.tsx`: second module-level evaluator mirror (monthly Phase 3 precedent —
+  same file, pure function, same check order as backend including reason precedence), fed the
+  **three independent inputs**, never a post-payment preview (`liveCurrentOutstanding` already
+  subtracts draft cash — feeding it to the mirror is the exact parity bug monthly Phase 4
+  fixed; this contract makes it unrepresentable).
+- `delivery-items-list.tsx`: chip estimate (§8.2), prop-drilled `cashCollectionPolicy`
+  alongside the existing `collectionPolicy` prop.
+- Shared types: `CashCollectionPolicy`, `CashCollectionPolicyResult`; `DailySheetDetail` +
+  `cashCollectionPolicy?`. (`DeliveryItem.customer.isBillingExempt` already exists — monthly
+  Phase 4 closed that gap.)
+
+## 11. Database Impact
+
+One new model, additive migration, "per-vendor config row, missing row = disabled" convention:
 
 ```prisma
 model CashCollectionPolicyConfig {
-  id                    String   @id @default(uuid())
-  vendorId              String   @unique
-  vendor                Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  enabled               Boolean  @default(false)
-  maxOutstandingBalance Float    @default(2000)
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  id                      String   @id @default(uuid())
+  vendorId                String   @unique
+  vendor                  Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  enabled                 Boolean  @default(false)
+  allowedCreditDeliveries Int      @default(2)      // N; required = exposure/(N+1); 0 = COD
+  minExposureFloor        Float    @default(500)
+  maxOutstandingCeiling   Float?                    // null = no absolute ceiling
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 
   @@index([vendorId])
 }
 ```
 
-Plus the inverse relation on `Vendor`. Nothing else — no `Customer` columns (per-customer limits
-are §17), no `DailySheetItem` columns, no enum changes (`failureCategory` is a free string).
+Plus the inverse relation on `Vendor`. Nothing else — no Customer columns, no DailySheetItem
+columns, no stored consumption estimates, no enum changes.
 
-*Rejected alternative:* adding `cashEnabled` / `cashMaxOutstandingBalance` columns to the existing
-`CollectionPolicyConfig`. Fewer tables, one cache key — but it mutates the locked monthly
-feature's model and its shared `CollectionPolicy` type, which is consumed by the monthly
-evaluator, its 422 payload, its audit rows, and the frontend mirror. Independent lifecycles
-(a vendor may enable one policy and not the other, or a future phase may extend one shape) argue
-for separation; the cost is one extra tiny table and one extra cached read.
-
-## 9. API Design
+## 12. API Design
 
 | Endpoint | Roles | Purpose |
 |---|---|---|
-| `GET /collection-policy/cash` | VENDOR_ADMIN, STAFF | Read config (defaults if no row). |
-| `PATCH /collection-policy/cash` | VENDOR_ADMIN | Upsert; validates `maxOutstandingBalance ≥ 0`; drops cache; audit `UPDATE_CASH_COLLECTION_POLICY`. |
+| `GET /collection-policy/cash` | VENDOR_ADMIN, STAFF | Config (defaults if no row). |
+| `PATCH /collection-policy/cash` | VENDOR_ADMIN | Upsert; validates `N ∈ [0, 10]` int, `floor ≥ 0`, `ceiling = null` **or** `ceiling ≥ floor` (a ceiling below the floor would be silently ineffective inside the exempt zone — reject the misconfiguration at write time); drops cache; audits. |
+| `GET /collection-policy/cash/impact` (Phase 2) | VENDOR_ADMIN | Read-only aggregate for the §8.1 impact hint (counts over `Customer.financialBalance` for prospective settings). |
 
-- Static `/cash` segment on a controller with no `:id` routes — no NestJS shadowing concern.
-- No driver-facing endpoint — drivers receive the policy inside the sheet payload (§7.3),
-  identical to monthly §6.5.
-- `PATCH /daily-sheets/items/:id` (`submitDelivery`) contract unchanged except the new `422` body.
-- Shared types (`libs/shared/types`): `CashCollectionPolicy`, `CashCollectionPolicyResult` (§11);
-  `DailySheetDetail` gains `cashCollectionPolicy?: CashCollectionPolicy`. Note:
-  `DeliveryItem['customer'].isBillingExempt` — required by this feature's frontend mirror — is
-  already present in both the `findOne()` select and the shared type (the monthly policy's
-  Phase-4 hardening closed that gap); nothing to add here.
+Drivers receive the policy via the sheet payload only. `submitDelivery`'s contract is unchanged
+except the new `422` body.
 
-## 10. Validation Flow
+## 13. Validation Flow
 
 ```
-Driver types in delivery-record-form (CASH customer)
-  ├─ mirror computes result from (preDeliveryBalance, todayCharge=draftCharge, cash)
-  ├─ violation → red input + warning card + Save disabled   (never blocks mode switch to 'unable')
-  └─ ok → Save enabled
-Save → PATCH /daily-sheets/items/:id
-  submitDelivery:
-    terminal-status / forceResubmit / unlock checks     (existing)
-    unacknowledged-instruction gate                     (existing, Communication Center)
-    monthly collection-policy gate                      (existing — exits NOT_MONTHLY for CASH)
-    ★ cash collection-policy gate                       (new, §7.2)
-        applies && !satisfied → 422 CASH_COLLECTION_POLICY_VIOLATION {…result}
-    active-trip check                                   (existing)
-    $transaction → item update → ledger.recordDelivery  (untouched)
-Frontend onError: code === 'CASH_COLLECTION_POLICY_VIOLATION'
-  → render the same warning card from server values (stale-client / direct-API backstop)
+Driver types (CASH customer)
+  mirror: evaluate(preDeliveryBalance, todayCharge = draftCharge, cash)
+    violation → red input + warning card (₨ amounts only) + Save disabled
+Save → PATCH /daily-sheets/items/:id → submitDelivery:
+  terminal/forceResubmit/unlock → unacked-instruction gate → monthly gate (NOT_MONTHLY for CASH)
+  → ★ cash gate (§9.2) → 422 CASH_COLLECTION_POLICY_VIOLATION on violation
+  → active-trip check → $transaction → ledger.recordDelivery (untouched)
+Frontend onError: render card from server values (stale-client backstop)
 ```
 
-The backend recomputes everything from live data at submit time; the frontend mirror is UX only,
-never authoritative — the same two-layer model as monthly, with the parity lesson (monthly Phase 4
-fix) designed out by contract: the evaluator takes **three independent inputs** and computes the
-projection itself, so there is no "which remaining figure do I feed it" ambiguity to get wrong.
+Backend recomputes everything from live data; the mirror is UX only. Reverse staleness (an
+office payment lands while the form is open → mirror over-blocks; the 422 path can't fire
+because Save is disabled) is accepted exactly as in monthly — collapse/re-expand refetches
+`finSummary`; do not make Save clickable through a local violation.
 
-## 11. Evaluator Contract
+## 14. Evaluator Contract
 
-A second pure function, no I/O, no framework dependencies, in
-`common/helpers/collection-policy.util.ts`; mirrored (~15 lines) in the driver form:
+Pure function, no I/O, in `collection-policy.util.ts`; mirrored in the driver form:
 
 ```ts
 evaluateCashCollectionPolicy(
-  policy: { enabled: boolean; maxOutstandingBalance: number },
+  policy: { enabled: boolean; allowedCreditDeliveries: number;
+            minExposureFloor: number; maxOutstandingCeiling: number | null },
   input: {
     paymentType: 'MONTHLY' | 'CASH';
     isBillingExempt: boolean;
-    currentBalance: number;    // pre-delivery, this item's prior effect backed out; may be negative
+    currentBalance: number;    // pre-delivery, own-item ledger effect backed out; may be negative
     chargeAmount: number;      // 0 for non-posting statuses — caller encodes status here
     cashCollected: number;
   },
@@ -422,209 +586,225 @@ interface CashCollectionPolicyResult {
   applies: boolean;
   satisfied: boolean;               // always true when applies = false
   reason?: 'DISABLED' | 'NOT_CASH' | 'BILLING_EXEMPT' | 'NO_CHARGE'
-         | 'WITHIN_LIMIT' | 'BELOW_MINIMUM';
-  requiredAmount: number;           // 0 when applies = false
+         | 'WITHIN_FLOOR' | 'BELOW_MINIMUM';
+  requiredAmount: number;           // 0 when applies = false; rounded per §4.8
   collectedAmount: number;
   currentBalance: number;
   chargeAmount: number;
-  projectedBalance: number;         // currentBalance + chargeAmount − collectedAmount
-  maxOutstandingBalance: number;    // echoed for messaging/audit
+  exposure: number;                 // currentBalance + chargeAmount
+  projectedBalance: number;         // exposure − collectedAmount
+  allowedCreditDeliveries: number;  // echoed for messaging/audit
 }
 ```
 
-Check order (locked once approved, for reason-code precedence — the monthly Phase 1 review showed
-this must be pinned by unit tests): `DISABLED` → `NOT_CASH` → `BILLING_EXEMPT` → `NO_CHARGE`
-(`chargeAmount ≤ 0`) → compute `requiredAmount`; `WITHIN_LIMIT` when it is 0 (applies = false) →
-otherwise `applies = true`, `satisfied = collectedAmount ≥ requiredAmount`, reason
-`BELOW_MINIMUM` when unsatisfied, `undefined` when satisfied.
+Check order (locked once approved; reason precedence pinned by unit tests, as monthly Phase 1
+established): `DISABLED` → `NOT_CASH` → `BILLING_EXEMPT` → `NO_CHARGE` (`chargeAmount ≤ 0`) →
+`WITHIN_FLOOR` (`exposure ≤ minExposureFloor`) → compute
+`required = clamp(max(exposure/(N+1), ceiling != null ? exposure − ceiling : 0), 0, exposure)`,
+round per §4.8; `applies = required > 0` (`WITHIN_FLOOR` reason reused when it rounds to 0);
+`satisfied = collectedAmount ≥ required`; reason `BELOW_MINIMUM` when unsatisfied.
 
-One contract, four consumers — gate decision, `422` payload, audit payload (config writes only),
-frontend mirror — same economy as monthly §4.
+One contract, four consumers: gate decision, `422` payload, config-write audit context,
+frontend mirror.
 
-## 12. Edge Cases
+## 15. Edge Cases
 
-1. **Zero cash, under cap** — saves normally (`WITHIN_LIMIT`); the tolerance in action.
-2. **Zero cash, over cap** — blocked. Intentional, the core divergence from monthly (§4.3).
-3. **Failure statuses & `EMPTY_ONLY`** — `chargeAmount = 0` → `NO_CHARGE`, never blocked.
-   Collecting empties or recording a failure must never be gated (it *reduces* vendor exposure).
-4. **Customer credit (negative balance)** — raises headroom; never floored; overpayment beyond
-   settlement remains valid (no ceiling).
-5. **Resubmit/edit** — ledger-exact back-out (§4.6); re-recording identical figures is always
-   policy-neutral. The phantom-ledger-row scenario (COMPLETED→NOT_AVAILABLE→re-record) is handled
-   exactly because the back-out reads the same rows `applyIdempotentRepost` will delta against.
-6. **Multiple items / same customer / same day** — order-independent under the cap (§4.7).
-7. **Concurrent submissions for the same customer** — both gates may read the same pre-balance;
-   both post; final balance can overshoot the cap by at most one delivery's worth. Accepted, same
-   stance as monthly §11.7 (backend recompute at submit is the defense; serializable locking
-   rejected as disproportionate). The next delivery self-corrects.
-8. **Stale frontend / payment recorded at office mid-route** — backend recomputes; `422` carries
-   fresh `currentBalance`/`requiredAmount`; card renders server values.
-9. **Cap edited mid-shift** — explicit cache invalidation on write; 5-min TTL safety net;
-   identical to monthly §11.8.
-10. **Cap = 0** — strict COD including settlement of any old debt; legitimate configuration,
-    called out in settings helper copy.
-11. **Cap below a single delivery's value** — every delivery to a zero-balance customer demands
-    near-full payment; not a bug, but settings copy must explain it (§6.1).
-12. **New customer, zero balance** — invisible unless the cap is smaller than today's charge.
-13. **Billing-exempt CASH customers** — exempt explicitly (`BILLING_EXEMPT`) and implicitly
-    (price 0 → charge 0); the explicit check keeps reason codes meaningful.
-14. **`paymentType` switched CASH↔MONTHLY mid-month** — evaluated live at submit against the
-    current type; because the cash policy has **no month anchor at all**, it has none of the
-    month-boundary edge cases the monthly policy carries (§ nothing to inherit — an advantage of
-    the balance-cap design worth preserving).
-15. **Rounding / custom prices** — `requiredAmount` rounded to whole rupees, `≥` comparison; an
-    exact-boundary payment is valid.
-16. **Driver draft restore** — result is fully derived per render (like monthly §11.11); no
-    sessionStorage schema change.
-17. **Ad-hoc / correction / order-insert / bulk-import / damage flows** — not gated (§3); they
-    post through `ledger.recordDelivery` directly and remain trusted staff paths.
+1. **Zero cash under floor / with credit** — exempt, saves (`WITHIN_FLOOR`; example F).
+2. **Zero cash above floor** — blocked whenever `required > 0`; intentional (§4.1, §4.7).
+3. **Failure statuses & EMPTY_ONLY** — `chargeAmount = 0` → `NO_CHARGE`, never blocked; cash on
+   an empty-only pickup still posts and reduces the tab.
+4. **Overpayment / credit** — unbounded above; negative balances raise headroom, never floored.
+5. **Resubmit/edit** — ledger-exact back-out (§4.9); identical resubmission is policy-neutral;
+   phantom-row case handled by construction.
+6. **Cash-lowering corrections** — blocked when below required; escape hatch is the audited
+   admin config change (§4.10). Support-facing note, not a bug.
+7. **Multi-item, same customer** — sequential re-evaluation on live balance. Splitting an order
+   into several items **pays more, not less** (the contraction applies to each successive
+   exposure — anti-gamed by the math). Recording order matters for pass/fail of intermediate
+   items: guidance line in the warning card (§8.3).
+8. **Concurrency** — gate reads pre-transaction, posting increments transactionally; concurrent
+   submissions/office payments can make one gate transiently over- or under-strict by one
+   event's amount; bounded, self-correcting at the next visit. Same accepted model as monthly
+   §11.7 and the codebase generally (no pessimistic locking anywhere in the ledger).
+9. **Admin corrections / ad-hoc / bulk-import / damage flows** — not gated (§3); trusted staff
+   paths post directly through the ledger.
+10. **Config change mid-shift** — explicit cache invalidation on write; ≤ one in-flight request
+    sees the old config; 5-min TTL safety net.
+11. **N lowered against legacy debt** — first visits demand `bill + excess/(N+1)`, which can be
+    large (example B's first row). Rollout guidance in §21.1; the geometric decline *is* the
+    "gradual recovery" the owner asked for, but the first bite scales with the excess.
+12. **Payment type switched MONTHLY→CASH** — the accumulated monthly balance immediately counts
+    as tab; first CASH delivery may demand a substantial recovery payment. Operational note for
+    admins (the customer-form flow, not this feature, is where a hint belongs — out of scope).
+13. **`isBillingExempt` toggled / zero-priced products** — charge 0 → exempt; free bottles
+    create no debt, so an over-window customer receiving them is correct, not a bug.
+14. **Late-recorded old sheets** — evaluates against *today's* live balance (no date anchor at
+    all — the right question for a tab is "what do they owe now"); contrast with monthly's
+    sheet-date anchoring.
+15. **Rounding** — down to nearest ₨10 (§4.8); `≥` comparison; boundary payment valid.
+16. **Route edits / sheet moves / crew swaps** — structurally inert (no date, route, or van
+    anchor anywhere in the model).
+17. **Refunds/adjustments** (`recordAdjustment`, negative or positive) — flow through the live
+    balance automatically. Negative `cashCollected` is impossible (`@Min(0)` at the DTO layer).
+18. **Driver draft restore** — result fully derived per render; no draft-schema change.
+19. **Outstanding ageing — deliberately unmodelled.** Debt age cannot be measured without
+    payment allocation (§3). Tab *size* is the enforcement proxy, and it is sufficient in
+    effect: geometric recovery removes 1/(N+1) of the excess on every visit, which bounds how
+    long any given rupee of over-window debt can survive — an ageing control without ageing
+    data. A customer who stops taking deliveries escapes recovery, but also stops receiving
+    product; chasing dormant debt is a receivables/reminder problem (the balance-reminder
+    feature already owns it), not a delivery-gate problem.
+20. **Returning inactive customer** — the tab persisted as real money owed (there is no
+    estimator to go stale, §7); the first delivery back is treated exactly like legacy debt:
+    `bill + excess/(N+1)`, steep if the tab is large — the correct business outcome for a
+    customer returning with old unpaid balance. §21.1's guidance applies.
+21. **Customer growth / shrinkage** — the emergent window tracks the *current* bill
+    per-visit: a growing customer's allowance grows the same day their orders do; a shrinking
+    customer's excess above the new, smaller window is recovered geometrically over the
+    following visits. No recompute, no lag, no admin action.
+22. **Tiny customers (N×B < floor) — floor-governed 2-cycle.** When a customer's emergent
+    window is smaller than the floor (e.g. B = 100, N = 2 → 200 < 500), the floor dominates:
+    the tab coasts free to the floor, then alternates (validated: 400 ↔ 500 with a ₨200
+    payment every other visit at B = 100). Locked capital ≈ the floor — this is exactly the
+    de-minimis credit the floor exists to grant, not parking in the §4.1 sense (the floor is
+    deliberately the minimum allowance *any* customer gets). Settings copy should state that
+    the floor is also the effective credit line for the smallest accounts.
 
-## 13. Audit Logging
+## 16. Audit Logging
 
 - `UPDATE_CASH_COLLECTION_POLICY` on every config write (entity `CashCollectionPolicyConfig`,
-  `changes: { after: dto }`) — mirrors `UPDATE_COLLECTION_POLICY` exactly.
-- **No audit event on blocked submissions.** Considered and rejected for v1: the frontend
-  mutation hook retries unconditionally (`retry: 2` in `useUpdateDeliveryItem`), so one blocked
-  save would log three rows; blocks change no state; and the meaningful business record of "could
-  not collect, walked away" is the `PAYMENT_NOT_MADE` failure submission (§6.4), which flows
-  through the existing `DELIVERY_SUBMIT` audit and the delivery-issue auto-creation path
-  (submitDelivery lines 620–629) for free. Revisit only if ops asks for block-frequency telemetry.
-- **No monthly-style `…_ZERO_CASH` analog** — zero-cash-under-cap is unremarkable by design
-  (it is the tolerance working), and zero-cash-over-cap never saves.
+  `changes: { after: dto }`) — mirrors `UPDATE_COLLECTION_POLICY`.
+- **No audit on blocked submissions** (frontend `retry: 2` would triple-log; blocks change no
+  state) and **no zero-cash analog** — the meaningful business record is the
+  `PAYMENT_NOT_MADE` failure submission, which already flows through `DELIVERY_SUBMIT` audit
+  and delivery-issue auto-creation.
 
-## 14. RBAC
+## 17. RBAC
 
-| Actor | GET /collection-policy/cash | PATCH | Gate applies in submitDelivery |
+| Actor | GET /collection-policy/cash | PATCH | Gate applies |
 |---|---|---|---|
 | VENDOR_ADMIN | ✅ | ✅ | ✅ |
 | STAFF | ✅ | ❌ | ✅ |
-| DRIVER | ❌ (via sheet payload) | ❌ | ✅ |
-| SUPER_ADMIN | out of scope (vendor-scoped feature) | — | n/a |
+| DRIVER | ❌ (sheet payload) | ❌ | ✅ |
+| SUPER_ADMIN | out of scope (vendor-scoped) | — | n/a |
 
-Tenancy: standard `vendorId` scoping on every query; the config row is keyed `vendorId @unique`;
-the gate operates on an item already tenancy-checked at the top of `submitDelivery`. No new
-patterns.
+Standard `vendorId` scoping throughout; config row keyed `vendorId @unique`; the gate operates
+on an item already tenancy-checked. Sidebar unchanged (page exists, VENDOR_ADMIN-gated).
 
-## 15. Redis Caching
+## 18. Redis Caching
 
-Exact replica of the monthly policy's strategy (itself a replica of
-`NotificationSettingsService`):
+Replica of the monthly/notification-settings pattern: key
+`` `vendor:${vendorId}:cash-collection-policy` ``; 5-minute safety-net TTL; explicit `cache.del`
+on every write; read path cache → `findUnique`-or-defaults → set. Resolved before any
+transaction in both `submitDelivery` and `findOne()`. The gate's back-out `findFirst`s stay
+uncached (correctness; single-row indexed reads). **Nothing else to cache** — the adaptive
+model's biggest cache win is what it *doesn't* need: no per-customer consumption estimates to
+compute, store, or invalidate on every delivery.
 
-- Key: `` `vendor:${vendorId}:cash-collection-policy` `` — distinct suffix, no collision with
-  `…:collection-policy` or `…:notif-settings`.
-- Safety-net TTL 5 minutes; **explicit `cache.del` on every write**.
-- Read path: cache hit → return; miss → `findUnique` or defaults → set → return.
-- Both `submitDelivery` and `findOne()` resolve the policy **before** any transaction/heavy work.
-- The gate's two back-out `findFirst`s are per-submission live reads, deliberately uncached
-  (correctness over micro-optimization; they are single-row indexed lookups).
+## 19. Communication Center Integration (design only — DO NOT IMPLEMENT)
 
-## 16. Future Communication Center Integration (design only — DO NOT IMPLEMENT)
+Unchanged from v1, consistent with the Communication Center doc's own §10:
+`ConversationThread` and `DeliveryRecordForm` are already siblings in `delivery-items-list.tsx`;
+`useConversationForItem(itemId)` is live. The future phase detects the transition *violation →
+driver switches to Unable to Deliver / selects `PAYMENT_NOT_MADE`* and surfaces a CTA to log why
+the customer couldn't pay in the adjacent thread. The queryable seed is
+`failureCategory = 'PAYMENT_NOT_MADE'` items plus their auto-created delivery issues — no new
+schema, no new endpoint, no new component. Constraint on implementers: no "reason customer
+didn't pay" free-text field anywhere in this feature; that content belongs to
+Conversation/ConversationMessage.
 
-Same seam as monthly §10, already half-built by the Communication Center (its §10:
-`ConversationThread` and `DeliveryRecordForm` are siblings in `delivery-items-list.tsx`;
-`useConversationForItem(itemId)` is exported and live):
+## 20. Future AI Opportunities (documented, NOT implemented)
 
-- Trigger transition for CASH: the driver hits a violation (`applies && !satisfied`) and then
-  either switches to **Unable to Deliver** or selects `PAYMENT_NOT_MADE`. A future phase surfaces
-  a prompt/CTA on that transition to log *why* the customer couldn't pay in the already-adjacent
-  thread — no new dialog, component, or endpoint.
-- The queryable history seeding that phase is `failureCategory = 'PAYMENT_NOT_MADE'` items
-  (plus their auto-created delivery issues) — no new schema needed, mirroring how monthly's
-  `COLLECTION_POLICY_ZERO_CASH` audit rows seed its prompt.
-- Constraint on Phases 1–4 implementers (same spirit as monthly §10): do **not** add a "reason
-  customer didn't pay" free-text field anywhere in this feature — that content belongs to
-  Conversation/ConversationMessage.
+- **N-suggestion**: recommend a vendor's N from the distribution of
+  `financialBalance / (median last-10 delivery charge)` across CASH customers (the §7 estimator,
+  offline, display-only) — "your book behaves like N = 2.4; here's the impact of 2 vs 3."
+- **Risk flags**: customers persistently paying exactly the required minimum (tab pinned at
+  N×B), or with repeated `PAYMENT_NOT_MADE` failures — churn/bad-debt signals derivable from
+  existing tables; natural fit for `/dashboard/analytics`.
+- **Collection forecasting**: expected cash per route/day = Σ required amounts over the sheet —
+  computable from data already on the sheet payload.
+- **Per-customer N override** (`Customer.allowedCreditDeliveriesOverride Int?`) — the single
+  designed-for extension; the evaluator already takes N as an input, so only the two callers
+  resolve `customer.override ?? policy.N`. Owner-gated, not v1.
+- **Analytics metrics worth exposing later** (no redesign implied): total CASH exposure and its
+  trend, over-window exposure Σ max(0, balance − N×lastBill), recovery velocity after
+  enablement, `PAYMENT_NOT_MADE` rate per route/driver, required-vs-collected ratio.
 
-## 17. Future AI Integration & Extensibility Points (documented, NOT implemented)
+## 21. Risks
 
-- **Per-customer credit limit** (`Customer.cashCreditLimit Float?`, null = vendor default) — the
-  single most likely follow-up (shops vs. households). The evaluator already takes
-  `maxOutstandingBalance` as an input, so the change is confined to the two callers resolving
-  `customer.cashCreditLimit ?? policy.maxOutstandingBalance`; zero contract change. Deferred to a
-  dedicated phase pending owner demand.
-- **Cap suggestions** — an AI/analytics pass over the CASH balance distribution and
-  `PAYMENT_NOT_MADE` frequency could recommend a cap that blocks the top-risk tail without
-  friction for the median customer (fits the Communication Center doc's §14 AI-extension idiom).
-- **Risk flags** — customers repeatedly saved at exactly `requiredAmount` (chronic minimum-payers)
-  or with repeated `PAYMENT_NOT_MADE` failures are churn/bad-debt signals derivable from existing
-  tables; surfaces naturally in `/dashboard/analytics` later.
-- **Second rule term** — if a vendor ever genuinely needs "and at least X% of today's bill",
-  it slots in as `requiredAmount = max(capTerm, pctTerm)` inside the evaluator with an added
-  config field; the result shape already carries everything the UI needs.
+1. **Enablement against legacy debt** (v1 review R1, still real in v2 but softer): the first
+   visit after enabling demands `bill + excess/(N+1)` — for a ₨10,000 legacy tab at N = 2
+   that's ≈ ₨3,433, likely uncollectable at one doorstep. Unlike the cap model there is no
+   all-or-nothing cliff (each visit that collects *something* above the bill makes progress),
+   but the *required* amount still jumps. Mitigations: Phase 2 impact hint is **mandatory**
+   (§8.1); rollout guidance — enable with N = 5–6, tighten by one every few weeks; geometric
+   decline does the rest.
+2. **Doorstep dead-end** — customer can't pay the required amount after bottles are handed
+   over. Mitigations: chip estimate before the doorbell (§8.2), live warning as drop count is
+   typed, reduce-bottles lever (weaker here than under the cap — most of the requirement is
+   recovery, by design), `PAYMENT_NOT_MADE`, one line of driver training. Residual risk
+   accepted; approval workflows remain rejected.
+3. **Comprehension risk** — the required amount varies visit to visit, unlike a fixed cap.
+   Drivers only ever see the number (never the formula); vendors get the one-sentence story
+   ("about N deliveries of tab; roughly one bill per visit at steady state") plus the live
+   example table in settings. If vendor comprehension fails in the field, the fallback story —
+   "pay about a third of everything owed including today" (N = 2) — is still one sentence.
+4. **Parity-bug recurrence** — the 3-input contract plus a required Phase 3 parity table
+   (§4.4 is the fixture) is the defense; never feed the mirror a post-payment preview.
+5. **Gate ordering drift** — must stay pre-`$transaction`, pre-ledger; Phase 1 tests assert a
+   violating submission throws before any ledger/wallet mutation (template:
+   `collection-policy-gate.spec.ts`).
+6. **One-big-order exposure** — unbounded per-visit credit extension without the ceiling
+   (§4.6); mitigated physically and by the optional ceiling. Vendors who set `ceiling` get the
+   v1 bound back as a backstop.
+7. **Monthly-feature coupling** — additive siblings only (module, settings page, form, list);
+   one change-log entry in the monthly doc; any behavioral change to monthly code is a blocker.
 
-## 18. Risks
+## 22. Open Questions — architecture locked 2026-07-15; defaults below stand as ADOPTED
 
-1. **Doorstep dead-end** — driver hands bottles over, *then* discovers the customer can't pay
-   `requiredAmount`, and honest outcomes are now awkward (bottles already inside). Mitigations:
-   the pre-warning chip (§6.2) fires before the doorbell; the form's live warning fires as drop
-   count is typed, before handover; `PAYMENT_NOT_MADE` + reduced-drop options; one line of driver
-   training. Residual risk accepted — the alternative (an override/approval flow) was explicitly
-   rejected by the owner for monthly and is rejected here for the same reason.
-2. **Vendor misconfiguration** — a cap far below typical balances would block most of a route on
-   day one. Mitigations: `enabled = false` default, generous default cap, worked-example helper
-   copy (§6.1). Consider (Phase 2 QA) a settings-page hint showing how many active CASH customers
-   currently exceed the entered cap — one aggregate query, read-only. Open question §19.3.
-3. **Gate ordering drift** — the gate must stay pre-`$transaction` and pre-ledger; Phase 1 unit
-   tests must assert a violating submission throws before any ledger/wallet mutation (same test
-   discipline as monthly Phase 1's `collection-policy-gate.spec.ts`, which is the template).
-4. **Parity-bug recurrence** — monthly Phase 3 shipped a frontend mirror fed with the wrong
-   derived value. The 3-input contract (§11) plus a Phase 3 parity table test (same-values table
-   the monthly Phase 4 fix used) is the defense; the implementer must feed `preDeliveryBalance`
-   (never `liveCurrentOutstanding`, which already includes draft cash) into the mirror.
-5. **Frontend/backend back-out divergence** — the frontend approximates the prior effect from
-   item fields while the backend reads ledger rows (§4.6). In the rare phantom-row case the
-   mirror may fail to warn where the backend blocks; the `422` backstop renders the correct
-   numbers. Accepted: UX-only, never a bypass.
-6. **Monthly-doc coupling** — this feature adds siblings inside the monthly policy's module and
-   settings page. Each addition is additive; the monthly doc gets one change-log entry recording
-   them. Any *behavioral* change to monthly code is out of bounds and a blocker.
+The owner locked the architecture (no fixed limit; emergent window; recovery-in-formula;
+four-state driver contract; no accounting changes; Communication Center reuse; **rounding
+down-to-₨10 with the ledger storing actual collected amounts** — §4.8). The remaining defaults
+were proposed without owner objection and are adopted; any may still be overridden before the
+relevant phase without an architecture revision (they are configuration defaults, not rules):
 
-## 19. Open Questions (for the product owner — defaults proposed, none block doc review)
+1. **Default N = 2** (tab ≈ two deliveries; steady-state required = one bill).
+2. ~~Rounding~~ — **RESOLVED–LOCKED**: down to nearest ₨10 (§4.8).
+3. **Default floor = ₨500** (also the effective credit line for the smallest accounts, §15.22).
+4. **Ceiling in v1** — included as nullable, default null.
+5. **`PAYMENT_NOT_MADE`** — included in Phase 3.
+6. **Impact endpoint** — live, debounced, VENDOR_ADMIN-only.
 
-1. **Default `maxOutstandingBalance`** — proposed ₨2,000 (≈ a few typical deliveries). Purely a
-   default; every vendor sets their own before enabling.
-2. **`PAYMENT_NOT_MADE` failure category (§6.4)** — include in Phase 3? Proposed **yes** (no
-   migration, high analytics/seam value). Alternative: reuse `CUSTOMER_REFUSED` and lose the
-   distinction.
-3. **Settings-page impact hint** ("N of your CASH customers are currently over this cap") —
-   proposed **defer to Phase 4** unless trivially cheap in Phase 2; it is the best
-   misconfiguration guard but is the only part of this design needing a new aggregate endpoint.
-4. **Per-customer credit limit** — proposed **out of v1**, pre-designed in §17. Confirm so
-   Phase 1 doesn't speculatively add the `Customer` column.
-5. **CASH stat-panel swap (§6.3)** — replace the monthly-oriented StatBoxes for CASH customers,
-   or add alongside? Proposed **replace** (the monthly figures are noise for a CASH doorstep).
+## 23. Phase-by-Phase Implementation Plan
 
-## 20. Phase-by-Phase Implementation Plan
+Same contract as monthly: each phase compiles, deploys independently, preserves backward
+compatibility, stops for review; mid-phase design questions are blockers, not judgment calls.
 
-Same contract as the monthly roadmap: each phase compiles, deploys independently, preserves
-backward compatibility, and **stops for review**. Phases are sub-agent hand-off boundaries; any
-mid-phase design question is a blocker to report, not to resolve unilaterally.
-
-- **Phase 0 — This document.** Owner reviews §4 (business rules) and §19 (open questions);
-  decisions get recorded here and the status flips to ARCHITECTURE LOCKED.
-- **Phase 1 — Backend foundation.** `CashCollectionPolicyConfig` model + additive migration (§8);
-  `getCashPolicy`/`updateCashPolicy` + cache (§15) + endpoints/DTO (§9) in the existing module;
-  `evaluateCashCollectionPolicy` + exhaustive unit tests (§11 — reason-code precedence pinned);
-  `submitDelivery` gate incl. price-resolution hoist and ledger-exact back-out (§7.2, §4.6) +
-  gate-ordering tests; `findOne()` attachment (§7.3); shared types (§9). Behavioral no-op until
-  a vendor enables.
-  Expect the two daily-sheet specs with full provider lists to need no change (the service
-  dependency already exists — `CollectionPolicyService` is already injected).
-- **Phase 2 — Admin settings UI.** Second card on `/dashboard/collection-policy` (§6.1):
-  `features/collection-policy/` gains cash api/hooks/schema/form following the existing files'
-  exact conventions. No driver-facing code. Intermediate state (enabled early → drivers see a
-  generic 422) is acceptable, as with monthly Phase 2.
-- **Phase 3 — Driver real-time UX.** Evaluator mirror + warning card + disabled Save + `422`
-  backstop in `delivery-record-form.tsx`; CASH stat panel (§6.3); collapsed-card limit-aware chip
-  (§6.2); `PAYMENT_NOT_MADE` category (§6.4, if approved). Parity-table verification against the
-  backend evaluator is a required deliverable (lesson: monthly Phase 3 review).
-- **Phase 4 — Hardening.** Staging QA: resubmit/phantom-row back-out, multi-item ordering,
-  concurrent-submission overshoot bounds, cap=0 COD behavior, cache-invalidation timing,
-  misconfiguration hint decision (§19.3).
-- **Phase 5 (optional, owner-gated) — Per-customer credit limit** (§17), only if demanded.
+- **Phase 0 — This document.** Owner locks §4 (incl. §22 defaults); status flips to
+  ARCHITECTURE LOCKED.
+- **Phase 1 — Backend foundation.** Schema + migration (§11); `getCashPolicy`/`updateCashPolicy`
+  + cache + endpoints/DTO in the existing module; `evaluateCashCollectionPolicy` + exhaustive
+  unit tests — **§4.4's tables A–G are the required fixtures**, plus reason-precedence and
+  convergence/contraction property tests; `submitDelivery` gate incl. price/status hoist and
+  ledger-exact back-out + gate-ordering tests; `findOne()` attachment; shared types. Behavioral
+  no-op until enabled.
+- **Phase 2 — Admin settings UI + impact hint.** Cash card on `/dashboard/collection-policy`
+  with the live example table; `GET /collection-policy/cash/impact` + hint rendering (promoted
+  to this phase — it is the misconfiguration/rollout guard, §21.1).
+- **Phase 3 — Driver real-time UX.** Form mirror + warning card + disabled Save + `422`
+  backstop; CASH stat panel; collapsed-card chip estimate; multi-item guidance line;
+  `PAYMENT_NOT_MADE` (if locked). **Required deliverable:** parity verification of the mirror
+  against §4.4 exactly (monthly Phase 3/4 lesson).
+- **Phase 4 — Hardening.** Staging QA: convergence behavior on real data, resubmit/phantom-row
+  back-out, multi-item ordering, concurrent-submission bounds, N = 0 COD, ceiling interplay,
+  legacy-debt enablement rehearsal against a production data copy, cache-invalidation timing.
+- **Phase 5 (owner-gated) — Per-customer N override** (§20), only on demand.
 
 ## Change Log
 
 | Date | Phase | Change |
 |---|---|---|
-| 2026-07-14 | Phase 0 | Document created after full codebase study (submitDelivery gate sequence, ledger running-balance + idempotent-repost model, financial summary endpoints, sheet attachment, collection-policy module/cache/RBAC, driver-form live math, Communication Center seam). Core design: single outstanding-balance cap; zero-cash exemption deliberately NOT inherited from monthly; status encoded via chargeAmount; ledger-exact resubmit back-out; percentage/count/tolerance knobs evaluated and rejected with rationale (§4.9, §5). Awaiting owner lock. |
+| 2026-07-14 | Phase 0 (v1) | Original document: fixed outstanding-balance cap (`maxOutstandingBalance`), zero-cash-not-exempt, ledger-exact back-out, module/cache/RBAC/seam architecture. Architecture review same day: no Critical findings; 6 Recommended documentation hardenings identified. |
+| 2026-07-15 | Phase 0 — LOCK + final validation | Owner **locked the architecture** (7 decisions incl. rounding: required rounded down to nearest ₨10, ledger stores actual collected). Final validation performed with an executable simulation of the exact §14 evaluator (16 scenario suites incl. a 10,000-visit adversarial boundedness stress). **Results**: contraction/convergence proven — with rounding, the fixed point is the band `[N×B, N×B+10(N+1))` (≤ ₨30 at N=2); no oscillation beyond the ±₨10 rounding sawtooth; no runaway (10k random bills ≤ analytic bound N×Bmax+10(N+1)); split-order gaming pays more, never less; COD (N=0) residue ≤ ₨9, non-accumulating; credit/negative balances, spike recovery, growth/shrinkage, seasonal tracking all behave as designed. **Corrections applied** (all documentation-level): fixture tables A/B/G updated to locked rounding (they predated it — A: 233→230 etc., terminal exactly 600; B: settles at 620 inside the band; G: 2,333→2,330); §4.8 rewritten as LOCKED with band + COD-residue statements; PATCH validation gains `ceiling ≥ floor` rule (§12 — a ceiling under the floor is silently ineffective); new §15.22 tiny-customer floor 2-cycle (validated 400↔500 at B=100, intended de-minimis); §22 marked adopted/locked. **Verdict: ARCHITECTURE APPROVED** — ready for Phase 1; §4.4 tables (now rounding-exact) plus the §4.8 band/residue properties are the required Phase 1 unit-test fixtures. |
+| 2026-07-15 | Phase 0 (v2.1) | Strengthening pass against the re-issued brief ("CASH Customer Credit Policy V2"), direction confirmed, no model change: added §5.1 credit-model comparison table (incl. **risk score** — rejected for enforcement as indefensibly opaque at the doorstep; belongs in §20's insight layer) and §6.1 recovery-model comparison table (flat surcharge, **outstanding-only base** `O/N` — same equilibrium but unbounded first-order credit and no reduce-bottles lever, interest/ageing — forbidden by §3 non-goals). Added worked example **H** (the chronic ₨100-payer — the brief's canonical scenario; shows there is no coast-to-max phase, the ramp is smooth and cliff-free with the identical end state). Added edge cases 19–21: outstanding ageing deliberately unmodelled (geometric recovery bounds rupee-lifetime without ageing data; dormant-debt chasing belongs to balance reminders), returning inactive customers (= legacy-debt treatment), customer growth/shrinkage (window tracks current bills same-day). |
+| 2026-07-15 | Phase 0 (v2) | **Owner redirected the business model**: fixed cap rejected (not consumption-proportional). Full §4–§7 redesign to the proportional-settlement model `required = exposure/(N+1)` — credit window (O\* = N×B) and recovery (1/(N+1) of excess per visit) both *emergent* from one integer knob; impossibility argument (free-credit zone ⇒ parking) recorded as the design's foundation; the brief's literal window+recovery proposals analyzed and rejected with worked numbers (§4.1); consumption-estimator options evaluated and rejected for enforcement (§7 — no estimator needed, `lastFilledDropped` reused for the display estimate). Floor + optional ceiling retained as the only auxiliary knobs. v1 review findings folded in: impact hint promoted to Phase 2, corrections escape hatch documented (§4.10/§15.6), multi-item guidance (§8.3/§15.7), reverse staleness (§13), worked-example fixtures (§4.4), helper/mirror file locations pinned (§4.9/§10). All v1 mechanical architecture (gate, back-out, evaluator discipline, caching, RBAC, seam, PAYMENT_NOT_MADE) carried forward unchanged. |

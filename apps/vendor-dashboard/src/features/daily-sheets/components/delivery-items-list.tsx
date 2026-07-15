@@ -11,7 +11,7 @@ import {
 import { cn } from '@water-supply-crm/ui';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import type { DeliveryItem, CollectionPolicy } from '@water-supply-crm/types';
+import type { DeliveryItem, CollectionPolicy, CashCollectionPolicy } from '@water-supply-crm/types';
 import { useCustomerDeliveryHistory, useDeliveryPhotoUrl } from '../hooks/use-daily-sheets';
 import { dailySheetsApi } from '../api/daily-sheets.api';
 import { reverseGeocode } from '../../../lib/geocoding';
@@ -28,6 +28,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   ACCESS_ISSUE: 'Area / Access Issue',
   CUSTOMER_REFUSED: 'Customer Refused',
   WEATHER: 'Weather / Road Issue',
+  PAYMENT_NOT_MADE: 'Customer Unable to Pay',
   OTHER: 'Other',
 };
 const formatCategory = (cat: string) => CATEGORY_LABELS[cat] ?? cat;
@@ -39,6 +40,33 @@ const formatPhone = (phone?: string | null) => {
   if (!phone) return '';
   return phone.startsWith('0') ? `92${phone.slice(1)}` : phone;
 };
+
+/**
+ * Pre-doorbell estimate for the collapsed CASH-customer row chip (§8.2):
+ * `(financialBalance + lastFilledDropped × price) / (N+1)`, floored/rounded
+ * per §4.8. Computed entirely from data already on the sheet payload
+ * (policy attachment §9.3, `financialBalance`, `lastFilledDropped`, custom
+ * prices) — zero new requests. Display-only; the real gate is the backend
+ * evaluator, and the record form below re-evaluates against the actual
+ * drop count and cash once the driver starts recording.
+ */
+function estimateCashCollectAmount(item: DeliveryItem, policy: CashCollectionPolicy | undefined): number {
+  if (!policy?.enabled) return 0;
+  if (item.customer?.paymentType !== 'CASH' || item.customer?.isBillingExempt) return 0;
+
+  const balance = item.customer?.financialBalance ?? 0;
+  const customPrice = item.customer?.customPrices?.find((p) => p.productId === item.productId);
+  const price = customPrice?.customPrice ?? item.product?.basePrice ?? 0;
+  const estimatedCharge = (item.lastFilledDropped ?? 0) * price;
+  const exposure = balance + estimatedCharge;
+
+  if (exposure <= policy.minExposureFloor) return 0;
+
+  const proportional = exposure / (policy.allowedCreditDeliveries + 1);
+  const ceilingTerm = policy.maxOutstandingCeiling != null ? exposure - policy.maxOutstandingCeiling : 0;
+  const raw = Math.min(Math.max(Math.max(proportional, ceilingTerm), 0), exposure);
+  return Math.floor(raw / 10) * 10;
+}
 
 function CustomerHistorySection({ customerId }: { customerId: string }) {
   const [open, setOpen] = useState(false);
@@ -130,6 +158,8 @@ interface DeliveryItemsListProps {
   sheetId: string;
   /** Vendor's Collection Policy config, attached to the sheet payload (Phase 1 §6.4). */
   collectionPolicy?: CollectionPolicy;
+  /** Vendor's Cash Collection Policy config, attached to the sheet payload (§9.3). */
+  cashCollectionPolicy?: CashCollectionPolicy;
   items: DeliveryItem[];
   paginatedItems: DeliveryItem[];
   filteredItems: DeliveryItem[];
@@ -163,6 +193,7 @@ interface DeliveryItemsListProps {
 export function DeliveryItemsList({
   sheetId,
   collectionPolicy,
+  cashCollectionPolicy,
   items,
   paginatedItems,
   filteredItems,
@@ -340,6 +371,14 @@ export function DeliveryItemsList({
             const isSelected = selectedIds.has(item.id);
             const isDeepLinkTarget = item.id === deepLinkItemId;
 
+            // Cash Collection Policy multi-item guidance (§8.3, v1 review R3):
+            // when a customer has multiple products on this sheet, the warning
+            // card tells the driver to enter cash on the first one they record —
+            // splitting cash across items still works, but is easy to get wrong.
+            const hasOtherUnrecordedItemsForCustomer = items.some(
+              (other) => other.id !== item.id && other.customerId === item.customerId && other.status === 'PENDING',
+            );
+
             return (
               <motion.div
                 key={item.id}
@@ -419,6 +458,14 @@ export function DeliveryItemsList({
                                   {isMonthly ? 'Outstanding ' : 'Due '}₨{financialValue.toLocaleString()}
                                 </span>
                               );
+                            })()}
+                            {(() => {
+                              const estimate = estimateCashCollectAmount(item, cashCollectionPolicy);
+                              return estimate > 0 ? (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full leading-none bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30">
+                                  Collect ~₨{estimate.toLocaleString()}
+                                </span>
+                              ) : null;
                             })()}
                             {customer?.consumptionRate30d != null && (
                               <span className={cn(
@@ -795,6 +842,8 @@ export function DeliveryItemsList({
                               item={item}
                               sheetId={sheetId}
                               collectionPolicy={collectionPolicy}
+                              cashCollectionPolicy={cashCollectionPolicy}
+                              hasOtherUnrecordedItemsForCustomer={hasOtherUnrecordedItemsForCustomer}
                               onDone={() => onToggleExpand(null)}
                             />
                           ) : item.status !== 'PENDING' ? (
@@ -803,6 +852,8 @@ export function DeliveryItemsList({
                               item={item}
                               sheetId={sheetId}
                               collectionPolicy={collectionPolicy}
+                              cashCollectionPolicy={cashCollectionPolicy}
+                              hasOtherUnrecordedItemsForCustomer={hasOtherUnrecordedItemsForCustomer}
                               onDone={() => onToggleExpand(null)}
                               readOnly
                             />

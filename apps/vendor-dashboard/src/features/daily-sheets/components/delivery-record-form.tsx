@@ -7,7 +7,7 @@ import {
 import { ClipboardEdit, Loader2, ShieldAlert } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import type {
-  DeliveryItem, CollectionPolicy, CollectionPolicyResult, PaymentTypeValue,
+  DeliveryItem, CollectionPolicy, CollectionPolicyResult, CashCollectionPolicy, CashCollectionPolicyResult, PaymentTypeValue,
 } from '@water-supply-crm/types';
 import { useUpdateDeliveryItem, useCustomerFinancialSummary } from '../hooks/use-daily-sheets';
 import { useReportDamage } from '../../driver/hooks/use-damage-cases';
@@ -22,6 +22,7 @@ const FAILURE_CATEGORIES = [
   { value: 'ACCESS_ISSUE', label: 'Area / Access Issue' },
   { value: 'CUSTOMER_REFUSED', label: 'Customer Refused' },
   { value: 'WEATHER', label: 'Weather / Road Issue' },
+  { value: 'PAYMENT_NOT_MADE', label: 'Customer Unable to Pay' },
   { value: 'OTHER', label: 'Other' },
 ] as const;
 
@@ -169,17 +170,90 @@ function evaluateCollectionPolicy(
   };
 }
 
+/**
+ * Frontend mirror of the backend's evaluateCashCollectionPolicy
+ * (apps/api-backend/src/app/common/helpers/collection-policy.util.ts). Pure,
+ * no I/O — same check order as the backend exactly (DISABLED -> NOT_CASH ->
+ * BILLING_EXEMPT -> NO_CHARGE -> WITHIN_FLOOR -> compute), including the
+ * DOWN-to-nearest-₨10 rounding (docs/features/cash-customer-collection-policy.md
+ * §4.8, §14). Fed the three independent inputs (currentBalance, chargeAmount,
+ * cashCollected) — never a post-payment preview — so the parity bug the
+ * monthly evaluator mirror had (Phase 3/4) is unrepresentable here (§10).
+ */
+function evaluateCashCollectionPolicy(
+  policy: CashCollectionPolicy,
+  input: {
+    paymentType: PaymentTypeValue | undefined;
+    isBillingExempt: boolean;
+    currentBalance: number;
+    chargeAmount: number;
+    cashCollected: number;
+  },
+): CashCollectionPolicyResult {
+  const currentBalance = input.currentBalance;
+  const chargeAmount = input.chargeAmount;
+  const exposure = currentBalance + chargeAmount;
+  const collectedAmount = input.cashCollected;
+  const base = {
+    collectedAmount,
+    currentBalance,
+    chargeAmount,
+    exposure,
+    allowedCreditDeliveries: policy.allowedCreditDeliveries,
+  };
+
+  if (!policy.enabled) {
+    return { applies: false, satisfied: true, reason: 'DISABLED', requiredAmount: 0, projectedBalance: exposure - collectedAmount, ...base };
+  }
+  if (input.paymentType !== 'CASH') {
+    return { applies: false, satisfied: true, reason: 'NOT_CASH', requiredAmount: 0, projectedBalance: exposure - collectedAmount, ...base };
+  }
+  if (input.isBillingExempt) {
+    return { applies: false, satisfied: true, reason: 'BILLING_EXEMPT', requiredAmount: 0, projectedBalance: exposure - collectedAmount, ...base };
+  }
+  if (chargeAmount <= 0) {
+    return { applies: false, satisfied: true, reason: 'NO_CHARGE', requiredAmount: 0, projectedBalance: exposure - collectedAmount, ...base };
+  }
+  if (exposure <= policy.minExposureFloor) {
+    return { applies: false, satisfied: true, reason: 'WITHIN_FLOOR', requiredAmount: 0, projectedBalance: exposure - collectedAmount, ...base };
+  }
+
+  const proportional = exposure / (policy.allowedCreditDeliveries + 1);
+  const ceilingTerm = policy.maxOutstandingCeiling != null ? exposure - policy.maxOutstandingCeiling : 0;
+  const raw = Math.min(Math.max(Math.max(proportional, ceilingTerm), 0), exposure);
+  const requiredAmount = Math.floor(raw / 10) * 10;
+
+  if (requiredAmount <= 0) {
+    return { applies: false, satisfied: true, reason: 'WITHIN_FLOOR', requiredAmount: 0, projectedBalance: exposure - collectedAmount, ...base };
+  }
+
+  const satisfied = collectedAmount >= requiredAmount;
+
+  return {
+    applies: true,
+    satisfied,
+    reason: satisfied ? undefined : 'BELOW_MINIMUM',
+    requiredAmount,
+    projectedBalance: exposure - collectedAmount,
+    ...base,
+  };
+}
+
 interface DeliveryRecordFormProps {
   item: DeliveryItem;
   sheetId: string;
   /** Vendor's Collection Policy config, attached to the sheet payload (Phase 1 §6.4). */
   collectionPolicy?: CollectionPolicy;
+  /** Vendor's Cash Collection Policy config, attached to the sheet payload (§9.3). */
+  cashCollectionPolicy?: CashCollectionPolicy;
+  /** Whether this customer has other unrecorded items on this sheet (§8.3 multi-item guidance). */
+  hasOtherUnrecordedItemsForCustomer?: boolean;
   onDone: () => void;
   readOnly?: boolean;
 }
 
 export function DeliveryRecordForm({
-  item, sheetId, collectionPolicy, onDone, readOnly = false,
+  item, sheetId, collectionPolicy, cashCollectionPolicy, hasOtherUnrecordedItemsForCustomer = false, onDone, readOnly = false,
 }: DeliveryRecordFormProps) {
   const { mutate: updateItem, isPending } = useUpdateDeliveryItem(sheetId);
   const { mutateAsync: reportDamage } = useReportDamage();
@@ -198,6 +272,10 @@ export function DeliveryRecordForm({
   // cases where the local mirror below didn't already catch the violation). Cleared as
   // soon as the driver edits cash or mode again — never persisted.
   const [serverViolation, setServerViolation] = useState<CollectionPolicyResult | null>(null);
+  // Cash Collection Policy's own 422 backstop result — separate state since the two
+  // result shapes differ; only one of the two policies ever applies to a given
+  // customer (mutually exclusive by paymentType), so only one is ever non-null.
+  const [cashServerViolation, setCashServerViolation] = useState<CashCollectionPolicyResult | null>(null);
 
   const effectivePrice = (() => {
     const custom = item.customer?.customPrices?.find((p) => p.productId === item.productId);
@@ -258,6 +336,7 @@ export function DeliveryRecordForm({
   // amount or delivery mode — the next save attempt should be judged fresh.
   useEffect(() => {
     setServerViolation(null);
+    setCashServerViolation(null);
   }, [itemForm.cashCollected, deliveryMode]);
 
   // Amount owed for this delivery — auto-calculated from drop count and the customer's rate.
@@ -303,6 +382,15 @@ export function DeliveryRecordForm({
     0,
   );
 
+  // Cash Collection Policy validation base — the pre-delivery balance with only
+  // this item's own PRIOR saved effect backed out (savedCharge - savedCash),
+  // never the new draft cash being typed. Mirrors daily-sheet.service.ts's
+  // `currentBalance = customer.financialBalance - priorLedgerEffect` exactly
+  // (docs/features/cash-customer-collection-policy.md §4.9). Deliberately NOT
+  // liveCurrentOutstanding, which already subtracts draftCash — feeding that in
+  // would reproduce the exact parity bug the monthly evaluator mirror had (§10).
+  const preDeliveryBalanceForCashPolicy = (finSummary?.currentOutstanding ?? 0) - (savedCharge - savedCash);
+
   // Collection Policy — real-time mirror of the backend evaluator
   // (docs/features/monthly-customer-collection-policy.md §7.2). Derived state only,
   // recomputed on every keystroke exactly like the live-preview figures above; never
@@ -321,10 +409,36 @@ export function DeliveryRecordForm({
         cashCollected: itemForm.cashCollected ?? 0,
       })
     : null;
-  const localViolation = policyResult?.applies && !policyResult.satisfied ? policyResult : null;
-  // Server backstop (422 COLLECTION_POLICY_VIOLATION) takes over only when the local
-  // mirror didn't already catch it — stale-client / direct-API-call cases.
-  const violation = localViolation ?? serverViolation;
+  const monthlyLocalViolation = policyResult?.applies && !policyResult.satisfied ? policyResult : null;
+
+  // Cash Collection Policy — real-time mirror of the backend evaluator
+  // (docs/features/cash-customer-collection-policy.md §8.3, §10). Same
+  // derived-state-only discipline as the monthly mirror above.
+  const cashPolicyResult: CashCollectionPolicyResult | null = cashCollectionPolicy
+    ? evaluateCashCollectionPolicy(cashCollectionPolicy, {
+        paymentType: item.customer?.paymentType,
+        isBillingExempt,
+        currentBalance: preDeliveryBalanceForCashPolicy,
+        chargeAmount: draftCharge,
+        cashCollected: itemForm.cashCollected ?? 0,
+      })
+    : null;
+  const cashLocalViolation = cashPolicyResult?.applies && !cashPolicyResult.satisfied ? cashPolicyResult : null;
+
+  // Unified violation — the two policies are mutually exclusive by customer
+  // paymentType, so at most one of these is ever non-null. Server backstops
+  // (422) take over only when the local mirror didn't already catch it —
+  // stale-client / direct-API-call cases.
+  const violation: { kind: 'monthly'; result: CollectionPolicyResult } | { kind: 'cash'; result: CashCollectionPolicyResult } | null =
+    monthlyLocalViolation
+      ? { kind: 'monthly', result: monthlyLocalViolation }
+      : cashLocalViolation
+        ? { kind: 'cash', result: cashLocalViolation }
+        : serverViolation
+          ? { kind: 'monthly', result: serverViolation }
+          : cashServerViolation
+            ? { kind: 'cash', result: cashServerViolation }
+            : null;
   const showPolicyViolation = !readOnly && deliveryMode === 'delivered' && !!violation;
 
   // Bottle wallet preview — wallet balance moves by (dropped − received). The stored
@@ -392,6 +506,19 @@ export function DeliveryRecordForm({
               requiredAmount: body.requiredAmount,
               collectedAmount: body.collectedAmount,
               remainingPreviousOutstanding: body.remainingPreviousOutstanding,
+            });
+          } else if (body?.code === 'CASH_COLLECTION_POLICY_VIOLATION') {
+            setCashServerViolation({
+              applies: body.applies,
+              satisfied: body.satisfied,
+              reason: body.reason,
+              requiredAmount: body.requiredAmount,
+              collectedAmount: body.collectedAmount,
+              currentBalance: body.currentBalance,
+              chargeAmount: body.chargeAmount,
+              exposure: body.exposure,
+              projectedBalance: body.projectedBalance,
+              allowedCreditDeliveries: body.allowedCreditDeliveries,
             });
           }
         },
@@ -538,7 +665,7 @@ export function DeliveryRecordForm({
                   )}
                   readOnly={readOnly}
                 />
-                {showPolicyViolation && violation && (
+                {showPolicyViolation && violation && violation.kind === 'monthly' && (
                   <div className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 flex items-start gap-3 text-sm">
                     <span className="text-destructive mt-0.5">⚠</span>
                     <div>
@@ -546,8 +673,24 @@ export function DeliveryRecordForm({
                       <p className="text-xs text-muted-foreground">
                         Cash collected does not satisfy the vendor&apos;s minimum collection
                         policy for the previous month&apos;s outstanding balance. Collect at
-                        least <span className="font-bold">₨{violation.requiredAmount.toLocaleString()}</span>,
+                        least <span className="font-bold">₨{violation.result.requiredAmount.toLocaleString()}</span>,
                         or set Cash Collected to 0 if no payment is being collected today.
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {showPolicyViolation && violation && violation.kind === 'cash' && (
+                  <div className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 flex items-start gap-3 text-sm">
+                    <span className="text-destructive mt-0.5">⚠</span>
+                    <div>
+                      <p className="font-bold text-destructive">Collect at least ₨{violation.result.requiredAmount.toLocaleString()} for this delivery</p>
+                      <p className="text-xs text-muted-foreground">
+                        The customer&apos;s tab (₨{violation.result.currentBalance.toLocaleString()}) plus
+                        today&apos;s bill is above their allowance. Reduce the bottles dropped, or
+                        record Unable to Deliver if no payment can be made.
+                        {hasOtherUnrecordedItemsForCustomer && (
+                          <> Enter the customer&apos;s cash on the first product you record.</>
+                        )}
                       </p>
                     </div>
                   </div>
@@ -555,11 +698,24 @@ export function DeliveryRecordForm({
               </div>
             </div>
 
-            {/* RIGHT COLUMN — customer monthly financial snapshot (hidden in read-only audit view) */}
+            {/* RIGHT COLUMN — customer financial snapshot (hidden in read-only audit view).
+                CASH customers get a credit-policy-oriented panel (§8.3); MONTHLY customers
+                keep the existing previous-month-outstanding panel unchanged. */}
             {!readOnly && (
               <div className="grid grid-cols-2 gap-2">
                 {finLoading ? (
                   [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[52px] w-full rounded-xl" />)
+                ) : item.customer?.paymentType === 'CASH' ? (
+                  <>
+                    <StatBox label="Current Tab" value={preDeliveryBalanceForCashPolicy} tone="balance" />
+                    <StatBox label="Today's Bill" value={draftCharge} tone="neutral" />
+                    <StatBox
+                      label="Collect At Least"
+                      value={cashPolicyResult?.requiredAmount ?? 0}
+                      tone={(itemForm.cashCollected ?? 0) >= (cashPolicyResult?.requiredAmount ?? 0) ? 'paid' : 'balance'}
+                    />
+                    <StatBox label="Tab After" value={liveCurrentOutstanding} tone="balance" />
+                  </>
                 ) : (
                   <>
                     <StatBox label="Prev Month Bal" value={finSummary?.prevMonthOutstanding ?? 0} tone="balance" />

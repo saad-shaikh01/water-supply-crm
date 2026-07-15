@@ -186,6 +186,7 @@ model Vendor {
   repairBatches           RepairBatch[]
   notificationSettings    NotificationSetting[]
   collectionPolicyConfig  CollectionPolicyConfig?
+  cashCollectionPolicyConfig CashCollectionPolicyConfig?
 }
 
 model User {
@@ -970,6 +971,24 @@ model CollectionPolicyConfig {
   minOutstandingThreshold Float    @default(1000)
   minCollectionPercentage Float    @default(90)
   allowedShortfall        Float    @default(300)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([vendorId])
+}
+
+/// Cash Customer Collection Policy — vendor-configurable proportional-settlement
+/// credit control for CASH customers (docs/features/cash-customer-collection-policy.md).
+/// required = floor10(max((balance+charge)/(N+1), ceiling ? (balance+charge)-ceiling : 0)).
+/// Missing row = policy disabled (same convention as CollectionPolicyConfig).
+model CashCollectionPolicyConfig {
+  id                      String   @id @default(uuid())
+  vendorId                String   @unique
+  vendor                  Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  enabled                 Boolean  @default(false)
+  allowedCreditDeliveries Int      @default(2)      // N; required = exposure/(N+1); 0 = COD
+  minExposureFloor        Float    @default(500)
+  maxOutstandingCeiling   Float?                    // null = no absolute ceiling
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
 

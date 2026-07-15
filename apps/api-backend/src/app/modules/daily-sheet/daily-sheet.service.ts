@@ -41,7 +41,7 @@ import { WarehouseService } from '../warehouse/warehouse.service';
 import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.service';
 import { NotificationSettingsService } from '../notifications/notification-settings.service';
 import { CollectionPolicyService } from '../collection-policy/collection-policy.service';
-import { evaluateCollectionPolicy } from '../../common/helpers/collection-policy.util';
+import { evaluateCollectionPolicy, evaluateCashCollectionPolicy } from '../../common/helpers/collection-policy.util';
 
 const AUTO_GENERATE_CRON = '5 0 * * *'; // 00:05 AM, evaluated in AUTO_GENERATE_TZ
 const AUTO_GENERATE_TZ = 'Asia/Karachi';
@@ -469,14 +469,10 @@ export class DailySheetService implements OnModuleInit {
       }
     }
 
-    const activeLoad = await this.prisma.dailySheetLoad.findFirst({
-      where: { dailySheetId: item.dailySheetId, endedAt: null },
-    });
-    if (!activeLoad) {
-      throw new BadRequestException('No active trip. Start a trip before recording deliveries.');
-    }
-
-    // Auto-detect EMPTY_ONLY: if submitted as COMPLETED with 0 filledDropped, it's an empty-only pickup
+    // Auto-detect EMPTY_ONLY: if submitted as COMPLETED with 0 filledDropped, it's an empty-only pickup.
+    // Hoisted above the Cash Collection Policy gate (below) so both the gate and the
+    // transaction share one definition — docs/features/cash-customer-collection-policy.md §9.2
+    // step 3. Behavior-neutral: neither value depends on the active-trip check.
     const resolvedStatus =
       dto.status === DeliveryStatus.COMPLETED && dto.filledDropped === 0
         ? DeliveryStatus.EMPTY_ONLY
@@ -488,6 +484,44 @@ export class DailySheetService implements OnModuleInit {
     const price = item.customer.isBillingExempt
       ? 0
       : (customPrice ? customPrice.customPrice : item.product.basePrice);
+
+    // Cash Customer Collection Policy — proportional-settlement credit gate. Runs
+    // before any transaction/ledger write and never alters how cash is applied
+    // once accepted (docs/features/cash-customer-collection-policy.md §9.2).
+    if (item.customer.paymentType === PaymentType.CASH && !item.customer.isBillingExempt) {
+      const cashPolicy = await this.collectionPolicy.getCashPolicy(vendorId);
+      if (cashPolicy.enabled) {
+        const isPostingStatus =
+          resolvedStatus === DeliveryStatus.COMPLETED || resolvedStatus === DeliveryStatus.EMPTY_ONLY;
+        const chargeAmount = isPostingStatus ? dto.filledDropped * price : 0;
+        const priorLedgerEffect = await this.getPriorLedgerEffect(itemId);
+        const currentBalance = item.customer.financialBalance - priorLedgerEffect;
+
+        const cashPolicyResult = evaluateCashCollectionPolicy(cashPolicy, {
+          paymentType: item.customer.paymentType,
+          isBillingExempt: item.customer.isBillingExempt,
+          currentBalance,
+          chargeAmount,
+          cashCollected: dto.cashCollected,
+        });
+
+        if (cashPolicyResult.applies && !cashPolicyResult.satisfied) {
+          throw new UnprocessableEntityException({
+            code: 'CASH_COLLECTION_POLICY_VIOLATION',
+            message:
+              "Cash collected does not satisfy the vendor's collection policy for this customer's current balance.",
+            ...cashPolicyResult,
+          });
+        }
+      }
+    }
+
+    const activeLoad = await this.prisma.dailySheetLoad.findFirst({
+      where: { dailySheetId: item.dailySheetId, endedAt: null },
+    });
+    if (!activeLoad) {
+      throw new BadRequestException('No active trip. Start a trip before recording deliveries.');
+    }
 
     // Resolve the delivery push master-switch BEFORE the transaction so the
     // gate check never adds I/O inside the interactive transaction.
@@ -1115,6 +1149,10 @@ export class DailySheetService implements OnModuleInit {
     // drivers can validate Cash Collected without an extra per-item request
     // (docs/features/monthly-customer-collection-policy.md §6.4). Cached read.
     (sheet as any).collectionPolicy = await this.collectionPolicy.getPolicy(vendorId);
+    // Cash Collection Policy sibling attachment — needs no per-item batch work at
+    // all: financialBalance and lastFilledDropped are already on every item
+    // (docs/features/cash-customer-collection-policy.md §9.3). Cached read.
+    (sheet as any).cashCollectionPolicy = await this.collectionPolicy.getCashPolicy(vendorId);
 
     return sheet;
   }
@@ -2450,5 +2488,28 @@ export class DailySheetService implements OnModuleInit {
     const currentMonthPaid = Math.abs(curPayments._sum.amount ?? 0);
 
     return { prevMonthOutstanding, currentMonthPaid };
+  }
+
+  /**
+   * Reconstructs this item's own prior effect on `Customer.financialBalance` from
+   * its own ledger rows — the identical reconstruction `LedgerService.applyIdempotentRepost`
+   * performs (ledger.service.ts) — so the Cash Collection Policy gate predicts, by
+   * construction, the exact balance a repost will produce (including the
+   * COMPLETED→NOT_AVAILABLE phantom-row case). Used only by the Cash Collection
+   * Policy gate (docs/features/cash-customer-collection-policy.md §4.9); deliberately
+   * independent of `ledger.service.ts`, which must not be touched by this feature.
+   */
+  private async getPriorLedgerEffect(itemId: string): Promise<number> {
+    const [delivery, payment] = await Promise.all([
+      this.prisma.transaction.findFirst({
+        where: { dailySheetItemId: itemId, type: TransactionType.DELIVERY },
+        select: { amount: true },
+      }),
+      this.prisma.transaction.findFirst({
+        where: { dailySheetItemId: itemId, type: TransactionType.PAYMENT },
+        select: { amount: true },
+      }),
+    ]);
+    return (delivery?.amount ?? 0) + (payment?.amount ?? 0);
   }
 }

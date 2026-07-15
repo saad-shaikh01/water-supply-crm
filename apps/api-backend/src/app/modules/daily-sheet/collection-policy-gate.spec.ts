@@ -96,7 +96,18 @@ describe('DailySheetService.submitDelivery — Collection Policy gate', () => {
   beforeEach(async () => {
     mockLedger = { recordDelivery: jest.fn().mockResolvedValue({ success: true }) };
     mockAudit = { log: jest.fn().mockResolvedValue(undefined) };
-    mockCollectionPolicy = { getPolicy: jest.fn().mockResolvedValue(ENABLED_POLICY) };
+    mockCollectionPolicy = {
+      getPolicy: jest.fn().mockResolvedValue(ENABLED_POLICY),
+      // Cash Collection Policy gate now runs unconditionally for CASH-type
+      // customers alongside this monthly gate (docs/features/cash-customer-collection-policy.md
+      // §9.2) — default disabled so these monthly-only tests are unaffected.
+      getCashPolicy: jest.fn().mockResolvedValue({
+        enabled: false,
+        allowedCreditDeliveries: 2,
+        minExposureFloor: 500,
+        maxOutstandingCeiling: null,
+      }),
+    };
     mockNotifSettings = { isEnabled: jest.fn().mockResolvedValue(false) };
     mockCache = {
       invalidateDailyDashboard: jest.fn().mockResolvedValue(undefined),

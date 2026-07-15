@@ -631,6 +631,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
       <DeliveryItemsList
         sheetId={sheetId}
         collectionPolicy={data?.collectionPolicy}
+        cashCollectionPolicy={data?.cashCollectionPolicy}
         items={items}
         paginatedItems={paginatedItems}
         filteredItems={filteredItems}

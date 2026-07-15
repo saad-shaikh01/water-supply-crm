@@ -245,6 +245,46 @@ export interface CollectionPolicyResult {
   remainingPreviousOutstanding: number;
 }
 
+/**
+ * Vendor-configurable Cash Customer Collection Policy (proportional-settlement
+ * credit control, docs/features/cash-customer-collection-policy.md). No stored
+ * credit window — `allowedCreditDeliveries` (N) plus the customer's own live
+ * balance/charge determine the required amount: required = exposure/(N+1),
+ * rounded down to the nearest ₨10, with an optional absolute `maxOutstandingCeiling`.
+ */
+export interface CashCollectionPolicy {
+  enabled: boolean;
+  allowedCreditDeliveries: number;
+  minExposureFloor: number;
+  maxOutstandingCeiling: number | null;
+}
+
+/**
+ * Result of evaluating a delivery's cash collected against the vendor's
+ * CashCollectionPolicy. `applies=false` means the policy is exempt for this
+ * submission (see `reason`); `applies=true && satisfied=false` means the
+ * driver must collect at least `requiredAmount`.
+ */
+export interface CashCollectionPolicyResult {
+  applies: boolean;
+  satisfied: boolean;
+  reason?: 'DISABLED' | 'NOT_CASH' | 'BILLING_EXEMPT' | 'NO_CHARGE' | 'WITHIN_FLOOR' | 'BELOW_MINIMUM';
+  requiredAmount: number;
+  collectedAmount: number;
+  currentBalance: number;
+  chargeAmount: number;
+  exposure: number;
+  projectedBalance: number;
+  allowedCreditDeliveries: number;
+}
+
+/** Response of GET /collection-policy/cash/impact (§8.1, §12) — a live, read-only rollout preview. */
+export interface CashCollectionPolicyImpact {
+  wouldOwePayment: number;
+  wouldOweOverThreshold: number;
+  totalActiveCashCustomers: number;
+}
+
 export interface CustomerDeliveryHistoryItem {
   id: string;
   filledDropped: number;
@@ -307,6 +347,7 @@ export interface SheetDetail {
   loads: LoadTrip[];
   expenses: SheetExpense[];
   collectionPolicy?: CollectionPolicy;
+  cashCollectionPolicy?: CashCollectionPolicy;
 }
 
 export interface VanSummary {

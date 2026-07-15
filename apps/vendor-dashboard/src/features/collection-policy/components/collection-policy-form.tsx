@@ -82,7 +82,7 @@ export function CollectionPolicyForm({ policy }: CollectionPolicyFormProps) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <ShieldCheck className="h-4 w-4 text-muted-foreground" />
-          Minimum Collection Policy
+          Monthly Customers
         </CardTitle>
         <p className="text-sm text-muted-foreground">
           Prevent drivers from saving a Monthly customer&apos;s delivery when the cash collected
