@@ -1,6 +1,7 @@
 'use client';
 
 import { useReducer, useMemo, useEffect, useRef, useState } from 'react';
+import { useQueryState, parseAsString } from 'nuqs';
 import { Button, Card, CardContent, Input, Skeleton } from '@water-supply-crm/ui';
 import { useDailySheet, useUpdateCustomerLocation, useUnlockDeliveryEdit, useRequestDeliveryEdit } from '../hooks/use-daily-sheets';
 import { dailySheetsApi } from '../api/daily-sheets.api';
@@ -44,6 +45,8 @@ interface UiState {
   activeTab: TabKey;
   tabPage: number;
   expandedItemId: string | null;
+  /** Deep-linked item awaiting scroll-into-view + highlight (Phase 6). */
+  deepLinkItemId: string | null;
 }
 
 type UiAction =
@@ -65,7 +68,9 @@ type UiAction =
   | { type: 'CLOSE_BULK_IMPORT' }
   | { type: 'SET_TAB'; tab: TabKey }
   | { type: 'SET_PAGE'; page: number }
-  | { type: 'SET_EXPANDED'; itemId: string | null };
+  | { type: 'SET_EXPANDED'; itemId: string | null }
+  | { type: 'START_DEEP_LINK'; itemId: string }
+  | { type: 'CLEAR_DEEP_LINK' };
 
 const initialUiState: UiState = {
   newTripOpen: false,
@@ -79,6 +84,7 @@ const initialUiState: UiState = {
   activeTab: 'all',
   tabPage: 1,
   expandedItemId: null,
+  deepLinkItemId: null,
 };
 
 function uiReducer(state: UiState, action: UiAction): UiState {
@@ -102,6 +108,8 @@ function uiReducer(state: UiState, action: UiAction): UiState {
     case 'SET_TAB': return { ...state, activeTab: action.tab, tabPage: 1, expandedItemId: null };
     case 'SET_PAGE': return { ...state, tabPage: action.page };
     case 'SET_EXPANDED': return { ...state, expandedItemId: action.itemId };
+    case 'START_DEEP_LINK': return { ...state, deepLinkItemId: action.itemId };
+    case 'CLEAR_DEEP_LINK': return { ...state, deepLinkItemId: null };
   }
 }
 
@@ -204,6 +212,33 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
     }
     return sortBySequence(items);
   }, [items, sortMode, driverLocation]);
+
+  // Deep link from the Communication Center's "Open Delivery" button (Phase 6,
+  // docs/features/customer-communication-center.md §6.1). Locates the item,
+  // switches to the 'all' tab (only tab guaranteed to contain any item),
+  // computes its page within that tab, expands it, and arms the highlight —
+  // DeliveryItemsList performs the actual scroll/highlight once the row is
+  // rendered on the matched page and clears the param when done (see its
+  // onDeepLinkComplete callback below). A stale search query would otherwise
+  // hide an item that genuinely exists, so it's cleared here too.
+  const [itemParam, setItemParam] = useQueryState('item', parseAsString.withDefault(''));
+  useEffect(() => {
+    if (!data || !itemParam) return;
+    const target = items.find((i) => i.id === itemParam);
+    if (!target) {
+      toast.error('Delivery not found on this sheet');
+      setItemParam(null);
+      return;
+    }
+    if (searchQuery) setSearchQuery('');
+    const targetIndex = sortedItems.findIndex((i) => i.id === itemParam);
+    const targetPage = Math.floor(Math.max(0, targetIndex) / ITEMS_PER_PAGE) + 1;
+    dispatch({ type: 'SET_TAB', tab: 'all' });
+    dispatch({ type: 'SET_PAGE', page: targetPage });
+    dispatch({ type: 'SET_EXPANDED', itemId: target.id });
+    dispatch({ type: 'START_DEEP_LINK', itemId: target.id });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, itemParam]);
 
   const searchFilteredItems = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -610,6 +645,8 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
 
       <DeliveryItemsList
         sheetId={sheetId}
+        collectionPolicy={data?.collectionPolicy}
+        cashCollectionPolicy={data?.cashCollectionPolicy}
         items={items}
         paginatedItems={paginatedItems}
         filteredItems={filteredItems}
@@ -617,6 +654,8 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         tabPage={ui.tabPage}
         totalPages={totalPages}
         expandedItemId={ui.expandedItemId}
+        deepLinkItemId={ui.deepLinkItemId}
+        onDeepLinkComplete={() => { dispatch({ type: 'CLEAR_DEEP_LINK' }); setItemParam(null); }}
         isClosed={isClosed}
         tabCount={tabCount}
         onTabChange={(tab) => dispatch({ type: 'SET_TAB', tab: tab as TabKey })}

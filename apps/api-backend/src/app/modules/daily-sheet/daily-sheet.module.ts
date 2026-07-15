@@ -11,6 +11,7 @@ import { DeliveryIssueModule } from '../delivery-issue/delivery-issue.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { StorageModule } from '../../common/storage/storage.module';
 import { WarehouseModule } from '../warehouse/warehouse.module';
+import { CollectionPolicyModule } from '../collection-policy/collection-policy.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { WarehouseModule } from '../warehouse/warehouse.module';
     NotificationsModule,
     StorageModule,
     WarehouseModule,
+    CollectionPolicyModule,
   ],
   controllers: [DailySheetController],
   providers: [DailySheetService, DailySheetProcessor, DailySheetPdfService, BulkImportService],

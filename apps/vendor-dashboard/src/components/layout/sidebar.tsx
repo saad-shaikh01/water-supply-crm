@@ -7,12 +7,14 @@ import {
   ClipboardList, CreditCard, UserCog, Droplets, Banknote, Navigation,
   Receipt, Bell, BellRing, ScrollText, BarChart2, Home, History, ShoppingCart,
   MessageSquare, AlertTriangle, Tag, ShieldAlert, Warehouse, Wrench, ChevronDown, KeyRound,
+  Inbox, Percent,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { pagePermissionForPath } from '@water-supply-crm/authz';
 import { useAuthStore } from '../../store/auth.store';
 import { usePermissions } from '../../features/authz/hooks/use-permissions';
 import { useState, useEffect } from 'react';
+import { UnreadBadge } from '../../features/communication/components/unread-badge';
 
 interface ChildNavItem {
   label: string;
@@ -26,6 +28,8 @@ interface NavItem {
   group: string;
   href?: string;
   children?: ChildNavItem[];
+  /** Communication Center unread count pill (Phase 4). */
+  unreadBadge?: boolean;
 }
 
 // Every href below resolves to a `:page` permission via the shared PAGE_REGISTRY
@@ -36,10 +40,15 @@ const navItems: NavItem[] = [
   // each item's own visibility still resolves through the page registry.
   { label: 'Home', href: '/dashboard/home', icon: Home, group: 'Driver' },
   { label: 'My History', href: '/dashboard/history', icon: History, group: 'Driver' },
+  // Communication Center — same page, server-scoped per role; kept as two
+  // labeled entries (one per group) matching the locked architecture (docs/
+  // features/customer-communication-center.md §6), not two separate pages.
+  { label: 'Messages', href: '/dashboard/communications', icon: Inbox, group: 'Driver', unreadBadge: true },
   // Operations — core flat links
   { label: 'Overview', href: '/dashboard/overview', icon: LayoutDashboard, group: 'Operations' },
   { label: 'Customers', href: '/dashboard/customers', icon: Users, group: 'Operations' },
   { label: 'Daily Sheets', href: '/dashboard/daily-sheets', icon: ClipboardList, group: 'Operations' },
+  { label: 'Communications', href: '/dashboard/communications', icon: Inbox, group: 'Operations', unreadBadge: true },
 
   // Operations — collapsible: Inventory & Supply
   {
@@ -91,6 +100,7 @@ const navItems: NavItem[] = [
   { label: 'Roles & Access', href: '/dashboard/settings/roles', icon: KeyRound, group: 'Settings' },
   { label: 'Balance Reminders', href: '/dashboard/balance-reminders', icon: Bell, group: 'Settings' },
   { label: 'Notification Controls', href: '/dashboard/notification-settings', icon: BellRing, group: 'Settings' },
+  { label: 'Collection Policy', href: '/dashboard/collection-policy', icon: Percent, group: 'Settings' },
   { label: 'Audit Logs', href: '/dashboard/audit-logs', icon: ScrollText, group: 'Settings' },
 ];
 
@@ -280,6 +290,7 @@ export function Sidebar({ className }: { className?: string }) {
                       )}
                     />
                     <span className="tracking-tight">{item.label}</span>
+                    {item.unreadBadge && <UnreadBadge />}
                     {isActive && (
                       <div className="absolute right-3 w-1 h-1 bg-primary rounded-full shadow-[0_0_8px_rgba(99,102,241,0.8)]" />
                     )}

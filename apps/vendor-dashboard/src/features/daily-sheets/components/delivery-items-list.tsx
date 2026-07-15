@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, Button, Badge, Tabs, TabsList, TabsTrigger, Skeleton, Dialog, DialogContent, DialogHeader, DialogTitle } from '@water-supply-crm/ui';
 import { StatusBadge } from '../../../components/shared/status-badge';
@@ -11,13 +11,12 @@ import {
 import { cn } from '@water-supply-crm/ui';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import type { DeliveryItem } from '@water-supply-crm/types';
+import type { DeliveryItem, CollectionPolicy, CashCollectionPolicy } from '@water-supply-crm/types';
 import { useCustomerDeliveryHistory, useDeliveryPhotoUrl } from '../hooks/use-daily-sheets';
 import { dailySheetsApi } from '../api/daily-sheets.api';
 import { reverseGeocode } from '../../../lib/geocoding';
 import { DeliveryRecordForm } from './delivery-record-form';
-import { AddNoteDialog } from './add-note-dialog';
-import { ItemNotesPanel, DriverNoteGate } from './item-notes-panel';
+import { ConversationThread } from '../../communication/components/conversation-thread';
 
 type TabKey = 'all' | 'pending' | 'completed' | 'issues';
 
@@ -29,6 +28,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   ACCESS_ISSUE: 'Area / Access Issue',
   CUSTOMER_REFUSED: 'Customer Refused',
   WEATHER: 'Weather / Road Issue',
+  PAYMENT_NOT_MADE: 'Customer Unable to Pay',
   OTHER: 'Other',
 };
 const formatCategory = (cat: string) => CATEGORY_LABELS[cat] ?? cat;
@@ -40,6 +40,33 @@ const formatPhone = (phone?: string | null) => {
   if (!phone) return '';
   return phone.startsWith('0') ? `92${phone.slice(1)}` : phone;
 };
+
+/**
+ * Pre-doorbell estimate for the collapsed CASH-customer row chip (§8.2):
+ * `(financialBalance + lastFilledDropped × price) / (N+1)`, floored/rounded
+ * per §4.8. Computed entirely from data already on the sheet payload
+ * (policy attachment §9.3, `financialBalance`, `lastFilledDropped`, custom
+ * prices) — zero new requests. Display-only; the real gate is the backend
+ * evaluator, and the record form below re-evaluates against the actual
+ * drop count and cash once the driver starts recording.
+ */
+function estimateCashCollectAmount(item: DeliveryItem, policy: CashCollectionPolicy | undefined): number {
+  if (!policy?.enabled) return 0;
+  if (item.customer?.paymentType !== 'CASH' || item.customer?.isBillingExempt) return 0;
+
+  const balance = item.customer?.financialBalance ?? 0;
+  const customPrice = item.customer?.customPrices?.find((p) => p.productId === item.productId);
+  const price = customPrice?.customPrice ?? item.product?.basePrice ?? 0;
+  const estimatedCharge = (item.lastFilledDropped ?? 0) * price;
+  const exposure = balance + estimatedCharge;
+
+  if (exposure <= policy.minExposureFloor) return 0;
+
+  const proportional = exposure / (policy.allowedCreditDeliveries + 1);
+  const ceilingTerm = policy.maxOutstandingCeiling != null ? exposure - policy.maxOutstandingCeiling : 0;
+  const raw = Math.min(Math.max(Math.max(proportional, ceilingTerm), 0), exposure);
+  return Math.floor(raw / 10) * 10;
+}
 
 function CustomerHistorySection({ customerId }: { customerId: string }) {
   const [open, setOpen] = useState(false);
@@ -129,6 +156,10 @@ function CustomerHistorySection({ customerId }: { customerId: string }) {
 
 interface DeliveryItemsListProps {
   sheetId: string;
+  /** Vendor's Collection Policy config, attached to the sheet payload (Phase 1 §6.4). */
+  collectionPolicy?: CollectionPolicy;
+  /** Vendor's Cash Collection Policy config, attached to the sheet payload (§9.3). */
+  cashCollectionPolicy?: CashCollectionPolicy;
   items: DeliveryItem[];
   paginatedItems: DeliveryItem[];
   filteredItems: DeliveryItem[];
@@ -136,6 +167,9 @@ interface DeliveryItemsListProps {
   tabPage: number;
   totalPages: number;
   expandedItemId: string | null;
+  /** Item awaiting scroll-into-view + highlight after a Communication Center deep link (Phase 6). */
+  deepLinkItemId: string | null;
+  onDeepLinkComplete: () => void;
   isClosed: boolean;
   tabCount: (tab: TabKey) => number;
   onTabChange: (tab: string) => void;
@@ -159,6 +193,8 @@ interface DeliveryItemsListProps {
 
 export function DeliveryItemsList({
   sheetId,
+  collectionPolicy,
+  cashCollectionPolicy,
   items,
   paginatedItems,
   filteredItems,
@@ -166,6 +202,8 @@ export function DeliveryItemsList({
   tabPage,
   totalPages,
   expandedItemId,
+  deepLinkItemId,
+  onDeepLinkComplete,
   isClosed,
   tabCount,
   onTabChange,
@@ -187,9 +225,25 @@ export function DeliveryItemsList({
   onMoveSelected,
 }: DeliveryItemsListProps) {
   const [savingLocationItemId, setSavingLocationItemId] = useState<string | null>(null);
-  const [addNoteItem, setAddNoteItem] = useState<DeliveryItem | null>(null);
   const [viewPhotoItemId, setViewPhotoItemId] = useState<string | null>(null);
   const [downloadingReceiptId, setDownloadingReceiptId] = useState<string | null>(null);
+  const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // Deep-link scroll + highlight (Phase 6). The row container is mounted for
+  // every item in `paginatedItems` regardless of expanded state, so once
+  // sheet-detail.tsx's locate effect has switched to the right tab/page, the
+  // target row's ref is already attached on this same render — no need to
+  // wait for the AnimatePresence expand transition, which only animates the
+  // inner detail panel, not the row itself.
+  useEffect(() => {
+    if (!deepLinkItemId) return;
+    const el = itemRefs.current[deepLinkItemId];
+    if (!el) return;
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    const timer = setTimeout(() => onDeepLinkComplete(), 2000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLinkItemId]);
 
   const handleDownloadReceipt = async (item: DeliveryItem) => {
     setDownloadingReceiptId(item.id);
@@ -300,29 +354,37 @@ export function DeliveryItemsList({
             const hasActiveEditUnlock =
               !!item.editUnlockExpiresAt && new Date(item.editUnlockExpiresAt) > new Date();
 
-            const notes = item.notes ?? [];
-            const pendingNotesCount = notes.filter((n) => !n.acknowledgedAt).length;
-            const allNotesAcknowledged = notes.length === 0 || pendingNotesCount === 0;
+            // Delivery gate keys on requiresAck instruction messages only —
+            // casual conversation replies never block recording (Communication
+            // Center §9). messageCount/pendingAckCount are the lightweight
+            // summary the sheet payload carries (Phase 7) — the full message
+            // list itself lives behind ConversationThread's own fetch.
+            const messageCount = item.messageCount ?? 0;
+            const pendingAckCount = item.pendingAckCount ?? 0;
+            const allAcksCleared = pendingAckCount === 0;
 
             // Whether the inline record/edit form may be shown for this item.
             const canRecord =
               !isClosed &&
-              allNotesAcknowledged &&
+              allAcksCleared &&
               (item.status === 'PENDING' || !isDriver || hasActiveEditUnlock);
-
-            // Driver sees the gate when there are unacknowledged notes
-            const showDriverGate =
-              isDriver &&
-              !isClosed &&
-              notes.length > 0 &&
-              !allNotesAcknowledged;
 
             const isEligibleForMove = MOVE_ELIGIBLE_STATUSES.includes(item.status);
             const isSelected = selectedIds.has(item.id);
+            const isDeepLinkTarget = item.id === deepLinkItemId;
+
+            // Cash Collection Policy multi-item guidance (§8.3, v1 review R3):
+            // when a customer has multiple products on this sheet, the warning
+            // card tells the driver to enter cash on the first one they record —
+            // splitting cash across items still works, but is easy to get wrong.
+            const hasOtherUnrecordedItemsForCustomer = items.some(
+              (other) => other.id !== item.id && other.customerId === item.customerId && other.status === 'PENDING',
+            );
 
             return (
               <motion.div
                 key={item.id}
+                ref={(el: HTMLDivElement | null) => { itemRefs.current[item.id] = el; }}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: idx * 0.03 }}
@@ -334,6 +396,7 @@ export function DeliveryItemsList({
                   isExpanded ? 'border-primary/30 shadow-sm' : 'hover:border-primary/20',
                   selectMode && !isEligibleForMove && 'opacity-40',
                   selectMode && isEligibleForMove && isSelected && 'border-primary/50 ring-1 ring-primary/40',
+                  isDeepLinkTarget && 'ring-2 ring-primary ring-offset-2 ring-offset-background animate-pulse',
                 )}>
                   <CardContent
                     className={cn('p-4 sm:p-5', (!selectMode || isEligibleForMove) && 'cursor-pointer')}
@@ -398,6 +461,14 @@ export function DeliveryItemsList({
                                 </span>
                               );
                             })()}
+                            {(() => {
+                              const estimate = estimateCashCollectAmount(item, cashCollectionPolicy);
+                              return estimate > 0 ? (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full leading-none bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30">
+                                  Collect ~₨{estimate.toLocaleString()}
+                                </span>
+                              ) : null;
+                            })()}
                             {customer?.consumptionRate30d != null && (
                               <span className={cn(
                                 'text-[9px] font-bold',
@@ -423,15 +494,15 @@ export function DeliveryItemsList({
                       </div>
 
                       <div className={cn('flex items-center gap-2 flex-wrap w-full sm:w-auto sm:shrink-0', selectMode && 'hidden')}>
-                        {notes.length > 0 && (
+                        {messageCount > 0 && (
                           <div className={cn(
                             'flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full',
-                            pendingNotesCount > 0
+                            pendingAckCount > 0
                               ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400'
                               : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
                           )}>
                             <StickyNote className="h-2.5 w-2.5" />
-                            {pendingNotesCount > 0 ? `${pendingNotesCount} Note${pendingNotesCount > 1 ? 's' : ''} ⚠` : `${notes.length} Note${notes.length > 1 ? 's' : ''} ✓`}
+                            {pendingAckCount > 0 ? `${pendingAckCount} Pending ⚠` : `${messageCount} Msg${messageCount > 1 ? 's' : ''} ✓`}
                           </div>
                         )}
                         <StatusBadge status={item.status} />
@@ -757,44 +828,24 @@ export function DeliveryItemsList({
                                 })}
                               </p>
                             )}
-                          {/* Admin/Staff: notes panel + Add Note button */}
-                          {canUpdate && !isClosed && (
-                            <div className="flex justify-end">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="rounded-full font-bold gap-1.5 text-xs h-8"
-                                onClick={() => setAddNoteItem(item)}
-                              >
-                                <StickyNote className="h-3.5 w-3.5" />
-                                Add Note
-                              </Button>
-                            </div>
-                          )}
-
-                          {notes.length > 0 && (
-                            <>
-                              {/* Driver gate: must acknowledge before delivery form */}
-                              {showDriverGate ? (
-                                <DriverNoteGate
-                                  notes={notes}
-                                  sheetId={sheetId}
-                                />
-                              ) : (
-                                <ItemNotesPanel
-                                  notes={notes}
-                                  sheetId={sheetId}
-                                  isDriver={isDriver}
-                                />
-                              )}
-                            </>
-                          )}
+                          {/* Communication Center: embedded conversation thread (replaces the old Add Note dialog + notes panel/gate). */}
+                          <ConversationThread
+                            itemId={item.id}
+                            sheetId={sheetId}
+                            variant="embedded"
+                            isDriver={isDriver}
+                            itemIsPending={item.status === 'PENDING'}
+                            isClosed={isClosed}
+                          />
 
                           {canRecord ? (
                             <DeliveryRecordForm
                               key={item.id}
                               item={item}
                               sheetId={sheetId}
+                              collectionPolicy={collectionPolicy}
+                              cashCollectionPolicy={cashCollectionPolicy}
+                              hasOtherUnrecordedItemsForCustomer={hasOtherUnrecordedItemsForCustomer}
                               onDone={() => onToggleExpand(null)}
                             />
                           ) : item.status !== 'PENDING' ? (
@@ -802,6 +853,9 @@ export function DeliveryItemsList({
                               key={`${item.id}-ro`}
                               item={item}
                               sheetId={sheetId}
+                              collectionPolicy={collectionPolicy}
+                              cashCollectionPolicy={cashCollectionPolicy}
+                              hasOtherUnrecordedItemsForCustomer={hasOtherUnrecordedItemsForCustomer}
                               onDone={() => onToggleExpand(null)}
                               readOnly
                             />
@@ -866,17 +920,6 @@ export function DeliveryItemsList({
             Move Selected
           </Button>
         </div>
-      )}
-
-      {addNoteItem && (
-        <AddNoteDialog
-          open={!!addNoteItem}
-          onClose={() => setAddNoteItem(null)}
-          itemId={addNoteItem.id}
-          sheetId={sheetId}
-          customerName={addNoteItem.customer?.name ?? 'Customer'}
-          sequence={addNoteItem.sequence}
-        />
       )}
 
       {viewPhotoItemId && (

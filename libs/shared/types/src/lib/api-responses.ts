@@ -133,16 +133,34 @@ export interface CustomerWalletSummary {
   product: { name: string };
 }
 
-export interface DeliveryItemNote {
+// Customer Communication Center (docs/features/customer-communication-center.md).
+// ConversationMessage evolved from the old DeliveryItemNote table (Phase 1);
+// the DeliveryItemNote alias itself was removed in Phase 7.
+export interface ConversationMessage {
   id: string;
   type: 'TEXT' | 'VOICE';
   text: string | null;
   audioKey: string | null;
   audioDuration: number | null;
+  requiresAck: boolean;
   acknowledgedAt: string | null;
   acknowledgedById: string | null;
   createdAt: string;
   createdBy: { id: string; name: string };
+}
+
+export interface ConversationContext {
+  id: string;
+  status: 'OPEN' | 'RESOLVED' | 'CLOSED';
+  waitingOn: 'DRIVER' | 'OFFICE' | null;
+  messageCount: number;
+  lastMessageAt: string | null;
+  lastMessagePreview: string | null;
+  customer: { id: string; name: string; customerCode: string; phoneNumber: string | null };
+  dailySheet: { id: string; date: string; isClosed: boolean };
+  van: { id: string; plateNumber: string };
+  driver: { id: string; name: string };
+  item: { id: string; sequence: number; status: DeliveryStatusType; product: { id: string; name: string } };
 }
 
 export interface DeliveryItem {
@@ -160,6 +178,7 @@ export interface DeliveryItem {
     longitude?: number | null;
     phoneNumber?: string | null;
     paymentType?: PaymentTypeValue;
+    isBillingExempt?: boolean;
     financialBalance?: number;
     previousMonthOutstanding?: number;
     consumptionRate30d?: number | null;
@@ -184,7 +203,12 @@ export interface DeliveryItem {
   whatsappSentAt?: string | null;
   bottleBalanceAfter?: number | null;
   financialBalanceAfter?: number | null;
-  notes?: DeliveryItemNote[];
+  // Communication Center summary (Phase 7) — replaces the old full `notes`
+  // array; ConversationThread fetches full message history itself when the
+  // card is expanded. pendingAckCount alone drives the requiresAck delivery
+  // gate and the row chip's "N Pending ⚠" state.
+  messageCount?: number;
+  pendingAckCount?: number;
   deliveryType?: 'SCHEDULED' | 'ON_DEMAND';
   sourceOrderId?: string | null;
   isCorrection?: boolean;
@@ -196,6 +220,69 @@ export interface CustomerFinancialSummary {
   currentMonthPaid: number;
   prevMonthOutstanding: number;
   currentOutstanding: number;
+}
+
+/** Vendor-configurable Monthly Customer Collection Policy (minimum-collection floor). */
+export interface CollectionPolicy {
+  enabled: boolean;
+  minOutstandingThreshold: number;
+  minCollectionPercentage: number;
+  allowedShortfall: number;
+}
+
+/**
+ * Result of evaluating a delivery's cash collected against the vendor's
+ * CollectionPolicy. `applies=false` means the policy is exempt for this
+ * submission (see `reason`); `applies=true && satisfied=false` means the
+ * driver must collect at least `requiredAmount` or set cash to 0.
+ */
+export interface CollectionPolicyResult {
+  applies: boolean;
+  satisfied: boolean;
+  reason?: 'DISABLED' | 'NOT_MONTHLY' | 'BILLING_EXEMPT' | 'ZERO_CASH' | 'BELOW_THRESHOLD' | 'BELOW_MINIMUM';
+  requiredAmount: number;
+  collectedAmount: number;
+  remainingPreviousOutstanding: number;
+}
+
+/**
+ * Vendor-configurable Cash Customer Collection Policy (proportional-settlement
+ * credit control, docs/features/cash-customer-collection-policy.md). No stored
+ * credit window — `allowedCreditDeliveries` (N) plus the customer's own live
+ * balance/charge determine the required amount: required = exposure/(N+1),
+ * rounded down to the nearest ₨10, with an optional absolute `maxOutstandingCeiling`.
+ */
+export interface CashCollectionPolicy {
+  enabled: boolean;
+  allowedCreditDeliveries: number;
+  minExposureFloor: number;
+  maxOutstandingCeiling: number | null;
+}
+
+/**
+ * Result of evaluating a delivery's cash collected against the vendor's
+ * CashCollectionPolicy. `applies=false` means the policy is exempt for this
+ * submission (see `reason`); `applies=true && satisfied=false` means the
+ * driver must collect at least `requiredAmount`.
+ */
+export interface CashCollectionPolicyResult {
+  applies: boolean;
+  satisfied: boolean;
+  reason?: 'DISABLED' | 'NOT_CASH' | 'BILLING_EXEMPT' | 'NO_CHARGE' | 'WITHIN_FLOOR' | 'BELOW_MINIMUM';
+  requiredAmount: number;
+  collectedAmount: number;
+  currentBalance: number;
+  chargeAmount: number;
+  exposure: number;
+  projectedBalance: number;
+  allowedCreditDeliveries: number;
+}
+
+/** Response of GET /collection-policy/cash/impact (§8.1, §12) — a live, read-only rollout preview. */
+export interface CashCollectionPolicyImpact {
+  wouldOwePayment: number;
+  wouldOweOverThreshold: number;
+  totalActiveCashCustomers: number;
 }
 
 export interface CustomerDeliveryHistoryItem {
@@ -259,6 +346,8 @@ export interface SheetDetail {
   items: DeliveryItem[];
   loads: LoadTrip[];
   expenses: SheetExpense[];
+  collectionPolicy?: CollectionPolicy;
+  cashCollectionPolicy?: CashCollectionPolicy;
 }
 
 export interface VanSummary {

@@ -38,12 +38,10 @@ import { AddAdhocItemDto } from './dto/add-adhoc-item.dto';
 import { AddCorrectionItemDto } from './dto/add-correction-item.dto';
 import { MoveDeliveryItemsDto } from './dto/move-delivery-items.dto';
 import { UnlockEditDto } from './dto/unlock-edit.dto';
-import { CreateDeliveryNoteDto } from './dto/create-delivery-note.dto';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 
-const ALLOWED_AUDIO_MIMES = ['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/wav', 'audio/x-m4a'];
 const ALLOWED_EXCEL_MIMES = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.ms-excel',
@@ -167,66 +165,6 @@ export class DailySheetController {
       file.mimetype,
     );
     return { key };
-  }
-
-  @Get('items/:id/notes')
-  @RequirePermissions('daily_sheets:view')
-  getItemNotes(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.dailySheetService.getNotes(user.vendorId, id);
-  }
-
-  // Note authoring shares daily_sheets:update (see Batch 16 report — accepted broadening).
-  @Post('items/:id/notes')
-  @RequirePermissions('daily_sheets:update')
-  @Throttle({ short: { ttl: 1000, limit: 10 }, medium: { ttl: 60000, limit: 30 } })
-  addTextNote(
-    @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
-    @Body() dto: CreateDeliveryNoteDto,
-  ) {
-    return this.dailySheetService.addTextNote(user, id, dto);
-  }
-
-  @Post('items/:id/notes/voice')
-  @RequirePermissions('daily_sheets:update')
-  @Throttle({ short: { ttl: 2000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
-  @UseInterceptors(
-    FileInterceptor('audio', {
-      storage: memoryStorage(),
-      limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
-      fileFilter: (_req, file, cb) => {
-        if (ALLOWED_AUDIO_MIMES.includes(file.mimetype)) {
-          cb(null, true);
-        } else {
-          cb(new Error('File type not allowed. Send audio/webm, audio/ogg, audio/mp4, or audio/mpeg.'), false);
-        }
-      },
-    }),
-  )
-  async addVoiceNote(
-    @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
-    @UploadedFile() file?: Express.Multer.File,
-    @Query('duration') duration?: string,
-  ) {
-    if (!file) throw new BadRequestException('No audio file provided');
-    const audioDuration = duration ? parseInt(duration, 10) : undefined;
-    return this.dailySheetService.addVoiceNote(user, id, file, audioDuration);
-  }
-
-  // Driver-side edit-lock interactions (request/ack) live under :update; the staff
-  // override (unlock-edit) is :manage_edit_locks.
-  @Patch('items/notes/:noteId/acknowledge')
-  @RequirePermissions('daily_sheets:update')
-  @Throttle({ short: { ttl: 1000, limit: 20 }, medium: { ttl: 60000, limit: 60 } })
-  acknowledgeNote(@CurrentUser() user: AuthUser, @Param('noteId') noteId: string) {
-    return this.dailySheetService.acknowledgeNote(user, noteId);
-  }
-
-  @Get('items/notes/:noteId/audio')
-  @RequirePermissions('daily_sheets:view')
-  getNoteAudioUrl(@CurrentUser() user: AuthUser, @Param('noteId') noteId: string) {
-    return this.dailySheetService.getNoteAudioUrl(user.vendorId, noteId);
   }
 
   @Get('items/:id/photo-url')

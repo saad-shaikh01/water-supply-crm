@@ -120,9 +120,19 @@ enum RepairBatchStatus {
   COMPLETED
 }
 
-enum NoteType {
+// Renamed from NoteType (Customer Communication Center). IMAGE / FILE / SYSTEM
+// are reserved for future phases — add values only when a phase implements them.
+enum MessageType {
   TEXT
   VOICE
+}
+
+// Customer Communication Center — conversation workflow state. "Waiting on
+// driver/office" is DERIVED from lastMessageSenderRole, never stored here.
+enum ConversationStatus {
+  OPEN
+  RESOLVED
+  CLOSED
 }
 
 // Coarse notification category the vendor can switch on/off per channel.
@@ -175,12 +185,15 @@ model Vendor {
   reminderSendLogs        ReminderSendLog[]
   driverLastLocations     DriverLastLocation[]
   damageCases             DamageCase[]
-  deliveryItemNotes       DeliveryItemNote[]
+  conversationMessages    ConversationMessage[]
+  conversations           Conversation[]
   warehouseStocks         WarehouseStock[]
   warehouseTransactions   WarehouseTransaction[]
   repairBatches           RepairBatch[]
   notificationSettings    NotificationSetting[]
   roles                   Role[]
+  collectionPolicyConfig  CollectionPolicyConfig?
+  cashCollectionPolicyConfig CashCollectionPolicyConfig?
 }
 
 model User {
@@ -211,7 +224,9 @@ model User {
   driverLastLocation    DriverLastLocation?
   driverDamageCases     DamageCase[] @relation("DriverDamageCases")
   reviewedDamageCases   DamageCase[] @relation("DamageCaseReviewer")
-  createdDeliveryNotes  DeliveryItemNote[] @relation("NoteCreatedBy")
+  sentMessages          ConversationMessage[] @relation("MessageSender")
+  conversationsAsDriver Conversation[]         @relation("ConversationDriver")
+  conversationReads     ConversationRead[]     @relation("ConversationReader")
   createdWarehouseTx    WarehouseTransaction[] @relation("WarehouseTxCreatedBy")
   createdRepairBatches  RepairBatch[]          @relation("RepairBatchCreatedBy")
   crewAssignments       DailySheetCrew[]       @relation("CrewMember")
@@ -350,6 +365,7 @@ model Customer {
   orders            CustomerOrder[]
   tickets           CustomerTicket[]
   damageCases       DamageCase[]
+  conversations     Conversation[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -431,6 +447,7 @@ model Van {
   expenses          Expense[]
   deliverySchedules CustomerDeliverySchedule[]
   defaultCrew       VanDefaultCrew[]
+  conversations     Conversation[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -491,6 +508,7 @@ model DailySheet {
   expenses      Expense[]
   warehouseTransactions WarehouseTransaction[]
   crew          DailySheetCrew[]
+  conversations Conversation[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -581,7 +599,10 @@ model DailySheetItem {
   deliveryIssue DeliveryIssue?
   transactions  Transaction[]
   damageCases   DamageCase[]
-  notes         DeliveryItemNote[]
+  // Relation field kept as `notes` through the Communication Center migration
+  // so daily-sheet includes stay stable; renamed to `messages` in Phase 7.
+  notes         ConversationMessage[]
+  conversation  Conversation?
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -1013,6 +1034,41 @@ model ReminderScheduleConfig {
   @@index([vendorId])
 }
 
+/// Monthly Customer Collection Policy — vendor-configurable minimum-collection
+/// floor evaluated against the customer's remaining previous month outstanding.
+/// Missing row = policy disabled (mirrors NotificationSetting's convention).
+model CollectionPolicyConfig {
+  id                      String   @id @default(uuid())
+  vendorId                String   @unique
+  vendor                  Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  enabled                 Boolean  @default(false)
+  minOutstandingThreshold Float    @default(1000)
+  minCollectionPercentage Float    @default(90)
+  allowedShortfall        Float    @default(300)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([vendorId])
+}
+
+/// Cash Customer Collection Policy — vendor-configurable proportional-settlement
+/// credit control for CASH customers (docs/features/cash-customer-collection-policy.md).
+/// required = floor10(max((balance+charge)/(N+1), ceiling ? (balance+charge)-ceiling : 0)).
+/// Missing row = policy disabled (same convention as CollectionPolicyConfig).
+model CashCollectionPolicyConfig {
+  id                      String   @id @default(uuid())
+  vendorId                String   @unique
+  vendor                  Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  enabled                 Boolean  @default(false)
+  allowedCreditDeliveries Int      @default(2)      // N; required = exposure/(N+1); 0 = COD
+  minExposureFloor        Float    @default(500)
+  maxOutstandingCeiling   Float?                    // null = no absolute ceiling
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([vendorId])
+}
+
 model ReminderSendLog {
   id               String   @id @default(uuid())
   vendorId         String
@@ -1119,29 +1175,102 @@ model DamageCaseAuditLog {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Delivery Item Notes (admin notes + voice notes for driver)
+// Customer Communication Center
+// See docs/features/customer-communication-center.md (LOCKED architecture).
+// One Conversation per DailySheetItem (unique anchor); ConversationMessage was
+// evolved in place from DeliveryItemNote (table renamed, ids preserved).
 // ──────────────────────────────────────────────────────────────────────────────
 
-model DeliveryItemNote {
-  id               String    @id @default(uuid())
+model Conversation {
+  id               String   @id @default(uuid())
   vendorId         String
-  vendor           Vendor    @relation(fields: [vendorId], references: [id])
+  vendor           Vendor   @relation(fields: [vendorId], references: [id])
+  dailySheetItemId String   @unique
+  item             DailySheetItem @relation(fields: [dailySheetItemId], references: [id], onDelete: Cascade)
+
+  // Denormalized context for cheap inbox filtering/display. driverId/vanId are
+  // re-synced on swap-assignment and item moves; authorization NEVER trusts
+  // these columns — driver access always resolves the sheet's current driver.
+  dailySheetId String
+  dailySheet   DailySheet @relation(fields: [dailySheetId], references: [id])
+  customerId   String
+  customer     Customer   @relation(fields: [customerId], references: [id])
+  vanId        String
+  van          Van        @relation(fields: [vanId], references: [id])
+  driverId     String
+  driver       User       @relation("ConversationDriver", fields: [driverId], references: [id])
+  deliveryDate DateTime
+
+  status ConversationStatus @default(OPEN)
+
+  // Rollups updated in the same transaction as every message insert.
+  lastMessageAt         DateTime?
+  lastMessagePreview    String?   // ~120 chars; "🎤 Voice message" for voice
+  lastMessageSenderId   String?
+  lastMessageSenderRole String?   // UserRole as text — derives waitingOn
+  messageCount          Int       @default(0)
+
+  summary  String? // AI-ready (conversation summary) — unused until AI phase
+  metadata Json?   // AI-ready — unused
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages ConversationMessage[]
+  reads    ConversationRead[]
+
+  @@index([vendorId, lastMessageAt])
+  @@index([vendorId, status, lastMessageAt])
+  @@index([driverId, lastMessageAt])
+  @@index([customerId])
+  @@index([dailySheetId])
+}
+
+model ConversationMessage {
+  id             String       @id @default(uuid())
+  vendorId       String
+  vendor         Vendor       @relation(fields: [vendorId], references: [id])
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  // Kept permanently: keeps the delivery ack-gate a single-table indexed count
+  // and legacy `item.notes` includes working during the phased migration.
   dailySheetItemId String
   item             DailySheetItem @relation(fields: [dailySheetItemId], references: [id], onDelete: Cascade)
   createdById      String
-  createdBy        User      @relation("NoteCreatedBy", fields: [createdById], references: [id])
-  type             NoteType
+  createdBy        User      @relation("MessageSender", fields: [createdById], references: [id])
+  type             MessageType
   text             String?
-  audioKey         String?   // Wasabi S3 key for voice notes
+  audioKey         String?   // Wasabi S3 key for voice messages
   audioDuration    Int?      // duration in seconds
+  requiresAck      Boolean   @default(false) // instruction: blocks delivery until acknowledged
   acknowledgedAt   DateTime?
   acknowledgedById String?   // userId of driver who acknowledged (plain string, no relation needed)
+  attachments      Json      @default("[]") // future [{key, name, mime, size}]
+  transcription    String?   // AI-ready (voice transcription) — unused
+  metadata         Json?     // AI-ready — unused
+  deletedAt        DateTime? // soft delete (future edit/delete) — unused
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
   @@index([dailySheetItemId])
   @@index([dailySheetItemId, acknowledgedAt])
   @@index([vendorId])
+  @@index([conversationId, createdAt])
+  @@index([dailySheetItemId, requiresAck, acknowledgedAt], map: "ConversationMessage_itemId_requiresAck_ack_idx")
+}
+
+// Per-user read watermark (NOT per-message receipts). A message is unread for
+// user U iff createdAt > lastReadAt (or no row) AND createdById != U.
+model ConversationRead {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation("ConversationReader", fields: [userId], references: [id], onDelete: Cascade)
+  lastReadAt     DateTime
+
+  @@unique([conversationId, userId])
+  @@index([userId])
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

@@ -6,14 +6,13 @@ import {
   UnprocessableEntityException,
   ForbiddenException,
   Logger,
-  InternalServerErrorException,
   OnModuleInit,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '@water-supply-crm/database';
 import { QUEUE_NAMES, JOB_NAMES, NOTIFICATION_EVENTS } from '@water-supply-crm/queue';
-import { DeliveryStatus, NoteType, PaymentType, TransactionType, NotificationType, NotificationChannel, Prisma, CrewRole } from '@prisma/client';
+import { DeliveryStatus, PaymentType, TransactionType, NotificationType, NotificationChannel, Prisma, CrewRole } from '@prisma/client';
 import { GenerateSheetsDto } from './dto/generate-sheets.dto';
 import { SubmitDeliveryDto } from './dto/submit-delivery.dto';
 import { LoadOutDto } from './dto/load-out.dto';
@@ -37,11 +36,12 @@ import { validateSupportCrew } from '../../common/helpers/crew-validation';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
 import type { AuthUser } from '@water-supply-crm/types';
 import { UnlockEditDto } from './dto/unlock-edit.dto';
-import { CreateDeliveryNoteDto } from './dto/create-delivery-note.dto';
 import { StorageService } from '../../common/storage/storage.service';
 import { WarehouseService } from '../warehouse/warehouse.service';
 import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.service';
 import { NotificationSettingsService } from '../notifications/notification-settings.service';
+import { CollectionPolicyService } from '../collection-policy/collection-policy.service';
+import { evaluateCollectionPolicy, evaluateCashCollectionPolicy } from '../../common/helpers/collection-policy.util';
 
 const AUTO_GENERATE_CRON = '5 0 * * *'; // 00:05 AM, evaluated in AUTO_GENERATE_TZ
 const AUTO_GENERATE_TZ = 'Asia/Karachi';
@@ -64,6 +64,7 @@ export class DailySheetService implements OnModuleInit {
     private warehouse: WarehouseService,
     private deliveryReceiptPdf: DeliveryReceiptPdfService,
     private notifSettings: NotificationSettingsService,
+    private collectionPolicy: CollectionPolicyService,
     @InjectQueue(QUEUE_NAMES.DAILY_SHEET_GENERATION)
     private sheetQueue: Queue,
   ) {}
@@ -375,7 +376,7 @@ export class DailySheetService implements OnModuleInit {
     const item = await this.prisma.dailySheetItem.findUnique({
       where: { id: itemId },
       include: {
-        customer: { select: { name: true, customerCode: true, phoneNumber: true, paymentType: true, isBillingExempt: true, customPrices: { select: { productId: true, customPrice: true } } } },
+        customer: { select: { name: true, customerCode: true, phoneNumber: true, paymentType: true, isBillingExempt: true, financialBalance: true, customPrices: { select: { productId: true, customPrice: true } } } },
         product: { select: { name: true, basePrice: true } },
         dailySheet: { select: { vendorId: true, date: true, vendor: { select: { name: true } } } },
       },
@@ -411,9 +412,11 @@ export class DailySheetService implements OnModuleInit {
       });
     }
 
-    // Block delivery if there are unacknowledged notes on this item
-    const unacknowledgedCount = await this.prisma.deliveryItemNote.count({
-      where: { dailySheetItemId: itemId, acknowledgedAt: null },
+    // Block delivery while instruction messages (requiresAck) on this item are
+    // unacknowledged. Casual conversation replies do NOT block (Communication
+    // Center §9); pre-existing notes were backfilled requiresAck=true.
+    const unacknowledgedCount = await this.prisma.conversationMessage.count({
+      where: { dailySheetItemId: itemId, requiresAck: true, acknowledgedAt: null, deletedAt: null },
     });
     if (unacknowledgedCount > 0) {
       throw new BadRequestException(
@@ -421,14 +424,55 @@ export class DailySheetService implements OnModuleInit {
       );
     }
 
-    const activeLoad = await this.prisma.dailySheetLoad.findFirst({
-      where: { dailySheetId: item.dailySheetId, endedAt: null },
-    });
-    if (!activeLoad) {
-      throw new BadRequestException('No active trip. Start a trip before recording deliveries.');
+    // Monthly Customer Collection Policy — minimum-collection gate. Runs before
+    // any transaction/ledger write and never alters how cash is applied once
+    // accepted (docs/features/monthly-customer-collection-policy.md §6.3).
+    if (item.customer.paymentType === PaymentType.MONTHLY && !item.customer.isBillingExempt) {
+      const policy = await this.collectionPolicy.getPolicy(vendorId);
+      if (policy.enabled) {
+        const { prevMonthOutstanding, currentMonthPaid } = await this.getRemainingPrevOutstanding(
+          vendorId,
+          item.customerId,
+          item.customer.financialBalance,
+          item.dailySheet.date,
+        );
+        // Back out this item's own previously saved cash (resubmit correctness).
+        // Safe unconditionally: a first-time submission's saved cashCollected is 0.
+        const remainingPreviousOutstanding = Math.max(
+          prevMonthOutstanding - (currentMonthPaid - item.cashCollected),
+          0,
+        );
+        const policyResult = evaluateCollectionPolicy(policy, {
+          paymentType: item.customer.paymentType,
+          isBillingExempt: item.customer.isBillingExempt,
+          remainingPreviousOutstanding,
+          cashCollected: dto.cashCollected,
+        });
+
+        if (policyResult.applies && !policyResult.satisfied) {
+          throw new UnprocessableEntityException({
+            code: 'COLLECTION_POLICY_VIOLATION',
+            message:
+              "Cash collected does not satisfy the vendor's minimum collection policy for the previous month's outstanding balance.",
+            ...policyResult,
+          });
+        }
+        if (policyResult.reason === 'ZERO_CASH') {
+          await this.audit.log({
+            vendorId,
+            action: 'COLLECTION_POLICY_ZERO_CASH',
+            entity: 'DailySheetItem',
+            entityId: itemId,
+            changes: { after: policyResult },
+          });
+        }
+      }
     }
 
-    // Auto-detect EMPTY_ONLY: if submitted as COMPLETED with 0 filledDropped, it's an empty-only pickup
+    // Auto-detect EMPTY_ONLY: if submitted as COMPLETED with 0 filledDropped, it's an empty-only pickup.
+    // Hoisted above the Cash Collection Policy gate (below) so both the gate and the
+    // transaction share one definition — docs/features/cash-customer-collection-policy.md §9.2
+    // step 3. Behavior-neutral: neither value depends on the active-trip check.
     const resolvedStatus =
       dto.status === DeliveryStatus.COMPLETED && dto.filledDropped === 0
         ? DeliveryStatus.EMPTY_ONLY
@@ -440,6 +484,44 @@ export class DailySheetService implements OnModuleInit {
     const price = item.customer.isBillingExempt
       ? 0
       : (customPrice ? customPrice.customPrice : item.product.basePrice);
+
+    // Cash Customer Collection Policy — proportional-settlement credit gate. Runs
+    // before any transaction/ledger write and never alters how cash is applied
+    // once accepted (docs/features/cash-customer-collection-policy.md §9.2).
+    if (item.customer.paymentType === PaymentType.CASH && !item.customer.isBillingExempt) {
+      const cashPolicy = await this.collectionPolicy.getCashPolicy(vendorId);
+      if (cashPolicy.enabled) {
+        const isPostingStatus =
+          resolvedStatus === DeliveryStatus.COMPLETED || resolvedStatus === DeliveryStatus.EMPTY_ONLY;
+        const chargeAmount = isPostingStatus ? dto.filledDropped * price : 0;
+        const priorLedgerEffect = await this.getPriorLedgerEffect(itemId);
+        const currentBalance = item.customer.financialBalance - priorLedgerEffect;
+
+        const cashPolicyResult = evaluateCashCollectionPolicy(cashPolicy, {
+          paymentType: item.customer.paymentType,
+          isBillingExempt: item.customer.isBillingExempt,
+          currentBalance,
+          chargeAmount,
+          cashCollected: dto.cashCollected,
+        });
+
+        if (cashPolicyResult.applies && !cashPolicyResult.satisfied) {
+          throw new UnprocessableEntityException({
+            code: 'CASH_COLLECTION_POLICY_VIOLATION',
+            message:
+              "Cash collected does not satisfy the vendor's collection policy for this customer's current balance.",
+            ...cashPolicyResult,
+          });
+        }
+      }
+    }
+
+    const activeLoad = await this.prisma.dailySheetLoad.findFirst({
+      where: { dailySheetId: item.dailySheetId, endedAt: null },
+    });
+    if (!activeLoad) {
+      throw new BadRequestException('No active trip. Start a trip before recording deliveries.');
+    }
 
     // Resolve the delivery push master-switch BEFORE the transaction so the
     // gate check never adds I/O inside the interactive transaction.
@@ -923,7 +1005,7 @@ export class DailySheetService implements OnModuleInit {
                 id: true, name: true, customerCode: true,
                 address: true, floor: true, nearbyLandmark: true,
                 deliveryInstructions: true, latitude: true, longitude: true,
-                phoneNumber: true, paymentType: true, financialBalance: true,
+                phoneNumber: true, paymentType: true, isBillingExempt: true, financialBalance: true,
                 wallets: {
                   select: { productId: true, balance: true, product: { select: { name: true } } },
                 },
@@ -933,9 +1015,17 @@ export class DailySheetService implements OnModuleInit {
               },
             },
             product: true,
-            notes: {
-              include: { createdBy: { select: { id: true, name: true } } },
-              orderBy: { createdAt: 'asc' },
+            // Communication Center summary (Phase 7) — the full message list
+            // moved to ConversationThread's own fetch (GET /conversations/:id/
+            // messages); the sheet payload only needs enough to render the row
+            // chip and (via pendingAckCount) the requiresAck delivery gate.
+            // Conversation.messageCount is the existing transactional rollup
+            // (Phase 1/2) — no live count needed for the total.
+            conversation: { select: { messageCount: true } },
+            _count: {
+              select: {
+                notes: { where: { requiresAck: true, acknowledgedAt: null, deletedAt: null } },
+              },
             },
           },
           orderBy: { sequence: 'asc' },
@@ -954,6 +1044,17 @@ export class DailySheetService implements OnModuleInit {
     });
     if (!sheet) {
       throw new NotFoundException('Daily sheet not found');
+    }
+
+    // Communication Center summary (Phase 7): collapse the conversation/_count
+    // sub-objects into two flat numbers and drop the raw shapes from the
+    // response — same in-place-mutation idiom as lastFilledDropped/
+    // consumptionRate30d below.
+    for (const it of sheet.items as any[]) {
+      it.messageCount = it.conversation?.messageCount ?? 0;
+      it.pendingAckCount = it._count.notes;
+      delete it.conversation;
+      delete it._count;
     }
 
     // Batch-fetch last completed filledDropped for each customer+product pair
@@ -1043,6 +1144,15 @@ export class DailySheetService implements OnModuleInit {
         }
       }
     }
+
+    // Attach the vendor's Collection Policy config once at the sheet level so
+    // drivers can validate Cash Collected without an extra per-item request
+    // (docs/features/monthly-customer-collection-policy.md §6.4). Cached read.
+    (sheet as any).collectionPolicy = await this.collectionPolicy.getPolicy(vendorId);
+    // Cash Collection Policy sibling attachment — needs no per-item batch work at
+    // all: financialBalance and lastFilledDropped are already on every item
+    // (docs/features/cash-customer-collection-policy.md §9.3). Cached read.
+    (sheet as any).cashCollectionPolicy = await this.collectionPolicy.getCashPolicy(vendorId);
 
     return sheet;
   }
@@ -1729,6 +1839,19 @@ export class DailySheetService implements OnModuleInit {
         });
       }
 
+      // Keep the Communication Center's denormalized inbox context in sync
+      // (LOCKED §5.6). Display/filter data only — driver access checks always
+      // resolve the sheet's current driver, never these columns.
+      if (updateData.driverId || updateData.vanId) {
+        await tx.conversation.updateMany({
+          where: { dailySheetId: sheetId },
+          data: {
+            ...(updateData.driverId ? { driverId: updateData.driverId } : {}),
+            ...(updateData.vanId ? { vanId: updateData.vanId } : {}),
+          },
+        });
+      }
+
       // Any assignment change invalidates the previous confirmation — the
       // updated crew must be explicitly re-confirmed before trips start.
       return tx.dailySheet.update({
@@ -1828,7 +1951,7 @@ export class DailySheetService implements OnModuleInit {
    * Move one or more customers' pending/failed deliveries to a different
    * van's sheet (same date or a future date). This is an in-place mutation
    * of the existing DailySheetItem row (dailySheetId/sequence/status) — not
-   * a copy-and-cancel — because DeliveryIssue/DamageCase/DeliveryItemNote
+   * a copy-and-cancel — because DeliveryIssue/DamageCase/ConversationMessage
    * all reference the item by id, and analytics.service.ts's getDeliveries
    * counts CANCELLED as a missed delivery, which a cancelled-source-item
    * design would have permanently miscounted for moved customers.
@@ -1970,6 +2093,23 @@ export class DailySheetService implements OnModuleInit {
           },
         });
       }
+
+      // Conversations move with their items — re-sync the denormalized inbox
+      // context (sheet/van/driver/date) to the destination sheet (LOCKED §5.6
+      // consistency rule; display/filter data only, never authorization).
+      const destSheet = await tx.dailySheet.findUniqueOrThrow({
+        where: { id: destinationSheetId },
+        select: { vanId: true, driverId: true, date: true },
+      });
+      await tx.conversation.updateMany({
+        where: { dailySheetItemId: { in: items.map((i) => i.id) } },
+        data: {
+          dailySheetId: destinationSheetId,
+          vanId: destSheet.vanId,
+          driverId: destSheet.driverId,
+          deliveryDate: destSheet.date,
+        },
+      });
 
       return {
         destinationSheetId,
@@ -2248,115 +2388,6 @@ export class DailySheetService implements OnModuleInit {
     };
   }
 
-  // ── Delivery Item Notes ───────────────────────────────────────────────────
-
-  private async resolveItemForNotes(vendorId: string, itemId: string) {
-    const item = await this.prisma.dailySheetItem.findUnique({
-      where: { id: itemId },
-      include: { dailySheet: { select: { vendorId: true } } },
-    });
-    if (!item || item.dailySheet.vendorId !== vendorId) {
-      throw new NotFoundException('Sheet item not found');
-    }
-    return item;
-  }
-
-  async getNotes(vendorId: string, itemId: string) {
-    await this.resolveItemForNotes(vendorId, itemId);
-    return this.prisma.deliveryItemNote.findMany({
-      where: { dailySheetItemId: itemId },
-      include: { createdBy: { select: { id: true, name: true } } },
-      orderBy: { createdAt: 'asc' },
-    });
-  }
-
-  async addTextNote(user: AuthUser, itemId: string, dto: CreateDeliveryNoteDto) {
-    await this.resolveItemForNotes(user.vendorId, itemId);
-    if (!dto.text?.trim()) {
-      throw new BadRequestException('Note text is required for TEXT type notes');
-    }
-    return this.prisma.deliveryItemNote.create({
-      data: {
-        vendorId: user.vendorId,
-        dailySheetItemId: itemId,
-        createdById: user.userId,
-        type: NoteType.TEXT,
-        text: dto.text.trim(),
-      },
-      include: { createdBy: { select: { id: true, name: true } } },
-    });
-  }
-
-  async addVoiceNote(
-    user: AuthUser,
-    itemId: string,
-    file: Express.Multer.File,
-    audioDuration?: number,
-  ) {
-    await this.resolveItemForNotes(user.vendorId, itemId);
-
-    let uploadResult: { key: string };
-    try {
-      uploadResult = await this.storage.upload(
-        'delivery-voice-notes',
-        file.buffer,
-        file.originalname,
-        file.mimetype,
-      );
-    } catch (err) {
-      this.logger.error(
-        `Voice note upload failed: ${(err as Error)?.message ?? String(err)}`,
-        (err as Error)?.stack,
-      );
-      throw new InternalServerErrorException('Failed to upload voice note');
-    }
-
-    return this.prisma.deliveryItemNote.create({
-      data: {
-        vendorId: user.vendorId,
-        dailySheetItemId: itemId,
-        createdById: user.userId,
-        type: NoteType.VOICE,
-        audioKey: uploadResult.key,
-        audioDuration: audioDuration ?? null,
-      },
-      include: { createdBy: { select: { id: true, name: true } } },
-    });
-  }
-
-  async acknowledgeNote(user: AuthUser, noteId: string) {
-    const note = await this.prisma.deliveryItemNote.findUnique({
-      where: { id: noteId },
-      include: { item: { include: { dailySheet: { select: { vendorId: true } } } } },
-    });
-    if (!note || note.item.dailySheet.vendorId !== user.vendorId) {
-      throw new NotFoundException('Note not found');
-    }
-    if (note.acknowledgedAt) {
-      return note; // already acknowledged — idempotent
-    }
-    return this.prisma.deliveryItemNote.update({
-      where: { id: noteId },
-      data: { acknowledgedAt: new Date(), acknowledgedById: user.userId },
-      include: { createdBy: { select: { id: true, name: true } } },
-    });
-  }
-
-  async getNoteAudioUrl(vendorId: string, noteId: string) {
-    const note = await this.prisma.deliveryItemNote.findUnique({
-      where: { id: noteId },
-      include: { item: { include: { dailySheet: { select: { vendorId: true } } } } },
-    });
-    if (!note || note.item.dailySheet.vendorId !== vendorId) {
-      throw new NotFoundException('Note not found');
-    }
-    if (note.type !== NoteType.VOICE || !note.audioKey) {
-      throw new BadRequestException('This note does not have a voice recording');
-    }
-    const signedUrl = await this.storage.getSignedUrl(note.audioKey, 900);
-    return { signedUrl };
-  }
-
   async getDeliveryPhotoUrl(vendorId: string, itemId: string) {
     const item = await this.prisma.dailySheetItem.findUnique({
       where: { id: itemId },
@@ -2424,5 +2455,61 @@ export class DailySheetService implements OnModuleInit {
       _sum: { amount: true },
     });
     return (currentFinancialBalance ?? 0) - (agg._sum.amount ?? 0);
+  }
+
+  /**
+   * Prev-month outstanding (opening balance) and this-month payments, anchored
+   * to referenceDate's month — the same aggregation getCustomerFinancialSummary()
+   * exposes to the frontend. Used only by the Collection Policy gate/sheet
+   * attachment; deliberately independent of getPreviousMonthOutstanding() above,
+   * which serves receipts/WhatsApp and must not be touched by this feature.
+   */
+  private async getRemainingPrevOutstanding(
+    vendorId: string,
+    customerId: string,
+    financialBalance: number,
+    referenceDate: Date,
+  ): Promise<{ prevMonthOutstanding: number; currentMonthPaid: number }> {
+    const curMonthStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1);
+    const nextMonthStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 1);
+
+    const [fromCurrentMonth, curPayments] = await Promise.all([
+      this.prisma.transaction.aggregate({
+        where: { customerId, vendorId, createdAt: { gte: curMonthStart } },
+        _sum: { amount: true },
+      }),
+      this.prisma.transaction.aggregate({
+        where: { customerId, vendorId, type: 'PAYMENT', createdAt: { gte: curMonthStart, lt: nextMonthStart } },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    const prevMonthOutstanding = (financialBalance ?? 0) - (fromCurrentMonth._sum.amount ?? 0);
+    const currentMonthPaid = Math.abs(curPayments._sum.amount ?? 0);
+
+    return { prevMonthOutstanding, currentMonthPaid };
+  }
+
+  /**
+   * Reconstructs this item's own prior effect on `Customer.financialBalance` from
+   * its own ledger rows — the identical reconstruction `LedgerService.applyIdempotentRepost`
+   * performs (ledger.service.ts) — so the Cash Collection Policy gate predicts, by
+   * construction, the exact balance a repost will produce (including the
+   * COMPLETED→NOT_AVAILABLE phantom-row case). Used only by the Cash Collection
+   * Policy gate (docs/features/cash-customer-collection-policy.md §4.9); deliberately
+   * independent of `ledger.service.ts`, which must not be touched by this feature.
+   */
+  private async getPriorLedgerEffect(itemId: string): Promise<number> {
+    const [delivery, payment] = await Promise.all([
+      this.prisma.transaction.findFirst({
+        where: { dailySheetItemId: itemId, type: TransactionType.DELIVERY },
+        select: { amount: true },
+      }),
+      this.prisma.transaction.findFirst({
+        where: { dailySheetItemId: itemId, type: TransactionType.PAYMENT },
+        select: { amount: true },
+      }),
+    ]);
+    return (delivery?.amount ?? 0) + (payment?.amount ?? 0);
   }
 }
