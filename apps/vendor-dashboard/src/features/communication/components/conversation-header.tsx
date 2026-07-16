@@ -6,6 +6,7 @@ import { Calendar, CheckCircle2, ExternalLink, Loader2, Package, RotateCcw, Truc
 import type { ConversationContext } from '@water-supply-crm/types';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import { useSetStatus } from '../hooks/use-conversations';
+import { useCan } from '../../authz/hooks/use-can';
 
 const CONVERSATION_STATUS_STYLES: Record<ConversationContext['status'], string> = {
   OPEN: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
@@ -23,18 +24,19 @@ const formatDate = (iso: string) =>
 
 interface ConversationHeaderProps {
   conversation: ConversationContext;
-  /** Status controls are office-only, matching the backend's Roles guard on PATCH .../status. */
-  isDriver: boolean;
 }
 
 /**
  * Context block for the inbox detail pane. Status controls added Phase 5 —
- * office-only, calling the Phase 1 status endpoint directly (transitions,
- * the CLOSED-can-only-reopen guard, and audit logging are all server-side,
+ * gated by `conversations:manage_status` (office-only under the default role
+ * presets — matches the backend's RequirePermissions check on PATCH .../status),
+ * calling the Phase 1 status endpoint directly (transitions, the
+ * CLOSED-can-only-reopen guard, and audit logging are all server-side,
  * unchanged here). "Open Delivery" deep link added Phase 6, §6.1.
  */
-export function ConversationHeader({ conversation, isDriver }: ConversationHeaderProps) {
+export function ConversationHeader({ conversation }: ConversationHeaderProps) {
   const setStatus = useSetStatus(conversation.id, conversation.item.id);
+  const canManageStatus = useCan('conversations:manage_status');
 
   return (
     <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-border/40">
@@ -80,7 +82,7 @@ export function ConversationHeader({ conversation, isDriver }: ConversationHeade
           Open Delivery
         </Link>
         <StatusBadge status={conversation.item.status} />
-        {!isDriver && (
+        {canManageStatus && (
           <div className="flex items-center gap-1.5">
             {conversation.status === 'OPEN' && (
               <>

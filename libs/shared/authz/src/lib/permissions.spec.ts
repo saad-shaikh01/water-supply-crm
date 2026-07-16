@@ -14,9 +14,12 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // If the catalog legitimately changes, update the doc AND these numbers together.
 // 123 = original frozen 120 + customers:view_financial + customers:update_location
 // + daily_sheets:correct (Phase C refinements, owner-approved 2026-07-08).
-const FROZEN_TOTAL = 123;
-const FROZEN_PAGES = 23;
-const FROZEN_RESOURCES = 24;
+// 132 = 123 + collection_policy (page, view, update) + conversations (page, view,
+// create, send, acknowledge, manage_status) — RolesGuard→RequirePermissions migration
+// of CollectionPolicyController/ConversationController/MessageController (2026-07-16).
+const FROZEN_TOTAL = 132;
+const FROZEN_PAGES = 25;
+const FROZEN_RESOURCES = 26;
 
 describe('permission catalog (frozen contract)', () => {
   it('has the frozen totals', () => {

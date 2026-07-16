@@ -10,6 +10,7 @@ import { ShieldCheck, Percent, Banknote } from 'lucide-react';
 import type { CollectionPolicy } from '@water-supply-crm/types';
 import { collectionPolicySchema, type CollectionPolicyInput } from '../schemas';
 import { useUpdateCollectionPolicy } from '../hooks/use-collection-policy';
+import { useCan } from '../../authz/hooks/use-can';
 
 /** Same visual toggle used on the Notification Controls page, for consistency. */
 function Toggle({
@@ -53,6 +54,7 @@ interface CollectionPolicyFormProps {
 }
 
 export function CollectionPolicyForm({ policy }: CollectionPolicyFormProps) {
+  const canUpdate = useCan('collection_policy:update');
   const { mutate: update, isPending } = useUpdateCollectionPolicy();
 
   const {
@@ -105,7 +107,7 @@ export function CollectionPolicyForm({ policy }: CollectionPolicyFormProps) {
               render={({ field }) => (
                 <Toggle
                   enabled={field.value}
-                  disabled={isPending}
+                  disabled={isPending || !canUpdate}
                   label="Enable Collection Policy"
                   onToggle={() => field.onChange(!field.value)}
                 />
@@ -123,7 +125,7 @@ export function CollectionPolicyForm({ policy }: CollectionPolicyFormProps) {
                 type="number"
                 min={0}
                 step="1"
-                disabled={!enabled}
+                disabled={!enabled || !canUpdate}
                 className="bg-accent/30 border-border/50 h-11 font-mono font-bold"
                 {...register('minOutstandingThreshold', { valueAsNumber: true })}
               />
@@ -148,7 +150,7 @@ export function CollectionPolicyForm({ policy }: CollectionPolicyFormProps) {
                 min={0}
                 max={100}
                 step="1"
-                disabled={!enabled}
+                disabled={!enabled || !canUpdate}
                 className="bg-accent/30 border-border/50 h-11 font-mono font-bold"
                 {...register('minCollectionPercentage', { valueAsNumber: true })}
               />
@@ -171,7 +173,7 @@ export function CollectionPolicyForm({ policy }: CollectionPolicyFormProps) {
                 type="number"
                 min={0}
                 step="1"
-                disabled={!enabled}
+                disabled={!enabled || !canUpdate}
                 className="bg-accent/30 border-border/50 h-11 font-mono font-bold"
                 {...register('allowedShortfall', { valueAsNumber: true })}
               />
@@ -186,11 +188,17 @@ export function CollectionPolicyForm({ policy }: CollectionPolicyFormProps) {
             </div>
           </div>
 
-          <div className="flex justify-end pt-4 border-t border-border/50">
-            <Button type="submit" disabled={isPending} className="min-w-[140px] shadow-lg shadow-primary/20">
-              {isPending ? 'Saving...' : 'Save Policy'}
-            </Button>
-          </div>
+          {canUpdate ? (
+            <div className="flex justify-end pt-4 border-t border-border/50">
+              <Button type="submit" disabled={isPending} className="min-w-[140px] shadow-lg shadow-primary/20">
+                {isPending ? 'Saving...' : 'Save Policy'}
+              </Button>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground pt-4 border-t border-border/50">
+              You have view-only access to this policy.
+            </p>
+          )}
         </form>
       </CardContent>
     </Card>

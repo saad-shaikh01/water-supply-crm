@@ -11,6 +11,7 @@ import type { CashCollectionPolicy } from '@water-supply-crm/types';
 import { cashCollectionPolicySchema, type CashCollectionPolicyInput } from '../schemas';
 import { useUpdateCashCollectionPolicy, useCashCollectionPolicyImpact } from '../hooks/use-collection-policy';
 import type { CashCollectionPolicyImpactParams } from '../api/collection-policy.api';
+import { useCan } from '../../authz/hooks/use-can';
 
 /** Same visual toggle used elsewhere on this page, for consistency. */
 function Toggle({
@@ -76,6 +77,7 @@ interface CashCollectionPolicyFormProps {
 }
 
 export function CashCollectionPolicyForm({ policy }: CashCollectionPolicyFormProps) {
+  const canUpdate = useCan('collection_policy:update');
   const { mutate: update, isPending } = useUpdateCashCollectionPolicy();
 
   const {
@@ -176,7 +178,7 @@ export function CashCollectionPolicyForm({ policy }: CashCollectionPolicyFormPro
               render={({ field }) => (
                 <Toggle
                   enabled={field.value}
-                  disabled={isPending}
+                  disabled={isPending || !canUpdate}
                   label="Enable Cash Collection Policy"
                   onToggle={() => field.onChange(!field.value)}
                 />
@@ -195,7 +197,7 @@ export function CashCollectionPolicyForm({ policy }: CashCollectionPolicyFormPro
                 min={0}
                 max={10}
                 step="1"
-                disabled={!enabled}
+                disabled={!enabled || !canUpdate}
                 className="bg-accent/30 border-border/50 h-11 font-mono font-bold"
                 {...register('allowedCreditDeliveries', { valueAsNumber: true })}
               />
@@ -218,7 +220,7 @@ export function CashCollectionPolicyForm({ policy }: CashCollectionPolicyFormPro
                 type="number"
                 min={0}
                 step="1"
-                disabled={!enabled}
+                disabled={!enabled || !canUpdate}
                 className="bg-accent/30 border-border/50 h-11 font-mono font-bold"
                 {...register('minExposureFloor', { valueAsNumber: true })}
               />
@@ -244,7 +246,7 @@ export function CashCollectionPolicyForm({ policy }: CashCollectionPolicyFormPro
                     min={0}
                     step="1"
                     placeholder="None"
-                    disabled={!enabled}
+                    disabled={!enabled || !canUpdate}
                     className="bg-accent/30 border-border/50 h-11 font-mono font-bold"
                     value={field.value ?? ''}
                     onChange={(e) => field.onChange(e.target.value === '' ? null : Number(e.target.value))}
@@ -311,11 +313,17 @@ export function CashCollectionPolicyForm({ policy }: CashCollectionPolicyFormPro
             )}
           </div>
 
-          <div className="flex justify-end pt-4 border-t border-border/50">
-            <Button type="submit" disabled={isPending} className="min-w-[140px] shadow-lg shadow-primary/20">
-              {isPending ? 'Saving...' : 'Save Policy'}
-            </Button>
-          </div>
+          {canUpdate ? (
+            <div className="flex justify-end pt-4 border-t border-border/50">
+              <Button type="submit" disabled={isPending} className="min-w-[140px] shadow-lg shadow-primary/20">
+                {isPending ? 'Saving...' : 'Save Policy'}
+              </Button>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground pt-4 border-t border-border/50">
+              You have view-only access to this policy.
+            </p>
+          )}
         </form>
       </CardContent>
     </Card>

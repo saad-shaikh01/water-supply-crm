@@ -246,6 +246,23 @@ Each row: permission → the existing feature/endpoint(s) it gates. `page` sorts
 | `whatsapp:view` | `GET /whatsapp/status`, `qr` |
 | `whatsapp:manage` | `POST /whatsapp/logout` (+ connect / re-scan) |
 
+### 25. Collection Policy — `collection_policy` *(navigable)*
+| Permission | Gates |
+|---|---|
+| `collection_policy:page` | Open `/dashboard/collection-policy` |
+| `collection_policy:view` | `GET /collection-policy`, `GET /collection-policy/cash` |
+| `collection_policy:update` | `PATCH /collection-policy`, `PATCH /collection-policy/cash`, `GET /collection-policy/cash/impact` (prospective-settings preview, gated with update) |
+
+### 26. Conversations — `conversations` *(navigable)*
+| Permission | Gates |
+|---|---|
+| `conversations:page` | Open `/dashboard/communications` |
+| `conversations:view` | `GET /conversations`, `:id`, `:id/messages`, `unread-count`, `GET /messages/:id/audio` |
+| `conversations:create` | `PUT /conversations/for-item/:itemId` (get-or-create) |
+| `conversations:send` | `POST /conversations/:id/messages`, `:id/messages/voice` |
+| `conversations:acknowledge` | `PATCH /conversations/:id/read`, `PATCH /messages/:id/acknowledge` |
+| `conversations:manage_status` | `PATCH /conversations/:id/status` |
+
 ---
 
 ## B. Reference lists

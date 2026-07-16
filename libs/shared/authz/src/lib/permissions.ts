@@ -146,6 +146,16 @@ export const PERMISSION_CATALOG = {
   },
   audit_logs: { label: 'Audit Logs', navigable: true, actions: ['page', 'view'] },
   settings: { label: 'Settings', navigable: true, actions: ['page', 'view', 'update'] },
+  collection_policy: {
+    label: 'Collection Policy',
+    navigable: true,
+    actions: ['page', 'view', 'update'],
+  },
+  conversations: {
+    label: 'Conversations',
+    navigable: true,
+    actions: ['page', 'view', 'create', 'send', 'acknowledge', 'manage_status'],
+  },
   // Non-navigable: surfaced inside Settings, no dedicated route → no `:page`.
   whatsapp: { label: 'WhatsApp Integration', navigable: false, actions: ['view', 'manage'] },
 } as const satisfies Record<string, ResourceDefinition>;

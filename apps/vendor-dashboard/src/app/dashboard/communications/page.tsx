@@ -148,7 +148,7 @@ function CommunicationsContent() {
                   Back to list
                 </Button>
               </div>
-              <ConversationHeader conversation={selected} isDriver={isDriver} />
+              <ConversationHeader conversation={selected} />
               <div className="flex-1 min-h-0 p-3">
                 <ConversationThread
                   itemId={selected.item.id}

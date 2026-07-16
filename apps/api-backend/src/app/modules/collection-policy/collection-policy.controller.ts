@@ -1,12 +1,9 @@
-import { Controller, Get, Patch, Body, Query, UseGuards } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+import { Controller, Get, Patch, Body, Query } from '@nestjs/common';
 import { CollectionPolicyService } from './collection-policy.service';
 import { UpdateCollectionPolicyDto } from './dto/update-collection-policy.dto';
 import { UpdateCashCollectionPolicyDto } from './dto/update-cash-collection-policy.dto';
 import { CashCollectionPolicyImpactQueryDto } from './dto/cash-collection-policy-impact-query.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 
@@ -17,34 +14,33 @@ import type { AuthUser } from '@water-supply-crm/types';
  * controller only reads/writes the configured thresholds.
  */
 @Controller('collection-policy')
-@UseGuards(JwtAuthGuard, RolesGuard)
 export class CollectionPolicyController {
   constructor(private readonly collectionPolicy: CollectionPolicyService) {}
 
   /** GET /collection-policy — current Monthly config (defaults if unset). */
   @Get()
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('collection_policy:view')
   getPolicy(@CurrentUser() user: AuthUser) {
     return this.collectionPolicy.getPolicy(user.vendorId);
   }
 
   /** PATCH /collection-policy — upsert Monthly config. */
   @Patch()
-  @Roles(UserRole.VENDOR_ADMIN)
+  @RequirePermissions('collection_policy:update')
   updatePolicy(@CurrentUser() user: AuthUser, @Body() dto: UpdateCollectionPolicyDto) {
     return this.collectionPolicy.updatePolicy(user.vendorId, dto);
   }
 
   /** GET /collection-policy/cash — current Cash config (defaults if unset). */
   @Get('cash')
-  @Roles(UserRole.VENDOR_ADMIN, UserRole.STAFF)
+  @RequirePermissions('collection_policy:view')
   getCashPolicy(@CurrentUser() user: AuthUser) {
     return this.collectionPolicy.getCashPolicy(user.vendorId);
   }
 
   /** PATCH /collection-policy/cash — upsert Cash config. */
   @Patch('cash')
-  @Roles(UserRole.VENDOR_ADMIN)
+  @RequirePermissions('collection_policy:update')
   updateCashPolicy(@CurrentUser() user: AuthUser, @Body() dto: UpdateCashCollectionPolicyDto) {
     return this.collectionPolicy.updateCashPolicy(user.vendorId, dto);
   }
@@ -54,7 +50,7 @@ export class CollectionPolicyController {
    * (§8.1, §12, §21.1) for PROSPECTIVE settings, not the saved config.
    */
   @Get('cash/impact')
-  @Roles(UserRole.VENDOR_ADMIN)
+  @RequirePermissions('collection_policy:update')
   getCashPolicyImpact(@CurrentUser() user: AuthUser, @Query() query: CashCollectionPolicyImpactQueryDto) {
     return this.collectionPolicy.getCashPolicyImpact(user.vendorId, query);
   }

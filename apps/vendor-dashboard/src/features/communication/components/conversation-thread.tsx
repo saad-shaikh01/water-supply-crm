@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Button, Skeleton, cn } from '@water-supply-crm/ui';
 import { ChevronUp, ExternalLink, Loader2, MessagesSquare } from 'lucide-react';
 import { useAuthStore } from '../../../store/auth.store';
+import { useCan } from '../../authz/hooks/use-can';
 import {
   useAcknowledgeMessage,
   useConversationForItem,
@@ -44,6 +45,7 @@ interface ConversationThreadProps {
  */
 export function ConversationThread({ itemId, sheetId, variant, isDriver, itemIsPending, isClosed }: ConversationThreadProps) {
   const currentUserId = useAuthStore((s) => s.user?.id) ?? '';
+  const canSend = useCan('conversations:send');
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const conversationQuery = useConversationForItem(itemId, true);
@@ -82,10 +84,12 @@ export function ConversationThread({ itemId, sheetId, variant, isDriver, itemIsP
   }
 
   const conversation = conversationQuery.data;
-  const composerDisabled = isClosed || conversation.status === 'CLOSED';
+  const composerDisabled = isClosed || conversation.status === 'CLOSED' || !canSend;
   const composerDisabledReason = isClosed
     ? 'This sheet is closed — the conversation is read-only.'
-    : 'This conversation is closed.';
+    : conversation.status === 'CLOSED'
+      ? 'This conversation is closed.'
+      : "You don't have permission to send messages.";
 
   return (
     <div className={cn('space-y-3', variant === 'inbox' && 'h-full flex flex-col')}>

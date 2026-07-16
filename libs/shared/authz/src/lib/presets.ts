@@ -98,6 +98,9 @@ const MANAGER_PERMISSIONS: Permission[] = [
   'vans:page', 'vans:view', 'vans:create', 'vans:update', 'vans:manage_crew',
   'inventory:page', 'inventory:view', 'inventory:add_stock', 'inventory:mark_damaged', 'inventory:manage_repairs',
   'notifications:page', 'notifications:view',
+  'collection_policy:page', 'collection_policy:view',
+  'conversations:page', 'conversations:view', 'conversations:create', 'conversations:send',
+  'conversations:acknowledge', 'conversations:manage_status',
 ];
 
 export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
@@ -248,6 +251,11 @@ export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
       'expenses:page',
       'expenses:create',
       'tracking:report_location',
+      'conversations:page',
+      'conversations:view',
+      'conversations:create',
+      'conversations:send',
+      'conversations:acknowledge',
     ],
   },
   viewer: {
