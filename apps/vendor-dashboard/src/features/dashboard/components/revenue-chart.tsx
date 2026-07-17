@@ -32,7 +32,7 @@ export function RevenueChart() {
   return (
     <Card className="col-span-4 bg-white/[0.03] backdrop-blur-2xl border-white/10 shadow-2xl rounded-2xl">
       <CardHeader>
-        <CardTitle className="text-sm font-bold uppercase tracking-widest text-muted-foreground/80">Weekly Revenue</CardTitle>
+        <CardTitle className="text-[11px] font-semibold uppercase tracking-[0.15em] text-muted-foreground/80">Weekly Revenue</CardTitle>
       </CardHeader>
       <CardContent className="pl-2">
         <ResponsiveContainer width="100%" height={300}>

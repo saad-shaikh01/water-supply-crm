@@ -843,15 +843,19 @@ export function DeliveryItemsList({
                               </p>
                             )}
                           {/* Communication Center: full thread lives in the Chats modal (triggered by the
-                              row badge/button above); this stays inline only to keep the delivery-blocking
-                              ack requirement impossible to miss without opening it. */}
-                          {isDriver && pendingAckCount > 0 && (
+                              row badge/button above); this stays inline for EVERY role (not just the driver)
+                              because the `allAcksCleared` gate above blocks the form for everyone — without
+                              this banner, a non-driver viewer would see the form silently disappear with no
+                              explanation, since they can no longer see the thread inline to infer why. */}
+                          {pendingAckCount > 0 && (
                             <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-start gap-3">
                               <StickyNote className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-black text-amber-700 dark:text-amber-400">Read Before Delivering</p>
                                 <p className="text-xs text-muted-foreground mt-0.5">
-                                  Acknowledge {pendingAckCount === 1 ? 'the instruction' : `all ${pendingAckCount} instructions`} in Chats to unlock the delivery form.
+                                  {isDriver
+                                    ? `Acknowledge ${pendingAckCount === 1 ? 'the instruction' : `all ${pendingAckCount} instructions`} in Chats to unlock the delivery form.`
+                                    : `Waiting on the driver to acknowledge ${pendingAckCount === 1 ? 'an instruction' : `${pendingAckCount} instructions`} in Chats before this can be recorded.`}
                                 </p>
                               </div>
                               <Button

@@ -30,6 +30,8 @@ interface NavItem {
   children?: ChildNavItem[];
   /** Communication Center unread count pill (Phase 4). */
   unreadBadge?: boolean;
+  /** Hide this entry for DRIVER even if permitted — it duplicates the dedicated Driver-group entry for the same page. */
+  hideForDriver?: boolean;
 }
 
 // Every href below resolves to a `:page` permission via the shared PAGE_REGISTRY
@@ -48,7 +50,7 @@ const navItems: NavItem[] = [
   { label: 'Overview', href: '/dashboard/overview', icon: LayoutDashboard, group: 'Operations' },
   { label: 'Customers', href: '/dashboard/customers', icon: Users, group: 'Operations' },
   { label: 'Daily Sheets', href: '/dashboard/daily-sheets', icon: ClipboardList, group: 'Operations' },
-  { label: 'Communications', href: '/dashboard/communications', icon: Inbox, group: 'Operations', unreadBadge: true },
+  { label: 'Communications', href: '/dashboard/communications', icon: Inbox, group: 'Operations', unreadBadge: true, hideForDriver: true },
 
   // Operations — collapsible: Inventory & Supply
   {
@@ -223,6 +225,7 @@ export function Sidebar({ className }: { className?: string }) {
         // Collapsible groups have no href of their own — CollapsibleNavGroup hides the
         // whole group once none of its children resolve to a granted page permission.
         if (item.children) return true;
+        if (item.hideForDriver && user.role === 'DRIVER') return false;
         return item.href ? canAccess(item.href) : false;
       })
     : [];

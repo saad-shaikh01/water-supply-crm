@@ -28,18 +28,18 @@ interface CockpitItemProps {
 function CockpitItem({ label, value, icon: Icon, href, color, description }: CockpitItemProps) {
   return (
     <Link href={href}>
-      <Card className="hover:bg-accent/50 transition-all border-white/5 bg-white/[0.02] group h-full">
+      <Card className="group h-full bg-white/[0.03] backdrop-blur-2xl border-white/10 rounded-2xl hover:border-primary/20 transition-colors">
         <CardContent className="p-4 flex flex-col h-full">
-          <div className="flex justify-between items-start mb-2">
+          <div className="flex justify-between items-start mb-3">
             <div className={cn("p-2 rounded-lg", color)}>
               <Icon className="h-4 w-4" />
             </div>
             <ArrowRight className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
           </div>
           <div className="mt-auto">
-            <p className="text-2xl font-black tabular-nums">{value}</p>
-            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</p>
-            <p className="text-[9px] text-muted-foreground/40 mt-1 line-clamp-1">{description}</p>
+            <p className="font-mono text-xl font-bold tabular-nums text-foreground dark:text-white">{value}</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80 mt-1">{label}</p>
+            <p className="text-[10px] text-muted-foreground/40 mt-0.5 line-clamp-1">{description}</p>
           </div>
         </CardContent>
       </Card>
@@ -54,7 +54,7 @@ export function OperationsCockpit() {
     return (
       <div className="grid gap-3 grid-cols-2 md:grid-cols-4 lg:grid-cols-8">
         {Array.from({ length: 8 }).map((_, i) => (
-          <Skeleton key={i} className="h-28 rounded-xl" />
+          <Skeleton key={i} className="h-28 rounded-2xl" />
         ))}
       </div>
     );
@@ -132,7 +132,7 @@ export function OperationsCockpit() {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Operations Cockpit</h3>
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.15em] text-muted-foreground/80 ml-1">Operations Cockpit</h3>
       </div>
       <div className="grid gap-3 grid-cols-2 md:grid-cols-4 lg:grid-cols-8">
         {items.map((item) => (

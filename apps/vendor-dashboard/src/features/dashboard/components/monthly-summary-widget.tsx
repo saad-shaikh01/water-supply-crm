@@ -57,7 +57,7 @@ export function MonthlySummaryWidget() {
   return (
     <Card className="bg-white/[0.03] backdrop-blur-2xl border-white/10 rounded-2xl shadow-2xl">
       <CardHeader className="pb-4">
-        <CardTitle className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground/80 flex items-center gap-2">
+        <CardTitle className="text-[11px] font-semibold uppercase tracking-[0.15em] text-muted-foreground/80 flex items-center gap-2">
           <CalendarRange className="h-4 w-4 text-primary" /> Monthly Summary — Last 6 Months
         </CardTitle>
       </CardHeader>

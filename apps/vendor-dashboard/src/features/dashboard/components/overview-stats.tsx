@@ -1,7 +1,7 @@
 'use client';
 
 import { Users, Package, Truck, DollarSign, ClipboardList, TrendingUp, ArrowUpRight } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, Skeleton } from '@water-supply-crm/ui';
+import { Card, CardContent, CardHeader, CardTitle, Skeleton, Badge } from '@water-supply-crm/ui';
 import { useOverviewStats } from '../hooks/use-dashboard';
 
 interface StatCardProps {
@@ -14,29 +14,27 @@ interface StatCardProps {
 
 function StatCard({ title, value, icon: Icon, description, trend }: StatCardProps) {
   return (
-    <Card className="premium-card group relative overflow-hidden">
+    <Card className="group bg-white/[0.03] backdrop-blur-2xl border-white/10 rounded-2xl shadow-2xl hover:border-primary/20 transition-colors">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-        <CardTitle className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground group-hover:text-primary transition-colors">
+        <CardTitle className="text-[11px] font-semibold uppercase tracking-[0.15em] text-muted-foreground/80 group-hover:text-primary transition-colors">
           {title}
         </CardTitle>
-        <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary transition-colors shadow-inner">
-          <Icon className="h-5 w-5" />
+        <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+          <Icon className="h-4 w-4" />
         </div>
       </CardHeader>
       <CardContent>
-        <div className="text-3xl font-bold tracking-tight mb-2 text-foreground dark:text-white">{value}</div>
+        <div className="font-mono tabular-nums text-2xl font-bold tracking-tight mb-2 text-foreground dark:text-white">{value}</div>
         <div className="flex items-center gap-2">
           {trend && (
-            <span className="premium-badge premium-badge-success flex items-center">
-              <ArrowUpRight className="h-3 w-3 mr-0.5" />
+            <Badge variant="success" className="gap-0.5 normal-case tracking-normal">
+              <ArrowUpRight className="h-3 w-3" />
               {trend}
-            </span>
+            </Badge>
           )}
           {description && <p className="text-[11px] font-medium text-muted-foreground/60 truncate uppercase tracking-wider">{description}</p>}
         </div>
       </CardContent>
-      {/* Background glow - simplified to static */}
-      <div className="absolute -right-6 -bottom-6 w-32 h-32 bg-primary/5 blur-[50px] rounded-full" />
     </Card>
   );
 }
@@ -46,9 +44,9 @@ export function OverviewStats() {
 
   if (isLoading) {
     return (
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} className="h-32 rounded-xl" />
+          <Skeleton key={i} className="h-32 rounded-2xl" />
         ))}
       </div>
     );
@@ -57,7 +55,7 @@ export function OverviewStats() {
   const stats = (data ?? {}) as Record<string, unknown>;
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <StatCard
         title="Total Customers"
         value={String(stats.totalCustomers ?? 0)}

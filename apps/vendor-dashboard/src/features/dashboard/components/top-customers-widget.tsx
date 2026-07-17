@@ -20,7 +20,7 @@ export function TopCustomersWidget() {
   return (
     <Card className="bg-white/[0.03] backdrop-blur-2xl border-white/10 rounded-2xl shadow-2xl">
       <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-bold uppercase tracking-widest text-muted-foreground/80 flex items-center gap-2">
+        <CardTitle className="text-[11px] font-semibold uppercase tracking-[0.15em] text-muted-foreground/80 flex items-center gap-2">
           <Trophy className="h-4 w-4 text-amber-500" /> Top Customers
         </CardTitle>
       </CardHeader>

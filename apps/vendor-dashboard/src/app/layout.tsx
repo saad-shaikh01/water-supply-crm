@@ -1,10 +1,23 @@
 import type { Metadata, Viewport } from 'next';
+import { Manrope, JetBrains_Mono } from 'next/font/google';
 import { NuqsAdapter } from 'nuqs/adapters/next/app';
 import { QueryProvider } from '@water-supply-crm/data-access';
 import { Toaster } from '@water-supply-crm/ui';
 import { ThemeProvider } from '../components/layout/theme-provider';
 import { StoreHydration } from '../components/providers/store-hydration';
 import './global.css';
+
+const manrope = Manrope({
+  subsets: ['latin'],
+  variable: '--font-sans',
+  display: 'swap',
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ['latin'],
+  variable: '--font-mono',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'Vendor Dashboard - Water Supply CRM',
@@ -42,7 +55,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning className={`${manrope.variable} ${jetbrainsMono.variable}`}>
       <body className="font-sans">
         <ThemeProvider
           attribute="class"
