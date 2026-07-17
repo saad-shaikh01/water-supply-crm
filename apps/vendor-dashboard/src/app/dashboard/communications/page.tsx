@@ -32,21 +32,34 @@ function CommunicationsContent() {
   const [selected, setSelected] = useState<ConversationListItem | null>(null);
 
   // Reverse deep link (Phase 6, §6.1): the Daily Sheet card's "Open in
-  // Communications" link lands here with `?conversation=:id`. findOne is
-  // filter-independent — it resolves regardless of the current status/
-  // van/driver/search filters, matching the doc's "inbox preselects" wording
-  // (select it in the detail pane; the list panel's own filtered view is
-  // untouched).
+  // Communications" link lands here with `?conversation=:id&item=:id&sheet=:id`.
+  // findOne is filter-independent — it resolves regardless of the current
+  // status/van/driver/search filters, matching the doc's "inbox preselects"
+  // wording (select it in the detail pane; the list panel's own filtered
+  // view is untouched).
   const [conversationParam, setConversationParam] = useQueryState('conversation', parseAsString.withDefault(''));
+  const [itemParam, setItemParam] = useQueryState('item', parseAsString.withDefault(''));
+  const [sheetParam, setSheetParam] = useQueryState('sheet', parseAsString.withDefault(''));
   const conversationQuery = useConversation(conversationParam, !!conversationParam);
+  // Fallback context for a just-created, zero-message conversation reached
+  // via the deep link before any message was ever sent — `selected.item`/
+  // `selected.dailySheet` are null in that case (no "last discussed
+  // delivery" rollup yet), so ConversationThread has nothing else to anchor
+  // on. Carried from the link itself rather than derived.
+  const [deepLinkFallback, setDeepLinkFallback] = useState<{ itemId: string; sheetId: string } | null>(null);
   useEffect(() => {
     if (!conversationParam) return;
     if (conversationQuery.data) {
       setSelected({ ...conversationQuery.data, unreadCount: 0 });
+      if (itemParam && sheetParam) setDeepLinkFallback({ itemId: itemParam, sheetId: sheetParam });
       setConversationParam(null);
+      setItemParam(null);
+      setSheetParam(null);
     } else if (conversationQuery.isError) {
       toast.error('Conversation not found');
       setConversationParam(null);
+      setItemParam(null);
+      setSheetParam(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationParam, conversationQuery.data, conversationQuery.isError]);
@@ -151,12 +164,12 @@ function CommunicationsContent() {
               <ConversationHeader conversation={selected} />
               <div className="flex-1 min-h-0 p-3">
                 <ConversationThread
-                  itemId={selected.item.id}
-                  sheetId={selected.dailySheet.id}
+                  itemId={selected.item?.id ?? deepLinkFallback?.itemId ?? ''}
+                  sheetId={selected.dailySheet?.id ?? deepLinkFallback?.sheetId ?? ''}
                   variant="inbox"
                   isDriver={isDriver}
-                  itemIsPending={selected.item.status === 'PENDING'}
-                  isClosed={selected.dailySheet.isClosed}
+                  itemIsPending={selected.item?.status === 'PENDING'}
+                  isClosed={selected.dailySheet?.isClosed ?? false}
                 />
               </div>
             </>

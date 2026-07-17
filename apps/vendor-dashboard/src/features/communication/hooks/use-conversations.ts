@@ -47,6 +47,11 @@ export const useConversationForItem = (itemId: string, enabled: boolean) => {
     queryKey: queryKeys.communication.forItem(itemId),
     queryFn: (): Promise<ConversationContext> => conversationsApi.getOrCreateForItem(itemId),
     enabled: enabled && !!itemId,
+    // Get-or-create never goes stale on its own — it only changes via
+    // mutations, which already invalidate this exact query key. Without
+    // this, every collapse/expand of the same delivery card re-hits the
+    // API even though the result can never differ.
+    staleTime: Infinity,
   });
 };
 
@@ -56,11 +61,11 @@ export const useConversationForItem = (itemId: string, enabled: boolean) => {
  * loaded page on each tick (bounded by how many "Load earlier" clicks the
  * user has made in this session), which is what surfaces new messages.
  */
-export const useMessages = (conversationId: string | undefined, enabled: boolean) => {
+export const useMessages = (conversationId: string | undefined, itemId: string, enabled: boolean) => {
   return useInfiniteQuery({
     queryKey: queryKeys.communication.messages(conversationId ?? ''),
     queryFn: ({ pageParam }: { pageParam: string | undefined }): Promise<MessagesPage> =>
-      conversationsApi.getMessages(conversationId as string, pageParam),
+      conversationsApi.getMessages(conversationId as string, itemId, pageParam),
     enabled: enabled && !!conversationId,
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
@@ -81,7 +86,7 @@ export const useSendMessage = (conversationId: string, itemId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: { text: string; requiresAck?: boolean }) =>
-      conversationsApi.sendText(conversationId, data),
+      conversationsApi.sendText(conversationId, { ...data, itemId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.communication.messages(conversationId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.communication.forItem(itemId) });
@@ -102,7 +107,7 @@ export const useSendVoiceMessage = (conversationId: string, itemId: string) => {
       formData: FormData;
       duration?: number;
       requiresAck?: boolean;
-    }) => conversationsApi.sendVoice(conversationId, formData, { duration, requiresAck }),
+    }) => conversationsApi.sendVoice(conversationId, formData, { itemId, duration, requiresAck }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.communication.messages(conversationId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.communication.forItem(itemId) });
@@ -147,10 +152,10 @@ export const useMessageAudioUrl = (messageId: string, enabled: boolean) => {
  * message content) and NOT queryKeys.sheets.one (mirrors the Phase 2 rule
  * that only acknowledgement, not read state, affects the delivery gate).
  */
-export const useMarkRead = (conversationId: string | undefined) => {
+export const useMarkRead = (conversationId: string | undefined, itemId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => conversationsApi.markRead(conversationId as string),
+    mutationFn: () => conversationsApi.markRead(conversationId as string, itemId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: INBOX_AND_BADGE_PREFIX });
     },

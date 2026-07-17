@@ -109,21 +109,23 @@ export class ConversationController {
     @UploadedFile() file?: Express.Multer.File,
     @Query('duration') duration?: string,
     @Query('requiresAck') requiresAck?: string,
+    @Query('itemId') itemId?: string,
   ) {
     if (!file) throw new BadRequestException('No audio file provided');
+    if (!itemId) throw new BadRequestException('itemId is required');
     const parsedDuration = duration ? parseInt(duration, 10) : undefined;
     const audioDuration =
       parsedDuration != null && Number.isFinite(parsedDuration) && parsedDuration >= 0
         ? parsedDuration
         : undefined;
-    return this.messageService.sendVoice(user, id, file, audioDuration, requiresAck === 'true');
+    return this.messageService.sendVoice(user, id, itemId, file, audioDuration, requiresAck === 'true');
   }
 
   @Patch(':id/read')
   @RequirePermissions('conversations:acknowledge')
   @Throttle({ short: { ttl: 1000, limit: 20 }, medium: { ttl: 60000, limit: 120 } })
-  markRead(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.conversationService.markRead(user, id);
+  markRead(@CurrentUser() user: AuthUser, @Param('id') id: string, @Query('itemId') itemId?: string) {
+    return this.conversationService.markRead(user, id, itemId);
   }
 
   @Patch(':id/status')

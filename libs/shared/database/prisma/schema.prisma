@@ -602,7 +602,10 @@ model DailySheetItem {
   // Relation field kept as `notes` through the Communication Center migration
   // so daily-sheet includes stay stable; renamed to `messages` in Phase 7.
   notes         ConversationMessage[]
-  conversation  Conversation?
+  // Non-unique now — a DailySheetItem can be the "last discussed delivery"
+  // rollup pointer for at most one Conversation in practice, but the FK
+  // itself is no longer @unique (Conversation is keyed per-customer).
+  conversationsLastDiscussed Conversation[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -1177,29 +1180,37 @@ model DamageCaseAuditLog {
 // ──────────────────────────────────────────────────────────────────────────────
 // Customer Communication Center
 // See docs/features/customer-communication-center.md (LOCKED architecture).
-// One Conversation per DailySheetItem (unique anchor); ConversationMessage was
-// evolved in place from DeliveryItemNote (table renamed, ids preserved).
+// One Conversation per customer (running thread, re-keyed 2026-07-17 from the
+// original per-DailySheetItem design). ConversationMessage keeps its own
+// dailySheetItemId — that's the per-message "which delivery is this about"
+// tag/link; it was evolved in place from DeliveryItemNote (table renamed, ids
+// preserved).
 // ──────────────────────────────────────────────────────────────────────────────
 
 model Conversation {
-  id               String   @id @default(uuid())
-  vendorId         String
-  vendor           Vendor   @relation(fields: [vendorId], references: [id])
-  dailySheetItemId String   @unique
-  item             DailySheetItem @relation(fields: [dailySheetItemId], references: [id], onDelete: Cascade)
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id])
 
-  // Denormalized context for cheap inbox filtering/display. driverId/vanId are
-  // re-synced on swap-assignment and item moves; authorization NEVER trusts
-  // these columns — driver access always resolves the sheet's current driver.
-  dailySheetId String
-  dailySheet   DailySheet @relation(fields: [dailySheetId], references: [id])
-  customerId   String
-  customer     Customer   @relation(fields: [customerId], references: [id])
-  vanId        String
-  van          Van        @relation(fields: [vanId], references: [id])
-  driverId     String
-  driver       User       @relation("ConversationDriver", fields: [driverId], references: [id])
-  deliveryDate DateTime
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  // Denormalized "most recently discussed delivery" — a rollup written ONLY
+  // inside the message-send transaction (never on mere get-or-create/open),
+  // so opening a delivery card never mutates a thread that has no messages
+  // yet. Nullable: a brand-new conversation has none of this until the first
+  // real message. driverId/vanId are re-synced on swap-assignment and item
+  // moves; authorization NEVER trusts these columns — driver access always
+  // resolves the sheet's current driver.
+  dailySheetItemId String?
+  item             DailySheetItem? @relation(fields: [dailySheetItemId], references: [id], onDelete: SetNull)
+  dailySheetId     String?
+  dailySheet       DailySheet?     @relation(fields: [dailySheetId], references: [id])
+  vanId            String?
+  van              Van?            @relation(fields: [vanId], references: [id])
+  driverId         String?
+  driver           User?           @relation("ConversationDriver", fields: [driverId], references: [id])
+  deliveryDate     DateTime?
 
   status ConversationStatus @default(OPEN)
 
@@ -1219,10 +1230,10 @@ model Conversation {
   messages ConversationMessage[]
   reads    ConversationRead[]
 
+  @@unique([vendorId, customerId])
   @@index([vendorId, lastMessageAt])
   @@index([vendorId, status, lastMessageAt])
   @@index([driverId, lastMessageAt])
-  @@index([customerId])
   @@index([dailySheetId])
 }
 

@@ -35,7 +35,7 @@ interface ConversationHeaderProps {
  * unchanged here). "Open Delivery" deep link added Phase 6, §6.1.
  */
 export function ConversationHeader({ conversation }: ConversationHeaderProps) {
-  const setStatus = useSetStatus(conversation.id, conversation.item.id);
+  const setStatus = useSetStatus(conversation.id, conversation.item?.id);
   const canManageStatus = useCan('conversations:manage_status');
 
   return (
@@ -53,35 +53,42 @@ export function ConversationHeader({ conversation }: ConversationHeaderProps) {
             </Badge>
           )}
         </div>
-        <div className="flex items-center gap-3 flex-wrap mt-1.5 text-[11px] text-muted-foreground">
-          <span className="flex items-center gap-1">
-            <Calendar className="h-3 w-3" />
-            {formatDate(conversation.dailySheet.date)}
-          </span>
-          <span className="flex items-center gap-1">
-            <Truck className="h-3 w-3" />
-            {conversation.van.plateNumber}
-          </span>
-          <span className="flex items-center gap-1">
-            <User className="h-3 w-3" />
-            {conversation.driver.name}
-          </span>
-          <span className="flex items-center gap-1">
-            <Package className="h-3 w-3" />
-            Stop #{conversation.item.sequence} · {conversation.item.product.name}
-          </span>
-        </div>
+        {/* Nullable: a conversation with no message yet has no "most
+            recently discussed delivery" context — only true for the brief
+            window between get-or-create and the first send. */}
+        {conversation.dailySheet && conversation.van && conversation.driver && conversation.item && (
+          <div className="flex items-center gap-3 flex-wrap mt-1.5 text-[11px] text-muted-foreground">
+            <span className="flex items-center gap-1">
+              <Calendar className="h-3 w-3" />
+              {formatDate(conversation.dailySheet.date)}
+            </span>
+            <span className="flex items-center gap-1">
+              <Truck className="h-3 w-3" />
+              {conversation.van.plateNumber}
+            </span>
+            <span className="flex items-center gap-1">
+              <User className="h-3 w-3" />
+              {conversation.driver.name}
+            </span>
+            <span className="flex items-center gap-1">
+              <Package className="h-3 w-3" />
+              Stop #{conversation.item.sequence} · {conversation.item.product.name}
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-col items-end gap-2 shrink-0">
-        <Link
-          href={`/dashboard/daily-sheets/${conversation.dailySheet.id}?item=${conversation.item.id}`}
-          className="flex items-center gap-1.5 text-[11px] font-bold text-primary hover:underline"
-        >
-          <ExternalLink className="h-3 w-3" />
-          Open Delivery
-        </Link>
-        <StatusBadge status={conversation.item.status} />
+        {conversation.dailySheet && conversation.item && (
+          <Link
+            href={`/dashboard/daily-sheets/${conversation.dailySheet.id}?item=${conversation.item.id}`}
+            className="flex items-center gap-1.5 text-[11px] font-bold text-primary hover:underline"
+          >
+            <ExternalLink className="h-3 w-3" />
+            Open Delivery
+          </Link>
+        )}
+        {conversation.item && <StatusBadge status={conversation.item.status} />}
         {canManageStatus && (
           <div className="flex items-center gap-1.5">
             {conversation.status === 'OPEN' && (

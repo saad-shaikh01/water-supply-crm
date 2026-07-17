@@ -25,7 +25,20 @@ const VOICE_PREVIEW = '🎤 Voice message';
 const NOTIFICATION_EVENT_TYPE = 'conversation.message';
 const IN_APP_NOTIFICATION_TYPE = 'CONVERSATION_MESSAGE';
 
-const CREATED_BY_INCLUDE = { createdBy: { select: { id: true, name: true } } };
+// `item` context is the per-message "which delivery is this about" tag —
+// surfaced in the thread UI as a divider/link whenever it changes between
+// consecutive messages.
+const MESSAGE_INCLUDE = {
+  createdBy: { select: { id: true, name: true } },
+  item: {
+    select: {
+      id: true,
+      sequence: true,
+      dailySheetId: true,
+      dailySheet: { select: { id: true, date: true, van: { select: { plateNumber: true } } } },
+    },
+  },
+};
 
 @Injectable()
 export class MessageService {
@@ -45,9 +58,9 @@ export class MessageService {
   async getMessages(
     user: AuthUser,
     conversationId: string,
-    query: { before?: string; limit?: number },
+    query: { before?: string; limit?: number; itemId?: string },
   ) {
-    await this.conversations.resolveConversationForUser(user, conversationId);
+    await this.conversations.resolveConversationForRead(user, conversationId, query.itemId);
     const limit = query.limit ?? 30;
     const chunk = await this.prisma.conversationMessage.findMany({
       where: {
@@ -55,7 +68,7 @@ export class MessageService {
         deletedAt: null,
         ...(query.before ? { createdAt: { lt: new Date(query.before) } } : {}),
       },
-      include: CREATED_BY_INCLUDE,
+      include: MESSAGE_INCLUDE,
       orderBy: { createdAt: 'desc' },
       take: limit + 1,
     });
@@ -73,13 +86,13 @@ export class MessageService {
   async sendText(
     user: AuthUser,
     conversationId: string,
-    dto: { text: string; requiresAck?: boolean },
+    dto: { text: string; requiresAck?: boolean; itemId: string },
   ) {
-    const conversation = await this.resolveOpenForSending(user, conversationId);
+    const { conversation, item } = await this.resolveOpenForSending(user, conversationId, dto.itemId);
     if (!dto.text?.trim()) {
       throw new BadRequestException('Message text is required');
     }
-    return this.createMessage(user, conversation, {
+    return this.createMessage(user, conversation, item, {
       type: MessageType.TEXT,
       text: dto.text.trim(),
       requiresAck: this.resolveRequiresAck(user, dto.requiresAck),
@@ -89,13 +102,14 @@ export class MessageService {
   async sendVoice(
     user: AuthUser,
     conversationId: string,
+    itemId: string,
     file: Express.Multer.File,
     audioDuration?: number,
     requiresAck?: boolean,
   ) {
-    const conversation = await this.resolveOpenForSending(user, conversationId);
+    const { conversation, item } = await this.resolveOpenForSending(user, conversationId, itemId);
     const audioKey = await this.uploadVoice(file);
-    return this.createMessage(user, conversation, {
+    return this.createMessage(user, conversation, item, {
       type: MessageType.VOICE,
       audioKey,
       audioDuration: audioDuration ?? null,
@@ -109,12 +123,28 @@ export class MessageService {
     return !!requested;
   }
 
-  private async resolveOpenForSending(user: AuthUser, conversationId: string) {
-    const conversation = await this.conversations.resolveConversationForUser(user, conversationId);
+  /**
+   * Item-scoped, NOT conversation-scoped: DRIVER authorization is resolved
+   * via `resolveItemForUser` (tenancy + "is this driver the item's sheet's
+   * current driver"), the same check the embedded thread already relies on
+   * for get-or-create. This is deliberately different from
+   * `resolveConversationForUser`'s history-based check — a driver's very
+   * first message in a brand-new customer thread has no history yet, so that
+   * check would wrongly 404 it.
+   */
+  private async resolveOpenForSending(user: AuthUser, conversationId: string, itemId: string) {
+    const item = await this.conversations.resolveItemForUser(user, itemId);
+    const conversation = await this.prisma.conversation.findUnique({ where: { id: conversationId } });
+    if (!conversation || conversation.vendorId !== user.vendorId) {
+      throw new NotFoundException('Conversation not found');
+    }
+    if (item.customerId !== conversation.customerId) {
+      throw new BadRequestException('This delivery does not belong to this conversation');
+    }
     if (conversation.status === ConversationStatus.CLOSED) {
       throw new ConflictException('This conversation is closed. Reopen it before sending messages.');
     }
-    return conversation;
+    return { conversation, item };
   }
 
   private async uploadVoice(file: Express.Multer.File): Promise<string> {
@@ -138,10 +168,14 @@ export class MessageService {
   /**
    * Message insert + conversation rollups in one transaction; auto-reopens a
    * RESOLVED conversation (a reply must never stay buried under Resolved).
+   * Every send also refreshes the conversation's "most recently discussed
+   * delivery" rollup from `item` — the ONLY place these fields are ever
+   * written, so merely opening a delivery card never mutates them.
    */
   private async createMessage(
     user: AuthUser,
-    conversation: { id: string; dailySheetItemId: string; status: ConversationStatus },
+    conversation: { id: string; status: ConversationStatus },
+    item: { id: string; dailySheetId: string; dailySheet: { vanId: string; driverId: string; date: Date } },
     data: {
       type: MessageType;
       text?: string;
@@ -160,7 +194,7 @@ export class MessageService {
         data: {
           vendorId: user.vendorId,
           conversationId: conversation.id,
-          dailySheetItemId: conversation.dailySheetItemId,
+          dailySheetItemId: item.id,
           createdById: user.userId,
           type: data.type,
           text: data.text ?? null,
@@ -168,7 +202,7 @@ export class MessageService {
           audioDuration: data.audioDuration ?? null,
           requiresAck: data.requiresAck,
         },
-        include: CREATED_BY_INCLUDE,
+        include: MESSAGE_INCLUDE,
       });
       await tx.conversation.update({
         where: { id: conversation.id },
@@ -178,6 +212,11 @@ export class MessageService {
           lastMessageSenderId: user.userId,
           lastMessageSenderRole: user.role,
           messageCount: { increment: 1 },
+          dailySheetItemId: item.id,
+          dailySheetId: item.dailySheetId,
+          vanId: item.dailySheet.vanId,
+          driverId: item.dailySheet.driverId,
+          deliveryDate: item.dailySheet.date,
           ...(conversation.status === ConversationStatus.RESOLVED
             ? { status: ConversationStatus.OPEN }
             : {}),
@@ -231,7 +270,9 @@ export class MessageService {
         item: { select: { sequence: true, dailySheet: { select: { driverId: true } } } },
       },
     });
-    if (!context) return;
+    // item is guaranteed non-null here — this only runs right after
+    // createMessage's transaction wrote dailySheetItemId for this same send.
+    if (!context || !context.item) return;
 
     const preview =
       message.type === MessageType.VOICE ? VOICE_PREVIEW : (message.text ?? '').slice(0, PREVIEW_LENGTH);
@@ -321,13 +362,13 @@ export class MessageService {
       // already acknowledged — idempotent
       return this.prisma.conversationMessage.findUnique({
         where: { id: messageId },
-        include: CREATED_BY_INCLUDE,
+        include: MESSAGE_INCLUDE,
       });
     }
     const updated = await this.prisma.conversationMessage.update({
       where: { id: messageId },
       data: { acknowledgedAt: new Date(), acknowledgedById: user.userId },
-      include: CREATED_BY_INCLUDE,
+      include: MESSAGE_INCLUDE,
     });
     await this.audit.log({
       vendorId: user.vendorId,
@@ -354,43 +395,5 @@ export class MessageService {
     }
     const signedUrl = await this.storage.getSignedUrl(message.audioKey, 900);
     return { signedUrl };
-  }
-
-  // ── legacy note-endpoint adapters (removed in Phase 7) ─────────────────────
-
-  /** Legacy GET items/:id/notes — same shape/order as the old getNotes. */
-  async getMessagesForItem(vendorId: string, itemId: string) {
-    const item = await this.prisma.dailySheetItem.findUnique({
-      where: { id: itemId },
-      include: { dailySheet: { select: { vendorId: true } } },
-    });
-    if (!item || item.dailySheet.vendorId !== vendorId) {
-      throw new NotFoundException('Sheet item not found');
-    }
-    return this.prisma.conversationMessage.findMany({
-      where: { dailySheetItemId: itemId, deletedAt: null },
-      include: CREATED_BY_INCLUDE,
-      orderBy: { createdAt: 'asc' },
-    });
-  }
-
-  /** Legacy POST items/:id/notes — every legacy note is a blocking instruction. */
-  async sendTextForItem(user: AuthUser, itemId: string, text?: string) {
-    if (!text?.trim()) {
-      throw new BadRequestException('Note text is required for TEXT type notes');
-    }
-    const conversation = await this.conversations.getOrCreateForItem(user, itemId);
-    return this.sendText(user, conversation.id, { text, requiresAck: true });
-  }
-
-  /** Legacy POST items/:id/notes/voice — requiresAck true, same as before. */
-  async sendVoiceForItem(
-    user: AuthUser,
-    itemId: string,
-    file: Express.Multer.File,
-    audioDuration?: number,
-  ) {
-    const conversation = await this.conversations.getOrCreateForItem(user, itemId);
-    return this.sendVoice(user, conversation.id, file, audioDuration, true);
   }
 }

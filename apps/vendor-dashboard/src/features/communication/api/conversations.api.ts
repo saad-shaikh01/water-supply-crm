@@ -51,22 +51,27 @@ export const conversationsApi = {
       .patch<ConversationContext>(`/conversations/${conversationId}/status`, { status })
       .then((r) => r.data),
 
-  markRead: (conversationId: string) =>
+  markRead: (conversationId: string, itemId?: string) =>
     apiClient
-      .patch<{ success: boolean; lastReadAt: string }>(`/conversations/${conversationId}/read`, {})
+      .patch<{ success: boolean; lastReadAt: string }>(
+        `/conversations/${conversationId}/read${itemId ? `?itemId=${itemId}` : ''}`,
+        {},
+      )
       .then((r) => r.data),
 
   getUnreadCount: () =>
     apiClient.get<{ count: number }>('/conversations/unread-count').then((r) => r.data),
 
-  getMessages: (conversationId: string, before?: string) =>
+  getMessages: (conversationId: string, itemId: string, before?: string) =>
     apiClient
       .get<MessagesPage>(`/conversations/${conversationId}/messages`, {
-        params: before ? { before } : undefined,
+        params: { itemId, ...(before ? { before } : {}) },
       })
       .then((r) => r.data),
 
-  sendText: (conversationId: string, data: { text: string; requiresAck?: boolean }) =>
+  // itemId: which delivery this message is about — required, since
+  // Conversation is per-customer and no longer implies a single item.
+  sendText: (conversationId: string, data: { text: string; requiresAck?: boolean; itemId: string }) =>
     apiClient
       .post<ConversationMessage>(`/conversations/${conversationId}/messages`, data)
       .then((r) => r.data),
@@ -74,15 +79,15 @@ export const conversationsApi = {
   sendVoice: (
     conversationId: string,
     formData: FormData,
-    opts?: { duration?: number; requiresAck?: boolean },
+    opts: { itemId: string; duration?: number; requiresAck?: boolean },
   ) => {
     const params = new URLSearchParams();
-    if (opts?.duration != null) params.set('duration', String(opts.duration));
-    if (opts?.requiresAck) params.set('requiresAck', 'true');
-    const qs = params.toString();
+    params.set('itemId', opts.itemId);
+    if (opts.duration != null) params.set('duration', String(opts.duration));
+    if (opts.requiresAck) params.set('requiresAck', 'true');
     return apiClient
       .post<ConversationMessage>(
-        `/conversations/${conversationId}/messages/voice${qs ? `?${qs}` : ''}`,
+        `/conversations/${conversationId}/messages/voice?${params.toString()}`,
         formData,
         // Unset the instance-level 'application/json' default so the browser
         // sets multipart/form-data with the correct boundary automatically.

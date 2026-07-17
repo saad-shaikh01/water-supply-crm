@@ -136,6 +136,15 @@ export interface CustomerWalletSummary {
 // Customer Communication Center (docs/features/customer-communication-center.md).
 // ConversationMessage evolved from the old DeliveryItemNote table (Phase 1);
 // the DeliveryItemNote alias itself was removed in Phase 7.
+// Per-message delivery context — which delivery this specific message is
+// about (Conversation is per-customer; a running thread can span many days).
+export interface ConversationMessageItem {
+  id: string;
+  sequence: number;
+  dailySheetId: string;
+  dailySheet: { id: string; date: string; van: { plateNumber: string } };
+}
+
 export interface ConversationMessage {
   id: string;
   type: 'TEXT' | 'VOICE';
@@ -147,6 +156,7 @@ export interface ConversationMessage {
   acknowledgedById: string | null;
   createdAt: string;
   createdBy: { id: string; name: string };
+  item: ConversationMessageItem;
 }
 
 export interface ConversationContext {
@@ -157,10 +167,13 @@ export interface ConversationContext {
   lastMessageAt: string | null;
   lastMessagePreview: string | null;
   customer: { id: string; name: string; customerCode: string; phoneNumber: string | null };
-  dailySheet: { id: string; date: string; isClosed: boolean };
-  van: { id: string; plateNumber: string };
-  driver: { id: string; name: string };
-  item: { id: string; sequence: number; status: DeliveryStatusType; product: { id: string; name: string } };
+  // Nullable: a freshly-created, unmessaged conversation (get-or-create with
+  // zero sends) has none of this yet — it's the "most recently discussed
+  // delivery" rollup, written only when a real message is sent.
+  dailySheet: { id: string; date: string; isClosed: boolean } | null;
+  van: { id: string; plateNumber: string } | null;
+  driver: { id: string; name: string } | null;
+  item: { id: string; sequence: number; status: DeliveryStatusType; product: { id: string; name: string } } | null;
 }
 
 export interface DeliveryItem {

@@ -1015,13 +1015,6 @@ export class DailySheetService implements OnModuleInit {
               },
             },
             product: true,
-            // Communication Center summary (Phase 7) — the full message list
-            // moved to ConversationThread's own fetch (GET /conversations/:id/
-            // messages); the sheet payload only needs enough to render the row
-            // chip and (via pendingAckCount) the requiresAck delivery gate.
-            // Conversation.messageCount is the existing transactional rollup
-            // (Phase 1/2) — no live count needed for the total.
-            conversation: { select: { messageCount: true } },
             _count: {
               select: {
                 notes: { where: { requiresAck: true, acknowledgedAt: null, deletedAt: null } },
@@ -1046,14 +1039,22 @@ export class DailySheetService implements OnModuleInit {
       throw new NotFoundException('Daily sheet not found');
     }
 
-    // Communication Center summary (Phase 7): collapse the conversation/_count
-    // sub-objects into two flat numbers and drop the raw shapes from the
-    // response — same in-place-mutation idiom as lastFilledDropped/
-    // consumptionRate30d below.
+    // Communication Center summary (Phase 7): collapse the _count sub-object
+    // into two flat numbers and drop the raw shape from the response — same
+    // in-place-mutation idiom as lastFilledDropped/consumptionRate30d below.
+    // Per-item message count (Conversation is per-customer now — its own
+    // messageCount rollup covers the whole running thread, not just this
+    // delivery — so this counts ConversationMessage rows tagged to this
+    // specific item directly, same relation the requiresAck count above uses).
+    const itemMessageCounts = await this.prisma.conversationMessage.groupBy({
+      by: ['dailySheetItemId'],
+      where: { dailySheetItemId: { in: sheet.items.map((i) => i.id) }, deletedAt: null },
+      _count: { id: true },
+    });
+    const messageCountByItemId = new Map(itemMessageCounts.map((c) => [c.dailySheetItemId, c._count.id]));
     for (const it of sheet.items as any[]) {
-      it.messageCount = it.conversation?.messageCount ?? 0;
+      it.messageCount = messageCountByItemId.get(it.id) ?? 0;
       it.pendingAckCount = it._count.notes;
-      delete it.conversation;
       delete it._count;
     }
 

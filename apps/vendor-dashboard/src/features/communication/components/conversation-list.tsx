@@ -116,15 +116,24 @@ export function ConversationList({ conversations, selectedId, onSelect, isLoadin
                     {c.waitingOn === 'DRIVER' ? 'Waiting: Driver' : 'Waiting: Office'}
                   </Badge>
                 )}
-                <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                  <Truck className="h-2.5 w-2.5" />
-                  {c.van.plateNumber}
-                </span>
-                <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                  <User className="h-2.5 w-2.5" />
-                  {c.driver.name}
-                </span>
-                <span className="text-[10px] text-muted-foreground">· {formatDate(c.dailySheet.date)}</span>
+                {/* Nullable "last discussed delivery" rollup — only unset in
+                    the brief window between get-or-create and first send;
+                    every row reaching this list already has messageCount > 0. */}
+                {c.van && (
+                  <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                    <Truck className="h-2.5 w-2.5" />
+                    {c.van.plateNumber}
+                  </span>
+                )}
+                {c.driver && (
+                  <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                    <User className="h-2.5 w-2.5" />
+                    {c.driver.name}
+                  </span>
+                )}
+                {c.dailySheet && (
+                  <span className="text-[10px] text-muted-foreground">· {formatDate(c.dailySheet.date)}</span>
+                )}
               </div>
             </div>
           </button>
