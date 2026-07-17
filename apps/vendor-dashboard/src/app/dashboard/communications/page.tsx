@@ -79,6 +79,14 @@ function CommunicationsContent() {
   const conversations = data?.data ?? [];
   const totalPages = data?.meta.totalPages ?? 1;
 
+  const activeFilterCount = [
+    status !== 'all',
+    waitingOn !== 'all',
+    !isDriver && !!vanId,
+    !isDriver && !!driverId,
+    !!from || !!to,
+  ].filter(Boolean).length;
+
   // `selected` is a snapshot from the list, not a live subscription — a
   // status change (Phase 5) refetches the inbox, and without this the
   // header would keep showing the pre-mutation status/waitingOn until the
@@ -110,6 +118,7 @@ function CommunicationsContent() {
             onWaitingOnChange={(v) => { setWaitingOn(v); setPage(1); }}
             isDriver={isDriver}
             onBeforeChange={() => setPage(1)}
+            activeFilterCount={activeFilterCount}
           />
           <div className="flex-1 overflow-y-auto min-h-0">
             <ConversationList

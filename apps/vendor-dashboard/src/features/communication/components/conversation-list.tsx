@@ -84,8 +84,13 @@ export function ConversationList({ conversations, selectedId, onSelect, isLoadin
 
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between gap-2">
-                <span className={cn('text-sm truncate', hasUnread ? 'font-black' : 'font-bold')}>
-                  {c.customer.name}
+                <span className="flex items-baseline gap-1 min-w-0 flex-1">
+                  <span className={cn('text-sm truncate', hasUnread ? 'font-black' : 'font-bold')}>
+                    {c.customer.name}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground font-mono shrink-0">
+                    ({c.customer.customerCode})
+                  </span>
                 </span>
                 {c.lastMessageAt && (
                   <span className={cn('text-[10px] shrink-0', hasUnread ? 'text-primary font-bold' : 'text-muted-foreground')}>

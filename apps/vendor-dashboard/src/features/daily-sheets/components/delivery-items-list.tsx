@@ -227,6 +227,7 @@ export function DeliveryItemsList({
   const [savingLocationItemId, setSavingLocationItemId] = useState<string | null>(null);
   const [viewPhotoItemId, setViewPhotoItemId] = useState<string | null>(null);
   const [downloadingReceiptId, setDownloadingReceiptId] = useState<string | null>(null);
+  const [chatItem, setChatItem] = useState<DeliveryItem | null>(null);
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // Deep-link scroll + highlight (Phase 6). The row container is mounted for
@@ -240,6 +241,11 @@ export function DeliveryItemsList({
     const el = itemRefs.current[deepLinkItemId];
     if (!el) return;
     el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    // The conversation now lives in the Chats modal (not inline), so a
+    // reverse deep link from the Communication Center must open it directly
+    // rather than just expanding the row.
+    const target = paginatedItems.find((i) => i.id === deepLinkItemId);
+    if (target) setChatItem(target);
     const timer = setTimeout(() => onDeepLinkComplete(), 2000);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -494,17 +500,25 @@ export function DeliveryItemsList({
                       </div>
 
                       <div className={cn('flex items-center gap-2 flex-wrap w-full sm:w-auto sm:shrink-0', selectMode && 'hidden')}>
-                        {messageCount > 0 && (
-                          <div className={cn(
-                            'flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full',
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setChatItem(item); }}
+                          className={cn(
+                            'flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full transition-colors',
                             pendingAckCount > 0
-                              ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400'
-                              : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
-                          )}>
-                            <StickyNote className="h-2.5 w-2.5" />
-                            {pendingAckCount > 0 ? `${pendingAckCount} Pending ⚠` : `${messageCount} Msg${messageCount > 1 ? 's' : ''} ✓`}
-                          </div>
-                        )}
+                              ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400 hover:bg-amber-500/25'
+                              : messageCount > 0
+                                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/25'
+                                : 'bg-muted text-muted-foreground hover:bg-accent',
+                          )}
+                        >
+                          <StickyNote className="h-2.5 w-2.5" />
+                          {pendingAckCount > 0
+                            ? `${pendingAckCount} Pending ⚠`
+                            : messageCount > 0
+                              ? `${messageCount} Msg${messageCount > 1 ? 's' : ''} ✓`
+                              : 'Chats'}
+                        </button>
                         <StatusBadge status={item.status} />
                         {item.isCorrection && (
                           <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
@@ -828,15 +842,28 @@ export function DeliveryItemsList({
                                 })}
                               </p>
                             )}
-                          {/* Communication Center: embedded conversation thread (replaces the old Add Note dialog + notes panel/gate). */}
-                          <ConversationThread
-                            itemId={item.id}
-                            sheetId={sheetId}
-                            variant="embedded"
-                            isDriver={isDriver}
-                            itemIsPending={item.status === 'PENDING'}
-                            isClosed={isClosed}
-                          />
+                          {/* Communication Center: full thread lives in the Chats modal (triggered by the
+                              row badge/button above); this stays inline only to keep the delivery-blocking
+                              ack requirement impossible to miss without opening it. */}
+                          {isDriver && pendingAckCount > 0 && (
+                            <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-start gap-3">
+                              <StickyNote className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-black text-amber-700 dark:text-amber-400">Read Before Delivering</p>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  Acknowledge {pendingAckCount === 1 ? 'the instruction' : `all ${pendingAckCount} instructions`} in Chats to unlock the delivery form.
+                                </p>
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="rounded-full font-bold text-xs h-8 shrink-0 border-amber-500/50 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10"
+                                onClick={(e) => { e.stopPropagation(); setChatItem(item); }}
+                              >
+                                Open Chat
+                              </Button>
+                            </div>
+                          )}
 
                           {canRecord ? (
                             <DeliveryRecordForm
@@ -928,7 +955,52 @@ export function DeliveryItemsList({
           onClose={() => setViewPhotoItemId(null)}
         />
       )}
+
+      {chatItem && (
+        <ChatModal
+          item={chatItem}
+          sheetId={sheetId}
+          isDriver={isDriver}
+          isClosed={isClosed}
+          onClose={() => setChatItem(null)}
+        />
+      )}
     </div>
+  );
+}
+
+function ChatModal({
+  item,
+  sheetId,
+  isDriver,
+  isClosed,
+  onClose,
+}: {
+  item: DeliveryItem;
+  sheetId: string;
+  isDriver: boolean;
+  isClosed: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="rounded-3xl max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="text-lg font-black flex items-center gap-2">
+            <MessageSquare className="h-5 w-5 text-primary" />
+            Chat · {item.customer?.name}
+          </DialogTitle>
+        </DialogHeader>
+        <ConversationThread
+          itemId={item.id}
+          sheetId={sheetId}
+          variant="embedded"
+          isDriver={isDriver}
+          itemIsPending={item.status === 'PENDING'}
+          isClosed={isClosed}
+        />
+      </DialogContent>
+    </Dialog>
   );
 }
 
