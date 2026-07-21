@@ -186,7 +186,6 @@ echo ""
 echo "==> [6/8] Ensuring runtime directories exist..."
 mkdir -p "${REPO_ROOT}/logs"
 mkdir -p "${REPO_ROOT}/uploads"
-mkdir -p "${REPO_ROOT}/uploads/whatsapp-session"
 
 # ── 7. Sync nginx config ──────────────────────────────────────────────────────
 echo ""
