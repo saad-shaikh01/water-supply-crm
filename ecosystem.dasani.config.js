@@ -23,12 +23,13 @@ const ROOT = __dirname;
 
 // Infrastructure addresses differ between Docker (DNS service names) and the
 // host (loopback). Hard-coded here so they are always correct regardless of
-// what .env.live says for REDIS_HOST / REDIS_URL. Port 6380 = dasani-redis,
-// deliberately NOT 6379 (that's wscrm-redis / testinglinq).
+// what .env.live says for REDIS_HOST / REDIS_URL. Port 6382 = dasani-redis —
+// NOT 6379 (wscrm-redis/testinglinq) and NOT 6380 (collides with an unrelated
+// project's sentra_redis_testing container on this VPS).
 const infraOverrides = {
-  REDIS_URL: 'redis://127.0.0.1:6380',
+  REDIS_URL: 'redis://127.0.0.1:6382',
   REDIS_HOST: '127.0.0.1',
-  REDIS_PORT: '6380',
+  REDIS_PORT: '6382',
 };
 
 module.exports = {

@@ -35,9 +35,10 @@ services:
       retries: 5
       start_period: 10s
     ports:
-      # Loopback-only. Deliberately NOT 5432 — that port is already taken by
-      # wscrm-postgres (testinglinq). Dasani's api-backend connects via 5433.
-      - "127.0.0.1:5433:5432"
+      # Loopback-only. NOT 5432 (wscrm-postgres/testinglinq) and NOT 5433
+      # (that collides with an unrelated project's sentra_postgres_testing
+      # container on this VPS). Dasani's api-backend connects via 5435.
+      - "127.0.0.1:5435:5432"
     networks:
       - dasani_data
 
@@ -56,8 +57,9 @@ services:
       retries: 5
       start_period: 5s
     ports:
-      # Loopback-only. Deliberately NOT 6379 — that port is already taken by
-      # wscrm-redis (testinglinq). Dasani's api-backend connects via 6380.
-      - "127.0.0.1:6380:6379"
+      # Loopback-only. NOT 6379 (wscrm-redis/testinglinq) and NOT 6380 (that
+      # collides with an unrelated project's sentra_redis_testing container
+      # on this VPS). Dasani's api-backend connects via 6382.
+      - "127.0.0.1:6382:6379"
     networks:
       - dasani_data
