@@ -1,9 +1,7 @@
-import { Controller, Get, Post } from '@nestjs/common';
+import { Controller, Get } from '@nestjs/common';
 import { WhatsAppService } from './whatsapp.service';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 
-// Security hardening: previously only @UseGuards(JwtAuthGuard) — i.e. any authenticated
-// user could read the QR / status and log the session out. Now explicitly authorized.
 @Controller('whatsapp')
 export class WhatsAppController {
   constructor(private readonly whatsapp: WhatsAppService) {}
@@ -16,21 +14,9 @@ export class WhatsAppController {
     return {
       enabled,
       ready,
+      // 'disconnected' here means "enabled but META_WA_ACCESS_TOKEN / META_WA_PHONE_NUMBER_ID
+      // missing" (Cloud API is a stateless bearer-token API — no linked-device session to lose).
       status: !enabled ? 'disabled' : ready ? 'connected' : 'disconnected',
     };
-  }
-
-  @Get('qr')
-  @RequirePermissions('whatsapp:view')
-  getQr() {
-    const qr = this.whatsapp.getQr();
-    return { qr };
-  }
-
-  @Post('logout')
-  @RequirePermissions('whatsapp:manage')
-  async logout() {
-    await this.whatsapp.logout();
-    return { success: true };
   }
 }

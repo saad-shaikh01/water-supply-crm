@@ -20,17 +20,35 @@ export class WhatsAppService {
     return this.provider.isReady();
   }
 
-  getQr(): string | null {
-    return this.provider.getQr();
-  }
-
-  async logout(): Promise<void> {
-    await this.provider.logout();
-  }
-
   async sendDocument(phone: string, pdfBuffer: Buffer, filename: string, caption?: string): Promise<boolean> {
     if (!phone || !pdfBuffer) return false;
     return this.provider.sendDocument(phone, pdfBuffer, filename, caption);
+  }
+
+  async sendTemplate(
+    phone: string,
+    templateName: string,
+    bodyParams: string[],
+    document?: { buffer: Buffer; filename: string },
+  ): Promise<boolean> {
+    if (!phone || !templateName) return false;
+
+    // Rate limiting: 1 message per phone per minute
+    const rateLimitKey = `whatsapp:ratelimit:${phone.replace(/\D/g, '')}`;
+    const isLimited = await this.cache.get<boolean>(rateLimitKey);
+
+    if (isLimited) {
+      this.logger.debug(`Rate limited WhatsApp template to ${phone}`);
+      return false;
+    }
+
+    const sent = await this.provider.sendTemplate(phone, templateName, bodyParams, document);
+
+    if (sent) {
+      await this.cache.set(rateLimitKey, true, this.RATE_LIMIT_TTL);
+    }
+
+    return sent;
   }
 
   async sendMessage(phone: string, message: string): Promise<boolean> {

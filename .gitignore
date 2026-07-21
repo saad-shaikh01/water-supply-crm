@@ -41,6 +41,11 @@ Thumbs.db
 .nx/cache
 .nx/workspace-data
 
+# Real secrets — local/VPS only, never tracked. Keep the .example templates tracked.
+/.env
+/.env.prod
+/.env.live
+
 # Next.js
 .next
 out

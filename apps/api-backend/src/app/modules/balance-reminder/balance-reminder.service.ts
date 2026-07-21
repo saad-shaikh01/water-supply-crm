@@ -5,7 +5,7 @@ import Redis from 'ioredis';
 import { PrismaService } from '@water-supply-crm/database';
 import { NotificationType, NotificationChannel } from '@prisma/client';
 import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
-import { MessageTemplates } from '../whatsapp/templates/message.templates';
+import { CloudTemplateNames } from '../whatsapp/templates/cloud-template-names';
 import { isSendablePhone } from '../whatsapp/phone.util';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { NotificationSettingsService } from '../notifications/notification-settings.service';
@@ -580,21 +580,44 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
 
     // Balance cleared (or in advance) — congratulate, never ask for payment
     const hasDue = balance > 0;
+    const monthLabel = this.formatMonthLabel(month);
 
     if (includeStatement) {
       const pdf = await this.generateStatementPdf(vendorId, customer.id, month);
       if (pdf) {
-        const caption = hasDue
-          ? MessageTemplates.balanceReminderWithAttachedStatement(customer.name, balance)
-          : MessageTemplates.statementWithClearBalance(customer.name, this.formatMonthLabel(month), balance);
-        return this.whatsapp.sendDocument(customer.phoneNumber, pdf.buffer, pdf.filename, caption);
+        const document = { buffer: pdf.buffer, filename: pdf.filename };
+        if (hasDue) {
+          return this.whatsapp.sendTemplate(
+            customer.phoneNumber,
+            CloudTemplateNames.MONTHLY_STATEMENT,
+            [customer.name, balance.toFixed(2)],
+            document,
+          );
+        }
+        if (balance < 0) {
+          return this.whatsapp.sendTemplate(
+            customer.phoneNumber,
+            CloudTemplateNames.MONTHLY_STATEMENT_ADVANCE,
+            [customer.name, monthLabel, Math.abs(balance).toFixed(2)],
+            document,
+          );
+        }
+        return this.whatsapp.sendTemplate(
+          customer.phoneNumber,
+          CloudTemplateNames.MONTHLY_STATEMENT_CLEAR,
+          [customer.name, monthLabel],
+          document,
+        );
       }
     }
 
-    const text = hasDue
-      ? MessageTemplates.balanceReminder(customer.name, balance)
-      : MessageTemplates.balanceClear(customer.name, balance);
-    return this.whatsapp.sendMessage(customer.phoneNumber, text);
+    if (hasDue) {
+      return this.whatsapp.sendTemplate(customer.phoneNumber, CloudTemplateNames.BALANCE_REMINDER, [customer.name, balance.toFixed(2)]);
+    }
+    if (balance < 0) {
+      return this.whatsapp.sendTemplate(customer.phoneNumber, CloudTemplateNames.BALANCE_CLEAR_ADVANCE, [customer.name, Math.abs(balance).toFixed(2)]);
+    }
+    return this.whatsapp.sendTemplate(customer.phoneNumber, CloudTemplateNames.BALANCE_CLEAR, [customer.name]);
   }
 
   /**

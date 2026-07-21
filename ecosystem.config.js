@@ -64,11 +64,11 @@ module.exports = {
         FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID,
         FIREBASE_CLIENT_EMAIL: process.env.FIREBASE_CLIENT_EMAIL,
         FIREBASE_PRIVATE_KEY: process.env.FIREBASE_PRIVATE_KEY,
-        // WhatsApp — set WHATSAPP_ENABLED=true in .env.prod to activate
+        // WhatsApp — Meta Cloud API. Set WHATSAPP_ENABLED=true in .env.prod to activate.
         WHATSAPP_ENABLED: process.env.WHATSAPP_ENABLED || 'false',
-        WHATSAPP_SESSION_PATH: path.join(ROOT, 'uploads/whatsapp-session'),
-        CHROMIUM_PATH: process.env.CHROMIUM_PATH || '/usr/bin/chromium-browser',
-        PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: 'true',
+        META_WA_ACCESS_TOKEN: process.env.META_WA_ACCESS_TOKEN,
+        META_WA_PHONE_NUMBER_ID: process.env.META_WA_PHONE_NUMBER_ID,
+        META_WA_API_VERSION: process.env.META_WA_API_VERSION,
         ...infraOverrides,
       },
       error_file: path.join(ROOT, 'logs/wscrm-api-error.log'),

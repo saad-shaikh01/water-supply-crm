@@ -5,6 +5,7 @@ import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
 import { PrismaService } from '@water-supply-crm/database';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.service';
+import { CloudTemplateNames } from '../whatsapp/templates/cloud-template-names';
 import { FcmService } from '../fcm/fcm.service';
 
 @Processor(QUEUE_NAMES.NOTIFICATIONS)
@@ -58,8 +59,12 @@ export class NotificationProcessor extends WorkerHost {
         const { phoneNumber, receiptData, entityType, entityId } = job.data;
         const pdfBuffer = await this.pdfService.generate(receiptData as any);
         const filename = `${this.sanitizeForFilename(receiptData['customerCode'] as string)}-${this.sanitizeForFilename(receiptData['customerName'] as string)}-${receiptData['deliveryDate']}.pdf`;
-        const caption = `Assalam o Alaikum ${receiptData['customerName']}! ✅\n\nAapki delivery receipt attached hai. Shukriya!`;
-        const sent = await this.whatsapp.sendDocument(phoneNumber, pdfBuffer, filename, caption);
+        const sent = await this.whatsapp.sendTemplate(
+          phoneNumber,
+          CloudTemplateNames.DELIVERY_RECEIPT,
+          [receiptData['customerName'] as string],
+          { buffer: pdfBuffer, filename },
+        );
         if (sent) {
           this.logger.log(`WhatsApp PDF sent to ${phoneNumber}`);
           if (entityType === 'DELIVERY_ITEM' && entityId) {

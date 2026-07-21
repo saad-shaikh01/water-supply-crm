@@ -4,10 +4,6 @@ FROM node:20-alpine AS builder
 # Build tools needed for native modules (bcrypt, etc.)
 RUN apk add --no-cache python3 make g++
 
-# Prevent Puppeteer (bundled with whatsapp-web.js) from downloading Chromium
-# during npm ci — the runner stage supplies the system Chromium instead.
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-
 WORKDIR /app
 
 # Copy workspace manifests first — better layer caching
@@ -29,25 +25,9 @@ RUN npx nx build api-backend
 # ─── Stage 2: Runner ──────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
 
-# ── Chromium system dependencies ──────────────────────────────────────────────
-# Required for whatsapp-web.js / Puppeteer to launch a headless browser inside
-# the container. Alpine's `chromium` package installs to /usr/bin/chromium-browser.
-RUN apk add --no-cache \
-    chromium \
-    nss \
-    freetype \
-    harfbuzz \
-    ca-certificates \
-    ttf-freefont \
-    udev
-
 WORKDIR /app
 
 ENV NODE_ENV=production
-# Tell Puppeteer to use the system Chromium installed above.
-# Override via CHROMIUM_PATH in .env.prod if your image ships it elsewhere.
-ENV CHROMIUM_PATH=/usr/bin/chromium-browser
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 # Copy the builder's working node_modules. This keeps the image larger than a
 # pruned runtime install, but it is reliable with the current Nx custom build
