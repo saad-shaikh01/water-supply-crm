@@ -49,9 +49,18 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     private readonly statementPdf: CustomerStatementPdfService,
   ) {}
 
-  onModuleInit() {
+  async onModuleInit() {
     const redisUrl = process.env['REDIS_URL'] || 'redis://localhost:6379';
     this.redis = new Redis(redisUrl);
+
+    try {
+      await this.reconcileSchedulesOnBoot();
+    } catch (err) {
+      this.logger.error(
+        `Failed to reconcile balance-reminder schedules: ${(err as Error)?.message ?? String(err)}`,
+        (err as Error)?.stack,
+      );
+    }
   }
 
   async onModuleDestroy() {
@@ -60,12 +69,65 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
 
   // ─── Schedule management ────────────────────────────────────────────────────
 
+  /**
+   * Removes both the legacy repeatable job (registered via add({repeat, jobId})
+   * in older builds) and the current job-scheduler entry for this vendor.
+   * add({repeat}) is first-write-wins and its removal via removeRepeatableByKey
+   * is unreliable across BullMQ versions — a "cancelled" schedule could keep
+   * firing forever even after the DB config was deleted. Always sweep the
+   * legacy form explicitly, never rely on removeJobScheduler alone.
+   */
   private async removeQueueJob(vendorId: string): Promise<void> {
     const jobId = REPEATABLE_JOB_ID(vendorId);
-    const repeatableJobs = await this.reminderQueue.getRepeatableJobs();
-    for (const job of repeatableJobs.filter((j) => j.id === jobId)) {
-      await this.reminderQueue.removeRepeatableByKey(job.key);
+
+    const legacy = await this.reminderQueue.getRepeatableJobs();
+    for (const j of legacy.filter((j) => j.id === jobId)) {
+      await this.reminderQueue.removeRepeatableByKey(j.key);
+      this.logger.warn(`Removed legacy balance-reminder repeatable job for vendor ${vendorId} (key=${j.key}, pattern=${j.pattern})`);
     }
+
+    await this.reminderQueue.removeJobScheduler(jobId);
+  }
+
+  /**
+   * Startup sweep: reconciles every vendor's schedule against ReminderScheduleConfig.
+   * Any queue job for a vendor with no active config is removed (catches zombie
+   * jobs left behind by the legacy add({repeat}) API); every vendor with an
+   * active config gets its scheduler re-upserted so pattern/minBalance changes
+   * made while the server was down still take effect.
+   */
+  private async reconcileSchedulesOnBoot(): Promise<void> {
+    const configs = await this.prisma.reminderScheduleConfig.findMany();
+    const configByVendor = new Map(configs.map((c) => [c.vendorId, c]));
+
+    const queuedJobs = await this.reminderQueue.getRepeatableJobs();
+    const prefix = 'balance-reminder:';
+    let orphansRemoved = 0;
+
+    for (const job of queuedJobs) {
+      if (!job.id?.startsWith(prefix)) continue;
+      const vendorId = job.id.slice(prefix.length);
+      if (!configByVendor.has(vendorId)) {
+        await this.removeQueueJob(vendorId);
+        orphansRemoved++;
+        this.logger.warn(`Removed orphaned balance-reminder schedule for vendor ${vendorId} (no active config) — pattern=${job.pattern}`);
+      }
+    }
+
+    for (const config of configs) {
+      const jobId = REPEATABLE_JOB_ID(config.vendorId);
+      await this.reminderQueue.upsertJobScheduler(
+        jobId,
+        { pattern: config.cronExpression, tz: 'UTC' },
+        {
+          name: JOB_NAMES.SEND_BALANCE_REMINDERS,
+          data: { vendorId: config.vendorId, minBalance: config.minBalance },
+          opts: { removeOnComplete: 50, removeOnFail: 20 },
+        },
+      );
+    }
+
+    this.logger.log(`Balance reminder schedules reconciled: ${configs.length} active, ${orphansRemoved} orphaned job(s) removed`);
   }
 
   async scheduleReminders(
@@ -77,10 +139,17 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     const jobId = REPEATABLE_JOB_ID(vendorId);
 
     await this.removeQueueJob(vendorId);
-    await this.reminderQueue.add(
-      JOB_NAMES.SEND_BALANCE_REMINDERS,
-      { vendorId, minBalance },
-      { repeat: { pattern: cronExpression, utc: true }, jobId, removeOnComplete: 50, removeOnFail: 20 },
+
+    // upsertJobScheduler (not add({repeat})) — see removeQueueJob for why the
+    // legacy API is never used to create the schedule anymore.
+    const job = await this.reminderQueue.upsertJobScheduler(
+      jobId,
+      { pattern: cronExpression, tz: 'UTC' },
+      {
+        name: JOB_NAMES.SEND_BALANCE_REMINDERS,
+        data: { vendorId, minBalance },
+        opts: { removeOnComplete: 50, removeOnFail: 20 },
+      },
     );
 
     await this.prisma.reminderScheduleConfig.upsert({
@@ -89,9 +158,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       create: { vendorId, cronExpression, minBalance },
     });
 
-    const repeatableJobs = await this.reminderQueue.getRepeatableJobs();
-    const job = repeatableJobs.find((j) => j.id === jobId);
-    const nextRunAt = job?.next ? new Date(job.next).toISOString() : null;
+    const nextRunAt = job ? new Date(job.timestamp + (job.delay ?? 0)).toISOString() : null;
 
     this.logger.log(`Scheduled balance reminders for vendor ${vendorId}: ${cronExpression}, minBalance=${minBalance}`);
     return { vendorId, scheduled: true, cronExpression, minBalance, nextRunAt, message: 'Balance reminder schedule configured' };
@@ -108,9 +175,8 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     if (!config) return { vendorId, scheduled: false, cronExpression: null, minBalance: null, nextRunAt: null };
 
     const jobId = REPEATABLE_JOB_ID(vendorId);
-    const repeatableJobs = await this.reminderQueue.getRepeatableJobs();
-    const job = repeatableJobs.find((j) => j.id === jobId);
-    const nextRunAt = job?.next ? new Date(job.next).toISOString() : null;
+    const scheduler = await this.reminderQueue.getJobScheduler(jobId);
+    const nextRunAt = scheduler?.next ? new Date(scheduler.next).toISOString() : null;
 
     return { vendorId, scheduled: true, cronExpression: config.cronExpression, minBalance: config.minBalance, nextRunAt };
   }
