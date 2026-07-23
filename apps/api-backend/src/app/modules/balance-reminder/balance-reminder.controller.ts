@@ -2,7 +2,6 @@
   Controller,
   Get,
   Post,
-  Delete,
   Body,
   Param,
   Query,
@@ -11,7 +10,7 @@
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { BalanceReminderService } from './balance-reminder.service';
-import { ScheduleReminderDto, SendNowDto, SendTargetedDto, PreviewDto } from './dto/schedule-reminder.dto';
+import { SendNowDto, SendTargetedDto, PreviewDto } from './dto/schedule-reminder.dto';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
@@ -19,43 +18,6 @@ import type { AuthUser } from '@water-supply-crm/types';
 @Controller('balance-reminders')
 export class BalanceReminderController {
   constructor(private readonly reminderService: BalanceReminderService) {}
-
-  /**
-   * POST /balance-reminders/schedule
-   * Configure automatic daily balance reminders via BullMQ repeatable job.
-   * Body: { cronExpression?: string, minBalance?: number }
-   * Default: runs daily at 9 AM PKT (04:00 UTC), minBalance=100
-   */
-  @Post('schedule')
-  @RequirePermissions('balance_reminders:configure')
-  @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 3 } })
-  scheduleReminders(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: ScheduleReminderDto,
-  ) {
-    return this.reminderService.scheduleReminders(user.vendorId, dto);
-  }
-
-  /**
-   * GET /balance-reminders/schedule
-   * Check if reminders are scheduled and when the next run is.
-   */
-  @Get('schedule')
-  @RequirePermissions('balance_reminders:view')
-  getSchedule(@CurrentUser() user: AuthUser) {
-    return this.reminderService.getScheduleStatus(user.vendorId);
-  }
-
-  /**
-   * DELETE /balance-reminders/schedule
-   * Disable automatic balance reminders.
-   */
-  @Delete('schedule')
-  @RequirePermissions('balance_reminders:configure')
-  @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 3 } })
-  cancelReminders(@CurrentUser() user: AuthUser) {
-    return this.reminderService.cancelReminders(user.vendorId);
-  }
 
   /**
    * POST /balance-reminders/send-now

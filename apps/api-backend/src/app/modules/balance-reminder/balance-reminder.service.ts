@@ -1,20 +1,15 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
 import Redis from 'ioredis';
 import { PrismaService } from '@water-supply-crm/database';
 import { NotificationType, NotificationChannel } from '@prisma/client';
-import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
 import { CloudTemplateNames } from '../whatsapp/templates/cloud-template-names';
 import { isSendablePhone } from '../whatsapp/phone.util';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { NotificationSettingsService } from '../notifications/notification-settings.service';
 import { CustomerStatementPdfService } from '../customer/pdf/customer-statement-pdf.service';
-import { ScheduleReminderDto, SendNowDto, SendTargetedDto, PreviewDto } from './dto/schedule-reminder.dto';
+import { SendNowDto, SendTargetedDto, PreviewDto } from './dto/schedule-reminder.dto';
 
-const DEFAULT_CRON = '0 4 * * *'; // 9 AM PKT (UTC+5) — stored as UTC
 const DEFAULT_MIN_BALANCE = 100;
-const REPEATABLE_JOB_ID = (vendorId: string) => `balance-reminder:${vendorId}`;
 const REMINDER_COOLDOWN_TTL = 23 * 60 * 60; // 23 hours — prevent re-sending within same day
 const cooldownKey = (vendorId: string, customerId: string) => `balance-reminder-cooldown:${vendorId}:${customerId}`;
 
@@ -26,159 +21,25 @@ const cooldownKey = (vendorId: string, customerId: string) => `balance-reminder-
 const SEND_DELAY_MIN_MS = 5000;
 const SEND_DELAY_MAX_MS = 12000;
 
-/** Stable response shape returned by all schedule-related endpoints */
-export interface ReminderScheduleStatus {
-  vendorId: string;
-  scheduled: boolean;
-  cronExpression: string | null;
-  minBalance: number | null;
-  nextRunAt: string | null;
-}
-
 @Injectable()
 export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BalanceReminderService.name);
   private redis: Redis;
 
   constructor(
-    @InjectQueue(QUEUE_NAMES.BALANCE_REMINDERS)
-    private readonly reminderQueue: Queue,
     private readonly prisma: PrismaService,
     private readonly whatsapp: WhatsAppService,
     private readonly notifSettings: NotificationSettingsService,
     private readonly statementPdf: CustomerStatementPdfService,
   ) {}
 
-  async onModuleInit() {
+  onModuleInit() {
     const redisUrl = process.env['REDIS_URL'] || 'redis://localhost:6379';
     this.redis = new Redis(redisUrl);
-
-    try {
-      await this.reconcileSchedulesOnBoot();
-    } catch (err) {
-      this.logger.error(
-        `Failed to reconcile balance-reminder schedules: ${(err as Error)?.message ?? String(err)}`,
-        (err as Error)?.stack,
-      );
-    }
   }
 
   async onModuleDestroy() {
     await this.redis?.quit();
-  }
-
-  // ─── Schedule management ────────────────────────────────────────────────────
-
-  /**
-   * Removes both the legacy repeatable job (registered via add({repeat, jobId})
-   * in older builds) and the current job-scheduler entry for this vendor.
-   * add({repeat}) is first-write-wins and its removal via removeRepeatableByKey
-   * is unreliable across BullMQ versions — a "cancelled" schedule could keep
-   * firing forever even after the DB config was deleted. Always sweep the
-   * legacy form explicitly, never rely on removeJobScheduler alone.
-   */
-  private async removeQueueJob(vendorId: string): Promise<void> {
-    const jobId = REPEATABLE_JOB_ID(vendorId);
-
-    const legacy = await this.reminderQueue.getRepeatableJobs();
-    for (const j of legacy.filter((j) => j.id === jobId)) {
-      await this.reminderQueue.removeRepeatableByKey(j.key);
-      this.logger.warn(`Removed legacy balance-reminder repeatable job for vendor ${vendorId} (key=${j.key}, pattern=${j.pattern})`);
-    }
-
-    await this.reminderQueue.removeJobScheduler(jobId);
-  }
-
-  /**
-   * Startup sweep: reconciles every vendor's schedule against ReminderScheduleConfig.
-   * Any queue job for a vendor with no active config is removed (catches zombie
-   * jobs left behind by the legacy add({repeat}) API); every vendor with an
-   * active config gets its scheduler re-upserted so pattern/minBalance changes
-   * made while the server was down still take effect.
-   */
-  private async reconcileSchedulesOnBoot(): Promise<void> {
-    const configs = await this.prisma.reminderScheduleConfig.findMany();
-    const configByVendor = new Map(configs.map((c) => [c.vendorId, c]));
-
-    const queuedJobs = await this.reminderQueue.getRepeatableJobs();
-    const prefix = 'balance-reminder:';
-    let orphansRemoved = 0;
-
-    for (const job of queuedJobs) {
-      if (!job.id?.startsWith(prefix)) continue;
-      const vendorId = job.id.slice(prefix.length);
-      if (!configByVendor.has(vendorId)) {
-        await this.removeQueueJob(vendorId);
-        orphansRemoved++;
-        this.logger.warn(`Removed orphaned balance-reminder schedule for vendor ${vendorId} (no active config) — pattern=${job.pattern}`);
-      }
-    }
-
-    for (const config of configs) {
-      const jobId = REPEATABLE_JOB_ID(config.vendorId);
-      await this.reminderQueue.upsertJobScheduler(
-        jobId,
-        { pattern: config.cronExpression, tz: 'UTC' },
-        {
-          name: JOB_NAMES.SEND_BALANCE_REMINDERS,
-          data: { vendorId: config.vendorId, minBalance: config.minBalance },
-          opts: { removeOnComplete: 50, removeOnFail: 20 },
-        },
-      );
-    }
-
-    this.logger.log(`Balance reminder schedules reconciled: ${configs.length} active, ${orphansRemoved} orphaned job(s) removed`);
-  }
-
-  async scheduleReminders(
-    vendorId: string,
-    dto: ScheduleReminderDto,
-  ): Promise<ReminderScheduleStatus & { message: string }> {
-    const cronExpression = dto.cronExpression ?? DEFAULT_CRON;
-    const minBalance = dto.minBalance ?? DEFAULT_MIN_BALANCE;
-    const jobId = REPEATABLE_JOB_ID(vendorId);
-
-    await this.removeQueueJob(vendorId);
-
-    // upsertJobScheduler (not add({repeat})) — see removeQueueJob for why the
-    // legacy API is never used to create the schedule anymore.
-    const job = await this.reminderQueue.upsertJobScheduler(
-      jobId,
-      { pattern: cronExpression, tz: 'UTC' },
-      {
-        name: JOB_NAMES.SEND_BALANCE_REMINDERS,
-        data: { vendorId, minBalance },
-        opts: { removeOnComplete: 50, removeOnFail: 20 },
-      },
-    );
-
-    await this.prisma.reminderScheduleConfig.upsert({
-      where: { vendorId },
-      update: { cronExpression, minBalance },
-      create: { vendorId, cronExpression, minBalance },
-    });
-
-    const nextRunAt = job ? new Date(job.timestamp + (job.delay ?? 0)).toISOString() : null;
-
-    this.logger.log(`Scheduled balance reminders for vendor ${vendorId}: ${cronExpression}, minBalance=${minBalance}`);
-    return { vendorId, scheduled: true, cronExpression, minBalance, nextRunAt, message: 'Balance reminder schedule configured' };
-  }
-
-  async cancelReminders(vendorId: string): Promise<ReminderScheduleStatus & { message: string }> {
-    await this.removeQueueJob(vendorId);
-    await this.prisma.reminderScheduleConfig.deleteMany({ where: { vendorId } });
-    return { vendorId, scheduled: false, cronExpression: null, minBalance: null, nextRunAt: null, message: 'Balance reminder schedule removed' };
-  }
-
-  async getScheduleStatus(vendorId: string): Promise<ReminderScheduleStatus> {
-    const config = await this.prisma.reminderScheduleConfig.findUnique({ where: { vendorId } });
-    if (!config) return { vendorId, scheduled: false, cronExpression: null, minBalance: null, nextRunAt: null };
-
-    const jobId = REPEATABLE_JOB_ID(vendorId);
-    const scheduler = await this.reminderQueue.getJobScheduler(jobId);
-    const nextRunAt = scheduler?.next ? new Date(scheduler.next).toISOString() : null;
-
-    return { vendorId, scheduled: true, cronExpression: config.cronExpression, minBalance: config.minBalance, nextRunAt };
   }
 
   // ─── Send operations ────────────────────────────────────────────────────────

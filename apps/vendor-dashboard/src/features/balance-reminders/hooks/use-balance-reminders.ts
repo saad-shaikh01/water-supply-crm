@@ -1,38 +1,6 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { balanceRemindersApi, PreviewPayload, SendTargetedPayload } from '../api/balance-reminders.api';
-
-const QUERY_KEY = ['balance-reminders-schedule'];
-
-export const useReminderSchedule = () =>
-  useQuery({
-    queryKey: QUERY_KEY,
-    queryFn: () => balanceRemindersApi.getSchedule().then((r) => r.data),
-  });
-
-export const useSetReminderSchedule = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (data: Record<string, unknown>) => balanceRemindersApi.setSchedule(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
-      toast.success('Schedule saved');
-    },
-    onError: () => toast.error('Failed to save schedule'),
-  });
-};
-
-export const useDeleteReminderSchedule = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: () => balanceRemindersApi.deleteSchedule(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
-      toast.success('Schedule removed');
-    },
-    onError: () => toast.error('Failed to remove schedule'),
-  });
-};
 
 export const useSendRemindersNow = () => {
   return useMutation({

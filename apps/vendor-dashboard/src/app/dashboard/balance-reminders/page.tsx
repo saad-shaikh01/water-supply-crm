@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import {
-  Bell, Send, Trash2, Clock, Users, CheckCircle2, Loader2, Calendar,
-  User, FileText, ChevronDown, ChevronRight, AlertCircle, Info, Wifi, WifiOff, Zap, History,
+  Send, Users, CheckCircle2, Loader2,
+  User, FileText, ChevronRight, AlertCircle, Info, Wifi, WifiOff, Zap, History,
   ChevronLeft,
 } from 'lucide-react';
 import {
@@ -12,11 +12,7 @@ import {
   Badge, Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@water-supply-crm/ui';
 import { PageHeader } from '../../../components/shared/page-header';
-import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import {
-  useReminderSchedule,
-  useSetReminderSchedule,
-  useDeleteReminderSchedule,
   useSendTargeted,
   usePreviewReminders,
   useWhatsAppStatus,
@@ -26,13 +22,6 @@ import {
 import { useCustomerSearch } from '../../../features/customers/hooks/use-customers';
 import { useAllVans } from '../../../features/vans/hooks/use-vans';
 import { cn } from '@water-supply-crm/ui';
-
-const PRESETS = [
-  { label: 'Daily at 9 AM', value: '0 4 * * *' },
-  { label: 'Weekly Monday 9 AM', value: '0 4 * * 1' },
-  { label: 'Monthly 1st at 9 AM', value: '0 4 1 * *' },
-  { label: 'Custom', value: 'custom' },
-];
 
 const WEEKDAYS = [
   { label: 'Monday', value: '1' },
@@ -80,20 +69,11 @@ type SendMode = 'eligible' | 'single';
 type PaymentTypeFilter = 'MONTHLY' | 'CASH' | 'BOTH';
 
 export default function BalanceRemindersPage() {
-  const { data: schedule, isLoading } = useReminderSchedule();
-  const { mutate: setSchedule, isPending: isSaving } = useSetReminderSchedule();
-  const { mutate: deleteSchedule, isPending: isDeleting } = useDeleteReminderSchedule();
   const { mutate: sendTargeted, isPending: isSending } = useSendTargeted();
   const { mutate: sendToOne } = useSendTargeted();
   const { mutate: preview, isPending: isPreviewing, data: previewData, reset: resetPreview } = usePreviewReminders();
   const { data: allVansData } = useAllVans();
   const { data: waStatus } = useWhatsAppStatus();
-
-  // Schedule config state
-  const [preset, setPreset] = useState('0 4 * * *');
-  const [customCron, setCustomCron] = useState('');
-  const [scheduleMinBalance, setScheduleMinBalance] = useState('100');
-  const [deleteOpen, setDeleteOpen] = useState(false);
 
   // Manual send state
   const [sendMode, setSendMode] = useState<SendMode>('eligible');
@@ -139,34 +119,6 @@ export default function BalanceRemindersPage() {
     sendMode === 'single',
   );
   const customerResults: any[] = (customerSearchData as any)?.data ?? [];
-
-  // Sync schedule form with loaded data
-  useEffect(() => {
-    if (schedule?.cronExpression) {
-      const isPreset = PRESETS.some(p => p.value === schedule.cronExpression);
-      if (isPreset) {
-        setPreset(schedule.cronExpression);
-      } else {
-        setPreset('custom');
-        setCustomCron(schedule.cronExpression);
-      }
-    }
-    if (schedule?.minBalance !== undefined) {
-      setScheduleMinBalance(String(schedule.minBalance));
-    }
-  }, [schedule]);
-
-  const cronValue = preset === 'custom' ? customCron : preset;
-
-  const handleSaveSchedule = () => {
-    setSchedule({ cronExpression: cronValue, minBalance: Number(scheduleMinBalance) });
-  };
-
-  const formatDateTime = (dateStr: string) =>
-    new Date(dateStr).toLocaleString(undefined, {
-      weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-    });
-
 
   const resolvedPaymentType = paymentTypeFilter === 'BOTH' ? undefined : paymentTypeFilter;
   const resolvedVanId = vanFilter === 'all' ? undefined : vanFilter;
@@ -295,133 +247,7 @@ export default function BalanceRemindersPage() {
         </Card>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* ── Left column: schedule ── */}
-        <div className="space-y-6">
-          {/* Current Status Card */}
-          <Card className="bg-card/50 backdrop-blur-sm border-border/50 overflow-hidden">
-            <CardHeader className="pb-3 border-b border-border/50 bg-white/5">
-              <CardTitle className="text-sm font-bold flex items-center gap-2 uppercase tracking-widest text-muted-foreground">
-                <Clock className="h-4 w-4 text-primary" />
-                Live Schedule
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-6">
-              {isLoading ? (
-                <div className="space-y-4">
-                  <div className="h-12 rounded-xl bg-accent/30 animate-pulse" />
-                  <div className="h-12 rounded-xl bg-accent/30 animate-pulse" />
-                </div>
-              ) : schedule?.scheduled ? (
-                <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-1">
-                      <p className="text-[10px] font-bold text-muted-foreground uppercase">Pattern</p>
-                      <div className="flex items-center gap-2">
-                        <Badge className="bg-emerald-500/10 text-emerald-500 border-none text-[10px] font-black px-2">ACTIVE</Badge>
-                        <code className="text-sm font-mono bg-accent/50 px-2 py-0.5 rounded-lg text-foreground dark:text-white">{schedule.cronExpression}</code>
-                      </div>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive hover:text-destructive hover:bg-destructive/10 rounded-xl h-8"
-                      onClick={() => setDeleteOpen(true)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5 mr-1.5" /> Disable
-                    </Button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="p-3 rounded-2xl bg-white/5 border border-white/5 space-y-1">
-                      <p className="text-[10px] font-bold text-muted-foreground uppercase">Min Balance</p>
-                      <p className="text-sm font-black text-foreground dark:text-white">₨ {Number(schedule.minBalance ?? 0).toLocaleString()}</p>
-                    </div>
-                    <div className="p-3 rounded-2xl bg-white/5 border border-white/5 space-y-1">
-                      <p className="text-[10px] font-bold text-muted-foreground uppercase">Next Run</p>
-                      <p className="text-sm font-bold text-primary flex items-center gap-1.5">
-                        <Calendar className="h-3 w-3" />
-                        {schedule.nextRunAt ? formatDateTime(schedule.nextRunAt) : 'Not set'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-8 text-center space-y-3">
-                  <div className="h-12 w-12 rounded-full bg-accent/30 flex items-center justify-center">
-                    <Bell className="h-6 w-6 text-muted-foreground/40" />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm font-bold text-foreground dark:text-white">No active schedule</p>
-                    <p className="text-xs text-muted-foreground">Automated reminders are currently disabled.</p>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Configure Schedule */}
-          <Card className="bg-card/50 backdrop-blur-sm border-border/50 overflow-hidden">
-            <CardHeader className="pb-3 border-b border-border/50 bg-white/5">
-              <CardTitle className="text-sm font-bold flex items-center gap-2 uppercase tracking-widest text-muted-foreground">
-                <Bell className="h-4 w-4 text-primary" />
-                Update Config
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6 pt-6">
-              <div className="space-y-3">
-                <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Frequency</Label>
-                <Select value={preset} onValueChange={setPreset}>
-                  <SelectTrigger className="bg-accent/30 border-border/50 h-11 rounded-xl">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl border-border shadow-2xl">
-                    {PRESETS.map((p) => (
-                      <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {preset === 'custom' && (
-                <div className="space-y-3 animate-in fade-in slide-in-from-top-2">
-                  <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Custom Cron Expression</Label>
-                  <Input
-                    placeholder="e.g. 0 9 * * 1-5"
-                    value={customCron}
-                    onChange={(e) => setCustomCron(e.target.value)}
-                    className="font-mono bg-accent/30 border-border/50 h-11 rounded-xl"
-                  />
-                  <p className="text-[10px] text-muted-foreground ml-1 italic">Standard cron: minute hour day month weekday (UTC)</p>
-                </div>
-              )}
-
-              <div className="space-y-3">
-                <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Minimum Balance Threshold (₨)</Label>
-                <div className="relative">
-                  <Input
-                    type="number"
-                    value={scheduleMinBalance}
-                    onChange={(e) => setScheduleMinBalance(e.target.value)}
-                    placeholder="100"
-                    className="bg-accent/30 border-border/50 font-mono h-11 rounded-xl pl-9"
-                  />
-                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/60 text-sm font-bold">₨</div>
-                </div>
-                <p className="text-[10px] text-muted-foreground ml-1">Only customers with balance ≥ this amount will be notified.</p>
-              </div>
-
-              <Button
-                onClick={handleSaveSchedule}
-                disabled={isSaving || !cronValue}
-                className="w-full rounded-xl font-bold shadow-lg shadow-primary/20 h-12"
-              >
-                {isSaving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</> : <><CheckCircle2 className="mr-2 h-4 w-4" /> Save Configuration</>}
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* ── Right column: manual send ── */}
+      <div className="max-w-2xl mx-auto w-full">
         <div className="space-y-6">
           <Card className="bg-card/50 backdrop-blur-sm border-border/50 overflow-hidden">
             <CardHeader className="pb-3 border-b border-border/50 bg-white/5">
@@ -1204,16 +1030,6 @@ export default function BalanceRemindersPage() {
           )}
         </DialogContent>
       </Dialog>
-
-      <ConfirmDialog
-        open={deleteOpen}
-        onOpenChange={setDeleteOpen}
-        title="Disable Automated Reminders?"
-        description="This will stop all future automated balance reminders for this vendor. You can re-enable them anytime by setting a new schedule."
-        onConfirm={() => deleteSchedule(undefined, { onSuccess: () => setDeleteOpen(false) })}
-        isLoading={isDeleting}
-        confirmLabel="Disable Reminders"
-      />
     </div>
   );
 }

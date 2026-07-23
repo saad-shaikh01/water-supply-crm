@@ -1,28 +1,4 @@
-import { IsString, IsNumber, IsOptional, Min, Max, IsInt, IsBoolean, IsIn, IsArray, ArrayMinSize, Matches, IsNotEmpty } from 'class-validator';
-
-export class ScheduleReminderDto {
-  /**
-   * Cron expression (UTC) for when to send reminders.
-   * Default: '0 4 * * *' = 9 AM Pakistan Time (PKT is UTC+5)
-   * Examples:
-   *   '0 4 * * *'  - daily at 9 AM PKT
-   *   '0 4 * * 1'  - every Monday at 9 AM PKT
-   */
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  cronExpression?: string;
-
-  /**
-   * Minimum outstanding balance (Rs) to trigger a reminder.
-   * Customers with financialBalance >= minBalance will receive a message.
-   * Default: 100
-   */
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  minBalance?: number;
-}
+import { IsString, IsNumber, IsOptional, Min, Max, IsInt, IsBoolean, IsIn, IsArray, ArrayMinSize, Matches } from 'class-validator';
 
 export class SendNowDto {
   @IsOptional()
