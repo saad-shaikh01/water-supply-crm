@@ -19,7 +19,6 @@ import { CustomerQueryDto } from './dto/customer-query.dto';
 import { SetCustomPriceDto } from './dto/set-custom-price.dto';
 import { BulkPricePreviewDto, BulkPriceUpdateDto } from './dto/bulk-price-update.dto';
 import { BulkScheduleUpdateDto } from './dto/bulk-schedule-update.dto';
-import { CreatePortalAccountDto } from './dto/create-portal-account.dto';
 import { StatementQueryDto } from './dto/statement-query.dto';
 import { ScheduleQueryDto } from './dto/schedule-query.dto';
 import { ConsumptionQueryDto } from './dto/consumption-query.dto';
@@ -142,18 +141,9 @@ export class CustomerController {
   }
 
   // ── Portal account management → customers:manage_portal (admin-only) ────────
-  /** POST /customers/:id/portal-account — create login for customer */
-  @Post(':id/portal-account')
-  @RequirePermissions('customers:manage_portal')
-  @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
-  createPortalAccount(
-    @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
-    @Body() dto: CreatePortalAccountDto,
-  ) {
-    return this.customerService.createPortalAccount(user.vendorId, id, dto);
-  }
-
+  // Note: portal accounts are now created by the customer via self-service
+  // activation (POST /customer-activation/activate) using their Customer Code +
+  // registered phone number. Admins can only revoke access, not create it.
   /** DELETE /customers/:id/portal-account — remove customer login access */
   @Delete(':id/portal-account')
   @RequirePermissions('customers:manage_portal')

@@ -12,6 +12,7 @@ import { PermissionService } from '../authz/permission.service';
 import { AuthzPolicyService } from '../authz/authz-policy.service';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { paginate } from '../../common/helpers/paginate';
+import { normalizePhone } from '../whatsapp/phone.util';
 
 @Injectable()
 export class UserService {
@@ -100,7 +101,18 @@ export class UserService {
   async findByIdentifier(identifier: string) {
     const byEmail = await this.findByEmail(identifier);
     if (byEmail) return byEmail;
-    return this.findByPhoneNumber(identifier);
+
+    const exact = await this.findByPhoneNumber(identifier);
+    if (exact) return exact;
+
+    // Fallback: retry with a normalized phone (e.g. "0300-1234567" → "923001234567")
+    // so login tolerates common formatting differences. Only fires when the exact
+    // match already failed, so it can't change the outcome of an existing successful login.
+    const normalized = normalizePhone(identifier);
+    if (normalized && normalized !== identifier) {
+      return this.findByPhoneNumber(normalized);
+    }
+    return null;
   }
 
   async findById(id: string) {

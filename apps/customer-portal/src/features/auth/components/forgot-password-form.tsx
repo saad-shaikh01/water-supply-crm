@@ -61,6 +61,15 @@ export function ForgotPasswordForm() {
             </Link>
           </p>
         </form>
+
+        <div className="mt-6 pt-4 border-t border-border/50 text-center">
+          <p className="text-xs text-muted-foreground">
+            Activated with a Customer Code instead of an email?{' '}
+            <Link href="/auth/reset-with-code" className="text-primary font-semibold hover:underline">
+              Reset here
+            </Link>
+          </p>
+        </div>
       </CardContent>
     </Card>
   );

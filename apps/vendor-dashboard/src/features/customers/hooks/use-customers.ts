@@ -14,6 +14,7 @@ export const useCustomers = () => {
   const [dayOfWeek] = useQueryState('dayOfWeek', parseAsInteger.withDefault(0));
   const [paymentType] = useQueryState('paymentType', parseAsString.withDefault(''));
   const [isActive, setIsActive] = useQueryState('isActive', parseAsString.withDefault('true'));
+  const [hasPortalAccess, setHasPortalAccess] = useQueryState('hasPortalAccess', parseAsString.withDefault('all'));
   const [balanceMin] = useQueryState('balanceMin', parseAsFloat.withDefault(NaN));
   const [balanceMax] = useQueryState('balanceMax', parseAsFloat.withDefault(NaN));
   const [sort, setSort] = useQueryState('sort', parseAsString.withDefault(''));
@@ -30,6 +31,7 @@ export const useCustomers = () => {
       ? (paymentType as PaymentTypeValue)
       : undefined,
     isActive: isActive === 'true' ? true : isActive === 'false' ? false : undefined,
+    hasPortalAccess: hasPortalAccess === 'true' ? true : hasPortalAccess === 'false' ? false : undefined,
     balanceMin: !isNaN(balanceMin) ? balanceMin : undefined,
     balanceMax: !isNaN(balanceMax) ? balanceMax : undefined,
     sort: sort || undefined,
@@ -52,6 +54,8 @@ export const useCustomers = () => {
     paymentType,
     isActive,
     setIsActive,
+    hasPortalAccess,
+    setHasPortalAccess,
     balanceMin,
     balanceMax,
     sort,
@@ -162,19 +166,6 @@ export const useReactivateCustomer = () => {
       toast.success('Customer reactivated');
     },
     onError: () => toast.error('Failed to reactivate customer'),
-  });
-};
-
-export const useCreatePortalAccount = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
-      customersApi.createPortalAccount(id, data),
-    onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.customers.one(id) });
-      toast.success('Portal account created successfully');
-    },
-    onError: () => toast.error('Failed to create portal account'),
   });
 };
 

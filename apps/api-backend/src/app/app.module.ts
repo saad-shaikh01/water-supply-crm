@@ -41,6 +41,7 @@ import { DamageCaseModule } from './modules/damage-case/damage-case.module';
 import { WarehouseModule } from './modules/warehouse/warehouse.module';
 import { CommunicationModule } from './modules/communication/communication.module';
 import { CollectionPolicyModule } from './modules/collection-policy/collection-policy.module';
+import { CustomerActivationModule } from './modules/customer-activation/customer-activation.module';
 
 @Module({
   imports: [
@@ -82,6 +83,7 @@ import { CollectionPolicyModule } from './modules/collection-policy/collection-p
     WarehouseModule,
     CommunicationModule,
     CollectionPolicyModule,
+    CustomerActivationModule,
   ],
   controllers: [AppController],
   providers: [

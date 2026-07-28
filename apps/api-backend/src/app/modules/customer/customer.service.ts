@@ -13,7 +13,6 @@ import {
   CacheInvalidationService,
   CACHE_KEYS,
 } from '@water-supply-crm/caching';
-import * as bcrypt from 'bcrypt';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { CustomerQueryDto } from './dto/customer-query.dto';
@@ -23,7 +22,6 @@ import {
   BulkPriceUpdateDto,
 } from './dto/bulk-price-update.dto';
 import { BulkScheduleUpdateDto } from './dto/bulk-schedule-update.dto';
-import { CreatePortalAccountDto } from './dto/create-portal-account.dto';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { paginate } from '../../common/helpers/paginate';
 import { CustomerStatementPdfService } from './pdf/customer-statement-pdf.service';
@@ -156,13 +154,16 @@ export class CustomerService {
   }
 
   async findAllPaginated(vendorId: string, query: CustomerQueryDto) {
-    const { page = 1, limit = 20, search, routeId, paymentType, vanId, dayOfWeek, isActive, balanceMin, balanceMax, sort = 'name', sortDir = 'asc' } = query;
+    const { page = 1, limit = 20, search, routeId, paymentType, vanId, dayOfWeek, isActive, hasPortalAccess, balanceMin, balanceMax, sort = 'name', sortDir = 'asc' } = query;
 
     // Filter by status only when explicitly requested. When no isActive param is
     // sent (the "All Status" option in the UI), return both active and inactive
     // so the list count matches reality instead of silently hiding inactive ones.
     const where: any = { vendorId };
     if (isActive !== undefined) where.isActive = isActive;
+    if (hasPortalAccess !== undefined) {
+      where.userId = hasPortalAccess ? { not: null } : null;
+    }
 
     if (search) {
       where.OR = [
@@ -439,50 +440,6 @@ export class CustomerService {
 
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
     return { deleted: true };
-  }
-
-  async createPortalAccount(
-    vendorId: string,
-    customerId: string,
-    dto: CreatePortalAccountDto,
-  ) {
-    const customer = await this.prisma.customer.findFirst({
-      where: { id: customerId, vendorId },
-    });
-    if (!customer) {
-      throw new NotFoundException('Customer not found');
-    }
-    if (customer.userId) {
-      throw new ConflictException('Customer already has a portal account');
-    }
-
-    const existing = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-    });
-    if (existing) {
-      throw new ConflictException('Email already in use');
-    }
-
-    const hashedPassword = await bcrypt.hash(dto.password, 10);
-
-    const user = await this.prisma.user.create({
-      data: {
-        email: dto.email,
-        password: hashedPassword,
-        name: customer.name,
-        phoneNumber: customer.phoneNumber,
-        role: 'CUSTOMER',
-      },
-      select: { id: true, email: true, name: true, phoneNumber: true, role: true, createdAt: true },
-    });
-
-    await this.prisma.customer.update({
-      where: { id: customerId },
-      data: { userId: user.id },
-    });
-
-    await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
-    return { message: 'Portal account created', user };
   }
 
   async removePortalAccount(vendorId: string, customerId: string) {

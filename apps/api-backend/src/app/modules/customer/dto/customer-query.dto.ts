@@ -33,6 +33,11 @@ export class CustomerQueryDto extends PaginationQueryDto {
   isActive?: boolean;
 
   @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  hasPortalAccess?: boolean;
+
+  @IsOptional()
   @Transform(({ value }) => parseFloat(value))
   @IsNumber()
   @Min(0)

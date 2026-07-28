@@ -20,10 +20,11 @@ const ACTION_COLORS: Record<string, string> = {
   REJECT:   'bg-destructive/10 text-destructive',
   SUSPEND:  'bg-orange-500/10 text-orange-500',
   ACTIVATE: 'bg-emerald-500/10 text-emerald-500',
+  RESET_PASSWORD_SELF_SERVICE: 'bg-sky-500/10 text-sky-500',
 };
 
 const ENTITIES = ['CUSTOMER', 'VAN', 'ROUTE', 'USER', 'PRODUCT', 'EXPENSE', 'DAILY_SHEET', 'TRANSACTION'];
-const ACTIONS  = ['CREATE', 'UPDATE', 'DELETE', 'APPROVE', 'REJECT', 'SUSPEND', 'ACTIVATE'];
+const ACTIONS  = ['CREATE', 'UPDATE', 'DELETE', 'APPROVE', 'REJECT', 'SUSPEND', 'ACTIVATE', 'RESET_PASSWORD_SELF_SERVICE'];
 
 interface AuditLog {
   id: string;

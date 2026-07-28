@@ -9,6 +9,7 @@ export interface CustomerQuery {
   dayOfWeek?: number;
   paymentType?: 'MONTHLY' | 'CASH';
   isActive?: boolean;
+  hasPortalAccess?: boolean;
   balanceMin?: number;
   balanceMax?: number;
   sort?: string;
@@ -29,8 +30,6 @@ export const customersApi = {
     apiClient.post(`/customers/${customerId}/custom-prices`, data),
   removeCustomPrice: (customerId: string, productId: string) =>
     apiClient.delete(`/customers/${customerId}/custom-prices/${productId}`),
-  createPortalAccount: (customerId: string, data: Record<string, unknown>) =>
-    apiClient.post(`/customers/${customerId}/portal-account`, data),
   removePortalAccount: (customerId: string) =>
     apiClient.delete(`/customers/${customerId}/portal-account`),
   getConsumption: (id: string, params?: Record<string, unknown>) =>

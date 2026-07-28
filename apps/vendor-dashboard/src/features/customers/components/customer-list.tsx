@@ -29,7 +29,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const canDeactivate = useCan('customers:deactivate');
   const canRestore = useCan('customers:restore');
   const canDelete = useCan('customers:delete');
-  const { data, isLoading, page, setPage, limit, setLimit, isActive, setIsActive, sort, setSort, sortDir, setSortDir } = useCustomers();
+  const { data, isLoading, page, setPage, limit, setLimit, isActive, setIsActive, hasPortalAccess, setHasPortalAccess, sort, setSort, sortDir, setSortDir } = useCustomers();
   const { mutate: deleteCustomer, isPending: isDeleting } = useDeleteCustomer();
   const { mutate: deactivateCustomer, isPending: isDeactivating } = useDeactivateCustomer();
   const { mutate: reactivateCustomer, isPending: isReactivating } = useReactivateCustomer();
@@ -65,6 +65,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const activeFilters = [
     paymentType ? { label: `Type: ${paymentType}`, clear: () => { resetPage(); setPaymentType(null); } } : null,
     isActive !== 'all' ? { label: isActive === 'true' ? 'Active' : 'Inactive', clear: () => { resetPage(); setIsActive('all'); } } : null,
+    hasPortalAccess !== 'all' ? { label: hasPortalAccess === 'true' ? 'Portal: Activated' : 'Portal: Not Activated', clear: () => { resetPage(); setHasPortalAccess('all'); } } : null,
     dayOfWeek ? { label: `Day: ${DAY_NAMES[dayOfWeek] ?? dayOfWeek}`, clear: () => { resetPage(); setDayOfWeek(null); } } : null,
     vanId ? { label: 'Van filter', clear: () => { resetPage(); setVanId(null); } } : null,
   ].filter(Boolean) as Array<{ label: string; clear: () => void }>;
@@ -73,6 +74,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     resetPage();
     setPaymentType(null);
     setIsActive('all');
+    setHasPortalAccess('all');
     setDayOfWeek(null);
     setVanId(null);
   };
@@ -89,6 +91,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     paymentType?: 'MONTHLY' | 'CASH';
     isActive?: boolean;
     isBillingExempt?: boolean;
+    userId?: string | null;
     deliverySchedules?: Array<{ dayOfWeek: number; van?: { plateNumber: string } }>;
   }>;
   const total = customers?.meta?.total ?? 0;
@@ -197,6 +200,19 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                   <SelectItem value="all">All Status</SelectItem>
                   <SelectItem value="true">Active</SelectItem>
                   <SelectItem value="false">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Portal Access</Label>
+              <Select value={hasPortalAccess} onValueChange={(v) => { resetPage(); setHasPortalAccess(v); }}>
+                <SelectTrigger className="rounded-xl bg-background/50 border-border h-10">
+                  <SelectValue placeholder="All" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-border shadow-2xl">
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="true">Activated</SelectItem>
+                  <SelectItem value="false">Not Activated</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -394,6 +410,18 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                   </Badge>
                 )}
               </div>
+            )
+          },
+          {
+            key: 'portal',
+            header: 'Portal',
+            cell: (r) => (
+              <Badge className={cn(
+                "text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border-none whitespace-nowrap",
+                r.userId ? "bg-emerald-500/10 text-emerald-500" : "bg-muted text-muted-foreground"
+              )}>
+                {r.userId ? 'Activated' : 'Not Activated'}
+              </Badge>
             )
           },
           {

@@ -32,7 +32,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@water-supply-crm/ui';
 import type { CustomerDetail as CustomerDetailType, CustomerConsumption, CustomerScheduleItem } from '@water-supply-crm/types';
 import { CustomerForm } from './customer-form';
-import { PortalAccountDialog } from './dialogs/portal-account-dialog';
 import { EditLocationDialog } from './dialogs/edit-location-dialog';
 import { CustomPriceDialog } from './dialogs/custom-price-dialog';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
@@ -227,7 +226,6 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
   const { mutate: removeAccount, isPending: isRemovingAccount } = useRemovePortalAccount();
 
   const [editOpen, setEditOpen] = useState(false);
-  const [portalOpen, setPortalOpen] = useState(false);
   const [customPriceOpen, setCustomPriceOpen] = useState(false);
   const [locationOpen, setLocationOpen] = useState(false);
   const [consumptionRange, setConsumptionRange] = useState<ConsumptionRange>(() => {
@@ -925,14 +923,11 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                         </div>
                         <div className="space-y-1">
                           <h4 className="text-sm font-bold">No Portal Access</h4>
-                          <p className="text-xs text-muted-foreground max-w-[250px]">Create an account to allow the customer to view their ledger and make payments online.</p>
+                          <p className="text-xs text-muted-foreground max-w-[250px]">
+                            The customer can self-activate anytime at the portal login page using
+                            their Customer Code (<span className="font-bold text-foreground">{customer.customerCode}</span>) and registered phone number.
+                          </p>
                         </div>
-                        <Button 
-                          onClick={() => setPortalOpen(true)}
-                          className="rounded-xl font-bold shadow-lg shadow-primary/20"
-                        >
-                          Enable Portal Access
-                        </Button>
                       </div>
                     )}
                   </CardContent>
@@ -1039,12 +1034,6 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
         latitude={customer.latitude ?? null}
         longitude={customer.longitude ?? null}
         currentAddress={customer.address ?? ''}
-      />
-
-      <PortalAccountDialog
-        open={portalOpen}
-        onClose={() => setPortalOpen(false)}
-        customerId={customerId}
       />
 
       <CustomPriceDialog

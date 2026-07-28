@@ -95,7 +95,10 @@ export function LoginForm() {
 
           <div className="mt-8 text-center">
             <p className="text-xs text-muted-foreground font-medium">
-              Don't have an account? <span className="text-primary font-bold">Contact your vendor</span>
+              Don't have an account?{' '}
+              <Link href="/auth/activate" className="text-primary font-bold hover:underline">
+                Activate your account
+              </Link>
             </p>
           </div>
         </CardContent>
