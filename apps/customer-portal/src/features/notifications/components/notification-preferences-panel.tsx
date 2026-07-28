@@ -42,7 +42,7 @@ export function NotificationPreferencesPanel() {
       ) : (
         <div className="rounded-2xl border border-border/50 overflow-hidden">
           {/* Header row */}
-          <div className="grid grid-cols-[1fr_repeat(2,60px)] gap-2 px-4 py-2 bg-white/5 border-b border-border/50">
+          <div className="grid grid-cols-[1fr_repeat(2,60px)] gap-2 px-4 py-2 bg-muted/30 border-b border-border/50">
             <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Event</span>
             {PREFERENCE_CHANNELS.map((ch) => (
               <span key={ch.key} className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground text-center">
@@ -59,7 +59,7 @@ export function NotificationPreferencesPanel() {
                 idx < PREFERENCE_EVENTS.length - 1 ? 'border-b border-border/30' : ''
               }`}
             >
-              <span className="text-sm font-medium text-white">{event.label}</span>
+              <span className="text-sm font-medium text-foreground">{event.label}</span>
               {PREFERENCE_CHANNELS.map((ch) => {
                 const enabled = isEnabled(event.key, ch.key);
                 return (
@@ -68,7 +68,7 @@ export function NotificationPreferencesPanel() {
                       type="button"
                       onClick={() => toggle(event.key, ch.key, enabled)}
                       className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${
-                        enabled ? 'bg-primary' : 'bg-white/20'
+                        enabled ? 'bg-primary' : 'bg-muted-foreground/30'
                       }`}
                       aria-label={`${enabled ? 'Disable' : 'Enable'} ${event.label} via ${ch.label}`}
                     >

@@ -22,25 +22,7 @@ import {
 import { toast } from 'sonner';
 import { useCreateTicketMessage, useTicketMessages } from '../hooks/use-tickets';
 import { ticketsApi } from '../api/tickets.api';
-
-const STATUS_COLOR: Record<string, string> = {
-  OPEN: 'bg-amber-500/10 text-amber-600',
-  IN_PROGRESS: 'bg-blue-500/10 text-blue-600',
-  RESOLVED: 'bg-emerald-500/10 text-emerald-600',
-  CLOSED: 'bg-muted text-muted-foreground',
-};
-
-const PRIORITY_COLOR: Record<string, string> = {
-  LOW: 'bg-muted text-muted-foreground',
-  NORMAL: 'bg-blue-500/10 text-blue-600',
-  HIGH: 'bg-amber-500/10 text-amber-600',
-  URGENT: 'bg-destructive/10 text-destructive',
-};
-
-const TYPE_COLOR: Record<string, string> = {
-  COMPLAINT: 'bg-destructive/10 text-destructive',
-  FEEDBACK: 'bg-emerald-500/10 text-emerald-600',
-};
+import { TICKET_STATUS_VARIANT, TICKET_PRIORITY_VARIANT, TICKET_TYPE_VARIANT } from '../status';
 
 interface TicketDetailDialogProps {
   ticket: any;
@@ -210,13 +192,13 @@ export function TicketDetailDialog({ ticket, open, onOpenChange }: TicketDetailD
             <div className="flex-1 min-w-0">
               <DialogTitle className="font-black tracking-tight leading-tight">{ticket.subject}</DialogTitle>
               <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
-                <Badge className={cn('text-[10px] px-2 py-0 rounded-full border-none font-bold', TYPE_COLOR[ticket.type] ?? '')}>
+                <Badge variant={TICKET_TYPE_VARIANT[ticket.type]}>
                   {ticket.type}
                 </Badge>
-                <Badge className={cn('text-[10px] px-2 py-0 rounded-full border-none font-bold', PRIORITY_COLOR[ticket.priority] ?? '')}>
+                <Badge variant={TICKET_PRIORITY_VARIANT[ticket.priority]}>
                   {ticket.priority}
                 </Badge>
-                <Badge className={cn('text-[10px] px-2 py-0 rounded-full border-none font-bold', STATUS_COLOR[ticket.status] ?? '')}>
+                <Badge variant={TICKET_STATUS_VARIANT[ticket.status]}>
                   {ticket.status.replace('_', ' ')}
                 </Badge>
               </div>

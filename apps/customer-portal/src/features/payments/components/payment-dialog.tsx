@@ -29,46 +29,46 @@ interface PaymentDialogProps {
 
 const TERMINAL_QR_STATUSES = ['PAID', 'APPROVED', 'EXPIRED', 'REJECTED'] as const;
 
-const QR_STATUS_CONFIG: Record<string, { title: string; message: string; chipClass: string; iconClass: string; icon: typeof Clock3 }> = {
+const QR_STATUS_CONFIG: Record<string, { title: string; message: string; variant: 'warning' | 'info' | 'success' | 'secondary' | 'destructive'; iconClass: string; icon: typeof Clock3 }> = {
   PENDING: {
     title: 'Payment Created',
     message: 'Your request was created. Complete payment in your banking app.',
-    chipClass: 'bg-amber-500/10 text-amber-600',
+    variant: 'warning',
     iconClass: 'bg-amber-500/10 border-amber-500 text-amber-600',
     icon: Clock3,
   },
   PROCESSING: {
     title: 'Waiting for Confirmation',
     message: 'We are polling for live updates from the payment gateway.',
-    chipClass: 'bg-blue-500/10 text-blue-600',
+    variant: 'info',
     iconClass: 'bg-blue-500/10 border-blue-500 text-blue-600',
     icon: Loader2,
   },
   PAID: {
     title: 'Payment Received',
     message: 'Payment is confirmed and your account will refresh shortly.',
-    chipClass: 'bg-emerald-500/10 text-emerald-600',
+    variant: 'success',
     iconClass: 'bg-emerald-500/10 border-emerald-500 text-emerald-600',
     icon: CheckCircle2,
   },
   APPROVED: {
     title: 'Payment Approved',
     message: 'Payment was approved and account widgets are refreshing.',
-    chipClass: 'bg-emerald-500/10 text-emerald-600',
+    variant: 'success',
     iconClass: 'bg-emerald-500/10 border-emerald-500 text-emerald-600',
     icon: CheckCircle2,
   },
   EXPIRED: {
     title: 'QR Expired',
     message: 'The QR session expired. Generate a new QR to continue.',
-    chipClass: 'bg-muted text-muted-foreground',
+    variant: 'secondary',
     iconClass: 'bg-muted border-border text-muted-foreground',
     icon: Ban,
   },
   REJECTED: {
     title: 'Payment Rejected',
     message: 'Payment could not be verified. Please retry or use manual submission.',
-    chipClass: 'bg-destructive/10 text-destructive',
+    variant: 'destructive',
     iconClass: 'bg-destructive/10 border-destructive text-destructive',
     icon: XCircle,
   },
@@ -171,7 +171,7 @@ export function PaymentDialog({ open, onOpenChange, suggestedAmount = 0 }: Payme
         if (!nextOpen) resetForm();
       }}
     >
-      <DialogContent className="rounded-[2.5rem] max-w-lg p-0 overflow-hidden bg-background/95 backdrop-blur-xl border-border/50">
+      <DialogContent className="rounded-3xl max-w-lg p-0 overflow-hidden bg-background/95 backdrop-blur-xl border-border/50">
         <div className="bg-primary/5 p-8 border-b border-border/50">
           <DialogHeader>
             <DialogTitle className="text-2xl font-black flex items-center gap-3">
@@ -218,7 +218,7 @@ export function PaymentDialog({ open, onOpenChange, suggestedAmount = 0 }: Payme
 
                 <div className="mt-8">
                   <TabsContent value="RAAST_QR" className="space-y-6">
-                    <div className="p-6 rounded-[2rem] bg-primary/5 border border-primary/10 flex items-start gap-4">
+                    <div className="p-6 rounded-2xl bg-primary/5 border border-primary/10 flex items-start gap-4">
                       <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                         <Info className="h-5 w-5 text-primary" />
                       </div>
@@ -335,7 +335,7 @@ export function PaymentDialog({ open, onOpenChange, suggestedAmount = 0 }: Payme
               </div>
               <div className="space-y-2">
                 <div className="flex justify-center">
-                  <Badge className={cn('rounded-full border-0 px-3 py-1 text-[11px] font-bold', currentStatusConfig.chipClass)}>
+                  <Badge variant={currentStatusConfig.variant} className="px-3 py-1 text-[11px]">
                     {currentQrStatus ?? 'PROCESSING'}
                   </Badge>
                 </div>

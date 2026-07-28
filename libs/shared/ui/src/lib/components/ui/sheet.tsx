@@ -48,18 +48,30 @@ interface SheetContentProps
 const SheetContent = React.forwardRef<
   React.ElementRef<typeof SheetPrimitive.Content>,
   SheetContentProps
->(({ side = "right", className, children, ...props }, ref) => (
-  <SheetPortal>
-    <SheetOverlay />
-    <SheetPrimitive.Content ref={ref} className={cn(sheetVariants({ side }), className)} {...props}>
-      {children}
-      <SheetClose className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary">
-        <X className="h-4 w-4" />
-        <span className="sr-only">Close</span>
-      </SheetClose>
-    </SheetPrimitive.Content>
-  </SheetPortal>
-))
+>(({ side = "right", className, children, style, ...props }, ref) => {
+  // top/bottom sheets size to their content with no inherent height cap; left/right are
+  // already bounded to the full viewport via h-full, so only cap height for top/bottom —
+  // but always guarantee vertical scroll everywhere via inline style (see dialog.tsx for
+  // why this must be a style, not a class: it can't be stripped by a consumer's className).
+  const needsHeightCap = side === 'top' || side === 'bottom';
+  return (
+    <SheetPortal>
+      <SheetOverlay />
+      <SheetPrimitive.Content
+        ref={ref}
+        className={cn(sheetVariants({ side }), className)}
+        style={{ overflowY: 'auto', ...(needsHeightCap ? { maxHeight: '90dvh' } : {}), ...style }}
+        {...props}
+      >
+        {children}
+        <SheetClose className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary">
+          <X className="h-4 w-4" />
+          <span className="sr-only">Close</span>
+        </SheetClose>
+      </SheetPrimitive.Content>
+    </SheetPortal>
+  );
+})
 SheetContent.displayName = SheetPrimitive.Content.displayName
 
 const SheetHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (

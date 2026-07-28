@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { Droplets, KeyRound, ShieldCheck, Loader2, ArrowRight, AlertTriangle } from 'lucide-react';
+import { Droplets, KeyRound, ShieldCheck, Loader2, ArrowRight, AlertTriangle, Eye, EyeOff } from 'lucide-react';
 import { Card, CardContent, Button, Input, Label } from '@water-supply-crm/ui';
 import {
   activationEligibilitySchema,
@@ -113,7 +113,7 @@ function IdentityStep({ mode, onVerified }: { mode: Mode; onVerified: (identity:
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="customerCode" className="text-sm font-semibold">Customer Code</Label>
+        <Label htmlFor="customerCode" className="text-xs font-black uppercase tracking-widest text-muted-foreground">Customer Code</Label>
         <Input
           id="customerCode"
           placeholder="e.g. L0042"
@@ -121,13 +121,13 @@ function IdentityStep({ mode, onVerified }: { mode: Mode; onVerified: (identity:
           {...register('customerCode')}
         />
         {errors.customerCode && (
-          <p className="text-sm text-destructive">{errors.customerCode.message}</p>
+          <p className="text-[10px] font-bold text-destructive">{errors.customerCode.message}</p>
         )}
         <p className="text-xs text-muted-foreground">Printed on your invoice, receipt, or delivery slip.</p>
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="phoneNumber" className="text-sm font-semibold">Registered Phone Number</Label>
+        <Label htmlFor="phoneNumber" className="text-xs font-black uppercase tracking-widest text-muted-foreground">Registered Phone Number</Label>
         <Input
           id="phoneNumber"
           placeholder="03001234567"
@@ -135,7 +135,7 @@ function IdentityStep({ mode, onVerified }: { mode: Mode; onVerified: (identity:
           {...register('phoneNumber')}
         />
         {errors.phoneNumber && (
-          <p className="text-sm text-destructive">{errors.phoneNumber.message}</p>
+          <p className="text-[10px] font-bold text-destructive">{errors.phoneNumber.message}</p>
         )}
       </div>
 
@@ -155,6 +155,8 @@ function PasswordStep({ mode, identity }: { mode: Mode; identity: VerifiedIdenti
   const { mutate: activate, isPending: isActivating } = useActivateAccount();
   const { mutate: resetPassword, isPending: isResetting } = useResetPasswordWithCode();
   const isPending = mode === 'activate' ? isActivating : isResetting;
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const {
     register,
     handleSubmit,
@@ -190,30 +192,48 @@ function PasswordStep({ mode, identity }: { mode: Mode; identity: VerifiedIdenti
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="password" className="text-sm font-semibold">{copy.passwordLabel}</Label>
-        <Input
-          id="password"
-          type="password"
-          placeholder="Min. 8 characters, at least one number"
-          className="h-11"
-          {...register('password')}
-        />
+        <Label htmlFor="password" className="text-xs font-black uppercase tracking-widest text-muted-foreground">{copy.passwordLabel}</Label>
+        <div className="relative">
+          <Input
+            id="password"
+            type={showPassword ? 'text' : 'password'}
+            placeholder="Min. 8 characters, at least one number"
+            className="h-11 pr-10"
+            {...register('password')}
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword((v) => !v)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+          >
+            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
+        </div>
         {errors.password && (
-          <p className="text-sm text-destructive">{errors.password.message}</p>
+          <p className="text-[10px] font-bold text-destructive">{errors.password.message}</p>
         )}
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="confirmPassword" className="text-sm font-semibold">Confirm Password</Label>
-        <Input
-          id="confirmPassword"
-          type="password"
-          placeholder="Repeat your password"
-          className="h-11"
-          {...register('confirmPassword')}
-        />
+        <Label htmlFor="confirmPassword" className="text-xs font-black uppercase tracking-widest text-muted-foreground">Confirm Password</Label>
+        <div className="relative">
+          <Input
+            id="confirmPassword"
+            type={showConfirmPassword ? 'text' : 'password'}
+            placeholder="Repeat your password"
+            className="h-11 pr-10"
+            {...register('confirmPassword')}
+          />
+          <button
+            type="button"
+            onClick={() => setShowConfirmPassword((v) => !v)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+          >
+            {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
+        </div>
         {errors.confirmPassword && (
-          <p className="text-sm text-destructive">{errors.confirmPassword.message}</p>
+          <p className="text-[10px] font-bold text-destructive">{errors.confirmPassword.message}</p>
         )}
       </div>
 
@@ -233,35 +253,33 @@ export function ActivationFlow({ mode }: { mode: Mode }) {
   const [identity, setIdentity] = useState<VerifiedIdentity | null>(null);
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex items-center justify-center px-4">
-      <div className="w-full max-w-sm space-y-6">
-        <div className="text-center space-y-2">
-          <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-primary/10 text-primary mb-2">
-            <Droplets className="h-7 w-7" />
-          </div>
-          <h1 className="text-2xl font-black tracking-tight">{copy.title}</h1>
-          <p className="text-sm text-muted-foreground">
-            {identity ? copy.passwordSubtitle : copy.introSubtitle}
-          </p>
+    <div className="w-full max-w-sm space-y-6">
+      <div className="text-center space-y-2">
+        <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-primary/10 text-primary mb-2">
+          <Droplets className="h-7 w-7" />
         </div>
-
-        <Card className="bg-card/50 backdrop-blur-sm border-border/50 shadow-2xl">
-          <CardContent className="p-6">
-            {identity ? (
-              <PasswordStep mode={mode} identity={identity} />
-            ) : (
-              <IdentityStep mode={mode} onVerified={setIdentity} />
-            )}
-          </CardContent>
-        </Card>
-
-        <p className="text-center text-sm text-muted-foreground">
-          Remembered your password?{' '}
-          <Link href="/auth/login" className="text-primary hover:underline font-medium">
-            Sign in
-          </Link>
+        <h1 className="text-2xl font-black tracking-tight">{copy.title}</h1>
+        <p className="text-sm text-muted-foreground">
+          {identity ? copy.passwordSubtitle : copy.introSubtitle}
         </p>
       </div>
+
+      <Card className="bg-card/50 backdrop-blur-sm border-border/50 shadow-2xl">
+        <CardContent className="p-6">
+          {identity ? (
+            <PasswordStep mode={mode} identity={identity} />
+          ) : (
+            <IdentityStep mode={mode} onVerified={setIdentity} />
+          )}
+        </CardContent>
+      </Card>
+
+      <p className="text-center text-sm text-muted-foreground">
+        Remembered your password?{' '}
+        <Link href="/auth/login" className="text-primary hover:underline font-medium">
+          Sign in
+        </Link>
+      </p>
     </div>
   );
 }

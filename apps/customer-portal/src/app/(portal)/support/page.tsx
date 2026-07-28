@@ -9,20 +9,7 @@ import { useTickets } from '../../../features/tickets/hooks/use-tickets';
 import { CreateTicketDialog } from '../../../features/tickets/components/create-ticket-dialog';
 import { TicketDetailDialog } from '../../../features/tickets/components/ticket-detail-dialog';
 import { ListEmptyState, ListErrorState, ListLoadingState } from '../../../components/shared/list-states';
-
-const STATUS_COLOR: Record<string, string> = {
-  OPEN:        'bg-amber-500/10 text-amber-600',
-  IN_PROGRESS: 'bg-blue-500/10 text-blue-600',
-  RESOLVED:    'bg-emerald-500/10 text-emerald-600',
-  CLOSED:      'bg-muted text-muted-foreground',
-};
-
-const PRIORITY_COLOR: Record<string, string> = {
-  LOW:    'bg-muted text-muted-foreground',
-  NORMAL: 'bg-blue-500/10 text-blue-600',
-  HIGH:   'bg-amber-500/10 text-amber-600',
-  URGENT: 'bg-destructive/10 text-destructive',
-};
+import { TICKET_STATUS_VARIANT, TICKET_PRIORITY_VARIANT } from '../../../features/tickets/status';
 
 const TYPE_TABS = [
   { value: '', label: 'All' },
@@ -159,10 +146,10 @@ function SupportContent() {
                       <span className="font-bold text-sm truncate">{ticket.subject}</span>
                     </div>
                     <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                      <Badge className={cn('text-[10px] px-2 py-0 rounded-full border-none font-bold', STATUS_COLOR[ticket.status] ?? '')}>
+                      <Badge variant={TICKET_STATUS_VARIANT[ticket.status]}>
                         {ticket.status.replace('_', ' ')}
                       </Badge>
-                      <Badge className={cn('text-[10px] px-2 py-0 rounded-full border-none font-bold', PRIORITY_COLOR[ticket.priority] ?? '')}>
+                      <Badge variant={TICKET_PRIORITY_VARIANT[ticket.priority]}>
                         {ticket.priority}
                       </Badge>
                       <span className="text-[11px] text-muted-foreground">

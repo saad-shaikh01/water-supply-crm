@@ -7,9 +7,10 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, 
   DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger 
 } from '@water-supply-crm/ui';
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { User, LogOut, Droplets } from 'lucide-react';
+import { User, LogOut } from 'lucide-react';
 import { ThemeToggle } from './theme-toggle';
 import { cn } from '@water-supply-crm/ui';
 import { NotificationCenter } from '../../features/notifications/components/notification-center';
@@ -37,17 +38,30 @@ export function Header() {
 
   return (
     <header className="h-16 border-b border-border bg-background/50 backdrop-blur-xl sticky top-0 z-40 w-full flex items-center justify-between px-4 md:px-6 dark:glass-surface">
-      <div className="flex items-center gap-2">
-        <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
-          <Droplets className="h-5 w-5" />
-        </div>
-        <span className="text-xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-primary to-blue-600">
-          WaterCRM
-        </span>
-      </div>
+      <Link href="/home" className="flex items-center shrink-0">
+        {/* Theme swap is done with CSS (not the theme hook) so the logo never
+            flashes the wrong variant during hydration. */}
+        <Image
+          src="/logo-dark.png"
+          alt="Blue Ice — Purified Drinking Water"
+          width={1024}
+          height={256}
+          priority
+          className="h-8 w-auto md:h-9 dark:hidden"
+        />
+        <Image
+          src="/logo-light.png"
+          alt="Blue Ice — Purified Drinking Water"
+          width={1024}
+          height={256}
+          priority
+          className="hidden h-8 w-auto md:h-9 dark:block"
+        />
+      </Link>
 
-      {/* Desktop Nav */}
-      <nav className="hidden sm:flex items-center gap-1 bg-muted/30 p-1 rounded-full border border-border/50">
+      {/* Desktop Nav — scrolls horizontally instead of overflowing at narrower
+          widths (sm:640px–lg:1024px can't fit all 9 items in one row). */}
+      <nav className="hidden sm:flex items-center gap-1 bg-muted/30 p-1 rounded-full border border-border/50 overflow-x-auto scrollbar-none max-w-[60vw] lg:max-w-none">
         {navItems.map(({ href, label }) => {
           const isActive = pathname === href;
           return (
@@ -55,9 +69,9 @@ export function Header() {
               key={href}
               href={href}
               className={cn(
-                "px-4 py-1.5 rounded-full text-xs font-bold transition-colors",
-                isActive 
-                  ? "bg-background text-primary shadow-sm shadow-black/5" 
+                "px-4 py-1.5 rounded-full text-xs font-bold transition-colors shrink-0",
+                isActive
+                  ? "bg-background text-primary shadow-sm shadow-black/5"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >

@@ -29,7 +29,7 @@ function TransactionsContent() {
         </div>
         <div>
           <h1 className="text-2xl font-black tracking-tight">Transaction History</h1>
-          <p className="text-sm font-bold text-muted-foreground uppercase tracking-widest text-[10px]">Full Financial Ledger</p>
+          <p className="font-bold text-muted-foreground uppercase tracking-widest text-[10px]">Full Financial Ledger</p>
         </div>
       </div>
 

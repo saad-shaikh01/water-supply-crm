@@ -11,7 +11,7 @@ export default function HomePage() {
         </div>
         <div>
           <h1 className="text-2xl font-black tracking-tight">Dashboard</h1>
-          <p className="text-sm font-bold text-muted-foreground uppercase tracking-widest text-[10px]">Welcome back to WaterCRM</p>
+          <p className="font-bold text-muted-foreground uppercase tracking-widest text-[10px]">Welcome back to WaterCRM</p>
         </div>
       </div>
 

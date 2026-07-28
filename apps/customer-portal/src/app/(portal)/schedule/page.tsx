@@ -6,6 +6,7 @@ import { useDeliverySchedule } from '../../../features/deliveries/hooks/use-deli
 import { usePortalProfile } from '../../../features/wallet/hooks/use-wallet';
 import { cn } from '@water-supply-crm/ui';
 import { formatDayLabel } from '../../../lib/day-labels';
+import { ListEmptyState, ListErrorState, ListLoadingState } from '../../../components/shared/list-states';
 
 function formatLocalDate(date: Date) {
   const year = date.getFullYear();
@@ -21,7 +22,7 @@ export default function SchedulePage() {
   const to = new Date();
   to.setDate(to.getDate() + 28);
 
-  const { data, isLoading: scheduleLoading } = useDeliverySchedule({
+  const { data, isLoading: scheduleLoading, isError: scheduleError, refetch: refetchSchedule } = useDeliverySchedule({
     from: formatLocalDate(from),
     to: formatLocalDate(to),
   });
@@ -46,7 +47,7 @@ export default function SchedulePage() {
       </div>
 
       {/* Recurring Pattern Section */}
-      <Card className="rounded-[2rem] border-border/50 bg-primary/5">
+      <Card className="rounded-4xl border-border/50 bg-primary/5">
         <CardHeader className="border-b border-border/50 px-6 py-4">
           <CardTitle className="text-xs font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
             <Repeat className="h-3 w-3 text-primary" /> Your Delivery Pattern
@@ -90,21 +91,20 @@ export default function SchedulePage() {
         </p>
 
         {scheduleLoading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-16 rounded-2xl bg-accent/30 animate-pulse" />
-            ))}
-          </div>
+          <ListLoadingState rows={3} />
+        ) : scheduleError ? (
+          <ListErrorState
+            icon={CalendarDays}
+            title="Failed to load schedule"
+            description="Please retry to load your delivery calendar."
+            onRetry={() => refetchSchedule()}
+          />
         ) : schedule.length === 0 ? (
-          <Card className="bg-card/50">
-            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-              <CalendarDays className="h-12 w-12 text-muted-foreground/30 mb-4" />
-              <p className="font-bold text-muted-foreground">No upcoming deliveries</p>
-              <p className="text-sm text-muted-foreground/60 mt-1">
-                Your delivery schedule will appear here once confirmed
-              </p>
-            </CardContent>
-          </Card>
+          <ListEmptyState
+            icon={CalendarDays}
+            title="No upcoming deliveries"
+            description="Your delivery schedule will appear here once confirmed"
+          />
         ) : (
           <div className="space-y-3">
             {schedule.map((item: any) => {
@@ -128,10 +128,7 @@ export default function SchedulePage() {
                         <span className="font-bold text-sm">
                           {date.toLocaleDateString('en-PK', { weekday: 'long', day: 'numeric', month: 'short' })}
                         </span>
-                        <Badge className={cn(
-                          'text-[10px] px-2 py-0 rounded-full border-none font-bold',
-                          isUpcoming ? 'bg-primary/10 text-primary' : 'bg-emerald-500/10 text-emerald-500',
-                        )}>
+                        <Badge variant={isUpcoming ? 'primary' : 'success'}>
                           {isCompleted ? 'Completed' : (isFutureOrToday ? 'Upcoming' : 'Past')}
                         </Badge>
                       </div>

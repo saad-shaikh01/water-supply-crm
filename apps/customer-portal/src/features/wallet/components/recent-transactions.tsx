@@ -49,11 +49,10 @@ export function RecentTransactions() {
             ))}
           </div>
         ) : transactions.length === 0 ? (
-          <div className="p-12 text-center flex flex-col items-center gap-3">
-            <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center opacity-20">
-              <FileText className="h-6 w-6" />
-            </div>
-            <p className="text-sm font-bold text-muted-foreground">No transactions yet</p>
+          <div className="py-16 text-center flex flex-col items-center">
+            <FileText className="h-12 w-12 text-muted-foreground/30 mb-4" />
+            <p className="font-bold text-muted-foreground">No transactions yet</p>
+            <p className="text-sm text-muted-foreground/60 mt-1">Your recent activity will appear here</p>
           </div>
         ) : (
           <div className="divide-y divide-border/30">

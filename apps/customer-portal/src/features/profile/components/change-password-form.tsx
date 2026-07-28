@@ -24,6 +24,7 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
   const { mutate: changePassword, isPending } = useChangePassword();
   const [showCurrent, setShowCurrent] = useState(false);
   const [showNew, setShowNew] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   const {
     register,
@@ -51,7 +52,7 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
 
   return (
     <Dialog open={open} onOpenChange={(o) => { onOpenChange(o); if (!o) reset(); }}>
-      <DialogContent className="rounded-[2rem] max-w-md p-0 overflow-hidden bg-background/95 backdrop-blur-xl border-border/50">
+      <DialogContent className="rounded-3xl max-w-md p-0 overflow-hidden bg-background/95 backdrop-blur-xl border-border/50">
         <div className="bg-primary/5 p-8 border-b border-border/50">
           <DialogHeader>
             <DialogTitle className="text-xl font-black flex items-center gap-3">
@@ -122,12 +123,21 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
             <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground">
               Confirm New Password
             </Label>
-            <Input
-              type="password"
-              placeholder="Repeat new password"
-              className="h-12 rounded-xl"
-              {...register('confirmPassword', { required: 'Required' })}
-            />
+            <div className="relative">
+              <Input
+                type={showConfirm ? 'text' : 'password'}
+                placeholder="Repeat new password"
+                className="h-12 rounded-xl pr-10"
+                {...register('confirmPassword', { required: 'Required' })}
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirm((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
             {errors.confirmPassword && (
               <p className="text-xs text-destructive">{errors.confirmPassword.message}</p>
             )}

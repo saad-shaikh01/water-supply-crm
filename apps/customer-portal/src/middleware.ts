@@ -65,5 +65,10 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
+  // Static assets must be excluded, otherwise a logged-out visitor's requests
+  // for the logo / favicons / manifest get redirected to /auth/login and the
+  // login page renders with a broken logo and no icons.
+  matcher: [
+    '/((?!api|_next/static|_next/image|icons/|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|json|xml|js|txt)$).*)',
+  ],
 };

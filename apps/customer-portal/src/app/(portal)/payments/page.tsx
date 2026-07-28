@@ -10,13 +10,15 @@ import { cn } from '@water-supply-crm/ui';
 import { parseAsInteger, useQueryState } from 'nuqs';
 import { ListEmptyState, ListErrorState, ListLoadingState } from '../../../components/shared/list-states';
 
-const STATUS_CONFIG: Record<string, { label: string; icon: any; color: string }> = {
-  PENDING:    { label: 'Pending',    icon: Clock,        color: 'bg-yellow-500/10 text-yellow-600' },
-  PROCESSING: { label: 'Processing', icon: Clock,        color: 'bg-blue-500/10 text-blue-500' },
-  PAID:       { label: 'Paid',       icon: CheckCircle2, color: 'bg-emerald-500/10 text-emerald-500' },
-  APPROVED:   { label: 'Approved',   icon: CheckCircle2, color: 'bg-emerald-500/10 text-emerald-500' },
-  REJECTED:   { label: 'Rejected',   icon: XCircle,      color: 'bg-destructive/10 text-destructive' },
-  EXPIRED:    { label: 'Expired',    icon: Ban,          color: 'bg-muted text-muted-foreground' },
+type BadgeVariant = 'secondary' | 'success' | 'info' | 'warning' | 'destructive';
+
+const STATUS_CONFIG: Record<string, { label: string; icon: any; color: string; variant: BadgeVariant }> = {
+  PENDING:    { label: 'Pending',    icon: Clock,        color: 'bg-amber-500/10 text-amber-600',     variant: 'warning' },
+  PROCESSING: { label: 'Processing', icon: Clock,        color: 'bg-blue-500/10 text-blue-500',       variant: 'info' },
+  PAID:       { label: 'Paid',       icon: CheckCircle2, color: 'bg-emerald-500/10 text-emerald-500', variant: 'success' },
+  APPROVED:   { label: 'Approved',   icon: CheckCircle2, color: 'bg-emerald-500/10 text-emerald-500', variant: 'success' },
+  REJECTED:   { label: 'Rejected',   icon: XCircle,      color: 'bg-destructive/10 text-destructive', variant: 'destructive' },
+  EXPIRED:    { label: 'Expired',    icon: Ban,          color: 'bg-muted text-muted-foreground',     variant: 'secondary' },
 };
 
 function PaymentsContent() {
@@ -100,7 +102,7 @@ function PaymentsContent() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-bold text-sm">{p.method?.replace(/_/g, ' ') ?? 'Payment'}</span>
-                      <Badge className={cn('text-[10px] px-2 py-0 rounded-full border-none font-bold', cfg.color)}>
+                      <Badge variant={cfg.variant}>
                         {cfg.label}
                       </Badge>
                     </div>

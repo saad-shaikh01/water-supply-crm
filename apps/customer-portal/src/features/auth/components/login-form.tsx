@@ -1,16 +1,18 @@
 'use client';
 
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Button, Input, Label, Card, CardContent, CardHeader, CardTitle, CardDescription } from '@water-supply-crm/ui';
+import { Button, Input, Label, Card, CardContent } from '@water-supply-crm/ui';
 import { loginSchema, type LoginInput } from '../schemas';
 import { useLogin } from '../hooks/use-auth';
 import Link from 'next/link';
-import { Droplets, ArrowRight, Loader2 } from 'lucide-react';
+import { Droplets, ArrowRight, Loader2, Eye, EyeOff } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export function LoginForm() {
   const { mutate: login, isPending } = useLogin();
+  const [showPassword, setShowPassword] = useState(false);
 
   const {
     register,
@@ -25,22 +27,18 @@ export function LoginForm() {
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.3 }}
-      className="w-full max-w-md"
+      className="w-full max-w-sm space-y-6"
     >
-      <Card className="border-none shadow-2xl rounded-[2.5rem] overflow-hidden bg-background/80 backdrop-blur-xl border border-white/10">
-        <div className="bg-primary p-10 text-white relative overflow-hidden">
-          <div className="relative z-10">
-            <div className="h-12 w-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center mb-6 border border-white/10">
-              <Droplets className="h-7 w-7 text-white" />
-            </div>
-            <h1 className="text-3xl font-black tracking-tight">Customer Portal</h1>
-            <p className="text-white/70 font-bold uppercase tracking-widest text-[10px] mt-2">Manage your water supply account</p>
-          </div>
-          {/* Decoration */}
-          <div className="absolute -right-10 -bottom-10 w-40 h-40 bg-white/10 rounded-full blur-3xl" />
+      <div className="text-center space-y-2">
+        <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-primary/10 text-primary mb-2">
+          <Droplets className="h-7 w-7" />
         </div>
+        <h1 className="text-2xl font-black tracking-tight">Customer Portal</h1>
+        <p className="text-sm text-muted-foreground">Manage your water supply account</p>
+      </div>
 
-        <CardContent className="p-10 pt-8">
+      <Card className="bg-card/50 backdrop-blur-sm border-border/50 shadow-2xl">
+        <CardContent className="p-6">
           <form onSubmit={handleSubmit((d) => login(d))} className="space-y-6">
             <div className="space-y-2">
               <Label htmlFor="identifier" className="text-xs font-black uppercase tracking-widest text-muted-foreground ml-1">Email or Phone Number</Label>
@@ -66,13 +64,22 @@ export function LoginForm() {
                   Forgot?
                 </Link>
               </div>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                className="h-12 rounded-2xl bg-accent/30 border-border/50 focus:border-primary/50 transition-all px-4"
-                {...register('password')}
-              />
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="••••••••"
+                  className="h-12 rounded-2xl bg-accent/30 border-border/50 focus:border-primary/50 transition-all px-4 pr-10"
+                  {...register('password')}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
               {errors.password && (
                 <p className="text-[10px] font-bold text-destructive ml-1">{errors.password.message}</p>
               )}

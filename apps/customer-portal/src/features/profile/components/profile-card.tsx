@@ -20,8 +20,8 @@ export function ProfileCard() {
   if (isLoading) {
     return (
       <div className="space-y-6 animate-pulse">
-        <div className="h-32 bg-muted/30 rounded-[2rem] w-full" />
-        <div className="h-[400px] bg-muted/20 rounded-[2rem] w-full" />
+        <div className="h-32 bg-muted/30 rounded-4xl w-full" />
+        <div className="h-[400px] bg-muted/20 rounded-4xl w-full" />
       </div>
     );
   }
@@ -48,7 +48,7 @@ export function ProfileCard() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
       >
-        <Card className="rounded-[2rem] border-none bg-gradient-to-br from-zinc-900 to-zinc-800 dark:from-zinc-900 dark:to-black text-white overflow-hidden shadow-2xl">
+        <Card className="rounded-4xl border-none bg-gradient-to-br from-zinc-900 to-zinc-800 dark:from-zinc-900 dark:to-black text-white overflow-hidden shadow-2xl">
           <CardContent className="p-8 relative">
             <div className="flex flex-col sm:flex-row items-center gap-6 relative z-10">
               <div className="h-20 w-20 rounded-3xl bg-primary/20 backdrop-blur-xl border border-white/10 flex items-center justify-center text-3xl font-black shadow-inner">
@@ -116,7 +116,7 @@ export function ProfileCard() {
           animate={{ opacity: 1, x: 0 }}
           transition={{ delay: 0.1 }}
         >
-          <Card className="rounded-[2rem] border-border/50 bg-card/30 backdrop-blur-sm overflow-hidden h-full">
+          <Card className="rounded-4xl border-border/50 bg-card/30 backdrop-blur-sm overflow-hidden h-full">
             <CardHeader className="border-b bg-muted/20 px-6 py-4">
               <CardTitle className="text-xs font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                 <Info className="h-3 w-3" /> Account Information
@@ -156,7 +156,7 @@ export function ProfileCard() {
           transition={{ delay: 0.2 }}
           className="space-y-6"
         >
-          <Card className="rounded-[2rem] border-border/50 bg-card/30 backdrop-blur-sm overflow-hidden">
+          <Card className="rounded-4xl border-border/50 bg-card/30 backdrop-blur-sm overflow-hidden">
             <CardHeader className="border-b bg-muted/20 px-6 py-4">
               <CardTitle className="text-xs font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                 <Calendar className="h-3 w-3" /> Delivery Schedule
@@ -185,7 +185,7 @@ export function ProfileCard() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-[2rem] border-border/50 bg-card/30 backdrop-blur-sm overflow-hidden">
+          <Card className="rounded-4xl border-border/50 bg-card/30 backdrop-blur-sm overflow-hidden">
             <CardHeader className="border-b bg-muted/20 px-6 py-4">
               <CardTitle className="text-xs font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                 <Wallet className="h-3 w-3" /> Quick Summary

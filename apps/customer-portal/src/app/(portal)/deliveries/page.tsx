@@ -6,14 +6,15 @@ import { Card, CardContent, Badge, Button } from '@water-supply-crm/ui';
 import { useDeliveries } from '../../../features/deliveries/hooks/use-deliveries';
 import { cn } from '@water-supply-crm/ui';
 import { parseAsInteger, parseAsString, useQueryState } from 'nuqs';
+import { ListEmptyState, ListErrorState, ListLoadingState } from '../../../components/shared/list-states';
 
-const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
-  PENDING:       { label: 'Pending',     color: 'bg-muted text-muted-foreground' },
-  COMPLETED:     { label: 'Delivered',   color: 'bg-emerald-500/10 text-emerald-500' },
-  EMPTY_ONLY:    { label: 'Empty Only',  color: 'bg-blue-500/10 text-blue-500' },
-  NOT_AVAILABLE: { label: 'Unavailable', color: 'bg-yellow-500/10 text-yellow-600' },
-  RESCHEDULED:   { label: 'Rescheduled', color: 'bg-orange-500/10 text-orange-500' },
-  CANCELLED:     { label: 'Cancelled',   color: 'bg-destructive/10 text-destructive' },
+const STATUS_CONFIG: Record<string, { label: string; variant: 'secondary' | 'success' | 'info' | 'warning' | 'outline' | 'destructive' }> = {
+  PENDING:       { label: 'Pending',     variant: 'secondary' },
+  COMPLETED:     { label: 'Delivered',   variant: 'success' },
+  EMPTY_ONLY:    { label: 'Empty Only',  variant: 'info' },
+  NOT_AVAILABLE: { label: 'Unavailable', variant: 'warning' },
+  RESCHEDULED:   { label: 'Rescheduled', variant: 'outline' },
+  CANCELLED:     { label: 'Cancelled',   variant: 'destructive' },
 };
 
 const FAILURE_LABELS: Record<string, string> = {
@@ -62,7 +63,7 @@ function DeliveriesContent() {
     dateTo = formatLocalDate(to);
   }
 
-  const { data, isLoading } = useDeliveries({ page, limit: 20, dateFrom, dateTo });
+  const { data, isLoading, isError, refetch } = useDeliveries({ page, limit: 20, dateFrom, dateTo });
   const deliveries = (data as any)?.data ?? [];
   const meta = (data as any)?.meta;
   const totalPages = meta ? Math.ceil(meta.total / 20) : 1;
@@ -123,21 +124,20 @@ function DeliveriesContent() {
       )}
 
       {isLoading ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-20 rounded-2xl bg-accent/30 animate-pulse" />
-          ))}
-        </div>
+        <ListLoadingState rows={3} />
+      ) : isError ? (
+        <ListErrorState
+          icon={Truck}
+          title="Failed to load deliveries"
+          description="Please retry to load your delivery history."
+          onRetry={() => refetch()}
+        />
       ) : deliveries.length === 0 ? (
-        <Card className="bg-card/50">
-          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <Truck className="h-12 w-12 text-muted-foreground/30 mb-4" />
-            <p className="font-bold text-muted-foreground">No deliveries found</p>
-            <p className="text-sm text-muted-foreground/60 mt-1">
-              {month ? 'No deliveries for the selected month' : 'Your delivery history will appear here'}
-            </p>
-          </CardContent>
-        </Card>
+        <ListEmptyState
+          icon={Truck}
+          title="No deliveries found"
+          description={month ? 'No deliveries for the selected month' : 'Your delivery history will appear here'}
+        />
       ) : (
         <div className="space-y-3">
           {deliveries.map((d: any) => {
@@ -154,11 +154,11 @@ function DeliveriesContent() {
                           day: 'numeric', month: 'short', year: 'numeric',
                         })}
                       </span>
-                      <Badge className={cn('text-[10px] px-2 py-0 rounded-full border-none font-bold', cfg.color)}>
+                      <Badge variant={cfg.variant}>
                         {cfg.label}
                       </Badge>
                       {showFailure && (
-                        <Badge className="text-[10px] px-2 py-0 rounded-full border-none font-bold bg-amber-500/10 text-amber-600 flex items-center gap-1">
+                        <Badge variant="warning" className="flex items-center gap-1">
                           <AlertCircle className="h-2.5 w-2.5" />
                           {failureLabel}
                         </Badge>
@@ -215,7 +215,7 @@ function DeliveriesContent() {
 
 export default function DeliveriesPage() {
   return (
-    <Suspense fallback={<div className="space-y-3">{[1,2,3].map(i=><div key={i} className="h-20 rounded-2xl bg-accent/30 animate-pulse"/>)}</div>}>
+    <Suspense fallback={<ListLoadingState rows={3} />}>
       <DeliveriesContent />
     </Suspense>
   );

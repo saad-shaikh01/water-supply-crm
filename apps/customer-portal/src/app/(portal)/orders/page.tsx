@@ -9,11 +9,13 @@ import { useOrders, useCancelOrder } from '../../../features/orders/hooks/use-or
 import { PlaceOrderDialog } from '../../../features/orders/components/place-order-dialog';
 import { ListEmptyState, ListErrorState, ListLoadingState } from '../../../components/shared/list-states';
 
-const STATUS_CONFIG: Record<string, { label: string; icon: any; color: string }> = {
-  PENDING:   { label: 'Pending',   icon: Clock,        color: 'bg-amber-500/10 text-amber-600' },
-  APPROVED:  { label: 'Approved',  icon: CheckCircle2, color: 'bg-emerald-500/10 text-emerald-600' },
-  REJECTED:  { label: 'Rejected',  icon: XCircle,      color: 'bg-destructive/10 text-destructive' },
-  CANCELLED: { label: 'Cancelled', icon: Ban,          color: 'bg-muted text-muted-foreground' },
+type BadgeVariant = 'secondary' | 'success' | 'info' | 'warning' | 'primary' | 'outline' | 'destructive';
+
+const STATUS_CONFIG: Record<string, { label: string; icon: any; color: string; variant: BadgeVariant }> = {
+  PENDING:   { label: 'Pending',   icon: Clock,        color: 'bg-amber-500/10 text-amber-600',    variant: 'warning' },
+  APPROVED:  { label: 'Approved',  icon: CheckCircle2, color: 'bg-emerald-500/10 text-emerald-600', variant: 'success' },
+  REJECTED:  { label: 'Rejected',  icon: XCircle,      color: 'bg-destructive/10 text-destructive', variant: 'destructive' },
+  CANCELLED: { label: 'Cancelled', icon: Ban,          color: 'bg-muted text-muted-foreground',     variant: 'secondary' },
 };
 
 const STATUS_FILTERS = [
@@ -24,14 +26,14 @@ const STATUS_FILTERS = [
   { value: 'CANCELLED', label: 'Cancelled' },
 ];
 
-const FULFILLMENT_BADGE: Record<string, { label: string; color: string }> = {
-  PENDING_APPROVAL: { label: 'Awaiting Approval', color: 'bg-amber-500/10 text-amber-600' },
-  APPROVED: { label: 'Approved', color: 'bg-blue-500/10 text-blue-600' },
-  PLANNED: { label: 'Planned', color: 'bg-primary/10 text-primary' },
-  OUT_FOR_DELIVERY: { label: 'Out for Delivery', color: 'bg-primary/10 text-primary' },
-  DELIVERED: { label: 'Delivered', color: 'bg-emerald-500/10 text-emerald-600' },
-  REJECTED: { label: 'Rejected', color: 'bg-destructive/10 text-destructive' },
-  CANCELLED: { label: 'Cancelled', color: 'bg-muted text-muted-foreground' },
+const FULFILLMENT_BADGE: Record<string, { label: string; variant: BadgeVariant }> = {
+  PENDING_APPROVAL: { label: 'Awaiting Approval', variant: 'warning' },
+  APPROVED: { label: 'Approved', variant: 'info' },
+  PLANNED: { label: 'Planned', variant: 'primary' },
+  OUT_FOR_DELIVERY: { label: 'Out for Delivery', variant: 'primary' },
+  DELIVERED: { label: 'Delivered', variant: 'success' },
+  REJECTED: { label: 'Rejected', variant: 'destructive' },
+  CANCELLED: { label: 'Cancelled', variant: 'secondary' },
 };
 
 const FULFILLMENT_STEPS = [
@@ -134,10 +136,10 @@ function OrdersContent() {
                       <span className="font-bold text-sm">
                         {order.product?.name ?? 'Product'} × {order.quantity}
                       </span>
-                      <Badge className={cn('text-[10px] px-2 py-0 rounded-full border-none font-bold', cfg.color)}>
+                      <Badge variant={cfg.variant}>
                         {cfg.label}
                       </Badge>
-                      <Badge className={cn('text-[10px] px-2 py-0 rounded-full border-none font-bold', fulfillment.color)}>
+                      <Badge variant={fulfillment.variant}>
                         {fulfillment.label}
                       </Badge>
                     </div>

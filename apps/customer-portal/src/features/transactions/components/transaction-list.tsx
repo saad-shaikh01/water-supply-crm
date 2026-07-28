@@ -91,61 +91,65 @@ export function TransactionList({ typeFilter }: TransactionListProps) {
       </div>
 
       <div className="hidden sm:block rounded-2xl border border-border/50 bg-card/30 backdrop-blur-sm overflow-hidden shadow-sm dark:glass-surface">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-muted/20 hover:bg-muted/20 border-b border-border/50 transition-colors">
-              <TableHead className="h-12 text-[10px] uppercase tracking-widest font-black text-muted-foreground pl-6">Date</TableHead>
-              <TableHead className="h-12 text-[10px] uppercase tracking-widest font-black text-muted-foreground">Description</TableHead>
-              <TableHead className="h-12 text-[10px] uppercase tracking-widest font-black text-muted-foreground">Type</TableHead>
-              <TableHead className="h-12 text-[10px] uppercase tracking-widest font-black text-muted-foreground text-right pr-6">Amount</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {transactions.map((tx: any, idx: number) => {
-              const isPayment = tx.amount < 0;
-              return (
-                <TableRow
-                  key={tx.id}
-                  className={cn(
-                    'group transition-colors border-b border-border/50 last:border-0 hover:bg-primary/[0.02]',
-                    idx % 2 === 0 ? 'bg-transparent' : 'bg-muted/5'
-                  )}
-                >
-                  <TableCell className="py-4 pl-6">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Calendar className="h-3 w-3" />
-                      <span className="text-[11px] font-bold uppercase tracking-tighter">
-                        {new Date(tx.createdAt).toLocaleDateString(undefined, {
-                          day: 'numeric',
-                          month: 'short',
-                          year: 'numeric',
-                        })}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <FileText className="h-3 w-3 text-muted-foreground opacity-50" />
-                      <span className="text-sm font-bold group-hover:text-primary transition-colors">
-                        {tx.description || tx.type.replace('_', ' ')}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={isPayment ? 'success' : 'outline'} className="text-[9px] font-black tracking-widest">
-                      {tx.type}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right pr-6">
-                    <div className={cn('font-mono font-black text-sm', isPayment ? 'text-emerald-500' : 'text-destructive')}>
-                      {isPayment ? '-' : '+'} Rs {Math.abs(tx.amount).toLocaleString()}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+        {/* Inner wrapper scrolls horizontally if content ever exceeds the container —
+            the outer div's overflow-hidden is only there to clip corners to rounded-2xl. */}
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/20 hover:bg-muted/20 border-b border-border/50 transition-colors">
+                <TableHead className="h-12 text-[10px] uppercase tracking-widest font-black text-muted-foreground pl-6 whitespace-nowrap">Date</TableHead>
+                <TableHead className="h-12 text-[10px] uppercase tracking-widest font-black text-muted-foreground">Description</TableHead>
+                <TableHead className="h-12 text-[10px] uppercase tracking-widest font-black text-muted-foreground whitespace-nowrap">Type</TableHead>
+                <TableHead className="h-12 text-[10px] uppercase tracking-widest font-black text-muted-foreground text-right pr-6 whitespace-nowrap">Amount</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {transactions.map((tx: any, idx: number) => {
+                const isPayment = tx.amount < 0;
+                return (
+                  <TableRow
+                    key={tx.id}
+                    className={cn(
+                      'group transition-colors border-b border-border/50 last:border-0 hover:bg-primary/[0.02]',
+                      idx % 2 === 0 ? 'bg-transparent' : 'bg-muted/5'
+                    )}
+                  >
+                    <TableCell className="py-4 pl-6 whitespace-nowrap">
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <Calendar className="h-3 w-3" />
+                        <span className="text-[11px] font-bold uppercase tracking-tighter">
+                          {new Date(tx.createdAt).toLocaleDateString(undefined, {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric',
+                          })}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2 min-w-0 max-w-[280px]">
+                        <FileText className="h-3 w-3 text-muted-foreground opacity-50 shrink-0" />
+                        <span className="text-sm font-bold group-hover:text-primary transition-colors truncate" title={tx.description || undefined}>
+                          {tx.description || tx.type.replace('_', ' ')}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      <Badge variant={isPayment ? 'success' : 'outline'} className="text-[9px] font-black tracking-widest">
+                        {tx.type}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right pr-6 whitespace-nowrap">
+                      <div className={cn('font-mono font-black text-sm', isPayment ? 'text-emerald-500' : 'text-destructive')}>
+                        {isPayment ? '-' : '+'} Rs {Math.abs(tx.amount).toLocaleString()}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
       </div>
 
       <DataTablePagination page={page} limit={limit} total={total} onPageChange={setPage} onLimitChange={setLimit} />

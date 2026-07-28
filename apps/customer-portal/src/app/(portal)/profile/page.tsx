@@ -14,7 +14,7 @@ export default function ProfilePage() {
         </div>
         <div>
           <h1 className="text-2xl font-black tracking-tight">Profile Settings</h1>
-          <p className="text-sm font-bold text-muted-foreground uppercase tracking-widest text-[10px]">Your Account & Preferences</p>
+          <p className="font-bold text-muted-foreground uppercase tracking-widest text-[10px]">Your Account & Preferences</p>
         </div>
       </div>
 

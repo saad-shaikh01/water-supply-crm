@@ -7,6 +7,7 @@ import {
   DropdownMenuContent,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  Skeleton,
   cn,
 } from '@water-supply-crm/ui';
 import { Bell, CheckCheck, CreditCard, MessageCircle, ShoppingCart } from 'lucide-react';
@@ -61,7 +62,7 @@ export function NotificationCenter() {
       <DropdownMenuContent
         align="end"
         sideOffset={10}
-        className="w-[22rem] rounded-2xl border-border/50 bg-background/95 backdrop-blur-xl p-0 shadow-2xl"
+        className="w-[min(22rem,calc(100vw-2rem))] rounded-2xl border-border/50 bg-background/95 backdrop-blur-xl p-0 shadow-2xl"
       >
         <div className="flex items-center justify-between gap-3 px-4 py-3">
           <div>
@@ -87,7 +88,7 @@ export function NotificationCenter() {
           {isLoading ? (
             <div className="space-y-2 p-2">
               {[1, 2, 3].map((item) => (
-                <div key={item} className="h-16 rounded-2xl bg-accent/40 animate-pulse" />
+                <Skeleton key={item} className="h-16 rounded-2xl" />
               ))}
             </div>
           ) : isError ? (
