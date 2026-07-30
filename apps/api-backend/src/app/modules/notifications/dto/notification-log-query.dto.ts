@@ -7,7 +7,7 @@ export class NotificationLogQueryDto extends PaginationQueryDto {
   channel?: string;
 
   @IsOptional()
-  @IsIn(['SENT', 'FAILED'])
+  @IsIn(['SENT', 'FAILED', 'SKIPPED'])
   status?: string;
 
   @IsOptional()
@@ -21,6 +21,10 @@ export class NotificationLogQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   recipientId?: string;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
 
   @IsOptional()
   @IsString()

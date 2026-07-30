@@ -1052,10 +1052,38 @@ export class DailySheetService implements OnModuleInit {
       _count: { id: true },
     });
     const messageCountByItemId = new Map(itemMessageCounts.map((c) => [c.dailySheetItemId, c._count.id]));
+
+    // WhatsApp delivery-receipt outcome per item: whatsappSentAt already covers success;
+    // this fills in the FAILED/SKIPPED case (Meta rejection or a disabled notification
+    // setting) which otherwise leaves the item with no visible signal at all.
+    const itemIds = sheet.items.map((i) => i.id);
+    const whatsappIssues = itemIds.length
+      ? await this.prisma.notificationLog.findMany({
+          where: { entityType: 'DELIVERY_ITEM', entityId: { in: itemIds }, channel: 'WHATSAPP', status: { in: ['FAILED', 'SKIPPED'] } },
+          orderBy: { createdAt: 'desc' },
+          select: { entityId: true, status: true, lastError: true },
+        })
+      : [];
+    const whatsappIssueByItemId = new Map<string, { status: string; error: string | null }>();
+    for (const log of whatsappIssues) {
+      if (log.entityId && !whatsappIssueByItemId.has(log.entityId)) {
+        whatsappIssueByItemId.set(log.entityId, { status: log.status, error: log.lastError });
+      }
+    }
+
     for (const it of sheet.items as any[]) {
       it.messageCount = messageCountByItemId.get(it.id) ?? 0;
       it.pendingAckCount = it._count.notes;
       delete it._count;
+
+      if (it.whatsappSentAt) {
+        it.whatsappStatus = 'SENT';
+        it.whatsappError = null;
+      } else {
+        const issue = whatsappIssueByItemId.get(it.id);
+        it.whatsappStatus = issue?.status ?? null;
+        it.whatsappError = issue?.error ?? null;
+      }
     }
 
     // Batch-fetch last completed filledDropped for each customer+product pair

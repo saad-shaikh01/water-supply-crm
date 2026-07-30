@@ -214,6 +214,8 @@ export interface DeliveryItem {
   editUnlockExpiresAt?: string | null;
   editRequestedAt?: string | null;
   whatsappSentAt?: string | null;
+  whatsappStatus?: 'SENT' | 'FAILED' | 'SKIPPED' | null;
+  whatsappError?: string | null;
   bottleBalanceAfter?: number | null;
   financialBalanceAfter?: number | null;
   // Communication Center summary (Phase 7) — replaces the old full `notes`

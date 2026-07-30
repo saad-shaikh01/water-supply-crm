@@ -530,13 +530,21 @@ export function DeliveryItemsList({
                             AD-HOC
                           </span>
                         )}
-                        {item.whatsappSentAt && (
+                        {item.whatsappSentAt ? (
                           <div
                             title={`WhatsApp sent at ${new Date(item.whatsappSentAt).toLocaleTimeString()}`}
                             className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
                           >
                             <MessageSquare className="h-3 w-3" />
                             <span className="text-[9px] font-bold">WA</span>
+                          </div>
+                        ) : (item.whatsappStatus === 'FAILED' || item.whatsappStatus === 'SKIPPED') && (
+                          <div
+                            title={item.whatsappError ?? (item.whatsappStatus === 'SKIPPED' ? 'WhatsApp is disabled for this notification type' : 'WhatsApp send failed')}
+                            className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-destructive/15 text-destructive"
+                          >
+                            <MessageSquare className="h-3 w-3" />
+                            <span className="text-[9px] font-bold">WA ✕</span>
                           </div>
                         )}
                         {!isClosed && item.status === 'PENDING' && (

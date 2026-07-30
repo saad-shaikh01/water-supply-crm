@@ -102,6 +102,7 @@ const navItems: NavItem[] = [
   { label: 'Roles & Access', href: '/dashboard/settings/roles', icon: KeyRound, group: 'Settings' },
   { label: 'Balance Reminders', href: '/dashboard/balance-reminders', icon: Bell, group: 'Settings' },
   { label: 'Notification Controls', href: '/dashboard/notification-settings', icon: BellRing, group: 'Settings' },
+  { label: 'Notification Logs', href: '/dashboard/notification-logs', icon: MessageSquare, group: 'Settings' },
   { label: 'Collection Policy', href: '/dashboard/collection-policy', icon: Percent, group: 'Settings' },
   { label: 'Audit Logs', href: '/dashboard/audit-logs', icon: ScrollText, group: 'Settings' },
 ];

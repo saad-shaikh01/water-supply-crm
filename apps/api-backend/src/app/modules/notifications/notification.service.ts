@@ -4,6 +4,7 @@ import { Queue } from 'bullmq';
 import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
 import { NotificationType, NotificationChannel } from '@prisma/client';
 import { NotificationSettingsService } from './notification-settings.service';
+import { NotificationLogService } from './notification-log.service';
 
 /** When both fields are present, the send is gated by the vendor's master switch. */
 interface NotificationGate {
@@ -16,6 +17,7 @@ export class NotificationService {
   constructor(
     @InjectQueue(QUEUE_NAMES.NOTIFICATIONS) private notificationQueue: Queue,
     private readonly settings: NotificationSettingsService,
+    private readonly logs: NotificationLogService,
   ) {}
 
   /** True unless the vendor has switched this flow off on this channel. */
@@ -33,7 +35,10 @@ export class NotificationService {
     idempotencyKey?: string,
     meta?: { entityType?: string; entityId?: string; vendorId?: string; type?: NotificationType },
   ) {
-    if (!(await this.allowed(meta, NotificationChannel.WHATSAPP))) return null;
+    if (!(await this.allowed(meta, NotificationChannel.WHATSAPP))) {
+      await this.logs.logSkipped({ channel: 'WHATSAPP', recipientAddress: phoneNumber, eventType: meta?.type, ...meta });
+      return null;
+    }
 
     return this.notificationQueue.add(
       JOB_NAMES.SEND_WHATSAPP,
@@ -47,7 +52,10 @@ export class NotificationService {
     receiptData: Record<string, unknown>,
     meta?: { entityType?: string; entityId?: string; vendorId?: string; type?: NotificationType },
   ) {
-    if (!(await this.allowed(meta, NotificationChannel.WHATSAPP))) return null;
+    if (!(await this.allowed(meta, NotificationChannel.WHATSAPP))) {
+      await this.logs.logSkipped({ channel: 'WHATSAPP', recipientAddress: phoneNumber, eventType: meta?.type, ...meta });
+      return null;
+    }
 
     return this.notificationQueue.add(
       JOB_NAMES.SEND_WHATSAPP_PDF,

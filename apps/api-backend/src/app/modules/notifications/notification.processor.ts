@@ -116,7 +116,7 @@ export class NotificationProcessor extends WorkerHost {
           channel,
           status,
           recipientAddress,
-          eventType: job.data.eventType ?? null,
+          eventType: job.data.eventType ?? job.data.type ?? null,
           entityType: job.data.entityType ?? null,
           entityId: job.data.entityId ?? null,
           recipientType: job.data.recipientType ?? null,

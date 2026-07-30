@@ -41,6 +41,7 @@ export const PAGE_REGISTRY: readonly PageRoute[] = [
   { prefix: '/dashboard/analytics', permission: 'analytics:page' },
   { prefix: '/dashboard/tickets', permission: 'tickets:page' },
   { prefix: '/dashboard/notification-settings', permission: 'notifications:page' },
+  { prefix: '/dashboard/notification-logs', permission: 'notifications:page' },
   { prefix: '/dashboard/balance-reminders', permission: 'balance_reminders:page' },
   { prefix: '/dashboard/audit-logs', permission: 'audit_logs:page' },
   { prefix: '/dashboard/collection-policy', permission: 'collection_policy:page' },

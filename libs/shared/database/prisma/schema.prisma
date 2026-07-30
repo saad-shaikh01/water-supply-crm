@@ -1002,7 +1002,7 @@ model NotificationSetting {
 model NotificationLog {
   id               String    @id @default(uuid())
   channel          String    // WHATSAPP | SMS | FCM | IN_APP
-  status           String    // SENT | FAILED
+  status           String    // SENT | FAILED | SKIPPED
   recipientAddress String?   // phone number or FCM userId
   eventType        String?   // e.g. order.approved
   entityType       String?   // ORDER | PAYMENT | TICKET
