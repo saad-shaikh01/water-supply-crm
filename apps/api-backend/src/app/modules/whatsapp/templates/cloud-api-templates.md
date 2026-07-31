@@ -22,14 +22,19 @@ Yeh saari templates **WhatsApp Business Cloud API** ke liye hain. Marketing/Meta
 ### 1. `delivery_receipt`  — Delivery ho gayi (PDF receipt ke saath)
 - **Category:** UTILITY · **Language:** English · **Header:** Document (PDF)
 - **Replaces:** delivery receipt caption (`notification.processor.ts`)
-- **Body:**
+- **Body (as actually approved on Meta — confirmed 2026-07-31):**
 ```
-Assalam o Alaikum {{1}}! ✅
+Assalamu Alaikum, {{1}},
 
-Aapki delivery receipt attached hai. Shukriya!
+Your delivery receipt is attached.
+
+Customer Code: {{2}}
+Delivery Date: {{3}}
+
+Thank you for choosing Blue Ice. We appreciate your business!
 ```
-- **Variables:** `{{1}}` = customer name
-- **Sample:** `{{1}}` = `Ahmed`
+- **Variables:** `{{1}}` = customer name · `{{2}}` = customer code · `{{3}}` = delivery date
+- **Sample:** `{{1}}` = `Ahmed`, `{{2}}` = `L0042`, `{{3}}` = `31 July 2026`
 
 ---
 

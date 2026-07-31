@@ -59,10 +59,17 @@ export class NotificationProcessor extends WorkerHost {
         const { phoneNumber, receiptData, entityType, entityId } = job.data;
         const pdfBuffer = await this.pdfService.generate(receiptData as any);
         const filename = `${this.sanitizeForFilename(receiptData['customerCode'] as string)}-${this.sanitizeForFilename(receiptData['customerName'] as string)}-${receiptData['deliveryDate']}.pdf`;
+        // delivery_receipt (Meta-approved) takes 3 body vars: {{1}} name, {{2}} customer code, {{3}} delivery date —
+        // sending fewer/more than what's approved fails with Graph API error 132000.
+        const formattedDeliveryDate = new Date(receiptData['deliveryDate'] as string).toLocaleDateString('en-GB', {
+          day: '2-digit',
+          month: 'long',
+          year: 'numeric',
+        });
         const sent = await this.whatsapp.sendTemplate(
           phoneNumber,
           CloudTemplateNames.DELIVERY_RECEIPT,
-          [receiptData['customerName'] as string],
+          [receiptData['customerName'] as string, receiptData['customerCode'] as string, formattedDeliveryDate],
           { buffer: pdfBuffer, filename },
         );
         if (sent) {
