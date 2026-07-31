@@ -140,7 +140,10 @@ async function wipeVendor(slug) {
   await prisma.damageCaseAuditLog.deleteMany({ where: { damageCase: w } });
   await prisma.damageCase.deleteMany({ where: w });
   await prisma.deliveryIssue.deleteMany({ where: w });
-  await prisma.deliveryItemNote.deleteMany({ where: w });
+  // Communication Center (ex-DeliveryItemNote → Conversation/ConversationMessage)
+  await prisma.conversationRead.deleteMany({ where: { conversation: w } });
+  await prisma.conversationMessage.deleteMany({ where: w });
+  await prisma.conversation.deleteMany({ where: w });
   await prisma.ticketMessage.deleteMany({ where: { ticket: w } });
   await prisma.customerTicket.deleteMany({ where: w });
   await prisma.customerOrder.deleteMany({ where: w });
@@ -148,6 +151,7 @@ async function wipeVendor(slug) {
   await prisma.transaction.deleteMany({ where: w });
   await prisma.dailySheetItem.deleteMany({ where: dsw });
   await prisma.dailySheetLoad.deleteMany({ where: dsw });
+  await prisma.dailySheetCrew.deleteMany({ where: dsw });
   await prisma.expense.deleteMany({ where: w });
   await prisma.warehouseTransaction.deleteMany({ where: w });
   await prisma.repairBatch.deleteMany({ where: w });
@@ -158,6 +162,7 @@ async function wipeVendor(slug) {
   await prisma.customerProductPrice.deleteMany({ where: cw });
   await prisma.customer.deleteMany({ where: w });
   await prisma.route.deleteMany({ where: w });
+  await prisma.vanDefaultCrew.deleteMany({ where: { van: w } });
   await prisma.van.deleteMany({ where: w });
   await prisma.product.deleteMany({ where: w });
   await prisma.reminderScheduleConfig.deleteMany({ where: w });
