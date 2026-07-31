@@ -631,7 +631,7 @@ export function DeliveryRecordForm({
               </div>
 
               <div className="space-y-2">
-                <Label className="font-bold text-xs uppercase tracking-widest">Balance (₨)</Label>
+                <Label className="font-bold text-xs uppercase tracking-widest">Amount (₨)</Label>
                 <Input
                   type="number"
                   value={amountDue}

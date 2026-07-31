@@ -33,7 +33,7 @@ export class NotificationService {
     phoneNumber: string,
     message: string,
     idempotencyKey?: string,
-    meta?: { entityType?: string; entityId?: string; vendorId?: string; type?: NotificationType },
+    meta?: { entityType?: string; entityId?: string; vendorId?: string; type?: NotificationType; recipientType?: string; recipientId?: string },
   ) {
     if (!(await this.allowed(meta, NotificationChannel.WHATSAPP))) {
       await this.logs.logSkipped({ channel: 'WHATSAPP', recipientAddress: phoneNumber, eventType: meta?.type, ...meta });
@@ -50,7 +50,7 @@ export class NotificationService {
   async queueWhatsAppPdf(
     phoneNumber: string,
     receiptData: Record<string, unknown>,
-    meta?: { entityType?: string; entityId?: string; vendorId?: string; type?: NotificationType },
+    meta?: { entityType?: string; entityId?: string; vendorId?: string; type?: NotificationType; recipientType?: string; recipientId?: string },
   ) {
     if (!(await this.allowed(meta, NotificationChannel.WHATSAPP))) {
       await this.logs.logSkipped({ channel: 'WHATSAPP', recipientAddress: phoneNumber, eventType: meta?.type, ...meta });

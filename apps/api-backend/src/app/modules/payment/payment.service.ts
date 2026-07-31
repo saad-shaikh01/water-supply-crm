@@ -330,7 +330,7 @@ export class PaymentService {
         request.customer.phoneNumber,
         message,
         `ntf:${NOTIFICATION_EVENTS.PAYMENT_APPROVED}:${requestId}:wa`,
-        { vendorId, type: NotificationType.PAYMENT_RECEIVED },
+        { vendorId, type: NotificationType.PAYMENT_RECEIVED, recipientType: 'CUSTOMER', recipientId: request.customerId },
       )
       .catch((e) =>
         this.logger.warn(`WhatsApp notification failed: ${e.message}`),
@@ -413,7 +413,7 @@ export class PaymentService {
         request.customer.phoneNumber,
         message,
         `ntf:${NOTIFICATION_EVENTS.PAYMENT_REJECTED}:${requestId}:wa`,
-        { vendorId, type: NotificationType.PAYMENT_RECEIVED },
+        { vendorId, type: NotificationType.PAYMENT_RECEIVED, recipientType: 'CUSTOMER', recipientId: request.customerId },
       )
       .catch((e) =>
         this.logger.warn(`WhatsApp notification failed: ${e.message}`),
@@ -504,7 +504,7 @@ export class PaymentService {
         request.customer.phoneNumber,
         message,
         `ntf:${NOTIFICATION_EVENTS.PAYMENT_APPROVED}:${request.id}:wa`,
-        { vendorId: request.vendorId, type: NotificationType.PAYMENT_RECEIVED },
+        { vendorId: request.vendorId, type: NotificationType.PAYMENT_RECEIVED, recipientType: 'CUSTOMER', recipientId: request.customerId },
       )
       .catch((e) =>
         this.logger.warn(`WhatsApp notification failed: ${e.message}`),

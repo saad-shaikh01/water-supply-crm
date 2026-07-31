@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import {
   Send, Users, CheckCircle2, Loader2,
   User, FileText, ChevronRight, AlertCircle, Info, Wifi, WifiOff, Zap, History,
-  ChevronLeft,
+  ChevronLeft, Download,
 } from 'lucide-react';
 import {
   Card, CardContent, CardHeader, CardTitle, Button, Input, Label,
@@ -63,6 +63,22 @@ function currentMonth() {
 function formatMonthDisplay(yyyyMM: string) {
   const [year, mon] = yyyyMM.split('-').map(Number);
   return new Date(year, mon - 1, 1).toLocaleString('en-PK', { month: 'long', year: 'numeric' });
+}
+
+function csvEscape(value: unknown): string {
+  const s = String(value ?? '');
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function downloadCsv(filename: string, headers: string[], rows: unknown[][]) {
+  const lines = [headers, ...rows].map((row) => row.map(csvEscape).join(','));
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 type SendMode = 'eligible' | 'single';
@@ -989,6 +1005,29 @@ export default function BalanceRemindersPage() {
                 </span>
                 <span className="text-emerald-400 font-bold">{(logDetail as any).sent} sent</span>
                 <span className="text-muted-foreground">{(logDetail as any).skipped} skipped</span>
+                {(logDetail as any).skipped > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const notSent = (((logDetail as any).details ?? []) as any[]).filter((d) => d.status !== 'sent');
+                      downloadCsv(
+                        `not-sent_${(logDetail as any).month}_${new Date((logDetail as any).createdAt).toISOString().slice(0, 10)}.csv`,
+                        ['Name', 'Customer Code', 'Phone', 'Balance', 'Reason'],
+                        notSent.map((d) => [
+                          d.name ?? '',
+                          d.customerCode ?? '',
+                          d.phone ?? '',
+                          d.balance ?? '',
+                          d.status === 'failed' ? 'FAILED' : (REASON_LABELS[d.status] ?? String(d.status).toUpperCase()),
+                        ]),
+                      );
+                    }}
+                    className="ml-auto h-7 px-2.5 rounded-lg text-[10px] font-bold border-border/50 bg-white/5 hover:bg-white/10"
+                  >
+                    <Download className="h-3 w-3 mr-1" /> Export Not-Sent ({(logDetail as any).skipped})
+                  </Button>
+                )}
               </div>
 
               {/* Per-customer results */}
@@ -1006,8 +1045,14 @@ export default function BalanceRemindersPage() {
                       .map((d) => (
                         <div key={d.customerId} className="flex items-center justify-between px-3 py-2 text-xs hover:bg-white/5">
                           <div className="min-w-0 flex-1">
-                            <p className="font-semibold text-foreground dark:text-white truncate">{d.name}</p>
-                            <p className="text-[10px] text-muted-foreground">₨{Number(d.balance ?? 0).toLocaleString()}</p>
+                            <p className="font-semibold text-foreground dark:text-white truncate">
+                              {d.name}
+                              {d.customerCode && <span className="ml-1.5 font-mono text-[10px] text-muted-foreground">({d.customerCode})</span>}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground">
+                              ₨{Number(d.balance ?? 0).toLocaleString()}
+                              {d.phone && ` · ${d.phone}`}
+                            </p>
                           </div>
                           <Badge className={cn(
                             'text-[9px] font-black px-1.5 border-none flex-shrink-0 ml-3',

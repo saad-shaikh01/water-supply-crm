@@ -646,7 +646,7 @@ export class DailySheetService implements OnModuleInit {
           this.notifications.queueWhatsAppPdf(
             item.customer.phoneNumber,
             receiptData,
-            { entityType: 'DELIVERY_ITEM', entityId: itemId, vendorId, type: NotificationType.DELIVERY_RECEIPT },
+            { entityType: 'DELIVERY_ITEM', entityId: itemId, vendorId, type: NotificationType.DELIVERY_RECEIPT, recipientType: 'CUSTOMER', recipientId: item.customerId },
           ).catch((e: Error) => this.logger.warn(`WhatsApp PDF delivery-${isCorrection ? 'correction' : 'complete'} failed for item ${itemId}: ${e.message}`));
         }
       }

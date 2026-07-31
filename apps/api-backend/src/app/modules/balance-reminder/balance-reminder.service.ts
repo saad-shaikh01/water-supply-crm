@@ -80,7 +80,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
 
     const customers = await this.prisma.customer.findMany({
       where: { id: { in: customerIds }, vendorId, isActive: true, phoneNumber: { not: '' } },
-      select: { id: true, name: true, phoneNumber: true, financialBalance: true },
+      select: { id: true, name: true, customerCode: true, phoneNumber: true, financialBalance: true },
     });
 
     if (customers.length === 0) {
@@ -92,7 +92,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
 
     let sent = 0;
     let skipped = 0;
-    const results: Array<{ customerId: string; name: string; balance: number; status: string; statementUrl?: string | null }> = [];
+    const results: Array<{ customerId: string; name: string; customerCode: string; phone: string; balance: number; status: string; statementUrl?: string | null }> = [];
 
     for (let i = 0; i < customers.length; i++) {
       const customer = customers[i];
@@ -100,13 +100,13 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
 
       // Junk phone ("-", partial digits etc.) — never attempt a send
       if (!this.isValidPhone(customer.phoneNumber)) {
-        results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'skipped-invalid-phone', statementUrl: null });
+        results.push({ customerId: customer.id, name: customer.name, customerCode: customer.customerCode, phone: customer.phoneNumber, balance: monthBalance, status: 'skipped-invalid-phone', statementUrl: null });
         skipped++;
         continue;
       }
 
       if (dryRun) {
-        results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'would-send', statementUrl: includeStatement ? '(statement PDF attached at send time)' : null });
+        results.push({ customerId: customer.id, name: customer.name, customerCode: customer.customerCode, phone: customer.phoneNumber, balance: monthBalance, status: 'would-send', statementUrl: includeStatement ? '(statement PDF attached at send time)' : null });
         skipped++;
         continue;
       }
@@ -116,7 +116,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
         this.logger.warn(`WhatsApp disconnected mid-batch — aborting, ${customers.length - i} customers remaining`);
         for (let j = i; j < customers.length; j++) {
           const c = customers[j];
-          results.push({ customerId: c.id, name: c.name, balance: monthEndBalances.get(c.id) ?? c.financialBalance, status: 'skipped-disconnected', statementUrl: null });
+          results.push({ customerId: c.id, name: c.name, customerCode: c.customerCode, phone: c.phoneNumber, balance: monthEndBalances.get(c.id) ?? c.financialBalance, status: 'skipped-disconnected', statementUrl: null });
           skipped++;
         }
         break;
@@ -127,7 +127,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
         const cdKey = cooldownKey(vendorId, customer.id);
         const onCooldown = await this.redis.exists(cdKey);
         if (onCooldown) {
-          results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'skipped-cooldown', statementUrl: null });
+          results.push({ customerId: customer.id, name: customer.name, customerCode: customer.customerCode, phone: customer.phoneNumber, balance: monthBalance, status: 'skipped-cooldown', statementUrl: null });
           skipped++;
           continue;
         }
@@ -138,7 +138,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
         await this.redis.set(cooldownKey(vendorId, customer.id), '1', 'EX', REMINDER_COOLDOWN_TTL);
         sent++;
       } else { skipped++; }
-      results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: messageSent ? 'sent' : 'failed', statementUrl: null });
+      results.push({ customerId: customer.id, name: customer.name, customerCode: customer.customerCode, phone: customer.phoneNumber, balance: monthBalance, status: messageSent ? 'sent' : 'failed', statementUrl: null });
 
       if (i < customers.length - 1) {
         await this.sendDelay();
@@ -256,7 +256,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
         isActive: true,
         phoneNumber: { not: '' },
       },
-      select: { id: true, name: true, phoneNumber: true, financialBalance: true, createdAt: true },
+      select: { id: true, name: true, customerCode: true, phoneNumber: true, financialBalance: true, createdAt: true },
       orderBy: { financialBalance: 'desc' },
     });
 
@@ -278,7 +278,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
 
     let sent = 0;
     let skipped = 0;
-    const results: Array<{ customerId: string; name: string; balance: number; status: string; statementUrl?: string | null }> = [];
+    const results: Array<{ customerId: string; name: string; customerCode: string; phone: string; balance: number; status: string; statementUrl?: string | null }> = [];
 
     for (let i = 0; i < eligible.length; i++) {
       const customer = eligible[i];
@@ -286,27 +286,27 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
 
       // Customer joined after the billing month ended — no statement/reminder applies
       if (customer.createdAt >= endDate) {
-        results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'skipped-new-customer', statementUrl: null });
+        results.push({ customerId: customer.id, name: customer.name, customerCode: customer.customerCode, phone: customer.phoneNumber, balance: monthBalance, status: 'skipped-new-customer', statementUrl: null });
         skipped++;
         continue;
       }
 
       // Manually excluded in preview
       if (excludeSet.has(customer.id)) {
-        results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'skipped-excluded', statementUrl: null });
+        results.push({ customerId: customer.id, name: customer.name, customerCode: customer.customerCode, phone: customer.phoneNumber, balance: monthBalance, status: 'skipped-excluded', statementUrl: null });
         skipped++;
         continue;
       }
 
       // Junk phone ("-", partial digits etc.) — never attempt a send
       if (!this.isValidPhone(customer.phoneNumber)) {
-        results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'skipped-invalid-phone', statementUrl: null });
+        results.push({ customerId: customer.id, name: customer.name, customerCode: customer.customerCode, phone: customer.phoneNumber, balance: monthBalance, status: 'skipped-invalid-phone', statementUrl: null });
         skipped++;
         continue;
       }
 
       if (dryRun) {
-        results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'would-send', statementUrl: includeStatement ? '(statement PDF attached at send time)' : null });
+        results.push({ customerId: customer.id, name: customer.name, customerCode: customer.customerCode, phone: customer.phoneNumber, balance: monthBalance, status: 'would-send', statementUrl: includeStatement ? '(statement PDF attached at send time)' : null });
         skipped++;
         continue;
       }
@@ -316,7 +316,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
         this.logger.warn(`WhatsApp disconnected mid-batch — aborting, ${eligible.length - i} customers remaining`);
         for (let j = i; j < eligible.length; j++) {
           const c = eligible[j];
-          results.push({ customerId: c.id, name: c.name, balance: monthEndBalances.get(c.id) ?? c.financialBalance, status: 'skipped-disconnected', statementUrl: null });
+          results.push({ customerId: c.id, name: c.name, customerCode: c.customerCode, phone: c.phoneNumber, balance: monthEndBalances.get(c.id) ?? c.financialBalance, status: 'skipped-disconnected', statementUrl: null });
           skipped++;
         }
         break;
@@ -327,7 +327,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
         const cdKey = cooldownKey(vendorId, customer.id);
         const onCooldown = await this.redis.exists(cdKey);
         if (onCooldown) {
-          results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: 'skipped-cooldown', statementUrl: null });
+          results.push({ customerId: customer.id, name: customer.name, customerCode: customer.customerCode, phone: customer.phoneNumber, balance: monthBalance, status: 'skipped-cooldown', statementUrl: null });
           skipped++;
           continue;
         }
@@ -340,7 +340,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       } else {
         skipped++;
       }
-      results.push({ customerId: customer.id, name: customer.name, balance: monthBalance, status: messageSent ? 'sent' : 'failed', statementUrl: null });
+      results.push({ customerId: customer.id, name: customer.name, customerCode: customer.customerCode, phone: customer.phoneNumber, balance: monthBalance, status: messageSent ? 'sent' : 'failed', statementUrl: null });
 
       if (i < eligible.length - 1) {
         await this.sendDelay();
@@ -446,9 +446,9 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
 
   /** Strip statementUrl (signed URLs expire in 7 days — pointless to persist) before logging results */
   private toLogDetails(
-    results: Array<{ customerId: string; name: string; balance: number; status: string }>,
+    results: Array<{ customerId: string; name: string; customerCode: string; phone: string; balance: number; status: string }>,
   ) {
-    return results.map(({ customerId, name, balance, status }) => ({ customerId, name, balance, status }));
+    return results.map(({ customerId, name, customerCode, phone, balance, status }) => ({ customerId, name, customerCode, phone, balance, status }));
   }
 
   /**

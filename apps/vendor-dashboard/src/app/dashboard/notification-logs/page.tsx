@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronLeft, ChevronRight, History, MessageSquare } from 'lucide-react';
+import Link from 'next/link';
+import { ChevronLeft, ChevronRight, ClipboardList, History, MessageSquare } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, Button, Input, Label, Badge, cn } from '@water-supply-crm/ui';
 import { PageHeader } from '../../../components/shared/page-header';
 import { useNotificationLogs } from '../../../features/notification-logs/hooks/use-notification-logs';
@@ -150,10 +151,12 @@ export default function NotificationLogsPage() {
                     <tr className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground border-b border-border/30">
                       <th className="text-left pb-2 pr-4">Date</th>
                       <th className="text-left pb-2 pr-4">Type</th>
+                      <th className="text-left pb-2 pr-4">Customer</th>
                       <th className="text-left pb-2 pr-4">Recipient</th>
                       <th className="text-left pb-2 pr-4">Channel</th>
                       <th className="text-left pb-2 pr-4">Status</th>
-                      <th className="text-left pb-2">Error</th>
+                      <th className="text-left pb-2 pr-4">Error</th>
+                      <th className="text-left pb-2">Sheet</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/20">
@@ -165,6 +168,16 @@ export default function NotificationLogsPage() {
                         <td className="py-2.5 pr-4 text-foreground dark:text-white">
                           {TYPE_LABELS[log.eventType] ?? log.eventType ?? '—'}
                         </td>
+                        <td className="py-2.5 pr-4 text-foreground dark:text-white whitespace-nowrap">
+                          {log.customerName ? (
+                            <>
+                              {log.customerName}
+                              {log.customerCode && <span className="ml-1 font-mono text-[10px] text-muted-foreground">({log.customerCode})</span>}
+                            </>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
                         <td className="py-2.5 pr-4 font-mono text-foreground dark:text-white whitespace-nowrap">
                           {log.recipientAddress ?? '—'}
                         </td>
@@ -174,8 +187,20 @@ export default function NotificationLogsPage() {
                             {log.status}
                           </Badge>
                         </td>
-                        <td className="py-2.5 text-muted-foreground max-w-xs truncate" title={log.lastError ?? ''}>
+                        <td className="py-2.5 pr-4 text-muted-foreground max-w-xs truncate" title={log.lastError ?? ''}>
                           {log.lastError ?? '—'}
+                        </td>
+                        <td className="py-2.5">
+                          {log.dailySheetId ? (
+                            <Link
+                              href={`/dashboard/daily-sheets/${log.dailySheetId}`}
+                              className="inline-flex items-center gap-1 text-primary hover:underline font-bold"
+                            >
+                              <ClipboardList className="h-3 w-3" /> View
+                            </Link>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
                         </td>
                       </tr>
                     ))}
