@@ -27,10 +27,10 @@ const STATUS_META: Record<string, { label: string; bg: string; text: string }> =
 };
 
 const EXPENSE_META: Record<string, { label: string; bg: string; text: string }> = {
-  FUEL: { label: 'FUEL', bg: '#fef9c3', text: '#a16207' },
-  MAINTENANCE: { label: 'MAINTENANCE', bg: '#dbeafe', text: '#1d4ed8' },
-  REPAIR: { label: 'REPAIR', bg: '#ffedd5', text: '#c2410c' },
-  SALARY: { label: 'SALARY', bg: '#f3e8ff', text: '#7e22ce' },
+  LUNCH_EXPENSE_EMPLOYEE: { label: 'LUNCH EXP EMPLOYEE', bg: '#fef9c3', text: '#a16207' },
+  ADVANCE_SALARY_EMPLOYEE: { label: 'ADV SALARY EMPLOYEE', bg: '#f3e8ff', text: '#7e22ce' },
+  VEHICLE_MAINTENANCE: { label: 'VEHICLE MAINTENANCE', bg: '#dbeafe', text: '#1d4ed8' },
+  FUEL_EXPENSE: { label: 'FUEL EXP', bg: '#ffedd5', text: '#c2410c' },
   OTHER: { label: 'OTHER', bg: '#f1f5f9', text: '#475569' },
 };
 

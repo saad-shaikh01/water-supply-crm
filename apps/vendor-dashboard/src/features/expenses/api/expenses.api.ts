@@ -1,6 +1,6 @@
 import { apiClient } from '@water-supply-crm/data-access';
 
-export type ExpenseCategory = 'FUEL' | 'MAINTENANCE' | 'SALARY' | 'REPAIR' | 'OTHER';
+export type ExpenseCategory = 'LUNCH_EXPENSE_EMPLOYEE' | 'ADVANCE_SALARY_EMPLOYEE' | 'VEHICLE_MAINTENANCE' | 'FUEL_EXPENSE' | 'OTHER';
 
 export interface ExpenseQuery {
   page?: number;
