@@ -10,6 +10,8 @@ export interface DeliveryReceiptData {
   productName: string;
   filledDropped: number;
   emptyReceived: number;
+  /** Already-filled bottles received back from the customer (account closing, excess stock return). */
+  filledReceived?: number;
   cashCollected: number;
   pricePerBottle: number;
   financialBalanceAfter: number;
@@ -88,6 +90,7 @@ export class DeliveryReceiptPdfService {
         { label: 'Price / Bottle',    value: `Rs. ${data.pricePerBottle.toFixed(2)}` },
         { label: 'Bottles Delivered', value: `${data.filledDropped}` },
         { label: 'Empty Received',    value: `${data.emptyReceived}` },
+        ...(data.filledReceived ? [{ label: 'Filled Received', value: `${data.filledReceived}` }] : []),
         { label: 'Balance Bottles',   value: `${data.bottleBalanceAfter} bottles` },
         { label: 'Delivery Amount',   value: `Rs. ${deliveryAmount.toFixed(2)}`, emphasize: true },
         { label: 'Cash Collected',    value: `Rs. ${data.cashCollected.toFixed(2)}` },

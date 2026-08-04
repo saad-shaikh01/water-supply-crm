@@ -7,7 +7,7 @@ import { TransactionType } from '@prisma/client';
 // ── Minimal Prisma mock ────────────────────────────────────────────────────────
 function buildMockPrisma() {
   const db = {
-    bottleWallet: { update: jest.fn() },
+    bottleWallet: { update: jest.fn(), findUnique: jest.fn() },
     customer: { update: jest.fn(), findFirst: jest.fn() },
     transaction: {
       findFirst: jest.fn(),
@@ -64,6 +64,9 @@ describe('LedgerService.recordDelivery — idempotency', () => {
     beforeEach(() => {
       // No existing delivery transaction for this item
       mockPrisma.transaction.findFirst.mockResolvedValue(null);
+      // Existing wallet with plenty of balance — first-time posting checks this
+      // before allowing the empty/filled-received count to go through.
+      mockPrisma.bottleWallet.findUnique.mockResolvedValue({ balance: 1000 });
     });
 
     it('posts DELIVERY and PAYMENT transactions with dailySheetItemId', async () => {
@@ -96,6 +99,42 @@ describe('LedgerService.recordDelivery — idempotency', () => {
       expect(mockPrisma.bottleWallet.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: { balance: { increment: 2 } } }),
       );
+    });
+
+    it('treats filledReceived like emptyReceived: reduces wallet, no charge, stored on the row', async () => {
+      // Pure pickup stop — customer returning already-filled bottles (account
+      // closing / excess stock), no new drop.
+      await service.recordDelivery({
+        ...BASE,
+        filledDropped: 0,
+        emptyReceived: 2,
+        filledReceived: 3,
+        cashCollected: 0,
+      });
+
+      // wallet: 0 - 2 - 3 = -5
+      expect(mockPrisma.bottleWallet.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { balance: { increment: -5 } } }),
+      );
+      // no charge (filledDropped is 0) → financialBalance effect is 0
+      expect(mockPrisma.customer.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { financialBalance: { increment: 0 } } }),
+      );
+
+      const deliveryData = mockPrisma.transaction.create.mock.calls[0][0].data;
+      expect(deliveryData.filledReceived).toBe(3);
+      expect(deliveryData.bottleCount).toBe(-5);
+      expect(deliveryData.amount).toBe(0);
+    });
+
+    it('defaults filledReceived to 0 for callers that omit it (e.g. bulk-import)', async () => {
+      await service.recordDelivery({ ...BASE, filledDropped: 2, emptyReceived: 1, cashCollected: 0 });
+
+      expect(mockPrisma.bottleWallet.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { balance: { increment: 1 } } }), // 2 - 1 - 0
+      );
+      const deliveryData = mockPrisma.transaction.create.mock.calls[0][0].data;
+      expect(deliveryData.filledReceived).toBe(0);
     });
 
     it('increments financialBalance by (charge - cashCollected)', async () => {
@@ -273,6 +312,8 @@ describe('LedgerService.recordDelivery — idempotency', () => {
           amount: 100,
         })
         .mockResolvedValueOnce(null); // second call: no payment (cashCollected was 0)
+      // First call takes the first-time-posting path, which checks the wallet balance.
+      mockPrisma.bottleWallet.findUnique.mockResolvedValue({ balance: 1000 });
 
       const params = { ...BASE, filledDropped: 1, emptyReceived: 0, cashCollected: 0 };
 

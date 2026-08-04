@@ -406,8 +406,8 @@ export class DailySheetService implements OnModuleInit {
         entity: 'DailySheetItem',
         entityId: itemId,
         changes: {
-          before: { status: item.status, filledDropped: item.filledDropped, emptyReceived: item.emptyReceived },
-          after: { status: dto.status, filledDropped: dto.filledDropped, emptyReceived: dto.emptyReceived },
+          before: { status: item.status, filledDropped: item.filledDropped, emptyReceived: item.emptyReceived, filledReceived: item.filledReceived },
+          after: { status: dto.status, filledDropped: dto.filledDropped, emptyReceived: dto.emptyReceived, filledReceived: dto.filledReceived },
         },
       });
     }
@@ -541,6 +541,7 @@ export class DailySheetService implements OnModuleInit {
           status: resolvedStatus,
           filledDropped: dto.filledDropped,
           emptyReceived: dto.emptyReceived,
+          filledReceived: dto.filledReceived,
           cashCollected: dto.cashCollected,
           reason: dto.reason,
           failureCategory: dto.failureCategory,
@@ -634,6 +635,7 @@ export class DailySheetService implements OnModuleInit {
             productName: item.product.name,
             filledDropped: dto.filledDropped,
             emptyReceived: dto.emptyReceived ?? 0,
+            filledReceived: dto.filledReceived ?? 0,
             cashCollected: dto.cashCollected ?? 0,
             pricePerBottle: price,
             financialBalanceAfter: updatedCustomer?.financialBalance ?? 0,
@@ -947,7 +949,7 @@ export class DailySheetService implements OnModuleInit {
     const vans = await this.resolveExportVans(vendorId, dto.vanIds);
     const vanIds = vans.map((v) => v.id);
 
-    const header = 'Code,Customer Name,Type,Bot Balance,Outstanding Amount,Drop,Empty,Amount Received';
+    const header = 'Code,Customer Name,Type,Bot Balance,Outstanding Amount,Drop,Empty,Filled Received,Amount Received';
     if (vanIds.length === 0) {
       return header;
     }
@@ -976,6 +978,7 @@ export class DailySheetService implements OnModuleInit {
         item.financialBalanceAfter,
         item.filledDropped,
         item.emptyReceived,
+        item.filledReceived,
         item.cashCollected,
       ]
         .map((v) => this.csvEscape(v))
@@ -1271,7 +1274,7 @@ export class DailySheetService implements OnModuleInit {
     // Leave the delivery pending when the admin only picked a customer and left
     // Drop, Empty, and Cash all blank — the driver still needs to complete it.
     const hasDeliveryValues =
-      dto.filledDropped > 0 || dto.emptyReceived > 0 || dto.cashCollected > 0;
+      dto.filledDropped > 0 || dto.emptyReceived > 0 || dto.filledReceived > 0 || dto.cashCollected > 0;
     const resolvedStatus = hasDeliveryValues ? DeliveryStatus.COMPLETED : DeliveryStatus.PENDING;
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -1285,6 +1288,7 @@ export class DailySheetService implements OnModuleInit {
           status: resolvedStatus,
           filledDropped: dto.filledDropped,
           emptyReceived: dto.emptyReceived,
+          filledReceived: dto.filledReceived,
           cashCollected: dto.cashCollected,
           pricePerBottle: price,
           deliveredAt: hasDeliveryValues ? new Date() : null,
@@ -1300,6 +1304,7 @@ export class DailySheetService implements OnModuleInit {
           dailySheetItemId: item.id,
           filledDropped: dto.filledDropped,
           emptyReceived: dto.emptyReceived,
+          filledReceived: dto.filledReceived,
           cashCollected: dto.cashCollected,
           pricePerBottle: price,
         }, tx);
@@ -1386,6 +1391,7 @@ export class DailySheetService implements OnModuleInit {
           status: DeliveryStatus.COMPLETED,
           filledDropped: dto.filledDropped,
           emptyReceived: dto.emptyReceived,
+          filledReceived: dto.filledReceived,
           cashCollected: dto.cashCollected,
           pricePerBottle: price,
           deliveredAt: sheet.date,
@@ -1403,6 +1409,7 @@ export class DailySheetService implements OnModuleInit {
         dailySheetItemId: item.id,
         filledDropped: dto.filledDropped,
         emptyReceived: dto.emptyReceived,
+        filledReceived: dto.filledReceived,
         cashCollected: dto.cashCollected,
         pricePerBottle: price,
       }, tx);
@@ -1503,9 +1510,20 @@ export class DailySheetService implements OnModuleInit {
     if (!load) throw new NotFoundException('Load trip not found');
     if (load.endedAt) throw new ConflictException('Trip already checked in');
 
-    if (dto.returnedFilled > load.loadedFilled) {
+    // Filled bottles received back from customers (account closing / excess stock
+    // returns) during this trip physically add to the van's filled stock too — so
+    // the van can legitimately come back with more filled bottles than it left with.
+    // There's no per-trip attribution on DailySheetItem, so scope the allowance to
+    // items recorded since this trip started (mirrors the self-report trust already
+    // extended to collectedEmpty, which has no cap at all).
+    const filledReceivedThisTrip = await this.prisma.dailySheetItem.aggregate({
+      where: { dailySheetId: sheetId, deliveredAt: { gte: load.startedAt } },
+      _sum: { filledReceived: true },
+    });
+    const maxReturnedFilled = load.loadedFilled + (filledReceivedThisTrip._sum.filledReceived ?? 0);
+    if (dto.returnedFilled > maxReturnedFilled) {
       throw new BadRequestException(
-        `Cannot return more filled bottles (${dto.returnedFilled}) than were loaded (${load.loadedFilled}).`
+        `Cannot return more filled bottles (${dto.returnedFilled}) than loaded + received back from customers (${maxReturnedFilled}).`
       );
     }
 
@@ -1650,7 +1668,13 @@ export class DailySheetService implements OnModuleInit {
 
     // Bottle summary
     const totalDelivered = activeItems.reduce((s, i) => s + i.filledDropped, 0);
-    const bottleDiscrepancy = sheet.filledOutCount - (sheet.filledInCount + totalDelivered);
+    // Filled bottles received back from customers (account closing / excess stock
+    // return) are a second source of filled stock on the van, alongside the
+    // warehouse load — they get checked back in as part of filledInCount too, so
+    // they must be added to the "in" side for the discrepancy check to balance.
+    const totalFilledReceived = activeItems.reduce((s, i) => s + i.filledReceived, 0);
+    const bottleDiscrepancy =
+      (sheet.filledOutCount + totalFilledReceived) - (sheet.filledInCount + totalDelivered);
 
     // Empty bottle summary
     const totalEmptyCollected = activeItems.reduce((s, i) => s + i.emptyReceived, 0);
@@ -1690,6 +1714,7 @@ export class DailySheetService implements OnModuleInit {
         dispatched: sheet.filledOutCount,
         delivered: totalDelivered,
         returned: sheet.filledInCount,
+        receivedFromCustomers: totalFilledReceived,
         discrepancy: bottleDiscrepancy,
       },
       empties: {
@@ -2241,7 +2266,7 @@ export class DailySheetService implements OnModuleInit {
         by: ['status'],
         where: { dailySheet: sheetWhere },
         _count: { id: true },
-        _sum: { filledDropped: true, emptyReceived: true },
+        _sum: { filledDropped: true, emptyReceived: true, filledReceived: true },
       }),
       // failure breakdown
       this.prisma.dailySheetItem.groupBy({
@@ -2289,6 +2314,9 @@ export class DailySheetService implements OnModuleInit {
     const totalEmpties = itemStats
       .filter((r) => completedStatuses.includes(r.status as DeliveryStatus))
       .reduce((s, r) => s + (r._sum.emptyReceived ?? 0), 0);
+    const totalFilledReceived = itemStats
+      .filter((r) => completedStatuses.includes(r.status as DeliveryStatus))
+      .reduce((s, r) => s + (r._sum.filledReceived ?? 0), 0);
     const failureBreakdown = Object.fromEntries(
       failureStats.map((r) => [r.failureCategory!, r._count.id]),
     );
@@ -2302,6 +2330,7 @@ export class DailySheetService implements OnModuleInit {
       successRate: totalItems > 0 ? Math.round((deliveredCount / totalItems) * 100) : 0,
       totalBottlesDropped: totalBottles,
       totalEmptiesReceived: totalEmpties,
+      totalFilledReceived,
       cashExpected,
       cashCollected,
       cashDiscrepancy: cashExpected - cashCollected,
@@ -2352,6 +2381,7 @@ export class DailySheetService implements OnModuleInit {
         id: true,
         filledDropped: true,
         emptyReceived: true,
+        filledReceived: true,
         cashCollected: true,
         pricePerBottle: true,
         bottleBalanceAfter: true,
@@ -2460,6 +2490,7 @@ export class DailySheetService implements OnModuleInit {
       productName: item.product.name,
       filledDropped: item.filledDropped,
       emptyReceived: item.emptyReceived,
+      filledReceived: item.filledReceived,
       cashCollected: item.cashCollected,
       pricePerBottle: item.pricePerBottle,
       financialBalanceAfter: item.financialBalanceAfter ?? 0,

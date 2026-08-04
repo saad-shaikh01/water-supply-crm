@@ -140,7 +140,7 @@ export const useUpdateDeliveryItem = (sheetId: string) => {
 export const useAddAdhocItem = (sheetId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: { customerId: string; productId: string; filledDropped: number; emptyReceived: number; cashCollected: number; priceOverride?: number }) =>
+    mutationFn: (data: { customerId: string; productId: string; filledDropped: number; emptyReceived: number; filledReceived: number; cashCollected: number; priceOverride?: number }) =>
       dailySheetsApi.addAdhocItem(sheetId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
@@ -154,7 +154,7 @@ export const useAddAdhocItem = (sheetId: string) => {
 export const useAddCorrectionItem = (sheetId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: { customerId: string; productId: string; filledDropped: number; emptyReceived: number; cashCollected: number; priceOverride?: number; correctionNote: string }) =>
+    mutationFn: (data: { customerId: string; productId: string; filledDropped: number; emptyReceived: number; filledReceived: number; cashCollected: number; priceOverride?: number; correctionNote: string }) =>
       dailySheetsApi.addCorrectionItem(sheetId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });

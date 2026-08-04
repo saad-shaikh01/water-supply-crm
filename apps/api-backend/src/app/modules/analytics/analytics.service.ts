@@ -226,6 +226,7 @@ export class AnalyticsService {
           reason: true,
           filledDropped: true,
           emptyReceived: true,
+          filledReceived: true,
           dailySheet: {
             select: {
               date: true,
@@ -354,6 +355,7 @@ export class AnalyticsService {
     const completedItems = items.filter((i) => completedStatuses.has(i.status));
     const bottlesDelivered = completedItems.reduce((s, i) => s + i.filledDropped, 0);
     const bottlesReturned = completedItems.reduce((s, i) => s + i.emptyReceived, 0);
+    const filledBottlesReturned = completedItems.reduce((s, i) => s + i.filledReceived, 0);
 
     const result = {
       summary: { total, completed, missed, pending, completionRate },
@@ -370,7 +372,8 @@ export class AnalyticsService {
       bottleStats: {
         delivered: bottlesDelivered,
         returned: bottlesReturned,
-        net: bottlesDelivered - bottlesReturned,
+        filledReturned: filledBottlesReturned,
+        net: bottlesDelivered - bottlesReturned - filledBottlesReturned,
       },
     };
 

@@ -14,6 +14,7 @@ type MonthRow = {
   month: string;
   bottlesDelivered: number;
   emptyReceived: number;
+  filledReceived: number;
   cashExpected: number;
   cashCollected: number;
   collectionRate: number;
@@ -84,6 +85,7 @@ export function MonthlySummaryWidget() {
                     <Legend wrapperStyle={legendStyle} />
                     <Bar dataKey="bottlesDelivered" name="Delivered" fill="#6366f1" radius={[4, 4, 0, 0]} barSize={14} />
                     <Bar dataKey="emptyReceived" name="Empty Received" fill="#06b6d4" radius={[4, 4, 0, 0]} barSize={14} />
+                    <Bar dataKey="filledReceived" name="Filled Received" fill="#0ea5e9" radius={[4, 4, 0, 0]} barSize={14} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -124,6 +126,7 @@ export function MonthlySummaryWidget() {
                     <th className="pb-3 pr-4">Month</th>
                     <th className="pb-3 pr-4 text-right">Delivered</th>
                     <th className="pb-3 pr-4 text-right">Empty Recv.</th>
+                    <th className="pb-3 pr-4 text-right">Filled Recv.</th>
                     <th className="pb-3 pr-4 text-right">Cash Expected</th>
                     <th className="pb-3 pr-4 text-right">Cash Collected</th>
                     <th className="pb-3 text-center">Rate</th>
@@ -135,6 +138,7 @@ export function MonthlySummaryWidget() {
                       <td className="py-3 pr-4 font-bold text-foreground dark:text-white/90">{r.month}</td>
                       <td className="py-3 pr-4 text-right font-mono tabular-nums">{r.bottlesDelivered.toLocaleString()}</td>
                       <td className="py-3 pr-4 text-right font-mono tabular-nums">{r.emptyReceived.toLocaleString()}</td>
+                      <td className="py-3 pr-4 text-right font-mono tabular-nums">{r.filledReceived.toLocaleString()}</td>
                       <td className="py-3 pr-4 text-right font-mono tabular-nums">{fmtCash(r.cashExpected)}</td>
                       <td className="py-3 pr-4 text-right font-mono tabular-nums text-emerald-400">{fmtCash(r.cashCollected)}</td>
                       <td className="py-3 text-center"><RateBadge rate={r.collectionRate} /></td>

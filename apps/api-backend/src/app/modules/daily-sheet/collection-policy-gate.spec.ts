@@ -1,4 +1,4 @@
-import { Test, TestingModule } from '@nestjs/testing';
+﻿import { Test, TestingModule } from '@nestjs/testing';
 import { getQueueToken } from '@nestjs/bullmq';
 import { PrismaService } from '@water-supply-crm/database';
 import { DailySheetService } from './daily-sheet.service';
@@ -171,6 +171,7 @@ describe('DailySheetService.submitDelivery — Collection Policy gate', () => {
         status: DeliveryStatus.COMPLETED,
         filledDropped: 1,
         emptyReceived: 0,
+        filledReceived: 0,
         cashCollected: 100, // below the required 1500
       } as any),
     ).rejects.toMatchObject({
@@ -201,6 +202,7 @@ describe('DailySheetService.submitDelivery — Collection Policy gate', () => {
       status: DeliveryStatus.COMPLETED,
       filledDropped: 1,
       emptyReceived: 0,
+      filledReceived: 0,
       cashCollected: 1500,
     } as any);
 
@@ -227,6 +229,7 @@ describe('DailySheetService.submitDelivery — Collection Policy gate', () => {
       status: DeliveryStatus.COMPLETED,
       filledDropped: 1,
       emptyReceived: 0,
+      filledReceived: 0,
       cashCollected: 0,
     } as any);
 
@@ -255,6 +258,7 @@ describe('DailySheetService.submitDelivery — Collection Policy gate', () => {
       status: DeliveryStatus.COMPLETED,
       filledDropped: 1,
       emptyReceived: 0,
+      filledReceived: 0,
       cashCollected: 1, // would violate if the policy were enabled
     } as any);
 
@@ -272,6 +276,7 @@ describe('DailySheetService.submitDelivery — Collection Policy gate', () => {
       status: DeliveryStatus.COMPLETED,
       filledDropped: 1,
       emptyReceived: 0,
+      filledReceived: 0,
       cashCollected: 1,
     } as any);
 
@@ -289,6 +294,7 @@ describe('DailySheetService.submitDelivery — Collection Policy gate', () => {
       status: DeliveryStatus.COMPLETED,
       filledDropped: 1,
       emptyReceived: 0,
+      filledReceived: 0,
       cashCollected: 1,
     } as any);
 
@@ -326,6 +332,7 @@ describe('DailySheetService.submitDelivery — Collection Policy gate', () => {
           status: DeliveryStatus.COMPLETED,
           filledDropped: 1,
           emptyReceived: 0,
+          filledReceived: 0,
           cashCollected: 200,
           forceResubmit: true,
         } as any),
@@ -349,6 +356,7 @@ describe('DailySheetService.submitDelivery — Collection Policy gate', () => {
         status: DeliveryStatus.COMPLETED,
         filledDropped: 1,
         emptyReceived: 0,
+        filledReceived: 0,
         cashCollected: 1500,
         forceResubmit: true,
       } as any);
@@ -374,6 +382,7 @@ describe('DailySheetService.submitDelivery — Collection Policy gate', () => {
       status: DeliveryStatus.COMPLETED,
       filledDropped: 1,
       emptyReceived: 0,
+      filledReceived: 0,
       cashCollected: 5000, // far more than the Rs.1500 requirement
     } as any);
 
@@ -399,6 +408,7 @@ describe('DailySheetService.submitDelivery — Collection Policy gate', () => {
         status: DeliveryStatus.COMPLETED,
         filledDropped: 1,
         emptyReceived: 0,
+        filledReceived: 0,
         cashCollected: 1500,
       } as any);
       expect(mockLedger.recordDelivery).toHaveBeenCalledWith(
@@ -422,6 +432,7 @@ describe('DailySheetService.submitDelivery — Collection Policy gate', () => {
         status: DeliveryStatus.COMPLETED,
         filledDropped: 1,
         emptyReceived: 0,
+        filledReceived: 0,
         cashCollected: 150,
       } as any);
 
@@ -450,6 +461,7 @@ describe('DailySheetService.submitDelivery — Collection Policy gate', () => {
       status: DeliveryStatus.COMPLETED,
       filledDropped: 1,
       emptyReceived: 0,
+      filledReceived: 0,
       cashCollected: 1500,
     } as any);
 

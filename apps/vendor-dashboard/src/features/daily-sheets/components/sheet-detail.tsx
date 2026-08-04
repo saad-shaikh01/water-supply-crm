@@ -17,7 +17,7 @@ import { BulkImportDialog } from './dialogs/bulk-import-dialog';
 import { toast } from 'sonner';
 import {
   CheckCircle2, ClipboardList, DollarSign,
-  Droplets, Loader2, Package, Plus, Receipt, Search, Truck, Upload, User, X,
+  Droplets, Loader2, Package, Plus, Receipt, RotateCcw, Search, Truck, Upload, User, X,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@water-supply-crm/ui';
@@ -201,6 +201,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const stats = useMemo(() => ({
     filledDropped: doneItems.reduce((acc, i) => acc + i.filledDropped, 0),
     emptyReceived: doneItems.reduce((acc, i) => acc + i.emptyReceived, 0),
+    filledReceived: doneItems.reduce((acc, i) => acc + i.filledReceived, 0),
     cashCollected: doneItems.reduce((acc, i) => acc + i.cashCollected, 0),
   }), [doneItems]);
   const sortedItems = useMemo(() => {
@@ -286,7 +287,9 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const hasAnyTrip = loads.length > 0;
   const isClosed = !!data?.isClosed;
   const currentStatus = isClosed ? 'CLOSED' : activeTrip ? 'LOADED' : hasAnyTrip ? 'CHECKED_IN' : 'OPEN';
-  const bottlesInTruck = Math.max(0, (data?.filledOutCount ?? 0) - stats.filledDropped);
+  // Filled bottles received back from customers physically re-enter the van's
+  // stock too — add them back or "Unrecorded" would falsely look understocked.
+  const bottlesInTruck = Math.max(0, (data?.filledOutCount ?? 0) - stats.filledDropped + stats.filledReceived);
 
   // Pre-fill values for check-in dialog
   const activeLoad = data?.loads?.find((l: any) => !l.endedAt);
@@ -462,6 +465,17 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             <div className="min-w-0">
               <p className="text-[10px] font-bold uppercase text-muted-foreground">Empty Received</p>
               <p className="text-sm font-black truncate">{stats.emptyReceived} <span className="text-xs font-normal text-muted-foreground">bottles</span></p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-card/50 backdrop-blur-sm">
+          <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
+            <div className="h-10 w-10 rounded-xl bg-sky-500/10 flex items-center justify-center text-sky-500 shrink-0">
+              <RotateCcw className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase text-muted-foreground">Filled Received</p>
+              <p className="text-sm font-black truncate">{stats.filledReceived} <span className="text-xs font-normal text-muted-foreground">bottles</span></p>
             </div>
           </CardContent>
         </Card>

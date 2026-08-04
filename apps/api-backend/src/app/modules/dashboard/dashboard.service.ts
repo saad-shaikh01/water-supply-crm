@@ -428,6 +428,7 @@ export class DashboardService {
         select: {
           filledDropped: true,
           emptyReceived: true,
+          filledReceived: true,
           dailySheet: { select: { date: true } },
         },
       }),
@@ -451,6 +452,7 @@ export class DashboardService {
 
       const bottlesDelivered = monthItems.reduce((s, i) => s + i.filledDropped, 0);
       const emptyReceived = monthItems.reduce((s, i) => s + i.emptyReceived, 0);
+      const filledReceived = monthItems.reduce((s, i) => s + i.filledReceived, 0);
       const cashExpected = monthSheets.reduce((s, sh) => s + sh.cashExpected, 0);
       const cashCollected = monthSheets.reduce((s, sh) => s + sh.cashCollected, 0);
 
@@ -458,6 +460,7 @@ export class DashboardService {
         month: monthStart.toLocaleString('en', { month: 'short', year: 'numeric' }),
         bottlesDelivered,
         emptyReceived,
+        filledReceived,
         cashExpected,
         cashCollected,
         collectionRate: cashExpected > 0 ? Math.round((cashCollected / cashExpected) * 100) : 0,

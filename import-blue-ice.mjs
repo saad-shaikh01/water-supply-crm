@@ -324,7 +324,10 @@ async function main() {
     // Every customer gets a wallet for the product (0-balance when none held) so
     // the consumption per-product breakdown renders for everyone.
     await prisma.bottleWallet.create({ data: { customerId: customer.id, productId: product.id, balance: c.bottleBalance } });
-    if (c.rate && c.rate !== PRODUCT_BASE_PRICE)
+    // c.rate === 0 is a genuine "free/zero rate" customer (13 in the current
+    // Master_Data export, all Rate="0" — no blank cells exist), not "no override".
+    // Only skip the override row when the rate exactly matches the base price.
+    if (c.rate !== PRODUCT_BASE_PRICE)
       await prisma.customerProductPrice.create({ data: { customerId: customer.id, productId: product.id, customPrice: c.rate } });
 
     const dayMap = {};

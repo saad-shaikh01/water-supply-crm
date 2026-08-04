@@ -15,6 +15,10 @@ export class AddAdhocItemDto {
   @Min(0)
   emptyReceived!: number;
 
+  @IsInt()
+  @Min(0)
+  filledReceived!: number;
+
   @IsNumber()
   @Min(0)
   cashCollected!: number;
