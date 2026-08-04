@@ -378,7 +378,7 @@ export class DailySheetService implements OnModuleInit {
       include: {
         customer: { select: { name: true, customerCode: true, phoneNumber: true, paymentType: true, isBillingExempt: true, financialBalance: true, customPrices: { select: { productId: true, customPrice: true } } } },
         product: { select: { name: true, basePrice: true } },
-        dailySheet: { select: { vendorId: true, date: true, vendor: { select: { name: true } } } },
+        dailySheet: { select: { vendorId: true, date: true, vendor: { select: { name: true } }, van: { select: { plateNumber: true } } } },
       },
     });
 
@@ -570,12 +570,19 @@ export class DailySheetService implements OnModuleInit {
           pricePerBottle: price,
         }, tx);
 
-        updatedWallet = await this.prisma.bottleWallet.findUnique({
+        // Read via `tx`, not `this.prisma` — ledger.recordDelivery() just wrote the
+        // new balances on this same transaction's connection; a read through the
+        // outer client (a different Postgres session) can't see an uncommitted
+        // write, so it would silently return the PRE-delivery balance instead
+        // (this was a real bug: bottleBalanceAfter/financialBalanceAfter snapshots
+        // — and the receipt PDF's "Total Outstanding Balance" — always showed the
+        // customer's balance from before this delivery, not after).
+        updatedWallet = await tx.bottleWallet.findUnique({
           where: { customerId_productId: { customerId: item.customerId, productId: item.productId } },
           select: { balance: true },
         });
 
-        updatedCustomer = await this.prisma.customer.findUnique({
+        updatedCustomer = await tx.customer.findUnique({
           where: { id: item.customerId },
           select: { financialBalance: true },
         });
@@ -633,6 +640,7 @@ export class DailySheetService implements OnModuleInit {
             customerName: item.customer.name,
             customerCode: item.customer.customerCode,
             productName: item.product.name,
+            van: item.dailySheet.van?.plateNumber,
             filledDropped: dto.filledDropped,
             emptyReceived: dto.emptyReceived ?? 0,
             filledReceived: dto.filledReceived ?? 0,
@@ -1310,11 +1318,12 @@ export class DailySheetService implements OnModuleInit {
         }, tx);
       }
 
-      const updatedWallet = await this.prisma.bottleWallet.findUnique({
+      // Same tx-visibility fix as submitDelivery — read via `tx`, not `this.prisma`.
+      const updatedWallet = await tx.bottleWallet.findUnique({
         where: { customerId_productId: { customerId: dto.customerId, productId: dto.productId } },
         select: { balance: true },
       });
-      const updatedCustomer = await this.prisma.customer.findUnique({
+      const updatedCustomer = await tx.customer.findUnique({
         where: { id: dto.customerId },
         select: { financialBalance: true },
       });
@@ -1414,11 +1423,12 @@ export class DailySheetService implements OnModuleInit {
         pricePerBottle: price,
       }, tx);
 
-      const updatedWallet = await this.prisma.bottleWallet.findUnique({
+      // Same tx-visibility fix as submitDelivery — read via `tx`, not `this.prisma`.
+      const updatedWallet = await tx.bottleWallet.findUnique({
         where: { customerId_productId: { customerId: dto.customerId, productId: dto.productId } },
         select: { balance: true },
       });
-      const updatedCustomer = await this.prisma.customer.findUnique({
+      const updatedCustomer = await tx.customer.findUnique({
         where: { id: dto.customerId },
         select: { financialBalance: true },
       });
@@ -2468,7 +2478,7 @@ export class DailySheetService implements OnModuleInit {
       include: {
         customer: { select: { name: true, customerCode: true, paymentType: true, financialBalance: true } },
         product: { select: { name: true } },
-        dailySheet: { select: { date: true, vendorId: true, vendor: { select: { name: true } } } },
+        dailySheet: { select: { date: true, vendorId: true, vendor: { select: { name: true } }, van: { select: { plateNumber: true } } } },
       },
     });
     if (!item || item.dailySheet.vendorId !== vendorId) {
@@ -2488,6 +2498,7 @@ export class DailySheetService implements OnModuleInit {
       customerName: item.customer.name,
       customerCode: item.customer.customerCode,
       productName: item.product.name,
+      van: item.dailySheet.van?.plateNumber,
       filledDropped: item.filledDropped,
       emptyReceived: item.emptyReceived,
       filledReceived: item.filledReceived,
