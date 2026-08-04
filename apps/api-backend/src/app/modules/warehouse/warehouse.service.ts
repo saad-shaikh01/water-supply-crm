@@ -1,9 +1,14 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { PrismaService } from '@water-supply-crm/database';
+import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
 import { Prisma, WarehouseTransactionType } from '@prisma/client';
 import { FillInDto } from './dto/fill-in.dto';
 import { OpeningBalanceDto } from './dto/opening-balance.dto';
@@ -14,11 +19,49 @@ import { SendRepairDto } from './dto/send-repair.dto';
 import { ReturnRepairDto } from './dto/return-repair.dto';
 import { WriteOffDto } from './dto/write-off.dto';
 import { AdjustmentDto } from './dto/adjustment.dto';
+import { UpdateAutoRefillConfigDto } from './dto/update-auto-refill-config.dto';
 import { WarehouseTransactionQueryDto, RepairBatchQueryDto, WarehouseSummaryDto } from './dto/warehouse-query.dto';
 
+// Runs 10 min after daily sheet auto-generation (00:05 Asia/Karachi, see
+// AUTO_GENERATE_CRON in daily-sheet.service.ts) so the night's check-ins are
+// all in before the sweep runs.
+const AUTO_REFILL_CRON = '15 0 * * *';
+const AUTO_REFILL_TZ = 'Asia/Karachi';
+const AUTO_REFILL_JOB_ID = 'warehouse-auto-refill';
+
 @Injectable()
-export class WarehouseService {
-  constructor(private readonly prisma: PrismaService) {}
+export class WarehouseService implements OnModuleInit {
+  private readonly logger = new Logger(WarehouseService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    @InjectQueue(QUEUE_NAMES.WAREHOUSE_AUTO_REFILL)
+    private readonly refillQueue: Queue,
+  ) {}
+
+  async onModuleInit() {
+    try {
+      const nextJob = await this.refillQueue.upsertJobScheduler(
+        AUTO_REFILL_JOB_ID,
+        { pattern: AUTO_REFILL_CRON, tz: AUTO_REFILL_TZ },
+        {
+          name: JOB_NAMES.AUTO_REFILL_EMPTY_BOTTLES,
+          opts: { removeOnComplete: 30, removeOnFail: 20 },
+        },
+      );
+      const nextRun = nextJob
+        ? new Date(nextJob.timestamp + (nextJob.delay ?? 0)).toISOString()
+        : 'unknown';
+      this.logger.log(
+        `Warehouse auto-refill scheduled (${AUTO_REFILL_CRON} ${AUTO_REFILL_TZ}) — next run at ${nextRun}`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `Failed to schedule warehouse auto-refill: ${(err as Error)?.message ?? String(err)}`,
+        (err as Error)?.stack,
+      );
+    }
+  }
 
   // ─── Read ────────────────────────────────────────────────────────────────
 
@@ -66,7 +109,7 @@ export class WarehouseService {
 
     // Customer wallet total
     const walletAgg = await this.prisma.bottleWallet.aggregate({
-      where: { customer: { vendorId } },
+      where: { customer: { vendorId, isActive: true } },
       _sum: { balance: true },
     });
     const customersWalletTotal = walletAgg._sum.balance ?? 0;
@@ -676,5 +719,75 @@ export class WarehouseService {
       { dailySheetId },
       tx,
     );
+  }
+
+  // ─── Auto-refill (nightly, opt-in) ─────────────────────────────────────────
+  // Temporary policy toggle: when enabled, every emptyCount bottle collected
+  // from customers is treated as filled again by the next morning, without
+  // waiting for a manual Refill. Check-in itself is untouched (still records
+  // real empties via recordCheckinEmpty above) — this job sweeps emptyCount
+  // -> filledCount for the whole vendor once a night. Reversible: turn the
+  // config off and the manual-only Refill flow is exactly what it was before.
+
+  async getAutoRefillConfig(vendorId: string) {
+    const config = await this.prisma.warehouseAutoRefillConfig.findUnique({
+      where: { vendorId },
+    });
+    return { enabled: config?.enabled ?? false };
+  }
+
+  async updateAutoRefillConfig(vendorId: string, dto: UpdateAutoRefillConfigDto) {
+    const config = await this.prisma.warehouseAutoRefillConfig.upsert({
+      where: { vendorId },
+      create: { vendorId, enabled: dto.enabled },
+      update: { enabled: dto.enabled },
+    });
+    return { enabled: config.enabled };
+  }
+
+  /** Sweeps emptyCount -> filledCount for every product of one vendor. Used by the nightly job; safe to call directly too (e.g. tests). */
+  async runAutoRefillForVendor(vendorId: string): Promise<{ productsRefilled: number; bottlesRefilled: number }> {
+    const stocks = await this.prisma.warehouseStock.findMany({
+      where: { vendorId, emptyCount: { gt: 0 } },
+    });
+
+    let productsRefilled = 0;
+    let bottlesRefilled = 0;
+
+    for (const stock of stocks) {
+      await this.prisma.$transaction(async (tx) => {
+        await this.applyDeltas(
+          vendorId,
+          stock.productId,
+          { emptyDelta: -stock.emptyCount, filledDelta: stock.emptyCount },
+          WarehouseTransactionType.AUTO_REFILL,
+          { notes: 'Nightly auto-refill (empty received from customers)' },
+          tx,
+        );
+      });
+      productsRefilled++;
+      bottlesRefilled += stock.emptyCount;
+    }
+
+    return { productsRefilled, bottlesRefilled };
+  }
+
+  /** Fan-out entry point for the scheduled job: every vendor with the toggle enabled. */
+  async runAutoRefillForAllVendors(): Promise<{ vendorsProcessed: number; bottlesRefilled: number }> {
+    const configs = await this.prisma.warehouseAutoRefillConfig.findMany({
+      where: { enabled: true, vendor: { isActive: true } },
+      select: { vendorId: true },
+    });
+
+    let vendorsProcessed = 0;
+    let bottlesRefilled = 0;
+
+    for (const { vendorId } of configs) {
+      const result = await this.runAutoRefillForVendor(vendorId);
+      vendorsProcessed++;
+      bottlesRefilled += result.bottlesRefilled;
+    }
+
+    return { vendorsProcessed, bottlesRefilled };
   }
 }

@@ -112,6 +112,7 @@ enum WarehouseTransactionType {
   WRITE_OFF
   DISCREPANCY_ADJUST
   ADJUSTMENT
+  AUTO_REFILL
 }
 
 enum RepairBatchStatus {
@@ -194,6 +195,7 @@ model Vendor {
   roles                   Role[]
   collectionPolicyConfig  CollectionPolicyConfig?
   cashCollectionPolicyConfig CashCollectionPolicyConfig?
+  warehouseAutoRefillConfig  WarehouseAutoRefillConfig?
 }
 
 model User {
@@ -1040,6 +1042,22 @@ model ReminderScheduleConfig {
 /// Monthly Customer Collection Policy — vendor-configurable minimum-collection
 /// floor evaluated against the customer's remaining previous month outstanding.
 /// Missing row = policy disabled (mirrors NotificationSetting's convention).
+/// Toggle for the nightly auto-refill job (docs discussion 2026-08-04): when
+/// enabled, the warehouse-auto-refill cron converts all warehouse emptyCount
+/// into filledCount every night, right after daily sheet auto-generation.
+/// Temporary/reversible by design — missing row or enabled=false means the
+/// old manual-only Refill flow applies, unchanged.
+model WarehouseAutoRefillConfig {
+  id        String   @id @default(uuid())
+  vendorId  String   @unique
+  vendor    Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  enabled   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vendorId])
+}
+
 model CollectionPolicyConfig {
   id                      String   @id @default(uuid())
   vendorId                String   @unique
