@@ -13,6 +13,12 @@ export class SubmitDeliveryDto {
   @Min(0)
   emptyReceived!: number;
 
+  // Already-filled bottles received back from the customer (account closing,
+  // excess stock return) — separate count from emptyReceived, no refill needed.
+  @IsInt()
+  @Min(0)
+  filledReceived!: number;
+
   @IsNumber()
   @Min(0)
   cashCollected!: number;

@@ -203,6 +203,8 @@ export interface DeliveryItem {
   status: DeliveryStatusType;
   filledDropped: number;
   emptyReceived: number;
+  /** Already-filled bottles received back from the customer (account closing, excess stock return). */
+  filledReceived: number;
   cashCollected: number;
   reason?: string | null;
   failureCategory?: string | null;
@@ -304,6 +306,7 @@ export interface CustomerDeliveryHistoryItem {
   id: string;
   filledDropped: number;
   emptyReceived: number;
+  filledReceived: number;
   cashCollected: number;
   pricePerBottle: number;
   bottleBalanceAfter: number | null;

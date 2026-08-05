@@ -23,6 +23,7 @@ const emptyForm = {
   productId: '',
   filledDropped: undefined as number | undefined,
   emptyReceived: undefined as number | undefined,
+  filledReceived: undefined as number | undefined,
   cashCollected: undefined as number | undefined,
   correctionNote: '',
 };
@@ -108,6 +109,7 @@ export function CorrectionEntryDialog({ open, onClose, sheetId }: CorrectionEntr
       productId: form.productId,
       filledDropped: form.filledDropped ?? 0,
       emptyReceived: form.emptyReceived ?? 0,
+      filledReceived: form.filledReceived ?? 0,
       cashCollected: form.cashCollected ?? 0,
       correctionNote: form.correctionNote.trim(),
     }, { onSuccess: onClose });
@@ -208,7 +210,7 @@ export function CorrectionEntryDialog({ open, onClose, sheetId }: CorrectionEntr
           )}
 
           {/* Numeric Fields */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">Filled Dropped</Label>
               <Input
@@ -226,6 +228,16 @@ export function CorrectionEntryDialog({ open, onClose, sheetId }: CorrectionEntr
                 min={0}
                 value={form.emptyReceived ?? ''}
                 onChange={(e) => setForm((p) => ({ ...p, emptyReceived: e.target.value === '' ? undefined : Number(e.target.value) }))}
+                className="font-mono font-bold"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">Filled Received</Label>
+              <Input
+                type="number"
+                min={0}
+                value={form.filledReceived ?? ''}
+                onChange={(e) => setForm((p) => ({ ...p, filledReceived: e.target.value === '' ? undefined : Number(e.target.value) }))}
                 className="font-mono font-bold"
               />
             </div>

@@ -591,6 +591,21 @@ export class CustomerService {
       );
     }
 
+    // Refuse to close a customer who is still holding company bottles — the
+    // driver must first record the final return delivery (Filled/Empty Received)
+    // so the bottle wallet settles to zero before the account is closed.
+    const outstandingWallets = await this.prisma.bottleWallet.findMany({
+      where: { customerId: id, balance: { not: 0 } },
+      select: { balance: true, product: { select: { name: true } } },
+    });
+    if (outstandingWallets.length > 0) {
+      const summary = outstandingWallets.map((w) => `${w.product.name}: ${w.balance}`).join(', ');
+      throw new ConflictException(
+        `Customer still has outstanding bottles (${summary}). Record the final return delivery ` +
+        `(Filled/Empty Received) before deactivating.`
+      );
+    }
+
     const updated = await this.prisma.customer.update({
       where: { id },
       data: { isActive: false },

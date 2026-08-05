@@ -28,14 +28,20 @@ export class LedgerService {
       dailySheetItemId?: string;
       filledDropped: number;
       emptyReceived: number;
+      /** Already-filled bottles received back from the customer (account closing,
+       * excess stock return). Optional for backward compatibility with callers
+       * (e.g. bulk-import) that don't have this concept — defaults to 0. Treated
+       * financially the same as emptyReceived: reduces the bottle wallet, no charge. */
+      filledReceived?: number;
       cashCollected: number;
       pricePerBottle: number;
     },
     txClient?: Prisma.TransactionClient,
   ) {
     const run = async (tx: Prisma.TransactionClient) => {
+      const filledReceived = data.filledReceived ?? 0;
       const totalAmount = data.filledDropped * data.pricePerBottle;
-      const newBottleChange = data.filledDropped - data.emptyReceived;
+      const newBottleChange = data.filledDropped - data.emptyReceived - filledReceived;
       const newFinancialEffect = totalAmount - data.cashCollected;
 
       // ── Idempotent re-post: if this item already has ledger entries, apply delta only ──
@@ -60,7 +66,7 @@ export class LedgerService {
       if (!walletForCheck || walletForCheck.balance + newBottleChange < 0) {
         const available = (walletForCheck?.balance ?? 0) + data.filledDropped;
         throw new BadRequestException(
-          `Cannot collect ${data.emptyReceived} empty bottle(s) — only ${available} available ` +
+          `Cannot collect ${data.emptyReceived} empty + ${filledReceived} filled bottle(s) — only ${available} available ` +
           `(wallet: ${walletForCheck?.balance ?? 0} + dropped: ${data.filledDropped}).`,
         );
       }
@@ -90,9 +96,12 @@ export class LedgerService {
           ...(data.dailySheetItemId && { dailySheetItemId: data.dailySheetItemId }),
           filledDropped: data.filledDropped,
           emptyReceived: data.emptyReceived,
+          filledReceived,
           bottleCount: newBottleChange,
           amount: totalAmount,
-          description: `Delivered ${data.filledDropped}, Received ${data.emptyReceived}`,
+          description: filledReceived > 0
+            ? `Delivered ${data.filledDropped}, Empty Received ${data.emptyReceived}, Filled Received ${filledReceived}`
+            : `Delivered ${data.filledDropped}, Received ${data.emptyReceived}`,
         },
       });
 
@@ -127,6 +136,7 @@ export class LedgerService {
       dailySheetItemId: string;
       filledDropped: number;
       emptyReceived: number;
+      filledReceived?: number;
       cashCollected: number;
     },
     computed: { totalAmount: number; newBottleChange: number; newFinancialEffect: number },
@@ -188,9 +198,12 @@ export class LedgerService {
         dailySheetItemId: data.dailySheetItemId,
         filledDropped: data.filledDropped,
         emptyReceived: data.emptyReceived,
+        filledReceived: data.filledReceived ?? 0,
         bottleCount: computed.newBottleChange,
         amount: computed.totalAmount,
-        description: `Delivered ${data.filledDropped}, Received ${data.emptyReceived}`,
+        description: (data.filledReceived ?? 0) > 0
+          ? `Delivered ${data.filledDropped}, Empty Received ${data.emptyReceived}, Filled Received ${data.filledReceived}`
+          : `Delivered ${data.filledDropped}, Received ${data.emptyReceived}`,
       },
     });
 

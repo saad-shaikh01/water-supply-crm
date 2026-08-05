@@ -13,7 +13,7 @@ import { useCloseSheet } from '../../hooks/use-daily-sheets';
 
 interface ReconcileData {
   pendingCount: number;
-  bottles: { dispatched: number; delivered: number; returned: number; discrepancy: number };
+  bottles: { dispatched: number; delivered: number; returned: number; receivedFromCustomers: number; discrepancy: number };
   cashCustomers: { count: number; billed: number; collected: number; addedToBalance: number };
   monthlyCustomers: { count: number; billedToAccounts: number };
   expenses: { total: number };
@@ -107,6 +107,10 @@ export function ReconcileDialog({ open, onClose, sheetId }: ReconcileDialogProps
                   <div>
                     <p className="text-[10px] text-muted-foreground font-bold uppercase">Returned to Warehouse</p>
                     <p className="text-xl font-black font-mono">{data.bottles.returned}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-muted-foreground font-bold uppercase">Received from Customers</p>
+                    <p className="text-xl font-black font-mono">{data.bottles.receivedFromCustomers}</p>
                   </div>
                   <div>
                     <p className="text-[10px] text-muted-foreground font-bold uppercase">Discrepancy</p>

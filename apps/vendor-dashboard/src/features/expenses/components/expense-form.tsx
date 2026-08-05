@@ -12,11 +12,11 @@ import { useCreateExpense, useUpdateExpense } from '../hooks/use-expenses';
 import { useAllVans } from '../../vans/hooks/use-vans';
 
 const CATEGORIES = [
-  { value: 'FUEL', label: 'Fuel' },
-  { value: 'MAINTENANCE', label: 'Maintenance' },
-  { value: 'SALARY', label: 'Salary' },
-  { value: 'REPAIR', label: 'Repair' },
-  { value: 'OTHER', label: 'Other' },
+  { value: 'LUNCH_EXPENSE_EMPLOYEE', label: 'Lunch Exp Employee' },
+  { value: 'ADVANCE_SALARY_EMPLOYEE', label: 'Adv Salary Employee' },
+  { value: 'VEHICLE_MAINTENANCE', label: 'Vehicle Maintenance' },
+  { value: 'FUEL_EXPENSE', label: 'Fuel Exp' },
+  { value: 'OTHER', label: 'Others' },
 ] as const;
 
 interface ExpenseFormProps {
@@ -40,7 +40,7 @@ export function ExpenseForm({ open, onOpenChange, expense, dailySheetId, default
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<ExpenseInput>({
     resolver: zodResolver(expenseSchema),
     defaultValues: {
-      category: 'FUEL',
+      category: 'FUEL_EXPENSE',
       date: new Date().toISOString().slice(0, 10),
     },
   });
@@ -49,19 +49,19 @@ export function ExpenseForm({ open, onOpenChange, expense, dailySheetId, default
     if (open && expense) {
       reset({
         amount: Number(expense.amount ?? 0),
-        category: (expense.category as any) ?? 'FUEL',
+        category: (expense.category as any) ?? 'FUEL_EXPENSE',
         description: String(expense.description ?? ''),
         date: expense.date ? String(expense.date).slice(0, 10) : new Date().toISOString().slice(0, 10),
         vanId: expense.vanId ? String(expense.vanId) : undefined,
       });
     } else if (open && !expense && defaultVanId) {
       reset({
-        category: 'FUEL',
+        category: 'FUEL_EXPENSE',
         date: new Date().toISOString().slice(0, 10),
         vanId: defaultVanId,
       });
     } else if (!open) {
-      reset({ category: 'FUEL', date: new Date().toISOString().slice(0, 10) });
+      reset({ category: 'FUEL_EXPENSE', date: new Date().toISOString().slice(0, 10) });
     }
   }, [open, expense, reset, defaultVanId]);
 

@@ -1,5 +1,5 @@
 /**
- * One-time historical data import for vendor "BLUE ICE".
+ * Repeatable historical-data import/refresh for vendor "BLUE ICE".
  *
  * Reads two Excel-exported HTML files in the repo root:
  *   - Master_Data_complete.html  → customers (master record)
@@ -8,7 +8,19 @@
  * Builds: Vendor → Product → Vans + Drivers → Customers (+wallet, custom price,
  * delivery schedule, portal login) → DailySheets + DailySheetItems + Transactions.
  *
- * Idempotent: wipes everything under slug 'blue-ice' first, then re-imports.
+ * Accounts-preserving re-run model: the vendor, its Users (VENDOR_ADMIN/STAFF/
+ * drivers/SUPER_ADMIN), RBAC (Role/RolePermission/UserPermissionOverride), Vans,
+ * and Product are found-or-created — NEVER deleted or recreated on a re-run, so
+ * real login credentials, custom roles/permissions, and van/driver assignments
+ * made in the live CRM survive every re-import. Only the DATA LAYER that this
+ * script itself derives from the HTML exports (Customer, BottleWallet,
+ * CustomerProductPrice, CustomerDeliverySchedule, Route, DailySheet,
+ * DailySheetItem, Transaction) is wiped and rebuilt fresh each run — see
+ * wipeVendorDataOnly(). Note: this still means anything tied to a Customer row
+ * that this script does NOT generate (damage cases, delivery issues, tickets,
+ * orders, payment requests, conversations, expenses, warehouse ops) is lost on
+ * re-run too, since customers get fresh ids — flagged, not solved here.
+ *
  * Run:  node import-blue-ice.mjs            (real run)
  *       node import-blue-ice.mjs --dry      (parse + report only, no DB writes)
  */
@@ -29,8 +41,10 @@ const PRODUCT_BASE_PRICE = 240;
 const BCRYPT_ROUNDS = 10;
 const BATCH = 1000;
 
-// Vendors to fully wipe before import (old demo + any previous blue-ice run)
-const WIPE_SLUGS = ['aquapure-karachi', VENDOR_SLUG];
+// Old demo vendor(s) to fully wipe on every run — unrelated to BLUE ICE production
+// accounts, safe to nuke. BLUE ICE itself is NEVER in this list anymore — see
+// wipeVendorDataOnly() and the find-or-create flow in main().
+const WIPE_SLUGS = ['aquapure-karachi'];
 
 // Login accounts — same style as prisma/seed.ts (admin + staff + drivers)
 const SUPER_ADMIN = { email: 'super@watercrm.com', password: 'Super@123456', name: 'Platform Super Admin' };
@@ -177,9 +191,47 @@ async function wipeVendor(slug) {
 }
 
 async function wipeAll() {
-  console.log('--- Wiping vendors ---');
+  console.log('--- Wiping old demo vendor(s) ---');
   for (const slug of WIPE_SLUGS) await wipeVendor(slug);
   console.log('');
+}
+
+// Wipes only the DATA LAYER this script itself derives from the HTML exports,
+// for an EXISTING vendor — never the Vendor row, never Users, never RBAC
+// (Role/RolePermission/UserPermissionOverride), never Van/VanDefaultCrew, never
+// Product. This is what makes re-running the import safe against a live vendor:
+// real login accounts, custom roles/permissions, and van/driver assignments
+// made through the CRM survive every re-import untouched.
+async function wipeVendorDataOnly(vendorId) {
+  const w = { vendorId };
+  const cw = { customer: { vendorId } };
+  const dsw = { dailySheet: { vendorId } };
+
+  await prisma.damageCaseAuditLog.deleteMany({ where: { damageCase: w } });
+  await prisma.damageCase.deleteMany({ where: w });
+  await prisma.deliveryIssue.deleteMany({ where: w });
+  await prisma.conversationRead.deleteMany({ where: { conversation: w } });
+  await prisma.conversationMessage.deleteMany({ where: w });
+  await prisma.conversation.deleteMany({ where: w });
+  await prisma.ticketMessage.deleteMany({ where: { ticket: w } });
+  await prisma.customerTicket.deleteMany({ where: w });
+  await prisma.customerOrder.deleteMany({ where: w });
+  await prisma.paymentRequest.deleteMany({ where: w });
+  await prisma.transaction.deleteMany({ where: w });
+  await prisma.dailySheetItem.deleteMany({ where: dsw });
+  await prisma.dailySheetLoad.deleteMany({ where: dsw });
+  await prisma.dailySheetCrew.deleteMany({ where: dsw });
+  await prisma.expense.deleteMany({ where: w });
+  await prisma.warehouseTransaction.deleteMany({ where: w });
+  await prisma.repairBatch.deleteMany({ where: w });
+  await prisma.warehouseStock.deleteMany({ where: w });
+  await prisma.dailySheet.deleteMany({ where: w });
+  await prisma.customerDeliverySchedule.deleteMany({ where: cw });
+  await prisma.bottleWallet.deleteMany({ where: cw });
+  await prisma.customerProductPrice.deleteMany({ where: cw });
+  await prisma.customer.deleteMany({ where: w });
+  await prisma.route.deleteMany({ where: w }); // derived purely from customer Area data — safe to rebuild
+  console.log(`   ✅ cleared data layer for existing vendor (accounts, RBAC, vans, product untouched)`);
 }
 
 async function chunkCreate(model, data) {
@@ -220,49 +272,80 @@ async function main() {
     return;
   }
 
-  await wipeAll();
+  await wipeAll(); // demo vendor(s) only — never blue-ice
 
-  // ── Vendor ──
-  const vendor = await prisma.vendor.create({ data: { name: VENDOR_NAME, slug: VENDOR_SLUG, address: 'Karachi, Pakistan' } });
-  // ── Product ──
-  const product = await prisma.product.create({ data: { name: PRODUCT_NAME, basePrice: PRODUCT_BASE_PRICE, vendorId: vendor.id } });
+  // ── Vendor: find-or-create. On a re-run this is an EXISTING vendor — we wipe
+  //    only its data layer (wipeVendorDataOnly), never the vendor row itself, so
+  //    everything account/RBAC-shaped below survives untouched. ──
+  let vendor = await prisma.vendor.findUnique({ where: { slug: VENDOR_SLUG } });
+  if (!vendor) {
+    vendor = await prisma.vendor.create({ data: { name: VENDOR_NAME, slug: VENDOR_SLUG, address: 'Karachi, Pakistan' } });
+    console.log(`✅ Created vendor '${VENDOR_NAME}' (first run)\n`);
+  } else {
+    console.log(`--- Refreshing data for existing vendor '${VENDOR_NAME}' (accounts + RBAC preserved) ---`);
+    await wipeVendorDataOnly(vendor.id);
+    console.log('');
+  }
 
-  // ── Platform SUPER_ADMIN (upsert — platform-level, no vendor) ──
-  const superPass = await bcrypt.hash(SUPER_ADMIN.password, BCRYPT_ROUNDS);
-  await prisma.user.upsert({
-    where: { email: SUPER_ADMIN.email },
-    update: { password: superPass, role: UserRole.SUPER_ADMIN, name: SUPER_ADMIN.name },
-    create: { email: SUPER_ADMIN.email, password: superPass, name: SUPER_ADMIN.name, role: UserRole.SUPER_ADMIN },
-  });
-  // ── VENDOR_ADMIN + STAFF for BLUE ICE ──
-  await prisma.user.create({
-    data: { email: VENDOR_ADMIN.email, password: await bcrypt.hash(VENDOR_ADMIN.password, BCRYPT_ROUNDS),
-      name: VENDOR_ADMIN.name, role: UserRole.VENDOR_ADMIN, vendorId: vendor.id },
-  });
-  await prisma.user.create({
-    data: { email: STAFF.email, password: await bcrypt.hash(STAFF.password, BCRYPT_ROUNDS),
-      name: STAFF.name, role: UserRole.STAFF, vendorId: vendor.id },
-  });
+  // ── Product: find-or-create — static config, never recreated ──
+  let product = await prisma.product.findFirst({ where: { vendorId: vendor.id, name: PRODUCT_NAME } });
+  if (!product) {
+    product = await prisma.product.create({ data: { name: PRODUCT_NAME, basePrice: PRODUCT_BASE_PRICE, vendorId: vendor.id } });
+  }
 
-  // ── Vans + one placeholder driver each ──
+  // ── Platform SUPER_ADMIN — created once; NEVER touched again (no password reset
+  //    on re-run, so a real password change in the live app survives) ──
+  if (!(await prisma.user.findUnique({ where: { email: SUPER_ADMIN.email } }))) {
+    await prisma.user.create({
+      data: { email: SUPER_ADMIN.email, password: await bcrypt.hash(SUPER_ADMIN.password, BCRYPT_ROUNDS),
+        name: SUPER_ADMIN.name, role: UserRole.SUPER_ADMIN },
+    });
+  }
+  // ── VENDOR_ADMIN + STAFF for BLUE ICE — same create-once-only rule ──
+  if (!(await prisma.user.findUnique({ where: { email: VENDOR_ADMIN.email } }))) {
+    await prisma.user.create({
+      data: { email: VENDOR_ADMIN.email, password: await bcrypt.hash(VENDOR_ADMIN.password, BCRYPT_ROUNDS),
+        name: VENDOR_ADMIN.name, role: UserRole.VENDOR_ADMIN, vendorId: vendor.id },
+    });
+  }
+  if (!(await prisma.user.findUnique({ where: { email: STAFF.email } }))) {
+    await prisma.user.create({
+      data: { email: STAFF.email, password: await bcrypt.hash(STAFF.password, BCRYPT_ROUNDS),
+        name: STAFF.name, role: UserRole.STAFF, vendorId: vendor.id },
+    });
+  }
+
+  // ── Vans + drivers: find-or-create by plateNumber (= van code). Existing vans/
+  //    drivers/passwords/default-crew assignments are never touched. ──
   const driverPass = await bcrypt.hash(DRIVER_PASS, BCRYPT_ROUNDS);
+  const existingVans = await prisma.van.findMany({ where: { vendorId: vendor.id } });
+  const vanByPlate = new Map(existingVans.map((v) => [v.plateNumber, v]));
   const vanByCode = {};
+  let newVanCount = 0;
   for (const code of vanCodes) {
-    const driver = await prisma.user.create({
-      data: { email: `driver-${code.toLowerCase()}@${VENDOR_SLUG}.local`, password: driverPass,
-        name: `Driver ${code}`, role: UserRole.DRIVER, vendorId: vendor.id },
-    });
-    vanByCode[code] = await prisma.van.create({
-      data: { plateNumber: `${code}`, vendorId: vendor.id, defaultDriverId: driver.id },
-    });
+    let van = vanByPlate.get(code);
+    if (!van) {
+      const driverEmail = `driver-${code.toLowerCase()}@${VENDOR_SLUG}.local`;
+      let driver = await prisma.user.findUnique({ where: { email: driverEmail } });
+      if (!driver) {
+        driver = await prisma.user.create({
+          data: { email: driverEmail, password: driverPass, name: `Driver ${code}`, role: UserRole.DRIVER, vendorId: vendor.id },
+        });
+      }
+      van = await prisma.van.create({ data: { plateNumber: code, vendorId: vendor.id, defaultDriverId: driver.id } });
+      newVanCount++;
+    }
+    vanByCode[code] = van;
   }
   // fallback van for transactions whose customer has no schedule
-  let fallbackVan = Object.values(vanByCode)[0];
+  let fallbackVan = Object.values(vanByCode)[0] ?? existingVans[0];
   if (!fallbackVan) {
-    const d = await prisma.user.create({ data: { email: `driver-default@${VENDOR_SLUG}.local`, password: driverPass, name: 'Driver', role: UserRole.DRIVER, vendorId: vendor.id } });
+    const driverEmail = `driver-default@${VENDOR_SLUG}.local`;
+    let d = await prisma.user.findUnique({ where: { email: driverEmail } });
+    if (!d) d = await prisma.user.create({ data: { email: driverEmail, password: driverPass, name: 'Driver', role: UserRole.DRIVER, vendorId: vendor.id } });
     fallbackVan = await prisma.van.create({ data: { plateNumber: 'BLUEICE-DEFAULT', vendorId: vendor.id, defaultDriverId: d.id } });
   }
-  console.log(`✅ Vendor, product, ${Object.keys(vanByCode).length} vans + drivers\n`);
+  console.log(`✅ Vendor, product, ${Object.keys(vanByCode).length} vans ready (${newVanCount} new, ${Object.keys(vanByCode).length - newVanCount} reused)\n`);
 
   // ── Routes: one per Area (name = area); blank-area customers fall back to a
   //    per-van route "Route V1/V2/V3". defaultVan = dominant van of the area. ──
@@ -324,7 +407,10 @@ async function main() {
     // Every customer gets a wallet for the product (0-balance when none held) so
     // the consumption per-product breakdown renders for everyone.
     await prisma.bottleWallet.create({ data: { customerId: customer.id, productId: product.id, balance: c.bottleBalance } });
-    if (c.rate && c.rate !== PRODUCT_BASE_PRICE)
+    // c.rate === 0 is a genuine "free/zero rate" customer (13 in the current
+    // Master_Data export, all Rate="0" — no blank cells exist), not "no override".
+    // Only skip the override row when the rate exactly matches the base price.
+    if (c.rate !== PRODUCT_BASE_PRICE)
       await prisma.customerProductPrice.create({ data: { customerId: customer.id, productId: product.id, customPrice: c.rate } });
 
     const dayMap = {};
@@ -429,6 +515,8 @@ async function main() {
   console.log(`  Items     : ${items.length}`);
   console.log(`  Txns      : ${txns.length}`);
   console.log('───────────────────────────────────────────');
+  console.log('  Accounts + RBAC were preserved if they already existed — passwords');
+  console.log('  below are the DEFAULTS used only when an account was just created:');
   console.log(`  SUPER_ADMIN  : ${SUPER_ADMIN.email} / ${SUPER_ADMIN.password}`);
   console.log(`  VENDOR_ADMIN : ${VENDOR_ADMIN.email} / ${VENDOR_ADMIN.password}`);
   console.log(`  STAFF        : ${STAFF.email} / ${STAFF.password}`);

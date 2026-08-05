@@ -114,6 +114,7 @@ function CustomerHistorySection({ customerId }: { customerId: string }) {
                       <th className="text-left px-3 py-2 font-bold text-muted-foreground whitespace-nowrap">Date</th>
                       <th className="text-center px-2 py-2 font-bold text-muted-foreground">↓ Fill</th>
                       <th className="text-center px-2 py-2 font-bold text-muted-foreground">↑ Emp</th>
+                      <th className="text-center px-2 py-2 font-bold text-muted-foreground">↺ Fill</th>
                       <th className="text-center px-2 py-2 font-bold text-muted-foreground whitespace-nowrap">Btl Bal</th>
                       <th className="text-right px-2 py-2 font-bold text-muted-foreground whitespace-nowrap">Amt Due</th>
                       <th className="text-right px-2 py-2 font-bold text-muted-foreground whitespace-nowrap">Received</th>
@@ -132,6 +133,7 @@ function CustomerHistorySection({ customerId }: { customerId: string }) {
                           <td className="px-3 py-2 whitespace-nowrap font-medium">{dateStr}</td>
                           <td className="px-2 py-2 text-center font-bold text-orange-600">{row.filledDropped}</td>
                           <td className="px-2 py-2 text-center font-bold text-purple-600">{row.emptyReceived}</td>
+                          <td className="px-2 py-2 text-center font-bold text-sky-600">{row.filledReceived}</td>
                           <td className="px-2 py-2 text-center font-bold">
                             {row.bottleBalanceAfter != null ? row.bottleBalanceAfter : '—'}
                           </td>
@@ -493,6 +495,11 @@ export function DeliveryItemsList({
                             {item.status !== 'PENDING' && item.emptyReceived > 0 && (
                               <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none bg-purple-500/15 text-purple-700 dark:text-purple-400">
                                 ↑{item.emptyReceived}
+                              </span>
+                            )}
+                            {item.status !== 'PENDING' && item.filledReceived > 0 && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none bg-sky-500/15 text-sky-700 dark:text-sky-400">
+                                ↺{item.filledReceived}
                               </span>
                             )}
                           </div>

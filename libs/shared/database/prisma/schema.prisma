@@ -56,10 +56,10 @@ enum TransactionType {
 }
 
 enum ExpenseCategory {
-  FUEL
-  MAINTENANCE
-  SALARY
-  REPAIR
+  LUNCH_EXPENSE_EMPLOYEE
+  ADVANCE_SALARY_EMPLOYEE
+  VEHICLE_MAINTENANCE
+  FUEL_EXPENSE
   OTHER
 }
 
@@ -112,6 +112,7 @@ enum WarehouseTransactionType {
   WRITE_OFF
   DISCREPANCY_ADJUST
   ADJUSTMENT
+  AUTO_REFILL
 }
 
 enum RepairBatchStatus {
@@ -194,6 +195,7 @@ model Vendor {
   roles                   Role[]
   collectionPolicyConfig  CollectionPolicyConfig?
   cashCollectionPolicyConfig CashCollectionPolicyConfig?
+  warehouseAutoRefillConfig  WarehouseAutoRefillConfig?
 }
 
 model User {
@@ -577,6 +579,11 @@ model DailySheetItem {
 
   filledDropped  Int   @default(0)
   emptyReceived  Int   @default(0)
+  // Already-filled bottles received back from the customer (account closing,
+  // excess stock return) — separate from emptyReceived: no wash/refill needed,
+  // ready to reload immediately. Financially treated the same as emptyReceived
+  // (reduces the bottle wallet, no charge) but tracked as its own count.
+  filledReceived Int   @default(0)
   cashCollected  Float @default(0)
   pricePerBottle Float @default(0)
   bottleBalanceAfter    Int?
@@ -667,10 +674,11 @@ model Transaction {
   dailySheetItemId String?
   dailySheetItem   DailySheetItem? @relation(fields: [dailySheetItemId], references: [id], onDelete: SetNull)
 
-  bottleCount   Int?     // NET change to wallet (filledDropped - emptyReceived)
-  filledDropped Int?     // Filled bottles given to customer (consumption indicator)
-  emptyReceived Int?     // Empty bottles collected from customer
-  amount        Float?   // Positive for charge, negative for payment
+  bottleCount    Int?     // NET change to wallet (filledDropped - emptyReceived - filledReceived)
+  filledDropped  Int?     // Filled bottles given to customer (consumption indicator)
+  emptyReceived  Int?     // Empty bottles collected from customer (needs refill/wash)
+  filledReceived Int?     // Already-filled bottles collected back from customer (no refill needed)
+  amount         Float?   // Positive for charge, negative for payment
 
   description   String?
   damageCase    DamageCase?
@@ -1040,6 +1048,22 @@ model ReminderScheduleConfig {
 /// Monthly Customer Collection Policy — vendor-configurable minimum-collection
 /// floor evaluated against the customer's remaining previous month outstanding.
 /// Missing row = policy disabled (mirrors NotificationSetting's convention).
+/// Toggle for the nightly auto-refill job (docs discussion 2026-08-04): when
+/// enabled, the warehouse-auto-refill cron converts all warehouse emptyCount
+/// into filledCount every night, right after daily sheet auto-generation.
+/// Temporary/reversible by design — missing row or enabled=false means the
+/// old manual-only Refill flow applies, unchanged.
+model WarehouseAutoRefillConfig {
+  id        String   @id @default(uuid())
+  vendorId  String   @unique
+  vendor    Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  enabled   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vendorId])
+}
+
 model CollectionPolicyConfig {
   id                      String   @id @default(uuid())
   vendorId                String   @unique

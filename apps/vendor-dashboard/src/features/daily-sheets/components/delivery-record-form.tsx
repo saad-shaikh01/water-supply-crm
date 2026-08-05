@@ -314,6 +314,7 @@ export function DeliveryRecordForm({
     setItemForm({
       filledDropped: suggestedFilled,
       emptyReceived: item.emptyReceived > 0 ? item.emptyReceived : undefined,
+      filledReceived: item.filledReceived > 0 ? item.filledReceived : undefined,
       cashCollected: suggestedCash,
     });
   }, [item.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -444,9 +445,9 @@ export function DeliveryRecordForm({
   // Bottle wallet preview — wallet balance moves by (dropped − received). The stored
   // wallet value already reflects this item's last save, so back that out first.
   const walletBalance = item.customer?.wallets?.find((w) => w.productId === item.productId)?.balance ?? 0;
-  const savedBottleChange = isFirstRecord ? 0 : item.filledDropped - item.emptyReceived;
+  const savedBottleChange = isFirstRecord ? 0 : item.filledDropped - item.emptyReceived - item.filledReceived;
   const draftBottleChange = deliveryMode === 'delivered'
-    ? (itemForm.filledDropped ?? 0) - (itemForm.emptyReceived ?? 0)
+    ? (itemForm.filledDropped ?? 0) - (itemForm.emptyReceived ?? 0) - (itemForm.filledReceived ?? 0)
     : 0;
   const liveWalletBalance = walletBalance - savedBottleChange + draftBottleChange;
 
@@ -456,6 +457,7 @@ export function DeliveryRecordForm({
           status: 'COMPLETED',
           filledDropped: itemForm.filledDropped ?? 1,
           emptyReceived: itemForm.emptyReceived ?? 0,
+          filledReceived: itemForm.filledReceived ?? 0,
           cashCollected: itemForm.cashCollected ?? 0,
           forceResubmit: !isFirstRecord,
         }
@@ -464,6 +466,7 @@ export function DeliveryRecordForm({
           failureCategory,
           filledDropped: 0,
           emptyReceived: 0,
+          filledReceived: 0,
           cashCollected: 0,
           reason: unableReason || undefined,
           photoKey: photoKey || undefined,
@@ -624,6 +627,21 @@ export function DeliveryRecordForm({
                   className={cn('font-mono font-bold h-11', readOnly && 'bg-muted/40 cursor-default')}
                   readOnly={readOnly}
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label className="font-bold text-xs uppercase tracking-widest">Filled Received</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={itemForm.filledReceived ?? ''}
+                  onChange={(e) => setItemForm((p) => ({ ...p, filledReceived: e.target.value === '' ? undefined : Number(e.target.value) }))}
+                  className={cn('font-mono font-bold h-11', readOnly && 'bg-muted/40 cursor-default')}
+                  readOnly={readOnly}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Already-filled bottles taken back (account closing / excess stock) — no refill needed.
+                </p>
                 <div className="mt-1.5 flex items-center justify-between rounded-xl bg-primary/10 border border-primary/30 px-3 py-2">
                   <span className="text-[11px] font-bold uppercase tracking-wide text-primary">Bottle Wallet</span>
                   <span className="text-lg font-black text-primary leading-none">{liveWalletBalance}<span className="text-xs font-bold ml-1">btl</span></span>

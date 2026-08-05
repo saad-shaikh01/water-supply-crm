@@ -9,7 +9,7 @@ import {
 } from 'recharts';
 import { useTheme } from 'next-themes';
 import { useDeliveryAnalytics } from '../hooks/use-analytics';
-import { Package, CheckCircle, XCircle, Activity, AlertTriangle, Repeat, Clock3, Droplets, RotateCcw, Archive } from 'lucide-react';
+import { Package, CheckCircle, XCircle, Activity, AlertTriangle, Repeat, Clock3, Droplets, RotateCcw, Archive, PackageCheck } from 'lucide-react';
 
 function StatCard({ label, value, icon: Icon, color }: { label: string; value: string; icon: any; color?: string }) {
   return (
@@ -65,7 +65,7 @@ export function DeliveriesTab({ from, to }: { from: string; to: string }) {
   if (!d) return null;
 
   const { total = 0, completed = 0, missed = 0, completionRate = 0 } = d.summary ?? {};
-  const { delivered: bottlesDelivered = 0, returned: bottlesReturned = 0, net: bottlesNet = 0 } = d.bottleStats ?? {};
+  const { delivered: bottlesDelivered = 0, returned: bottlesReturned = 0, filledReturned: filledBottlesReturned = 0, net: bottlesNet = 0 } = d.bottleStats ?? {};
   const byDay = (d.byDay ?? []).map((b: any) => ({ date: b.date.slice(5), Completed: b.completed, Missed: b.missed }));
   const byDayOfWeek = d.byDayOfWeek ?? [];
   const byRoute = (d.byRoute ?? []).slice(0, 10);
@@ -81,9 +81,10 @@ export function DeliveriesTab({ from, to }: { from: string; to: string }) {
         <StatCard label="Completion Rate" value={`${completionRate}%`} icon={Activity} />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Bottles Delivered" value={String(bottlesDelivered)} icon={Droplets} color="bg-blue-500/10" />
         <StatCard label="Bottles Returned" value={String(bottlesReturned)} icon={RotateCcw} color="bg-amber-500/10" />
+        <StatCard label="Filled Received" value={String(filledBottlesReturned)} icon={PackageCheck} color="bg-sky-500/10" />
         <StatCard label="Net Bottles Out" value={String(bottlesNet)} icon={Archive} color="bg-violet-500/10" />
       </div>
 

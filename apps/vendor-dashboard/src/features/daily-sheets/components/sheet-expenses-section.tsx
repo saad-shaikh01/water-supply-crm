@@ -10,11 +10,11 @@ import { useDeleteSheetExpense } from '../../expenses/hooks/use-expenses';
 import type { SheetExpense } from '@water-supply-crm/types';
 
 const CATEGORY_CONFIG: Record<string, { label: string; color: string; icon: LucideIcon }> = {
-  FUEL:        { label: 'Fuel',        color: 'bg-orange-500/10 text-orange-500',   icon: Fuel },
-  MAINTENANCE: { label: 'Maintenance', color: 'bg-yellow-500/10 text-yellow-600',  icon: Wrench },
-  SALARY:      { label: 'Salary',      color: 'bg-blue-500/10 text-blue-500',       icon: Users },
-  REPAIR:      { label: 'Repair',      color: 'bg-destructive/10 text-destructive', icon: AlertTriangle },
-  OTHER:       { label: 'Other',       color: 'bg-muted text-muted-foreground',     icon: Receipt },
+  LUNCH_EXPENSE_EMPLOYEE:  { label: 'Lunch Exp Employee',  color: 'bg-yellow-500/10 text-yellow-600',   icon: Receipt },
+  ADVANCE_SALARY_EMPLOYEE: { label: 'Adv Salary Employee', color: 'bg-blue-500/10 text-blue-500',       icon: Users },
+  VEHICLE_MAINTENANCE:     { label: 'Vehicle Maintenance', color: 'bg-destructive/10 text-destructive', icon: Wrench },
+  FUEL_EXPENSE:            { label: 'Fuel Exp',            color: 'bg-orange-500/10 text-orange-500',   icon: Fuel },
+  OTHER:                   { label: 'Others',              color: 'bg-muted text-muted-foreground',     icon: AlertTriangle },
 };
 
 interface SheetExpensesSectionProps {

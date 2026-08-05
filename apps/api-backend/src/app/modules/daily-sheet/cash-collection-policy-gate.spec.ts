@@ -1,4 +1,4 @@
-import { Test, TestingModule } from '@nestjs/testing';
+﻿import { Test, TestingModule } from '@nestjs/testing';
 import { getQueueToken } from '@nestjs/bullmq';
 import { PrismaService } from '@water-supply-crm/database';
 import { DailySheetService } from './daily-sheet.service';
@@ -173,6 +173,7 @@ describe('DailySheetService.submitDelivery — Cash Collection Policy gate', () 
         status: DeliveryStatus.COMPLETED,
         filledDropped: 3,
         emptyReceived: 0,
+        filledReceived: 0,
         cashCollected: 100, // below the required 300
       } as any),
     ).rejects.toMatchObject({
@@ -203,6 +204,7 @@ describe('DailySheetService.submitDelivery — Cash Collection Policy gate', () 
       status: DeliveryStatus.COMPLETED,
       filledDropped: 3,
       emptyReceived: 0,
+      filledReceived: 0,
       cashCollected: 500,
     } as any);
 
@@ -220,6 +222,7 @@ describe('DailySheetService.submitDelivery — Cash Collection Policy gate', () 
       status: DeliveryStatus.COMPLETED,
       filledDropped: 3,
       emptyReceived: 0,
+      filledReceived: 0,
       cashCollected: 300, // exactly the requirement
     } as any);
 
@@ -240,6 +243,7 @@ describe('DailySheetService.submitDelivery — Cash Collection Policy gate', () 
       status: DeliveryStatus.COMPLETED,
       filledDropped: 3,
       emptyReceived: 0,
+      filledReceived: 0,
       cashCollected: 1, // would violate if the policy were enabled
     } as any);
 
@@ -257,6 +261,7 @@ describe('DailySheetService.submitDelivery — Cash Collection Policy gate', () 
       status: DeliveryStatus.COMPLETED,
       filledDropped: 3,
       emptyReceived: 0,
+      filledReceived: 0,
       cashCollected: 1,
     } as any);
 
@@ -275,6 +280,7 @@ describe('DailySheetService.submitDelivery — Cash Collection Policy gate', () 
       status: DeliveryStatus.COMPLETED,
       filledDropped: 3,
       emptyReceived: 0,
+      filledReceived: 0,
       cashCollected: 1,
     } as any);
 
@@ -295,6 +301,7 @@ describe('DailySheetService.submitDelivery — Cash Collection Policy gate', () 
         status: DeliveryStatus.NOT_AVAILABLE,
         filledDropped: 0,
         emptyReceived: 0,
+        filledReceived: 0,
         cashCollected: 0,
       } as any),
     ).resolves.toBeDefined();
@@ -317,6 +324,7 @@ describe('DailySheetService.submitDelivery — Cash Collection Policy gate', () 
       status: DeliveryStatus.COMPLETED,
       filledDropped: 1,
       emptyReceived: 0,
+      filledReceived: 0,
       cashCollected: 0,
     } as any);
 
@@ -346,6 +354,7 @@ describe('DailySheetService.submitDelivery — Cash Collection Policy gate', () 
         status: DeliveryStatus.COMPLETED,
         filledDropped: 3,
         emptyReceived: 0,
+        filledReceived: 0,
         cashCollected: 300,
         forceResubmit: true,
       } as any);
@@ -377,6 +386,7 @@ describe('DailySheetService.submitDelivery — Cash Collection Policy gate', () 
           status: DeliveryStatus.COMPLETED,
           filledDropped: 3,
           emptyReceived: 0,
+          filledReceived: 0,
           cashCollected: 100,
           forceResubmit: true,
         } as any),
@@ -403,6 +413,7 @@ describe('DailySheetService.submitDelivery — Cash Collection Policy gate', () 
         status: DeliveryStatus.COMPLETED,
         filledDropped: 3,
         emptyReceived: 0,
+        filledReceived: 0,
         cashCollected: 300,
         forceResubmit: true,
       } as any);
@@ -429,6 +440,7 @@ describe('DailySheetService.submitDelivery — Cash Collection Policy gate', () 
         status: DeliveryStatus.COMPLETED,
         filledDropped: 3,
         emptyReceived: 0,
+        filledReceived: 0,
         cashCollected: 340,
       } as any);
 
@@ -448,6 +460,7 @@ describe('DailySheetService.submitDelivery — Cash Collection Policy gate', () 
           status: DeliveryStatus.COMPLETED,
           filledDropped: 3,
           emptyReceived: 0,
+          filledReceived: 0,
           cashCollected: 339,
         } as any),
       ).rejects.toMatchObject({

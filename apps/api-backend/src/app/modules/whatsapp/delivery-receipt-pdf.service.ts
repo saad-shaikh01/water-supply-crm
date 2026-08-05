@@ -8,8 +8,12 @@ export interface DeliveryReceiptData {
   customerName: string;
   customerCode: string;
   productName: string;
+  /** Plate number / code of the van that made this delivery (e.g. "V1"). */
+  van?: string;
   filledDropped: number;
   emptyReceived: number;
+  /** Already-filled bottles received back from the customer (account closing, excess stock return). */
+  filledReceived?: number;
   cashCollected: number;
   pricePerBottle: number;
   financialBalanceAfter: number;
@@ -86,8 +90,10 @@ export class DeliveryReceiptPdfService {
         { label: 'Customer Code',     value: data.customerCode },
         { label: 'Product',           value: data.productName },
         { label: 'Price / Bottle',    value: `Rs. ${data.pricePerBottle.toFixed(2)}` },
+        ...(data.van ? [{ label: 'Van', value: data.van }] : []),
         { label: 'Bottles Delivered', value: `${data.filledDropped}` },
         { label: 'Empty Received',    value: `${data.emptyReceived}` },
+        ...(data.filledReceived ? [{ label: 'Filled Received', value: `${data.filledReceived}` }] : []),
         { label: 'Balance Bottles',   value: `${data.bottleBalanceAfter} bottles` },
         { label: 'Delivery Amount',   value: `Rs. ${deliveryAmount.toFixed(2)}`, emphasize: true },
         { label: 'Cash Collected',    value: `Rs. ${data.cashCollected.toFixed(2)}` },
@@ -100,7 +106,7 @@ export class DeliveryReceiptPdfService {
       }
 
       doc.y += 14;
-      this.drawBalanceBar(doc, 'OUTSTANDING BALANCE', data.financialBalanceAfter);
+      this.drawBalanceBar(doc, 'TOTAL OUTSTANDING BALANCE', data.financialBalanceAfter);
 
       doc.y += 16;
       doc.fillColor(C.muted).font('Helvetica').fontSize(7.5)

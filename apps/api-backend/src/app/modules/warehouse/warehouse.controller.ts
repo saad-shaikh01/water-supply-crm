@@ -17,6 +17,7 @@ import { SendRepairDto } from './dto/send-repair.dto';
 import { ReturnRepairDto } from './dto/return-repair.dto';
 import { WriteOffDto } from './dto/write-off.dto';
 import { AdjustmentDto } from './dto/adjustment.dto';
+import { UpdateAutoRefillConfigDto } from './dto/update-auto-refill-config.dto';
 import { WarehouseTransactionQueryDto, RepairBatchQueryDto, WarehouseSummaryDto } from './dto/warehouse-query.dto';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -117,5 +118,18 @@ export class WarehouseController {
   @RequirePermissions('inventory:adjust')
   adjustment(@CurrentUser() user: AuthUser, @Body() dto: AdjustmentDto) {
     return this.warehouse.adjustment(user.vendorId, dto, user.userId);
+  }
+
+  // ── Auto-refill config (nightly empty -> filled sweep) ─────────────────────
+  @Get('auto-refill-config')
+  @RequirePermissions('inventory:view')
+  getAutoRefillConfig(@CurrentUser() user: AuthUser) {
+    return this.warehouse.getAutoRefillConfig(user.vendorId);
+  }
+
+  @Patch('auto-refill-config')
+  @RequirePermissions('inventory:adjust')
+  updateAutoRefillConfig(@CurrentUser() user: AuthUser, @Body() dto: UpdateAutoRefillConfigDto) {
+    return this.warehouse.updateAutoRefillConfig(user.vendorId, dto);
   }
 }

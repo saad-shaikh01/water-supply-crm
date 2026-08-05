@@ -46,7 +46,7 @@ export class DashboardService {
       onDemandQueue,
       todayCollectionsAgg,
     ] = await Promise.all([
-      this.prisma.customer.count({ where: { vendorId } }),
+      this.prisma.customer.count({ where: { vendorId, isActive: true } }),
       this.prisma.product.count({ where: { vendorId, isActive: true } }),
       this.prisma.route.count({ where: { vendorId } }),
       this.prisma.van.count({ where: { vendorId } }),
@@ -54,11 +54,11 @@ export class DashboardService {
         where: { vendorId, role: 'DRIVER', isActive: true },
       }),
       this.prisma.customer.aggregate({
-        where: { vendorId },
+        where: { vendorId, isActive: true },
         _sum: { financialBalance: true },
       }),
       this.prisma.bottleWallet.aggregate({
-        where: { customer: { vendorId } },
+        where: { customer: { vendorId, isActive: true } },
         _sum: { balance: true },
       }),
       this.prisma.dailySheet.count({
@@ -69,26 +69,28 @@ export class DashboardService {
           vendorId,
           type: TransactionType.DELIVERY,
           createdAt: { gte: startOfMonth },
+          customer: { isActive: true },
         },
         _sum: { amount: true },
       }),
       this.prisma.customerTicket.count({
-        where: { vendorId, status: { in: ['OPEN', 'IN_PROGRESS'] } },
+        where: { vendorId, status: { in: ['OPEN', 'IN_PROGRESS'] }, customer: { isActive: true } },
       }),
       this.prisma.deliveryIssue.count({
-        where: { vendorId, status: 'OPEN' },
+        where: { vendorId, status: 'OPEN', dailySheetItem: { customer: { isActive: true } } },
       }),
       this.prisma.paymentRequest.count({
-        where: { vendorId, status: 'PENDING' },
+        where: { vendorId, status: 'PENDING', customer: { isActive: true } },
       }),
       this.prisma.customerOrder.count({
-        where: { vendorId, status: 'APPROVED', dispatchStatus: 'UNPLANNED' },
+        where: { vendorId, status: 'APPROVED', dispatchStatus: 'UNPLANNED', customer: { isActive: true } },
       }),
       this.prisma.transaction.aggregate({
         where: {
           vendorId,
           type: TransactionType.PAYMENT,
           createdAt: { gte: startOfToday },
+          customer: { isActive: true },
         },
         _sum: { amount: true },
       }),
@@ -235,7 +237,12 @@ export class DashboardService {
 
     const data = await this.prisma.transaction.groupBy({
       by: ['customerId'],
-      where: { vendorId, type: TransactionType.DELIVERY, customerId: { not: null } },
+      where: {
+        vendorId,
+        type: TransactionType.DELIVERY,
+        customerId: { not: null },
+        customer: { isActive: true },
+      },
       _sum: { amount: true },
       orderBy: { _sum: { amount: 'desc' } },
       take: limit,
@@ -421,6 +428,7 @@ export class DashboardService {
         select: {
           filledDropped: true,
           emptyReceived: true,
+          filledReceived: true,
           dailySheet: { select: { date: true } },
         },
       }),
@@ -444,6 +452,7 @@ export class DashboardService {
 
       const bottlesDelivered = monthItems.reduce((s, i) => s + i.filledDropped, 0);
       const emptyReceived = monthItems.reduce((s, i) => s + i.emptyReceived, 0);
+      const filledReceived = monthItems.reduce((s, i) => s + i.filledReceived, 0);
       const cashExpected = monthSheets.reduce((s, sh) => s + sh.cashExpected, 0);
       const cashCollected = monthSheets.reduce((s, sh) => s + sh.cashCollected, 0);
 
@@ -451,6 +460,7 @@ export class DashboardService {
         month: monthStart.toLocaleString('en', { month: 'short', year: 'numeric' }),
         bottlesDelivered,
         emptyReceived,
+        filledReceived,
         cashExpected,
         cashCollected,
         collectionRate: cashExpected > 0 ? Math.round((cashCollected / cashExpected) * 100) : 0,

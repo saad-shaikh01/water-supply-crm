@@ -9,6 +9,7 @@ async function main() {
     customerName: 'SentraCore Systems Kashif',
     customerCode: 'L3491',
     productName: 'Blue Ice 19L',
+    van: 'V1',
     filledDropped: 5,
     emptyReceived: 4,
     cashCollected: 500,
