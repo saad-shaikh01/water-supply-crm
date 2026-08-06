@@ -14,13 +14,15 @@ import { SettlementController } from './settlement.controller';
 /**
  * Staff Payroll & Financial Management — Phase 1b.
  * SalaryStructure + StaffLedgerEntry CRUD, the reusable approval gate, the
- * PayrollPeriod lifecycle (open/lock/unlock), and the PayrollEntry
- * calculation engine (generate/approve/breakdown). Fine-grained payroll:*
- * RBAC (Amendment R3, docs/rbac-permission-catalog.md §27) replaces the
- * interim `@RequireRoles` gate originally used on every mutation — see
- * StaffLedgerController's doc comment. `PermissionService` (self-view
- * scoping, void's creator exception) comes from the `@Global` AuthzModule,
- * so it needs no explicit import here.
+ * PayrollPeriod lifecycle (open/lock/unlock), the PayrollEntry calculation
+ * engine (generate/approve/breakdown), and Settlement (partial payment,
+ * auto-settle on cumulative match, explicit markSettled for the
+ * finalPayable<=0 case). Fine-grained payroll:* RBAC (Amendment R3/R4,
+ * docs/rbac-permission-catalog.md §27) replaces the interim `@RequireRoles`
+ * gate originally used on every mutation — see StaffLedgerController's doc
+ * comment. `PermissionService` (self-view scoping, void's creator
+ * exception) comes from the `@Global` AuthzModule, so it needs no explicit
+ * import here.
  *
  * A `PayrollApprovalRule` CRUD surface (vendor-configurable approval
  * thresholds) and its `payroll:approval_rules_manage` permission were
@@ -30,8 +32,8 @@ import { SettlementController } from './settlement.controller';
  * (the schema/read path is real and unaffected); a config-CRUD endpoint for
  * managing those rows, if wanted, is a scoped future addition, not this one.
  *
- * Settlement and cron-based period auto-rollover are later, separately
- * scoped pieces of work — see the schema module note above these models in
+ * Cron-based period auto-rollover is a later, separately scoped piece of
+ * work — see the schema module note above these models in
  * libs/shared/database/prisma/schema.prisma.
  */
 @Module({

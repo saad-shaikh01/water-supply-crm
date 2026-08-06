@@ -17,6 +17,8 @@ import { PayrollPeriodController } from './payroll-period.controller';
 import { PayrollPeriodService } from './payroll-period.service';
 import { PayrollEntryController } from './payroll-entry.controller';
 import { PayrollEntryService } from './payroll-entry.service';
+import { SettlementController } from './settlement.controller';
+import { SettlementService } from './settlement.service';
 
 /**
  * Real end-to-end authorization test: a compiled `TestingModule` running the
@@ -84,6 +86,7 @@ describe('Payroll routes — real APP_GUARD pipeline (JwtAuthGuard + Permissions
   let staffLedgerService: { create: jest.Mock };
   let payrollPeriodService: { lockPeriod: jest.Mock };
   let payrollEntryService: { listForPeriod: jest.Mock };
+  let settlementService: { record: jest.Mock };
   const originalJwtSecret = process.env.JWT_SECRET;
 
   beforeAll(async () => {
@@ -94,13 +97,19 @@ describe('Payroll routes — real APP_GUARD pipeline (JwtAuthGuard + Permissions
       lockPeriod: jest.fn().mockResolvedValue({ period: { id: 'period-001' }, lockedEntryCount: 0 }),
     };
     payrollEntryService = { listForPeriod: jest.fn().mockResolvedValue([]) };
+    settlementService = { record: jest.fn().mockResolvedValue({ id: 'settlement-001', amount: 5000 }) };
 
     const moduleRef = await Test.createTestingModule({
       imports: [
         PassportModule.register({ defaultStrategy: 'jwt' }),
         JwtModule.register({ secret: JWT_SECRET_FOR_TEST, signOptions: { expiresIn: '1h' } }),
       ],
-      controllers: [StaffLedgerController, PayrollPeriodController, PayrollEntryController],
+      controllers: [
+        StaffLedgerController,
+        PayrollPeriodController,
+        PayrollEntryController,
+        SettlementController,
+      ],
       providers: [
         Reflector,
         JwtStrategy,
@@ -112,6 +121,7 @@ describe('Payroll routes — real APP_GUARD pipeline (JwtAuthGuard + Permissions
         { provide: StaffLedgerService, useValue: staffLedgerService },
         { provide: PayrollPeriodService, useValue: payrollPeriodService },
         { provide: PayrollEntryService, useValue: payrollEntryService },
+        { provide: SettlementService, useValue: settlementService },
       ],
     }).compile();
 
@@ -211,6 +221,32 @@ describe('Payroll routes — real APP_GUARD pipeline (JwtAuthGuard + Permissions
       const res = await axios.get(`${baseUrl}/payroll/periods/period-001/entries`, authed(driverToken));
       expect(res.status).toBe(403);
       expect(payrollEntryService.listForPeriod).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── 4. Settlement mutation: POST /payroll/entries/:id/settlements (payroll:settlement_record) ──
+
+  describe('POST /payroll/entries/:id/settlements', () => {
+    const validBody = { amount: 5000, method: 'CASH' };
+
+    it('VENDOR_ADMIN (wildcard grant) → 201, handler reached', async () => {
+      const res = await axios.post(`${baseUrl}/payroll/entries/entry-001/settlements`, validBody, authed(adminToken));
+      expect(res.status).toBe(201);
+      expect(settlementService.record).toHaveBeenCalled();
+    });
+
+    it('DRIVER (no payroll:settlement_record grant) → 403, handler never reached', async () => {
+      settlementService.record.mockClear();
+      const res = await axios.post(`${baseUrl}/payroll/entries/entry-001/settlements`, validBody, authed(driverToken));
+      expect(res.status).toBe(403);
+      expect(settlementService.record).not.toHaveBeenCalled();
+    });
+
+    it('no token → 401 (JwtAuthGuard rejects before PermissionsGuard ever runs)', async () => {
+      const res = await axios.post(`${baseUrl}/payroll/entries/entry-001/settlements`, validBody, {
+        validateStatus: () => true,
+      });
+      expect(res.status).toBe(401);
     });
   });
 });

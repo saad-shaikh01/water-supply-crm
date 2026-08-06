@@ -369,8 +369,8 @@ whatsapp:view  whatsapp:manage
 collection_policy:update
 # conversations action (5)
 conversations:create  conversations:send  conversations:acknowledge  conversations:manage_status
-# payroll (11, all non-page — resource has no :page yet)
-payroll:view_all  payroll:ledger_create  payroll:ledger_approve  payroll:ledger_void  payroll:ledger_reverse  payroll:ledger_correct  payroll:salary_structure_manage  payroll:period_generate  payroll:entry_approve  payroll:period_lock  payroll:period_unlock
+# payroll (12, all non-page — resource has no :page yet)
+payroll:view_all  payroll:ledger_create  payroll:ledger_approve  payroll:ledger_void  payroll:ledger_reverse  payroll:ledger_correct  payroll:salary_structure_manage  payroll:period_generate  payroll:entry_approve  payroll:period_lock  payroll:period_unlock  payroll:settlement_record
 ```
 
 > **Note:** the `B.2` count in its heading (97) and §E/§F totals predate the `collection_policy`/`conversations` (2026-07-16) and `payroll` (2026-08-06, Amendment R3) additions in §A above — §A is kept current on every catalog change; §E/§F have accumulated drift from earlier additions and are not repaired here (pre-existing, out of this change's scope).

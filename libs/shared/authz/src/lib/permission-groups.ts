@@ -68,6 +68,7 @@ export const ACTION_LABELS: Record<string, string> = {
   entry_approve: 'Approve payroll entry',
   period_lock: 'Lock payroll period',
   period_unlock: 'Unlock payroll period',
+  settlement_record: 'Record settlement',
 };
 
 /** A single permission with display metadata for the role editor. */
