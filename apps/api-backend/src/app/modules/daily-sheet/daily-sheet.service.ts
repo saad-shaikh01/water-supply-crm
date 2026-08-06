@@ -1166,21 +1166,43 @@ export class DailySheetService implements OnModuleInit {
       if (monthlyCustomerIds.length > 0) {
         const sheetDate = new Date((sheet as any).date);
         const curMonthStart = new Date(sheetDate.getFullYear(), sheetDate.getMonth(), 1);
-        const curMonthTxns = await this.prisma.transaction.groupBy({
-          by: ['customerId'],
-          where: {
-            customerId: { in: monthlyCustomerIds },
-            vendorId,
-            createdAt: { gte: curMonthStart },
-          },
-          _sum: { amount: true },
-        });
+        const nextMonthStart = new Date(sheetDate.getFullYear(), sheetDate.getMonth() + 1, 1);
+        // Net out payments already made this month against the prior-month balance —
+        // same fix as getPreviousMonthOutstanding() below, applied here for the
+        // sheet-header card: without this, a customer who clears last month's
+        // balance mid-month keeps showing the stale (pre-payment) amount for the
+        // rest of the month.
+        const [curMonthTxns, curMonthPayments] = await Promise.all([
+          this.prisma.transaction.groupBy({
+            by: ['customerId'],
+            where: {
+              customerId: { in: monthlyCustomerIds },
+              vendorId,
+              createdAt: { gte: curMonthStart },
+            },
+            _sum: { amount: true },
+          }),
+          this.prisma.transaction.groupBy({
+            by: ['customerId'],
+            where: {
+              customerId: { in: monthlyCustomerIds },
+              vendorId,
+              type: 'PAYMENT',
+              createdAt: { gte: curMonthStart, lt: nextMonthStart },
+            },
+            _sum: { amount: true },
+          }),
+        ]);
         const txnMap = new Map(curMonthTxns.map((t) => [t.customerId, t._sum.amount ?? 0]));
+        const paidMap = new Map(
+          curMonthPayments.map((t) => [t.customerId, Math.abs(t._sum.amount ?? 0)]),
+        );
         for (const it of sheet.items as any[]) {
           if (it.customer?.paymentType === 'MONTHLY') {
             const fromThisMonth = txnMap.get(it.customerId) ?? 0;
-            it.customer.previousMonthOutstanding =
-              (it.customer.financialBalance ?? 0) - fromThisMonth;
+            const paidThisMonth = paidMap.get(it.customerId) ?? 0;
+            const opening = (it.customer.financialBalance ?? 0) - fromThisMonth;
+            it.customer.previousMonthOutstanding = Math.max(0, opening - paidThisMonth);
           }
         }
       }
