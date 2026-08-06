@@ -158,6 +158,35 @@ export const PERMISSION_CATALOG = {
   },
   // Non-navigable: surfaced inside Settings, no dedicated route → no `:page`.
   whatsapp: { label: 'WhatsApp Integration', navigable: false, actions: ['view', 'manage'] },
+  // Amendment R3 (Payroll Phase 1, owner-approved 2026-08-06): new resource — see
+  // docs/rbac-permission-catalog.md §27 for the full amendment note.
+  // Non-navigable for now: the payroll module's HTTP surface lands ahead of its
+  // vendor-dashboard page — no `/dashboard/payroll` route exists yet, so there is
+  // nothing for a `:page` permission to gate. A future frontend phase adds one
+  // `payroll:page` action + a Page Registry row when the page is built, per the
+  // "Adding a new module = add one entry" convention above.
+  // `view_all` is the only self-view-adjacent key: viewing one's OWN payroll/ledger
+  // needs no permission at all (enforced in code, not RBAC — every role can see
+  // their own record); `view_all` gates seeing every OTHER employee's records too,
+  // and is intentionally granted to NO default preset (override-only) — see presets.ts.
+  payroll: {
+    label: 'Payroll',
+    navigable: false,
+    actions: [
+      'view_all',
+      'ledger_create',
+      'ledger_approve',
+      'ledger_void',
+      'ledger_reverse',
+      'ledger_correct',
+      'salary_structure_manage',
+      'period_generate',
+      'entry_approve',
+      'period_lock',
+      'period_unlock',
+      'settlement_record',
+    ],
+  },
 } as const satisfies Record<string, ResourceDefinition>;
 
 /** Union of every resource key, e.g. `'customers' | 'orders' | …`. */

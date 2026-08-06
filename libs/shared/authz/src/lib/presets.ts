@@ -101,6 +101,19 @@ const MANAGER_PERMISSIONS: Permission[] = [
   'collection_policy:page', 'collection_policy:view',
   'conversations:page', 'conversations:view', 'conversations:create', 'conversations:send',
   'conversations:acknowledge', 'conversations:manage_status',
+  // Payroll (§10 default holders): "Log advance/expense/bonus/adjustment", "Manage
+  // salary structures (create)", and "Generate/regenerate payroll draft" are all
+  // VENDOR_ADMIN + STAFF by default. Approve/void/reverse/correct/lock/unlock and
+  // viewing OTHER employees' payroll (view_all) stay VENDOR_ADMIN-only by default —
+  // STAFF can only be granted those via an explicit UserPermissionOverride (per §10's
+  // distinctly-worded row for view_all, "VENDOR_ADMIN, STAFF (if given the
+  // permission)" — read as override-only, unlike every other row's flat grant — and
+  // per §10's "STAFF only via UserPermissionOverride" note on ledger_approve), never
+  // through this preset.
+  // settlement_record ("Record settlement (mark paid)", §10) is the same flat
+  // VENDOR_ADMIN + STAFF default as the three above — Amendment R4.
+  'payroll:ledger_create', 'payroll:salary_structure_manage', 'payroll:period_generate',
+  'payroll:settlement_record',
 ];
 
 export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {

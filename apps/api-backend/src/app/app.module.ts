@@ -42,6 +42,7 @@ import { WarehouseModule } from './modules/warehouse/warehouse.module';
 import { CommunicationModule } from './modules/communication/communication.module';
 import { CollectionPolicyModule } from './modules/collection-policy/collection-policy.module';
 import { CustomerActivationModule } from './modules/customer-activation/customer-activation.module';
+import { PayrollModule } from './modules/payroll/payroll.module';
 
 @Module({
   imports: [
@@ -84,6 +85,7 @@ import { CustomerActivationModule } from './modules/customer-activation/customer
     CommunicationModule,
     CollectionPolicyModule,
     CustomerActivationModule,
+    PayrollModule,
   ],
   controllers: [AppController],
   providers: [

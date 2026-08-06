@@ -57,6 +57,17 @@ export const ACTION_LABELS: Record<string, string> = {
   configure: 'Configure',
   send: 'Send',
   manage: 'Manage',
+  view_all: 'View all employees',
+  ledger_create: 'Log ledger entry',
+  ledger_approve: 'Approve ledger entry',
+  ledger_void: 'Void ledger entry',
+  ledger_reverse: 'Reverse ledger entry',
+  ledger_correct: 'Correct ledger entry',
+  salary_structure_manage: 'Manage salary structures',
+  period_generate: 'Generate payroll draft',
+  entry_approve: 'Approve payroll entry',
+  period_lock: 'Lock payroll period',
+  period_unlock: 'Unlock payroll period',
 };
 
 /** A single permission with display metadata for the role editor. */

@@ -196,6 +196,15 @@ model Vendor {
   collectionPolicyConfig  CollectionPolicyConfig?
   cashCollectionPolicyConfig CashCollectionPolicyConfig?
   warehouseAutoRefillConfig  WarehouseAutoRefillConfig?
+
+  // Staff Payroll & Financial Management — Phase 1 (Foundation)
+  salaryStructures     SalaryStructure[]
+  staffLedgerEntries   StaffLedgerEntry[]
+  payrollApprovalRules PayrollApprovalRule[]
+  payrollVendorConfig  PayrollVendorConfig?
+  payrollPeriods       PayrollPeriod[]
+  payrollEntries       PayrollEntry[]
+  settlements          Settlement[]
 }
 
 model User {
@@ -234,6 +243,22 @@ model User {
   crewAssignments       DailySheetCrew[]       @relation("CrewMember")
   vanDefaultCrew        VanDefaultCrew[]       @relation("VanDefaultCrewMember")
   confirmedCrewSheets   DailySheet[]           @relation("CrewConfirmedBy")
+
+  // Staff Payroll & Financial Management — Phase 1 (Foundation)
+  salaryStructures            SalaryStructure[]      @relation("SalaryStructureEmployee")
+  createdSalaryStructures     SalaryStructure[]      @relation("SalaryStructureCreatedBy")
+  staffLedgerEntries          StaffLedgerEntry[]      @relation("StaffLedgerEntryEmployee")
+  createdStaffLedgerEntries   StaffLedgerEntry[]      @relation("StaffLedgerEntryCreatedBy")
+  approvedStaffLedgerEntries  StaffLedgerEntry[]      @relation("StaffLedgerEntryApprovedBy")
+  staffLedgerAuditLogs        StaffLedgerAuditLog[]
+  updatedPayrollApprovalRules PayrollApprovalRule[]
+  updatedPayrollVendorConfigs PayrollVendorConfig[]
+  lockedPayrollPeriods        PayrollPeriod[]
+  payrollEntries              PayrollEntry[]          @relation("PayrollEntryEmployee")
+  approvedPayrollEntries      PayrollEntry[]          @relation("PayrollEntryApprovedBy")
+  createdPayrollSnapshots     PayrollSnapshot[]
+  payrollEntryAuditLogs       PayrollEntryAuditLog[]
+  paidSettlements             Settlement[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -1379,4 +1404,343 @@ model RepairBatch {
 
   @@index([vendorId])
   @@index([vendorId, status])
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Staff Payroll & Financial Management — Phase 1 (Foundation)
+// Schema-only foundation: SalaryStructure (recurring baseline), StaffLedgerEntry
+// (append-only ad-hoc financial events), PayrollApprovalRule (data-driven
+// approval gate), PayrollPeriod/PayrollEntry/PayrollSnapshot (computed payroll
+// + immutable freeze), Settlement (payout record). No services/controllers/UI
+// yet, and no Crew Cash Distribution model — that is a later phase; this
+// module's tables are deliberately generic (e.g. PayrollApprovalRule.categoryKey)
+// so it can be added later as new rows, not new columns.
+//
+// Every money field below is Int (whole rupees) — a deliberate deviation from
+// the rest of the codebase's Float money convention: this business has no
+// fractional currency (no paisa in use), so Int avoids float rounding drift
+// across a ledger that must sum exactly.
+// ──────────────────────────────────────────────────────────────────────────────
+
+// Recurring baseline pay pattern. Only one value today, but kept as an enum
+// (not a String) so WEEKLY/BIWEEKLY etc. are a one-line addition later.
+enum PayFrequency {
+  MONTHLY
+}
+
+enum StaffLedgerCategory {
+  ADVANCE
+  EXPENSE_REIMBURSEMENT
+  BONUS
+  INCENTIVE
+  OVERTIME
+  PENALTY
+  DEDUCTION
+  LEAVE_UNPAID
+  LEAVE_PAID
+  ADJUSTMENT
+  REVERSAL
+  CORRECTION
+}
+
+enum LedgerEntryStatus {
+  PENDING
+  POSTED
+  VOIDED
+}
+
+enum StaffLedgerAuditAction {
+  CREATED
+  EDITED
+  VOIDED
+  APPROVED
+  REVERSED
+  CORRECTED
+  ROLLED_INTO_PAYROLL
+}
+
+enum PayrollAuditAction {
+  GENERATED
+  REGENERATED
+  APPROVED
+  LOCKED
+  UNLOCKED
+  SETTLED
+}
+
+enum PayrollPeriodStatus {
+  OPEN
+  REVIEW
+  LOCKED
+  PAID
+}
+
+enum PayrollEntryStatus {
+  DRAFT
+  UNDER_REVIEW
+  APPROVED
+  LOCKED
+  SETTLED
+}
+
+enum SettlementMethod {
+  CASH
+  BANK_TRANSFER
+  CHEQUE
+}
+
+// Versioned recurring baseline salary per employee. A rate change is a new
+// row with a fresh effectiveFrom (and the prior row's effectiveTo closed
+// out) — rows are never edited in place once effective, mirroring the
+// append-only intent of StaffLedgerEntry.
+model SalaryStructure {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id])
+  userId   String
+  user     User   @relation("SalaryStructureEmployee", fields: [userId], references: [id])
+
+  baseAmount   Int // whole rupees — see module note above
+  payFrequency PayFrequency @default(MONTHLY)
+
+  effectiveFrom DateTime
+  effectiveTo   DateTime? // null = current
+
+  // Reserved for future standing allowances, e.g. [{label, amount}]. No logic
+  // consumes this in Phase 1 — the field is reserved only.
+  recurringLineItems Json?
+
+  createdById String
+  createdBy   User     @relation("SalaryStructureCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([vendorId, userId, effectiveFrom])
+}
+
+// Append-only staff ledger — every non-salary financial event (advance,
+// bonus, penalty, etc.) against an employee. Entries are never deleted or
+// mutated in place; corrections/reversals are new rows linked back via
+// reversedEntryId so the full chain for an entry is queryable.
+model StaffLedgerEntry {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id])
+  userId   String
+  user     User   @relation("StaffLedgerEntryEmployee", fields: [userId], references: [id])
+
+  category StaffLedgerCategory
+  amount   Int // signed — positive = credit toward employee, negative = debit against employee
+
+  effectiveDate DateTime // date this counts against for period attribution — may differ from createdAt
+  description   String?
+
+  status LedgerEntryStatus @default(PENDING)
+
+  createdById  String
+  createdBy    User      @relation("StaffLedgerEntryCreatedBy", fields: [createdById], references: [id])
+  approvedById String?
+  approvedBy   User?     @relation("StaffLedgerEntryApprovedBy", fields: [approvedById], references: [id])
+  approvedAt   DateTime?
+
+  // Set once this entry is rolled into a locked payroll period; null before.
+  payrollEntryId String?
+  payrollEntry   PayrollEntry? @relation(fields: [payrollEntryId], references: [id])
+
+  // Self-relation: a REVERSAL/CORRECTION row points back at the entry it
+  // reverses/corrects — supports querying the full reversal chain for entry X.
+  reversedEntryId String?
+  reversedEntry   StaffLedgerEntry?  @relation("StaffLedgerEntryReversal", fields: [reversedEntryId], references: [id])
+  reversalEntries StaffLedgerEntry[] @relation("StaffLedgerEntryReversal")
+
+  auditLogs StaffLedgerAuditLog[]
+
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vendorId, userId, effectiveDate])
+  @@index([payrollEntryId])
+}
+
+// Mirrors DamageCaseAuditLog's audit-trail shape, adapted with a typed action
+// enum + separate before/after snapshots. `reason` is mandatory at the
+// application layer for REVERSED/CORRECTED but nullable here since CREATED
+// has no reason.
+model StaffLedgerAuditLog {
+  id            String                 @id @default(uuid())
+  ledgerEntryId String
+  ledgerEntry   StaffLedgerEntry       @relation(fields: [ledgerEntryId], references: [id])
+  actorId       String
+  actor         User                   @relation(fields: [actorId], references: [id])
+  actorRole     UserRole
+  action        StaffLedgerAuditAction
+  beforeJson    Json?
+  afterJson     Json?
+  reason        String?
+  createdAt     DateTime               @default(now())
+
+  @@index([ledgerEntryId])
+  @@index([ledgerEntryId, createdAt])
+}
+
+// Data-driven approval gate per vendor. categoryKey is a free-form key this
+// table does not interpret (today's StaffLedgerCategory values; later e.g.
+// "CREW_CASH_EMERGENCY" from an unrelated future module) — new categories are
+// just new rows, never a schema change.
+model PayrollApprovalRule {
+  id               String   @id @default(uuid())
+  vendorId         String
+  vendor           Vendor   @relation(fields: [vendorId], references: [id])
+  categoryKey      String
+  requiresApproval Boolean  @default(false)
+  thresholdAmount  Int? // null = requires approval regardless of amount (when requiresApproval=true); ignored when requiresApproval=false
+  updatedById      String
+  updatedBy        User     @relation(fields: [updatedById], references: [id])
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([vendorId, categoryKey])
+  @@index([vendorId])
+}
+
+// Per-vendor payroll singleton (mirrors CollectionPolicyConfig's convention).
+model PayrollVendorConfig {
+  id              String   @id @default(uuid())
+  vendorId        String   @unique
+  vendor          Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  cutoffDay       Int      @default(1) // day of month the pay period starts/ends — vendor-configurable, not hardcoded to calendar month
+  autoLockEnabled Boolean  @default(false)
+  updatedById     String
+  updatedBy       User     @relation(fields: [updatedById], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([vendorId])
+}
+
+// One row per vendor per pay period (typically monthly, per PayrollVendorConfig.cutoffDay).
+model PayrollPeriod {
+  id          String              @id @default(uuid())
+  vendorId    String
+  vendor      Vendor              @relation(fields: [vendorId], references: [id])
+  periodLabel String // e.g. "2026-08"
+  startDate   DateTime
+  endDate     DateTime
+  status      PayrollPeriodStatus @default(OPEN)
+  lockedAt    DateTime?
+  lockedById  String?
+  lockedBy    User?               @relation(fields: [lockedById], references: [id])
+  paidAt      DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt // last status transition (OPEN/REVIEW/LOCKED/PAID), independent of the dedicated lockedAt/paidAt timestamps
+
+  entries PayrollEntry[]
+
+  @@unique([vendorId, periodLabel])
+  @@index([vendorId])
+}
+
+// One row per employee per period — the computed payroll for that employee,
+// assembled from SalaryStructure + posted StaffLedgerEntry rows for the
+// period. Frozen into a PayrollSnapshot at each lock.
+model PayrollEntry {
+  id       String        @id @default(uuid())
+  periodId String
+  period   PayrollPeriod @relation(fields: [periodId], references: [id])
+  userId   String
+  user     User          @relation("PayrollEntryEmployee", fields: [userId], references: [id])
+  vendorId String
+  vendor   Vendor        @relation(fields: [vendorId], references: [id])
+
+  baseSalary      Int @default(0)
+  bonuses         Int @default(0)
+  overtime        Int @default(0)
+  incentives      Int @default(0)
+  advances        Int @default(0)
+  expenses        Int @default(0)
+  penalties       Int @default(0)
+  otherDeductions Int @default(0)
+  carryForwardIn  Int @default(0)
+  finalPayable    Int
+
+  status       PayrollEntryStatus @default(DRAFT)
+  managerNotes String?
+
+  approvedById String?
+  approvedBy   User?     @relation("PayrollEntryApprovedBy", fields: [approvedById], references: [id])
+  approvedAt   DateTime?
+
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ledgerEntries StaffLedgerEntry[]
+  snapshots     PayrollSnapshot[]
+  settlements   Settlement[]
+  auditLogs     PayrollEntryAuditLog[]
+
+  @@unique([periodId, userId])
+  @@index([vendorId, userId])
+}
+
+// Immutable frozen breakdown of a PayrollEntry at lock time. One-to-many —
+// re-locking after an unlock creates a NEW snapshot, never overwrites; the
+// latest by createdAt is the "current" snapshot for an entry.
+model PayrollSnapshot {
+  id             String       @id @default(uuid())
+  payrollEntryId String
+  payrollEntry   PayrollEntry @relation(fields: [payrollEntryId], references: [id])
+  breakdownJson  Json // full frozen breakdown copy
+  ledgerEntryIds Json // array of the StaffLedgerEntry ids included in this computation
+  createdById    String
+  createdBy      User         @relation(fields: [createdById], references: [id])
+  createdAt      DateTime     @default(now())
+
+  @@index([payrollEntryId, createdAt])
+}
+
+// Per-entity audit trail for PayrollEntry/PayrollPeriod state transitions,
+// mirroring DamageCaseAuditLog/StaffLedgerAuditLog exactly. A period-wide
+// action (e.g. locking the whole period) writes one row per affected
+// PayrollEntry — same actor/timestamp/reason on each — rather than a
+// separate period-level log table, so an entry's own timeline always shows
+// everything that happened to it without joining across two log tables.
+// reason is enforced as mandatory at the application layer for
+// UNLOCKED (Payroll Doc §14 — unlock always requires a reason) but nullable
+// here since GENERATED/APPROVED/LOCKED don't require one.
+model PayrollEntryAuditLog {
+  id             String            @id @default(uuid())
+  payrollEntryId String
+  payrollEntry   PayrollEntry      @relation(fields: [payrollEntryId], references: [id])
+  actorId        String
+  actor          User              @relation(fields: [actorId], references: [id])
+  actorRole      UserRole
+  action         PayrollAuditAction
+  beforeJson     Json?
+  afterJson      Json?
+  reason         String?
+  createdAt      DateTime          @default(now())
+
+  @@index([payrollEntryId])
+  @@index([payrollEntryId, createdAt])
+}
+
+// One or more per PayrollEntry — supports partial payment across multiple
+// installments/methods.
+model Settlement {
+  id             String           @id @default(uuid())
+  payrollEntryId String
+  payrollEntry   PayrollEntry     @relation(fields: [payrollEntryId], references: [id])
+  vendorId       String
+  vendor         Vendor           @relation(fields: [vendorId], references: [id])
+  amount         Int
+  method         SettlementMethod
+  referenceNote  String?
+  paidById       String
+  paidBy         User             @relation(fields: [paidById], references: [id])
+  paidAt         DateTime
+  createdAt      DateTime         @default(now())
+
+  @@index([payrollEntryId])
+  @@index([vendorId])
 }

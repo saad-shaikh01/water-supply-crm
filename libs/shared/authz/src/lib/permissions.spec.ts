@@ -17,9 +17,16 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // 132 = 123 + collection_policy (page, view, update) + conversations (page, view,
 // create, send, acknowledge, manage_status) — RolesGuard→RequirePermissions migration
 // of CollectionPolicyController/ConversationController/MessageController (2026-07-16).
-const FROZEN_TOTAL = 132;
+// 144 = 143 + payroll:settlement_record ("Record settlement (mark paid)",
+// Amendment R4, 2026-08-06) — 143 = 132 + payroll (view_all, ledger_create,
+// ledger_approve, ledger_void, ledger_reverse, ledger_correct,
+// salary_structure_manage, period_generate, entry_approve, period_lock,
+// period_unlock) — fine-grained payroll:* RBAC replacing the interim
+// @RequireRoles gate (Amendment R3, 2026-08-06). No new `:page` — payroll has
+// no vendor-dashboard route yet.
+const FROZEN_TOTAL = 144;
 const FROZEN_PAGES = 25;
-const FROZEN_RESOURCES = 26;
+const FROZEN_RESOURCES = 27;
 
 describe('permission catalog (frozen contract)', () => {
   it('has the frozen totals', () => {
@@ -50,10 +57,13 @@ describe('permission catalog (frozen contract)', () => {
     }
   });
 
-  it('no action exists without its resource also having a :page (except whatsapp)', () => {
+  it('no action exists without its resource also having a :page (except whatsapp, payroll)', () => {
+    // payroll: non-navigable for now, same reason as whatsapp — its HTTP surface
+    // has no vendor-dashboard route yet; a future frontend phase adds
+    // `payroll:page` + a Page Registry row once the page exists.
     for (const resource of RESOURCES) {
       const def = PERMISSION_CATALOG[resource];
-      if (resource === 'whatsapp') continue;
+      if (resource === 'whatsapp' || resource === 'payroll') continue;
       expect(def.actions).toContain('page');
     }
   });

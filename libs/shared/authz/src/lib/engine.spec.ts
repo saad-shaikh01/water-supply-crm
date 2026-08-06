@@ -256,7 +256,8 @@ describe('role presets', () => {
         if (action !== 'page') resourcesTouched.add(resource);
       }
       for (const resource of resourcesTouched) {
-        if (resource === 'whatsapp') continue; // non-navigable resource
+        // non-navigable resources — no /dashboard/* route exists to gate.
+        if (resource === 'whatsapp' || resource === 'payroll') continue;
         expect(eff.has(`${resource}:page` as Permission)).toBe(true);
       }
     }

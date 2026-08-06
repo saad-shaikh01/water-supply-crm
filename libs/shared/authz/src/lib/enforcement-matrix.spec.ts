@@ -24,11 +24,11 @@ interface Row {
 
 const MATRIX: Record<RoleKey, Row> = {
   super_admin: {
-    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'settings:update', 'whatsapp:manage'],
+    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'settings:update', 'whatsapp:manage', 'payroll:period_lock'],
     deny: [],
   },
   vendor_admin: {
-    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'settings:update', 'whatsapp:manage', 'inventory:write_off'],
+    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'settings:update', 'whatsapp:manage', 'inventory:write_off', 'payroll:period_lock', 'payroll:view_all'],
     deny: [],
   },
   manager: {
@@ -36,12 +36,18 @@ const MATRIX: Record<RoleKey, Row> = {
       'dashboard:view', 'customers:view', 'customers:view_financial', 'customers:update', 'customers:update_location',
       'customers:export', 'pricing:update', 'orders:approve', 'daily_sheets:update', 'daily_sheets:confirm_crew',
       'daily_sheets:manage_edit_locks', 'daily_sheets:export', 'inventory:add_stock', 'damage_cases:review',
-      'tracking:view', 'analytics:export',
+      'tracking:view', 'analytics:export', 'payroll:ledger_create',
+      'payroll:salary_structure_manage', 'payroll:period_generate', 'payroll:settlement_record',
     ],
     deny: [
       'users:create', 'users:delete', 'customers:delete', 'payments:approve', 'transactions:adjust',
       'damage_cases:charge', 'daily_sheets:correct', 'inventory:write_off', 'inventory:adjust',
       'roles:view', 'roles:update', 'settings:update', 'audit_logs:view', 'balance_reminders:send', 'whatsapp:manage',
+      'payroll:ledger_approve', 'payroll:ledger_void', 'payroll:ledger_reverse', 'payroll:ledger_correct',
+      'payroll:entry_approve', 'payroll:period_lock', 'payroll:period_unlock',
+      // view_all is override-only (Amendment R3) — MANAGER does not get it by default,
+      // unlike ledger_create/salary_structure_manage/period_generate above.
+      'payroll:view_all',
     ],
   },
   accountant: {
@@ -49,19 +55,19 @@ const MATRIX: Record<RoleKey, Row> = {
       'dashboard:view', 'payments:approve', 'payments:reject', 'transactions:record_payment', 'transactions:adjust',
       'analytics:view', 'analytics:export', 'balance_reminders:send', 'customers:view', 'customers:view_financial', 'customers:export',
     ],
-    deny: ['customers:update', 'customers:delete', 'orders:approve', 'daily_sheets:update', 'users:create', 'roles:update', 'inventory:add_stock'],
+    deny: ['customers:update', 'customers:delete', 'orders:approve', 'daily_sheets:update', 'users:create', 'roles:update', 'inventory:add_stock', 'payroll:view_all'],
   },
   support: {
     allow: ['dashboard:view', 'tickets:reply', 'orders:reject', 'customers:view', 'customers:update', 'delivery_issues:resolve'],
-    deny: ['orders:approve', 'customers:view_financial', 'customers:delete', 'payments:approve', 'daily_sheets:update', 'roles:update'],
+    deny: ['orders:approve', 'customers:view_financial', 'customers:delete', 'payments:approve', 'daily_sheets:update', 'roles:update', 'payroll:view_all'],
   },
   salesman: {
     allow: ['dashboard:view', 'customers:view', 'customers:create', 'customers:update', 'customers:update_location', 'orders:view', 'daily_sheets:update', 'products:view'],
-    deny: ['customers:view_financial', 'customers:delete', 'orders:approve', 'payments:approve', 'daily_sheets:confirm_crew', 'inventory:add_stock', 'roles:update'],
+    deny: ['customers:view_financial', 'customers:delete', 'orders:approve', 'payments:approve', 'daily_sheets:confirm_crew', 'inventory:add_stock', 'roles:update', 'payroll:view_all'],
   },
   loader: {
     allow: ['dashboard:view', 'inventory:view', 'inventory:add_stock', 'daily_sheets:load_out', 'daily_sheets:check_in', 'vans:view'],
-    deny: ['inventory:adjust', 'inventory:write_off', 'daily_sheets:update', 'daily_sheets:generate', 'customers:create', 'payments:approve'],
+    deny: ['inventory:adjust', 'inventory:write_off', 'daily_sheets:update', 'daily_sheets:generate', 'customers:create', 'payments:approve', 'payroll:view_all'],
   },
   driver: {
     allow: [
@@ -71,7 +77,8 @@ const MATRIX: Record<RoleKey, Row> = {
     deny: [
       'dashboard:view', 'customers:update', 'customers:view_financial', 'customers:delete', 'daily_sheets:confirm_crew',
       'daily_sheets:manage_edit_locks', 'daily_sheets:export', 'daily_sheets:correct', 'tracking:view', 'expenses:view',
-      'payments:approve', 'damage_cases:review', 'roles:view',
+      'payments:approve', 'damage_cases:review', 'roles:view', 'payroll:view_all', 'payroll:ledger_create',
+      'payroll:period_lock',
     ],
   },
   viewer: {
@@ -79,6 +86,7 @@ const MATRIX: Record<RoleKey, Row> = {
     deny: [
       'customers:view_financial', 'customers:create', 'customers:update', 'customers:delete', 'customers:export',
       'orders:approve', 'roles:update', 'payments:approve', 'daily_sheets:update', 'inventory:add_stock', 'users:create',
+      'payroll:view_all',
     ],
   },
 };

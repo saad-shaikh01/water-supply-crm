@@ -5,6 +5,9 @@
 
 > **Amendment R1 (Phase C, owner-approved 2026-07-08):** added **`customers:view_financial`** (financial-summary + consumption views, separate from operational `customers:view`) and **`customers:update_location`** (GPS pinning, separate from general `customers:update`). This separates operational from financial customer viewing, and location updates from general editing, so drivers are not broadened to sensitive data.
 > **Amendment R2 (Phase C / Batch 16, owner-approved 2026-07-08):** added **`daily_sheets:correct`** (admin-only financial correction entry, separate from `daily_sheets:update`) to preserve the `VENDOR_ADMIN`-only boundary on sheet corrections. **Totals updated: 123 permissions, 100 actions.**
+> **Amendment R3 (Payroll Phase 1, owner-approved 2026-08-06):** added the new **`payroll`** resource (non-navigable — no `/dashboard/payroll` route yet), 11 actions covering the Staff Financial Ledger module: `view_all`, `ledger_create`, `ledger_approve`, `ledger_void`, `ledger_reverse`, `ledger_correct`, `salary_structure_manage`, `period_generate`, `entry_approve`, `period_lock`, `period_unlock`. `payroll:view_all` is deliberately granted to **no** default preset (override-only via `UserPermissionOverride`) per this row's distinct wording in `docs/features/staff-payroll-financial-management.md` §10 ("VENDOR_ADMIN, STAFF *(if given the permission)*" — read as override-only, unlike every other row's flat grant). A `payroll:approval_rules_manage` action and its backing CRUD endpoint were drafted alongside this work and **rejected**: no such management surface is specified anywhere in the approved planning doc, and the draft's own code comments misattributed a quote to §10 that does not exist there.
+
+> **Amendment R4 (Payroll Phase 1, owner-approved 2026-08-06):** added **`payroll:settlement_record`** to the `payroll` resource, gating `POST /payroll/entries/:id/settlements` (and `PATCH /payroll/entries/:id/mark-settled`) — recording a full or partial payment against a locked `PayrollEntry`. Granted to `VENDOR_ADMIN` + `STAFF` by default (a flat grant, like `ledger_create`/`salary_structure_manage`/`period_generate` above, **not** override-only like `view_all`), per `docs/features/staff-payroll-financial-management.md` §10 ("Record settlement (mark paid): VENDOR_ADMIN, STAFF").
 **Convention:** `resource:action` (canonical separator `:`). `resource:page` = reserved route/navigation permission. See [rbac-design.md](./rbac-design.md).
 **Grounding:** Derived from the *actual* controller endpoints and `/dashboard/*` routes in the repo (verified 2026-07-08), not the illustrative draft in design-doc §5. **This catalog supersedes design-doc §5** — deltas are listed in §D.
 
@@ -263,6 +266,24 @@ Each row: permission → the existing feature/endpoint(s) it gates. `page` sorts
 | `conversations:acknowledge` | `PATCH /conversations/:id/read`, `PATCH /messages/:id/acknowledge` |
 | `conversations:manage_status` | `PATCH /conversations/:id/status` |
 
+### 27. Payroll — `payroll` *(NON-navigable — no `/dashboard/payroll` route yet; a future frontend phase adds `payroll:page` when the page is built)*
+> Viewing one's OWN payroll/ledger records needs no permission at all — enforced in code (compare the requester's `userId` to the record's owner), not RBAC, since every role must be able to see its own pay. `payroll:view_all` is only for seeing OTHER employees' records, and is override-only (see Amendment R3 above — no default preset grants it).
+
+| Permission | Gates |
+|---|---|
+| `payroll:view_all` | View any employee's payroll/ledger (self-view needs no permission, see above) — `GET /payroll/periods/:periodId/entries`; self-scope check inside `GET /payroll/ledger-entries/employee/:userId`, `GET /payroll/salary-structures/employee/:userId(/effective)`, `GET /payroll/entries/:id/breakdown` |
+| `payroll:ledger_create` | `POST /payroll/ledger-entries` |
+| `payroll:ledger_approve` | `PATCH /payroll/ledger-entries/:id/approve` |
+| `payroll:ledger_void` | `PATCH /payroll/ledger-entries/:id/void` (creator may also void their own entry without this permission) |
+| `payroll:ledger_reverse` | `POST /payroll/ledger-entries/:id/reverse` |
+| `payroll:ledger_correct` | `POST /payroll/ledger-entries/:id/correct` |
+| `payroll:salary_structure_manage` | `POST /payroll/salary-structures` |
+| `payroll:period_generate` | `POST /payroll/periods/open`, `POST /payroll/periods/:periodId/entries/generate` |
+| `payroll:entry_approve` | `PATCH /payroll/entries/:id/approve` |
+| `payroll:period_lock` | `PATCH /payroll/periods/:id/lock` |
+| `payroll:period_unlock` | `PATCH /payroll/periods/:id/unlock` |
+| `payroll:settlement_record` | `POST /payroll/entries/:id/settlements` |
+
 ---
 
 ## B. Reference lists
@@ -344,7 +365,15 @@ audit_logs:view
 settings:view  settings:update
 # whatsapp (2)
 whatsapp:view  whatsapp:manage
+# collection_policy action (1)
+collection_policy:update
+# conversations action (5)
+conversations:create  conversations:send  conversations:acknowledge  conversations:manage_status
+# payroll (11, all non-page — resource has no :page yet)
+payroll:view_all  payroll:ledger_create  payroll:ledger_approve  payroll:ledger_void  payroll:ledger_reverse  payroll:ledger_correct  payroll:salary_structure_manage  payroll:period_generate  payroll:entry_approve  payroll:period_lock  payroll:period_unlock
 ```
+
+> **Note:** the `B.2` count in its heading (97) and §E/§F totals predate the `collection_policy`/`conversations` (2026-07-16) and `payroll` (2026-08-06, Amendment R3) additions in §A above — §A is kept current on every catalog change; §E/§F have accumulated drift from earlier additions and are not repaired here (pre-existing, out of this change's scope).
 
 ---
 
