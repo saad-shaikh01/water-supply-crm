@@ -327,6 +327,8 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
     });
   };
 
+  const handleSelectAll = (itemIds: string[]) => setSelectedIds(new Set(itemIds));
+
   const handleMoveClose = () => setMoveTargetIds(null);
 
   const handleMoved = () => {
@@ -697,6 +699,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         onToggleSelectMode={handleToggleSelectMode}
         selectedIds={selectedIds}
         onToggleSelected={handleToggleSelected}
+        onSelectAll={handleSelectAll}
         onMoveItem={(itemId) => setMoveTargetIds([itemId])}
         onMoveSelected={() => setMoveTargetIds(Array.from(selectedIds))}
       />
