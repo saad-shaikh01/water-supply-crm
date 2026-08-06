@@ -1028,8 +1028,15 @@ model CrewCashDistribution {
 // REVERSED/CORRECTED, nullable here since CREATED/EDITED/DELETED don't require one.
 model CrewCashDistributionAuditLog {
   id                     String                @id @default(uuid())
-  crewCashDistributionId String
-  crewCashDistribution   CrewCashDistribution  @relation(fields: [crewCashDistributionId], references: [id])
+  // Nullable + SetNull (not the Prisma-default RESTRICT): a pre-close
+  // CrewCashDistribution row is hard-deletable (§9 of the doc, mirrors
+  // Expense's "zero ceremony" convention), but DELETED is still one of the
+  // doc's own tracked audit actions (§10) — the audit row (actor, action,
+  // beforeJson snapshot of what was deleted, reason, timestamp) must
+  // survive its parent's deletion, or "DELETED (pre-close only)" as a
+  // tracked action would be structurally impossible to satisfy.
+  crewCashDistributionId String?
+  crewCashDistribution   CrewCashDistribution? @relation(fields: [crewCashDistributionId], references: [id], onDelete: SetNull)
   actorId                String
   actor                  User                  @relation(fields: [actorId], references: [id])
   actorRole              UserRole

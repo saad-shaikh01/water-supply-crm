@@ -10,6 +10,8 @@ import { PayrollEntryService } from './payroll-entry.service';
 import { PayrollEntryController } from './payroll-entry.controller';
 import { SettlementService } from './settlement.service';
 import { SettlementController } from './settlement.controller';
+import { CrewCashDistributionService } from './crew-cash-distribution.service';
+import { CrewCashDistributionController } from './crew-cash-distribution.controller';
 
 /**
  * Staff Payroll & Financial Management — Phase 1b.
@@ -35,6 +37,12 @@ import { SettlementController } from './settlement.controller';
  * Cron-based period auto-rollover is a later, separately scoped piece of
  * work — see the schema module note above these models in
  * libs/shared/database/prisma/schema.prisma.
+ *
+ * Crew Cash Distribution (Phase 3-2) is an extension of Payroll, not a new
+ * module — docs/features/crew-operational-cash-distribution.md. Sync into
+ * the Payroll Ledger at DailySheet.closeSheet() and post-close
+ * reversal/correction are separate, later dispatches; this phase only
+ * covers pre-close create/edit/delete/approve.
  */
 @Module({
   controllers: [
@@ -43,6 +51,7 @@ import { SettlementController } from './settlement.controller';
     PayrollPeriodController,
     PayrollEntryController,
     SettlementController,
+    CrewCashDistributionController,
   ],
   providers: [
     SalaryStructureService,
@@ -51,6 +60,7 @@ import { SettlementController } from './settlement.controller';
     PayrollPeriodService,
     PayrollEntryService,
     SettlementService,
+    CrewCashDistributionService,
   ],
   exports: [
     SalaryStructureService,
@@ -59,6 +69,7 @@ import { SettlementController } from './settlement.controller';
     PayrollPeriodService,
     PayrollEntryService,
     SettlementService,
+    CrewCashDistributionService,
   ],
 })
 export class PayrollModule {}

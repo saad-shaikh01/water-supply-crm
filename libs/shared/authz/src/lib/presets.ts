@@ -114,6 +114,13 @@ const MANAGER_PERMISSIONS: Permission[] = [
   // VENDOR_ADMIN + STAFF default as the three above — Amendment R4.
   'payroll:ledger_create', 'payroll:salary_structure_manage', 'payroll:period_generate',
   'payroll:settlement_record',
+  // Crew Cash Distribution (Amendment R5, crew-operational-cash-distribution.md §11):
+  // all five actions are flat STAFF/VENDOR_ADMIN defaults — including view_all, which
+  // (unlike payroll:view_all above) is NOT override-only for this resource; §11's table
+  // words every row the same flat way, with no distinctly-worded override-only phrasing
+  // for view_all here. edit/delete are additionally available to the entry's own
+  // creator regardless of role, as a code-level check inside the service.
+  'crew_cash:create', 'crew_cash:edit', 'crew_cash:delete', 'crew_cash:approve', 'crew_cash:view_all',
 ];
 
 export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
@@ -211,6 +218,10 @@ export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
       'daily_sheets:update',
       'products:page',
       'products:view',
+      // Crew Cash Distribution create (Amendment R5, §11: "SALESMAN (primary
+      // user today)") — the Salesman is on the route recording tea/meal/cash
+      // handed to crew, so this is a default grant, not an override.
+      'crew_cash:create',
     ],
   },
   loader: {
@@ -269,6 +280,9 @@ export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
       'conversations:create',
       'conversations:send',
       'conversations:acknowledge',
+      // Crew Cash Distribution create (Amendment R5, §11: "DRIVER" is listed
+      // alongside SALESMAN/STAFF/VENDOR_ADMIN as a default holder).
+      'crew_cash:create',
     ],
   },
   viewer: {

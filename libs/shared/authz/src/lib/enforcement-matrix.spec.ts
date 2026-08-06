@@ -28,7 +28,7 @@ const MATRIX: Record<RoleKey, Row> = {
     deny: [],
   },
   vendor_admin: {
-    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'settings:update', 'whatsapp:manage', 'inventory:write_off', 'payroll:period_lock', 'payroll:view_all'],
+    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'settings:update', 'whatsapp:manage', 'inventory:write_off', 'payroll:period_lock', 'payroll:view_all', 'crew_cash:approve', 'crew_cash:view_all'],
     deny: [],
   },
   manager: {
@@ -38,6 +38,10 @@ const MATRIX: Record<RoleKey, Row> = {
       'daily_sheets:manage_edit_locks', 'daily_sheets:export', 'inventory:add_stock', 'damage_cases:review',
       'tracking:view', 'analytics:export', 'payroll:ledger_create',
       'payroll:salary_structure_manage', 'payroll:period_generate', 'payroll:settlement_record',
+      // crew_cash:view_all IS a flat STAFF default here — unlike payroll:view_all
+      // below, this resource's §11 table has no distinctly-worded override-only
+      // phrasing for view_all (Amendment R5).
+      'crew_cash:create', 'crew_cash:edit', 'crew_cash:delete', 'crew_cash:approve', 'crew_cash:view_all',
     ],
     deny: [
       'users:create', 'users:delete', 'customers:delete', 'payments:approve', 'transactions:adjust',
@@ -55,30 +59,31 @@ const MATRIX: Record<RoleKey, Row> = {
       'dashboard:view', 'payments:approve', 'payments:reject', 'transactions:record_payment', 'transactions:adjust',
       'analytics:view', 'analytics:export', 'balance_reminders:send', 'customers:view', 'customers:view_financial', 'customers:export',
     ],
-    deny: ['customers:update', 'customers:delete', 'orders:approve', 'daily_sheets:update', 'users:create', 'roles:update', 'inventory:add_stock', 'payroll:view_all'],
+    deny: ['customers:update', 'customers:delete', 'orders:approve', 'daily_sheets:update', 'users:create', 'roles:update', 'inventory:add_stock', 'payroll:view_all', 'crew_cash:create', 'crew_cash:view_all'],
   },
   support: {
     allow: ['dashboard:view', 'tickets:reply', 'orders:reject', 'customers:view', 'customers:update', 'delivery_issues:resolve'],
-    deny: ['orders:approve', 'customers:view_financial', 'customers:delete', 'payments:approve', 'daily_sheets:update', 'roles:update', 'payroll:view_all'],
+    deny: ['orders:approve', 'customers:view_financial', 'customers:delete', 'payments:approve', 'daily_sheets:update', 'roles:update', 'payroll:view_all', 'crew_cash:create', 'crew_cash:view_all'],
   },
   salesman: {
-    allow: ['dashboard:view', 'customers:view', 'customers:create', 'customers:update', 'customers:update_location', 'orders:view', 'daily_sheets:update', 'products:view'],
-    deny: ['customers:view_financial', 'customers:delete', 'orders:approve', 'payments:approve', 'daily_sheets:confirm_crew', 'inventory:add_stock', 'roles:update', 'payroll:view_all'],
+    allow: ['dashboard:view', 'customers:view', 'customers:create', 'customers:update', 'customers:update_location', 'orders:view', 'daily_sheets:update', 'products:view', 'crew_cash:create'],
+    deny: ['customers:view_financial', 'customers:delete', 'orders:approve', 'payments:approve', 'daily_sheets:confirm_crew', 'inventory:add_stock', 'roles:update', 'payroll:view_all', 'crew_cash:approve', 'crew_cash:view_all'],
   },
   loader: {
     allow: ['dashboard:view', 'inventory:view', 'inventory:add_stock', 'daily_sheets:load_out', 'daily_sheets:check_in', 'vans:view'],
-    deny: ['inventory:adjust', 'inventory:write_off', 'daily_sheets:update', 'daily_sheets:generate', 'customers:create', 'payments:approve', 'payroll:view_all'],
+    deny: ['inventory:adjust', 'inventory:write_off', 'daily_sheets:update', 'daily_sheets:generate', 'customers:create', 'payments:approve', 'payroll:view_all', 'crew_cash:create'],
   },
   driver: {
     allow: [
       'dashboard:page', 'customers:view', 'customers:create', 'customers:update_location', 'daily_sheets:update',
       'daily_sheets:load_out', 'daily_sheets:check_in', 'damage_cases:create', 'expenses:create', 'tracking:report_location',
+      'crew_cash:create',
     ],
     deny: [
       'dashboard:view', 'customers:update', 'customers:view_financial', 'customers:delete', 'daily_sheets:confirm_crew',
       'daily_sheets:manage_edit_locks', 'daily_sheets:export', 'daily_sheets:correct', 'tracking:view', 'expenses:view',
       'payments:approve', 'damage_cases:review', 'roles:view', 'payroll:view_all', 'payroll:ledger_create',
-      'payroll:period_lock',
+      'payroll:period_lock', 'crew_cash:approve', 'crew_cash:view_all',
     ],
   },
   viewer: {
@@ -86,7 +91,7 @@ const MATRIX: Record<RoleKey, Row> = {
     deny: [
       'customers:view_financial', 'customers:create', 'customers:update', 'customers:delete', 'customers:export',
       'orders:approve', 'roles:update', 'payments:approve', 'daily_sheets:update', 'inventory:add_stock', 'users:create',
-      'payroll:view_all',
+      'payroll:view_all', 'crew_cash:create', 'crew_cash:view_all',
     ],
   },
 };

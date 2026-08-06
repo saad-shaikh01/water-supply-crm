@@ -16,6 +16,7 @@ export const ACTION_LABELS: Record<string, string> = {
   view: 'View',
   create: 'Create',
   update: 'Update',
+  edit: 'Edit',
   update_location: 'Update location',
   view_financial: 'View financial summary',
   delete: 'Delete',

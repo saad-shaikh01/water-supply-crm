@@ -8,6 +8,8 @@
 > **Amendment R3 (Payroll Phase 1, owner-approved 2026-08-06):** added the new **`payroll`** resource (non-navigable — no `/dashboard/payroll` route yet), 11 actions covering the Staff Financial Ledger module: `view_all`, `ledger_create`, `ledger_approve`, `ledger_void`, `ledger_reverse`, `ledger_correct`, `salary_structure_manage`, `period_generate`, `entry_approve`, `period_lock`, `period_unlock`. `payroll:view_all` is deliberately granted to **no** default preset (override-only via `UserPermissionOverride`) per this row's distinct wording in `docs/features/staff-payroll-financial-management.md` §10 ("VENDOR_ADMIN, STAFF *(if given the permission)*" — read as override-only, unlike every other row's flat grant). A `payroll:approval_rules_manage` action and its backing CRUD endpoint were drafted alongside this work and **rejected**: no such management surface is specified anywhere in the approved planning doc, and the draft's own code comments misattributed a quote to §10 that does not exist there.
 
 > **Amendment R4 (Payroll Phase 1, owner-approved 2026-08-06):** added **`payroll:settlement_record`** to the `payroll` resource, gating `POST /payroll/entries/:id/settlements` (and `PATCH /payroll/entries/:id/mark-settled`) — recording a full or partial payment against a locked `PayrollEntry`. Granted to `VENDOR_ADMIN` + `STAFF` by default (a flat grant, like `ledger_create`/`salary_structure_manage`/`period_generate` above, **not** override-only like `view_all`), per `docs/features/staff-payroll-financial-management.md` §10 ("Record settlement (mark paid): VENDOR_ADMIN, STAFF").
+
+> **Amendment R5 (Crew Cash Phase 3, owner-approved 2026-08-07):** added the new **`crew_cash`** resource (non-navigable — recorded from a card on the existing Daily Sheet detail page, no dedicated route), 5 actions covering the Crew Cash Distribution extension to Payroll: `create`, `edit`, `delete`, `approve`, `view_all`. Default holders per `docs/features/crew-operational-cash-distribution.md` §11: `create` → `SALESMAN` (primary user today), `DRIVER`, `STAFF`, `VENDOR_ADMIN`; `edit`/`delete` → the entry's own creator (code-level check, not RBAC) OR `STAFF`/`VENDOR_ADMIN`; `approve` → `STAFF`, `VENDOR_ADMIN`; `view_all` → `STAFF`, `VENDOR_ADMIN` (self-view as recipient needs no permission — implicit, matching the `payroll:view_all` pattern). Unlike `payroll:view_all` (Amendment R3, override-only, granted to no default preset), `crew_cash:view_all` **is** a flat `STAFF`/`VENDOR_ADMIN` default — §11's table words every row the same flat way, with none of the distinctly-worded override-only phrasing that applies to `payroll:view_all`. **Totals updated: 149 permissions, 28 resources.**
 **Convention:** `resource:action` (canonical separator `:`). `resource:page` = reserved route/navigation permission. See [rbac-design.md](./rbac-design.md).
 **Grounding:** Derived from the *actual* controller endpoints and `/dashboard/*` routes in the repo (verified 2026-07-08), not the illustrative draft in design-doc §5. **This catalog supersedes design-doc §5** — deltas are listed in §D.
 
@@ -283,6 +285,19 @@ Each row: permission → the existing feature/endpoint(s) it gates. `page` sorts
 | `payroll:period_lock` | `PATCH /payroll/periods/:id/lock` |
 | `payroll:period_unlock` | `PATCH /payroll/periods/:id/unlock` |
 | `payroll:settlement_record` | `POST /payroll/entries/:id/settlements` |
+
+### 28. Crew Cash Distribution — `crew_cash` *(NON-navigable — recorded from a card on the existing Daily Sheet detail page, no dedicated route)*
+> Viewing one's OWN Crew Cash Distribution history (as the recipient `employeeId`) needs no permission at all — enforced in code (compare the requester's `userId` to the record's `employeeId`), same pattern as `payroll:view_all` above. `crew_cash:view_all` is only for seeing OTHER employees' entries, and — unlike `payroll:view_all` — **is** a flat `STAFF`/`VENDOR_ADMIN` default (see Amendment R5 above). `edit`/`delete` are additionally allowed for the entry's own creator (`createdById`) as a code-level check even without the permission, mirroring `payroll:ledger_void`'s "creator OR permission" precedent.
+
+| Permission | Gates |
+|---|---|
+| `crew_cash:create` | `POST /daily-sheets/:dailySheetId/crew-cash` |
+| `crew_cash:edit` | `PATCH /crew-cash/:id` (creator may also edit their own entry without this permission) |
+| `crew_cash:delete` | `DELETE /crew-cash/:id` (creator may also delete their own entry without this permission) |
+| `crew_cash:approve` | `PATCH /crew-cash/:id/approve` |
+| `crew_cash:view_all` | View any employee's Crew Cash Distribution history (self-view needs no permission, see above) — self-scope check inside `GET /crew-cash/employee/:employeeId` |
+
+> `GET /daily-sheets/:dailySheetId/crew-cash` (the sheet-scoped list, feeding the Daily Sheet detail card) carries no dedicated permission — `@AuthenticatedOnly()`, tenancy-scoped by `vendorId` in the service, same as the sheet's own Expense list — access to the sheet itself is already gated by `daily_sheets:view` at the page level.
 
 ---
 

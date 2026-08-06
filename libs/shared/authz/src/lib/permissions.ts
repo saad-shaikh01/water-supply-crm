@@ -187,6 +187,24 @@ export const PERMISSION_CATALOG = {
       'settlement_record',
     ],
   },
+  // Amendment R5 (Crew Cash Phase 3, owner-approved 2026-08-07): new resource — see
+  // docs/rbac-permission-catalog.md §28 for the full amendment note.
+  // Non-navigable, same reasoning as `payroll` above: Crew Cash Distribution is
+  // recorded from a card on the existing Daily Sheet detail page, not a dedicated
+  // `/dashboard/crew-cash` route, so there is nothing for a `:page` permission to
+  // gate. `edit`/`delete` are additionally allowed for the entry's own creator as a
+  // code-level check even without the permission (mirrors `payroll:ledger_void`'s
+  // "creator OR permission" precedent) — see CrewCashDistributionService. Unlike
+  // `payroll:view_all` (override-only, granted to no default preset), `view_all`
+  // here IS a flat STAFF/VENDOR_ADMIN default per the planning doc's §11 table
+  // ("View all (vendor-wide) | crew-cash:view-all | STAFF, VENDOR_ADMIN") — that
+  // row is worded the same flat way as every other row in that table, unlike the
+  // Payroll Doc's distinctly-worded override-only `view_all` row.
+  crew_cash: {
+    label: 'Crew Cash Distribution',
+    navigable: false,
+    actions: ['create', 'edit', 'delete', 'approve', 'view_all'],
+  },
 } as const satisfies Record<string, ResourceDefinition>;
 
 /** Union of every resource key, e.g. `'customers' | 'orders' | …`. */

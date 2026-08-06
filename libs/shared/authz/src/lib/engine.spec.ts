@@ -257,7 +257,7 @@ describe('role presets', () => {
       }
       for (const resource of resourcesTouched) {
         // non-navigable resources — no /dashboard/* route exists to gate.
-        if (resource === 'whatsapp' || resource === 'payroll') continue;
+        if (resource === 'whatsapp' || resource === 'payroll' || resource === 'crew_cash') continue;
         expect(eff.has(`${resource}:page` as Permission)).toBe(true);
       }
     }
