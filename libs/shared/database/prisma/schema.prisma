@@ -205,6 +205,10 @@ model Vendor {
   payrollPeriods       PayrollPeriod[]
   payrollEntries       PayrollEntry[]
   settlements          Settlement[]
+
+  // Crew Operational Cash Distribution — extension to Payroll (see
+  // docs/features/crew-operational-cash-distribution.md)
+  crewCashDistributions CrewCashDistribution[]
 }
 
 model User {
@@ -259,6 +263,13 @@ model User {
   createdPayrollSnapshots     PayrollSnapshot[]
   payrollEntryAuditLogs       PayrollEntryAuditLog[]
   paidSettlements             Settlement[]
+
+  // Crew Operational Cash Distribution
+  distributedCrewCash  CrewCashDistribution[]           @relation("CrewCashDistributedBy")
+  receivedCrewCash     CrewCashDistribution[]           @relation("CrewCashEmployee")
+  approvedCrewCash     CrewCashDistribution[]           @relation("CrewCashApprovedBy")
+  createdCrewCash      CrewCashDistribution[]           @relation("CrewCashCreatedBy")
+  crewCashAuditLogs    CrewCashDistributionAuditLog[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -536,6 +547,7 @@ model DailySheet {
   warehouseTransactions WarehouseTransaction[]
   crew          DailySheetCrew[]
   conversations Conversation[]
+  crewCashDistributions CrewCashDistribution[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -945,6 +957,90 @@ model Expense {
   @@index([vendorId, date])
   @@index([vendorId, category])
   @@index([dailySheetId])
+}
+
+// Crew Cash Distribution (docs/features/crew-operational-cash-distribution.md) —
+// a Daily-Sheet-scoped record of company cash the Salesman hands to a crew
+// member on the route (meal/tea/water/etc). Mutable while the sheet is open
+// (mirrors Expense exactly); synced into one StaffLedgerEntry per row at the
+// moment the sheet closes (§6), never re-typed. `amount` here is always a
+// positive magnitude — the debit sign is applied only on the StaffLedgerEntry
+// created at sync, matching the source-record-vs-financial-consequence split
+// in §8 of the doc.
+//
+// Two independent identities per §2 (the doc's central modeling decision):
+// distributedById = the custodian who recorded/handed out the cash (zero
+// financial consequence for them); employeeId = the beneficiary whose pay is
+// debited. A Salesman buying his own lunch is simply both fields on one row —
+// no special-casing needed.
+model CrewCashDistribution {
+  id           String       @id @default(uuid())
+  vendorId     String
+  vendor       Vendor       @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  dailySheetId String
+  dailySheet   DailySheet   @relation(fields: [dailySheetId], references: [id], onDelete: Cascade)
+
+  distributedById String
+  distributedBy   User   @relation("CrewCashDistributedBy", fields: [distributedById], references: [id])
+  employeeId      String
+  employee        User   @relation("CrewCashEmployee", fields: [employeeId], references: [id])
+
+  category CrewCashCategory
+  amount   Int // whole rupees, positive magnitude — see model comment
+  notes    String?
+  photoKeys String[] // optional receipt/attachment keys — mirrors DamageCase.photoKeys
+  date     DateTime // defaults to dailySheet.date at creation, not independently editable
+
+  // Approval gate (§6) — reuses the same PayrollApprovalRule table from Payroll
+  // Phase 1 (categoryKey e.g. "CREW_CASH_EMERGENCY"), no new config surface.
+  // requiresApproval is snapshotted at creation time (the rule that applied then);
+  // a later threshold change never silently reinterprets an already-recorded row.
+  requiresApproval Boolean   @default(false)
+  approvedById     String?
+  approvedBy       User?     @relation("CrewCashApprovedBy", fields: [approvedById], references: [id])
+  approvedAt       DateTime?
+
+  // Sync (§6) — set exactly once, at the DailySheet's isClosed transition, inside
+  // the same idempotency-checked write closeSheet() already performs for its own
+  // reconciliation. Null until synced; the row (and its linked StaffLedgerEntry)
+  // is frozen from this point on — corrections go through the Payroll Doc's
+  // Reversal/Correction mechanic on the linked entry, never a direct edit (§9).
+  syncedAt            DateTime?
+  syncedLedgerEntryId String?           @unique
+  syncedLedgerEntry   StaffLedgerEntry? @relation(fields: [syncedLedgerEntryId], references: [id])
+
+  createdById String
+  createdBy   User     @relation("CrewCashCreatedBy", fields: [createdById], references: [id])
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  auditLogs CrewCashDistributionAuditLog[]
+
+  @@index([vendorId, dailySheetId])
+  @@index([vendorId, employeeId])
+  @@index([dailySheetId])
+  @@index([syncedLedgerEntryId])
+}
+
+// Per-entity audit trail, mirroring StaffLedgerAuditLog/DamageCaseAuditLog exactly
+// (§10 of the doc). reason is enforced mandatory at the application layer for
+// REVERSED/CORRECTED, nullable here since CREATED/EDITED/DELETED don't require one.
+model CrewCashDistributionAuditLog {
+  id                     String                @id @default(uuid())
+  crewCashDistributionId String
+  crewCashDistribution   CrewCashDistribution  @relation(fields: [crewCashDistributionId], references: [id])
+  actorId                String
+  actor                  User                  @relation(fields: [actorId], references: [id])
+  actorRole              UserRole
+  action                 CrewCashAuditAction
+  beforeJson             Json?
+  afterJson              Json?
+  reason                 String?
+  createdAt              DateTime              @default(now())
+
+  @@index([crewCashDistributionId])
+  @@index([crewCashDistributionId, createdAt])
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1441,6 +1537,13 @@ enum StaffLedgerCategory {
   ADJUSTMENT
   REVERSAL
   CORRECTION
+  // Crew Cash Distribution sync (docs/features/crew-operational-cash-distribution.md
+  // §6) — always a debit against the recipient employee. Broken out as its own
+  // category (not folded into DEDUCTION) so a Crew Cash entry is traceable back to
+  // its source in the employee's own ledger, per the doc's "why the vendor might
+  // want it broken out separately" reasoning — maps into the PayrollEntry's
+  // otherDeductions bucket, same as DEDUCTION/ADJUSTMENT (no engine change).
+  CREW_CASH
 }
 
 enum LedgerEntryStatus {
@@ -1466,6 +1569,26 @@ enum PayrollAuditAction {
   LOCKED
   UNLOCKED
   SETTLED
+}
+
+enum CrewCashCategory {
+  MEAL
+  TEA
+  WATER
+  SNACKS
+  OPERATIONAL_CASH
+  EMERGENCY_CASH
+  OTHER
+}
+
+enum CrewCashAuditAction {
+  CREATED
+  EDITED
+  DELETED
+  APPROVED
+  SYNCED
+  REVERSED
+  CORRECTED
 }
 
 enum PayrollPeriodStatus {
@@ -1553,6 +1676,10 @@ model StaffLedgerEntry {
   reversalEntries StaffLedgerEntry[] @relation("StaffLedgerEntryReversal")
 
   auditLogs StaffLedgerAuditLog[]
+
+  // Inverse of CrewCashDistribution.syncedLedgerEntry — set when this entry was
+  // created by a Crew Cash sync-at-close rather than typed directly.
+  crewCashSource CrewCashDistribution?
 
   version   Int      @default(1)
   createdAt DateTime @default(now())
