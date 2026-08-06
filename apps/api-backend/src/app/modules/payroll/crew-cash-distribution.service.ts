@@ -6,7 +6,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
-import { CrewCashAuditAction, CrewCashCategory } from '@prisma/client';
+import {
+  CrewCashAuditAction,
+  CrewCashCategory,
+  CrewCashDistribution,
+  LedgerEntryStatus,
+  Prisma,
+  StaffLedgerCategory,
+  UserRole,
+} from '@prisma/client';
 import type { AuthUser } from '@water-supply-crm/types';
 import { assertCanViewEmployeeCrewCash } from '../../common/helpers/crew-cash-view-scope.util';
 import { PermissionService } from '../authz/permission.service';
@@ -41,9 +49,13 @@ function approvalCategoryKey(category: CrewCashCategory): string {
  * keeps its own per-entity audit trail (§10) and a snapshot approval flag
  * (§6) the way `StaffLedgerEntry` does.
  *
- * Sync into the Payroll Ledger at `DailySheet.closeSheet()` (§6) is a
- * separate, later dispatch — this service only ever touches the CrewCash
- * side of the boundary; `syncedAt` is read-only here (checked, never set).
+ * Sync into the Payroll Ledger (§6) happens two ways: in bulk via
+ * `syncSheetToLedger`, composed into `DailySheetService.closeSheet()`'s own
+ * transaction so a sheet can never end up closed with its Crew Cash rows
+ * only partially synced; and per-row inside `approve()`, for the case where
+ * an entry is approved AFTER its sheet already closed (the bulk sweep at
+ * close time skips anything still pending approval, so that one row would
+ * otherwise be stranded unsynced until some other event happened to it).
  */
 @Injectable()
 export class CrewCashDistributionService {
@@ -306,7 +318,10 @@ export class CrewCashDistributionService {
 
   /**
    * Approves a PENDING (requiresApproval && unapproved) entry. Atomic CAS
-   * like every other mutation here.
+   * like every other mutation here. If the entry's sheet already closed by
+   * the time approval lands (the close-time sweep skips unapproved rows),
+   * this immediately syncs just this one row instead of leaving it stranded
+   * — see the class doc comment.
    */
   async approve(user: AuthUser, id: string, dto: ApproveCrewCashDistributionDto) {
     return this.prisma.$transaction(async (tx) => {
@@ -325,7 +340,7 @@ export class CrewCashDistributionService {
         throw versionMismatch(entry.version, dto.version);
       }
 
-      const updated = await tx.crewCashDistribution.findUniqueOrThrow({ where: { id } });
+      let updated = await tx.crewCashDistribution.findUniqueOrThrow({ where: { id } });
 
       await tx.crewCashDistributionAuditLog.create({
         data: {
@@ -338,8 +353,107 @@ export class CrewCashDistributionService {
         },
       });
 
+      const sheet = await tx.dailySheet.findUnique({
+        where: { id: updated.dailySheetId },
+        select: { isClosed: true },
+      });
+      if (sheet?.isClosed) {
+        updated = await this.syncOneRow(tx, user.vendorId, updated, user.userId, user.role);
+      }
+
       return updated;
     });
+  }
+
+  /**
+   * Sweeps every not-yet-synced Crew Cash row on a sheet into the Payroll
+   * Ledger. Takes an ALREADY-OPEN transaction client — composes into
+   * `DailySheetService.closeSheet()`'s own transaction rather than opening
+   * its own, so the `isClosed` flip and the sync can never partially commit
+   * relative to each other. Rows still awaiting approval are left alone —
+   * they sync individually the moment they're approved (see `approve`).
+   */
+  async syncSheetToLedger(
+    tx: Prisma.TransactionClient,
+    vendorId: string,
+    dailySheetId: string,
+    actorId: string,
+    actorRole: UserRole,
+  ): Promise<{ synced: number; skippedPendingApproval: number }> {
+    const rows = await tx.crewCashDistribution.findMany({
+      where: { vendorId, dailySheetId, syncedAt: null },
+    });
+
+    let synced = 0;
+    let skippedPendingApproval = 0;
+
+    for (const row of rows) {
+      if (row.requiresApproval && row.approvedAt === null) {
+        skippedPendingApproval++;
+        continue;
+      }
+
+      // Redundant with the `syncedAt: null` filter above (a row can't have
+      // syncedLedgerEntryId set while syncedAt is still null in this
+      // service's own write path) — kept anyway as cheap defense-in-depth
+      // against ever creating a second Ledger Entry for the same row.
+      if (row.syncedLedgerEntryId !== null) {
+        continue;
+      }
+
+      await this.syncOneRow(tx, vendorId, row, actorId, actorRole);
+      synced++;
+    }
+
+    return { synced, skippedPendingApproval };
+  }
+
+  /**
+   * Creates the one `StaffLedgerEntry` a Crew Cash row syncs into (a debit —
+   * negative amount, mirroring the source row's positive magnitude), marks
+   * the row synced, and writes the SYNCED audit log — the shared core used
+   * by both `syncSheetToLedger` (bulk, at close) and `approve` (single row,
+   * post-close approval). `status: POSTED` deliberately bypasses
+   * `PayrollApprovalGateService` — Crew Cash already ran its own upstream
+   * approval gate before this row was ever eligible to sync, so re-running
+   * the ledger's own gate here would double-gate the same money.
+   */
+  private async syncOneRow(
+    tx: Prisma.TransactionClient,
+    vendorId: string,
+    row: CrewCashDistribution,
+    actorId: string,
+    actorRole: UserRole,
+  ): Promise<CrewCashDistribution> {
+    const ledgerEntry = await tx.staffLedgerEntry.create({
+      data: {
+        vendorId,
+        userId: row.employeeId,
+        category: StaffLedgerCategory.CREW_CASH,
+        amount: -row.amount,
+        effectiveDate: row.date,
+        description: `Crew Cash — ${row.category}${row.notes ? `: ${row.notes}` : ''}`,
+        status: LedgerEntryStatus.POSTED,
+        createdById: actorId,
+      },
+    });
+
+    const synced = await tx.crewCashDistribution.update({
+      where: { id: row.id },
+      data: { syncedAt: new Date(), syncedLedgerEntryId: ledgerEntry.id },
+    });
+
+    await tx.crewCashDistributionAuditLog.create({
+      data: {
+        crewCashDistributionId: row.id,
+        actorId,
+        actorRole,
+        action: CrewCashAuditAction.SYNCED,
+        afterJson: { syncedLedgerEntryId: ledgerEntry.id, syncedAt: synced.syncedAt },
+      },
+    });
+
+    return synced;
   }
 
   /** All Crew Cash Distribution rows for one sheet — tenancy-scoped, no dedicated permission (see rbac-permission-catalog.md §28). */

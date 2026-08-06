@@ -139,6 +139,25 @@ describe('PayrollEntryService', () => {
       expect(created.expenses).toBe(2500);
       expect(created.finalPayable).toBe(30000 + 2500);
     });
+
+    it('a Crew Cash sync entry (CREW_CASH category) folds into otherDeductions, same bucket as DEDUCTION/ADJUSTMENT', async () => {
+      // Regression test for the bucketKeyForCategory gap found while building
+      // Crew Cash Distribution (Phase 3-3) — CREW_CASH previously fell
+      // through the switch with no case, returning undefined.
+      const { svc, tx } = makeService({
+        txOverrides: {
+          staffLedgerEntry: {
+            findMany: jest.fn().mockResolvedValue([
+              { id: 'le-1', category: StaffLedgerCategory.CREW_CASH, amount: -150 },
+            ]),
+          },
+        },
+      });
+      await svc.generateDraft(adminUser, PERIOD_ID);
+      const created = tx.payrollEntry.create.mock.calls[0][0].data;
+      expect(created.otherDeductions).toBe(-150);
+      expect(created.finalPayable).toBe(30000 - 150);
+    });
   });
 
   describe('generateDraft() — negative finalPayable is not clamped', () => {

@@ -16,6 +16,7 @@ import { WarehouseService } from '../warehouse/warehouse.service';
 import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.service';
 import { NotificationSettingsService } from '../notifications/notification-settings.service';
 import { CollectionPolicyService } from '../collection-policy/collection-policy.service';
+import { CrewCashDistributionService } from '../payroll/crew-cash-distribution.service';
 
 /**
  * Regression coverage for the Phase 1 refactor: `createSheetForVan` /
@@ -54,6 +55,7 @@ async function buildService(mockPrisma: ReturnType<typeof buildMockPrisma>) {
       { provide: DeliveryReceiptPdfService, useValue: {} },
       { provide: NotificationSettingsService, useValue: {} },
       { provide: CollectionPolicyService, useValue: {} },
+      { provide: CrewCashDistributionService, useValue: {} },
       {
         provide: getQueueToken(QUEUE_NAMES.DAILY_SHEET_GENERATION),
         useValue: { add: jest.fn(), getJob: jest.fn(), getRepeatableJobs: jest.fn().mockResolvedValue([]), upsertJobScheduler: jest.fn() },

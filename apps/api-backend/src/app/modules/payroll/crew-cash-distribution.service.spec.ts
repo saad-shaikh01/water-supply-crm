@@ -51,17 +51,20 @@ const pendingApprovalEntry = { ...baseEntry, requiresApproval: true, version: 1 
 // the live row across calls on this tx instance, `findFirst` returns a
 // frozen pre-image (models two concurrent readers).
 
-function makeTx(entrySnapshot: any = baseEntry) {
+function makeTx(entrySnapshot: any = baseEntry, opts: { sheetIsClosed?: boolean } = {}) {
   let current = { ...entrySnapshot };
   // Models CrewCashDistributionAuditLog as a real table so the SET NULL
   // cascade (migration 20260806205508_crew_cash_audit_log_nullable_fk) can be
   // simulated on `crewCashDistribution.deleteMany` below, instead of a bare mock.
   const auditLogStore: any[] = [];
   let auditLogSeq = 0;
+  let ledgerEntrySeq = 0;
+  const ledgerEntryStore: any[] = [];
 
   return {
     crewCashDistribution: {
       findFirst: jest.fn().mockImplementation(async () => ({ ...entrySnapshot })),
+      findMany: jest.fn().mockImplementation(async () => []),
       findUniqueOrThrow: jest.fn().mockImplementation(async () => current),
       create: jest.fn().mockImplementation(async ({ data }: any) => ({
         id: 'new-entry-001',
@@ -73,6 +76,10 @@ function makeTx(entrySnapshot: any = baseEntry) {
         approvedById: null,
         ...data,
       })),
+      update: jest.fn().mockImplementation(async ({ where, data }: any) => {
+        if (where.id === current.id) current = { ...current, ...data };
+        return { ...current };
+      }),
       count: jest.fn().mockResolvedValue(0),
       updateMany: jest.fn().mockImplementation(async ({ where, data }: any) => {
         if (where.version !== current.version) return { count: 0 };
@@ -104,7 +111,18 @@ function makeTx(entrySnapshot: any = baseEntry) {
       }),
       findMany: jest.fn().mockImplementation(async () => [...auditLogStore]),
     },
+    staffLedgerEntry: {
+      create: jest.fn().mockImplementation(async ({ data }: any) => {
+        const row = { id: `ledger-${++ledgerEntrySeq}`, version: 0, createdAt: new Date(), ...data };
+        ledgerEntryStore.push(row);
+        return row;
+      }),
+    },
+    dailySheet: {
+      findUnique: jest.fn().mockResolvedValue({ isClosed: opts.sheetIsClosed ?? false }),
+    },
     auditLogStore,
+    ledgerEntryStore,
   };
 }
 
@@ -119,6 +137,7 @@ function makeService(
     canPermission?: boolean;
     employeeExists?: boolean;
     duplicateCount?: number;
+    sheetIsClosed?: boolean;
   } = {},
 ) {
   const {
@@ -129,9 +148,10 @@ function makeService(
     canPermission = true,
     employeeExists = true,
     duplicateCount = 0,
+    sheetIsClosed = false,
   } = opts;
 
-  const tx = makeTx(entrySnapshot);
+  const tx = makeTx(entrySnapshot, { sheetIsClosed });
   tx.crewCashDistribution.count.mockResolvedValue(duplicateCount);
 
   const prisma = {
@@ -420,6 +440,139 @@ describe('CrewCashDistributionService', () => {
     it('throws ConflictException on stale version', async () => {
       const { svc } = makeService({ entrySnapshot: pendingApprovalEntry });
       await expect(svc.approve(adminUser, ENTRY_ID, { version: 99 })).rejects.toThrow(ConflictException);
+    });
+
+    it('does NOT sync when the sheet is still open — behavior unchanged from Phase 3-2', async () => {
+      const { svc, tx } = makeService({ entrySnapshot: pendingApprovalEntry, sheetIsClosed: false });
+      const result = await svc.approve(adminUser, ENTRY_ID, { version: 1 });
+
+      expect(result.approvedById).toBe(adminUser.userId);
+      expect(result.syncedAt ?? null).toBeNull();
+      expect(tx.staffLedgerEntry.create).not.toHaveBeenCalled();
+      expect(tx.crewCashDistributionAuditLog.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ action: CrewCashAuditAction.SYNCED }) }),
+      );
+    });
+
+    it('triggers an immediate sync when the sheet is ALREADY closed at approval time', async () => {
+      const { svc, tx } = makeService({ entrySnapshot: pendingApprovalEntry, sheetIsClosed: true });
+      const result = await svc.approve(adminUser, ENTRY_ID, { version: 1 });
+
+      expect(tx.dailySheet.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: pendingApprovalEntry.dailySheetId } }),
+      );
+      expect(tx.staffLedgerEntry.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            category: 'CREW_CASH',
+            amount: -pendingApprovalEntry.amount,
+            userId: pendingApprovalEntry.employeeId,
+            status: 'POSTED',
+          }),
+        }),
+      );
+      expect(result.syncedAt).not.toBeNull();
+      expect(result.syncedLedgerEntryId).toBe(tx.ledgerEntryStore[0].id);
+      expect(tx.crewCashDistributionAuditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ action: CrewCashAuditAction.SYNCED }) }),
+      );
+    });
+  });
+
+  // ── syncSheetToLedger ─────────────────────────────────────────────────────
+
+  describe('syncSheetToLedger()', () => {
+    const eligibleRow = { ...baseEntry, id: 'row-eligible' }; // requiresApproval=false, syncedAt=null
+    const approvedRow = { ...baseEntry, id: 'row-approved', requiresApproval: true, approvedAt: new Date('2026-08-01'), approvedById: 'admin-001' };
+    const pendingRow = { ...baseEntry, id: 'row-pending', requiresApproval: true, approvedAt: null };
+    const alreadySyncedRow = { ...baseEntry, id: 'row-synced', syncedLedgerEntryId: 'ledger-existing' };
+
+    it('creates a StaffLedgerEntry (correct sign/category/fields) for an eligible row and marks it synced', async () => {
+      const { svc, tx } = makeService();
+      tx.crewCashDistribution.findMany.mockResolvedValue([eligibleRow]);
+
+      const result = await svc.syncSheetToLedger(tx as any, VENDOR_ID, SHEET_ID, adminUser.userId, adminUser.role);
+
+      expect(result).toEqual({ synced: 1, skippedPendingApproval: 0 });
+      expect(tx.staffLedgerEntry.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            vendorId: VENDOR_ID,
+            userId: eligibleRow.employeeId,
+            category: 'CREW_CASH',
+            amount: -eligibleRow.amount, // debit — negative of the row's positive magnitude
+            effectiveDate: eligibleRow.date,
+            status: 'POSTED',
+            createdById: adminUser.userId,
+          }),
+        }),
+      );
+      expect(tx.crewCashDistribution.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: eligibleRow.id },
+          data: expect.objectContaining({ syncedLedgerEntryId: tx.ledgerEntryStore[0].id }),
+        }),
+      );
+    });
+
+    it('syncs an already-approved row alongside a non-approval-required row', async () => {
+      const { svc, tx } = makeService();
+      tx.crewCashDistribution.findMany.mockResolvedValue([eligibleRow, approvedRow]);
+
+      const result = await svc.syncSheetToLedger(tx as any, VENDOR_ID, SHEET_ID, adminUser.userId, adminUser.role);
+
+      expect(result).toEqual({ synced: 2, skippedPendingApproval: 0 });
+      expect(tx.staffLedgerEntry.create).toHaveBeenCalledTimes(2);
+    });
+
+    it('skips a row that requires approval and is not yet approved, without touching it', async () => {
+      const { svc, tx } = makeService();
+      tx.crewCashDistribution.findMany.mockResolvedValue([pendingRow]);
+
+      const result = await svc.syncSheetToLedger(tx as any, VENDOR_ID, SHEET_ID, adminUser.userId, adminUser.role);
+
+      expect(result).toEqual({ synced: 0, skippedPendingApproval: 1 });
+      expect(tx.staffLedgerEntry.create).not.toHaveBeenCalled();
+      expect(tx.crewCashDistribution.update).not.toHaveBeenCalled();
+    });
+
+    it('is idempotent — a row with syncedLedgerEntryId already set is skipped even though syncedAt: null is always the query filter', async () => {
+      const { svc, tx } = makeService();
+      tx.crewCashDistribution.findMany.mockResolvedValue([alreadySyncedRow]);
+
+      const result = await svc.syncSheetToLedger(tx as any, VENDOR_ID, SHEET_ID, adminUser.userId, adminUser.role);
+
+      expect(result).toEqual({ synced: 0, skippedPendingApproval: 0 });
+      expect(tx.staffLedgerEntry.create).not.toHaveBeenCalled();
+    });
+
+    it('writes a SYNCED audit log entry for each synced row', async () => {
+      const { svc, tx } = makeService();
+      tx.crewCashDistribution.findMany.mockResolvedValue([eligibleRow]);
+
+      await svc.syncSheetToLedger(tx as any, VENDOR_ID, SHEET_ID, adminUser.userId, adminUser.role);
+
+      expect(tx.crewCashDistributionAuditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            crewCashDistributionId: eligibleRow.id,
+            actorId: adminUser.userId,
+            actorRole: adminUser.role,
+            action: CrewCashAuditAction.SYNCED,
+          }),
+        }),
+      );
+    });
+
+    it('queries only rows scoped to this sheet with syncedAt: null', async () => {
+      const { svc, tx } = makeService();
+      tx.crewCashDistribution.findMany.mockResolvedValue([]);
+
+      await svc.syncSheetToLedger(tx as any, VENDOR_ID, SHEET_ID, adminUser.userId, adminUser.role);
+
+      expect(tx.crewCashDistribution.findMany).toHaveBeenCalledWith({
+        where: { vendorId: VENDOR_ID, dailySheetId: SHEET_ID, syncedAt: null },
+      });
     });
   });
 

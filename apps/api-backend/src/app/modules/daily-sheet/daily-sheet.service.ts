@@ -12,7 +12,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '@water-supply-crm/database';
 import { QUEUE_NAMES, JOB_NAMES, NOTIFICATION_EVENTS } from '@water-supply-crm/queue';
-import { DeliveryStatus, PaymentType, TransactionType, NotificationType, NotificationChannel, Prisma, CrewRole } from '@prisma/client';
+import { DeliveryStatus, PaymentType, TransactionType, NotificationType, NotificationChannel, Prisma, CrewRole, UserRole } from '@prisma/client';
 import { GenerateSheetsDto } from './dto/generate-sheets.dto';
 import { SubmitDeliveryDto } from './dto/submit-delivery.dto';
 import { LoadOutDto } from './dto/load-out.dto';
@@ -42,6 +42,7 @@ import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.serv
 import { NotificationSettingsService } from '../notifications/notification-settings.service';
 import { CollectionPolicyService } from '../collection-policy/collection-policy.service';
 import { evaluateCollectionPolicy, evaluateCashCollectionPolicy } from '../../common/helpers/collection-policy.util';
+import { CrewCashDistributionService } from '../payroll/crew-cash-distribution.service';
 
 const AUTO_GENERATE_CRON = '5 0 * * *'; // 00:05 AM, evaluated in AUTO_GENERATE_TZ
 const AUTO_GENERATE_TZ = 'Asia/Karachi';
@@ -65,6 +66,7 @@ export class DailySheetService implements OnModuleInit {
     private deliveryReceiptPdf: DeliveryReceiptPdfService,
     private notifSettings: NotificationSettingsService,
     private collectionPolicy: CollectionPolicyService,
+    private crewCashDistribution: CrewCashDistributionService,
     @InjectQueue(QUEUE_NAMES.DAILY_SHEET_GENERATION)
     private sheetQueue: Queue,
   ) {}
@@ -1785,7 +1787,7 @@ export class DailySheetService implements OnModuleInit {
     return this.buildReconciliation(sheet);
   }
 
-  async closeSheet(vendorId: string, sheetId: string) {
+  async closeSheet(vendorId: string, sheetId: string, actorId: string, actorRole: UserRole) {
     const sheet = await this.fetchSheetForReconciliation(vendorId, sheetId);
     if (!sheet) {
       throw new NotFoundException('Daily sheet not found');
@@ -1812,12 +1814,21 @@ export class DailySheetService implements OnModuleInit {
 
     const reconciliation = this.buildReconciliation(sheet);
 
-    const closed = await this.prisma.dailySheet.update({
-      where: { id: sheetId },
-      data: {
-        isClosed: true,
-        cashExpected: reconciliation.driver.netToHandIn,
-      },
+    // The isClosed flip and the Crew Cash → Payroll Ledger sync sweep share
+    // one transaction so a sheet can never end up closed with its Crew Cash
+    // rows only partially synced — either both commit or both roll back.
+    const { closed, crewCashSync } = await this.prisma.$transaction(async (tx) => {
+      const closedSheet = await tx.dailySheet.update({
+        where: { id: sheetId },
+        data: {
+          isClosed: true,
+          cashExpected: reconciliation.driver.netToHandIn,
+        },
+      });
+
+      const sync = await this.crewCashDistribution.syncSheetToLedger(tx, vendorId, sheetId, actorId, actorRole);
+
+      return { closed: closedSheet, crewCashSync: sync };
     });
 
     await this.audit.log({
@@ -1844,6 +1855,8 @@ export class DailySheetService implements OnModuleInit {
     return {
       sheet: closed,
       reconciliation,
+      syncedCrewCashCount: crewCashSync.synced,
+      skippedPendingApprovalCount: crewCashSync.skippedPendingApproval,
     };
   }
 

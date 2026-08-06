@@ -11,6 +11,7 @@ import { NotificationService } from '../notifications/notification.service';
 import { InAppNotificationService } from '../notifications/in-app-notification.service';
 import { NotificationSettingsService } from '../notifications/notification-settings.service';
 import { CollectionPolicyService } from '../collection-policy/collection-policy.service';
+import { CrewCashDistributionService } from '../payroll/crew-cash-distribution.service';
 import { StorageService } from '../../common/storage/storage.service';
 import { WarehouseService } from '../warehouse/warehouse.service';
 import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.service';
@@ -144,6 +145,7 @@ describe('DailySheetService.submitDelivery — Cash Collection Policy gate', () 
         { provide: InAppNotificationService, useValue: {} },
         { provide: NotificationSettingsService, useValue: mockNotifSettings },
         { provide: CollectionPolicyService, useValue: mockCollectionPolicy },
+        { provide: CrewCashDistributionService, useValue: {} },
         { provide: StorageService, useValue: {} },
         { provide: WarehouseService, useValue: {} },
         { provide: DeliveryReceiptPdfService, useValue: {} },

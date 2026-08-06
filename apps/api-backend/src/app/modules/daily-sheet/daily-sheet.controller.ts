@@ -459,7 +459,7 @@ export class DailySheetController {
   @RequirePermissions('daily_sheets:close')
   @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 3 } })
   closeSheet(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.dailySheetService.closeSheet(user.vendorId, id);
+    return this.dailySheetService.closeSheet(user.vendorId, id, user.userId, user.role);
   }
 
   @Patch(':id/swap-assignment')

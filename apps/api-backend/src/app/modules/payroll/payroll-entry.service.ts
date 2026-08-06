@@ -72,6 +72,10 @@ function bucketKeyForCategory(category: StaffLedgerCategory): keyof BucketTotals
     case StaffLedgerCategory.ADJUSTMENT:
     case StaffLedgerCategory.REVERSAL:
     case StaffLedgerCategory.CORRECTION:
+    // Crew Cash Distribution sync (docs/features/crew-operational-cash-distribution.md
+    // §7) — a labeling choice, not an engine change: folds into the same
+    // catch-all bucket as DEDUCTION/ADJUSTMENT rather than a dedicated column.
+    case StaffLedgerCategory.CREW_CASH:
       return 'otherDeductions';
   }
 }
