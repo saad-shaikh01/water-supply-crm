@@ -20,6 +20,14 @@ export class PayrollPeriodService {
     private readonly payrollEntries: PayrollEntryService,
   ) {}
 
+  /** All periods for the vendor, newest first — Payroll History (§12). */
+  async listPeriods(user: AuthUser) {
+    return this.prisma.payrollPeriod.findMany({
+      where: { vendorId: user.vendorId },
+      orderBy: { startDate: 'desc' },
+    });
+  }
+
   /**
    * Finds the vendor's current OPEN period, or creates one for the current
    * cycle (per `PayrollVendorConfig.cutoffDay`, default 1). Idempotent: an

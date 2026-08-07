@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { PayrollPeriodService } from './payroll-period.service';
 import { UnlockPayrollPeriodDto } from './dto/unlock-payroll-period.dto';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
@@ -10,16 +10,26 @@ import type { AuthUser } from '@water-supply-crm/types';
  * payroll:* permissions (rbac-permission-catalog.md §27), replacing the
  * interim `@RequireRoles` gate — see StaffLedgerController's doc comment
  * for why markers are applied per-method rather than at the class level.
- * `getOrCreateOpenPeriod`/`lockPeriod` require `payroll:period_generate` /
- * `payroll:period_lock` (VENDOR_ADMIN, STAFF by preset for generate;
- * VENDOR_ADMIN only for lock); unlock requires `payroll:period_unlock`,
- * intentionally VENDOR_ADMIN-only by preset per the planning doc (§10:
- * "Unlock a locked period: VENDOR_ADMIN only, and only with a mandatory
+ * `listPeriods` (Payroll History, Phase 4-3) requires `payroll:view_all`,
+ * same vendor-wide-visibility gate `PayrollEntryController.listForPeriod`
+ * already uses. `getOrCreateOpenPeriod`/`lockPeriod` require
+ * `payroll:period_generate` / `payroll:period_lock` (VENDOR_ADMIN, STAFF by
+ * preset for generate; VENDOR_ADMIN only for lock); unlock requires
+ * `payroll:period_unlock`, intentionally VENDOR_ADMIN-only by preset per
+ * the planning doc (§10: "Unlock a locked period: VENDOR_ADMIN only, and
+ * only with a mandatory
  * reason").
  */
 @Controller('payroll/periods')
 export class PayrollPeriodController {
   constructor(private readonly payrollPeriods: PayrollPeriodService) {}
+
+  /** GET /payroll/periods — all periods for the vendor, newest first (Payroll History). */
+  @Get()
+  @RequirePermissions('payroll:view_all')
+  listPeriods(@CurrentUser() user: AuthUser) {
+    return this.payrollPeriods.listPeriods(user);
+  }
 
   /** POST /payroll/periods/open — find-or-create the vendor's current OPEN period. */
   @Post('open')

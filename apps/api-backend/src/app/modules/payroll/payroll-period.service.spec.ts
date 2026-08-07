@@ -309,6 +309,26 @@ describe('PayrollPeriodService', () => {
     });
   });
 
+  describe('listPeriods()', () => {
+    it('lists periods for the caller\'s vendor only, newest first', async () => {
+      const periods = [
+        { ...basePeriod, id: 'period-002', periodLabel: '2026-09' },
+        basePeriod,
+      ];
+      const findMany = jest.fn().mockResolvedValue(periods);
+      const prisma = { payrollPeriod: { findMany } };
+      const svc = new PayrollPeriodService(prisma as any, {} as any);
+
+      const result = await svc.listPeriods(adminUser);
+
+      expect(findMany).toHaveBeenCalledWith({
+        where: { vendorId: VENDOR_ID },
+        orderBy: { startDate: 'desc' },
+      });
+      expect(result).toEqual(periods);
+    });
+  });
+
   describe('getOrCreateOpenPeriod()', () => {
     it('returns the existing OPEN period without creating a new one', async () => {
       const prisma = {
