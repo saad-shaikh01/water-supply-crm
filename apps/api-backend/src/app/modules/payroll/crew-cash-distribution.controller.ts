@@ -4,6 +4,7 @@ import { CreateCrewCashDistributionDto } from './dto/create-crew-cash-distributi
 import { UpdateCrewCashDistributionDto } from './dto/update-crew-cash-distribution.dto';
 import { ApproveCrewCashDistributionDto } from './dto/approve-crew-cash-distribution.dto';
 import { RemoveCrewCashDistributionDto } from './dto/remove-crew-cash-distribution.dto';
+import { CorrectCrewCashDistributionDto } from './dto/correct-crew-cash-distribution.dto';
 import { AuthenticatedOnly } from '../../common/decorators/authz-markers.decorator';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -21,6 +22,25 @@ import type { AuthUser } from '@water-supply-crm/types';
  *     `CrewCashDistributionService` (see its doc comments), same precedent
  *     as `StaffLedgerController.voidEntry`.
  *   - approve → crew_cash:approve  (STAFF, VENDOR_ADMIN by preset)
+ *   - correctSyncedEntry → `payroll:ledger_correct` (VENDOR_ADMIN-only by
+ *     preset), NOT any `crew_cash:*` permission. This action fundamentally
+ *     IS a `StaffLedgerEntry` reversal/correction wearing a Crew Cash
+ *     wrapper — `StaffLedgerService.voidEntry` enforces its own "creator OR
+ *     payroll:ledger_void" check internally, but `.reverse()`/`.correct()`
+ *     enforce NO permission of their own (they trust the caller — i.e. the
+ *     route decorator on `StaffLedgerController` — to have already gated
+ *     access; see their doc comments). `CrewCashDistributionService.
+ *     correctSyncedEntry` calls their tx-composable cores directly,
+ *     bypassing `StaffLedgerController` entirely, so THIS route decorator is
+ *     the only enforcement point for those two branches.
+ *     `payroll:ledger_correct` and `payroll:ledger_reverse` are the same
+ *     VENDOR_ADMIN-only tier (rbac-permission-catalog.md §27) and this
+ *     endpoint's own branching (same-employee vs wrong-employee) isn't known
+ *     until after the entry is loaded, so gating on the single permission
+ *     that names the overall action (`/crew-cash/:id/correct`) is correct
+ *     rather than inventing an "any-of" pair — matches doc §11's framing
+ *     ("VENDOR_ADMIN only ... matches the Payroll Doc's Reverse a POSTED
+ *     entry → VENDOR_ADMIN only" for post-close Crew Cash corrections).
  *   - listForSheet → `@AuthenticatedOnly()`, tenancy-scoped in the service,
  *     no dedicated permission (mirrors the sheet's own Expense list — access
  *     to the sheet itself is already gated by daily_sheets:view at the page
@@ -94,5 +114,21 @@ export class CrewCashDistributionController {
   @RequirePermissions('crew_cash:approve')
   approve(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ApproveCrewCashDistributionDto) {
     return this.crewCash.approve(user, id, dto);
+  }
+
+  /**
+   * POST /crew-cash/:id/correct — post-sync correction (wrong amount/
+   * category and/or wrong employee) on an already-synced entry. See the
+   * class doc comment above for why this is gated on `payroll:ledger_correct`
+   * rather than a `crew_cash:*` permission.
+   */
+  @Post('crew-cash/:id/correct')
+  @RequirePermissions('payroll:ledger_correct')
+  correctSyncedEntry(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: CorrectCrewCashDistributionDto,
+  ) {
+    return this.crewCash.correctSyncedEntry(user, id, dto);
   }
 }

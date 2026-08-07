@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { CrewCashDistributionService } from './crew-cash-distribution.service';
-import { CrewCashAuditAction, CrewCashCategory } from '@prisma/client';
+import { CrewCashAuditAction, CrewCashCategory, LedgerEntryStatus } from '@prisma/client';
 
 // ─── fixtures ─────────────────────────────────────────────────────────────────
 
@@ -40,9 +40,29 @@ const baseEntry = {
   updatedAt: new Date(),
 };
 
-const syncedEntry = { ...baseEntry, syncedAt: new Date('2026-08-02') };
+const LEDGER_ENTRY_ID = 'ledger-entry-001';
+const syncedEntry = { ...baseEntry, syncedAt: new Date('2026-08-02'), syncedLedgerEntryId: LEDGER_ENTRY_ID };
 const approvedEntry = { ...baseEntry, requiresApproval: true, approvedAt: new Date('2026-08-01'), approvedById: 'admin-001', version: 1 };
 const pendingApprovalEntry = { ...baseEntry, requiresApproval: true, version: 1 };
+
+// The linked StaffLedgerEntry a synced Crew Cash row points at — used by
+// correctSyncedEntry() tests below. `notLockedLedgerEntry` models the
+// "closed sheet, not-yet-locked payroll" window (payrollEntryId: null);
+// `lockedLedgerEntry` models the entry already rolled into a locked period.
+const notLockedLedgerEntry = {
+  id: LEDGER_ENTRY_ID,
+  vendorId: VENDOR_ID,
+  userId: EMPLOYEE_ID,
+  category: 'CREW_CASH',
+  amount: -50,
+  effectiveDate: new Date('2026-08-01'),
+  description: 'Crew Cash — TEA',
+  status: LedgerEntryStatus.POSTED,
+  createdById: 'admin-001',
+  payrollEntryId: null as string | null,
+  version: 0,
+};
+const lockedLedgerEntry = { ...notLockedLedgerEntry, payrollEntryId: 'payroll-entry-001', version: 2 };
 
 // ─── mock tx factory ────────────────────────────────────────────────────────
 //
@@ -51,7 +71,10 @@ const pendingApprovalEntry = { ...baseEntry, requiresApproval: true, version: 1 
 // the live row across calls on this tx instance, `findFirst` returns a
 // frozen pre-image (models two concurrent readers).
 
-function makeTx(entrySnapshot: any = baseEntry, opts: { sheetIsClosed?: boolean } = {}) {
+function makeTx(
+  entrySnapshot: any = baseEntry,
+  opts: { sheetIsClosed?: boolean; ledgerEntrySnapshot?: any; targetEmployeeExists?: boolean } = {},
+) {
   let current = { ...entrySnapshot };
   // Models CrewCashDistributionAuditLog as a real table so the SET NULL
   // cascade (migration 20260806205508_crew_cash_audit_log_nullable_fk) can be
@@ -117,6 +140,10 @@ function makeTx(entrySnapshot: any = baseEntry, opts: { sheetIsClosed?: boolean 
         ledgerEntryStore.push(row);
         return row;
       }),
+      findUniqueOrThrow: jest.fn().mockImplementation(async () => ({ ...(opts.ledgerEntrySnapshot ?? notLockedLedgerEntry) })),
+    },
+    user: {
+      findFirst: jest.fn().mockImplementation(async () => (opts.targetEmployeeExists === false ? null : { id: 'some-user' })),
     },
     dailySheet: {
       findUnique: jest.fn().mockResolvedValue({ isClosed: opts.sheetIsClosed ?? false }),
@@ -128,6 +155,15 @@ function makeTx(entrySnapshot: any = baseEntry, opts: { sheetIsClosed?: boolean 
 
 // ─── service factory ────────────────────────────────────────────────────────
 
+function makeStaffLedgerMock() {
+  return {
+    voidEntryTx: jest.fn().mockResolvedValue(undefined),
+    reverseTx: jest.fn().mockResolvedValue({ original: {}, reversal: { id: 'reversal-ledger-1' } }),
+    correctTx: jest.fn().mockResolvedValue({ original: {}, reversal: {}, correction: { id: 'correction-ledger-1' } }),
+    createTx: jest.fn().mockImplementation(async (_tx: any, _user: any, dto: any) => ({ id: 'fresh-ledger-1', ...dto })),
+  };
+}
+
 function makeService(
   opts: {
     entrySnapshot?: any;
@@ -138,6 +174,8 @@ function makeService(
     employeeExists?: boolean;
     duplicateCount?: number;
     sheetIsClosed?: boolean;
+    ledgerEntrySnapshot?: any;
+    targetEmployeeExists?: boolean;
   } = {},
 ) {
   const {
@@ -149,9 +187,11 @@ function makeService(
     employeeExists = true,
     duplicateCount = 0,
     sheetIsClosed = false,
+    ledgerEntrySnapshot,
+    targetEmployeeExists,
   } = opts;
 
-  const tx = makeTx(entrySnapshot, { sheetIsClosed });
+  const tx = makeTx(entrySnapshot, { sheetIsClosed, ledgerEntrySnapshot, targetEmployeeExists });
   tx.crewCashDistribution.count.mockResolvedValue(duplicateCount);
 
   const prisma = {
@@ -163,9 +203,10 @@ function makeService(
   };
   const approvalGate = { requiresApproval: jest.fn().mockResolvedValue(approvalRequired) };
   const permissions = { can: jest.fn().mockResolvedValue(canPermission) };
+  const staffLedger = makeStaffLedgerMock();
 
-  const svc = new CrewCashDistributionService(prisma as any, approvalGate as any, permissions as any);
-  return { svc, prisma, tx, approvalGate, permissions };
+  const svc = new CrewCashDistributionService(prisma as any, approvalGate as any, permissions as any, staffLedger as any);
+  return { svc, prisma, tx, approvalGate, permissions, staffLedger };
 }
 
 // ─── tests ──────────────────────────────────────────────────────────────────
@@ -573,6 +614,217 @@ describe('CrewCashDistributionService', () => {
       expect(tx.crewCashDistribution.findMany).toHaveBeenCalledWith({
         where: { vendorId: VENDOR_ID, dailySheetId: SHEET_ID, syncedAt: null },
       });
+    });
+  });
+
+  // ── correctSyncedEntry (post-close correction) ───────────────────────────
+
+  describe('correctSyncedEntry()', () => {
+    const correctReasonOnly = { reason: 'no-op guard' };
+    const correctAmountOnly = { newAmount: 300, reason: 'was actually Rs.300, typo'  };
+    const correctEmployeeOnly = { newEmployeeId: 'other-employee-001', reason: 'wrong crew member selected' };
+
+    it('rejects a row that has not yet synced into the Payroll Ledger', async () => {
+      const { svc } = makeService({ entrySnapshot: baseEntry }); // syncedLedgerEntryId: null
+      await expect(svc.correctSyncedEntry(adminUser, ENTRY_ID, correctAmountOnly)).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects when none of newEmployeeId/newCategory/newAmount is provided (mandatory-reason-only is a no-op)', async () => {
+      const { svc } = makeService({ entrySnapshot: syncedEntry });
+      await expect(svc.correctSyncedEntry(adminUser, ENTRY_ID, correctReasonOnly)).rejects.toThrow(BadRequestException);
+    });
+
+    it("DTO validation rejects a missing/empty 'reason' (mandatory field)", async () => {
+      // Exercises the actual class-validator decorators on the DTO — the
+      // service itself never re-checks `reason`'s presence, it trusts the
+      // ValidationPipe already rejected the request before this point.
+      const { validate } = await import('class-validator');
+      const { plainToInstance } = await import('class-transformer');
+      const { CorrectCrewCashDistributionDto } = await import('./dto/correct-crew-cash-distribution.dto');
+
+      const missingReason = plainToInstance(CorrectCrewCashDistributionDto, { newAmount: 300 });
+      const emptyReason = plainToInstance(CorrectCrewCashDistributionDto, { newAmount: 300, reason: '' });
+
+      const missingErrors = await validate(missingReason);
+      const emptyErrors = await validate(emptyReason);
+
+      expect(missingErrors.some((e) => e.property === 'reason')).toBe(true);
+      expect(emptyErrors.some((e) => e.property === 'reason')).toBe(true);
+    });
+
+    describe('branch: not yet locked (payrollEntryId === null) → void + create', () => {
+      it('voids the original ledger entry and creates a fresh replacement, atomically', async () => {
+        const { svc, staffLedger, tx } = makeService({
+          entrySnapshot: syncedEntry,
+          ledgerEntrySnapshot: notLockedLedgerEntry,
+        });
+
+        await svc.correctSyncedEntry(adminUser, ENTRY_ID, correctAmountOnly);
+
+        expect(staffLedger.voidEntryTx).toHaveBeenCalledWith(
+          tx,
+          adminUser,
+          LEDGER_ENTRY_ID,
+          expect.objectContaining({ version: notLockedLedgerEntry.version, reason: correctAmountOnly.reason }),
+        );
+        expect(staffLedger.createTx).toHaveBeenCalledWith(
+          tx,
+          adminUser,
+          expect.objectContaining({
+            userId: syncedEntry.employeeId,
+            category: 'CREW_CASH',
+            amount: -300,
+          }),
+        );
+        expect(staffLedger.reverseTx).not.toHaveBeenCalled();
+        expect(staffLedger.correctTx).not.toHaveBeenCalled();
+      });
+
+      it('reassigns to the new employee when newEmployeeId is provided, still via void + create', async () => {
+        const { svc, staffLedger, tx } = makeService({
+          entrySnapshot: syncedEntry,
+          ledgerEntrySnapshot: notLockedLedgerEntry,
+          targetEmployeeExists: true,
+        });
+
+        await svc.correctSyncedEntry(adminUser, ENTRY_ID, correctEmployeeOnly);
+
+        expect(staffLedger.voidEntryTx).toHaveBeenCalled();
+        expect(staffLedger.createTx).toHaveBeenCalledWith(
+          tx,
+          adminUser,
+          expect.objectContaining({ userId: 'other-employee-001', amount: -syncedEntry.amount }),
+        );
+      });
+
+      it("rejects reassignment to an employee that doesn't belong to this vendor", async () => {
+        const { svc } = makeService({
+          entrySnapshot: syncedEntry,
+          ledgerEntrySnapshot: notLockedLedgerEntry,
+          targetEmployeeExists: false,
+        });
+
+        await expect(svc.correctSyncedEntry(adminUser, ENTRY_ID, correctEmployeeOnly)).rejects.toThrow(NotFoundException);
+      });
+
+      it('writes a CORRECTED audit log entry', async () => {
+        const { svc, tx } = makeService({ entrySnapshot: syncedEntry, ledgerEntrySnapshot: notLockedLedgerEntry });
+
+        await svc.correctSyncedEntry(adminUser, ENTRY_ID, correctAmountOnly);
+
+        expect(tx.crewCashDistributionAuditLog.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              crewCashDistributionId: ENTRY_ID,
+              action: CrewCashAuditAction.CORRECTED,
+              reason: correctAmountOnly.reason,
+            }),
+          }),
+        );
+      });
+    });
+
+    describe('branch: locked (payrollEntryId !== null), same employee → correct()', () => {
+      it("calls correctTx with the negated corrected amount, not void/reverse", async () => {
+        const { svc, staffLedger, tx } = makeService({
+          entrySnapshot: syncedEntry,
+          ledgerEntrySnapshot: lockedLedgerEntry,
+        });
+
+        await svc.correctSyncedEntry(adminUser, ENTRY_ID, correctAmountOnly);
+
+        expect(staffLedger.correctTx).toHaveBeenCalledWith(
+          tx,
+          adminUser,
+          LEDGER_ENTRY_ID,
+          expect.objectContaining({ version: lockedLedgerEntry.version, reason: correctAmountOnly.reason, correctedAmount: -300 }),
+        );
+        expect(staffLedger.voidEntryTx).not.toHaveBeenCalled();
+        expect(staffLedger.reverseTx).not.toHaveBeenCalled();
+        expect(staffLedger.createTx).not.toHaveBeenCalled();
+      });
+
+      it('writes a CORRECTED audit log entry', async () => {
+        const { svc, tx } = makeService({ entrySnapshot: syncedEntry, ledgerEntrySnapshot: lockedLedgerEntry });
+
+        await svc.correctSyncedEntry(adminUser, ENTRY_ID, correctAmountOnly);
+
+        expect(tx.crewCashDistributionAuditLog.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ action: CrewCashAuditAction.CORRECTED }),
+          }),
+        );
+      });
+    });
+
+    describe('branch: locked (payrollEntryId !== null), different employee → reverse() + create()', () => {
+      it('reverses the original (wrong-employee) entry and creates a separate fresh entry for the right employee', async () => {
+        const { svc, staffLedger, tx } = makeService({
+          entrySnapshot: syncedEntry,
+          ledgerEntrySnapshot: lockedLedgerEntry,
+          targetEmployeeExists: true,
+        });
+
+        await svc.correctSyncedEntry(adminUser, ENTRY_ID, correctEmployeeOnly);
+
+        expect(staffLedger.reverseTx).toHaveBeenCalledWith(
+          tx,
+          adminUser,
+          LEDGER_ENTRY_ID,
+          expect.objectContaining({ version: lockedLedgerEntry.version, reason: correctEmployeeOnly.reason }),
+        );
+        expect(staffLedger.createTx).toHaveBeenCalledWith(
+          tx,
+          adminUser,
+          expect.objectContaining({ userId: 'other-employee-001', amount: -syncedEntry.amount }),
+        );
+        expect(staffLedger.correctTx).not.toHaveBeenCalled();
+        expect(staffLedger.voidEntryTx).not.toHaveBeenCalled();
+      });
+
+      it('writes a REVERSED audit log entry (not CORRECTED)', async () => {
+        const { svc, tx } = makeService({
+          entrySnapshot: syncedEntry,
+          ledgerEntrySnapshot: lockedLedgerEntry,
+          targetEmployeeExists: true,
+        });
+
+        await svc.correctSyncedEntry(adminUser, ENTRY_ID, correctEmployeeOnly);
+
+        expect(tx.crewCashDistributionAuditLog.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ action: CrewCashAuditAction.REVERSED, reason: correctEmployeeOnly.reason }),
+          }),
+        );
+      });
+
+      it("rejects reassignment to an employee that doesn't belong to this vendor", async () => {
+        const { svc } = makeService({
+          entrySnapshot: syncedEntry,
+          ledgerEntrySnapshot: lockedLedgerEntry,
+          targetEmployeeExists: false,
+        });
+
+        await expect(svc.correctSyncedEntry(adminUser, ENTRY_ID, correctEmployeeOnly)).rejects.toThrow(NotFoundException);
+      });
+    });
+
+    it("never mutates the CrewCashDistribution row's own data fields — category/amount/employeeId/syncedLedgerEntryId stay exactly as they were before the correction", async () => {
+      const { svc, tx } = makeService({ entrySnapshot: syncedEntry, ledgerEntrySnapshot: lockedLedgerEntry, targetEmployeeExists: true });
+
+      const result = await svc.correctSyncedEntry(adminUser, ENTRY_ID, {
+        newEmployeeId: 'other-employee-001',
+        newCategory: CrewCashCategory.EMERGENCY_CASH,
+        newAmount: 9999,
+        reason: 'testing row immutability',
+      });
+
+      expect(result.category).toBe(syncedEntry.category);
+      expect(result.amount).toBe(syncedEntry.amount);
+      expect(result.employeeId).toBe(syncedEntry.employeeId);
+      expect(result.syncedLedgerEntryId).toBe(syncedEntry.syncedLedgerEntryId);
+      expect(tx.crewCashDistribution.update).not.toHaveBeenCalled();
+      expect(tx.crewCashDistribution.updateMany).not.toHaveBeenCalled();
     });
   });
 

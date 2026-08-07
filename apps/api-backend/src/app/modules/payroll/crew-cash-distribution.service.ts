@@ -19,10 +19,12 @@ import type { AuthUser } from '@water-supply-crm/types';
 import { assertCanViewEmployeeCrewCash } from '../../common/helpers/crew-cash-view-scope.util';
 import { PermissionService } from '../authz/permission.service';
 import { PayrollApprovalGateService } from './payroll-approval-gate.service';
+import { StaffLedgerService } from './staff-ledger.service';
 import { CreateCrewCashDistributionDto } from './dto/create-crew-cash-distribution.dto';
 import { UpdateCrewCashDistributionDto } from './dto/update-crew-cash-distribution.dto';
 import { ApproveCrewCashDistributionDto } from './dto/approve-crew-cash-distribution.dto';
 import { RemoveCrewCashDistributionDto } from './dto/remove-crew-cash-distribution.dto';
+import { CorrectCrewCashDistributionDto } from './dto/correct-crew-cash-distribution.dto';
 
 function versionMismatch(expected: number, received: number): ConflictException {
   return new ConflictException(`Version mismatch: expected ${expected}, received ${received}. Reload and retry.`);
@@ -63,6 +65,7 @@ export class CrewCashDistributionService {
     private readonly prisma: PrismaService,
     private readonly approvalGate: PayrollApprovalGateService,
     private readonly permissions: PermissionService,
+    private readonly staffLedger: StaffLedgerService,
   ) {}
 
   /**
@@ -454,6 +457,188 @@ export class CrewCashDistributionService {
     });
 
     return synced;
+  }
+
+  /**
+   * Post-sync correction (doc §9) for an already-synced Crew Cash
+   * Distribution row. The row's OWN data fields (`category`/`amount`/
+   * `employeeId`/`syncedLedgerEntryId`) are never rewritten here — it stays
+   * permanently paired with the ORIGINAL `StaffLedgerEntry` it produced; the
+   * correction is a ledger-level fact, traceable via the linked entry's own
+   * reversal/correction chain plus this method's own audit log row.
+   *
+   * `StaffLedgerService.correct()` hardcodes the fresh corrected entry's
+   * `userId` to the original entry's `userId` — it structurally cannot
+   * reassign an entry to a different employee (see its own doc comment), so
+   * "wrong amount/category" and "wrong employee" are two different
+   * compositions of the same three Phase 1 primitives, further split by
+   * whether the linked entry is still pre-lock (`payrollEntryId === null`,
+   * `correct`/`reverse` both reject that) or already rolled into a locked
+   * payroll period:
+   *   - not yet locked            → `voidEntryTx` the original + `createTx` a
+   *     fresh replacement (right employee/category/amount either way).
+   *   - locked, same employee     → `correctTx` (its native mechanic).
+   *   - locked, different employee → `reverseTx` the original (stays
+   *     attributed to whoever it mistakenly charged — that's correct, see
+   *     doc §9) + a SEPARATE `createTx` for the right employee.
+   *
+   * All three branches run inside ONE transaction — `voidEntryTx`/
+   * `reverseTx`/`correctTx`/`createTx` are the tx-parameterized cores added
+   * to `StaffLedgerService` for exactly this composition (see its `createTx`
+   * doc comment): calling the public `voidEntry`/`reverse`/`correct`/
+   * `create` methods instead would each open their OWN separate
+   * `$transaction`, so a failure between two of them (e.g. voided-but-
+   * no-replacement-created) would be a real partial-application bug, not
+   * just a style preference.
+   */
+  async correctSyncedEntry(user: AuthUser, id: string, dto: CorrectCrewCashDistributionDto) {
+    if (dto.newEmployeeId === undefined && dto.newCategory === undefined && dto.newAmount === undefined) {
+      throw new BadRequestException(
+        'At least one of newEmployeeId, newCategory, or newAmount must be provided — a correction that changes nothing is not a correction.',
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const row = await tx.crewCashDistribution.findFirst({ where: { id, vendorId: user.vendorId } });
+      if (!row) throw new NotFoundException('Crew Cash Distribution entry not found.');
+
+      if (row.syncedLedgerEntryId === null) {
+        throw new BadRequestException(
+          'This entry has not yet synced into the Payroll Ledger — use update()/remove() for pre-sync corrections instead.',
+        );
+      }
+
+      const ledgerEntry = await tx.staffLedgerEntry.findUniqueOrThrow({ where: { id: row.syncedLedgerEntryId } });
+
+      const isReassignment = dto.newEmployeeId !== undefined && dto.newEmployeeId !== row.employeeId;
+      const targetEmployeeId = dto.newEmployeeId ?? row.employeeId;
+      const targetCategory = dto.newCategory ?? row.category;
+      const targetAmount = dto.newAmount ?? row.amount;
+
+      if (isReassignment) {
+        const targetEmployee = await tx.user.findFirst({
+          where: { id: targetEmployeeId, vendorId: user.vendorId },
+          select: { id: true },
+        });
+        if (!targetEmployee) throw new NotFoundException('The reassignment target employee was not found.');
+      }
+
+      const beforeJson = {
+        syncedLedgerEntryId: ledgerEntry.id,
+        employeeId: row.employeeId,
+        category: row.category,
+        amount: row.amount,
+        ledgerEntryStatus: ledgerEntry.status,
+        ledgerEntryPayrollEntryId: ledgerEntry.payrollEntryId,
+      };
+
+      let action: CrewCashAuditAction;
+      let afterJson: Prisma.InputJsonValue;
+
+      if (ledgerEntry.payrollEntryId === null) {
+        // Not yet locked — correct()/reverse() both REQUIRE payrollEntryId
+        // !== null and would reject here (see their own doc comments);
+        // voidEntry() is the primitive actually scoped to this window.
+        await this.staffLedger.voidEntryTx(tx, user, ledgerEntry.id, {
+          version: ledgerEntry.version,
+          reason: dto.reason,
+        });
+        const fresh = await this.createFreshLedgerEntry(tx, user, row, targetEmployeeId, targetCategory, targetAmount, dto.reason);
+
+        action = CrewCashAuditAction.CORRECTED;
+        afterJson = {
+          voidedLedgerEntryId: ledgerEntry.id,
+          freshLedgerEntryId: fresh.id,
+          employeeId: targetEmployeeId,
+          category: targetCategory,
+          amount: targetAmount,
+        };
+      } else if (!isReassignment) {
+        // Locked, same employee — StaffLedgerService.correct()'s native
+        // mechanic (reversal + fresh CORRECTION entry, both attributed to
+        // `original.userId` — fine here since the employee is unchanged).
+        const { correction } = await this.staffLedger.correctTx(tx, user, ledgerEntry.id, {
+          version: ledgerEntry.version,
+          reason: dto.reason,
+          correctedAmount: -targetAmount,
+        });
+
+        action = CrewCashAuditAction.CORRECTED;
+        afterJson = {
+          correctionLedgerEntryId: correction.id,
+          employeeId: targetEmployeeId,
+          category: targetCategory,
+          amount: targetAmount,
+        };
+      } else {
+        // Locked, wrong employee — correct() cannot reassign userId, so this
+        // is reverse() against the original mistaken entry (stays attributed
+        // to whoever it mistakenly charged, per doc §9) followed by a
+        // SEPARATE fresh entry for the right employee.
+        await this.staffLedger.reverseTx(tx, user, ledgerEntry.id, {
+          version: ledgerEntry.version,
+          reason: dto.reason,
+        });
+        const fresh = await this.createFreshLedgerEntry(tx, user, row, targetEmployeeId, targetCategory, targetAmount, dto.reason);
+
+        action = CrewCashAuditAction.REVERSED;
+        afterJson = {
+          reversedLedgerEntryId: ledgerEntry.id,
+          freshLedgerEntryId: fresh.id,
+          employeeId: targetEmployeeId,
+          category: targetCategory,
+          amount: targetAmount,
+        };
+      }
+
+      // The row's own data fields are deliberately left untouched — see this
+      // method's doc comment. syncedLedgerEntryId also keeps pointing at the
+      // ORIGINAL entry; it is not repointed to whichever entry now carries
+      // the corrected numbers.
+      await tx.crewCashDistributionAuditLog.create({
+        data: {
+          crewCashDistributionId: row.id,
+          actorId: user.userId,
+          actorRole: user.role,
+          action,
+          reason: dto.reason,
+          beforeJson,
+          afterJson,
+        },
+      });
+
+      return tx.crewCashDistribution.findUniqueOrThrow({ where: { id: row.id } });
+    });
+  }
+
+  /**
+   * Builds the fresh replacement `StaffLedgerEntry` shared by
+   * `correctSyncedEntry`'s not-yet-locked branch (after `voidEntryTx`) and
+   * its locked+wrong-employee branch (after `reverseTx`) — same debit shape
+   * `syncOneRow` uses for the original sync, re-dated to "now" (this is a
+   * correction happening later, not a backdated re-sync). Goes through
+   * `StaffLedgerService.createTx` (not a raw `tx.staffLedgerEntry.create`
+   * like `syncOneRow`), so — unlike the original sync, which deliberately
+   * bypasses the ledger's own approval gate — a correction that pushes the
+   * new amount over threshold is still gated like any other manually-created
+   * ledger entry.
+   */
+  private async createFreshLedgerEntry(
+    tx: Prisma.TransactionClient,
+    user: AuthUser,
+    row: CrewCashDistribution,
+    employeeId: string,
+    category: CrewCashCategory,
+    amount: number,
+    reason: string,
+  ) {
+    return this.staffLedger.createTx(tx, user, {
+      userId: employeeId,
+      category: StaffLedgerCategory.CREW_CASH,
+      amount: -amount,
+      effectiveDate: new Date().toISOString(),
+      description: `Crew Cash correction (was ${row.category} ${row.amount} for ${row.employeeId}) — ${category}: ${reason}`,
+    });
   }
 
   /** All Crew Cash Distribution rows for one sheet — tenancy-scoped, no dedicated permission (see rbac-permission-catalog.md §28). */
