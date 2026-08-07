@@ -112,6 +112,10 @@ const MANAGER_PERMISSIONS: Permission[] = [
   // through this preset.
   // settlement_record ("Record settlement (mark paid)", §10) is the same flat
   // VENDOR_ADMIN + STAFF default as the three above — Amendment R4.
+  // page (Amendment R6, Payroll Phase 4-1): flat VENDOR_ADMIN + STAFF default, same
+  // tier as ledger_create/salary_structure_manage/period_generate/settlement_record
+  // above — Manager needs the sidebar entry to actually reach any of those actions.
+  'payroll:page',
   'payroll:ledger_create', 'payroll:salary_structure_manage', 'payroll:period_generate',
   'payroll:settlement_record',
   // Crew Cash Distribution (Amendment R5, crew-operational-cash-distribution.md §11):

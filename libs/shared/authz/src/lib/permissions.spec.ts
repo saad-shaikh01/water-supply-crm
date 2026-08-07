@@ -27,8 +27,11 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // 149 = 144 + crew_cash (create, edit, delete, approve, view_all) — new
 // resource for the Crew Cash Distribution extension to Payroll (Amendment
 // R5, 2026-08-07). No new `:page` — same non-navigable reasoning as payroll.
-const FROZEN_TOTAL = 149;
-const FROZEN_PAGES = 25;
+// 150 = 149 + payroll:page — the vendor-dashboard `/dashboard/payroll` route
+// now exists, so `payroll` flips from non-navigable to navigable (Amendment
+// R6, Payroll Phase 4-1, 2026-08-08). +1 page permission too.
+const FROZEN_TOTAL = 150;
+const FROZEN_PAGES = 26;
 const FROZEN_RESOURCES = 28;
 
 describe('permission catalog (frozen contract)', () => {
@@ -60,15 +63,13 @@ describe('permission catalog (frozen contract)', () => {
     }
   });
 
-  it('no action exists without its resource also having a :page (except whatsapp, payroll, crew_cash)', () => {
-    // payroll: non-navigable for now, same reason as whatsapp — its HTTP surface
-    // has no vendor-dashboard route yet; a future frontend phase adds
-    // `payroll:page` + a Page Registry row once the page exists.
-    // crew_cash: same reasoning — recorded from a card on the existing Daily
-    // Sheet detail page, not a dedicated route (Amendment R5).
+  it('no action exists without its resource also having a :page (except whatsapp, crew_cash)', () => {
+    // payroll now has its own `:page` (Amendment R6) and is no longer exempt.
+    // crew_cash: recorded from a card on the existing Daily Sheet detail page,
+    // not a dedicated route (Amendment R5) — stays non-navigable.
     for (const resource of RESOURCES) {
       const def = PERMISSION_CATALOG[resource];
-      if (resource === 'whatsapp' || resource === 'payroll' || resource === 'crew_cash') continue;
+      if (resource === 'whatsapp' || resource === 'crew_cash') continue;
       expect(def.actions).toContain('page');
     }
   });

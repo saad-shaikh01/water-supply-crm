@@ -7,7 +7,7 @@ import {
   ClipboardList, CreditCard, UserCog, Droplets, Banknote, Navigation,
   Receipt, Bell, BellRing, ScrollText, BarChart2, Home, History, ShoppingCart,
   MessageSquare, AlertTriangle, Tag, ShieldAlert, Warehouse, Wrench, ChevronDown, KeyRound,
-  Inbox, Percent,
+  Inbox, Percent, Wallet,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { pagePermissionForPath } from '@water-supply-crm/authz';
@@ -91,6 +91,10 @@ const navItems: NavItem[] = [
     ],
   },
 
+  // Payroll — docs/features/staff-payroll-financial-management.md §7.
+  { label: 'Dashboard', href: '/dashboard/payroll', icon: Wallet, group: 'Payroll' },
+  { label: 'Employees', href: '/dashboard/payroll/employees', icon: Users, group: 'Payroll' },
+
   // Finance
   { label: 'Transactions', href: '/dashboard/transactions', icon: CreditCard, group: 'Finance' },
   { label: 'Payment Requests', href: '/dashboard/payment-requests', icon: Banknote, group: 'Finance' },
@@ -107,7 +111,7 @@ const navItems: NavItem[] = [
   { label: 'Audit Logs', href: '/dashboard/audit-logs', icon: ScrollText, group: 'Settings' },
 ];
 
-const GROUPS = ['Driver', 'Operations', 'Finance', 'Settings'];
+const GROUPS = ['Driver', 'Operations', 'Payroll', 'Finance', 'Settings'];
 
 function CollapsibleNavGroup({
   item,

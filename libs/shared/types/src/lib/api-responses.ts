@@ -413,3 +413,111 @@ export interface DriverSummary {
   id: string;
   name: string;
 }
+
+// ---------------------------------------------------------------------------
+// Payroll — docs/features/staff-payroll-financial-management.md.
+// ---------------------------------------------------------------------------
+
+/**
+ * Creatable categories only — REVERSAL/CORRECTION/CREW_CASH are system-generated,
+ * never chosen through the Log Ledger Entry dialog (mirrors
+ * `CREATABLE_LEDGER_CATEGORIES` in the backend's `create-staff-ledger-entry.dto.ts`).
+ */
+export type CreatableStaffLedgerCategory =
+  | 'ADVANCE'
+  | 'EXPENSE_REIMBURSEMENT'
+  | 'BONUS'
+  | 'INCENTIVE'
+  | 'OVERTIME'
+  | 'PENALTY'
+  | 'DEDUCTION'
+  | 'LEAVE_UNPAID'
+  | 'LEAVE_PAID'
+  | 'ADJUSTMENT';
+
+export type StaffLedgerCategory = CreatableStaffLedgerCategory | 'REVERSAL' | 'CORRECTION' | 'CREW_CASH';
+
+export type LedgerEntryStatus = 'PENDING' | 'POSTED' | 'VOIDED';
+
+/** Mirrors the raw `StaffLedgerEntry` row as returned by the ledger endpoints (no relations joined). */
+export interface StaffLedgerEntry {
+  id: string;
+  vendorId: string;
+  userId: string;
+  category: StaffLedgerCategory;
+  /** Signed whole rupees — positive = credit toward employee, negative = debit against employee. */
+  amount: number;
+  effectiveDate: string;
+  description: string | null;
+  status: LedgerEntryStatus;
+  createdById: string;
+  approvedById: string | null;
+  approvedAt: string | null;
+  /** Set once this entry is rolled into a locked payroll period; null while still "open". */
+  payrollEntryId: string | null;
+  reversedEntryId: string | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type PayFrequency = 'MONTHLY';
+
+/** Mirrors the raw `SalaryStructure` row. */
+export interface SalaryStructure {
+  id: string;
+  vendorId: string;
+  userId: string;
+  baseAmount: number;
+  payFrequency: PayFrequency;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  recurringLineItems: Array<Record<string, unknown>> | null;
+  createdById: string;
+  createdAt: string;
+}
+
+export type PayrollPeriodStatus = 'OPEN' | 'REVIEW' | 'LOCKED' | 'PAID';
+
+/** Mirrors the raw `PayrollPeriod` row, e.g. from `POST /payroll/periods/open`. */
+export interface PayrollPeriod {
+  id: string;
+  vendorId: string;
+  periodLabel: string;
+  startDate: string;
+  endDate: string;
+  status: PayrollPeriodStatus;
+  lockedAt: string | null;
+  lockedById: string | null;
+  paidAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type PayrollEntryStatus = 'DRAFT' | 'UNDER_REVIEW' | 'APPROVED' | 'LOCKED' | 'SETTLED';
+
+/** `PayrollEntry` row as returned by `GET /payroll/periods/:periodId/entries` (includes the employee relation). */
+export interface PayrollEntry {
+  id: string;
+  periodId: string;
+  userId: string;
+  vendorId: string;
+  baseSalary: number;
+  bonuses: number;
+  overtime: number;
+  incentives: number;
+  advances: number;
+  expenses: number;
+  penalties: number;
+  otherDeductions: number;
+  carryForwardIn: number;
+  finalPayable: number;
+  status: PayrollEntryStatus;
+  managerNotes: string | null;
+  approvedById: string | null;
+  approvedAt: string | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  user: { id: string; name: string; role: string };
+}

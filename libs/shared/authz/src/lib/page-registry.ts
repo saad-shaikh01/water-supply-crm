@@ -46,6 +46,7 @@ export const PAGE_REGISTRY: readonly PageRoute[] = [
   { prefix: '/dashboard/audit-logs', permission: 'audit_logs:page' },
   { prefix: '/dashboard/collection-policy', permission: 'collection_policy:page' },
   { prefix: '/dashboard/communications', permission: 'conversations:page' },
+  { prefix: '/dashboard/payroll', permission: 'payroll:page' },
 ];
 
 /**

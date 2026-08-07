@@ -57,4 +57,15 @@ export const queryKeys = {
     messages: (conversationId: string) => ['conversation-messages', conversationId] as const,
     inbox: (params: object) => ['conversations', params] as const,
   },
+  // Payroll (docs/features/staff-payroll-financial-management.md).
+  payroll: {
+    eligibleEmployees: () => ['payroll', 'eligible-employees'] as const,
+    openPeriod: () => ['payroll', 'open-period'] as const,
+    periodEntries: (periodId: string) => ['payroll', 'period-entries', periodId] as const,
+    pendingLedgerCount: () => ['payroll', 'pending-ledger-count'] as const,
+    salaryHistory: (userId: string) => ['payroll', 'salary-history', userId] as const,
+    effectiveSalary: (userId: string) => ['payroll', 'effective-salary', userId] as const,
+    unsettledLedger: (userId: string) => ['payroll', 'unsettled-ledger', userId] as const,
+    ledgerTimeline: (userId: string, params: object) => ['payroll', 'ledger-timeline', userId, params] as const,
+  },
 };

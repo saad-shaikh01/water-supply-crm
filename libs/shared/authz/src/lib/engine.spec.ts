@@ -257,7 +257,8 @@ describe('role presets', () => {
       }
       for (const resource of resourcesTouched) {
         // non-navigable resources — no /dashboard/* route exists to gate.
-        if (resource === 'whatsapp' || resource === 'payroll' || resource === 'crew_cash') continue;
+        // payroll now has a route (Amendment R6) and is no longer exempt.
+        if (resource === 'whatsapp' || resource === 'crew_cash') continue;
         expect(eff.has(`${resource}:page` as Permission)).toBe(true);
       }
     }
