@@ -67,5 +67,6 @@ export const queryKeys = {
     effectiveSalary: (userId: string) => ['payroll', 'effective-salary', userId] as const,
     unsettledLedger: (userId: string) => ['payroll', 'unsettled-ledger', userId] as const,
     ledgerTimeline: (userId: string, params: object) => ['payroll', 'ledger-timeline', userId, params] as const,
+    entryBreakdown: (entryId: string) => ['payroll', 'entry-breakdown', entryId] as const,
   },
 };

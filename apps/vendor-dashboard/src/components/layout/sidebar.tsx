@@ -94,6 +94,7 @@ const navItems: NavItem[] = [
   // Payroll — docs/features/staff-payroll-financial-management.md §7.
   { label: 'Dashboard', href: '/dashboard/payroll', icon: Wallet, group: 'Payroll' },
   { label: 'Employees', href: '/dashboard/payroll/employees', icon: Users, group: 'Payroll' },
+  { label: 'Monthly Payroll', href: '/dashboard/payroll/monthly', icon: ClipboardList, group: 'Payroll' },
 
   // Finance
   { label: 'Transactions', href: '/dashboard/transactions', icon: CreditCard, group: 'Finance' },

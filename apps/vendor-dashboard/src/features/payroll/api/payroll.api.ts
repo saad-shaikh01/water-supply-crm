@@ -33,4 +33,11 @@ export const payrollApi = {
   // Periods / entries
   getOrCreateOpenPeriod: () => apiClient.post('/payroll/periods/open'),
   getEntriesForPeriod: (periodId: string) => apiClient.get(`/payroll/periods/${periodId}/entries`),
+  generateDraft: (periodId: string) => apiClient.post(`/payroll/periods/${periodId}/entries/generate`),
+  getEntryBreakdown: (entryId: string) => apiClient.get(`/payroll/entries/${entryId}/breakdown`),
+  approveEntry: (entryId: string, version: number) =>
+    apiClient.patch(`/payroll/entries/${entryId}/approve`, { version }),
+  lockPeriod: (periodId: string) => apiClient.patch(`/payroll/periods/${periodId}/lock`),
+  unlockPeriod: (periodId: string, reason: string) =>
+    apiClient.patch(`/payroll/periods/${periodId}/unlock`, { reason }),
 };

@@ -38,12 +38,14 @@ const statusConfig: Record<string, { label: string; variant: 'default' | 'second
   CHARGED: { label: 'Charged', variant: 'destructive' },
   WAIVED: { label: 'Waived', variant: 'secondary' },
   REVERSED: { label: 'Reversed', variant: 'outline' },
-  // Payroll — StaffLedgerEntry / PayrollPeriod statuses (PENDING already covers the shared case).
+  // Payroll — StaffLedgerEntry / PayrollPeriod / PayrollEntry statuses (PENDING/APPROVED already cover the shared case).
   POSTED: { label: 'Posted', variant: 'success' },
   VOIDED: { label: 'Voided', variant: 'secondary' },
   REVIEW: { label: 'Under Review', variant: 'warning' },
   LOCKED: { label: 'Locked', variant: 'info' },
   PAID: { label: 'Paid', variant: 'success' },
+  DRAFT: { label: 'Draft', variant: 'outline' },
+  SETTLED: { label: 'Settled', variant: 'success' },
 };
 
 export function StatusBadge({ status }: { status: Status }) {
