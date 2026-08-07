@@ -632,6 +632,7 @@ export class DailySheetService implements OnModuleInit {
           const previousMonthOutstanding =
             item.customer.paymentType === PaymentType.MONTHLY
               ? await this.getPreviousMonthOutstanding(
+                  tx,
                   vendorId,
                   item.customerId,
                   updatedCustomer?.financialBalance ?? 0,
@@ -1167,21 +1168,43 @@ export class DailySheetService implements OnModuleInit {
       if (monthlyCustomerIds.length > 0) {
         const sheetDate = new Date((sheet as any).date);
         const curMonthStart = new Date(sheetDate.getFullYear(), sheetDate.getMonth(), 1);
-        const curMonthTxns = await this.prisma.transaction.groupBy({
-          by: ['customerId'],
-          where: {
-            customerId: { in: monthlyCustomerIds },
-            vendorId,
-            createdAt: { gte: curMonthStart },
-          },
-          _sum: { amount: true },
-        });
+        const nextMonthStart = new Date(sheetDate.getFullYear(), sheetDate.getMonth() + 1, 1);
+        // Net out payments already made this month against the prior-month balance —
+        // same fix as getPreviousMonthOutstanding() below, applied here for the
+        // sheet-header card: without this, a customer who clears last month's
+        // balance mid-month keeps showing the stale (pre-payment) amount for the
+        // rest of the month.
+        const [curMonthTxns, curMonthPayments] = await Promise.all([
+          this.prisma.transaction.groupBy({
+            by: ['customerId'],
+            where: {
+              customerId: { in: monthlyCustomerIds },
+              vendorId,
+              createdAt: { gte: curMonthStart },
+            },
+            _sum: { amount: true },
+          }),
+          this.prisma.transaction.groupBy({
+            by: ['customerId'],
+            where: {
+              customerId: { in: monthlyCustomerIds },
+              vendorId,
+              type: 'PAYMENT',
+              createdAt: { gte: curMonthStart, lt: nextMonthStart },
+            },
+            _sum: { amount: true },
+          }),
+        ]);
         const txnMap = new Map(curMonthTxns.map((t) => [t.customerId, t._sum.amount ?? 0]));
+        const paidMap = new Map(
+          curMonthPayments.map((t) => [t.customerId, Math.abs(t._sum.amount ?? 0)]),
+        );
         for (const it of sheet.items as any[]) {
           if (it.customer?.paymentType === 'MONTHLY') {
             const fromThisMonth = txnMap.get(it.customerId) ?? 0;
-            it.customer.previousMonthOutstanding =
-              (it.customer.financialBalance ?? 0) - fromThisMonth;
+            const paidThisMonth = paidMap.get(it.customerId) ?? 0;
+            const opening = (it.customer.financialBalance ?? 0) - fromThisMonth;
+            it.customer.previousMonthOutstanding = Math.max(0, opening - paidThisMonth);
           }
         }
       }
@@ -2503,7 +2526,7 @@ export class DailySheetService implements OnModuleInit {
 
     const previousMonthOutstanding =
       item.customer.paymentType === PaymentType.MONTHLY
-        ? await this.getPreviousMonthOutstanding(vendorId, item.customerId, item.customer.financialBalance, item.dailySheet.date)
+        ? await this.getPreviousMonthOutstanding(this.prisma, vendorId, item.customerId, item.customer.financialBalance, item.dailySheet.date)
         : undefined;
 
     const deliveredAt = item.deliveredAt ?? item.dailySheet.date;
@@ -2526,19 +2549,38 @@ export class DailySheetService implements OnModuleInit {
     });
   }
 
-  /** Balance carried in from before the current calendar month (MONTHLY customers only). */
+  /**
+   * Balance carried in from before the current calendar month (MONTHLY customers
+   * only), net of any payments already made against it this month — e.g. if a
+   * customer clears their prior-month balance mid-month, later receipts that same
+   * month must show Rs.0 here, not the stale opening balance.
+   *
+   * Accepts `tx` when called from inside recordDelivery's own transaction (line
+   * ~632) so a payment collected on THIS SAME delivery is visible immediately —
+   * same reasoning as the `tx` vs `this.prisma` note above for balance snapshots.
+   */
   private async getPreviousMonthOutstanding(
+    db: Prisma.TransactionClient | PrismaService,
     vendorId: string,
     customerId: string,
     currentFinancialBalance: number,
     referenceDate: Date,
   ): Promise<number> {
     const curMonthStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1);
-    const agg = await this.prisma.transaction.aggregate({
-      where: { customerId, vendorId, createdAt: { gte: curMonthStart } },
-      _sum: { amount: true },
-    });
-    return (currentFinancialBalance ?? 0) - (agg._sum.amount ?? 0);
+    const nextMonthStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 1);
+    const [agg, payments] = await Promise.all([
+      db.transaction.aggregate({
+        where: { customerId, vendorId, createdAt: { gte: curMonthStart } },
+        _sum: { amount: true },
+      }),
+      db.transaction.aggregate({
+        where: { customerId, vendorId, type: 'PAYMENT', createdAt: { gte: curMonthStart, lt: nextMonthStart } },
+        _sum: { amount: true },
+      }),
+    ]);
+    const openingBalance = (currentFinancialBalance ?? 0) - (agg._sum.amount ?? 0);
+    const paidThisMonth = Math.abs(payments._sum.amount ?? 0);
+    return Math.max(0, openingBalance - paidThisMonth);
   }
 
   /**

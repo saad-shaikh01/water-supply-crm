@@ -189,6 +189,7 @@ interface DeliveryItemsListProps {
   onToggleSelectMode: () => void;
   selectedIds: Set<string>;
   onToggleSelected: (itemId: string) => void;
+  onSelectAll: (itemIds: string[]) => void;
   onMoveItem: (itemId: string) => void;
   onMoveSelected: () => void;
 }
@@ -223,6 +224,7 @@ export function DeliveryItemsList({
   onToggleSelectMode,
   selectedIds,
   onToggleSelected,
+  onSelectAll,
   onMoveItem,
   onMoveSelected,
 }: DeliveryItemsListProps) {
@@ -304,6 +306,15 @@ export function DeliveryItemsList({
   const eligibleForMoveCount = items.filter((i) => MOVE_ELIGIBLE_STATUSES.includes(i.status)).length;
   const canBulkMove = canUpdate && !isClosed && eligibleForMoveCount > 0;
 
+  // Select All operates over `filteredItems` (current search + tab, all pages) —
+  // not just the current page's paginatedItems — so a driver on the Pending tab
+  // with 20 customers spread across 2 pages can select all of them in one click.
+  const eligibleFilteredIds = filteredItems
+    .filter((i) => MOVE_ELIGIBLE_STATUSES.includes(i.status))
+    .map((i) => i.id);
+  const allFilteredSelected =
+    eligibleFilteredIds.length > 0 && eligibleFilteredIds.every((id) => selectedIds.has(id));
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -315,6 +326,17 @@ export function DeliveryItemsList({
           <p className="text-xs text-muted-foreground font-medium">
             {items.filter((i) => i.status !== 'PENDING').length} / {items.length} done
           </p>
+          {canBulkMove && selectMode && eligibleFilteredIds.length > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-full font-bold text-xs h-8 gap-1.5"
+              onClick={() => onSelectAll(allFilteredSelected ? [] : eligibleFilteredIds)}
+            >
+              <CheckSquare className="h-3.5 w-3.5" />
+              {allFilteredSelected ? 'Deselect All' : `Select All (${eligibleFilteredIds.length})`}
+            </Button>
+          )}
           {canBulkMove && (
             <Button
               size="sm"
