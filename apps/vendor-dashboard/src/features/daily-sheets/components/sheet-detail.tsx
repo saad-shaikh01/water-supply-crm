@@ -28,6 +28,7 @@ import { SheetDetailHeader } from './sheet-detail-header';
 import { LoadTripsSection } from './load-trips-section';
 import { DeliveryItemsList } from './delivery-items-list';
 import { SheetExpensesSection } from './sheet-expenses-section';
+import { SheetCrewCashSection } from './sheet-crew-cash-section';
 import { sortBySequence, sortByNearest, sortByCustomerCode } from '../utils/sort-items';
 import { useDriverLocation } from '../hooks/use-driver-location';
 import { useLocationPublisher } from '../hooks/use-location-publisher';
@@ -146,6 +147,9 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const canCreateExpense = can('expenses:create');
   const canDeleteExpense = can('expenses:delete');
   const canManageEditLocks = can('daily_sheets:manage_edit_locks');
+  const canCreateCrewCash = can('crew_cash:create');
+  const canEditAllCrewCash = can('crew_cash:edit');
+  const canDeleteAllCrewCash = can('crew_cash:delete');
 
   const { data, isLoading } = useDailySheet(sheetId);
   const updateCustomerLocation = useUpdateCustomerLocation(sheetId);
@@ -194,6 +198,16 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   }, [ui.activeTab]);
 
   const loads = useMemo(() => data?.loads ?? [], [data]);
+  // Today's confirmed crew — driver plus DailySheetCrew rows — the only pool the
+  // Crew Cash Distribution employee picker (and its list's name lookup) may draw from.
+  const crewCashEmployees = useMemo(() => {
+    const members: { id: string; name: string }[] = [];
+    if (data?.driver) members.push({ id: data.driver.id, name: data.driver.name });
+    for (const c of data?.crew ?? []) {
+      if (!members.some((m) => m.id === c.userId)) members.push({ id: c.userId, name: c.user.name });
+    }
+    return members;
+  }, [data]);
   const doneItems = useMemo(
     () => items.filter((i) => i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY'),
     [items],
@@ -544,6 +558,16 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         isClosed={isClosed}
         canCreate={canCreateExpense}
         canDelete={canDeleteExpense}
+      />
+
+      <SheetCrewCashSection
+        sheetId={sheetId}
+        crewMembers={crewCashEmployees}
+        isClosed={isClosed}
+        currentUserId={user?.id}
+        canCreate={canCreateCrewCash}
+        canEditAll={canEditAllCrewCash}
+        canDeleteAll={canDeleteAllCrewCash}
       />
 
       {/* Ad-hoc / Correction Entry Actions */}

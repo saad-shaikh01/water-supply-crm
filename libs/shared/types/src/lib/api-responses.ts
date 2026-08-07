@@ -346,6 +346,42 @@ export interface SheetCrewMember {
   user: { id: string; name: string; role: string };
 }
 
+export type CrewCashCategory =
+  | 'MEAL'
+  | 'TEA'
+  | 'WATER'
+  | 'SNACKS'
+  | 'OPERATIONAL_CASH'
+  | 'EMERGENCY_CASH'
+  | 'OTHER';
+
+/**
+ * Crew Cash Distribution — docs/features/crew-operational-cash-distribution.md.
+ * Mirrors the raw `CrewCashDistribution` row as returned by `listForSheet`
+ * (no relations included), so `employeeId`/`createdById` are resolved against
+ * the sheet's own driver+crew on the frontend rather than joined server-side.
+ */
+export interface CrewCashEntry {
+  id: string;
+  dailySheetId: string;
+  distributedById: string;
+  employeeId: string;
+  category: CrewCashCategory;
+  amount: number;
+  notes: string | null;
+  photoKeys: string[];
+  date: string;
+  requiresApproval: boolean;
+  approvedById: string | null;
+  approvedAt: string | null;
+  syncedAt: string | null;
+  syncedLedgerEntryId: string | null;
+  createdById: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface SheetDetail {
   id: string;
   date: string;

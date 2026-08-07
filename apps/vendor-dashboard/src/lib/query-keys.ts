@@ -47,6 +47,10 @@ export const queryKeys = {
     repairs: (params: object) => ['warehouse', 'repairs', params] as const,
     summary: (params: object) => ['warehouse', 'summary', params] as const,
   },
+  // Crew Cash Distribution (docs/features/crew-operational-cash-distribution.md).
+  crewCash: {
+    forSheet: (sheetId: string) => ['crew-cash', 'for-sheet', sheetId] as const,
+  },
   // Customer Communication Center (docs/features/customer-communication-center.md).
   communication: {
     forItem: (itemId: string) => ['conversation', 'for-item', itemId] as const,
