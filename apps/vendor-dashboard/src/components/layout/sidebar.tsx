@@ -7,7 +7,7 @@ import {
   ClipboardList, CreditCard, UserCog, Droplets, Banknote, Navigation,
   Receipt, Bell, BellRing, ScrollText, BarChart2, Home, History, ShoppingCart,
   MessageSquare, AlertTriangle, Tag, ShieldAlert, Warehouse, Wrench, ChevronDown, KeyRound,
-  Inbox, Percent, Wallet,
+  Inbox, Percent, Wallet, Landmark,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { pagePermissionForPath } from '@water-supply-crm/authz';
@@ -95,6 +95,7 @@ const navItems: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard/payroll', icon: Wallet, group: 'Payroll' },
   { label: 'Employees', href: '/dashboard/payroll/employees', icon: Users, group: 'Payroll' },
   { label: 'Monthly Payroll', href: '/dashboard/payroll/monthly', icon: ClipboardList, group: 'Payroll' },
+  { label: 'History', href: '/dashboard/payroll/history', icon: Landmark, group: 'Payroll' },
 
   // Finance
   { label: 'Transactions', href: '/dashboard/transactions', icon: CreditCard, group: 'Finance' },

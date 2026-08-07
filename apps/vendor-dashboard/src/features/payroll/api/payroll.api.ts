@@ -1,5 +1,5 @@
 import { apiClient } from '@water-supply-crm/data-access';
-import type { CreatableStaffLedgerCategory } from '@water-supply-crm/types';
+import type { CreatableStaffLedgerCategory, SettlementMethod } from '@water-supply-crm/types';
 
 export interface CreateLedgerEntryData {
   userId: string;
@@ -19,6 +19,12 @@ export interface LedgerEntryQuery {
   dateTo?: string;
 }
 
+export interface RecordSettlementData {
+  amount: number;
+  method: SettlementMethod;
+  referenceNote?: string;
+}
+
 export const payrollApi = {
   // Salary structures
   getSalaryHistory: (userId: string) => apiClient.get(`/payroll/salary-structures/employee/${userId}`),
@@ -31,6 +37,7 @@ export const payrollApi = {
   createLedgerEntry: (data: CreateLedgerEntryData) => apiClient.post('/payroll/ledger-entries', data),
 
   // Periods / entries
+  listPeriods: () => apiClient.get('/payroll/periods'),
   getOrCreateOpenPeriod: () => apiClient.post('/payroll/periods/open'),
   getEntriesForPeriod: (periodId: string) => apiClient.get(`/payroll/periods/${periodId}/entries`),
   generateDraft: (periodId: string) => apiClient.post(`/payroll/periods/${periodId}/entries/generate`),
@@ -40,4 +47,11 @@ export const payrollApi = {
   lockPeriod: (periodId: string) => apiClient.patch(`/payroll/periods/${periodId}/lock`),
   unlockPeriod: (periodId: string, reason: string) =>
     apiClient.patch(`/payroll/periods/${periodId}/unlock`, { reason }),
+
+  // Settlements
+  recordSettlement: (entryId: string, data: RecordSettlementData) =>
+    apiClient.post(`/payroll/entries/${entryId}/settlements`, data),
+  markSettled: (entryId: string, version: number) =>
+    apiClient.patch(`/payroll/entries/${entryId}/mark-settled`, { version }),
+  getSettlementsForEntry: (entryId: string) => apiClient.get(`/payroll/entries/${entryId}/settlements`),
 };

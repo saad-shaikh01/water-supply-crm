@@ -521,3 +521,18 @@ export interface PayrollEntry {
   updatedAt: string;
   user: { id: string; name: string; role: string };
 }
+
+export type SettlementMethod = 'CASH' | 'BANK_TRANSFER' | 'CHEQUE';
+
+/** Mirrors the raw `Settlement` row as returned by `GET /payroll/entries/:id/settlements`. */
+export interface Settlement {
+  id: string;
+  payrollEntryId: string;
+  vendorId: string;
+  amount: number;
+  method: SettlementMethod;
+  referenceNote: string | null;
+  paidById: string;
+  paidAt: string;
+  createdAt: string;
+}

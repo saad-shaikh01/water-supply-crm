@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Card, CardContent, Skeleton, Button } from '@water-supply-crm/ui';
 import { cn } from '@water-supply-crm/ui';
-import { CalendarClock, Loader2, RefreshCw, Lock, LockOpen, AlertCircle } from 'lucide-react';
+import { CalendarClock, Loader2, RefreshCw, Lock, LockOpen, AlertCircle, Landmark } from 'lucide-react';
 import type { PayrollEntry } from '@water-supply-crm/types';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import { DataTable } from '../../../components/shared/data-table';
@@ -11,8 +11,10 @@ import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { usePermissions } from '../../authz/hooks/use-permissions';
 import { useOpenPayrollPeriod, usePeriodEntries } from '../hooks/use-payroll-dashboard';
 import { useGenerateDraft, useApproveEntry, useLockPeriod } from '../hooks/use-monthly-payroll';
+import { useHistoricalPeriod } from '../hooks/use-payroll-history';
 import { EntryBreakdownDialog } from './entry-breakdown-dialog';
 import { UnlockPeriodDialog } from './unlock-period-dialog';
+import { SettlementDialog } from './settlement-dialog';
 
 function amountCell(value: number) {
   if (value === 0) return <span className="font-mono text-muted-foreground">₨ 0</span>;
@@ -23,21 +25,49 @@ function amountCell(value: number) {
   );
 }
 
+export interface MonthlyPayrollProps {
+  /**
+   * When provided, shows this specific (typically LOCKED/PAID, historical) period
+   * instead of the vendor's current OPEN one — the Payroll History (§12) "click a
+   * period row" destination. Reuses this same table/dialogs rather than a second
+   * component; period-lifecycle actions (Generate Draft/Lock) naturally no-op or
+   * hide themselves because they're already gated on `period.status`, which for a
+   * historical period is never OPEN/REVIEW.
+   */
+  periodId?: string;
+}
+
 /**
  * Monthly Payroll page (§7): one table, one row per employee's PayrollEntry for the
  * current period, generated on demand and locked once approvals are complete (§9
  * steps 7-9). Reuses `useOpenPayrollPeriod`/`usePeriodEntries` from the Payroll
  * Dashboard rather than re-fetching in a parallel shape.
  */
-export function MonthlyPayroll() {
+export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
+  const isHistorical = !!periodId;
   const { can } = usePermissions();
   const canGeneratePeriod = can('payroll:period_generate');
   const canViewAll = can('payroll:view_all');
   const canApprove = can('payroll:entry_approve');
   const canLock = can('payroll:period_lock');
   const canUnlock = can('payroll:period_unlock');
+  const canSettle = can('payroll:settlement_record');
 
-  const { data: period, isLoading: periodLoading, isError: periodError } = useOpenPayrollPeriod(canGeneratePeriod);
+  const {
+    data: openPeriod,
+    isLoading: openPeriodLoading,
+    isError: openPeriodError,
+  } = useOpenPayrollPeriod(canGeneratePeriod && !isHistorical);
+  const {
+    data: historicalPeriod,
+    isLoading: historicalPeriodLoading,
+    isError: historicalPeriodError,
+  } = useHistoricalPeriod(periodId, canViewAll && isHistorical);
+
+  const period = isHistorical ? historicalPeriod : openPeriod;
+  const periodLoading = isHistorical ? historicalPeriodLoading : openPeriodLoading;
+  const periodError = isHistorical ? historicalPeriodError : openPeriodError;
+
   const { data: entries, isLoading: entriesLoading, isError: entriesError } = usePeriodEntries(period?.id, canViewAll);
 
   const { mutate: generateDraft, isPending: isGenerating } = useGenerateDraft(period?.id);
@@ -45,11 +75,12 @@ export function MonthlyPayroll() {
   const { mutate: lockPeriod, isPending: isLocking } = useLockPeriod();
 
   const [breakdownEntryId, setBreakdownEntryId] = useState<string | null>(null);
+  const [settlementEntryId, setSettlementEntryId] = useState<string | null>(null);
   const [lockConfirmOpen, setLockConfirmOpen] = useState(false);
   const [unlockDialogOpen, setUnlockDialogOpen] = useState(false);
   const [approvingId, setApprovingId] = useState<string | null>(null);
 
-  if (!canGeneratePeriod) {
+  if (isHistorical ? !canViewAll : !canGeneratePeriod) {
     return (
       <Card className="bg-muted/30 border-border/40">
         <CardContent className="p-4 text-sm text-muted-foreground flex items-center gap-2">
@@ -72,7 +103,9 @@ export function MonthlyPayroll() {
   if (periodError || !period) {
     return (
       <Card className="bg-destructive/5 border-destructive/20">
-        <CardContent className="p-4 text-sm text-destructive">Failed to load the current payroll period.</CardContent>
+        <CardContent className="p-4 text-sm text-destructive">
+          {isHistorical ? 'Failed to load this payroll period.' : 'Failed to load the current payroll period.'}
+        </CardContent>
       </Card>
     );
   }
@@ -97,7 +130,7 @@ export function MonthlyPayroll() {
             </div>
             <div>
               <p className="text-sm font-bold">{period.periodLabel}</p>
-              <p className="text-xs text-muted-foreground">Current payroll period</p>
+              <p className="text-xs text-muted-foreground">{isHistorical ? 'Historical payroll period' : 'Current payroll period'}</p>
             </div>
             <StatusBadge status={period.status} />
           </div>
@@ -179,30 +212,54 @@ export function MonthlyPayroll() {
             {
               key: 'actions',
               header: 'Actions',
-              cell: (r) =>
-                canApprove && r.status === 'DRAFT' ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="rounded-lg h-7 text-xs font-bold"
-                    disabled={isApproving && approvingId === r.id}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleApprove(r);
-                    }}
-                  >
-                    {isApproving && approvingId === r.id ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
-                    Approve
-                  </Button>
-                ) : (
-                  <span className="text-xs text-muted-foreground">—</span>
-                ),
+              cell: (r) => {
+                const showApprove = canApprove && r.status === 'DRAFT';
+                const showSettle = canSettle && (r.status === 'LOCKED' || r.status === 'SETTLED');
+                if (!showApprove && !showSettle) {
+                  return <span className="text-xs text-muted-foreground">—</span>;
+                }
+                return (
+                  <div className="flex items-center gap-2">
+                    {showApprove && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-lg h-7 text-xs font-bold"
+                        disabled={isApproving && approvingId === r.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleApprove(r);
+                        }}
+                      >
+                        {isApproving && approvingId === r.id ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                        Approve
+                      </Button>
+                    )}
+                    {showSettle && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-lg h-7 text-xs font-bold gap-1"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSettlementEntryId(r.id);
+                        }}
+                      >
+                        <Landmark className="h-3 w-3" />
+                        Settle
+                      </Button>
+                    )}
+                  </div>
+                );
+              },
             },
           ]}
         />
       )}
 
       <EntryBreakdownDialog entryId={breakdownEntryId} onOpenChange={(o) => !o && setBreakdownEntryId(null)} />
+
+      <SettlementDialog entryId={settlementEntryId} onOpenChange={(o) => !o && setSettlementEntryId(null)} />
 
       <ConfirmDialog
         open={lockConfirmOpen}
