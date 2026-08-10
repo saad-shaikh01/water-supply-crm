@@ -3,18 +3,19 @@
 import { useState } from 'react';
 import { Card, CardContent, Skeleton, Button } from '@water-supply-crm/ui';
 import { cn } from '@water-supply-crm/ui';
-import { CalendarClock, Loader2, RefreshCw, Lock, LockOpen, AlertCircle, Landmark } from 'lucide-react';
+import { CalendarClock, Loader2, RefreshCw, Lock, LockOpen, AlertCircle, Landmark, X } from 'lucide-react';
 import type { PayrollEntry } from '@water-supply-crm/types';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import { DataTable } from '../../../components/shared/data-table';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { usePermissions } from '../../authz/hooks/use-permissions';
 import { useOpenPayrollPeriod, usePeriodEntries } from '../hooks/use-payroll-dashboard';
-import { useGenerateDraft, useApproveEntry, useLockPeriod } from '../hooks/use-monthly-payroll';
+import { useGenerateDraft, useApproveEntry, useLockPeriod, type GenerateDraftResult } from '../hooks/use-monthly-payroll';
 import { useHistoricalPeriod } from '../hooks/use-payroll-history';
 import { EntryBreakdownDialog } from './entry-breakdown-dialog';
 import { UnlockPeriodDialog } from './unlock-period-dialog';
 import { SettlementDialog } from './settlement-dialog';
+import { SalaryStructureDialog } from './salary-structure-dialog';
 
 function amountCell(value: number) {
   if (value === 0) return <span className="font-mono text-muted-foreground">₨ 0</span>;
@@ -52,6 +53,7 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
   const canLock = can('payroll:period_lock');
   const canUnlock = can('payroll:period_unlock');
   const canSettle = can('payroll:settlement_record');
+  const canManageSalary = can('payroll:salary_structure_manage');
 
   const {
     data: openPeriod,
@@ -79,6 +81,10 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
   const [lockConfirmOpen, setLockConfirmOpen] = useState(false);
   const [unlockDialogOpen, setUnlockDialogOpen] = useState(false);
   const [approvingId, setApprovingId] = useState<string | null>(null);
+  // Populated from the last Generate Draft response (doc §5 edge case) — not persisted,
+  // just a transient "here's who got skipped just now" banner until dismissed or fixed.
+  const [missingSalaryEmployees, setMissingSalaryEmployees] = useState<GenerateDraftResult['skippedMissingSalaryStructure']>([]);
+  const [salaryDialogEmployee, setSalaryDialogEmployee] = useState<{ id: string; name: string } | null>(null);
 
   if (isHistorical ? !canViewAll : !canGeneratePeriod) {
     return (
@@ -139,7 +145,11 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
             <Button
               variant="outline"
               className="rounded-xl font-bold gap-2"
-              onClick={() => generateDraft()}
+              onClick={() =>
+                generateDraft(undefined, {
+                  onSuccess: (result) => setMissingSalaryEmployees(result.skippedMissingSalaryStructure),
+                })
+              }
               disabled={isGenerating || period.status === 'LOCKED' || period.status === 'PAID'}
             >
               {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
@@ -169,6 +179,46 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
           </div>
         </CardContent>
       </Card>
+
+      {/* Missing-salary-structure warning (doc §5 edge case) — Generate Draft excludes these
+          employees rather than silently defaulting to ₨0; "Set Salary" opens the dialog for
+          that employee directly, no navigation away from this page required. */}
+      {missingSalaryEmployees.length > 0 && (
+        <Card className="bg-amber-500/5 border-amber-500/20">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-bold text-amber-600 uppercase tracking-widest flex items-center gap-2">
+                <AlertCircle className="h-3.5 w-3.5" />
+                {missingSalaryEmployees.length} employee{missingSalaryEmployees.length === 1 ? '' : 's'} skipped — missing salary structure
+              </p>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 shrink-0"
+                onClick={() => setMissingSalaryEmployees([])}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+            {canManageSalary && (
+              <div className="flex flex-wrap gap-2">
+                {missingSalaryEmployees.map((e) => (
+                  <Button
+                    key={e.userId}
+                    variant="outline"
+                    size="sm"
+                    className="rounded-lg h-7 text-xs font-bold gap-1.5 border-amber-500/30"
+                    onClick={() => setSalaryDialogEmployee({ id: e.userId, name: e.name })}
+                  >
+                    <Landmark className="h-3 w-3" />
+                    {e.name} — Set Salary
+                  </Button>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Entries table */}
       {!canViewAll ? (
@@ -273,6 +323,14 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
       />
 
       <UnlockPeriodDialog open={unlockDialogOpen} onOpenChange={setUnlockDialogOpen} periodId={period.id} />
+
+      <SalaryStructureDialog
+        employee={salaryDialogEmployee}
+        onOpenChange={(o) => !o && setSalaryDialogEmployee(null)}
+        onSuccess={(employeeId) =>
+          setMissingSalaryEmployees((prev) => prev.filter((e) => e.userId !== employeeId))
+        }
+      />
     </div>
   );
 }

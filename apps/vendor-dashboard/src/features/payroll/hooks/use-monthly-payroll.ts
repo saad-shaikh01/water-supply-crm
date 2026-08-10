@@ -40,19 +40,37 @@ function invalidatePeriod(queryClient: ReturnType<typeof useQueryClient>, period
   queryClient.invalidateQueries({ queryKey: queryKeys.payroll.openPeriod() });
 }
 
+/** `POST /payroll/periods/:periodId/entries/generate`'s response shape (doc §5 edge case: employees
+ * missing a Salary Structure are excluded with a visible warning, never silently defaulted to ₨0). */
+export interface GenerateDraftResult {
+  periodId: string;
+  generated: number;
+  regenerated: number;
+  skippedMissingSalaryStructure: Array<{ userId: string; name: string }>;
+  skippedDataError: Array<{ userId: string; name: string; reason: string }>;
+  skippedAlreadyReviewed: Array<{ userId: string; name: string; status: string }>;
+}
+
 /**
  * Computes/upserts one PayrollEntry per eligible employee — idempotent per the doc
  * (§9 step 7: "safe to regenerate repeatedly while still DRAFT"); already-APPROVED
  * entries are skipped server-side, no client-side guard needed beyond the in-flight
- * disable the caller already applies to the button.
+ * disable the caller already applies to the button. Callers that need to react to
+ * `skippedMissingSalaryStructure` (e.g. to surface a "Set Salary" banner) can pass
+ * their own `onSuccess` into `mutate()` — it fires alongside this hook's own.
  */
 export const useGenerateDraft = (periodId: string | undefined) => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => payrollApi.generateDraft(periodId as string),
-    onSuccess: () => {
+    mutationFn: (): Promise<GenerateDraftResult> => payrollApi.generateDraft(periodId as string).then((r) => r.data),
+    onSuccess: (result) => {
       if (periodId) invalidatePeriod(queryClient, periodId);
-      toast.success('Payroll draft generated');
+      const skipped = result.skippedMissingSalaryStructure.length;
+      if (skipped > 0) {
+        toast.warning(`Payroll draft generated — ${skipped} employee${skipped === 1 ? '' : 's'} skipped (missing salary structure).`);
+      } else {
+        toast.success('Payroll draft generated');
+      }
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to generate payroll draft'),
   });

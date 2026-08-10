@@ -1,6 +1,13 @@
 import { apiClient } from '@water-supply-crm/data-access';
 import type { CreatableStaffLedgerCategory, SettlementMethod } from '@water-supply-crm/types';
 
+export interface CreateSalaryStructureData {
+  userId: string;
+  /** Whole positive rupees only — mirrors `CreateSalaryStructureDto.baseAmount` (no fractional currency). */
+  baseAmount: number;
+  effectiveFrom: string;
+}
+
 export interface CreateLedgerEntryData {
   userId: string;
   category: CreatableStaffLedgerCategory;
@@ -30,6 +37,7 @@ export const payrollApi = {
   getSalaryHistory: (userId: string) => apiClient.get(`/payroll/salary-structures/employee/${userId}`),
   getEffectiveSalary: (userId: string, date?: string) =>
     apiClient.get(`/payroll/salary-structures/employee/${userId}/effective`, { params: date ? { date } : undefined }),
+  createSalaryStructure: (data: CreateSalaryStructureData) => apiClient.post('/payroll/salary-structures', data),
 
   // Ledger entries
   getLedgerForEmployee: (userId: string, params?: LedgerEntryQuery) =>

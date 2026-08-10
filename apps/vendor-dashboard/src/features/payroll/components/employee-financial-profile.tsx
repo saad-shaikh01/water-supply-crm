@@ -4,14 +4,13 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Card, CardContent, CardHeader, CardTitle, Skeleton, Button, Badge,
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@water-supply-crm/ui';
 import { cn } from '@water-supply-crm/ui';
 import {
   ArrowLeft, Wallet, HandCoins, Receipt, Gift, TriangleAlert,
-  TrendingUp, TrendingDown, History, FileClock, Info,
+  TrendingUp, TrendingDown, History, FileClock, Info, Landmark, Pencil,
 } from 'lucide-react';
-import type { StaffLedgerEntry } from '@water-supply-crm/types';
+import type { StaffLedgerEntry, SalaryStructure } from '@water-supply-crm/types';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import { DataTable } from '../../../components/shared/data-table';
 import { usePermissions } from '../../authz/hooks/use-permissions';
@@ -21,6 +20,7 @@ import {
 } from '../hooks/use-employee-profile';
 import { LEDGER_CATEGORY_CONFIG } from '../constants';
 import { LogLedgerEntryDialog } from './log-ledger-entry-dialog';
+import { SalaryStructureDialog } from './salary-structure-dialog';
 import type { CreatableStaffLedgerCategory } from '@water-supply-crm/types';
 
 interface EmployeeFinancialProfileProps {
@@ -31,10 +31,74 @@ function formatDate(d: string) {
   return new Date(d).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+/**
+ * §8 item 6, read-only — every version of this employee's Salary Structure, newest
+ * first (matches `useSalaryHistory`'s own `orderBy: effectiveFrom desc`), rendered as
+ * a vertical timeline rather than a table so the raise/cut between consecutive
+ * versions is legible at a glance. Never editable here — a new version only ever
+ * comes from `SalaryStructureDialog`, which is why this component takes no callbacks.
+ */
+function SalaryHistoryTimeline({ history, isLoading }: { history: SalaryStructure[] | undefined; isLoading: boolean }) {
+  if (isLoading) {
+    return (
+      <div className="space-y-3">
+        <Skeleton className="h-14 w-full rounded-2xl" />
+        <Skeleton className="h-14 w-full rounded-2xl" />
+      </div>
+    );
+  }
+
+  if (!history?.length) {
+    return <p className="text-sm text-muted-foreground">No salary structure history.</p>;
+  }
+
+  return (
+    <div className="relative space-y-5 pl-6">
+      <div className="absolute left-[7px] top-2 bottom-2 w-px bg-border" />
+      {history.map((s, i) => {
+        const isCurrent = !s.effectiveTo;
+        // `history` is newest-first; the entry right after this one (index i+1) is the
+        // older version this one superseded, so the delta is this minus that.
+        const previous = history[i + 1];
+        const delta = previous ? s.baseAmount - previous.baseAmount : null;
+
+        return (
+          <div key={s.id} className="relative">
+            <div
+              className={cn(
+                'absolute -left-6 top-1 h-3.5 w-3.5 rounded-full border-2',
+                isCurrent ? 'bg-primary border-primary' : 'bg-background border-border',
+              )}
+            />
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-mono font-black text-base">₨ {s.baseAmount.toLocaleString()}</span>
+              {isCurrent && (
+                <Badge className="text-[10px] font-bold px-2 py-0.5 rounded-full border-none bg-primary/10 text-primary">
+                  Current
+                </Badge>
+              )}
+              {delta != null && delta !== 0 && (
+                <span className={cn('font-mono text-xs font-bold', delta > 0 ? 'text-emerald-500' : 'text-destructive')}>
+                  {delta > 0 ? '+' : '−'}₨ {Math.abs(delta).toLocaleString()} from previous
+                </span>
+              )}
+              {!previous && <span className="text-xs text-muted-foreground">Initial</span>}
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {formatDate(s.effectiveFrom)} — {s.effectiveTo ? formatDate(s.effectiveTo) : 'Present'}
+            </p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function EmployeeFinancialProfile({ employeeId }: EmployeeFinancialProfileProps) {
   const router = useRouter();
   const { can } = usePermissions();
   const canLogEntry = can('payroll:ledger_create');
+  const canManageSalary = can('payroll:salary_structure_manage');
 
   const { data: employee, isLoading: employeeLoading, isError: employeeError } = useEmployee(employeeId);
   const { data: balanceSummary, isLoading: balanceLoading, isError: balanceError } = useUnsettledLedgerSummary(employeeId);
@@ -50,6 +114,7 @@ export function EmployeeFinancialProfile({ employeeId }: EmployeeFinancialProfil
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogCategory, setDialogCategory] = useState<CreatableStaffLedgerCategory>('ADVANCE');
+  const [salaryDialogOpen, setSalaryDialogOpen] = useState(false);
 
   const openQuickAction = (category: CreatableStaffLedgerCategory) => {
     setDialogCategory(category);
@@ -197,10 +262,21 @@ export function EmployeeFinancialProfile({ employeeId }: EmployeeFinancialProfil
 
       {/* §8 item 4: current salary structure */}
       <Card className="bg-card/50 backdrop-blur-sm border-border/50">
-        <CardHeader className="pb-2">
+        <CardHeader className="pb-2 flex-row items-center justify-between space-y-0">
           <CardTitle className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
             Current Salary Structure
           </CardTitle>
+          {canManageSalary && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-lg h-7 text-xs font-bold gap-1.5"
+              onClick={() => setSalaryDialogOpen(true)}
+            >
+              {effectiveSalary ? <Pencil className="h-3 w-3" /> : <Landmark className="h-3 w-3" />}
+              {effectiveSalary ? 'Update Salary' : 'Set Salary'}
+            </Button>
+          )}
         </CardHeader>
         <CardContent>
           {salaryLoading ? (
@@ -221,6 +297,20 @@ export function EmployeeFinancialProfile({ employeeId }: EmployeeFinancialProfil
         </CardContent>
       </Card>
 
+      {/* §8 item 6: salary history — placed directly beneath the current structure card so a
+          raise/cut is read in context of what it changed, rather than after the (usually empty,
+          §8 item 5) Previous Payroll placeholder. */}
+      <Card className="bg-card/50 backdrop-blur-sm border-border/50">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+            Salary History
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <SalaryHistoryTimeline history={salaryHistory} isLoading={historyLoading} />
+        </CardContent>
+      </Card>
+
       {/* §8 item 5: previous payroll — no reachable "last locked period for this employee" endpoint */}
       <Card className="bg-muted/20 border-border/40">
         <CardHeader className="pb-2">
@@ -233,43 +323,6 @@ export function EmployeeFinancialProfile({ employeeId }: EmployeeFinancialProfil
             Not yet available — reaching a specific employee's last locked period requires a period id that
             no listing endpoint currently exposes.
           </p>
-        </CardContent>
-      </Card>
-
-      {/* §8 item 6: salary history */}
-      <Card className="bg-card/50 backdrop-blur-sm border-border/50">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-            Salary History
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {historyLoading ? (
-            <Skeleton className="h-24 w-full" />
-          ) : !salaryHistory?.length ? (
-            <p className="text-sm text-muted-foreground">No salary structure history.</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Base Amount</TableHead>
-                  <TableHead>Frequency</TableHead>
-                  <TableHead>Effective From</TableHead>
-                  <TableHead>Effective To</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {salaryHistory.map((s) => (
-                  <TableRow key={s.id}>
-                    <TableCell className="font-mono font-bold">₨ {s.baseAmount.toLocaleString()}</TableCell>
-                    <TableCell>{s.payFrequency}</TableCell>
-                    <TableCell>{formatDate(s.effectiveFrom)}</TableCell>
-                    <TableCell>{s.effectiveTo ? formatDate(s.effectiveTo) : 'Current'}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
         </CardContent>
       </Card>
 
@@ -323,6 +376,11 @@ export function EmployeeFinancialProfile({ employeeId }: EmployeeFinancialProfil
         onOpenChange={setDialogOpen}
         employee={{ id: employee.id, name: employee.name }}
         defaultCategory={dialogCategory}
+      />
+
+      <SalaryStructureDialog
+        employee={salaryDialogOpen ? { id: employee.id, name: employee.name } : null}
+        onOpenChange={setSalaryDialogOpen}
       />
     </div>
   );
