@@ -621,7 +621,7 @@ export class CustomerStatementPdfService {
 
   // ── Per-page footer (page number + timestamp) ───────────────────────────────
   private drawPageFooter(doc: PDFKit.PDFDocument, pageNum: number, totalPages: number): void {
-    const stamp = new Date().toLocaleString('en-PK', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const stamp = new Date().toLocaleString('en-PK', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Karachi' });
     doc.fillColor(C.mutedLt).font('Helvetica').fontSize(6.5)
       .text(`Generated ${stamp}`, MARGIN, FOOTER_Y + 6, { lineBreak: false });
     doc.fillColor(C.mutedLt).font('Helvetica-Bold').fontSize(6.5)

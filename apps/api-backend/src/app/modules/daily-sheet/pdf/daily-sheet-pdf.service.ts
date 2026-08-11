@@ -433,7 +433,7 @@ export class DailySheetPdfService {
   // ─── Footer on every page (page numbers need bufferPages) ────────────────
   private drawFooters(doc: PDFKit.PDFDocument, sheet: any): void {
     const vendorName = sheet.vendor?.name ?? 'Water Supply CRM';
-    const generated = new Date().toLocaleString('en-PK');
+    const generated = new Date().toLocaleString('en-PK', { timeZone: 'Asia/Karachi' });
     const range = doc.bufferedPageRange();
 
     for (let i = range.start; i < range.start + range.count; i++) {

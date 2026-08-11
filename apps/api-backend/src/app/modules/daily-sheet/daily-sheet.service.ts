@@ -652,7 +652,7 @@ export class DailySheetService implements OnModuleInit {
             financialBalanceAfter: updatedCustomer?.financialBalance ?? 0,
             bottleBalanceAfter: updatedWallet?.balance ?? 0,
             deliveryDate: item.dailySheet.date.toISOString().slice(0, 10),
-            deliveryTime: now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
+            deliveryTime: now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Karachi' }),
             vendorName: item.dailySheet.vendor?.name ?? 'Water Supply',
             previousMonthOutstanding,
           };
@@ -2543,7 +2543,7 @@ export class DailySheetService implements OnModuleInit {
       financialBalanceAfter: item.financialBalanceAfter ?? 0,
       bottleBalanceAfter: item.bottleBalanceAfter ?? 0,
       deliveryDate: item.dailySheet.date.toISOString().slice(0, 10),
-      deliveryTime: deliveredAt.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
+      deliveryTime: deliveredAt.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Karachi' }),
       vendorName: item.dailySheet.vendor?.name ?? 'Water Supply',
       previousMonthOutstanding,
     });
