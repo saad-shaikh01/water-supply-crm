@@ -495,11 +495,23 @@ export class CustomerService {
     return paginate(data, total, page, limit);
   }
 
-  async getMonthlyStatement(vendorId: string, customerId: string, month?: string) {
+  /**
+   * `toMonth` (>= month, same year-window not required) turns this into a
+   * multi-month statement: one continuous ledger spanning month..toMonth with
+   * a single opening balance (start of `month`) and closing balance (end of
+   * `toMonth`), rather than one PDF per month. Omit it for the pre-existing
+   * single-month behaviour.
+   */
+  async getMonthlyStatement(vendorId: string, customerId: string, month?: string, toMonth?: string) {
     const targetMonth = month ?? new Date().toISOString().slice(0, 7);
+    const endMonth = toMonth ?? targetMonth;
     const [year, mon] = targetMonth.split('-').map(Number);
+    const [endYear, endMon] = endMonth.split('-').map(Number);
+    if (endYear * 12 + endMon < year * 12 + mon) {
+      throw new BadRequestException('toMonth must not be earlier than month');
+    }
     const startDate = new Date(year, mon - 1, 1);
-    const endDate = new Date(year, mon, 1); // exclusive
+    const endDate = new Date(endYear, endMon, 1); // exclusive, end of endMonth
 
     const customer = await this.prisma.customer.findFirst({
       where: { id: customerId, vendorId },
@@ -557,10 +569,10 @@ export class CustomerService {
     const closingBalance = customer.financialBalance - laterActivity;
     const openingBalance = closingBalance - periodActivity;
 
-    const period = new Date(year, mon - 1, 1).toLocaleString('en-PK', {
-      month: 'long',
-      year: 'numeric',
-    });
+    const fmtMonth = (y: number, m: number) => new Date(y, m - 1, 1).toLocaleString('en-PK', { month: 'long', year: 'numeric' });
+    const period = targetMonth === endMonth
+      ? fmtMonth(year, mon)
+      : `${fmtMonth(year, mon)} – ${fmtMonth(endYear, endMon)}`;
 
     return {
       customer,
@@ -569,12 +581,13 @@ export class CustomerService {
       closingBalance,
       period,
       month: targetMonth,
+      toMonth: endMonth,
       ratePerBottle,
     };
   }
 
-  async getMonthlyStatementPdf(vendorId: string, customerId: string, month?: string): Promise<Buffer> {
-    const data = await this.getMonthlyStatement(vendorId, customerId, month);
+  async getMonthlyStatementPdf(vendorId: string, customerId: string, month?: string, toMonth?: string): Promise<Buffer> {
+    const data = await this.getMonthlyStatement(vendorId, customerId, month, toMonth);
     return this.statementPdf.generate(data);
   }
 

@@ -242,11 +242,34 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
   });
 
   const [statementYear, setStatementYear] = useState<number>(new Date().getFullYear());
-  const [statementMonth, setStatementMonth] = useState<string>(() => {
+  // Range selection: click a month to start a fresh single-month selection
+  // (statementFrom === statementTo, same as before); click a second month
+  // right after to extend it into a range — order-corrected either direction.
+  const [statementFrom, setStatementFrom] = useState<string>(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
+  const [statementTo, setStatementTo] = useState<string>(statementFrom);
+  const [isPickingRange, setIsPickingRange] = useState(false);
   const [isDownloadingStatement, setIsDownloadingStatement] = useState(false);
+
+  const handleStatementMonthClick = (value: string) => {
+    if (isPickingRange) {
+      // Second click completes the range — order-correct so from <= to regardless of click order.
+      if (value < statementFrom) {
+        setStatementTo(statementFrom);
+        setStatementFrom(value);
+      } else {
+        setStatementTo(value);
+      }
+      setIsPickingRange(false);
+    } else {
+      // First click of a new selection — single month, exactly like before.
+      setStatementFrom(value);
+      setStatementTo(value);
+      setIsPickingRange(true);
+    }
+  };
 
   const { mutate: removeCustomPrice, isPending: isRemovingPrice } = useRemoveCustomPrice();
   const [removeCustomPriceId, setRemoveCustomPriceId] = useState<string | null>(null);
@@ -261,12 +284,16 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
   const handleStatementDownload = async () => {
     setIsDownloadingStatement(true);
     try {
-      const res = await customersApi.getStatement(customerId, { month: statementMonth });
+      const isRange = statementTo !== statementFrom;
+      const res = await customersApi.getStatement(customerId, {
+        month: statementFrom,
+        ...(isRange ? { toMonth: statementTo } : {}),
+      });
       const blob = res.data as Blob;
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `statement-${customerId}-${statementMonth}.pdf`;
+      a.download = `statement-${customerId}-${statementFrom}${isRange ? `_to_${statementTo}` : ''}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     } catch {
@@ -770,7 +797,14 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
 
                 {/* Month grid */}
                 <div className="space-y-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Select Month</p>
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Select Month</p>
+                    <p className="text-[10px] font-medium text-muted-foreground">
+                      {isPickingRange
+                        ? 'Click another month to select a range, or download for this single month.'
+                        : 'Click a second month to combine a range into one PDF.'}
+                    </p>
+                  </div>
                   <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
                     {MONTH_NAMES.map((name, idx) => {
                       const monthNum = idx + 1;
@@ -780,17 +814,20 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                       const isAfterNow = statementYear === now.getFullYear() && monthNum > now.getMonth() + 1;
                       const isBeforeJoin = statementYear === joinDate.getFullYear() && monthNum < joinDate.getMonth() + 1;
                       const isDisabled = isAfterNow || isBeforeJoin;
-                      const isSelected = statementMonth === value;
+                      const isEndpoint = value === statementFrom || value === statementTo;
+                      const isInRange = !isEndpoint && statementFrom !== statementTo && value > statementFrom && value < statementTo;
                       return (
                         <button
                           key={value}
                           type="button"
                           disabled={isDisabled}
-                          onClick={() => setStatementMonth(value)}
+                          onClick={() => handleStatementMonthClick(value)}
                           className={cn(
                             'py-2.5 text-xs font-semibold rounded-xl border transition-all',
-                            isSelected
+                            isEndpoint
                               ? 'bg-primary text-primary-foreground border-primary shadow-sm shadow-primary/20'
+                              : isInRange
+                              ? 'bg-primary/15 text-primary border-primary/30'
                               : isDisabled
                               ? 'opacity-30 cursor-not-allowed bg-muted/20 border-border/30 text-muted-foreground'
                               : 'bg-card/40 text-muted-foreground border-border/50 hover:border-primary/40 hover:text-foreground hover:bg-accent/50',
@@ -816,7 +853,9 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                   </div>
                   <div className="text-right">
                     <p className="text-sm font-bold text-primary">
-                      {new Date(statementMonth + '-02').toLocaleDateString('en-PK', { month: 'long', year: 'numeric' })}
+                      {statementFrom === statementTo
+                        ? new Date(statementFrom + '-02').toLocaleDateString('en-PK', { month: 'long', year: 'numeric' })
+                        : `${new Date(statementFrom + '-02').toLocaleDateString('en-PK', { month: 'short', year: 'numeric' })} – ${new Date(statementTo + '-02').toLocaleDateString('en-PK', { month: 'short', year: 'numeric' })}`}
                     </p>
                     <p className="text-[10px] text-muted-foreground font-medium">Selected Period</p>
                   </div>

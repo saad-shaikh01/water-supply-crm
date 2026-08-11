@@ -316,7 +316,35 @@ Shukriya!
 
 ---
 
-### 17. `payment_recorded`  — Manual payment record confirmation (text only)
+### 17. `delivery_unsuccessful`  — Delivery attempt fail hui (text only, koi PDF nahi)
+- **Category:** UTILITY · **Language:** English
+- **Replaces:** new — `daily-sheet.service.ts` `submitDelivery()` failure branch (status `NOT_AVAILABLE` / `RESCHEDULED` only; `CANCELLED` excluded)
+- **Body:**
+```
+Hi {{1}}, we visited today but your delivery ({{2}}) could not be completed.
+
+Reason: {{3}}
+
+We'll try again on your next scheduled delivery day.
+```
+- **Variables:** `{{1}}` = customer name · `{{2}}` = customer code · `{{3}}` = reason
+- **Sample:** `{{1}}` = `Ahmed`, `{{2}}` = `L0042`, `{{3}}` = `You were not available at the time of delivery`
+- **Reason text (`{{3}}`) mapping** — resolved server-side from `DailySheetItem.failureCategory`, never the raw enum:
+
+  | `failureCategory` | Text sent as `{{3}}` |
+  |---|---|
+  | `CUSTOMER_NOT_HOME` | You were not available at the time of delivery |
+  | `CUSTOMER_NOT_ANSWERING` | We could not reach you by phone |
+  | `CUSTOMER_SELF_PICKUP` | Self-pickup was arranged instead |
+  | `VAN_BREAKDOWN` | Van breakdown / technical issue |
+  | `ACCESS_ISSUE` | Unable to access your location (gate/security) |
+  | `CUSTOMER_REFUSED` | Delivery was declined |
+  | `WEATHER` | Weather conditions prevented delivery |
+  | `OTHER` / none | Driver's free-text `reason` if provided, else "Unable to complete delivery" |
+
+---
+
+### 18. `payment_recorded`  — Manual payment record confirmation (text only)
 - **Category:** UTILITY · **Language:** English
 - **Replaces:** `transaction.controller.ts:60` (manual payment record)
 - **Body:**
@@ -350,5 +378,8 @@ Payment of {{1}} received. New balance: {{2}}. Thank you!
 | 14 | `delivery_scheduled` | ⚪ Optional |
 | 15 | `delivery_corrected` | ⚪ Optional |
 | 16 | `delivery_completed` | ⚪ Optional |
+| 17 | `delivery_unsuccessful` | ⚪ Optional — planned, code not wired yet |
+| 18 | `payment_recorded` | ⚪ Optional |
 
 > **Go-live se pehle #1–#13 approve hone chahiye.** Jab tak approve na ho, un notifications ke messages nahi jaayenge.
+> `delivery_unsuccessful` (#17) submit kar dena abhi hi — approval mein waqt lagta hai, backend code parallel mein ban sakta hai aur approval ka wait karega.

@@ -126,6 +126,8 @@ export class CustomerStatementPdfService {
     closingBalance: number;
     period: string;
     month?: string;
+    /** End month of a multi-month range statement (omit/equal to `month` for a single month). */
+    toMonth?: string;
     /** Customer's actual assigned rate (custom price if set, else product base price). */
     ratePerBottle?: number;
   }): Promise<Buffer> {
@@ -155,15 +157,16 @@ export class CustomerStatementPdfService {
 
   // ── Document flow ──────────────────────────────────────────────────────────
   private drawContent(doc: PDFKit.PDFDocument, data: any): void {
-    const { customer, transactions, openingBalance, closingBalance, month } = data;
+    const { customer, transactions, openingBalance, closingBalance, month, toMonth } = data;
     const { deliveryRows, otherRows, ratePerBottle: computedRatePerBottle } = this.buildRows(transactions, openingBalance);
     const ratePerBottle = data.ratePerBottle ?? computedRatePerBottle;
+    const isRange = !!toMonth && toMonth !== month;
 
     this.drawBrandBanner(doc);
     doc.y += 18;
-    this.drawSectionTitle(doc, 'MONTHLY STATEMENT');
+    this.drawSectionTitle(doc, isRange ? 'STATEMENT' : 'MONTHLY STATEMENT');
     doc.y += 12;
-    this.drawInfoCards(doc, customer, month, closingBalance, ratePerBottle);
+    this.drawInfoCards(doc, customer, month, toMonth, closingBalance, ratePerBottle);
 
     doc.y += 18;
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(13)
@@ -298,6 +301,7 @@ export class CustomerStatementPdfService {
     doc: PDFKit.PDFDocument,
     customer: any,
     month: string | undefined,
+    toMonth: string | undefined,
     closingBalance: number,
     ratePerBottle: number,
   ): void {
@@ -332,7 +336,7 @@ export class CustomerStatementPdfService {
       .text(customer.phoneNumber ?? '—', x1 + 14, y + 66, { width: col1TextW, height: 10, ellipsis: true });
 
     // COL 2 — period + billing details
-    const fromTo = month ? this.monthBounds(month) : null;
+    const fromTo = month ? this.monthBounds(month, toMonth) : null;
     const rows: [string, string][] = [
       ['From',         fromTo?.from ?? '—'],
       ['To',           fromTo?.to ?? '—'],
@@ -629,10 +633,11 @@ export class CustomerStatementPdfService {
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
-  private monthBounds(month: string): { from: string; to: string } {
+  private monthBounds(month: string, toMonth?: string): { from: string; to: string } {
     const [year, mon] = month.split('-').map(Number);
+    const [endYear, endMon] = (toMonth ?? month).split('-').map(Number);
     const from = new Date(year, mon - 1, 1);
-    const to = new Date(year, mon, 0);
+    const to = new Date(endYear, endMon, 0); // last day of endMonth
     const fmt = (d: Date) => d.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: '2-digit' });
     return { from: fmt(from), to: fmt(to) };
   }

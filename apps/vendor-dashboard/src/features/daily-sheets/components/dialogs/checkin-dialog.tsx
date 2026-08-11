@@ -17,33 +17,40 @@ interface CheckinDialogProps {
   suggestedValues?: { returnedFilled: number; collectedEmpty: number; cashHandedIn: number };
 }
 
+interface CheckinForm {
+  returnedFilled: number | '';
+  collectedEmpty: number | '';
+  cashHandedIn: number;
+  damagedOnVan: number | '';
+  leakedOnVan: number | '';
+}
+
+// Bottle-count fields deliberately start EMPTY (not 0) — the salesman must
+// physically count and type the real number. Only cash stays prefilled from
+// the system-suggested value (it's a known/expected figure, not a manual count).
+const buildInitialForm = (suggestedValues?: { returnedFilled: number; collectedEmpty: number; cashHandedIn: number }): CheckinForm => ({
+  returnedFilled: '',
+  collectedEmpty: '',
+  damagedOnVan: '',
+  leakedOnVan: '',
+  cashHandedIn: suggestedValues?.cashHandedIn ?? 0,
+});
+
 export function CheckinDialog({ open, onClose, sheetId, trip, suggestedValues }: CheckinDialogProps) {
   const { mutate: checkinLoad, isPending } = useCheckinLoad(sheetId);
-  const [form, setForm] = useState(
-    suggestedValues
-      ? { ...suggestedValues, damagedOnVan: 0, leakedOnVan: 0 }
-      : { returnedFilled: 0, collectedEmpty: 0, cashHandedIn: 0, damagedOnVan: 0, leakedOnVan: 0 }
-  );
+  const [form, setForm] = useState<CheckinForm>(buildInitialForm(suggestedValues));
 
   // Sync form with suggested values each time the dialog opens
   useEffect(() => {
     if (open) {
-      setForm(
-        suggestedValues
-          ? { ...suggestedValues, damagedOnVan: 0, leakedOnVan: 0 }
-          : { returnedFilled: 0, collectedEmpty: 0, cashHandedIn: 0, damagedOnVan: 0, leakedOnVan: 0 },
-      );
+      setForm(buildInitialForm(suggestedValues));
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleOpen = (isOpen: boolean) => {
     if (!isOpen) {
       onClose();
-      setForm(
-        suggestedValues
-          ? { ...suggestedValues, damagedOnVan: 0, leakedOnVan: 0 }
-          : { returnedFilled: 0, collectedEmpty: 0, cashHandedIn: 0, damagedOnVan: 0, leakedOnVan: 0 },
-      );
+      setForm(buildInitialForm(suggestedValues));
     }
   };
 
@@ -69,11 +76,12 @@ export function CheckinDialog({ open, onClose, sheetId, trip, suggestedValues }:
               type="number"
               min={0}
               value={form.returnedFilled}
-              onChange={(e) => setForm((p) => ({ ...p, returnedFilled: Number(e.target.value) }))}
+              placeholder="0"
+              onChange={(e) => setForm((p) => ({ ...p, returnedFilled: e.target.value === '' ? '' : Number(e.target.value) }))}
               className="font-mono font-bold"
             />
           </div>
-          {trip && form.returnedFilled > trip.loadedFilled && (
+          {trip && Number(form.returnedFilled) > trip.loadedFilled && (
             <p className="text-xs text-amber-500 col-span-2 -mt-2">
               Returned count ({form.returnedFilled}) exceeds loaded count ({trip.loadedFilled}) — verify?
             </p>
@@ -84,7 +92,8 @@ export function CheckinDialog({ open, onClose, sheetId, trip, suggestedValues }:
               type="number"
               min={0}
               value={form.collectedEmpty}
-              onChange={(e) => setForm((p) => ({ ...p, collectedEmpty: Number(e.target.value) }))}
+              placeholder="0"
+              onChange={(e) => setForm((p) => ({ ...p, collectedEmpty: e.target.value === '' ? '' : Number(e.target.value) }))}
               className="font-mono font-bold"
             />
           </div>
@@ -94,7 +103,8 @@ export function CheckinDialog({ open, onClose, sheetId, trip, suggestedValues }:
               type="number"
               min={0}
               value={form.damagedOnVan}
-              onChange={(e) => setForm((p) => ({ ...p, damagedOnVan: Number(e.target.value) }))}
+              placeholder="0"
+              onChange={(e) => setForm((p) => ({ ...p, damagedOnVan: e.target.value === '' ? '' : Number(e.target.value) }))}
               className="font-mono font-bold border-orange-500/30 focus-visible:ring-orange-500/30"
             />
           </div>
@@ -104,7 +114,8 @@ export function CheckinDialog({ open, onClose, sheetId, trip, suggestedValues }:
               type="number"
               min={0}
               value={form.leakedOnVan}
-              onChange={(e) => setForm((p) => ({ ...p, leakedOnVan: Number(e.target.value) }))}
+              placeholder="0"
+              onChange={(e) => setForm((p) => ({ ...p, leakedOnVan: e.target.value === '' ? '' : Number(e.target.value) }))}
               className="font-mono font-bold border-red-500/30 focus-visible:ring-red-500/30"
             />
           </div>
@@ -122,7 +133,16 @@ export function CheckinDialog({ open, onClose, sheetId, trip, suggestedValues }:
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button
-            onClick={() => checkinLoad({ loadId: open!, data: form }, { onSuccess: onClose })}
+            onClick={() => checkinLoad({
+              loadId: open!,
+              data: {
+                ...form,
+                returnedFilled: form.returnedFilled === '' ? 0 : form.returnedFilled,
+                collectedEmpty: form.collectedEmpty === '' ? 0 : form.collectedEmpty,
+                damagedOnVan: form.damagedOnVan === '' ? 0 : form.damagedOnVan,
+                leakedOnVan: form.leakedOnVan === '' ? 0 : form.leakedOnVan,
+              },
+            }, { onSuccess: onClose })}
             disabled={isPending}
             className="rounded-xl font-bold"
           >

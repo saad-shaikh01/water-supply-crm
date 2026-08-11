@@ -133,7 +133,17 @@ export const useUpdateDeliveryItem = (sheetId: string) => {
       queryClient.invalidateQueries({ queryKey: ['delivery-issues'] });
       toast.success('Delivery recorded');
     },
-    onError: () => toast.error('Failed to record delivery'),
+    onError: (error: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      // Gate violations (COLLECTION_POLICY_VIOLATION, CASH_COLLECTION_POLICY_VIOLATION,
+      // STOCK_EXCEEDED) already get a dedicated warning card / specific toast from the
+      // caller (delivery-record-form.tsx) — skip the generic toast so the driver isn't
+      // shown two messages for the same failure.
+      const code = error?.response?.data?.code;
+      const handledElsewhere = ['COLLECTION_POLICY_VIOLATION', 'CASH_COLLECTION_POLICY_VIOLATION', 'STOCK_EXCEEDED'];
+      if (!handledElsewhere.includes(code)) {
+        toast.error(error?.response?.data?.message ?? 'Failed to record delivery');
+      }
+    },
   });
 };
 

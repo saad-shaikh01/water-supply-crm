@@ -523,6 +523,11 @@ export function DeliveryRecordForm({
               projectedBalance: body.projectedBalance,
               allowedCreditDeliveries: body.allowedCreditDeliveries,
             });
+          } else if (body?.code === 'STOCK_EXCEEDED') {
+            // Van stock gate (see submitDelivery in daily-sheet.service.ts) — the
+            // generic "Failed to record delivery" toast from useUpdateDeliveryItem
+            // still fires alongside this; surface the exact shortfall too.
+            import('sonner').then(({ toast }) => toast.error(body.message ?? 'Not enough bottles left on the van for this product.'));
           }
         },
       },

@@ -153,7 +153,11 @@ export class CustomerController {
   }
 
   // Statement PDF is a downloadable financial export → customers:export.
-  /** GET /customers/:id/statement?month=2026-01 — customer financial statement PDF */
+  /**
+   * GET /customers/:id/statement?month=2026-01 — customer financial statement PDF.
+   * Add &toMonth=2026-03 to combine month..toMonth into one continuous-ledger PDF
+   * (single opening/closing balance spanning the whole range) instead of one month.
+   */
   @Get(':id/statement')
   @RequirePermissions('customers:export')
   async getStatement(
@@ -166,11 +170,13 @@ export class CustomerController {
       user.vendorId,
       id,
       query.month,
+      query.toMonth,
     );
     const month = query.month ?? new Date().toISOString().slice(0, 7);
+    const filenameSuffix = query.toMonth && query.toMonth !== month ? `${month}_to_${query.toMonth}` : month;
     res.set({
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="statement-${month}.pdf"`,
+      'Content-Disposition': `attachment; filename="statement-${filenameSuffix}.pdf"`,
       'Content-Length': buffer.length,
     });
     res.end(buffer);

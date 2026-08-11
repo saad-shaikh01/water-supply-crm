@@ -480,6 +480,47 @@ export class DailySheetService implements OnModuleInit {
         ? DeliveryStatus.EMPTY_ONLY
         : dto.status;
 
+    // Van stock gate — filledDropped can never exceed what's actually on the van
+    // for this product: everything loaded across today's trips, plus filledReceived
+    // picked back up from OTHER customers on this sheet, minus what's already been
+    // delivered to other customers. DailySheetItem carries no per-trip attribution
+    // (see checkinLoad's returnedFilled check above for the same constraint), so
+    // this is scoped to the whole sheet/product rather than a single trip — that
+    // still correctly rejects delivering more than was ever loaded across the day.
+    // Legacy loads with a null productId (recorded before per-product loads existed)
+    // count toward every product's pool so old sheets aren't falsely blocked.
+    const isPostingDelivery = resolvedStatus === DeliveryStatus.COMPLETED || resolvedStatus === DeliveryStatus.EMPTY_ONLY;
+    if (isPostingDelivery && dto.filledDropped > 0) {
+      const [loadedAgg, othersAgg] = await Promise.all([
+        this.prisma.dailySheetLoad.aggregate({
+          where: { dailySheetId: item.dailySheetId, OR: [{ productId: item.productId }, { productId: null }] },
+          _sum: { loadedFilled: true },
+        }),
+        this.prisma.dailySheetItem.aggregate({
+          where: {
+            dailySheetId: item.dailySheetId,
+            productId: item.productId,
+            id: { not: itemId },
+            status: { in: [DeliveryStatus.COMPLETED, DeliveryStatus.EMPTY_ONLY] },
+          },
+          _sum: { filledDropped: true, filledReceived: true },
+        }),
+      ]);
+      const totalLoaded = loadedAgg._sum.loadedFilled ?? 0;
+      const othersDropped = othersAgg._sum.filledDropped ?? 0;
+      const othersReceived = othersAgg._sum.filledReceived ?? 0;
+      const availableStock = Math.max(totalLoaded + othersReceived - othersDropped, 0);
+      if (dto.filledDropped > availableStock) {
+        throw new UnprocessableEntityException({
+          code: 'STOCK_EXCEEDED',
+          message: `Cannot deliver ${dto.filledDropped} bottles — only ${availableStock} left on the van for this product (loaded ${totalLoaded}, already delivered ${othersDropped} to other customers today).`,
+          availableStock,
+          totalLoaded,
+          requestedFilledDropped: dto.filledDropped,
+        });
+      }
+    }
+
     const customPrice = item.customer.customPrices.find(
       (p) => p.productId === item.productId,
     );

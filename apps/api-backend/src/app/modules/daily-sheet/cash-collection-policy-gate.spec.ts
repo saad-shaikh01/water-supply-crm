@@ -120,8 +120,18 @@ describe('DailySheetService.submitDelivery — Cash Collection Policy gate', () 
     };
 
     mockPrisma = {
-      dailySheetItem: { findUnique: jest.fn(), update: jest.fn() },
-      dailySheetLoad: { findFirst: jest.fn().mockResolvedValue({ id: 'load-1', endedAt: null }) },
+      // aggregate defaults give the van-stock gate ample headroom (1000 loaded,
+      // nothing else delivered/received) so it never interferes with these
+      // cash-collection-policy-only tests, which all submit filledDropped: 1.
+      dailySheetItem: {
+        findUnique: jest.fn(),
+        update: jest.fn(),
+        aggregate: jest.fn().mockResolvedValue({ _sum: { filledDropped: 0, filledReceived: 0 } }),
+      },
+      dailySheetLoad: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'load-1', endedAt: null }),
+        aggregate: jest.fn().mockResolvedValue({ _sum: { loadedFilled: 1000 } }),
+      },
       conversationMessage: { count: jest.fn().mockResolvedValue(0) },
       transaction: { aggregate: jest.fn(), findFirst: jest.fn().mockResolvedValue(null) },
       bottleWallet: { findUnique: jest.fn() },
