@@ -49,6 +49,19 @@ export class TrackingController {
   }
 
   /**
+   * GET /api/tracking/missing
+   * Safety-net for the location-permission trip-start gate: drivers currently
+   * mid-trip with zero live GPS reports (denied permission, GPS off, dead
+   * phone, no signal — any cause) so dispatch can call them directly instead
+   * of relying on the driver to notice/act on their own missing-location UI.
+   */
+  @Get('missing')
+  @RequirePermissions('tracking:view')
+  async getMissingLocationDrivers(@CurrentUser() user: AuthUser) {
+    return this.trackingService.getMissingLocationDrivers(user.vendorId);
+  }
+
+  /**
    * GET /api/tracking/driver/:driverId
    * Returns the last known location for a single driver.
    */

@@ -28,9 +28,21 @@ export interface UpdateLocationPayload {
   status?: 'ONLINE' | 'DELIVERING' | 'AWAY';
 }
 
+export interface MissingLocationDriver {
+  driverId: string;
+  driverName: string;
+  vanPlate: string | null;
+  dailySheetId: string;
+  tripStartedAt: string;
+}
+
 export const trackingApi = {
   getActiveDrivers: () =>
     apiClient.get<DriverLocation[]>('/tracking/active'),
+
+  /** Safety-net: drivers mid-trip with zero live GPS reports (permission denied, GPS off, etc). */
+  getMissingLocationDrivers: () =>
+    apiClient.get<MissingLocationDriver[]>('/tracking/missing'),
 
   getDriverLocation: (driverId: string) =>
     apiClient.get<{ location: DriverLocation | null }>(`/tracking/driver/${driverId}`),

@@ -10,6 +10,11 @@ const TrackingMap = dynamic(
   { ssr: false, loading: () => <Skeleton className="h-[500px] w-full rounded-3xl" /> }
 );
 
+const MissingLocationPanel = dynamic(
+  () => import('../../../features/tracking/components/missing-location-panel').then((m) => m.MissingLocationPanel),
+  { ssr: false }
+);
+
 export default function TrackingPage() {
   return (
     <div className="space-y-6">
@@ -23,7 +28,8 @@ export default function TrackingPage() {
           </div>
         }
       />
-      
+
+      <MissingLocationPanel />
       <TrackingMap />
     </div>
   );

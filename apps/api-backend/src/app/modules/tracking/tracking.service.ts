@@ -303,6 +303,46 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
     return { ...loc, freshness, lastSeenSeconds };
   }
 
+  /**
+   * Safety-net for the location-permission gate on trip start (dashboard/tracking
+   * plan): drivers currently mid-trip (an open sheet with an active, un-checked-in
+   * load) but with no live Redis key at all — i.e. their browser never sent a
+   * single GPS update (permission denied, GPS off, app killed, dead phone, no
+   * signal — cause doesn't matter, dispatch just needs to know the trip is blind).
+   * Presence in Redis is enough here; the LIVE/STALE/OFFLINE freshness split
+   * in getActiveDrivers() is for map rendering, not this on/off check — a key
+   * with a driver still on the road always keeps itself alive via the
+   * publisher's heartbeat, so "no key at all" reliably means "never reported".
+   */
+  async getMissingLocationDrivers(vendorId: string): Promise<
+    { driverId: string; driverName: string; vanPlate: string | null; dailySheetId: string; tripStartedAt: string }[]
+  > {
+    const activeSheets = await this.prisma.dailySheet.findMany({
+      where: { vendorId, isClosed: false, loads: { some: { endedAt: null } } },
+      select: {
+        id: true,
+        driverId: true,
+        driver: { select: { name: true } },
+        van: { select: { plateNumber: true } },
+        loads: { where: { endedAt: null }, select: { startedAt: true }, take: 1, orderBy: { startedAt: 'desc' } },
+      },
+    });
+    if (!activeSheets.length) return [];
+
+    const liveKeys = await this.scanKeys(`${LOCATION_KEY_PREFIX}*`);
+    const liveDriverIds = new Set(liveKeys.map((k) => k.slice(LOCATION_KEY_PREFIX.length)));
+
+    return activeSheets
+      .filter((s) => !liveDriverIds.has(s.driverId))
+      .map((s) => ({
+        driverId: s.driverId,
+        driverName: s.driver.name,
+        vanPlate: s.van?.plateNumber ?? null,
+        dailySheetId: s.id,
+        tripStartedAt: s.loads[0]?.startedAt.toISOString() ?? '',
+      }));
+  }
+
   /** Safe Redis key scan using cursor-based SCAN instead of KEYS */
   private async scanKeys(pattern: string): Promise<string[]> {
     const keys: string[] = [];
