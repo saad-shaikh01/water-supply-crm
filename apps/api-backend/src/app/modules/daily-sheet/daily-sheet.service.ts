@@ -2565,12 +2565,25 @@ export class DailySheetService implements OnModuleInit {
       throw new BadRequestException('Receipt is only available for completed deliveries');
     }
 
+    const deliveredAt = item.deliveredAt ?? item.dailySheet.date;
+
+    // Use the FROZEN balance-as-of-this-delivery (financialBalanceAfter) and
+    // bound the month-to-date aggregation to that same moment (asOf) — not the
+    // customer's live balance / an unbounded "up to now" window. Otherwise every
+    // later delivery/payment this customer makes silently pulls this historical
+    // receipt's "previous month outstanding" further away from its own
+    // "outstanding balance" figure every time it's re-viewed or re-printed.
     const previousMonthOutstanding =
       item.customer.paymentType === PaymentType.MONTHLY
-        ? await this.getPreviousMonthOutstanding(this.prisma, vendorId, item.customerId, item.customer.financialBalance, item.dailySheet.date)
+        ? await this.getPreviousMonthOutstanding(
+            this.prisma,
+            vendorId,
+            item.customerId,
+            item.financialBalanceAfter ?? item.customer.financialBalance,
+            item.dailySheet.date,
+            deliveredAt,
+          )
         : undefined;
-
-    const deliveredAt = item.deliveredAt ?? item.dailySheet.date;
     return this.deliveryReceiptPdf.generate({
       customerName: item.customer.name,
       customerCode: item.customer.customerCode,
@@ -2606,16 +2619,36 @@ export class DailySheetService implements OnModuleInit {
     customerId: string,
     currentFinancialBalance: number,
     referenceDate: Date,
+    /**
+     * Upper bound for "this month's activity" — defaults to unbounded (today),
+     * which is correct for the live submitDelivery send (nothing later exists
+     * yet). Pass the delivery's own timestamp when reconstructing a HISTORICAL
+     * receipt (getDeliveryReceiptPdf) — otherwise later deliveries/payments
+     * made after that receipt's date leak into this month's netting and the
+     * figure silently drifts every time something new happens to the customer.
+     */
+    asOf?: Date,
   ): Promise<number> {
     const curMonthStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1);
     const nextMonthStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 1);
     const [agg, payments] = await Promise.all([
       db.transaction.aggregate({
-        where: { customerId, vendorId, createdAt: { gte: curMonthStart } },
+        where: {
+          customerId,
+          vendorId,
+          createdAt: asOf ? { gte: curMonthStart, lte: asOf } : { gte: curMonthStart },
+        },
         _sum: { amount: true },
       }),
       db.transaction.aggregate({
-        where: { customerId, vendorId, type: 'PAYMENT', createdAt: { gte: curMonthStart, lt: nextMonthStart } },
+        where: {
+          customerId,
+          vendorId,
+          type: 'PAYMENT',
+          createdAt: asOf
+            ? { gte: curMonthStart, lte: asOf }
+            : { gte: curMonthStart, lt: nextMonthStart },
+        },
         _sum: { amount: true },
       }),
     ]);

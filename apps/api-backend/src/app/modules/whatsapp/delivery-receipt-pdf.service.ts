@@ -106,7 +106,17 @@ export class DeliveryReceiptPdfService {
       }
 
       doc.y += 14;
-      this.drawBalanceBar(doc, 'TOTAL OUTSTANDING BALANCE', data.financialBalanceAfter);
+      // financialBalanceAfter < 0 means the customer has overpaid / is in
+      // advance credit (e.g. bill Rs.440, paid Rs.500 → balance -60) — the
+      // bar must say so instead of always reading "outstanding balance",
+      // which told fully-paid/advance customers they still owed money.
+      const totalLabel =
+        data.financialBalanceAfter < 0
+          ? 'ADVANCE / CREDIT BALANCE'
+          : data.financialBalanceAfter === 0
+            ? 'NO OUTSTANDING BALANCE'
+            : 'TOTAL OUTSTANDING BALANCE';
+      this.drawBalanceBar(doc, totalLabel, data.financialBalanceAfter);
 
       doc.y += 16;
       doc.fillColor(C.muted).font('Helvetica').fontSize(7.5)
@@ -189,7 +199,9 @@ export class DeliveryReceiptPdfService {
   //    previous-month-outstanding, same box design) ───────────────────────────
   private drawBalanceBar(doc: PDFKit.PDFDocument, label: string, amount: number): void {
     const y = doc.y;
-    const color = amount < 0 ? C.closeRed : C.closeGrn;
+    // Negative = customer overpaid (advance credit, good news) → green.
+    // Positive = customer still owes money → red.
+    const color = amount > 0 ? C.closeRed : C.closeGrn;
     doc.roundedRect(MARGIN, y, CONTENT_W, 32, RADIUS).fill(C.navy);
     doc.fillColor(C.white).font('Helvetica-Bold').fontSize(9.5)
       .text(label, MARGIN + 14, y + 11, { width: CONTENT_W * 0.55, lineBreak: false });
