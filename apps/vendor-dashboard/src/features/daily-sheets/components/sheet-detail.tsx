@@ -14,14 +14,15 @@ import { ReconcileDialog } from './dialogs/reconcile-dialog';
 import { AdhocDeliveryDialog } from './dialogs/adhoc-delivery-dialog';
 import { CorrectionEntryDialog } from './dialogs/correction-entry-dialog';
 import { BulkImportDialog } from './dialogs/bulk-import-dialog';
+import { ReportDamageDialog } from './dialogs/report-damage-dialog';
 import { VehicleCheckDialog } from '../../fleet/components/dialogs/vehicle-check-dialog';
 import { CriticalOverrideDialog } from '../../fleet/components/dialogs/critical-override-dialog';
 import { FuelLogFormDialog } from '../../fleet/components/dialogs/fuel-log-form-dialog';
 import { useVehicleDailyChecks } from '../../fleet/hooks/use-vehicle-checks';
 import { toast } from 'sonner';
 import {
-  CheckCircle2, ClipboardList, DollarSign, Gauge, ShieldAlert, Fuel,
-  Droplets, Loader2, Package, Plus, Receipt, RotateCcw, Search, Truck, Upload, User, X,
+  CheckCircle2, ClipboardList, DollarSign, Gauge, ShieldAlert,
+  Droplets, Loader2, Package, Receipt, RotateCcw, Search, Truck, Upload, User, X,
 } from 'lucide-react';
 import type { VehicleCheckType } from '@water-supply-crm/types';
 import { useRouter } from 'next/navigation';
@@ -34,6 +35,9 @@ import { LoadTripsSection } from './load-trips-section';
 import { DeliveryItemsList } from './delivery-items-list';
 import { SheetExpensesSection } from './sheet-expenses-section';
 import { SheetCrewCashSection } from './sheet-crew-cash-section';
+import { AddRecordMenu } from './add-record-menu';
+import { ExpenseForm } from '../../expenses/components/expense-form';
+import { CrewCashForm } from '../../crew-cash/components/crew-cash-form';
 import { sortBySequence, sortByNearest, sortByCustomerCode } from '../utils/sort-items';
 import { useDriverLocation } from '../hooks/use-driver-location';
 import { useLocationPublisher } from '../hooks/use-location-publisher';
@@ -52,6 +56,10 @@ interface UiState {
   vehicleCheckOpen: VehicleCheckType | null;
   criticalOverrideOpen: boolean;
   fuelLogOpen: boolean;
+  // Unified "+ Add / Record" launcher (mirrors fuelLogOpen's pattern exactly).
+  expenseOpen: boolean;
+  crewCashOpen: boolean;
+  damageOpen: boolean;
   activeTab: TabKey;
   tabPage: number;
   expandedItemId: string | null;
@@ -82,6 +90,12 @@ type UiAction =
   | { type: 'CLOSE_CRITICAL_OVERRIDE' }
   | { type: 'OPEN_FUEL_LOG' }
   | { type: 'CLOSE_FUEL_LOG' }
+  | { type: 'OPEN_EXPENSE' }
+  | { type: 'CLOSE_EXPENSE' }
+  | { type: 'OPEN_CREW_CASH' }
+  | { type: 'CLOSE_CREW_CASH' }
+  | { type: 'OPEN_DAMAGE' }
+  | { type: 'CLOSE_DAMAGE' }
   | { type: 'SET_TAB'; tab: TabKey }
   | { type: 'SET_PAGE'; page: number }
   | { type: 'SET_EXPANDED'; itemId: string | null }
@@ -100,6 +114,9 @@ const initialUiState: UiState = {
   vehicleCheckOpen: null,
   criticalOverrideOpen: false,
   fuelLogOpen: false,
+  expenseOpen: false,
+  crewCashOpen: false,
+  damageOpen: false,
   activeTab: 'all',
   tabPage: 1,
   expandedItemId: null,
@@ -130,6 +147,12 @@ function uiReducer(state: UiState, action: UiAction): UiState {
     case 'CLOSE_CRITICAL_OVERRIDE': return { ...state, criticalOverrideOpen: false };
     case 'OPEN_FUEL_LOG': return { ...state, fuelLogOpen: true };
     case 'CLOSE_FUEL_LOG': return { ...state, fuelLogOpen: false };
+    case 'OPEN_EXPENSE': return { ...state, expenseOpen: true };
+    case 'CLOSE_EXPENSE': return { ...state, expenseOpen: false };
+    case 'OPEN_CREW_CASH': return { ...state, crewCashOpen: true };
+    case 'CLOSE_CREW_CASH': return { ...state, crewCashOpen: false };
+    case 'OPEN_DAMAGE': return { ...state, damageOpen: true };
+    case 'CLOSE_DAMAGE': return { ...state, damageOpen: false };
     case 'SET_TAB': return { ...state, activeTab: action.tab, tabPage: 1, expandedItemId: null };
     case 'SET_PAGE': return { ...state, tabPage: action.page };
     case 'SET_EXPANDED': return { ...state, expandedItemId: action.itemId };
@@ -178,6 +201,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const canRecordVehicleCheck = can('fleet:record_check');
   const canRecordFuel = can('fleet:record_fuel');
   const canOverrideCriticalCheck = can('fleet:override_check');
+  const canReportDamage = can('damage_cases:create');
 
   const { data, isLoading } = useDailySheet(sheetId);
   const { data: vehicleChecks } = useVehicleDailyChecks(sheetId);
@@ -651,11 +675,9 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
 
       <SheetExpensesSection
         sheetId={sheetId}
-        vanId={data?.vanId ?? undefined}
         date={data!.date}
         expenses={data?.expenses ?? []}
         isClosed={isClosed}
-        canCreate={canCreateExpense}
         canDelete={canDeleteExpense}
       />
 
@@ -664,26 +686,21 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         crewMembers={crewCashEmployees}
         isClosed={isClosed}
         currentUserId={user?.id}
-        canCreate={canCreateCrewCash}
         canEditAll={canEditAllCrewCash}
         canDeleteAll={canDeleteAllCrewCash}
       />
 
       {/* Ad-hoc / Correction Entry Actions */}
-      {(canBulkImport || canUpdateSheet || canRecordFuel) && !isClosed && (
+      {(
+        (canBulkImport && !isClosed) ||
+        (canRecordFuel && !isClosed) ||
+        (canCreateExpense && !isClosed) ||
+        (canCreateCrewCash && !isClosed) ||
+        ((!isClosed && canUpdateSheet) || (isClosed && canCorrect)) ||
+        canReportDamage
+      ) && (
         <div className="flex justify-end gap-2">
-          {canRecordFuel && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => dispatch({ type: 'OPEN_FUEL_LOG' })}
-              className="gap-2"
-            >
-              <Fuel className="h-4 w-4" />
-              Log Fuel
-            </Button>
-          )}
-          {canBulkImport && (
+          {canBulkImport && !isClosed && (
             <Button
               variant="outline"
               size="sm"
@@ -694,30 +711,19 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
               Import Deliveries
             </Button>
           )}
-          {canUpdateSheet && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => dispatch({ type: 'OPEN_ADHOC' })}
-              className="gap-2"
-            >
-              <Plus className="h-4 w-4" />
-              Add Ad-hoc Delivery
-            </Button>
-          )}
-        </div>
-      )}
-      {canCorrect && isClosed && (
-        <div className="flex justify-end">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => dispatch({ type: 'OPEN_CORRECTION' })}
-            className="gap-2 border-amber-500/50 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20"
-          >
-            <Plus className="h-4 w-4" />
-            Add Missed Delivery
-          </Button>
+          <AddRecordMenu
+            canLogFuel={canRecordFuel && !isClosed}
+            canAddExpense={canCreateExpense && !isClosed}
+            canAddCrewCash={canCreateCrewCash && !isClosed}
+            canAddDelivery={(!isClosed && canUpdateSheet) || (isClosed && canCorrect)}
+            isClosed={isClosed}
+            canReportDamage={canReportDamage}
+            onLogFuel={() => dispatch({ type: 'OPEN_FUEL_LOG' })}
+            onAddExpense={() => dispatch({ type: 'OPEN_EXPENSE' })}
+            onAddCrewCash={() => dispatch({ type: 'OPEN_CREW_CASH' })}
+            onAddDelivery={() => dispatch({ type: isClosed ? 'OPEN_CORRECTION' : 'OPEN_ADHOC' })}
+            onReportDamage={() => dispatch({ type: 'OPEN_DAMAGE' })}
+          />
         </div>
       )}
 
@@ -915,6 +921,23 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
           onOpenChange={(o) => dispatch({ type: o ? 'OPEN_FUEL_LOG' : 'CLOSE_FUEL_LOG' })}
         />
       )}
+      <ExpenseForm
+        open={ui.expenseOpen}
+        onOpenChange={(o) => dispatch({ type: o ? 'OPEN_EXPENSE' : 'CLOSE_EXPENSE' })}
+        dailySheetId={sheetId}
+        defaultVanId={data?.vanId ?? undefined}
+      />
+      <CrewCashForm
+        open={ui.crewCashOpen}
+        onOpenChange={(o) => dispatch({ type: o ? 'OPEN_CREW_CASH' : 'CLOSE_CREW_CASH' })}
+        sheetId={sheetId}
+        employees={crewCashEmployees}
+        entry={null}
+      />
+      <ReportDamageDialog
+        open={ui.damageOpen}
+        onClose={() => dispatch({ type: 'CLOSE_DAMAGE' })}
+      />
       <MoveCustomerDialog
         open={!!moveTargetIds}
         onClose={handleMoveClose}

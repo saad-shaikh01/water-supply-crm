@@ -2,10 +2,9 @@
 
 import { useState } from 'react';
 import { Button, Card, CardContent, Badge } from '@water-supply-crm/ui';
-import { Plus, Trash2, Receipt, Fuel, Wrench, Users, AlertTriangle, type LucideIcon } from 'lucide-react';
+import { Trash2, Receipt, Fuel, Wrench, Users, AlertTriangle, type LucideIcon } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
-import { ExpenseForm } from '../../expenses/components/expense-form';
 import { useDeleteSheetExpense } from '../../expenses/hooks/use-expenses';
 import type { SheetExpense } from '@water-supply-crm/types';
 
@@ -19,47 +18,30 @@ const CATEGORY_CONFIG: Record<string, { label: string; color: string; icon: Luci
 
 interface SheetExpensesSectionProps {
   sheetId: string;
-  vanId?: string;
   date: string;
   expenses: SheetExpense[];
   isClosed: boolean;
-  canCreate: boolean;
   canDelete: boolean;
 }
 
 export function SheetExpensesSection({
   sheetId,
-  vanId,
   date,
   expenses,
   isClosed,
-  canCreate,
   canDelete,
 }: SheetExpensesSectionProps) {
-  const [addOpen, setAddOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const { mutate: deleteExpense, isPending: isDeleting } = useDeleteSheetExpense(sheetId);
 
   const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
 
-  const canAdd = canCreate && !isClosed;
   const canRemove = canDelete && !isClosed;
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-black uppercase tracking-widest text-muted-foreground">Trip Expenses</h3>
-        {canAdd && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="rounded-xl h-8 text-xs font-bold gap-1.5"
-            onClick={() => setAddOpen(true)}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add Expense
-          </Button>
-        )}
       </div>
 
       {expenses.length === 0 ? (
@@ -124,13 +106,6 @@ export function SheetExpensesSection({
           </div>
         </div>
       )}
-
-      <ExpenseForm
-        open={addOpen}
-        onOpenChange={setAddOpen}
-        dailySheetId={sheetId}
-        defaultVanId={vanId}
-      />
 
       <ConfirmDialog
         open={!!deleteId}
