@@ -9,4 +9,5 @@ export const JOB_NAMES = {
   SEND_PAYMENT_REMINDERS: 'send-payment-reminders',
   BULK_PRICE_UPDATE: 'bulk-price-update',
   AUTO_REFILL_EMPTY_BOTTLES: 'auto-refill-empty-bottles',
+  FLEET_NOTIFICATION_SWEEP: 'fleet-notification-sweep',
 } as const;

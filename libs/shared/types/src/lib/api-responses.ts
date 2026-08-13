@@ -382,6 +382,156 @@ export interface CrewCashEntry {
   updatedAt: string;
 }
 
+// ── Fleet Operations & Vehicle Intelligence (Phase 1) ──────────────────────────
+// docs/features/fleet-operations-vehicle-intelligence.md. Enum unions live in
+// ./fleet.ts alongside the checklist/interval config; response shapes live here
+// next to the rest of the API response contracts.
+import type {
+  VehicleFuelType,
+  VehicleOwnershipType,
+  VehicleOperationalStatus,
+  VehicleDocumentType,
+  VehicleCheckType,
+  VehicleServiceType,
+  ChecklistItemResult,
+  VehicleMaintenanceUrgency,
+} from './fleet';
+
+export interface VehicleProfileEntry {
+  id: string;
+  vanId: string;
+  make: string | null;
+  model: string | null;
+  year: number | null;
+  color: string | null;
+  chassisNumber: string | null;
+  engineNumber: string | null;
+  fuelType: VehicleFuelType | null;
+  transmissionType: string | null;
+  loadCapacityKg: number | null;
+  seatingCapacity: number | null;
+  ownershipType: VehicleOwnershipType | null;
+  purchaseDate: string | null;
+  purchaseCost: number | null;
+  supplierName: string | null;
+  operationalStatus: VehicleOperationalStatus;
+  currentOdometer: number;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface VehicleDocumentEntry {
+  id: string;
+  vanId: string;
+  type: VehicleDocumentType;
+  documentNumber: string | null;
+  issuingAuthority: string | null;
+  issueDate: string | null;
+  expiryDate: string | null;
+  fileKey: string | null;
+  reminderDaysBefore: number;
+  notes: string | null;
+  isActive: boolean;
+  createdBy: { id: string; name: string };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface VehicleDailyCheckEntry {
+  id: string;
+  vanId: string;
+  dailySheetId: string;
+  checkType: VehicleCheckType;
+  odometerReading: number;
+  odometerPhotoKey: string | null;
+  fuelGaugeLevel: number;
+  checklistResults: ChecklistItemResult[];
+  hasCriticalFailure: boolean;
+  criticalOverrideNote: string | null;
+  criticalOverrideById: string | null;
+  criticalOverrideAt: string | null;
+  odometerContinuityFlag: boolean;
+  continuityNote: string | null;
+  damageNoted: boolean;
+  damageNote: string | null;
+  damagePhotoKeys: string[];
+  note: string | null;
+  recordedBy: { id: string; name: string };
+  recordedAt: string;
+}
+
+export interface FuelLogEntry {
+  id: string;
+  vanId: string;
+  dailySheetId: string | null;
+  date: string;
+  odometerAtFill: number;
+  litersFilled: number;
+  amountPaid: number;
+  isFullTank: boolean;
+  fuelStation: string | null;
+  receiptPhotoKey: string | null;
+  notes: string | null;
+  expenseId: string | null;
+  recordedBy: { id: string; name: string };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface VehicleMaintenanceRuleEntry {
+  id: string;
+  vanId: string;
+  serviceType: VehicleServiceType;
+  intervalKm: number | null;
+  intervalDays: number | null;
+  isActive: boolean;
+}
+
+export interface VehicleServiceRecordEntry {
+  id: string;
+  vanId: string;
+  serviceType: VehicleServiceType;
+  performedAtOdometer: number;
+  performedAtDate: string;
+  cost: number;
+  workshopName: string | null;
+  invoicePhotoKey: string | null;
+  partsReplaced: string | null;
+  notes: string | null;
+  expenseId: string | null;
+  recordedBy: { id: string; name: string };
+  createdAt: string;
+}
+
+/** Computed at read-time from the latest VehicleServiceRecord vs. the rule — never cached. */
+export interface VehicleMaintenanceStatusEntry {
+  ruleId: string;
+  vanId: string;
+  serviceType: VehicleServiceType;
+  label: string;
+  intervalKm: number | null;
+  intervalDays: number | null;
+  lastServiceOdometer: number | null;
+  lastServiceDate: string | null;
+  dueAtOdometer: number | null;
+  dueAtDate: string | null;
+  kmRemaining: number | null;
+  daysRemaining: number | null;
+  urgency: VehicleMaintenanceUrgency;
+}
+
+export interface VehicleFleetSummaryEntry {
+  vanId: string;
+  plateNumber: string;
+  operationalStatus: VehicleOperationalStatus;
+  currentOdometer: number;
+  overdueCount: number;
+  dueCount: number;
+  expiringDocumentCount: number;
+  costThisMonth: number;
+}
+
 export interface SheetDetail {
   id: string;
   date: string;

@@ -125,6 +125,11 @@ const MANAGER_PERMISSIONS: Permission[] = [
   // for view_all here. edit/delete are additionally available to the entry's own
   // creator regardless of role, as a code-level check inside the service.
   'crew_cash:create', 'crew_cash:edit', 'crew_cash:delete', 'crew_cash:approve', 'crew_cash:view_all',
+  // Fleet Operations & Vehicle Intelligence (Amendment R7, plan doc §7.12): Manager
+  // (=STAFF) gets the full operational set — the plan's own RBAC table grants STAFF
+  // everything except being outright excluded, same tier as vans:* above.
+  'fleet:page', 'fleet:view', 'fleet:update', 'fleet:record_check', 'fleet:record_fuel',
+  'fleet:manage_maintenance', 'fleet:override_check',
 ];
 
 export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
@@ -287,6 +292,12 @@ export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
       // Crew Cash Distribution create (Amendment R5, §11: "DRIVER" is listed
       // alongside SALESMAN/STAFF/VENDOR_ADMIN as a default holder).
       'crew_cash:create',
+      // Fleet Operations (Amendment R7, plan doc §7.12): driver records their own
+      // vehicle's daily check + fuel fills from inside the Daily Sheet they already
+      // have access to — deliberately NOT granted fleet:page/fleet:view (no dedicated
+      // Fleet screen for drivers) or fleet:override_check (Staff/Admin-only).
+      'fleet:record_check',
+      'fleet:record_fuel',
     ],
   },
   viewer: {

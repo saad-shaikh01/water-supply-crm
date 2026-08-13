@@ -14,11 +14,16 @@ import { ReconcileDialog } from './dialogs/reconcile-dialog';
 import { AdhocDeliveryDialog } from './dialogs/adhoc-delivery-dialog';
 import { CorrectionEntryDialog } from './dialogs/correction-entry-dialog';
 import { BulkImportDialog } from './dialogs/bulk-import-dialog';
+import { VehicleCheckDialog } from '../../fleet/components/dialogs/vehicle-check-dialog';
+import { CriticalOverrideDialog } from '../../fleet/components/dialogs/critical-override-dialog';
+import { FuelLogFormDialog } from '../../fleet/components/dialogs/fuel-log-form-dialog';
+import { useVehicleDailyChecks } from '../../fleet/hooks/use-vehicle-checks';
 import { toast } from 'sonner';
 import {
-  CheckCircle2, ClipboardList, DollarSign,
+  CheckCircle2, ClipboardList, DollarSign, Gauge, ShieldAlert, Fuel,
   Droplets, Loader2, Package, Plus, Receipt, RotateCcw, Search, Truck, Upload, User, X,
 } from 'lucide-react';
+import type { VehicleCheckType } from '@water-supply-crm/types';
 import { useRouter } from 'next/navigation';
 import { cn } from '@water-supply-crm/ui';
 import type { DeliveryItem, LoadTrip } from '@water-supply-crm/types';
@@ -43,6 +48,10 @@ interface UiState {
   adhocOpen: boolean;
   correctionOpen: boolean;
   bulkImportOpen: boolean;
+  // Fleet Operations Phase 1 (docs/features/fleet-operations-vehicle-intelligence.md).
+  vehicleCheckOpen: VehicleCheckType | null;
+  criticalOverrideOpen: boolean;
+  fuelLogOpen: boolean;
   activeTab: TabKey;
   tabPage: number;
   expandedItemId: string | null;
@@ -67,6 +76,12 @@ type UiAction =
   | { type: 'CLOSE_CORRECTION' }
   | { type: 'OPEN_BULK_IMPORT' }
   | { type: 'CLOSE_BULK_IMPORT' }
+  | { type: 'OPEN_VEHICLE_CHECK'; checkType: VehicleCheckType }
+  | { type: 'CLOSE_VEHICLE_CHECK' }
+  | { type: 'OPEN_CRITICAL_OVERRIDE' }
+  | { type: 'CLOSE_CRITICAL_OVERRIDE' }
+  | { type: 'OPEN_FUEL_LOG' }
+  | { type: 'CLOSE_FUEL_LOG' }
   | { type: 'SET_TAB'; tab: TabKey }
   | { type: 'SET_PAGE'; page: number }
   | { type: 'SET_EXPANDED'; itemId: string | null }
@@ -82,6 +97,9 @@ const initialUiState: UiState = {
   adhocOpen: false,
   correctionOpen: false,
   bulkImportOpen: false,
+  vehicleCheckOpen: null,
+  criticalOverrideOpen: false,
+  fuelLogOpen: false,
   activeTab: 'all',
   tabPage: 1,
   expandedItemId: null,
@@ -106,6 +124,12 @@ function uiReducer(state: UiState, action: UiAction): UiState {
     case 'CLOSE_CORRECTION': return { ...state, correctionOpen: false };
     case 'OPEN_BULK_IMPORT': return { ...state, bulkImportOpen: true };
     case 'CLOSE_BULK_IMPORT': return { ...state, bulkImportOpen: false };
+    case 'OPEN_VEHICLE_CHECK': return { ...state, vehicleCheckOpen: action.checkType };
+    case 'CLOSE_VEHICLE_CHECK': return { ...state, vehicleCheckOpen: null };
+    case 'OPEN_CRITICAL_OVERRIDE': return { ...state, criticalOverrideOpen: true };
+    case 'CLOSE_CRITICAL_OVERRIDE': return { ...state, criticalOverrideOpen: false };
+    case 'OPEN_FUEL_LOG': return { ...state, fuelLogOpen: true };
+    case 'CLOSE_FUEL_LOG': return { ...state, fuelLogOpen: false };
     case 'SET_TAB': return { ...state, activeTab: action.tab, tabPage: 1, expandedItemId: null };
     case 'SET_PAGE': return { ...state, tabPage: action.page };
     case 'SET_EXPANDED': return { ...state, expandedItemId: action.itemId };
@@ -150,8 +174,16 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const canCreateCrewCash = can('crew_cash:create');
   const canEditAllCrewCash = can('crew_cash:edit');
   const canDeleteAllCrewCash = can('crew_cash:delete');
+  // Fleet Operations Phase 1.
+  const canRecordVehicleCheck = can('fleet:record_check');
+  const canRecordFuel = can('fleet:record_fuel');
+  const canOverrideCriticalCheck = can('fleet:override_check');
 
   const { data, isLoading } = useDailySheet(sheetId);
+  const { data: vehicleChecks } = useVehicleDailyChecks(sheetId);
+  const startCheck = vehicleChecks?.find((c) => c.checkType === 'START') ?? null;
+  const endCheck = vehicleChecks?.find((c) => c.checkType === 'END') ?? null;
+  const unresolvedCriticalCheck = startCheck?.hasCriticalFailure && !startCheck.criticalOverrideById ? startCheck : null;
   const updateCustomerLocation = useUpdateCustomerLocation(sheetId);
   const unlockDeliveryEdit = useUnlockDeliveryEdit(sheetId);
   const requestDeliveryEdit = useRequestDeliveryEdit(sheetId);
@@ -179,6 +211,20 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
       dispatch({ type: 'OPEN_CREW_CONFIRM' });
     }
   }, [data, canConfirmCrew]);
+
+  // Vehicle daily check: nudge (not block) the driver into the start-of-day
+  // check right after crew confirmation, once per mount — mirrors
+  // hasPromptedCrewConfirm exactly (plan doc §6: a missing check never hard-
+  // blocks, only an unacknowledged critical failure does — see the 409 guard
+  // in daily-sheet.service.ts's createLoad/loadOut).
+  const hasPromptedVehicleCheck = useRef(false);
+  useEffect(() => {
+    if (!data || !vehicleChecks || hasPromptedVehicleCheck.current) return;
+    if (canRecordVehicleCheck && !data.isClosed && data.crewConfirmed && !startCheck) {
+      hasPromptedVehicleCheck.current = true;
+      dispatch({ type: 'OPEN_VEHICLE_CHECK', checkType: 'START' });
+    }
+  }, [data, vehicleChecks, canRecordVehicleCheck, startCheck]);
 
   // Drivers stay on 'all' tab so completed deliveries remain visible after recording.
   // Non-driver users auto-switch to 'pending' on first load when pending items exist.
@@ -439,6 +485,50 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         </div>
       )}
 
+      {unresolvedCriticalCheck && !isClosed && (
+        <div className="rounded-2xl border border-destructive/50 bg-destructive/10 px-4 py-3 flex items-center gap-3 flex-wrap">
+          <ShieldAlert className="h-5 w-5 text-destructive flex-shrink-0" />
+          <div className="flex-1 min-w-[200px]">
+            <p className="text-sm font-bold text-destructive">Critical Vehicle Issue Reported</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {unresolvedCriticalCheck.checklistResults
+                .filter((r) => r.isCritical && !r.passed)
+                .map((r) => r.label)
+                .join(', ')}{' '}
+              — trip start is blocked until this is acknowledged.
+            </p>
+          </div>
+          {canOverrideCriticalCheck && (
+            <Button
+              size="sm"
+              variant="destructive"
+              className="rounded-full font-bold"
+              onClick={() => dispatch({ type: 'OPEN_CRITICAL_OVERRIDE' })}
+            >
+              Acknowledge
+            </Button>
+          )}
+        </div>
+      )}
+
+      {canRecordVehicleCheck && startCheck && !endCheck && hasAnyTrip && !isClosed && (
+        <div className="rounded-2xl border border-blue-500/40 bg-blue-500/10 px-4 py-3 flex items-center gap-3 flex-wrap">
+          <Gauge className="h-5 w-5 text-blue-500 flex-shrink-0" />
+          <div className="flex-1 min-w-[200px]">
+            <p className="text-sm font-bold text-blue-600 dark:text-blue-400">End-of-Day Vehicle Check</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Record ending odometer and condition before wrapping up.</p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="rounded-full font-bold"
+            onClick={() => dispatch({ type: 'OPEN_VEHICLE_CHECK', checkType: 'END' })}
+          >
+            Record
+          </Button>
+        </div>
+      )}
+
       {!hasAnyTrip && !isClosed && (
         <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-start gap-3">
           <span className="text-amber-500 text-lg mt-0.5 flex-shrink-0">⚠</span>
@@ -546,6 +636,13 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             dispatch({ type: 'OPEN_CREW_CONFIRM' });
             return;
           }
+          // Backend also enforces this — a critical vehicle-check failure blocks
+          // trip start until Staff/Admin acknowledges it (Fleet Phase 1).
+          if (unresolvedCriticalCheck) {
+            toast.warning('A critical vehicle issue must be acknowledged before the trip can start');
+            if (canOverrideCriticalCheck) dispatch({ type: 'OPEN_CRITICAL_OVERRIDE' });
+            return;
+          }
           dispatch({ type: 'OPEN_NEW_TRIP' });
         }}
         onReconcile={() => dispatch({ type: 'OPEN_RECONCILE' })}
@@ -573,8 +670,19 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
       />
 
       {/* Ad-hoc / Correction Entry Actions */}
-      {(canBulkImport || canUpdateSheet) && !isClosed && (
+      {(canBulkImport || canUpdateSheet || canRecordFuel) && !isClosed && (
         <div className="flex justify-end gap-2">
+          {canRecordFuel && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => dispatch({ type: 'OPEN_FUEL_LOG' })}
+              className="gap-2"
+            >
+              <Fuel className="h-4 w-4" />
+              Log Fuel
+            </Button>
+          )}
           {canBulkImport && (
             <Button
               variant="outline"
@@ -782,6 +890,31 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         onClose={() => dispatch({ type: 'CLOSE_BULK_IMPORT' })}
         sheetId={sheetId}
       />
+      {ui.vehicleCheckOpen && (
+        <VehicleCheckDialog
+          open={!!ui.vehicleCheckOpen}
+          onClose={() => dispatch({ type: 'CLOSE_VEHICLE_CHECK' })}
+          sheetId={sheetId}
+          checkType={ui.vehicleCheckOpen}
+        />
+      )}
+      {unresolvedCriticalCheck && (
+        <CriticalOverrideDialog
+          open={ui.criticalOverrideOpen}
+          onClose={() => dispatch({ type: 'CLOSE_CRITICAL_OVERRIDE' })}
+          checkId={unresolvedCriticalCheck.id}
+          dailySheetId={sheetId}
+          failedItems={unresolvedCriticalCheck.checklistResults.filter((r) => r.isCritical && !r.passed).map((r) => r.label)}
+        />
+      )}
+      {data?.vanId && (
+        <FuelLogFormDialog
+          vanId={data.vanId}
+          dailySheetId={sheetId}
+          open={ui.fuelLogOpen}
+          onOpenChange={(o) => dispatch({ type: o ? 'OPEN_FUEL_LOG' : 'CLOSE_FUEL_LOG' })}
+        />
+      )}
       <MoveCustomerDialog
         open={!!moveTargetIds}
         onClose={handleMoveClose}

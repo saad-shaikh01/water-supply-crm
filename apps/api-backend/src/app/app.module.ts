@@ -43,6 +43,7 @@ import { CommunicationModule } from './modules/communication/communication.modul
 import { CollectionPolicyModule } from './modules/collection-policy/collection-policy.module';
 import { CustomerActivationModule } from './modules/customer-activation/customer-activation.module';
 import { PayrollModule } from './modules/payroll/payroll.module';
+import { FleetModule } from './modules/fleet/fleet.module';
 
 @Module({
   imports: [
@@ -86,6 +87,7 @@ import { PayrollModule } from './modules/payroll/payroll.module';
     CollectionPolicyModule,
     CustomerActivationModule,
     PayrollModule,
+    FleetModule,
   ],
   controllers: [AppController],
   providers: [

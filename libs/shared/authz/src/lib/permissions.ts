@@ -205,6 +205,21 @@ export const PERMISSION_CATALOG = {
     navigable: false,
     actions: ['create', 'edit', 'delete', 'approve', 'view_all'],
   },
+  // Amendment R7 (Fleet Operations & Vehicle Intelligence, Phase 1, owner-approved
+  // 2026-08-10): new resource — see docs/features/fleet-operations-vehicle-intelligence.md.
+  // Navigable: /dashboard/fleet is a dedicated route. `record_check`/`record_fuel` are
+  // deliberately separate from `update` — they're the driver-facing capture actions
+  // (own-vehicle-only, code-level filter in the service, not a separate permission)
+  // granted to the `driver` preset without granting drivers the `:page`/`:view` browse
+  // surface, since the daily-check/fuel-log UI lives inside the Daily Sheet a driver
+  // already has access to (daily_sheets:*), not a dedicated Fleet screen (plan doc §4,
+  // "integrate not isolate"). `override_check` is the Staff/Admin-only acknowledgment
+  // of a critical checklist failure (plan doc §6/§10 Rule 6) — never granted to drivers.
+  fleet: {
+    label: 'Fleet',
+    navigable: true,
+    actions: ['page', 'view', 'update', 'record_check', 'record_fuel', 'manage_maintenance', 'override_check'],
+  },
 } as const satisfies Record<string, ResourceDefinition>;
 
 /** Union of every resource key, e.g. `'customers' | 'orders' | …`. */

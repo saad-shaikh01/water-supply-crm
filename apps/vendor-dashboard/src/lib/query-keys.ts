@@ -71,4 +71,16 @@ export const queryKeys = {
     periods: () => ['payroll', 'periods'] as const,
     entrySettlements: (entryId: string) => ['payroll', 'entry-settlements', entryId] as const,
   },
+  // Fleet Operations & Vehicle Intelligence (docs/features/fleet-operations-vehicle-intelligence.md).
+  fleet: {
+    vehicles: (params?: object) => ['fleet', 'vehicles', ...(params ? [params] : [])],
+    vehicle: (vanId: string) => ['fleet', 'vehicles', vanId] as const,
+    overview: () => ['fleet', 'overview'] as const,
+    costSummary: (vanId: string) => ['fleet', 'cost-summary', vanId] as const,
+    dailyChecks: (dailySheetId: string) => ['fleet', 'daily-checks', dailySheetId] as const,
+    fuelLogs: (params?: object) => ['fleet', 'fuel-logs', ...(params ? [params] : [])],
+    maintenanceStatus: (vanId: string) => ['fleet', 'maintenance-status', vanId] as const,
+    maintenanceFleetStatus: () => ['fleet', 'maintenance-status'] as const,
+    serviceRecords: (params?: object) => ['fleet', 'service-records', ...(params ? [params] : [])],
+  },
 };

@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider  = "postgresql"
-  url       = env("DATABASE_URL")        // PgBouncer URL (transaction mode) in production
+  url       = env("DATABASE_URL") // PgBouncer URL (transaction mode) in production
   directUrl = env("DIRECT_DATABASE_URL") // Direct DB URL — used by Prisma migrate only
 }
 
@@ -159,41 +159,41 @@ enum PermissionEffect {
 }
 
 model Vendor {
-  id          String   @id @default(uuid())
-  name        String
-  slug        String   @unique
-  address     String?
-  logoUrl     String?
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  address   String?
+  logoUrl   String?
   // Payment settings
-  raastId     String?  // Vendor's Raast ID for static QR / reference
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  raastId   String? // Vendor's Raast ID for static QR / reference
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  users                   User[]
-  products                Product[]
-  customers               Customer[]
-  vans                    Van[]
-  routes                  Route[]
-  dailySheets             DailySheet[]
-  transactions            Transaction[]
-  paymentRequests         PaymentRequest[]
-  expenses                Expense[]
-  orders                  CustomerOrder[]
-  tickets                 CustomerTicket[]
-  deliveryIssues          DeliveryIssue[]
-  reminderScheduleConfig  ReminderScheduleConfig?
-  reminderSendLogs        ReminderSendLog[]
-  driverLastLocations     DriverLastLocation[]
-  damageCases             DamageCase[]
-  conversationMessages    ConversationMessage[]
-  conversations           Conversation[]
-  warehouseStocks         WarehouseStock[]
-  warehouseTransactions   WarehouseTransaction[]
-  repairBatches           RepairBatch[]
-  notificationSettings    NotificationSetting[]
-  roles                   Role[]
-  collectionPolicyConfig  CollectionPolicyConfig?
+  users                      User[]
+  products                   Product[]
+  customers                  Customer[]
+  vans                       Van[]
+  routes                     Route[]
+  dailySheets                DailySheet[]
+  transactions               Transaction[]
+  paymentRequests            PaymentRequest[]
+  expenses                   Expense[]
+  orders                     CustomerOrder[]
+  tickets                    CustomerTicket[]
+  deliveryIssues             DeliveryIssue[]
+  reminderScheduleConfig     ReminderScheduleConfig?
+  reminderSendLogs           ReminderSendLog[]
+  driverLastLocations        DriverLastLocation[]
+  damageCases                DamageCase[]
+  conversationMessages       ConversationMessage[]
+  conversations              Conversation[]
+  warehouseStocks            WarehouseStock[]
+  warehouseTransactions      WarehouseTransaction[]
+  repairBatches              RepairBatch[]
+  notificationSettings       NotificationSetting[]
+  roles                      Role[]
+  collectionPolicyConfig     CollectionPolicyConfig?
   cashCollectionPolicyConfig CashCollectionPolicyConfig?
   warehouseAutoRefillConfig  WarehouseAutoRefillConfig?
 
@@ -209,70 +209,86 @@ model Vendor {
   // Crew Operational Cash Distribution — extension to Payroll (see
   // docs/features/crew-operational-cash-distribution.md)
   crewCashDistributions CrewCashDistribution[]
+
+  // Fleet Operations & Vehicle Intelligence — Phase 1 (see
+  // docs/features/fleet-operations-vehicle-intelligence.md)
+  vehicleProfiles         VehicleProfile[]
+  vehicleDocuments        VehicleDocument[]
+  vehicleDailyChecks      VehicleDailyCheck[]
+  fuelLogs                FuelLog[]
+  vehicleMaintenanceRules VehicleMaintenanceRule[]
+  vehicleServiceRecords   VehicleServiceRecord[]
 }
 
 model User {
-  id            String   @id @default(uuid())
-  email         String?  @unique // null for no-login staff (SALESMAN/LOADER)
-  password      String?  // null = login disabled (no-login staff)
-  name          String
-  phoneNumber   String?  @unique
-  role          UserRole
-  isActive      Boolean  @default(true)
-  vendorId      String?
-  vendor        Vendor?  @relation(fields: [vendorId], references: [id])
+  id          String   @id @default(uuid())
+  email       String?  @unique // null for no-login staff (SALESMAN/LOADER)
+  password    String? // null = login disabled (no-login staff)
+  name        String
+  phoneNumber String?  @unique
+  role        UserRole
+  isActive    Boolean  @default(true)
+  vendorId    String?
+  vendor      Vendor?  @relation(fields: [vendorId], references: [id])
 
   // RBAC: assigned custom/preset Role (permission source of truth). The legacy `role`
   // enum above is retained as a coarse category during the RBAC migration (design §13).
   roleId              String?
-  roleRef             Role?    @relation("RoleMembers", fields: [roleId], references: [id], onDelete: SetNull)
+  roleRef             Role?                    @relation("RoleMembers", fields: [roleId], references: [id], onDelete: SetNull)
   permissionOverrides UserPermissionOverride[]
 
   // Relations for specific roles
-  assignedVan         Van?     @relation("VanDriver")
-  dailySheets         DailySheet[] @relation("DriverSheets")
-  customer            Customer? // One-to-one link for Customer Portal
-  expenses            Expense[]
+  assignedVan           Van?                     @relation("VanDriver")
+  dailySheets           DailySheet[]             @relation("DriverSheets")
+  customer              Customer? // One-to-one link for Customer Portal
+  expenses              Expense[]
   fcmTokens             FcmToken[]
   inAppNotifications    InAppNotification[]
   notificationPrefs     NotificationPreference[]
   driverLastLocation    DriverLastLocation?
-  driverDamageCases     DamageCase[] @relation("DriverDamageCases")
-  reviewedDamageCases   DamageCase[] @relation("DamageCaseReviewer")
-  sentMessages          ConversationMessage[] @relation("MessageSender")
-  conversationsAsDriver Conversation[]         @relation("ConversationDriver")
-  conversationReads     ConversationRead[]     @relation("ConversationReader")
-  createdWarehouseTx    WarehouseTransaction[] @relation("WarehouseTxCreatedBy")
-  createdRepairBatches  RepairBatch[]          @relation("RepairBatchCreatedBy")
-  crewAssignments       DailySheetCrew[]       @relation("CrewMember")
-  vanDefaultCrew        VanDefaultCrew[]       @relation("VanDefaultCrewMember")
-  confirmedCrewSheets   DailySheet[]           @relation("CrewConfirmedBy")
+  driverDamageCases     DamageCase[]             @relation("DriverDamageCases")
+  reviewedDamageCases   DamageCase[]             @relation("DamageCaseReviewer")
+  sentMessages          ConversationMessage[]    @relation("MessageSender")
+  conversationsAsDriver Conversation[]           @relation("ConversationDriver")
+  conversationReads     ConversationRead[]       @relation("ConversationReader")
+  createdWarehouseTx    WarehouseTransaction[]   @relation("WarehouseTxCreatedBy")
+  createdRepairBatches  RepairBatch[]            @relation("RepairBatchCreatedBy")
+  crewAssignments       DailySheetCrew[]         @relation("CrewMember")
+  vanDefaultCrew        VanDefaultCrew[]         @relation("VanDefaultCrewMember")
+  confirmedCrewSheets   DailySheet[]             @relation("CrewConfirmedBy")
 
   // Staff Payroll & Financial Management — Phase 1 (Foundation)
   salaryStructures            SalaryStructure[]      @relation("SalaryStructureEmployee")
   createdSalaryStructures     SalaryStructure[]      @relation("SalaryStructureCreatedBy")
-  staffLedgerEntries          StaffLedgerEntry[]      @relation("StaffLedgerEntryEmployee")
-  createdStaffLedgerEntries   StaffLedgerEntry[]      @relation("StaffLedgerEntryCreatedBy")
-  approvedStaffLedgerEntries  StaffLedgerEntry[]      @relation("StaffLedgerEntryApprovedBy")
+  staffLedgerEntries          StaffLedgerEntry[]     @relation("StaffLedgerEntryEmployee")
+  createdStaffLedgerEntries   StaffLedgerEntry[]     @relation("StaffLedgerEntryCreatedBy")
+  approvedStaffLedgerEntries  StaffLedgerEntry[]     @relation("StaffLedgerEntryApprovedBy")
   staffLedgerAuditLogs        StaffLedgerAuditLog[]
   updatedPayrollApprovalRules PayrollApprovalRule[]
   updatedPayrollVendorConfigs PayrollVendorConfig[]
   lockedPayrollPeriods        PayrollPeriod[]
-  payrollEntries              PayrollEntry[]          @relation("PayrollEntryEmployee")
-  approvedPayrollEntries      PayrollEntry[]          @relation("PayrollEntryApprovedBy")
+  payrollEntries              PayrollEntry[]         @relation("PayrollEntryEmployee")
+  approvedPayrollEntries      PayrollEntry[]         @relation("PayrollEntryApprovedBy")
   createdPayrollSnapshots     PayrollSnapshot[]
   payrollEntryAuditLogs       PayrollEntryAuditLog[]
   paidSettlements             Settlement[]
 
   // Crew Operational Cash Distribution
-  distributedCrewCash  CrewCashDistribution[]           @relation("CrewCashDistributedBy")
-  receivedCrewCash     CrewCashDistribution[]           @relation("CrewCashEmployee")
-  approvedCrewCash     CrewCashDistribution[]           @relation("CrewCashApprovedBy")
-  createdCrewCash      CrewCashDistribution[]           @relation("CrewCashCreatedBy")
-  crewCashAuditLogs    CrewCashDistributionAuditLog[]
+  distributedCrewCash CrewCashDistribution[]         @relation("CrewCashDistributedBy")
+  receivedCrewCash    CrewCashDistribution[]         @relation("CrewCashEmployee")
+  approvedCrewCash    CrewCashDistribution[]         @relation("CrewCashApprovedBy")
+  createdCrewCash     CrewCashDistribution[]         @relation("CrewCashCreatedBy")
+  crewCashAuditLogs   CrewCashDistributionAuditLog[]
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  // Fleet Operations & Vehicle Intelligence — Phase 1
+  vehicleDocumentsCreated       VehicleDocument[]      @relation("VehicleDocumentCreatedBy")
+  vehicleDailyChecksRecorded    VehicleDailyCheck[]    @relation("VehicleDailyCheckRecordedBy")
+  vehicleCheckCriticalOverrides VehicleDailyCheck[]    @relation("VehicleCheckCriticalOverrideBy")
+  fuelLogsRecorded              FuelLog[]              @relation("FuelLogRecordedBy")
+  vehicleServiceRecordsRecorded VehicleServiceRecord[] @relation("VehicleServiceRecordRecordedBy")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([vendorId])
   @@index([roleId])
@@ -288,21 +304,21 @@ model User {
 // from ROLE_PRESETS and cannot be deleted; their `key` is locked. vendorId is null
 // only for the global super_admin template.
 model Role {
-  id          String   @id @default(uuid())
+  id          String  @id @default(uuid())
   vendorId    String?
-  vendor      Vendor?  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  key         String   // stable machine key, e.g. "vendor_admin" — unique per vendor
-  name        String   // editable display name
+  vendor      Vendor? @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  key         String // stable machine key, e.g. "vendor_admin" — unique per vendor
+  name        String // editable display name
   description String?
-  color       String?  // UI chip color
-  isSystem    Boolean  @default(false) // preset role — key locked, non-deletable
-  isDefault   Boolean  @default(false) // auto-assigned to new users of a category
+  color       String? // UI chip color
+  isSystem    Boolean @default(false) // preset role — key locked, non-deletable
+  isDefault   Boolean @default(false) // auto-assigned to new users of a category
 
   permissions RolePermission[]
-  users       User[]   @relation("RoleMembers")
+  users       User[]           @relation("RoleMembers")
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([vendorId, key])
   @@index([vendorId])
@@ -329,8 +345,8 @@ model UserPermissionOverride {
   user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   permission  String
   effect      PermissionEffect
-  expiresAt   DateTime?        // null = permanent
-  grantedById String?          // granter's user id — soft ref, no FK (matches AuditLog)
+  expiresAt   DateTime? // null = permanent
+  grantedById String? // granter's user id — soft ref, no FK (matches AuditLog)
   createdAt   DateTime         @default(now())
 
   @@unique([userId, permission])
@@ -339,55 +355,55 @@ model UserPermissionOverride {
 }
 
 model Product {
-  id          String   @id @default(uuid())
+  id          String  @id @default(uuid())
   name        String
   description String?
   basePrice   Float
   vendorId    String
-  vendor      Vendor   @relation(fields: [vendorId], references: [id])
-  isActive    Boolean  @default(true)
+  vendor      Vendor  @relation(fields: [vendorId], references: [id])
+  isActive    Boolean @default(true)
 
-  wallets     BottleWallet[]
-  sheetItems  DailySheetItem[]
-  transactions Transaction[]
-  customPrices CustomerProductPrice[]
-  orders      CustomerOrder[]
-  damageCases DamageCase[]
+  wallets               BottleWallet[]
+  sheetItems            DailySheetItem[]
+  transactions          Transaction[]
+  customPrices          CustomerProductPrice[]
+  orders                CustomerOrder[]
+  damageCases           DamageCase[]
   warehouseStocks       WarehouseStock[]
   warehouseTransactions WarehouseTransaction[]
   repairBatches         RepairBatch[]
   loads                 DailySheetLoad[]       @relation("LoadProduct")
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([vendorId, isActive])
   @@index([vendorId, name])
 }
 
 model Customer {
-  id            String   @id @default(uuid())
-  customerCode  String   @unique
-  name          String
-  phoneNumber   String
+  id           String @id @default(uuid())
+  customerCode String @unique
+  name         String
+  phoneNumber  String
 
   // Location
   address              String
-  floor                String?  // e.g. "2nd Floor", "Flat 3B"
-  nearbyLandmark       String?  // e.g. "Near McDonald's", "Opposite mosque"
-  deliveryInstructions String?  // e.g. "Call before arriving", "Leave at gate"
-  googleMapsUrl        String?  // Full Google Maps share URL (lat/lng parsed on frontend)
+  floor                String? // e.g. "2nd Floor", "Flat 3B"
+  nearbyLandmark       String? // e.g. "Near McDonald's", "Opposite mosque"
+  deliveryInstructions String? // e.g. "Call before arriving", "Leave at gate"
+  googleMapsUrl        String? // Full Google Maps share URL (lat/lng parsed on frontend)
   latitude             Float?
   longitude            Float?
 
-  vendorId      String
-  vendor        Vendor   @relation(fields: [vendorId], references: [id])
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id])
 
-  routeId       String?  // Optional "home route" for organizational grouping only
-  route         Route?   @relation(fields: [routeId], references: [id])
+  routeId String? // Optional "home route" for organizational grouping only
+  route   Route?  @relation(fields: [routeId], references: [id])
 
-  userId        String?  @unique
-  user          User?    @relation(fields: [userId], references: [id])
+  userId String? @unique
+  user   User?   @relation(fields: [userId], references: [id])
 
   paymentType      PaymentType @default(CASH)
   isActive         Boolean     @default(true)
@@ -405,8 +421,8 @@ model Customer {
   damageCases       DamageCase[]
   conversations     Conversation[]
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([vendorId])
   @@index([vendorId, routeId])
@@ -419,8 +435,8 @@ model CustomerDeliverySchedule {
   customer      Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   vanId         String
   van           Van      @relation(fields: [vanId], references: [id])
-  dayOfWeek     Int      // 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
-  routeSequence Int?     // Position in van's delivery order on this day
+  dayOfWeek     Int // 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+  routeSequence Int? // Position in van's delivery order on this day
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -429,66 +445,77 @@ model CustomerDeliverySchedule {
 }
 
 model CustomerProductPrice {
-  id          String   @id @default(uuid())
+  id          String @id @default(uuid())
   customerId  String
   productId   String
   customPrice Float
-  
-  customer    Customer @relation(fields: [customerId], references: [id])
-  product     Product  @relation(fields: [productId], references: [id])
+
+  customer Customer @relation(fields: [customerId], references: [id])
+  product  Product  @relation(fields: [productId], references: [id])
 
   @@unique([customerId, productId])
 }
 
 model BottleWallet {
-  id          String   @id @default(uuid())
-  customerId  String
-  productId   String
-  balance     Int      @default(0) // Current bottles at customer location
-  
-  customer    Customer @relation(fields: [customerId], references: [id])
-  product     Product  @relation(fields: [productId], references: [id])
+  id         String @id @default(uuid())
+  customerId String
+  productId  String
+  balance    Int    @default(0) // Current bottles at customer location
+
+  customer Customer @relation(fields: [customerId], references: [id])
+  product  Product  @relation(fields: [productId], references: [id])
 
   @@unique([customerId, productId])
 }
 
 model Route {
-  id            String   @id @default(uuid())
-  name          String
-  vendorId      String
-  vendor        Vendor   @relation(fields: [vendorId], references: [id])
+  id       String @id @default(uuid())
+  name     String
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id])
 
-  defaultVanId  String?
-  defaultVan    Van?     @relation("RouteDefaultVan", fields: [defaultVanId], references: [id])
+  defaultVanId String?
+  defaultVan   Van?    @relation("RouteDefaultVan", fields: [defaultVanId], references: [id])
 
-  customers     Customer[]
-  dailySheets   DailySheet[]
+  customers   Customer[]
+  dailySheets DailySheet[]
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([vendorId])
 }
 
 model Van {
-  id            String   @id @default(uuid())
-  plateNumber   String   @unique
-  vendorId      String
-  vendor        Vendor   @relation(fields: [vendorId], references: [id])
-  
+  id          String @id @default(uuid())
+  plateNumber String @unique
+  vendorId    String
+  vendor      Vendor @relation(fields: [vendorId], references: [id])
+
   isActive        Boolean @default(true)
   defaultDriverId String? @unique
   defaultDriver   User?   @relation("VanDriver", fields: [defaultDriverId], references: [id])
 
-  routes            Route[]  @relation("RouteDefaultVan")
+  routes            Route[]                    @relation("RouteDefaultVan")
   dailySheets       DailySheet[]
   expenses          Expense[]
   deliverySchedules CustomerDeliverySchedule[]
   defaultCrew       VanDefaultCrew[]
   conversations     Conversation[]
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  // Fleet Operations & Vehicle Intelligence — Phase 1 (see
+  // docs/features/fleet-operations-vehicle-intelligence.md §4 — every Fleet table
+  // hangs off Van, the one vehicle identity; VehicleProfile is an optional 1:1
+  // enrichment, not a parallel entity).
+  vehicleProfile     VehicleProfile?
+  vehicleDocuments   VehicleDocument[]
+  vehicleDailyChecks VehicleDailyCheck[]
+  fuelLogs           FuelLog[]
+  maintenanceRules   VehicleMaintenanceRule[]
+  serviceRecords     VehicleServiceRecord[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // Template crew for a van — copied onto each generated DailySheet.
@@ -509,21 +536,21 @@ model VanDefaultCrew {
 }
 
 model DailySheet {
-  id            String   @id @default(uuid())
-  date          DateTime
-  vendorId      String
-  vendor        Vendor   @relation(fields: [vendorId], references: [id])
-  
-  routeId       String?
-  route         Route?   @relation(fields: [routeId], references: [id])
-  
-  vanId         String
-  van           Van      @relation(fields: [vanId], references: [id])
-  
-  driverId      String
-  driver        User     @relation("DriverSheets", fields: [driverId], references: [id])
+  id       String   @id @default(uuid())
+  date     DateTime
+  vendorId String
+  vendor   Vendor   @relation(fields: [vendorId], references: [id])
 
-  isClosed      Boolean  @default(false)
+  routeId String?
+  route   Route?  @relation(fields: [routeId], references: [id])
+
+  vanId String
+  van   Van    @relation(fields: [vanId], references: [id])
+
+  driverId String
+  driver   User   @relation("DriverSheets", fields: [driverId], references: [id])
+
+  isClosed Boolean @default(false)
 
   // Crew confirmation workflow — the day's crew (auto-stamped from the van's
   // default crew) must be explicitly confirmed before any trip can start.
@@ -534,23 +561,27 @@ model DailySheet {
   crewConfirmedBy   User?     @relation("CrewConfirmedBy", fields: [crewConfirmedById], references: [id])
 
   // Reconciliation fields
-  filledOutCount Int     @default(0)
-  filledInCount  Int     @default(0)
-  emptyInCount   Int     @default(0)
-  cashExpected   Float   @default(0)
-  cashCollected  Float   @default(0)
+  filledOutCount Int   @default(0)
+  filledInCount  Int   @default(0)
+  emptyInCount   Int   @default(0)
+  cashExpected   Float @default(0)
+  cashCollected  Float @default(0)
 
-  items         DailySheetItem[]
-  transactions  Transaction[]
-  loads         DailySheetLoad[]
-  expenses      Expense[]
+  items                 DailySheetItem[]
+  transactions          Transaction[]
+  loads                 DailySheetLoad[]
+  expenses              Expense[]
   warehouseTransactions WarehouseTransaction[]
-  crew          DailySheetCrew[]
-  conversations Conversation[]
+  crew                  DailySheetCrew[]
+  conversations         Conversation[]
   crewCashDistributions CrewCashDistribution[]
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  // Fleet Operations & Vehicle Intelligence — Phase 1
+  vehicleDailyChecks VehicleDailyCheck[]
+  fuelLogs           FuelLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([vendorId, vanId, date])
   @@index([vendorId, date])
@@ -581,17 +612,17 @@ model DailySheetLoad {
   id             String     @id @default(uuid())
   dailySheetId   String
   dailySheet     DailySheet @relation(fields: [dailySheetId], references: [id], onDelete: Cascade)
-  tripNumber     Int        // 1, 2, 3...
-  loadedFilled   Int        // filled bottles taken from warehouse at trip start
-  returnedFilled Int        @default(0)  // filled returned at end of trip
-  collectedEmpty Int        @default(0)  // empties collected from customers
-  cashHandedIn   Float      @default(0)  // cash given to warehouse at check-in
-  productId      String?    // which product was loaded (null = legacy records)
+  tripNumber     Int // 1, 2, 3...
+  loadedFilled   Int // filled bottles taken from warehouse at trip start
+  returnedFilled Int        @default(0) // filled returned at end of trip
+  collectedEmpty Int        @default(0) // empties collected from customers
+  cashHandedIn   Float      @default(0) // cash given to warehouse at check-in
+  productId      String? // which product was loaded (null = legacy records)
   product        Product?   @relation("LoadProduct", fields: [productId], references: [id])
-  damagedOnVan   Int        @default(0)  // bottles damaged during transit
-  leakedOnVan    Int        @default(0)  // bottles that leaked during transit
+  damagedOnVan   Int        @default(0) // bottles damaged during transit
+  leakedOnVan    Int        @default(0) // bottles that leaked during transit
   startedAt      DateTime   @default(now())
-  endedAt        DateTime?  // null = trip still in progress
+  endedAt        DateTime? // null = trip still in progress
 
   @@index([dailySheetId])
   @@index([dailySheetId, tripNumber])
@@ -599,60 +630,60 @@ model DailySheetLoad {
 }
 
 model DailySheetItem {
-  id            String   @id @default(uuid())
-  dailySheetId  String
-  dailySheet    DailySheet @relation(fields: [dailySheetId], references: [id])
-  
-  customerId    String
-  customer      Customer @relation(fields: [customerId], references: [id])
-  
-  productId     String
-  product       Product  @relation(fields: [productId], references: [id])
-  
+  id           String     @id @default(uuid())
+  dailySheetId String
+  dailySheet   DailySheet @relation(fields: [dailySheetId], references: [id])
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+
   sequence      Int
   status        DeliveryStatus @default(PENDING)
   deliveryType  DeliveryType   @default(SCHEDULED)
   sourceOrderId String?
 
-  filledDropped  Int   @default(0)
-  emptyReceived  Int   @default(0)
+  filledDropped         Int    @default(0)
+  emptyReceived         Int    @default(0)
   // Already-filled bottles received back from the customer (account closing,
   // excess stock return) — separate from emptyReceived: no wash/refill needed,
   // ready to reload immediately. Financially treated the same as emptyReceived
   // (reduces the bottle wallet, no charge) but tracked as its own count.
-  filledReceived Int   @default(0)
-  cashCollected  Float @default(0)
-  pricePerBottle Float @default(0)
+  filledReceived        Int    @default(0)
+  cashCollected         Float  @default(0)
+  pricePerBottle        Float  @default(0)
   bottleBalanceAfter    Int?
   financialBalanceAfter Float?
 
-  reason          String?  // Free text notes for unable-to-deliver
-  failureCategory String?  // CUSTOMER_NOT_HOME | CUSTOMER_NOT_ANSWERING | CUSTOMER_SELF_PICKUP | VAN_BREAKDOWN | ACCESS_ISSUE | CUSTOMER_REFUSED | WEATHER | OTHER
-  photoKey        String?  // Optional photo evidence (Wasabi object key)
-  deliveredAt     DateTime?  // Set when delivery is COMPLETED or EMPTY_ONLY
-  rescheduledTo DateTime?
-  editUnlockedBy      String?    // userId of staff/admin who unlocked edit
-  editUnlockExpiresAt DateTime?  // when unlock window expires (null = locked)
-  editRequestedAt     DateTime?  // set when driver requests edit; cleared on admin unlock
-  whatsappSentAt      DateTime?  // set when delivery-complete WhatsApp is successfully sent
+  reason              String? // Free text notes for unable-to-deliver
+  failureCategory     String? // CUSTOMER_NOT_HOME | CUSTOMER_NOT_ANSWERING | CUSTOMER_SELF_PICKUP | VAN_BREAKDOWN | ACCESS_ISSUE | CUSTOMER_REFUSED | WEATHER | OTHER
+  photoKey            String? // Optional photo evidence (Wasabi object key)
+  deliveredAt         DateTime? // Set when delivery is COMPLETED or EMPTY_ONLY
+  rescheduledTo       DateTime?
+  editUnlockedBy      String? // userId of staff/admin who unlocked edit
+  editUnlockExpiresAt DateTime? // when unlock window expires (null = locked)
+  editRequestedAt     DateTime? // set when driver requests edit; cleared on admin unlock
+  whatsappSentAt      DateTime? // set when delivery-complete WhatsApp is successfully sent
 
-  isCorrection       Boolean   @default(false)   // true when added to a closed sheet retroactively
-  correctionAddedAt  DateTime?                   // timestamp when correction was recorded
-  correctionNote     String?                     // mandatory reason (required by service layer)
+  isCorrection      Boolean   @default(false) // true when added to a closed sheet retroactively
+  correctionAddedAt DateTime? // timestamp when correction was recorded
+  correctionNote    String? // mandatory reason (required by service layer)
 
-  deliveryIssue DeliveryIssue?
-  transactions  Transaction[]
-  damageCases   DamageCase[]
+  deliveryIssue              DeliveryIssue?
+  transactions               Transaction[]
+  damageCases                DamageCase[]
   // Relation field kept as `notes` through the Communication Center migration
   // so daily-sheet includes stay stable; renamed to `messages` in Phase 7.
-  notes         ConversationMessage[]
+  notes                      ConversationMessage[]
   // Non-unique now — a DailySheetItem can be the "last discussed delivery"
   // rollup pointer for at most one Conversation in practice, but the FK
   // itself is no longer @unique (Conversation is keyed per-customer).
   conversationsLastDiscussed Conversation[]
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([dailySheetId, sequence])
   @@index([dailySheetId, customerId])
@@ -660,14 +691,14 @@ model DailySheetItem {
 }
 
 model DeliveryIssue {
-  id               String              @id @default(uuid())
-  vendorId         String
-  vendor           Vendor              @relation(fields: [vendorId], references: [id])
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id])
 
-  dailySheetItemId String              @unique
-  dailySheetItem   DailySheetItem      @relation(fields: [dailySheetItemId], references: [id])
+  dailySheetItemId String         @unique
+  dailySheetItem   DailySheetItem @relation(fields: [dailySheetItemId], references: [id])
 
-  status           DeliveryIssueStatus @default(OPEN)
+  status DeliveryIssueStatus @default(OPEN)
 
   // Plan fields
   nextAction       IssueNextAction?
@@ -680,13 +711,13 @@ model DeliveryIssue {
   plannedById      String?
 
   // Resolution fields
-  resolution       IssueResolution?
-  resolvedNotes    String?
-  resolvedAt       DateTime?
-  resolvedById     String?
+  resolution    IssueResolution?
+  resolvedNotes String?
+  resolvedAt    DateTime?
+  resolvedById  String?
 
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([vendorId, status])
   @@index([vendorId, createdAt])
@@ -694,33 +725,33 @@ model DeliveryIssue {
 }
 
 model Transaction {
-  id            String   @id @default(uuid())
-  type          TransactionType
-  vendorId      String
-  vendor        Vendor   @relation(fields: [vendorId], references: [id])
-  
-  customerId    String?
-  customer      Customer? @relation(fields: [customerId], references: [id])
-  
-  productId     String?
-  product       Product?  @relation(fields: [productId], references: [id])
-  
-  dailySheetId     String?
-  dailySheet       DailySheet?     @relation(fields: [dailySheetId], references: [id])
+  id       String          @id @default(uuid())
+  type     TransactionType
+  vendorId String
+  vendor   Vendor          @relation(fields: [vendorId], references: [id])
+
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id])
+
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id])
+
+  dailySheetId String?
+  dailySheet   DailySheet? @relation(fields: [dailySheetId], references: [id])
 
   dailySheetItemId String?
   dailySheetItem   DailySheetItem? @relation(fields: [dailySheetItemId], references: [id], onDelete: SetNull)
 
-  bottleCount    Int?     // NET change to wallet (filledDropped - emptyReceived - filledReceived)
-  filledDropped  Int?     // Filled bottles given to customer (consumption indicator)
-  emptyReceived  Int?     // Empty bottles collected from customer (needs refill/wash)
-  filledReceived Int?     // Already-filled bottles collected back from customer (no refill needed)
-  amount         Float?   // Positive for charge, negative for payment
+  bottleCount    Int? // NET change to wallet (filledDropped - emptyReceived - filledReceived)
+  filledDropped  Int? // Filled bottles given to customer (consumption indicator)
+  emptyReceived  Int? // Empty bottles collected from customer (needs refill/wash)
+  filledReceived Int? // Already-filled bottles collected back from customer (no refill needed)
+  amount         Float? // Positive for charge, negative for payment
 
-  description   String?
-  damageCase    DamageCase?
+  description String?
+  damageCase  DamageCase?
 
-  createdAt     DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([vendorId, createdAt])
   @@index([customerId, createdAt])
@@ -827,8 +858,8 @@ model CustomerOrder {
   plannedById      String?
   dispatchedAt     DateTime?
 
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   vendor   Vendor   @relation(fields: [vendorId], references: [id])
   customer Customer @relation(fields: [customerId], references: [id])
@@ -855,8 +886,8 @@ model CustomerTicket {
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 
-  vendor   Vendor   @relation(fields: [vendorId], references: [id])
-  customer Customer @relation(fields: [customerId], references: [id])
+  vendor   Vendor          @relation(fields: [vendorId], references: [id])
+  customer Customer        @relation(fields: [customerId], references: [id])
   messages TicketMessage[]
 
   @@index([vendorId, status])
@@ -864,60 +895,60 @@ model CustomerTicket {
 }
 
 model TicketMessage {
-  id          String   @id @default(uuid())
+  id          String         @id @default(uuid())
   ticketId    String
   ticket      CustomerTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  senderRole  String   // "CUSTOMER" | "VENDOR"
+  senderRole  String // "CUSTOMER" | "VENDOR"
   senderId    String
   message     String
-  attachments Json     @default("[]")
-  createdAt   DateTime @default(now())
+  attachments Json           @default("[]")
+  createdAt   DateTime       @default(now())
 
   @@index([ticketId])
 }
 
 enum PaymentRequestStatus {
-  PENDING     // Manual: submitted by customer, waiting vendor review
-              // Raast QR: QR generated, waiting scan
-  PROCESSING  // Raast QR: customer scanning / payment in progress
-  PAID        // Gateway confirmed payment (Raast QR auto-approved)
-  APPROVED    // Vendor manually approved (manual payments)
-  REJECTED    // Vendor rejected
-  EXPIRED     // QR expired without payment
-  CANCELLED   // Customer cancelled
+  PENDING // Manual: submitted by customer, waiting vendor review
+  // Raast QR: QR generated, waiting scan
+  PROCESSING // Raast QR: customer scanning / payment in progress
+  PAID // Gateway confirmed payment (Raast QR auto-approved)
+  APPROVED // Vendor manually approved (manual payments)
+  REJECTED // Vendor rejected
+  EXPIRED // QR expired without payment
+  CANCELLED // Customer cancelled
 }
 
 enum PaymentMethod {
-  RAAST_QR          // Automated via Paymob — QR generated, customer scans
-  MANUAL_RAAST      // Customer paid via Raast, submitted reference number
-  MANUAL_JAZZCASH   // Customer paid via JazzCash, submitted reference
-  MANUAL_EASYPAISA  // Customer paid via Easypaisa, submitted reference
-  MANUAL_BANK       // Customer paid via bank transfer / IBFT
+  RAAST_QR // Automated via Paymob — QR generated, customer scans
+  MANUAL_RAAST // Customer paid via Raast, submitted reference number
+  MANUAL_JAZZCASH // Customer paid via JazzCash, submitted reference
+  MANUAL_EASYPAISA // Customer paid via Easypaisa, submitted reference
+  MANUAL_BANK // Customer paid via bank transfer / IBFT
 }
 
 model PaymentRequest {
-  id         String               @id @default(uuid())
+  id         String @id @default(uuid())
   vendorId   String
   customerId String
   amount     Float
 
-  method  PaymentMethod
-  status  PaymentRequestStatus @default(PENDING)
+  method PaymentMethod
+  status PaymentRequestStatus @default(PENDING)
 
   // ── Raast QR (automated) ─────────────────────────────────────────────
-  gatewayOrderId  String?   // Paymob order ID
-  gatewayTxId     String?   // Paymob transaction ID (set on webhook)
-  checkoutUrl     String?   // Paymob hosted checkout URL
-  qrCodeData      String?   // QR image base64 or URL (if returned by gateway)
-  qrExpiresAt     DateTime? // QR expiry (typically 10-15 min)
+  gatewayOrderId String? // Paymob order ID
+  gatewayTxId    String? // Paymob transaction ID (set on webhook)
+  checkoutUrl    String? // Paymob hosted checkout URL
+  qrCodeData     String? // QR image base64 or URL (if returned by gateway)
+  qrExpiresAt    DateTime? // QR expiry (typically 10-15 min)
 
   // ── Manual payment ───────────────────────────────────────────────────
-  referenceNo    String?   // Transaction ID / reference entered by customer
-  screenshotPath String?   // Local path to uploaded screenshot
-  customerNote   String?   // Optional message from customer
+  referenceNo    String? // Transaction ID / reference entered by customer
+  screenshotPath String? // Local path to uploaded screenshot
+  customerNote   String? // Optional message from customer
 
   // ── Review (vendor) ──────────────────────────────────────────────────
-  reviewedBy      String?   // userId of vendor admin who approved/rejected
+  reviewedBy      String? // userId of vendor admin who approved/rejected
   reviewedAt      DateTime?
   rejectionReason String?
 
@@ -938,21 +969,27 @@ model PaymentRequest {
 // ──────────────────────────────────────────────────────────────────────────────
 
 model Expense {
-  id          String          @id @default(uuid())
-  vendorId    String
-  vendor      Vendor          @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  category    ExpenseCategory
-  amount      Float
-  description String
-  date        DateTime
-  vanId       String?
-  van         Van?            @relation(fields: [vanId], references: [id])
+  id           String          @id @default(uuid())
+  vendorId     String
+  vendor       Vendor          @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  category     ExpenseCategory
+  amount       Float
+  description  String
+  date         DateTime
+  vanId        String?
+  van          Van?            @relation(fields: [vanId], references: [id])
   dailySheetId String?
-  dailySheet   DailySheet? @relation(fields: [dailySheetId], references: [id], onDelete: SetNull)
-  createdById String
-  createdBy   User            @relation(fields: [createdById], references: [id])
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  dailySheet   DailySheet?     @relation(fields: [dailySheetId], references: [id], onDelete: SetNull)
+  createdById  String
+  createdBy    User            @relation(fields: [createdById], references: [id])
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  // Fleet Operations & Vehicle Intelligence — Phase 1: the other side of the
+  // "source record -> linked frozen financial record" pattern (see FuelLog /
+  // VehicleServiceRecord). At most one of these is ever set on a given row.
+  fuelLog              FuelLog?
+  vehicleServiceRecord VehicleServiceRecord?
 
   @@index([vendorId, date])
   @@index([vendorId, category])
@@ -974,22 +1011,22 @@ model Expense {
 // debited. A Salesman buying his own lunch is simply both fields on one row —
 // no special-casing needed.
 model CrewCashDistribution {
-  id           String       @id @default(uuid())
+  id           String     @id @default(uuid())
   vendorId     String
-  vendor       Vendor       @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vendor       Vendor     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   dailySheetId String
-  dailySheet   DailySheet   @relation(fields: [dailySheetId], references: [id], onDelete: Cascade)
+  dailySheet   DailySheet @relation(fields: [dailySheetId], references: [id], onDelete: Cascade)
 
   distributedById String
   distributedBy   User   @relation("CrewCashDistributedBy", fields: [distributedById], references: [id])
   employeeId      String
   employee        User   @relation("CrewCashEmployee", fields: [employeeId], references: [id])
 
-  category CrewCashCategory
-  amount   Int // whole rupees, positive magnitude — see model comment
-  notes    String?
+  category  CrewCashCategory
+  amount    Int // whole rupees, positive magnitude — see model comment
+  notes     String?
   photoKeys String[] // optional receipt/attachment keys — mirrors DamageCase.photoKeys
-  date     DateTime // defaults to dailySheet.date at creation, not independently editable
+  date      DateTime // defaults to dailySheet.date at creation, not independently editable
 
   // Approval gate (§6) — reuses the same PayrollApprovalRule table from Payroll
   // Phase 1 (categoryKey e.g. "CREW_CASH_EMERGENCY"), no new config surface.
@@ -1059,7 +1096,7 @@ model FcmToken {
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   token     String   @unique
-  platform  String   // "android" | "ios" | "web"
+  platform  String // "android" | "ios" | "web"
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1074,10 +1111,10 @@ model AuditLog {
   vendorId  String?
   userId    String?
   userName  String?
-  action    String   // "CREATE" | "UPDATE" | "DELETE" | "APPROVE" | "REJECT" | "SUSPEND" etc.
-  entity    String   // "Customer" | "Payment" | "User" etc.
+  action    String // "CREATE" | "UPDATE" | "DELETE" | "APPROVE" | "REJECT" | "SUSPEND" etc.
+  entity    String // "Customer" | "Payment" | "User" etc.
   entityId  String?
-  changes   Json?    // { before: {}, after: {} }
+  changes   Json? // { before: {}, after: {} }
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1094,10 +1131,10 @@ model InAppNotification {
   userId    String
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   vendorId  String?
-  type      String    // e.g. ORDER_APPROVED | TICKET_REPLIED | PAYMENT_APPROVED
+  type      String // e.g. ORDER_APPROVED | TICKET_REPLIED | PAYMENT_APPROVED
   title     String
   message   String
-  entityId  String?   // orderId, ticketId, paymentRequestId, etc.
+  entityId  String? // orderId, ticketId, paymentRequestId, etc.
   isRead    Boolean   @default(false)
   readAt    DateTime?
   createdAt DateTime  @default(now())
@@ -1110,8 +1147,8 @@ model NotificationPreference {
   id        String   @id @default(uuid())
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  eventType String   // e.g. order.approved
-  channel   String   // WHATSAPP | SMS | FCM | IN_APP
+  eventType String // e.g. order.approved
+  channel   String // WHATSAPP | SMS | FCM | IN_APP
   enabled   Boolean  @default(true)
   updatedAt DateTime @updatedAt
 
@@ -1137,13 +1174,13 @@ model NotificationSetting {
 
 model NotificationLog {
   id               String    @id @default(uuid())
-  channel          String    // WHATSAPP | SMS | FCM | IN_APP
-  status           String    // SENT | FAILED | SKIPPED
-  recipientAddress String?   // phone number or FCM userId
-  eventType        String?   // e.g. order.approved
-  entityType       String?   // ORDER | PAYMENT | TICKET
+  channel          String // WHATSAPP | SMS | FCM | IN_APP
+  status           String // SENT | FAILED | SKIPPED
+  recipientAddress String? // phone number or FCM userId
+  eventType        String? // e.g. order.approved
+  entityType       String? // ORDER | PAYMENT | TICKET
   entityId         String?
-  recipientType    String?   // CUSTOMER | USER
+  recipientType    String? // CUSTOMER | USER
   recipientId      String?
   vendorId         String?
   attemptCount     Int       @default(1)
@@ -1157,6 +1194,7 @@ model NotificationLog {
   @@index([vendorId, createdAt])
   @@index([createdAt])
 }
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Balance Reminder Schedule Config
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1215,9 +1253,9 @@ model CashCollectionPolicyConfig {
   vendorId                String   @unique
   vendor                  Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   enabled                 Boolean  @default(false)
-  allowedCreditDeliveries Int      @default(2)      // N; required = exposure/(N+1); 0 = COD
+  allowedCreditDeliveries Int      @default(2) // N; required = exposure/(N+1); 0 = COD
   minExposureFloor        Float    @default(500)
-  maxOutstandingCeiling   Float?                    // null = no absolute ceiling
+  maxOutstandingCeiling   Float? // null = no absolute ceiling
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
 
@@ -1228,19 +1266,19 @@ model ReminderSendLog {
   id               String   @id @default(uuid())
   vendorId         String
   vendor           Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  trigger          String   // 'manual' | 'cron'
-  mode             String   // 'eligible' | 'single' | 'selected'
-  month            String   // YYYY-MM
+  trigger          String // 'manual' | 'cron'
+  mode             String // 'eligible' | 'single' | 'selected'
+  month            String // YYYY-MM
   sent             Int
   skipped          Int
   includeStatement Boolean  @default(false)
   dryRun           Boolean  @default(false)
-  minBalance       Float?   // threshold used (eligible mode)
-  paymentType      String?  // 'MONTHLY' | 'CASH' — null = both
-  vanId            String?  // delivery-schedule van filter, if applied
-  dayOfWeek        Int?     // delivery-schedule day filter (1=Mon … 6=Sat), if applied
+  minBalance       Float? // threshold used (eligible mode)
+  paymentType      String? // 'MONTHLY' | 'CASH' — null = both
+  vanId            String? // delivery-schedule van filter, if applied
+  dayOfWeek        Int? // delivery-schedule day filter (1=Mon … 6=Sat), if applied
   force            Boolean  @default(false)
-  details          Json?    // per-customer results: [{ customerId, name, balance, status }]
+  details          Json? // per-customer results: [{ customerId, name, balance, status }]
   createdAt        DateTime @default(now())
 
   @@index([vendorId, createdAt])
@@ -1279,36 +1317,36 @@ model DriverLastLocation {
 // ──────────────────────────────────────────────────────────────────────────────
 
 model DamageCase {
-  id               String             @id @default(uuid())
+  id               String               @id @default(uuid())
   vendorId         String
-  vendor           Vendor             @relation(fields: [vendorId], references: [id])
+  vendor           Vendor               @relation(fields: [vendorId], references: [id])
   customerId       String
-  customer         Customer           @relation(fields: [customerId], references: [id])
+  customer         Customer             @relation(fields: [customerId], references: [id])
   productId        String
-  product          Product            @relation(fields: [productId], references: [id])
+  product          Product              @relation(fields: [productId], references: [id])
   driverId         String
-  driver           User               @relation("DriverDamageCases", fields: [driverId], references: [id])
+  driver           User                 @relation("DriverDamageCases", fields: [driverId], references: [id])
   dailySheetItemId String?
-  dailySheetItem   DailySheetItem?    @relation(fields: [dailySheetItemId], references: [id])
-  caseType         DamageCaseType     @default(DAMAGE)
+  dailySheetItem   DailySheetItem?      @relation(fields: [dailySheetItemId], references: [id])
+  caseType         DamageCaseType       @default(DAMAGE)
   severity         DamageSeverity?
   bottleCount      Int
   description      String?
   lossReason       BottleLossReason?
   photoKeys        String[]
-  status           DamageCaseStatus   @default(REPORTED)
-  version          Int                @default(0)
+  status           DamageCaseStatus     @default(REPORTED)
+  version          Int                  @default(0)
   chargeAmount     Float?
   writeOffCategory WriteOffCategory?
   reviewNote       String?
   reviewedById     String?
-  reviewedBy       User?              @relation("DamageCaseReviewer", fields: [reviewedById], references: [id])
+  reviewedBy       User?                @relation("DamageCaseReviewer", fields: [reviewedById], references: [id])
   reviewedAt       DateTime?
-  transactionId    String?            @unique
-  transaction      Transaction?       @relation(fields: [transactionId], references: [id])
+  transactionId    String?              @unique
+  transaction      Transaction?         @relation(fields: [transactionId], references: [id])
   auditLogs        DamageCaseAuditLog[]
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
 
   @@index([vendorId, status])
   @@index([customerId])
@@ -1368,13 +1406,13 @@ model Conversation {
 
   // Rollups updated in the same transaction as every message insert.
   lastMessageAt         DateTime?
-  lastMessagePreview    String?   // ~120 chars; "🎤 Voice message" for voice
+  lastMessagePreview    String? // ~120 chars; "🎤 Voice message" for voice
   lastMessageSenderId   String?
-  lastMessageSenderRole String?   // UserRole as text — derives waitingOn
+  lastMessageSenderRole String? // UserRole as text — derives waitingOn
   messageCount          Int       @default(0)
 
   summary  String? // AI-ready (conversation summary) — unused until AI phase
-  metadata Json?   // AI-ready — unused
+  metadata Json? // AI-ready — unused
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1390,30 +1428,30 @@ model Conversation {
 }
 
 model ConversationMessage {
-  id             String       @id @default(uuid())
-  vendorId       String
-  vendor         Vendor       @relation(fields: [vendorId], references: [id])
-  conversationId String
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  id               String         @id @default(uuid())
+  vendorId         String
+  vendor           Vendor         @relation(fields: [vendorId], references: [id])
+  conversationId   String
+  conversation     Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   // Kept permanently: keeps the delivery ack-gate a single-table indexed count
   // and legacy `item.notes` includes working during the phased migration.
   dailySheetItemId String
   item             DailySheetItem @relation(fields: [dailySheetItemId], references: [id], onDelete: Cascade)
   createdById      String
-  createdBy        User      @relation("MessageSender", fields: [createdById], references: [id])
+  createdBy        User           @relation("MessageSender", fields: [createdById], references: [id])
   type             MessageType
   text             String?
-  audioKey         String?   // Wasabi S3 key for voice messages
-  audioDuration    Int?      // duration in seconds
-  requiresAck      Boolean   @default(false) // instruction: blocks delivery until acknowledged
+  audioKey         String? // Wasabi S3 key for voice messages
+  audioDuration    Int? // duration in seconds
+  requiresAck      Boolean        @default(false) // instruction: blocks delivery until acknowledged
   acknowledgedAt   DateTime?
-  acknowledgedById String?   // userId of driver who acknowledged (plain string, no relation needed)
-  attachments      Json      @default("[]") // future [{key, name, mime, size}]
-  transcription    String?   // AI-ready (voice transcription) — unused
-  metadata         Json?     // AI-ready — unused
+  acknowledgedById String? // userId of driver who acknowledged (plain string, no relation needed)
+  attachments      Json           @default("[]") // future [{key, name, mime, size}]
+  transcription    String? // AI-ready (voice transcription) — unused
+  metadata         Json? // AI-ready — unused
   deletedAt        DateTime? // soft delete (future edit/delete) — unused
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 
   @@index([dailySheetItemId])
   @@index([dailySheetItemId, acknowledgedAt])
@@ -1459,20 +1497,20 @@ model WarehouseStock {
 }
 
 model WarehouseTransaction {
-  id            String                  @id @default(uuid())
+  id            String                   @id @default(uuid())
   vendorId      String
   productId     String
   type          WarehouseTransactionType
-  filledDelta   Int                     @default(0)
-  emptyDelta    Int                     @default(0)
-  damagedDelta  Int                     @default(0)
-  leakedDelta   Int                     @default(0)
-  repairDelta   Int                     @default(0)
+  filledDelta   Int                      @default(0)
+  emptyDelta    Int                      @default(0)
+  damagedDelta  Int                      @default(0)
+  leakedDelta   Int                      @default(0)
+  repairDelta   Int                      @default(0)
   notes         String?
   dailySheetId  String?
   repairBatchId String?
   createdById   String?
-  createdAt     DateTime                @default(now())
+  createdAt     DateTime                 @default(now())
 
   vendor      Vendor       @relation(fields: [vendorId], references: [id])
   product     Product      @relation(fields: [productId], references: [id])
@@ -1500,9 +1538,9 @@ model RepairBatch {
   notes             String?
   createdById       String?
 
-  vendor       Vendor               @relation(fields: [vendorId], references: [id])
-  product      Product              @relation(fields: [productId], references: [id])
-  createdBy    User?                @relation("RepairBatchCreatedBy", fields: [createdById], references: [id])
+  vendor       Vendor                 @relation(fields: [vendorId], references: [id])
+  product      Product                @relation(fields: [productId], references: [id])
+  createdBy    User?                  @relation("RepairBatchCreatedBy", fields: [createdById], references: [id])
   transactions WarehouseTransaction[]
 
   @@index([vendorId])
@@ -1843,17 +1881,17 @@ model PayrollSnapshot {
 // UNLOCKED (Payroll Doc §14 — unlock always requires a reason) but nullable
 // here since GENERATED/APPROVED/LOCKED don't require one.
 model PayrollEntryAuditLog {
-  id             String            @id @default(uuid())
+  id             String             @id @default(uuid())
   payrollEntryId String
-  payrollEntry   PayrollEntry      @relation(fields: [payrollEntryId], references: [id])
+  payrollEntry   PayrollEntry       @relation(fields: [payrollEntryId], references: [id])
   actorId        String
-  actor          User              @relation(fields: [actorId], references: [id])
+  actor          User               @relation(fields: [actorId], references: [id])
   actorRole      UserRole
   action         PayrollAuditAction
   beforeJson     Json?
   afterJson      Json?
   reason         String?
-  createdAt      DateTime          @default(now())
+  createdAt      DateTime           @default(now())
 
   @@index([payrollEntryId])
   @@index([payrollEntryId, createdAt])
@@ -1877,4 +1915,301 @@ model Settlement {
 
   @@index([payrollEntryId])
   @@index([vendorId])
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Fleet Operations & Vehicle Intelligence — Phase 1 (owner-approved plan,
+// docs/features/fleet-operations-vehicle-intelligence.md — "LOCKED", §16 Phase 1).
+// Integration principles (§4 of the plan): Van stays the one vehicle identity —
+// every table below hangs off Van, none of them introduce a parallel "Vehicle"
+// entity. Cost records (FuelLog, VehicleServiceRecord) mirror Expense's own
+// "zero ceremony" simplicity (no version/audit apparatus — Expense itself has
+// none) rather than CrewCashDistribution's heavier payroll-consequential
+// machinery, because these are ordinary vendor costs, not employee-pay
+// consequential records. Checklist content and maintenance interval defaults
+// are intentionally NOT modeled relationally here (no template/rule-catalog
+// tables) — Phase 1 ships one fixed checklist and one fixed default-interval
+// table, shared with the frontend from libs/shared/types (fleet.ts);
+// configurable per-vendor templates are explicitly Phase 2 (§16).
+// ──────────────────────────────────────────────────────────────────────────────
+
+enum VehicleFuelType {
+  PETROL
+  DIESEL
+  CNG
+  HYBRID
+  ELECTRIC
+}
+
+enum VehicleOwnershipType {
+  OWNED
+  LEASED
+  RENTED
+  FINANCED
+}
+
+// Distinct from Van.isActive (retired) — conflating "temporarily in the shop"
+// with "retired" would corrupt utilization analytics (plan doc §10 Rule 9).
+enum VehicleOperationalStatus {
+  ACTIVE
+  IN_MAINTENANCE
+  RETIRED
+}
+
+enum VehicleDocumentType {
+  REGISTRATION
+  INSURANCE
+  FITNESS_CERTIFICATE
+  ROUTE_PERMIT
+  TAX_TOKEN
+  LOAN_AGREEMENT
+  OTHER
+}
+
+enum VehicleCheckType {
+  START
+  END
+}
+
+enum VehicleServiceType {
+  ENGINE_OIL
+  OIL_FILTER
+  AIR_FILTER
+  FUEL_FILTER
+  BRAKE_FLUID
+  BRAKE_PADS
+  COOLANT
+  TRANSMISSION_FLUID
+  TYRE_ROTATION
+  BATTERY
+  SUSPENSION
+  CLUTCH
+  TIMING_BELT
+  SPARK_PLUGS
+  WHEEL_ALIGNMENT
+  AC_SERVICE
+  GENERAL_INSPECTION
+  OTHER
+}
+
+// Optional 1:1 enrichment of Van — a Van may exist with no VehicleProfile row
+// yet (lazily upserted the first time an admin fills in the Vehicle Master
+// tab). Every other Fleet table below FKs to Van directly, NOT to this model,
+// so they never depend on a profile having been created first.
+model VehicleProfile {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vanId    String @unique
+  van      Van    @relation(fields: [vanId], references: [id], onDelete: Cascade)
+
+  make             String?
+  model            String?
+  year             Int?
+  color            String?
+  chassisNumber    String?
+  engineNumber     String?
+  fuelType         VehicleFuelType?
+  transmissionType String?
+  loadCapacityKg   Float?
+  seatingCapacity  Int?
+
+  ownershipType VehicleOwnershipType?
+  purchaseDate  DateTime?
+  purchaseCost  Float?
+  supplierName  String?
+
+  operationalStatus VehicleOperationalStatus @default(ACTIVE)
+  // Cached from the latest VehicleDailyCheck (either checkType) — the read-time
+  // source of truth for "what is this van's odometer right now" everywhere else
+  // in Fleet (maintenance due-calc, dashboards). Never edited directly.
+  currentOdometer   Int                      @default(0)
+
+  // Optimistic concurrency for the profile edit form (mirrors DamageCase.version).
+  version Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vendorId])
+}
+
+model VehicleDocument {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vanId    String
+  van      Van    @relation(fields: [vanId], references: [id], onDelete: Cascade)
+
+  type               VehicleDocumentType
+  documentNumber     String?
+  issuingAuthority   String?
+  issueDate          DateTime?
+  expiryDate         DateTime?
+  fileKey            String? // Wasabi object key, uploaded via the shared Fleet photo/doc upload endpoint
+  reminderDaysBefore Int                 @default(30)
+  notes              String?
+  // Soft-retire a superseded document (e.g. renewed insurance) instead of
+  // deleting it — keeps document history intact for audit.
+  isActive           Boolean             @default(true)
+
+  createdById String
+  createdBy   User     @relation("VehicleDocumentCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([vendorId, vanId])
+  @@index([vendorId, isActive, expiryDate])
+}
+
+// The morning/evening pre-trip record (plan doc §7.2). One START and one END
+// row per DailySheet, mirroring DailySheet's own @@unique([vendorId, vanId,
+// date]) discipline. checklistResults is a fixed-shape JSON array (see
+// ChecklistItemResult / VEHICLE_CHECKLIST_ITEMS in libs/shared/types/fleet.ts)
+// rather than a relational template — Phase 1 has exactly one checklist.
+model VehicleDailyCheck {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vanId    String
+  van      Van    @relation(fields: [vanId], references: [id], onDelete: Cascade)
+
+  dailySheetId String
+  dailySheet   DailySheet @relation(fields: [dailySheetId], references: [id], onDelete: Cascade)
+
+  checkType VehicleCheckType
+
+  odometerReading  Int
+  odometerPhotoKey String?
+  fuelGaugeLevel   Int // 0-8 eighths — a cheap anomaly trip-wire only, NOT the efficiency data source (FuelLog is)
+
+  // [{ key, label, isCritical, passed, note? }] — validated server-side against
+  // VEHICLE_CHECKLIST_ITEMS, never trusted from the client as-is.
+  checklistResults Json
+
+  // Denormalized from checklistResults at write time so the trip-start gate
+  // (daily-sheet.service.ts createLoad/loadOut) never has to parse JSON.
+  hasCriticalFailure   Boolean   @default(false)
+  criticalOverrideNote String?
+  criticalOverrideById String?
+  criticalOverrideBy   User?     @relation("VehicleCheckCriticalOverrideBy", fields: [criticalOverrideById], references: [id])
+  criticalOverrideAt   DateTime?
+
+  // Set when this START reading is lower than the prior closed day's END
+  // reading, or the day's delta exceeds VEHICLE_DAILY_ODOMETER_DELTA_CAP_KM —
+  // flagged, never blocking (plan doc §10 Rules 2-3).
+  odometerContinuityFlag Boolean @default(false)
+  continuityNote         String?
+
+  damageNoted     Boolean  @default(false)
+  damageNote      String?
+  damagePhotoKeys String[] @default([])
+
+  note String?
+
+  recordedById String
+  recordedBy   User     @relation("VehicleDailyCheckRecordedBy", fields: [recordedById], references: [id])
+  recordedAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  @@unique([dailySheetId, checkType])
+  @@index([vendorId, vanId, recordedAt])
+  @@index([dailySheetId])
+}
+
+// The real fuel-efficiency data source (fill-to-fill), deliberately separate
+// from VehicleDailyCheck's fuel gauge glance (plan doc §6/§7.5). Behaves like
+// Expense (freely editable/deletable, no version/audit ceremony) and spawns
+// at most one linked, frozen-after-creation Expense row — the same
+// "source record -> financial consequence" split as CrewCashDistribution ->
+// StaffLedgerEntry, just without the payroll-approval apparatus that split
+// needed (this is a vendor cost, not an employee debit).
+model FuelLog {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vanId    String
+  van      Van    @relation(fields: [vanId], references: [id], onDelete: Cascade)
+
+  dailySheetId String?
+  dailySheet   DailySheet? @relation(fields: [dailySheetId], references: [id], onDelete: SetNull)
+
+  date            DateTime
+  odometerAtFill  Int
+  litersFilled    Float
+  amountPaid      Float
+  // Only full-tank fills count toward fill-to-fill efficiency — a partial fill
+  // is still recorded for cost but excluded from that calculation (plan §10 Rule 4).
+  isFullTank      Boolean  @default(true)
+  fuelStation     String?
+  receiptPhotoKey String?
+  notes           String?
+
+  expenseId String?  @unique
+  expense   Expense? @relation(fields: [expenseId], references: [id], onDelete: SetNull)
+
+  recordedById String
+  recordedBy   User     @relation("FuelLogRecordedBy", fields: [recordedById], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([vendorId, vanId, date])
+  @@index([dailySheetId])
+}
+
+// Per-vehicle service interval config. Always per-vehicle (vanId required, not
+// nullable) — Phase 1 has no separate "vendor-wide default" row to avoid the
+// nullable-column unique-index pitfall; instead every vehicle is lazily seeded
+// with VEHICLE_MAINTENANCE_DEFAULT_INTERVALS the first time its maintenance
+// list is opened (FleetMaintenanceService.ensureDefaultRules), fully editable
+// afterward.
+model VehicleMaintenanceRule {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vanId    String
+  van      Van    @relation(fields: [vanId], references: [id], onDelete: Cascade)
+
+  serviceType  VehicleServiceType
+  intervalKm   Int?
+  intervalDays Int?
+  isActive     Boolean            @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([vanId, serviceType])
+  @@index([vendorId, vanId])
+}
+
+// The actual service event log. Due/Upcoming/Overdue status (plan doc §7.4) is
+// computed at read time from the latest row per (vanId, serviceType) vs. the
+// matching VehicleMaintenanceRule — deliberately not cached/materialized here,
+// fleet sizes at this scale make that unnecessary.
+model VehicleServiceRecord {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vanId    String
+  van      Van    @relation(fields: [vanId], references: [id], onDelete: Cascade)
+
+  serviceType         VehicleServiceType
+  performedAtOdometer Int
+  performedAtDate     DateTime
+  cost                Float
+  workshopName        String?
+  invoicePhotoKey     String?
+  partsReplaced       String?
+  notes               String?
+
+  expenseId String?  @unique
+  expense   Expense? @relation(fields: [expenseId], references: [id], onDelete: SetNull)
+
+  recordedById String
+  recordedBy   User     @relation("VehicleServiceRecordRecordedBy", fields: [recordedById], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([vendorId, vanId, serviceType])
+  @@index([vendorId, performedAtDate])
 }

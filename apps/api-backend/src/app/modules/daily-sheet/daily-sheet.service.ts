@@ -43,6 +43,7 @@ import { NotificationSettingsService } from '../notifications/notification-setti
 import { CollectionPolicyService } from '../collection-policy/collection-policy.service';
 import { evaluateCollectionPolicy, evaluateCashCollectionPolicy } from '../../common/helpers/collection-policy.util';
 import { CrewCashDistributionService } from '../payroll/crew-cash-distribution.service';
+import { VehicleCheckService } from '../fleet/vehicle-check.service';
 
 const AUTO_GENERATE_CRON = '5 0 * * *'; // 00:05 AM, evaluated in AUTO_GENERATE_TZ
 const AUTO_GENERATE_TZ = 'Asia/Karachi';
@@ -67,6 +68,7 @@ export class DailySheetService implements OnModuleInit {
     private notifSettings: NotificationSettingsService,
     private collectionPolicy: CollectionPolicyService,
     private crewCashDistribution: CrewCashDistributionService,
+    private vehicleCheck: VehicleCheckService,
     @InjectQueue(QUEUE_NAMES.DAILY_SHEET_GENERATION)
     private sheetQueue: Queue,
   ) {}
@@ -1543,6 +1545,11 @@ export class DailySheetService implements OnModuleInit {
     if (!sheet.crewConfirmed) {
       throw new ConflictException('Crew confirmation is required before starting the trip.');
     }
+    // Fleet Operations Phase 1 (docs/features/fleet-operations-vehicle-intelligence.md
+    // §6/§10 Rule 6): the only hard block this feature adds — an unacknowledged
+    // critical vehicle-check failure. A missing check entirely does NOT block
+    // (frontend nudge only), so this is a no-op for sheets with no check recorded.
+    await this.vehicleCheck.assertTripStartClear(vendorId, sheetId);
 
     // Only one active trip at a time
     const activeTrip = await this.prisma.dailySheetLoad.findFirst({
@@ -1667,6 +1674,8 @@ export class DailySheetService implements OnModuleInit {
     if (!sheet.crewConfirmed) {
       throw new ConflictException('Crew confirmation is required before starting the trip.');
     }
+    // See createLoad above — same Fleet Phase 1 critical-check gate.
+    await this.vehicleCheck.assertTripStartClear(vendorId, sheetId);
 
     const updated = await this.prisma.dailySheet.update({
       where: { id: sheetId },

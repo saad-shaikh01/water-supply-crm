@@ -7,7 +7,7 @@ import {
   ClipboardList, CreditCard, UserCog, Droplets, Banknote, Navigation,
   Receipt, Bell, BellRing, ScrollText, BarChart2, Home, History, ShoppingCart,
   MessageSquare, AlertTriangle, Tag, ShieldAlert, Warehouse, Wrench, ChevronDown, KeyRound,
-  Inbox, Percent, Wallet, Landmark,
+  Inbox, Percent, Wallet, Landmark, Gauge,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { pagePermissionForPath } from '@water-supply-crm/authz';
@@ -51,6 +51,12 @@ const navItems: NavItem[] = [
   { label: 'Customers', href: '/dashboard/customers', icon: Users, group: 'Operations' },
   { label: 'Daily Sheets', href: '/dashboard/daily-sheets', icon: ClipboardList, group: 'Operations' },
   { label: 'Communications', href: '/dashboard/communications', icon: Inbox, group: 'Operations', unreadBadge: true, hideForDriver: true },
+  // Fleet Operations & Vehicle Intelligence — docs/features/fleet-operations-vehicle-intelligence.md.
+  // Gauge (not Truck) to stay visually distinct from "Vans" below — Vans is
+  // crew/route assignment, Fleet is vehicle health/maintenance/documents/cost.
+  // No hideForDriver needed — drivers never hold fleet:page (see authz presets.ts),
+  // so this entry is already invisible to them via the normal permission check.
+  { label: 'Fleet', href: '/dashboard/fleet', icon: Gauge, group: 'Operations' },
 
   // Operations — collapsible: Inventory & Supply
   {

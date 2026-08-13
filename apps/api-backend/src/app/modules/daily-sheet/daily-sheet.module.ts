@@ -13,6 +13,7 @@ import { StorageModule } from '../../common/storage/storage.module';
 import { WarehouseModule } from '../warehouse/warehouse.module';
 import { CollectionPolicyModule } from '../collection-policy/collection-policy.module';
 import { PayrollModule } from '../payroll/payroll.module';
+import { FleetModule } from '../fleet/fleet.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { PayrollModule } from '../payroll/payroll.module';
     WarehouseModule,
     CollectionPolicyModule,
     PayrollModule,
+    FleetModule,
   ],
   controllers: [DailySheetController],
   providers: [DailySheetService, DailySheetProcessor, DailySheetPdfService, BulkImportService],
