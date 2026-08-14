@@ -6,7 +6,7 @@ import PDFDocument = require('pdfkit');
 
 // ── Company identity (hardcoded — single vendor for now) ────────────────────
 const COMPANY_NAME    = 'DASANI ENTERPRISES';
-const COMPANY_ADDRESS = 'B-145 Block 13 D/1 Gulshan-e-Iqbal, Korangi Creek Korangi';
+const COMPANY_ADDRESS = 'B-145 block 13 D/1 Gulshan e Iqbal, Karachi.';
 const COMPANY_PHONES  = 'Cell# 0316-2677954, 0345-2364698';
 
 // Payment / footer details (hardcoded — single vendor for now)
