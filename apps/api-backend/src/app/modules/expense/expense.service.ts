@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import { TransactionType } from '@prisma/client';
 import { CreateExpenseDto } from './dto/create-expense.dto';
@@ -11,6 +11,28 @@ export class ExpenseService {
   constructor(private prisma: PrismaService) {}
 
   async create(vendorId: string, createdById: string, dto: CreateExpenseDto) {
+    // Vendor-scoped ownership checks — same pattern as FuelLogService.create,
+    // so an unknown/foreign vanId or dailySheetId 404s instead of falling
+    // through to an unhandled FK-constraint error from the insert below.
+    if (dto.vanId) {
+      const van = await this.prisma.van.findFirst({ where: { id: dto.vanId, vendorId } });
+      if (!van) throw new NotFoundException('Vehicle not found');
+    }
+
+    if (dto.dailySheetId) {
+      const sheet = await this.prisma.dailySheet.findFirst({
+        where: { id: dto.dailySheetId, vendorId },
+        select: { isClosed: true },
+      });
+      if (!sheet) throw new NotFoundException('Daily sheet not found');
+      // Same closed-sheet business rule already enforced by
+      // CrewCashDistributionService.create — an Expense is a financial
+      // record too and must not be added after the sheet is finalized.
+      if (sheet.isClosed) {
+        throw new BadRequestException('Cannot record an Expense against a closed daily sheet.');
+      }
+    }
+
     return this.prisma.expense.create({
       data: {
         vendorId,

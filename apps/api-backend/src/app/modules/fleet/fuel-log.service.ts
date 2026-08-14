@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import { ExpenseCategory } from '@prisma/client';
 import { paginate } from '../../common/helpers/paginate';
@@ -31,11 +31,17 @@ export class FuelLogService {
     if (dto.dailySheetId) {
       const sheet = await this.prisma.dailySheet.findFirst({
         where: { id: dto.dailySheetId, vendorId: user.vendorId },
-        select: { driverId: true },
+        select: { driverId: true, isClosed: true },
       });
       if (!sheet) throw new NotFoundException('Daily sheet not found');
       if (user.role === 'DRIVER' && sheet.driverId !== user.userId) {
         throw new ForbiddenException('You can only record fuel for your own delivery van.');
+      }
+      // Same closed-sheet business rule already enforced by
+      // CrewCashDistributionService.create — a Fuel Log spawns an Expense
+      // too and must not be added after the sheet is finalized.
+      if (sheet.isClosed) {
+        throw new BadRequestException('Cannot record a Fuel Log against a closed daily sheet.');
       }
     }
 

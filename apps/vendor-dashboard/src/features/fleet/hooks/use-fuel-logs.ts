@@ -13,9 +13,15 @@ export const useCreateFuelLog = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: CreateFuelLogData) => fleetApi.createFuelLog(data),
-    onSuccess: () => {
+    onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.fuelLogs() });
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.overview() });
+      // A fuel fill logged from a Daily Sheet also spawns a linked Expense on
+      // that sheet — invalidate the sheet's own query too (same pattern as
+      // useCreateSheetExpense) so its Trip Expenses stat + list stay in sync.
+      if (variables.dailySheetId) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(variables.dailySheetId) });
+      }
       toast.success('Fuel fill recorded');
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to record fuel fill'),

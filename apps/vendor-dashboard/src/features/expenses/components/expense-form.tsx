@@ -8,7 +8,7 @@ import {
   Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@water-supply-crm/ui';
 import { expenseSchema, type ExpenseInput } from '../schemas';
-import { useCreateExpense, useUpdateExpense } from '../hooks/use-expenses';
+import { useCreateExpense, useCreateSheetExpense, useUpdateExpense } from '../hooks/use-expenses';
 import { useAllVans } from '../../vans/hooks/use-vans';
 
 const CATEGORIES = [
@@ -31,8 +31,13 @@ interface ExpenseFormProps {
 export function ExpenseForm({ open, onOpenChange, expense, dailySheetId, defaultVanId, onAfterSuccess }: ExpenseFormProps) {
   const isEdit = !!expense?.id;
   const { mutate: create, isPending: isCreating } = useCreateExpense();
+  // Sheet-scoped variant — also invalidates the Daily Sheet's own query
+  // (['sheets', dailySheetId]) so its Trip Expenses stat + expense list
+  // reflect a new entry immediately, instead of only the general Expenses
+  // list. Only used when this form was opened from a Daily Sheet.
+  const { mutate: createForSheet, isPending: isCreatingForSheet } = useCreateSheetExpense(dailySheetId ?? '');
   const { mutate: update, isPending: isUpdating } = useUpdateExpense();
-  const isPending = isCreating || isUpdating;
+  const isPending = isCreating || isCreatingForSheet || isUpdating;
   const { data: vansData } = useAllVans();
   const vans = ((vansData as any)?.data ?? []) as Array<{ id: string; plateNumber: string; isActive: boolean }>;
   const activeVans = vans.filter((v) => v.isActive !== false);
@@ -68,11 +73,13 @@ export function ExpenseForm({ open, onOpenChange, expense, dailySheetId, default
   const onSubmit = (data: ExpenseInput) => {
     if (isEdit) {
       update({ id: String(expense!.id), data }, { onSuccess: () => { onOpenChange(false); onAfterSuccess?.(); } });
-    } else {
-      create(
-        { ...data, ...(dailySheetId && { dailySheetId }) },
+    } else if (dailySheetId) {
+      createForSheet(
+        { ...data, dailySheetId },
         { onSuccess: () => { onOpenChange(false); onAfterSuccess?.(); } },
       );
+    } else {
+      create(data, { onSuccess: () => { onOpenChange(false); onAfterSuccess?.(); } });
     }
   };
 
