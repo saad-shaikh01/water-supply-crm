@@ -1078,9 +1078,22 @@ export class DailySheetService implements OnModuleInit {
               },
             },
           },
-          orderBy: { sequence: 'asc' },
+          // Reflects the ACTUAL order deliveries were recorded in, not the
+          // static planned route sequence — mirrors the frontend's
+          // sortBySequence() default so the on-screen list and the printed
+          // PDF (which renders this array as-is, with no client re-sort)
+          // always agree. Items not yet delivered have no deliveredAt, so
+          // they fall back to the planned sequence and land after every
+          // already-recorded item.
+          orderBy: [
+            { deliveredAt: { sort: 'asc', nulls: 'last' } },
+            { sequence: 'asc' },
+          ],
         },
         loads: {
+          include: {
+            product: { select: { id: true, name: true } },
+          },
           orderBy: { tripNumber: 'asc' },
         },
         expenses: {
@@ -1089,6 +1102,17 @@ export class DailySheetService implements OnModuleInit {
             createdBy: { select: { id: true, name: true } },
           },
           orderBy: { date: 'desc' },
+        },
+        // Included so the sheet detail page and the printed PDF can both show
+        // the same "Cash Out" picture Expenses already gives — otherwise cash
+        // physically handed to crew (which DOES reduce the driver's cash
+        // hand-in, see buildReconciliation) would be invisible on the sheet.
+        crewCashDistributions: {
+          include: {
+            employee: { select: { id: true, name: true } },
+            distributedBy: { select: { id: true, name: true } },
+          },
+          orderBy: { createdAt: 'desc' },
         },
       },
     });
@@ -1784,8 +1808,27 @@ export class DailySheetService implements OnModuleInit {
     );
     const driverDiscrepancy = totalCashRecorded - sheet.cashCollected;
 
-    const totalExpenses = ((sheet.expenses ?? []) as any[]).reduce(
-      (s: number, e: any) => s + e.amount,
+    // Only expenses actually paid out of the driver's van cash-in-hand
+    // (paidFromCash, default true) reduce the cash hand-in — a fuel fill or
+    // trip expense paid by card/bank/company account never touched that
+    // cash, so it must not be subtracted from it. totalExpensesAll is kept
+    // for cost-tracking displays (Cash Summary "Expenses" line) which still
+    // want the full spend regardless of payment source.
+    const allExpenses = (sheet.expenses ?? []) as any[];
+    const totalExpensesAll = allExpenses.reduce((s: number, e: any) => s + e.amount, 0);
+    const totalExpenses = allExpenses
+      .filter((e: any) => e.paidFromCash !== false)
+      .reduce((s: number, e: any) => s + e.amount, 0);
+    const totalExpensesNonCash = totalExpensesAll - totalExpenses;
+
+    // Crew Cash rows are physical cash already handed to crew off the van
+    // (meals/tea/emergency) — the money is gone from the driver's pocket the
+    // moment it's recorded, regardless of whether that row has cleared its
+    // payroll-approval gate yet (that gate only governs the Payroll Ledger
+    // sync, not whether the cash was actually spent). All rows on the sheet
+    // must reduce cash-on-hand here, the same way every recorded Expense does.
+    const totalCrewCash = ((sheet.crewCashDistributions ?? []) as any[]).reduce(
+      (s: number, c: any) => s + c.amount,
       0,
     );
 
@@ -1818,15 +1861,26 @@ export class DailySheetService implements OnModuleInit {
         billedToAccounts: monthlyBilled,
       },
       expenses: {
-        total: totalExpenses,
+        // Full spend regardless of payment source (cost-tracking figure).
+        total: totalExpensesAll,
+        // Subset that actually left the driver's cash — this is what's
+        // deducted below in driver.netToHandIn, not `total`.
+        paidFromCash: totalExpenses,
+        // Subset paid by card/bank/company account — real cost, but never
+        // touched the driver's cash so it's excluded from the deduction.
+        paidByOther: totalExpensesNonCash,
+      },
+      crewCash: {
+        total: totalCrewCash,
       },
       driver: {
         shouldHandIn: totalCashRecorded,
         expensePaidFromCash: totalExpenses,
-        netToHandIn: Math.max(0, totalCashRecorded - totalExpenses),
+        crewCashPaidFromCash: totalCrewCash,
+        netToHandIn: Math.max(0, totalCashRecorded - totalExpenses - totalCrewCash),
         handedIn: sheet.cashCollected,
         discrepancy: driverDiscrepancy,
-        unexplainedDiscrepancy: driverDiscrepancy - totalExpenses,
+        unexplainedDiscrepancy: driverDiscrepancy - totalExpenses - totalCrewCash,
       },
     };
   }
@@ -1848,6 +1902,9 @@ export class DailySheetService implements OnModuleInit {
           },
         },
         expenses: {
+          select: { amount: true, paidFromCash: true },
+        },
+        crewCashDistributions: {
           select: { amount: true },
         },
       },

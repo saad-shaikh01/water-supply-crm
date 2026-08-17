@@ -3,9 +3,14 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { PrismaService } from '@water-supply-crm/database';
+import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
 import {
   CrewCashAuditAction,
   CrewCashCategory,
@@ -51,22 +56,107 @@ function approvalCategoryKey(category: CrewCashCategory): string {
  * keeps its own per-entity audit trail (§10) and a snapshot approval flag
  * (§6) the way `StaffLedgerEntry` does.
  *
- * Sync into the Payroll Ledger (§6) happens two ways: in bulk via
+ * Sync into the Payroll Ledger (§6) happens three ways: in bulk via
  * `syncSheetToLedger`, composed into `DailySheetService.closeSheet()`'s own
  * transaction so a sheet can never end up closed with its Crew Cash rows
- * only partially synced; and per-row inside `approve()`, for the case where
- * an entry is approved AFTER its sheet already closed (the bulk sweep at
- * close time skips anything still pending approval, so that one row would
- * otherwise be stranded unsynced until some other event happened to it).
+ * only partially synced; per-row inside `approve()`, for the case where an
+ * entry is approved AFTER its sheet already closed (the bulk sweep at close
+ * time skips anything still pending approval, so that one row would
+ * otherwise be stranded unsynced until some other event happened to it); and
+ * via the nightly `syncStaleSheets()` sweep, which unblocks Payroll for a
+ * sheet that is stuck open (e.g. driver never resolves every PENDING
+ * delivery item) without waiting for — or forcing — an actual close. A sheet
+ * closing is a reconciliation-completeness statement (bottles/cash/empties
+ * balance); Payroll getting paid on time is a separate concern and must not
+ * be held hostage by the former. `syncStaleSheets()` never touches
+ * `isClosed` — the sheet stays open and visibly incomplete on the daily
+ * sheet list; only its already-approved/no-approval-needed Crew Cash rows
+ * get moved into the ledger once their calendar day has fully passed.
  */
 @Injectable()
-export class CrewCashDistributionService {
+export class CrewCashDistributionService implements OnModuleInit {
+  private readonly logger = new Logger(CrewCashDistributionService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly approvalGate: PayrollApprovalGateService,
     private readonly permissions: PermissionService,
     private readonly staffLedger: StaffLedgerService,
+    @InjectQueue(QUEUE_NAMES.CREW_CASH_SYNC)
+    private readonly crewCashSyncQueue: Queue,
   ) {}
+
+  private static readonly STALE_SYNC_CRON = '30 0 * * *'; // 00:30 AM, after daily-sheet auto-gen (00:05) + fleet sweep (00:15)
+  private static readonly STALE_SYNC_TZ = 'Asia/Karachi';
+  private static readonly STALE_SYNC_JOB_ID = 'crew-cash-stale-sync';
+
+  async onModuleInit() {
+    try {
+      await this.crewCashSyncQueue.upsertJobScheduler(
+        CrewCashDistributionService.STALE_SYNC_JOB_ID,
+        { pattern: CrewCashDistributionService.STALE_SYNC_CRON, tz: CrewCashDistributionService.STALE_SYNC_TZ },
+        { name: JOB_NAMES.SYNC_STALE_CREW_CASH, opts: { removeOnComplete: 30, removeOnFail: 20 } },
+      );
+      this.logger.log(
+        `Stale crew-cash sync scheduled (${CrewCashDistributionService.STALE_SYNC_CRON} ${CrewCashDistributionService.STALE_SYNC_TZ})`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `Failed to schedule stale crew-cash sync: ${(err as Error)?.message ?? String(err)}`,
+        (err as Error)?.stack,
+      );
+    }
+  }
+
+  /**
+   * Nightly sweep: syncs Crew Cash rows into the Payroll Ledger for sheets
+   * whose calendar day has fully passed but that are still open (see class
+   * doc comment). Scoped to `date < startOfToday` so a sheet from today —
+   * which may still be mid-trip — is never touched; only genuinely stale
+   * sheets are swept. `isClosed` is deliberately left alone here.
+   *
+   * There is no human actor for an automated sweep, but the audit trail
+   * (`CrewCashDistributionAuditLog.actorId`) requires a real `User` FK. The
+   * sheet's own driver is used — the same default identity already relied on
+   * elsewhere for a sheet's crew (`isTodaysCrewMember`) — rather than
+   * inventing a synthetic system user.
+   */
+  async syncStaleSheets(): Promise<{ sheetsSynced: number; sheetsFailed: number; rowsSynced: number }> {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const staleSheets = await this.prisma.dailySheet.findMany({
+      where: {
+        isClosed: false,
+        date: { lt: startOfToday },
+        crewCashDistributions: { some: { syncedAt: null } },
+      },
+      select: { id: true, vendorId: true, driverId: true },
+    });
+
+    let sheetsSynced = 0;
+    let sheetsFailed = 0;
+    let rowsSynced = 0;
+
+    for (const sheet of staleSheets) {
+      try {
+        const result = await this.prisma.$transaction((tx) =>
+          this.syncSheetToLedger(tx, sheet.vendorId, sheet.id, sheet.driverId, UserRole.DRIVER),
+        );
+        rowsSynced += result.synced;
+        sheetsSynced++;
+      } catch (err) {
+        sheetsFailed++;
+        this.logger.error(`Stale crew-cash sync failed for sheet ${sheet.id}`, (err as Error)?.stack);
+      }
+    }
+
+    this.logger.log(
+      `Stale crew-cash sync complete: ${sheetsSynced}/${staleSheets.length} sheet(s) processed, ${rowsSynced} row(s) synced into the Payroll Ledger${sheetsFailed > 0 ? `, ${sheetsFailed} failed` : ''}`,
+    );
+
+    return { sheetsSynced, sheetsFailed, rowsSynced };
+  }
 
   /**
    * Creates a Crew Cash Distribution row. `employeeId` must be today's

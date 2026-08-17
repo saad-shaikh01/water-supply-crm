@@ -39,6 +39,7 @@ export class ExpenseService {
         createdById,
         category: dto.category,
         amount: dto.amount,
+        paidFromCash: dto.paidFromCash ?? true,
         description: dto.description,
         date: new Date(dto.date),
         vanId: dto.vanId ?? null,
@@ -106,6 +107,7 @@ export class ExpenseService {
       data: {
         ...(dto.category !== undefined && { category: dto.category }),
         ...(dto.amount !== undefined && { amount: dto.amount }),
+        ...(dto.paidFromCash !== undefined && { paidFromCash: dto.paidFromCash }),
         ...(dto.description !== undefined && { description: dto.description }),
         ...(dto.date !== undefined && { date: new Date(dto.date as string) }),
         ...(dto.vanId !== undefined && { vanId: dto.vanId || null }),

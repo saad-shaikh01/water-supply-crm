@@ -5,6 +5,7 @@ import {
   IsDateString,
   IsOptional,
   IsUUID,
+  IsBoolean,
   Min,
   MaxLength,
 } from 'class-validator';
@@ -17,6 +18,13 @@ export class CreateExpenseDto {
   @IsNumber()
   @Min(0.01)
   amount: number;
+
+  // Whether this amount came out of the driver's van cash-in-hand (default
+  // true). Set false when paid by card/bank/company account — that spend
+  // must not reduce the driver's cash hand-in on the sheet.
+  @IsOptional()
+  @IsBoolean()
+  paidFromCash?: boolean;
 
   @IsString()
   @MaxLength(500)

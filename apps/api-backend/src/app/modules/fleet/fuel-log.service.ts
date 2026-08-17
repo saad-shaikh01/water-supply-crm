@@ -45,12 +45,20 @@ export class FuelLogService {
       }
     }
 
+    // Most fills come straight out of the driver's collected cash — default
+    // true so the common case needs no extra tap. Set false on the form when
+    // fuel was paid by card/bank/company account instead: the Expense this
+    // spawns then no longer reduces the driver's cash hand-in (see
+    // daily-sheet.service.ts buildReconciliation).
+    const paidFromCash = dto.paidFromCash ?? true;
+
     return this.prisma.$transaction(async (tx) => {
       const expense = await tx.expense.create({
         data: {
           vendorId: user.vendorId,
           category: ExpenseCategory.FUEL_EXPENSE,
           amount: dto.amountPaid,
+          paidFromCash,
           description: `Fuel — ${dto.litersFilled}L (${van.plateNumber})`,
           date: new Date(dto.date),
           vanId: dto.vanId,
@@ -68,6 +76,7 @@ export class FuelLogService {
           odometerAtFill: dto.odometerAtFill,
           litersFilled: dto.litersFilled,
           amountPaid: dto.amountPaid,
+          paidFromCash,
           isFullTank: dto.isFullTank ?? true,
           fuelStation: dto.fuelStation ?? null,
           receiptPhotoKey: dto.receiptPhotoKey ?? null,
@@ -119,11 +128,12 @@ export class FuelLogService {
     if (!fuelLog) throw new NotFoundException('Fuel log not found');
 
     return this.prisma.$transaction(async (tx) => {
-      if (fuelLog.expenseId && (dto.amountPaid !== undefined || dto.date !== undefined || dto.litersFilled !== undefined)) {
+      if (fuelLog.expenseId && (dto.amountPaid !== undefined || dto.date !== undefined || dto.litersFilled !== undefined || dto.paidFromCash !== undefined)) {
         await tx.expense.update({
           where: { id: fuelLog.expenseId },
           data: {
             ...(dto.amountPaid !== undefined && { amount: dto.amountPaid }),
+            ...(dto.paidFromCash !== undefined && { paidFromCash: dto.paidFromCash }),
             ...(dto.date !== undefined && { date: new Date(dto.date) }),
             ...(dto.litersFilled !== undefined && {
               description: `Fuel — ${dto.litersFilled}L`,
@@ -139,6 +149,7 @@ export class FuelLogService {
           ...(dto.odometerAtFill !== undefined && { odometerAtFill: dto.odometerAtFill }),
           ...(dto.litersFilled !== undefined && { litersFilled: dto.litersFilled }),
           ...(dto.amountPaid !== undefined && { amountPaid: dto.amountPaid }),
+          ...(dto.paidFromCash !== undefined && { paidFromCash: dto.paidFromCash }),
           ...(dto.isFullTank !== undefined && { isFullTank: dto.isFullTank }),
           ...(dto.fuelStation !== undefined && { fuelStation: dto.fuelStation }),
           ...(dto.receiptPhotoKey !== undefined && { receiptPhotoKey: dto.receiptPhotoKey }),

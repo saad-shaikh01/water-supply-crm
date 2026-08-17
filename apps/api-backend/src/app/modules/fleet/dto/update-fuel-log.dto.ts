@@ -6,6 +6,7 @@ export class UpdateFuelLogDto {
   @IsOptional() @IsNumber() @Min(0.1) litersFilled?: number;
   @IsOptional() @IsNumber() @Min(0) amountPaid?: number;
   @IsOptional() @IsBoolean() isFullTank?: boolean;
+  @IsOptional() @IsBoolean() paidFromCash?: boolean;
   @IsOptional() @IsString() @MaxLength(150) fuelStation?: string;
   @IsOptional() @IsString() receiptPhotoKey?: string;
   @IsOptional() @IsString() @MaxLength(500) notes?: string;

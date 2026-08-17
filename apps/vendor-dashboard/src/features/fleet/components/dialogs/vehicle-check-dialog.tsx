@@ -24,7 +24,6 @@ export function VehicleCheckDialog({ open, onClose, sheetId, checkType }: Vehicl
   const { mutate: createCheck, isPending } = useCreateVehicleDailyCheck();
   const [odometerReading, setOdometerReading] = useState('');
   const [odometerPhotoKey, setOdometerPhotoKey] = useState<string | undefined>(undefined);
-  const [fuelGaugeLevel, setFuelGaugeLevel] = useState(4);
   const [results, setResults] = useState<Record<string, boolean>>({});
   const [damageNoted, setDamageNoted] = useState(false);
   const [damageNote, setDamageNote] = useState('');
@@ -35,7 +34,6 @@ export function VehicleCheckDialog({ open, onClose, sheetId, checkType }: Vehicl
     if (open) {
       setOdometerReading('');
       setOdometerPhotoKey(undefined);
-      setFuelGaugeLevel(4);
       setResults(Object.fromEntries(VEHICLE_CHECKLIST_ITEMS.map((i) => [i.key, true])));
       setDamageNoted(false);
       setDamageNote('');
@@ -56,7 +54,6 @@ export function VehicleCheckDialog({ open, onClose, sheetId, checkType }: Vehicl
         checkType,
         odometerReading: odometer,
         odometerPhotoKey,
-        fuelGaugeLevel,
         checklistResults: VEHICLE_CHECKLIST_ITEMS.map((item) => ({
           key: item.key,
           passed: results[item.key] ?? true,
@@ -92,26 +89,6 @@ export function VehicleCheckDialog({ open, onClose, sheetId, checkType }: Vehicl
               placeholder="e.g. 45210"
               autoFocus
             />
-          </div>
-
-          <div className="space-y-2">
-            <Label>Fuel Level</Label>
-            <div className="flex gap-1">
-              {Array.from({ length: 9 }).map((_, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => setFuelGaugeLevel(i)}
-                  className={`h-9 flex-1 rounded-md border text-[10px] font-bold transition-colors ${
-                    fuelGaugeLevel >= i
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-muted border-border text-muted-foreground'
-                  }`}
-                >
-                  {i === 0 ? 'E' : i === 8 ? 'F' : ''}
-                </button>
-              ))}
-            </div>
           </div>
 
           <FleetPhotoUpload label="Odometer Photo" maxPhotos={1} onPhotosChange={(keys) => setOdometerPhotoKey(keys[0])} />

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Fuel } from 'lucide-react';
+import { Plus, Fuel, CreditCard } from 'lucide-react';
 import { Card, CardContent, Button, Badge, Skeleton } from '@water-supply-crm/ui';
 import { useFuelLogs } from '../hooks/use-fuel-logs';
 import { FuelLogFormDialog } from './dialogs/fuel-log-form-dialog';
@@ -56,9 +56,17 @@ export function VehicleFuelTab({ vanId }: VehicleFuelTabProps) {
                     </p>
                   </div>
                 </div>
-                {!log.isFullTank && (
-                  <Badge variant="outline" className="text-[11px]">Partial fill</Badge>
-                )}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {log.paidFromCash === false && (
+                    <Badge className="text-[11px] border-none bg-blue-500/10 text-blue-600 gap-1">
+                      <CreditCard className="h-3 w-3" />
+                      Card
+                    </Badge>
+                  )}
+                  {!log.isFullTank && (
+                    <Badge variant="outline" className="text-[11px]">Partial fill</Badge>
+                  )}
+                </div>
               </CardContent>
             </Card>
           ))}

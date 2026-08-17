@@ -33,8 +33,7 @@ import { usePermissions } from '../../authz/hooks/use-permissions';
 import { SheetDetailHeader } from './sheet-detail-header';
 import { LoadTripsSection } from './load-trips-section';
 import { DeliveryItemsList } from './delivery-items-list';
-import { SheetExpensesSection } from './sheet-expenses-section';
-import { SheetCrewCashSection } from './sheet-crew-cash-section';
+import { SheetCashOutSection } from './sheet-cash-out-section';
 import { AddRecordMenu } from './add-record-menu';
 import { ExpenseForm } from '../../expenses/components/expense-form';
 import { CrewCashForm } from '../../crew-cash/components/crew-cash-form';
@@ -673,21 +672,16 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         onCheckin={(tripId) => dispatch({ type: 'OPEN_CHECKIN', tripId })}
       />
 
-      <SheetExpensesSection
+      <SheetCashOutSection
         sheetId={sheetId}
         date={data!.date}
         expenses={data?.expenses ?? []}
-        isClosed={isClosed}
-        canDelete={canDeleteExpense}
-      />
-
-      <SheetCrewCashSection
-        sheetId={sheetId}
         crewMembers={crewCashEmployees}
         isClosed={isClosed}
+        canDeleteExpense={canDeleteExpense}
         currentUserId={user?.id}
-        canEditAll={canEditAllCrewCash}
-        canDeleteAll={canDeleteAllCrewCash}
+        canEditAllCrewCash={canEditAllCrewCash}
+        canDeleteAllCrewCash={canDeleteAllCrewCash}
       />
 
       {/* Ad-hoc / Correction Entry Actions */}

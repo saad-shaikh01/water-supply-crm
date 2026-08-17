@@ -70,7 +70,7 @@ export class VehicleCheckService {
           checkType: dto.checkType,
           odometerReading: dto.odometerReading,
           odometerPhotoKey: dto.odometerPhotoKey ?? null,
-          fuelGaugeLevel: dto.fuelGaugeLevel,
+          fuelGaugeLevel: dto.fuelGaugeLevel ?? null,
           checklistResults: normalized as unknown as Prisma.InputJsonValue,
           hasCriticalFailure: criticalFailure,
           odometerContinuityFlag,

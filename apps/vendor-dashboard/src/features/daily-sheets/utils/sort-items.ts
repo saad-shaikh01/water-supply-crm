@@ -11,8 +11,22 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// "Sheet Order" reflects the ACTUAL order deliveries happened in, not the
+// static planned route sequence — a driver who does stop #4 before #2/#3
+// (traffic, customer availability, whatever) should see the list settle into
+// 1, 4, 2, 3, 5 once recorded, matching the printed sheet/PDF. Items already
+// recorded (deliveredAt set) sort chronologically by that timestamp; items
+// still PENDING have no deliveredAt yet, so they fall back to the planned
+// `sequence` and stay grouped at the end, in their original relative order.
 export function sortBySequence(items: DeliveryItem[]): DeliveryItem[] {
-  return [...items].sort((a, b) => a.sequence - b.sequence);
+  return [...items].sort((a, b) => {
+    if (a.deliveredAt && b.deliveredAt) {
+      return new Date(a.deliveredAt).getTime() - new Date(b.deliveredAt).getTime();
+    }
+    if (a.deliveredAt) return -1;
+    if (b.deliveredAt) return 1;
+    return a.sequence - b.sequence;
+  });
 }
 
 // Customer codes are generated as "L" + an un-padded number (L1, L2, ... L23),

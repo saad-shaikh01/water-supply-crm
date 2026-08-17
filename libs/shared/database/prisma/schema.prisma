@@ -974,6 +974,14 @@ model Expense {
   vendor       Vendor          @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   category     ExpenseCategory
   amount       Float
+  // Whether this amount actually left the driver's van cash-in-hand (default,
+  // e.g. paid from today's collections) vs. paid by card/bank/company account
+  // and therefore never touched the cash the driver has to hand in. Only rows
+  // with paidFromCash=true are subtracted from DailySheet cash hand-in
+  // (daily-sheet.service.ts buildReconciliation + the PDF's net-cash chip);
+  // rows with paidFromCash=false still count as a real vendor cost (Expense
+  // Analytics, getSummary) but leave the driver's handover untouched.
+  paidFromCash Boolean         @default(true)
   description  String
   date         DateTime
   vanId        String?
@@ -2081,7 +2089,13 @@ model VehicleDailyCheck {
 
   odometerReading  Int
   odometerPhotoKey String?
-  fuelGaugeLevel   Int // 0-8 eighths — a cheap anomaly trip-wire only, NOT the efficiency data source (FuelLog is)
+  // 0-8 eighths — a cheap anomaly trip-wire only, NOT the efficiency data
+  // source (FuelLog is). Made optional: many vans' dashboards don't have a
+  // working gauge, so this was often an unreliable driver guess with no
+  // downstream calculation reading it (daily km = odometer delta, average
+  // mileage = FuelLog fill-to-fill — neither depends on this field). Kept
+  // nullable rather than dropped so historical readings aren't lost.
+  fuelGaugeLevel Int?
 
   // [{ key, label, isCritical, passed, note? }] — validated server-side against
   // VEHICLE_CHECKLIST_ITEMS, never trusted from the client as-is.
@@ -2138,6 +2152,12 @@ model FuelLog {
   odometerAtFill  Int
   litersFilled    Float
   amountPaid      Float
+  // Mirrors the linked Expense's own paidFromCash (kept in lockstep the same
+  // way amountPaid mirrors Expense.amount — see FuelLogService) so the Fleet
+  // fuel list can show a "paid by card" badge without joining Expense. true =
+  // paid from the driver's van cash-in-hand (deducted from cash hand-in);
+  // false = paid by card/bank/company account (not deducted).
+  paidFromCash    Boolean  @default(true)
   // Only full-tank fills count toward fill-to-fill efficiency — a partial fill
   // is still recorded for cost but excluded from that calculation (plan §10 Rule 4).
   isFullTank      Boolean  @default(true)

@@ -48,11 +48,16 @@ export function FuelLogFormDialog({ vanId, dailySheetId, open, onOpenChange }: F
       litersFilled: 0,
       amountPaid: 0,
       isFullTank: true,
+      // Fuel fills are mostly paid by card in practice, not out of today's
+      // collections — default to OFF so the common case needs no tap, and
+      // the driver only turns it on for the actual cash-paid fills.
+      paidFromCash: false,
       fuelStation: '',
       notes: '',
     },
   });
   const isFullTank = watch('isFullTank');
+  const paidFromCash = watch('paidFromCash');
 
   function onSubmit(values: FuelLogInput) {
     createFuelLog(
@@ -112,6 +117,31 @@ export function FuelLogFormDialog({ vanId, dailySheetId, open, onOpenChange }: F
               name="isFullTank"
               control={control}
               render={({ field }) => <Toggle enabled={field.value} onToggle={() => field.onChange(!field.value)} label="Full tank" />}
+            />
+          </div>
+
+          {/*
+           * Most fills are paid straight out of the driver's collected cash,
+           * so the deduction from cash hand-in happens by default. When fuel
+           * is instead paid by card/bank/company account, that cash was
+           * never taken out of the driver's pocket — turning this off keeps
+           * the full collected amount in the hand-in total instead of
+           * silently short-changing it (Cash Out → Reconcile screens both
+           * read this same flag).
+           */}
+          <div className={`flex items-center justify-between rounded-xl border px-4 py-3 ${paidFromCash ? 'border-border/50' : 'border-blue-500/40 bg-blue-500/5'}`}>
+            <div>
+              <p className="text-sm font-semibold">Paid from van cash?</p>
+              <p className="text-xs text-muted-foreground">
+                {paidFromCash
+                  ? 'This amount will be deducted from the cash hand-in.'
+                  : 'Off = paid by card / bank / company account — won\'t be deducted from cash hand-in.'}
+              </p>
+            </div>
+            <Controller
+              name="paidFromCash"
+              control={control}
+              render={({ field }) => <Toggle enabled={field.value} onToggle={() => field.onChange(!field.value)} label="Paid from van cash" />}
             />
           </div>
 

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Button, Card, CardContent, Badge } from '@water-supply-crm/ui';
-import { Trash2, Receipt, Fuel, Wrench, Users, AlertTriangle, type LucideIcon } from 'lucide-react';
+import { Trash2, Receipt, Fuel, Wrench, Users, AlertTriangle, CreditCard, type LucideIcon } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { useDeleteSheetExpense } from '../../expenses/hooks/use-expenses';
@@ -35,6 +35,12 @@ export function SheetExpensesSection({
   const { mutate: deleteExpense, isPending: isDeleting } = useDeleteSheetExpense(sheetId);
 
   const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
+  // Only cash-paid rows are actually deducted from the driver's hand-in
+  // (see daily-sheet.service.ts buildReconciliation) — the footer should
+  // reflect that, not the full spend, so it doesn't look like a mismatch
+  // against the Reconcile dialog right after this.
+  const cashExpenses = expenses.filter((e) => e.paidFromCash !== false).reduce((s, e) => s + e.amount, 0);
+  const nonCashExpenses = totalExpenses - cashExpenses;
 
   const canRemove = canDelete && !isClosed;
 
@@ -69,6 +75,12 @@ export function SheetExpensesSection({
                       {expense.van && (
                         <Badge variant="secondary" className="text-[10px] font-mono">{expense.van.plateNumber}</Badge>
                       )}
+                      {expense.paidFromCash === false && (
+                        <Badge className="text-[10px] font-bold px-2 py-0.5 rounded-full border-none bg-blue-500/10 text-blue-600 gap-1">
+                          <CreditCard className="h-2.5 w-2.5" />
+                          Card — not deducted
+                        </Badge>
+                      )}
                     </div>
                     {expense.description && (
                       <p className="text-xs text-muted-foreground truncate mt-0.5">{expense.description}</p>
@@ -97,13 +109,22 @@ export function SheetExpensesSection({
             );
           })}
 
-          {/* Total footer */}
+          {/* Total footer — the deducted (cash) figure leads; the card/other
+              portion is shown separately so the two never get conflated. */}
           <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-destructive/5 border border-destructive/20">
-            <p className="text-xs font-bold text-destructive uppercase tracking-widest">Total Expenses</p>
+            <p className="text-xs font-bold text-destructive uppercase tracking-widest">Deducted from Cash Hand-In</p>
             <p className="font-mono font-black text-sm text-destructive">
-              ₨ {totalExpenses.toLocaleString()}
+              ₨ {cashExpenses.toLocaleString()}
             </p>
           </div>
+          {nonCashExpenses > 0 && (
+            <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-blue-500/5 border border-blue-500/20">
+              <p className="text-xs font-bold text-blue-600 uppercase tracking-widest">Paid by Card (not deducted)</p>
+              <p className="font-mono font-black text-sm text-blue-600">
+                ₨ {nonCashExpenses.toLocaleString()}
+              </p>
+            </div>
+          )}
         </div>
       )}
 

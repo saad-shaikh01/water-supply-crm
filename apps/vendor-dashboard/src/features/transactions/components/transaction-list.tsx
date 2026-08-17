@@ -9,6 +9,7 @@ import { StatusBadge } from '../../../components/shared/status-badge';
 import { SearchInput } from '../../../components/shared/filters/search-input';
 import { DateRangePicker } from '../../../components/shared/date-range-picker';
 import { PaymentForm } from './payment-form';
+import { QuickRecordPayment } from './quick-record-payment';
 import { useTransactions } from '../hooks/use-transactions';
 import { useAllVans } from '../../vans/hooks/use-vans';
 import { useAllCustomers } from '../../customers/hooks/use-customers';
@@ -136,7 +137,7 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
             )}
           </Button>
 
-          {overrideCustomerId && (
+          {overrideCustomerId ? (
             <Button
               onClick={() => setPaymentOpen(true)}
               className="rounded-xl shadow-lg shadow-primary/20 flex items-center gap-2 font-bold h-9 sm:h-10 px-4 sm:px-6 shrink-0 flex-1 sm:flex-none"
@@ -144,6 +145,11 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
               <Plus className="h-4 w-4" />
               <span className="whitespace-nowrap">Record Payment</span>
             </Button>
+          ) : (
+            <QuickRecordPayment
+              buttonLabel="Record Payment"
+              buttonClassName="h-9 sm:h-10 px-4 sm:px-6 shrink-0 flex-1 sm:flex-none"
+            />
           )}
         </div>
       </div>

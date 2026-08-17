@@ -16,10 +16,16 @@ interface ReconcileData {
   bottles: { dispatched: number; delivered: number; returned: number; receivedFromCustomers: number; discrepancy: number };
   cashCustomers: { count: number; billed: number; collected: number; addedToBalance: number };
   monthlyCustomers: { count: number; billedToAccounts: number };
-  expenses: { total: number };
+  // total = every recorded expense regardless of payment source (cost
+  // tracking); paidFromCash = the subset actually deducted below;
+  // paidByOther = card/bank/company-account spend that's excluded from the
+  // deduction (see daily-sheet.service.ts buildReconciliation).
+  expenses: { total: number; paidFromCash: number; paidByOther: number };
+  crewCash: { total: number };
   driver: {
     shouldHandIn: number;
     expensePaidFromCash: number;
+    crewCashPaidFromCash: number;
     netToHandIn: number;
     handedIn: number;
     discrepancy: number;
@@ -213,10 +219,22 @@ export function ReconcileDialog({ open, onClose, sheetId }: ReconcileDialogProps
                       <p className="text-lg font-black font-mono text-primary">₨{data.driver.netToHandIn.toLocaleString()}</p>
                     </div>
                   </div>
-                  {(data.expenses?.total ?? 0) > 0 && (
+                  {(data.expenses?.paidFromCash ?? 0) > 0 && (
                     <div className="rounded-xl bg-orange-500/10 border border-orange-500/20 px-3 py-2 flex items-center justify-between">
                       <p className="text-[10px] font-bold uppercase text-orange-600">Expenses Paid from Cash</p>
-                      <p className="font-mono font-black text-sm text-orange-600">- ₨{(data.expenses?.total ?? 0).toLocaleString()}</p>
+                      <p className="font-mono font-black text-sm text-orange-600">- ₨{(data.expenses?.paidFromCash ?? 0).toLocaleString()}</p>
+                    </div>
+                  )}
+                  {(data.expenses?.paidByOther ?? 0) > 0 && (
+                    <div className="rounded-xl bg-blue-500/10 border border-blue-500/20 px-3 py-2 flex items-center justify-between">
+                      <p className="text-[10px] font-bold uppercase text-blue-600">Expenses Paid by Card/Other</p>
+                      <p className="font-mono font-black text-sm text-blue-600">₨{(data.expenses?.paidByOther ?? 0).toLocaleString()} (not deducted)</p>
+                    </div>
+                  )}
+                  {(data.crewCash?.total ?? 0) > 0 && (
+                    <div className="rounded-xl bg-orange-500/10 border border-orange-500/20 px-3 py-2 flex items-center justify-between">
+                      <p className="text-[10px] font-bold uppercase text-orange-600">Crew Cash Paid</p>
+                      <p className="font-mono font-black text-sm text-orange-600">- ₨{(data.crewCash?.total ?? 0).toLocaleString()}</p>
                     </div>
                   )}
                   <div className="rounded-xl bg-background/70 border border-border/40 px-3 py-2 flex items-center justify-between">

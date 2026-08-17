@@ -5,7 +5,7 @@ export interface InputProps
   extends React.InputHTMLAttributes<HTMLInputElement> {}
 
 const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  ({ className, type, ...props }, ref) => {
+  ({ className, type, onWheel, ...props }, ref) => {
     return (
       <input
         type={type}
@@ -14,6 +14,16 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
           className
         )}
         ref={ref}
+        // Number inputs steal the mouse-wheel scroll to bump their value by
+        // `step` (native browser behavior) — easy to trigger by accident
+        // while scrolling a form full of them. Blur on wheel so the page
+        // scrolls normally instead of silently mutating the value.
+        onWheel={(e) => {
+          if (type === "number") {
+            e.currentTarget.blur();
+          }
+          onWheel?.(e);
+        }}
         {...props}
       />
     )

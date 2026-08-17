@@ -19,6 +19,7 @@ import {
 } from '@water-supply-crm/ui';
 import { useAuthStore } from '../../store/auth.store';
 import { syncVendorSessionFcmToken } from '../../features/auth/hooks/use-auth';
+import { QuickRecordPayment } from '../../features/transactions/components/quick-record-payment';
 
 interface InAppNotification {
   id: string;
@@ -169,6 +170,10 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-4 md:gap-6">
+        <QuickRecordPayment
+          buttonLabel="Record Payment"
+          buttonClassName="h-10 sm:h-11 px-3 sm:px-4"
+        />
         <div className="flex items-center gap-2">
           <ThemeToggle />
           <DropdownMenu

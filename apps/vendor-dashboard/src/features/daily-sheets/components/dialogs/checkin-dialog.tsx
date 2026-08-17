@@ -25,12 +25,14 @@ interface CheckinForm {
   leakedOnVan: number | '';
 }
 
-// Bottle-count fields deliberately start EMPTY (not 0) — the salesman must
-// physically count and type the real number. Only cash stays prefilled from
-// the system-suggested value (it's a known/expected figure, not a manual count).
+// Returned/empty/cash are pre-filled from system-calculated trip figures
+// (derived from the completed delivery items) so the salesman just verifies
+// them instead of recounting from scratch — still fully editable. Damaged/
+// leaked have no computable source (physical van inspection only), so they
+// always start empty.
 const buildInitialForm = (suggestedValues?: { returnedFilled: number; collectedEmpty: number; cashHandedIn: number }): CheckinForm => ({
-  returnedFilled: '',
-  collectedEmpty: '',
+  returnedFilled: suggestedValues?.returnedFilled ?? '',
+  collectedEmpty: suggestedValues?.collectedEmpty ?? '',
   damagedOnVan: '',
   leakedOnVan: '',
   cashHandedIn: suggestedValues?.cashHandedIn ?? 0,

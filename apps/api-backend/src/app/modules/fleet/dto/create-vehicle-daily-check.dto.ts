@@ -43,10 +43,14 @@ export class CreateVehicleDailyCheckDto {
   @IsString()
   odometerPhotoKey?: string;
 
+  // Optional — many vans' dashboards don't have a working gauge, and this
+  // never fed any calculation (daily km = odometer delta, average mileage =
+  // FuelLog fill-to-fill; neither reads this field).
+  @IsOptional()
   @IsInt()
   @Min(0)
   @Max(8)
-  fuelGaugeLevel: number;
+  fuelGaugeLevel?: number;
 
   @IsArray()
   @ValidateNested({ each: true })

@@ -330,6 +330,7 @@ export interface SheetExpense {
   id: string;
   category: string;
   amount: number;
+  paidFromCash: boolean;
   description: string;
   date: string;
   vanId: string | null;
@@ -445,7 +446,7 @@ export interface VehicleDailyCheckEntry {
   checkType: VehicleCheckType;
   odometerReading: number;
   odometerPhotoKey: string | null;
-  fuelGaugeLevel: number;
+  fuelGaugeLevel: number | null;
   checklistResults: ChecklistItemResult[];
   hasCriticalFailure: boolean;
   criticalOverrideNote: string | null;
@@ -469,6 +470,7 @@ export interface FuelLogEntry {
   odometerAtFill: number;
   litersFilled: number;
   amountPaid: number;
+  paidFromCash: boolean;
   isFullTank: boolean;
   fuelStation: string | null;
   receiptPhotoKey: string | null;

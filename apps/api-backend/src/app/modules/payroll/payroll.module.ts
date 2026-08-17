@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
+import { QUEUE_NAMES } from '@water-supply-crm/queue';
 import { SalaryStructureService } from './salary-structure.service';
 import { SalaryStructureController } from './salary-structure.controller';
 import { StaffLedgerService } from './staff-ledger.service';
@@ -12,6 +14,7 @@ import { SettlementService } from './settlement.service';
 import { SettlementController } from './settlement.controller';
 import { CrewCashDistributionService } from './crew-cash-distribution.service';
 import { CrewCashDistributionController } from './crew-cash-distribution.controller';
+import { CrewCashSyncProcessor } from './crew-cash-sync.processor';
 
 /**
  * Staff Payroll & Financial Management — Phase 1b.
@@ -40,11 +43,13 @@ import { CrewCashDistributionController } from './crew-cash-distribution.control
  *
  * Crew Cash Distribution (Phase 3-2) is an extension of Payroll, not a new
  * module — docs/features/crew-operational-cash-distribution.md. Sync into
- * the Payroll Ledger at DailySheet.closeSheet() and post-close
- * reversal/correction are separate, later dispatches; this phase only
- * covers pre-close create/edit/delete/approve.
+ * the Payroll Ledger happens at DailySheet.closeSheet(), per-row on
+ * post-close approval, and via a nightly stale-sheet sweep (CrewCashSyncProcessor,
+ * see CrewCashDistributionService.syncStaleSheets doc comment) so Payroll is
+ * never held hostage by a sheet that never closes.
  */
 @Module({
+  imports: [BullModule.registerQueue({ name: QUEUE_NAMES.CREW_CASH_SYNC })],
   controllers: [
     SalaryStructureController,
     StaffLedgerController,
@@ -61,6 +66,7 @@ import { CrewCashDistributionController } from './crew-cash-distribution.control
     PayrollEntryService,
     SettlementService,
     CrewCashDistributionService,
+    CrewCashSyncProcessor,
   ],
   exports: [
     SalaryStructureService,

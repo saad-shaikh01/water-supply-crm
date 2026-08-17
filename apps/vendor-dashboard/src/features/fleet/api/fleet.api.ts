@@ -104,7 +104,7 @@ export interface CreateVehicleDailyCheckData {
   checkType: VehicleCheckType;
   odometerReading: number;
   odometerPhotoKey?: string;
-  fuelGaugeLevel: number;
+  fuelGaugeLevel?: number;
   checklistResults: { key: string; passed: boolean; note?: string }[];
   damageNoted?: boolean;
   damageNote?: string;
@@ -120,6 +120,7 @@ export interface CreateFuelLogData {
   litersFilled: number;
   amountPaid: number;
   isFullTank?: boolean;
+  paidFromCash?: boolean;
   fuelStation?: string;
   receiptPhotoKey?: string;
   notes?: string;

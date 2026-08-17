@@ -5,6 +5,7 @@ import {
   IsDateString,
   IsOptional,
   IsUUID,
+  IsBoolean,
   Min,
   MaxLength,
 } from 'class-validator';
@@ -19,6 +20,10 @@ export class UpdateExpenseDto {
   @IsNumber()
   @Min(0.01)
   amount?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  paidFromCash?: boolean;
 
   @IsOptional()
   @IsString()

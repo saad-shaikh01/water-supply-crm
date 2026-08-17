@@ -27,6 +27,14 @@ export class CreateFuelLogDto {
   @IsBoolean()
   isFullTank?: boolean;
 
+  // Whether this fill was paid out of the driver's van cash-in-hand
+  // (default true — most fills are). Set false when paid by card, bank
+  // transfer, or a company account not routed through the driver's
+  // collected cash — those fills must NOT reduce the cash hand-in.
+  @IsOptional()
+  @IsBoolean()
+  paidFromCash?: boolean;
+
   @IsOptional() @IsString() @MaxLength(150) fuelStation?: string;
   @IsOptional() @IsString() receiptPhotoKey?: string;
   @IsOptional() @IsString() @MaxLength(500) notes?: string;

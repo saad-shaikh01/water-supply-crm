@@ -196,7 +196,12 @@ function makeService(
 
   const prisma = {
     $transaction: jest.fn().mockImplementation(async (cb: any) => cb(tx)),
-    dailySheet: { findFirst: jest.fn().mockResolvedValue(sheet) },
+    dailySheet: {
+      findFirst: jest.fn().mockResolvedValue(sheet),
+      // Only relevant to syncStaleSheets() — default empty so every other
+      // describe block (which never calls it) stays unaffected.
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     dailySheetCrew: { findUnique: jest.fn().mockResolvedValue(isCrew ? { id: 'crew-row-1' } : null) },
     user: { findFirst: jest.fn().mockResolvedValue(employeeExists ? { id: EMPLOYEE_ID } : null) },
     crewCashDistribution: { findMany: jest.fn().mockResolvedValue([]) },
@@ -204,9 +209,16 @@ function makeService(
   const approvalGate = { requiresApproval: jest.fn().mockResolvedValue(approvalRequired) };
   const permissions = { can: jest.fn().mockResolvedValue(canPermission) };
   const staffLedger = makeStaffLedgerMock();
+  const crewCashSyncQueue = { upsertJobScheduler: jest.fn().mockResolvedValue(undefined) };
 
-  const svc = new CrewCashDistributionService(prisma as any, approvalGate as any, permissions as any, staffLedger as any);
-  return { svc, prisma, tx, approvalGate, permissions, staffLedger };
+  const svc = new CrewCashDistributionService(
+    prisma as any,
+    approvalGate as any,
+    permissions as any,
+    staffLedger as any,
+    crewCashSyncQueue as any,
+  );
+  return { svc, prisma, tx, approvalGate, permissions, staffLedger, crewCashSyncQueue };
 }
 
 // ─── tests ──────────────────────────────────────────────────────────────────
@@ -614,6 +626,90 @@ describe('CrewCashDistributionService', () => {
       expect(tx.crewCashDistribution.findMany).toHaveBeenCalledWith({
         where: { vendorId: VENDOR_ID, dailySheetId: SHEET_ID, syncedAt: null },
       });
+    });
+  });
+
+  // ── syncStaleSheets (nightly decoupled sweep) ────────────────────────────
+
+  describe('syncStaleSheets()', () => {
+    const staleSheetRow = { id: SHEET_ID, vendorId: VENDOR_ID, driverId: DRIVER_ID };
+
+    it('queries only open sheets whose date is before today with an unsynced row', async () => {
+      const { svc, prisma } = makeService();
+      await svc.syncStaleSheets();
+
+      expect(prisma.dailySheet.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            isClosed: false,
+            crewCashDistributions: { some: { syncedAt: null } },
+          }),
+        }),
+      );
+    });
+
+    it('syncs eligible rows for a stale open sheet and never flips isClosed', async () => {
+      const { svc, prisma, tx } = makeService();
+      prisma.dailySheet.findMany.mockResolvedValue([staleSheetRow]);
+      tx.crewCashDistribution.findMany.mockResolvedValue([{ ...baseEntry, id: 'row-stale' }]);
+
+      const result = await svc.syncStaleSheets();
+
+      expect(result).toEqual({ sheetsSynced: 1, sheetsFailed: 0, rowsSynced: 1 });
+      expect(tx.staffLedgerEntry.create).toHaveBeenCalledTimes(1);
+      // dailySheet.update is never mocked/defined on this prisma double — had
+      // syncStaleSheets tried to flip isClosed, this test would have thrown
+      // a TypeError instead of resolving.
+    });
+
+    it('attributes the sync to the sheet\'s own driver (no human actor exists for an automated sweep)', async () => {
+      const { svc, prisma, tx } = makeService();
+      prisma.dailySheet.findMany.mockResolvedValue([staleSheetRow]);
+      tx.crewCashDistribution.findMany.mockResolvedValue([{ ...baseEntry, id: 'row-stale' }]);
+
+      await svc.syncStaleSheets();
+
+      expect(tx.crewCashDistributionAuditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ actorId: DRIVER_ID, actorRole: 'DRIVER', action: CrewCashAuditAction.SYNCED }),
+        }),
+      );
+    });
+
+    it('skips rows still pending approval, same as the close-time sweep', async () => {
+      const { svc, prisma, tx } = makeService();
+      prisma.dailySheet.findMany.mockResolvedValue([staleSheetRow]);
+      tx.crewCashDistribution.findMany.mockResolvedValue([{ ...baseEntry, id: 'row-pending', requiresApproval: true, approvedAt: null }]);
+
+      const result = await svc.syncStaleSheets();
+
+      expect(result).toEqual({ sheetsSynced: 1, sheetsFailed: 0, rowsSynced: 0 });
+      expect(tx.staffLedgerEntry.create).not.toHaveBeenCalled();
+    });
+
+    it('continues processing remaining sheets when one sheet sync throws, and reports it as failed', async () => {
+      const { svc, prisma } = makeService();
+      prisma.dailySheet.findMany.mockResolvedValue([staleSheetRow, { ...staleSheetRow, id: 'sheet-002' }]);
+      prisma.$transaction
+        .mockImplementationOnce(async () => { throw new Error('boom'); })
+        .mockImplementationOnce(async (cb: any) => cb({
+          crewCashDistribution: { findMany: jest.fn().mockResolvedValue([]), update: jest.fn() },
+          crewCashDistributionAuditLog: { create: jest.fn() },
+          staffLedgerEntry: { create: jest.fn() },
+        }));
+
+      const result = await svc.syncStaleSheets();
+
+      expect(result).toEqual({ sheetsSynced: 1, sheetsFailed: 1, rowsSynced: 0 });
+    });
+
+    it('returns zero counts when no stale sheets exist', async () => {
+      const { svc, prisma } = makeService();
+      prisma.dailySheet.findMany.mockResolvedValue([]);
+
+      const result = await svc.syncStaleSheets();
+
+      expect(result).toEqual({ sheetsSynced: 0, sheetsFailed: 0, rowsSynced: 0 });
     });
   });
 

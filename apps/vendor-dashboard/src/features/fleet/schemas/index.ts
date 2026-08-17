@@ -40,6 +40,9 @@ export const fuelLogSchema = z.object({
   litersFilled: z.number().min(0.1, 'Must be greater than 0'),
   amountPaid: z.number().min(0, 'Must be 0 or more'),
   isFullTank: z.boolean(),
+  // true = paid from the driver's van cash-in-hand (default — deducted from
+  // cash hand-in); false = paid by card/bank/company account (not deducted).
+  paidFromCash: z.boolean(),
   fuelStation: z.string().max(150).optional(),
   notes: z.string().max(500).optional(),
 });
