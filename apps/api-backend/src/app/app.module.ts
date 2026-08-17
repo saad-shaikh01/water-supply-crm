@@ -44,6 +44,7 @@ import { CollectionPolicyModule } from './modules/collection-policy/collection-p
 import { CustomerActivationModule } from './modules/customer-activation/customer-activation.module';
 import { PayrollModule } from './modules/payroll/payroll.module';
 import { FleetModule } from './modules/fleet/fleet.module';
+import { SheetDiscrepancyCaseModule } from './modules/sheet-discrepancy-case/sheet-discrepancy-case.module';
 
 @Module({
   imports: [
@@ -88,6 +89,7 @@ import { FleetModule } from './modules/fleet/fleet.module';
     CustomerActivationModule,
     PayrollModule,
     FleetModule,
+    SheetDiscrepancyCaseModule,
   ],
   controllers: [AppController],
   providers: [

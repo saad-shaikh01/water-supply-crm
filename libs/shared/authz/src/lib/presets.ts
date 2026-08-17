@@ -130,6 +130,10 @@ const MANAGER_PERMISSIONS: Permission[] = [
   // everything except being outright excluded, same tier as vans:* above.
   'fleet:page', 'fleet:view', 'fleet:update', 'fleet:record_check', 'fleet:record_fuel',
   'fleet:manage_maintenance', 'fleet:override_check',
+  // Sheet Discrepancy Case (Amendment R8): flat STAFF/VENDOR_ADMIN default —
+  // the user's explicit requirement was STAFF + VENDOR_ADMIN resolution
+  // authority, no override-only tier the way payroll:view_all has.
+  'sheet_discrepancies:page', 'sheet_discrepancies:view', 'sheet_discrepancies:resolve',
 ];
 
 export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {

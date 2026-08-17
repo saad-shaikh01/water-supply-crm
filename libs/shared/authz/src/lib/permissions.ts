@@ -220,6 +220,21 @@ export const PERMISSION_CATALOG = {
     navigable: true,
     actions: ['page', 'view', 'update', 'record_check', 'record_fuel', 'manage_maintenance', 'override_check'],
   },
+  // Amendment R8 (Sheet Discrepancy Case, owner-approved 2026-08-18): new
+  // resource — see docs/rbac-permission-catalog.md §29. Navigable:
+  // /dashboard/discrepancy-cases is a dedicated review queue. No `create`
+  // action — cases are exclusively system-generated inside
+  // DailySheetService.closeSheet(), never user-initiated (unlike
+  // damage_cases:create). `resolve` covers all three resolution outcomes
+  // (CHARGED_TO_DRIVER/COMPANY_LOSS/WAIVED) as one action, not split
+  // per-outcome — the user's explicit requirement is a single resolution
+  // authority (STAFF + VENDOR_ADMIN) for all three, unlike damage_cases'
+  // separate charge/waive/reverse permissions.
+  sheet_discrepancies: {
+    label: 'Sheet Discrepancies',
+    navigable: true,
+    actions: ['page', 'view', 'resolve'],
+  },
 } as const satisfies Record<string, ResourceDefinition>;
 
 /** Union of every resource key, e.g. `'customers' | 'orders' | …`. */

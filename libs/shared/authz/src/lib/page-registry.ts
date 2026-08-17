@@ -48,6 +48,7 @@ export const PAGE_REGISTRY: readonly PageRoute[] = [
   { prefix: '/dashboard/communications', permission: 'conversations:page' },
   { prefix: '/dashboard/payroll', permission: 'payroll:page' },
   { prefix: '/dashboard/fleet', permission: 'fleet:page' },
+  { prefix: '/dashboard/discrepancy-cases', permission: 'sheet_discrepancies:page' },
 ];
 
 /**

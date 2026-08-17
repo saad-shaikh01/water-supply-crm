@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 import {
   CheckCircle2, ClipboardList, DollarSign, Gauge, ShieldAlert,
   Droplets, Loader2, Package, Receipt, Route, RotateCcw, Search, Truck, Upload, User, X,
+  AlertOctagon,
 } from 'lucide-react';
 import type { VehicleCheckType } from '@water-supply-crm/types';
 import { useRouter } from 'next/navigation';
@@ -40,6 +41,7 @@ import { CrewCashForm } from '../../crew-cash/components/crew-cash-form';
 import { sortBySequence, sortByNearest, sortByCustomerCode } from '../utils/sort-items';
 import { useDriverLocation } from '../hooks/use-driver-location';
 import { useLocationPublisher } from '../hooks/use-location-publisher';
+import { useDiscrepancyCases } from '../../discrepancy-cases/hooks/use-discrepancy-cases';
 
 
 interface UiState {
@@ -377,6 +379,12 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const activeTrip = loads.find((l) => !l.endedAt) ?? null;
   const hasAnyTrip = loads.length > 0;
   const isClosed = !!data?.isClosed;
+  // Post-close reconciliation gaps (bottle/empty/cash) still awaiting a
+  // charge-to-driver/company-loss/waived decision — see sheet-discrepancy-case
+  // module. The reconcile dialog itself is only reachable pre-close, so this
+  // is the only persistent place a closed sheet's open discrepancies surface.
+  const { data: openDiscrepancyCases } = useDiscrepancyCases({ dailySheetId: sheetId, status: 'REPORTED' });
+  const openDiscrepancyCount = openDiscrepancyCases?.data?.length ?? 0;
   const currentStatus = isClosed ? 'CLOSED' : activeTrip ? 'LOADED' : hasAnyTrip ? 'CHECKED_IN' : 'OPEN';
   // Filled bottles received back from customers physically re-enter the van's
   // stock too — add them back or "Unrecorded" would falsely look understocked.
@@ -539,6 +547,31 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
               Acknowledge
             </Button>
           )}
+        </div>
+      )}
+
+      {isClosed && openDiscrepancyCount > 0 && (
+        <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-center gap-3 flex-wrap">
+          <AlertOctagon className="h-5 w-5 text-amber-500 flex-shrink-0" />
+          <div className="flex-1 min-w-[200px]">
+            <p className="text-sm font-bold text-amber-700 dark:text-amber-400">
+              {openDiscrepancyCount} Discrepancy Case{openDiscrepancyCount > 1 ? 's' : ''} Open
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Bottle/empty/cash reconciliation gap{openDiscrepancyCount > 1 ? 's' : ''} from close still need{openDiscrepancyCount > 1 ? '' : 's'} a resolution decision.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            className="rounded-full font-bold"
+            onClick={() => router.push(
+              openDiscrepancyCount === 1
+                ? `/dashboard/discrepancy-cases/${openDiscrepancyCases!.data[0].id}`
+                : `/dashboard/discrepancy-cases?dailySheetId=${sheetId}&status=REPORTED`,
+            )}
+          >
+            Review
+          </Button>
         </div>
       )}
 

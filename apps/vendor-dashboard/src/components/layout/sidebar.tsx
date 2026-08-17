@@ -7,7 +7,7 @@ import {
   ClipboardList, CreditCard, UserCog, Droplets, Banknote, Navigation,
   Receipt, Bell, BellRing, ScrollText, BarChart2, Home, History, ShoppingCart,
   MessageSquare, AlertTriangle, Tag, ShieldAlert, Warehouse, Wrench, ChevronDown, KeyRound,
-  Inbox, Percent, Wallet, Landmark, Gauge,
+  Inbox, Percent, Wallet, Landmark, Gauge, AlertOctagon,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { pagePermissionForPath } from '@water-supply-crm/authz';
@@ -94,6 +94,7 @@ const navItems: NavItem[] = [
       { label: 'Tickets', href: '/dashboard/tickets', icon: MessageSquare },
       { label: 'Delivery Issues', href: '/dashboard/delivery-issues', icon: AlertTriangle },
       { label: 'Damage Cases', href: '/dashboard/damage-cases', icon: ShieldAlert },
+      { label: 'Discrepancy Cases', href: '/dashboard/discrepancy-cases', icon: AlertOctagon },
     ],
   },
 

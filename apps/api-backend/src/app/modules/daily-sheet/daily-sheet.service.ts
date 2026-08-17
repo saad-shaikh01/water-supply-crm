@@ -44,6 +44,7 @@ import { CollectionPolicyService } from '../collection-policy/collection-policy.
 import { evaluateCollectionPolicy, evaluateCashCollectionPolicy } from '../../common/helpers/collection-policy.util';
 import { CrewCashDistributionService } from '../payroll/crew-cash-distribution.service';
 import { VehicleCheckService } from '../fleet/vehicle-check.service';
+import { SheetDiscrepancyCaseService } from '../sheet-discrepancy-case/sheet-discrepancy-case.service';
 
 const AUTO_GENERATE_CRON = '5 0 * * *'; // 00:05 AM, evaluated in AUTO_GENERATE_TZ
 const AUTO_GENERATE_TZ = 'Asia/Karachi';
@@ -69,6 +70,7 @@ export class DailySheetService implements OnModuleInit {
     private collectionPolicy: CollectionPolicyService,
     private crewCashDistribution: CrewCashDistributionService,
     private vehicleCheck: VehicleCheckService,
+    private discrepancyCases: SheetDiscrepancyCaseService,
     @InjectQueue(QUEUE_NAMES.DAILY_SHEET_GENERATION)
     private sheetQueue: Queue,
   ) {}
@@ -1114,6 +1116,13 @@ export class DailySheetService implements OnModuleInit {
           },
           orderBy: { createdAt: 'desc' },
         },
+        // Lightweight — lets sheet-detail show an "N Discrepancy Cases Open"
+        // banner post-close without a second round-trip to
+        // /sheet-discrepancy-cases. Full case detail is fetched on demand
+        // from that endpoint when the reviewer clicks through.
+        discrepancyCases: {
+          select: { id: true, type: true, status: true },
+        },
       },
     });
     if (!sheet) {
@@ -1944,10 +1953,11 @@ export class DailySheetService implements OnModuleInit {
 
     const reconciliation = this.buildReconciliation(sheet);
 
-    // The isClosed flip and the Crew Cash → Payroll Ledger sync sweep share
-    // one transaction so a sheet can never end up closed with its Crew Cash
-    // rows only partially synced — either both commit or both roll back.
-    const { closed, crewCashSync } = await this.prisma.$transaction(async (tx) => {
+    // The isClosed flip, the Crew Cash → Payroll Ledger sync sweep, and Sheet
+    // Discrepancy Case creation all share one transaction so a sheet can
+    // never end up closed with either only partially applied — everything
+    // commits or everything rolls back together.
+    const { closed, crewCashSync, discrepancySummary } = await this.prisma.$transaction(async (tx) => {
       const closedSheet = await tx.dailySheet.update({
         where: { id: sheetId },
         data: {
@@ -1958,7 +1968,16 @@ export class DailySheetService implements OnModuleInit {
 
       const sync = await this.crewCashDistribution.syncSheetToLedger(tx, vendorId, sheetId, actorId, actorRole);
 
-      return { closed: closedSheet, crewCashSync: sync };
+      const discrepancies = await this.discrepancyCases.createCasesForSheet(
+        tx,
+        vendorId,
+        { id: sheetId, driverId: sheet.driverId },
+        reconciliation,
+        actorId,
+        actorRole,
+      );
+
+      return { closed: closedSheet, crewCashSync: sync, discrepancySummary: discrepancies };
     });
 
     await this.audit.log({
@@ -1987,6 +2006,7 @@ export class DailySheetService implements OnModuleInit {
       reconciliation,
       syncedCrewCashCount: crewCashSync.synced,
       skippedPendingApprovalCount: crewCashSync.skippedPendingApproval,
+      discrepancyCasesCreated: discrepancySummary.createdCount,
     };
   }
 

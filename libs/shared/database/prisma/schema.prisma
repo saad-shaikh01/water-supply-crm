@@ -60,6 +60,10 @@ enum ExpenseCategory {
   ADVANCE_SALARY_EMPLOYEE
   VEHICLE_MAINTENANCE
   FUEL_EXPENSE
+  // System-generated write-off row created when a Sheet Discrepancy Case is
+  // resolved as COMPANY_LOSS (never user-selectable from the free-form
+  // "add expense" UI) — see SheetDiscrepancyCaseService.resolve().
+  DISCREPANCY_WRITE_OFF
   OTHER
 }
 
@@ -94,6 +98,26 @@ enum BottleLossReason {
   CUSTOMER_SAID_LOST
   WRONG_ADDRESS
   OTHER
+}
+
+// Sheet Discrepancy Case — reconciliation gaps found at DailySheet close time
+// (bottle/empty count mismatch, driver cash unexplainedDiscrepancy) that must
+// be explicitly resolved by STAFF/VENDOR_ADMIN. See SheetDiscrepancyCase below.
+enum DiscrepancyType {
+  BOTTLE
+  EMPTY
+  CASH
+}
+
+enum DiscrepancyCaseStatus {
+  REPORTED
+  RESOLVED
+}
+
+enum DiscrepancyResolutionType {
+  CHARGED_TO_DRIVER
+  COMPANY_LOSS
+  WAIVED
 }
 
 enum WarehouseTransactionType {
@@ -189,6 +213,7 @@ model Vendor {
   driverStops                DriverStop[]
   driverRouteSummaries       DriverRouteSummary[]
   damageCases                DamageCase[]
+  sheetDiscrepancyCases      SheetDiscrepancyCase[]
   conversationMessages       ConversationMessage[]
   conversations              Conversation[]
   warehouseStocks            WarehouseStock[]
@@ -254,6 +279,8 @@ model User {
   driverRouteSummaries  DriverRouteSummary[]     @relation("DriverRouteSummaryDriver")
   driverDamageCases     DamageCase[]             @relation("DriverDamageCases")
   reviewedDamageCases   DamageCase[]             @relation("DamageCaseReviewer")
+  driverDiscrepancyCases   SheetDiscrepancyCase[] @relation("DriverDiscrepancyCases")
+  resolvedDiscrepancyCases SheetDiscrepancyCase[] @relation("DiscrepancyCaseResolver")
   sentMessages          ConversationMessage[]    @relation("MessageSender")
   conversationsAsDriver Conversation[]           @relation("ConversationDriver")
   conversationReads     ConversationRead[]       @relation("ConversationReader")
@@ -581,6 +608,7 @@ model DailySheet {
   crew                  DailySheetCrew[]
   conversations         Conversation[]
   crewCashDistributions CrewCashDistribution[]
+  discrepancyCases      SheetDiscrepancyCase[]
 
   // Fleet Operations & Vehicle Intelligence — Phase 1
   vehicleDailyChecks VehicleDailyCheck[]
@@ -1004,6 +1032,10 @@ model Expense {
   // VehicleServiceRecord). At most one of these is ever set on a given row.
   fuelLog              FuelLog?
   vehicleServiceRecord VehicleServiceRecord?
+
+  // Inverse of SheetDiscrepancyCase.expense — set when this row was created by
+  // resolving a discrepancy case as COMPANY_LOSS (category DISCREPANCY_WRITE_OFF).
+  discrepancyCase SheetDiscrepancyCase?
 
   @@index([vendorId, date])
   @@index([vendorId, category])
@@ -1480,6 +1512,78 @@ model DamageCaseAuditLog {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Sheet Discrepancy Case
+// Bottle/empty/cash reconciliation gaps auto-detected by
+// DailySheetService.closeSheet() (one row per non-zero discrepancy type, up
+// to 3 per close — no auto-waive threshold) that STAFF/VENDOR_ADMIN must
+// explicitly resolve: CHARGED_TO_DRIVER (StaffLedgerEntry PENALTY debit),
+// COMPANY_LOSS (Expense write-off row), or WAIVED (no money moves).
+// Two-state lifecycle (REPORTED → RESOLVED, no UNDER_REVIEW step — unlike
+// DamageCase, these are already staff/system-detected at close time).
+// ──────────────────────────────────────────────────────────────────────────────
+
+model SheetDiscrepancyCase {
+  id           String     @id @default(uuid())
+  vendorId     String
+  vendor       Vendor     @relation(fields: [vendorId], references: [id])
+  dailySheetId String
+  dailySheet   DailySheet @relation(fields: [dailySheetId], references: [id])
+  driverId     String
+  driver       User       @relation("DriverDiscrepancyCases", fields: [driverId], references: [id])
+
+  type DiscrepancyType
+  // Raw bottle/empty count gap from buildReconciliation() — set for
+  // BOTTLE/EMPTY, null for CASH (never edited after creation).
+  reportedQuantity Int?
+  // Exact rupee gap — reconciliation.driver.unexplainedDiscrepancy, already
+  // net of expenses-paid-from-cash and crew cash — set for CASH, null for
+  // BOTTLE/EMPTY (never edited after creation).
+  reportedAmount Float?
+
+  status  DiscrepancyCaseStatus @default(REPORTED)
+  version Int                   @default(0)
+
+  resolutionType DiscrepancyResolutionType?
+  // Rupees actually charged/written-off, supplied by the reviewer at resolve
+  // time regardless of type (pre-filled from reportedAmount for CASH on the
+  // frontend, blank for BOTTLE/EMPTY — the reviewer prices it). Null for WAIVED.
+  resolutionAmount Float?
+  resolutionNote   String?
+  resolvedById     String?
+  resolvedBy       User?     @relation("DiscrepancyCaseResolver", fields: [resolvedById], references: [id])
+  resolvedAt       DateTime?
+
+  // Set only when resolutionType = CHARGED_TO_DRIVER / COMPANY_LOSS respectively.
+  staffLedgerEntryId String?           @unique
+  staffLedgerEntry   StaffLedgerEntry? @relation(fields: [staffLedgerEntryId], references: [id])
+  expenseId          String?           @unique
+  expense            Expense?          @relation(fields: [expenseId], references: [id])
+
+  auditLogs SheetDiscrepancyCaseAuditLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vendorId, status])
+  @@index([dailySheetId])
+  @@index([driverId])
+}
+
+model SheetDiscrepancyCaseAuditLog {
+  id                String               @id @default(uuid())
+  discrepancyCaseId String
+  discrepancyCase   SheetDiscrepancyCase @relation(fields: [discrepancyCaseId], references: [id])
+  actorId           String
+  actorRole         String
+  action            String
+  payload           Json?
+  createdAt         DateTime             @default(now())
+
+  @@index([discrepancyCaseId])
+  @@index([discrepancyCaseId, createdAt])
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Customer Communication Center
 // See docs/features/customer-communication-center.md (LOCKED architecture).
 // One Conversation per customer (running thread, re-keyed 2026-07-17 from the
@@ -1837,6 +1941,10 @@ model StaffLedgerEntry {
   // Inverse of CrewCashDistribution.syncedLedgerEntry — set when this entry was
   // created by a Crew Cash sync-at-close rather than typed directly.
   crewCashSource CrewCashDistribution?
+
+  // Inverse of SheetDiscrepancyCase.staffLedgerEntry — set when this entry was
+  // created by resolving a discrepancy case as CHARGED_TO_DRIVER.
+  discrepancyCase SheetDiscrepancyCase?
 
   version   Int      @default(1)
   createdAt DateTime @default(now())

@@ -14,6 +14,7 @@ import { WarehouseModule } from '../warehouse/warehouse.module';
 import { CollectionPolicyModule } from '../collection-policy/collection-policy.module';
 import { PayrollModule } from '../payroll/payroll.module';
 import { FleetModule } from '../fleet/fleet.module';
+import { SheetDiscrepancyCaseModule } from '../sheet-discrepancy-case/sheet-discrepancy-case.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { FleetModule } from '../fleet/fleet.module';
     CollectionPolicyModule,
     PayrollModule,
     FleetModule,
+    SheetDiscrepancyCaseModule,
   ],
   controllers: [DailySheetController],
   providers: [DailySheetService, DailySheetProcessor, DailySheetPdfService, BulkImportService],
