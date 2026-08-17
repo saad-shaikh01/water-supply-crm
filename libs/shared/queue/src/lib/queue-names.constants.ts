@@ -7,4 +7,5 @@ export const QUEUE_NAMES = {
   WAREHOUSE_AUTO_REFILL: 'warehouse-auto-refill',
   FLEET_NOTIFICATIONS: 'fleet-notifications',
   CREW_CASH_SYNC: 'crew-cash-sync',
+  TRACKING_HISTORY: 'tracking-history',
 } as const;

@@ -3,6 +3,8 @@ import { Subject } from 'rxjs';
 import Redis from 'ioredis';
 import { PrismaService } from '@water-supply-crm/database';
 import { UpdateLocationDto } from './dto/update-location.dto';
+import { TRACKING_CONFIG } from './tracking.config';
+import { haversineMeters } from '../../common/helpers/geo.util';
 
 export interface DriverLocation {
   driverId: string;
@@ -34,6 +36,16 @@ export interface LocationEvent {
 const TRACKING_CHANNEL = 'tracking:location';
 const LOCATION_KEY_PREFIX = 'tracking:driver:';
 const LOCATION_TTL_SECONDS = 5 * 60; // 5 minutes — live stream only
+
+/** Cache of the last *written* breadcrumb per driver — decides whether the next ping is worth persisting. Long TTL: a stale/expired entry just costs one extra breadcrumb, never incorrect data. */
+const LAST_BREADCRUMB_KEY_PREFIX = 'tracking:breadcrumb:last:';
+const LAST_BREADCRUMB_TTL_SECONDS = 24 * 60 * 60;
+
+interface LastBreadcrumb {
+  latitude: number;
+  longitude: number;
+  recordedAt: string;
+}
 
 @Injectable()
 export class TrackingService implements OnModuleInit, OnModuleDestroy {
@@ -168,6 +180,62 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
     // ── 3. Pub/Sub fanout to all running instances ─────────────────────────
     const event: LocationEvent = { vendorId, data: location };
     await this.publisher.publish(TRACKING_CHANNEL, JSON.stringify(event));
+
+    // ── 4. Throttled breadcrumb for history/playback (not every ping) ──────
+    await this.maybeWriteBreadcrumb(driverId, vendorId, vanId, dailySheetId, dto, now);
+  }
+
+  /**
+   * Persists a DriverLocationHistory row only when the driver has moved past
+   * TRACKING_CONFIG.movementThresholdMeters since the last stored breadcrumb,
+   * or TRACKING_CONFIG.heartbeatIntervalSeconds has elapsed with no movement
+   * (so a stationary driver still leaves a "still here" trail for stop
+   * detection). This keeps row growth to a small multiple of actual route
+   * complexity instead of one row per ~8s GPS ping.
+   */
+  private async maybeWriteBreadcrumb(
+    driverId: string,
+    vendorId: string,
+    vanId: string | undefined,
+    dailySheetId: string | undefined,
+    dto: UpdateLocationDto,
+    now: Date,
+  ): Promise<void> {
+    const cacheKey = `${LAST_BREADCRUMB_KEY_PREFIX}${driverId}`;
+    const cached = await this.publisher.get(cacheKey);
+
+    if (cached) {
+      try {
+        const last: LastBreadcrumb = JSON.parse(cached);
+        const distance = haversineMeters(last.latitude, last.longitude, dto.latitude, dto.longitude);
+        const elapsedSeconds = (now.getTime() - new Date(last.recordedAt).getTime()) / 1000;
+        if (
+          distance < TRACKING_CONFIG.movementThresholdMeters &&
+          elapsedSeconds < TRACKING_CONFIG.heartbeatIntervalSeconds
+        ) {
+          return; // too close in space and time — skip, live tracking already has the current fix
+        }
+      } catch {
+        // corrupted cache entry — fall through and write a fresh breadcrumb
+      }
+    }
+
+    await this.prisma.driverLocationHistory.create({
+      data: {
+        driverId,
+        vendorId,
+        vanId: vanId ?? null,
+        dailySheetId: dailySheetId ?? null,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
+        speed: dto.speed ?? null,
+        bearing: dto.bearing ?? null,
+        recordedAt: now,
+      },
+    });
+
+    const next: LastBreadcrumb = { latitude: dto.latitude, longitude: dto.longitude, recordedAt: now.toISOString() };
+    await this.publisher.set(cacheKey, JSON.stringify(next), 'EX', LAST_BREADCRUMB_TTL_SECONDS);
   }
 
   /**

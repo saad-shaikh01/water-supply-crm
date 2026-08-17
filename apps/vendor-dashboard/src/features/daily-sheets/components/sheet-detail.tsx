@@ -22,7 +22,7 @@ import { useVehicleDailyChecks } from '../../fleet/hooks/use-vehicle-checks';
 import { toast } from 'sonner';
 import {
   CheckCircle2, ClipboardList, DollarSign, Gauge, ShieldAlert,
-  Droplets, Loader2, Package, Receipt, RotateCcw, Search, Truck, Upload, User, X,
+  Droplets, Loader2, Package, Receipt, Route, RotateCcw, Search, Truck, Upload, User, X,
 } from 'lucide-react';
 import type { VehicleCheckType } from '@water-supply-crm/types';
 import { useRouter } from 'next/navigation';
@@ -207,6 +207,14 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const startCheck = vehicleChecks?.find((c) => c.checkType === 'START') ?? null;
   const endCheck = vehicleChecks?.find((c) => c.checkType === 'END') ?? null;
   const unresolvedCriticalCheck = startCheck?.hasCriticalFailure && !startCheck.criticalOverrideById ? startCheck : null;
+  // Km traveled today — plain odometer delta between the two vehicle checks,
+  // deliberately independent of fuel/efficiency data (see FuelLog for that).
+  // null = not calculable yet (a check is missing); negative deltas are
+  // surfaced as an anomaly instead of a nonsense negative distance — the
+  // backend already flags this same condition on the END check via
+  // odometerContinuityFlag (vehicle-check.service.ts).
+  const kmTraveledToday = startCheck && endCheck ? endCheck.odometerReading - startCheck.odometerReading : null;
+  const kmTraveledIsAnomaly = kmTraveledToday !== null && kmTraveledToday < 0;
   const updateCustomerLocation = useUpdateCustomerLocation(sheetId);
   const unlockDeliveryEdit = useUnlockDeliveryEdit(sheetId);
   const requestDeliveryEdit = useRequestDeliveryEdit(sheetId);
@@ -572,6 +580,30 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             <div className="min-w-0">
               <p className="text-[10px] font-bold uppercase text-muted-foreground">Driver</p>
               <p className="text-sm font-black truncate">{data?.driver?.name}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-card/50 backdrop-blur-sm">
+          <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
+            <div className={cn(
+              'h-10 w-10 rounded-xl flex items-center justify-center shrink-0',
+              kmTraveledIsAnomaly ? 'bg-destructive/10 text-destructive' : 'bg-teal-500/10 text-teal-500',
+            )}>
+              <Route className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase text-muted-foreground">Km Traveled Today</p>
+              {kmTraveledToday === null ? (
+                <p className="text-sm font-black truncate text-muted-foreground">
+                  {startCheck ? 'In Progress' : '—'}
+                </p>
+              ) : kmTraveledIsAnomaly ? (
+                <p className="text-sm font-black truncate text-destructive" title="End odometer reading is lower than the start reading — check the entries.">
+                  ⚠ Check entry
+                </p>
+              ) : (
+                <p className="text-sm font-black truncate">{kmTraveledToday.toLocaleString()} <span className="text-xs font-normal text-muted-foreground">km</span></p>
+              )}
             </div>
           </CardContent>
         </Card>

@@ -2,8 +2,10 @@
   Body,
   Controller,
   Get,
+  NotFoundException,
   Param,
   Post,
+  Query,
   Req,
   Res,
 } from '@nestjs/common';
@@ -13,11 +15,16 @@ import { RequirePermissions } from '../../common/decorators/require-permissions.
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 import { TrackingService } from './tracking.service';
+import { TrackingHistoryService } from './tracking-history.service';
 import { UpdateLocationDto } from './dto/update-location.dto';
+import { GetRouteHistoryQueryDto } from './dto/get-route-history-query.dto';
 
 @Controller('tracking')
 export class TrackingController {
-  constructor(private readonly trackingService: TrackingService) {}
+  constructor(
+    private readonly trackingService: TrackingService,
+    private readonly trackingHistoryService: TrackingHistoryService,
+  ) {}
 
   /**
    * POST /api/tracking/location
@@ -59,6 +66,24 @@ export class TrackingController {
   @RequirePermissions('tracking:view')
   async getMissingLocationDrivers(@CurrentUser() user: AuthUser) {
     return this.trackingService.getMissingLocationDrivers(user.vendorId);
+  }
+
+  /**
+   * GET /api/tracking/history/route?driverId=&date=YYYY-MM-DD
+   * Full-day route playback for one driver: breadcrumb polyline (when still
+   * within the retention window), detected stops with duration + delivery
+   * match, delivery pins, and a route summary (distance/moving/stopped time).
+   */
+  @Get('history/route')
+  @RequirePermissions('tracking:view')
+  async getRouteHistory(@CurrentUser() user: AuthUser, @Query() query: GetRouteHistoryQueryDto) {
+    const result = await this.trackingHistoryService.getDriverRouteHistory(
+      user.vendorId,
+      query.driverId,
+      query.date,
+    );
+    if (!result) throw new NotFoundException('Driver not found');
+    return result;
   }
 
   /**

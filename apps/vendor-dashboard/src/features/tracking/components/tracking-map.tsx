@@ -710,9 +710,9 @@ export function TrackingMap() {
                       className="justify-start gap-3 h-12 rounded-2xl border-border/50 hover:bg-primary/5 hover:text-primary hover:border-primary/20"
                       asChild
                     >
-                      <Link href={`/dashboard/history?driverId=${selectedDriver.driverId}`}>
+                      <Link href={`/dashboard/tracking/history?driverId=${selectedDriver.driverId}`}>
                         <MapIcon className="h-4 w-4" />
-                        View Location History
+                        View Route History
                       </Link>
                     </Button>
                   </div>

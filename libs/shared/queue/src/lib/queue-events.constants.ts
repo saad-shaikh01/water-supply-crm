@@ -11,4 +11,6 @@ export const JOB_NAMES = {
   AUTO_REFILL_EMPTY_BOTTLES: 'auto-refill-empty-bottles',
   FLEET_NOTIFICATION_SWEEP: 'fleet-notification-sweep',
   SYNC_STALE_CREW_CASH: 'sync-stale-crew-cash',
+  TRACKING_DAILY_SUMMARY: 'tracking-daily-summary',
+  TRACKING_BREADCRUMB_CLEANUP: 'tracking-breadcrumb-cleanup',
 } as const;
