@@ -455,7 +455,7 @@ export function DeliveryRecordForm({
     const finalData: Record<string, unknown> = deliveryMode === 'delivered'
       ? {
           status: 'COMPLETED',
-          filledDropped: itemForm.filledDropped ?? 1,
+          filledDropped: itemForm.filledDropped ?? 0,
           emptyReceived: itemForm.emptyReceived ?? 0,
           filledReceived: itemForm.filledReceived ?? 0,
           cashCollected: itemForm.cashCollected ?? 0,

@@ -408,6 +408,8 @@ export class DailySheetService implements OnModuleInit {
     if (dto.forceResubmit && TERMINAL_STATUSES.includes(item.status)) {
       await this.audit.log({
         vendorId,
+        userId: user.userId,
+        userName: user.name,
         action: 'DELIVERY_EDIT_OVERRIDE',
         entity: 'DailySheetItem',
         entityId: itemId,
@@ -466,6 +468,8 @@ export class DailySheetService implements OnModuleInit {
         if (policyResult.reason === 'ZERO_CASH') {
           await this.audit.log({
             vendorId,
+            userId: user.userId,
+            userName: user.name,
             action: 'COLLECTION_POLICY_ZERO_CASH',
             entity: 'DailySheetItem',
             entityId: itemId,
@@ -598,6 +602,11 @@ export class DailySheetService implements OnModuleInit {
             ? { deliveredAt: new Date() }
             : { deliveredAt: null }),
           ...(dto.forceResubmit ? { editUnlockedBy: null, editUnlockExpiresAt: null, editRequestedAt: null } : {}),
+          // Same trigger as the DELIVERY_EDIT_OVERRIDE audit log entry above —
+          // a genuine re-record of an already-terminal item, not a first-time submit.
+          ...(dto.forceResubmit && TERMINAL_STATUSES.includes(item.status)
+            ? { editCount: { increment: 1 }, lastEditedAt: new Date() }
+            : {}),
         },
       });
 
@@ -646,6 +655,8 @@ export class DailySheetService implements OnModuleInit {
       if (resolvedStatus !== 'PENDING') {
         await this.audit.log({
           vendorId,
+          userId: user.userId,
+          userName: user.name,
           action: 'DELIVERY_SUBMIT',
           entity: 'DailySheetItem',
           entityId: itemId,
@@ -783,6 +794,8 @@ export class DailySheetService implements OnModuleInit {
 
     await this.audit.log({
       vendorId: user.vendorId,
+      userId: user.userId,
+      userName: user.name,
       action: 'DELIVERY_EDIT_UNLOCK',
       entity: 'DailySheetItem',
       entityId: itemId,
@@ -858,6 +871,34 @@ export class DailySheetService implements OnModuleInit {
     );
 
     return updated;
+  }
+
+  /**
+   * Per-item edit history — reuses the generic AuditLog rows already written
+   * by submitDelivery (DELIVERY_SUBMIT on every record, DELIVERY_EDIT_OVERRIDE
+   * with before/after on a re-record, DELIVERY_EDIT_UNLOCK when staff grants
+   * an edit window). No dedicated audit table — the entity/entityId-scoped
+   * generic log already captures "first recorded X, then edited to Y" exactly;
+   * this just filters it to one item and returns it oldest-first for a
+   * natural timeline read (AuditService.findAll defaults to newest-first for
+   * its own paginated list view).
+   */
+  async getItemHistory(vendorId: string, itemId: string) {
+    const item = await this.prisma.dailySheetItem.findFirst({
+      where: { id: itemId, dailySheet: { vendorId } },
+      select: { id: true },
+    });
+    if (!item) {
+      throw new NotFoundException('Sheet item not found');
+    }
+
+    const logs = await this.audit.findAll(vendorId, {
+      entity: 'DailySheetItem',
+      entityId: itemId,
+      limit: 50,
+    });
+
+    return [...logs.data].reverse();
   }
 
   async findAllPaginated(vendorId: string, query: DailySheetQueryDto) {
@@ -1057,6 +1098,11 @@ export class DailySheetService implements OnModuleInit {
           orderBy: { createdAt: 'asc' },
         },
         crewConfirmedBy: { select: { id: true, name: true } },
+        // Soft Close (Amendment R9) — who requested/approved/rejected, for
+        // the pending-approval banner + reviewer's audit trail on-screen.
+        closureRequestedBy: { select: { id: true, name: true } },
+        closureApprovedBy: { select: { id: true, name: true } },
+        closureRejectedBy: { select: { id: true, name: true } },
         items: {
           include: {
             customer: {
@@ -1926,7 +1972,15 @@ export class DailySheetService implements OnModuleInit {
     return this.buildReconciliation(sheet);
   }
 
-  async closeSheet(vendorId: string, sheetId: string, actorId: string, actorRole: UserRole) {
+  /**
+   * Shared pre-close validation for both the direct Staff/Admin close and the
+   * Driver/Salesman self-close request (Soft Close, Amendment R9): sheet
+   * exists, not already closed, no active trip, no PENDING items, and — new
+   * with this feature — an END vehicle check has been recorded and carries
+   * no unacknowledged critical failure (mirrors the START check gate on trip
+   * start, vehicle-check.service.ts's assertTripStartClear).
+   */
+  private async assertSheetCloseable(vendorId: string, sheetId: string) {
     const sheet = await this.fetchSheetForReconciliation(vendorId, sheetId);
     if (!sheet) {
       throw new NotFoundException('Daily sheet not found');
@@ -1951,6 +2005,15 @@ export class DailySheetService implements OnModuleInit {
       );
     }
 
+    await this.vehicleCheck.assertTripEndClear(vendorId, sheetId);
+
+    return sheet;
+  }
+
+  /** Direct Staff/Admin close — unchanged trigger, skips the request/approve
+   * review cycle entirely and lands straight on closureStatus=APPROVED. */
+  async closeSheet(vendorId: string, sheetId: string, actorId: string, actorRole: UserRole) {
+    const sheet = await this.assertSheetCloseable(vendorId, sheetId);
     const reconciliation = this.buildReconciliation(sheet);
 
     // The isClosed flip, the Crew Cash → Payroll Ledger sync sweep, and Sheet
@@ -1963,6 +2026,9 @@ export class DailySheetService implements OnModuleInit {
         data: {
           isClosed: true,
           cashExpected: reconciliation.driver.netToHandIn,
+          closureStatus: 'APPROVED',
+          closureApprovedAt: new Date(),
+          closureApprovedById: actorId,
         },
       });
 
@@ -2008,6 +2074,171 @@ export class DailySheetService implements OnModuleInit {
       skippedPendingApprovalCount: crewCashSync.skippedPendingApproval,
       discrepancyCasesCreated: discrepancySummary.createdCount,
     };
+  }
+
+  /**
+   * Soft Close (Amendment R9): Driver/Salesman closes their own sheet.
+   * Locks the sheet exactly like closeSheet (isClosed=true — every existing
+   * `if (sheet.isClosed)` edit-lock across the app applies immediately), but
+   * deliberately does NOT run the Crew Cash → Payroll Ledger sync or create
+   * Sheet Discrepancy Cases yet — those are financial-commit steps deferred
+   * to approveClose so a driver's numbers are never posted to the ledger
+   * without a Staff/Admin having looked at them first.
+   */
+  async requestClose(vendorId: string, sheetId: string, actorId: string) {
+    const sheet = await this.assertSheetCloseable(vendorId, sheetId);
+    const reconciliation = this.buildReconciliation(sheet);
+
+    const updated = await this.prisma.dailySheet.update({
+      where: { id: sheetId },
+      data: {
+        isClosed: true,
+        cashExpected: reconciliation.driver.netToHandIn,
+        closureStatus: 'PENDING_APPROVAL',
+        closureRequestedAt: new Date(),
+        closureRequestedById: actorId,
+      },
+    });
+
+    await this.audit.log({
+      vendorId,
+      action: 'REQUEST_CLOSE',
+      entity: 'DailySheet',
+      entityId: sheetId,
+      changes: {
+        after: {
+          bottleDiscrepancy: reconciliation.bottles.discrepancy,
+          driverCashDiscrepancy: reconciliation.driver.discrepancy,
+          emptyDiscrepancy: reconciliation.empties.discrepancy,
+        },
+      },
+    });
+
+    const sheetDate = sheet.date.toISOString().slice(0, 10);
+    await Promise.all([
+      this.cache.invalidateDailyDashboard(vendorId, sheetDate),
+      this.cache.invalidateOverview(vendorId),
+    ]);
+
+    return { sheet: updated, reconciliation };
+  }
+
+  /**
+   * Soft Close (Amendment R9): Staff/Admin approves a Driver/Salesman's
+   * close request — runs the exact same Crew Cash sync + Discrepancy Case
+   * creation transaction that closeSheet runs directly, just deferred to
+   * this explicit review step.
+   */
+  async approveClose(vendorId: string, sheetId: string, actorId: string, actorRole: UserRole) {
+    const sheet = await this.fetchSheetForReconciliation(vendorId, sheetId);
+    if (!sheet) {
+      throw new NotFoundException('Daily sheet not found');
+    }
+    if (sheet.closureStatus !== 'PENDING_APPROVAL') {
+      throw new ConflictException('This sheet has no pending close request to approve.');
+    }
+
+    const reconciliation = this.buildReconciliation(sheet);
+
+    const { closed, crewCashSync, discrepancySummary } = await this.prisma.$transaction(async (tx) => {
+      const closedSheet = await tx.dailySheet.update({
+        where: { id: sheetId },
+        data: {
+          cashExpected: reconciliation.driver.netToHandIn,
+          closureStatus: 'APPROVED',
+          closureApprovedAt: new Date(),
+          closureApprovedById: actorId,
+        },
+      });
+
+      const sync = await this.crewCashDistribution.syncSheetToLedger(tx, vendorId, sheetId, actorId, actorRole);
+
+      const discrepancies = await this.discrepancyCases.createCasesForSheet(
+        tx,
+        vendorId,
+        { id: sheetId, driverId: sheet.driverId },
+        reconciliation,
+        actorId,
+        actorRole,
+      );
+
+      return { closed: closedSheet, crewCashSync: sync, discrepancySummary: discrepancies };
+    });
+
+    await this.audit.log({
+      vendorId,
+      action: 'APPROVE_CLOSE',
+      entity: 'DailySheet',
+      entityId: sheetId,
+      changes: {
+        after: {
+          bottleDiscrepancy: reconciliation.bottles.discrepancy,
+          driverCashDiscrepancy: reconciliation.driver.discrepancy,
+          emptyDiscrepancy: reconciliation.empties.discrepancy,
+        },
+      },
+    });
+
+    const sheetDate = sheet.date.toISOString().slice(0, 10);
+    await Promise.all([
+      this.cache.invalidateDailyDashboard(vendorId, sheetDate),
+      this.cache.invalidateOverview(vendorId),
+      this.cache.invalidateAnalytics(vendorId),
+    ]);
+
+    return {
+      sheet: closed,
+      reconciliation,
+      syncedCrewCashCount: crewCashSync.synced,
+      skippedPendingApprovalCount: crewCashSync.skippedPendingApproval,
+      discrepancyCasesCreated: discrepancySummary.createdCount,
+    };
+  }
+
+  /**
+   * Soft Close (Amendment R9): Staff/Admin rejects a Driver/Salesman's close
+   * request — reopens the sheet (isClosed=false) so the requester can fix
+   * whatever was wrong and resubmit. No financial data was ever committed
+   * (approveClose never ran), so there's nothing to reverse.
+   */
+  async rejectClose(vendorId: string, sheetId: string, actorId: string, dto: { reason: string }) {
+    const sheet = await this.prisma.dailySheet.findFirst({
+      where: { id: sheetId, vendorId },
+      select: { id: true, date: true, closureStatus: true },
+    });
+    if (!sheet) {
+      throw new NotFoundException('Daily sheet not found');
+    }
+    if (sheet.closureStatus !== 'PENDING_APPROVAL') {
+      throw new ConflictException('This sheet has no pending close request to reject.');
+    }
+
+    const updated = await this.prisma.dailySheet.update({
+      where: { id: sheetId },
+      data: {
+        isClosed: false,
+        closureStatus: 'REJECTED',
+        closureRejectedAt: new Date(),
+        closureRejectedById: actorId,
+        closureRejectionReason: dto.reason,
+      },
+    });
+
+    await this.audit.log({
+      vendorId,
+      action: 'REJECT_CLOSE',
+      entity: 'DailySheet',
+      entityId: sheetId,
+      changes: { after: { reason: dto.reason } },
+    });
+
+    const sheetDate = sheet.date.toISOString().slice(0, 10);
+    await Promise.all([
+      this.cache.invalidateDailyDashboard(vendorId, sheetDate),
+      this.cache.invalidateOverview(vendorId),
+    ]);
+
+    return updated;
   }
 
   async swapAssignment(vendorId: string, sheetId: string, dto: SwapDriverDto) {

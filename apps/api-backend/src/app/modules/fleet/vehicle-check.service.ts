@@ -137,21 +137,52 @@ export class VehicleCheckService {
   }
 
   /**
-   * The one hard 409 gate this feature adds to trip start (plan doc §6): a
-   * START check with an unacknowledged critical failure blocks createLoad/
-   * loadOut, exactly like the existing crewConfirmed gate. A missing check
-   * entirely does NOT block — that's a frontend nudge only (mirrors
-   * hasPromptedCrewConfirm) — so pre-existing open sheets from before this
-   * feature shipped are completely unaffected.
+   * The hard 409 gate this feature adds to trip start (plan doc §7.2: the
+   * start-of-day check is "Mandatory" and folds into the crew-confirm gate),
+   * exactly like the existing crewConfirmed gate: (1) a START check must
+   * exist at all, and (2) if it exists, it must not carry an unacknowledged
+   * critical failure. Previously only (2) was enforced — a missing check
+   * was a frontend nudge only — but that undershot the plan's own "mandatory"
+   * intent, so it's now a hard block same as crew confirmation.
    */
   async assertTripStartClear(vendorId: string, dailySheetId: string): Promise<void> {
     const startCheck = await this.prisma.vehicleDailyCheck.findUnique({
       where: { dailySheetId_checkType: { dailySheetId, checkType: 'START' } },
       select: { hasCriticalFailure: true, criticalOverrideById: true },
     });
-    if (startCheck?.hasCriticalFailure && !startCheck.criticalOverrideById) {
+    if (!startCheck) {
+      throw new ConflictException(
+        'A start-of-day vehicle check is required before the trip can start.',
+      );
+    }
+    if (startCheck.hasCriticalFailure && !startCheck.criticalOverrideById) {
       throw new ConflictException(
         'A critical vehicle issue was reported this morning and must be acknowledged by Staff/Admin before the trip can start.',
+      );
+    }
+  }
+
+  /**
+   * The mirror-image gate for sheet close (Soft Close feature, Amendment R9):
+   * an END check must exist and carry no unacknowledged critical failure,
+   * exactly like assertTripStartClear does for trip start. Called by both
+   * the direct Staff/Admin close and the Driver/Salesman self-close request
+   * (daily-sheet.service.ts's closeSheet/requestClose) — so this data point
+   * is captured consistently regardless of which closure path is used.
+   */
+  async assertTripEndClear(vendorId: string, dailySheetId: string): Promise<void> {
+    const endCheck = await this.prisma.vehicleDailyCheck.findUnique({
+      where: { dailySheetId_checkType: { dailySheetId, checkType: 'END' } },
+      select: { hasCriticalFailure: true, criticalOverrideById: true },
+    });
+    if (!endCheck) {
+      throw new ConflictException(
+        'An end-of-day vehicle check is required before the sheet can be closed.',
+      );
+    }
+    if (endCheck.hasCriticalFailure && !endCheck.criticalOverrideById) {
+      throw new ConflictException(
+        'A critical vehicle issue was reported this evening and must be acknowledged by Staff/Admin before the sheet can be closed.',
       );
     }
   }

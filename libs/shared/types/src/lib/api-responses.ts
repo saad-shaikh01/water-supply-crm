@@ -231,6 +231,9 @@ export interface DeliveryItem {
   isCorrection?: boolean;
   correctionAddedAt?: string | null;
   correctionNote?: string | null;
+  /** Bumped on each force-resubmit of a terminal-status item — drives the "Edited" row badge. */
+  editCount?: number;
+  lastEditedAt?: string | null;
 }
 
 export interface CustomerFinancialSummary {
@@ -549,11 +552,34 @@ export interface SheetDetail {
   crewConfirmed: boolean;
   crewConfirmedAt: string | null;
   crewConfirmedBy: { id: string; name: string } | null;
+  // Soft Close (Amendment R9) — null when the sheet was never soft-closed
+  // (either still open, or closed the legacy direct way by Staff/Admin).
+  closureStatus: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | null;
+  closureRequestedAt: string | null;
+  closureRequestedBy: { id: string; name: string } | null;
+  closureApprovedAt: string | null;
+  closureApprovedBy: { id: string; name: string } | null;
+  closureRejectedAt: string | null;
+  closureRejectedBy: { id: string; name: string } | null;
+  closureRejectionReason: string | null;
   items: DeliveryItem[];
   loads: LoadTrip[];
   expenses: SheetExpense[];
   collectionPolicy?: CollectionPolicy;
   cashCollectionPolicy?: CashCollectionPolicy;
+}
+
+/** One entry from GET /daily-sheets/items/:id/history (a generic AuditLog row scoped to one DailySheetItem). */
+export interface DeliveryItemHistoryEntry {
+  id: string;
+  action: 'DELIVERY_SUBMIT' | 'DELIVERY_EDIT_OVERRIDE' | 'DELIVERY_EDIT_UNLOCK' | 'COLLECTION_POLICY_ZERO_CASH' | string;
+  userId?: string | null;
+  userName?: string | null;
+  createdAt: string;
+  changes?: {
+    before?: Record<string, unknown> | null;
+    after?: Record<string, unknown> | null;
+  } | null;
 }
 
 export interface VanSummary {

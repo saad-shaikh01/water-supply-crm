@@ -94,6 +94,13 @@ export const PERMISSION_CATALOG = {
       'load_out',
       'check_in',
       'close',
+      // Soft Close (Amendment R9): request_close is the field-role's own
+      // self-close action (driver/salesman); approve_close/reject_close are
+      // the staff/admin review decision on a request_close'd sheet. `close`
+      // itself is unchanged — the direct Staff/Admin close, skipping review.
+      'request_close',
+      'approve_close',
+      'reject_close',
       'confirm_crew',
       'swap_assignment',
       'bulk_import',

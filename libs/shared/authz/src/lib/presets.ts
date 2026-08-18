@@ -84,6 +84,9 @@ const MANAGER_PERMISSIONS: Permission[] = [
   'daily_sheets:page', 'daily_sheets:view', 'daily_sheets:generate', 'daily_sheets:update',
   'daily_sheets:load_out', 'daily_sheets:check_in', 'daily_sheets:close', 'daily_sheets:confirm_crew',
   'daily_sheets:swap_assignment', 'daily_sheets:bulk_import', 'daily_sheets:manage_edit_locks', 'daily_sheets:export',
+  // Soft Close (Amendment R9): Manager reviews a driver/salesman's self-close
+  // request — same tier as the existing direct `close` above.
+  'daily_sheets:approve_close', 'daily_sheets:reject_close',
   'damage_cases:page', 'damage_cases:view', 'damage_cases:create', 'damage_cases:update', 'damage_cases:review',
   'delivery_issues:page', 'delivery_issues:view', 'delivery_issues:plan', 'delivery_issues:resolve',
   'expenses:page', 'expenses:view', 'expenses:create', 'expenses:update',
@@ -229,6 +232,9 @@ export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
       'daily_sheets:page',
       'daily_sheets:view',
       'daily_sheets:update',
+      // Soft Close (Amendment R9): salesman may close their own sheet, same
+      // as Driver above.
+      'daily_sheets:request_close',
       'products:page',
       'products:view',
       // Crew Cash Distribution create (Amendment R5, §11: "SALESMAN (primary
@@ -281,6 +287,10 @@ export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
       'daily_sheets:update',
       'daily_sheets:load_out',
       'daily_sheets:check_in',
+      // Soft Close (Amendment R9): driver may close their own sheet — Staff/
+      // Admin then approves or rejects it (daily_sheets:approve_close /
+      // :reject_close, Manager preset above; not granted to Driver).
+      'daily_sheets:request_close',
       'damage_cases:page',
       'damage_cases:view',
       'damage_cases:create',

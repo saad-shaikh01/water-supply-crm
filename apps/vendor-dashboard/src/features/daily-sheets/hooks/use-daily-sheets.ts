@@ -175,6 +175,16 @@ export const useAddCorrectionItem = (sheetId: string) => {
   });
 };
 
+/** Per-item edit history (AuditLog rows scoped to one DailySheetItem) — fetched lazily, only when the timeline is actually opened. */
+export const useDeliveryItemHistory = (itemId: string, enabled: boolean) => {
+  return useQuery({
+    queryKey: ['daily-sheet-item-history', itemId],
+    queryFn: (): Promise<import('@water-supply-crm/types').DeliveryItemHistoryEntry[]> =>
+      dailySheetsApi.getItemHistory(itemId),
+    enabled: enabled && !!itemId,
+  });
+};
+
 export const useCloseSheet = (sheetId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -186,6 +196,48 @@ export const useCloseSheet = (sheetId: string) => {
       toast.success('Sheet closed successfully');
     },
     onError: () => toast.error('Failed to close sheet'),
+  });
+};
+
+// Soft Close (Amendment R9): Driver/Salesman self-close + Staff/Admin review.
+export const useRequestCloseSheet = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    retry: 2,
+    mutationFn: () => dailySheetsApi.requestClose(sheetId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
+      queryClient.invalidateQueries({ queryKey: ['sheets'] });
+      toast.success('Sheet closed — sent to Staff/Admin for approval');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to close sheet'), // eslint-disable-line @typescript-eslint/no-explicit-any
+  });
+};
+
+export const useApproveCloseSheet = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    retry: 2,
+    mutationFn: () => dailySheetsApi.approveClose(sheetId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
+      queryClient.invalidateQueries({ queryKey: ['sheets'] });
+      toast.success('Close request approved — sheet finalized');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to approve close'), // eslint-disable-line @typescript-eslint/no-explicit-any
+  });
+};
+
+export const useRejectCloseSheet = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { reason: string }) => dailySheetsApi.rejectClose(sheetId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
+      queryClient.invalidateQueries({ queryKey: ['sheets'] });
+      toast.success('Close request rejected — sheet reopened');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to reject close'), // eslint-disable-line @typescript-eslint/no-explicit-any
   });
 };
 

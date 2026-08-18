@@ -9,7 +9,7 @@ import { CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@water-supply-crm/ui';
 import { dailySheetsApi } from '../../api/daily-sheets.api';
-import { useCloseSheet } from '../../hooks/use-daily-sheets';
+import { useCloseSheet, useRequestCloseSheet, useApproveCloseSheet } from '../../hooks/use-daily-sheets';
 
 interface ReconcileData {
   pendingCount: number;
@@ -38,10 +38,48 @@ interface ReconcileDialogProps {
   open: boolean;
   onClose: () => void;
   sheetId: string;
+  /**
+   * Soft Close (Amendment R9):
+   * 'direct'  — Staff/Admin closing straight away (unchanged legacy flow).
+   * 'request' — Driver/Salesman self-closing; locks the sheet and sends it
+   *             to Staff/Admin for approval (no ledger sync yet).
+   * 'approve' — Staff/Admin reviewing a Driver/Salesman's close request;
+   *             finalizes it (runs the deferred ledger sync + discrepancy
+   *             case creation).
+   */
+  mode?: 'direct' | 'request' | 'approve';
 }
 
-export function ReconcileDialog({ open, onClose, sheetId }: ReconcileDialogProps) {
-  const { mutate: closeSheet, isPending: isClosing } = useCloseSheet(sheetId);
+const MODE_COPY = {
+  direct: {
+    title: 'Close & Reconcile',
+    confirmLabel: 'Close Sheet',
+    confirmingLabel: 'Confirm Close',
+    confirmWarning: 'Close this sheet permanently?',
+    confirmSubtext: 'This action requires admin intervention to undo.',
+  },
+  request: {
+    title: 'Close Sheet',
+    confirmLabel: 'Submit for Approval',
+    confirmingLabel: 'Submit for Approval',
+    confirmWarning: 'Send this sheet for Staff/Admin approval?',
+    confirmSubtext: 'The sheet will be locked from further edits until Staff/Admin approves or rejects it.',
+  },
+  approve: {
+    title: 'Review & Approve',
+    confirmLabel: 'Approve & Finalize',
+    confirmingLabel: 'Approve & Finalize',
+    confirmWarning: 'Approve and finalize this sheet?',
+    confirmSubtext: 'This posts Crew Cash to the Payroll Ledger and creates any Discrepancy Cases — cannot be undone.',
+  },
+} as const;
+
+export function ReconcileDialog({ open, onClose, sheetId, mode = 'direct' }: ReconcileDialogProps) {
+  const { mutate: closeSheet, isPending: isClosingDirect } = useCloseSheet(sheetId);
+  const { mutate: requestClose, isPending: isRequesting } = useRequestCloseSheet(sheetId);
+  const { mutate: approveClose, isPending: isApproving } = useApproveCloseSheet(sheetId);
+  const isClosing = mode === 'direct' ? isClosingDirect : mode === 'request' ? isRequesting : isApproving;
+  const copy = MODE_COPY[mode];
   const [data, setData] = useState<ReconcileData | null>(null);
   const [loading, setLoading] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
@@ -72,7 +110,7 @@ export function ReconcileDialog({ open, onClose, sheetId }: ReconcileDialogProps
         <DialogHeader className="flex-shrink-0 px-6 pt-6 pb-4 border-b border-border/40">
           <DialogTitle className="text-xl font-black flex items-center gap-2">
             <CheckCircle2 className="h-5 w-5 text-primary" />
-            Close &amp; Reconcile
+            {copy.title}
           </DialogTitle>
         </DialogHeader>
 
@@ -250,13 +288,24 @@ export function ReconcileDialog({ open, onClose, sheetId }: ReconcileDialogProps
 
               {confirmClose && (
                 <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4 space-y-3">
-                  <p className="text-sm font-bold text-destructive">Close this sheet permanently?</p>
-                  <p className="text-xs text-muted-foreground">This action requires admin intervention to undo.</p>
+                  <p className="text-sm font-bold text-destructive">{copy.confirmWarning}</p>
+                  <p className="text-xs text-muted-foreground">{copy.confirmSubtext}</p>
                   <div className="flex gap-2">
                     <Button variant="ghost" size="sm" onClick={() => setConfirmClose(false)} className="flex-1">Cancel</Button>
-                    <Button size="sm" variant="destructive" disabled={isClosing} onClick={() => closeSheet(undefined, { onSuccess: handleClose })} className="flex-1 rounded-xl font-bold">
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      disabled={isClosing}
+                      onClick={() => {
+                        const onSuccess = () => handleClose();
+                        if (mode === 'direct') closeSheet(undefined, { onSuccess });
+                        else if (mode === 'request') requestClose(undefined, { onSuccess });
+                        else approveClose(undefined, { onSuccess });
+                      }}
+                      className="flex-1 rounded-xl font-bold"
+                    >
                       {isClosing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                      Close Sheet
+                      {copy.confirmingLabel}
                     </Button>
                   </div>
                 </div>
@@ -274,7 +323,7 @@ export function ReconcileDialog({ open, onClose, sheetId }: ReconcileDialogProps
             className="rounded-xl font-bold min-w-[140px]"
           >
             {isClosing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-            Confirm Close
+            {copy.confirmLabel}
           </Button>
         </DialogFooter>
 

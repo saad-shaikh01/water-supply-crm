@@ -100,7 +100,16 @@ describe('DailySheetService.closeSheet — Discrepancy Case creation', () => {
         { provide: StorageService, useValue: {} },
         { provide: WarehouseService, useValue: {} },
         { provide: DeliveryReceiptPdfService, useValue: {} },
-        { provide: VehicleCheckService, useValue: { assertTripStartClear: jest.fn().mockResolvedValue(undefined) } },
+        {
+          provide: VehicleCheckService,
+          useValue: {
+            assertTripStartClear: jest.fn().mockResolvedValue(undefined),
+            // Soft Close (Amendment R9): closeSheet's assertSheetCloseable now
+            // also requires an END check before closing, same tier as the
+            // START check gate on trip start.
+            assertTripEndClear: jest.fn().mockResolvedValue(undefined),
+          },
+        },
         { provide: SheetDiscrepancyCaseService, useValue: mockDiscrepancyCases },
         { provide: getQueueToken(QUEUE_NAMES.DAILY_SHEET_GENERATION), useValue: { add: jest.fn(), getRepeatableJobs: jest.fn().mockResolvedValue([]), upsertJobScheduler: jest.fn().mockResolvedValue(null) } },
       ],

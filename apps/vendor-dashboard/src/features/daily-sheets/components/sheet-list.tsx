@@ -32,6 +32,8 @@ export function SheetList() {
     date: string;
     isClosed: boolean;
     crewConfirmed?: boolean;
+    /** Soft Close (Amendment R9). */
+    closureStatus?: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | null;
     filledOutCount: number;
     filledInCount: number;
     emptyInCount: number;
@@ -284,6 +286,12 @@ export function SheetList() {
                 {!r.isClosed && r.crewConfirmed === false && (
                   <Badge variant="outline" className="h-5 px-1.5 border-amber-500/20 bg-amber-500/10 text-amber-400 text-[9px] font-bold">
                     CREW?
+                  </Badge>
+                )}
+                {/* Soft Close (Amendment R9) — flags sheets closed by Driver/Salesman still awaiting Staff/Admin review. */}
+                {r.closureStatus === 'PENDING_APPROVAL' && (
+                  <Badge variant="outline" className="h-5 px-1.5 border-amber-500/20 bg-amber-500/10 text-amber-400 text-[9px] font-bold">
+                    APPROVAL?
                   </Badge>
                 )}
                 {r.issueCount !== undefined && r.issueCount > 0 && (

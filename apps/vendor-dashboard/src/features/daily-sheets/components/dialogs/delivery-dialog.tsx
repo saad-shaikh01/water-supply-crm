@@ -117,7 +117,7 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
     const finalData: Record<string, unknown> = deliveryMode === 'delivered'
       ? {
           status: 'COMPLETED',
-          filledDropped: itemForm.filledDropped ?? 1,
+          filledDropped: itemForm.filledDropped ?? 0,
           emptyReceived: itemForm.emptyReceived ?? 0,
           cashCollected: itemForm.cashCollected ?? 0,
           forceResubmit: !isFirstRecord,
@@ -177,7 +177,7 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
                 <div className="grid grid-cols-3 gap-3 text-center">
                   <div className="rounded-xl bg-background/70 border border-border/40 px-2 py-2">
                     <p className="text-[9px] font-bold uppercase text-muted-foreground">Dropped</p>
-                    <p className="text-lg font-black font-mono">{itemForm.filledDropped ?? 1}</p>
+                    <p className="text-lg font-black font-mono">{itemForm.filledDropped ?? 0}</p>
                   </div>
                   <div className="rounded-xl bg-background/70 border border-border/40 px-2 py-2">
                     <p className="text-[9px] font-bold uppercase text-muted-foreground">Empties</p>
@@ -268,7 +268,7 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
                   <Input
                     type="number"
                     min={0}
-                    value={itemForm.filledDropped ?? 1}
+                    value={itemForm.filledDropped ?? 0}
                     onChange={(e) => setItemForm((p) => ({ ...p, filledDropped: Number(e.target.value) }))}
                     className="font-mono font-bold h-11"
                   />

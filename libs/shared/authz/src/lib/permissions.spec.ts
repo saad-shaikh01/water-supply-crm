@@ -40,7 +40,10 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // 160 = 157 + sheet_discrepancies (page, view, resolve) — new resource for
 // the Sheet Discrepancy Case resolution flow (Amendment R8, 2026-08-18).
 // Navigable (`/dashboard/discrepancy-cases`) — +1 page permission too.
-const FROZEN_TOTAL = 160;
+// 163 = 160 + daily_sheets:{request_close, approve_close, reject_close} —
+// the Daily Sheet Soft Close workflow (Amendment R9, 2026-08-18). No new
+// resource, no new `:page` — `daily_sheets` was already navigable.
+const FROZEN_TOTAL = 163;
 const FROZEN_PAGES = 28;
 const FROZEN_RESOURCES = 30;
 

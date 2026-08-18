@@ -17,6 +17,7 @@ import { dailySheetsApi } from '../api/daily-sheets.api';
 import { reverseGeocode } from '../../../lib/geocoding';
 import { DeliveryRecordForm } from './delivery-record-form';
 import { ConversationThread } from '../../communication/components/conversation-thread';
+import { DeliveryItemHistoryDialog } from './delivery-item-history-dialog';
 
 type TabKey = 'all' | 'pending' | 'completed' | 'issues';
 
@@ -232,6 +233,7 @@ export function DeliveryItemsList({
   const [viewPhotoItemId, setViewPhotoItemId] = useState<string | null>(null);
   const [downloadingReceiptId, setDownloadingReceiptId] = useState<string | null>(null);
   const [chatItem, setChatItem] = useState<DeliveryItem | null>(null);
+  const [historyItem, setHistoryItem] = useState<DeliveryItem | null>(null);
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // Deep-link scroll + highlight (Phase 6). The row container is mounted for
@@ -558,6 +560,17 @@ export function DeliveryItemsList({
                           <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
                             AD-HOC
                           </span>
+                        )}
+                        {!!item.editCount && (
+                          <button
+                            type="button"
+                            title={item.lastEditedAt ? `Last edited ${new Date(item.lastEditedAt).toLocaleString()} — click for history` : 'Click for edit history'}
+                            onClick={(e) => { e.stopPropagation(); setHistoryItem(item); }}
+                            className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-800 dark:bg-violet-900/30 dark:text-violet-400 hover:opacity-80 transition-opacity"
+                          >
+                            <History className="h-2.5 w-2.5" />
+                            EDITED{item.editCount > 1 ? ` ×${item.editCount}` : ''}
+                          </button>
                         )}
                         {item.whatsappSentAt ? (
                           <div
@@ -1006,6 +1019,13 @@ export function DeliveryItemsList({
           onClose={() => setChatItem(null)}
         />
       )}
+
+      <DeliveryItemHistoryDialog
+        open={!!historyItem}
+        onClose={() => setHistoryItem(null)}
+        itemId={historyItem?.id ?? null}
+        customerName={historyItem?.customer?.name}
+      />
     </div>
   );
 }

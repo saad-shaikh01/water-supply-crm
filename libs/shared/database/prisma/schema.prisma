@@ -46,6 +46,15 @@ enum DeliveryType {
   ON_DEMAND
 }
 
+// Soft Close workflow (DailySheet.closureStatus) — null means the sheet was
+// never soft-closed (either still open, or closed the legacy direct way by
+// Staff/Admin, which skips straight to isClosed=true with no status row).
+enum DailySheetClosureStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+}
+
 enum TransactionType {
   DELIVERY
   COLLECTION
@@ -289,6 +298,10 @@ model User {
   crewAssignments       DailySheetCrew[]         @relation("CrewMember")
   vanDefaultCrew        VanDefaultCrew[]         @relation("VanDefaultCrewMember")
   confirmedCrewSheets   DailySheet[]             @relation("CrewConfirmedBy")
+  // Soft Close (Amendment R9)
+  closureRequestedSheets DailySheet[]            @relation("ClosureRequestedBy")
+  closureApprovedSheets  DailySheet[]            @relation("ClosureApprovedBy")
+  closureRejectedSheets  DailySheet[]            @relation("ClosureRejectedBy")
 
   // Staff Payroll & Financial Management — Phase 1 (Foundation)
   salaryStructures            SalaryStructure[]      @relation("SalaryStructureEmployee")
@@ -614,6 +627,25 @@ model DailySheet {
   vehicleDailyChecks VehicleDailyCheck[]
   fuelLogs           FuelLog[]
 
+  // Soft Close workflow: Driver/Salesman may close the sheet themselves
+  // (isClosed flips true immediately, locking edits like a normal close),
+  // but the Crew Cash → Payroll Ledger sync and Sheet Discrepancy Case
+  // creation are deferred until Staff/Admin explicitly approves. Reject
+  // reopens the sheet (isClosed=false, closureStatus reset to null) so the
+  // requester can fix and resubmit. A direct Staff/Admin close (unchanged
+  // legacy path) skips this entirely and lands straight on APPROVED.
+  closureStatus          DailySheetClosureStatus?
+  closureRequestedAt     DateTime?
+  closureRequestedById   String?
+  closureRequestedBy     User?                     @relation("ClosureRequestedBy", fields: [closureRequestedById], references: [id])
+  closureApprovedAt      DateTime?
+  closureApprovedById    String?
+  closureApprovedBy      User?                     @relation("ClosureApprovedBy", fields: [closureApprovedById], references: [id])
+  closureRejectedAt      DateTime?
+  closureRejectedById    String?
+  closureRejectedBy      User?                     @relation("ClosureRejectedBy", fields: [closureRejectedById], references: [id])
+  closureRejectionReason String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -700,6 +732,15 @@ model DailySheetItem {
   editUnlockExpiresAt DateTime? // when unlock window expires (null = locked)
   editRequestedAt     DateTime? // set when driver requests edit; cleared on admin unlock
   whatsappSentAt      DateTime? // set when delivery-complete WhatsApp is successfully sent
+
+  // Edit history badge — bumped each time a terminal-status item is
+  // force-resubmitted (submitDelivery's forceResubmit branch, same trigger as
+  // the DELIVERY_EDIT_OVERRIDE audit log entry). Cheap to select in the sheet's
+  // item list so the "Edited" row badge needs no extra round-trip; the actual
+  // before/after diffs live in AuditLog (entity='DailySheetItem'), fetched on
+  // demand via GET /daily-sheets/items/:id/history.
+  editCount    Int       @default(0)
+  lastEditedAt DateTime?
 
   isCorrection      Boolean   @default(false) // true when added to a closed sheet retroactively
   correctionAddedAt DateTime? // timestamp when correction was recorded

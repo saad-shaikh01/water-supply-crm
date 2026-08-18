@@ -11,6 +11,7 @@ import { SwapDialog } from './dialogs/swap-dialog';
 import { MoveCustomerDialog } from './dialogs/move-customer-dialog';
 import { CrewConfirmDialog } from './dialogs/crew-confirm-dialog';
 import { ReconcileDialog } from './dialogs/reconcile-dialog';
+import { RejectCloseDialog } from './dialogs/reject-close-dialog';
 import { AdhocDeliveryDialog } from './dialogs/adhoc-delivery-dialog';
 import { CorrectionEntryDialog } from './dialogs/correction-entry-dialog';
 import { BulkImportDialog } from './dialogs/bulk-import-dialog';
@@ -23,7 +24,7 @@ import { toast } from 'sonner';
 import {
   CheckCircle2, ClipboardList, DollarSign, Gauge, ShieldAlert,
   Droplets, Loader2, Package, Receipt, Route, RotateCcw, Search, Truck, Upload, User, X,
-  AlertOctagon,
+  AlertOctagon, XCircle,
 } from 'lucide-react';
 import type { VehicleCheckType } from '@water-supply-crm/types';
 import { useRouter } from 'next/navigation';
@@ -50,6 +51,8 @@ interface UiState {
   swapOpen: boolean;
   crewConfirmOpen: boolean;
   reconcileOpen: boolean;
+  // Soft Close (Amendment R9) — Staff/Admin rejecting a self-close request.
+  rejectCloseOpen: boolean;
   adhocOpen: boolean;
   correctionOpen: boolean;
   bulkImportOpen: boolean;
@@ -79,6 +82,8 @@ type UiAction =
   | { type: 'CLOSE_CREW_CONFIRM' }
   | { type: 'OPEN_RECONCILE' }
   | { type: 'CLOSE_RECONCILE' }
+  | { type: 'OPEN_REJECT_CLOSE' }
+  | { type: 'CLOSE_REJECT_CLOSE' }
   | { type: 'OPEN_ADHOC' }
   | { type: 'CLOSE_ADHOC' }
   | { type: 'OPEN_CORRECTION' }
@@ -109,6 +114,7 @@ const initialUiState: UiState = {
   swapOpen: false,
   crewConfirmOpen: false,
   reconcileOpen: false,
+  rejectCloseOpen: false,
   adhocOpen: false,
   correctionOpen: false,
   bulkImportOpen: false,
@@ -136,6 +142,8 @@ function uiReducer(state: UiState, action: UiAction): UiState {
     case 'CLOSE_CREW_CONFIRM': return { ...state, crewConfirmOpen: false };
     case 'OPEN_RECONCILE': return { ...state, reconcileOpen: true };
     case 'CLOSE_RECONCILE': return { ...state, reconcileOpen: false };
+    case 'OPEN_REJECT_CLOSE': return { ...state, rejectCloseOpen: true };
+    case 'CLOSE_REJECT_CLOSE': return { ...state, rejectCloseOpen: false };
     case 'OPEN_ADHOC': return { ...state, adhocOpen: true };
     case 'CLOSE_ADHOC': return { ...state, adhocOpen: false };
     case 'OPEN_CORRECTION': return { ...state, correctionOpen: true };
@@ -192,6 +200,10 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const canCorrect = can('daily_sheets:correct');
   const canLoadOut = can('daily_sheets:load_out');
   const canCloseSheet = can('daily_sheets:close');
+  // Soft Close (Amendment R9).
+  const canRequestClose = can('daily_sheets:request_close');
+  const canApproveClose = can('daily_sheets:approve_close');
+  const canRejectClose = can('daily_sheets:reject_close');
   const canCreateExpense = can('expenses:create');
   const canDeleteExpense = can('expenses:delete');
   const canManageEditLocks = can('daily_sheets:manage_edit_locks');
@@ -245,11 +257,14 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
     }
   }, [data, canConfirmCrew]);
 
-  // Vehicle daily check: nudge (not block) the driver into the start-of-day
-  // check right after crew confirmation, once per mount — mirrors
-  // hasPromptedCrewConfirm exactly (plan doc §6: a missing check never hard-
-  // blocks, only an unacknowledged critical failure does — see the 409 guard
-  // in daily-sheet.service.ts's createLoad/loadOut).
+  // Vehicle daily check: auto-open the start-of-day check right after crew
+  // confirmation, once per mount — mirrors hasPromptedCrewConfirm exactly.
+  // A missing (or critically-failed-and-unacknowledged) check is now a hard
+  // 409 block on trip start (see assertTripStartClear in vehicle-check.service.ts),
+  // same tier as crewConfirmed; this effect is just the proactive nudge so the
+  // driver sees it before hitting the block on "New Trip". Also backed by the
+  // persistent "Vehicle Check Not Recorded" banner + onNewTrip gate below, so
+  // closing this dialog without submitting doesn't lose the requirement.
   const hasPromptedVehicleCheck = useRef(false);
   useEffect(() => {
     if (!data || !vehicleChecks || hasPromptedVehicleCheck.current) return;
@@ -527,6 +542,25 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         </div>
       )}
 
+      {canRecordVehicleCheck && data.crewConfirmed && !startCheck && !isClosed && (
+        <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-center gap-3 flex-wrap">
+          <Gauge className="h-5 w-5 text-amber-500 flex-shrink-0" />
+          <div className="flex-1 min-w-[200px]">
+            <p className="text-sm font-bold text-amber-700 dark:text-amber-400">Vehicle Check Not Recorded</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Today&apos;s start-of-day vehicle check must be recorded before a trip can start.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            className="rounded-full font-bold"
+            onClick={() => dispatch({ type: 'OPEN_VEHICLE_CHECK', checkType: 'START' })}
+          >
+            Record Check
+          </Button>
+        </div>
+      )}
+
       {unresolvedCriticalCheck && !isClosed && (
         <div className="rounded-2xl border border-destructive/50 bg-destructive/10 px-4 py-3 flex items-center gap-3 flex-wrap">
           <ShieldAlert className="h-5 w-5 text-destructive flex-shrink-0" />
@@ -550,6 +584,63 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
               Acknowledge
             </Button>
           )}
+        </div>
+      )}
+
+      {/* Soft Close (Amendment R9): sheet closed by Driver/Salesman, awaiting Staff/Admin decision. */}
+      {data.closureStatus === 'PENDING_APPROVAL' && (
+        canApproveClose ? (
+          <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-center gap-3 flex-wrap">
+            <ClipboardList className="h-5 w-5 text-amber-500 flex-shrink-0" />
+            <div className="flex-1 min-w-[200px]">
+              <p className="text-sm font-bold text-amber-700 dark:text-amber-400">Sheet Closed — Pending Your Approval</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Closed by <span className="font-bold">{data.closureRequestedBy?.name ?? 'the driver'}</span>. Review and approve to finalize, or reject to send it back for correction.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              {canRejectClose && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="rounded-full font-bold border-destructive/40 text-destructive hover:bg-destructive/10"
+                  onClick={() => dispatch({ type: 'OPEN_REJECT_CLOSE' })}
+                >
+                  Reject
+                </Button>
+              )}
+              <Button
+                size="sm"
+                className="rounded-full font-bold"
+                onClick={() => dispatch({ type: 'OPEN_RECONCILE' })}
+              >
+                Review &amp; Approve
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-center gap-3 flex-wrap">
+            <ClipboardList className="h-5 w-5 text-amber-500 flex-shrink-0" />
+            <div className="flex-1 min-w-[200px]">
+              <p className="text-sm font-bold text-amber-700 dark:text-amber-400">Closed — Pending Staff Approval</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {data.closureRequestedBy?.id === user?.id ? 'Your close request is' : "This sheet's close request is"} waiting for Staff/Admin to review.
+              </p>
+            </div>
+          </div>
+        )
+      )}
+
+      {/* Reopened after a rejected close request — stays visible until the next close attempt. */}
+      {data.closureStatus === 'REJECTED' && !isClosed && (
+        <div className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 flex items-start gap-3">
+          <XCircle className="h-5 w-5 text-destructive mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="text-sm font-bold text-destructive">
+              Close Request Rejected{data.closureRejectedBy?.name ? ` by ${data.closureRejectedBy.name}` : ''}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">{data.closureRejectionReason}</p>
+          </div>
         </div>
       )}
 
@@ -720,11 +811,19 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         hasAnyTrip={hasAnyTrip}
         canLoadOut={canLoadOut}
         canClose={canCloseSheet}
+        canRequestClose={canRequestClose}
         onNewTrip={() => {
           // Backend also enforces this — trips cannot start with an unconfirmed crew
           if (!data.crewConfirmed) {
             toast.warning('Confirm today’s crew before starting a trip');
             dispatch({ type: 'OPEN_CREW_CONFIRM' });
+            return;
+          }
+          // Backend also enforces this — a start-of-day vehicle check is required
+          // before a trip can start (Fleet Phase 1, plan doc §7.2 "Mandatory").
+          if (canRecordVehicleCheck && !startCheck) {
+            toast.warning('Record the start-of-day vehicle check before starting a trip');
+            dispatch({ type: 'OPEN_VEHICLE_CHECK', checkType: 'START' });
             return;
           }
           // Backend also enforces this — a critical vehicle-check failure blocks
@@ -736,7 +835,25 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
           }
           dispatch({ type: 'OPEN_NEW_TRIP' });
         }}
-        onReconcile={() => dispatch({ type: 'OPEN_RECONCILE' })}
+        onReconcile={() => {
+          // Backend also enforces this — an end-of-day vehicle check is required
+          // before the sheet can be closed (Soft Close, Amendment R9, mirrors the
+          // start-of-day gate on trip start).
+          if (canRecordVehicleCheck && !endCheck) {
+            toast.warning('Record the end-of-day vehicle check before closing the sheet');
+            dispatch({ type: 'OPEN_VEHICLE_CHECK', checkType: 'END' });
+            return;
+          }
+          dispatch({ type: 'OPEN_RECONCILE' });
+        }}
+        onRequestClose={() => {
+          if (canRecordVehicleCheck && !endCheck) {
+            toast.warning('Record the end-of-day vehicle check before closing the sheet');
+            dispatch({ type: 'OPEN_VEHICLE_CHECK', checkType: 'END' });
+            return;
+          }
+          dispatch({ type: 'OPEN_RECONCILE' });
+        }}
         onCheckin={(tripId) => dispatch({ type: 'OPEN_CHECKIN', tripId })}
       />
 
@@ -907,6 +1024,12 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
       <ReconcileDialog
         open={ui.reconcileOpen}
         onClose={() => dispatch({ type: 'CLOSE_RECONCILE' })}
+        sheetId={sheetId}
+        mode={data.closureStatus === 'PENDING_APPROVAL' && canApproveClose ? 'approve' : canCloseSheet ? 'direct' : 'request'}
+      />
+      <RejectCloseDialog
+        open={ui.rejectCloseOpen}
+        onClose={() => dispatch({ type: 'CLOSE_REJECT_CLOSE' })}
         sheetId={sheetId}
       />
       <NewTripDialog

@@ -38,7 +38,8 @@ import { AddAdhocItemDto } from './dto/add-adhoc-item.dto';
 import { AddCorrectionItemDto } from './dto/add-correction-item.dto';
 import { MoveDeliveryItemsDto } from './dto/move-delivery-items.dto';
 import { UnlockEditDto } from './dto/unlock-edit.dto';
-import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
+import { RejectCloseDto } from './dto/reject-close.dto';
+import { RequirePermissions, RequireAnyPermission } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 
@@ -187,6 +188,13 @@ export class DailySheetController {
     res.setHeader('Content-Disposition', `attachment; filename="receipt-${id}.pdf"`);
     res.setHeader('Content-Length', pdfBuffer.length);
     res.end(pdfBuffer);
+  }
+
+  /** GET /daily-sheets/items/:id/history — edit history timeline (AuditLog, entity-scoped). */
+  @Get('items/:id/history')
+  @RequirePermissions('daily_sheets:view')
+  getItemHistory(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.dailySheetService.getItemHistory(user.vendorId, id);
   }
 
   // Staff override that grants edit access on a locked delivery — NOT a driver capability.
@@ -382,9 +390,11 @@ export class DailySheetController {
     );
   }
 
-  // Pre-close reconciliation preview → daily_sheets:close (staff pre-close review).
+  // Pre-close reconciliation preview — staff's direct-close review, and also
+  // used by the Driver/Salesman self-close request + the Staff/Admin
+  // approve-close review of it (Soft Close, Amendment R9).
   @Get(':id/reconciliation-preview')
-  @RequirePermissions('daily_sheets:close')
+  @RequireAnyPermission('daily_sheets:close', 'daily_sheets:request_close', 'daily_sheets:approve_close')
   getReconciliationPreview(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.dailySheetService.getReconciliationPreview(user.vendorId, id);
   }
@@ -460,6 +470,29 @@ export class DailySheetController {
   @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 3 } })
   closeSheet(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.dailySheetService.closeSheet(user.vendorId, id, user.userId, user.role);
+  }
+
+  // ── Soft Close (Amendment R9): Driver/Salesman self-close, Staff/Admin review ──
+
+  @Post(':id/request-close')
+  @RequirePermissions('daily_sheets:request_close')
+  @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 3 } })
+  requestClose(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.dailySheetService.requestClose(user.vendorId, id, user.userId);
+  }
+
+  @Post(':id/approve-close')
+  @RequirePermissions('daily_sheets:approve_close')
+  @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 3 } })
+  approveClose(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.dailySheetService.approveClose(user.vendorId, id, user.userId, user.role);
+  }
+
+  @Post(':id/reject-close')
+  @RequirePermissions('daily_sheets:reject_close')
+  @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
+  rejectClose(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: RejectCloseDto) {
+    return this.dailySheetService.rejectClose(user.vendorId, id, user.userId, dto);
   }
 
   @Patch(':id/swap-assignment')

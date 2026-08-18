@@ -17,8 +17,12 @@ interface LoadTripsSectionProps {
   hasAnyTrip: boolean;
   canLoadOut: boolean;
   canClose: boolean;
+  /** Soft Close (Amendment R9) — Driver/Salesman self-close permission. */
+  canRequestClose: boolean;
   onNewTrip: () => void;
   onReconcile: () => void;
+  /** Soft Close (Amendment R9) — Driver/Salesman self-close trigger. */
+  onRequestClose: () => void;
   onCheckin: (tripId: string) => void;
 }
 
@@ -29,8 +33,10 @@ export function LoadTripsSection({
   hasAnyTrip,
   canLoadOut,
   canClose,
+  canRequestClose,
   onNewTrip,
   onReconcile,
+  onRequestClose,
   onCheckin,
 }: LoadTripsSectionProps) {
   const [now, setNow] = useState(() => new Date());
@@ -68,6 +74,19 @@ export function LoadTripsSection({
               className="rounded-full font-bold"
             >
               Close & Reconcile
+            </Button>
+          )}
+          {/* Soft Close (Amendment R9): Driver/Salesman self-close — only shown when the
+              viewer doesn't already have the direct-close permission above, so a role
+              that somehow holds both never sees two close buttons. */}
+          {!isClosed && !activeTrip && hasAnyTrip && !canClose && canRequestClose && (
+            <Button
+              size="sm"
+              variant="default"
+              onClick={onRequestClose}
+              className="rounded-full font-bold"
+            >
+              Close Sheet
             </Button>
           )}
         </div>

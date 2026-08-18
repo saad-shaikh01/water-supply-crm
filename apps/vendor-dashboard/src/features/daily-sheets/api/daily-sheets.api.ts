@@ -179,8 +179,15 @@ export const dailySheetsApi = {
   checkIn: (id: string, data: Record<string, unknown>) =>
     apiClient.patch(`/daily-sheets/${id}/check-in`, data),
   close: (id: string) => apiClient.post(`/daily-sheets/${id}/close`),
+  // Soft Close (Amendment R9): Driver/Salesman self-close + Staff/Admin review.
+  requestClose: (id: string) => apiClient.post(`/daily-sheets/${id}/request-close`),
+  approveClose: (id: string) => apiClient.post(`/daily-sheets/${id}/approve-close`),
+  rejectClose: (id: string, data: { reason: string }) =>
+    apiClient.post(`/daily-sheets/${id}/reject-close`, data),
   getReconciliationPreview: (id: string) =>
     apiClient.get(`/daily-sheets/${id}/reconciliation-preview`).then((r) => r.data),
+  getItemHistory: (itemId: string) =>
+    apiClient.get(`/daily-sheets/items/${itemId}/history`).then((r) => r.data),
   insertItemFromOrder: (
     id: string,
     data: { orderId: string; sequenceMode?: 'APPEND' | 'CUSTOM'; sequence?: number },
