@@ -362,6 +362,14 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
     [items, sortMode, coordsAvailableCount],
   );
 
+  // Post-close reconciliation gaps (bottle/empty/cash) still awaiting a
+  // charge-to-driver/company-loss/waived decision — see sheet-discrepancy-case
+  // module. The reconcile dialog itself is only reachable pre-close, so this
+  // is the only persistent place a closed sheet's open discrepancies surface.
+  // Hook must run unconditionally on every render (Rules of Hooks) — sheetId
+  // is a prop, always defined, so it doesn't need to wait on `data`/`isLoading`.
+  const { data: openDiscrepancyCases } = useDiscrepancyCases({ dailySheetId: sheetId, status: 'REPORTED' });
+
   if (isLoading) return (
     <div className="space-y-6">
       <Skeleton className="h-20 w-full rounded-3xl" />
@@ -379,11 +387,6 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const activeTrip = loads.find((l) => !l.endedAt) ?? null;
   const hasAnyTrip = loads.length > 0;
   const isClosed = !!data?.isClosed;
-  // Post-close reconciliation gaps (bottle/empty/cash) still awaiting a
-  // charge-to-driver/company-loss/waived decision — see sheet-discrepancy-case
-  // module. The reconcile dialog itself is only reachable pre-close, so this
-  // is the only persistent place a closed sheet's open discrepancies surface.
-  const { data: openDiscrepancyCases } = useDiscrepancyCases({ dailySheetId: sheetId, status: 'REPORTED' });
   const openDiscrepancyCount = openDiscrepancyCases?.data?.length ?? 0;
   const currentStatus = isClosed ? 'CLOSED' : activeTrip ? 'LOADED' : hasAnyTrip ? 'CHECKED_IN' : 'OPEN';
   // Filled bottles received back from customers physically re-enter the van's
