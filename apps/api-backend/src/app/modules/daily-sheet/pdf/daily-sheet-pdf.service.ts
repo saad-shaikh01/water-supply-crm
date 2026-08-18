@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import PDFDocument = require('pdfkit');
-import { drawShadowShape, brandGradient } from '../../../common/pdf/pdf-theme.util';
+import { drawShadowShape, brandGradient, drawClippedWatermark } from '../../../common/pdf/pdf-theme.util';
 
 // NOTE: standard PDF fonts (Helvetica) only support WinAnsi characters —
 // no emoji, no check/warning glyphs. Stick to ASCII + · × — for decorations.
@@ -18,6 +18,10 @@ const COMPANY_PHONES  = 'Cell# 0316-2677954, 0345-2364698';
 // Blue Ice brand assets — local copy alongside this service (mirrors the
 // customer/pdf and whatsapp module convention), bundled to dist via webpack.
 const LOGO_PATH = path.join(__dirname, 'assets', 'blue-ice-logo.png');
+// Small icon mark (not the full wordmark logo) — used only for the faint
+// clipped watermark on the Info Card, same asset CustomerStatementPdfService
+// uses for its Delivery Card watermark.
+const ICON_PATH = path.join(__dirname, 'assets', 'blue-ice-icon.png');
 
 // ── Palette — identical to CustomerStatementPdfService's `C`, so the two
 // document types share one visual language (same navy/accent/muted tones). ──
@@ -55,6 +59,21 @@ const STATUS_META: Record<string, { label: string; bg: string; text: string }> =
 // force-resubmitted at least once (item.editCount > 0) — surfaces the recent
 // delivery-item-edit-history feature on the printed sheet, not just on-screen.
 const EDITED_META = { label: 'EDITED', bg: '#ede9fe', text: '#6d28d9' };
+
+const DISCREPANCY_TYPE_META: Record<string, { label: string; bg: string; text: string }> = {
+  BOTTLE: { label: 'BOTTLE', bg: '#dbeafe', text: '#1d4ed8' },
+  EMPTY: { label: 'EMPTY', bg: '#fef9c3', text: '#a16207' },
+  CASH: { label: 'CASH', bg: '#fee2e2', text: '#b91c1c' },
+};
+const DISCREPANCY_STATUS_META: Record<string, { label: string; bg: string; text: string }> = {
+  REPORTED: { label: 'PENDING REVIEW', bg: '#ffedd5', text: '#c2410c' },
+  RESOLVED: { label: 'RESOLVED', bg: '#dcfce7', text: '#15803d' },
+};
+const RESOLUTION_TYPE_LABEL: Record<string, string> = {
+  CHARGED_TO_DRIVER: 'Charged to Driver',
+  COMPANY_LOSS: 'Company Loss',
+  WAIVED: 'Waived',
+};
 
 const EXPENSE_META: Record<string, { label: string; bg: string; text: string }> = {
   LUNCH_EXPENSE_EMPLOYEE: { label: 'LUNCH EXP EMPLOYEE', bg: '#fef9c3', text: '#a16207' },
@@ -169,6 +188,15 @@ export class DailySheetPdfService {
     this.drawSectionTitle(doc, 'Bottle & Cash Summary');
     this.drawSummary(doc, sheet);
 
+    // Discrepancy Details — the actual SheetDiscrepancyCase rows (only ever
+    // exist on closed sheets, created at close time), one level more detail
+    // than the verdict banner's plain +/- numbers above: per-case status and,
+    // once reviewed, how it was resolved.
+    if (sheet.isClosed && sheet.discrepancyCaseDetails?.length) {
+      this.drawSectionTitle(doc, `Discrepancy Details (${sheet.discrepancyCaseDetails.length})`, true);
+      this.drawDiscrepancyDetails(doc, sheet.discrepancyCaseDetails);
+    }
+
     if ((sheet.loads ?? []).length > 0) {
       const tripStats = this.computeTripStats(sheet.loads ?? [], sheet.items ?? [], sheet.expenses ?? []);
       this.drawSectionTitle(doc, `Trip Summary (${sheet.loads.length})`);
@@ -194,6 +222,48 @@ export class DailySheetPdfService {
   // ─── Soft-shadow rounded card background (matches CustomerStatementPdfService) ─
   private shadowCard(doc: PDFKit.PDFDocument, x: number, y: number, w: number, h: number): void {
     drawShadowShape(doc, x, y, w, h, RADIUS, C.white, { shadowColor: C.navy, borderColor: C.border });
+  }
+
+  /**
+   * Generic paginated card-table — copied line-for-line from
+   * CustomerStatementPdfService.drawCardTable so every itemized table in
+   * this system shares one card/pagination language: one shadow card per
+   * page, un-filled muted-label header (border line under it, no navy bar),
+   * fixed row height, optional clipped watermark on the first card only.
+   */
+  private drawCardTable<T>(
+    doc: PDFKit.PDFDocument,
+    lines: T[],
+    headerH: number,
+    rowH: number,
+    drawHeader: (x: number, y: number, w: number) => void,
+    drawLine: (line: T, x: number, y: number, index: number) => void,
+    opts: { watermark?: boolean } = {},
+  ): void {
+    let drawn = 0;
+    while (drawn < lines.length) {
+      const availH = PAGE_H - FOOTER_ZONE - 16 - doc.y;
+      const maxLines = Math.max(1, Math.floor((availH - headerH) / rowH));
+      const linesThisCard = Math.min(maxLines, lines.length - drawn);
+      const cardH = headerH + linesThisCard * rowH + 6;
+      const cardY = doc.y;
+
+      this.shadowCard(doc, MARGIN, cardY, CONTENT_W, cardH);
+      if (opts.watermark && drawn === 0) {
+        drawClippedWatermark(doc, ICON_PATH, MARGIN, cardY, CONTENT_W, cardH);
+      }
+      drawHeader(MARGIN, cardY + 6, CONTENT_W);
+      for (let li = 0; li < linesThisCard; li++) {
+        drawLine(lines[drawn + li], MARGIN, cardY + 6 + headerH + li * rowH, drawn + li);
+      }
+
+      drawn += linesThisCard;
+      doc.y = cardY + cardH;
+      if (drawn < lines.length) {
+        doc.addPage();
+        doc.y = 50;
+      }
+    }
   }
 
   // ─── Brand banner: gradient card with logo chip (left) + company identity (right) ─
@@ -233,8 +303,12 @@ export class DailySheetPdfService {
   // ─── Document title + OPEN/CLOSED status pill + Start/End trip times ─────
   private drawTitleRow(doc: PDFKit.PDFDocument, sheet: any): void {
     const y = doc.y + 18;
+    // timeZone must be explicit — the 'en-PK' locale only controls
+    // formatting conventions (date order, etc.), NOT the timezone. Without
+    // it Node falls back to the server's own system timezone (UTC on the
+    // VPS), not Pakistan time.
     const date = new Date(sheet.date).toLocaleDateString('en-PK', {
-      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Karachi',
     });
 
     doc.roundedRect(MARGIN, y, 4, 16, 2).fill(C.accent);
@@ -284,6 +358,10 @@ export class DailySheetPdfService {
     const x3 = MARGIN + col1W + col2W;
 
     this.shadowCard(doc, MARGIN, y, CONTENT_W, boxH);
+    // Faint centered icon watermark, clipped to the card — same treatment
+    // (asset, size formula, opacity) as CustomerStatementPdfService's
+    // Delivery Card watermark, applied here to this document's own hero card.
+    drawClippedWatermark(doc, ICON_PATH, MARGIN, y, CONTENT_W, boxH);
     doc.moveTo(x2, y + 12).lineTo(x2, y + boxH - 12).strokeColor(C.border).lineWidth(0.75).stroke();
     doc.moveTo(x3, y + 12).lineTo(x3, y + boxH - 12).strokeColor(C.border).lineWidth(0.75).stroke();
 
@@ -372,17 +450,21 @@ export class DailySheetPdfService {
     doc.y = y + boxH;
   }
 
-  // ─── Section title with accent bar ───────────────────────────────────────
+  // ─── Section title with accent bar — styling matched exactly to
+  // CustomerStatementPdfService.drawSectionTitle (fontSize 13, no uppercase/
+  // characterSpacing, 16pt bar) so every printed document reads as one
+  // family. checkPageBreak is this file's own addition (statement paginates
+  // its sections differently via drawCardTable) — kept, purely functional. ──
   private drawSectionTitle(doc: PDFKit.PDFDocument, title: string, checkPageBreak = false): void {
     if (checkPageBreak && doc.y + 60 > PAGE_H - FOOTER_ZONE) {
       doc.addPage();
       doc.y = 50;
     }
     const y = doc.y + 8;
-    doc.roundedRect(MARGIN, y, 4, 14, 2).fill(C.accent);
-    doc.fillColor(C.navy).font('Helvetica-Bold').fontSize(11)
-      .text(title.toUpperCase(), MARGIN + 12, y, { characterSpacing: 0.5, lineBreak: false });
-    doc.y = y + 22;
+    doc.roundedRect(MARGIN, y, 4, 16, 2).fill(C.accent);
+    doc.fillColor(C.navy).font('Helvetica-Bold').fontSize(13)
+      .text(title, MARGIN + 12, y + 1, { lineBreak: false });
+    doc.y = y + 24;
   }
 
   // ─── Summary cards + reconciliation verdict ──────────────────────────────
@@ -449,6 +531,58 @@ export class DailySheetPdfService {
     doc.y = bannerY + bannerH + 18;
   }
 
+  // ─── Discrepancy Details — one row per SheetDiscrepancyCase (BOTTLE/EMPTY/
+  // CASH), showing the reported gap, review status, and — once resolved —
+  // how it was closed out (charged to driver / company loss / waived). ─────
+  private drawDiscrepancyDetails(doc: PDFKit.PDFDocument, cases: any[]): void {
+    const rowH = 30;
+    let y = doc.y;
+
+    cases.forEach((kase, index) => {
+      if (y + rowH > PAGE_H - FOOTER_ZONE) {
+        doc.addPage();
+        y = 50;
+      }
+      if (index % 2 === 1) doc.rect(MARGIN, y, CONTENT_W, rowH).fill(C.surface);
+
+      const typeMeta = DISCREPANCY_TYPE_META[kase.type] ?? { label: kase.type, bg: '#f1f5f9', text: '#475569' };
+      const statusMeta = DISCREPANCY_STATUS_META[kase.status] ?? { label: kase.status, bg: '#f1f5f9', text: '#475569' };
+
+      let x = MARGIN + 4;
+      this.drawPill(doc, typeMeta, x, 70, y, 16); x += 76;
+
+      const gapLabel = kase.type === 'CASH'
+        ? this.rs(Math.abs(kase.reportedAmount ?? 0))
+        : `${Math.abs(kase.reportedQuantity ?? 0)} bottles`;
+      doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(8)
+        .text(`Gap: ${gapLabel}`, x, y + 3, { width: 150, height: 11, lineBreak: false });
+      x += 158;
+
+      this.drawPill(doc, statusMeta, x, 110, y, 16);
+
+      // Line 2 — resolution detail, or a plain "awaiting review" note.
+      let detail: string;
+      if (kase.status === 'RESOLVED') {
+        const resLabel = RESOLUTION_TYPE_LABEL[kase.resolutionType as string] ?? kase.resolutionType ?? '—';
+        const amountPart = kase.resolutionAmount != null ? `  ·  ${this.rs(kase.resolutionAmount)}` : '';
+        const resolvedDate = kase.resolvedAt
+          ? new Date(kase.resolvedAt).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', timeZone: 'Asia/Karachi' })
+          : null;
+        const byPart = kase.resolvedBy?.name ? `  ·  by ${kase.resolvedBy.name}${resolvedDate ? ` on ${resolvedDate}` : ''}` : '';
+        const notePart = kase.resolutionNote ? `  ·  "${kase.resolutionNote}"` : '';
+        detail = `Resolved: ${resLabel}${amountPart}${byPart}${notePart}`;
+      } else {
+        detail = 'Awaiting staff/admin review.';
+      }
+      doc.fillColor(C.muted).font('Helvetica').fontSize(7)
+        .text(detail, MARGIN + 4, y + 19, { width: CONTENT_W - 8, height: 9, ellipsis: true, lineBreak: false });
+
+      y += rowH;
+    });
+
+    doc.y = y + 10;
+  }
+
   // ─── Trip bucketing — pure function, no DB access. Buckets already-fetched
   // items/expenses into whichever trip's [startedAt, endedAt ?? open) window
   // contains their timestamp (Option A "time-window inference" — no schema
@@ -459,8 +593,23 @@ export class DailySheetPdfService {
   private computeTripStats(loads: any[], items: any[], expenses: any[]): TripStats {
     const trips = [...loads].sort((a, b) => a.tripNumber - b.tripNumber);
 
-    const inWindow = (ts: number, start: Date, end: Date | null) =>
-      ts >= start.getTime() && (end === null || ts <= end.getTime());
+    // Assign to the most-recently-STARTED trip as of this timestamp, rather
+    // than requiring strict [startedAt,endedAt] containment. Expenses in
+    // particular are routinely logged after a trip's official check-in time
+    // (staff doing end-of-day paperwork, sometimes after the LAST trip has
+    // already closed) — strict window containment left those permanently
+    // unassigned, silently zeroing every trip's Expense column and making
+    // Cash Collected == Cash in Hand look like a bug. Anything timestamped
+    // before the very first trip started is genuinely pre-trip/general and
+    // stays unassigned (only case this returns null).
+    const findOwningTrip = (ts: number): any | null => {
+      let match: any = null;
+      for (const t of trips) {
+        const startedTs = new Date(t.startedAt).getTime();
+        if (startedTs <= ts && (!match || startedTs > new Date(match.startedAt).getTime())) match = t;
+      }
+      return match;
+    };
 
     const filledRecvByTrip = new Map<string, number>();
     const cashByTrip = new Map<string, number>();
@@ -468,8 +617,7 @@ export class DailySheetPdfService {
 
     for (const item of items) {
       if (!item.deliveredAt) continue; // PENDING items excluded from bucketing
-      const ts = new Date(item.deliveredAt).getTime();
-      const trip = trips.find((t) => inWindow(ts, new Date(t.startedAt), t.endedAt ? new Date(t.endedAt) : null));
+      const trip = findOwningTrip(new Date(item.deliveredAt).getTime());
       if (!trip) continue;
       filledRecvByTrip.set(trip.id, (filledRecvByTrip.get(trip.id) ?? 0) + (item.filledReceived ?? 0));
       cashByTrip.set(trip.id, (cashByTrip.get(trip.id) ?? 0) + (item.cashCollected ?? 0));
@@ -480,9 +628,8 @@ export class DailySheetPdfService {
     const cashExpenses = expenses.filter((e) => e.paidFromCash !== false);
     for (const exp of cashExpenses) {
       // createdAt (true recording timestamp), not .date — staff can backdate
-      // .date, which would make it an unreliable match against real trip windows.
-      const ts = new Date(exp.createdAt).getTime();
-      const trip = trips.find((t) => inWindow(ts, new Date(t.startedAt), t.endedAt ? new Date(t.endedAt) : null));
+      // .date, which would make it an unreliable match against real trips.
+      const trip = findOwningTrip(new Date(exp.createdAt).getTime());
       if (!trip) continue;
       expenseByTrip.set(trip.id, (expenseByTrip.get(trip.id) ?? 0) + (exp.amount ?? 0));
     }
@@ -533,21 +680,26 @@ export class DailySheetPdfService {
   }
 
   private hm(dt: string | Date): string {
-    return new Date(dt).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' });
+    // Same explicit-timeZone requirement as drawTitleRow's date — without it
+    // this renders in the server's own timezone, not Pakistan time.
+    return new Date(dt).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Karachi' });
   }
 
   private fmtTripTime(dt: Date | string | null, openLabel: string): string {
     return dt ? this.hm(dt) : openLabel;
   }
 
-  // ─── Trip Summary — per-trip stacked blocks (own header + one data row
-  // each), followed by a combined Totals row. Replaces the old single
-  // combined Load Trips table so the printed layout matches the reference. ──
-  private drawTripHeaderRow(doc: PDFKit.PDFDocument, y: number): number {
-    const rowH = 16;
-    doc.rect(MARGIN, y, CONTENT_W, rowH).fill(C.navy);
-    doc.fillColor(C.white).fontSize(6.2).font('Helvetica-Bold');
-    let x = MARGIN;
+  // ─── Trip Summary — one shadow card (watermarked, same as the Delivery
+  // Card) holding: one un-filled/muted-label header (border line, no navy
+  // bar — matches CustomerStatementPdfService.drawDeliveryTableHeader
+  // exactly), a "TRIP N" label + data row per trip, and a border-top TOTAL
+  // row (no fill — matches CustomerStatementPdfService's TOTAL row exactly),
+  // instead of the old per-trip navy-filled mini-tables. ───────────────────
+  private drawTripHeaderRow(doc: PDFKit.PDFDocument, x: number, y: number, w: number): number {
+    const rowH = 22;
+    doc.moveTo(x + 10, y + rowH).lineTo(x + w - 10, y + rowH).strokeColor(C.border).lineWidth(0.75).stroke();
+    doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(6.2);
+    let cx = x;
     const cells: [string, number][] = [
       ['FILLED OUT', TRIPCOLS.filledOut],
       ['FILLED RET.', TRIPCOLS.filledReturned],
@@ -560,27 +712,27 @@ export class DailySheetPdfService {
       ['TIME OUT', TRIPCOLS.timeOut],
       ['TIME IN', TRIPCOLS.timeIn],
     ];
-    cells.forEach(([label, w]) => {
-      doc.text(label, x, y + 5, { width: w - 6, align: 'right', lineBreak: false });
-      x += w;
+    cells.forEach(([label, w2]) => {
+      doc.text(label, cx, y + 8, { width: w2 - 6, align: 'right', lineBreak: false });
+      cx += w2;
     });
     return y + rowH;
   }
 
   private drawTripDataRow(
     doc: PDFKit.PDFDocument,
+    x: number,
     y: number,
     row: {
       filledOut: number; filledReturned: number; filledReceived: number; sold: number;
       emptyReceive: number; cashCollected: number; expense: number; cashInHand: number;
       timeOutLabel: string; timeInLabel: string;
     },
-    opts?: { bold?: boolean; bg?: string },
+    opts?: { bold?: boolean },
   ): number {
     const rowH = 20;
-    if (opts?.bg) doc.rect(MARGIN, y, CONTENT_W, rowH).fill(opts.bg);
-    doc.fillColor(opts?.bold ? C.white : C.textSoft).fontSize(7.5).font(opts?.bold ? 'Helvetica-Bold' : 'Helvetica');
-    let x = MARGIN;
+    doc.fillColor(opts?.bold ? C.navyText : C.textSoft).fontSize(7.5).font(opts?.bold ? 'Helvetica-Bold' : 'Helvetica');
+    let cx = x;
     const vals: [string, number][] = [
       [String(row.filledOut), TRIPCOLS.filledOut],
       [String(row.filledReturned), TRIPCOLS.filledReturned],
@@ -594,79 +746,94 @@ export class DailySheetPdfService {
       [row.timeInLabel, TRIPCOLS.timeIn],
     ];
     vals.forEach(([val, w]) => {
-      doc.text(val, x, y + 6, { width: w - 6, align: 'right', lineBreak: false });
-      x += w;
+      doc.text(val, cx, y + 6, { width: w - 6, align: 'right', lineBreak: false });
+      cx += w;
     });
     return y + rowH;
   }
 
   private drawTripSummary(doc: PDFKit.PDFDocument, stats: TripStats): void {
-    const BLOCK_H = 14 + 16 + 20 + 10; // title + header row + data row + gap
+    const TOP_PAD = 6;
+    const HEADER_H = 22;
+    const LABEL_H = 16;
+    const ROW_H = 20;
+    const GAP = 6;
+    const BOTTOM_PAD = 10;
+    // Precise sum of every increment the drawing loop below actually uses,
+    // so the card is never taller/shorter than its real content.
+    const cardH = TOP_PAD + HEADER_H + stats.perTrip.length * (LABEL_H + ROW_H + GAP) + LABEL_H + ROW_H + BOTTOM_PAD;
+
+    // Trip counts are always small (1-4 per day) — a single card comfortably
+    // fits one page in every realistic case, so this just starts a fresh
+    // page for the whole section rather than a full multi-card paginator.
+    if (doc.y + cardH > PAGE_H - FOOTER_ZONE) {
+      doc.addPage();
+      doc.y = 50;
+    }
+
+    const cardY = doc.y;
+    this.shadowCard(doc, MARGIN, cardY, CONTENT_W, cardH);
+    drawClippedWatermark(doc, ICON_PATH, MARGIN, cardY, CONTENT_W, cardH);
+
+    let y = cardY + TOP_PAD;
+    y = this.drawTripHeaderRow(doc, MARGIN, y, CONTENT_W);
 
     stats.perTrip.forEach((t) => {
-      let y = doc.y;
-      if (y + BLOCK_H > PAGE_H - FOOTER_ZONE) {
-        doc.addPage();
-        y = 50;
-      }
-      doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(9)
-        .text(`Trip ${t.load.tripNumber}:`, MARGIN, y, { lineBreak: false });
-      y += 14;
-      y = this.drawTripHeaderRow(doc, y);
-      y = this.drawTripDataRow(doc, y, {
+      doc.fillColor(C.mutedLt).font('Helvetica-Bold').fontSize(6.5)
+        .text(`TRIP ${t.load.tripNumber}`, MARGIN + 10, y + 4, { characterSpacing: 0.4, lineBreak: false });
+      y += LABEL_H;
+      y = this.drawTripDataRow(doc, MARGIN, y, {
         filledOut: t.filledOut, filledReturned: t.filledReturned, filledReceived: t.filledReceived,
         sold: t.sold, emptyReceive: t.emptyReceive, cashCollected: t.cashCollected, expense: t.expense,
         cashInHand: t.cashInHand,
         timeOutLabel: this.fmtTripTime(t.timeOut, '—'),
         timeInLabel: this.fmtTripTime(t.timeIn, '(open)'),
       });
-      doc.y = y + 10;
+      y += GAP;
     });
 
-    // Combined totals row
-    let y = doc.y;
-    if (y + 34 > PAGE_H - FOOTER_ZONE) {
-      doc.addPage();
-      y = 50;
-    }
-    doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(9)
-      .text('Totals', MARGIN, y, { lineBreak: false });
-    y += 14;
-    y = this.drawTripDataRow(doc, y, {
+    // TOTAL row — border-top line + bold text, no fill (matches
+    // CustomerStatementPdfService's own TOTAL row exactly).
+    doc.moveTo(MARGIN + 10, y).lineTo(MARGIN + CONTENT_W - 10, y).strokeColor(C.navyText).lineWidth(1).stroke();
+    doc.fillColor(C.mutedLt).font('Helvetica-Bold').fontSize(6.5)
+      .text('TOTAL', MARGIN + 10, y + 4, { characterSpacing: 0.4, lineBreak: false });
+    y += LABEL_H;
+    y = this.drawTripDataRow(doc, MARGIN, y, {
       filledOut: stats.totals.filledOut, filledReturned: stats.totals.filledReturned,
       filledReceived: stats.totals.filledReceived, sold: stats.totals.sold,
       emptyReceive: stats.totals.emptyReceive, cashCollected: stats.totals.cashCollected,
       expense: stats.totals.expense, cashInHand: stats.totals.cashInHand,
       timeOutLabel: this.fmtTripTime(stats.totals.startingTime, '—'),
       timeInLabel: this.fmtTripTime(stats.totals.closingTime, 'In Progress'),
-    }, { bold: true, bg: C.navy });
+    }, { bold: true });
 
-    doc.y = y + 14;
+    doc.y = cardY + cardH;
   }
 
-  // ─── Delivery items table ────────────────────────────────────────────────
-  private drawTableHeader(doc: PDFKit.PDFDocument, y: number): number {
-    const rowH = 20;
-    doc.rect(MARGIN, y, CONTENT_W, rowH).fill(C.navy);
-    doc.fillColor(C.white).fontSize(6.3).font('Helvetica-Bold');
+  // ─── Delivery items table — card-table styling matched exactly to
+  // CustomerStatementPdfService.drawDeliveryTableHeader/drawDeliveryLine: an
+  // un-filled header (muted labels + border line, no navy bar), uniform
+  // 22pt rows, and a border-top TOTAL row (no fill). ────────────────────────
+  private drawDeliveryTableHeader(doc: PDFKit.PDFDocument, x: number, y: number, w: number): void {
+    const rowH = 22;
+    doc.moveTo(x + 10, y + rowH).lineTo(x + w - 10, y + rowH).strokeColor(C.border).lineWidth(0.75).stroke();
+    doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(6.2);
 
-    let x = MARGIN;
-    const headerY = y + 6;
-    doc.text('#', x + 3, headerY, { lineBreak: false }); x += COLS.seq;
-    doc.text('CODE', x + 3, headerY, { lineBreak: false }); x += COLS.code;
-    doc.text('CUSTOMER', x + 3, headerY, { characterSpacing: 0.2, lineBreak: false }); x += COLS.customer;
-    doc.text('TIME', x, headerY, { width: COLS.time - 4, align: 'right', lineBreak: false }); x += COLS.time;
-    doc.text('DELIV', x, headerY, { width: COLS.delivered - 4, align: 'right', lineBreak: false }); x += COLS.delivered;
-    doc.text('F.RCV', x, headerY, { width: COLS.filledRecv - 4, align: 'right', lineBreak: false }); x += COLS.filledRecv;
-    doc.text('E.RCV', x, headerY, { width: COLS.emptyRecv - 4, align: 'right', lineBreak: false }); x += COLS.emptyRecv;
-    doc.text('BAL BTL', x, headerY, { width: COLS.balBottles - 4, align: 'right', lineBreak: false }); x += COLS.balBottles;
-    doc.text('CASH', x, headerY, { width: COLS.cash - 4, align: 'right', lineBreak: false }); x += COLS.cash;
-    doc.text('PAY', x, headerY, { width: COLS.payMode - 4, align: 'center', lineBreak: false }); x += COLS.payMode;
-    doc.text('BAL RS', x, headerY, { width: COLS.balRs - 4, align: 'right', lineBreak: false }); x += COLS.balRs;
-    doc.text('CONS%', x, headerY, { width: COLS.consPct - 4, align: 'right', lineBreak: false }); x += COLS.consPct;
-    doc.text('STATUS', x, headerY, { width: COLS_STATUS_W, align: 'center', characterSpacing: 0.2, lineBreak: false });
-
-    return y + rowH;
+    let cx = x;
+    const hy = y + 8;
+    doc.text('#', cx + 6, hy, { width: COLS.seq - 4, lineBreak: false }); cx += COLS.seq;
+    doc.text('CODE', cx + 3, hy, { width: COLS.code - 4, lineBreak: false }); cx += COLS.code;
+    doc.text('CUSTOMER', cx + 3, hy, { width: COLS.customer - 4, characterSpacing: 0.2, lineBreak: false }); cx += COLS.customer;
+    doc.text('TIME', cx, hy, { width: COLS.time - 4, align: 'right', lineBreak: false }); cx += COLS.time;
+    doc.text('DELIV', cx, hy, { width: COLS.delivered - 4, align: 'right', lineBreak: false }); cx += COLS.delivered;
+    doc.text('F.RCV', cx, hy, { width: COLS.filledRecv - 4, align: 'right', lineBreak: false }); cx += COLS.filledRecv;
+    doc.text('E.RCV', cx, hy, { width: COLS.emptyRecv - 4, align: 'right', lineBreak: false }); cx += COLS.emptyRecv;
+    doc.text('BAL BTL', cx, hy, { width: COLS.balBottles - 4, align: 'right', lineBreak: false }); cx += COLS.balBottles;
+    doc.text('CASH', cx, hy, { width: COLS.cash - 4, align: 'right', lineBreak: false }); cx += COLS.cash;
+    doc.text('PAY', cx, hy, { width: COLS.payMode - 4, align: 'center', lineBreak: false }); cx += COLS.payMode;
+    doc.text('BAL RS', cx, hy, { width: COLS.balRs - 4, align: 'right', lineBreak: false }); cx += COLS.balRs;
+    doc.text('CONS%', cx, hy, { width: COLS.consPct - 4, align: 'right', lineBreak: false }); cx += COLS.consPct;
+    doc.text('STATUS', cx, hy, { width: COLS_STATUS_W, align: 'center', characterSpacing: 0.2, lineBreak: false });
   }
 
   private drawPill(
@@ -688,132 +855,140 @@ export class DailySheetPdfService {
     this.drawPill(doc, meta, colX, COLS.statusPill, rowY, rowH);
   }
 
-  private drawDeliveryTable(doc: PDFKit.PDFDocument, items: any[], consumptionRates: ConsumptionRateRow[]): void {
-    const consMap = new Map(consumptionRates.map((r) => [`${r.customerId}:${r.productId}`, r]));
-    let y = this.drawTableHeader(doc, doc.y);
+  private drawDeliveryTableLine(
+    doc: PDFKit.PDFDocument,
+    line: { kind: 'item'; item: any } | { kind: 'total'; items: any[] },
+    consMap: Map<string, ConsumptionRateRow>,
+    x: number,
+    y: number,
+    index: number,
+  ): void {
+    const rowH = 22;
 
-    if (!items.length) {
-      doc.fillColor(C.muted).fontSize(9).font('Helvetica')
-        .text('No delivery items found.', MARGIN, y + 10, { width: CONTENT_W, align: 'center', lineBreak: false });
-      doc.y = y + 30;
+    if (line.kind === 'total') {
+      const items = line.items;
+      const totalDelivered = items.reduce((s, i) => s + (i.filledDropped ?? 0), 0);
+      const totalFilledRecv = items.reduce((s, i) => s + (i.filledReceived ?? 0), 0);
+      const totalEmptyRecv = items.reduce((s, i) => s + (i.emptyReceived ?? 0), 0);
+      const totalCash = items.reduce((s, i) => s + (i.cashCollected ?? 0), 0);
+      const doneCount = items.filter((i) => i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY').length;
+      const editedCount = items.filter((i) => (i.editCount ?? 0) > 0).length;
+
+      // Border-top line + bold text, no fill — matches CustomerStatementPdfService's TOTAL row exactly.
+      doc.moveTo(x + 10, y).lineTo(x + CONTENT_W - 10, y).strokeColor(C.navyText).lineWidth(1).stroke();
+      const ty = y + 7;
+      let cx = x;
+      doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
+        .text('TOTAL', cx + 6, ty, { width: COLS.seq + COLS.code + COLS.customer + COLS.time - 6, lineBreak: false });
+      cx += COLS.seq + COLS.code + COLS.customer + COLS.time;
+      doc.text(String(totalDelivered), cx, ty, { width: COLS.delivered - 4, align: 'right', lineBreak: false });
+      cx += COLS.delivered;
+      doc.text(String(totalFilledRecv), cx, ty, { width: COLS.filledRecv - 4, align: 'right', lineBreak: false });
+      cx += COLS.filledRecv;
+      doc.text(String(totalEmptyRecv), cx, ty, { width: COLS.emptyRecv - 4, align: 'right', lineBreak: false });
+      cx += COLS.emptyRecv + COLS.balBottles;
+      doc.text(this.rs(totalCash), cx, ty, { width: COLS.cash - 4, align: 'right', lineBreak: false });
+      cx += COLS.cash + COLS.payMode + COLS.balRs + COLS.consPct;
+      doc.fontSize(6.3).text(`${doneCount}/${items.length} done · ${editedCount} edited`, cx, ty + 1, { width: COLS_STATUS_W, align: 'center', lineBreak: false });
       return;
     }
 
-    items.forEach((item, index) => {
-      const reason: string | null = item.reason || null;
-      const rowH = reason ? 32 : 20;
+    const { item } = line;
+    if (index % 2 === 1) doc.rect(x + 1, y, CONTENT_W - 2, rowH).fill(C.surface);
 
-      // Page break — redraw table header on the new page
-      if (y + rowH > PAGE_H - FOOTER_ZONE) {
-        doc.addPage();
-        y = this.drawTableHeader(doc, 50);
-      }
+    const reason: string | null = item.reason || null;
+    const textY = reason ? y + 3 : y + 6;
+    let cx = x;
 
-      if (index % 2 === 1) doc.rect(MARGIN, y, CONTENT_W, rowH).fill(C.surface);
+    doc.fillColor(C.textSoft).fontSize(6.5).font('Helvetica')
+      .text(String(item.sequence ?? index + 1), cx + 6, textY, { lineBreak: false });
+    cx += COLS.seq;
 
-      const textY = y + 5;
-      let x = MARGIN;
+    doc.fillColor(C.mutedLt).fontSize(6)
+      .text(item.customer?.customerCode ?? '—', cx + 3, textY + 1, { width: COLS.code - 4, lineBreak: false });
+    cx += COLS.code;
 
-      doc.fillColor(C.textSoft).fontSize(6.5).font('Helvetica')
-        .text(String(item.sequence ?? index + 1), x + 3, textY, { lineBreak: false });
-      x += COLS.seq;
-
-      doc.fillColor(C.mutedLt).fontSize(6)
-        .text(item.customer?.customerCode ?? '—', x + 2, textY + 1, { width: COLS.code - 3, lineBreak: false });
-      x += COLS.code;
-
-      doc.fillColor(C.navyText).fontSize(6.8).font('Helvetica-Bold')
-        .text(item.customer?.name ?? '—', x + 3, textY, { width: COLS.customer - 6, height: 9, ellipsis: true, lineBreak: false });
-      x += COLS.customer;
-
-      doc.fillColor(C.muted).fontSize(6.3).font('Helvetica')
-        .text(item.deliveredAt ? this.hm(item.deliveredAt) : '—', x, textY, { width: COLS.time - 4, align: 'right', lineBreak: false });
-      x += COLS.time;
-
-      doc.fillColor(C.text).fontSize(6.8)
-        .text(String(item.filledDropped ?? 0), x, textY, { width: COLS.delivered - 4, align: 'right', lineBreak: false });
-      x += COLS.delivered;
-
-      doc.text(String(item.filledReceived ?? 0), x, textY, { width: COLS.filledRecv - 4, align: 'right', lineBreak: false });
-      x += COLS.filledRecv;
-
-      doc.text(String(item.emptyReceived ?? 0), x, textY, { width: COLS.emptyRecv - 4, align: 'right', lineBreak: false });
-      x += COLS.emptyRecv;
-
-      // Frozen post-delivery bottle-wallet snapshot — no live query needed.
-      doc.fillColor(C.muted)
-        .text(item.bottleBalanceAfter != null ? String(item.bottleBalanceAfter) : '—', x, textY, { width: COLS.balBottles - 4, align: 'right', lineBreak: false });
-      x += COLS.balBottles;
-
-      doc.fillColor(C.navyText).font('Helvetica-Bold')
-        .text(this.rs(item.cashCollected), x, textY, { width: COLS.cash - 4, align: 'right', lineBreak: false });
-      x += COLS.cash;
-
-      const isMonthly = item.customer?.paymentType === 'MONTHLY';
-      doc.fillColor(isMonthly ? '#1d4ed8' : C.green).font('Helvetica-Bold').fontSize(6)
-        .text(isMonthly ? 'MO' : 'CA', x, textY, { width: COLS.payMode - 2, align: 'center', lineBreak: false });
-      x += COLS.payMode;
-
-      // Same live-balance convention as delivery-items-list.tsx: MONTHLY shows
-      // last month's remaining outstanding, CASH shows current wallet due.
-      const balRs = isMonthly ? (item.customer?.previousMonthOutstanding ?? 0) : (item.customer?.financialBalance ?? 0);
-      doc.fillColor(balRs > 0 ? C.red : C.green).font('Helvetica-Bold').fontSize(6.5)
-        .text(this.rs(balRs), x, textY, { width: COLS.balRs - 4, align: 'right', lineBreak: false });
-      x += COLS.balRs;
-
-      const cons = consMap.get(`${item.customerId}:${item.productId}`);
-      const consColor = cons?.rateStatus === 'ON_TARGET' ? C.green
-        : cons?.rateStatus === 'ATTENTION' ? C.amber
-        : cons?.rateStatus === 'ACTION' ? C.red
-        : C.mutedLt;
-      doc.fillColor(consColor).font('Helvetica-Bold').fontSize(6.3)
-        .text(cons?.consumptionRate ?? 'N/A', x, textY, { width: COLS.consPct - 4, align: 'right', lineBreak: false });
-      x += COLS.consPct;
-
-      this.drawStatusPill(doc, item.status, x, y, reason ? 20 : rowH);
-      if ((item.editCount ?? 0) > 0) {
-        this.drawPill(doc, EDITED_META, x + COLS.statusPill, COLS.editedTag, y, reason ? 20 : rowH);
-      }
-
-      if (reason) {
-        doc.fillColor(C.mutedLt).fontSize(6).font('Helvetica-Oblique')
-          .text(reason, MARGIN + COLS.seq + COLS.code + 3, y + 19, {
-            width: COLS.customer + COLS.time + COLS.delivered + COLS.filledRecv + COLS.emptyRecv + COLS.balBottles + COLS.cash - 6,
-            height: 8, ellipsis: true, lineBreak: false,
-          });
-      }
-
-      y += rowH;
-    });
-
-    // Totals row
-    if (y + 24 > PAGE_H - FOOTER_ZONE) {
-      doc.addPage();
-      y = 50;
+    doc.fillColor(C.navyText).fontSize(6.8).font('Helvetica-Bold')
+      .text(item.customer?.name ?? '—', cx + 3, textY, { width: COLS.customer - 6, height: 9, ellipsis: true, lineBreak: false });
+    if (reason) {
+      // Compact secondary line, same row height — no more separate taller
+      // reason-row (card-table pagination needs a uniform row height).
+      doc.fillColor(C.mutedLt).fontSize(5.3).font('Helvetica-Oblique')
+        .text(reason, cx + 3, textY + 10, { width: COLS.customer - 6, height: 7, ellipsis: true, lineBreak: false });
     }
-    const totalDelivered = items.reduce((s, i) => s + (i.filledDropped ?? 0), 0);
-    const totalFilledRecv = items.reduce((s, i) => s + (i.filledReceived ?? 0), 0);
-    const totalEmptyRecv = items.reduce((s, i) => s + (i.emptyReceived ?? 0), 0);
-    const totalCash = items.reduce((s, i) => s + (i.cashCollected ?? 0), 0);
-    const doneCount = items.filter((i) => i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY').length;
-    const editedCount = items.filter((i) => (i.editCount ?? 0) > 0).length;
+    cx += COLS.customer;
 
-    doc.rect(MARGIN, y, CONTENT_W, 22).fill(C.navy);
-    doc.fillColor(C.white).fontSize(6.8).font('Helvetica-Bold');
-    let x = MARGIN;
-    doc.text('TOTALS', x + 3, y + 7, { characterSpacing: 0.3, lineBreak: false });
-    x += COLS.seq + COLS.code + COLS.customer + COLS.time;
-    doc.text(String(totalDelivered), x, y + 7, { width: COLS.delivered - 4, align: 'right', lineBreak: false });
-    x += COLS.delivered;
-    doc.text(String(totalFilledRecv), x, y + 7, { width: COLS.filledRecv - 4, align: 'right', lineBreak: false });
-    x += COLS.filledRecv;
-    doc.text(String(totalEmptyRecv), x, y + 7, { width: COLS.emptyRecv - 4, align: 'right', lineBreak: false });
-    x += COLS.emptyRecv + COLS.balBottles;
-    doc.text(this.rs(totalCash), x, y + 7, { width: COLS.cash - 4, align: 'right', lineBreak: false });
-    x += COLS.cash + COLS.payMode + COLS.balRs + COLS.consPct;
-    doc.fontSize(6).text(`${doneCount}/${items.length} done · ${editedCount} edited`, x, y + 8, { width: COLS_STATUS_W, align: 'center', lineBreak: false });
+    doc.fillColor(C.muted).fontSize(6.3).font('Helvetica')
+      .text(item.deliveredAt ? this.hm(item.deliveredAt) : '—', cx, textY, { width: COLS.time - 4, align: 'right', lineBreak: false });
+    cx += COLS.time;
 
-    doc.y = y + 30;
+    doc.fillColor(C.text).fontSize(6.8)
+      .text(String(item.filledDropped ?? 0), cx, textY, { width: COLS.delivered - 4, align: 'right', lineBreak: false });
+    cx += COLS.delivered;
+
+    doc.text(String(item.filledReceived ?? 0), cx, textY, { width: COLS.filledRecv - 4, align: 'right', lineBreak: false });
+    cx += COLS.filledRecv;
+
+    doc.text(String(item.emptyReceived ?? 0), cx, textY, { width: COLS.emptyRecv - 4, align: 'right', lineBreak: false });
+    cx += COLS.emptyRecv;
+
+    // Frozen post-delivery bottle-wallet snapshot — no live query needed.
+    doc.fillColor(C.muted)
+      .text(item.bottleBalanceAfter != null ? String(item.bottleBalanceAfter) : '—', cx, textY, { width: COLS.balBottles - 4, align: 'right', lineBreak: false });
+    cx += COLS.balBottles;
+
+    doc.fillColor(C.navyText).font('Helvetica-Bold')
+      .text(this.rs(item.cashCollected), cx, textY, { width: COLS.cash - 4, align: 'right', lineBreak: false });
+    cx += COLS.cash;
+
+    const isMonthly = item.customer?.paymentType === 'MONTHLY';
+    doc.fillColor(isMonthly ? '#1d4ed8' : C.green).font('Helvetica-Bold').fontSize(6)
+      .text(isMonthly ? 'MO' : 'CA', cx, textY, { width: COLS.payMode - 2, align: 'center', lineBreak: false });
+    cx += COLS.payMode;
+
+    // Same live-balance convention as delivery-items-list.tsx: MONTHLY shows
+    // last month's remaining outstanding, CASH shows current wallet due.
+    const balRs = isMonthly ? (item.customer?.previousMonthOutstanding ?? 0) : (item.customer?.financialBalance ?? 0);
+    doc.fillColor(balRs > 0 ? C.red : C.green).font('Helvetica-Bold').fontSize(6.5)
+      .text(this.rs(balRs), cx, textY, { width: COLS.balRs - 4, align: 'right', lineBreak: false });
+    cx += COLS.balRs;
+
+    const cons = consMap.get(`${item.customerId}:${item.productId}`);
+    const consColor = cons?.rateStatus === 'ON_TARGET' ? C.green
+      : cons?.rateStatus === 'ATTENTION' ? C.amber
+      : cons?.rateStatus === 'ACTION' ? C.red
+      : C.mutedLt;
+    doc.fillColor(consColor).font('Helvetica-Bold').fontSize(6.3)
+      .text(cons?.consumptionRate ?? 'N/A', cx, textY, { width: COLS.consPct - 4, align: 'right', lineBreak: false });
+    cx += COLS.consPct;
+
+    this.drawStatusPill(doc, item.status, cx, y + 1, rowH - 2);
+    if ((item.editCount ?? 0) > 0) {
+      this.drawPill(doc, EDITED_META, cx + COLS.statusPill, COLS.editedTag, y + 1, rowH - 2);
+    }
+  }
+
+  private drawDeliveryTable(doc: PDFKit.PDFDocument, items: any[], consumptionRates: ConsumptionRateRow[]): void {
+    const consMap = new Map(consumptionRates.map((r) => [`${r.customerId}:${r.productId}`, r]));
+    const lines: Array<{ kind: 'item'; item: any } | { kind: 'total'; items: any[] }> =
+      items.map((item) => ({ kind: 'item' as const, item }));
+    lines.push({ kind: 'total', items });
+
+    this.drawCardTable(
+      doc,
+      lines,
+      22,
+      22,
+      (x, y, w) => this.drawDeliveryTableHeader(doc, x, y, w),
+      (line, x, y, index) => this.drawDeliveryTableLine(doc, line, consMap, x, y, index),
+      { watermark: true },
+    );
+
+    if (!items.length) {
+      doc.fillColor(C.muted).font('Helvetica').fontSize(8.5)
+        .text('No delivery items found.', MARGIN, doc.y + 8, { width: CONTENT_W, align: 'center' });
+      doc.y += 24;
+    }
   }
 
   // ─── Trip Expenses (only when sheet has any) ─────────────────────────────

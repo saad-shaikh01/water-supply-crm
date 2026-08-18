@@ -1484,6 +1484,27 @@ export class DailySheetService implements OnModuleInit {
     });
   }
 
+  /**
+   * PDF-only enrichment: the full SheetDiscrepancyCase rows for this sheet
+   * (type, reported gap, resolution). findOne()'s own `discrepancyCases`
+   * selection is intentionally lightweight ({id,type,status} — see comment
+   * there, full detail is meant to be fetched on demand from
+   * /sheet-discrepancy-cases when a reviewer clicks through on-screen), so
+   * the printed sheet needs its own richer read. Cases only ever exist on
+   * closed sheets (SheetDiscrepancyCaseService.createCasesForSheet runs
+   * inside closeSheet's transaction), so this is a cheap no-op query on any
+   * still-open sheet.
+   */
+  async getDiscrepancyCaseDetails(vendorId: string, sheetId: string) {
+    return this.prisma.sheetDiscrepancyCase.findMany({
+      where: { vendorId, dailySheetId: sheetId },
+      include: {
+        resolvedBy: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
   async insertItemFromOrder(vendorId: string, sheetId: string, dto: InsertOrderItemDto) {
     const sheet = await this.prisma.dailySheet.findFirst({
       where: { id: sheetId, vendorId },

@@ -558,6 +558,7 @@ export class DailySheetController {
   ) {
     const sheet = await this.dailySheetService.findOne(user.vendorId, id);
     (sheet as any).consumptionRates = await this.dailySheetService.getConsumptionRatesForSheet(user.vendorId, sheet);
+    (sheet as any).discrepancyCaseDetails = await this.dailySheetService.getDiscrepancyCaseDetails(user.vendorId, id);
     const pdfBuffer = await this.pdfService.generate(sheet);
 
     const dateStr = new Date(sheet.date).toISOString().split('T')[0];
@@ -581,6 +582,7 @@ export class DailySheetController {
   ) {
     const sheet = await this.dailySheetService.findOne(user.vendorId, id);
     (sheet as any).consumptionRates = await this.dailySheetService.getConsumptionRatesForSheet(user.vendorId, sheet);
+    (sheet as any).discrepancyCaseDetails = await this.dailySheetService.getDiscrepancyCaseDetails(user.vendorId, id);
     const pdfBuffer = await this.pdfService.generate(sheet);
 
     const dateStr = new Date(sheet.date).toISOString().split('T')[0];
