@@ -245,7 +245,20 @@ export function LoadTripsSection({
                                 Request Edit
                               </Button>
                             )
-                          ) : null}
+                          ) : (
+                            // STAFF/VENDOR_ADMIN can always edit a trip directly — the
+                            // unlock-window check only applies to the DRIVER role
+                            // (mirrors checkinLoad()'s forceResubmit gate exactly, same
+                            // asymmetry as delivery-items-list.tsx's non-driver branch).
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="rounded-full font-bold"
+                              onClick={() => onEditTrip(trip.id)}
+                            >
+                              Edit
+                            </Button>
+                          )}
                           {canManageEditLocks && (
                             <button
                               type="button"
