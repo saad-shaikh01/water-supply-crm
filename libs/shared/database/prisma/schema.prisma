@@ -146,6 +146,7 @@ enum WarehouseTransactionType {
   DISCREPANCY_ADJUST
   ADJUSTMENT
   AUTO_REFILL
+  TRIP_EDIT_CORRECTION
 }
 
 enum RepairBatchStatus {
@@ -689,6 +690,18 @@ model DailySheetLoad {
   leakedOnVan    Int        @default(0) // bottles that leaked during transit
   startedAt      DateTime   @default(now())
   endedAt        DateTime? // null = trip still in progress
+
+  // Trip Edit-Unlock — same fields/semantics as DailySheetItem's edit lock
+  // (editUnlockedBy/editUnlockExpiresAt/editRequestedAt below): a checked-in
+  // trip's numbers are locked; driver requests an edit, staff/admin grants a
+  // time-boxed unlock window, driver re-submits checkinLoad with
+  // forceResubmit=true within that window. editCount/lastEditedAt mirror the
+  // same "was this edited" badge already surfaced for delivery items.
+  editUnlockedBy      String? // userId of staff/admin who unlocked edit
+  editUnlockExpiresAt DateTime? // when unlock window expires (null = locked)
+  editRequestedAt     DateTime? // set when driver requests edit; cleared on admin unlock
+  editCount           Int       @default(0)
+  lastEditedAt        DateTime?
 
   @@index([dailySheetId])
   @@index([dailySheetId, tripNumber])

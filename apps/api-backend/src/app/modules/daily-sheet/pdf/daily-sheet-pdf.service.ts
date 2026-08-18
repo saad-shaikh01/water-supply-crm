@@ -104,14 +104,16 @@ const FOOTER_ZONE = 70; // reserved at page bottom
 const BANNER_H = 76;
 
 // Delivery-items table column geometry (13 cols, sums to CONTENT_W). The
-// STATUS cell carries both the status pill and a secondary EDITED tag, hence
-// the two named sub-widths that together make up the combined status cell.
+// STATUS cell gets the full remaining width — an "edited" delivery is
+// flagged via a colored left-edge accent bar on the whole row instead of a
+// dedicated tag column, so no space sits reserved-but-empty on every
+// non-edited row (see drawDeliveryTableLine).
 const COLS = {
   seq: 14, code: 32, customer: 60, time: 32, delivered: 28, filledRecv: 28,
   emptyRecv: 28, balBottles: 30, cash: 40, payMode: 28, balRs: 40, consPct: 28,
-  statusPill: 75, editedTag: 52.28,
+  status: 127.28,
 };
-const COLS_STATUS_W = COLS.statusPill + COLS.editedTag; // 127.28 — combined status cell width
+const COLS_STATUS_W = COLS.status;
 
 // Trip Summary mini-table column geometry (10 cols, sums to CONTENT_W) — each
 // trip renders its own stacked block (title + this header + one data row),
@@ -417,21 +419,30 @@ export class DailySheetPdfService {
         .text(val, x2, ry + rowH / 2 - 4, { width: col2W - 14, align: 'right', lineBreak: false });
     });
 
-    // COL 3 — three stacked highlight boxes: Gross Cash / Total Expense / Net Cash.
-    // Same underlying formula DailySheetService.buildReconciliation() uses (and
-    // the old single net-cash chip used) so this always agrees with the
-    // eventual closed-sheet reconciliation.
+    // COL 3 — three stacked highlight boxes, sourced exactly like
+    // DailySheetService.buildReconciliation() (the same numbers the
+    // close-sheet review screen uses) — NOT independently recomputed:
+    //  - Gross Cash Collected = totalCashRecorded — sum of every item's
+    //    cashCollected, i.e. cash actually taken from customers during
+    //    deliveries.
+    //  - Total Expense = only cash-paid expenses (card/bank-paid ones are
+    //    excluded — they never touched the driver's cash-in-hand).
+    //  - Net Cash In Hand = sheet.cashCollected — NOT a computed "expected"
+    //    figure. This field is the driver/salesman's ACTUAL physical
+    //    hand-in, incremented by cashHandedIn at every trip's check-in
+    //    (checkinLoad()). It can legitimately differ from
+    //    Gross − Expense − Crew Cash — that gap is the discrepancy the
+    //    "Bottle & Cash Summary" verdict banner below reports once the
+    //    sheet is closed (sheet.cashExpected holds that computed figure).
     const totalItemCash = (sheet.items ?? []).reduce((s: number, i: any) => s + (i.cashCollected ?? 0), 0);
     const totalExpenses = (sheet.expenses ?? [])
       .filter((e: any) => e.paidFromCash !== false)
       .reduce((s: number, e: any) => s + (e.amount ?? 0), 0);
-    const totalCrewCash = (sheet.crewCashDistributions ?? []).reduce((s: number, c: any) => s + (c.amount ?? 0), 0);
-    const netCash = Math.max(0, totalItemCash - totalExpenses - totalCrewCash);
 
     const chips: [string, string, string][] = [
-      ['GROSS CASH COLLECTED', this.rs(sheet.cashCollected), C.navy],
+      ['GROSS CASH COLLECTED', this.rs(totalItemCash), C.navy],
       ['TOTAL EXPENSE', this.rs(totalExpenses), C.textSoft],
-      ['NET CASH IN HAND', this.rs(netCash), C.accent],
+      ['NET CASH IN HAND', this.rs(sheet.cashCollected), C.accent],
     ];
     const chipPad = 8;
     const chipGap = 6;
@@ -852,7 +863,7 @@ export class DailySheetPdfService {
 
   private drawStatusPill(doc: PDFKit.PDFDocument, status: string, colX: number, rowY: number, rowH: number): void {
     const meta = STATUS_META[status] ?? { label: status, bg: '#f1f5f9', text: '#475569' };
-    this.drawPill(doc, meta, colX, COLS.statusPill, rowY, rowH);
+    this.drawPill(doc, meta, colX, COLS.status, rowY, rowH);
   }
 
   private drawDeliveryTableLine(
@@ -895,6 +906,15 @@ export class DailySheetPdfService {
 
     const { item } = line;
     if (index % 2 === 1) doc.rect(x + 1, y, CONTENT_W - 2, rowH).fill(C.surface);
+
+    // Edited delivery — flagged with a colored left-edge accent bar on the
+    // whole row (same accent-bar language as drawSectionTitle/drawTitleRow)
+    // instead of a dedicated tag column, so the STATUS cell keeps its full
+    // width on every other row instead of reserving empty space for this.
+    const isEdited = (item.editCount ?? 0) > 0;
+    if (isEdited) {
+      doc.roundedRect(x + 1, y + 2, 3, rowH - 4, 1.5).fill(EDITED_META.text);
+    }
 
     const reason: string | null = item.reason || null;
     const textY = reason ? y + 3 : y + 6;
@@ -963,9 +983,6 @@ export class DailySheetPdfService {
     cx += COLS.consPct;
 
     this.drawStatusPill(doc, item.status, cx, y + 1, rowH - 2);
-    if ((item.editCount ?? 0) > 0) {
-      this.drawPill(doc, EDITED_META, cx + COLS.statusPill, COLS.editedTag, y + 1, rowH - 2);
-    }
   }
 
   private drawDeliveryTable(doc: PDFKit.PDFDocument, items: any[], consumptionRates: ConsumptionRateRow[]): void {

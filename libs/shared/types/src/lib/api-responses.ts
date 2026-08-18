@@ -325,8 +325,16 @@ export interface LoadTrip {
   returnedFilled: number;
   collectedEmpty: number;
   cashHandedIn: number;
+  damagedOnVan: number;
+  leakedOnVan: number;
   startedAt: string;
   endedAt: string | null;
+  /** Trip Edit-Unlock — mirrors DeliveryItem's own editUnlockedBy/editUnlockExpiresAt/editRequestedAt/editCount/lastEditedAt. */
+  editUnlockedBy?: string | null;
+  editUnlockExpiresAt?: string | null;
+  editRequestedAt?: string | null;
+  editCount?: number;
+  lastEditedAt?: string | null;
 }
 
 export interface SheetExpense {

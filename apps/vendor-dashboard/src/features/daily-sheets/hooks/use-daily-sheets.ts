@@ -382,6 +382,32 @@ export const useRequestDeliveryEdit = (sheetId: string) => {
   });
 };
 
+// Trip Edit-Unlock — same shape as the delivery-item pair above.
+export const useUnlockTripEdit = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ loadId, windowMinutes }: { loadId: string; windowMinutes?: number }) =>
+      dailySheetsApi.unlockTripEdit(sheetId, loadId, windowMinutes ? { windowMinutes } : undefined),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
+      toast.success('Edit unlocked for 30 minutes');
+    },
+    onError: () => toast.error('Failed to unlock edit'),
+  });
+};
+
+export const useRequestTripEdit = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (loadId: string) => dailySheetsApi.requestTripEdit(sheetId, loadId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
+      toast.success('Edit request sent to admin');
+    },
+    onError: () => toast.error('Failed to send edit request'),
+  });
+};
+
 export const useDeliveryPhotoUrl = (itemId: string, enabled: boolean) => {
   return useQuery({
     queryKey: ['delivery-photo-url', itemId],

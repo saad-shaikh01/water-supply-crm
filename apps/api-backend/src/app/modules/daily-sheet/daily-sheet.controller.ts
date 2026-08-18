@@ -539,7 +539,33 @@ export class DailySheetController {
     @Param('loadId') loadId: string,
     @Body() dto: CheckinLoadDto,
   ) {
-    return this.dailySheetService.checkinLoad(user.vendorId, id, loadId, dto);
+    return this.dailySheetService.checkinLoad(user, id, loadId, dto);
+  }
+
+  // Trip Edit-Unlock — driver requests an unlock on their own checked-in trip
+  // (part of the driver edit flow, same permission trips already use for check-in).
+  @Patch(':id/loads/:loadId/request-edit')
+  @RequirePermissions('daily_sheets:check_in')
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
+  requestTripEdit(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('loadId') loadId: string,
+  ) {
+    return this.dailySheetService.requestTripEdit(user, id, loadId);
+  }
+
+  // Staff override that grants edit access on a locked trip — NOT a driver capability.
+  @Patch(':id/loads/:loadId/unlock-edit')
+  @RequirePermissions('daily_sheets:manage_edit_locks')
+  @Throttle({ short: { ttl: 1000, limit: 10 }, medium: { ttl: 60000, limit: 30 } })
+  unlockTripEdit(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('loadId') loadId: string,
+    @Body() dto: UnlockEditDto,
+  ) {
+    return this.dailySheetService.unlockTripEdit(user, id, loadId, dto);
   }
 
   @Get(':id/loads')

@@ -221,6 +221,10 @@ export const dailySheetsApi = {
     apiClient.patch(`/daily-sheets/${id}/loads/${loadId}/checkin`, data),
   getLoads: (id: string) =>
     apiClient.get(`/daily-sheets/${id}/loads`),
+  requestTripEdit: (id: string, loadId: string) =>
+    apiClient.patch(`/daily-sheets/${id}/loads/${loadId}/request-edit`, {}),
+  unlockTripEdit: (id: string, loadId: string, data?: { windowMinutes?: number }) =>
+    apiClient.patch(`/daily-sheets/${id}/loads/${loadId}/unlock-edit`, data ?? {}),
   getCustomerDeliveryHistory: (customerId: string, limit = 6) =>
     apiClient.get(`/daily-sheets/customers/${customerId}/delivery-history`, { params: { limit } }),
   getCustomerFinancialSummary: (customerId: string, sheetId: string) =>

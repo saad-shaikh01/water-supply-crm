@@ -3,7 +3,7 @@
 import { useReducer, useMemo, useEffect, useRef, useState } from 'react';
 import { useQueryState, parseAsString } from 'nuqs';
 import { Button, Card, CardContent, Input, Skeleton } from '@water-supply-crm/ui';
-import { useDailySheet, useUpdateCustomerLocation, useUnlockDeliveryEdit, useRequestDeliveryEdit } from '../hooks/use-daily-sheets';
+import { useDailySheet, useUpdateCustomerLocation, useUnlockDeliveryEdit, useRequestDeliveryEdit, useUnlockTripEdit, useRequestTripEdit } from '../hooks/use-daily-sheets';
 import { dailySheetsApi } from '../api/daily-sheets.api';
 import { CheckinDialog } from './dialogs/checkin-dialog';
 import { NewTripDialog } from './dialogs/new-trip-dialog';
@@ -48,6 +48,8 @@ import { useDiscrepancyCases } from '../../discrepancy-cases/hooks/use-discrepan
 interface UiState {
   newTripOpen: boolean;
   checkinOpen: string | null;
+  /** Trip Edit-Unlock — the load id currently being re-edited (post check-in). */
+  editTripOpen: string | null;
   swapOpen: boolean;
   crewConfirmOpen: boolean;
   reconcileOpen: boolean;
@@ -76,6 +78,8 @@ type UiAction =
   | { type: 'CLOSE_NEW_TRIP' }
   | { type: 'OPEN_CHECKIN'; tripId: string }
   | { type: 'CLOSE_CHECKIN' }
+  | { type: 'OPEN_EDIT_TRIP'; tripId: string }
+  | { type: 'CLOSE_EDIT_TRIP' }
   | { type: 'OPEN_SWAP' }
   | { type: 'CLOSE_SWAP' }
   | { type: 'OPEN_CREW_CONFIRM' }
@@ -111,6 +115,7 @@ type UiAction =
 const initialUiState: UiState = {
   newTripOpen: false,
   checkinOpen: null,
+  editTripOpen: null,
   swapOpen: false,
   crewConfirmOpen: false,
   reconcileOpen: false,
@@ -136,6 +141,8 @@ function uiReducer(state: UiState, action: UiAction): UiState {
     case 'CLOSE_NEW_TRIP': return { ...state, newTripOpen: false };
     case 'OPEN_CHECKIN': return { ...state, checkinOpen: action.tripId };
     case 'CLOSE_CHECKIN': return { ...state, checkinOpen: null };
+    case 'OPEN_EDIT_TRIP': return { ...state, editTripOpen: action.tripId };
+    case 'CLOSE_EDIT_TRIP': return { ...state, editTripOpen: null };
     case 'OPEN_SWAP': return { ...state, swapOpen: true, crewConfirmOpen: false };
     case 'CLOSE_SWAP': return { ...state, swapOpen: false };
     case 'OPEN_CREW_CONFIRM': return { ...state, crewConfirmOpen: true };
@@ -232,6 +239,8 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const updateCustomerLocation = useUpdateCustomerLocation(sheetId);
   const unlockDeliveryEdit = useUnlockDeliveryEdit(sheetId);
   const requestDeliveryEdit = useRequestDeliveryEdit(sheetId);
+  const unlockTripEdit = useUnlockTripEdit(sheetId);
+  const requestTripEdit = useRequestTripEdit(sheetId);
   const [ui, dispatch] = useReducer(uiReducer, initialUiState);
   const [sortMode, setSortMode] = useState<SortMode>('sequence');
   const [searchQuery, setSearchQuery] = useState('');
@@ -855,6 +864,13 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
           dispatch({ type: 'OPEN_RECONCILE' });
         }}
         onCheckin={(tripId) => dispatch({ type: 'OPEN_CHECKIN', tripId })}
+        isDriver={isDriver}
+        canManageEditLocks={canManageEditLocks}
+        onEditTrip={(loadId) => dispatch({ type: 'OPEN_EDIT_TRIP', tripId: loadId })}
+        onRequestEditTrip={(loadId) => requestTripEdit.mutate(loadId)}
+        requestingTripId={requestTripEdit.isPending ? ((requestTripEdit.variables as any) ?? null) : null}
+        onUnlockEditTrip={(loadId) => unlockTripEdit.mutate({ loadId })}
+        unlockingTripId={unlockTripEdit.isPending ? ((unlockTripEdit.variables as any)?.loadId ?? null) : null}
       />
 
       <SheetCashOutSection
@@ -1045,6 +1061,25 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         sheetId={sheetId}
         trip={activeLoad ?? undefined}
         suggestedValues={{ returnedFilled: suggestedReturned, collectedEmpty: suggestedEmpty, cashHandedIn: suggestedCash }}
+      />
+      {/* Trip Edit-Unlock — separate instance so an in-progress fresh check-in
+          and a re-edit of an already-checked-in trip never share dialog state. */}
+      <CheckinDialog
+        open={ui.editTripOpen}
+        onClose={() => dispatch({ type: 'CLOSE_EDIT_TRIP' })}
+        sheetId={sheetId}
+        mode="edit"
+        trip={loads.find((l: any) => l.id === ui.editTripOpen) ?? undefined}
+        editValues={(() => {
+          const editingLoad = loads.find((l: any) => l.id === ui.editTripOpen);
+          return editingLoad ? {
+            returnedFilled: editingLoad.returnedFilled,
+            collectedEmpty: editingLoad.collectedEmpty,
+            damagedOnVan: editingLoad.damagedOnVan,
+            leakedOnVan: editingLoad.leakedOnVan,
+            cashHandedIn: editingLoad.cashHandedIn,
+          } : undefined;
+        })()}
       />
       <SwapDialog
         open={ui.swapOpen}

@@ -15,6 +15,12 @@ interface CheckinDialogProps {
   sheetId: string;
   trip?: { loadedFilled: number };
   suggestedValues?: { returnedFilled: number; collectedEmpty: number; cashHandedIn: number };
+  /** Trip Edit-Unlock: editing an already-checked-in trip (within an active
+   * unlock window) instead of a fresh check-in — pre-fills from the trip's
+   * REAL recorded values (not system-suggested ones) and submits with
+   * forceResubmit: true on the same checkin endpoint. */
+  mode?: 'checkin' | 'edit';
+  editValues?: { returnedFilled: number; collectedEmpty: number; damagedOnVan: number; leakedOnVan: number; cashHandedIn: number };
 }
 
 interface CheckinForm {
@@ -30,29 +36,44 @@ interface CheckinForm {
 // them instead of recounting from scratch — still fully editable. Damaged/
 // leaked have no computable source (physical van inspection only), so they
 // always start empty.
-const buildInitialForm = (suggestedValues?: { returnedFilled: number; collectedEmpty: number; cashHandedIn: number }): CheckinForm => ({
-  returnedFilled: suggestedValues?.returnedFilled ?? '',
-  collectedEmpty: suggestedValues?.collectedEmpty ?? '',
-  damagedOnVan: '',
-  leakedOnVan: '',
-  cashHandedIn: suggestedValues?.cashHandedIn ?? 0,
-});
+const buildInitialForm = (
+  suggestedValues?: { returnedFilled: number; collectedEmpty: number; cashHandedIn: number },
+  editValues?: { returnedFilled: number; collectedEmpty: number; damagedOnVan: number; leakedOnVan: number; cashHandedIn: number },
+): CheckinForm => {
+  if (editValues) {
+    return {
+      returnedFilled: editValues.returnedFilled,
+      collectedEmpty: editValues.collectedEmpty,
+      damagedOnVan: editValues.damagedOnVan,
+      leakedOnVan: editValues.leakedOnVan,
+      cashHandedIn: editValues.cashHandedIn,
+    };
+  }
+  return {
+    returnedFilled: suggestedValues?.returnedFilled ?? '',
+    collectedEmpty: suggestedValues?.collectedEmpty ?? '',
+    damagedOnVan: '',
+    leakedOnVan: '',
+    cashHandedIn: suggestedValues?.cashHandedIn ?? 0,
+  };
+};
 
-export function CheckinDialog({ open, onClose, sheetId, trip, suggestedValues }: CheckinDialogProps) {
+export function CheckinDialog({ open, onClose, sheetId, trip, suggestedValues, mode = 'checkin', editValues }: CheckinDialogProps) {
   const { mutate: checkinLoad, isPending } = useCheckinLoad(sheetId);
-  const [form, setForm] = useState<CheckinForm>(buildInitialForm(suggestedValues));
+  const [form, setForm] = useState<CheckinForm>(buildInitialForm(suggestedValues, editValues));
+  const isEdit = mode === 'edit';
 
-  // Sync form with suggested values each time the dialog opens
+  // Sync form with suggested/edit values each time the dialog opens
   useEffect(() => {
     if (open) {
-      setForm(buildInitialForm(suggestedValues));
+      setForm(buildInitialForm(suggestedValues, editValues));
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleOpen = (isOpen: boolean) => {
     if (!isOpen) {
       onClose();
-      setForm(buildInitialForm(suggestedValues));
+      setForm(buildInitialForm(suggestedValues, editValues));
     }
   };
 
@@ -62,7 +83,7 @@ export function CheckinDialog({ open, onClose, sheetId, trip, suggestedValues }:
         <DialogHeader>
           <DialogTitle className="text-xl font-black flex items-center gap-2">
             <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-            Trip Check-In
+            {isEdit ? 'Edit Trip Check-In' : 'Trip Check-In'}
           </DialogTitle>
         </DialogHeader>
         {trip && (
@@ -143,13 +164,14 @@ export function CheckinDialog({ open, onClose, sheetId, trip, suggestedValues }:
                 collectedEmpty: form.collectedEmpty === '' ? 0 : form.collectedEmpty,
                 damagedOnVan: form.damagedOnVan === '' ? 0 : form.damagedOnVan,
                 leakedOnVan: form.leakedOnVan === '' ? 0 : form.leakedOnVan,
+                ...(isEdit ? { forceResubmit: true } : {}),
               },
             }, { onSuccess: onClose })}
             disabled={isPending}
             className="rounded-xl font-bold"
           >
             {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-            Confirm Check-In
+            {isEdit ? 'Save Changes' : 'Confirm Check-In'}
           </Button>
         </DialogFooter>
       </DialogContent>

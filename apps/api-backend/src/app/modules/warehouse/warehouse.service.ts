@@ -721,6 +721,34 @@ export class WarehouseService implements OnModuleInit {
     );
   }
 
+  /**
+   * Trip Edit-Unlock: applies the SIGNED delta correction to a trip's
+   * check-in figures once already recorded (DailySheetService.checkinLoad's
+   * forceResubmit path). Unlike recordCheckinFilled/Empty/Damaged/Leaked
+   * above (add-only — they no-op on <=0 to keep the first-time check-in call
+   * sites simple), a correction can legitimately move a count in either
+   * direction, so this calls applyDeltas directly with whatever signed
+   * deltas are non-zero, tagged with the dedicated TRIP_EDIT_CORRECTION
+   * ledger type so it reads distinctly from a normal check-in row.
+   */
+  async recordCheckinCorrection(
+    vendorId: string,
+    productId: string,
+    deltas: { filledDelta?: number; emptyDelta?: number; damagedDelta?: number; leakedDelta?: number },
+    dailySheetId: string,
+    tx: Prisma.TransactionClient,
+  ) {
+    if (!Object.values(deltas).some((d) => d)) return; // nothing changed — skip an empty ledger row
+    await this.applyDeltas(
+      vendorId,
+      productId,
+      deltas,
+      WarehouseTransactionType.TRIP_EDIT_CORRECTION,
+      { dailySheetId },
+      tx,
+    );
+  }
+
   // ─── Auto-refill (nightly, opt-in) ─────────────────────────────────────────
   // Temporary policy toggle: when enabled, every emptyCount bottle collected
   // from customers is treated as filled again by the next morning, without

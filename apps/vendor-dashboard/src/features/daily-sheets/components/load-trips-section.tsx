@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Card, CardContent, Button, Badge } from '@water-supply-crm/ui';
-import { AlertCircle, Clock, Plus, Truck } from 'lucide-react';
+import { AlertCircle, Clock, Loader2, Lock, Plus, Send, Truck, Unlock } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { motion } from 'framer-motion';
 import type { LoadTrip } from '@water-supply-crm/types';
@@ -24,6 +24,14 @@ interface LoadTripsSectionProps {
   /** Soft Close (Amendment R9) — Driver/Salesman self-close trigger. */
   onRequestClose: () => void;
   onCheckin: (tripId: string) => void;
+  // Trip Edit-Unlock — same shape as delivery-items-list.tsx's edit-unlock props.
+  isDriver: boolean;
+  canManageEditLocks: boolean;
+  onEditTrip: (loadId: string) => void;
+  onRequestEditTrip: (loadId: string) => void;
+  requestingTripId: string | null;
+  onUnlockEditTrip: (loadId: string) => void;
+  unlockingTripId: string | null;
 }
 
 export function LoadTripsSection({
@@ -38,6 +46,13 @@ export function LoadTripsSection({
   onReconcile,
   onRequestClose,
   onCheckin,
+  isDriver,
+  canManageEditLocks,
+  onEditTrip,
+  onRequestEditTrip,
+  requestingTripId,
+  onUnlockEditTrip,
+  unlockingTripId,
 }: LoadTripsSectionProps) {
   const [now, setNow] = useState(() => new Date());
 
@@ -111,6 +126,9 @@ export function LoadTripsSection({
             const duration = trip.endedAt
               ? Math.round((new Date(trip.endedAt).getTime() - new Date(trip.startedAt).getTime()) / 60000)
               : null;
+            // Trip Edit-Unlock — same hasActiveEditUnlock shape as delivery-items-list.tsx.
+            const hasActiveEditUnlock =
+              !!trip.editUnlockExpiresAt && new Date(trip.editUnlockExpiresAt) > new Date();
 
             return (
               <motion.div
@@ -188,7 +206,81 @@ export function LoadTripsSection({
                           Check In
                         </Button>
                       )}
+
+                      {/* Trip Edit-Unlock — mirrors delivery-items-list.tsx's button
+                          cluster exactly: driver's 3-state Edit/Requested/Request Edit,
+                          plus staff's pulsing Unlock icon-button. */}
+                      {!isActive && !isClosed && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          {isDriver ? (
+                            hasActiveEditUnlock ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="rounded-full font-bold border-amber-500/50 text-amber-600 hover:bg-amber-500/10"
+                                onClick={() => onEditTrip(trip.id)}
+                              >
+                                Edit
+                              </Button>
+                            ) : trip.editRequestedAt ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled
+                                className="rounded-full font-bold opacity-60 cursor-not-allowed border-blue-500/40 text-blue-500"
+                              >
+                                <Send className="h-3 w-3 mr-1" /> Requested
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={requestingTripId === trip.id}
+                                onClick={() => onRequestEditTrip(trip.id)}
+                                className="rounded-full font-bold border-amber-500/40 text-amber-600 hover:bg-amber-500/10"
+                              >
+                                {requestingTripId === trip.id
+                                  ? <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                  : <Lock className="h-3 w-3 mr-1" />}
+                                Request Edit
+                              </Button>
+                            )
+                          ) : null}
+                          {canManageEditLocks && (
+                            <button
+                              type="button"
+                              className={cn(
+                                'h-8 w-8 rounded-full flex items-center justify-center transition-colors relative',
+                                trip.editRequestedAt && !hasActiveEditUnlock
+                                  ? 'text-amber-600 bg-amber-500/15 hover:bg-amber-500/25'
+                                  : 'text-muted-foreground hover:text-amber-600 hover:bg-amber-500/10',
+                              )}
+                              title={trip.editRequestedAt && !hasActiveEditUnlock ? 'Driver requested edit — click to unlock' : 'Unlock edit for driver'}
+                              disabled={unlockingTripId === trip.id}
+                              onClick={() => onUnlockEditTrip(trip.id)}
+                            >
+                              {unlockingTripId === trip.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <>
+                                  <Unlock className="h-3.5 w-3.5" />
+                                  {trip.editRequestedAt && !hasActiveEditUnlock && (
+                                    <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                                  )}
+                                </>
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
+
+                    {hasActiveEditUnlock && (
+                      <p className="text-[11px] font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1 mt-2">
+                        <Unlock className="h-3 w-3" />
+                        Edit unlocked · expires {new Date(trip.editUnlockExpiresAt!).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                      </p>
+                    )}
                   </CardContent>
                 </Card>
               </motion.div>

@@ -1820,7 +1820,8 @@ export class DailySheetService implements OnModuleInit {
     return load;
   }
 
-  async checkinLoad(vendorId: string, sheetId: string, loadId: string, dto: CheckinLoadDto) {
+  async checkinLoad(user: AuthUser, sheetId: string, loadId: string, dto: CheckinLoadDto) {
+    const vendorId = user.vendorId;
     const sheet = await this.prisma.dailySheet.findFirst({
       where: { id: sheetId, vendorId },
     });
@@ -1831,7 +1832,21 @@ export class DailySheetService implements OnModuleInit {
       where: { id: loadId, dailySheetId: sheetId },
     });
     if (!load) throw new NotFoundException('Load trip not found');
-    if (load.endedAt) throw new ConflictException('Trip already checked in');
+    if (load.endedAt && !dto.forceResubmit) {
+      throw new ConflictException('Trip already checked in');
+    }
+
+    // Trip Edit-Unlock: re-submitting an already-checked-in trip. Drivers may
+    // only do this within an active staff/admin-granted unlock window;
+    // STAFF/VENDOR_ADMIN bypass the unlock check entirely (same asymmetry as
+    // submitDelivery's forceResubmit gate for delivery items).
+    const isEdit = !!(dto.forceResubmit && load.endedAt);
+    if (isEdit && user.role === 'DRIVER') {
+      const hasActiveUnlock = load.editUnlockExpiresAt && load.editUnlockExpiresAt > new Date();
+      if (!hasActiveUnlock) {
+        throw new ForbiddenException('Edit not permitted. Ask staff to unlock this trip first.');
+      }
+    }
 
     // Filled bottles received back from customers (account closing / excess stock
     // returns) during this trip physically add to the van's filled stock too — so
@@ -1850,6 +1865,37 @@ export class DailySheetService implements OnModuleInit {
       );
     }
 
+    if (isEdit) {
+      await this.audit.log({
+        vendorId,
+        userId: user.userId,
+        userName: user.name,
+        action: 'TRIP_EDIT_OVERRIDE',
+        entity: 'DailySheetLoad',
+        entityId: loadId,
+        changes: {
+          before: {
+            returnedFilled: load.returnedFilled, collectedEmpty: load.collectedEmpty,
+            cashHandedIn: load.cashHandedIn, damagedOnVan: load.damagedOnVan, leakedOnVan: load.leakedOnVan,
+          },
+          after: {
+            returnedFilled: dto.returnedFilled, collectedEmpty: dto.collectedEmpty,
+            cashHandedIn: dto.cashHandedIn, damagedOnVan: dto.damagedOnVan, leakedOnVan: dto.leakedOnVan,
+          },
+        },
+      });
+    }
+
+    // On a first-time check-in these equal the raw dto values (nothing to net
+    // against yet); on an edit they're the SIGNED delta against what was
+    // already recorded — applying the raw new value again would double-count
+    // the original check-in in both the sheet aggregates and the warehouse ledger.
+    const dReturned = isEdit ? dto.returnedFilled - load.returnedFilled : dto.returnedFilled;
+    const dEmpty = isEdit ? dto.collectedEmpty - load.collectedEmpty : dto.collectedEmpty;
+    const dCash = isEdit ? dto.cashHandedIn - load.cashHandedIn : dto.cashHandedIn;
+    const dDamaged = isEdit ? dto.damagedOnVan - load.damagedOnVan : dto.damagedOnVan;
+    const dLeaked = isEdit ? dto.leakedOnVan - load.leakedOnVan : dto.leakedOnVan;
+
     const checkinResult = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.dailySheetLoad.update({
         where: { id: loadId },
@@ -1859,25 +1905,38 @@ export class DailySheetService implements OnModuleInit {
           cashHandedIn: dto.cashHandedIn,
           damagedOnVan: dto.damagedOnVan,
           leakedOnVan: dto.leakedOnVan,
-          endedAt: new Date(),
+          // Preserve the original check-in timestamp on an edit — resetting
+          // it would corrupt the trip's time window (used elsewhere to
+          // bucket items/expenses into this trip, e.g. the Daily Sheet PDF).
+          endedAt: isEdit ? load.endedAt : new Date(),
+          ...(isEdit ? { editCount: { increment: 1 }, lastEditedAt: new Date() } : {}),
         },
       });
 
-      // Update sheet-level aggregates
+      // Update sheet-level aggregates — by the delta, so an edit only ever
+      // adjusts by the difference, never re-applies the full new value.
       await tx.dailySheet.update({
         where: { id: sheetId },
         data: {
-          filledInCount: { increment: dto.returnedFilled },
-          emptyInCount: { increment: dto.collectedEmpty },
-          cashCollected: { increment: dto.cashHandedIn },
+          filledInCount: { increment: dReturned },
+          emptyInCount: { increment: dEmpty },
+          cashCollected: { increment: dCash },
         },
       });
 
       if (load.productId) {
-        await this.warehouse.recordCheckinFilled(vendorId, load.productId, dto.returnedFilled, sheetId, tx);
-        await this.warehouse.recordCheckinEmpty(vendorId, load.productId, dto.collectedEmpty, sheetId, tx);
-        await this.warehouse.recordCheckinDamaged(vendorId, load.productId, dto.damagedOnVan, sheetId, tx);
-        await this.warehouse.recordCheckinLeaked(vendorId, load.productId, dto.leakedOnVan, sheetId, tx);
+        if (isEdit) {
+          await this.warehouse.recordCheckinCorrection(
+            vendorId, load.productId,
+            { filledDelta: dReturned, emptyDelta: dEmpty, damagedDelta: dDamaged, leakedDelta: dLeaked },
+            sheetId, tx,
+          );
+        } else {
+          await this.warehouse.recordCheckinFilled(vendorId, load.productId, dReturned, sheetId, tx);
+          await this.warehouse.recordCheckinEmpty(vendorId, load.productId, dEmpty, sheetId, tx);
+          await this.warehouse.recordCheckinDamaged(vendorId, load.productId, dDamaged, sheetId, tx);
+          await this.warehouse.recordCheckinLeaked(vendorId, load.productId, dLeaked, sheetId, tx);
+        }
       }
 
       return updated;
@@ -1887,6 +1946,115 @@ export class DailySheetService implements OnModuleInit {
     await this.cache.invalidateDailyDashboard(vendorId, sheetDateCL);
 
     return checkinResult;
+  }
+
+  /**
+   * Trip Edit-Unlock — driver requests an edit on their own already-checked-in
+   * trip. Mirrors requestDeliveryEdit() exactly (own-driver-only, notifies
+   * every vendor STAFF/VENDOR_ADMIN); the actual edit happens via
+   * checkinLoad({ forceResubmit: true }) once staff grants an unlock window.
+   */
+  async requestTripEdit(user: AuthUser, sheetId: string, loadId: string) {
+    const load = await this.prisma.dailySheetLoad.findFirst({
+      where: { id: loadId, dailySheetId: sheetId },
+      include: { dailySheet: { select: { id: true, vendorId: true, driverId: true, date: true } } },
+    });
+
+    if (!load || load.dailySheet.vendorId !== user.vendorId) {
+      throw new NotFoundException('Load trip not found');
+    }
+    if (load.dailySheet.driverId !== user.userId) {
+      throw new ForbiddenException('Only the assigned driver can request an edit');
+    }
+    if (!load.endedAt) {
+      throw new BadRequestException('Trip has not been checked in yet');
+    }
+
+    const updated = await this.prisma.dailySheetLoad.update({
+      where: { id: loadId },
+      data: { editRequestedAt: new Date() },
+    });
+
+    const sheetId2 = load.dailySheet.id;
+    const driverName = user.name ?? 'Driver';
+    const dateStr = new Date(load.dailySheet.date).toLocaleDateString('en-PK', {
+      day: 'numeric', month: 'short',
+    });
+
+    const adminUsers = await this.prisma.user.findMany({
+      where: { vendorId: user.vendorId, role: { in: ['VENDOR_ADMIN', 'STAFF'] }, isActive: true },
+      select: { id: true },
+    });
+
+    await Promise.all(
+      adminUsers.map(async (admin) => {
+        await this.inAppNotifications.create({
+          userId: admin.id,
+          vendorId: user.vendorId,
+          type: 'TRIP_EDIT_REQUESTED',
+          title: `Trip Edit Request — Trip ${load.tripNumber}`,
+          message: `${driverName} requests to edit Trip ${load.tripNumber}'s check-in (${dateStr}).`,
+          entityId: sheetId2,
+        });
+        await this.notifications.queueFcm(
+          admin.id,
+          `Trip Edit Request — Trip ${load.tripNumber}`,
+          `${driverName} wants to edit Trip ${load.tripNumber}'s check-in (${dateStr}).`,
+          { type: 'TRIP_EDIT_REQUESTED', sheetId: sheetId2 },
+        );
+      }),
+    );
+
+    return updated;
+  }
+
+  /**
+   * Trip Edit-Unlock — staff override that grants a time-boxed edit window on
+   * a locked trip. Mirrors unlockDeliveryEdit() exactly; reuses UnlockEditDto
+   * verbatim (windowMinutes 1-120, default 30).
+   */
+  async unlockTripEdit(user: AuthUser, sheetId: string, loadId: string, dto: UnlockEditDto) {
+    const load = await this.prisma.dailySheetLoad.findFirst({
+      where: { id: loadId, dailySheetId: sheetId },
+      include: { dailySheet: { select: { vendorId: true } } },
+    });
+
+    if (!load || load.dailySheet.vendorId !== user.vendorId) {
+      throw new NotFoundException('Load trip not found');
+    }
+    if (!load.endedAt) {
+      throw new BadRequestException('Trip has not been checked in yet');
+    }
+
+    const windowMinutes = dto.windowMinutes ?? 30;
+    const expiresAt = new Date(Date.now() + windowMinutes * 60 * 1000);
+
+    const updated = await this.prisma.dailySheetLoad.update({
+      where: { id: loadId },
+      data: {
+        editUnlockedBy: user.userId,
+        editUnlockExpiresAt: expiresAt,
+        editRequestedAt: null,
+      },
+    });
+
+    await this.audit.log({
+      vendorId: user.vendorId,
+      userId: user.userId,
+      userName: user.name,
+      action: 'TRIP_EDIT_UNLOCK',
+      entity: 'DailySheetLoad',
+      entityId: loadId,
+      changes: {
+        after: {
+          unlockedBy: user.userId,
+          windowMinutes,
+          expiresAt: expiresAt.toISOString(),
+        },
+      },
+    });
+
+    return updated;
   }
 
   async getLoads(vendorId: string, sheetId: string) {
