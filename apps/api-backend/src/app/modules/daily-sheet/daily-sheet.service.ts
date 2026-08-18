@@ -12,7 +12,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '@water-supply-crm/database';
 import { QUEUE_NAMES, JOB_NAMES, NOTIFICATION_EVENTS } from '@water-supply-crm/queue';
-import { DeliveryStatus, PaymentType, TransactionType, NotificationType, NotificationChannel, Prisma, CrewRole, UserRole } from '@prisma/client';
+import { DeliveryStatus, PaymentType, TransactionType, NotificationType, NotificationChannel, Prisma, CrewRole, UserRole, DamageCaseType, DamageCaseStatus } from '@prisma/client';
 import { GenerateSheetsDto } from './dto/generate-sheets.dto';
 import { SubmitDeliveryDto } from './dto/submit-delivery.dto';
 import { LoadOutDto } from './dto/load-out.dto';
@@ -1342,6 +1342,146 @@ export class DailySheetService implements OnModuleInit {
     (sheet as any).cashCollectionPolicy = await this.collectionPolicy.getCashPolicy(vendorId);
 
     return sheet;
+  }
+
+  /**
+   * PDF-only batched Consumption Ratio (Daily Sheet PDF redesign). Reuses the
+   * exact wallet-depletion formula from CustomerService.getConsumptionStats()
+   * (avgFilledPerDelivery ÷ periodEndWalletBalance × 100, same ON_TARGET
+   * 70-90 / ATTENTION 50-70|90-100 / ACTION bands) but:
+   *  - anchors the 30-day window at the SHEET'S DATE (historical), not "now",
+   *    so a reprinted old sheet always shows the same number it did on the day;
+   *  - batches across every (customerId, productId) pair on the sheet via
+   *    groupBy (1-3 queries total) instead of the per-customer Promise.all
+   *    getConsumptionStats uses — that style is fine for a single customer
+   *    page load, wrong for a 50+ stop sheet.
+   * NOT part of findOne() — that method is shared with the on-screen sheet
+   * detail page, which shouldn't pay for this extra DB round-trip on every
+   * normal view. Called only from the controller's PDF export/invoice routes,
+   * result attached onto the sheet object the same way collectionPolicy is.
+   *
+   * Distinct from the existing, simpler `customer.consumptionRate30d` batched
+   * in findOne() (emptyReceived/filledDropped×100) — different metric, do not
+   * conflate the two.
+   */
+  async getConsumptionRatesForSheet(
+    vendorId: string,
+    sheet: { date: Date | string; items: Array<{ customerId: string; productId: string; customer?: { wallets?: Array<{ productId: string; balance: number }> } }> },
+  ): Promise<Array<{
+    customerId: string;
+    productId: string;
+    consumptionRate: string;
+    rateStatus: 'ON_TARGET' | 'ATTENTION' | 'ACTION' | null;
+  }>> {
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+
+    // Unique (customerId, productId) pairs actually on this sheet.
+    const pairMap = new Map<string, { customerId: string; productId: string }>();
+    for (const it of sheet.items) {
+      pairMap.set(`${it.customerId}:${it.productId}`, { customerId: it.customerId, productId: it.productId });
+    }
+    const pairs = [...pairMap.values()];
+    if (pairs.length === 0) return [];
+
+    // Window: last-30-days ending at the sheet's date (mirrors
+    // getConsumptionStats' `query.to` branch, anchored here instead of "now").
+    const sheetDate = new Date(sheet.date);
+    const toDate = new Date(sheetDate.getFullYear(), sheetDate.getMonth(), sheetDate.getDate());
+    const startDate = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() - 29);
+    const endExclusive = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() + 1);
+    const now = new Date();
+    const periodIncludesNow = endExclusive.getTime() > now.getTime();
+
+    const pairWhereOr = pairs.map((p) => ({ customerId: p.customerId, productId: p.productId }));
+
+    const deliveries = await this.prisma.transaction.groupBy({
+      by: ['customerId', 'productId'],
+      where: {
+        vendorId,
+        type: 'DELIVERY',
+        OR: pairWhereOr,
+        createdAt: { gte: startDate, lt: endExclusive },
+      },
+      _sum: { filledDropped: true },
+      _count: { id: true },
+    });
+    const deliveryMap = new Map(
+      deliveries.map((d) => [`${d.customerId}:${d.productId}`, { total: d._sum.filledDropped ?? 0, count: d._count.id }]),
+    );
+
+    // Only need to reconstruct a historical wallet balance when the window
+    // doesn't already reach "now" — an open sheet dated today uses the live
+    // balance already sitting on sheet.items[].customer.wallets, no queries.
+    let txDeltaMap = new Map<string, number>();
+    let damageDeltaMap = new Map<string, number>();
+    if (!periodIncludesNow) {
+      const [txDeltas, damageDeltas] = await Promise.all([
+        this.prisma.transaction.groupBy({
+          by: ['customerId', 'productId'],
+          where: {
+            vendorId,
+            type: { in: ['DELIVERY', 'ADJUSTMENT'] },
+            bottleCount: { not: null },
+            OR: pairWhereOr,
+            createdAt: { gte: endExclusive },
+          },
+          _sum: { bottleCount: true },
+        }),
+        this.prisma.damageCase.groupBy({
+          by: ['customerId', 'productId'],
+          where: {
+            caseType: DamageCaseType.LOST,
+            status: { in: [DamageCaseStatus.CHARGED, DamageCaseStatus.WAIVED] },
+            OR: pairWhereOr,
+            reviewedAt: { gte: endExclusive },
+          },
+          _sum: { bottleCount: true },
+        }),
+      ]);
+      txDeltaMap = new Map(txDeltas.map((t) => [`${t.customerId}:${t.productId}`, t._sum.bottleCount ?? 0]));
+      damageDeltaMap = new Map(damageDeltas.map((d) => [`${d.customerId}:${d.productId}`, d._sum.bottleCount ?? 0]));
+    }
+
+    // Current wallet balance per pair — already loaded on sheet.items[].customer.wallets.
+    const currentBalanceMap = new Map<string, number>();
+    for (const it of sheet.items) {
+      const key = `${it.customerId}:${it.productId}`;
+      if (currentBalanceMap.has(key)) continue;
+      const w = it.customer?.wallets?.find((w) => w.productId === it.productId);
+      if (w) currentBalanceMap.set(key, w.balance);
+    }
+
+    return pairs.map((p) => {
+      const key = `${p.customerId}:${p.productId}`;
+      const currentBalance = currentBalanceMap.get(key);
+      if (currentBalance === undefined) {
+        return { customerId: p.customerId, productId: p.productId, consumptionRate: 'N/A', rateStatus: null };
+      }
+
+      const periodEndWalletBalance = periodIncludesNow
+        ? currentBalance
+        : currentBalance - (txDeltaMap.get(key) ?? 0) + (damageDeltaMap.get(key) ?? 0);
+
+      const d = deliveryMap.get(key);
+      const deliveryCount = d?.count ?? 0;
+      const totalFilled = d?.total ?? 0;
+      const avgPerDelivery = deliveryCount > 0 ? r2(totalFilled / deliveryCount) : 0;
+
+      const rateNum = periodEndWalletBalance > 0 ? r2((avgPerDelivery / periodEndWalletBalance) * 100) : null;
+      let rateStatus: 'ON_TARGET' | 'ATTENTION' | 'ACTION' | null = null;
+      if (rateNum !== null) {
+        if (rateNum >= 70 && rateNum <= 90) rateStatus = 'ON_TARGET';
+        else if ((rateNum >= 50 && rateNum < 70) || (rateNum > 90 && rateNum <= 100)) rateStatus = 'ATTENTION';
+        else rateStatus = 'ACTION';
+      }
+
+      return {
+        customerId: p.customerId,
+        productId: p.productId,
+        consumptionRate: rateNum !== null ? `${rateNum}%` : 'N/A',
+        rateStatus,
+      };
+    });
   }
 
   async insertItemFromOrder(vendorId: string, sheetId: string, dto: InsertOrderItemDto) {

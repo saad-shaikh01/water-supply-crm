@@ -51,6 +51,11 @@ const STATUS_META: Record<string, { label: string; bg: string; text: string }> =
   CANCELLED: { label: 'CANCELLED', bg: '#fee2e2', text: '#b91c1c' },
 };
 
+// Secondary tag shown next to the status pill when a delivery item has been
+// force-resubmitted at least once (item.editCount > 0) — surfaces the recent
+// delivery-item-edit-history feature on the printed sheet, not just on-screen.
+const EDITED_META = { label: 'EDITED', bg: '#ede9fe', text: '#6d28d9' };
+
 const EXPENSE_META: Record<string, { label: string; bg: string; text: string }> = {
   LUNCH_EXPENSE_EMPLOYEE: { label: 'LUNCH EXP EMPLOYEE', bg: '#fef9c3', text: '#a16207' },
   ADVANCE_SALARY_EMPLOYEE: { label: 'ADV SALARY EMPLOYEE', bg: '#f3e8ff', text: '#7e22ce' },
@@ -79,17 +84,62 @@ const CONTENT_W = PAGE_W - MARGIN * 2; // 515.28
 const FOOTER_ZONE = 70; // reserved at page bottom
 const BANNER_H = 76;
 
-// Delivery-items table column geometry (sums to CONTENT_W)
-const COLS = { seq: 18, code: 46, customer: 118, product: 72, filled: 38, recv: 38, empty: 38, cash: 60, status: 87.28 };
+// Delivery-items table column geometry (13 cols, sums to CONTENT_W). The
+// STATUS cell carries both the status pill and a secondary EDITED tag, hence
+// the two named sub-widths that together make up the combined status cell.
+const COLS = {
+  seq: 14, code: 32, customer: 60, time: 32, delivered: 28, filledRecv: 28,
+  emptyRecv: 28, balBottles: 30, cash: 40, payMode: 28, balRs: 40, consPct: 28,
+  statusPill: 75, editedTag: 52.28,
+};
+const COLS_STATUS_W = COLS.statusPill + COLS.editedTag; // 127.28 — combined status cell width
 
-// Load-trips table column geometry (sums to CONTENT_W)
-const TCOLS = { trip: 34, product: 90, loaded: 58, returned: 58, empty: 58, damaged: 52, leaked: 48, cash: 62, time: 55.28 };
+// Trip Summary mini-table column geometry (10 cols, sums to CONTENT_W) — each
+// trip renders its own stacked block (title + this header + one data row),
+// so there is no separate "trip #" column here (the block title carries it).
+const TRIPCOLS = {
+  filledOut: 50, filledReturned: 55, filledReceived: 55, sold: 42,
+  emptyReceive: 55, cashCollected: 58, expense: 52, cashInHand: 60,
+  timeOut: 44, timeIn: 44.28,
+};
+
+interface TripStat {
+  load: any;
+  filledOut: number;
+  filledReturned: number;
+  filledReceived: number;
+  sold: number;
+  emptyReceive: number;
+  cashCollected: number;
+  expense: number;
+  cashInHand: number;
+  timeOut: Date;
+  timeIn: Date | null;
+}
+
+interface TripStats {
+  perTrip: TripStat[];
+  totals: {
+    filledOut: number; filledReturned: number; filledReceived: number; sold: number;
+    emptyReceive: number; cashCollected: number; expense: number; cashInHand: number;
+    startingTime: Date | null; closingTime: Date | null;
+  };
+}
+
+type ConsumptionRateRow = {
+  customerId: string;
+  productId: string;
+  consumptionRate: string;
+  rateStatus: 'ON_TARGET' | 'ATTENTION' | 'ACTION' | null;
+};
 
 @Injectable()
 export class DailySheetPdfService {
   /**
    * Generates a PDF buffer for a daily sheet.
-   * @param sheet - Full sheet object from dailySheet.service.findOne()
+   * @param sheet - Full sheet object from dailySheet.service.findOne(), with
+   *                `consumptionRates` (DailySheetService.getConsumptionRatesForSheet)
+   *                attached by the controller before calling this.
    * @returns Buffer — pipe directly to response
    */
   async generate(sheet: any): Promise<Buffer> {
@@ -115,23 +165,23 @@ export class DailySheetPdfService {
     this.drawBrandBanner(doc);
     this.drawTitleRow(doc, sheet);
     this.drawInfoCard(doc, sheet);
-    this.drawCrewStrip(doc, sheet);
 
     this.drawSectionTitle(doc, 'Bottle & Cash Summary');
     this.drawSummary(doc, sheet);
 
     if ((sheet.loads ?? []).length > 0) {
-      this.drawSectionTitle(doc, `Load Trips (${sheet.loads.length})`);
-      this.drawLoadTrips(doc, sheet.loads);
+      const tripStats = this.computeTripStats(sheet.loads ?? [], sheet.items ?? [], sheet.expenses ?? []);
+      this.drawSectionTitle(doc, `Trip Summary (${sheet.loads.length})`);
+      this.drawTripSummary(doc, tripStats);
     }
-
-    this.drawSectionTitle(doc, `Delivery Items (${sheet.items?.length ?? 0} stops)`);
-    this.drawDeliveryTable(doc, sheet.items ?? []);
 
     if (sheet.expenses?.length) {
       this.drawSectionTitle(doc, `Trip Expenses (${sheet.expenses.length})`, true);
       this.drawExpenses(doc, sheet.expenses);
     }
+
+    this.drawSectionTitle(doc, `Delivery Items (${sheet.items?.length ?? 0} stops)`, true);
+    this.drawDeliveryTable(doc, sheet.items ?? [], sheet.consumptionRates ?? []);
 
     if (sheet.crewCashDistributions?.length) {
       this.drawSectionTitle(doc, `Crew Cash Distribution (${sheet.crewCashDistributions.length})`, true);
@@ -147,6 +197,7 @@ export class DailySheetPdfService {
   }
 
   // ─── Brand banner: gradient card with logo chip (left) + company identity (right) ─
+  // UNCHANGED — kept exactly as-is per explicit instruction not to touch it.
   private drawBrandBanner(doc: PDFKit.PDFDocument): void {
     const y = MARGIN;
     const h = BANNER_H;
@@ -179,7 +230,7 @@ export class DailySheetPdfService {
     doc.y = y + h + 3;
   }
 
-  // ─── Document title + OPEN/CLOSED status pill ────────────────────────────
+  // ─── Document title + OPEN/CLOSED status pill + Start/End trip times ─────
   private drawTitleRow(doc: PDFKit.PDFDocument, sheet: any): void {
     const y = doc.y + 18;
     const date = new Date(sheet.date).toLocaleDateString('en-PK', {
@@ -192,6 +243,22 @@ export class DailySheetPdfService {
     doc.fillColor(C.muted).font('Helvetica').fontSize(8.5)
       .text(date, MARGIN + 12, y + 17, { lineBreak: false });
 
+    // Start/End trip times — earliest load-out to latest check-in across all
+    // trips, or "In Progress" while the last trip hasn't checked in yet.
+    const loads: any[] = sheet.loads ?? [];
+    let timeLine = '';
+    if (loads.length > 0) {
+      const starts = loads.map((l) => new Date(l.startedAt).getTime());
+      const endedTimes = loads.filter((l) => l.endedAt).map((l) => new Date(l.endedAt).getTime());
+      const start = this.hm(new Date(Math.min(...starts)));
+      const end = endedTimes.length === loads.length ? this.hm(new Date(Math.max(...endedTimes))) : 'In Progress';
+      timeLine = `Start: ${start}   ·   End: ${end}`;
+    }
+    if (timeLine) {
+      doc.fillColor(C.muted).font('Helvetica').fontSize(8.5)
+        .text(timeLine, MARGIN + 12, y + 29, { lineBreak: false });
+    }
+
     const closed = !!sheet.isClosed;
     const pillW = 64;
     const pillH = 20;
@@ -200,15 +267,17 @@ export class DailySheetPdfService {
     doc.fillColor(C.white).font('Helvetica-Bold').fontSize(8)
       .text(closed ? 'CLOSED' : 'OPEN', pillX, y + 5, { width: pillW, align: 'center', lineBreak: false });
 
-    doc.y = y + 34;
+    doc.y = y + (timeLine ? 46 : 34);
   }
 
-  // ─── Info card: driver identity | sheet details | net-cash chip ──────────
+  // ─── Info card: Van + full Team Members list | sheet stats | 3 cash boxes ─
+  // Redesigned — absorbs the old separate Crew Strip line so the whole crew
+  // (driver + salesman + loaders) is listed with role labels in one place.
   private drawInfoCard(doc: PDFKit.PDFDocument, sheet: any): void {
     const y = doc.y;
-    const boxH = 92;
-    const col1W = 175;
-    const col3W = 150;
+    const boxH = 118;
+    const col1W = 158;
+    const col3W = 168;
     const col2W = CONTENT_W - col1W - col3W;
     const x1 = MARGIN;
     const x2 = MARGIN + col1W;
@@ -218,24 +287,48 @@ export class DailySheetPdfService {
     doc.moveTo(x2, y + 12).lineTo(x2, y + boxH - 12).strokeColor(C.border).lineWidth(0.75).stroke();
     doc.moveTo(x3, y + 12).lineTo(x3, y + boxH - 12).strokeColor(C.border).lineWidth(0.75).stroke();
 
-    // COL 1 — driver identity
+    // COL 1 — Van + Team Members (driver + every crew member, own role-labeled line)
     const col1TextW = col1W - 24;
-    doc.fillColor(C.muted).font('Helvetica').fontSize(8)
-      .text('Driver', x1 + 14, y + 10, { lineBreak: false });
-    doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(11.5)
-      .text(sheet.driver?.name ?? '—', x1 + 14, y + 24, { width: col1TextW, height: 14, ellipsis: true });
-    doc.fillColor(C.muted).font('Helvetica').fontSize(8)
-      .text(sheet.driver?.phoneNumber ?? '—', x1 + 14, y + 44, { width: col1TextW, height: 10, ellipsis: true });
-    doc.fillColor(C.muted).font('Helvetica').fontSize(8)
-      .text(`Van: ${sheet.van?.plateNumber ?? '—'}`, x1 + 14, y + 60, { width: col1TextW, height: 10, ellipsis: true });
+    doc.fillColor(C.muted).font('Helvetica').fontSize(7)
+      .text('VAN', x1 + 14, y + 9, { characterSpacing: 0.5, lineBreak: false });
+    doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(11)
+      .text(sheet.van?.plateNumber ?? '—', x1 + 14, y + 19, { width: col1TextW, height: 13, ellipsis: true });
 
-    // COL 2 — sheet details
+    const crewConfirmed = !!sheet.crewConfirmed;
+    doc.fillColor(C.muted).font('Helvetica').fontSize(6.5)
+      .text(`TEAM MEMBERS  ·  ${crewConfirmed ? 'Confirmed' : 'Not Confirmed'}`, x1 + 14, y + 36, {
+        characterSpacing: 0.3, width: col1TextW, lineBreak: false,
+      });
+
+    const teamRows: [string, string][] = [['Driver', sheet.driver?.name ?? '—']];
+    for (const c of (sheet.crew ?? []) as any[]) {
+      teamRows.push([c.role === 'SALESMAN' ? 'Salesman' : 'Loader', c.user?.name ?? '—']);
+    }
+    const MAX_TEAM_ROWS = 5;
+    const visibleTeamRows = teamRows.slice(0, MAX_TEAM_ROWS);
+    const hiddenTeamCount = teamRows.length - visibleTeamRows.length;
+    visibleTeamRows.forEach(([role, name], i) => {
+      const ry = y + 47 + i * 11;
+      doc.fillColor(C.mutedLt).font('Helvetica-Bold').fontSize(6.3)
+        .text(role, x1 + 14, ry, { width: 40, lineBreak: false });
+      doc.fillColor(C.textSoft).font('Helvetica').fontSize(7.5)
+        .text(name, x1 + 54, ry, { width: col1TextW - 40, height: 9, ellipsis: true, lineBreak: false });
+    });
+    if (hiddenTeamCount > 0) {
+      doc.fillColor(C.mutedLt).font('Helvetica-Oblique').fontSize(6.3)
+        .text(`+${hiddenTeamCount} more`, x1 + 14, y + 47 + visibleTeamRows.length * 11, { lineBreak: false });
+    }
+
+    // COL 2 — Sheet #, Stops, Trips, Sold, Empty
+    const activeItems = (sheet.items ?? []).filter((i: any) => i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY');
+    const sold = activeItems.reduce((s: number, i: any) => s + (i.filledDropped ?? 0), 0);
     const tripCount = sheet.loads?.length ?? 0;
     const rows: [string, string][] = [
-      ['Route', sheet.route?.name ?? '—'],
       ['Sheet #', sheet.id.slice(0, 8).toUpperCase()],
       ['Stops', String(sheet.items?.length ?? 0)],
       ['Trips', String(tripCount)],
+      ['Sold', String(sold)],
+      ['Empty', String(sheet.emptyInCount ?? 0)],
     ];
     const rowH = (boxH - 16) / rows.length;
     rows.forEach(([lbl, val], i) => {
@@ -246,61 +339,37 @@ export class DailySheetPdfService {
         .text(val, x2, ry + rowH / 2 - 4, { width: col2W - 14, align: 'right', lineBreak: false });
     });
 
-    // COL 3 — net cash to hand in, computed live the same way
-    // DailySheetService.buildReconciliation() does (collected − expenses −
-    // crew cash, floored at 0) so an open sheet's PDF and the eventual
-    // closed-sheet reconciliation always agree.
+    // COL 3 — three stacked highlight boxes: Gross Cash / Total Expense / Net Cash.
+    // Same underlying formula DailySheetService.buildReconciliation() uses (and
+    // the old single net-cash chip used) so this always agrees with the
+    // eventual closed-sheet reconciliation.
     const totalItemCash = (sheet.items ?? []).reduce((s: number, i: any) => s + (i.cashCollected ?? 0), 0);
-    // Only expenses actually paid from the driver's van cash (paidFromCash,
-    // default true) are deducted — a fuel fill or expense paid by
-    // card/bank/company account never touched that cash (see
-    // DailySheetService.buildReconciliation, same split).
     const totalExpenses = (sheet.expenses ?? [])
       .filter((e: any) => e.paidFromCash !== false)
       .reduce((s: number, e: any) => s + (e.amount ?? 0), 0);
     const totalCrewCash = (sheet.crewCashDistributions ?? []).reduce((s: number, c: any) => s + (c.amount ?? 0), 0);
     const netCash = Math.max(0, totalItemCash - totalExpenses - totalCrewCash);
 
+    const chips: [string, string, string][] = [
+      ['GROSS CASH COLLECTED', this.rs(sheet.cashCollected), C.navy],
+      ['TOTAL EXPENSE', this.rs(totalExpenses), C.textSoft],
+      ['NET CASH IN HAND', this.rs(netCash), C.accent],
+    ];
     const chipPad = 8;
-    const chipX = x3 + chipPad;
-    const chipY = y + chipPad;
-    const chipW = col3W - chipPad * 2;
-    const chipH = boxH - chipPad * 2;
-    doc.roundedRect(chipX, chipY, chipW, chipH, 8).fill(C.navy);
-    doc.fillColor('#ffffff', 0.75).font('Helvetica').fontSize(7)
-      .text('NET CASH TO HAND IN', chipX, chipY + chipH / 2 - 14, { width: chipW, align: 'center', lineBreak: false });
-    doc.fillColor(C.white).font('Helvetica-Bold').fontSize(15)
-      .text(this.rs(netCash), chipX, chipY + chipH / 2 + 4, { width: chipW, align: 'center', lineBreak: false });
+    const chipGap = 6;
+    const chipH = (boxH - chipPad * 2 - chipGap * 2) / 3;
+    chips.forEach(([label, value, bg], i) => {
+      const cy = y + chipPad + i * (chipH + chipGap);
+      const cx = x3 + chipPad;
+      const cw = col3W - chipPad * 2;
+      doc.roundedRect(cx, cy, cw, chipH, 7).fill(bg);
+      doc.fillColor('#ffffff', 0.8).font('Helvetica-Bold').fontSize(6.3)
+        .text(label, cx + 10, cy + chipH / 2 - 9, { width: cw - 20, characterSpacing: 0.3, lineBreak: false });
+      doc.fillColor(C.white).font('Helvetica-Bold').fontSize(11.5)
+        .text(value, cx + 10, cy + chipH / 2 + 1, { width: cw - 20, lineBreak: false });
+    });
 
     doc.y = y + boxH;
-  }
-
-  // ─── Crew strip (salesman / loaders + confirmation) ──────────────────────
-  private drawCrewStrip(doc: PDFKit.PDFDocument, sheet: any): void {
-    const crew: any[] = sheet.crew ?? [];
-    if (crew.length === 0) { doc.y += 16; return; }
-
-    const salesmen = crew.filter((c) => c.role === 'SALESMAN');
-    const loaders = crew.filter((c) => c.role === 'LOADER');
-    const parts: string[] = [];
-    if (salesmen.length > 0) {
-      parts.push(`Salesm${salesmen.length > 1 ? 'en' : 'an'}: ${salesmen.map((s) => s.user?.name ?? '—').join(', ')}`);
-    }
-    if (loaders.length > 0) {
-      parts.push(`Loader${loaders.length > 1 ? 's' : ''}: ${loaders.map((l) => l.user?.name ?? '—').join(', ')}`);
-    }
-    const confirmed = sheet.crewConfirmed
-      ? `  ·  Crew confirmed${sheet.crewConfirmedBy?.name ? ` by ${sheet.crewConfirmedBy.name}` : ''}`
-      : '  ·  Crew not confirmed';
-
-    const y = doc.y + 10;
-    doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(6.5)
-      .text('CREW', MARGIN, y, { characterSpacing: 0.8, lineBreak: false });
-    doc.fillColor(C.textSoft).font('Helvetica').fontSize(8)
-      .text(parts.join('  ·  ') + confirmed, MARGIN + 34, y - 1, {
-        width: CONTENT_W - 34, height: 10, ellipsis: true, lineBreak: false,
-      });
-    doc.y = y + 18;
   }
 
   // ─── Section title with accent bar ───────────────────────────────────────
@@ -328,12 +397,13 @@ export class DailySheetPdfService {
     const emptyDiscrepancy = emptyCollected - sheet.emptyInCount;
     const cashDiscrepancy = (sheet.cashCollected ?? 0) - (sheet.cashExpected ?? 0);
 
+    // Cash Collected card dropped — now shown as its own highlighted box in
+    // the Info Card above, so this row stays to just the bottle-flow numbers.
     const cards = [
       { label: 'FILLED OUT', value: String(sheet.filledOutCount), accent: '#3b82f6' },
       { label: 'FILLED RETURNED', value: String(sheet.filledInCount), accent: '#10b981' },
       { label: 'FILLED RECEIVED', value: String(filledReceived), accent: '#7c3aed' },
       { label: 'EMPTY RECEIVED', value: String(sheet.emptyInCount), accent: '#eab308' },
-      { label: 'CASH COLLECTED', value: this.rs(sheet.cashCollected), accent: '#22c55e' },
     ];
 
     const y = doc.y;
@@ -379,80 +449,224 @@ export class DailySheetPdfService {
     doc.y = bannerY + bannerH + 18;
   }
 
-  // ─── Load Trips table (loadout / check-in history per trip) ─────────────
-  private drawLoadTrips(doc: PDFKit.PDFDocument, loads: any[]): void {
-    const rowH = 20;
-    doc.rect(MARGIN, doc.y, CONTENT_W, rowH).fill(C.navy);
-    doc.fillColor(C.white).fontSize(7).font('Helvetica-Bold');
-    let x = MARGIN;
-    let y = doc.y;
-    doc.text('TRIP', x + 4, y + 6, { width: TCOLS.trip - 4, lineBreak: false }); x += TCOLS.trip;
-    doc.text('PRODUCT', x + 4, y + 6, { width: TCOLS.product - 4, lineBreak: false }); x += TCOLS.product;
-    doc.text('LOADED', x, y + 6, { width: TCOLS.loaded - 6, align: 'right', lineBreak: false }); x += TCOLS.loaded;
-    doc.text('RETURNED', x, y + 6, { width: TCOLS.returned - 6, align: 'right', lineBreak: false }); x += TCOLS.returned;
-    doc.text('EMPTY IN', x, y + 6, { width: TCOLS.empty - 6, align: 'right', lineBreak: false }); x += TCOLS.empty;
-    doc.text('DAMAGED', x, y + 6, { width: TCOLS.damaged - 6, align: 'right', lineBreak: false }); x += TCOLS.damaged;
-    doc.text('LEAKED', x, y + 6, { width: TCOLS.leaked - 6, align: 'right', lineBreak: false }); x += TCOLS.leaked;
-    doc.text('CASH IN', x, y + 6, { width: TCOLS.cash - 6, align: 'right', lineBreak: false }); x += TCOLS.cash;
-    doc.text('TIME', x, y + 6, { width: TCOLS.time - 6, align: 'right', lineBreak: false });
-    y += rowH;
+  // ─── Trip bucketing — pure function, no DB access. Buckets already-fetched
+  // items/expenses into whichever trip's [startedAt, endedAt ?? open) window
+  // contains their timestamp (Option A "time-window inference" — no schema
+  // change). Items/expenses outside every window are simply left unassigned:
+  // they still appear fully in the flat Delivery Items table / itemized
+  // Expenses list, they just don't contribute to any trip's numbers here
+  // (can legitimately happen for isCorrection items or backdated expenses). ─
+  private computeTripStats(loads: any[], items: any[], expenses: any[]): TripStats {
+    const trips = [...loads].sort((a, b) => a.tripNumber - b.tripNumber);
 
-    loads.forEach((trip, index) => {
-      if (y + rowH > PAGE_H - FOOTER_ZONE) {
-        doc.addPage();
-        y = 50;
-      }
-      if (index % 2 === 1) doc.rect(MARGIN, y, CONTENT_W, rowH).fill(C.surface);
+    const inWindow = (ts: number, start: Date, end: Date | null) =>
+      ts >= start.getTime() && (end === null || ts <= end.getTime());
 
-      const ty = y + 6;
-      const timeStr = trip.endedAt
-        ? `${this.hm(trip.startedAt)}-${this.hm(trip.endedAt)}`
-        : `${this.hm(trip.startedAt)} (open)`;
+    const filledRecvByTrip = new Map<string, number>();
+    const cashByTrip = new Map<string, number>();
+    const expenseByTrip = new Map<string, number>();
 
-      x = MARGIN;
-      doc.fillColor(C.textSoft).font('Helvetica-Bold').fontSize(7.5)
-        .text(`#${trip.tripNumber}`, x + 4, ty, { width: TCOLS.trip - 4, lineBreak: false }); x += TCOLS.trip;
-      doc.fillColor(C.text).font('Helvetica').fontSize(7.5)
-        .text(trip.product?.name ?? '—', x + 4, ty, { width: TCOLS.product - 8, height: 10, ellipsis: true, lineBreak: false }); x += TCOLS.product;
-      doc.text(String(trip.loadedFilled ?? 0), x, ty, { width: TCOLS.loaded - 6, align: 'right', lineBreak: false }); x += TCOLS.loaded;
-      doc.text(String(trip.returnedFilled ?? 0), x, ty, { width: TCOLS.returned - 6, align: 'right', lineBreak: false }); x += TCOLS.returned;
-      doc.text(String(trip.collectedEmpty ?? 0), x, ty, { width: TCOLS.empty - 6, align: 'right', lineBreak: false }); x += TCOLS.empty;
-      doc.fillColor((trip.damagedOnVan ?? 0) > 0 ? C.amber : C.text).font('Helvetica-Bold')
-        .text(String(trip.damagedOnVan ?? 0), x, ty, { width: TCOLS.damaged - 6, align: 'right', lineBreak: false }); x += TCOLS.damaged;
-      doc.fillColor((trip.leakedOnVan ?? 0) > 0 ? C.red : C.text)
-        .text(String(trip.leakedOnVan ?? 0), x, ty, { width: TCOLS.leaked - 6, align: 'right', lineBreak: false }); x += TCOLS.leaked;
-      doc.fillColor(C.navyText).font('Helvetica-Bold')
-        .text(this.rs(trip.cashHandedIn), x, ty, { width: TCOLS.cash - 6, align: 'right', lineBreak: false }); x += TCOLS.cash;
-      doc.fillColor(C.muted).font('Helvetica').fontSize(6.5)
-        .text(timeStr, x, ty + 1, { width: TCOLS.time - 4, align: 'right', lineBreak: false });
+    for (const item of items) {
+      if (!item.deliveredAt) continue; // PENDING items excluded from bucketing
+      const ts = new Date(item.deliveredAt).getTime();
+      const trip = trips.find((t) => inWindow(ts, new Date(t.startedAt), t.endedAt ? new Date(t.endedAt) : null));
+      if (!trip) continue;
+      filledRecvByTrip.set(trip.id, (filledRecvByTrip.get(trip.id) ?? 0) + (item.filledReceived ?? 0));
+      cashByTrip.set(trip.id, (cashByTrip.get(trip.id) ?? 0) + (item.cashCollected ?? 0));
+    }
 
-      y += rowH;
+    // Only cash-paid expenses are deducted — same convention as the net-cash
+    // chip and the Trip Expenses totals band below.
+    const cashExpenses = expenses.filter((e) => e.paidFromCash !== false);
+    for (const exp of cashExpenses) {
+      // createdAt (true recording timestamp), not .date — staff can backdate
+      // .date, which would make it an unreliable match against real trip windows.
+      const ts = new Date(exp.createdAt).getTime();
+      const trip = trips.find((t) => inWindow(ts, new Date(t.startedAt), t.endedAt ? new Date(t.endedAt) : null));
+      if (!trip) continue;
+      expenseByTrip.set(trip.id, (expenseByTrip.get(trip.id) ?? 0) + (exp.amount ?? 0));
+    }
+
+    const perTrip: TripStat[] = trips.map((t) => {
+      const filledReceived = filledRecvByTrip.get(t.id) ?? 0;
+      const cashCollected = cashByTrip.get(t.id) ?? 0;
+      const expense = expenseByTrip.get(t.id) ?? 0;
+      return {
+        load: t,
+        filledOut: t.loadedFilled ?? 0,
+        filledReturned: t.returnedFilled ?? 0,
+        filledReceived,
+        // Verified against the reference sheet's own worked examples:
+        // 100-5-0=95, 50-10-0=40, 50-5-0=45.
+        sold: (t.loadedFilled ?? 0) - (t.returnedFilled ?? 0) - filledReceived,
+        emptyReceive: t.collectedEmpty ?? 0,
+        cashCollected,
+        expense,
+        cashInHand: cashCollected - expense,
+        timeOut: t.startedAt,
+        timeIn: t.endedAt,
+      };
     });
 
-    doc.y = y + 14;
+    const totals = perTrip.reduce(
+      (acc, t) => ({
+        filledOut: acc.filledOut + t.filledOut,
+        filledReturned: acc.filledReturned + t.filledReturned,
+        filledReceived: acc.filledReceived + t.filledReceived,
+        sold: acc.sold + t.sold,
+        emptyReceive: acc.emptyReceive + t.emptyReceive,
+        cashCollected: acc.cashCollected + t.cashCollected,
+        expense: acc.expense + t.expense,
+        cashInHand: acc.cashInHand + t.cashInHand,
+      }),
+      { filledOut: 0, filledReturned: 0, filledReceived: 0, sold: 0, emptyReceive: 0, cashCollected: 0, expense: 0, cashInHand: 0 },
+    );
+
+    return {
+      perTrip,
+      totals: {
+        ...totals,
+        startingTime: trips[0]?.startedAt ?? null,
+        closingTime: trips.length ? trips[trips.length - 1].endedAt : null,
+      },
+    };
   }
 
   private hm(dt: string | Date): string {
     return new Date(dt).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' });
   }
 
+  private fmtTripTime(dt: Date | string | null, openLabel: string): string {
+    return dt ? this.hm(dt) : openLabel;
+  }
+
+  // ─── Trip Summary — per-trip stacked blocks (own header + one data row
+  // each), followed by a combined Totals row. Replaces the old single
+  // combined Load Trips table so the printed layout matches the reference. ──
+  private drawTripHeaderRow(doc: PDFKit.PDFDocument, y: number): number {
+    const rowH = 16;
+    doc.rect(MARGIN, y, CONTENT_W, rowH).fill(C.navy);
+    doc.fillColor(C.white).fontSize(6.2).font('Helvetica-Bold');
+    let x = MARGIN;
+    const cells: [string, number][] = [
+      ['FILLED OUT', TRIPCOLS.filledOut],
+      ['FILLED RET.', TRIPCOLS.filledReturned],
+      ['FILLED RECV', TRIPCOLS.filledReceived],
+      ['SOLD', TRIPCOLS.sold],
+      ['EMPTY RECV', TRIPCOLS.emptyReceive],
+      ['CASH COLL.', TRIPCOLS.cashCollected],
+      ['EXPENSE', TRIPCOLS.expense],
+      ['CASH IN HAND', TRIPCOLS.cashInHand],
+      ['TIME OUT', TRIPCOLS.timeOut],
+      ['TIME IN', TRIPCOLS.timeIn],
+    ];
+    cells.forEach(([label, w]) => {
+      doc.text(label, x, y + 5, { width: w - 6, align: 'right', lineBreak: false });
+      x += w;
+    });
+    return y + rowH;
+  }
+
+  private drawTripDataRow(
+    doc: PDFKit.PDFDocument,
+    y: number,
+    row: {
+      filledOut: number; filledReturned: number; filledReceived: number; sold: number;
+      emptyReceive: number; cashCollected: number; expense: number; cashInHand: number;
+      timeOutLabel: string; timeInLabel: string;
+    },
+    opts?: { bold?: boolean; bg?: string },
+  ): number {
+    const rowH = 20;
+    if (opts?.bg) doc.rect(MARGIN, y, CONTENT_W, rowH).fill(opts.bg);
+    doc.fillColor(opts?.bold ? C.white : C.textSoft).fontSize(7.5).font(opts?.bold ? 'Helvetica-Bold' : 'Helvetica');
+    let x = MARGIN;
+    const vals: [string, number][] = [
+      [String(row.filledOut), TRIPCOLS.filledOut],
+      [String(row.filledReturned), TRIPCOLS.filledReturned],
+      [String(row.filledReceived), TRIPCOLS.filledReceived],
+      [String(row.sold), TRIPCOLS.sold],
+      [String(row.emptyReceive), TRIPCOLS.emptyReceive],
+      [this.rs(row.cashCollected), TRIPCOLS.cashCollected],
+      [this.rs(row.expense), TRIPCOLS.expense],
+      [this.rs(row.cashInHand), TRIPCOLS.cashInHand],
+      [row.timeOutLabel, TRIPCOLS.timeOut],
+      [row.timeInLabel, TRIPCOLS.timeIn],
+    ];
+    vals.forEach(([val, w]) => {
+      doc.text(val, x, y + 6, { width: w - 6, align: 'right', lineBreak: false });
+      x += w;
+    });
+    return y + rowH;
+  }
+
+  private drawTripSummary(doc: PDFKit.PDFDocument, stats: TripStats): void {
+    const BLOCK_H = 14 + 16 + 20 + 10; // title + header row + data row + gap
+
+    stats.perTrip.forEach((t) => {
+      let y = doc.y;
+      if (y + BLOCK_H > PAGE_H - FOOTER_ZONE) {
+        doc.addPage();
+        y = 50;
+      }
+      doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(9)
+        .text(`Trip ${t.load.tripNumber}:`, MARGIN, y, { lineBreak: false });
+      y += 14;
+      y = this.drawTripHeaderRow(doc, y);
+      y = this.drawTripDataRow(doc, y, {
+        filledOut: t.filledOut, filledReturned: t.filledReturned, filledReceived: t.filledReceived,
+        sold: t.sold, emptyReceive: t.emptyReceive, cashCollected: t.cashCollected, expense: t.expense,
+        cashInHand: t.cashInHand,
+        timeOutLabel: this.fmtTripTime(t.timeOut, '—'),
+        timeInLabel: this.fmtTripTime(t.timeIn, '(open)'),
+      });
+      doc.y = y + 10;
+    });
+
+    // Combined totals row
+    let y = doc.y;
+    if (y + 34 > PAGE_H - FOOTER_ZONE) {
+      doc.addPage();
+      y = 50;
+    }
+    doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(9)
+      .text('Totals', MARGIN, y, { lineBreak: false });
+    y += 14;
+    y = this.drawTripDataRow(doc, y, {
+      filledOut: stats.totals.filledOut, filledReturned: stats.totals.filledReturned,
+      filledReceived: stats.totals.filledReceived, sold: stats.totals.sold,
+      emptyReceive: stats.totals.emptyReceive, cashCollected: stats.totals.cashCollected,
+      expense: stats.totals.expense, cashInHand: stats.totals.cashInHand,
+      timeOutLabel: this.fmtTripTime(stats.totals.startingTime, '—'),
+      timeInLabel: this.fmtTripTime(stats.totals.closingTime, 'In Progress'),
+    }, { bold: true, bg: C.navy });
+
+    doc.y = y + 14;
+  }
+
   // ─── Delivery items table ────────────────────────────────────────────────
   private drawTableHeader(doc: PDFKit.PDFDocument, y: number): number {
-    doc.rect(MARGIN, y, CONTENT_W, 22).fill(C.navy);
-    doc.fillColor(C.white).fontSize(7).font('Helvetica-Bold');
+    const rowH = 20;
+    doc.rect(MARGIN, y, CONTENT_W, rowH).fill(C.navy);
+    doc.fillColor(C.white).fontSize(6.3).font('Helvetica-Bold');
 
     let x = MARGIN;
-    doc.text('#', x + 4, y + 7, { lineBreak: false }); x += COLS.seq;
-    doc.text('CODE', x + 4, y + 7, { lineBreak: false }); x += COLS.code;
-    doc.text('CUSTOMER', x + 4, y + 7, { characterSpacing: 0.3, lineBreak: false }); x += COLS.customer;
-    doc.text('PRODUCT', x + 4, y + 7, { characterSpacing: 0.3, lineBreak: false }); x += COLS.product;
-    doc.text('FILLED', x, y + 7, { width: COLS.filled - 6, align: 'right', lineBreak: false }); x += COLS.filled;
-    doc.text('RECV', x, y + 7, { width: COLS.recv - 6, align: 'right', lineBreak: false }); x += COLS.recv;
-    doc.text('EMPTY', x, y + 7, { width: COLS.empty - 6, align: 'right', lineBreak: false }); x += COLS.empty;
-    doc.text('CASH', x, y + 7, { width: COLS.cash - 6, align: 'right', lineBreak: false }); x += COLS.cash;
-    doc.text('STATUS', x, y + 7, { width: COLS.status, align: 'center', characterSpacing: 0.3, lineBreak: false });
+    const headerY = y + 6;
+    doc.text('#', x + 3, headerY, { lineBreak: false }); x += COLS.seq;
+    doc.text('CODE', x + 3, headerY, { lineBreak: false }); x += COLS.code;
+    doc.text('CUSTOMER', x + 3, headerY, { characterSpacing: 0.2, lineBreak: false }); x += COLS.customer;
+    doc.text('TIME', x, headerY, { width: COLS.time - 4, align: 'right', lineBreak: false }); x += COLS.time;
+    doc.text('DELIV', x, headerY, { width: COLS.delivered - 4, align: 'right', lineBreak: false }); x += COLS.delivered;
+    doc.text('F.RCV', x, headerY, { width: COLS.filledRecv - 4, align: 'right', lineBreak: false }); x += COLS.filledRecv;
+    doc.text('E.RCV', x, headerY, { width: COLS.emptyRecv - 4, align: 'right', lineBreak: false }); x += COLS.emptyRecv;
+    doc.text('BAL BTL', x, headerY, { width: COLS.balBottles - 4, align: 'right', lineBreak: false }); x += COLS.balBottles;
+    doc.text('CASH', x, headerY, { width: COLS.cash - 4, align: 'right', lineBreak: false }); x += COLS.cash;
+    doc.text('PAY', x, headerY, { width: COLS.payMode - 4, align: 'center', lineBreak: false }); x += COLS.payMode;
+    doc.text('BAL RS', x, headerY, { width: COLS.balRs - 4, align: 'right', lineBreak: false }); x += COLS.balRs;
+    doc.text('CONS%', x, headerY, { width: COLS.consPct - 4, align: 'right', lineBreak: false }); x += COLS.consPct;
+    doc.text('STATUS', x, headerY, { width: COLS_STATUS_W, align: 'center', characterSpacing: 0.2, lineBreak: false });
 
-    return y + 22;
+    return y + rowH;
   }
 
   private drawPill(
@@ -471,10 +685,11 @@ export class DailySheetPdfService {
 
   private drawStatusPill(doc: PDFKit.PDFDocument, status: string, colX: number, rowY: number, rowH: number): void {
     const meta = STATUS_META[status] ?? { label: status, bg: '#f1f5f9', text: '#475569' };
-    this.drawPill(doc, meta, colX, COLS.status, rowY, rowH);
+    this.drawPill(doc, meta, colX, COLS.statusPill, rowY, rowH);
   }
 
-  private drawDeliveryTable(doc: PDFKit.PDFDocument, items: any[]): void {
+  private drawDeliveryTable(doc: PDFKit.PDFDocument, items: any[], consumptionRates: ConsumptionRateRow[]): void {
+    const consMap = new Map(consumptionRates.map((r) => [`${r.customerId}:${r.productId}`, r]));
     let y = this.drawTableHeader(doc, doc.y);
 
     if (!items.length) {
@@ -486,7 +701,7 @@ export class DailySheetPdfService {
 
     items.forEach((item, index) => {
       const reason: string | null = item.reason || null;
-      const rowH = reason ? 32 : 21;
+      const rowH = reason ? 32 : 20;
 
       // Page break — redraw table header on the new page
       if (y + rowH > PAGE_H - FOOTER_ZONE) {
@@ -496,31 +711,75 @@ export class DailySheetPdfService {
 
       if (index % 2 === 1) doc.rect(MARGIN, y, CONTENT_W, rowH).fill(C.surface);
 
-      const textY = y + 6;
-      doc.fillColor(C.textSoft).fontSize(7.5).font('Helvetica');
+      const textY = y + 5;
       let x = MARGIN;
-      doc.text(String(item.sequence ?? index + 1), x + 4, textY, { lineBreak: false }); x += COLS.seq;
-      doc.fillColor(C.mutedLt).fontSize(6.5)
-        .text(item.customer?.customerCode ?? '—', x + 3, textY + 1, { width: COLS.code - 4, lineBreak: false }); x += COLS.code;
-      doc.fillColor(C.navyText).fontSize(7.5).font('Helvetica-Bold')
-        .text(item.customer?.name ?? '—', x + 4, textY, { width: COLS.customer - 8, height: 10, ellipsis: true, lineBreak: false });
-      x += COLS.customer;
-      doc.fillColor(C.textSoft).font('Helvetica')
-        .text(item.product?.name ?? '—', x + 4, textY, { width: COLS.product - 8, height: 10, ellipsis: true, lineBreak: false });
-      x += COLS.product;
-      doc.fillColor(C.text)
-        .text(String(item.filledDropped ?? 0), x, textY, { width: COLS.filled - 6, align: 'right', lineBreak: false }); x += COLS.filled;
-      doc.text(String(item.filledReceived ?? 0), x, textY, { width: COLS.recv - 6, align: 'right', lineBreak: false }); x += COLS.recv;
-      doc.text(String(item.emptyReceived ?? 0), x, textY, { width: COLS.empty - 6, align: 'right', lineBreak: false }); x += COLS.empty;
-      doc.text(this.rs(item.cashCollected), x, textY, { width: COLS.cash - 6, align: 'right', lineBreak: false }); x += COLS.cash;
 
-      this.drawStatusPill(doc, item.status, x, y, reason ? 21 : rowH);
+      doc.fillColor(C.textSoft).fontSize(6.5).font('Helvetica')
+        .text(String(item.sequence ?? index + 1), x + 3, textY, { lineBreak: false });
+      x += COLS.seq;
+
+      doc.fillColor(C.mutedLt).fontSize(6)
+        .text(item.customer?.customerCode ?? '—', x + 2, textY + 1, { width: COLS.code - 3, lineBreak: false });
+      x += COLS.code;
+
+      doc.fillColor(C.navyText).fontSize(6.8).font('Helvetica-Bold')
+        .text(item.customer?.name ?? '—', x + 3, textY, { width: COLS.customer - 6, height: 9, ellipsis: true, lineBreak: false });
+      x += COLS.customer;
+
+      doc.fillColor(C.muted).fontSize(6.3).font('Helvetica')
+        .text(item.deliveredAt ? this.hm(item.deliveredAt) : '—', x, textY, { width: COLS.time - 4, align: 'right', lineBreak: false });
+      x += COLS.time;
+
+      doc.fillColor(C.text).fontSize(6.8)
+        .text(String(item.filledDropped ?? 0), x, textY, { width: COLS.delivered - 4, align: 'right', lineBreak: false });
+      x += COLS.delivered;
+
+      doc.text(String(item.filledReceived ?? 0), x, textY, { width: COLS.filledRecv - 4, align: 'right', lineBreak: false });
+      x += COLS.filledRecv;
+
+      doc.text(String(item.emptyReceived ?? 0), x, textY, { width: COLS.emptyRecv - 4, align: 'right', lineBreak: false });
+      x += COLS.emptyRecv;
+
+      // Frozen post-delivery bottle-wallet snapshot — no live query needed.
+      doc.fillColor(C.muted)
+        .text(item.bottleBalanceAfter != null ? String(item.bottleBalanceAfter) : '—', x, textY, { width: COLS.balBottles - 4, align: 'right', lineBreak: false });
+      x += COLS.balBottles;
+
+      doc.fillColor(C.navyText).font('Helvetica-Bold')
+        .text(this.rs(item.cashCollected), x, textY, { width: COLS.cash - 4, align: 'right', lineBreak: false });
+      x += COLS.cash;
+
+      const isMonthly = item.customer?.paymentType === 'MONTHLY';
+      doc.fillColor(isMonthly ? '#1d4ed8' : C.green).font('Helvetica-Bold').fontSize(6)
+        .text(isMonthly ? 'MO' : 'CA', x, textY, { width: COLS.payMode - 2, align: 'center', lineBreak: false });
+      x += COLS.payMode;
+
+      // Same live-balance convention as delivery-items-list.tsx: MONTHLY shows
+      // last month's remaining outstanding, CASH shows current wallet due.
+      const balRs = isMonthly ? (item.customer?.previousMonthOutstanding ?? 0) : (item.customer?.financialBalance ?? 0);
+      doc.fillColor(balRs > 0 ? C.red : C.green).font('Helvetica-Bold').fontSize(6.5)
+        .text(this.rs(balRs), x, textY, { width: COLS.balRs - 4, align: 'right', lineBreak: false });
+      x += COLS.balRs;
+
+      const cons = consMap.get(`${item.customerId}:${item.productId}`);
+      const consColor = cons?.rateStatus === 'ON_TARGET' ? C.green
+        : cons?.rateStatus === 'ATTENTION' ? C.amber
+        : cons?.rateStatus === 'ACTION' ? C.red
+        : C.mutedLt;
+      doc.fillColor(consColor).font('Helvetica-Bold').fontSize(6.3)
+        .text(cons?.consumptionRate ?? 'N/A', x, textY, { width: COLS.consPct - 4, align: 'right', lineBreak: false });
+      x += COLS.consPct;
+
+      this.drawStatusPill(doc, item.status, x, y, reason ? 20 : rowH);
+      if ((item.editCount ?? 0) > 0) {
+        this.drawPill(doc, EDITED_META, x + COLS.statusPill, COLS.editedTag, y, reason ? 20 : rowH);
+      }
 
       if (reason) {
-        doc.fillColor(C.mutedLt).fontSize(6.5).font('Helvetica-Oblique')
-          .text(reason, MARGIN + COLS.seq + COLS.code + 4, y + 20, {
-            width: COLS.customer + COLS.product + COLS.filled + COLS.recv + COLS.empty + COLS.cash - 8,
-            height: 9, ellipsis: true, lineBreak: false,
+        doc.fillColor(C.mutedLt).fontSize(6).font('Helvetica-Oblique')
+          .text(reason, MARGIN + COLS.seq + COLS.code + 3, y + 19, {
+            width: COLS.customer + COLS.time + COLS.delivered + COLS.filledRecv + COLS.emptyRecv + COLS.balBottles + COLS.cash - 6,
+            height: 8, ellipsis: true, lineBreak: false,
           });
       }
 
@@ -532,27 +791,34 @@ export class DailySheetPdfService {
       doc.addPage();
       y = 50;
     }
-    const totalFilled = items.reduce((s, i) => s + (i.filledDropped ?? 0), 0);
-    const totalRecv = items.reduce((s, i) => s + (i.filledReceived ?? 0), 0);
-    const totalEmpty = items.reduce((s, i) => s + (i.emptyReceived ?? 0), 0);
+    const totalDelivered = items.reduce((s, i) => s + (i.filledDropped ?? 0), 0);
+    const totalFilledRecv = items.reduce((s, i) => s + (i.filledReceived ?? 0), 0);
+    const totalEmptyRecv = items.reduce((s, i) => s + (i.emptyReceived ?? 0), 0);
     const totalCash = items.reduce((s, i) => s + (i.cashCollected ?? 0), 0);
     const doneCount = items.filter((i) => i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY').length;
+    const editedCount = items.filter((i) => (i.editCount ?? 0) > 0).length;
 
-    doc.rect(MARGIN, y, CONTENT_W, 24).fill(C.navy);
-    doc.fillColor(C.white).fontSize(7.5).font('Helvetica-Bold');
+    doc.rect(MARGIN, y, CONTENT_W, 22).fill(C.navy);
+    doc.fillColor(C.white).fontSize(6.8).font('Helvetica-Bold');
     let x = MARGIN;
-    doc.text('TOTALS', x + 4, y + 8, { characterSpacing: 0.5, lineBreak: false });
-    x += COLS.seq + COLS.code + COLS.customer + COLS.product;
-    doc.text(String(totalFilled), x, y + 8, { width: COLS.filled - 6, align: 'right', lineBreak: false }); x += COLS.filled;
-    doc.text(String(totalRecv), x, y + 8, { width: COLS.recv - 6, align: 'right', lineBreak: false }); x += COLS.recv;
-    doc.text(String(totalEmpty), x, y + 8, { width: COLS.empty - 6, align: 'right', lineBreak: false }); x += COLS.empty;
-    doc.text(this.rs(totalCash), x, y + 8, { width: COLS.cash - 6, align: 'right', lineBreak: false }); x += COLS.cash;
-    doc.fontSize(6.5).text(`${doneCount}/${items.length} done`, x, y + 9, { width: COLS.status, align: 'center', lineBreak: false });
+    doc.text('TOTALS', x + 3, y + 7, { characterSpacing: 0.3, lineBreak: false });
+    x += COLS.seq + COLS.code + COLS.customer + COLS.time;
+    doc.text(String(totalDelivered), x, y + 7, { width: COLS.delivered - 4, align: 'right', lineBreak: false });
+    x += COLS.delivered;
+    doc.text(String(totalFilledRecv), x, y + 7, { width: COLS.filledRecv - 4, align: 'right', lineBreak: false });
+    x += COLS.filledRecv;
+    doc.text(String(totalEmptyRecv), x, y + 7, { width: COLS.emptyRecv - 4, align: 'right', lineBreak: false });
+    x += COLS.emptyRecv + COLS.balBottles;
+    doc.text(this.rs(totalCash), x, y + 7, { width: COLS.cash - 4, align: 'right', lineBreak: false });
+    x += COLS.cash + COLS.payMode + COLS.balRs + COLS.consPct;
+    doc.fontSize(6).text(`${doneCount}/${items.length} done · ${editedCount} edited`, x, y + 8, { width: COLS_STATUS_W, align: 'center', lineBreak: false });
 
-    doc.y = y + 32;
+    doc.y = y + 30;
   }
 
   // ─── Trip Expenses (only when sheet has any) ─────────────────────────────
+  // UNCHANGED content — only its position in drawDocument moved (now sits
+  // directly under Trip Summary, both being trip/cash-flow related).
   private drawExpenses(doc: PDFKit.PDFDocument, expenses: any[]): void {
     const rowH = 20;
     const EXP_COLS = { category: 90, description: 230, recordedBy: 110, amount: 85.28 };
@@ -618,7 +884,7 @@ export class DailySheetPdfService {
     doc.y = y + 8;
   }
 
-  // ─── Crew Cash Distribution (only when sheet has any) ────────────────────
+  // ─── Crew Cash Distribution (only when sheet has any) — UNCHANGED ────────
   private drawCrewCash(doc: PDFKit.PDFDocument, entries: any[]): void {
     const rowH = 20;
     const CC_COLS = { category: 108, employee: 100, notes: 220, amount: 87.28 };
@@ -661,7 +927,7 @@ export class DailySheetPdfService {
     doc.y = y + 32;
   }
 
-  // ─── Signature row (closed sheets only) ──────────────────────────────────
+  // ─── Signature row (closed sheets only) — UNCHANGED ──────────────────────
   private drawSignatures(doc: PDFKit.PDFDocument): void {
     if (doc.y + 80 > PAGE_H - FOOTER_ZONE) {
       doc.addPage();
@@ -682,7 +948,7 @@ export class DailySheetPdfService {
     doc.y = y + 24;
   }
 
-  // ─── Footer on every page (page numbers need bufferPages) ────────────────
+  // ─── Footer on every page (page numbers need bufferPages) — UNCHANGED ────
   private drawFooters(doc: PDFKit.PDFDocument, sheet: any): void {
     const generated = new Date().toLocaleString('en-PK', { timeZone: 'Asia/Karachi' });
     const range = doc.bufferedPageRange();

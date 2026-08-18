@@ -557,6 +557,7 @@ export class DailySheetController {
     @Res() res: Response,
   ) {
     const sheet = await this.dailySheetService.findOne(user.vendorId, id);
+    (sheet as any).consumptionRates = await this.dailySheetService.getConsumptionRatesForSheet(user.vendorId, sheet);
     const pdfBuffer = await this.pdfService.generate(sheet);
 
     const dateStr = new Date(sheet.date).toISOString().split('T')[0];
@@ -579,6 +580,7 @@ export class DailySheetController {
     @Res() res: Response,
   ) {
     const sheet = await this.dailySheetService.findOne(user.vendorId, id);
+    (sheet as any).consumptionRates = await this.dailySheetService.getConsumptionRatesForSheet(user.vendorId, sheet);
     const pdfBuffer = await this.pdfService.generate(sheet);
 
     const dateStr = new Date(sheet.date).toISOString().split('T')[0];
