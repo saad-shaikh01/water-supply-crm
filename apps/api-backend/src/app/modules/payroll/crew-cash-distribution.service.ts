@@ -184,6 +184,15 @@ export class CrewCashDistributionService implements OnModuleInit {
       );
     }
 
+    // Trip feature: same active-trip attribution ExpenseService.create uses —
+    // inferred server-side, never an API param. Crew cash has no paidFromCash
+    // toggle (it's unconditionally physical van cash), so every row is
+    // deductible; this only tells the UI/PDF WHICH trip's numbers to reduce.
+    const activeLoad = await this.prisma.dailySheetLoad.findFirst({
+      where: { dailySheetId, endedAt: null },
+    });
+    const dailySheetLoadId = activeLoad?.id ?? null;
+
     return this.prisma.$transaction(async (tx) => {
       // Approval-gate check and duplicate-detection both live inside the
       // transaction, alongside the write they inform — same placement
@@ -215,6 +224,7 @@ export class CrewCashDistributionService implements OnModuleInit {
           date: sheet.date,
           requiresApproval,
           createdById: user.userId,
+          dailySheetLoadId,
         },
       });
 

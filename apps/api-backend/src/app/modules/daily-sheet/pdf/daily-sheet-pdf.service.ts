@@ -200,7 +200,7 @@ export class DailySheetPdfService {
     }
 
     if ((sheet.loads ?? []).length > 0) {
-      const tripStats = this.computeTripStats(sheet.loads ?? [], sheet.items ?? [], sheet.expenses ?? []);
+      const tripStats = this.computeTripStats(sheet.loads ?? [], sheet.items ?? [], sheet.expenses ?? [], sheet.crewCashDistributions ?? []);
       this.drawSectionTitle(doc, `Trip Summary (${sheet.loads.length})`);
       this.drawTripSummary(doc, tripStats);
     }
@@ -210,13 +210,15 @@ export class DailySheetPdfService {
       this.drawExpenses(doc, sheet.expenses);
     }
 
-    this.drawSectionTitle(doc, `Delivery Items (${sheet.items?.length ?? 0} stops)`, true);
-    this.drawDeliveryTable(doc, sheet.items ?? [], sheet.consumptionRates ?? []);
-
     if (sheet.crewCashDistributions?.length) {
       this.drawSectionTitle(doc, `Crew Cash Distribution (${sheet.crewCashDistributions.length})`, true);
       this.drawCrewCash(doc, sheet.crewCashDistributions);
     }
+
+    // Delivery Items is kept as the last itemized section (right before
+    // Signatures) — deliberately printed after Crew Cash Distribution.
+    this.drawSectionTitle(doc, `Delivery Items (${sheet.items?.length ?? 0} stops)`, true);
+    this.drawDeliveryTable(doc, sheet.items ?? [], sheet.consumptionRates ?? []);
 
     if (sheet.isClosed) this.drawSignatures(doc);
   }
@@ -604,12 +606,12 @@ export class DailySheetPdfService {
   // window (deliveredAt / expense.createdAt) — that heuristic could
   // legitimately disagree with the FK (e.g. a resubmitted item keeps its
   // original trip link but gets a new deliveredAt) and has been removed.
-  // Items/expenses with no dailySheetLoadId (recorded while no trip was
-  // active) are simply left unassigned: they still appear fully in the flat
-  // Delivery Items table / itemized Expenses list, they just don't
+  // Items/expenses/crew cash with no dailySheetLoadId (recorded while no
+  // trip was active) are simply left unassigned: they still appear fully in
+  // the flat Delivery Items table / itemized Expenses list, they just don't
   // contribute to any trip's numbers here (can legitimately happen for
   // isCorrection items or expenses logged with no active trip). ───────────
-  private computeTripStats(loads: any[], items: any[], expenses: any[]): TripStats {
+  private computeTripStats(loads: any[], items: any[], expenses: any[], crewCash: any[]): TripStats {
     const trips = [...loads].sort((a, b) => a.tripNumber - b.tripNumber);
 
     const filledRecvByTrip = new Map<string, number>();
@@ -632,6 +634,14 @@ export class DailySheetPdfService {
     for (const exp of cashExpenses) {
       if (!exp.dailySheetLoadId) continue; // no active trip at record time — unassigned
       expenseByTrip.set(exp.dailySheetLoadId, (expenseByTrip.get(exp.dailySheetLoadId) ?? 0) + (exp.amount ?? 0));
+    }
+
+    // Crew Cash has no paidFromCash toggle — it's unconditionally physical
+    // van cash (see the schema comment on CrewCashDistribution.dailySheetLoadId),
+    // so every row here is deductible, same bucket as cash-paid expenses.
+    for (const cc of crewCash) {
+      if (!cc.dailySheetLoadId) continue; // no active trip at record time — unassigned
+      expenseByTrip.set(cc.dailySheetLoadId, (expenseByTrip.get(cc.dailySheetLoadId) ?? 0) + (cc.amount ?? 0));
     }
 
     const perTrip: TripStat[] = trips.map((t) => {

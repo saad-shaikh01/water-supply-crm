@@ -236,6 +236,14 @@ export interface DeliveryItem {
   lastEditedAt?: string | null;
   /** Trip this delivery was recorded during — null if no trip was active at record time (shown as "Unassigned"). */
   dailySheetLoadId?: string | null;
+  /** Set only on items rendered via the source sheet's "Moved Out" tab (built
+   * from DeliveryItemMoveLogEntry.item + its sibling fields) — where this
+   * item is now and who sent it there. Absent everywhere else. */
+  moveInfo?: {
+    otherSheet: { id: string; date: string; van: { id: string; plateNumber: string } | null };
+    movedBy: { id: string; name: string };
+    movedAt: string;
+  };
 }
 
 export interface CustomerFinancialSummary {
@@ -582,6 +590,31 @@ export interface SheetDetail {
   movedOutLogs: DeliveryItemMoveLogEntry[];
   /** Customer Move/Transfer footprint — this sheet as the destination of the move. */
   movedInLogs: DeliveryItemMoveLogEntry[];
+  crewCashDistributions: SheetCrewCashDistribution[];
+}
+
+/** One Crew Cash Distribution row as returned by GET /daily-sheets/:id (nested
+ * employee/distributedBy, unlike the flat-id shape CrewCashEntry gets from the
+ * dedicated crew-cash endpoint). Powers the Trip Cards' "Expenses" total —
+ * crew cash has no paidFromCash toggle (always physical van cash, see the
+ * schema comment on CrewCashDistribution.dailySheetLoadId), so every row is
+ * deductible. */
+export interface SheetCrewCashDistribution {
+  id: string;
+  employeeId: string;
+  employee: { id: string; name: string };
+  distributedById: string;
+  distributedBy: { id: string; name: string };
+  category: string;
+  amount: number;
+  notes: string | null;
+  date: string;
+  requiresApproval: boolean;
+  approvedById: string | null;
+  approvedAt: string | null;
+  syncedAt: string | null;
+  /** Trip this crew cash was recorded during — null if no trip was active at record time. Auto-set server-side. */
+  dailySheetLoadId?: string | null;
 }
 
 /** One row of the Customer Move/Transfer footprint (DeliveryItemMoveLog) —
@@ -596,6 +629,12 @@ export interface DeliveryItemMoveLogEntry {
   otherSheet: { id: string; date: string; van: { id: string; plateNumber: string } | null };
   movedBy: { id: string; name: string };
   movedAt: string;
+  /** Only populated on movedOutLogs — the full item, current state included
+   * (it may have progressed past PENDING on the destination sheet since the
+   * move). Powers the source sheet's "Moved Out" tab, rendered through the
+   * same delivery card as every other tab. Absent on movedInLogs, which only
+   * needs the lighter fields above for its row badge. */
+  item?: DeliveryItem;
 }
 
 /** One entry from GET /daily-sheets/items/:id/history (a generic AuditLog row scoped to one DailySheetItem). */

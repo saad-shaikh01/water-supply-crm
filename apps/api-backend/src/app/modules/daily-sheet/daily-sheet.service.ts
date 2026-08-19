@@ -1089,6 +1089,22 @@ export class DailySheetService implements OnModuleInit {
     return [header, ...rows].join('\n');
   }
 
+  // Shared with movedOutLogs.item below — the "Moved Out" tab renders moved
+  // items through the exact same DeliveryItemsList card as every other tab,
+  // so it needs the exact same customer/product shape `items` already gets.
+  private static readonly ITEM_CUSTOMER_SELECT = {
+    id: true, name: true, customerCode: true,
+    address: true, floor: true, nearbyLandmark: true,
+    deliveryInstructions: true, latitude: true, longitude: true,
+    phoneNumber: true, paymentType: true, isBillingExempt: true, financialBalance: true,
+    wallets: {
+      select: { productId: true, balance: true, product: { select: { name: true } } },
+    },
+    customPrices: {
+      select: { productId: true, customPrice: true },
+    },
+  } as const;
+
   async findOne(vendorId: string, id: string) {
     const sheet = await this.prisma.dailySheet.findFirst({
       where: { id, vendorId },
@@ -1109,20 +1125,7 @@ export class DailySheetService implements OnModuleInit {
         closureRejectedBy: { select: { id: true, name: true } },
         items: {
           include: {
-            customer: {
-              select: {
-                id: true, name: true, customerCode: true,
-                address: true, floor: true, nearbyLandmark: true,
-                deliveryInstructions: true, latitude: true, longitude: true,
-                phoneNumber: true, paymentType: true, isBillingExempt: true, financialBalance: true,
-                wallets: {
-                  select: { productId: true, balance: true, product: { select: { name: true } } },
-                },
-                customPrices: {
-                  select: { productId: true, customPrice: true },
-                },
-              },
-            },
+            customer: { select: DailySheetService.ITEM_CUSTOMER_SELECT },
             product: true,
             _count: {
               select: {
@@ -1182,6 +1185,15 @@ export class DailySheetService implements OnModuleInit {
             customer: { select: { id: true, name: true, customerCode: true } },
             toSheet: { select: { id: true, date: true, van: { select: { id: true, plateNumber: true } } } },
             movedBy: { select: { id: true, name: true } },
+            // Full item shape (same as `items` above) — the "Moved Out" tab
+            // renders these through the exact same delivery card component
+            // as every other tab, not a stripped-down summary.
+            item: {
+              include: {
+                customer: { select: DailySheetService.ITEM_CUSTOMER_SELECT },
+                product: true,
+              },
+            },
           },
           orderBy: { movedAt: 'desc' },
         },

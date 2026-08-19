@@ -704,8 +704,9 @@ model DailySheetLoad {
   // Nullable on the child side — items/expenses recorded while no trip is
   // active stay unlinked ("Unassigned"). Cash hand-in is no longer tracked
   // per-trip (see DailySheet.cashCollected, written once at sheet close).
-  items    DailySheetItem[] @relation("TripItems")
-  expenses Expense[]        @relation("TripExpenses")
+  items                 DailySheetItem[]       @relation("TripItems")
+  expenses              Expense[]              @relation("TripExpenses")
+  crewCashDistributions CrewCashDistribution[]
 
   // Trip Edit-Unlock — same fields/semantics as DailySheetItem's edit lock
   // (editUnlockedBy/editUnlockExpiresAt/editRequestedAt below): a checked-in
@@ -1216,6 +1217,14 @@ model CrewCashDistribution {
   syncedLedgerEntryId String?           @unique
   syncedLedgerEntry   StaffLedgerEntry? @relation(fields: [syncedLedgerEntryId], references: [id])
 
+  // Trip feature: same dailySheetLoadId attribution Expense/DailySheetItem
+  // already carry — crew cash is unconditionally paid from the van's
+  // physical cash (no card/other option exists for it, unlike Expense's
+  // paidFromCash toggle), so every row here is deductible; this only tells
+  // the UI/PDF WHICH trip's numbers it should reduce.
+  dailySheetLoadId String?
+  dailySheetLoad   DailySheetLoad? @relation(fields: [dailySheetLoadId], references: [id])
+
   createdById String
   createdBy   User     @relation("CrewCashCreatedBy", fields: [createdById], references: [id])
   version     Int      @default(1)
@@ -1228,6 +1237,7 @@ model CrewCashDistribution {
   @@index([vendorId, employeeId])
   @@index([dailySheetId])
   @@index([syncedLedgerEntryId])
+  @@index([dailySheetLoadId])
 }
 
 // Per-entity audit trail, mirroring StaffLedgerAuditLog/DamageCaseAuditLog exactly

@@ -86,6 +86,24 @@ export const useDeleteExpense = () => {
   });
 };
 
+// Sheet-scoped variant of useUpdateExpense — also invalidates the Daily
+// Sheet's own query (['sheets', sheetId]), same reason useCreateSheetExpense
+// does below: without it, editing an expense from inside the Daily Sheet's
+// Trip Expenses card wouldn't show the change until a manual page reload.
+export const useUpdateSheetExpense = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+      expensesApi.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [QUERY_KEY] });
+      queryClient.invalidateQueries({ queryKey: ['sheets', sheetId] });
+      toast.success('Expense updated');
+    },
+    onError: () => toast.error('Failed to update expense'),
+  });
+};
+
 export const useCreateSheetExpense = (sheetId: string) => {
   const queryClient = useQueryClient();
   return useMutation({

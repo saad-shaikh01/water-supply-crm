@@ -8,7 +8,7 @@ import {
 } from '@water-supply-crm/ui';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import {
-  AlertCircle, Camera, Check, CheckSquare, ChevronDown, ChevronUp, ClipboardList, Download,
+  AlertCircle, ArrowRightLeft, Camera, Check, CheckSquare, ChevronDown, ChevronUp, ClipboardList, Download,
   History, LocateFixed, Lock, Loader2, MapPin, MessageCircle, MessageSquare, Navigation, Phone, Send, StickyNote, Truck, Unlock, X,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
@@ -22,7 +22,12 @@ import { DeliveryRecordForm } from './delivery-record-form';
 import { ConversationThread } from '../../communication/components/conversation-thread';
 import { DeliveryItemHistoryDialog } from './delivery-item-history-dialog';
 
-type TabKey = 'all' | 'pending' | 'completed' | 'issues';
+// 'moved_out' is not a status filter — its rows come from an entirely
+// separate source (sheet-detail.tsx's movedOutItems), passed in as
+// paginatedItems/filteredItems the same as any other tab so this component
+// never needs to know the difference — see isMovedOutView below for the one
+// thing it DOES need to know (read-only rendering).
+type TabKey = 'all' | 'pending' | 'completed' | 'issues' | 'moved_out';
 
 const CATEGORY_LABELS: Record<string, string> = {
   CUSTOMER_NOT_HOME: 'Customer Not Home',
@@ -176,6 +181,11 @@ interface DeliveryItemsListProps {
   onTripFilterChange: (tripId: string) => void;
   /** Customer Move/Transfer footprint — items that arrived on this sheet via a move, keyed by item id. */
   movedInByItemId: Map<string, DeliveryItemMoveLogEntry>;
+  /** True on the "Moved Out" tab — every row being rendered has already left
+   * this sheet, so every action (Record/Edit/Move/Select) is hidden the same
+   * way it already is for a closed sheet; the row is otherwise the exact
+   * same card as every other tab. */
+  isMovedOutView: boolean;
   activeTab: TabKey;
   tabPage: number;
   totalPages: number;
@@ -216,6 +226,7 @@ export function DeliveryItemsList({
   tripFilter,
   onTripFilterChange,
   movedInByItemId,
+  isMovedOutView,
   activeTab,
   tabPage,
   totalPages,
@@ -319,8 +330,12 @@ export function DeliveryItemsList({
     );
   };
 
+  // Moved Out tab rows have already left this sheet — same "no actions"
+  // treatment as a closed sheet, everywhere isClosed already gates a button.
+  const rowsLocked = isClosed || isMovedOutView;
+
   const eligibleForMoveCount = items.filter((i) => MOVE_ELIGIBLE_STATUSES.includes(i.status)).length;
-  const canBulkMove = canUpdate && !isClosed && eligibleForMoveCount > 0;
+  const canBulkMove = canUpdate && !rowsLocked && eligibleForMoveCount > 0;
 
   // Select All operates over `filteredItems` (current search + tab, all pages) —
   // not just the current page's paginatedItems — so a driver on the Pending tab
@@ -390,7 +405,10 @@ export function DeliveryItemsList({
       </div>
 
       <Tabs value={activeTab} onValueChange={onTabChange}>
-        <TabsList className="w-full grid grid-cols-4 h-10">
+        {/* Moved Out only takes a slot when this sheet actually has any —
+            most sheets never do, so a permanent always-empty 5th tab would
+            just be clutter. */}
+        <TabsList className={cn('w-full grid h-10', tabCount('moved_out') > 0 ? 'grid-cols-5' : 'grid-cols-4')}>
           <TabsTrigger value="all" className="text-xs font-bold">
             All <span className="ml-1 text-[10px] opacity-60">({tabCount('all')})</span>
           </TabsTrigger>
@@ -403,6 +421,11 @@ export function DeliveryItemsList({
           <TabsTrigger value="issues" className="text-xs font-bold">
             Issues <span className="ml-1 text-[10px] opacity-60">({tabCount('issues')})</span>
           </TabsTrigger>
+          {tabCount('moved_out') > 0 && (
+            <TabsTrigger value="moved_out" className="text-xs font-bold">
+              Moved Out <span className="ml-1 text-[10px] opacity-60">({tabCount('moved_out')})</span>
+            </TabsTrigger>
+          )}
         </TabsList>
       </Tabs>
 
@@ -437,7 +460,7 @@ export function DeliveryItemsList({
 
             // Whether the inline record/edit form may be shown for this item.
             const canRecord =
-              !isClosed &&
+              !rowsLocked &&
               allAcksCleared &&
               (item.status === 'PENDING' || !isDriver || hasActiveEditUnlock);
 
@@ -516,6 +539,14 @@ export function DeliveryItemsList({
                             {customer?.address}
                             {customer?.floor ? ` · ${customer.floor}` : ''}
                           </p>
+                          {item.moveInfo && (
+                            <p className="text-[11px] text-purple-600 dark:text-purple-400 font-medium flex items-center gap-1 mt-0.5">
+                              <ArrowRightLeft className="h-2.5 w-2.5 shrink-0" />
+                              Moved to Van {item.moveInfo.otherSheet.van?.plateNumber ?? '—'} ·{' '}
+                              {new Date(item.moveInfo.otherSheet.date).toLocaleDateString('en-PK', { day: 'numeric', month: 'short' })}
+                              {' · by '}{item.moveInfo.movedBy.name}
+                            </p>
+                          )}
                           <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                             {(() => {
                               const isMonthly = customer?.paymentType === 'MONTHLY';
@@ -609,6 +640,11 @@ export function DeliveryItemsList({
                             MOVED IN
                           </span>
                         )}
+                        {item.moveInfo && (
+                          <span className="inline-flex items-center rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-800 dark:bg-rose-900/30 dark:text-rose-400">
+                            MOVED OUT
+                          </span>
+                        )}
                         {!!item.editCount && (
                           <button
                             type="button"
@@ -637,7 +673,7 @@ export function DeliveryItemsList({
                             <span className="text-[9px] font-bold">WA ✕</span>
                           </div>
                         )}
-                        {!isClosed && item.status === 'PENDING' && (
+                        {!rowsLocked && item.status === 'PENDING' && (
                           <Button
                             size="sm"
                             variant="default"
@@ -647,7 +683,7 @@ export function DeliveryItemsList({
                             {isExpanded ? 'Close' : 'Record'}
                           </Button>
                         )}
-                        {!isClosed && item.status !== 'PENDING' && (
+                        {!rowsLocked && item.status !== 'PENDING' && (
                           <div className="flex items-center gap-1">
                             {isDriver ? (
                               hasActiveEditUnlock ? (
@@ -722,7 +758,7 @@ export function DeliveryItemsList({
                             )}
                           </div>
                         )}
-                        {canUpdate && !isClosed && isEligibleForMove && (
+                        {canUpdate && !rowsLocked && isEligibleForMove && (
                           <button
                             className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
                             title="Move to another van/sheet"

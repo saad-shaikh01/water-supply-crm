@@ -189,7 +189,10 @@ interface SheetDetailProps {
   sheetId: string;
 }
 
-type TabKey = 'all' | 'pending' | 'completed' | 'issues';
+// 'moved_out' is NOT a status filter over `items` like the other four — it's
+// a completely separate source (data.movedOutLogs), handled outside this
+// function; see movedOutItems/tabFilter's call sites below.
+type TabKey = 'all' | 'pending' | 'completed' | 'issues' | 'moved_out';
 type SortMode = 'sequence' | 'nearest' | 'customerCode';
 
 const ITEMS_PER_PAGE = 20;
@@ -199,6 +202,7 @@ function tabFilter(tab: TabKey, item: DeliveryItem): boolean {
     case 'pending': return item.status === 'PENDING';
     case 'completed': return item.status === 'COMPLETED' || item.status === 'EMPTY_ONLY';
     case 'issues': return item.status === 'RESCHEDULED' || item.status === 'CANCELLED' || item.status === 'NOT_AVAILABLE';
+    case 'moved_out': return false; // never matched here — moved_out bypasses this pipeline entirely
     default: return true;
   }
 }
@@ -221,6 +225,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const canRejectClose = can('daily_sheets:reject_close');
   const canCreateExpense = can('expenses:create');
   const canDeleteExpense = can('expenses:delete');
+  const canUpdateExpense = can('expenses:update');
   const canManageEditLocks = can('daily_sheets:manage_edit_locks');
   const canCreateCrewCash = can('crew_cash:create');
   const canEditAllCrewCash = can('crew_cash:edit');
@@ -339,13 +344,22 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
       const tripExpenses = (data?.expenses ?? []).filter(
         (e) => e.dailySheetLoadId === trip.id && e.paidFromCash !== false,
       );
+      // Crew Cash has no paidFromCash toggle — it's unconditionally physical
+      // van cash (see the schema comment on CrewCashDistribution's own
+      // dailySheetLoadId), so every row linked to this trip counts, same
+      // bucket as the cash-paid expenses above.
+      const tripCrewCash = (data?.crewCashDistributions ?? []).filter(
+        (c) => c.dailySheetLoadId === trip.id,
+      );
       const deliveryCount = tripItems.length;
       const deliveriesCash = tripItems.reduce((s, i) => s + i.cashCollected, 0);
-      const expensesTotal = tripExpenses.reduce((s, e) => s + e.amount, 0);
+      const expensesTotal =
+        tripExpenses.reduce((s, e) => s + e.amount, 0) +
+        tripCrewCash.reduce((s, c) => s + c.amount, 0);
       map[trip.id] = { deliveryCount, deliveriesCash, expensesTotal, expectedCash: deliveriesCash - expensesTotal, items: tripItems };
     }
     return map;
-  }, [loads, data?.items, data?.expenses]);
+  }, [loads, data?.items, data?.expenses, data?.crewCashDistributions]);
   // Today's confirmed crew — driver plus DailySheetCrew rows — the only pool the
   // Crew Cash Distribution employee picker (and its list's name lookup) may draw from.
   const crewCashEmployees = useMemo(() => {
@@ -421,9 +435,36 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
     return searchFilteredItems.filter((i) => i.dailySheetLoadId === ui.tripFilter);
   }, [searchFilteredItems, ui.tripFilter]);
 
+  // Moved Out tab — NOT part of `items` at all (those rows no longer belong
+  // to this sheet, their dailySheetId points elsewhere); sourced straight
+  // from data.movedOutLogs's full `item` payload (backend attaches it
+  // specifically for this), with move context (moveInfo) merged on so the
+  // shared delivery card can show "-> Van X ...". Search still applies, same
+  // as every other tab; trip filter deliberately does not (these items no
+  // longer have a trip on THIS sheet).
+  const movedOutItems = useMemo(() => {
+    return (data?.movedOutLogs ?? [])
+      .filter((log) => !!log.item)
+      .map((log) => ({
+        ...log.item!,
+        moveInfo: { otherSheet: log.otherSheet, movedBy: log.movedBy, movedAt: log.movedAt },
+      }));
+  }, [data?.movedOutLogs]);
+
+  const searchFilteredMovedOutItems = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return movedOutItems;
+    return movedOutItems.filter((i) =>
+      i.customer?.name?.toLowerCase().includes(query) ||
+      i.customer?.customerCode?.toLowerCase().includes(query),
+    );
+  }, [movedOutItems, searchQuery]);
+
   const filteredItems = useMemo(
-    () => tripFilteredItems.filter((i) => tabFilter(ui.activeTab, i)),
-    [tripFilteredItems, ui.activeTab],
+    () => ui.activeTab === 'moved_out'
+      ? searchFilteredMovedOutItems
+      : tripFilteredItems.filter((i) => tabFilter(ui.activeTab, i)),
+    [tripFilteredItems, ui.activeTab, searchFilteredMovedOutItems],
   );
   const totalPages = useMemo(() => Math.max(1, Math.ceil(filteredItems.length / ITEMS_PER_PAGE)), [filteredItems]);
   const paginatedItems = useMemo(
@@ -477,7 +518,8 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const doneItemsForCheckin = (data?.items ?? []).filter((i: any) => ['COMPLETED', 'EMPTY_ONLY'].includes(i.status));
   const suggestedReturned = Math.max(0, loadedFilled - doneItemsForCheckin.reduce((s: number, i: any) => s + (i.filledDropped ?? 0), 0));
   const suggestedEmpty = doneItemsForCheckin.reduce((s: number, i: any) => s + (i.emptyReceived ?? 0), 0);
-  const tabCount = (tab: TabKey) => tripFilteredItems.filter((i) => tabFilter(tab, i)).length;
+  const tabCount = (tab: TabKey) =>
+    tab === 'moved_out' ? searchFilteredMovedOutItems.length : tripFilteredItems.filter((i) => tabFilter(tab, i)).length;
 
   const handleSortModeChange = (mode: SortMode) => {
     setSortMode(mode);
@@ -997,6 +1039,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         crewMembers={crewCashEmployees}
         isClosed={isClosed}
         canDeleteExpense={canDeleteExpense}
+        canUpdateExpense={canUpdateExpense}
         currentUserId={user?.id}
         canEditAllCrewCash={canEditAllCrewCash}
         canDeleteAllCrewCash={canDeleteAllCrewCash}
@@ -1120,6 +1163,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         tripFilter={ui.tripFilter}
         onTripFilterChange={(tripId) => dispatch({ type: 'SET_TRIP_FILTER', tripId })}
         movedInByItemId={movedInByItemId}
+        isMovedOutView={ui.activeTab === 'moved_out'}
         activeTab={ui.activeTab}
         tabPage={ui.tabPage}
         totalPages={totalPages}

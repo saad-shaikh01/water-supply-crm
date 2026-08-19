@@ -176,6 +176,7 @@ function makeService(
     sheetIsClosed?: boolean;
     ledgerEntrySnapshot?: any;
     targetEmployeeExists?: boolean;
+    activeTrip?: { id: string } | null;
   } = {},
 ) {
   const {
@@ -189,6 +190,7 @@ function makeService(
     sheetIsClosed = false,
     ledgerEntrySnapshot,
     targetEmployeeExists,
+    activeTrip = null,
   } = opts;
 
   const tx = makeTx(entrySnapshot, { sheetIsClosed, ledgerEntrySnapshot, targetEmployeeExists });
@@ -205,6 +207,9 @@ function makeService(
     dailySheetCrew: { findUnique: jest.fn().mockResolvedValue(isCrew ? { id: 'crew-row-1' } : null) },
     user: { findFirst: jest.fn().mockResolvedValue(employeeExists ? { id: EMPLOYEE_ID } : null) },
     crewCashDistribution: { findMany: jest.fn().mockResolvedValue([]) },
+    // Trip feature: create() looks up the sheet's active trip (outside the
+    // tx) to stamp dailySheetLoadId — no active trip by default in these tests.
+    dailySheetLoad: { findFirst: jest.fn().mockResolvedValue(activeTrip) },
   };
   const approvalGate = { requiresApproval: jest.fn().mockResolvedValue(approvalRequired) };
   const permissions = { can: jest.fn().mockResolvedValue(canPermission) };
@@ -240,6 +245,22 @@ describe('CrewCashDistributionService', () => {
             date: sheetOpen.date,
           }),
         }),
+      );
+    });
+
+    it('attributes the entry to the currently active trip via dailySheetLoadId', async () => {
+      const { svc, tx } = makeService({ activeTrip: { id: 'trip-1' } });
+      await svc.create(salesmanUser, SHEET_ID, createDto);
+      expect(tx.crewCashDistribution.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ dailySheetLoadId: 'trip-1' }) }),
+      );
+    });
+
+    it('leaves dailySheetLoadId null when no trip is active', async () => {
+      const { svc, tx } = makeService({ activeTrip: null });
+      await svc.create(salesmanUser, SHEET_ID, createDto);
+      expect(tx.crewCashDistribution.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ dailySheetLoadId: null }) }),
       );
     });
 

@@ -98,7 +98,14 @@ export function ReconcileDialog({ open, onClose, sheetId, mode = 'direct' }: Rec
       .then((d) => {
         const preview = d as ReconcileData;
         setData(preview);
-        setActualCashHandedIn(preview.driver.netToHandIn);
+        // 'approve' mode is reviewing a request that already ran through
+        // requestClose() — sheet.cashCollected (preview.driver.handedIn) is
+        // the REAL figure the driver/staff already committed, not a
+        // suggestion. 'direct'/'request' mode hasn't submitted anything yet
+        // (sheet.cashCollected is still whatever stale/zero value predates
+        // this close), so netToHandIn is the right starting suggestion —
+        // editable — for what's about to be entered.
+        setActualCashHandedIn(mode === 'approve' ? preview.driver.handedIn : preview.driver.netToHandIn);
       })
       .catch(() => { toast.error('Failed to load reconciliation preview'); onClose(); })
       .finally(() => setLoading(false));
@@ -244,10 +251,22 @@ export function ReconcileDialog({ open, onClose, sheetId, mode = 'direct' }: Rec
                 </div>
               </div>
 
-              {/* Driver handover */}
+              {/* Driver handover. liveUnexplainedDiscrepancy replaces the raw
+                  preview's data.driver.unexplainedDiscrepancy — that figure
+                  is derived from sheet.cashCollected in the DB, which in
+                  'direct'/'request' mode is still whatever it was BEFORE this
+                  close (0, or a stale value) since the real entry only gets
+                  written once the close/request-close call actually fires.
+                  Comparing netToHandIn against the amount the user is
+                  live-typing below (state actualCashHandedIn — mode-aware
+                  seeded above) is what this card is actually meant to show. */}
+              {(() => {
+                const liveHandedIn = Number(actualCashHandedIn || 0);
+                const liveUnexplainedDiscrepancy = data.driver.netToHandIn - liveHandedIn;
+                return (
               <div className={cn(
                 'rounded-2xl border overflow-hidden',
-                data.driver.unexplainedDiscrepancy !== 0 ? 'border-destructive/30 bg-destructive/5' : 'border-emerald-500/30 bg-emerald-500/5',
+                liveUnexplainedDiscrepancy !== 0 ? 'border-destructive/30 bg-destructive/5' : 'border-emerald-500/30 bg-emerald-500/5',
               )}>
                 <div className="px-4 py-2.5 border-b border-border/40 bg-muted/40">
                   <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Driver Handover</p>
@@ -259,8 +278,8 @@ export function ReconcileDialog({ open, onClose, sheetId, mode = 'direct' }: Rec
                       <p className="text-lg font-black font-mono">₨{data.driver.shouldHandIn.toLocaleString()}</p>
                     </div>
                     <div>
-                      <p className="text-[9px] font-bold uppercase text-muted-foreground">Handed In</p>
-                      <p className="text-lg font-black font-mono">₨{data.driver.handedIn.toLocaleString()}</p>
+                      <p className="text-[9px] font-bold uppercase text-muted-foreground">Expenses</p>
+                      <p className="text-lg font-black font-mono">₨{data.driver.expensePaidFromCash.toLocaleString()}</p>
                     </div>
                     <div>
                       <p className="text-[9px] font-bold uppercase text-muted-foreground">Net Expected</p>
@@ -287,14 +306,16 @@ export function ReconcileDialog({ open, onClose, sheetId, mode = 'direct' }: Rec
                   )}
                   <div className="rounded-xl bg-background/70 border border-border/40 px-3 py-2 flex items-center justify-between">
                     <p className="text-[9px] font-bold uppercase text-muted-foreground">Unexplained Difference</p>
-                    <p className={cn('font-mono font-black text-sm', data.driver.unexplainedDiscrepancy !== 0 ? 'text-destructive' : 'text-emerald-600')}>
-                      {data.driver.unexplainedDiscrepancy !== 0
-                        ? `₨${Math.abs(data.driver.unexplainedDiscrepancy).toLocaleString()} ${data.driver.unexplainedDiscrepancy > 0 ? 'short ⚠️' : 'over'}`
+                    <p className={cn('font-mono font-black text-sm', liveUnexplainedDiscrepancy !== 0 ? 'text-destructive' : 'text-emerald-600')}>
+                      {liveUnexplainedDiscrepancy !== 0
+                        ? `₨${Math.abs(liveUnexplainedDiscrepancy).toLocaleString()} ${liveUnexplainedDiscrepancy > 0 ? 'short ⚠️' : 'over'}`
                         : '✓ Clear'}
                     </p>
                   </div>
                 </div>
               </div>
+                );
+              })()}
 
               {/* Actual Cash Handed In — the FINAL input before confirming close: the
                   driver/staff physically counts today's cash and enters it here. This

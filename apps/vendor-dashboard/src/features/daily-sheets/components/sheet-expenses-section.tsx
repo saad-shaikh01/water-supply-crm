@@ -2,10 +2,11 @@
 
 import { useState } from 'react';
 import { Button, Card, CardContent, Badge } from '@water-supply-crm/ui';
-import { Trash2, Receipt, Fuel, Wrench, Users, AlertTriangle, CreditCard, type LucideIcon } from 'lucide-react';
+import { Trash2, Pencil, Receipt, Fuel, Wrench, Users, AlertTriangle, CreditCard, type LucideIcon } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { useDeleteSheetExpense } from '../../expenses/hooks/use-expenses';
+import { ExpenseForm } from '../../expenses/components/expense-form';
 import type { SheetExpense } from '@water-supply-crm/types';
 
 const CATEGORY_CONFIG: Record<string, { label: string; color: string; icon: LucideIcon }> = {
@@ -22,6 +23,7 @@ interface SheetExpensesSectionProps {
   expenses: SheetExpense[];
   isClosed: boolean;
   canDelete: boolean;
+  canUpdate: boolean;
 }
 
 export function SheetExpensesSection({
@@ -30,8 +32,10 @@ export function SheetExpensesSection({
   expenses,
   isClosed,
   canDelete,
+  canUpdate,
 }: SheetExpensesSectionProps) {
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [editExpense, setEditExpense] = useState<SheetExpense | null>(null);
   const { mutate: deleteExpense, isPending: isDeleting } = useDeleteSheetExpense(sheetId);
 
   const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
@@ -43,6 +47,7 @@ export function SheetExpensesSection({
   const nonCashExpenses = totalExpenses - cashExpenses;
 
   const canRemove = canDelete && !isClosed;
+  const canEdit = canUpdate && !isClosed;
 
   return (
     <div className="space-y-3">
@@ -94,6 +99,16 @@ export function SheetExpensesSection({
                       {new Date(expense.date).toLocaleDateString('en-PK', { day: 'numeric', month: 'short' })}
                     </p>
                   </div>
+                  {canEdit && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-orange-500 shrink-0"
+                      onClick={() => setEditExpense(expense)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                   {canRemove && (
                     <Button
                       variant="ghost"
@@ -138,6 +153,16 @@ export function SheetExpensesSection({
         }}
         isLoading={isDeleting}
         confirmLabel="Delete"
+      />
+
+      {/* dailySheetId set → ExpenseForm's edit submit routes through
+          useUpdateSheetExpense, so this card's own cached data refreshes
+          immediately instead of only the general Expenses list. */}
+      <ExpenseForm
+        open={!!editExpense}
+        onOpenChange={(o) => { if (!o) setEditExpense(null); }}
+        expense={editExpense as unknown as Record<string, unknown> | null}
+        dailySheetId={sheetId}
       />
     </div>
   );

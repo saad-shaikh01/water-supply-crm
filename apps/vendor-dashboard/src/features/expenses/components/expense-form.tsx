@@ -8,7 +8,7 @@ import {
   Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@water-supply-crm/ui';
 import { expenseSchema, type ExpenseInput } from '../schemas';
-import { useCreateExpense, useCreateSheetExpense, useUpdateExpense } from '../hooks/use-expenses';
+import { useCreateExpense, useCreateSheetExpense, useUpdateExpense, useUpdateSheetExpense } from '../hooks/use-expenses';
 import { useAllVans } from '../../vans/hooks/use-vans';
 
 /** Same visual toggle used across Fleet forms (fuel-log-form-dialog) — kept
@@ -57,7 +57,10 @@ export function ExpenseForm({ open, onOpenChange, expense, dailySheetId, default
   // list. Only used when this form was opened from a Daily Sheet.
   const { mutate: createForSheet, isPending: isCreatingForSheet } = useCreateSheetExpense(dailySheetId ?? '');
   const { mutate: update, isPending: isUpdating } = useUpdateExpense();
-  const isPending = isCreating || isCreatingForSheet || isUpdating;
+  // Sheet-scoped variant of update, same rationale as createForSheet above —
+  // used whenever editing happens from inside a Daily Sheet (dailySheetId set).
+  const { mutate: updateForSheet, isPending: isUpdatingForSheet } = useUpdateSheetExpense(dailySheetId ?? '');
+  const isPending = isCreating || isCreatingForSheet || isUpdating || isUpdatingForSheet;
   const { data: vansData } = useAllVans();
   const vans = ((vansData as any)?.data ?? []) as Array<{ id: string; plateNumber: string; isActive: boolean }>;
   const activeVans = vans.filter((v) => v.isActive !== false);
@@ -98,7 +101,9 @@ export function ExpenseForm({ open, onOpenChange, expense, dailySheetId, default
   }, [open, expense, reset, defaultVanId]);
 
   const onSubmit = (data: ExpenseInput) => {
-    if (isEdit) {
+    if (isEdit && dailySheetId) {
+      updateForSheet({ id: String(expense!.id), data }, { onSuccess: () => { onOpenChange(false); onAfterSuccess?.(); } });
+    } else if (isEdit) {
       update({ id: String(expense!.id), data }, { onSuccess: () => { onOpenChange(false); onAfterSuccess?.(); } });
     } else if (dailySheetId) {
       createForSheet(
