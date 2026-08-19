@@ -14,31 +14,30 @@ interface CheckinDialogProps {
   onClose: () => void;
   sheetId: string;
   trip?: { loadedFilled: number };
-  suggestedValues?: { returnedFilled: number; collectedEmpty: number; cashHandedIn: number };
+  suggestedValues?: { returnedFilled: number; collectedEmpty: number };
   /** Trip Edit-Unlock: editing an already-checked-in trip (within an active
    * unlock window) instead of a fresh check-in — pre-fills from the trip's
    * REAL recorded values (not system-suggested ones) and submits with
    * forceResubmit: true on the same checkin endpoint. */
   mode?: 'checkin' | 'edit';
-  editValues?: { returnedFilled: number; collectedEmpty: number; damagedOnVan: number; leakedOnVan: number; cashHandedIn: number };
+  editValues?: { returnedFilled: number; collectedEmpty: number; damagedOnVan: number; leakedOnVan: number };
 }
 
 interface CheckinForm {
   returnedFilled: number | '';
   collectedEmpty: number | '';
-  cashHandedIn: number;
   damagedOnVan: number | '';
   leakedOnVan: number | '';
 }
 
-// Returned/empty/cash are pre-filled from system-calculated trip figures
-// (derived from the completed delivery items) so the salesman just verifies
-// them instead of recounting from scratch — still fully editable. Damaged/
-// leaked have no computable source (physical van inspection only), so they
-// always start empty.
+// Returned/empty are pre-filled from system-calculated trip figures (derived
+// from the completed delivery items) so the salesman just verifies them
+// instead of recounting from scratch — still fully editable. Damaged/leaked
+// have no computable source (physical van inspection only), so they always
+// start empty.
 const buildInitialForm = (
-  suggestedValues?: { returnedFilled: number; collectedEmpty: number; cashHandedIn: number },
-  editValues?: { returnedFilled: number; collectedEmpty: number; damagedOnVan: number; leakedOnVan: number; cashHandedIn: number },
+  suggestedValues?: { returnedFilled: number; collectedEmpty: number },
+  editValues?: { returnedFilled: number; collectedEmpty: number; damagedOnVan: number; leakedOnVan: number },
 ): CheckinForm => {
   if (editValues) {
     return {
@@ -46,7 +45,6 @@ const buildInitialForm = (
       collectedEmpty: editValues.collectedEmpty,
       damagedOnVan: editValues.damagedOnVan,
       leakedOnVan: editValues.leakedOnVan,
-      cashHandedIn: editValues.cashHandedIn,
     };
   }
   return {
@@ -54,7 +52,6 @@ const buildInitialForm = (
     collectedEmpty: suggestedValues?.collectedEmpty ?? '',
     damagedOnVan: '',
     leakedOnVan: '',
-    cashHandedIn: suggestedValues?.cashHandedIn ?? 0,
   };
 };
 
@@ -140,16 +137,6 @@ export function CheckinDialog({ open, onClose, sheetId, trip, suggestedValues, m
               placeholder="0"
               onChange={(e) => setForm((p) => ({ ...p, leakedOnVan: e.target.value === '' ? '' : Number(e.target.value) }))}
               className="font-mono font-bold border-red-500/30 focus-visible:ring-red-500/30"
-            />
-          </div>
-          <div className="col-span-2 space-y-2">
-            <Label className="font-bold text-xs uppercase tracking-widest">Cash Handed In (₨)</Label>
-            <Input
-              type="number"
-              min={0}
-              value={form.cashHandedIn}
-              onChange={(e) => setForm((p) => ({ ...p, cashHandedIn: Number(e.target.value) }))}
-              className="h-14 text-2xl font-black font-mono text-center"
             />
           </div>
         </div>

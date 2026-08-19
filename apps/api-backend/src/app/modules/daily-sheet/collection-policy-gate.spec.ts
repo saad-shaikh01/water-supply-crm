@@ -12,6 +12,8 @@ import { InAppNotificationService } from '../notifications/in-app-notification.s
 import { NotificationSettingsService } from '../notifications/notification-settings.service';
 import { CollectionPolicyService } from '../collection-policy/collection-policy.service';
 import { CrewCashDistributionService } from '../payroll/crew-cash-distribution.service';
+import { VehicleCheckService } from '../fleet/vehicle-check.service';
+import { SheetDiscrepancyCaseService } from '../sheet-discrepancy-case/sheet-discrepancy-case.service';
 import { StorageService } from '../../common/storage/storage.service';
 import { WarehouseService } from '../warehouse/warehouse.service';
 import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.service';
@@ -88,7 +90,14 @@ describe('DailySheetService.submitDelivery — Collection Policy gate', () => {
   }
 
   function wireHappyPathTransaction() {
-    const tx = { dailySheetItem: { update: jest.fn().mockResolvedValue({ id: ITEM_ID }) } };
+    // submitDelivery reads the post-delivery snapshot via `tx`, not
+    // `this.prisma` (same-transaction visibility fix) — the tx mock needs
+    // its own bottleWallet.findUnique alongside the outer mockPrisma one.
+    const tx = {
+      dailySheetItem: { update: jest.fn().mockResolvedValue({ id: ITEM_ID }) },
+      bottleWallet: { findUnique: jest.fn().mockResolvedValue({ balance: 5 }) },
+      customer: { findUnique: jest.fn().mockResolvedValue({ financialBalance: 500 }) },
+    };
     mockPrisma.$transaction.mockImplementation((fn: any) => fn(tx));
     mockPrisma.bottleWallet.findUnique.mockResolvedValue({ balance: 5 });
     mockPrisma.customer.findUnique.mockResolvedValue({ financialBalance: 500 });
@@ -150,6 +159,11 @@ describe('DailySheetService.submitDelivery — Collection Policy gate', () => {
         { provide: NotificationSettingsService, useValue: mockNotifSettings },
         { provide: CollectionPolicyService, useValue: mockCollectionPolicy },
         { provide: CrewCashDistributionService, useValue: {} },
+        // Not exercised by submitDelivery — only wired so Nest can resolve
+        // DailySheetService's full constructor (Fleet Phase 1 / Sheet
+        // Discrepancy Case deps, added after this suite was written).
+        { provide: VehicleCheckService, useValue: {} },
+        { provide: SheetDiscrepancyCaseService, useValue: {} },
         { provide: StorageService, useValue: {} },
         { provide: WarehouseService, useValue: {} },
         { provide: DeliveryReceiptPdfService, useValue: {} },

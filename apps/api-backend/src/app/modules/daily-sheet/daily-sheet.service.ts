@@ -606,7 +606,11 @@ export class DailySheetService implements OnModuleInit {
           // a genuine re-record of an already-terminal item, not a first-time submit.
           ...(dto.forceResubmit && TERMINAL_STATUSES.includes(item.status)
             ? { editCount: { increment: 1 }, lastEditedAt: new Date() }
-            : {}),
+            // First-time recording only — stamp the trip this delivery happened
+            // under. Left untouched on an edit/forceResubmit of an already-terminal
+            // item so it stays attributed to whichever trip it was originally
+            // recorded in (activeLoad here may be a LATER trip than that one).
+            : { dailySheetLoadId: activeLoad.id }),
         },
       });
 
@@ -1169,11 +1173,44 @@ export class DailySheetService implements OnModuleInit {
         discrepancyCases: {
           select: { id: true, type: true, status: true },
         },
+        // Customer Move/Transfer footprint — this sheet as the source ("N
+        // moved out of me" banner) and as the destination ("moved in" badge
+        // on the item row). van/date come through toSheet/fromSheet rather
+        // than being re-fetched, since DailySheet already carries both.
+        movedOutLogs: {
+          include: {
+            customer: { select: { id: true, name: true, customerCode: true } },
+            toSheet: { select: { id: true, date: true, van: { select: { id: true, plateNumber: true } } } },
+            movedBy: { select: { id: true, name: true } },
+          },
+          orderBy: { movedAt: 'desc' },
+        },
+        movedInLogs: {
+          include: {
+            customer: { select: { id: true, name: true, customerCode: true } },
+            fromSheet: { select: { id: true, date: true, van: { select: { id: true, plateNumber: true } } } },
+            movedBy: { select: { id: true, name: true } },
+          },
+          orderBy: { movedAt: 'desc' },
+        },
       },
     });
     if (!sheet) {
       throw new NotFoundException('Daily sheet not found');
     }
+
+    // Customer Move/Transfer footprint: movedOutLogs carries `toSheet`,
+    // movedInLogs carries `fromSheet` — collapse both onto a single
+    // `otherSheet` key (same in-place-mutation idiom as messageCount below)
+    // so the frontend never has to branch on which array a row came from.
+    (sheet as any).movedOutLogs = (sheet.movedOutLogs as any[]).map((log) => {
+      const { toSheet, ...rest } = log;
+      return { ...rest, otherSheet: toSheet };
+    });
+    (sheet as any).movedInLogs = (sheet.movedInLogs as any[]).map((log) => {
+      const { fromSheet, ...rest } = log;
+      return { ...rest, otherSheet: fromSheet };
+    });
 
     // Communication Center summary (Phase 7): collapse the _count sub-object
     // into two flat numbers and drop the raw shape from the response — same
@@ -1531,6 +1568,12 @@ export class DailySheetService implements OnModuleInit {
         : sheet._count.items + 1;
 
     return this.prisma.$transaction(async (tx) => {
+      // Trip feature: attribute the item to whichever trip is currently active
+      // on this sheet (null if none — e.g. inserted before any trip started).
+      const activeLoad = await tx.dailySheetLoad.findFirst({
+        where: { dailySheetId: sheetId, endedAt: null },
+      });
+
       const item = await tx.dailySheetItem.create({
         data: {
           dailySheetId: sheetId,
@@ -1539,6 +1582,7 @@ export class DailySheetService implements OnModuleInit {
           sequence,
           deliveryType: 'ON_DEMAND',
           sourceOrderId: order.id,
+          dailySheetLoadId: activeLoad?.id ?? null,
         },
       });
 
@@ -1594,6 +1638,12 @@ export class DailySheetService implements OnModuleInit {
     const resolvedStatus = hasDeliveryValues ? DeliveryStatus.COMPLETED : DeliveryStatus.PENDING;
 
     const result = await this.prisma.$transaction(async (tx) => {
+      // Trip feature: attribute the item to whichever trip is currently active
+      // on this sheet (null if none active yet).
+      const activeLoad = await tx.dailySheetLoad.findFirst({
+        where: { dailySheetId: sheetId, endedAt: null },
+      });
+
       const item = await tx.dailySheetItem.create({
         data: {
           dailySheetId: sheetId,
@@ -1608,6 +1658,7 @@ export class DailySheetService implements OnModuleInit {
           cashCollected: dto.cashCollected,
           pricePerBottle: price,
           deliveredAt: hasDeliveryValues ? new Date() : null,
+          dailySheetLoadId: activeLoad?.id ?? null,
         },
       });
 
@@ -1698,6 +1749,13 @@ export class DailySheetService implements OnModuleInit {
     const now = new Date();
 
     const result = await this.prisma.$transaction(async (tx) => {
+      // Trip feature: correction items are only ever added to already-closed
+      // sheets, so there is never an active trip to attribute to — this will
+      // resolve to null (kept for consistency with the other creation sites).
+      const activeLoad = await tx.dailySheetLoad.findFirst({
+        where: { dailySheetId: sheetId, endedAt: null },
+      });
+
       const item = await tx.dailySheetItem.create({
         data: {
           dailySheetId: sheetId,
@@ -1715,6 +1773,7 @@ export class DailySheetService implements OnModuleInit {
           isCorrection: true,
           correctionAddedAt: now,
           correctionNote: dto.correctionNote,
+          dailySheetLoadId: activeLoad?.id ?? null,
         },
       });
 
@@ -1876,11 +1935,11 @@ export class DailySheetService implements OnModuleInit {
         changes: {
           before: {
             returnedFilled: load.returnedFilled, collectedEmpty: load.collectedEmpty,
-            cashHandedIn: load.cashHandedIn, damagedOnVan: load.damagedOnVan, leakedOnVan: load.leakedOnVan,
+            damagedOnVan: load.damagedOnVan, leakedOnVan: load.leakedOnVan,
           },
           after: {
             returnedFilled: dto.returnedFilled, collectedEmpty: dto.collectedEmpty,
-            cashHandedIn: dto.cashHandedIn, damagedOnVan: dto.damagedOnVan, leakedOnVan: dto.leakedOnVan,
+            damagedOnVan: dto.damagedOnVan, leakedOnVan: dto.leakedOnVan,
           },
         },
       });
@@ -1892,7 +1951,6 @@ export class DailySheetService implements OnModuleInit {
     // the original check-in in both the sheet aggregates and the warehouse ledger.
     const dReturned = isEdit ? dto.returnedFilled - load.returnedFilled : dto.returnedFilled;
     const dEmpty = isEdit ? dto.collectedEmpty - load.collectedEmpty : dto.collectedEmpty;
-    const dCash = isEdit ? dto.cashHandedIn - load.cashHandedIn : dto.cashHandedIn;
     const dDamaged = isEdit ? dto.damagedOnVan - load.damagedOnVan : dto.damagedOnVan;
     const dLeaked = isEdit ? dto.leakedOnVan - load.leakedOnVan : dto.leakedOnVan;
 
@@ -1902,7 +1960,6 @@ export class DailySheetService implements OnModuleInit {
         data: {
           returnedFilled: dto.returnedFilled,
           collectedEmpty: dto.collectedEmpty,
-          cashHandedIn: dto.cashHandedIn,
           damagedOnVan: dto.damagedOnVan,
           leakedOnVan: dto.leakedOnVan,
           // Preserve the original check-in timestamp on an edit — resetting
@@ -1915,12 +1972,14 @@ export class DailySheetService implements OnModuleInit {
 
       // Update sheet-level aggregates — by the delta, so an edit only ever
       // adjusts by the difference, never re-applies the full new value.
+      // Cash is NOT touched here — it's no longer tracked per-trip check-in;
+      // DailySheet.cashCollected is now a single actual-cash-handed-in figure
+      // captured once at sheet close (see closeSheet/requestClose).
       await tx.dailySheet.update({
         where: { id: sheetId },
         data: {
           filledInCount: { increment: dReturned },
           emptyInCount: { increment: dEmpty },
-          cashCollected: { increment: dCash },
         },
       });
 
@@ -2341,8 +2400,14 @@ export class DailySheetService implements OnModuleInit {
 
   /** Direct Staff/Admin close — unchanged trigger, skips the request/approve
    * review cycle entirely and lands straight on closureStatus=APPROVED. */
-  async closeSheet(vendorId: string, sheetId: string, actorId: string, actorRole: UserRole) {
+  async closeSheet(vendorId: string, sheetId: string, actorId: string, actorRole: UserRole, actualCashHandedIn: number) {
     const sheet = await this.assertSheetCloseable(vendorId, sheetId);
+    // Cash is no longer accumulated per-trip check-in (see checkinLoad) — it's
+    // this single actual figure the driver reports at close time. Overlay it
+    // onto the in-memory sheet BEFORE building the reconciliation so
+    // driver.handedIn/discrepancy (and therefore Sheet Discrepancy Case
+    // creation below) reflect it, not the sheet's stale/zero DB value.
+    sheet.cashCollected = actualCashHandedIn;
     const reconciliation = this.buildReconciliation(sheet);
 
     // The isClosed flip, the Crew Cash → Payroll Ledger sync sweep, and Sheet
@@ -2354,6 +2419,7 @@ export class DailySheetService implements OnModuleInit {
         where: { id: sheetId },
         data: {
           isClosed: true,
+          cashCollected: actualCashHandedIn,
           cashExpected: reconciliation.driver.netToHandIn,
           closureStatus: 'APPROVED',
           closureApprovedAt: new Date(),
@@ -2414,14 +2480,18 @@ export class DailySheetService implements OnModuleInit {
    * to approveClose so a driver's numbers are never posted to the ledger
    * without a Staff/Admin having looked at them first.
    */
-  async requestClose(vendorId: string, sheetId: string, actorId: string) {
+  async requestClose(vendorId: string, sheetId: string, actorId: string, actualCashHandedIn: number) {
     const sheet = await this.assertSheetCloseable(vendorId, sheetId);
+    // Same overlay as closeSheet — see comment there. approveClose re-fetches
+    // the sheet from the DB afterwards, so it naturally picks up this value.
+    sheet.cashCollected = actualCashHandedIn;
     const reconciliation = this.buildReconciliation(sheet);
 
     const updated = await this.prisma.dailySheet.update({
       where: { id: sheetId },
       data: {
         isClosed: true,
+        cashCollected: actualCashHandedIn,
         cashExpected: reconciliation.driver.netToHandIn,
         closureStatus: 'PENDING_APPROVAL',
         closureRequestedAt: new Date(),
@@ -2860,6 +2930,24 @@ export class DailySheetService implements OnModuleInit {
           data: { dailySheetId: destinationSheetId, sequence: nextSequence, status: 'PENDING' },
         });
         nextSequence++;
+
+        // Customer Move/Transfer footprint — the queryable counterpart to the
+        // AuditLog entry below. AuditLog stays (existing history-dialog reads
+        // it by entityId), but this is what lets the SOURCE sheet answer "who
+        // got moved out of me" without parsing changes JSON, and the
+        // destination answer "who got moved into me" the same way. One row
+        // per hop — item.id stays stable across moves, so a second move later
+        // just adds another row (full lineage, not overwritten).
+        await tx.deliveryItemMoveLog.create({
+          data: {
+            vendorId,
+            itemId: item.id,
+            customerId: item.customerId,
+            fromSheetId: item.dailySheetId,
+            toSheetId: destinationSheetId,
+            movedById: user.userId,
+          },
+        });
 
         await this.audit.log({
           vendorId,

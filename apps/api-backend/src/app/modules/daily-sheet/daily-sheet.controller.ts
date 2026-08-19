@@ -39,6 +39,7 @@ import { AddCorrectionItemDto } from './dto/add-correction-item.dto';
 import { MoveDeliveryItemsDto } from './dto/move-delivery-items.dto';
 import { UnlockEditDto } from './dto/unlock-edit.dto';
 import { RejectCloseDto } from './dto/reject-close.dto';
+import { CloseSheetDto } from './dto/close-sheet.dto';
 import { RequirePermissions, RequireAnyPermission } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
@@ -468,8 +469,8 @@ export class DailySheetController {
   @Post(':id/close')
   @RequirePermissions('daily_sheets:close')
   @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 3 } })
-  closeSheet(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.dailySheetService.closeSheet(user.vendorId, id, user.userId, user.role);
+  closeSheet(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: CloseSheetDto) {
+    return this.dailySheetService.closeSheet(user.vendorId, id, user.userId, user.role, dto.actualCashHandedIn);
   }
 
   // ── Soft Close (Amendment R9): Driver/Salesman self-close, Staff/Admin review ──
@@ -477,8 +478,8 @@ export class DailySheetController {
   @Post(':id/request-close')
   @RequirePermissions('daily_sheets:request_close')
   @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 3 } })
-  requestClose(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.dailySheetService.requestClose(user.vendorId, id, user.userId);
+  requestClose(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: CloseSheetDto) {
+    return this.dailySheetService.requestClose(user.vendorId, id, user.userId, dto.actualCashHandedIn);
   }
 
   @Post(':id/approve-close')

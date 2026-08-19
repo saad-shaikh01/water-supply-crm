@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-  Button,
+  Button, Input, Label,
 } from '@water-supply-crm/ui';
 import { CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -83,18 +83,28 @@ export function ReconcileDialog({ open, onClose, sheetId, mode = 'direct' }: Rec
   const [data, setData] = useState<ReconcileData | null>(null);
   const [loading, setLoading] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
+  // Actual Cash Handed In — a fresh point-in-time cash count entered here at
+  // close time (NOT related to any per-trip cashHandedIn), required by the
+  // close/request-close endpoints. Pre-filled with the computed netToHandIn
+  // once the preview loads (suggested-value-editable, same convention as
+  // checkin-dialog.tsx's suggestedValues), but fully editable by the user.
+  const [actualCashHandedIn, setActualCashHandedIn] = useState<number | ''>('');
 
   useEffect(() => {
     if (!open) { setData(null); return; }
     setLoading(true);
     setData(null);
     dailySheetsApi.getReconciliationPreview(sheetId)
-      .then((d) => setData(d as ReconcileData))
+      .then((d) => {
+        const preview = d as ReconcileData;
+        setData(preview);
+        setActualCashHandedIn(preview.driver.netToHandIn);
+      })
       .catch(() => { toast.error('Failed to load reconciliation preview'); onClose(); })
       .finally(() => setLoading(false));
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleClose = () => { setData(null); setConfirmClose(false); onClose(); };
+  const handleClose = () => { setData(null); setConfirmClose(false); setActualCashHandedIn(''); onClose(); };
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose(); }}>
@@ -286,6 +296,34 @@ export function ReconcileDialog({ open, onClose, sheetId, mode = 'direct' }: Rec
                 </div>
               </div>
 
+              {/* Actual Cash Handed In — the FINAL input before confirming close: the
+                  driver/staff physically counts today's cash and enters it here. This
+                  is a fresh point-in-time entry, unrelated to any per-trip figure.
+                  Editable in 'direct'/'request' (the driver/staff entering it);
+                  'approve' mode only reviews what was already submitted at request
+                  time, so it's shown read-only there instead of a new input. */}
+              <div className="rounded-2xl border border-border/50 bg-accent/10 overflow-hidden">
+                <div className="px-4 py-2.5 bg-muted/40 border-b border-border/40">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Actual Cash Handed In</p>
+                </div>
+                <div className="p-4">
+                  {mode === 'approve' ? (
+                    <p className="text-xl font-black font-mono">₨{Number(actualCashHandedIn || 0).toLocaleString()}</p>
+                  ) : (
+                    <div className="space-y-2">
+                      <Label className="font-bold text-xs uppercase tracking-widest">Actual Cash Handed In (₨)</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={actualCashHandedIn}
+                        onChange={(e) => setActualCashHandedIn(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="h-14 text-2xl font-black font-mono text-center"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {confirmClose && (
                 <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4 space-y-3">
                   <p className="text-sm font-bold text-destructive">{copy.confirmWarning}</p>
@@ -298,8 +336,8 @@ export function ReconcileDialog({ open, onClose, sheetId, mode = 'direct' }: Rec
                       disabled={isClosing}
                       onClick={() => {
                         const onSuccess = () => handleClose();
-                        if (mode === 'direct') closeSheet(undefined, { onSuccess });
-                        else if (mode === 'request') requestClose(undefined, { onSuccess });
+                        if (mode === 'direct') closeSheet({ actualCashHandedIn: Number(actualCashHandedIn) }, { onSuccess });
+                        else if (mode === 'request') requestClose({ actualCashHandedIn: Number(actualCashHandedIn) }, { onSuccess });
                         else approveClose(undefined, { onSuccess });
                       }}
                       className="flex-1 rounded-xl font-bold"
@@ -319,7 +357,12 @@ export function ReconcileDialog({ open, onClose, sheetId, mode = 'direct' }: Rec
           <Button variant="ghost" onClick={handleClose}>Cancel</Button>
           <Button
             onClick={() => setConfirmClose(true)}
-            disabled={isClosing || loading || !data || data.pendingCount > 0 || confirmClose}
+            disabled={
+              isClosing || loading || !data || data.pendingCount > 0 || confirmClose ||
+              // Actual Cash Handed In is a required field for the driver/staff
+              // entering it — 'approve' mode has nothing to enter (read-only review).
+              (mode !== 'approve' && (actualCashHandedIn === '' || actualCashHandedIn < 0))
+            }
             className="rounded-xl font-bold min-w-[140px]"
           >
             {isClosing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}

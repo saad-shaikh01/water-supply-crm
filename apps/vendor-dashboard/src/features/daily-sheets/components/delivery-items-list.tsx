@@ -2,7 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Card, CardContent, Button, Badge, Tabs, TabsList, TabsTrigger, Skeleton, Dialog, DialogContent, DialogHeader, DialogTitle } from '@water-supply-crm/ui';
+import {
+  Card, CardContent, Button, Badge, Tabs, TabsList, TabsTrigger, Skeleton, Dialog, DialogContent, DialogHeader, DialogTitle,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@water-supply-crm/ui';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import {
   AlertCircle, Camera, Check, CheckSquare, ChevronDown, ChevronUp, ClipboardList, Download,
@@ -11,7 +14,7 @@ import {
 import { cn } from '@water-supply-crm/ui';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import type { DeliveryItem, CollectionPolicy, CashCollectionPolicy } from '@water-supply-crm/types';
+import type { DeliveryItem, CollectionPolicy, CashCollectionPolicy, LoadTrip, DeliveryItemMoveLogEntry } from '@water-supply-crm/types';
 import { useCustomerDeliveryHistory, useDeliveryPhotoUrl } from '../hooks/use-daily-sheets';
 import { dailySheetsApi } from '../api/daily-sheets.api';
 import { reverseGeocode } from '../../../lib/geocoding';
@@ -166,6 +169,13 @@ interface DeliveryItemsListProps {
   items: DeliveryItem[];
   paginatedItems: DeliveryItem[];
   filteredItems: DeliveryItem[];
+  /** This sheet's trips — powers the trip-filter dropdown below. */
+  loads: LoadTrip[];
+  /** 'all' (default) or a DailySheetLoad id — narrows the queue to one trip. */
+  tripFilter: string;
+  onTripFilterChange: (tripId: string) => void;
+  /** Customer Move/Transfer footprint — items that arrived on this sheet via a move, keyed by item id. */
+  movedInByItemId: Map<string, DeliveryItemMoveLogEntry>;
   activeTab: TabKey;
   tabPage: number;
   totalPages: number;
@@ -202,6 +212,10 @@ export function DeliveryItemsList({
   items,
   paginatedItems,
   filteredItems,
+  loads,
+  tripFilter,
+  onTripFilterChange,
+  movedInByItemId,
   activeTab,
   tabPage,
   totalPages,
@@ -328,6 +342,28 @@ export function DeliveryItemsList({
           <p className="text-xs text-muted-foreground font-medium">
             {items.filter((i) => i.status !== 'PENDING').length} / {items.length} done
           </p>
+          {/* Trip filter — disabled with a single trip (nothing to disambiguate,
+              "All" and that one trip show the same set); once a second trip
+              starts, switching it narrows the queue to just that trip's
+              deliveries (via dailySheetLoadId, see sheet-detail.tsx's
+              tripFilteredItems). Hidden entirely before any trip exists. */}
+          {loads.length > 0 && (
+            <Select
+              value={tripFilter}
+              onValueChange={onTripFilterChange}
+              disabled={loads.length <= 1}
+            >
+              <SelectTrigger className="h-8 w-[130px] rounded-full text-xs font-bold">
+                <SelectValue placeholder="All Trips" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Trips</SelectItem>
+                {loads.map((trip) => (
+                  <SelectItem key={trip.id} value={trip.id}>Trip {trip.tripNumber}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           {canBulkMove && selectMode && eligibleFilteredIds.length > 0 && (
             <Button
               size="sm"
@@ -385,6 +421,10 @@ export function DeliveryItemsList({
             const walletBalance = matchedWallet?.balance ?? 0;
             const hasActiveEditUnlock =
               !!item.editUnlockExpiresAt && new Date(item.editUnlockExpiresAt) > new Date();
+            // Customer Move/Transfer footprint (destination side) — this item
+            // arrived on this sheet via moveDeliveryItems() rather than being
+            // generated on the schedule.
+            const movedInLog = movedInByItemId.get(item.id);
 
             // Delivery gate keys on requiresAck instruction messages only —
             // casual conversation replies never block recording (Communication
@@ -559,6 +599,14 @@ export function DeliveryItemsList({
                         {!item.isCorrection && item.deliveryType === 'ON_DEMAND' && !item.sourceOrderId && (
                           <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
                             AD-HOC
+                          </span>
+                        )}
+                        {movedInLog && (
+                          <span
+                            title={`Moved in from Van ${movedInLog.otherSheet.van?.plateNumber ?? '—'} (${new Date(movedInLog.otherSheet.date).toLocaleDateString('en-PK', { day: 'numeric', month: 'short' })}) by ${movedInLog.movedBy.name}`}
+                            className="inline-flex items-center rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-bold text-purple-800 dark:bg-purple-900/30 dark:text-purple-400"
+                          >
+                            MOVED IN
                           </span>
                         )}
                         {!!item.editCount && (

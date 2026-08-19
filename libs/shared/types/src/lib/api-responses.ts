@@ -234,6 +234,8 @@ export interface DeliveryItem {
   /** Bumped on each force-resubmit of a terminal-status item — drives the "Edited" row badge. */
   editCount?: number;
   lastEditedAt?: string | null;
+  /** Trip this delivery was recorded during — null if no trip was active at record time (shown as "Unassigned"). */
+  dailySheetLoadId?: string | null;
 }
 
 export interface CustomerFinancialSummary {
@@ -324,7 +326,6 @@ export interface LoadTrip {
   loadedFilled: number;
   returnedFilled: number;
   collectedEmpty: number;
-  cashHandedIn: number;
   damagedOnVan: number;
   leakedOnVan: number;
   startedAt: string;
@@ -347,6 +348,8 @@ export interface SheetExpense {
   vanId: string | null;
   van: { id: string; plateNumber: string } | null;
   createdBy: { id: string; name: string };
+  /** Trip this expense was recorded during — null if no trip was active at record time. Auto-set server-side. */
+  dailySheetLoadId?: string | null;
 }
 
 export type CrewRole = 'DRIVER' | 'SALESMAN' | 'LOADER';
@@ -575,6 +578,24 @@ export interface SheetDetail {
   expenses: SheetExpense[];
   collectionPolicy?: CollectionPolicy;
   cashCollectionPolicy?: CashCollectionPolicy;
+  /** Customer Move/Transfer footprint — this sheet as the source of the move. */
+  movedOutLogs: DeliveryItemMoveLogEntry[];
+  /** Customer Move/Transfer footprint — this sheet as the destination of the move. */
+  movedInLogs: DeliveryItemMoveLogEntry[];
+}
+
+/** One row of the Customer Move/Transfer footprint (DeliveryItemMoveLog) —
+ * shared shape for both movedOutLogs (fromSheet = this sheet) and
+ * movedInLogs (toSheet = this sheet); `otherSheet` always refers to whichever
+ * of the pair ISN'T this sheet, so the frontend never has to branch on which
+ * list it came from to render "moved between X and Y". */
+export interface DeliveryItemMoveLogEntry {
+  id: string;
+  itemId: string;
+  customer: { id: string; name: string; customerCode: string };
+  otherSheet: { id: string; date: string; van: { id: string; plateNumber: string } | null };
+  movedBy: { id: string; name: string };
+  movedAt: string;
 }
 
 /** One entry from GET /daily-sheets/items/:id/history (a generic AuditLog row scoped to one DailySheetItem). */

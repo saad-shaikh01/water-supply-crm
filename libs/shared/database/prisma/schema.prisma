@@ -256,6 +256,8 @@ model Vendor {
   fuelLogs                FuelLog[]
   vehicleMaintenanceRules VehicleMaintenanceRule[]
   vehicleServiceRecords   VehicleServiceRecord[]
+
+  deliveryItemMoveLogs DeliveryItemMoveLog[]
 }
 
 model User {
@@ -276,33 +278,33 @@ model User {
   permissionOverrides UserPermissionOverride[]
 
   // Relations for specific roles
-  assignedVan           Van?                     @relation("VanDriver")
-  dailySheets           DailySheet[]             @relation("DriverSheets")
-  customer              Customer? // One-to-one link for Customer Portal
-  expenses              Expense[]
-  fcmTokens             FcmToken[]
-  inAppNotifications    InAppNotification[]
-  notificationPrefs     NotificationPreference[]
-  driverLastLocation    DriverLastLocation?
-  driverLocationHistory DriverLocationHistory[]  @relation("DriverLocationHistoryDriver")
-  driverStops           DriverStop[]             @relation("DriverStopDriver")
-  driverRouteSummaries  DriverRouteSummary[]     @relation("DriverRouteSummaryDriver")
-  driverDamageCases     DamageCase[]             @relation("DriverDamageCases")
-  reviewedDamageCases   DamageCase[]             @relation("DamageCaseReviewer")
-  driverDiscrepancyCases   SheetDiscrepancyCase[] @relation("DriverDiscrepancyCases")
-  resolvedDiscrepancyCases SheetDiscrepancyCase[] @relation("DiscrepancyCaseResolver")
-  sentMessages          ConversationMessage[]    @relation("MessageSender")
-  conversationsAsDriver Conversation[]           @relation("ConversationDriver")
-  conversationReads     ConversationRead[]       @relation("ConversationReader")
-  createdWarehouseTx    WarehouseTransaction[]   @relation("WarehouseTxCreatedBy")
-  createdRepairBatches  RepairBatch[]            @relation("RepairBatchCreatedBy")
-  crewAssignments       DailySheetCrew[]         @relation("CrewMember")
-  vanDefaultCrew        VanDefaultCrew[]         @relation("VanDefaultCrewMember")
-  confirmedCrewSheets   DailySheet[]             @relation("CrewConfirmedBy")
+  assignedVan              Van?                     @relation("VanDriver")
+  dailySheets              DailySheet[]             @relation("DriverSheets")
+  customer                 Customer? // One-to-one link for Customer Portal
+  expenses                 Expense[]
+  fcmTokens                FcmToken[]
+  inAppNotifications       InAppNotification[]
+  notificationPrefs        NotificationPreference[]
+  driverLastLocation       DriverLastLocation?
+  driverLocationHistory    DriverLocationHistory[]  @relation("DriverLocationHistoryDriver")
+  driverStops              DriverStop[]             @relation("DriverStopDriver")
+  driverRouteSummaries     DriverRouteSummary[]     @relation("DriverRouteSummaryDriver")
+  driverDamageCases        DamageCase[]             @relation("DriverDamageCases")
+  reviewedDamageCases      DamageCase[]             @relation("DamageCaseReviewer")
+  driverDiscrepancyCases   SheetDiscrepancyCase[]   @relation("DriverDiscrepancyCases")
+  resolvedDiscrepancyCases SheetDiscrepancyCase[]   @relation("DiscrepancyCaseResolver")
+  sentMessages             ConversationMessage[]    @relation("MessageSender")
+  conversationsAsDriver    Conversation[]           @relation("ConversationDriver")
+  conversationReads        ConversationRead[]       @relation("ConversationReader")
+  createdWarehouseTx       WarehouseTransaction[]   @relation("WarehouseTxCreatedBy")
+  createdRepairBatches     RepairBatch[]            @relation("RepairBatchCreatedBy")
+  crewAssignments          DailySheetCrew[]         @relation("CrewMember")
+  vanDefaultCrew           VanDefaultCrew[]         @relation("VanDefaultCrewMember")
+  confirmedCrewSheets      DailySheet[]             @relation("CrewConfirmedBy")
   // Soft Close (Amendment R9)
-  closureRequestedSheets DailySheet[]            @relation("ClosureRequestedBy")
-  closureApprovedSheets  DailySheet[]            @relation("ClosureApprovedBy")
-  closureRejectedSheets  DailySheet[]            @relation("ClosureRejectedBy")
+  closureRequestedSheets   DailySheet[]             @relation("ClosureRequestedBy")
+  closureApprovedSheets    DailySheet[]             @relation("ClosureApprovedBy")
+  closureRejectedSheets    DailySheet[]             @relation("ClosureRejectedBy")
 
   // Staff Payroll & Financial Management — Phase 1 (Foundation)
   salaryStructures            SalaryStructure[]      @relation("SalaryStructureEmployee")
@@ -333,6 +335,8 @@ model User {
   vehicleCheckCriticalOverrides VehicleDailyCheck[]    @relation("VehicleCheckCriticalOverrideBy")
   fuelLogsRecorded              FuelLog[]              @relation("FuelLogRecordedBy")
   vehicleServiceRecordsRecorded VehicleServiceRecord[] @relation("VehicleServiceRecordRecordedBy")
+
+  deliveryItemMoveLogsMoved DeliveryItemMoveLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -457,16 +461,17 @@ model Customer {
   isBillingExempt  Boolean     @default(false)
   financialBalance Float       @default(0) // Current outstanding amount (running balance)
 
-  wallets           BottleWallet[]
-  customPrices      CustomerProductPrice[]
-  sheetItems        DailySheetItem[]
-  transactions      Transaction[]
-  paymentRequests   PaymentRequest[]
-  deliverySchedules CustomerDeliverySchedule[]
-  orders            CustomerOrder[]
-  tickets           CustomerTicket[]
-  damageCases       DamageCase[]
-  conversations     Conversation[]
+  wallets              BottleWallet[]
+  customPrices         CustomerProductPrice[]
+  sheetItems           DailySheetItem[]
+  transactions         Transaction[]
+  paymentRequests      PaymentRequest[]
+  deliverySchedules    CustomerDeliverySchedule[]
+  orders               CustomerOrder[]
+  tickets              CustomerTicket[]
+  damageCases          DamageCase[]
+  conversations        Conversation[]
+  deliveryItemMoveLogs DeliveryItemMoveLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -628,6 +633,11 @@ model DailySheet {
   vehicleDailyChecks VehicleDailyCheck[]
   fuelLogs           FuelLog[]
 
+  // Customer Move/Transfer footprint — this sheet as the source ("moved out
+  // of me") vs the destination ("moved into me") of a moveDeliveryItems() hop.
+  movedOutLogs DeliveryItemMoveLog[] @relation("MoveLogFromSheet")
+  movedInLogs  DeliveryItemMoveLog[] @relation("MoveLogToSheet")
+
   // Soft Close workflow: Driver/Salesman may close the sheet themselves
   // (isClosed flips true immediately, locking edits like a normal close),
   // but the Crew Cash → Payroll Ledger sync and Sheet Discrepancy Case
@@ -638,13 +648,13 @@ model DailySheet {
   closureStatus          DailySheetClosureStatus?
   closureRequestedAt     DateTime?
   closureRequestedById   String?
-  closureRequestedBy     User?                     @relation("ClosureRequestedBy", fields: [closureRequestedById], references: [id])
+  closureRequestedBy     User?                    @relation("ClosureRequestedBy", fields: [closureRequestedById], references: [id])
   closureApprovedAt      DateTime?
   closureApprovedById    String?
-  closureApprovedBy      User?                     @relation("ClosureApprovedBy", fields: [closureApprovedById], references: [id])
+  closureApprovedBy      User?                    @relation("ClosureApprovedBy", fields: [closureApprovedById], references: [id])
   closureRejectedAt      DateTime?
   closureRejectedById    String?
-  closureRejectedBy      User?                     @relation("ClosureRejectedBy", fields: [closureRejectedById], references: [id])
+  closureRejectedBy      User?                    @relation("ClosureRejectedBy", fields: [closureRejectedById], references: [id])
   closureRejectionReason String?
 
   createdAt DateTime @default(now())
@@ -683,13 +693,19 @@ model DailySheetLoad {
   loadedFilled   Int // filled bottles taken from warehouse at trip start
   returnedFilled Int        @default(0) // filled returned at end of trip
   collectedEmpty Int        @default(0) // empties collected from customers
-  cashHandedIn   Float      @default(0) // cash given to warehouse at check-in
   productId      String? // which product was loaded (null = legacy records)
   product        Product?   @relation("LoadProduct", fields: [productId], references: [id])
   damagedOnVan   Int        @default(0) // bottles damaged during transit
   leakedOnVan    Int        @default(0) // bottles that leaked during transit
   startedAt      DateTime   @default(now())
   endedAt        DateTime? // null = trip still in progress
+
+  // Delivery items and expenses attributed to this specific trip (Trip feature).
+  // Nullable on the child side — items/expenses recorded while no trip is
+  // active stay unlinked ("Unassigned"). Cash hand-in is no longer tracked
+  // per-trip (see DailySheet.cashCollected, written once at sheet close).
+  items    DailySheetItem[] @relation("TripItems")
+  expenses Expense[]        @relation("TripExpenses")
 
   // Trip Edit-Unlock — same fields/semantics as DailySheetItem's edit lock
   // (editUnlockedBy/editUnlockExpiresAt/editRequestedAt below): a checked-in
@@ -723,6 +739,14 @@ model DailySheetItem {
   status        DeliveryStatus @default(PENDING)
   deliveryType  DeliveryType   @default(SCHEDULED)
   sourceOrderId String?
+
+  // Trip this item was recorded under (Trip feature) — stamped from the
+  // sheet's currently-active trip (DailySheetLoad.endedAt is null) the first
+  // time the item transitions into a terminal status; left untouched on
+  // later edits/resubmits so the item stays attributed to its original trip.
+  // Null when no trip was active at the time ("Unassigned").
+  dailySheetLoadId String?
+  dailySheetLoad   DailySheetLoad? @relation("TripItems", fields: [dailySheetLoadId], references: [id])
 
   filledDropped         Int    @default(0)
   emptyReceived         Int    @default(0)
@@ -769,6 +793,12 @@ model DailySheetItem {
   // rollup pointer for at most one Conversation in practice, but the FK
   // itself is no longer @unique (Conversation is keyed per-customer).
   conversationsLastDiscussed Conversation[]
+  // Customer Move/Transfer footprint (docs research 2026-08-19) — every hop this
+  // item has taken between sheets. AuditLog already recorded CUSTOMER_DELIVERY_MOVED
+  // entries, but buried in JSON with no queryable path from either side of the
+  // move; this gives both the source and destination sheet a direct, indexed
+  // way to list their moved-out/moved-in items without parsing changes JSON.
+  moveLogs                   DeliveryItemMoveLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -776,6 +806,39 @@ model DailySheetItem {
   @@index([dailySheetId, sequence])
   @@index([dailySheetId, customerId])
   @@index([customerId, status])
+  @@index([dailySheetLoadId])
+}
+
+// Customer Move/Transfer footprint — one row per moveDeliveryItems() hop for a
+// given DailySheetItem (id never changes across a move, so multi-hop A→B→C
+// lineage is just multiple rows keyed by the same itemId). fromSheet/toSheet
+// already carry van + date (via DailySheet.van/date), so those are NOT
+// re-denormalized here — read them through the relation instead of duplicating.
+model DeliveryItemMoveLog {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id])
+
+  itemId String
+  item   DailySheetItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  fromSheetId String
+  fromSheet   DailySheet @relation("MoveLogFromSheet", fields: [fromSheetId], references: [id])
+
+  toSheetId String
+  toSheet   DailySheet @relation("MoveLogToSheet", fields: [toSheetId], references: [id])
+
+  movedById String
+  movedBy   User     @relation(fields: [movedById], references: [id])
+  movedAt   DateTime @default(now())
+
+  @@index([fromSheetId])
+  @@index([toSheetId])
+  @@index([itemId])
+  @@index([vendorId, movedAt])
 }
 
 model DeliveryIssue {
@@ -1057,11 +1120,11 @@ model PaymentRequest {
 // ──────────────────────────────────────────────────────────────────────────────
 
 model Expense {
-  id           String          @id @default(uuid())
-  vendorId     String
-  vendor       Vendor          @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  category     ExpenseCategory
-  amount       Float
+  id               String          @id @default(uuid())
+  vendorId         String
+  vendor           Vendor          @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  category         ExpenseCategory
+  amount           Float
   // Whether this amount actually left the driver's van cash-in-hand (default,
   // e.g. paid from today's collections) vs. paid by card/bank/company account
   // and therefore never touched the cash the driver has to hand in. Only rows
@@ -1069,17 +1132,23 @@ model Expense {
   // (daily-sheet.service.ts buildReconciliation + the PDF's net-cash chip);
   // rows with paidFromCash=false still count as a real vendor cost (Expense
   // Analytics, getSummary) but leave the driver's handover untouched.
-  paidFromCash Boolean         @default(true)
-  description  String
-  date         DateTime
-  vanId        String?
-  van          Van?            @relation(fields: [vanId], references: [id])
-  dailySheetId String?
-  dailySheet   DailySheet?     @relation(fields: [dailySheetId], references: [id], onDelete: SetNull)
-  createdById  String
-  createdBy    User            @relation(fields: [createdById], references: [id])
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  paidFromCash     Boolean         @default(true)
+  description      String
+  date             DateTime
+  vanId            String?
+  van              Van?            @relation(fields: [vanId], references: [id])
+  dailySheetId     String?
+  dailySheet       DailySheet?     @relation(fields: [dailySheetId], references: [id], onDelete: SetNull)
+  // Trip this expense was incurred under (Trip feature) — stamped from the
+  // sheet's currently-active trip at creation time; null if no trip was
+  // active (or the expense has no dailySheetId at all, i.e. a general
+  // expense with no sheet context).
+  dailySheetLoadId String?
+  dailySheetLoad   DailySheetLoad? @relation("TripExpenses", fields: [dailySheetLoadId], references: [id])
+  createdById      String
+  createdBy        User            @relation(fields: [createdById], references: [id])
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
 
   // Fleet Operations & Vehicle Intelligence — Phase 1: the other side of the
   // "source record -> linked frozen financial record" pattern (see FuelLog /
@@ -1094,6 +1163,7 @@ model Expense {
   @@index([vendorId, date])
   @@index([vendorId, category])
   @@index([dailySheetId])
+  @@index([dailySheetLoadId])
 }
 
 // Crew Cash Distribution (docs/features/crew-operational-cash-distribution.md) —
@@ -1585,26 +1655,26 @@ model SheetDiscrepancyCase {
   driverId     String
   driver       User       @relation("DriverDiscrepancyCases", fields: [driverId], references: [id])
 
-  type DiscrepancyType
+  type             DiscrepancyType
   // Raw bottle/empty count gap from buildReconciliation() — set for
   // BOTTLE/EMPTY, null for CASH (never edited after creation).
   reportedQuantity Int?
   // Exact rupee gap — reconciliation.driver.unexplainedDiscrepancy, already
   // net of expenses-paid-from-cash and crew cash — set for CASH, null for
   // BOTTLE/EMPTY (never edited after creation).
-  reportedAmount Float?
+  reportedAmount   Float?
 
   status  DiscrepancyCaseStatus @default(REPORTED)
   version Int                   @default(0)
 
-  resolutionType DiscrepancyResolutionType?
+  resolutionType   DiscrepancyResolutionType?
   // Rupees actually charged/written-off, supplied by the reviewer at resolve
   // time regardless of type (pre-filled from reportedAmount for CASH on the
   // frontend, blank for BOTTLE/EMPTY — the reviewer prices it). Null for WAIVED.
   resolutionAmount Float?
   resolutionNote   String?
   resolvedById     String?
-  resolvedBy       User?     @relation("DiscrepancyCaseResolver", fields: [resolvedById], references: [id])
+  resolvedBy       User?                      @relation("DiscrepancyCaseResolver", fields: [resolvedById], references: [id])
   resolvedAt       DateTime?
 
   // Set only when resolutionType = CHARGED_TO_DRIVER / COMPANY_LOSS respectively.

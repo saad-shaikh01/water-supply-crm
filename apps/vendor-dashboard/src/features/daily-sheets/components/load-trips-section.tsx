@@ -2,13 +2,27 @@
 
 import { useEffect, useState } from 'react';
 import { Card, CardContent, Button, Badge } from '@water-supply-crm/ui';
-import { AlertCircle, Clock, Loader2, Lock, Plus, Send, Truck, Unlock } from 'lucide-react';
+import { AlertCircle, ChevronUp, Clock, Eye, Loader2, Lock, Plus, Send, Truck, Unlock } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
-import { motion } from 'framer-motion';
-import type { LoadTrip } from '@water-supply-crm/types';
+import { motion, AnimatePresence } from 'framer-motion';
+import type { DeliveryItem, LoadTrip } from '@water-supply-crm/types';
+import { StatusBadge } from '../../../components/shared/status-badge';
 
 const formatTime = (dt: string) =>
   new Date(dt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+/** Per-trip aggregation of deliveries/expenses recorded while that trip was
+ * active (matched on DailySheetItem.dailySheetLoadId / Expense.dailySheetLoadId).
+ * Computed by the parent (sheet-detail.tsx) from the sheet's items/expenses —
+ * this component stays free of those raw arrays and just renders the map. */
+interface TripStats {
+  deliveryCount: number;
+  deliveriesCash: number;
+  expensesTotal: number;
+  expectedCash: number;
+  /** The actual matched delivery rows — powers the "View Deliveries" toggle below. */
+  items: DeliveryItem[];
+}
 
 interface LoadTripsSectionProps {
   loads: LoadTrip[];
@@ -17,6 +31,8 @@ interface LoadTripsSectionProps {
   hasAnyTrip: boolean;
   canLoadOut: boolean;
   canClose: boolean;
+  /** Keyed by trip id — see TripStats. */
+  tripStats: Record<string, TripStats>;
   /** Soft Close (Amendment R9) — Driver/Salesman self-close permission. */
   canRequestClose: boolean;
   onNewTrip: () => void;
@@ -41,6 +57,7 @@ export function LoadTripsSection({
   hasAnyTrip,
   canLoadOut,
   canClose,
+  tripStats,
   canRequestClose,
   onNewTrip,
   onReconcile,
@@ -55,6 +72,16 @@ export function LoadTripsSection({
   unlockingTripId,
 }: LoadTripsSectionProps) {
   const [now, setNow] = useState(() => new Date());
+  // "View Deliveries" toggle per trip card — independent per trip, so a staff
+  // member can have two trips' delivery lists open side by side.
+  const [expandedTripIds, setExpandedTripIds] = useState<Set<string>>(new Set());
+  const toggleDeliveries = (tripId: string) => {
+    setExpandedTripIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(tripId)) next.delete(tripId); else next.add(tripId);
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (!activeTrip) return;
@@ -129,6 +156,11 @@ export function LoadTripsSection({
             // Trip Edit-Unlock — same hasActiveEditUnlock shape as delivery-items-list.tsx.
             const hasActiveEditUnlock =
               !!trip.editUnlockExpiresAt && new Date(trip.editUnlockExpiresAt) > new Date();
+            // Deliveries/Expenses/Expected Cash — precomputed by the parent from
+            // items/expenses linked to this trip; a trip with no linked rows yet
+            // (e.g. just started, nothing delivered) falls back to zeros.
+            const stats = tripStats[trip.id] ?? { deliveryCount: 0, deliveriesCash: 0, expensesTotal: 0, expectedCash: 0, items: [] };
+            const deliveriesOpen = expandedTripIds.has(trip.id);
 
             return (
               <motion.div
@@ -171,7 +203,7 @@ export function LoadTripsSection({
                         </div>
                       </div>
 
-                      <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                         <div className="rounded-xl bg-orange-500/10 px-3 py-2 text-center">
                           <p className="text-[9px] font-bold uppercase text-orange-500/80">Loaded</p>
                           <p className="text-lg font-black font-mono text-orange-500">{trip.loadedFilled}</p>
@@ -188,13 +220,44 @@ export function LoadTripsSection({
                             {trip.endedAt ? trip.collectedEmpty : '—'}
                           </p>
                         </div>
-                        <div className={cn('rounded-xl px-3 py-2 text-center', trip.endedAt ? 'bg-emerald-500/10' : 'bg-muted/30')}>
-                          <p className="text-[9px] font-bold uppercase text-muted-foreground">Cash</p>
-                          <p className={cn('text-lg font-black font-mono', trip.endedAt ? 'text-emerald-500' : 'text-muted-foreground/40')}>
-                            {trip.endedAt ? `₨${trip.cashHandedIn}` : '—'}
+                        <div className="rounded-xl bg-emerald-500/10 px-3 py-2 text-center">
+                          <p className="text-[9px] font-bold uppercase text-emerald-500/80">Deliveries</p>
+                          <p className="text-lg font-black font-mono text-emerald-500">
+                            {stats.deliveryCount} <span className="text-xs font-normal">· ₨{stats.deliveriesCash.toLocaleString()}</span>
                           </p>
                         </div>
+                        <div className="rounded-xl bg-red-500/10 px-3 py-2 text-center">
+                          <p className="text-[9px] font-bold uppercase text-red-500/80">Expenses</p>
+                          <p className="text-lg font-black font-mono text-red-500">₨{stats.expensesTotal.toLocaleString()}</p>
+                        </div>
+                        <div className="rounded-xl bg-teal-500/10 px-3 py-2 text-center">
+                          <p className="text-[9px] font-bold uppercase text-teal-500/80">Expected Cash</p>
+                          <p className="text-lg font-black font-mono text-teal-500">₨{stats.expectedCash.toLocaleString()}</p>
+                        </div>
                       </div>
+
+                      {/* View Deliveries — toggles the panel below listing just this
+                          trip's linked deliveries (dailySheetLoadId match), independent
+                          of the isActive/isClosed state so it's always available, even
+                          on a long-closed trip. */}
+                      <button
+                        type="button"
+                        onClick={() => toggleDeliveries(trip.id)}
+                        title={deliveriesOpen ? 'Hide deliveries' : 'View deliveries for this trip'}
+                        className={cn(
+                          'h-9 w-9 rounded-full flex items-center justify-center shrink-0 transition-colors relative',
+                          deliveriesOpen
+                            ? 'bg-emerald-500/15 text-emerald-600'
+                            : 'text-muted-foreground hover:text-emerald-600 hover:bg-emerald-500/10',
+                        )}
+                      >
+                        {deliveriesOpen ? <ChevronUp className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        {stats.deliveryCount > 0 && (
+                          <span className="absolute -top-1 -right-1 h-4 min-w-[16px] px-0.5 rounded-full bg-emerald-500 text-white text-[9px] font-black flex items-center justify-center leading-none">
+                            {stats.deliveryCount}
+                          </span>
+                        )}
+                      </button>
 
                       {isActive && !isClosed && (
                         <Button
@@ -294,6 +357,51 @@ export function LoadTripsSection({
                         Edit unlocked · expires {new Date(trip.editUnlockExpiresAt!).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
                       </p>
                     )}
+
+                    {/* This trip's linked deliveries (dailySheetLoadId match) — same
+                        rows the Deliveries chip above counts, just listed out. */}
+                    <AnimatePresence>
+                      {deliveriesOpen && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.2 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="mt-3 pt-3 border-t border-border/40 space-y-1.5">
+                            {stats.items.length === 0 ? (
+                              <p className="text-xs text-muted-foreground text-center py-3">
+                                No deliveries recorded on this trip yet.
+                              </p>
+                            ) : (
+                              stats.items.map((item) => (
+                                <div
+                                  key={item.id}
+                                  className="flex items-center justify-between gap-2 rounded-xl bg-background/70 border border-border/40 px-3 py-2 text-xs"
+                                >
+                                  <div className="min-w-0 flex items-center gap-2">
+                                    <span className="font-bold truncate">{item.customer?.name}</span>
+                                    <span className="text-[9px] font-mono text-muted-foreground shrink-0">
+                                      {item.customer?.customerCode}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    {item.filledDropped > 0 && (
+                                      <span className="text-[10px] font-bold text-orange-600">↓{item.filledDropped}</span>
+                                    )}
+                                    <span className="font-mono font-bold text-emerald-600">
+                                      ₨{item.cashCollected.toLocaleString()}
+                                    </span>
+                                    <StatusBadge status={item.status} />
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </CardContent>
                 </Card>
               </motion.div>

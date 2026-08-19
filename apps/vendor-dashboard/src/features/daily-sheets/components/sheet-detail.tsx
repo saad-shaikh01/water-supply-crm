@@ -22,14 +22,15 @@ import { FuelLogFormDialog } from '../../fleet/components/dialogs/fuel-log-form-
 import { useVehicleDailyChecks } from '../../fleet/hooks/use-vehicle-checks';
 import { toast } from 'sonner';
 import {
-  CheckCircle2, ClipboardList, DollarSign, Gauge, ShieldAlert,
+  CheckCircle2, ChevronDown, ChevronUp, ClipboardList, DollarSign, Gauge, ShieldAlert,
   Droplets, Loader2, Package, Receipt, Route, RotateCcw, Search, Truck, Upload, User, X,
-  AlertOctagon, XCircle,
+  AlertOctagon, ArrowRightLeft, XCircle,
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import type { VehicleCheckType } from '@water-supply-crm/types';
 import { useRouter } from 'next/navigation';
 import { cn } from '@water-supply-crm/ui';
-import type { DeliveryItem, LoadTrip } from '@water-supply-crm/types';
+import type { DeliveryItem, DeliveryItemMoveLogEntry, LoadTrip } from '@water-supply-crm/types';
 import { useAuthStore } from '../../../store/auth.store';
 import { usePermissions } from '../../authz/hooks/use-permissions';
 import { SheetDetailHeader } from './sheet-detail-header';
@@ -71,6 +72,8 @@ interface UiState {
   expandedItemId: string | null;
   /** Deep-linked item awaiting scroll-into-view + highlight (Phase 6). */
   deepLinkItemId: string | null;
+  /** Delivery Queue's trip filter dropdown — 'all' (default, no-op) or a DailySheetLoad id. */
+  tripFilter: string;
 }
 
 type UiAction =
@@ -110,7 +113,8 @@ type UiAction =
   | { type: 'SET_PAGE'; page: number }
   | { type: 'SET_EXPANDED'; itemId: string | null }
   | { type: 'START_DEEP_LINK'; itemId: string }
-  | { type: 'CLEAR_DEEP_LINK' };
+  | { type: 'CLEAR_DEEP_LINK' }
+  | { type: 'SET_TRIP_FILTER'; tripId: string };
 
 const initialUiState: UiState = {
   newTripOpen: false,
@@ -133,6 +137,7 @@ const initialUiState: UiState = {
   tabPage: 1,
   expandedItemId: null,
   deepLinkItemId: null,
+  tripFilter: 'all',
 };
 
 function uiReducer(state: UiState, action: UiAction): UiState {
@@ -174,6 +179,9 @@ function uiReducer(state: UiState, action: UiAction): UiState {
     case 'SET_EXPANDED': return { ...state, expandedItemId: action.itemId };
     case 'START_DEEP_LINK': return { ...state, deepLinkItemId: action.itemId };
     case 'CLEAR_DEEP_LINK': return { ...state, deepLinkItemId: null };
+    // Same tabPage reset as SET_TAB — switching trips shouldn't leave the
+    // user stranded on a page number that no longer exists for the new list.
+    case 'SET_TRIP_FILTER': return { ...state, tripFilter: action.tripId, tabPage: 1 };
   }
 }
 
@@ -245,6 +253,9 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const [sortMode, setSortMode] = useState<SortMode>('sequence');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectMode, setSelectMode] = useState(false);
+  // Customer Move/Transfer footprint banner — collapsed by default, matches
+  // CustomerHistorySection's own toggle pattern.
+  const [movedOutExpanded, setMovedOutExpanded] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [moveTargetIds, setMoveTargetIds] = useState<string[] | null>(null);
   const { location: driverLocation, requestLocation } = useDriverLocation();
@@ -301,6 +312,40 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   }, [ui.activeTab]);
 
   const loads = useMemo(() => data?.loads ?? [], [data]);
+  // Customer Move/Transfer footprint (destination side) — keyed by itemId so
+  // delivery-items-list.tsx can render a "MOVED IN" badge per row via a plain
+  // lookup instead of scanning the array on every item.
+  const movedInByItemId = useMemo(() => {
+    const map = new Map<string, DeliveryItemMoveLogEntry>();
+    for (const log of data?.movedInLogs ?? []) map.set(log.itemId, log);
+    return map;
+  }, [data?.movedInLogs]);
+  // Trip-level Deliveries/Expenses/Expected Cash chips (load-trips-section.tsx) —
+  // groups the sheet's items/expenses by the trip they were recorded during
+  // (DailySheetItem.dailySheetLoadId / Expense.dailySheetLoadId, null = no
+  // active trip at record time, excluded here since it has no trip card to
+  // render against). Deliveries use the same terminal-status filter as
+  // doneItemsForCheckin/doneItems ('COMPLETED' | 'EMPTY_ONLY') so cashCollected
+  // is only counted once a delivery is actually final; expenses only count the
+  // deductible subset (paidFromCash !== false) that actually reduces cash on hand.
+  // `items` carries the actual matched rows too (not just the aggregate) so the
+  // trip card's "View Deliveries" toggle can list them without a second fetch.
+  const tripStats = useMemo(() => {
+    const map: Record<string, { deliveryCount: number; deliveriesCash: number; expensesTotal: number; expectedCash: number; items: DeliveryItem[] }> = {};
+    for (const trip of loads) {
+      const tripItems = (data?.items ?? []).filter(
+        (i) => i.dailySheetLoadId === trip.id && (i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY'),
+      );
+      const tripExpenses = (data?.expenses ?? []).filter(
+        (e) => e.dailySheetLoadId === trip.id && e.paidFromCash !== false,
+      );
+      const deliveryCount = tripItems.length;
+      const deliveriesCash = tripItems.reduce((s, i) => s + i.cashCollected, 0);
+      const expensesTotal = tripExpenses.reduce((s, e) => s + e.amount, 0);
+      map[trip.id] = { deliveryCount, deliveriesCash, expensesTotal, expectedCash: deliveriesCash - expensesTotal, items: tripItems };
+    }
+    return map;
+  }, [loads, data?.items, data?.expenses]);
   // Today's confirmed crew — driver plus DailySheetCrew rows — the only pool the
   // Crew Cash Distribution employee picker (and its list's name lookup) may draw from.
   const crewCashEmployees = useMemo(() => {
@@ -367,9 +412,18 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
     );
   }, [sortedItems, searchQuery]);
 
+  // Trip filter (the dropdown next to Delivery Queue, driven by Load Trips'
+  // per-trip "View Deliveries" story) — narrows the queue to one trip's
+  // deliveries via the same dailySheetLoadId FK the Trip Cards use, so this
+  // list and the cards never disagree. 'all' (default) is a no-op.
+  const tripFilteredItems = useMemo(() => {
+    if (ui.tripFilter === 'all') return searchFilteredItems;
+    return searchFilteredItems.filter((i) => i.dailySheetLoadId === ui.tripFilter);
+  }, [searchFilteredItems, ui.tripFilter]);
+
   const filteredItems = useMemo(
-    () => searchFilteredItems.filter((i) => tabFilter(ui.activeTab, i)),
-    [searchFilteredItems, ui.activeTab],
+    () => tripFilteredItems.filter((i) => tabFilter(ui.activeTab, i)),
+    [tripFilteredItems, ui.activeTab],
   );
   const totalPages = useMemo(() => Math.max(1, Math.ceil(filteredItems.length / ITEMS_PER_PAGE)), [filteredItems]);
   const paginatedItems = useMemo(
@@ -423,8 +477,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const doneItemsForCheckin = (data?.items ?? []).filter((i: any) => ['COMPLETED', 'EMPTY_ONLY'].includes(i.status));
   const suggestedReturned = Math.max(0, loadedFilled - doneItemsForCheckin.reduce((s: number, i: any) => s + (i.filledDropped ?? 0), 0));
   const suggestedEmpty = doneItemsForCheckin.reduce((s: number, i: any) => s + (i.emptyReceived ?? 0), 0);
-  const suggestedCash = doneItemsForCheckin.filter((i: any) => i.customer?.paymentType === 'CASH').reduce((s: number, i: any) => s + (i.cashCollected ?? 0), 0);
-  const tabCount = (tab: TabKey) => searchFilteredItems.filter((i) => tabFilter(tab, i)).length;
+  const tabCount = (tab: TabKey) => tripFilteredItems.filter((i) => tabFilter(tab, i)).length;
 
   const handleSortModeChange = (mode: SortMode) => {
     setSortMode(mode);
@@ -653,6 +706,69 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         </div>
       )}
 
+      {/* Customer Move/Transfer footprint (source side) — items that left this
+          sheet via moveDeliveryItems() are gone from `items` entirely (their
+          dailySheetId now points elsewhere), so without this the sheet would
+          silently show fewer customers with zero explanation. */}
+      {(data.movedOutLogs?.length ?? 0) > 0 && (
+        <div className="rounded-2xl border border-purple-500/30 bg-purple-500/5 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setMovedOutExpanded((v) => !v)}
+            className="w-full px-4 py-3 flex items-center gap-3 flex-wrap text-left"
+          >
+            <ArrowRightLeft className="h-5 w-5 text-purple-500 flex-shrink-0" />
+            <div className="flex-1 min-w-[200px]">
+              <p className="text-sm font-bold text-purple-700 dark:text-purple-400">
+                {data.movedOutLogs.length} Customer{data.movedOutLogs.length > 1 ? 's' : ''} Moved Out
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Transferred to another van/sheet — no longer counted on this sheet.
+              </p>
+            </div>
+            {movedOutExpanded ? <ChevronUp className="h-4 w-4 text-purple-500" /> : <ChevronDown className="h-4 w-4 text-purple-500" />}
+          </button>
+          <AnimatePresence>
+            {movedOutExpanded && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden"
+              >
+                <div className="px-4 pb-4 space-y-2">
+                  {data.movedOutLogs.map((log) => (
+                    <div
+                      key={log.id}
+                      className="flex items-center justify-between gap-2 rounded-xl bg-background/70 border border-border/40 px-3 py-2 text-xs"
+                    >
+                      <div className="min-w-0">
+                        <span className="font-bold">{log.customer.name}</span>
+                        <span className="text-muted-foreground"> ({log.customer.customerCode})</span>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          → Van {log.otherSheet.van?.plateNumber ?? '—'} ·{' '}
+                          {new Date(log.otherSheet.date).toLocaleDateString('en-PK', { day: 'numeric', month: 'short' })}
+                          {' · by '}{log.movedBy.name}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-full text-xs h-7 shrink-0"
+                        onClick={() => router.push(`/dashboard/daily-sheets/${log.otherSheet.id}`)}
+                      >
+                        Go to Sheet
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+
       {isClosed && openDiscrepancyCount > 0 && (
         <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-center gap-3 flex-wrap">
           <AlertOctagon className="h-5 w-5 text-amber-500 flex-shrink-0" />
@@ -820,6 +936,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         hasAnyTrip={hasAnyTrip}
         canLoadOut={canLoadOut}
         canClose={canCloseSheet}
+        tripStats={tripStats}
         canRequestClose={canRequestClose}
         onNewTrip={() => {
           // Backend also enforces this — trips cannot start with an unconfirmed crew
@@ -999,6 +1116,10 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         items={items}
         paginatedItems={paginatedItems}
         filteredItems={filteredItems}
+        loads={loads}
+        tripFilter={ui.tripFilter}
+        onTripFilterChange={(tripId) => dispatch({ type: 'SET_TRIP_FILTER', tripId })}
+        movedInByItemId={movedInByItemId}
         activeTab={ui.activeTab}
         tabPage={ui.tabPage}
         totalPages={totalPages}
@@ -1060,7 +1181,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         onClose={() => dispatch({ type: 'CLOSE_CHECKIN' })}
         sheetId={sheetId}
         trip={activeLoad ?? undefined}
-        suggestedValues={{ returnedFilled: suggestedReturned, collectedEmpty: suggestedEmpty, cashHandedIn: suggestedCash }}
+        suggestedValues={{ returnedFilled: suggestedReturned, collectedEmpty: suggestedEmpty }}
       />
       {/* Trip Edit-Unlock — separate instance so an in-progress fresh check-in
           and a re-edit of an already-checked-in trip never share dialog state. */}
@@ -1077,7 +1198,6 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             collectedEmpty: editingLoad.collectedEmpty,
             damagedOnVan: editingLoad.damagedOnVan,
             leakedOnVan: editingLoad.leakedOnVan,
-            cashHandedIn: editingLoad.cashHandedIn,
           } : undefined;
         })()}
       />

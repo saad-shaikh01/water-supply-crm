@@ -19,6 +19,11 @@ export class ExpenseService {
       if (!van) throw new NotFoundException('Vehicle not found');
     }
 
+    // Trip feature: an expense recorded against a sheet is attributed to
+    // whichever trip is currently active on it (null if none active) — not
+    // exposed as an API param, purely inferred server-side so callers never
+    // have to know/pick a trip.
+    let dailySheetLoadId: string | null = null;
     if (dto.dailySheetId) {
       const sheet = await this.prisma.dailySheet.findFirst({
         where: { id: dto.dailySheetId, vendorId },
@@ -31,6 +36,11 @@ export class ExpenseService {
       if (sheet.isClosed) {
         throw new BadRequestException('Cannot record an Expense against a closed daily sheet.');
       }
+
+      const activeLoad = await this.prisma.dailySheetLoad.findFirst({
+        where: { dailySheetId: dto.dailySheetId, endedAt: null },
+      });
+      dailySheetLoadId = activeLoad?.id ?? null;
     }
 
     return this.prisma.expense.create({
@@ -44,6 +54,7 @@ export class ExpenseService {
         date: new Date(dto.date),
         vanId: dto.vanId ?? null,
         dailySheetId: dto.dailySheetId ?? null,
+        dailySheetLoadId,
       },
       include: {
         van: { select: { id: true, plateNumber: true } },

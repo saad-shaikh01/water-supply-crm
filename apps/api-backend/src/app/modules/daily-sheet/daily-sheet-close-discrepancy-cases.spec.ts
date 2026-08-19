@@ -43,6 +43,9 @@ describe('DailySheetService.closeSheet — Discrepancy Case creation', () => {
   const ACTOR_ID = 'admin-001';
   const ACTOR_ROLE = UserRole.VENDOR_ADMIN;
   const SHEET_DATE = new Date('2026-08-06T00:00:00.000Z');
+  // Trip feature: cash is no longer accumulated per-trip check-in — closeSheet
+  // now takes the driver's single actual cash hand-in figure as a param.
+  const ACTUAL_CASH_HANDED_IN = 500;
 
   function buildOpenSheet(overrides: Record<string, unknown> = {}) {
     return {
@@ -128,14 +131,22 @@ describe('DailySheetService.closeSheet — Discrepancy Case creation', () => {
   it('creates discrepancy cases inside the SAME transaction as the isClosed flip, and includes the summary in the return value', async () => {
     mockDiscrepancyCases.createCasesForSheet.mockResolvedValue({ createdCount: 2, types: ['BOTTLE', 'CASH'] });
 
-    const result = await service.closeSheet(VENDOR_ID, SHEET_ID, ACTOR_ID, ACTOR_ROLE);
+    const result = await service.closeSheet(VENDOR_ID, SHEET_ID, ACTOR_ID, ACTOR_ROLE, ACTUAL_CASH_HANDED_IN);
 
     expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
     expect(mockDiscrepancyCases.createCasesForSheet).toHaveBeenCalledWith(
       tx,
       VENDOR_ID,
       { id: SHEET_ID, driverId: DRIVER_ID },
-      expect.objectContaining({ bottles: expect.anything(), empties: expect.anything(), driver: expect.anything() }),
+      // Trip feature: the reconciliation fed into case creation must reflect
+      // the ACTUAL cash hand-in passed into closeSheet, not the sheet's
+      // stale/zero DB value — buildReconciliation() runs against an
+      // in-memory sheet that's been overlaid with it before this call.
+      expect.objectContaining({
+        bottles: expect.anything(),
+        empties: expect.anything(),
+        driver: expect.objectContaining({ handedIn: ACTUAL_CASH_HANDED_IN }),
+      }),
       ACTOR_ID,
       ACTOR_ROLE,
     );
@@ -148,7 +159,7 @@ describe('DailySheetService.closeSheet — Discrepancy Case creation', () => {
   });
 
   it('runs discrepancy-case creation AFTER the Crew Cash sync, both inside the same transaction callback', async () => {
-    await service.closeSheet(VENDOR_ID, SHEET_ID, ACTOR_ID, ACTOR_ROLE);
+    await service.closeSheet(VENDOR_ID, SHEET_ID, ACTOR_ID, ACTOR_ROLE, ACTUAL_CASH_HANDED_IN);
 
     const syncOrder = mockCrewCash.syncSheetToLedger.mock.invocationCallOrder[0];
     const discrepancyOrder = mockDiscrepancyCases.createCasesForSheet.mock.invocationCallOrder[0];
@@ -158,7 +169,7 @@ describe('DailySheetService.closeSheet — Discrepancy Case creation', () => {
   it('rolls back the isClosed flip when discrepancy-case creation throws inside the transaction, and never reaches audit/cache', async () => {
     mockDiscrepancyCases.createCasesForSheet.mockRejectedValue(new Error('case creation failed'));
 
-    await expect(service.closeSheet(VENDOR_ID, SHEET_ID, ACTOR_ID, ACTOR_ROLE)).rejects.toThrow('case creation failed');
+    await expect(service.closeSheet(VENDOR_ID, SHEET_ID, ACTOR_ID, ACTOR_ROLE, ACTUAL_CASH_HANDED_IN)).rejects.toThrow('case creation failed');
 
     expect(mockAudit.log).not.toHaveBeenCalled();
     expect(mockCache.invalidateDailyDashboard).not.toHaveBeenCalled();
@@ -169,7 +180,7 @@ describe('DailySheetService.closeSheet — Discrepancy Case creation', () => {
   it('returns discrepancyCasesCreated: 0 when the sheet reconciled clean', async () => {
     mockDiscrepancyCases.createCasesForSheet.mockResolvedValue({ createdCount: 0, types: [] });
 
-    const result = await service.closeSheet(VENDOR_ID, SHEET_ID, ACTOR_ID, ACTOR_ROLE);
+    const result = await service.closeSheet(VENDOR_ID, SHEET_ID, ACTOR_ID, ACTOR_ROLE, ACTUAL_CASH_HANDED_IN);
 
     expect(result.discrepancyCasesCreated).toBe(0);
   });

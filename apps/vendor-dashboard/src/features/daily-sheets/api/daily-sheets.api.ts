@@ -178,9 +178,13 @@ export const dailySheetsApi = {
     apiClient.patch(`/daily-sheets/${id}/load-out`, data),
   checkIn: (id: string, data: Record<string, unknown>) =>
     apiClient.patch(`/daily-sheets/${id}/check-in`, data),
-  close: (id: string) => apiClient.post(`/daily-sheets/${id}/close`),
+  // actualCashHandedIn: a fresh point-in-time cash count entered at close time
+  // (not related to any per-trip cashHandedIn) — required by the backend.
+  close: (id: string, data: { actualCashHandedIn: number }) =>
+    apiClient.post(`/daily-sheets/${id}/close`, data),
   // Soft Close (Amendment R9): Driver/Salesman self-close + Staff/Admin review.
-  requestClose: (id: string) => apiClient.post(`/daily-sheets/${id}/request-close`),
+  requestClose: (id: string, data: { actualCashHandedIn: number }) =>
+    apiClient.post(`/daily-sheets/${id}/request-close`, data),
   approveClose: (id: string) => apiClient.post(`/daily-sheets/${id}/approve-close`),
   rejectClose: (id: string, data: { reason: string }) =>
     apiClient.post(`/daily-sheets/${id}/reject-close`, data),

@@ -1,4 +1,4 @@
-import { IsBoolean, IsInt, IsNumber, IsOptional, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, Min } from 'class-validator';
 
 export class CheckinLoadDto {
   @IsInt()
@@ -8,10 +8,6 @@ export class CheckinLoadDto {
   @IsInt()
   @Min(0)
   collectedEmpty!: number;
-
-  @IsNumber()
-  @Min(0)
-  cashHandedIn!: number;
 
   @IsInt()
   @Min(0)

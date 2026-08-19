@@ -26,7 +26,30 @@ import {
   getPresetPermissions,
   isPermissionPattern,
   type RoleKey,
+  type PermissionPattern,
 } from '@water-supply-crm/authz';
+
+/**
+ * Known preset-drift backfills — permissions that were added to a role
+ * preset in presets.ts AFTER many vendors' system roles already existed.
+ * ensureRole() below only ever writes preset grants at first creation ("so
+ * admin customizations are never clobbered") — it deliberately never
+ * re-syncs an existing role, so any later preset addition silently never
+ * reaches vendors seeded before that change. This list is the explicit,
+ * additive (never subtractive) catch-up for each such gap: applied via
+ * createMany + skipDuplicates, so it only ever ADDS a missing grant, never
+ * removes one an admin may have deliberately taken away.
+ *
+ *   - fleet:record_check / fleet:record_fuel — added to `driver` for Fleet
+ *     Operations Phase 1 (Amendment R7), and to `salesman` afterward (same
+ *     field-ops rationale: Salesman rides the same van and can equally
+ *     record the vehicle check). Vendors seeded before either addition never
+ *     got the grant on their existing Driver/Salesman roles.
+ */
+const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
+  driver: ['fleet:record_check', 'fleet:record_fuel'],
+  salesman: ['fleet:record_check', 'fleet:record_fuel'],
+};
 
 /** Legacy UserRole enum → new system role key. CUSTOMER stays unassigned. */
 const LEGACY_ROLE_TO_KEY: Record<string, RoleKey | null> = {
@@ -62,6 +85,15 @@ function runCheck(): void {
   console.log('\n  Legacy → new role mapping:');
   for (const [legacy, key] of Object.entries(LEGACY_ROLE_TO_KEY)) {
     console.log(`    ${legacy.padEnd(13)} → ${key ?? '(unassigned — portal only)'}`);
+  }
+
+  console.log('\n  Preset-drift backfills (additive catch-up for existing roles):');
+  for (const [key, perms] of Object.entries(PRESET_DRIFT_BACKFILLS)) {
+    const bad = perms.filter((p) => !isPermissionPattern(p));
+    invalid += bad.length;
+    console.log(
+      `    ${key.padEnd(14)} + ${perms.join(', ')}` + (bad.length ? `  ⚠️ INVALID: ${bad.join(', ')}` : ''),
+    );
   }
 
   console.log(
@@ -138,6 +170,7 @@ async function seedAndBackfill(prisma: PrismaClient): Promise<void> {
 
   let rolesCreated = 0;
   let usersBackfilled = 0;
+  let driftGrantsBackfilled = 0;
 
   for (const vendor of vendors) {
     const roleIdByKey = new Map<RoleKey, string>();
@@ -145,6 +178,21 @@ async function seedAndBackfill(prisma: PrismaClient): Promise<void> {
       const res = await ensureRole(prisma, vendor.id, key);
       roleIdByKey.set(key, res.roleId);
       if (res.created) rolesCreated++;
+    }
+
+    // Preset-drift catch-up — see PRESET_DRIFT_BACKFILLS above. Runs for
+    // every vendor every time (not just newly-created roles): skipDuplicates
+    // makes this a no-op once a role already has the grant, so it's safe to
+    // re-run indefinitely, and it's what actually reaches vendors whose
+    // Driver/Salesman role predates these two permissions being added.
+    for (const [key, perms] of Object.entries(PRESET_DRIFT_BACKFILLS) as [RoleKey, PermissionPattern[]][]) {
+      const roleId = roleIdByKey.get(key);
+      if (!roleId) continue;
+      const res = await prisma.rolePermission.createMany({
+        data: perms.map((permission) => ({ roleId, permission })),
+        skipDuplicates: true,
+      });
+      driftGrantsBackfilled += res.count;
     }
 
     // Backfill this vendor's users by legacy role (only where roleId is null).
@@ -161,6 +209,7 @@ async function seedAndBackfill(prisma: PrismaClient): Promise<void> {
   }
 
   console.log(`  Roles created this run: ${rolesCreated}`);
+  console.log(`  Preset-drift permission grants backfilled this run: ${driftGrantsBackfilled}`);
   console.log(`  Users backfilled this run: ${usersBackfilled}\n`);
 }
 

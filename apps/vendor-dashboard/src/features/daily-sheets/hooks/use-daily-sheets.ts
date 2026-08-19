@@ -189,7 +189,7 @@ export const useCloseSheet = (sheetId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
     retry: 2,
-    mutationFn: () => dailySheetsApi.close(sheetId),
+    mutationFn: (data: { actualCashHandedIn: number }) => dailySheetsApi.close(sheetId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
       queryClient.invalidateQueries({ queryKey: ['sheets'] });
@@ -204,7 +204,7 @@ export const useRequestCloseSheet = (sheetId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
     retry: 2,
-    mutationFn: () => dailySheetsApi.requestClose(sheetId),
+    mutationFn: (data: { actualCashHandedIn: number }) => dailySheetsApi.requestClose(sheetId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
       queryClient.invalidateQueries({ queryKey: ['sheets'] });

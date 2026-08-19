@@ -18,6 +18,8 @@ import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.serv
 import { NotificationSettingsService } from '../notifications/notification-settings.service';
 import { CollectionPolicyService } from '../collection-policy/collection-policy.service';
 import { CrewCashDistributionService } from '../payroll/crew-cash-distribution.service';
+import { VehicleCheckService } from '../fleet/vehicle-check.service';
+import { SheetDiscrepancyCaseService } from '../sheet-discrepancy-case/sheet-discrepancy-case.service';
 import type { AuthUser } from '@water-supply-crm/types';
 import type { MoveDeliveryItemsDto } from './dto/move-delivery-items.dto';
 
@@ -35,13 +37,23 @@ function buildMockAudit() {
 
 function buildMockTx() {
   return {
-    dailySheet: { findFirst: jest.fn(), create: jest.fn() },
+    dailySheet: {
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      // Post-move re-sync step: fetches the destination sheet's van/driver/date
+      // to denormalize onto any moved-item Conversations.
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ vanId: 'van-dest', driverId: 'driver-dest', date: new Date('2099-01-01') }),
+    },
     dailySheetItem: {
       findMany: jest.fn().mockResolvedValue([]),
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       aggregate: jest.fn().mockResolvedValue({ _max: { sequence: 0 } }),
       update: jest.fn(),
     },
+    // Customer Move/Transfer footprint — one row per moved item, per move.
+    deliveryItemMoveLog: { create: jest.fn().mockResolvedValue({ id: 'move-log-1' }) },
+    // Conversations move with their items — re-synced to the destination sheet.
+    conversation: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     customerOrder: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn() },
     van: { findFirst: jest.fn() },
     product: { findFirst: jest.fn() },
@@ -72,6 +84,19 @@ async function buildService(mockAudit: ReturnType<typeof buildMockAudit>) {
       { provide: CollectionPolicyService, useValue: {} },
       { provide: CrewCashDistributionService, useValue: {} },
       {
+        // Same pre-existing DI gap fixed in daily-sheet-close-discrepancy-cases.spec.ts
+        // and daily-sheet-close-crew-cash-sync.spec.ts this session — this file predates
+        // Fleet Phase 1's VehicleCheckService constructor param and was never backfilled.
+        // moveDeliveryItems() itself doesn't call vehicleCheck, but the module can't
+        // compile without it.
+        provide: VehicleCheckService,
+        useValue: {
+          assertTripStartClear: jest.fn().mockResolvedValue(undefined),
+          assertTripEndClear: jest.fn().mockResolvedValue(undefined),
+        },
+      },
+      { provide: SheetDiscrepancyCaseService, useValue: {} },
+      {
         provide: getQueueToken(QUEUE_NAMES.DAILY_SHEET_GENERATION),
         useValue: { add: jest.fn(), getJob: jest.fn(), getRepeatableJobs: jest.fn().mockResolvedValue([]), upsertJobScheduler: jest.fn() },
       },
@@ -93,7 +118,11 @@ const USER: AuthUser = {
   customerId: null,
 };
 
-const SOURCE_SHEET = { id: 'sheet-source', vendorId: 'vendor-1', vanId: 'van-source', date: new Date('2026-07-10'), isClosed: false };
+// Durably future (matches BASE_DTO's own "always future" comment below) —
+// a hardcoded near-term date here previously decayed into the past as real
+// time passed it, wrongly tripping the "Cannot move to a past date" guard
+// before the same-van+date test ever reached its own assertion.
+const SOURCE_SHEET = { id: 'sheet-source', vendorId: 'vendor-1', vanId: 'van-source', date: new Date('2099-01-01'), isClosed: false };
 
 function pendingItem(overrides: Partial<any> = {}) {
   return {
@@ -158,7 +187,7 @@ describe('DailySheetService.moveDeliveryItems', () => {
   });
 
   it('rejects moving to the same van+date the item is already on', async () => {
-    const sameDayDto: MoveDeliveryItemsDto = { ...BASE_DTO, destinationVanId: 'van-source', destinationDate: '2026-07-10' };
+    const sameDayDto: MoveDeliveryItemsDto = { ...BASE_DTO, destinationVanId: 'van-source', destinationDate: '2099-01-01' };
     mockPrisma.dailySheetItem.findMany.mockResolvedValue([pendingItem()]);
     mockPrisma.van.findFirst.mockResolvedValue({ id: 'van-source', isActive: true });
     await expect(service.moveDeliveryItems(USER, sameDayDto)).rejects.toThrow(ConflictException);
@@ -190,6 +219,19 @@ describe('DailySheetService.moveDeliveryItems', () => {
       expect(mockAudit.log).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'CUSTOMER_DELIVERY_MOVED', entity: 'DailySheetItem', entityId: 'item-1' }),
       );
+      // Customer Move/Transfer footprint — the queryable counterpart to the
+      // AuditLog entry above, indexed on both fromSheetId and toSheetId so
+      // either side of the move can list it without parsing changes JSON.
+      expect(tx.deliveryItemMoveLog.create).toHaveBeenCalledWith({
+        data: {
+          vendorId: 'vendor-1',
+          itemId: 'item-1',
+          customerId: 'cust-a',
+          fromSheetId: 'sheet-source',
+          toSheetId: 'sheet-dest',
+          movedById: 'user-1',
+        },
+      });
       expect(result).toEqual({ destinationSheetId: 'sheet-dest', createdNewSheet: false, movedCount: 1 });
     });
 

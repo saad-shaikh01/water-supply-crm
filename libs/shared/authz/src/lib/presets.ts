@@ -57,9 +57,15 @@ export const SYSTEM_ROLE_KEYS: readonly RoleKey[] = [
  * Actions that are NOT reached through a page (device/background capabilities), so
  * they are exempt from the "no action without its `:page`" invariant.
  * `tracking:report_location` is the driver app posting its own GPS position.
+ * `fleet:record_check`/`fleet:record_fuel` are Driver/Salesman recording their
+ * van's daily check / fuel fill from inside the Daily Sheet they already have
+ * access to — deliberately NOT granted fleet:page/fleet:view (no dedicated
+ * Fleet screen for them, see the driver/salesman presets' own comments).
  */
 export const NON_NAVIGATIONAL_PERMISSIONS: ReadonlySet<Permission> = new Set<Permission>([
   'tracking:report_location',
+  'fleet:record_check',
+  'fleet:record_fuel',
 ]);
 
 // ── Computed presets ────────────────────────────────────────────────────────────
@@ -241,6 +247,13 @@ export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
       // user today)") — the Salesman is on the route recording tea/meal/cash
       // handed to crew, so this is a default grant, not an override.
       'crew_cash:create',
+      // Fleet Operations (Amendment R7, plan doc §7.12): Salesman rides the
+      // same van as Driver and is equally able to record the daily vehicle
+      // check / fuel fills from inside the Daily Sheet — same grant as
+      // Driver below, same NOT-granted exclusions (no fleet:page/fleet:view,
+      // no fleet:override_check).
+      'fleet:record_check',
+      'fleet:record_fuel',
     ],
   },
   loader: {

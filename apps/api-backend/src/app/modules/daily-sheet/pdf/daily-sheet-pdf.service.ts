@@ -429,8 +429,9 @@ export class DailySheetPdfService {
     //    excluded — they never touched the driver's cash-in-hand).
     //  - Net Cash In Hand = sheet.cashCollected — NOT a computed "expected"
     //    figure. This field is the driver/salesman's ACTUAL physical
-    //    hand-in, incremented by cashHandedIn at every trip's check-in
-    //    (checkinLoad()). It can legitimately differ from
+    //    hand-in, captured once as a single figure when the sheet is closed
+    //    (closeSheet()/requestClose()) — no longer accumulated per-trip at
+    //    check-in. It can legitimately differ from
     //    Gross − Expense − Crew Cash — that gap is the discrepancy the
     //    "Bottle & Cash Summary" verdict banner below reports once the
     //    sheet is closed (sheet.cashExpected holds that computed figure).
@@ -595,54 +596,42 @@ export class DailySheetPdfService {
   }
 
   // ─── Trip bucketing — pure function, no DB access. Buckets already-fetched
-  // items/expenses into whichever trip's [startedAt, endedAt ?? open) window
-  // contains their timestamp (Option A "time-window inference" — no schema
-  // change). Items/expenses outside every window are simply left unassigned:
-  // they still appear fully in the flat Delivery Items table / itemized
-  // Expenses list, they just don't contribute to any trip's numbers here
-  // (can legitimately happen for isCorrection items or backdated expenses). ─
+  // items/expenses into the trip they're actually linked to via
+  // DailySheetItem.dailySheetLoadId / Expense.dailySheetLoadId — the same FK
+  // the sheet-detail page's Trip Cards use (sheet-detail.tsx's `tripStats`
+  // useMemo), so this PDF and the on-screen cards always agree. Previously
+  // this inferred ownership from a [startedAt, endedAt ?? open) timestamp
+  // window (deliveredAt / expense.createdAt) — that heuristic could
+  // legitimately disagree with the FK (e.g. a resubmitted item keeps its
+  // original trip link but gets a new deliveredAt) and has been removed.
+  // Items/expenses with no dailySheetLoadId (recorded while no trip was
+  // active) are simply left unassigned: they still appear fully in the flat
+  // Delivery Items table / itemized Expenses list, they just don't
+  // contribute to any trip's numbers here (can legitimately happen for
+  // isCorrection items or expenses logged with no active trip). ───────────
   private computeTripStats(loads: any[], items: any[], expenses: any[]): TripStats {
     const trips = [...loads].sort((a, b) => a.tripNumber - b.tripNumber);
-
-    // Assign to the most-recently-STARTED trip as of this timestamp, rather
-    // than requiring strict [startedAt,endedAt] containment. Expenses in
-    // particular are routinely logged after a trip's official check-in time
-    // (staff doing end-of-day paperwork, sometimes after the LAST trip has
-    // already closed) — strict window containment left those permanently
-    // unassigned, silently zeroing every trip's Expense column and making
-    // Cash Collected == Cash in Hand look like a bug. Anything timestamped
-    // before the very first trip started is genuinely pre-trip/general and
-    // stays unassigned (only case this returns null).
-    const findOwningTrip = (ts: number): any | null => {
-      let match: any = null;
-      for (const t of trips) {
-        const startedTs = new Date(t.startedAt).getTime();
-        if (startedTs <= ts && (!match || startedTs > new Date(match.startedAt).getTime())) match = t;
-      }
-      return match;
-    };
 
     const filledRecvByTrip = new Map<string, number>();
     const cashByTrip = new Map<string, number>();
     const expenseByTrip = new Map<string, number>();
 
+    // Same terminal-status filter as the frontend's tripStats (COMPLETED |
+    // EMPTY_ONLY) — a delivery only counts toward a trip's cash once it's
+    // actually final.
     for (const item of items) {
-      if (!item.deliveredAt) continue; // PENDING items excluded from bucketing
-      const trip = findOwningTrip(new Date(item.deliveredAt).getTime());
-      if (!trip) continue;
-      filledRecvByTrip.set(trip.id, (filledRecvByTrip.get(trip.id) ?? 0) + (item.filledReceived ?? 0));
-      cashByTrip.set(trip.id, (cashByTrip.get(trip.id) ?? 0) + (item.cashCollected ?? 0));
+      if (item.status !== 'COMPLETED' && item.status !== 'EMPTY_ONLY') continue;
+      if (!item.dailySheetLoadId) continue; // no active trip at record time — unassigned
+      filledRecvByTrip.set(item.dailySheetLoadId, (filledRecvByTrip.get(item.dailySheetLoadId) ?? 0) + (item.filledReceived ?? 0));
+      cashByTrip.set(item.dailySheetLoadId, (cashByTrip.get(item.dailySheetLoadId) ?? 0) + (item.cashCollected ?? 0));
     }
 
     // Only cash-paid expenses are deducted — same convention as the net-cash
     // chip and the Trip Expenses totals band below.
     const cashExpenses = expenses.filter((e) => e.paidFromCash !== false);
     for (const exp of cashExpenses) {
-      // createdAt (true recording timestamp), not .date — staff can backdate
-      // .date, which would make it an unreliable match against real trips.
-      const trip = findOwningTrip(new Date(exp.createdAt).getTime());
-      if (!trip) continue;
-      expenseByTrip.set(trip.id, (expenseByTrip.get(trip.id) ?? 0) + (exp.amount ?? 0));
+      if (!exp.dailySheetLoadId) continue; // no active trip at record time — unassigned
+      expenseByTrip.set(exp.dailySheetLoadId, (expenseByTrip.get(exp.dailySheetLoadId) ?? 0) + (exp.amount ?? 0));
     }
 
     const perTrip: TripStat[] = trips.map((t) => {
