@@ -17,4 +17,6 @@ export const CloudTemplateNames = {
   ORDER_PLANNED: 'order_planned',
   ORDER_DISPATCHED: 'order_dispatched',
   TICKET_REPLIED: 'ticket_replied',
+  DELIVERY_UNSUCCESSFUL: 'delivery_unsuccessful',
+  DELIVERY_UNSUCCESSFUL_PHOTO: 'delivery_unsuccessful_photo',
 } as const;

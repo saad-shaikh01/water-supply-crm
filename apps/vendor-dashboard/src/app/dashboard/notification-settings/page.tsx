@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  MessageCircle, Bell, Package, FileText, Wallet, ShoppingCart, LifeBuoy, Loader2,
+  MessageCircle, Bell, Package, FileText, Wallet, ShoppingCart, LifeBuoy, Loader2, PackageX,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, cn } from '@water-supply-crm/ui';
 import { PageHeader } from '../../../components/shared/page-header';
@@ -49,10 +49,17 @@ const FLOWS: Record<
     icon: LifeBuoy,
     channels: ['WHATSAPP', 'PUSH'],
   },
+  DELIVERY_FAILED: {
+    label: 'Unable to Deliver',
+    description: 'Sent when a delivery could not be completed — includes the driver\'s photo evidence when one was captured.',
+    icon: PackageX,
+    channels: ['WHATSAPP', 'PUSH'],
+  },
 };
 
 const FLOW_ORDER: NotificationType[] = [
   'DELIVERY_RECEIPT',
+  'DELIVERY_FAILED',
   'MONTHLY_STATEMENT',
   'PAYMENT_RECEIVED',
   'ORDER_UPDATE',

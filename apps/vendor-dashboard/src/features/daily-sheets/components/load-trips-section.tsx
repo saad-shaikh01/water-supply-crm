@@ -230,7 +230,10 @@ export function LoadTripsSection({
                           <p className="text-[9px] font-bold uppercase text-red-500/80">Expenses</p>
                           <p className="text-lg font-black font-mono text-red-500">₨{stats.expensesTotal.toLocaleString()}</p>
                         </div>
-                        <div className="rounded-xl bg-teal-500/10 px-3 py-2 text-center">
+                        <div
+                          className="rounded-xl bg-teal-500/10 px-3 py-2 text-center"
+                          title="Running total through this trip — includes every earlier trip's net too, since cash is only handed in once at day's end."
+                        >
                           <p className="text-[9px] font-bold uppercase text-teal-500/80">Expected Cash</p>
                           <p className="text-lg font-black font-mono text-teal-500">₨{stats.expectedCash.toLocaleString()}</p>
                         </div>

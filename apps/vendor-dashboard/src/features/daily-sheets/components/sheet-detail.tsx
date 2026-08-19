@@ -337,7 +337,18 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   // trip card's "View Deliveries" toggle can list them without a second fetch.
   const tripStats = useMemo(() => {
     const map: Record<string, { deliveryCount: number; deliveriesCash: number; expensesTotal: number; expectedCash: number; items: DeliveryItem[] }> = {};
-    for (const trip of loads) {
+    // Cash no longer hands over per-trip (single day-end entry, see Reconcile
+    // dialog) — the driver just keeps carrying it forward. So "Expected Cash"
+    // on trip N must be the RUNNING total through trip N (every trip's own
+    // net, summed in order), not trip N's isolated net — that isolated figure
+    // alone would understate what the driver should actually be holding by
+    // that point. Deliveries/Expenses stay per-trip (what happened THIS
+    // trip); only Expected Cash accumulates. Sorted defensively — the backend
+    // already orders loads by tripNumber ascending, but the running total
+    // depends on that order, so don't silently trust it.
+    const orderedTrips = [...loads].sort((a, b) => a.tripNumber - b.tripNumber);
+    let cumulativeExpectedCash = 0;
+    for (const trip of orderedTrips) {
       const tripItems = (data?.items ?? []).filter(
         (i) => i.dailySheetLoadId === trip.id && (i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY'),
       );
@@ -356,7 +367,8 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
       const expensesTotal =
         tripExpenses.reduce((s, e) => s + e.amount, 0) +
         tripCrewCash.reduce((s, c) => s + c.amount, 0);
-      map[trip.id] = { deliveryCount, deliveriesCash, expensesTotal, expectedCash: deliveriesCash - expensesTotal, items: tripItems };
+      cumulativeExpectedCash += deliveriesCash - expensesTotal;
+      map[trip.id] = { deliveryCount, deliveriesCash, expensesTotal, expectedCash: cumulativeExpectedCash, items: tripItems };
     }
     return map;
   }, [loads, data?.items, data?.expenses, data?.crewCashDistributions]);

@@ -179,6 +179,7 @@ enum NotificationType {
   PAYMENT_RECEIVED
   ORDER_UPDATE
   TICKET_REPLY
+  DELIVERY_FAILED
 }
 
 enum NotificationChannel {

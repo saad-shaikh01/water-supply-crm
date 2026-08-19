@@ -644,10 +644,19 @@ export class DailySheetPdfService {
       expenseByTrip.set(cc.dailySheetLoadId, (expenseByTrip.get(cc.dailySheetLoadId) ?? 0) + (cc.amount ?? 0));
     }
 
+    // cashInHand is a RUNNING total through each trip, not that trip's
+    // isolated net — same reasoning as sheet-detail.tsx's tripStats useMemo:
+    // cash no longer hands over per-trip (one day-end entry now, see the
+    // Reconcile dialog), so the driver just keeps carrying it forward, and
+    // "Cash In Hand" on trip N must reflect everything through trip N. Only
+    // this column accumulates — Cash Collected/Expense stay per-trip (what
+    // happened THIS trip).
+    let runningCashInHand = 0;
     const perTrip: TripStat[] = trips.map((t) => {
       const filledReceived = filledRecvByTrip.get(t.id) ?? 0;
       const cashCollected = cashByTrip.get(t.id) ?? 0;
       const expense = expenseByTrip.get(t.id) ?? 0;
+      runningCashInHand += cashCollected - expense;
       return {
         load: t,
         filledOut: t.loadedFilled ?? 0,
@@ -659,12 +668,15 @@ export class DailySheetPdfService {
         emptyReceive: t.collectedEmpty ?? 0,
         cashCollected,
         expense,
-        cashInHand: cashCollected - expense,
+        cashInHand: runningCashInHand,
         timeOut: t.startedAt,
         timeIn: t.endedAt,
       };
     });
 
+    // cashInHand's total is the LAST trip's running figure (already the
+    // grand total by construction) — summing every row here the way the
+    // other columns do would multiply-count every trip but the first.
     const totals = perTrip.reduce(
       (acc, t) => ({
         filledOut: acc.filledOut + t.filledOut,
@@ -674,7 +686,7 @@ export class DailySheetPdfService {
         emptyReceive: acc.emptyReceive + t.emptyReceive,
         cashCollected: acc.cashCollected + t.cashCollected,
         expense: acc.expense + t.expense,
-        cashInHand: acc.cashInHand + t.cashInHand,
+        cashInHand: runningCashInHand,
       }),
       { filledOut: 0, filledReturned: 0, filledReceived: 0, sold: 0, emptyReceive: 0, cashCollected: 0, expense: 0, cashInHand: 0 },
     );

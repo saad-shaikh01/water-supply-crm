@@ -756,6 +756,32 @@ export class DailySheetService implements OnModuleInit {
           .catch((e: Error) => this.logger.warn(`FCM delivery-failed notification failed for item ${itemId}: ${e.message}`));
       }
 
+      // WhatsApp: "unable to deliver" notice to the customer, with the driver's
+      // photo evidence attached as the template's header image when one was
+      // captured. CANCELLED excluded on purpose — that status means the stop was
+      // dropped from the plan entirely, not attempted-and-failed.
+      if (failureStatuses.includes(resolvedStatus) && item.customer.phoneNumber) {
+        this.notifications
+          .queueWhatsAppDeliveryFailure(
+            item.customer.phoneNumber,
+            {
+              customerName: item.customer.name,
+              customerCode: item.customer.customerCode,
+              reasonText: this.resolveDeliveryFailureReasonText(dto.failureCategory, dto.reason),
+              photoKey: dto.photoKey ?? null,
+            },
+            {
+              entityType: 'DELIVERY_ITEM',
+              entityId: itemId,
+              vendorId,
+              type: NotificationType.DELIVERY_FAILED,
+              recipientType: 'CUSTOMER',
+              recipientId: item.customerId,
+            },
+          )
+          .catch((e: Error) => this.logger.warn(`WhatsApp delivery-failure notice failed for item ${itemId}: ${e.message}`));
+      }
+
       return updatedItem;
     });
 
@@ -3359,6 +3385,29 @@ export class DailySheetService implements OnModuleInit {
    * ~632) so a payment collected on THIS SAME delivery is visible immediately —
    * same reasoning as the `tx` vs `this.prisma` note above for balance snapshots.
    */
+  /**
+   * Customer-facing reason text for the `delivery_unsuccessful`(_photo) WhatsApp
+   * templates — mirrors the mapping table documented in
+   * whatsapp/templates/cloud-api-templates.md (#17/#19). Never surfaces the raw
+   * enum value to the customer.
+   */
+  private static readonly FAILURE_REASON_TEXT: Record<string, string> = {
+    CUSTOMER_NOT_HOME: 'You were not available at the time of delivery',
+    CUSTOMER_NOT_ANSWERING: 'We could not reach you by phone',
+    CUSTOMER_SELF_PICKUP: 'Self-pickup was arranged instead',
+    VAN_BREAKDOWN: 'Van breakdown / technical issue',
+    ACCESS_ISSUE: 'Unable to access your location (gate/security)',
+    CUSTOMER_REFUSED: 'Delivery was declined',
+    WEATHER: 'Weather conditions prevented delivery',
+  };
+
+  private resolveDeliveryFailureReasonText(failureCategory?: string | null, reason?: string | null): string {
+    if (failureCategory && DailySheetService.FAILURE_REASON_TEXT[failureCategory]) {
+      return DailySheetService.FAILURE_REASON_TEXT[failureCategory];
+    }
+    return reason?.trim() || 'Unable to complete delivery';
+  }
+
   private async getPreviousMonthOutstanding(
     db: Prisma.TransactionClient | PrismaService,
     vendorId: string,

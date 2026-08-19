@@ -13,12 +13,14 @@ import { NotificationPreferencesController } from './notification-preferences.co
 import { NotificationSettingsController } from './notification-settings.controller';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { FcmModule } from '../fcm/fcm.module';
+import { StorageModule } from '../../common/storage/storage.module';
 
 @Module({
   imports: [
     BullModule.registerQueue({ name: QUEUE_NAMES.NOTIFICATIONS }),
     WhatsAppModule,
     FcmModule,
+    StorageModule,
   ],
   controllers: [
     NotificationAdminController,

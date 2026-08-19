@@ -24,6 +24,12 @@ function timeAgo(iso: string): string {
  * dispatch directly — regardless of whether the driver ever sees/acts on their
  * own missing-location state — so staff can call them instead of relying on the
  * driver to notice.
+ *
+ * Backend already applies a 15-min grace period against the DB last-known report
+ * before a driver lands here (see tracking.service.ts) — a short gap from the
+ * live GPS key's 5-min TTL expiring (screen lock / backgrounded tab throttling
+ * `watchPosition`) isn't enough on its own. `lastSeenAt` is shown below so staff
+ * can tell "never reported this trip" apart from "went quiet a while ago".
  */
 export function MissingLocationPanel() {
   const { data } = useQuery({
@@ -57,7 +63,11 @@ export function MissingLocationPanel() {
             </div>
             <div className="flex items-center gap-1 text-muted-foreground shrink-0">
               <Clock className="h-3 w-3" />
-              <span>trip started {timeAgo(d.tripStartedAt)}</span>
+              <span>
+                {d.lastSeenAt
+                  ? `last seen ${timeAgo(d.lastSeenAt)}`
+                  : `never reported · started ${timeAgo(d.tripStartedAt)}`}
+              </span>
             </div>
           </Link>
         ))}

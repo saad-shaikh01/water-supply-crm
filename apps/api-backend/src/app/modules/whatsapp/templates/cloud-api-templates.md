@@ -318,7 +318,7 @@ Shukriya!
 
 ### 17. `delivery_unsuccessful`  — Delivery attempt fail hui (text only, koi PDF nahi)
 - **Category:** UTILITY · **Language:** English
-- **Replaces:** new — `daily-sheet.service.ts` `submitDelivery()` failure branch (status `NOT_AVAILABLE` / `RESCHEDULED` only; `CANCELLED` excluded)
+- **Wired:** `daily-sheet.service.ts` `submitDelivery()` failure branch (status `NOT_AVAILABLE` / `RESCHEDULED` only; `CANCELLED` excluded) → `notification.service.ts#queueWhatsAppDeliveryFailure` → `notification.processor.ts` (`SEND_WHATSAPP_DELIVERY_FAILURE` job). Used when the driver did **not** attach a photo. Gated by `NotificationType.DELIVERY_FAILED` on the vendor's Notification Controls page.
 - **Body:**
 ```
 Hi {{1}}, we visited today but your delivery ({{2}}) could not be completed.
@@ -329,7 +329,7 @@ We'll try again on your next scheduled delivery day.
 ```
 - **Variables:** `{{1}}` = customer name · `{{2}}` = customer code · `{{3}}` = reason
 - **Sample:** `{{1}}` = `Ahmed`, `{{2}}` = `L0042`, `{{3}}` = `You were not available at the time of delivery`
-- **Reason text (`{{3}}`) mapping** — resolved server-side from `DailySheetItem.failureCategory`, never the raw enum:
+- **Reason text (`{{3}}`) mapping** — resolved server-side (`DailySheetService.FAILURE_REASON_TEXT`) from `DailySheetItem.failureCategory`, never the raw enum:
 
   | `failureCategory` | Text sent as `{{3}}` |
   |---|---|
@@ -341,6 +341,25 @@ We'll try again on your next scheduled delivery day.
   | `CUSTOMER_REFUSED` | Delivery was declined |
   | `WEATHER` | Weather conditions prevented delivery |
   | `OTHER` / none | Driver's free-text `reason` if provided, else "Unable to complete delivery" |
+
+---
+
+### 19. `delivery_unsuccessful_photo`  — Delivery attempt fail hui, driver ne photo li (Header = Image)
+- **Category:** UTILITY · **Language:** English · **Header:** Image
+- **Wired:** same failure branch as #17 — used instead of it whenever the driver captured a photo
+  (`DailySheetItem.photoKey` is set). Runtime signs a short-lived Wasabi URL for the photo and passes it
+  as the header's image `link` — no separate media upload step. Sample image ke liye koi bhi dummy photo
+  upload kar dena Meta review ke liye — asli photo runtime pe link se attach hoga.
+- **Body:** same text as #17 (identical `{{1}}`/`{{2}}`/`{{3}}`) — only the header differs.
+```
+Hi {{1}}, we visited today but your delivery ({{2}}) could not be completed.
+
+Reason: {{3}}
+
+We'll try again on your next scheduled delivery day.
+```
+- **Variables:** `{{1}}` = customer name · `{{2}}` = customer code · `{{3}}` = reason
+- **Sample:** `{{1}}` = `Ahmed`, `{{2}}` = `L0042`, `{{3}}` = `You were not available at the time of delivery`
 
 ---
 
@@ -378,8 +397,12 @@ Payment of {{1}} received. New balance: {{2}}. Thank you!
 | 14 | `delivery_scheduled` | ⚪ Optional |
 | 15 | `delivery_corrected` | ⚪ Optional |
 | 16 | `delivery_completed` | ⚪ Optional |
-| 17 | `delivery_unsuccessful` | ⚪ Optional — planned, code not wired yet |
+| 17 | `delivery_unsuccessful` | ✅ Code wired — submit for Meta approval |
 | 18 | `payment_recorded` | ⚪ Optional |
+| 19 | `delivery_unsuccessful_photo` | ✅ Code wired — submit for Meta approval |
 
 > **Go-live se pehle #1–#13 approve hone chahiye.** Jab tak approve na ho, un notifications ke messages nahi jaayenge.
-> `delivery_unsuccessful` (#17) submit kar dena abhi hi — approval mein waqt lagta hai, backend code parallel mein ban sakta hai aur approval ka wait karega.
+> `delivery_unsuccessful` (#17) aur `delivery_unsuccessful_photo` (#19) dono submit kar dena — backend code
+> dono ke liye ready hai (photo attach hui to #19 use hoga, warna #17), sirf Meta approval ka wait hai.
+> Jab tak dono approve na hon, delivery-failure notice queue hoga lekin Graph API error ke saath fail hoga
+> (harmless — sirf log mein dikhega, customer ko kuch nahi jaata).

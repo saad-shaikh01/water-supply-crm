@@ -7,6 +7,11 @@ import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.service';
 import { CloudTemplateNames } from '../whatsapp/templates/cloud-template-names';
 import { FcmService } from '../fcm/fcm.service';
+import { StorageService } from '../../common/storage/storage.service';
+
+// Short-lived on purpose — this URL is only ever handed to Meta once, immediately
+// after generation, for it to fetch the header image. No need for a long window.
+const DELIVERY_FAILURE_PHOTO_URL_TTL_SECONDS = 300;
 
 @Processor(QUEUE_NAMES.NOTIFICATIONS)
 export class NotificationProcessor extends WorkerHost {
@@ -17,6 +22,7 @@ export class NotificationProcessor extends WorkerHost {
     private readonly pdfService: DeliveryReceiptPdfService,
     private readonly fcm: FcmService,
     private readonly prisma: PrismaService,
+    private readonly storage: StorageService,
   ) {
     super();
   }
@@ -83,6 +89,41 @@ export class NotificationProcessor extends WorkerHost {
         } else {
           return 'PDF not delivered — WhatsApp not ready or number not registered';
         }
+      }
+      case JOB_NAMES.SEND_WHATSAPP_DELIVERY_FAILURE: {
+        const { phoneNumber, data, entityType, entityId } = job.data as {
+          phoneNumber: string;
+          data: { customerName: string; customerCode: string; reasonText: string; photoKey?: string | null };
+          entityType?: string;
+          entityId?: string;
+        };
+
+        let imageUrl: string | undefined;
+        if (data.photoKey) {
+          imageUrl = await this.storage
+            .getSignedUrl(data.photoKey, DELIVERY_FAILURE_PHOTO_URL_TTL_SECONDS)
+            .catch((e: Error) => {
+              this.logger.warn(`Failed to sign delivery-failure photo URL, falling back to text-only: ${e.message}`);
+              return undefined;
+            });
+        }
+
+        const templateName = imageUrl
+          ? CloudTemplateNames.DELIVERY_UNSUCCESSFUL_PHOTO
+          : CloudTemplateNames.DELIVERY_UNSUCCESSFUL;
+
+        const sent = await this.whatsapp.sendTemplate(
+          phoneNumber,
+          templateName,
+          [data.customerName, data.customerCode, data.reasonText],
+          undefined,
+          imageUrl,
+        );
+        if (sent) {
+          this.logger.log(`WhatsApp delivery-failure notice sent to ${phoneNumber} (template=${templateName})`);
+          return null;
+        }
+        return `Delivery-failure notice not delivered (template=${templateName}) — WhatsApp not ready, number not registered, or template not yet approved`;
       }
       case JOB_NAMES.SEND_SMS:
         this.logger.log(`[Stub] Sending SMS to ${job.data.phoneNumber}: ${job.data.message}`);

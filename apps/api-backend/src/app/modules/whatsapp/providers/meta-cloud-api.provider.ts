@@ -78,6 +78,7 @@ export class MetaCloudApiProvider implements IWhatsAppProvider, OnModuleInit {
     templateName: string,
     bodyParams: string[],
     document?: { buffer: Buffer; filename: string },
+    imageUrl?: string,
   ): Promise<boolean> {
     if (!this.isReady()) return false;
     const to = normalizePhone(phone);
@@ -93,6 +94,14 @@ export class MetaCloudApiProvider implements IWhatsAppProvider, OnModuleInit {
       components.push({
         type: 'header',
         parameters: [{ type: 'document', document: { id: mediaId, filename: document.filename } }],
+      });
+    } else if (imageUrl) {
+      // Image header by link — Meta fetches the URL itself, no upload round-trip needed.
+      // Caller must pass a URL that's fetchable for at least a few minutes (a short-lived
+      // signed URL is fine; it's used once, right after generation).
+      components.push({
+        type: 'header',
+        parameters: [{ type: 'image', image: { link: imageUrl } }],
       });
     }
 

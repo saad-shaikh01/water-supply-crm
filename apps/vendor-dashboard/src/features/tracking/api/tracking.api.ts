@@ -34,6 +34,8 @@ export interface MissingLocationDriver {
   vanPlate: string | null;
   dailySheetId: string;
   tripStartedAt: string;
+  /** DB last-known report time, if the driver ever reported this trip; null = never reported at all */
+  lastSeenAt: string | null;
 }
 
 export interface RouteHistoryPoint {

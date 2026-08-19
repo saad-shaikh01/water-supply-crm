@@ -28,6 +28,16 @@ export interface DriverLocation {
 const FRESHNESS_LIVE_SECONDS = 60;       // < 60 s → LIVE
 const FRESHNESS_STALE_SECONDS = 5 * 60; // 60–300 s → STALE, >300 s → OFFLINE
 
+/**
+ * Grace period for the "missing location" safety net. The live Redis key
+ * (5 min TTL) can expire even while GPS is genuinely on — mobile browsers
+ * throttle/suspend `watchPosition` + heartbeat timers once a tab is
+ * backgrounded or the screen locks, so a short gap is normal, not a blind
+ * trip. Only flag a driver once they've been silent (per DB last-known,
+ * which the live key's expiry doesn't affect) longer than this window.
+ */
+const MISSING_LOCATION_GRACE_SECONDS = 15 * 60;
+
 export interface LocationEvent {
   vendorId: string;
   data: DriverLocation;
@@ -374,16 +384,25 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
   /**
    * Safety-net for the location-permission gate on trip start (dashboard/tracking
    * plan): drivers currently mid-trip (an open sheet with an active, un-checked-in
-   * load) but with no live Redis key at all — i.e. their browser never sent a
-   * single GPS update (permission denied, GPS off, app killed, dead phone, no
-   * signal — cause doesn't matter, dispatch just needs to know the trip is blind).
-   * Presence in Redis is enough here; the LIVE/STALE/OFFLINE freshness split
-   * in getActiveDrivers() is for map rendering, not this on/off check — a key
-   * with a driver still on the road always keeps itself alive via the
-   * publisher's heartbeat, so "no key at all" reliably means "never reported".
+   * load) whose live Redis key is gone AND who haven't reported to the DB
+   * last-known record in the last MISSING_LOCATION_GRACE_SECONDS either.
+   *
+   * The live key alone is too trigger-happy: it expires after 5 min the moment
+   * a phone's screen locks or the tab backgrounds (mobile browsers throttle
+   * `watchPosition`/heartbeat timers there), which is a normal short gap, not
+   * a blind trip. The DB last-known record isn't subject to that TTL, so it's
+   * used as the grace-period fallback — only a driver silent past the grace
+   * window (or who never reported at all this trip) gets surfaced here.
    */
   async getMissingLocationDrivers(vendorId: string): Promise<
-    { driverId: string; driverName: string; vanPlate: string | null; dailySheetId: string; tripStartedAt: string }[]
+    {
+      driverId: string;
+      driverName: string;
+      vanPlate: string | null;
+      dailySheetId: string;
+      tripStartedAt: string;
+      lastSeenAt: string | null;
+    }[]
   > {
     const activeSheets = await this.prisma.dailySheet.findMany({
       where: { vendorId, isClosed: false, loads: { some: { endedAt: null } } },
@@ -400,14 +419,29 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
     const liveKeys = await this.scanKeys(`${LOCATION_KEY_PREFIX}*`);
     const liveDriverIds = new Set(liveKeys.map((k) => k.slice(LOCATION_KEY_PREFIX.length)));
 
-    return activeSheets
-      .filter((s) => !liveDriverIds.has(s.driverId))
+    const candidates = activeSheets.filter((s) => !liveDriverIds.has(s.driverId));
+    if (!candidates.length) return [];
+
+    const lastLocations = await this.prisma.driverLastLocation.findMany({
+      where: { driverId: { in: candidates.map((s) => s.driverId) } },
+      select: { driverId: true, lastSeenAt: true },
+    });
+    const lastSeenMap = new Map(lastLocations.map((l) => [l.driverId, l.lastSeenAt]));
+
+    const now = Date.now();
+    return candidates
+      .filter((s) => {
+        const lastSeen = lastSeenMap.get(s.driverId);
+        if (!lastSeen) return true; // never reported this trip at all — always flag
+        return (now - lastSeen.getTime()) / 1000 >= MISSING_LOCATION_GRACE_SECONDS;
+      })
       .map((s) => ({
         driverId: s.driverId,
         driverName: s.driver.name,
         vanPlate: s.van?.plateNumber ?? null,
         dailySheetId: s.id,
         tripStartedAt: s.loads[0]?.startedAt.toISOString() ?? '',
+        lastSeenAt: lastSeenMap.get(s.driverId)?.toISOString() ?? null,
       }));
   }
 

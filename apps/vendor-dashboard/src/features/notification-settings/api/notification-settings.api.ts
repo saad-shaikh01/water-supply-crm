@@ -5,7 +5,8 @@ export type NotificationType =
   | 'MONTHLY_STATEMENT'
   | 'PAYMENT_RECEIVED'
   | 'ORDER_UPDATE'
-  | 'TICKET_REPLY';
+  | 'TICKET_REPLY'
+  | 'DELIVERY_FAILED';
 
 export type NotificationChannel = 'WHATSAPP' | 'PUSH';
 

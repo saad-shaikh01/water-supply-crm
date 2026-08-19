@@ -3,6 +3,7 @@ export const JOB_NAMES = {
   AUTO_GENERATE_DAILY_SHEETS: 'auto-generate-daily-sheets',
   SEND_WHATSAPP: 'send-whatsapp',
   SEND_WHATSAPP_PDF: 'send-whatsapp-pdf',
+  SEND_WHATSAPP_DELIVERY_FAILURE: 'send-whatsapp-delivery-failure',
   SEND_SMS: 'send-sms',
   SEND_FCM_NOTIFICATION: 'send-fcm-notification',
   AUTO_DISPATCH_ORDER: 'auto-dispatch-order',

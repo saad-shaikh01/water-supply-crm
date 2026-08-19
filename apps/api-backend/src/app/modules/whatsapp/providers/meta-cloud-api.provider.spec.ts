@@ -97,6 +97,35 @@ describe('MetaCloudApiProvider', () => {
     ]);
   });
 
+  it('sends a template message with an image header by link, without uploading media', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { messages: [{ id: 'wamid.5' }] }));
+
+    const result = await provider.sendTemplate(
+      '923001234567',
+      'delivery_unsuccessful_photo',
+      ['Ahmed', 'L0042', 'You were not available at the time of delivery'],
+      undefined,
+      'https://storage.example.com/signed/photo.jpg',
+    );
+
+    expect(result).toBe(true);
+    // Only one call — no /media upload round-trip for a link-based header.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.template.name).toBe('delivery_unsuccessful_photo');
+    expect(body.template.components).toEqual([
+      { type: 'header', parameters: [{ type: 'image', image: { link: 'https://storage.example.com/signed/photo.jpg' } }] },
+      {
+        type: 'body',
+        parameters: [
+          { type: 'text', text: 'Ahmed' },
+          { type: 'text', text: 'L0042' },
+          { type: 'text', text: 'You were not available at the time of delivery' },
+        ],
+      },
+    ]);
+  });
+
   it('returns false without retrying on a non-retriable 4xx error', async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(401, { error: { code: 190, message: 'Invalid OAuth token', fbtrace_id: 'abc' } }),

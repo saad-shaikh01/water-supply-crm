@@ -63,6 +63,28 @@ export class NotificationService {
     );
   }
 
+  /**
+   * "Unable to deliver" notice — text-only if the driver didn't attach a photo,
+   * or with the photo as an image header if `data.photoKey` is set. Which Meta
+   * template to use is resolved in the processor (it needs to turn the key into
+   * a signed URL first, which is I/O this queueing call shouldn't do).
+   */
+  async queueWhatsAppDeliveryFailure(
+    phoneNumber: string,
+    data: { customerName: string; customerCode: string; reasonText: string; photoKey?: string | null },
+    meta?: { entityType?: string; entityId?: string; vendorId?: string; type?: NotificationType; recipientType?: string; recipientId?: string },
+  ) {
+    if (!(await this.allowed(meta, NotificationChannel.WHATSAPP))) {
+      await this.logs.logSkipped({ channel: 'WHATSAPP', recipientAddress: phoneNumber, eventType: meta?.type, ...meta });
+      return null;
+    }
+
+    return this.notificationQueue.add(
+      JOB_NAMES.SEND_WHATSAPP_DELIVERY_FAILURE,
+      { phoneNumber, data, ...meta },
+    );
+  }
+
   async queueSMS(phoneNumber: string, message: string, idempotencyKey?: string) {
     return this.notificationQueue.add(
       JOB_NAMES.SEND_SMS,

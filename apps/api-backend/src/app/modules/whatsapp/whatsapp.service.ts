@@ -30,6 +30,7 @@ export class WhatsAppService {
     templateName: string,
     bodyParams: string[],
     document?: { buffer: Buffer; filename: string },
+    imageUrl?: string,
   ): Promise<boolean> {
     if (!phone || !templateName) return false;
 
@@ -42,7 +43,7 @@ export class WhatsAppService {
       return false;
     }
 
-    const sent = await this.provider.sendTemplate(phone, templateName, bodyParams, document);
+    const sent = await this.provider.sendTemplate(phone, templateName, bodyParams, document, imageUrl);
 
     if (sent) {
       await this.cache.set(rateLimitKey, true, this.RATE_LIMIT_TTL);
