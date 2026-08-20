@@ -20,6 +20,7 @@ import {
 import { useAuthStore } from '../../store/auth.store';
 import { syncVendorSessionFcmToken } from '../../features/auth/hooks/use-auth';
 import { QuickRecordPayment } from '../../features/transactions/components/quick-record-payment';
+import { Can } from '../../features/authz/components/can';
 
 interface InAppNotification {
   id: string;
@@ -170,10 +171,17 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-4 md:gap-6">
-        <QuickRecordPayment
-          buttonLabel="Record Payment"
-          buttonClassName="h-10 sm:h-11 px-3 sm:px-4"
-        />
+        {/* Admin/Staff only — same permission the backend already enforces
+            on POST /transactions/payments (RequirePermissions in
+            transaction.controller.ts). Field roles (driver/salesman/loader)
+            don't get this by default; a vendor can still grant it to a
+            custom role via Roles & Access if they ever want to. */}
+        <Can permission="transactions:record_payment">
+          <QuickRecordPayment
+            buttonLabel="Record Payment"
+            buttonClassName="h-10 sm:h-11 px-3 sm:px-4"
+          />
+        </Can>
         <div className="flex items-center gap-2">
           <ThemeToggle />
           <DropdownMenu

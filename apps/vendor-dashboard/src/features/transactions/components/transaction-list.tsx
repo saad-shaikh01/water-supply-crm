@@ -13,6 +13,7 @@ import { QuickRecordPayment } from './quick-record-payment';
 import { useTransactions } from '../hooks/use-transactions';
 import { useAllVans } from '../../vans/hooks/use-vans';
 import { useAllCustomers } from '../../customers/hooks/use-customers';
+import { Can } from '../../authz/components/can';
 import { cn } from '@water-supply-crm/ui';
 
 const TRANSACTION_TYPES = [
@@ -137,20 +138,24 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
             )}
           </Button>
 
-          {overrideCustomerId ? (
-            <Button
-              onClick={() => setPaymentOpen(true)}
-              className="rounded-xl shadow-lg shadow-primary/20 flex items-center gap-2 font-bold h-9 sm:h-10 px-4 sm:px-6 shrink-0 flex-1 sm:flex-none"
-            >
-              <Plus className="h-4 w-4" />
-              <span className="whitespace-nowrap">Record Payment</span>
-            </Button>
-          ) : (
-            <QuickRecordPayment
-              buttonLabel="Record Payment"
-              buttonClassName="h-9 sm:h-10 px-4 sm:px-6 shrink-0 flex-1 sm:flex-none"
-            />
-          )}
+          {/* Admin/Staff only — same permission the backend already enforces
+              on POST /transactions/payments. */}
+          <Can permission="transactions:record_payment">
+            {overrideCustomerId ? (
+              <Button
+                onClick={() => setPaymentOpen(true)}
+                className="rounded-xl shadow-lg shadow-primary/20 flex items-center gap-2 font-bold h-9 sm:h-10 px-4 sm:px-6 shrink-0 flex-1 sm:flex-none"
+              >
+                <Plus className="h-4 w-4" />
+                <span className="whitespace-nowrap">Record Payment</span>
+              </Button>
+            ) : (
+              <QuickRecordPayment
+                buttonLabel="Record Payment"
+                buttonClassName="h-9 sm:h-10 px-4 sm:px-6 shrink-0 flex-1 sm:flex-none"
+              />
+            )}
+          </Can>
         </div>
       </div>
 
