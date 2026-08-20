@@ -1,5 +1,3 @@
-'use client';
-
 import { Suspense } from 'react';
 import Link from 'next/link';
 import { ChevronLeft } from 'lucide-react';
@@ -7,7 +5,12 @@ import { Button } from '@water-supply-crm/ui';
 import { DamageCaseDetail } from '../../../../features/damage-cases/components/damage-case-detail';
 
 interface DamageCasePageProps {
-  params: { id: string };
+  // Next.js 16 App Router: `params` is a Promise on the page component (see
+  // daily-sheets/[id]/page.tsx and fleet/[vanId]/page.tsx for the same
+  // pattern). Same "not found" bug as discrepancy-cases/[id]/page.tsx (this
+  // file was copy-pasted from it) — no 'use client' needed either,
+  // DamageCaseDetail already declares its own.
+  params: Promise<{ id: string }>;
 }
 
 function DamageCaseContent({ caseId }: { caseId: string }) {
@@ -26,10 +29,11 @@ function DamageCaseContent({ caseId }: { caseId: string }) {
   );
 }
 
-export default function DamageCasePage({ params }: DamageCasePageProps) {
+export default async function DamageCasePage({ params }: DamageCasePageProps) {
+  const { id } = await params;
   return (
     <Suspense fallback={<div className="h-64 rounded-2xl bg-accent/30 animate-pulse" />}>
-      <DamageCaseContent caseId={params.id} />
+      <DamageCaseContent caseId={id} />
     </Suspense>
   );
 }
