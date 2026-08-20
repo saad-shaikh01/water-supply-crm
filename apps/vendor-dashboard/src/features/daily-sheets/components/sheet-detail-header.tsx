@@ -16,7 +16,7 @@ interface SheetDetailHeaderProps {
   currentStatus: string;
   isClosed: boolean;
   canEditCrew: boolean;
-  isDriver: boolean;
+  canExport: boolean;
   onBack: () => void;
   onSwap: () => void;
   onExportPdf: () => void;
@@ -34,7 +34,7 @@ export function SheetDetailHeader({
   currentStatus,
   isClosed,
   canEditCrew,
-  isDriver,
+  canExport,
   onBack,
   onSwap,
   onExportPdf,
@@ -124,7 +124,7 @@ export function SheetDetailHeader({
             <ArrowRightLeft className="h-4 w-4" />
           </Button>
         )}
-        {!isDriver && (
+        {canExport && (
           <Button variant="outline" size="icon" className="rounded-full" onClick={onExportPdf} title="Download PDF">
             <Download className="h-4 w-4" />
           </Button>

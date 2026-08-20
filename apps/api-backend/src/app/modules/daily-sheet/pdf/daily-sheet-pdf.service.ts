@@ -108,10 +108,14 @@ const BANNER_H = 76;
 // flagged via a colored left-edge accent bar on the whole row instead of a
 // dedicated tag column, so no space sits reserved-but-empty on every
 // non-edited row (see drawDeliveryTableLine).
+// CONS% (consumptionRate) column removed (owner request) — its 28pt width
+// was folded into STATUS so the row still sums to CONTENT_W. The backing
+// DailySheetService.getConsumptionRatesForSheet() computation was also
+// dropped from both controller PDF routes since it had no other caller.
 const COLS = {
   seq: 14, code: 32, customer: 60, time: 32, delivered: 28, filledRecv: 28,
-  emptyRecv: 28, balBottles: 30, cash: 40, payMode: 28, balRs: 40, consPct: 28,
-  status: 127.28,
+  emptyRecv: 28, balBottles: 30, cash: 40, payMode: 28, balRs: 40,
+  status: 155.28,
 };
 const COLS_STATUS_W = COLS.status;
 
@@ -147,20 +151,12 @@ interface TripStats {
   };
 }
 
-type ConsumptionRateRow = {
-  customerId: string;
-  productId: string;
-  consumptionRate: string;
-  rateStatus: 'ON_TARGET' | 'ATTENTION' | 'ACTION' | null;
-};
-
 @Injectable()
 export class DailySheetPdfService {
   /**
    * Generates a PDF buffer for a daily sheet.
    * @param sheet - Full sheet object from dailySheet.service.findOne(), with
-   *                `consumptionRates` (DailySheetService.getConsumptionRatesForSheet)
-   *                and `vehicleDailyChecks`/`fuelLogs` (DailySheetService.getVehicleLogForSheet)
+   *                `vehicleDailyChecks`/`fuelLogs` (DailySheetService.getVehicleLogForSheet)
    *                attached by the controller before calling this.
    * @returns Buffer — pipe directly to response
    */
@@ -228,7 +224,7 @@ export class DailySheetPdfService {
     // Delivery Items is kept as the last itemized section (right before
     // Signatures) — deliberately printed after Crew Cash Distribution.
     this.drawSectionTitle(doc, `Delivery Items (${sheet.items?.length ?? 0} stops)`, true);
-    this.drawDeliveryTable(doc, sheet.items ?? [], sheet.consumptionRates ?? []);
+    this.drawDeliveryTable(doc, sheet.items ?? []);
 
     if (sheet.isClosed) this.drawSignatures(doc);
   }
@@ -978,7 +974,6 @@ export class DailySheetPdfService {
     doc.text('CASH', cx, hy, { width: COLS.cash - 4, align: 'right', lineBreak: false }); cx += COLS.cash;
     doc.text('PAY', cx, hy, { width: COLS.payMode - 4, align: 'center', lineBreak: false }); cx += COLS.payMode;
     doc.text('BAL RS', cx, hy, { width: COLS.balRs - 4, align: 'right', lineBreak: false }); cx += COLS.balRs;
-    doc.text('CONS%', cx, hy, { width: COLS.consPct - 4, align: 'right', lineBreak: false }); cx += COLS.consPct;
     doc.text('STATUS', cx, hy, { width: COLS_STATUS_W, align: 'center', characterSpacing: 0.2, lineBreak: false });
   }
 
@@ -1003,8 +998,7 @@ export class DailySheetPdfService {
 
   private drawDeliveryTableLine(
     doc: PDFKit.PDFDocument,
-    line: { kind: 'item'; item: any } | { kind: 'total'; items: any[] },
-    consMap: Map<string, ConsumptionRateRow>,
+    line: { kind: 'item'; item: any } | { kind: 'total'; items: any[] } | { kind: 'average'; items: any[] },
     x: number,
     y: number,
     index: number,
@@ -1034,8 +1028,37 @@ export class DailySheetPdfService {
       doc.text(String(totalEmptyRecv), cx, ty, { width: COLS.emptyRecv - 4, align: 'right', lineBreak: false });
       cx += COLS.emptyRecv + COLS.balBottles;
       doc.text(this.rs(totalCash), cx, ty, { width: COLS.cash - 4, align: 'right', lineBreak: false });
-      cx += COLS.cash + COLS.payMode + COLS.balRs + COLS.consPct;
+      cx += COLS.cash + COLS.payMode + COLS.balRs;
       doc.fontSize(6.3).text(`${doneCount}/${items.length} done · ${editedCount} edited`, cx, ty + 1, { width: COLS_STATUS_W, align: 'center', lineBreak: false });
+      return;
+    }
+
+    if (line.kind === 'average') {
+      // Per-customer average — same columns as TOTAL, each sum divided by
+      // stop count. Muted/italic styling (thin border, no fill) so it reads
+      // as a secondary stat directly under the bold TOTAL row, not a second total.
+      const items = line.items;
+      const n = items.length || 1;
+      const r1 = (v: number) => Math.round(v * 10) / 10;
+      const avgDelivered = r1(items.reduce((s, i) => s + (i.filledDropped ?? 0), 0) / n);
+      const avgFilledRecv = r1(items.reduce((s, i) => s + (i.filledReceived ?? 0), 0) / n);
+      const avgEmptyRecv = r1(items.reduce((s, i) => s + (i.emptyReceived ?? 0), 0) / n);
+      const avgCash = items.reduce((s, i) => s + (i.cashCollected ?? 0), 0) / n;
+
+      doc.moveTo(x + 10, y).lineTo(x + CONTENT_W - 10, y).strokeColor(C.border).lineWidth(0.5).stroke();
+      const ty = y + 7;
+      let cx = x;
+      doc.fillColor(C.muted).font('Helvetica-Oblique').fontSize(6.8)
+        .text('AVERAGE / STOP', cx + 6, ty, { width: COLS.seq + COLS.code + COLS.customer + COLS.time - 6, lineBreak: false });
+      cx += COLS.seq + COLS.code + COLS.customer + COLS.time;
+      doc.fillColor(C.textSoft).font('Helvetica-Bold').fontSize(7)
+        .text(avgDelivered.toFixed(1), cx, ty, { width: COLS.delivered - 4, align: 'right', lineBreak: false });
+      cx += COLS.delivered;
+      doc.text(avgFilledRecv.toFixed(1), cx, ty, { width: COLS.filledRecv - 4, align: 'right', lineBreak: false });
+      cx += COLS.filledRecv;
+      doc.text(avgEmptyRecv.toFixed(1), cx, ty, { width: COLS.emptyRecv - 4, align: 'right', lineBreak: false });
+      cx += COLS.emptyRecv + COLS.balBottles;
+      doc.text(this.rs(avgCash), cx, ty, { width: COLS.cash - 4, align: 'right', lineBreak: false });
       return;
     }
 
@@ -1108,23 +1131,15 @@ export class DailySheetPdfService {
       .text(this.rs(balRs), cx, textY, { width: COLS.balRs - 4, align: 'right', lineBreak: false });
     cx += COLS.balRs;
 
-    const cons = consMap.get(`${item.customerId}:${item.productId}`);
-    const consColor = cons?.rateStatus === 'ON_TARGET' ? C.green
-      : cons?.rateStatus === 'ATTENTION' ? C.amber
-      : cons?.rateStatus === 'ACTION' ? C.red
-      : C.mutedLt;
-    doc.fillColor(consColor).font('Helvetica-Bold').fontSize(6.3)
-      .text(cons?.consumptionRate ?? 'N/A', cx, textY, { width: COLS.consPct - 4, align: 'right', lineBreak: false });
-    cx += COLS.consPct;
-
+    // CONS% column removed (owner request) — see COLS comment above.
     this.drawStatusPill(doc, item.status, cx, y + 1, rowH - 2);
   }
 
-  private drawDeliveryTable(doc: PDFKit.PDFDocument, items: any[], consumptionRates: ConsumptionRateRow[]): void {
-    const consMap = new Map(consumptionRates.map((r) => [`${r.customerId}:${r.productId}`, r]));
-    const lines: Array<{ kind: 'item'; item: any } | { kind: 'total'; items: any[] }> =
+  private drawDeliveryTable(doc: PDFKit.PDFDocument, items: any[]): void {
+    const lines: Array<{ kind: 'item'; item: any } | { kind: 'total'; items: any[] } | { kind: 'average'; items: any[] }> =
       items.map((item) => ({ kind: 'item' as const, item }));
     lines.push({ kind: 'total', items });
+    if (items.length > 0) lines.push({ kind: 'average', items });
 
     this.drawCardTable(
       doc,
@@ -1132,7 +1147,7 @@ export class DailySheetPdfService {
       22,
       22,
       (x, y, w) => this.drawDeliveryTableHeader(doc, x, y, w),
-      (line, x, y, index) => this.drawDeliveryTableLine(doc, line, consMap, x, y, index),
+      (line, x, y, index) => this.drawDeliveryTableLine(doc, line, x, y, index),
       { watermark: true },
     );
 

@@ -89,6 +89,32 @@ export function LoadTripsSection({
     return () => clearInterval(interval);
   }, [activeTrip]);
 
+  // Totals row — sum of every trip card's own columns, so it reads as the
+  // column-wise footer of the cards above it. Returned/Empties only count
+  // trips that have actually ended (mirrors the '—' shown on the active
+  // trip's own card, so an in-progress trip doesn't silently count as 0
+  // returned). Expected Cash isn't summed trip-by-trip (each trip's figure
+  // is already a running cumulative total, see sheet-detail.tsx) — it's
+  // rebuilt from the totals' own deliveries-minus-expenses net so it still
+  // lands on the same number as the last trip's own card.
+  const tripTotals = loads.reduce(
+    (acc, trip) => {
+      const stats = tripStats[trip.id] ?? { deliveryCount: 0, deliveriesCash: 0, expensesTotal: 0, expectedCash: 0, items: [] };
+      acc.loaded += trip.loadedFilled;
+      acc.sold += stats.items.reduce((s, i) => s + (i.filledDropped ?? 0), 0);
+      if (trip.endedAt) {
+        acc.returned += trip.returnedFilled;
+        acc.empties += trip.collectedEmpty;
+      }
+      acc.deliveryCount += stats.deliveryCount;
+      acc.deliveriesCash += stats.deliveriesCash;
+      acc.expensesTotal += stats.expensesTotal;
+      return acc;
+    },
+    { loaded: 0, sold: 0, returned: 0, empties: 0, deliveryCount: 0, deliveriesCash: 0, expensesTotal: 0 },
+  );
+  const totalExpectedCash = tripTotals.deliveriesCash - tripTotals.expensesTotal;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -161,6 +187,11 @@ export function LoadTripsSection({
             // (e.g. just started, nothing delivered) falls back to zeros.
             const stats = tripStats[trip.id] ?? { deliveryCount: 0, deliveriesCash: 0, expensesTotal: 0, expectedCash: 0, items: [] };
             const deliveriesOpen = expandedTripIds.has(trip.id);
+            // Sold — bottles dropped (filledDropped) on THIS trip's deliveries only,
+            // derived from stats.items which is already scoped to this trip's
+            // dailySheetLoadId (see sheet-detail.tsx). Distinct from the sheet-wide
+            // "Filled Dropped" stat card up top, which sums across every trip.
+            const soldFilled = stats.items.reduce((s, i) => s + (i.filledDropped ?? 0), 0);
 
             return (
               <motion.div
@@ -203,10 +234,14 @@ export function LoadTripsSection({
                         </div>
                       </div>
 
-                      <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                      <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
                         <div className="rounded-xl bg-orange-500/10 px-3 py-2 text-center">
                           <p className="text-[9px] font-bold uppercase text-orange-500/80">Loaded</p>
                           <p className="text-lg font-black font-mono text-orange-500">{trip.loadedFilled}</p>
+                        </div>
+                        <div className="rounded-xl bg-amber-500/10 px-3 py-2 text-center">
+                          <p className="text-[9px] font-bold uppercase text-amber-500/80">Sold</p>
+                          <p className="text-lg font-black font-mono text-amber-500">{soldFilled}</p>
                         </div>
                         <div className={cn('rounded-xl px-3 py-2 text-center', trip.endedAt ? 'bg-blue-500/10' : 'bg-muted/30')}>
                           <p className="text-[9px] font-bold uppercase text-muted-foreground">Returned</p>
@@ -410,6 +445,65 @@ export function LoadTripsSection({
               </motion.div>
             );
           })}
+
+          {/* Totals row — column-wise sum of every trip card above, so Loaded/
+              Sold/Returned/etc. each have a running grand total underneath
+              them. Only makes sense with 2+ trips; a single trip's totals
+              would just repeat its own card. */}
+          {loads.length > 1 && (
+            <Card className="border-2 border-dashed border-primary/30 bg-primary/[0.03]">
+              <CardContent className="p-4">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                  <div className="flex items-center gap-3 shrink-0">
+                    <div className="h-9 w-9 rounded-full flex items-center justify-center font-black text-sm bg-primary/15 text-primary">
+                      Σ
+                    </div>
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">
+                        Total
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {loads.length} trips
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+                    <div className="rounded-xl bg-orange-500/10 px-3 py-2 text-center">
+                      <p className="text-[9px] font-bold uppercase text-orange-500/80">Loaded</p>
+                      <p className="text-lg font-black font-mono text-orange-500">{tripTotals.loaded}</p>
+                    </div>
+                    <div className="rounded-xl bg-amber-500/10 px-3 py-2 text-center">
+                      <p className="text-[9px] font-bold uppercase text-amber-500/80">Sold</p>
+                      <p className="text-lg font-black font-mono text-amber-500">{tripTotals.sold}</p>
+                    </div>
+                    <div className="rounded-xl bg-blue-500/10 px-3 py-2 text-center">
+                      <p className="text-[9px] font-bold uppercase text-muted-foreground">Returned</p>
+                      <p className="text-lg font-black font-mono text-blue-500">{tripTotals.returned}</p>
+                    </div>
+                    <div className="rounded-xl bg-purple-500/10 px-3 py-2 text-center">
+                      <p className="text-[9px] font-bold uppercase text-muted-foreground">Empties</p>
+                      <p className="text-lg font-black font-mono text-purple-500">{tripTotals.empties}</p>
+                    </div>
+                    <div className="rounded-xl bg-emerald-500/10 px-3 py-2 text-center">
+                      <p className="text-[9px] font-bold uppercase text-emerald-500/80">Deliveries</p>
+                      <p className="text-lg font-black font-mono text-emerald-500">
+                        {tripTotals.deliveryCount} <span className="text-xs font-normal">· ₨{tripTotals.deliveriesCash.toLocaleString()}</span>
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-red-500/10 px-3 py-2 text-center">
+                      <p className="text-[9px] font-bold uppercase text-red-500/80">Expenses</p>
+                      <p className="text-lg font-black font-mono text-red-500">₨{tripTotals.expensesTotal.toLocaleString()}</p>
+                    </div>
+                    <div className="rounded-xl bg-teal-500/10 px-3 py-2 text-center">
+                      <p className="text-[9px] font-bold uppercase text-teal-500/80">Expected Cash</p>
+                      <p className="text-lg font-black font-mono text-teal-500">₨{totalExpectedCash.toLocaleString()}</p>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 

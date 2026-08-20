@@ -584,7 +584,6 @@ export class DailySheetController {
     @Res() res: Response,
   ) {
     const sheet = await this.dailySheetService.findOne(user.vendorId, id);
-    (sheet as any).consumptionRates = await this.dailySheetService.getConsumptionRatesForSheet(user.vendorId, sheet);
     (sheet as any).discrepancyCaseDetails = await this.dailySheetService.getDiscrepancyCaseDetails(user.vendorId, id);
     const vehicleLog = await this.dailySheetService.getVehicleLogForSheet(user.vendorId, id);
     (sheet as any).vehicleDailyChecks = vehicleLog.vehicleDailyChecks;
@@ -611,7 +610,6 @@ export class DailySheetController {
     @Res() res: Response,
   ) {
     const sheet = await this.dailySheetService.findOne(user.vendorId, id);
-    (sheet as any).consumptionRates = await this.dailySheetService.getConsumptionRatesForSheet(user.vendorId, sheet);
     (sheet as any).discrepancyCaseDetails = await this.dailySheetService.getDiscrepancyCaseDetails(user.vendorId, id);
     const vehicleLog = await this.dailySheetService.getVehicleLogForSheet(user.vendorId, id);
     (sheet as any).vehicleDailyChecks = vehicleLog.vehicleDailyChecks;

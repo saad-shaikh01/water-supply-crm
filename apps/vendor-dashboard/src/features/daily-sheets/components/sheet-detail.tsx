@@ -214,6 +214,10 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const { can } = usePermissions();
   const canConfirmCrew = can('daily_sheets:confirm_crew');
   const canSwapAssignment = can('daily_sheets:swap_assignment');
+  // Was previously gated by `!isDriver` (hardcoded role check) — switched to the
+  // RBAC permission so an admin can grant PDF export to the driver role via
+  // Roles & Access Control, same as every other daily_sheets action.
+  const canExport = can('daily_sheets:export');
   const canBulkImport = can('daily_sheets:bulk_import');
   const canUpdateSheet = can('daily_sheets:update');
   // Amendment R10: split out of daily_sheets:update — independently grantable
@@ -611,7 +615,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         currentStatus={currentStatus}
         isClosed={isClosed}
         canEditCrew={canSwapAssignment}
-        isDriver={isDriver}
+        canExport={canExport}
         onBack={() => router.back()}
         onSwap={() => dispatch({ type: 'OPEN_SWAP' })}
         onExportPdf={handleExportPdf}
