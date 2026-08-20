@@ -107,6 +107,11 @@ export const PERMISSION_CATALOG = {
       'manage_edit_locks',
       'correct', // admin-only financial correction entry
       'export',
+      // Amendment R10 (owner-requested 2026-08-20): split out of `update` — moving a
+      // customer's pending/failed delivery to a different van/sheet (PATCH
+      // items/move) is now its own action, independently grantable per role instead
+      // of riding along with the broad `update` grant every field role already has.
+      'move_customer',
     ],
   },
   vans: {

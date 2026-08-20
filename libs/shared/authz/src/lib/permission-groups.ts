@@ -49,6 +49,7 @@ export const ACTION_LABELS: Record<string, string> = {
   bulk_import: 'Bulk import',
   manage_edit_locks: 'Manage edit locks',
   correct: 'Add correction',
+  move_customer: 'Move customer to another van/sheet',
   manage_crew: 'Manage default crew',
   report_location: 'Report location',
   plan: 'Plan',

@@ -201,7 +201,8 @@ interface DeliveryItemsListProps {
   onSaveLocation: (customerId: string, lat: number, lng: number, address?: string) => Promise<void>;
   isDriver: boolean;
   canManageEditLocks: boolean;
-  canUpdate: boolean;
+  /** Gates the Select/Move-to-another-van/sheet UI (`daily_sheets:move_customer`). */
+  canMove: boolean;
   onUnlockEdit: (itemId: string) => void;
   unlockingItemId: string | null;
   onRequestEdit: (itemId: string) => void;
@@ -241,7 +242,7 @@ export function DeliveryItemsList({
   onSaveLocation,
   isDriver,
   canManageEditLocks,
-  canUpdate,
+  canMove,
   onUnlockEdit,
   unlockingItemId,
   onRequestEdit,
@@ -335,7 +336,7 @@ export function DeliveryItemsList({
   const rowsLocked = isClosed || isMovedOutView;
 
   const eligibleForMoveCount = items.filter((i) => MOVE_ELIGIBLE_STATUSES.includes(i.status)).length;
-  const canBulkMove = canUpdate && !rowsLocked && eligibleForMoveCount > 0;
+  const canBulkMove = canMove && !rowsLocked && eligibleForMoveCount > 0;
 
   // Select All operates over `filteredItems` (current search + tab, all pages) —
   // not just the current page's paginatedItems — so a driver on the Pending tab
@@ -758,7 +759,7 @@ export function DeliveryItemsList({
                             )}
                           </div>
                         )}
-                        {canUpdate && !rowsLocked && isEligibleForMove && (
+                        {canMove && !rowsLocked && isEligibleForMove && (
                           <button
                             className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
                             title="Move to another van/sheet"

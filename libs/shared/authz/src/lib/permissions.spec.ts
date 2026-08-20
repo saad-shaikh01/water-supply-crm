@@ -43,7 +43,10 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // 163 = 160 + daily_sheets:{request_close, approve_close, reject_close} —
 // the Daily Sheet Soft Close workflow (Amendment R9, 2026-08-18). No new
 // resource, no new `:page` — `daily_sheets` was already navigable.
-const FROZEN_TOTAL = 163;
+// 164 = 163 + daily_sheets:move_customer — split out of `update` so moving a
+// customer's delivery to another van/sheet is independently grantable
+// (Amendment R10, owner-requested 2026-08-20). No new resource, no new `:page`.
+const FROZEN_TOTAL = 164;
 const FROZEN_PAGES = 28;
 const FROZEN_RESOURCES = 30;
 

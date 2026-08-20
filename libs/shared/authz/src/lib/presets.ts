@@ -90,6 +90,12 @@ const MANAGER_PERMISSIONS: Permission[] = [
   'daily_sheets:page', 'daily_sheets:view', 'daily_sheets:generate', 'daily_sheets:update',
   'daily_sheets:load_out', 'daily_sheets:check_in', 'daily_sheets:close', 'daily_sheets:confirm_crew',
   'daily_sheets:swap_assignment', 'daily_sheets:bulk_import', 'daily_sheets:manage_edit_locks', 'daily_sheets:export',
+  // Move Customer (Amendment R10): split out of `update` so it's independently
+  // grantable — Manager keeps it by default (preserves pre-R10 behavior, which
+  // rode along with `update`); Driver/Salesman do NOT get it by default anymore
+  // and must be granted it explicitly per-vendor if that vendor wants field
+  // roles moving customers between vans themselves.
+  'daily_sheets:move_customer',
   // Soft Close (Amendment R9): Manager reviews a driver/salesman's self-close
   // request — same tier as the existing direct `close` above.
   'daily_sheets:approve_close', 'daily_sheets:reject_close',
@@ -238,6 +244,10 @@ export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
       'daily_sheets:page',
       'daily_sheets:view',
       'daily_sheets:update',
+      // NOT daily_sheets:move_customer (Amendment R10) — moving a customer
+      // between vans/sheets used to ride along with `update`; it's now a
+      // separate, independently-grantable action, off by default for field
+      // roles unless a vendor explicitly opts in.
       // Soft Close (Amendment R9): salesman may close their own sheet, same
       // as Driver above.
       'daily_sheets:request_close',
@@ -298,6 +308,9 @@ export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
       'daily_sheets:page',
       'daily_sheets:view',
       'daily_sheets:update',
+      // NOT daily_sheets:move_customer (Amendment R10) — split out of `update`,
+      // off by default for Driver; grant it per-role from Roles & Access if a
+      // vendor wants drivers moving customers between vans themselves.
       'daily_sheets:load_out',
       'daily_sheets:check_in',
       // Soft Close (Amendment R9): driver may close their own sheet — Staff/

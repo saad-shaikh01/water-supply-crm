@@ -131,7 +131,7 @@ export class DailySheetController {
    * sheet if it doesn't exist yet. Must stay before items/:id (line below).
    */
   @Patch('items/move')
-  @RequirePermissions('daily_sheets:update')
+  @RequirePermissions('daily_sheets:move_customer')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   moveDeliveryItems(@CurrentUser() user: AuthUser, @Body() dto: MoveDeliveryItemsDto) {
     return this.dailySheetService.moveDeliveryItems(user, dto);

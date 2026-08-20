@@ -216,6 +216,9 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const canSwapAssignment = can('daily_sheets:swap_assignment');
   const canBulkImport = can('daily_sheets:bulk_import');
   const canUpdateSheet = can('daily_sheets:update');
+  // Amendment R10: split out of daily_sheets:update — independently grantable
+  // per role so Move can be restricted without also restricting delivery updates.
+  const canMoveCustomer = can('daily_sheets:move_customer');
   const canCorrect = can('daily_sheets:correct');
   const canLoadOut = can('daily_sheets:load_out');
   const canCloseSheet = can('daily_sheets:close');
@@ -1192,7 +1195,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         }}
         isDriver={isDriver}
         canManageEditLocks={canManageEditLocks}
-        canUpdate={canUpdateSheet}
+        canMove={canMoveCustomer}
         onUnlockEdit={(itemId) => unlockDeliveryEdit.mutate({ itemId })}
         unlockingItemId={
           unlockDeliveryEdit.isPending
