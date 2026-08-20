@@ -7,11 +7,16 @@ export interface CrewMemberInput {
   role: CrewRole;
 }
 
-// Which user (auth) roles may fill each crew role. Spare drivers/salesmen are
-// allowed to ride along in "lower" crew roles.
+// DRIVER/SALESMAN/LOADER are treated as one interchangeable field-staff pool
+// — the same person may drive one day and load the next, so every crew role
+// accepts a user whose home UserRole is any of the three (previously this
+// only allowed "downgrades" — a spare driver could ride as salesman/loader,
+// but not the reverse). Mirrors CREW_ROLE_ELIGIBLE in the frontend's
+// crew-editor.tsx — keep both in sync.
+const FIELD_STAFF_ROLES: UserRole[] = [UserRole.DRIVER, UserRole.SALESMAN, UserRole.LOADER];
 const ALLOWED_USER_ROLES: Partial<Record<CrewRole, UserRole[]>> = {
-  [CrewRole.SALESMAN]: [UserRole.SALESMAN, UserRole.DRIVER],
-  [CrewRole.LOADER]: [UserRole.LOADER, UserRole.SALESMAN, UserRole.DRIVER],
+  [CrewRole.SALESMAN]: FIELD_STAFF_ROLES,
+  [CrewRole.LOADER]: FIELD_STAFF_ROLES,
 };
 
 /**
@@ -61,4 +66,30 @@ export async function validateSupportCrew(
   }
 
   return byId;
+}
+
+/**
+ * Validates a "driver for the day" assignment — Van.defaultDriverId
+ * (van.service.ts create/update) and DailySheet.driverId (swapAssignment).
+ * Same field-staff pool as validateSupportCrew's ALLOWED_USER_ROLES (any
+ * DRIVER/SALESMAN/LOADER-role user may be the driver), plus tenancy +
+ * active-status checks that this assignment previously had none of at all.
+ */
+export async function validateDriverAssignment(
+  prisma: PrismaService,
+  vendorId: string,
+  driverId: string,
+) {
+  const user = await prisma.user.findFirst({
+    where: { id: driverId, vendorId },
+    select: { id: true, name: true, role: true, isActive: true },
+  });
+  if (!user) throw new NotFoundException('Driver not found');
+  if (!user.isActive) {
+    throw new BadRequestException(`${user.name} is deactivated and cannot be assigned as driver`);
+  }
+  if (!FIELD_STAFF_ROLES.includes(user.role)) {
+    throw new BadRequestException(`${user.name} (${user.role}) cannot be assigned as driver`);
+  }
+  return user;
 }

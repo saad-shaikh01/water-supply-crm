@@ -13,7 +13,7 @@ import { CreateVanDto } from './dto/create-van.dto';
 import { UpdateVanDto } from './dto/update-van.dto';
 import { UpdateDefaultCrewDto } from './dto/update-default-crew.dto';
 import { paginate } from '../../common/helpers/paginate';
-import { validateSupportCrew } from '../../common/helpers/crew-validation';
+import { validateSupportCrew, validateDriverAssignment } from '../../common/helpers/crew-validation';
 
 @Injectable()
 export class VanService {
@@ -23,6 +23,9 @@ export class VanService {
   ) {}
 
   async create(vendorId: string, dto: CreateVanDto) {
+    if (dto.defaultDriverId) {
+      await validateDriverAssignment(this.prisma, vendorId, dto.defaultDriverId);
+    }
     const van = await this.prisma.van.create({
       data: { ...dto, vendorId },
     });
@@ -120,6 +123,9 @@ export class VanService {
     });
     if (!van) {
       throw new NotFoundException('Van not found');
+    }
+    if (dto.defaultDriverId) {
+      await validateDriverAssignment(this.prisma, vendorId, dto.defaultDriverId);
     }
 
     const updated = await this.prisma.van.update({

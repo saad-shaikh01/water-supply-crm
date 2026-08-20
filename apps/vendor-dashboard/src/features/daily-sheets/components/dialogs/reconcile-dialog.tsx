@@ -278,8 +278,13 @@ export function ReconcileDialog({ open, onClose, sheetId, mode = 'direct' }: Rec
                       <p className="text-lg font-black font-mono">₨{data.driver.shouldHandIn.toLocaleString()}</p>
                     </div>
                     <div>
-                      <p className="text-[9px] font-bold uppercase text-muted-foreground">Expenses</p>
-                      <p className="text-lg font-black font-mono">₨{data.driver.expensePaidFromCash.toLocaleString()}</p>
+                      <p className="text-[9px] font-bold uppercase text-muted-foreground">Deductions</p>
+                      {/* Expenses + Crew Cash — both are subtracted from
+                          shouldHandIn to get netToHandIn (see backend
+                          daily-sheet.service.ts buildReconciliation), so this
+                          tile must include crew cash or it won't reconcile
+                          against Net Expected below. */}
+                      <p className="text-lg font-black font-mono">₨{(data.driver.expensePaidFromCash + data.driver.crewCashPaidFromCash).toLocaleString()}</p>
                     </div>
                     <div>
                       <p className="text-[9px] font-bold uppercase text-muted-foreground">Net Expected</p>

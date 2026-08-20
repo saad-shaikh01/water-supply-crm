@@ -32,7 +32,7 @@ import { AddAdhocItemDto } from './dto/add-adhoc-item.dto';
 import { AddCorrectionItemDto } from './dto/add-correction-item.dto';
 import { MoveDeliveryItemsDto } from './dto/move-delivery-items.dto';
 import { paginate } from '../../common/helpers/paginate';
-import { validateSupportCrew } from '../../common/helpers/crew-validation';
+import { validateSupportCrew, validateDriverAssignment } from '../../common/helpers/crew-validation';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
 import type { AuthUser } from '@water-supply-crm/types';
 import { UnlockEditDto } from './dto/unlock-edit.dto';
@@ -1570,6 +1570,26 @@ export class DailySheetService implements OnModuleInit {
    * inside closeSheet's transaction), so this is a cheap no-op query on any
    * still-open sheet.
    */
+  // Fleet Operations data for the printed sheet PDF (odometer start/end +
+  // fuel fills) — fetched on demand here rather than folded into findOne()'s
+  // include, same "extra data attached by the controller before generate()"
+  // convention as getConsumptionRatesForSheet/getDiscrepancyCaseDetails above
+  // (findOne() is the shared sheet-detail read path; these two relations are
+  // only ever needed for the PDF).
+  async getVehicleLogForSheet(vendorId: string, sheetId: string) {
+    const [vehicleDailyChecks, fuelLogs] = await Promise.all([
+      this.prisma.vehicleDailyCheck.findMany({
+        where: { vendorId, dailySheetId: sheetId },
+        orderBy: { recordedAt: 'asc' },
+      }),
+      this.prisma.fuelLog.findMany({
+        where: { vendorId, dailySheetId: sheetId },
+        orderBy: { date: 'asc' },
+      }),
+    ]);
+    return { vehicleDailyChecks, fuelLogs };
+  }
+
   async getDiscrepancyCaseDetails(vendorId: string, sheetId: string) {
     return this.prisma.sheetDiscrepancyCase.findMany({
       where: { vendorId, dailySheetId: sheetId },
@@ -2707,10 +2727,7 @@ export class DailySheetService implements OnModuleInit {
     }
 
     if (dto.driverId) {
-      const driver = await this.prisma.user.findFirst({
-        where: { id: dto.driverId, vendorId },
-      });
-      if (!driver) throw new NotFoundException('Driver not found');
+      await validateDriverAssignment(this.prisma, vendorId, dto.driverId);
       updateData.driverId = dto.driverId;
     }
 

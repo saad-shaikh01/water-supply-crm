@@ -9,10 +9,10 @@ import {
 } from '@water-supply-crm/ui';
 import { vanSchema, type VanInput } from '../schemas';
 import { useCreateVan, useUpdateVan, useUpdateVanDefaultCrew } from '../hooks/use-vans';
-import { useAllDrivers } from '../../users/hooks/use-users';
+import { useCrewCandidates } from '../../users/hooks/use-users';
 import {
   CrewEditor, crewArrayToSelection, crewSelectionToArray, emptyCrewSelection,
-  type CrewSelection,
+  CREW_ROLE_ELIGIBLE, type CrewSelection,
 } from '../../../components/shared/crew-editor';
 import { Truck, User } from 'lucide-react';
 
@@ -27,12 +27,18 @@ export function VanForm({ open, onOpenChange, van }: VanFormProps) {
   const { mutate: create, isPending: isCreating } = useCreateVan();
   const { mutate: update, isPending: isUpdating } = useUpdateVan();
   const { mutate: updateCrew, isPending: isSavingCrew } = useUpdateVanDefaultCrew();
-  const { data: driversResponse } = useAllDrivers();
+  const { data: candidatesResponse } = useCrewCandidates();
   const isPending = isCreating || isUpdating || isSavingCrew;
 
-  const drivers = (driversResponse as { data?: any[] } | undefined)?.data ?? [];
-
   const [crew, setCrew] = useState<CrewSelection>(emptyCrewSelection);
+
+  // Driver picker draws from the same field-staff pool as the crew slots
+  // below (DRIVER/SALESMAN/LOADER are interchangeable day to day) — filtered
+  // out of the crew arrays too, so nobody is pickable as both driver and
+  // supporting crew at once (backend also rejects that combo on save).
+  const picked = new Set([...crew.salesmanIds, ...crew.loaderIds]);
+  const drivers = ((candidatesResponse as { data?: Array<{ id: string; name: string; role: string }> } | undefined)?.data ?? [])
+    .filter((u) => CREW_ROLE_ELIGIBLE.DRIVER.includes(u.role) && !picked.has(u.id));
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<VanInput>({
     resolver: zodResolver(vanSchema),
@@ -115,6 +121,9 @@ export function VanForm({ open, onOpenChange, van }: VanFormProps) {
                       <div className="flex items-center gap-2">
                         <User className="h-3 w-3" />
                         {d.name}
+                        {d.role !== 'DRIVER' && (
+                          <span className="text-xs text-muted-foreground">({d.role.toLowerCase()})</span>
+                        )}
                       </div>
                     </SelectItem>
                   ))}

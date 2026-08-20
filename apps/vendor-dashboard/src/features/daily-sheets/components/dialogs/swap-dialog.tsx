@@ -9,10 +9,10 @@ import { ArrowRightLeft, Loader2, User, Truck } from 'lucide-react';
 import type { SheetCrewMember } from '@water-supply-crm/types';
 import { useSwapAssignment } from '../../hooks/use-daily-sheets';
 import { useAllVans } from '../../../vans/hooks/use-vans';
-import { useAllDrivers } from '../../../users/hooks/use-users';
+import { useCrewCandidates } from '../../../users/hooks/use-users';
 import {
   CrewEditor, crewArrayToSelection, crewSelectionToArray, emptyCrewSelection,
-  type CrewSelection,
+  CREW_ROLE_ELIGIBLE, type CrewSelection,
 } from '../../../../components/shared/crew-editor';
 
 interface SwapDialogProps {
@@ -35,12 +35,20 @@ export function SwapDialog({
 }: SwapDialogProps) {
   const { mutate: swapAssignment, isPending } = useSwapAssignment(sheetId);
   const { data: vansData } = useAllVans();
-  const { data: driversData } = useAllDrivers();
+  const { data: candidatesData } = useCrewCandidates();
   const allVans = vansData?.data ?? [];
-  const allDrivers = driversData?.data ?? [];
 
   const [form, setForm] = useState<{ vanId?: string; driverId?: string }>({});
   const [crew, setCrew] = useState<CrewSelection>(emptyCrewSelection);
+
+  // Driver picker draws from the same field-staff pool as the crew slots
+  // below (DRIVER/SALESMAN/LOADER are interchangeable day to day) — also
+  // excludes whoever is currently picked as supporting crew, so nobody can
+  // be selected as both driver and crew at once (backend also rejects that
+  // combo on save).
+  const pickedCrew = new Set([...crew.salesmanIds, ...crew.loaderIds]);
+  const allDrivers = (candidatesData?.data ?? [])
+    .filter((u) => CREW_ROLE_ELIGIBLE.DRIVER.includes(u.role) && !pickedCrew.has(u.id));
 
   // Seed crew editor from the sheet's current crew each time the dialog opens
   useEffect(() => {
@@ -96,7 +104,12 @@ export function SwapDialog({
                 {allDrivers
                   .filter((d) => d.id !== currentDriverId)
                   .map((d) => (
-                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.name}
+                      {d.role !== 'DRIVER' && (
+                        <span className="ml-1 text-xs text-muted-foreground">({d.role.toLowerCase()})</span>
+                      )}
+                    </SelectItem>
                   ))}
               </SelectContent>
             </Select>

@@ -34,9 +34,19 @@ export function crewArrayToSelection(
   };
 }
 
-// User roles eligible per crew slot (spare drivers/salesmen may ride along)
-const SALESMAN_ELIGIBLE = ['SALESMAN', 'DRIVER'];
-const LOADER_ELIGIBLE = ['LOADER', 'SALESMAN', 'DRIVER'];
+// Which home UserRole may fill each day's crew slot. DRIVER/SALESMAN/LOADER
+// are treated as one interchangeable field-staff pool — the same person can
+// drive today and load tomorrow, so every slot (including the Driver picker
+// in van-form.tsx/swap-dialog.tsx, which reuses this map) accepts all three.
+// Mirrors the backend's ALLOWED_USER_ROLES in crew-validation.ts — keep both
+// in sync.
+export const CREW_ROLE_ELIGIBLE: Record<'DRIVER' | 'SALESMAN' | 'LOADER', string[]> = {
+  DRIVER: ['DRIVER', 'SALESMAN', 'LOADER'],
+  SALESMAN: ['SALESMAN', 'DRIVER', 'LOADER'],
+  LOADER: ['LOADER', 'SALESMAN', 'DRIVER'],
+};
+const SALESMAN_ELIGIBLE = CREW_ROLE_ELIGIBLE.SALESMAN;
+const LOADER_ELIGIBLE = CREW_ROLE_ELIGIBLE.LOADER;
 
 // Controlled Select value that never matches a real option, so the trigger
 // always shows its placeholder — picking an item just appends to the list.

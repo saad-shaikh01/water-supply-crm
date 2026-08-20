@@ -160,6 +160,7 @@ export class DailySheetPdfService {
    * Generates a PDF buffer for a daily sheet.
    * @param sheet - Full sheet object from dailySheet.service.findOne(), with
    *                `consumptionRates` (DailySheetService.getConsumptionRatesForSheet)
+   *                and `vehicleDailyChecks`/`fuelLogs` (DailySheetService.getVehicleLogForSheet)
    *                attached by the controller before calling this.
    * @returns Buffer — pipe directly to response
    */
@@ -197,6 +198,15 @@ export class DailySheetPdfService {
     if (sheet.isClosed && sheet.discrepancyCaseDetails?.length) {
       this.drawSectionTitle(doc, `Discrepancy Details (${sheet.discrepancyCaseDetails.length})`, true);
       this.drawDiscrepancyDetails(doc, sheet.discrepancyCaseDetails);
+    }
+
+    // Vehicle & Fuel Log — printed right above Trip Summary (odometer/fuel is
+    // day-level context for the trips that follow it). Only rendered when the
+    // controller actually attached vehicleDailyChecks/fuelLogs (both PDF
+    // export routes do; nothing else calls generate() with a bare sheet).
+    if (sheet.vehicleDailyChecks?.length || sheet.fuelLogs?.length) {
+      this.drawSectionTitle(doc, 'Vehicle & Fuel Log', true);
+      this.drawVehicleLog(doc, sheet);
     }
 
     if ((sheet.loads ?? []).length > 0) {
@@ -441,10 +451,18 @@ export class DailySheetPdfService {
     const totalExpenses = (sheet.expenses ?? [])
       .filter((e: any) => e.paidFromCash !== false)
       .reduce((s: number, e: any) => s + (e.amount ?? 0), 0);
+    // Crew Cash has no paidFromCash toggle — unconditionally physical van
+    // cash (same reasoning as computeTripStats above), so it belongs in this
+    // chip too. Without it, TOTAL DEDUCTIONS understates what actually left
+    // the driver's hand whenever crew cash was given but no regular expense
+    // was logged (mirrors the same fix applied to reconcile-dialog.tsx's
+    // Driver Handover summary tile on the vendor-dashboard side).
+    const totalCrewCash = (sheet.crewCashDistributions ?? [])
+      .reduce((s: number, cc: any) => s + (cc.amount ?? 0), 0);
 
     const chips: [string, string, string][] = [
       ['GROSS CASH COLLECTED', this.rs(totalItemCash), C.navy],
-      ['TOTAL EXPENSE', this.rs(totalExpenses), C.textSoft],
+      ['TOTAL DEDUCTIONS', this.rs(totalExpenses + totalCrewCash), C.textSoft],
       ['NET CASH IN HAND', this.rs(sheet.cashCollected), C.accent],
     ];
     const chipPad = 8;
@@ -595,6 +613,112 @@ export class DailySheetPdfService {
     });
 
     doc.y = y + 10;
+  }
+
+  // ─── Vehicle & Fuel Log — start/end odometer + km traveled (same
+  // start/end-check pair and delta formula as sheet-detail.tsx's "Km
+  // Traveled Today" stat card), followed by an itemized fuel-fill list (only
+  // when any exist). Fuel amounts here are NOT a new total to add to cash
+  // math — every FuelLog already spawned a linked FUEL_EXPENSE Expense row
+  // (see FuelLogService), which is already counted in the Trip Expenses
+  // section and the Info Card's TOTAL DEDUCTIONS chip. This table only adds
+  // fuel-specific detail (odometer at fill, liters, station, full/partial
+  // tank) that the Expense row alone doesn't carry. ─────────────────────────
+  private drawVehicleLog(doc: PDFKit.PDFDocument, sheet: any): void {
+    const checks: any[] = sheet.vehicleDailyChecks ?? [];
+    const startCheck = checks.find((c) => c.checkType === 'START') ?? null;
+    const endCheck = checks.find((c) => c.checkType === 'END') ?? null;
+    const kmTraveled = startCheck && endCheck ? endCheck.odometerReading - startCheck.odometerReading : null;
+    const kmIsAnomaly = kmTraveled !== null && kmTraveled < 0;
+    const kmValue = kmTraveled === null
+      ? (startCheck ? 'In Progress' : 'Not Recorded')
+      : kmIsAnomaly ? 'Check Entry' : `${kmTraveled.toLocaleString()} km`;
+
+    const cards: [string, string, string][] = [
+      ['START ODOMETER', startCheck ? `${startCheck.odometerReading.toLocaleString()} km` : 'Not Recorded', C.navy],
+      ['END ODOMETER', endCheck ? `${endCheck.odometerReading.toLocaleString()} km` : 'Not Recorded', C.textSoft],
+      ['KM TRAVELED TODAY', kmValue, kmIsAnomaly ? C.red : C.accent],
+    ];
+
+    const y = doc.y;
+    const gap = 8;
+    const cardW = (CONTENT_W - gap * (cards.length - 1)) / cards.length;
+    const cardH = 44;
+    cards.forEach(([label, value, bg], i) => {
+      const x = MARGIN + i * (cardW + gap);
+      doc.roundedRect(x, y, cardW, cardH, 7).fill(bg);
+      doc.fillColor('#ffffff', 0.8).font('Helvetica-Bold').fontSize(6.5)
+        .text(label, x + 10, y + 10, { width: cardW - 20, characterSpacing: 0.3, lineBreak: false });
+      const valueSize = value.length > 14 ? 9.5 : 12;
+      doc.fillColor(C.white).font('Helvetica-Bold').fontSize(valueSize)
+        .text(value, x + 10, y + 24, { width: cardW - 20, lineBreak: false });
+    });
+    doc.y = y + cardH + 12;
+
+    const fuelLogs: any[] = sheet.fuelLogs ?? [];
+    if (!fuelLogs.length) return;
+
+    const FUEL_COLS = { time: 55, odometer: 85, liters: 70, amount: 90, station: 130, tank: 85.28 };
+    const rowH = 20;
+    let ry = doc.y;
+
+    doc.moveTo(MARGIN + 10, ry + 16).lineTo(MARGIN + CONTENT_W - 10, ry + 16).strokeColor(C.border).lineWidth(0.75).stroke();
+    doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(6.2);
+    let hx = MARGIN;
+    doc.text('TIME', hx + 4, ry + 4, { width: FUEL_COLS.time - 4, lineBreak: false }); hx += FUEL_COLS.time;
+    doc.text('ODOMETER', hx, ry + 4, { width: FUEL_COLS.odometer - 4, align: 'right', lineBreak: false }); hx += FUEL_COLS.odometer;
+    doc.text('LITERS', hx, ry + 4, { width: FUEL_COLS.liters - 4, align: 'right', lineBreak: false }); hx += FUEL_COLS.liters;
+    doc.text('AMOUNT', hx, ry + 4, { width: FUEL_COLS.amount - 4, align: 'right', lineBreak: false }); hx += FUEL_COLS.amount;
+    doc.text('STATION', hx + 4, ry + 4, { width: FUEL_COLS.station - 4, lineBreak: false }); hx += FUEL_COLS.station;
+    doc.text('TANK', hx, ry + 4, { width: FUEL_COLS.tank - 4, align: 'center', lineBreak: false });
+    ry += 22;
+
+    fuelLogs.forEach((log, index) => {
+      if (ry + rowH > PAGE_H - FOOTER_ZONE) {
+        doc.addPage();
+        ry = 50;
+      }
+      if (index % 2 === 1) doc.rect(MARGIN, ry, CONTENT_W, rowH).fill(C.surface);
+
+      let cx = MARGIN;
+      doc.fillColor(C.textSoft).fontSize(7).font('Helvetica')
+        .text(this.hm(log.date), cx + 4, ry + 6, { width: FUEL_COLS.time - 4, lineBreak: false });
+      cx += FUEL_COLS.time;
+      doc.fillColor(C.muted)
+        .text(`${(log.odometerAtFill ?? 0).toLocaleString()} km`, cx, ry + 6, { width: FUEL_COLS.odometer - 4, align: 'right', lineBreak: false });
+      cx += FUEL_COLS.odometer;
+      doc.text(`${log.litersFilled ?? 0}L`, cx, ry + 6, { width: FUEL_COLS.liters - 4, align: 'right', lineBreak: false });
+      cx += FUEL_COLS.liters;
+
+      const isNonCash = log.paidFromCash === false;
+      doc.fillColor(isNonCash ? C.cyan : C.navyText).font('Helvetica-Bold')
+        .text(this.rs(log.amountPaid), cx, ry + 6, { width: FUEL_COLS.amount - 4, align: 'right', lineBreak: false });
+      cx += FUEL_COLS.amount;
+
+      doc.fillColor(C.muted).font('Helvetica').fontSize(7)
+        .text(log.fuelStation || '—', cx + 4, ry + 6, { width: FUEL_COLS.station - 8, height: 9, ellipsis: true, lineBreak: false });
+      cx += FUEL_COLS.station;
+
+      doc.fillColor(log.isFullTank ? C.green : C.amber).font('Helvetica-Bold').fontSize(6.3)
+        .text(log.isFullTank ? 'FULL' : 'PARTIAL', cx, ry + 7, { width: FUEL_COLS.tank - 4, align: 'center', lineBreak: false });
+
+      ry += rowH;
+    });
+
+    if (ry + 24 > PAGE_H - FOOTER_ZONE) {
+      doc.addPage();
+      ry = 50;
+    }
+    const totalLiters = fuelLogs.reduce((s, l) => s + (l.litersFilled ?? 0), 0);
+    const totalAmount = fuelLogs.reduce((s, l) => s + (l.amountPaid ?? 0), 0);
+    doc.rect(MARGIN, ry, CONTENT_W, 24).fill(C.navy);
+    doc.fillColor(C.white).fontSize(7.5).font('Helvetica-Bold')
+      .text(`TOTAL FUEL — ${totalLiters}L (already counted in Trip Expenses)`, MARGIN + 4, ry + 8, { characterSpacing: 0.3, lineBreak: false });
+    doc.fontSize(8)
+      .text(this.rs(totalAmount), MARGIN, ry + 8, { width: CONTENT_W - 6, align: 'right', lineBreak: false });
+    ry += 24;
+
+    doc.y = ry + 8;
   }
 
   // ─── Trip bucketing — pure function, no DB access. Buckets already-fetched
