@@ -2,18 +2,24 @@
 
 import { useState } from 'react';
 import { Button, Card, CardContent, Badge } from '@water-supply-crm/ui';
-import { Trash2, Pencil, Receipt, Fuel, Wrench, Users, AlertTriangle, CreditCard, type LucideIcon } from 'lucide-react';
+import { Trash2, Pencil, Receipt, Fuel, Wrench, Users, AlertTriangle, CreditCard, Snowflake, PackagePlus, type LucideIcon } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { useDeleteSheetExpense } from '../../expenses/hooks/use-expenses';
 import { ExpenseForm } from '../../expenses/components/expense-form';
 import type { SheetExpense } from '@water-supply-crm/types';
 
+// LUNCH_EXPENSE_EMPLOYEE/ADVANCE_SALARY_EMPLOYEE/FUEL_EXPENSE kept here
+// (retired from the add-expense dropdown 2026-08-21, see expense-form.tsx)
+// so existing sheet expenses tagged with them still render with a proper
+// label instead of falling back to "Others".
 const CATEGORY_CONFIG: Record<string, { label: string; color: string; icon: LucideIcon }> = {
   LUNCH_EXPENSE_EMPLOYEE:  { label: 'Lunch Exp Employee',  color: 'bg-yellow-500/10 text-yellow-600',   icon: Receipt },
   ADVANCE_SALARY_EMPLOYEE: { label: 'Adv Salary Employee', color: 'bg-blue-500/10 text-blue-500',       icon: Users },
   VEHICLE_MAINTENANCE:     { label: 'Vehicle Maintenance', color: 'bg-destructive/10 text-destructive', icon: Wrench },
   FUEL_EXPENSE:            { label: 'Fuel Exp',            color: 'bg-orange-500/10 text-orange-500',   icon: Fuel },
+  ICE_PURCHASED:           { label: 'Ice Purchased',       color: 'bg-cyan-500/10 text-cyan-600',       icon: Snowflake },
+  EXTRA_LOADER:            { label: 'Extra Loader',        color: 'bg-purple-500/10 text-purple-500',   icon: PackagePlus },
   OTHER:                   { label: 'Others',              color: 'bg-muted text-muted-foreground',     icon: AlertTriangle },
 };
 

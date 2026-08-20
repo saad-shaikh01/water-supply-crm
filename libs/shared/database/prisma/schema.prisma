@@ -65,6 +65,12 @@ enum TransactionType {
 }
 
 enum ExpenseCategory {
+  // LUNCH_EXPENSE_EMPLOYEE, ADVANCE_SALARY_EMPLOYEE and FUEL_EXPENSE are kept
+  // (owner-approved 2026-08-21) purely for backward compatibility with
+  // existing Expense rows and historical PDF exports — dropped from the
+  // "add expense" dropdown in favor of ICE_PURCHASED/EXTRA_LOADER below.
+  // FUEL_EXPENSE is additionally still system-created by fuel-log.service.ts
+  // (Fleet fuel-fill logging), unrelated to the manual add-expense form.
   LUNCH_EXPENSE_EMPLOYEE
   ADVANCE_SALARY_EMPLOYEE
   VEHICLE_MAINTENANCE
@@ -74,6 +80,11 @@ enum ExpenseCategory {
   // "add expense" UI) — see SheetDiscrepancyCaseService.resolve().
   DISCREPANCY_WRITE_OFF
   OTHER
+  // Added 2026-08-21 (owner request): new selectable categories replacing
+  // LUNCH_EXPENSE_EMPLOYEE/ADVANCE_SALARY_EMPLOYEE/FUEL_EXPENSE in the
+  // "add expense" dropdown.
+  ICE_PURCHASED
+  EXTRA_LOADER
 }
 
 enum DamageSeverity {

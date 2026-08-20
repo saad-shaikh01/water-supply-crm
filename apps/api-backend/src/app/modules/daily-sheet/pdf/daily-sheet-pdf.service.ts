@@ -75,11 +75,16 @@ const RESOLUTION_TYPE_LABEL: Record<string, string> = {
   WAIVED: 'Waived',
 };
 
+// LUNCH_EXPENSE_EMPLOYEE/ADVANCE_SALARY_EMPLOYEE/FUEL_EXPENSE kept here
+// (retired from the add-expense dropdown 2026-08-21, see vendor-dashboard's
+// expense-form.tsx) so historical sheet PDFs still render a proper label.
 const EXPENSE_META: Record<string, { label: string; bg: string; text: string }> = {
   LUNCH_EXPENSE_EMPLOYEE: { label: 'LUNCH EXP EMPLOYEE', bg: '#fef9c3', text: '#a16207' },
   ADVANCE_SALARY_EMPLOYEE: { label: 'ADV SALARY EMPLOYEE', bg: '#f3e8ff', text: '#7e22ce' },
   VEHICLE_MAINTENANCE: { label: 'VEHICLE MAINTENANCE', bg: '#dbeafe', text: '#1d4ed8' },
   FUEL_EXPENSE: { label: 'FUEL EXP', bg: '#ffedd5', text: '#c2410c' },
+  ICE_PURCHASED: { label: 'ICE PURCHASED', bg: '#cffafe', text: '#0e7490' },
+  EXTRA_LOADER: { label: 'EXTRA LOADER', bg: '#ede9fe', text: '#6d28d9' },
   OTHER: { label: 'OTHER', bg: '#f1f5f9', text: '#475569' },
 };
 

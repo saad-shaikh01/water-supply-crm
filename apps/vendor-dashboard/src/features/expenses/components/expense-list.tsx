@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQueryState, parseAsString } from 'nuqs';
-import { MoreHorizontal, Pencil, Trash2, Receipt, Fuel, Wrench, Users, AlertTriangle, type LucideIcon } from 'lucide-react';
+import { MoreHorizontal, Pencil, Trash2, Receipt, Fuel, Wrench, Users, AlertTriangle, Snowflake, PackagePlus, type LucideIcon } from 'lucide-react';
 import {
   Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuTrigger, Badge, Card, CardContent,
@@ -14,11 +14,17 @@ import { ExpenseForm } from './expense-form';
 import type { ExpenseCategory, ExpenseSummary } from '../api/expenses.api';
 import { cn } from '@water-supply-crm/ui';
 
+// LUNCH_EXPENSE_EMPLOYEE/ADVANCE_SALARY_EMPLOYEE/FUEL_EXPENSE kept here
+// (retired from the add-expense dropdown 2026-08-21, see expense-form.tsx)
+// so existing expenses tagged with them still render with a proper label
+// instead of falling back to "Others".
 const CATEGORY_CONFIG: Record<ExpenseCategory, { label: string; color: string; icon: LucideIcon }> = {
   LUNCH_EXPENSE_EMPLOYEE:  { label: 'Lunch Exp Employee',  color: 'bg-yellow-500/10 text-yellow-600',   icon: Receipt },
   ADVANCE_SALARY_EMPLOYEE: { label: 'Adv Salary Employee', color: 'bg-blue-500/10 text-blue-500',       icon: Users },
   VEHICLE_MAINTENANCE:     { label: 'Vehicle Maintenance', color: 'bg-destructive/10 text-destructive', icon: Wrench },
   FUEL_EXPENSE:            { label: 'Fuel Exp',            color: 'bg-orange-500/10 text-orange-500',   icon: Fuel },
+  ICE_PURCHASED:           { label: 'Ice Purchased',       color: 'bg-cyan-500/10 text-cyan-600',       icon: Snowflake },
+  EXTRA_LOADER:            { label: 'Extra Loader',        color: 'bg-purple-500/10 text-purple-500',   icon: PackagePlus },
   OTHER:                   { label: 'Others',              color: 'bg-muted text-muted-foreground',     icon: AlertTriangle },
 };
 

@@ -31,13 +31,26 @@ function Toggle({ enabled, onToggle, label }: { enabled: boolean; onToggle: () =
   );
 }
 
+// LUNCH_EXPENSE_EMPLOYEE/ADVANCE_SALARY_EMPLOYEE/FUEL_EXPENSE dropped from
+// this selectable list (owner request 2026-08-21) in favor of ICE_PURCHASED/
+// EXTRA_LOADER — the enum values themselves are kept (see schema.prisma)
+// so existing Expense rows tagged with the old categories still display
+// correctly everywhere else, only new submissions can no longer pick them.
 const CATEGORIES = [
-  { value: 'LUNCH_EXPENSE_EMPLOYEE', label: 'Lunch Exp Employee' },
-  { value: 'ADVANCE_SALARY_EMPLOYEE', label: 'Adv Salary Employee' },
   { value: 'VEHICLE_MAINTENANCE', label: 'Vehicle Maintenance' },
-  { value: 'FUEL_EXPENSE', label: 'Fuel Exp' },
+  { value: 'ICE_PURCHASED', label: 'Ice Purchased' },
+  { value: 'EXTRA_LOADER', label: 'Extra Loader' },
   { value: 'OTHER', label: 'Others' },
 ] as const;
+
+// Display-only labels for the retired categories — used solely so editing an
+// old expense shows its real category instead of a blank Select (see
+// LEGACY_CATEGORY handling below); never offered as a pickable option.
+const LEGACY_CATEGORY_LABELS: Record<string, string> = {
+  LUNCH_EXPENSE_EMPLOYEE: 'Lunch Exp Employee (retired)',
+  ADVANCE_SALARY_EMPLOYEE: 'Adv Salary Employee (retired)',
+  FUEL_EXPENSE: 'Fuel Exp (retired)',
+};
 
 interface ExpenseFormProps {
   open: boolean;
@@ -68,7 +81,7 @@ export function ExpenseForm({ open, onOpenChange, expense, dailySheetId, default
   const { register, handleSubmit, reset, setValue, watch, control, formState: { errors } } = useForm<ExpenseInput>({
     resolver: zodResolver(expenseSchema),
     defaultValues: {
-      category: 'FUEL_EXPENSE',
+      category: 'OTHER',
       date: new Date().toISOString().slice(0, 10),
       paidFromCash: true,
     },
@@ -79,7 +92,7 @@ export function ExpenseForm({ open, onOpenChange, expense, dailySheetId, default
     if (open && expense) {
       reset({
         amount: Number(expense.amount ?? 0),
-        category: (expense.category as any) ?? 'FUEL_EXPENSE',
+        category: (expense.category as any) ?? 'OTHER',
         description: String(expense.description ?? ''),
         date: expense.date ? String(expense.date).slice(0, 10) : new Date().toISOString().slice(0, 10),
         vanId: expense.vanId ? String(expense.vanId) : undefined,
@@ -90,13 +103,13 @@ export function ExpenseForm({ open, onOpenChange, expense, dailySheetId, default
       });
     } else if (open && !expense && defaultVanId) {
       reset({
-        category: 'FUEL_EXPENSE',
+        category: 'OTHER',
         date: new Date().toISOString().slice(0, 10),
         vanId: defaultVanId,
         paidFromCash: true,
       });
     } else if (!open) {
-      reset({ category: 'FUEL_EXPENSE', date: new Date().toISOString().slice(0, 10), paidFromCash: true });
+      reset({ category: 'OTHER', date: new Date().toISOString().slice(0, 10), paidFromCash: true });
     }
   }, [open, expense, reset, defaultVanId]);
 
@@ -140,6 +153,14 @@ export function ExpenseForm({ open, onOpenChange, expense, dailySheetId, default
               <Select value={watch('category')} onValueChange={(v) => setValue('category', v as any)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
+                  {/* Editing an old expense still tagged with a retired category
+                      (see LEGACY_CATEGORY_LABELS) — show it so the field isn't
+                      blank; picking any real option below replaces it for good. */}
+                  {LEGACY_CATEGORY_LABELS[watch('category')] && (
+                    <SelectItem value={watch('category')} disabled>
+                      {LEGACY_CATEGORY_LABELS[watch('category')]}
+                    </SelectItem>
+                  )}
                   {CATEGORIES.map((c) => (
                     <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
                   ))}

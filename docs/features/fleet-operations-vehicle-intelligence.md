@@ -359,4 +359,57 @@ Full GPS/telematics hardware fleet-wide (unproven ROI for fixed routes — pilot
 
 ---
 
-*This document intentionally contains zero code. Next step, when ready: turn Phase 1 into an implementation-ready spec the same way `docs/features/cash-customer-collection-policy.md` was — locked data model, exact business-rule tables, and Phase-by-phase build order — before any migration is written.*
+## 17. Amendment (2026-08-21) — `Van` is NOT a stable physical vehicle; §4 Rule 1 is reversed
+
+**Reported by the owner, from real dispatch behavior:** "Van1", "Van2", "Van3" etc. are route/slot identities, not fixed trucks. On a given day, Van1's route may be run by plate `KY-3533`; the next day, by `KY-3532`; any physical vehicle in the yard may cover any route depending on availability. This directly contradicts §4 Rule 1 ("`Van` stays the single vehicle identity... One vehicle, one row of truth"), which every table in this doc (§11) was built against, and which is **already implemented and live** (`VehicleProfile`, `VehicleDocument`, `VehicleDailyCheck`, `FuelLog`, `VehicleMaintenanceRule`, `VehicleServiceRecord` all key off `Van.id` today — see [schema.prisma:542-2582](../../libs/shared/database/prisma/schema.prisma)). This section supersedes §4 Rule 1 and corrects the model; everything else in this doc (crew, routes, customer schedule, driver default) is unaffected.
+
+### 17.1 What actually breaks today, concretely
+
+Every one of these is live production behavior, not a future risk:
+
+- **Odometer continuity** (`VehicleDailyCheck.odometerContinuityFlag`) compares today's START reading to yesterday's END reading *for the same `vanId`*. If Van1 was KY-3533 yesterday (odometer ~45,000) and KY-3532 today (odometer ~12,000), the check either false-flags a legitimate day or — worse — a driver "corrects" it to look continuous, destroying the real number.
+- **`VehicleProfile.currentOdometer`** becomes a meaningless average of whichever trucks happened to run that route — not any real vehicle's actual odometer.
+- **`FuelLog` fill-to-fill efficiency** (the entire point of §7.5, explicitly chosen over gauge-glances in §6 for accuracy) divides one vehicle's liters by a *different* vehicle's odometer delta. The resulting km/liter number is noise, not signal.
+- **`VehicleDocument`** (insurance, registration, fitness, route permit — all inherently tied to one specific plate/VIN) is recorded against a route label that may represent 3+ real vehicles' worth of paperwork, with no way to tell which document belongs to which physical truck.
+- **`VehicleMaintenanceRule` / `VehicleServiceRecord`** (service intervals, oil-change history) mix multiple engines' wear history into one due/overdue calculation — a truck that's actually overdue for service can hide behind another truck's recent service record on the same `vanId`.
+
+### 17.2 The fix: split Route identity from Vehicle identity
+
+Two separate concepts, previously conflated into one `Van` row:
+
+| Concept | Stays as | Owns |
+|---|---|---|
+| **Route/Slot** ("Van1", "Van2"...) | `Van` (unchanged id/table) | driver default, `VanDefaultCrew`, `CustomerDeliverySchedule`, `Route`, `DailySheet.vanId`, sales/delivery history — everything that's genuinely route-stable |
+| **Physical vehicle** (a plate) | **new `Vehicle` model** | `plateNumber` (unique), make/model/chassis/engine, `VehicleProfile`, `VehicleDocument`, `VehicleDailyCheck`, `FuelLog`, `VehicleMaintenanceRule`, `VehicleServiceRecord` — everything that's genuinely truck-stable |
+
+The link between them is **daily, not permanent**: which `Vehicle` served which `Van`'s route on a given day is itself a fact that needs recording — it does not belong on either master record.
+
+### 17.3 Where the daily link gets recorded — decision: the Vehicle Check step
+
+Per owner decision (2026-08-21): the physical vehicle is confirmed at the **existing `VehicleDailyCheck` START step** (§7.2), not at sheet generation and not as a separate screen. Concretely:
+
+- `VehicleDailyCheck` gains a required `vehicleId` (FK to the new `Vehicle` table) on the START check. The driver/staff picks the plate actually taking Van1's route out today from the vendor's active vehicle pool (a simple dropdown/searchable list — same UX weight as picking a crew member).
+- The END check for that same `dailySheetId` inherits the same `vehicleId` (one trip, one vehicle — no swapping mid-route).
+- Odometer continuity now compares against **that `Vehicle`'s own** last recorded END reading (across whichever route it last ran), not the route's last reading — this is what actually fixes §17.1.
+- `FuelLog`, `VehicleMaintenanceRule`, `VehicleServiceRecord`, `VehicleDocument`, `VehicleProfile` all move their FK from `vanId` to `vehicleId`. Fleet dashboards/reports that currently group "by van" regroup "by vehicle" (a route/Van1 view becomes a rollup across whichever vehicles served it, when that view is wanted).
+- `DailySheet.vanId` is untouched — it still means "which route," exactly as today. Nothing about crew, customer schedules, or delivery reporting changes.
+
+### 17.4 Migration (no data loss)
+
+1. Create `Vehicle` (vendorId, plateNumber unique, isActive, + the identity fields currently on `VehicleProfile`/inline).
+2. Backfill: one `Vehicle` row per existing `Van`, copying `plateNumber`, in a single script — this preserves the (currently correct, since it hasn't been *wrong* until now, just *conflated*) 1:1 history.
+3. Re-point FKs on `VehicleProfile`, `VehicleDocument`, `VehicleDailyCheck`, `FuelLog`, `VehicleMaintenanceRule`, `VehicleServiceRecord` from `vanId` → the backfilled `vehicleId` (mechanical remap, same ids in a new column, zero rows lost).
+4. Add `VehicleDailyCheck.vehicleId` as the new required-going-forward field (nullable for historical rows, since they can't retroactively say which of several possible trucks it was); add the picker to the START check UI.
+5. Ship a manual data-correction pass for the owner to walk back through recent days' checks (if they remember/have records of which plate actually ran which day) — optional, doesn't block the schema change.
+
+### 17.5 Open questions — answered by owner (2026-08-21), now locked
+
+- **Vehicle pool scope — LOCKED:** each `Vehicle` has a "usual" route (`Vehicle.usualVanId`, nullable FK to `Van`), but it's a default, not a constraint — any active vehicle can be picked for any route on any day. The START-check picker pre-selects/sorts by the vehicle whose `usualVanId` matches the route being checked in, but the full active pool stays selectable (searchable dropdown, not a locked assignment).
+- **Same-day reuse — LOCKED:** yes, one physical vehicle can cover two different routes' trips on the same day (e.g. KY-3533 runs Van1's morning trip, then Van3's afternoon trip). Odometer continuity therefore keys off **`(vehicleId, recordedAt)` ordering across all routes**, not `(vanId, date)` as today — a vehicle's next START check must continue from *its own* immediately-prior END check, regardless of which route either belongs to. This also means `@@unique([dailySheetId, checkType])` on `VehicleDailyCheck` stays as-is (still one START/END per sheet), but the continuity *lookup* query changes from "prior sheet on this van" to "prior check on this vehicle, by recordedAt, across any van."
+- **Retroactive plate history — LOCKED:** none exists (no fuel receipts/driver memory/WhatsApp logs to reconstruct old days from). No backfill attempt for historical `VehicleDailyCheck`/`FuelLog`/etc. rows — they stay route-level-only (as they've always effectively been) and are left alone. Vehicle-level tracking starts clean **from the migration date forward**: every new check/fuel log/service record from that point on requires the real `vehicleId`; nothing before it is touched or re-interpreted.
+
+This is a schema-touching change across 6 tables plus the Vehicle Check UI — implementation-ready now that the above is locked. Not yet built; awaiting the go-ahead to start Phase 1 of this amendment.
+
+---
+
+*This document intentionally contains zero code. Next step, when ready: turn Phase 1 (and this §17 amendment) into an implementation-ready spec the same way `docs/features/cash-customer-collection-policy.md` was — locked data model, exact business-rule tables, and Phase-by-phase build order — before any migration is written.*

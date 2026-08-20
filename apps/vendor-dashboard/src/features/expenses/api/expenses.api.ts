@@ -1,6 +1,9 @@
 import { apiClient } from '@water-supply-crm/data-access';
 
-export type ExpenseCategory = 'LUNCH_EXPENSE_EMPLOYEE' | 'ADVANCE_SALARY_EMPLOYEE' | 'VEHICLE_MAINTENANCE' | 'FUEL_EXPENSE' | 'OTHER';
+export type ExpenseCategory =
+  | 'LUNCH_EXPENSE_EMPLOYEE' | 'ADVANCE_SALARY_EMPLOYEE' | 'VEHICLE_MAINTENANCE' | 'FUEL_EXPENSE' | 'OTHER'
+  // Added 2026-08-21 — new selectable categories (see expense-form.tsx CATEGORIES).
+  | 'ICE_PURCHASED' | 'EXTRA_LOADER';
 
 export interface ExpenseQuery {
   page?: number;
