@@ -422,7 +422,7 @@ import type {
 
 export interface VehicleProfileEntry {
   id: string;
-  vanId: string;
+  vehicleId: string;
   make: string | null;
   model: string | null;
   year: number | null;
@@ -446,7 +446,7 @@ export interface VehicleProfileEntry {
 
 export interface VehicleDocumentEntry {
   id: string;
-  vanId: string;
+  vehicleId: string;
   type: VehicleDocumentType;
   documentNumber: string | null;
   issuingAuthority: string | null;
@@ -463,7 +463,11 @@ export interface VehicleDocumentEntry {
 
 export interface VehicleDailyCheckEntry {
   id: string;
+  // Route/slot this trip belongs to — unchanged by the §17 Amendment.
   vanId: string;
+  // Physical vehicle actually checked (§17 Amendment, 2026-08-21) — nullable
+  // because historical rows can't retroactively say which truck it was.
+  vehicleId: string | null;
   dailySheetId: string;
   checkType: VehicleCheckType;
   odometerReading: number;
@@ -486,7 +490,7 @@ export interface VehicleDailyCheckEntry {
 
 export interface FuelLogEntry {
   id: string;
-  vanId: string;
+  vehicleId: string;
   dailySheetId: string | null;
   date: string;
   odometerAtFill: number;
@@ -505,7 +509,7 @@ export interface FuelLogEntry {
 
 export interface VehicleMaintenanceRuleEntry {
   id: string;
-  vanId: string;
+  vehicleId: string;
   serviceType: VehicleServiceType;
   intervalKm: number | null;
   intervalDays: number | null;
@@ -514,7 +518,7 @@ export interface VehicleMaintenanceRuleEntry {
 
 export interface VehicleServiceRecordEntry {
   id: string;
-  vanId: string;
+  vehicleId: string;
   serviceType: VehicleServiceType;
   performedAtOdometer: number;
   performedAtDate: string;
@@ -531,7 +535,7 @@ export interface VehicleServiceRecordEntry {
 /** Computed at read-time from the latest VehicleServiceRecord vs. the rule — never cached. */
 export interface VehicleMaintenanceStatusEntry {
   ruleId: string;
-  vanId: string;
+  vehicleId: string;
   serviceType: VehicleServiceType;
   label: string;
   intervalKm: number | null;
@@ -546,7 +550,7 @@ export interface VehicleMaintenanceStatusEntry {
 }
 
 export interface VehicleFleetSummaryEntry {
-  vanId: string;
+  vehicleId: string;
   plateNumber: string;
   operationalStatus: VehicleOperationalStatus;
   currentOdometer: number;

@@ -2,7 +2,7 @@ import { IsOptional, IsString, IsInt, Min, Max, IsNumber, IsEnum, IsDateString, 
 import { VehicleFuelType, VehicleOwnershipType, VehicleOperationalStatus } from '@prisma/client';
 
 /**
- * PATCH /fleet/vehicles/:vanId. The service upserts — `version` is required
+ * PATCH /fleet/vehicles/:vehicleId. The service upserts — `version` is required
  * once a profile row already exists (optimistic concurrency, mirrors
  * DamageCase.version) and ignored on first creation.
  */

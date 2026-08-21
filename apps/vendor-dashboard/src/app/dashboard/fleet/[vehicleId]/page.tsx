@@ -1,10 +1,10 @@
 import { VehicleDetail } from '../../../../features/fleet/components/vehicle-detail';
 
 interface Props {
-  params: Promise<{ vanId: string }>;
+  params: Promise<{ vehicleId: string }>;
 }
 
 export default async function VehicleDetailPage({ params }: Props) {
-  const { vanId } = await params;
-  return <VehicleDetail vanId={vanId} />;
+  const { vehicleId } = await params;
+  return <VehicleDetail vehicleId={vehicleId} />;
 }

@@ -70,7 +70,7 @@ export function VehicleOverviewTab({ vehicle, costSummary }: VehicleOverviewTabP
   }, [profile?.updatedAt]);
 
   function onSubmit(values: VehicleProfileInput) {
-    updateProfile({ vanId: vehicle.id, data: { ...values, version: profile?.version } });
+    updateProfile({ vehicleId: vehicle.id, data: { ...values, version: profile?.version } });
   }
 
   return (

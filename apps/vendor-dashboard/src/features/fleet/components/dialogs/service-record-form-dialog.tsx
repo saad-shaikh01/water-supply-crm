@@ -14,7 +14,7 @@ import { useCreateServiceRecord } from '../../hooks/use-maintenance';
 import { FleetPhotoUpload } from '../fleet-photo-upload';
 
 interface ServiceRecordFormDialogProps {
-  vanId: string;
+  vehicleId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   defaultServiceType?: string;
@@ -22,7 +22,7 @@ interface ServiceRecordFormDialogProps {
 }
 
 export function ServiceRecordFormDialog({
-  vanId,
+  vehicleId,
   open,
   onOpenChange,
   defaultServiceType,
@@ -46,7 +46,7 @@ export function ServiceRecordFormDialog({
 
   function onSubmit(values: ServiceRecordInput) {
     createServiceRecord(
-      { vanId, ...values, invoicePhotoKey },
+      { vehicleId, ...values, invoicePhotoKey },
       {
         onSuccess: () => {
           onOpenChange(false);

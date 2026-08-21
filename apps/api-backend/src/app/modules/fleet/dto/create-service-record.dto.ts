@@ -3,7 +3,7 @@ import { VehicleServiceType } from '@prisma/client';
 
 export class CreateServiceRecordDto {
   @IsUUID()
-  vanId: string;
+  vehicleId: string;
 
   @IsEnum(VehicleServiceType)
   serviceType: VehicleServiceType;

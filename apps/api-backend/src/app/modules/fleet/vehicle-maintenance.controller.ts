@@ -39,10 +39,10 @@ export class VehicleMaintenanceController {
     return this.maintenanceService.getServiceRecord(user.vendorId, id);
   }
 
-  @Get('vehicles/:vanId/status')
+  @Get('vehicles/:vehicleId/status')
   @RequirePermissions('fleet:view')
-  getStatusForVan(@CurrentUser() user: AuthUser, @Param('vanId') vanId: string) {
-    return this.maintenanceService.getStatusForVan(user.vendorId, vanId);
+  getStatusForVehicle(@CurrentUser() user: AuthUser, @Param('vehicleId') vehicleId: string) {
+    return this.maintenanceService.getStatusForVehicle(user.vendorId, vehicleId);
   }
 
   @Patch('rules/:id')

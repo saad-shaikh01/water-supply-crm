@@ -15,71 +15,87 @@ export class VehicleProfileService {
     private audit: AuditService,
   ) {}
 
-  /** Vehicle list with a light per-vehicle summary — full maintenance detail lives under /fleet/maintenance. */
+  /**
+   * Vehicle list with a light per-vehicle summary — full maintenance detail
+   * lives under /fleet/maintenance. Re-keyed from Van to Vehicle by the §17
+   * Amendment (2026-08-21); this list also doubles as the vehicle-picker
+   * source for the Vehicle Check start form (§17.3) via `?active=true`.
+   */
   async findAll(vendorId: string, query: VehicleQueryDto) {
-    const { page = 1, limit = 20, search, operationalStatus } = query;
+    const { page = 1, limit = 20, search, operationalStatus, active } = query;
 
-    const vanWhere: any = { vendorId };
-    if (search) vanWhere.plateNumber = { contains: search, mode: 'insensitive' };
-    if (operationalStatus) vanWhere.vehicleProfile = { operationalStatus };
+    const vehicleWhere: any = { vendorId };
+    if (search) vehicleWhere.plateNumber = { contains: search, mode: 'insensitive' };
+    if (operationalStatus) vehicleWhere.vehicleProfile = { operationalStatus };
+    if (active !== undefined) vehicleWhere.isActive = active === 'true' || (active as unknown) === true;
 
-    const [vans, total] = await Promise.all([
-      this.prisma.van.findMany({
-        where: vanWhere,
+    const [vehicles, total] = await Promise.all([
+      this.prisma.vehicle.findMany({
+        where: vehicleWhere,
         include: {
-          defaultDriver: { select: { id: true, name: true } },
+          usualVan: { select: { id: true, defaultDriver: { select: { id: true, name: true } } } },
           vehicleProfile: true,
         },
         orderBy: { plateNumber: 'asc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      this.prisma.van.count({ where: vanWhere }),
+      this.prisma.vehicle.count({ where: vehicleWhere }),
     ]);
 
-    const vanIds = vans.map((v) => v.id);
+    const vehicleIds = vehicles.map((v) => v.id);
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
 
-    const [expiringDocs, monthCosts] = await Promise.all([
+    // Vehicle-specific costs only (fuel + maintenance) — Expense itself stays
+    // vanId/route-level (§17.2), so it cannot be attributed to a specific
+    // vehicle here; see fleet-dashboard.service.ts for the same judgment call.
+    const [expiringDocs, fuelCosts, serviceCosts] = await Promise.all([
       this.prisma.vehicleDocument.groupBy({
-        by: ['vanId'],
+        by: ['vehicleId'],
         where: {
           vendorId,
-          vanId: { in: vanIds },
+          vehicleId: { in: vehicleIds },
           isActive: true,
           expiryDate: { not: null, lte: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) },
         },
         _count: { id: true },
       }),
-      this.prisma.expense.groupBy({
-        by: ['vanId'],
-        where: { vendorId, vanId: { in: vanIds }, date: { gte: monthStart } },
-        _sum: { amount: true },
+      this.prisma.fuelLog.groupBy({
+        by: ['vehicleId'],
+        where: { vendorId, vehicleId: { in: vehicleIds }, date: { gte: monthStart } },
+        _sum: { amountPaid: true },
+      }),
+      this.prisma.vehicleServiceRecord.groupBy({
+        by: ['vehicleId'],
+        where: { vendorId, vehicleId: { in: vehicleIds }, performedAtDate: { gte: monthStart } },
+        _sum: { cost: true },
       }),
     ]);
-    const expiringByVan = new Map(expiringDocs.map((d) => [d.vanId, d._count.id]));
-    const costByVan = new Map(monthCosts.map((c) => [c.vanId as string, c._sum.amount ?? 0]));
+    const expiringByVehicle = new Map(expiringDocs.map((d) => [d.vehicleId, d._count.id]));
+    const fuelCostByVehicle = new Map(fuelCosts.map((c) => [c.vehicleId, c._sum.amountPaid ?? 0]));
+    const serviceCostByVehicle = new Map(serviceCosts.map((c) => [c.vehicleId, c._sum.cost ?? 0]));
 
-    const data = vans.map((van) => ({
-      id: van.id,
-      plateNumber: van.plateNumber,
-      isActive: van.isActive,
-      defaultDriver: van.defaultDriver,
-      profile: van.vehicleProfile,
-      expiringDocumentCount: expiringByVan.get(van.id) ?? 0,
-      costThisMonth: costByVan.get(van.id) ?? 0,
+    const data = vehicles.map((vehicle) => ({
+      id: vehicle.id,
+      plateNumber: vehicle.plateNumber,
+      isActive: vehicle.isActive,
+      usualVanId: vehicle.usualVanId,
+      usualVanDefaultDriver: vehicle.usualVan?.defaultDriver ?? null,
+      profile: vehicle.vehicleProfile,
+      expiringDocumentCount: expiringByVehicle.get(vehicle.id) ?? 0,
+      costThisMonth: (fuelCostByVehicle.get(vehicle.id) ?? 0) + (serviceCostByVehicle.get(vehicle.id) ?? 0),
     }));
 
     return paginate(data, total, page, limit);
   }
 
-  async findOne(vendorId: string, vanId: string) {
-    const van = await this.prisma.van.findFirst({
-      where: { id: vanId, vendorId },
+  async findOne(vendorId: string, vehicleId: string) {
+    const vehicle = await this.prisma.vehicle.findFirst({
+      where: { id: vehicleId, vendorId },
       include: {
-        defaultDriver: { select: { id: true, name: true } },
+        usualVan: { select: { id: true, defaultDriver: { select: { id: true, name: true } } } },
         vehicleProfile: true,
         vehicleDocuments: {
           where: { isActive: true },
@@ -88,16 +104,16 @@ export class VehicleProfileService {
         },
       },
     });
-    if (!van) throw new NotFoundException('Vehicle not found');
-    return van;
+    if (!vehicle) throw new NotFoundException('Vehicle not found');
+    return vehicle;
   }
 
-  /** Upserts the profile — a Van may not have a VehicleProfile row yet (plan doc §4). */
-  async updateProfile(user: AuthUser, vanId: string, dto: UpdateVehicleProfileDto) {
-    const van = await this.prisma.van.findFirst({ where: { id: vanId, vendorId: user.vendorId } });
-    if (!van) throw new NotFoundException('Vehicle not found');
+  /** Upserts the profile — a Vehicle may not have a VehicleProfile row yet (plan doc §4). */
+  async updateProfile(user: AuthUser, vehicleId: string, dto: UpdateVehicleProfileDto) {
+    const vehicle = await this.prisma.vehicle.findFirst({ where: { id: vehicleId, vendorId: user.vendorId } });
+    if (!vehicle) throw new NotFoundException('Vehicle not found');
 
-    const existing = await this.prisma.vehicleProfile.findUnique({ where: { vanId } });
+    const existing = await this.prisma.vehicleProfile.findUnique({ where: { vehicleId } });
 
     const fields = {
       ...(dto.make !== undefined && { make: dto.make }),
@@ -120,14 +136,14 @@ export class VehicleProfileService {
     let profile;
     if (!existing) {
       profile = await this.prisma.vehicleProfile.create({
-        data: { vendorId: user.vendorId, vanId, ...fields },
+        data: { vendorId: user.vendorId, vehicleId, ...fields },
       });
     } else {
       if (dto.version === undefined) {
         throw new BadRequestException('version is required when updating an existing vehicle profile.');
       }
       const result = await this.prisma.vehicleProfile.updateMany({
-        where: { vanId, version: dto.version },
+        where: { vehicleId, version: dto.version },
         data: { ...fields, version: { increment: 1 } },
       });
       if (result.count === 0) {
@@ -135,7 +151,7 @@ export class VehicleProfileService {
           `Version mismatch: expected ${dto.version}, but the profile has changed. Reload and retry.`,
         );
       }
-      profile = await this.prisma.vehicleProfile.findUnique({ where: { vanId } });
+      profile = await this.prisma.vehicleProfile.findUnique({ where: { vehicleId } });
     }
 
     await this.audit.log({
@@ -144,21 +160,21 @@ export class VehicleProfileService {
       userName: user.name,
       action: existing ? 'UPDATED' : 'CREATED',
       entity: 'VehicleProfile',
-      entityId: vanId,
+      entityId: vehicleId,
       changes: { before: existing, after: profile },
     });
 
     return profile;
   }
 
-  async addDocument(user: AuthUser, vanId: string, dto: CreateVehicleDocumentDto) {
-    const van = await this.prisma.van.findFirst({ where: { id: vanId, vendorId: user.vendorId } });
-    if (!van) throw new NotFoundException('Vehicle not found');
+  async addDocument(user: AuthUser, vehicleId: string, dto: CreateVehicleDocumentDto) {
+    const vehicle = await this.prisma.vehicle.findFirst({ where: { id: vehicleId, vendorId: user.vendorId } });
+    if (!vehicle) throw new NotFoundException('Vehicle not found');
 
     const document = await this.prisma.vehicleDocument.create({
       data: {
         vendorId: user.vendorId,
-        vanId,
+        vehicleId,
         type: dto.type,
         documentNumber: dto.documentNumber ?? null,
         issuingAuthority: dto.issuingAuthority ?? null,

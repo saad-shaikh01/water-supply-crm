@@ -1,7 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useQueryState, parseAsInteger, parseAsString } from 'nuqs';
 import { toast } from 'sonner';
-import { fleetApi, type UpdateVehicleProfileData, type CreateVehicleDocumentData } from '../api/fleet.api';
+import {
+  fleetApi,
+  type UpdateVehicleProfileData,
+  type CreateVehicleDocumentData,
+  type CreateVehicleData,
+  type UpdateVehicleData,
+} from '../api/fleet.api';
 import { queryKeys } from '../../../lib/query-keys';
 
 export const useVehicles = () => {
@@ -26,11 +32,23 @@ export const useVehicles = () => {
   };
 };
 
-export const useVehicle = (vanId: string | undefined) =>
+/**
+ * Lightweight active-vehicle pool for the Vehicle Check start picker (§17.3)
+ * — no pagination params needed, this is meant for a searchable dropdown of
+ * the whole active fleet.
+ */
+export const useActiveVehiclesForPicker = () =>
   useQuery({
-    queryKey: queryKeys.fleet.vehicle(vanId ?? ''),
-    queryFn: () => fleetApi.getVehicle(vanId as string),
-    enabled: !!vanId,
+    queryKey: queryKeys.fleet.vehicles({ active: true, limit: 100 }),
+    queryFn: () => fleetApi.getVehicles({ active: true, limit: 100 }),
+    staleTime: 60 * 1000,
+  });
+
+export const useVehicle = (vehicleId: string | undefined) =>
+  useQuery({
+    queryKey: queryKeys.fleet.vehicle(vehicleId ?? ''),
+    queryFn: () => fleetApi.getVehicle(vehicleId as string),
+    enabled: !!vehicleId,
   });
 
 export const useFleetOverview = () =>
@@ -40,20 +58,72 @@ export const useFleetOverview = () =>
     staleTime: 5 * 60 * 1000,
   });
 
-export const useVehicleCostSummary = (vanId: string | undefined) =>
+export const useVehicleCostSummary = (vehicleId: string | undefined) =>
   useQuery({
-    queryKey: queryKeys.fleet.costSummary(vanId ?? ''),
-    queryFn: () => fleetApi.getCostSummary(vanId as string),
-    enabled: !!vanId,
+    queryKey: queryKeys.fleet.costSummary(vehicleId ?? ''),
+    queryFn: () => fleetApi.getCostSummary(vehicleId as string),
+    enabled: !!vehicleId,
   });
+
+export const useCreateVehicle = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: CreateVehicleData) => fleetApi.createVehicle(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.fleet.vehicles() });
+      toast.success('Vehicle added');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to add vehicle'),
+  });
+};
+
+export const useUpdateVehicleBasic = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ vehicleId, data }: { vehicleId: string; data: UpdateVehicleData }) =>
+      fleetApi.updateVehicleBasic(vehicleId, data),
+    onSuccess: (_result, { vehicleId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.fleet.vehicle(vehicleId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.fleet.vehicles() });
+      toast.success('Vehicle updated');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to update vehicle'),
+  });
+};
+
+export const useDeactivateVehicle = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vehicleId: string) => fleetApi.deactivateVehicle(vehicleId),
+    onSuccess: (_result, vehicleId) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.fleet.vehicle(vehicleId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.fleet.vehicles() });
+      toast.success('Vehicle deactivated');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to deactivate vehicle'),
+  });
+};
+
+export const useReactivateVehicle = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vehicleId: string) => fleetApi.reactivateVehicle(vehicleId),
+    onSuccess: (_result, vehicleId) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.fleet.vehicle(vehicleId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.fleet.vehicles() });
+      toast.success('Vehicle reactivated');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to reactivate vehicle'),
+  });
+};
 
 export const useUpdateVehicleProfile = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ vanId, data }: { vanId: string; data: UpdateVehicleProfileData }) =>
-      fleetApi.updateVehicleProfile(vanId, data),
-    onSuccess: (_result, { vanId }) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.fleet.vehicle(vanId) });
+    mutationFn: ({ vehicleId, data }: { vehicleId: string; data: UpdateVehicleProfileData }) =>
+      fleetApi.updateVehicleProfile(vehicleId, data),
+    onSuccess: (_result, { vehicleId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.fleet.vehicle(vehicleId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.vehicles() });
       toast.success('Vehicle profile updated');
     },
@@ -64,10 +134,10 @@ export const useUpdateVehicleProfile = () => {
 export const useAddVehicleDocument = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ vanId, data }: { vanId: string; data: CreateVehicleDocumentData }) =>
-      fleetApi.addDocument(vanId, data),
-    onSuccess: (_result, { vanId }) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.fleet.vehicle(vanId) });
+    mutationFn: ({ vehicleId, data }: { vehicleId: string; data: CreateVehicleDocumentData }) =>
+      fleetApi.addDocument(vehicleId, data),
+    onSuccess: (_result, { vehicleId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.fleet.vehicle(vehicleId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.overview() });
       toast.success('Document added');
     },

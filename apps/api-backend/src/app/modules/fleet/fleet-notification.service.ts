@@ -85,7 +85,7 @@ export class FleetNotificationService implements OnModuleInit {
   private async sweepDocumentExpiries(vendorId: string): Promise<number> {
     const documents = await this.prisma.vehicleDocument.findMany({
       where: { vendorId, isActive: true, expiryDate: { not: null } },
-      include: { van: { select: { id: true, plateNumber: true } } },
+      include: { vehicle: { select: { id: true, plateNumber: true } } },
     });
 
     const now = Date.now();
@@ -101,12 +101,12 @@ export class FleetNotificationService implements OnModuleInit {
       const label = VEHICLE_DOCUMENT_TYPE_LABELS[doc.type];
       const title =
         daysUntilExpiry < 0
-          ? `${label} EXPIRED — ${doc.van.plateNumber}`
-          : `${label} expiring soon — ${doc.van.plateNumber}`;
+          ? `${label} EXPIRED — ${doc.vehicle.plateNumber}`
+          : `${label} expiring soon — ${doc.vehicle.plateNumber}`;
       const message =
         daysUntilExpiry < 0
-          ? `${label} for ${doc.van.plateNumber} expired ${Math.abs(daysUntilExpiry)} day(s) ago.`
-          : `${label} for ${doc.van.plateNumber} expires in ${daysUntilExpiry} day(s).`;
+          ? `${label} for ${doc.vehicle.plateNumber} expired ${Math.abs(daysUntilExpiry)} day(s) ago.`
+          : `${label} for ${doc.vehicle.plateNumber} expires in ${daysUntilExpiry} day(s).`;
 
       await this.notifyAdmins(vendorId, DOCUMENT_EXPIRY_TYPE, doc.id, title, message);
       sent++;
@@ -115,18 +115,18 @@ export class FleetNotificationService implements OnModuleInit {
   }
 
   private async sweepMaintenanceDue(vendorId: string): Promise<number> {
-    const vans = await this.prisma.van.findMany({
+    const vehicles = await this.prisma.vehicle.findMany({
       where: { vendorId, isActive: true },
       select: { id: true, plateNumber: true },
     });
 
     let sent = 0;
-    for (const van of vans) {
-      const statuses = await this.maintenance.getStatusForVan(vendorId, van.id);
+    for (const vehicle of vehicles) {
+      const statuses = await this.maintenance.getStatusForVehicle(vendorId, vehicle.id);
       for (const status of statuses) {
         if (status.urgency !== 'DUE' && status.urgency !== 'OVERDUE') continue;
 
-        const entityId = `${van.id}:${status.serviceType}`;
+        const entityId = `${vehicle.id}:${status.serviceType}`;
         const alreadyNotified = await this.recentlyNotified(
           vendorId,
           MAINTENANCE_DUE_TYPE,
@@ -136,13 +136,13 @@ export class FleetNotificationService implements OnModuleInit {
         if (alreadyNotified) continue;
 
         const label = VEHICLE_SERVICE_TYPE_LABELS[status.serviceType];
-        const title = `${status.urgency === 'OVERDUE' ? 'Overdue' : 'Due soon'}: ${label} — ${van.plateNumber}`;
+        const title = `${status.urgency === 'OVERDUE' ? 'Overdue' : 'Due soon'}: ${label} — ${vehicle.plateNumber}`;
         const message =
           status.kmRemaining != null && status.kmRemaining <= 0
-            ? `${label} for ${van.plateNumber} is overdue by ${Math.abs(status.kmRemaining)} km.`
+            ? `${label} for ${vehicle.plateNumber} is overdue by ${Math.abs(status.kmRemaining)} km.`
             : status.daysRemaining != null && status.daysRemaining <= 0
-              ? `${label} for ${van.plateNumber} is overdue by ${Math.abs(status.daysRemaining)} day(s).`
-              : `${label} for ${van.plateNumber} is coming up soon.`;
+              ? `${label} for ${vehicle.plateNumber} is overdue by ${Math.abs(status.daysRemaining)} day(s).`
+              : `${label} for ${vehicle.plateNumber} is coming up soon.`;
 
         await this.notifyAdmins(vendorId, MAINTENANCE_DUE_TYPE, entityId, title, message);
         sent++;

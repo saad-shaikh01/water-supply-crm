@@ -54,8 +54,8 @@ export function VehicleList() {
           },
           {
             key: 'driver',
-            header: 'Driver',
-            cell: (row) => row.defaultDriver?.name ?? <span className="text-muted-foreground">Unassigned</span>,
+            header: 'Usual Driver',
+            cell: (row) => row.usualVanDefaultDriver?.name ?? <span className="text-muted-foreground">Unassigned</span>,
           },
           {
             key: 'status',

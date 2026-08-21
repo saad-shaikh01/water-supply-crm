@@ -9,10 +9,24 @@ import {
 } from '@water-supply-crm/ui';
 import { fuelLogSchema, type FuelLogInput } from '../../schemas';
 import { useCreateFuelLog } from '../../hooks/use-fuel-logs';
+import { useVehicleDailyChecks } from '../../hooks/use-vehicle-checks';
 import { FleetPhotoUpload } from '../fleet-photo-upload';
 
 interface FuelLogFormDialogProps {
-  vanId: string;
+  // Direct mode — used by Fleet's own Vehicle Detail page, which already
+  // knows exactly which vehicle it's on.
+  vehicleId?: string;
+  // Sheet mode — used from the Daily Sheet (sheet-detail.tsx), which only
+  // knows the route (van), not which physical vehicle is running it today.
+  // The §17 Amendment (2026-08-21) records that link on the sheet's own
+  // START Vehicle Check, so when `vehicleId` isn't passed directly, it's
+  // resolved from that check instead of asking the driver to re-identify
+  // the vehicle. `vanId` is accepted only for backward-compat with the
+  // existing daily-sheet call site — it is no longer used (kept optional
+  // and unread rather than removed, to avoid an excess-prop TS error on a
+  // caller in features/daily-sheets/**, out of scope for this change — see
+  // docs/features/fleet-operations-vehicle-intelligence.md §17).
+  vanId?: string;
   dailySheetId?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -36,9 +50,11 @@ function Toggle({ enabled, onToggle, label }: { enabled: boolean; onToggle: () =
   );
 }
 
-export function FuelLogFormDialog({ vanId, dailySheetId, open, onOpenChange }: FuelLogFormDialogProps) {
+export function FuelLogFormDialog({ vehicleId, dailySheetId, open, onOpenChange }: FuelLogFormDialogProps) {
   const [receiptPhotoKey, setReceiptPhotoKey] = useState<string | undefined>(undefined);
   const { mutate: createFuelLog, isPending } = useCreateFuelLog();
+  const { data: checks } = useVehicleDailyChecks(vehicleId ? undefined : dailySheetId);
+  const resolvedVehicleId = vehicleId ?? checks?.find((c) => c.checkType === 'START')?.vehicleId ?? undefined;
 
   const { register, handleSubmit, reset, control, watch, formState: { errors } } = useForm<FuelLogInput>({
     resolver: zodResolver(fuelLogSchema),
@@ -60,8 +76,9 @@ export function FuelLogFormDialog({ vanId, dailySheetId, open, onOpenChange }: F
   const paidFromCash = watch('paidFromCash');
 
   function onSubmit(values: FuelLogInput) {
+    if (!resolvedVehicleId) return;
     createFuelLog(
-      { vanId, dailySheetId, ...values, receiptPhotoKey },
+      { vehicleId: resolvedVehicleId, dailySheetId, ...values, receiptPhotoKey },
       {
         onSuccess: () => {
           onOpenChange(false);
@@ -82,6 +99,11 @@ export function FuelLogFormDialog({ vanId, dailySheetId, open, onOpenChange }: F
           </DialogTitle>
         </DialogHeader>
 
+        {!resolvedVehicleId && dailySheetId ? (
+          <p className="text-sm text-muted-foreground">
+            Record a Start-of-Day Vehicle Check first — the fuel log needs to know which vehicle is running today&apos;s trip.
+          </p>
+        ) : (
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
@@ -162,6 +184,7 @@ export function FuelLogFormDialog({ vanId, dailySheetId, open, onOpenChange }: F
             </Button>
           </DialogFooter>
         </form>
+        )}
       </DialogContent>
     </Dialog>
   );

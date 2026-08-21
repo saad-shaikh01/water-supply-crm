@@ -35,6 +35,15 @@ export class CreateVehicleDailyCheckDto {
   @IsEnum(VehicleCheckType)
   checkType: VehicleCheckType;
 
+  // Required on START (the physical vehicle taking this route's trip out
+  // today, §17 Amendment 2026-08-21/§17.3) — validated + enforced
+  // server-side (VehicleCheckService.create), not just by this decorator,
+  // since it's optional on END (inherited from the sheet's own START check,
+  // never re-picked mid-trip — §17.5, locked).
+  @IsOptional()
+  @IsUUID()
+  vehicleId?: string;
+
   @IsInt()
   @Min(0)
   odometerReading: number;

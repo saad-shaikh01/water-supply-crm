@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { QUEUE_NAMES } from '@water-supply-crm/queue';
+import { VehicleController } from './vehicle.controller';
+import { VehicleService } from './vehicle.service';
 import { VehicleProfileController } from './vehicle-profile.controller';
 import { VehicleProfileService } from './vehicle-profile.service';
 import { VehicleCheckController } from './vehicle-check.controller';
@@ -25,6 +27,7 @@ import { StorageModule } from '../../common/storage/storage.module';
     StorageModule,
   ],
   controllers: [
+    VehicleController,
     VehicleProfileController,
     VehicleCheckController,
     FuelLogController,
@@ -32,6 +35,7 @@ import { StorageModule } from '../../common/storage/storage.module';
     FleetDashboardController,
   ],
   providers: [
+    VehicleService,
     VehicleProfileService,
     VehicleCheckService,
     FuelLogService,

@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, Button, Input, Label } from '@water-supply-crm/ui';
-import { Loader2, Gauge, CheckCircle2, XCircle } from 'lucide-react';
+import { Loader2, Gauge, CheckCircle2, XCircle, Truck, Search } from 'lucide-react';
 import { VEHICLE_CHECKLIST_ITEMS } from '@water-supply-crm/types';
 import type { VehicleCheckType } from '@water-supply-crm/types';
-import { useCreateVehicleDailyCheck } from '../../hooks/use-vehicle-checks';
+import { useCreateVehicleDailyCheck, useVehicleDailyChecks } from '../../hooks/use-vehicle-checks';
+import { useActiveVehiclesForPicker } from '../../hooks/use-fleet';
 import { FleetPhotoUpload } from '../fleet-photo-upload';
 
 interface VehicleCheckDialogProps {
@@ -13,15 +14,29 @@ interface VehicleCheckDialogProps {
   onClose: () => void;
   sheetId: string;
   checkType: VehicleCheckType;
+  // Optional route context (the sheet's own vanId) — used only to pre-sort
+  // the START picker by usualVanId match (§17.3/§17.5). Not required: the
+  // dialog can look this up itself via sheetId if the caller doesn't have it
+  // handy, but sheet-detail.tsx already does, so it's threaded through.
+  vanId?: string;
 }
 
 /**
  * The morning/evening pre-trip record (plan doc §7.2/§7.11). Default-OK grid —
  * the driver only taps what's wrong, per the plan's UX principle that this
  * whole flow must be completable in well under a minute.
+ *
+ * §17 Amendment (2026-08-21): the START check now also requires picking the
+ * physical vehicle taking this route out today (searchable list, pre-sorted
+ * by usualVanId match — §17.3). The END check does NOT re-ask — it just
+ * displays which vehicle this trip used, read-only, inherited server-side
+ * from the sheet's own START check (one trip, one vehicle — §17.5, locked).
  */
-export function VehicleCheckDialog({ open, onClose, sheetId, checkType }: VehicleCheckDialogProps) {
+export function VehicleCheckDialog({ open, onClose, sheetId, checkType, vanId }: VehicleCheckDialogProps) {
   const { mutate: createCheck, isPending } = useCreateVehicleDailyCheck();
+  const { data: existingChecks } = useVehicleDailyChecks(sheetId);
+  const { data: vehiclesPage, isLoading: vehiclesLoading } = useActiveVehiclesForPicker();
+
   const [odometerReading, setOdometerReading] = useState('');
   const [odometerPhotoKey, setOdometerPhotoKey] = useState<string | undefined>(undefined);
   const [results, setResults] = useState<Record<string, boolean>>({});
@@ -29,6 +44,25 @@ export function VehicleCheckDialog({ open, onClose, sheetId, checkType }: Vehicl
   const [damageNote, setDamageNote] = useState('');
   const [damagePhotoKeys, setDamagePhotoKeys] = useState<string[]>([]);
   const [note, setNote] = useState('');
+  const [vehicleId, setVehicleId] = useState<string | undefined>(undefined);
+  const [vehicleSearch, setVehicleSearch] = useState('');
+
+  const startCheck = existingChecks?.find((c) => c.checkType === 'START');
+  const inheritedVehiclePlate = checkType === 'END'
+    ? vehiclesPage?.data.find((v) => v.id === startCheck?.vehicleId)?.plateNumber
+    : undefined;
+
+  const sortedVehicles = useMemo(() => {
+    const vehicles = vehiclesPage?.data ?? [];
+    const filtered = vehicleSearch
+      ? vehicles.filter((v) => v.plateNumber.toLowerCase().includes(vehicleSearch.toLowerCase()))
+      : vehicles;
+    return [...filtered].sort((a, b) => {
+      const aUsual = vanId && a.usualVanId === vanId ? 0 : 1;
+      const bUsual = vanId && b.usualVanId === vanId ? 0 : 1;
+      return aUsual - bUsual || a.plateNumber.localeCompare(b.plateNumber);
+    });
+  }, [vehiclesPage, vehicleSearch, vanId]);
 
   useEffect(() => {
     if (open) {
@@ -39,19 +73,31 @@ export function VehicleCheckDialog({ open, onClose, sheetId, checkType }: Vehicl
       setDamageNote('');
       setDamagePhotoKeys([]);
       setNote('');
+      setVehicleSearch('');
+      setVehicleId(undefined);
     }
   }, [open, checkType]);
+
+  // Pre-select the usual vehicle for this route once the pool loads.
+  useEffect(() => {
+    if (open && checkType === 'START' && !vehicleId && sortedVehicles.length > 0 && vanId) {
+      const usual = sortedVehicles.find((v) => v.usualVanId === vanId);
+      if (usual) setVehicleId(usual.id);
+    }
+  }, [open, checkType, vehicleId, sortedVehicles, vanId]);
 
   const criticalFailing = VEHICLE_CHECKLIST_ITEMS.filter((i) => i.isCritical && results[i.key] === false);
 
   function handleSubmit() {
     const odometer = Number(odometerReading);
     if (!odometerReading || Number.isNaN(odometer)) return;
+    if (checkType === 'START' && !vehicleId) return;
 
     createCheck(
       {
         dailySheetId: sheetId,
         checkType,
+        vehicleId: checkType === 'START' ? vehicleId : undefined,
         odometerReading: odometer,
         odometerPhotoKey,
         checklistResults: VEHICLE_CHECKLIST_ITEMS.map((item) => ({
@@ -78,6 +124,54 @@ export function VehicleCheckDialog({ open, onClose, sheetId, checkType }: Vehicl
         </DialogHeader>
 
         <div className="space-y-5">
+          {checkType === 'START' ? (
+            <div className="space-y-2">
+              <Label>Which vehicle is taking this route out today?</Label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  className="rounded-xl pl-9"
+                  placeholder="Search by plate number…"
+                  value={vehicleSearch}
+                  onChange={(e) => setVehicleSearch(e.target.value)}
+                />
+              </div>
+              <div className="max-h-40 overflow-y-auto rounded-xl border border-border/50 divide-y divide-border/50">
+                {vehiclesLoading ? (
+                  <div className="p-3 text-sm text-muted-foreground">Loading vehicles…</div>
+                ) : sortedVehicles.length === 0 ? (
+                  <div className="p-3 text-sm text-muted-foreground">No active vehicles found.</div>
+                ) : (
+                  sortedVehicles.map((v) => (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => setVehicleId(v.id)}
+                      className={`w-full flex items-center gap-2 px-3 py-2.5 text-left text-sm font-semibold transition-colors ${
+                        vehicleId === v.id ? 'bg-primary/10 text-primary' : 'hover:bg-muted/50'
+                      }`}
+                    >
+                      <Truck className="h-4 w-4 shrink-0" />
+                      {v.plateNumber}
+                      {v.usualVanId === vanId && <span className="text-[11px] font-normal text-muted-foreground">usually this route</span>}
+                    </button>
+                  ))
+                )}
+              </div>
+              {!vehicleId && (
+                <p className="text-xs text-muted-foreground">Select the vehicle before submitting.</p>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 rounded-xl border border-border/50 px-4 py-3">
+              <Truck className="h-4 w-4 text-muted-foreground shrink-0" />
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold">Vehicle on this trip</p>
+                <p className="text-sm font-bold">{inheritedVehiclePlate ?? 'Not recorded on the start check'}</p>
+              </div>
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label>Odometer (km)</Label>
             <Input
@@ -166,7 +260,11 @@ export function VehicleCheckDialog({ open, onClose, sheetId, checkType }: Vehicl
           <Button variant="ghost" onClick={onClose} disabled={isPending}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={isPending || !odometerReading} className="rounded-xl font-bold">
+          <Button
+            onClick={handleSubmit}
+            disabled={isPending || !odometerReading || (checkType === 'START' && !vehicleId)}
+            className="rounded-xl font-bold"
+          >
             {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
             Submit Check
           </Button>

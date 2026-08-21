@@ -261,7 +261,9 @@ model Vendor {
   crewCashDistributions CrewCashDistribution[]
 
   // Fleet Operations & Vehicle Intelligence — Phase 1 (see
-  // docs/features/fleet-operations-vehicle-intelligence.md)
+  // docs/features/fleet-operations-vehicle-intelligence.md); vehicles
+  // added by the §17 Amendment (2026-08-21) Van/Vehicle split.
+  vehicles                Vehicle[]
   vehicleProfiles         VehicleProfile[]
   vehicleDocuments        VehicleDocument[]
   vehicleDailyChecks      VehicleDailyCheck[]
@@ -551,10 +553,29 @@ model Route {
 }
 
 model Van {
-  id          String @id @default(uuid())
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id])
+
+  // DEVIATION FROM §17.2's letter (implementer judgment call, 2026-08-21 —
+  // see PR notes): the doc says plateNumber "moves to Vehicle" and Van keeps
+  // only route-stable fields. That is honored for every Fleet-owned table
+  // (VehicleProfile/VehicleDocument/FuelLog/VehicleMaintenanceRule/
+  // VehicleServiceRecord all now key off the new Vehicle.plateNumber below).
+  // However, ~15 OTHER backend modules outside this task's scope (daily
+  // sheets, customers, routes, expenses, tracking, delivery issues,
+  // communication, analytics, sheet-discrepancy-cases, users — none listed
+  // in §17.2's table or this task's file list) `select`/display
+  // `van.plateNumber` today as the van's only human-readable label ("Van1"
+  // literally has no other name field). Dropping the column would either
+  // break TypeScript compilation across all of them or require touching
+  // files explicitly out of scope (daily-sheets/** most of all). Van.plateNumber
+  // is therefore KEPT here — read as a legacy/display-only route label,
+  // no longer the source of truth for any physical vehicle — while
+  // Vehicle.plateNumber (below) is the real, authoritative plate for
+  // everything Fleet-specific (odometer, fuel, documents, maintenance).
+  // Retiring Van.plateNumber from the rest of the app is a follow-up task.
   plateNumber String @unique
-  vendorId    String
-  vendor      Vendor @relation(fields: [vendorId], references: [id])
 
   isActive        Boolean @default(true)
   defaultDriverId String? @unique
@@ -567,10 +588,39 @@ model Van {
   defaultCrew       VanDefaultCrew[]
   conversations     Conversation[]
 
-  // Fleet Operations & Vehicle Intelligence — Phase 1 (see
-  // docs/features/fleet-operations-vehicle-intelligence.md §4 — every Fleet table
-  // hangs off Van, the one vehicle identity; VehicleProfile is an optional 1:1
-  // enrichment, not a parallel entity).
+  // Fleet Operations & Vehicle Intelligence — Amendment §17 (2026-08-21):
+  // `Van` is the route/slot identity only ("Van1", "Van2"...) — the physical
+  // vehicle that serves it changes day to day, so every truck-specific Fleet
+  // table (VehicleProfile, VehicleDocument, FuelLog, VehicleMaintenanceRule,
+  // VehicleServiceRecord) now hangs off the new `Vehicle` model instead.
+  // `VehicleDailyCheck` is the one exception — it keeps `vanId` (which
+  // route's trip this check belongs to) alongside the new `vehicleId`
+  // (which physical vehicle was actually checked).
+  vehicleDailyChecks VehicleDailyCheck[]
+  // Vehicles that usually (not exclusively) serve this route — see
+  // Vehicle.usualVanId.
+  vehiclesUsuallyServing Vehicle[] @relation("VehicleUsualVan")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Fleet Operations & Vehicle Intelligence — Amendment §17 (2026-08-21): the
+// physical vehicle identity, split out of Van. `plateNumber` moved here from
+// Van (see comment on Van above). `usualVanId` is a default, not a
+// constraint — any active vehicle can be picked to serve any route on any
+// day (the actual daily link is recorded on VehicleDailyCheck.vehicleId).
+model Vehicle {
+  id          String @id @default(uuid())
+  vendorId    String
+  vendor      Vendor @relation(fields: [vendorId], references: [id])
+  plateNumber String @unique
+
+  isActive Boolean @default(true)
+
+  usualVanId String?
+  usualVan   Van?    @relation("VehicleUsualVan", fields: [usualVanId], references: [id], onDelete: SetNull)
+
   vehicleProfile     VehicleProfile?
   vehicleDocuments   VehicleDocument[]
   vehicleDailyChecks VehicleDailyCheck[]
@@ -580,6 +630,9 @@ model Van {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([vendorId])
+  @@index([usualVanId])
 }
 
 // Template crew for a van — copied onto each generated DailySheet.
@@ -2358,16 +2411,18 @@ enum VehicleServiceType {
   OTHER
 }
 
-// Optional 1:1 enrichment of Van — a Van may exist with no VehicleProfile row
-// yet (lazily upserted the first time an admin fills in the Vehicle Master
-// tab). Every other Fleet table below FKs to Van directly, NOT to this model,
-// so they never depend on a profile having been created first.
+// Optional 1:1 enrichment of Vehicle — a Vehicle may exist with no
+// VehicleProfile row yet (lazily upserted the first time an admin fills in
+// the Vehicle Master tab). Every other Fleet table below FKs to Vehicle
+// directly, NOT to this model, so they never depend on a profile having been
+// created first. Re-pointed from Van to Vehicle by the §17 Amendment
+// (2026-08-21) — see comment on Van/Vehicle above.
 model VehicleProfile {
-  id       String @id @default(uuid())
-  vendorId String
-  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  vanId    String @unique
-  van      Van    @relation(fields: [vanId], references: [id], onDelete: Cascade)
+  id        String  @id @default(uuid())
+  vendorId  String
+  vendor    Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vehicleId String  @unique
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
 
   make             String?
   model            String?
@@ -2401,11 +2456,11 @@ model VehicleProfile {
 }
 
 model VehicleDocument {
-  id       String @id @default(uuid())
-  vendorId String
-  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  vanId    String
-  van      Van    @relation(fields: [vanId], references: [id], onDelete: Cascade)
+  id        String  @id @default(uuid())
+  vendorId  String
+  vendor    Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vehicleId String
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
 
   type               VehicleDocumentType
   documentNumber     String?
@@ -2424,7 +2479,7 @@ model VehicleDocument {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@index([vendorId, vanId])
+  @@index([vendorId, vehicleId])
   @@index([vendorId, isActive, expiryDate])
 }
 
@@ -2437,8 +2492,17 @@ model VehicleDailyCheck {
   id       String @id @default(uuid())
   vendorId String
   vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  // Route/slot this trip belongs to — unchanged by the §17 Amendment
+  // (2026-08-21), still denormalized from dailySheetId for cheap querying.
   vanId    String
   van      Van    @relation(fields: [vanId], references: [id], onDelete: Cascade)
+
+  // Physical vehicle actually checked — added by the §17 Amendment. Required
+  // by the service/DTO layer on every NEW check (start-check picker), but
+  // nullable at the schema level since historical rows can't retroactively
+  // say which of several possible trucks it was (§17.5, locked: no backfill).
+  vehicleId String?
+  vehicle   Vehicle? @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
 
   dailySheetId String
   dailySheet   DailySheet @relation(fields: [dailySheetId], references: [id], onDelete: Cascade)
@@ -2486,6 +2550,9 @@ model VehicleDailyCheck {
 
   @@unique([dailySheetId, checkType])
   @@index([vendorId, vanId, recordedAt])
+  // Odometer continuity lookup (§17.5, locked): "prior check on this
+  // vehicle, by recordedAt, across any van" — not "prior sheet on this van".
+  @@index([vendorId, vehicleId, recordedAt])
   @@index([dailySheetId])
 }
 
@@ -2497,11 +2564,11 @@ model VehicleDailyCheck {
 // StaffLedgerEntry, just without the payroll-approval apparatus that split
 // needed (this is a vendor cost, not an employee debit).
 model FuelLog {
-  id       String @id @default(uuid())
-  vendorId String
-  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  vanId    String
-  van      Van    @relation(fields: [vanId], references: [id], onDelete: Cascade)
+  id        String  @id @default(uuid())
+  vendorId  String
+  vendor    Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vehicleId String
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
 
   dailySheetId String?
   dailySheet   DailySheet? @relation(fields: [dailySheetId], references: [id], onDelete: SetNull)
@@ -2531,22 +2598,22 @@ model FuelLog {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  @@index([vendorId, vanId, date])
+  @@index([vendorId, vehicleId, date])
   @@index([dailySheetId])
 }
 
-// Per-vehicle service interval config. Always per-vehicle (vanId required, not
-// nullable) — Phase 1 has no separate "vendor-wide default" row to avoid the
-// nullable-column unique-index pitfall; instead every vehicle is lazily seeded
-// with VEHICLE_MAINTENANCE_DEFAULT_INTERVALS the first time its maintenance
-// list is opened (FleetMaintenanceService.ensureDefaultRules), fully editable
-// afterward.
+// Per-vehicle service interval config. Always per-vehicle (vehicleId required,
+// not nullable) — Phase 1 has no separate "vendor-wide default" row to avoid
+// the nullable-column unique-index pitfall; instead every vehicle is lazily
+// seeded with VEHICLE_MAINTENANCE_DEFAULT_INTERVALS the first time its
+// maintenance list is opened (FleetMaintenanceService.ensureDefaultRules),
+// fully editable afterward.
 model VehicleMaintenanceRule {
-  id       String @id @default(uuid())
-  vendorId String
-  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  vanId    String
-  van      Van    @relation(fields: [vanId], references: [id], onDelete: Cascade)
+  id        String  @id @default(uuid())
+  vendorId  String
+  vendor    Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vehicleId String
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
 
   serviceType  VehicleServiceType
   intervalKm   Int?
@@ -2556,20 +2623,20 @@ model VehicleMaintenanceRule {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([vanId, serviceType])
-  @@index([vendorId, vanId])
+  @@unique([vehicleId, serviceType])
+  @@index([vendorId, vehicleId])
 }
 
 // The actual service event log. Due/Upcoming/Overdue status (plan doc §7.4) is
-// computed at read time from the latest row per (vanId, serviceType) vs. the
-// matching VehicleMaintenanceRule — deliberately not cached/materialized here,
-// fleet sizes at this scale make that unnecessary.
+// computed at read time from the latest row per (vehicleId, serviceType) vs.
+// the matching VehicleMaintenanceRule — deliberately not cached/materialized
+// here, fleet sizes at this scale make that unnecessary.
 model VehicleServiceRecord {
-  id       String @id @default(uuid())
-  vendorId String
-  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  vanId    String
-  van      Van    @relation(fields: [vanId], references: [id], onDelete: Cascade)
+  id        String  @id @default(uuid())
+  vendorId  String
+  vendor    Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vehicleId String
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
 
   serviceType         VehicleServiceType
   performedAtOdometer Int
@@ -2588,6 +2655,6 @@ model VehicleServiceRecord {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  @@index([vendorId, vanId, serviceType])
+  @@index([vendorId, vehicleId, serviceType])
   @@index([vendorId, performedAtDate])
 }

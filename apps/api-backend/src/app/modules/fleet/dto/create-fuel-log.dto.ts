@@ -1,8 +1,12 @@
 import { IsUUID, IsOptional, IsDateString, IsInt, Min, IsNumber, IsBoolean, IsString, MaxLength } from 'class-validator';
 
 export class CreateFuelLogDto {
+  // The physical vehicle that was fuelled (§17 Amendment, 2026-08-21) — moved
+  // from vanId. When dailySheetId is also provided, the Expense this spawns
+  // still records the sheet's own route (vanId), read server-side from the
+  // sheet — Expense stays route-level (§17.2), unlike FuelLog itself.
   @IsUUID()
-  vanId: string;
+  vehicleId: string;
 
   @IsOptional()
   @IsUUID()

@@ -3,11 +3,11 @@ import { toast } from 'sonner';
 import { fleetApi, type CreateServiceRecordData } from '../api/fleet.api';
 import { queryKeys } from '../../../lib/query-keys';
 
-export const useVehicleMaintenanceStatus = (vanId: string | undefined) =>
+export const useVehicleMaintenanceStatus = (vehicleId: string | undefined) =>
   useQuery({
-    queryKey: queryKeys.fleet.maintenanceStatus(vanId ?? ''),
-    queryFn: () => fleetApi.getMaintenanceStatusForVan(vanId as string),
-    enabled: !!vanId,
+    queryKey: queryKeys.fleet.maintenanceStatus(vehicleId ?? ''),
+    queryFn: () => fleetApi.getMaintenanceStatusForVehicle(vehicleId as string),
+    enabled: !!vehicleId,
   });
 
 export const useFleetMaintenanceStatus = () =>
@@ -22,15 +22,15 @@ export const useUpdateMaintenanceRule = () => {
   return useMutation({
     mutationFn: ({
       id,
-      vanId,
+      vehicleId,
       data,
     }: {
       id: string;
-      vanId: string;
+      vehicleId: string;
       data: { intervalKm?: number | null; intervalDays?: number | null; isActive?: boolean };
     }) => fleetApi.updateMaintenanceRule(id, data),
-    onSuccess: (_result, { vanId }) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.fleet.maintenanceStatus(vanId) });
+    onSuccess: (_result, { vehicleId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.fleet.maintenanceStatus(vehicleId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.maintenanceFleetStatus() });
       toast.success('Maintenance interval updated');
     },
@@ -38,7 +38,7 @@ export const useUpdateMaintenanceRule = () => {
   });
 };
 
-export const useServiceRecords = (params?: { page?: number; limit?: number; vanId?: string }) =>
+export const useServiceRecords = (params?: { page?: number; limit?: number; vehicleId?: string }) =>
   useQuery({
     queryKey: queryKeys.fleet.serviceRecords(params),
     queryFn: () => fleetApi.getServiceRecords(params),
@@ -50,7 +50,7 @@ export const useCreateServiceRecord = () => {
     mutationFn: (data: CreateServiceRecordData) => fleetApi.createServiceRecord(data),
     onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.serviceRecords() });
-      queryClient.invalidateQueries({ queryKey: queryKeys.fleet.maintenanceStatus(variables.vanId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.fleet.maintenanceStatus(variables.vehicleId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.maintenanceFleetStatus() });
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.overview() });
       toast.success('Service record added');

@@ -9,12 +9,17 @@ import { VehicleMaintenanceTab } from './vehicle-maintenance-tab';
 import { VehicleFuelTab } from './vehicle-fuel-tab';
 
 interface VehicleDetailProps {
-  vanId: string;
+  // §17 Amendment (2026-08-21): Fleet's detail page is keyed by the physical
+  // Vehicle now, not the Van (route/slot) — see
+  // docs/features/fleet-operations-vehicle-intelligence.md §17.2/§17.3.
+  // `usualVanDefaultDriver` below is shown for route context only (a
+  // default, not a constraint — any vehicle can serve any route on any day).
+  vehicleId: string;
 }
 
-export function VehicleDetail({ vanId }: VehicleDetailProps) {
-  const { data: vehicle, isLoading } = useVehicle(vanId);
-  const { data: costSummary } = useVehicleCostSummary(vanId);
+export function VehicleDetail({ vehicleId }: VehicleDetailProps) {
+  const { data: vehicle, isLoading } = useVehicle(vehicleId);
+  const { data: costSummary } = useVehicleCostSummary(vehicleId);
 
   if (isLoading || !vehicle) {
     return (
@@ -37,7 +42,7 @@ export function VehicleDetail({ vanId }: VehicleDetailProps) {
             {!vehicle.isActive && <Badge variant="outline">Inactive</Badge>}
           </div>
           <p className="text-sm text-muted-foreground">
-            {vehicle.defaultDriver ? `Driver: ${vehicle.defaultDriver.name}` : 'No driver assigned'}
+            {vehicle.usualVanDefaultDriver ? `Usual driver: ${vehicle.usualVanDefaultDriver.name}` : 'No usual route/driver set'}
           </p>
         </div>
       </div>
@@ -54,13 +59,13 @@ export function VehicleDetail({ vanId }: VehicleDetailProps) {
           <VehicleOverviewTab vehicle={vehicle} costSummary={costSummary} />
         </TabsContent>
         <TabsContent value="documents" className="mt-4">
-          <VehicleDocumentsTab vanId={vanId} documents={vehicle.vehicleDocuments} />
+          <VehicleDocumentsTab vehicleId={vehicleId} documents={vehicle.vehicleDocuments} />
         </TabsContent>
         <TabsContent value="maintenance" className="mt-4">
-          <VehicleMaintenanceTab vanId={vanId} currentOdometer={vehicle.vehicleProfile?.currentOdometer ?? 0} />
+          <VehicleMaintenanceTab vehicleId={vehicleId} currentOdometer={vehicle.vehicleProfile?.currentOdometer ?? 0} />
         </TabsContent>
         <TabsContent value="fuel" className="mt-4">
-          <VehicleFuelTab vanId={vanId} />
+          <VehicleFuelTab vehicleId={vehicleId} />
         </TabsContent>
       </Tabs>
     </div>

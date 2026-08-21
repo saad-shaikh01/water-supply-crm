@@ -13,38 +13,39 @@ import type { AuthUser } from '@water-supply-crm/types';
 export class VehicleProfileController {
   constructor(private readonly vehicleProfileService: VehicleProfileService) {}
 
+  /** Also the vehicle-picker source for the Vehicle Check start form (§17.3) via ?active=true. */
   @Get()
   @RequirePermissions('fleet:view')
   findAll(@CurrentUser() user: AuthUser, @Query() query: VehicleQueryDto) {
     return this.vehicleProfileService.findAll(user.vendorId, query);
   }
 
-  @Get(':vanId')
+  @Get(':vehicleId')
   @RequirePermissions('fleet:view')
-  findOne(@CurrentUser() user: AuthUser, @Param('vanId') vanId: string) {
-    return this.vehicleProfileService.findOne(user.vendorId, vanId);
+  findOne(@CurrentUser() user: AuthUser, @Param('vehicleId') vehicleId: string) {
+    return this.vehicleProfileService.findOne(user.vendorId, vehicleId);
   }
 
-  @Patch(':vanId')
+  @Patch(':vehicleId')
   @RequirePermissions('fleet:update')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
   updateProfile(
     @CurrentUser() user: AuthUser,
-    @Param('vanId') vanId: string,
+    @Param('vehicleId') vehicleId: string,
     @Body() dto: UpdateVehicleProfileDto,
   ) {
-    return this.vehicleProfileService.updateProfile(user, vanId, dto);
+    return this.vehicleProfileService.updateProfile(user, vehicleId, dto);
   }
 
-  @Post(':vanId/documents')
+  @Post(':vehicleId/documents')
   @RequirePermissions('fleet:update')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
   addDocument(
     @CurrentUser() user: AuthUser,
-    @Param('vanId') vanId: string,
+    @Param('vehicleId') vehicleId: string,
     @Body() dto: CreateVehicleDocumentDto,
   ) {
-    return this.vehicleProfileService.addDocument(user, vanId, dto);
+    return this.vehicleProfileService.addDocument(user, vehicleId, dto);
   }
 
   @Patch('documents/:id')

@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { fleetApi, type CreateFuelLogData } from '../api/fleet.api';
 import { queryKeys } from '../../../lib/query-keys';
 
-export const useFuelLogs = (params?: { page?: number; limit?: number; vanId?: string; dateFrom?: string; dateTo?: string }) =>
+export const useFuelLogs = (params?: { page?: number; limit?: number; vehicleId?: string; dateFrom?: string; dateTo?: string }) =>
   useQuery({
     queryKey: queryKeys.fleet.fuelLogs(params),
     queryFn: () => fleetApi.getFuelLogs(params),

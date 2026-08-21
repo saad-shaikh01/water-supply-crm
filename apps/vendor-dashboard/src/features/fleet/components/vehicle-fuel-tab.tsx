@@ -8,13 +8,13 @@ import { FuelLogFormDialog } from './dialogs/fuel-log-form-dialog';
 import { useCan } from '../../authz/hooks/use-can';
 
 interface VehicleFuelTabProps {
-  vanId: string;
+  vehicleId: string;
 }
 
-export function VehicleFuelTab({ vanId }: VehicleFuelTabProps) {
+export function VehicleFuelTab({ vehicleId }: VehicleFuelTabProps) {
   const canRecord = useCan('fleet:record_fuel');
   const [formOpen, setFormOpen] = useState(false);
-  const { data, isLoading } = useFuelLogs({ vanId, limit: 20 });
+  const { data, isLoading } = useFuelLogs({ vehicleId, limit: 20 });
 
   return (
     <div className="space-y-4">
@@ -73,7 +73,7 @@ export function VehicleFuelTab({ vanId }: VehicleFuelTabProps) {
         </div>
       )}
 
-      <FuelLogFormDialog vanId={vanId} open={formOpen} onOpenChange={setFormOpen} />
+      <FuelLogFormDialog vehicleId={vehicleId} open={formOpen} onOpenChange={setFormOpen} />
     </div>
   );
 }

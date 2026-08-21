@@ -14,12 +14,12 @@ const URGENCY_STYLE: Record<string, { label: string; className: string }> = {
 };
 
 interface VehicleMaintenanceTabProps {
-  vanId: string;
+  vehicleId: string;
   currentOdometer: number;
 }
 
-export function VehicleMaintenanceTab({ vanId, currentOdometer }: VehicleMaintenanceTabProps) {
-  const { data: statuses, isLoading } = useVehicleMaintenanceStatus(vanId);
+export function VehicleMaintenanceTab({ vehicleId, currentOdometer }: VehicleMaintenanceTabProps) {
+  const { data: statuses, isLoading } = useVehicleMaintenanceStatus(vehicleId);
   const [recordFormOpen, setRecordFormOpen] = useState(false);
   const [defaultServiceType, setDefaultServiceType] = useState<string | undefined>(undefined);
 
@@ -91,7 +91,7 @@ export function VehicleMaintenanceTab({ vanId, currentOdometer }: VehicleMainten
       </div>
 
       <ServiceRecordFormDialog
-        vanId={vanId}
+        vehicleId={vehicleId}
         open={recordFormOpen}
         onOpenChange={setRecordFormOpen}
         defaultServiceType={defaultServiceType}

@@ -40,24 +40,54 @@ export class VehicleCheckService {
       throw new ConflictException(`A ${dto.checkType} check has already been recorded for this sheet.`);
     }
 
+    // §17 Amendment (2026-08-21): the physical vehicle is picked once, on the
+    // START check (§17.3) — required and validated (vendor-scoped, active)
+    // exactly like FuelLogService validates van ownership. The END check for
+    // the same sheet inherits it from that START check rather than asking
+    // the driver to re-pick (one trip, one vehicle — §17.5, locked).
+    let vehicleId: string | null;
+    if (dto.checkType === 'START') {
+      if (!dto.vehicleId) {
+        throw new BadRequestException('vehicleId is required for a START check.');
+      }
+      const vehicle = await this.prisma.vehicle.findFirst({
+        where: { id: dto.vehicleId, vendorId: user.vendorId },
+      });
+      if (!vehicle) throw new NotFoundException('Vehicle not found');
+      if (!vehicle.isActive) throw new BadRequestException('This vehicle is inactive.');
+      vehicleId = vehicle.id;
+    } else {
+      const startCheck = await this.prisma.vehicleDailyCheck.findUnique({
+        where: { dailySheetId_checkType: { dailySheetId: sheet.id, checkType: 'START' } },
+        select: { vehicleId: true },
+      });
+      vehicleId = startCheck?.vehicleId ?? null;
+    }
+
     const normalized = normalizeChecklistResults(dto.checklistResults);
     const criticalFailure = hasCriticalFailure(normalized);
 
-    const priorCheck = await this.prisma.vehicleDailyCheck.findFirst({
-      where: { vanId: sheet.vanId },
-      orderBy: { recordedAt: 'desc' },
-    });
-
+    // Odometer continuity (§17.5, locked): "prior check on this vehicle, by
+    // recordedAt, across any van" — not "prior sheet on this van", since one
+    // vehicle can serve two different routes on the same day. Falls back to
+    // no continuity check when the vehicle is unknown (legacy END check with
+    // no linked START, pre-Amendment historical data).
     let odometerContinuityFlag = false;
     let continuityNote: string | null = null;
-    if (priorCheck) {
-      const delta = dto.odometerReading - priorCheck.odometerReading;
-      if (delta < 0) {
-        odometerContinuityFlag = true;
-        continuityNote = `Reading is ${Math.abs(delta)} km lower than the previous recorded check (${priorCheck.odometerReading} km).`;
-      } else if (delta > VEHICLE_DAILY_ODOMETER_DELTA_CAP_KM) {
-        odometerContinuityFlag = true;
-        continuityNote = `Reading jumped ${delta} km since the previous recorded check — please confirm this is correct.`;
+    if (vehicleId) {
+      const priorCheck = await this.prisma.vehicleDailyCheck.findFirst({
+        where: { vehicleId },
+        orderBy: { recordedAt: 'desc' },
+      });
+      if (priorCheck) {
+        const delta = dto.odometerReading - priorCheck.odometerReading;
+        if (delta < 0) {
+          odometerContinuityFlag = true;
+          continuityNote = `Reading is ${Math.abs(delta)} km lower than the previous recorded check (${priorCheck.odometerReading} km).`;
+        } else if (delta > VEHICLE_DAILY_ODOMETER_DELTA_CAP_KM) {
+          odometerContinuityFlag = true;
+          continuityNote = `Reading jumped ${delta} km since the previous recorded check — please confirm this is correct.`;
+        }
       }
     }
 
@@ -66,6 +96,7 @@ export class VehicleCheckService {
         data: {
           vendorId: user.vendorId,
           vanId: sheet.vanId,
+          vehicleId,
           dailySheetId: sheet.id,
           checkType: dto.checkType,
           odometerReading: dto.odometerReading,
@@ -83,17 +114,19 @@ export class VehicleCheckService {
         },
       });
 
-      await tx.vehicleProfile.upsert({
-        where: { vanId: sheet.vanId },
-        create: { vendorId: user.vendorId, vanId: sheet.vanId, currentOdometer: dto.odometerReading },
-        update: { currentOdometer: dto.odometerReading },
-      });
+      if (vehicleId) {
+        await tx.vehicleProfile.upsert({
+          where: { vehicleId },
+          create: { vendorId: user.vendorId, vehicleId, currentOdometer: dto.odometerReading },
+          update: { currentOdometer: dto.odometerReading },
+        });
+      }
 
       return created;
     });
 
     if (criticalFailure) {
-      await this.notifyCriticalFailure(user.vendorId, sheet.vanId, check.id, normalized);
+      await this.notifyCriticalFailure(user.vendorId, vehicleId, check.id, normalized);
     }
 
     return check;
@@ -189,12 +222,14 @@ export class VehicleCheckService {
 
   private async notifyCriticalFailure(
     vendorId: string,
-    vanId: string,
+    vehicleId: string | null,
     checkId: string,
     results: ChecklistItemResult[],
   ) {
-    const [van, failedItems, adminUsers] = await Promise.all([
-      this.prisma.van.findUnique({ where: { id: vanId }, select: { plateNumber: true } }),
+    const [vehicle, failedItems, adminUsers] = await Promise.all([
+      vehicleId
+        ? this.prisma.vehicle.findUnique({ where: { id: vehicleId }, select: { plateNumber: true } })
+        : Promise.resolve(null),
       Promise.resolve(results.filter((r) => r.isCritical && !r.passed).map((r) => r.label)),
       this.prisma.user.findMany({
         where: { vendorId, role: { in: ['VENDOR_ADMIN', 'STAFF'] }, isActive: true },
@@ -202,8 +237,8 @@ export class VehicleCheckService {
       }),
     ]);
 
-    const title = `Critical Vehicle Issue — ${van?.plateNumber ?? 'Van'}`;
-    const message = `${failedItems.join(', ')} flagged on ${van?.plateNumber ?? 'a van'}'s pre-trip check. Trip is blocked until acknowledged.`;
+    const title = `Critical Vehicle Issue — ${vehicle?.plateNumber ?? 'Vehicle'}`;
+    const message = `${failedItems.join(', ')} flagged on ${vehicle?.plateNumber ?? 'a vehicle'}'s pre-trip check. Trip is blocked until acknowledged.`;
 
     await Promise.all(
       adminUsers.map(async (admin) => {

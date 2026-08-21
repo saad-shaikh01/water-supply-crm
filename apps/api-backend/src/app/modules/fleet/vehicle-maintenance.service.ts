@@ -12,9 +12,14 @@ import { computeMaintenanceStatus } from './fleet-maintenance.util';
 
 const serviceRecordInclude = {
   recordedBy: { select: { id: true, name: true } },
-  van: { select: { id: true, plateNumber: true } },
+  vehicle: { select: { id: true, plateNumber: true } },
 };
 
+/**
+ * §17 Amendment (2026-08-21): re-keyed from `vanId` to `vehicleId` — service
+ * intervals/history are truck-specific (engine wear, not route history), see
+ * §17.1.
+ */
 @Injectable()
 export class VehicleMaintenanceService {
   constructor(
@@ -27,14 +32,14 @@ export class VehicleMaintenanceService {
    * its maintenance list is opened. Always per-vehicle (no separate vendor-wide
    * default row — see schema comment on VehicleMaintenanceRule).
    */
-  async ensureDefaultRules(vendorId: string, vanId: string): Promise<void> {
-    const existingCount = await this.prisma.vehicleMaintenanceRule.count({ where: { vanId } });
+  async ensureDefaultRules(vendorId: string, vehicleId: string): Promise<void> {
+    const existingCount = await this.prisma.vehicleMaintenanceRule.count({ where: { vehicleId } });
     if (existingCount > 0) return;
 
     await this.prisma.vehicleMaintenanceRule.createMany({
       data: (Object.keys(VEHICLE_MAINTENANCE_DEFAULT_INTERVALS) as VehicleServiceType[]).map((serviceType) => ({
         vendorId,
-        vanId,
+        vehicleId,
         serviceType,
         intervalKm: VEHICLE_MAINTENANCE_DEFAULT_INTERVALS[serviceType].intervalKm,
         intervalDays: VEHICLE_MAINTENANCE_DEFAULT_INTERVALS[serviceType].intervalDays,
@@ -43,29 +48,29 @@ export class VehicleMaintenanceService {
     });
   }
 
-  async getStatusForVan(vendorId: string, vanId: string) {
-    const van = await this.prisma.van.findFirst({
-      where: { id: vanId, vendorId },
+  async getStatusForVehicle(vendorId: string, vehicleId: string) {
+    const vehicle = await this.prisma.vehicle.findFirst({
+      where: { id: vehicleId, vendorId },
       include: { vehicleProfile: true },
     });
-    if (!van) throw new NotFoundException('Vehicle not found');
+    if (!vehicle) throw new NotFoundException('Vehicle not found');
 
-    await this.ensureDefaultRules(vendorId, vanId);
+    await this.ensureDefaultRules(vendorId, vehicleId);
 
     const rules = await this.prisma.vehicleMaintenanceRule.findMany({
-      where: { vanId, isActive: true },
+      where: { vehicleId, isActive: true },
       orderBy: { serviceType: 'asc' },
     });
 
     const latestRecords = await this.prisma.vehicleServiceRecord.findMany({
-      where: { vanId },
+      where: { vehicleId },
       distinct: ['serviceType'],
       orderBy: { performedAtDate: 'desc' },
     });
     const latestByType = new Map(latestRecords.map((r) => [r.serviceType, r]));
 
-    const currentOdometer = van.vehicleProfile?.currentOdometer ?? 0;
-    const baselineDate = van.vehicleProfile?.createdAt ?? van.createdAt;
+    const currentOdometer = vehicle.vehicleProfile?.currentOdometer ?? 0;
+    const baselineDate = vehicle.vehicleProfile?.createdAt ?? vehicle.createdAt;
 
     return rules.map((rule) => {
       const last = latestByType.get(rule.serviceType);
@@ -80,7 +85,7 @@ export class VehicleMaintenanceService {
 
       return {
         ruleId: rule.id,
-        vanId,
+        vehicleId,
         serviceType: rule.serviceType,
         label: VEHICLE_SERVICE_TYPE_LABELS[rule.serviceType],
         intervalKm: rule.intervalKm,
@@ -94,17 +99,17 @@ export class VehicleMaintenanceService {
 
   /** Fleet-wide rollup for the dashboard — total overdue/due counts across every vehicle. */
   async getFleetWideStatus(vendorId: string) {
-    const vans = await this.prisma.van.findMany({
+    const vehicles = await this.prisma.vehicle.findMany({
       where: { vendorId, isActive: true },
       select: { id: true, plateNumber: true },
     });
 
     const results = await Promise.all(
-      vans.map(async (van) => {
-        const statuses = await this.getStatusForVan(vendorId, van.id);
+      vehicles.map(async (vehicle) => {
+        const statuses = await this.getStatusForVehicle(vendorId, vehicle.id);
         return {
-          vanId: van.id,
-          plateNumber: van.plateNumber,
+          vehicleId: vehicle.id,
+          plateNumber: vehicle.plateNumber,
           overdueCount: statuses.filter((s) => s.urgency === 'OVERDUE').length,
           dueCount: statuses.filter((s) => s.urgency === 'DUE').length,
         };
@@ -145,8 +150,8 @@ export class VehicleMaintenanceService {
   }
 
   async createServiceRecord(user: AuthUser, dto: CreateServiceRecordDto) {
-    const van = await this.prisma.van.findFirst({ where: { id: dto.vanId, vendorId: user.vendorId } });
-    if (!van) throw new NotFoundException('Vehicle not found');
+    const vehicle = await this.prisma.vehicle.findFirst({ where: { id: dto.vehicleId, vendorId: user.vendorId } });
+    if (!vehicle) throw new NotFoundException('Vehicle not found');
 
     const record = await this.prisma.$transaction(async (tx) => {
       const expense = await tx.expense.create({
@@ -154,9 +159,12 @@ export class VehicleMaintenanceService {
           vendorId: user.vendorId,
           category: ExpenseCategory.VEHICLE_MAINTENANCE,
           amount: dto.cost,
-          description: `${VEHICLE_SERVICE_TYPE_LABELS[dto.serviceType]} — ${van.plateNumber}`,
+          description: `${VEHICLE_SERVICE_TYPE_LABELS[dto.serviceType]} — ${vehicle.plateNumber}`,
           date: new Date(dto.performedAtDate),
-          vanId: dto.vanId,
+          // Expense stays route-level (§17.2) — this vehicle isn't
+          // necessarily tied to a specific van/route at service time, so no
+          // vanId is attached here (unchanged behavior: this field was never
+          // populated for service-record Expenses even before the split).
           createdById: user.userId,
         },
       });
@@ -164,7 +172,7 @@ export class VehicleMaintenanceService {
       return tx.vehicleServiceRecord.create({
         data: {
           vendorId: user.vendorId,
-          vanId: dto.vanId,
+          vehicleId: dto.vehicleId,
           serviceType: dto.serviceType,
           performedAtOdometer: dto.performedAtOdometer,
           performedAtDate: new Date(dto.performedAtDate),
@@ -183,11 +191,11 @@ export class VehicleMaintenanceService {
     // Keep the profile's odometer cache current if this service happened
     // further than any check has reported yet (workshop odometer is authoritative
     // for that moment — e.g. a check was skipped that day).
-    const currentProfile = await this.prisma.vehicleProfile.findUnique({ where: { vanId: dto.vanId } });
+    const currentProfile = await this.prisma.vehicleProfile.findUnique({ where: { vehicleId: dto.vehicleId } });
     const nextOdometer = Math.max(dto.performedAtOdometer, currentProfile?.currentOdometer ?? 0);
     await this.prisma.vehicleProfile.upsert({
-      where: { vanId: dto.vanId },
-      create: { vendorId: user.vendorId, vanId: dto.vanId, currentOdometer: nextOdometer },
+      where: { vehicleId: dto.vehicleId },
+      create: { vendorId: user.vendorId, vehicleId: dto.vehicleId, currentOdometer: nextOdometer },
       update: { currentOdometer: nextOdometer },
     });
 
@@ -205,9 +213,9 @@ export class VehicleMaintenanceService {
   }
 
   async listServiceRecords(vendorId: string, query: ServiceRecordQueryDto) {
-    const { page = 1, limit = 20, vanId, serviceType } = query;
+    const { page = 1, limit = 20, vehicleId, serviceType } = query;
     const where: any = { vendorId };
-    if (vanId) where.vanId = vanId;
+    if (vehicleId) where.vehicleId = vehicleId;
     if (serviceType) where.serviceType = serviceType;
 
     const [data, total] = await Promise.all([

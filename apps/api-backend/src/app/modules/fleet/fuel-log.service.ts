@@ -9,7 +9,7 @@ import { FuelLogQueryDto } from './dto/fuel-log-query.dto';
 
 const fuelLogInclude = {
   recordedBy: { select: { id: true, name: true } },
-  van: { select: { id: true, plateNumber: true } },
+  vehicle: { select: { id: true, plateNumber: true } },
 };
 
 /**
@@ -19,19 +19,28 @@ const fuelLogInclude = {
  * spawns exactly one linked, always-in-lockstep Expense row — the vendor-cost
  * analog of CrewCashDistribution's "source record -> financial consequence"
  * split, minus the payroll-approval apparatus that split needed.
+ *
+ * §17 Amendment (2026-08-21): keyed off `vehicleId` (the physical vehicle
+ * that was fuelled), not `vanId` — a fill-to-fill efficiency number is
+ * meaningless if the liters and the odometer delta belong to two different
+ * trucks (§17.1). Expense.vanId (route-level, unchanged) is still populated
+ * when a dailySheetId is provided, read from that sheet's own van — Expense
+ * itself did not move to vehicleId (§17.2).
  */
 @Injectable()
 export class FuelLogService {
   constructor(private prisma: PrismaService) {}
 
   async create(user: AuthUser, dto: CreateFuelLogDto) {
-    const van = await this.prisma.van.findFirst({ where: { id: dto.vanId, vendorId: user.vendorId } });
-    if (!van) throw new NotFoundException('Vehicle not found');
+    const vehicle = await this.prisma.vehicle.findFirst({ where: { id: dto.vehicleId, vendorId: user.vendorId } });
+    if (!vehicle) throw new NotFoundException('Vehicle not found');
+    if (!vehicle.isActive) throw new BadRequestException('This vehicle is inactive.');
 
+    let sheetVanId: string | null = null;
     if (dto.dailySheetId) {
       const sheet = await this.prisma.dailySheet.findFirst({
         where: { id: dto.dailySheetId, vendorId: user.vendorId },
-        select: { driverId: true, isClosed: true },
+        select: { vanId: true, driverId: true, isClosed: true },
       });
       if (!sheet) throw new NotFoundException('Daily sheet not found');
       if (user.role === 'DRIVER' && sheet.driverId !== user.userId) {
@@ -43,6 +52,7 @@ export class FuelLogService {
       if (sheet.isClosed) {
         throw new BadRequestException('Cannot record a Fuel Log against a closed daily sheet.');
       }
+      sheetVanId = sheet.vanId;
     }
 
     // Most fills come straight out of the driver's collected cash — default
@@ -59,9 +69,9 @@ export class FuelLogService {
           category: ExpenseCategory.FUEL_EXPENSE,
           amount: dto.amountPaid,
           paidFromCash,
-          description: `Fuel — ${dto.litersFilled}L (${van.plateNumber})`,
+          description: `Fuel — ${dto.litersFilled}L (${vehicle.plateNumber})`,
           date: new Date(dto.date),
-          vanId: dto.vanId,
+          vanId: sheetVanId,
           dailySheetId: dto.dailySheetId ?? null,
           createdById: user.userId,
         },
@@ -70,7 +80,7 @@ export class FuelLogService {
       return tx.fuelLog.create({
         data: {
           vendorId: user.vendorId,
-          vanId: dto.vanId,
+          vehicleId: dto.vehicleId,
           dailySheetId: dto.dailySheetId ?? null,
           date: new Date(dto.date),
           odometerAtFill: dto.odometerAtFill,
@@ -90,9 +100,9 @@ export class FuelLogService {
   }
 
   async findAll(vendorId: string, query: FuelLogQueryDto) {
-    const { page = 1, limit = 20, vanId, dateFrom, dateTo } = query;
+    const { page = 1, limit = 20, vehicleId, dateFrom, dateTo } = query;
     const where: any = { vendorId };
-    if (vanId) where.vanId = vanId;
+    if (vehicleId) where.vehicleId = vehicleId;
     if (dateFrom || dateTo) {
       where.date = {};
       if (dateFrom) where.date.gte = new Date(dateFrom);

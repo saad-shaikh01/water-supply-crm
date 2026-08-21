@@ -26,11 +26,16 @@ export interface FleetPaginatedResult<T> {
   meta: { total: number; page: number; limit: number; totalPages: number };
 }
 
+// §17 Amendment (2026-08-21) — Fleet's list/detail pages are keyed by
+// `vehicleId` (the physical vehicle) now, not `vanId` (the route/slot) — see
+// docs/features/fleet-operations-vehicle-intelligence.md §17. `usualVanId`
+// is shown for route context only (a default, not a constraint).
 export interface VehicleListEntry {
   id: string;
   plateNumber: string;
   isActive: boolean;
-  defaultDriver: { id: string; name: string } | null;
+  usualVanId: string | null;
+  usualVanDefaultDriver: { id: string; name: string } | null;
   profile: VehicleProfileEntry | null;
   expiringDocumentCount: number;
   costThisMonth: number;
@@ -40,7 +45,8 @@ export interface VehicleDetail {
   id: string;
   plateNumber: string;
   isActive: boolean;
-  defaultDriver: { id: string; name: string } | null;
+  usualVanId: string | null;
+  usualVanDefaultDriver: { id: string; name: string } | null;
   vehicleProfile: VehicleProfileEntry | null;
   vehicleDocuments: VehicleDocumentEntry[];
 }
@@ -49,17 +55,16 @@ export interface FleetOverview {
   vehicleCount: number;
   totalOverdueMaintenance: number;
   totalDueMaintenance: number;
-  vehiclesWithOverdue: { vanId: string; plateNumber: string; overdueCount: number; dueCount: number }[];
-  expiringDocuments: (VehicleDocumentEntry & { van: { id: string; plateNumber: string } })[];
+  vehiclesWithOverdue: { vehicleId: string; plateNumber: string; overdueCount: number; dueCount: number }[];
+  expiringDocuments: (VehicleDocumentEntry & { vehicle: { id: string; plateNumber: string } })[];
   costThisMonth: number;
   fuelCostThisMonth: number;
   fuelLitersThisMonth: number;
 }
 
 export interface VehicleCostSummary {
-  vanId: string;
+  vehicleId: string;
   totalCost: number;
-  costByCategory: { category: string; totalAmount: number; count: number }[];
   fuelCostTotal: number;
   fuelLitersTotal: number;
   fuelFillCount: number;
@@ -102,6 +107,9 @@ export interface CreateVehicleDocumentData {
 export interface CreateVehicleDailyCheckData {
   dailySheetId: string;
   checkType: VehicleCheckType;
+  // Required on START (picker), omitted on END (inherited server-side from
+  // the sheet's own START check) — §17 Amendment (2026-08-21).
+  vehicleId?: string;
   odometerReading: number;
   odometerPhotoKey?: string;
   fuelGaugeLevel?: number;
@@ -113,7 +121,7 @@ export interface CreateVehicleDailyCheckData {
 }
 
 export interface CreateFuelLogData {
-  vanId: string;
+  vehicleId: string;
   dailySheetId?: string;
   date: string;
   odometerAtFill: number;
@@ -127,7 +135,7 @@ export interface CreateFuelLogData {
 }
 
 export interface CreateServiceRecordData {
-  vanId: string;
+  vehicleId: string;
   serviceType: VehicleServiceType;
   performedAtOdometer: number;
   performedAtDate: string;
@@ -136,6 +144,16 @@ export interface CreateServiceRecordData {
   invoicePhotoKey?: string;
   partsReplaced?: string;
   notes?: string;
+}
+
+export interface CreateVehicleData {
+  plateNumber: string;
+  usualVanId?: string;
+}
+
+export interface UpdateVehicleData {
+  plateNumber?: string;
+  usualVanId?: string | null;
 }
 
 export const fleetApi = {
@@ -147,14 +165,21 @@ export const fleetApi = {
       .then((r) => r.data);
   },
 
-  // Vehicles & documents
-  getVehicles: (params?: { page?: number; limit?: number; search?: string; operationalStatus?: VehicleOperationalStatus }) =>
+  // Vehicles (base CRUD) & documents
+  getVehicles: (params?: { page?: number; limit?: number; search?: string; operationalStatus?: VehicleOperationalStatus; active?: boolean }) =>
     apiClient.get<FleetPaginatedResult<VehicleListEntry>>('/fleet/vehicles', { params }).then((r) => r.data),
-  getVehicle: (vanId: string) => apiClient.get<VehicleDetail>(`/fleet/vehicles/${vanId}`).then((r) => r.data),
-  updateVehicleProfile: (vanId: string, data: UpdateVehicleProfileData) =>
-    apiClient.patch<VehicleProfileEntry>(`/fleet/vehicles/${vanId}`, data).then((r) => r.data),
-  addDocument: (vanId: string, data: CreateVehicleDocumentData) =>
-    apiClient.post<VehicleDocumentEntry>(`/fleet/vehicles/${vanId}/documents`, data).then((r) => r.data),
+  getVehicle: (vehicleId: string) => apiClient.get<VehicleDetail>(`/fleet/vehicles/${vehicleId}`).then((r) => r.data),
+  createVehicle: (data: CreateVehicleData) => apiClient.post<VehicleDetail>('/fleet/vehicles', data).then((r) => r.data),
+  updateVehicleBasic: (vehicleId: string, data: UpdateVehicleData) =>
+    apiClient.patch<VehicleDetail>(`/fleet/vehicles/${vehicleId}/basic`, data).then((r) => r.data),
+  deactivateVehicle: (vehicleId: string) =>
+    apiClient.patch<VehicleDetail>(`/fleet/vehicles/${vehicleId}/deactivate`).then((r) => r.data),
+  reactivateVehicle: (vehicleId: string) =>
+    apiClient.patch<VehicleDetail>(`/fleet/vehicles/${vehicleId}/reactivate`).then((r) => r.data),
+  updateVehicleProfile: (vehicleId: string, data: UpdateVehicleProfileData) =>
+    apiClient.patch<VehicleProfileEntry>(`/fleet/vehicles/${vehicleId}`, data).then((r) => r.data),
+  addDocument: (vehicleId: string, data: CreateVehicleDocumentData) =>
+    apiClient.post<VehicleDocumentEntry>(`/fleet/vehicles/${vehicleId}/documents`, data).then((r) => r.data),
   updateDocument: (id: string, data: Partial<CreateVehicleDocumentData>) =>
     apiClient.patch<VehicleDocumentEntry>(`/fleet/vehicles/documents/${id}`, data).then((r) => r.data),
   deactivateDocument: (id: string) =>
@@ -162,8 +187,8 @@ export const fleetApi = {
 
   // Dashboard
   getOverview: () => apiClient.get<FleetOverview>('/fleet/overview').then((r) => r.data),
-  getCostSummary: (vanId: string) =>
-    apiClient.get<VehicleCostSummary>(`/fleet/vehicles/${vanId}/cost-summary`).then((r) => r.data),
+  getCostSummary: (vehicleId: string) =>
+    apiClient.get<VehicleCostSummary>(`/fleet/vehicles/${vehicleId}/cost-summary`).then((r) => r.data),
 
   // Daily checks
   createDailyCheck: (data: CreateVehicleDailyCheckData) =>
@@ -175,18 +200,18 @@ export const fleetApi = {
 
   // Fuel logs
   createFuelLog: (data: CreateFuelLogData) => apiClient.post<FuelLogEntry>('/fleet/fuel-logs', data).then((r) => r.data),
-  getFuelLogs: (params?: { page?: number; limit?: number; vanId?: string; dateFrom?: string; dateTo?: string }) =>
+  getFuelLogs: (params?: { page?: number; limit?: number; vehicleId?: string; dateFrom?: string; dateTo?: string }) =>
     apiClient.get<FleetPaginatedResult<FuelLogEntry>>('/fleet/fuel-logs', { params }).then((r) => r.data),
   updateFuelLog: (id: string, data: Partial<CreateFuelLogData>) =>
     apiClient.patch<FuelLogEntry>(`/fleet/fuel-logs/${id}`, data).then((r) => r.data),
   removeFuelLog: (id: string) => apiClient.delete(`/fleet/fuel-logs/${id}`),
 
   // Maintenance
-  getMaintenanceStatusForVan: (vanId: string) =>
-    apiClient.get<VehicleMaintenanceStatusEntry[]>(`/fleet/maintenance/vehicles/${vanId}/status`).then((r) => r.data),
+  getMaintenanceStatusForVehicle: (vehicleId: string) =>
+    apiClient.get<VehicleMaintenanceStatusEntry[]>(`/fleet/maintenance/vehicles/${vehicleId}/status`).then((r) => r.data),
   getFleetMaintenanceStatus: () =>
     apiClient
-      .get<{ vehicles: { vanId: string; plateNumber: string; overdueCount: number; dueCount: number }[]; totalOverdue: number; totalDue: number }>(
+      .get<{ vehicles: { vehicleId: string; plateNumber: string; overdueCount: number; dueCount: number }[]; totalOverdue: number; totalDue: number }>(
         '/fleet/maintenance/status',
       )
       .then((r) => r.data),
@@ -194,7 +219,7 @@ export const fleetApi = {
     apiClient.patch<VehicleMaintenanceRuleEntry>(`/fleet/maintenance/rules/${id}`, data).then((r) => r.data),
   createServiceRecord: (data: CreateServiceRecordData) =>
     apiClient.post<VehicleServiceRecordEntry>('/fleet/maintenance/service-records', data).then((r) => r.data),
-  getServiceRecords: (params?: { page?: number; limit?: number; vanId?: string; serviceType?: VehicleServiceType }) =>
+  getServiceRecords: (params?: { page?: number; limit?: number; vehicleId?: string; serviceType?: VehicleServiceType }) =>
     apiClient
       .get<FleetPaginatedResult<VehicleServiceRecordEntry>>('/fleet/maintenance/service-records', { params })
       .then((r) => r.data),

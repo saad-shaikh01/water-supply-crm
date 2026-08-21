@@ -74,11 +74,11 @@ export function FleetOverviewCards() {
               {data.expiringDocuments.slice(0, 5).map((doc) => (
                 <Link
                   key={doc.id}
-                  href={`/dashboard/fleet/${doc.van.id}`}
+                  href={`/dashboard/fleet/${doc.vehicle.id}`}
                   className="flex items-center justify-between text-sm hover:underline"
                 >
                   <span>
-                    {doc.van.plateNumber} — {doc.type.replace(/_/g, ' ')}
+                    {doc.vehicle.plateNumber} — {doc.type.replace(/_/g, ' ')}
                   </span>
                   <span className="text-muted-foreground text-xs">
                     {doc.expiryDate ? new Date(doc.expiryDate).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}

@@ -73,13 +73,15 @@ export const queryKeys = {
   },
   // Fleet Operations & Vehicle Intelligence (docs/features/fleet-operations-vehicle-intelligence.md).
   fleet: {
+    // §17 Amendment (2026-08-21) — keyed by vehicleId (the physical vehicle),
+    // not vanId (the route/slot) — see docs/features/fleet-operations-vehicle-intelligence.md §17.
     vehicles: (params?: object) => ['fleet', 'vehicles', ...(params ? [params] : [])],
-    vehicle: (vanId: string) => ['fleet', 'vehicles', vanId] as const,
+    vehicle: (vehicleId: string) => ['fleet', 'vehicles', vehicleId] as const,
     overview: () => ['fleet', 'overview'] as const,
-    costSummary: (vanId: string) => ['fleet', 'cost-summary', vanId] as const,
+    costSummary: (vehicleId: string) => ['fleet', 'cost-summary', vehicleId] as const,
     dailyChecks: (dailySheetId: string) => ['fleet', 'daily-checks', dailySheetId] as const,
     fuelLogs: (params?: object) => ['fleet', 'fuel-logs', ...(params ? [params] : [])],
-    maintenanceStatus: (vanId: string) => ['fleet', 'maintenance-status', vanId] as const,
+    maintenanceStatus: (vehicleId: string) => ['fleet', 'maintenance-status', vehicleId] as const,
     maintenanceFleetStatus: () => ['fleet', 'maintenance-status'] as const,
     serviceRecords: (params?: object) => ['fleet', 'service-records', ...(params ? [params] : [])],
   },

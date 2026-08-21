@@ -15,13 +15,13 @@ import { useAddVehicleDocument, useUpdateVehicleDocument } from '../../hooks/use
 import { FleetPhotoUpload } from '../fleet-photo-upload';
 
 interface DocumentFormDialogProps {
-  vanId: string;
+  vehicleId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   document?: VehicleDocumentEntry | null;
 }
 
-export function DocumentFormDialog({ vanId, open, onOpenChange, document }: DocumentFormDialogProps) {
+export function DocumentFormDialog({ vehicleId, open, onOpenChange, document }: DocumentFormDialogProps) {
   const isEdit = !!document;
   const [fileKey, setFileKey] = useState<string | undefined>(document?.fileKey ?? undefined);
   const { mutate: addDocument, isPending: isAdding } = useAddVehicleDocument();
@@ -62,7 +62,7 @@ export function DocumentFormDialog({ vanId, open, onOpenChange, document }: Docu
     if (isEdit && document) {
       updateDocument({ id: document.id, data: payload }, { onSuccess: () => onOpenChange(false) });
     } else {
-      addDocument({ vanId, data: payload }, { onSuccess: () => onOpenChange(false) });
+      addDocument({ vehicleId, data: payload }, { onSuccess: () => onOpenChange(false) });
     }
   }
 

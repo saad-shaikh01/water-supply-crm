@@ -62,9 +62,9 @@ export class FleetDashboardController {
     return this.dashboardService.getOverview(user.vendorId);
   }
 
-  @Get('vehicles/:vanId/cost-summary')
+  @Get('vehicles/:vehicleId/cost-summary')
   @RequirePermissions('fleet:view')
-  getVehicleCostSummary(@CurrentUser() user: AuthUser, @Param('vanId') vanId: string) {
-    return this.dashboardService.getVehicleCostSummary(user.vendorId, vanId);
+  getVehicleCostSummary(@CurrentUser() user: AuthUser, @Param('vehicleId') vehicleId: string) {
+    return this.dashboardService.getVehicleCostSummary(user.vendorId, vehicleId);
   }
 }

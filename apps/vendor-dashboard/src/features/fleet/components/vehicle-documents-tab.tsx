@@ -16,11 +16,11 @@ function daysUntil(dateStr: string | null): number | null {
 }
 
 interface VehicleDocumentsTabProps {
-  vanId: string;
+  vehicleId: string;
   documents: VehicleDocumentEntry[];
 }
 
-export function VehicleDocumentsTab({ vanId, documents }: VehicleDocumentsTabProps) {
+export function VehicleDocumentsTab({ vehicleId, documents }: VehicleDocumentsTabProps) {
   const canUpdate = useCan('fleet:update');
   const [formOpen, setFormOpen] = useState(false);
   const [editDoc, setEditDoc] = useState<VehicleDocumentEntry | null>(null);
@@ -91,7 +91,7 @@ export function VehicleDocumentsTab({ vanId, documents }: VehicleDocumentsTabPro
         </div>
       )}
 
-      <DocumentFormDialog vanId={vanId} open={formOpen} onOpenChange={setFormOpen} document={editDoc} />
+      <DocumentFormDialog vehicleId={vehicleId} open={formOpen} onOpenChange={setFormOpen} document={editDoc} />
 
       <ConfirmDialog
         open={!!removeId}
