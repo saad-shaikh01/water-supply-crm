@@ -23,6 +23,7 @@ import { PrismaClient } from '@prisma/client';
 import {
   ROLE_PRESETS,
   SYSTEM_ROLE_KEYS,
+  LEGACY_ROLE_TO_KEY,
   getPresetPermissions,
   isPermissionPattern,
   type RoleKey,
@@ -49,17 +50,6 @@ import {
 const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
   driver: ['fleet:record_check', 'fleet:record_fuel'],
   salesman: ['fleet:record_check', 'fleet:record_fuel'],
-};
-
-/** Legacy UserRole enum → new system role key. CUSTOMER stays unassigned. */
-const LEGACY_ROLE_TO_KEY: Record<string, RoleKey | null> = {
-  SUPER_ADMIN: 'super_admin',
-  VENDOR_ADMIN: 'vendor_admin',
-  STAFF: 'manager',
-  DRIVER: 'driver',
-  SALESMAN: 'salesman',
-  LOADER: 'loader',
-  CUSTOMER: null,
 };
 
 /** Per-vendor system roles = every preset except the global-only super_admin. */

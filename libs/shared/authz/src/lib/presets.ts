@@ -353,3 +353,20 @@ export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
 export function getPresetPermissions(key: RoleKey): PermissionPattern[] {
   return [...ROLE_PRESETS[key].permissions];
 }
+
+/**
+ * Legacy `User.role` enum → new system `RoleKey`. Shared by the RBAC backfill
+ * seed and by user creation, so a freshly created user is assigned the matching
+ * `Role` row (and therefore its permissions) the same way a backfilled/seeded
+ * user is — not just the legacy enum value, which the permission resolver never
+ * reads directly. CUSTOMER stays unassigned (portal-only, no dashboard RBAC).
+ */
+export const LEGACY_ROLE_TO_KEY: Record<string, RoleKey | null> = {
+  SUPER_ADMIN: 'super_admin',
+  VENDOR_ADMIN: 'vendor_admin',
+  STAFF: 'manager',
+  DRIVER: 'driver',
+  SALESMAN: 'salesman',
+  LOADER: 'loader',
+  CUSTOMER: null,
+};
