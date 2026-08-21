@@ -1039,31 +1039,28 @@ export class DailySheetPdfService {
     }
 
     if (line.kind === 'average') {
-      // Per-customer average — same columns as TOTAL, each sum divided by
-      // stop count. Muted/italic styling (thin border, no fill) so it reads
-      // as a secondary stat directly under the bold TOTAL row, not a second total.
+      // Weighted average selling price per bottle — NOT a per-stop average.
+      // Different customers can be on different rates (e.g. 220/200/190 per
+      // bottle); a plain average-of-rates would misrepresent the day's true
+      // per-bottle realization when stops carry different quantities. So this
+      // is sum(pricePerBottle * bottlesDelivered) / sum(bottlesDelivered) —
+      // i.e. total bottle revenue divided by total bottles actually
+      // delivered, across every stop. Muted/italic styling (thin border, no
+      // fill) so it reads as a secondary stat directly under the bold TOTAL
+      // row, not a second total.
       const items = line.items;
-      const n = items.length || 1;
-      const r1 = (v: number) => Math.round(v * 10) / 10;
-      const avgDelivered = r1(items.reduce((s, i) => s + (i.filledDropped ?? 0), 0) / n);
-      const avgFilledRecv = r1(items.reduce((s, i) => s + (i.filledReceived ?? 0), 0) / n);
-      const avgEmptyRecv = r1(items.reduce((s, i) => s + (i.emptyReceived ?? 0), 0) / n);
-      const avgCash = items.reduce((s, i) => s + (i.cashCollected ?? 0), 0) / n;
+      const totalBottles = items.reduce((s, i) => s + (i.filledDropped ?? 0), 0);
+      const totalBottleRevenue = items.reduce((s, i) => s + (i.filledDropped ?? 0) * (i.pricePerBottle ?? 0), 0);
+      const avgPricePerBottle = totalBottles > 0 ? totalBottleRevenue / totalBottles : 0;
 
       doc.moveTo(x + 10, y).lineTo(x + CONTENT_W - 10, y).strokeColor(C.border).lineWidth(0.5).stroke();
       const ty = y + 7;
       let cx = x;
       doc.fillColor(C.muted).font('Helvetica-Oblique').fontSize(6.8)
-        .text('AVERAGE / STOP', cx + 6, ty, { width: COLS.seq + COLS.code + COLS.customer + COLS.time - 6, lineBreak: false });
-      cx += COLS.seq + COLS.code + COLS.customer + COLS.time;
+        .text('AVG PRICE / BOTTLE', cx + 6, ty, { width: COLS.seq + COLS.code + COLS.customer + COLS.time - 6, lineBreak: false });
+      cx += COLS.seq + COLS.code + COLS.customer + COLS.time + COLS.delivered + COLS.filledRecv + COLS.emptyRecv + COLS.balBottles;
       doc.fillColor(C.textSoft).font('Helvetica-Bold').fontSize(7)
-        .text(avgDelivered.toFixed(1), cx, ty, { width: COLS.delivered - 4, align: 'right', lineBreak: false });
-      cx += COLS.delivered;
-      doc.text(avgFilledRecv.toFixed(1), cx, ty, { width: COLS.filledRecv - 4, align: 'right', lineBreak: false });
-      cx += COLS.filledRecv;
-      doc.text(avgEmptyRecv.toFixed(1), cx, ty, { width: COLS.emptyRecv - 4, align: 'right', lineBreak: false });
-      cx += COLS.emptyRecv + COLS.balBottles;
-      doc.text(this.rs(avgCash), cx, ty, { width: COLS.cash - 4, align: 'right', lineBreak: false });
+        .text(totalBottles > 0 ? `Rs ${avgPricePerBottle.toFixed(2)}` : '—', cx, ty, { width: COLS.cash - 4, align: 'right', lineBreak: false });
       return;
     }
 

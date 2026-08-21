@@ -3197,11 +3197,17 @@ export class DailySheetService implements OnModuleInit {
     return { signedUrl };
   }
 
-  async getDeliveryReceiptPdf(vendorId: string, itemId: string): Promise<Buffer> {
+  /**
+   * Shared by getDeliveryReceiptPdf (staff download) and resendDeliveryReceipt
+   * (re-push to customer's WhatsApp) — both must render the EXACT same
+   * historical snapshot no matter when/how many times they're called, so the
+   * frozen-balance + asOf-bounded reconstruction lives here once.
+   */
+  private async buildHistoricalReceiptData(vendorId: string, itemId: string) {
     const item = await this.prisma.dailySheetItem.findUnique({
       where: { id: itemId },
       include: {
-        customer: { select: { name: true, customerCode: true, paymentType: true, financialBalance: true } },
+        customer: { select: { name: true, customerCode: true, phoneNumber: true, paymentType: true, financialBalance: true } },
         product: { select: { name: true } },
         dailySheet: { select: { date: true, vendorId: true, vendor: { select: { name: true } }, van: { select: { plateNumber: true } } } },
       },
@@ -3220,7 +3226,9 @@ export class DailySheetService implements OnModuleInit {
     // customer's live balance / an unbounded "up to now" window. Otherwise every
     // later delivery/payment this customer makes silently pulls this historical
     // receipt's "previous month outstanding" further away from its own
-    // "outstanding balance" figure every time it's re-viewed or re-printed.
+    // "outstanding balance" figure every time it's re-viewed or re-printed —
+    // including on a resend days later (e.g. resending a 10th-of-month
+    // receipt on the 20th still shows the 10th's own figures, not today's).
     const previousMonthOutstanding =
       item.customer.paymentType === PaymentType.MONTHLY
         ? await this.getPreviousMonthOutstanding(
@@ -3232,23 +3240,67 @@ export class DailySheetService implements OnModuleInit {
             deliveredAt,
           )
         : undefined;
-    return this.deliveryReceiptPdf.generate({
-      customerName: item.customer.name,
-      customerCode: item.customer.customerCode,
-      productName: item.product.name,
-      van: item.dailySheet.van?.plateNumber,
-      filledDropped: item.filledDropped,
-      emptyReceived: item.emptyReceived,
-      filledReceived: item.filledReceived,
-      cashCollected: item.cashCollected,
-      pricePerBottle: item.pricePerBottle,
-      financialBalanceAfter: item.financialBalanceAfter ?? 0,
-      bottleBalanceAfter: item.bottleBalanceAfter ?? 0,
-      deliveryDate: item.dailySheet.date.toISOString().slice(0, 10),
-      deliveryTime: deliveredAt.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Karachi' }),
-      vendorName: item.dailySheet.vendor?.name ?? 'Water Supply',
-      previousMonthOutstanding,
+
+    return {
+      item,
+      receiptData: {
+        customerName: item.customer.name,
+        customerCode: item.customer.customerCode,
+        productName: item.product.name,
+        van: item.dailySheet.van?.plateNumber,
+        filledDropped: item.filledDropped,
+        emptyReceived: item.emptyReceived,
+        filledReceived: item.filledReceived,
+        cashCollected: item.cashCollected,
+        pricePerBottle: item.pricePerBottle,
+        financialBalanceAfter: item.financialBalanceAfter ?? 0,
+        bottleBalanceAfter: item.bottleBalanceAfter ?? 0,
+        deliveryDate: item.dailySheet.date.toISOString().slice(0, 10),
+        deliveryTime: deliveredAt.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Karachi' }),
+        vendorName: item.dailySheet.vendor?.name ?? 'Water Supply',
+        previousMonthOutstanding,
+      },
+    };
+  }
+
+  async getDeliveryReceiptPdf(vendorId: string, itemId: string): Promise<Buffer> {
+    const { receiptData } = await this.buildHistoricalReceiptData(vendorId, itemId);
+    return this.deliveryReceiptPdf.generate(receiptData);
+  }
+
+  /**
+   * Manual re-push of a delivery's WhatsApp PDF receipt — for when the
+   * original send failed/was missed, or staff simply needs to hand the
+   * customer another copy. Independent of date: resending a 10th-of-the-month
+   * receipt on the 20th replays that same 10th's frozen figures (see
+   * buildHistoricalReceiptData), never today's live balance. Unlike the
+   * auto-send in recordDelivery, this never touches item state (no
+   * whatsappSentAt reset) since it isn't a correction of the delivery
+   * itself — only an audit trail entry marks that a resend happened.
+   */
+  async resendDeliveryReceipt(vendorId: string, itemId: string, user: AuthUser) {
+    const { item, receiptData } = await this.buildHistoricalReceiptData(vendorId, itemId);
+    if (!item.customer.phoneNumber) {
+      throw new BadRequestException('This customer has no phone number on file');
+    }
+
+    await this.notifications.queueWhatsAppPdf(
+      item.customer.phoneNumber,
+      receiptData,
+      { entityType: 'DELIVERY_ITEM', entityId: itemId, vendorId, type: NotificationType.DELIVERY_RECEIPT, recipientType: 'CUSTOMER', recipientId: item.customerId },
+    );
+
+    await this.audit.log({
+      vendorId,
+      userId: user.userId,
+      userName: user.name,
+      action: 'RESEND_RECEIPT',
+      entity: 'DailySheetItem',
+      entityId: itemId,
+      changes: { after: { resent: true, deliveryDate: receiptData.deliveryDate } },
     });
+
+    return { queued: true };
   }
 
   /**

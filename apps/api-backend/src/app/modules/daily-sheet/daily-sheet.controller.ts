@@ -191,6 +191,20 @@ export class DailySheetController {
     res.end(pdfBuffer);
   }
 
+  /**
+   * POST /daily-sheets/items/:id/resend-receipt — re-push the WhatsApp PDF
+   * receipt to the customer. Works for any COMPLETED item regardless of its
+   * delivery date — replays that delivery's own frozen figures (see
+   * DailySheetService.buildHistoricalReceiptData), so resending an old
+   * receipt today never shows today's balance.
+   */
+  @Post('items/:id/resend-receipt')
+  @RequirePermissions('daily_sheets:update')
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
+  resendDeliveryReceipt(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.dailySheetService.resendDeliveryReceipt(user.vendorId, id, user);
+  }
+
   /** GET /daily-sheets/items/:id/history — edit history timeline (AuditLog, entity-scoped). */
   @Get('items/:id/history')
   @RequirePermissions('daily_sheets:view')

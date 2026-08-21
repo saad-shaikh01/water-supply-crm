@@ -251,6 +251,8 @@ export const dailySheetsApi = {
     apiClient.get<{ signedUrl: string }>(`/daily-sheets/items/${itemId}/photo-url`),
   downloadReceipt: (itemId: string) =>
     apiClient.get(`/daily-sheets/items/${itemId}/receipt`, { responseType: 'blob' }),
+  resendReceipt: (itemId: string) =>
+    apiClient.post<{ queued: boolean }>(`/daily-sheets/items/${itemId}/resend-receipt`),
   // Bulk import
   downloadBulkImportTemplate: (sheetId: string) =>
     apiClient.get('/daily-sheets/bulk-import/template', {
