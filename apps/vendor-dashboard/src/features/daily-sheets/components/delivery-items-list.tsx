@@ -258,6 +258,7 @@ export function DeliveryItemsList({
   const [savingLocationItemId, setSavingLocationItemId] = useState<string | null>(null);
   const [viewPhotoItemId, setViewPhotoItemId] = useState<string | null>(null);
   const [downloadingReceiptId, setDownloadingReceiptId] = useState<string | null>(null);
+  const [resendingReceiptId, setResendingReceiptId] = useState<string | null>(null);
   const [chatItem, setChatItem] = useState<DeliveryItem | null>(null);
   const [historyItem, setHistoryItem] = useState<DeliveryItem | null>(null);
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -298,6 +299,21 @@ export function DeliveryItemsList({
       toast.error('Receipt not available for this delivery');
     } finally {
       setDownloadingReceiptId(null);
+    }
+  };
+
+  // Re-push the same WhatsApp PDF receipt — works for any completed delivery
+  // regardless of date (backend replays that delivery's own frozen figures,
+  // never today's live balance), so resending an old date's receipt is safe.
+  const handleResendReceipt = async (item: DeliveryItem) => {
+    setResendingReceiptId(item.id);
+    try {
+      await dailySheetsApi.resendReceipt(item.id);
+      toast.success(`Receipt sent to ${item.customer?.name ?? 'customer'} on WhatsApp`);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to resend receipt');
+    } finally {
+      setResendingReceiptId(null);
     }
   };
 
@@ -906,6 +922,22 @@ export function DeliveryItemsList({
                                   <Download className="h-3.5 w-3.5" />
                                 )}
                                 Receipt
+                              </Button>
+                            )}
+                            {item.status === 'COMPLETED' && customer?.phoneNumber && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="rounded-full font-bold gap-1.5 text-xs h-8 text-emerald-600 border-emerald-500/30 hover:bg-emerald-500/10"
+                                disabled={resendingReceiptId === item.id}
+                                onClick={(e) => { e.stopPropagation(); handleResendReceipt(item); }}
+                              >
+                                {resendingReceiptId === item.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Send className="h-3.5 w-3.5" />
+                                )}
+                                Resend Receipt
                               </Button>
                             )}
                             <Button

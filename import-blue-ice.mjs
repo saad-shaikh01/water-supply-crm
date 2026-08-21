@@ -163,6 +163,8 @@ async function wipeVendor(slug) {
   await prisma.customerOrder.deleteMany({ where: w });
   await prisma.paymentRequest.deleteMany({ where: w });
   await prisma.transaction.deleteMany({ where: w });
+  await prisma.sheetDiscrepancyCaseAuditLog.deleteMany({ where: { discrepancyCase: w } });
+  await prisma.sheetDiscrepancyCase.deleteMany({ where: w });
   await prisma.dailySheetItem.deleteMany({ where: dsw });
   await prisma.dailySheetLoad.deleteMany({ where: dsw });
   await prisma.dailySheetCrew.deleteMany({ where: dsw });
@@ -218,6 +220,8 @@ async function wipeVendorDataOnly(vendorId) {
   await prisma.customerOrder.deleteMany({ where: w });
   await prisma.paymentRequest.deleteMany({ where: w });
   await prisma.transaction.deleteMany({ where: w });
+  await prisma.sheetDiscrepancyCaseAuditLog.deleteMany({ where: { discrepancyCase: w } });
+  await prisma.sheetDiscrepancyCase.deleteMany({ where: w });
   await prisma.dailySheetItem.deleteMany({ where: dsw });
   await prisma.dailySheetLoad.deleteMany({ where: dsw });
   await prisma.dailySheetCrew.deleteMany({ where: dsw });

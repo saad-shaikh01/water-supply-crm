@@ -23,6 +23,7 @@ import { PrismaClient } from '@prisma/client';
 import {
   ROLE_PRESETS,
   SYSTEM_ROLE_KEYS,
+  LEGACY_ROLE_TO_KEY,
   getPresetPermissions,
   isPermissionPattern,
   type RoleKey,
@@ -49,17 +50,6 @@ import {
 const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
   driver: ['fleet:record_check', 'fleet:record_fuel'],
   salesman: ['fleet:record_check', 'fleet:record_fuel'],
-};
-
-/** Legacy UserRole enum → new system role key. CUSTOMER stays unassigned. */
-const LEGACY_ROLE_TO_KEY: Record<string, RoleKey | null> = {
-  SUPER_ADMIN: 'super_admin',
-  VENDOR_ADMIN: 'vendor_admin',
-  STAFF: 'manager',
-  DRIVER: 'driver',
-  SALESMAN: 'salesman',
-  LOADER: 'loader',
-  CUSTOMER: null,
 };
 
 /** Per-vendor system roles = every preset except the global-only super_admin. */
@@ -153,15 +143,28 @@ async function ensureRole(
 async function seedAndBackfill(prisma: PrismaClient): Promise<void> {
   console.log('🌱 RBAC seed — applying (idempotent)\n');
 
+  // IDs of every user whose roleId this run sets — the effective-permission cache
+  // (`authz:perms:{userId}`, 1h TTL, Redis) is keyed by user and is NEVER cleared
+  // by a plain DB update. A user who logged in even once while roleId was still
+  // null (e.g. between deploy and this script running) has an empty permission
+  // set cached; without an explicit invalidation below they'd keep seeing Access
+  // Denied for up to an hour after the DB is already correct.
+  const backfilledUserIds: string[] = [];
+
   // 1. Global super_admin role.
   const superAdmin = await ensureRole(prisma, null, 'super_admin');
   console.log(`  Global super_admin role ${superAdmin.created ? 'created' : 'exists'}.`);
 
   // Backfill SUPER_ADMIN users (vendor-agnostic) → global super_admin, only if unset.
-  const superRes = await prisma.user.updateMany({
+  const superAdminTargets = await prisma.user.findMany({
     where: { role: 'SUPER_ADMIN', roleId: null },
+    select: { id: true },
+  });
+  const superRes = await prisma.user.updateMany({
+    where: { id: { in: superAdminTargets.map((u) => u.id) } },
     data: { roleId: superAdmin.roleId },
   });
+  backfilledUserIds.push(...superAdminTargets.map((u) => u.id));
   console.log(`  Backfilled ${superRes.count} SUPER_ADMIN user(s).\n`);
 
   // 2. Per-vendor roles + backfill.
@@ -200,10 +203,16 @@ async function seedAndBackfill(prisma: PrismaClient): Promise<void> {
       if (!key || key === 'super_admin') continue; // handled globally / unassigned
       const targetRoleId = roleIdByKey.get(key);
       if (!targetRoleId) continue;
-      const res = await prisma.user.updateMany({
+      const targets = await prisma.user.findMany({
         where: { vendorId: vendor.id, role: legacy as never, roleId: null },
+        select: { id: true },
+      });
+      if (!targets.length) continue;
+      const res = await prisma.user.updateMany({
+        where: { id: { in: targets.map((u) => u.id) } },
         data: { roleId: targetRoleId },
       });
+      backfilledUserIds.push(...targets.map((u) => u.id));
       usersBackfilled += res.count;
     }
   }
@@ -211,6 +220,46 @@ async function seedAndBackfill(prisma: PrismaClient): Promise<void> {
   console.log(`  Roles created this run: ${rolesCreated}`);
   console.log(`  Preset-drift permission grants backfilled this run: ${driftGrantsBackfilled}`);
   console.log(`  Users backfilled this run: ${usersBackfilled}\n`);
+
+  await invalidatePermissionCache(backfilledUserIds);
+}
+
+/**
+ * Best-effort Redis cache bust for every user this run just gave a roleId to.
+ * Uses `authz:perms:{userId}` — the exact key `PermissionService` reads/writes
+ * (see apps/api-backend/src/app/modules/authz/permission.service.ts). Never
+ * throws: a missing/unreachable REDIS_URL just means the DB fix still applies,
+ * it takes up to the 1h cache TTL to be visible instead of immediately.
+ */
+async function invalidatePermissionCache(userIds: string[]): Promise<void> {
+  if (!userIds.length) return;
+  const url = process.env['REDIS_URL'];
+  if (!url) {
+    console.log('  ⚠️ REDIS_URL not set — skipping cache invalidation. Affected users will see');
+    console.log('     stale Access Denied for up to 1h until their cached permissions expire.\n');
+    return;
+  }
+
+  let Redis: typeof import('ioredis').default;
+  try {
+    ({ default: Redis } = await import('ioredis'));
+  } catch {
+    console.log('  ⚠️ ioredis not available — skipping cache invalidation (DB fix still applies).\n');
+    return;
+  }
+
+  const client = new Redis(url, { lazyConnect: true, maxRetriesPerRequest: 1 });
+  try {
+    await client.connect();
+    const keys = userIds.map((id) => `authz:perms:${id}`);
+    await client.del(...keys);
+    console.log(`  🔄 Invalidated cached permissions for ${userIds.length} backfilled user(s).\n`);
+  } catch (e) {
+    console.log(`  ⚠️ Cache invalidation failed (${(e as Error).message}) — DB fix still applies,`);
+    console.log('     affected users will see stale Access Denied for up to 1h.\n');
+  } finally {
+    client.disconnect();
+  }
 }
 
 // ── Post-run validation (database) ────────────────────────────────────────────

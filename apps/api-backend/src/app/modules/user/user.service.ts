@@ -3,6 +3,7 @@ import { PrismaService } from '@water-supply-crm/database';
 import { Prisma, UserRole } from '@prisma/client';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
 import { CACHE_KEYS, CACHE_TTLS } from '@water-supply-crm/caching';
+import { LEGACY_ROLE_TO_KEY } from '@water-supply-crm/authz';
 import * as bcrypt from 'bcrypt';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { NO_LOGIN_ROLES } from './dto/create-user.dto';
@@ -49,10 +50,23 @@ export class UserService {
 
     const hashedPassword = data.password ? await bcrypt.hash(data.password, 10) : null;
 
+    // Resolve the matching RBAC Role so the new user gets real permissions, not
+    // just the legacy `role` enum label. Without this, roleId stays null and
+    // `PermissionService.resolveFromDb` (which reads `roleRef`, not `role`)
+    // resolves an empty permission set — every page then shows Access Denied
+    // even though the user's `role` looks identical to a working seeded user.
+    const roleKey = data.vendorId ? LEGACY_ROLE_TO_KEY[data.role] : null;
+    const roleId = roleKey
+      ? (await this.prisma.role.findFirst({
+          where: { vendorId: data.vendorId, key: roleKey },
+          select: { id: true },
+        }))?.id
+      : undefined;
+
     let user;
     try {
       user = await this.prisma.user.create({
-        data: { ...data, email: data.email ?? null, password: hashedPassword },
+        data: { ...data, email: data.email ?? null, password: hashedPassword, roleId },
       });
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
@@ -213,6 +227,20 @@ export class UserService {
       updateData.password = await bcrypt.hash(dto.password, 10);
     }
 
+    // Keep roleId in sync with the legacy `role` enum on reassignment — otherwise
+    // the user keeps their old RBAC Role (or none) while `role` shows the new
+    // value, which is exactly the "looks right, still Access Denied" bug this
+    // mirrors from create().
+    if (dto.role && dto.role !== user.role) {
+      const roleKey = LEGACY_ROLE_TO_KEY[dto.role];
+      updateData.roleId = roleKey
+        ? (await this.prisma.role.findFirst({
+            where: { vendorId, key: roleKey },
+            select: { id: true },
+          }))?.id ?? null
+        : null;
+    }
+
     const updated = await this.prisma.user.update({
       where: { id },
       data: updateData,
@@ -229,6 +257,9 @@ export class UserService {
     });
 
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.USERS);
+    if (dto.role && dto.role !== user.role) {
+      await this.permissions.invalidateUser(id); // role changed — drop cached effective permissions
+    }
 
     await this.audit.log({
       vendorId,
