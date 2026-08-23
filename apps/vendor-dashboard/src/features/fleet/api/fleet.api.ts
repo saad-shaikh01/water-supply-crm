@@ -195,6 +195,10 @@ export const fleetApi = {
     apiClient.post<VehicleDailyCheckEntry>('/fleet/daily-checks', data).then((r) => r.data),
   getChecksForSheet: (dailySheetId: string) =>
     apiClient.get<VehicleDailyCheckEntry[]>(`/fleet/daily-checks/sheet/${dailySheetId}`).then((r) => r.data),
+  // Odometer Correction (2026-08-23) — Staff/Admin fixing a mis-entered
+  // reading on an already-submitted check. `reason` is mandatory server-side.
+  updateDailyCheck: (id: string, data: { odometerReading: number; reason: string }) =>
+    apiClient.patch<VehicleDailyCheckEntry>(`/fleet/daily-checks/${id}`, data).then((r) => r.data),
   overrideCriticalCheck: (id: string, note: string) =>
     apiClient.patch<VehicleDailyCheckEntry>(`/fleet/daily-checks/${id}/override-critical`, { note }).then((r) => r.data),
 

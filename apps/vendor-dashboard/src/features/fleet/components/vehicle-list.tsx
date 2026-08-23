@@ -96,6 +96,16 @@ export function VehicleList() {
             key: 'status',
             header: 'Status',
             cell: (row) => {
+              // `isActive` (this Vehicle's own on/off switch — Deactivate/
+              // Reactivate) was previously ignored here entirely, so a
+              // deactivated vehicle still showed a green "Active" badge
+              // (falling through to operationalStatus's own default). That
+              // made deactivated duplicates (e.g. leftover placeholder rows
+              // from the Van→Vehicle migration backfill) indistinguishable
+              // from real active ones in this list.
+              if (!row.isActive) {
+                return <Badge variant="outline" className="bg-muted text-muted-foreground border-border">Inactive</Badge>;
+              }
               const status = row.profile?.operationalStatus ?? 'ACTIVE';
               const cfg = STATUS_LABEL[status] ?? STATUS_LABEL.ACTIVE;
               return <Badge variant="outline" className={cfg.className}>{cfg.label}</Badge>;

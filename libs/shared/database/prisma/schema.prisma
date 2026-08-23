@@ -347,6 +347,8 @@ model User {
   vehicleDocumentsCreated       VehicleDocument[]      @relation("VehicleDocumentCreatedBy")
   vehicleDailyChecksRecorded    VehicleDailyCheck[]    @relation("VehicleDailyCheckRecordedBy")
   vehicleCheckCriticalOverrides VehicleDailyCheck[]    @relation("VehicleCheckCriticalOverrideBy")
+  // Odometer Correction (2026-08-23) — see comment on VehicleDailyCheck below.
+  vehicleDailyChecksOdometerEdited VehicleDailyCheck[] @relation("VehicleDailyCheckOdometerEditedBy")
   fuelLogsRecorded              FuelLog[]              @relation("FuelLogRecordedBy")
   vehicleServiceRecordsRecorded VehicleServiceRecord[] @relation("VehicleServiceRecordRecordedBy")
 
@@ -2531,9 +2533,12 @@ model VehicleDailyCheck {
   criticalOverrideBy   User?     @relation("VehicleCheckCriticalOverrideBy", fields: [criticalOverrideById], references: [id])
   criticalOverrideAt   DateTime?
 
-  // Set when this START reading is lower than the prior closed day's END
-  // reading, or the day's delta exceeds VEHICLE_DAILY_ODOMETER_DELTA_CAP_KM —
-  // flagged, never blocking (plan doc §10 Rules 2-3).
+  // Set when the day's delta exceeds VEHICLE_DAILY_ODOMETER_DELTA_CAP_KM —
+  // flagged, never blocking. A reading LOWER than the prior recorded check
+  // used to also just flag this (plan doc §10 Rules 2-3), but that was
+  // superseded 2026-08-23 (owner request): a lower reading is now a hard
+  // BadRequestException at create/update time, since an odometer physically
+  // cannot go backwards — see vehicle-check.service.ts.
   odometerContinuityFlag Boolean @default(false)
   continuityNote         String?
 
@@ -2547,6 +2552,17 @@ model VehicleDailyCheck {
   recordedBy   User     @relation("VehicleDailyCheckRecordedBy", fields: [recordedById], references: [id])
   recordedAt   DateTime @default(now())
   createdAt    DateTime @default(now())
+
+  // Odometer Correction (2026-08-23, owner request): Staff/Admin can fix a
+  // mis-entered odometer after the fact instead of it being permanently
+  // locked. `originalOdometerReading` is set once, on the FIRST edit only
+  // (never overwritten by later edits), so the as-submitted value is never
+  // lost even through multiple corrections — see vehicle-check.service.ts#update.
+  originalOdometerReading Int?
+  odometerEditedById      String?
+  odometerEditedBy        User?     @relation("VehicleDailyCheckOdometerEditedBy", fields: [odometerEditedById], references: [id])
+  odometerEditedAt        DateTime?
+  odometerEditReason      String?
 
   @@unique([dailySheetId, checkType])
   @@index([vendorId, vanId, recordedAt])

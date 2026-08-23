@@ -17,20 +17,21 @@ import { CorrectionEntryDialog } from './dialogs/correction-entry-dialog';
 import { BulkImportDialog } from './dialogs/bulk-import-dialog';
 import { ReportDamageDialog } from './dialogs/report-damage-dialog';
 import { VehicleCheckDialog } from '../../fleet/components/dialogs/vehicle-check-dialog';
+import { VehicleCheckEditDialog } from '../../fleet/components/dialogs/vehicle-check-edit-dialog';
 import { CriticalOverrideDialog } from '../../fleet/components/dialogs/critical-override-dialog';
 import { FuelLogFormDialog } from '../../fleet/components/dialogs/fuel-log-form-dialog';
 import { useVehicleDailyChecks } from '../../fleet/hooks/use-vehicle-checks';
 import { toast } from 'sonner';
 import {
   CheckCircle2, ChevronDown, ChevronUp, ClipboardList, DollarSign, Gauge, ShieldAlert,
-  Droplets, Loader2, Package, Receipt, Route, RotateCcw, Search, Truck, Upload, User, X,
+  Droplets, Loader2, Package, Pencil, Receipt, Route, RotateCcw, Search, Truck, Upload, User, X,
   AlertOctagon, ArrowRightLeft, XCircle,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { VehicleCheckType } from '@water-supply-crm/types';
 import { useRouter } from 'next/navigation';
 import { cn } from '@water-supply-crm/ui';
-import type { DeliveryItem, DeliveryItemMoveLogEntry, LoadTrip } from '@water-supply-crm/types';
+import type { DeliveryItem, DeliveryItemMoveLogEntry, LoadTrip, VehicleDailyCheckEntry } from '@water-supply-crm/types';
 import { useAuthStore } from '../../../store/auth.store';
 import { usePermissions } from '../../authz/hooks/use-permissions';
 import { SheetDetailHeader } from './sheet-detail-header';
@@ -61,6 +62,8 @@ interface UiState {
   bulkImportOpen: boolean;
   // Fleet Operations Phase 1 (docs/features/fleet-operations-vehicle-intelligence.md).
   vehicleCheckOpen: VehicleCheckType | null;
+  // Odometer Correction (2026-08-23) — the check being corrected, or null.
+  editVehicleCheckOpen: VehicleDailyCheckEntry | null;
   criticalOverrideOpen: boolean;
   fuelLogOpen: boolean;
   // Unified "+ Add / Record" launcher (mirrors fuelLogOpen's pattern exactly).
@@ -99,6 +102,8 @@ type UiAction =
   | { type: 'CLOSE_BULK_IMPORT' }
   | { type: 'OPEN_VEHICLE_CHECK'; checkType: VehicleCheckType }
   | { type: 'CLOSE_VEHICLE_CHECK' }
+  | { type: 'OPEN_EDIT_VEHICLE_CHECK'; check: VehicleDailyCheckEntry }
+  | { type: 'CLOSE_EDIT_VEHICLE_CHECK' }
   | { type: 'OPEN_CRITICAL_OVERRIDE' }
   | { type: 'CLOSE_CRITICAL_OVERRIDE' }
   | { type: 'OPEN_FUEL_LOG' }
@@ -128,6 +133,7 @@ const initialUiState: UiState = {
   correctionOpen: false,
   bulkImportOpen: false,
   vehicleCheckOpen: null,
+  editVehicleCheckOpen: null,
   criticalOverrideOpen: false,
   fuelLogOpen: false,
   expenseOpen: false,
@@ -164,6 +170,8 @@ function uiReducer(state: UiState, action: UiAction): UiState {
     case 'CLOSE_BULK_IMPORT': return { ...state, bulkImportOpen: false };
     case 'OPEN_VEHICLE_CHECK': return { ...state, vehicleCheckOpen: action.checkType };
     case 'CLOSE_VEHICLE_CHECK': return { ...state, vehicleCheckOpen: null };
+    case 'OPEN_EDIT_VEHICLE_CHECK': return { ...state, editVehicleCheckOpen: action.check };
+    case 'CLOSE_EDIT_VEHICLE_CHECK': return { ...state, editVehicleCheckOpen: null };
     case 'OPEN_CRITICAL_OVERRIDE': return { ...state, criticalOverrideOpen: true };
     case 'CLOSE_CRITICAL_OVERRIDE': return { ...state, criticalOverrideOpen: false };
     case 'OPEN_FUEL_LOG': return { ...state, fuelLogOpen: true };
@@ -241,6 +249,10 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const canRecordVehicleCheck = can('fleet:record_check');
   const canRecordFuel = can('fleet:record_fuel');
   const canOverrideCriticalCheck = can('fleet:override_check');
+  // Odometer Correction (2026-08-23) — deliberately fleet:update, not
+  // fleet:record_check: a Driver can submit a check but not silently rewrite
+  // one after the fact, same boundary as every other Fleet correction path.
+  const canEditVehicleCheck = can('fleet:update');
   const canReportDamage = can('damage_cases:create');
 
   const { data, isLoading } = useDailySheet(sheetId);
@@ -873,6 +885,56 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         </div>
       )}
 
+      {/* Odometer Correction (2026-08-23): a compact readout of both recorded
+          readings with a Staff/Admin-only fix, replacing the old permanent
+          lock (once submitted, it used to never be editable again). */}
+      {(startCheck || endCheck) && (
+        <div className="rounded-2xl border border-border/50 bg-card/50 backdrop-blur-sm px-4 py-3 flex flex-wrap items-center gap-x-6 gap-y-2">
+          <div className="flex items-center gap-1.5 text-xs font-bold uppercase text-muted-foreground">
+            <Gauge className="h-4 w-4" />
+            Odometer
+          </div>
+          {startCheck && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Start:</span>
+              <span className="text-sm font-black">{startCheck.odometerReading.toLocaleString()} km</span>
+              {startCheck.originalOdometerReading != null && (
+                <span className="text-[10px] text-muted-foreground">(corrected)</span>
+              )}
+              {canEditVehicleCheck && (
+                <button
+                  type="button"
+                  onClick={() => dispatch({ type: 'OPEN_EDIT_VEHICLE_CHECK', check: startCheck })}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                  title="Correct start odometer"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          )}
+          {endCheck && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">End:</span>
+              <span className="text-sm font-black">{endCheck.odometerReading.toLocaleString()} km</span>
+              {endCheck.originalOdometerReading != null && (
+                <span className="text-[10px] text-muted-foreground">(corrected)</span>
+              )}
+              {canEditVehicleCheck && (
+                <button
+                  type="button"
+                  onClick={() => dispatch({ type: 'OPEN_EDIT_VEHICLE_CHECK', check: endCheck })}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                  title="Correct end odometer"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {!hasAnyTrip && !isClosed && (
         <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-start gap-3">
           <span className="text-amber-500 text-lg mt-0.5 flex-shrink-0">⚠</span>
@@ -1308,6 +1370,12 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
           vanId={data?.vanId ?? undefined}
         />
       )}
+      <VehicleCheckEditDialog
+        open={!!ui.editVehicleCheckOpen}
+        onClose={() => dispatch({ type: 'CLOSE_EDIT_VEHICLE_CHECK' })}
+        dailySheetId={sheetId}
+        check={ui.editVehicleCheckOpen}
+      />
       {unresolvedCriticalCheck && (
         <CriticalOverrideDialog
           open={ui.criticalOverrideOpen}

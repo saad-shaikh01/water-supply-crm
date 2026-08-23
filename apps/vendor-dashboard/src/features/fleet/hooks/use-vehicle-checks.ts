@@ -22,6 +22,19 @@ export const useCreateVehicleDailyCheck = () => {
   });
 };
 
+export const useUpdateVehicleDailyCheck = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, odometerReading, reason }: { id: string; dailySheetId: string; odometerReading: number; reason: string }) =>
+      fleetApi.updateDailyCheck(id, { odometerReading, reason }),
+    onSuccess: (_result, { dailySheetId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.fleet.dailyChecks(dailySheetId) });
+      toast.success('Odometer reading corrected');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to correct odometer reading'),
+  });
+};
+
 export const useOverrideCriticalCheck = () => {
   const queryClient = useQueryClient();
   return useMutation({

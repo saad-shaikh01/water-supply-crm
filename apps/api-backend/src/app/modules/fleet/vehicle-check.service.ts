@@ -7,6 +7,7 @@ import { InAppNotificationService } from '../notifications/in-app-notification.s
 import { NotificationService } from '../notifications/notification.service';
 import { CreateVehicleDailyCheckDto } from './dto/create-vehicle-daily-check.dto';
 import { OverrideCriticalCheckDto } from './dto/override-critical-check.dto';
+import { UpdateVehicleDailyCheckDto } from './dto/update-vehicle-daily-check.dto';
 import { normalizeChecklistResults, hasCriticalFailure } from './fleet-checklist.util';
 
 @Injectable()
@@ -67,11 +68,13 @@ export class VehicleCheckService {
     const normalized = normalizeChecklistResults(dto.checklistResults);
     const criticalFailure = hasCriticalFailure(normalized);
 
-    // Odometer continuity (§17.5, locked): "prior check on this vehicle, by
-    // recordedAt, across any van" — not "prior sheet on this van", since one
-    // vehicle can serve two different routes on the same day. Falls back to
-    // no continuity check when the vehicle is unknown (legacy END check with
-    // no linked START, pre-Amendment historical data).
+    // Odometer continuity (§17.5 lookup, but the rule itself was tightened
+    // 2026-08-23 per owner request — see schema.prisma comment on
+    // odometerContinuityFlag): "prior check on this vehicle, by recordedAt,
+    // across any van" — not "prior sheet on this van", since one vehicle can
+    // serve two different routes on the same day. Falls back to no check at
+    // all when the vehicle is unknown (legacy END check with no linked
+    // START, pre-Amendment historical data).
     let odometerContinuityFlag = false;
     let continuityNote: string | null = null;
     if (vehicleId) {
@@ -81,10 +84,17 @@ export class VehicleCheckService {
       });
       if (priorCheck) {
         const delta = dto.odometerReading - priorCheck.odometerReading;
+        // An odometer physically cannot run backwards — this is now a hard
+        // reject, not a flag-and-allow (was flag-only before 2026-08-23; a
+        // 100km→80km "correction" one route/day apart used to silently save).
+        // Covers both cases the owner asked for in one rule: this trip's END
+        // vs its own START, AND tomorrow's START vs today's last reading.
         if (delta < 0) {
-          odometerContinuityFlag = true;
-          continuityNote = `Reading is ${Math.abs(delta)} km lower than the previous recorded check (${priorCheck.odometerReading} km).`;
-        } else if (delta > VEHICLE_DAILY_ODOMETER_DELTA_CAP_KM) {
+          throw new BadRequestException(
+            `Odometer reading (${dto.odometerReading} km) is lower than this vehicle's last recorded reading (${priorCheck.odometerReading} km, ${priorCheck.checkType} check). An odometer cannot go backwards — enter the correct value.`,
+          );
+        }
+        if (delta > VEHICLE_DAILY_ODOMETER_DELTA_CAP_KM) {
           odometerContinuityFlag = true;
           continuityNote = `Reading jumped ${delta} km since the previous recorded check — please confirm this is correct.`;
         }
@@ -144,8 +154,107 @@ export class VehicleCheckService {
 
     return this.prisma.vehicleDailyCheck.findMany({
       where: { dailySheetId },
-      include: { recordedBy: { select: { id: true, name: true } } },
+      include: {
+        recordedBy: { select: { id: true, name: true } },
+        odometerEditedBy: { select: { id: true, name: true } },
+      },
       orderBy: { recordedAt: 'asc' },
+    });
+  }
+
+  /**
+   * Odometer Correction (2026-08-23, owner request): Staff/Admin fixes a
+   * mis-entered odometer reading after the fact — the "already submitted"
+   * lock this feature had until now. Guarded by the exact same
+   * can't-go-backwards rule as `create()`, but checked against BOTH
+   * neighbours (the check wasn't necessarily the vehicle's most recent one
+   * by the time it's edited): the reading immediately BEFORE this one must
+   * still be lower, and the reading immediately AFTER this one (if any —
+   * e.g. correcting a START after its own END is already recorded) must
+   * still be higher. `originalOdometerReading` is stamped once, on the
+   * first-ever edit, and never touched again — see schema.prisma comment.
+   */
+  async update(user: AuthUser, id: string, dto: UpdateVehicleDailyCheckDto) {
+    const check = await this.prisma.vehicleDailyCheck.findFirst({ where: { id, vendorId: user.vendorId } });
+    if (!check) throw new NotFoundException('Vehicle check not found');
+
+    // Recomputed below (not just validated against) so an edit that removes
+    // a large jump also clears a stale flag, and one that introduces a new
+    // jump against its neighbour gets flagged same as create() would.
+    let odometerContinuityFlag = false;
+    let continuityNote: string | null = null;
+
+    if (check.vehicleId) {
+      const [predecessor, successor] = await Promise.all([
+        this.prisma.vehicleDailyCheck.findFirst({
+          where: { vehicleId: check.vehicleId, recordedAt: { lt: check.recordedAt } },
+          orderBy: { recordedAt: 'desc' },
+        }),
+        this.prisma.vehicleDailyCheck.findFirst({
+          where: { vehicleId: check.vehicleId, recordedAt: { gt: check.recordedAt } },
+          orderBy: { recordedAt: 'asc' },
+        }),
+      ]);
+
+      if (predecessor && dto.odometerReading < predecessor.odometerReading) {
+        throw new BadRequestException(
+          `Odometer reading (${dto.odometerReading} km) is lower than this vehicle's prior recorded reading (${predecessor.odometerReading} km, ${predecessor.checkType} check). An odometer cannot go backwards — enter the correct value.`,
+        );
+      }
+      if (successor && dto.odometerReading > successor.odometerReading) {
+        throw new BadRequestException(
+          `Odometer reading (${dto.odometerReading} km) is higher than this vehicle's next recorded reading (${successor.odometerReading} km, ${successor.checkType} check) — that would make the odometer go backwards between the two. Enter a value no higher than ${successor.odometerReading} km.`,
+        );
+      }
+      if (predecessor) {
+        const delta = dto.odometerReading - predecessor.odometerReading;
+        if (delta > VEHICLE_DAILY_ODOMETER_DELTA_CAP_KM) {
+          odometerContinuityFlag = true;
+          continuityNote = `Reading jumped ${delta} km since the previous recorded check — please confirm this is correct.`;
+        }
+      }
+
+      const isMostRecentForVehicle = !successor;
+      return this.prisma.$transaction(async (tx) => {
+        const result = await tx.vehicleDailyCheck.update({
+          where: { id },
+          data: {
+            odometerReading: dto.odometerReading,
+            // Preserve the as-submitted value on the FIRST edit only.
+            originalOdometerReading: check.originalOdometerReading ?? check.odometerReading,
+            odometerEditedById: user.userId,
+            odometerEditedAt: new Date(),
+            odometerEditReason: dto.reason,
+            odometerContinuityFlag,
+            continuityNote,
+          },
+        });
+
+        if (isMostRecentForVehicle) {
+          await tx.vehicleProfile.upsert({
+            where: { vehicleId: check.vehicleId as string },
+            create: { vendorId: user.vendorId, vehicleId: check.vehicleId as string, currentOdometer: dto.odometerReading },
+            update: { currentOdometer: dto.odometerReading },
+          });
+        }
+
+        return result;
+      });
+    }
+
+    // No linked vehicle (legacy pre-Amendment row) — nothing to validate
+    // continuity against, and no VehicleProfile to sync.
+    return this.prisma.vehicleDailyCheck.update({
+      where: { id },
+      data: {
+        odometerReading: dto.odometerReading,
+        originalOdometerReading: check.originalOdometerReading ?? check.odometerReading,
+        odometerEditedById: user.userId,
+        odometerEditedAt: new Date(),
+        odometerEditReason: dto.reason,
+        odometerContinuityFlag: false,
+        continuityNote: null,
+      },
     });
   }
 

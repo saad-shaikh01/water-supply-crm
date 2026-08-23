@@ -486,6 +486,13 @@ export interface VehicleDailyCheckEntry {
   note: string | null;
   recordedBy: { id: string; name: string };
   recordedAt: string;
+  // Odometer Correction (2026-08-23) — originalOdometerReading is set once,
+  // on the first edit only, so its presence (non-null) is itself the "was
+  // this corrected?" signal.
+  originalOdometerReading: number | null;
+  odometerEditedBy: { id: string; name: string } | null;
+  odometerEditedAt: string | null;
+  odometerEditReason: string | null;
 }
 
 export interface FuelLogEntry {
