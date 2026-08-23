@@ -4,6 +4,19 @@ import { z } from 'zod';
 // carries the default instead (see feedback captured in project memory: `.default()`
 // on a Zod enum breaks the Resolver<Input> type match with useForm<T>).
 
+// The Vehicle's own identity fields — deliberately separate from
+// vehicleProfileSchema below. `plateNumber` here is the vehicle's REAL
+// registration plate; it has nothing to do with Van.plateNumber (the
+// route/slot's display label, e.g. "Van1") which stays untouched everywhere
+// else in the app. `usualVanId` uses the '__none__' sentinel because RHF/Select
+// can't carry an empty-string or null value through a native <select>-style
+// control; the dialog translates it to `null` before calling the API.
+export const vehicleBasicSchema = z.object({
+  plateNumber: z.string().min(1, 'Number plate is required').max(50),
+  usualVanId: z.string(),
+});
+export type VehicleBasicInput = z.infer<typeof vehicleBasicSchema>;
+
 export const vehicleProfileSchema = z.object({
   make: z.string().max(100).optional(),
   model: z.string().max(100).optional(),

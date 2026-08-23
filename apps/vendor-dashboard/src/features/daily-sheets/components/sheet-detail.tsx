@@ -1305,6 +1305,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
           onClose={() => dispatch({ type: 'CLOSE_VEHICLE_CHECK' })}
           sheetId={sheetId}
           checkType={ui.vehicleCheckOpen}
+          vanId={data?.vanId ?? undefined}
         />
       )}
       {unresolvedCriticalCheck && (

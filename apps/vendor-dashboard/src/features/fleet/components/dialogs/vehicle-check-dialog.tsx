@@ -7,6 +7,7 @@ import { VEHICLE_CHECKLIST_ITEMS } from '@water-supply-crm/types';
 import type { VehicleCheckType } from '@water-supply-crm/types';
 import { useCreateVehicleDailyCheck, useVehicleDailyChecks } from '../../hooks/use-vehicle-checks';
 import { useActiveVehiclesForPicker } from '../../hooks/use-fleet';
+import { useAllVans } from '../../../vans/hooks/use-vans';
 import { FleetPhotoUpload } from '../fleet-photo-upload';
 
 interface VehicleCheckDialogProps {
@@ -36,6 +37,7 @@ export function VehicleCheckDialog({ open, onClose, sheetId, checkType, vanId }:
   const { mutate: createCheck, isPending } = useCreateVehicleDailyCheck();
   const { data: existingChecks } = useVehicleDailyChecks(sheetId);
   const { data: vehiclesPage, isLoading: vehiclesLoading } = useActiveVehiclesForPicker();
+  const { data: vansPage } = useAllVans();
 
   const [odometerReading, setOdometerReading] = useState('');
   const [odometerPhotoKey, setOdometerPhotoKey] = useState<string | undefined>(undefined);
@@ -47,9 +49,18 @@ export function VehicleCheckDialog({ open, onClose, sheetId, checkType, vanId }:
   const [vehicleId, setVehicleId] = useState<string | undefined>(undefined);
   const [vehicleSearch, setVehicleSearch] = useState('');
 
+  // Van's own display label ("Van1", "Van2"…) — shown next to each plate so
+  // the picker always answers "which route is this plate usually behind?",
+  // not just when it happens to match the current route (vanId prop).
+  const vanLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    vansPage?.data.forEach((v) => map.set(v.id, v.plateNumber));
+    return map;
+  }, [vansPage]);
+
   const startCheck = existingChecks?.find((c) => c.checkType === 'START');
-  const inheritedVehiclePlate = checkType === 'END'
-    ? vehiclesPage?.data.find((v) => v.id === startCheck?.vehicleId)?.plateNumber
+  const inheritedVehicle = checkType === 'END'
+    ? vehiclesPage?.data.find((v) => v.id === startCheck?.vehicleId)
     : undefined;
 
   const sortedVehicles = useMemo(() => {
@@ -153,7 +164,11 @@ export function VehicleCheckDialog({ open, onClose, sheetId, checkType, vanId }:
                     >
                       <Truck className="h-4 w-4 shrink-0" />
                       {v.plateNumber}
-                      {v.usualVanId === vanId && <span className="text-[11px] font-normal text-muted-foreground">usually this route</span>}
+                      <span className="text-[11px] font-normal text-muted-foreground">
+                        {v.usualVanId
+                          ? `usually ${vanLabelById.get(v.usualVanId) ?? '—'}${v.usualVanId === vanId ? ' (this route)' : ''}`
+                          : 'no usual route'}
+                      </span>
                     </button>
                   ))
                 )}
@@ -167,7 +182,11 @@ export function VehicleCheckDialog({ open, onClose, sheetId, checkType, vanId }:
               <Truck className="h-4 w-4 text-muted-foreground shrink-0" />
               <div>
                 <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold">Vehicle on this trip</p>
-                <p className="text-sm font-bold">{inheritedVehiclePlate ?? 'Not recorded on the start check'}</p>
+                <p className="text-sm font-bold">
+                  {inheritedVehicle
+                    ? `${inheritedVehicle.plateNumber}${inheritedVehicle.usualVanId ? ` — usually ${vanLabelById.get(inheritedVehicle.usualVanId) ?? '—'}` : ''}`
+                    : 'Not recorded on the start check'}
+                </p>
               </div>
             </div>
           )}

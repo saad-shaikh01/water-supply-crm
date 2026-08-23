@@ -1,17 +1,19 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2, Gauge, Wallet } from 'lucide-react';
+import { Loader2, Gauge, Wallet, Pencil, Truck, Ban, RotateCcw } from 'lucide-react';
 import {
   Card, CardContent, CardHeader, CardTitle, Button, Input, Label,
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@water-supply-crm/ui';
 import type { VehicleDetail, VehicleCostSummary } from '../api/fleet.api';
 import { vehicleProfileSchema, type VehicleProfileInput } from '../schemas';
-import { useUpdateVehicleProfile } from '../hooks/use-fleet';
+import { useUpdateVehicleProfile, useDeactivateVehicle, useReactivateVehicle } from '../hooks/use-fleet';
+import { useAllVans } from '../../vans/hooks/use-vans';
 import { useCan } from '../../authz/hooks/use-can';
+import { VehicleFormDialog } from './dialogs/vehicle-form-dialog';
 
 const FUEL_TYPES = ['PETROL', 'DIESEL', 'CNG', 'HYBRID', 'ELECTRIC'] as const;
 const OWNERSHIP_TYPES = ['OWNED', 'LEASED', 'RENTED', 'FINANCED'] as const;
@@ -26,6 +28,15 @@ export function VehicleOverviewTab({ vehicle, costSummary }: VehicleOverviewTabP
   const canUpdate = useCan('fleet:update');
   const profile = vehicle.vehicleProfile;
   const { mutate: updateProfile, isPending } = useUpdateVehicleProfile();
+  const { mutate: deactivateVehicle, isPending: deactivating } = useDeactivateVehicle();
+  const { mutate: reactivateVehicle, isPending: reactivating } = useReactivateVehicle();
+  const { data: vansPage } = useAllVans();
+  const [editOpen, setEditOpen] = useState(false);
+
+  const usualVanLabel = useMemo(
+    () => vansPage?.data.find((v) => v.id === vehicle.usualVanId)?.plateNumber,
+    [vansPage, vehicle.usualVanId],
+  );
 
   const { register, handleSubmit, reset, control, formState: { errors, isDirty } } = useForm<VehicleProfileInput>({
     resolver: zodResolver(vehicleProfileSchema),
@@ -75,6 +86,61 @@ export function VehicleOverviewTab({ vehicle, costSummary }: VehicleOverviewTabP
 
   return (
     <div className="space-y-6">
+      <Card className="rounded-2xl">
+        <CardContent className="p-5 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="h-11 w-11 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+              <Truck className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold">Number Plate</p>
+              <p className="text-lg font-black">{vehicle.plateNumber}</p>
+              <p className="text-xs text-muted-foreground">
+                Usually serves:{' '}
+                {usualVanLabel ? <span className="font-semibold text-foreground">{usualVanLabel}</span> : 'no usual route set'}
+              </p>
+            </div>
+          </div>
+          {canUpdate && (
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => setEditOpen(true)} className="rounded-xl font-bold gap-1.5">
+                <Pencil className="h-3.5 w-3.5" />
+                Edit
+              </Button>
+              {vehicle.isActive ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={deactivating}
+                  onClick={() => deactivateVehicle(vehicle.id)}
+                  className="rounded-xl font-bold gap-1.5"
+                >
+                  <Ban className="h-3.5 w-3.5" />
+                  Deactivate
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={reactivating}
+                  onClick={() => reactivateVehicle(vehicle.id)}
+                  className="rounded-xl font-bold gap-1.5"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Reactivate
+                </Button>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <VehicleFormDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        vehicle={{ id: vehicle.id, plateNumber: vehicle.plateNumber, usualVanId: vehicle.usualVanId }}
+      />
+
       <div className="grid gap-4 sm:grid-cols-3">
         <Card className="rounded-2xl">
           <CardContent className="p-5 flex items-center gap-3">

@@ -1,10 +1,14 @@
 'use client';
 
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Truck, FileWarning } from 'lucide-react';
-import { Badge, Input } from '@water-supply-crm/ui';
+import { Truck, FileWarning, Plus } from 'lucide-react';
+import { Badge, Button, Input } from '@water-supply-crm/ui';
 import { DataTable } from '../../../components/shared/data-table';
 import { useVehicles } from '../hooks/use-fleet';
+import { useAllVans } from '../../vans/hooks/use-vans';
+import { useCan } from '../../authz/hooks/use-can';
+import { VehicleFormDialog } from './dialogs/vehicle-form-dialog';
 import type { VehicleListEntry } from '../api/fleet.api';
 
 const STATUS_LABEL: Record<string, { label: string; className: string }> = {
@@ -15,16 +19,37 @@ const STATUS_LABEL: Record<string, { label: string; className: string }> = {
 
 export function VehicleList() {
   const router = useRouter();
+  const canUpdate = useCan('fleet:update');
   const { data, isLoading, page, setPage, limit, setLimit, search, setSearch } = useVehicles();
+  const { data: vansPage } = useAllVans();
+  const [addOpen, setAddOpen] = useState(false);
+
+  // Van's own display label ("Van1", "Van2"…) — used only to show which
+  // route a vehicle's plate is usually linked to. Untouched by this screen.
+  const vanLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    vansPage?.data.forEach((v) => map.set(v.id, v.plateNumber));
+    return map;
+  }, [vansPage]);
 
   return (
     <div className="space-y-4">
-      <Input
-        placeholder="Search by plate number…"
-        value={search}
-        onChange={(e) => setSearch(e.target.value || null)}
-        className="max-w-xs rounded-xl"
-      />
+      <div className="flex items-center justify-between gap-3">
+        <Input
+          placeholder="Search by plate number…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value || null)}
+          className="max-w-xs rounded-xl"
+        />
+        {canUpdate && (
+          <Button onClick={() => setAddOpen(true)} className="rounded-xl font-bold gap-1.5">
+            <Plus className="h-4 w-4" />
+            Add Vehicle
+          </Button>
+        )}
+      </div>
+
+      <VehicleFormDialog open={addOpen} onOpenChange={setAddOpen} />
 
       <DataTable<VehicleListEntry>
         data={data?.data}
@@ -51,6 +76,16 @@ export function VehicleList() {
                 </div>
               </div>
             ),
+          },
+          {
+            key: 'route',
+            header: 'Usual Route',
+            cell: (row) =>
+              row.usualVanId ? (
+                <Badge variant="outline" className="font-semibold">{vanLabelById.get(row.usualVanId) ?? '—'}</Badge>
+              ) : (
+                <span className="text-muted-foreground">Not set</span>
+              ),
           },
           {
             key: 'driver',
