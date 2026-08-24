@@ -5,7 +5,7 @@ import { UpdateVehicleProfileDto } from './dto/update-vehicle-profile.dto';
 import { CreateVehicleDocumentDto } from './dto/create-vehicle-document.dto';
 import { UpdateVehicleDocumentDto } from './dto/update-vehicle-document.dto';
 import { VehicleQueryDto } from './dto/vehicle-query.dto';
-import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
+import { RequirePermissions, RequireAnyPermission } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 
@@ -13,9 +13,16 @@ import type { AuthUser } from '@water-supply-crm/types';
 export class VehicleProfileController {
   constructor(private readonly vehicleProfileService: VehicleProfileService) {}
 
-  /** Also the vehicle-picker source for the Vehicle Check start form (§17.3) via ?active=true. */
+  /**
+   * Also the vehicle-picker source for the Vehicle Check start form (§17.3) via
+   * ?active=true. Driver/Salesman hold fleet:record_check/fleet:record_fuel but
+   * deliberately NOT fleet:view (no dedicated Fleet screen for them) — same gap
+   * already handled on VehicleCheckController#getForSheet — so this list must
+   * accept any of the three, not just fleet:view, or the picker comes back
+   * empty for them.
+   */
   @Get()
-  @RequirePermissions('fleet:view')
+  @RequireAnyPermission('fleet:view', 'fleet:record_check', 'fleet:record_fuel')
   findAll(@CurrentUser() user: AuthUser, @Query() query: VehicleQueryDto) {
     return this.vehicleProfileService.findAll(user.vendorId, query);
   }
