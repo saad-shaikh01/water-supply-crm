@@ -158,7 +158,7 @@ describe('DailySheetService.submitDelivery — Cash Collection Policy gate', () 
         // Unlike the monthly gate spec, this file exercises a NOT_AVAILABLE
         // submission (§4.5.4 exemption test) — submitDelivery's existing
         // auto-issue-creation branch calls createForItem for that status.
-        { provide: DeliveryIssueService, useValue: { createForItem: jest.fn().mockResolvedValue(undefined) } },
+        { provide: DeliveryIssueService, useValue: { createForItem: jest.fn().mockResolvedValue(undefined), autoResolveOnSuccess: jest.fn().mockResolvedValue(undefined) } },
         { provide: CacheInvalidationService, useValue: mockCache },
         { provide: NotificationService, useValue: { queueWhatsAppPdf: jest.fn() } },
         { provide: InAppNotificationService, useValue: {} },

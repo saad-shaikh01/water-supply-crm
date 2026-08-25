@@ -152,7 +152,11 @@ describe('DailySheetService.submitDelivery — Collection Policy gate', () => {
         { provide: LedgerService, useValue: mockLedger },
         { provide: AuditService, useValue: mockAudit },
         { provide: FcmService, useValue: {} },
-        { provide: DeliveryIssueService, useValue: {} },
+        // autoResolveOnSuccess is called fire-and-forget for every COMPLETED/
+        // EMPTY_ONLY submitDelivery (Delivery Issues Phase 5) — mocked here
+        // even though this suite never asserts on it, so the real method
+        // isn't invoked (network/DB calls) during these unit tests.
+        { provide: DeliveryIssueService, useValue: { createForItem: jest.fn().mockResolvedValue(undefined), autoResolveOnSuccess: jest.fn().mockResolvedValue(undefined) } },
         { provide: CacheInvalidationService, useValue: mockCache },
         { provide: NotificationService, useValue: { queueWhatsAppPdf: jest.fn() } },
         { provide: InAppNotificationService, useValue: {} },

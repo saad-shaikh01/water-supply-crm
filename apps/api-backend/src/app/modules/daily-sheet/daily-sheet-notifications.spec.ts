@@ -55,7 +55,10 @@ describe('DailySheetService — delivery failure notifications', () => {
 
     mockLedger = { recordDelivery: jest.fn().mockResolvedValue({ success: true }) };
     mockAudit  = { log: jest.fn().mockResolvedValue(undefined) };
-    mockDeliveryIssue = { createForItem: jest.fn().mockResolvedValue(undefined) };
+    mockDeliveryIssue = {
+      createForItem: jest.fn().mockResolvedValue(undefined),
+      autoResolveOnSuccess: jest.fn().mockResolvedValue(undefined),
+    };
 
     mockPrisma = {
       dailySheetItem: { findUnique: jest.fn() },

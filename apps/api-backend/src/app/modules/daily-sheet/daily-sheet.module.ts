@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { QUEUE_NAMES } from '@water-supply-crm/queue';
 import { DailySheetService } from './daily-sheet.service';
@@ -20,7 +20,11 @@ import { SheetDiscrepancyCaseModule } from '../sheet-discrepancy-case/sheet-disc
   imports: [
     BullModule.registerQueue({ name: QUEUE_NAMES.DAILY_SHEET_GENERATION }),
     AuditModule,
-    DeliveryIssueModule,
+    // Circular: DeliveryIssueService.plan()/bulkSchedule() (Delivery Issues
+    // Phase 2/3) need to call DailySheetService.moveDeliveryItems() the other
+    // way — forwardRef on both module imports (see delivery-issue.module.ts)
+    // and both constructor injections breaks the cycle for Nest's DI resolver.
+    forwardRef(() => DeliveryIssueModule),
     NotificationsModule,
     StorageModule,
     WarehouseModule,
@@ -31,5 +35,6 @@ import { SheetDiscrepancyCaseModule } from '../sheet-discrepancy-case/sheet-disc
   ],
   controllers: [DailySheetController],
   providers: [DailySheetService, DailySheetProcessor, DailySheetPdfService, BulkImportService],
+  exports: [DailySheetService],
 })
 export class DailySheetModule {}

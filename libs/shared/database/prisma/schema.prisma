@@ -1009,6 +1009,11 @@ enum IssueResolution {
   SELF_PICKUP_DONE
   DROPPED
   CANCELLED
+  // Phase 5 (retry-completion auto-close): the item this issue was raised
+  // against was later moved to a new sheet/date (via moveDeliveryItems) and
+  // that retry delivery itself completed successfully — auto-resolved by
+  // DailySheetService.submitDelivery, never a manual pick in the Resolve dialog.
+  RETRY_SUCCESS
 }
 
 enum DispatchStatus {

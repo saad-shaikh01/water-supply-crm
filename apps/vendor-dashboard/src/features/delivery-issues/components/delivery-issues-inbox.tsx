@@ -18,7 +18,7 @@ import {
   SelectValue,
   Textarea,
 } from '@water-supply-crm/ui';
-import { AlertTriangle, CheckCircle2, Clock3, X } from 'lucide-react';
+import { AlertTriangle, CalendarClock, CheckCircle2, Clock3, Loader2, Truck, X } from 'lucide-react';
 import { DataTable } from '../../../components/shared/data-table';
 import { CustomerLink } from '../../../components/shared/customer-link';
 import { DateRangePicker } from '../../../components/shared/date-range-picker';
@@ -27,10 +27,16 @@ import {
   useDeliveryIssues,
   usePlanDeliveryIssue,
   useResolveDeliveryIssue,
+  useBulkScheduleDeliveryIssues,
+  useBulkResolveDeliveryIssues,
 } from '../hooks/use-delivery-issues';
 import { useAllVans } from '../../vans/hooks/use-vans';
 import { useAllDrivers } from '../../users/hooks/use-users';
 import { usersApi } from '../../users/api/users.api';
+// Reused as-is from the Daily Sheet feature — the same per-van "will create
+// new sheet" / "closed" projection the Move dialog there uses, so Bulk
+// Schedule doesn't reimplement that lookup.
+import { useDestinationOptions } from '../../daily-sheets/hooks/use-daily-sheets';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All Statuses' },
@@ -108,6 +114,8 @@ export function DeliveryIssuesInbox() {
     setStatus,
     assignedToUserId,
     setAssignedToUserId,
+    vanId,
+    setVanId,
     from,
     setFrom,
     to,
@@ -116,6 +124,8 @@ export function DeliveryIssuesInbox() {
 
   const { mutate: planIssue, isPending: isPlanning } = usePlanDeliveryIssue();
   const { mutate: resolveIssue, isPending: isResolving } = useResolveDeliveryIssue();
+  const { mutate: bulkSchedule, isPending: isBulkScheduling } = useBulkScheduleDeliveryIssues();
+  const { mutate: bulkResolve, isPending: isBulkResolving } = useBulkResolveDeliveryIssues();
 
   const { data: staffData } = useQuery({
     queryKey: ['delivery-issues', 'staff-options'],
@@ -148,6 +158,41 @@ export function DeliveryIssuesInbox() {
     resolution: 'DELIVERED',
     notes: '',
   });
+
+  // Phase 3/4 — bulk selection, reusing DataTable's existing selectable prop
+  // (same pattern as the customer list's Bulk Schedule Update feature).
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkScheduleOpen, setBulkScheduleOpen] = useState(false);
+  const [bulkScheduleForm, setBulkScheduleForm] = useState({ destinationDate: '', destinationVanId: '' });
+  const [bulkResolveOpen, setBulkResolveOpen] = useState(false);
+  const [bulkResolveForm, setBulkResolveForm] = useState({ resolution: 'DELIVERED', notes: '' });
+
+  const toggleRow = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const toggleAllOnPage = () => {
+    setSelectedIds((prev) => {
+      const allSelected = rows.length > 0 && rows.every((r) => prev.has(r.id));
+      if (allSelected) {
+        const next = new Set(prev);
+        rows.forEach((r) => next.delete(r.id));
+        return next;
+      }
+      const next = new Set(prev);
+      rows.forEach((r) => next.add(r.id));
+      return next;
+    });
+  };
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const { data: bulkDestinationOptions, isLoading: loadingBulkDestinations } =
+    useDestinationOptions(bulkScheduleForm.destinationDate, bulkScheduleOpen);
+  const bulkSelectedVan = bulkDestinationOptions?.find((o) => o.vanId === bulkScheduleForm.destinationVanId);
+  const bulkDestinationClosed = !!bulkSelectedVan?.hasSheetForDate && bulkSelectedVan.isClosed;
 
   const openPlan = (issue: DeliveryIssueRow) => {
     setPlanTarget(issue);
@@ -184,12 +229,18 @@ export function DeliveryIssuesInbox() {
     return { label: `${ageHours}h`, className: 'bg-emerald-500/10 text-emerald-600' };
   };
 
+  const vanById = useMemo(() => new Map(vans.map((van) => [van.id, van.plateNumber])), [vans]);
+
   const statusLabel = STATUS_OPTIONS.find((opt) => opt.value === status)?.label;
   const assigneeLabel = staffById.get(assignedToUserId) ?? 'Unassigned';
+  const vanLabel = vanById.get(vanId) ?? vanId;
 
   const activeChips = [
     status ? { label: `Status: ${statusLabel}`, clear: () => { setPage(1); setStatus(null); } } : null,
     assignedToUserId ? { label: `Assignee: ${assigneeLabel}`, clear: () => { setPage(1); setAssignedToUserId(null); } } : null,
+    // Origin van (Phase 1) — the van whose route the delivery actually missed
+    // on, matching the already-displayed "Route / Van" column.
+    vanId ? { label: `Van: ${vanLabel}`, clear: () => { setPage(1); setVanId(null); } } : null,
     (from || to)
       ? { label: `Date: ${from || '...'} to ${to || '...'}`, clear: () => { setPage(1); setFrom(null); setTo(null); } }
       : null,
@@ -199,6 +250,7 @@ export function DeliveryIssuesInbox() {
     setPage(1);
     setStatus(null);
     setAssignedToUserId(null);
+    setVanId(null);
     setFrom(null);
     setTo(null);
   };
@@ -240,6 +292,24 @@ export function DeliveryIssuesInbox() {
         </div>
 
         <div className="space-y-1.5">
+          <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Van</Label>
+          <Select
+            value={vanId || 'all'}
+            onValueChange={(value) => { setPage(1); setVanId(value === 'all' ? null : value); }}
+          >
+            <SelectTrigger className="w-[170px] rounded-xl bg-background/50 border-border/50 h-10">
+              <SelectValue placeholder="All Vans" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Vans</SelectItem>
+              {vans.map((van) => (
+                <SelectItem key={van.id} value={van.id}>{van.plateNumber}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
           <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Date Range</Label>
           <DateRangePicker className="w-[220px]" />
         </div>
@@ -266,6 +336,41 @@ export function DeliveryIssuesInbox() {
         </div>
       )}
 
+      {/* Phase 3/4 — bulk action toolbar, shown only once something is selected. */}
+      {selectedIds.size > 0 && (
+        <div className="flex flex-wrap items-center gap-3 bg-primary/5 border border-primary/20 p-3 rounded-2xl">
+          <span className="text-xs font-bold text-primary px-1">
+            {selectedIds.size} issue{selectedIds.size !== 1 ? 's' : ''} selected
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-9 rounded-xl font-bold text-xs gap-1.5"
+            onClick={() => {
+              setBulkScheduleForm({ destinationDate: '', destinationVanId: '' });
+              setBulkScheduleOpen(true);
+            }}
+          >
+            <CalendarClock className="h-3.5 w-3.5" />
+            Bulk Schedule
+          </Button>
+          <Button
+            size="sm"
+            className="h-9 rounded-xl font-bold text-xs gap-1.5"
+            onClick={() => {
+              setBulkResolveForm({ resolution: 'DELIVERED', notes: '' });
+              setBulkResolveOpen(true);
+            }}
+          >
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            Resolve Selected
+          </Button>
+          <Button size="sm" variant="ghost" className="h-9 font-semibold text-xs ml-auto" onClick={clearSelection}>
+            Clear selection
+          </Button>
+        </div>
+      )}
+
       <DataTable
         data={rows}
         isLoading={isLoading}
@@ -275,6 +380,10 @@ export function DeliveryIssuesInbox() {
         onPageChange={setPage}
         onLimitChange={setLimit}
         emptyMessage="No delivery issues found."
+        selectable
+        selectedIds={selectedIds}
+        onToggleRow={toggleRow}
+        onToggleAll={toggleAllOnPage}
         columns={[
           {
             key: 'reportedAt',
@@ -471,6 +580,17 @@ export function DeliveryIssuesInbox() {
                 placeholder="Plan details for ops handoff..."
               />
             </div>
+
+            {/* Phase 2 — Retry At + Van together now actually move the delivery
+                to that van's sheet for that date (creating it if needed),
+                not just annotate the issue. */}
+            {['RETRY_SAME_DAY', 'RETRY_ON_DATE_TIME', 'MOVE_TO_NEXT_REGULAR_DAY'].includes(planForm.nextAction) &&
+              planForm.retryAt && planForm.assignedVanId && (
+                <p className="text-[11px] text-primary bg-primary/10 rounded-xl px-3 py-2">
+                  This will move the delivery to <span className="font-bold">{vans.find((v) => v.id === planForm.assignedVanId)?.plateNumber}</span>'s
+                  sheet for {planForm.retryAt.slice(0, 10)} (created automatically if it doesn't exist yet).
+                </p>
+            )}
           </div>
 
           <DialogFooter>
@@ -551,6 +671,174 @@ export function DeliveryIssuesInbox() {
                 });
               }}
             >
+              Confirm Resolve
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Phase 3 — Bulk Schedule. Same destination-date/van shape and the
+          same underlying moveDeliveryItems() as the Daily Sheet page's Move
+          dialog; this is a bulk entry point into it, not a second scheduler. */}
+      <Dialog open={bulkScheduleOpen} onOpenChange={(open) => !open && setBulkScheduleOpen(false)}>
+        <DialogContent className="rounded-3xl sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black flex items-center gap-2">
+              <CalendarClock className="h-5 w-5 text-primary" />
+              Bulk Schedule {selectedIds.size} Deliver{selectedIds.size !== 1 ? 'ies' : 'y'}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-5 py-2">
+            <div className="p-3 rounded-2xl bg-accent/20 border border-border/30 max-h-32 overflow-y-auto">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1.5">
+                Selected customers
+              </p>
+              <ul className="space-y-0.5">
+                {rows.filter((r) => selectedIds.has(r.id)).map((r) => (
+                  <li key={r.id} className="text-xs font-medium">{r.dailySheetItem?.customer?.name ?? '—'}</li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="space-y-3 p-4 rounded-2xl bg-accent/20 border border-border/30">
+              <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
+                Destination Date
+              </Label>
+              <Input
+                type="date"
+                className="h-10"
+                min={new Date().toISOString().slice(0, 10)}
+                value={bulkScheduleForm.destinationDate}
+                onChange={(e) => setBulkScheduleForm({ destinationDate: e.target.value, destinationVanId: '' })}
+              />
+            </div>
+
+            <div className="space-y-3 p-4 rounded-2xl bg-accent/20 border border-border/30">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                <Truck className="h-3.5 w-3.5" />
+                <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
+                  Destination Van
+                </Label>
+              </div>
+              <Select
+                value={bulkScheduleForm.destinationVanId}
+                onValueChange={(value) => setBulkScheduleForm((prev) => ({ ...prev, destinationVanId: value }))}
+                disabled={!bulkScheduleForm.destinationDate || loadingBulkDestinations}
+              >
+                <SelectTrigger className="h-10">
+                  <SelectValue placeholder={!bulkScheduleForm.destinationDate ? 'Pick a date first' : loadingBulkDestinations ? 'Loading vans…' : 'Select a van'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {(bulkDestinationOptions ?? []).map((o) => {
+                    const closed = o.hasSheetForDate && o.isClosed;
+                    return (
+                      <SelectItem key={o.vanId} value={o.vanId} disabled={closed}>
+                        {o.plateNumber}
+                        {o.driverName ? ` — ${o.driverName}` : ''}
+                        {closed ? ' (closed)' : !o.hasSheetForDate ? ' (new sheet)' : ''}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+              {bulkSelectedVan && !bulkDestinationClosed && (
+                <p className="text-[11px] text-muted-foreground">
+                  {bulkSelectedVan.hasSheetForDate
+                    ? "Adds to this van's existing open sheet."
+                    : 'A new sheet will be created for this van and date.'}
+                </p>
+              )}
+            </div>
+
+            <p className="text-[11px] text-muted-foreground bg-muted/40 rounded-xl px-3 py-2">
+              Each delivery starts as Pending on the destination sheet, and its linked issue is marked Planned.
+              If any selected delivery can't move (already resolved, destination conflict), none of them move —
+              you'll see exactly why.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setBulkScheduleOpen(false)}>Cancel</Button>
+            <Button
+              className="rounded-xl font-bold"
+              disabled={isBulkScheduling || !bulkScheduleForm.destinationDate || !bulkScheduleForm.destinationVanId || bulkDestinationClosed}
+              onClick={() => {
+                bulkSchedule({
+                  issueIds: Array.from(selectedIds),
+                  destinationVanId: bulkScheduleForm.destinationVanId,
+                  destinationDate: bulkScheduleForm.destinationDate,
+                }, {
+                  onSuccess: () => {
+                    setBulkScheduleOpen(false);
+                    clearSelection();
+                  },
+                });
+              }}
+            >
+              {isBulkScheduling ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Schedule {selectedIds.size} Deliver{selectedIds.size !== 1 ? 'ies' : 'y'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Phase 4 — Bulk Resolve. Loops the exact same resolve() the single
+          Resolve dialog above uses; partial success is possible (reported
+          via the toast in useBulkResolveDeliveryIssues). */}
+      <Dialog open={bulkResolveOpen} onOpenChange={(open) => !open && setBulkResolveOpen(false)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-black flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+              Resolve {selectedIds.size} Issue{selectedIds.size !== 1 ? 's' : ''}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-bold uppercase tracking-wider">Resolution</Label>
+              <Select value={bulkResolveForm.resolution} onValueChange={(value) => setBulkResolveForm((prev) => ({ ...prev, resolution: value }))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {RESOLUTION_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-bold uppercase tracking-wider">Notes</Label>
+              <Textarea
+                rows={3}
+                value={bulkResolveForm.notes}
+                onChange={(event) => setBulkResolveForm((prev) => ({ ...prev, notes: event.target.value }))}
+                placeholder="Resolution notes (applied to all selected)..."
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkResolveOpen(false)}>Cancel</Button>
+            <Button
+              disabled={isBulkResolving}
+              onClick={() => {
+                bulkResolve({
+                  ids: Array.from(selectedIds),
+                  resolution: bulkResolveForm.resolution,
+                  notes: bulkResolveForm.notes || undefined,
+                }, {
+                  onSuccess: () => {
+                    setBulkResolveOpen(false);
+                    clearSelection();
+                  },
+                });
+              }}
+            >
+              {isBulkResolving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               Confirm Resolve
             </Button>
           </DialogFooter>

@@ -73,7 +73,7 @@ async function buildService(mockAudit: ReturnType<typeof buildMockAudit>) {
       { provide: LedgerService, useValue: {} },
       { provide: AuditService, useValue: mockAudit },
       { provide: FcmService, useValue: {} },
-      { provide: DeliveryIssueService, useValue: {} },
+      { provide: DeliveryIssueService, useValue: { createForItem: jest.fn().mockResolvedValue(undefined), autoResolveOnSuccess: jest.fn().mockResolvedValue(undefined) } },
       { provide: CacheInvalidationService, useValue: {} },
       { provide: NotificationService, useValue: {} },
       { provide: InAppNotificationService, useValue: {} },

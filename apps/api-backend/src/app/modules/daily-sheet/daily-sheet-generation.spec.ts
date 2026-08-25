@@ -46,7 +46,7 @@ async function buildService(mockPrisma: ReturnType<typeof buildMockPrisma>) {
       { provide: LedgerService, useValue: {} },
       { provide: AuditService, useValue: { log: jest.fn() } },
       { provide: FcmService, useValue: {} },
-      { provide: DeliveryIssueService, useValue: {} },
+      { provide: DeliveryIssueService, useValue: { createForItem: jest.fn().mockResolvedValue(undefined), autoResolveOnSuccess: jest.fn().mockResolvedValue(undefined) } },
       { provide: CacheInvalidationService, useValue: {} },
       { provide: NotificationService, useValue: {} },
       { provide: InAppNotificationService, useValue: {} },

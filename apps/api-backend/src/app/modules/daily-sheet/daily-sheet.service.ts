@@ -7,6 +7,8 @@ import {
   ForbiddenException,
   Logger,
   OnModuleInit,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -59,6 +61,11 @@ export class DailySheetService implements OnModuleInit {
     private ledger: LedgerService,
     private audit: AuditService,
     private fcm: FcmService,
+    // Circular DI with DeliveryIssueService (see daily-sheet.module.ts) —
+    // forwardRef needed on this injection since DeliveryIssueService's own
+    // constructor injects DailySheetService back (Phase 2/3 reuse of
+    // moveDeliveryItems()).
+    @Inject(forwardRef(() => DeliveryIssueService))
     private deliveryIssue: DeliveryIssueService,
     private cache: CacheInvalidationService,
     private notifications: NotificationService,
@@ -732,6 +739,18 @@ export class DailySheetService implements OnModuleInit {
       if (failureStatuses.includes(resolvedStatus)) {
         this.deliveryIssue.createForItem(vendorId, itemId).catch((e: Error) =>
           this.logger.warn(`Auto-issue creation failed for item ${itemId}: ${e.message}`),
+        );
+      }
+
+      // Delivery Issues Phase 5 — close the loop the other way: if THIS item
+      // (same id, possibly after a Plan/Bulk-Schedule move to a new sheet)
+      // now completes successfully, auto-resolve any still-open issue tied to
+      // it. autoResolveOnSuccess() is a single indexed no-op lookup when no
+      // issue exists for this item, so ordinary completed deliveries that
+      // never had an issue are entirely unaffected.
+      if (resolvedStatus === DeliveryStatus.COMPLETED || resolvedStatus === DeliveryStatus.EMPTY_ONLY) {
+        this.deliveryIssue.autoResolveOnSuccess(vendorId, itemId, user.userId).catch((e: Error) =>
+          this.logger.warn(`Auto-resolve issue failed for item ${itemId}: ${e.message}`),
         );
       }
 

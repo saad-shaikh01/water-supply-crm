@@ -15,6 +15,12 @@ export class DeliveryIssueQueryDto extends PaginationQueryDto {
   @IsUUID()
   assignedToUserId?: string;
 
+  /** Filters on the ORIGIN van (dailySheetItem.dailySheet.vanId) — the van whose
+   * route the delivery actually missed on, not the (optional) planned retry van. */
+  @IsOptional()
+  @IsUUID()
+  vanId?: string;
+
   @IsOptional()
   @IsString()
   dateFrom?: string;

@@ -89,7 +89,7 @@ describe('DailySheetService.closeSheet — Crew Cash Ledger sync', () => {
         { provide: LedgerService, useValue: {} },
         { provide: AuditService, useValue: mockAudit },
         { provide: FcmService, useValue: {} },
-        { provide: DeliveryIssueService, useValue: {} },
+        { provide: DeliveryIssueService, useValue: { createForItem: jest.fn().mockResolvedValue(undefined), autoResolveOnSuccess: jest.fn().mockResolvedValue(undefined) } },
         { provide: CacheInvalidationService, useValue: mockCache },
         { provide: NotificationService, useValue: {} },
         { provide: InAppNotificationService, useValue: {} },
