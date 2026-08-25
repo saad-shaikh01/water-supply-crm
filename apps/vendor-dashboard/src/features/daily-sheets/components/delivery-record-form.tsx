@@ -56,6 +56,7 @@ interface DeliveryDraft {
   itemForm: Partial<DeliveryItem>;
   showDamage: boolean;
   damageForm: DamageFormState;
+  showFilledReceived: boolean;
   savedAt: number;
 }
 
@@ -268,6 +269,11 @@ export function DeliveryRecordForm({
   const [showDamage, setShowDamage] = useState(false);
   const [damageForm, setDamageForm] = useState<DamageFormState>(DEFAULT_DAMAGE_FORM);
 
+  // Filled Received is rare (account closing / excess stock returns) — collapsed
+  // by default and only expanded when the record already has a value or the
+  // driver explicitly opts in, so the common-case form stays uncluttered.
+  const [showFilledReceived, setShowFilledReceived] = useState(false);
+
   // Collection Policy: the backend's 422 backstop result (stale-client / direct-API-call
   // cases where the local mirror below didn't already catch the violation). Cleared as
   // soon as the driver edits cash or mode again — never persisted.
@@ -296,6 +302,7 @@ export function DeliveryRecordForm({
       setItemForm(draft.itemForm);
       setShowDamage(draft.showDamage);
       setDamageForm(draft.damageForm);
+      setShowFilledReceived(draft.showFilledReceived);
       return;
     }
     const isUnable = item.status === 'RESCHEDULED' || item.status === 'CANCELLED' || item.status === 'NOT_AVAILABLE';
@@ -317,6 +324,7 @@ export function DeliveryRecordForm({
       filledReceived: item.filledReceived > 0 ? item.filledReceived : undefined,
       cashCollected: suggestedCash,
     });
+    setShowFilledReceived(item.filledReceived > 0);
   }, [item.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Mirror in-progress state to sessionStorage so a browser-triggered reload
@@ -326,12 +334,12 @@ export function DeliveryRecordForm({
     if (readOnly) return;
     if (draftWriteTimeout.current) clearTimeout(draftWriteTimeout.current);
     draftWriteTimeout.current = setTimeout(() => {
-      writeDraft(item.id, { deliveryMode, failureCategory, unableReason, photoKey, itemForm, showDamage, damageForm });
+      writeDraft(item.id, { deliveryMode, failureCategory, unableReason, photoKey, itemForm, showDamage, damageForm, showFilledReceived });
     }, 400);
     return () => {
       if (draftWriteTimeout.current) clearTimeout(draftWriteTimeout.current);
     };
-  }, [item.id, readOnly, deliveryMode, failureCategory, unableReason, photoKey, itemForm, showDamage, damageForm]);
+  }, [item.id, readOnly, deliveryMode, failureCategory, unableReason, photoKey, itemForm, showDamage, damageForm, showFilledReceived]);
 
   // Clear a stale server-side policy violation as soon as the driver changes the cash
   // amount or delivery mode — the next save attempt should be judged fresh.
@@ -634,24 +642,50 @@ export function DeliveryRecordForm({
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label className="font-bold text-xs uppercase tracking-widest">Filled Received</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={itemForm.filledReceived ?? ''}
-                  onChange={(e) => setItemForm((p) => ({ ...p, filledReceived: e.target.value === '' ? undefined : Number(e.target.value) }))}
-                  className={cn('font-mono font-bold h-11', readOnly && 'bg-muted/40 cursor-default')}
-                  readOnly={readOnly}
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Already-filled bottles taken back (account closing / excess stock) — no refill needed.
-                </p>
-                <div className="mt-1.5 flex items-center justify-between rounded-xl bg-primary/10 border border-primary/30 px-3 py-2">
-                  <span className="text-[11px] font-bold uppercase tracking-wide text-primary">Bottle Wallet</span>
-                  <span className="text-lg font-black text-primary leading-none">{liveWalletBalance}<span className="text-xs font-bold ml-1">btl</span></span>
+              {/* Filled Received — rare case, collapsed by default (see showFilledReceived
+                  comment above); only rendered when opted into or already has a value. */}
+              {showFilledReceived ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="font-bold text-xs uppercase tracking-widest">Filled Received</Label>
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowFilledReceived(false);
+                          setItemForm((p) => ({ ...p, filledReceived: undefined }));
+                        }}
+                        className="text-[11px] font-semibold text-muted-foreground hover:text-destructive transition-colors"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={itemForm.filledReceived ?? ''}
+                    onChange={(e) => setItemForm((p) => ({ ...p, filledReceived: e.target.value === '' ? undefined : Number(e.target.value) }))}
+                    className={cn('font-mono font-bold h-11', readOnly && 'bg-muted/40 cursor-default')}
+                    readOnly={readOnly}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Already-filled bottles taken back (account closing / excess stock) — no refill needed.
+                  </p>
+                  <div className="mt-1.5 flex items-center justify-between rounded-xl bg-primary/10 border border-primary/30 px-3 py-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wide text-primary">Bottle Wallet</span>
+                    <span className="text-lg font-black text-primary leading-none">{liveWalletBalance}<span className="text-xs font-bold ml-1">btl</span></span>
+                  </div>
                 </div>
-              </div>
+              ) : !readOnly ? (
+                <button
+                  type="button"
+                  onClick={() => setShowFilledReceived(true)}
+                  className="text-xs font-semibold text-muted-foreground hover:text-primary transition-colors underline underline-offset-2 decoration-dashed"
+                >
+                  + Filled bottles received back?
+                </button>
+              ) : null}
 
               <div className="space-y-2">
                 <Label className="font-bold text-xs uppercase tracking-widest">Amount (₨)</Label>

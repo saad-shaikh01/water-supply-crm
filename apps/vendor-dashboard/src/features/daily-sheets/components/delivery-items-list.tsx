@@ -80,6 +80,7 @@ function estimateCashCollectAmount(item: DeliveryItem, policy: CashCollectionPol
 function CustomerHistorySection({ customerId }: { customerId: string }) {
   const [open, setOpen] = useState(false);
   const { data, isLoading } = useCustomerDeliveryHistory(customerId, open);
+  const hasFilledReceivedHistory = !!data?.some((row) => (row.filledReceived ?? 0) > 0);
 
   return (
     <div className="border-t border-border/40 pt-3 mt-1">
@@ -123,7 +124,11 @@ function CustomerHistorySection({ customerId }: { customerId: string }) {
                       <th className="text-left px-3 py-2 font-bold text-muted-foreground whitespace-nowrap">Date</th>
                       <th className="text-center px-2 py-2 font-bold text-muted-foreground">↓ Fill</th>
                       <th className="text-center px-2 py-2 font-bold text-muted-foreground">↑ Emp</th>
-                      <th className="text-center px-2 py-2 font-bold text-muted-foreground">↺ Fill</th>
+                      {/* Whole-column hide, not per-cell — matches the daily sheet PDF: only
+                          earns its place when at least one row actually has a value. */}
+                      {hasFilledReceivedHistory && (
+                        <th className="text-center px-2 py-2 font-bold text-muted-foreground">↺ Fill</th>
+                      )}
                       <th className="text-center px-2 py-2 font-bold text-muted-foreground whitespace-nowrap">Btl Bal</th>
                       <th className="text-right px-2 py-2 font-bold text-muted-foreground whitespace-nowrap">Amt Due</th>
                       <th className="text-right px-2 py-2 font-bold text-muted-foreground whitespace-nowrap">Received</th>
@@ -142,7 +147,9 @@ function CustomerHistorySection({ customerId }: { customerId: string }) {
                           <td className="px-3 py-2 whitespace-nowrap font-medium">{dateStr}</td>
                           <td className="px-2 py-2 text-center font-bold text-orange-600">{row.filledDropped}</td>
                           <td className="px-2 py-2 text-center font-bold text-purple-600">{row.emptyReceived}</td>
-                          <td className="px-2 py-2 text-center font-bold text-sky-600">{row.filledReceived}</td>
+                          {hasFilledReceivedHistory && (
+                            <td className="px-2 py-2 text-center font-bold text-sky-600">{row.filledReceived}</td>
+                          )}
                           <td className="px-2 py-2 text-center font-bold">
                             {row.bottleBalanceAfter != null ? row.bottleBalanceAfter : '—'}
                           </td>

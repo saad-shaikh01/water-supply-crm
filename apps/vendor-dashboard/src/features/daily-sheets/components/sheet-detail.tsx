@@ -1004,17 +1004,21 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             </div>
           </CardContent>
         </Card>
-        <Card className="bg-card/50 backdrop-blur-sm">
-          <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
-            <div className="h-10 w-10 rounded-xl bg-sky-500/10 flex items-center justify-center text-sky-500 shrink-0">
-              <RotateCcw className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase text-muted-foreground">Filled Received</p>
-              <p className="text-sm font-black truncate">{stats.filledReceived} <span className="text-xs font-normal text-muted-foreground">bottles</span></p>
-            </div>
-          </CardContent>
-        </Card>
+        {/* Filled Received is rare (account closing / excess stock returns) —
+            hidden entirely rather than showing an empty "0 bottles" card. */}
+        {stats.filledReceived > 0 && (
+          <Card className="bg-card/50 backdrop-blur-sm">
+            <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
+              <div className="h-10 w-10 rounded-xl bg-sky-500/10 flex items-center justify-center text-sky-500 shrink-0">
+                <RotateCcw className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase text-muted-foreground">Filled Received</p>
+                <p className="text-sm font-black truncate">{stats.filledReceived} <span className="text-xs font-normal text-muted-foreground">bottles</span></p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
         <Card className="bg-card/50 backdrop-blur-sm">
           <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
             <div className="h-10 w-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500 shrink-0">

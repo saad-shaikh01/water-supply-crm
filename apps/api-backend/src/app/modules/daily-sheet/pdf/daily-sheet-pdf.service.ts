@@ -117,12 +117,22 @@ const BANNER_H = 76;
 // was folded into STATUS so the row still sums to CONTENT_W. The backing
 // DailySheetService.getConsumptionRatesForSheet() computation was also
 // dropped from both controller PDF routes since it had no other caller.
-const COLS = {
-  seq: 14, code: 32, customer: 60, time: 32, delivered: 28, filledRecv: 28,
-  emptyRecv: 28, balBottles: 30, cash: 40, payMode: 28, balRs: 40,
-  status: 155.28,
-};
-const COLS_STATUS_W = COLS.status;
+// F.RCV (filledReceived) and BILL (bill amount owed for today's delivery —
+// filledDropped × pricePerBottle, the exact same figure the driver's
+// delivery-record-form shows as "Amount" above Cash Collected) both follow
+// the same fold-into-STATUS convention: each is only drawn when at least one
+// item on the sheet has a non-zero value, otherwise its width is folded into
+// STATUS, same as CONS% was.
+function getDeliveryCols(showFilledRecv: boolean, showBillAmount: boolean) {
+  const filledRecv = showFilledRecv ? 28 : 0;
+  const billAmount = showBillAmount ? 40 : 0;
+  return {
+    seq: 14, code: 32, customer: 60, time: 32, delivered: 28, filledRecv,
+    emptyRecv: 28, balBottles: 30, billAmount, cash: 40, payMode: 28, balRs: 40,
+    status: 115.28 + (28 - filledRecv) + (40 - billAmount),
+  };
+}
+type DeliveryCols = ReturnType<typeof getDeliveryCols>;
 
 // Trip Summary mini-table column geometry (10 cols, sums to CONTENT_W) — each
 // trip renders its own stacked block (title + this header + one data row),
@@ -961,25 +971,32 @@ export class DailySheetPdfService {
   // CustomerStatementPdfService.drawDeliveryTableHeader/drawDeliveryLine: an
   // un-filled header (muted labels + border line, no navy bar), uniform
   // 22pt rows, and a border-top TOTAL row (no fill). ────────────────────────
-  private drawDeliveryTableHeader(doc: PDFKit.PDFDocument, x: number, y: number, w: number): void {
+  private drawDeliveryTableHeader(doc: PDFKit.PDFDocument, x: number, y: number, w: number, cols: DeliveryCols): void {
     const rowH = 22;
     doc.moveTo(x + 10, y + rowH).lineTo(x + w - 10, y + rowH).strokeColor(C.border).lineWidth(0.75).stroke();
     doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(6.2);
 
     let cx = x;
     const hy = y + 8;
-    doc.text('#', cx + 6, hy, { width: COLS.seq - 4, lineBreak: false }); cx += COLS.seq;
-    doc.text('CODE', cx + 3, hy, { width: COLS.code - 4, lineBreak: false }); cx += COLS.code;
-    doc.text('CUSTOMER', cx + 3, hy, { width: COLS.customer - 4, characterSpacing: 0.2, lineBreak: false }); cx += COLS.customer;
-    doc.text('TIME', cx, hy, { width: COLS.time - 4, align: 'right', lineBreak: false }); cx += COLS.time;
-    doc.text('DELIV', cx, hy, { width: COLS.delivered - 4, align: 'right', lineBreak: false }); cx += COLS.delivered;
-    doc.text('F.RCV', cx, hy, { width: COLS.filledRecv - 4, align: 'right', lineBreak: false }); cx += COLS.filledRecv;
-    doc.text('E.RCV', cx, hy, { width: COLS.emptyRecv - 4, align: 'right', lineBreak: false }); cx += COLS.emptyRecv;
-    doc.text('BAL BTL', cx, hy, { width: COLS.balBottles - 4, align: 'right', lineBreak: false }); cx += COLS.balBottles;
-    doc.text('CASH', cx, hy, { width: COLS.cash - 4, align: 'right', lineBreak: false }); cx += COLS.cash;
-    doc.text('PAY', cx, hy, { width: COLS.payMode - 4, align: 'center', lineBreak: false }); cx += COLS.payMode;
-    doc.text('BAL RS', cx, hy, { width: COLS.balRs - 4, align: 'right', lineBreak: false }); cx += COLS.balRs;
-    doc.text('STATUS', cx, hy, { width: COLS_STATUS_W, align: 'center', characterSpacing: 0.2, lineBreak: false });
+    doc.text('#', cx + 6, hy, { width: cols.seq - 4, lineBreak: false }); cx += cols.seq;
+    doc.text('CODE', cx + 3, hy, { width: cols.code - 4, lineBreak: false }); cx += cols.code;
+    doc.text('CUSTOMER', cx + 3, hy, { width: cols.customer - 4, characterSpacing: 0.2, lineBreak: false }); cx += cols.customer;
+    doc.text('TIME', cx, hy, { width: cols.time - 4, align: 'right', lineBreak: false }); cx += cols.time;
+    doc.text('DELIV', cx, hy, { width: cols.delivered - 4, align: 'right', lineBreak: false }); cx += cols.delivered;
+    if (cols.filledRecv > 0) {
+      doc.text('F.RCV', cx, hy, { width: cols.filledRecv - 4, align: 'right', lineBreak: false });
+    }
+    cx += cols.filledRecv;
+    doc.text('E.RCV', cx, hy, { width: cols.emptyRecv - 4, align: 'right', lineBreak: false }); cx += cols.emptyRecv;
+    doc.text('BAL BTL', cx, hy, { width: cols.balBottles - 4, align: 'right', lineBreak: false }); cx += cols.balBottles;
+    if (cols.billAmount > 0) {
+      doc.text('BILL', cx, hy, { width: cols.billAmount - 4, align: 'right', lineBreak: false });
+    }
+    cx += cols.billAmount;
+    doc.text('CASH', cx, hy, { width: cols.cash - 4, align: 'right', lineBreak: false }); cx += cols.cash;
+    doc.text('PAY', cx, hy, { width: cols.payMode - 4, align: 'center', lineBreak: false }); cx += cols.payMode;
+    doc.text('BAL RS', cx, hy, { width: cols.balRs - 4, align: 'right', lineBreak: false }); cx += cols.balRs;
+    doc.text('STATUS', cx, hy, { width: cols.status, align: 'center', characterSpacing: 0.2, lineBreak: false });
   }
 
   private drawPill(
@@ -996,9 +1013,9 @@ export class DailySheetPdfService {
       .text(meta.label, x, y + 4, { width: w, align: 'center', lineBreak: false });
   }
 
-  private drawStatusPill(doc: PDFKit.PDFDocument, status: string, colX: number, rowY: number, rowH: number): void {
+  private drawStatusPill(doc: PDFKit.PDFDocument, status: string, colX: number, rowY: number, rowH: number, cols: DeliveryCols): void {
     const meta = STATUS_META[status] ?? { label: status, bg: '#f1f5f9', text: '#475569' };
-    this.drawPill(doc, meta, colX, COLS.status, rowY, rowH);
+    this.drawPill(doc, meta, colX, cols.status, rowY, rowH);
   }
 
   private drawDeliveryTableLine(
@@ -1007,6 +1024,7 @@ export class DailySheetPdfService {
     x: number,
     y: number,
     index: number,
+    cols: DeliveryCols,
   ): void {
     const rowH = 22;
 
@@ -1015,6 +1033,7 @@ export class DailySheetPdfService {
       const totalDelivered = items.reduce((s, i) => s + (i.filledDropped ?? 0), 0);
       const totalFilledRecv = items.reduce((s, i) => s + (i.filledReceived ?? 0), 0);
       const totalEmptyRecv = items.reduce((s, i) => s + (i.emptyReceived ?? 0), 0);
+      const totalBillAmount = items.reduce((s, i) => s + (i.filledDropped ?? 0) * (i.pricePerBottle ?? 0), 0);
       const totalCash = items.reduce((s, i) => s + (i.cashCollected ?? 0), 0);
       const doneCount = items.filter((i) => i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY').length;
       const editedCount = items.filter((i) => (i.editCount ?? 0) > 0).length;
@@ -1024,17 +1043,23 @@ export class DailySheetPdfService {
       const ty = y + 7;
       let cx = x;
       doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
-        .text('TOTAL', cx + 6, ty, { width: COLS.seq + COLS.code + COLS.customer + COLS.time - 6, lineBreak: false });
-      cx += COLS.seq + COLS.code + COLS.customer + COLS.time;
-      doc.text(String(totalDelivered), cx, ty, { width: COLS.delivered - 4, align: 'right', lineBreak: false });
-      cx += COLS.delivered;
-      doc.text(String(totalFilledRecv), cx, ty, { width: COLS.filledRecv - 4, align: 'right', lineBreak: false });
-      cx += COLS.filledRecv;
-      doc.text(String(totalEmptyRecv), cx, ty, { width: COLS.emptyRecv - 4, align: 'right', lineBreak: false });
-      cx += COLS.emptyRecv + COLS.balBottles;
-      doc.text(this.rs(totalCash), cx, ty, { width: COLS.cash - 4, align: 'right', lineBreak: false });
-      cx += COLS.cash + COLS.payMode + COLS.balRs;
-      doc.fontSize(6.3).text(`${doneCount}/${items.length} done · ${editedCount} edited`, cx, ty + 1, { width: COLS_STATUS_W, align: 'center', lineBreak: false });
+        .text('TOTAL', cx + 6, ty, { width: cols.seq + cols.code + cols.customer + cols.time - 6, lineBreak: false });
+      cx += cols.seq + cols.code + cols.customer + cols.time;
+      doc.text(String(totalDelivered), cx, ty, { width: cols.delivered - 4, align: 'right', lineBreak: false });
+      cx += cols.delivered;
+      if (cols.filledRecv > 0) {
+        doc.text(String(totalFilledRecv), cx, ty, { width: cols.filledRecv - 4, align: 'right', lineBreak: false });
+      }
+      cx += cols.filledRecv;
+      doc.text(String(totalEmptyRecv), cx, ty, { width: cols.emptyRecv - 4, align: 'right', lineBreak: false });
+      cx += cols.emptyRecv + cols.balBottles;
+      if (cols.billAmount > 0) {
+        doc.text(this.rs(totalBillAmount), cx, ty, { width: cols.billAmount - 4, align: 'right', lineBreak: false });
+      }
+      cx += cols.billAmount;
+      doc.text(this.rs(totalCash), cx, ty, { width: cols.cash - 4, align: 'right', lineBreak: false });
+      cx += cols.cash + cols.payMode + cols.balRs;
+      doc.fontSize(6.3).text(`${doneCount}/${items.length} done · ${editedCount} edited`, cx, ty + 1, { width: cols.status, align: 'center', lineBreak: false });
       return;
     }
 
@@ -1057,10 +1082,10 @@ export class DailySheetPdfService {
       const ty = y + 7;
       let cx = x;
       doc.fillColor(C.muted).font('Helvetica-Oblique').fontSize(6.8)
-        .text('AVG PRICE / BOTTLE', cx + 6, ty, { width: COLS.seq + COLS.code + COLS.customer + COLS.time - 6, lineBreak: false });
-      cx += COLS.seq + COLS.code + COLS.customer + COLS.time + COLS.delivered + COLS.filledRecv + COLS.emptyRecv + COLS.balBottles;
+        .text('AVG PRICE / BOTTLE', cx + 6, ty, { width: cols.seq + cols.code + cols.customer + cols.time - 6, lineBreak: false });
+      cx += cols.seq + cols.code + cols.customer + cols.time + cols.delivered + cols.filledRecv + cols.emptyRecv + cols.balBottles + cols.billAmount;
       doc.fillColor(C.textSoft).font('Helvetica-Bold').fontSize(7)
-        .text(totalBottles > 0 ? `Rs ${avgPricePerBottle.toFixed(2)}` : '—', cx, ty, { width: COLS.cash - 4, align: 'right', lineBreak: false });
+        .text(totalBottles > 0 ? `Rs ${avgPricePerBottle.toFixed(2)}` : '—', cx, ty, { width: cols.cash - 4, align: 'right', lineBreak: false });
       return;
     }
 
@@ -1082,59 +1107,75 @@ export class DailySheetPdfService {
 
     doc.fillColor(C.textSoft).fontSize(6.5).font('Helvetica')
       .text(String(item.sequence ?? index + 1), cx + 6, textY, { lineBreak: false });
-    cx += COLS.seq;
+    cx += cols.seq;
 
     doc.fillColor(C.mutedLt).fontSize(6)
-      .text(item.customer?.customerCode ?? '—', cx + 3, textY + 1, { width: COLS.code - 4, lineBreak: false });
-    cx += COLS.code;
+      .text(item.customer?.customerCode ?? '—', cx + 3, textY + 1, { width: cols.code - 4, lineBreak: false });
+    cx += cols.code;
 
     doc.fillColor(C.navyText).fontSize(6.8).font('Helvetica-Bold')
-      .text(item.customer?.name ?? '—', cx + 3, textY, { width: COLS.customer - 6, height: 9, ellipsis: true, lineBreak: false });
+      .text(item.customer?.name ?? '—', cx + 3, textY, { width: cols.customer - 6, height: 9, ellipsis: true, lineBreak: false });
     if (reason) {
       // Compact secondary line, same row height — no more separate taller
       // reason-row (card-table pagination needs a uniform row height).
       doc.fillColor(C.mutedLt).fontSize(5.3).font('Helvetica-Oblique')
-        .text(reason, cx + 3, textY + 10, { width: COLS.customer - 6, height: 7, ellipsis: true, lineBreak: false });
+        .text(reason, cx + 3, textY + 10, { width: cols.customer - 6, height: 7, ellipsis: true, lineBreak: false });
     }
-    cx += COLS.customer;
+    cx += cols.customer;
 
     doc.fillColor(C.muted).fontSize(6.3).font('Helvetica')
-      .text(item.deliveredAt ? this.hm(item.deliveredAt) : '—', cx, textY, { width: COLS.time - 4, align: 'right', lineBreak: false });
-    cx += COLS.time;
+      .text(item.deliveredAt ? this.hm(item.deliveredAt) : '—', cx, textY, { width: cols.time - 4, align: 'right', lineBreak: false });
+    cx += cols.time;
 
     doc.fillColor(C.text).fontSize(6.8)
-      .text(String(item.filledDropped ?? 0), cx, textY, { width: COLS.delivered - 4, align: 'right', lineBreak: false });
-    cx += COLS.delivered;
+      .text(String(item.filledDropped ?? 0), cx, textY, { width: cols.delivered - 4, align: 'right', lineBreak: false });
+    cx += cols.delivered;
 
-    doc.text(String(item.filledReceived ?? 0), cx, textY, { width: COLS.filledRecv - 4, align: 'right', lineBreak: false });
-    cx += COLS.filledRecv;
+    // Conditionally rendered — see getDeliveryCols: column only exists
+    // (width > 0) when at least one item on the sheet has filledReceived > 0.
+    if (cols.filledRecv > 0) {
+      doc.text(String(item.filledReceived ?? 0), cx, textY, { width: cols.filledRecv - 4, align: 'right', lineBreak: false });
+    }
+    cx += cols.filledRecv;
 
-    doc.text(String(item.emptyReceived ?? 0), cx, textY, { width: COLS.emptyRecv - 4, align: 'right', lineBreak: false });
-    cx += COLS.emptyRecv;
+    doc.text(String(item.emptyReceived ?? 0), cx, textY, { width: cols.emptyRecv - 4, align: 'right', lineBreak: false });
+    cx += cols.emptyRecv;
 
     // Frozen post-delivery bottle-wallet snapshot — no live query needed.
     doc.fillColor(C.muted)
-      .text(item.bottleBalanceAfter != null ? String(item.bottleBalanceAfter) : '—', cx, textY, { width: COLS.balBottles - 4, align: 'right', lineBreak: false });
-    cx += COLS.balBottles;
+      .text(item.bottleBalanceAfter != null ? String(item.bottleBalanceAfter) : '—', cx, textY, { width: cols.balBottles - 4, align: 'right', lineBreak: false });
+    cx += cols.balBottles;
+
+    // Bill amount owed for today's delivery — filledDropped × pricePerBottle,
+    // the exact same value/calculation delivery-record-form.tsx shows as
+    // "Amount" above Cash Collected (no separate billing logic here).
+    // Conditionally rendered — see getDeliveryCols: column only exists
+    // (width > 0) when at least one item on the sheet has a bill amount > 0.
+    if (cols.billAmount > 0) {
+      const billAmount = (item.filledDropped ?? 0) * (item.pricePerBottle ?? 0);
+      doc.fillColor(C.text).font('Helvetica-Bold')
+        .text(this.rs(billAmount), cx, textY, { width: cols.billAmount - 4, align: 'right', lineBreak: false });
+    }
+    cx += cols.billAmount;
 
     doc.fillColor(C.navyText).font('Helvetica-Bold')
-      .text(this.rs(item.cashCollected), cx, textY, { width: COLS.cash - 4, align: 'right', lineBreak: false });
-    cx += COLS.cash;
+      .text(this.rs(item.cashCollected), cx, textY, { width: cols.cash - 4, align: 'right', lineBreak: false });
+    cx += cols.cash;
 
     const isMonthly = item.customer?.paymentType === 'MONTHLY';
     doc.fillColor(isMonthly ? '#1d4ed8' : C.green).font('Helvetica-Bold').fontSize(6)
-      .text(isMonthly ? 'MO' : 'CA', cx, textY, { width: COLS.payMode - 2, align: 'center', lineBreak: false });
-    cx += COLS.payMode;
+      .text(isMonthly ? 'MO' : 'CA', cx, textY, { width: cols.payMode - 2, align: 'center', lineBreak: false });
+    cx += cols.payMode;
 
     // Same live-balance convention as delivery-items-list.tsx: MONTHLY shows
     // last month's remaining outstanding, CASH shows current wallet due.
     const balRs = isMonthly ? (item.customer?.previousMonthOutstanding ?? 0) : (item.customer?.financialBalance ?? 0);
     doc.fillColor(balRs > 0 ? C.red : C.green).font('Helvetica-Bold').fontSize(6.5)
-      .text(this.rs(balRs), cx, textY, { width: COLS.balRs - 4, align: 'right', lineBreak: false });
-    cx += COLS.balRs;
+      .text(this.rs(balRs), cx, textY, { width: cols.balRs - 4, align: 'right', lineBreak: false });
+    cx += cols.balRs;
 
-    // CONS% column removed (owner request) — see COLS comment above.
-    this.drawStatusPill(doc, item.status, cx, y + 1, rowH - 2);
+    // CONS% column removed (owner request) — see getDeliveryCols comment above.
+    this.drawStatusPill(doc, item.status, cx, y + 1, rowH - 2, cols);
   }
 
   private drawDeliveryTable(doc: PDFKit.PDFDocument, items: any[]): void {
@@ -1143,13 +1184,20 @@ export class DailySheetPdfService {
     lines.push({ kind: 'total', items });
     if (items.length > 0) lines.push({ kind: 'average', items });
 
+    // Whole-sheet decision, not per-row: the F.RCV and BILL columns only earn
+    // their place when at least one delivery on the sheet actually has a
+    // non-zero value — otherwise it's an empty column on every row.
+    const showFilledRecv = items.some((i) => (i.filledReceived ?? 0) > 0);
+    const showBillAmount = items.some((i) => (i.filledDropped ?? 0) * (i.pricePerBottle ?? 0) > 0);
+    const cols = getDeliveryCols(showFilledRecv, showBillAmount);
+
     this.drawCardTable(
       doc,
       lines,
       22,
       22,
-      (x, y, w) => this.drawDeliveryTableHeader(doc, x, y, w),
-      (line, x, y, index) => this.drawDeliveryTableLine(doc, line, x, y, index),
+      (x, y, w) => this.drawDeliveryTableHeader(doc, x, y, w, cols),
+      (line, x, y, index) => this.drawDeliveryTableLine(doc, line, x, y, index, cols),
       { watermark: true },
     );
 

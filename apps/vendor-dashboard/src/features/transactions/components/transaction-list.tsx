@@ -2,8 +2,12 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Button, Badge, Sheet, SheetContent, SheetHeader, SheetTitle, Label } from '@water-supply-crm/ui';
-import { Plus, FileText, Calendar, Wallet, X, SlidersHorizontal, Search } from 'lucide-react';
+import {
+  Button, Badge, Sheet, SheetContent, SheetHeader, SheetTitle, Label,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from '@water-supply-crm/ui';
+import { Plus, FileText, Calendar, Wallet, X, SlidersHorizontal, Search, MoreHorizontal, Send, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { DataTable } from '../../../components/shared/data-table';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import { SearchInput } from '../../../components/shared/filters/search-input';
@@ -15,6 +19,11 @@ import { useAllVans } from '../../vans/hooks/use-vans';
 import { useAllCustomers } from '../../customers/hooks/use-customers';
 import { Can } from '../../authz/components/can';
 import { cn } from '@water-supply-crm/ui';
+// Reusing the exact same resend flow the daily sheet's delivery card uses
+// (see delivery-items-list.tsx's handleResendReceipt) — same API client
+// function, same backend endpoint, same receipt generation. No new receipt
+// logic is introduced here.
+import { dailySheetsApi } from '../../daily-sheets/api/daily-sheets.api';
 
 const TRANSACTION_TYPES = [
   { value: '', label: 'All Types' },
@@ -55,10 +64,40 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
   
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [resendingId, setResendingId] = useState<string | null>(null);
 
   const txData = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
-  const rows = (txData?.data ?? []) as Array<{ id: string; type: string; amount: number; createdAt: string; customer?: { id: string; name: string }; description?: string }>;
+  const rows = (txData?.data ?? []) as Array<{
+    id: string;
+    type: string;
+    amount: number;
+    createdAt: string;
+    customer?: { id: string; name: string; phoneNumber?: string | null };
+    description?: string;
+    // Already existed on the Transaction model (set whenever a delivery is
+    // recorded) — just newly selected by ledger.service.ts so this page can
+    // reuse it, same as delivery-items-list.tsx's item.id.
+    dailySheetItemId?: string | null;
+    dailySheetItem?: { status?: string } | null;
+  }>;
   const total = txData?.meta?.total ?? 0;
+
+  // Re-push the same WhatsApp PDF receipt as the daily sheet's "Resend
+  // Receipt" button — identical handler shape to
+  // delivery-items-list.tsx's handleResendReceipt, just keyed off the
+  // transaction's linked dailySheetItemId instead of a DeliveryItem prop.
+  const handleResendReceipt = async (row: typeof rows[0]) => {
+    if (!row.dailySheetItemId) return;
+    setResendingId(row.id);
+    try {
+      await dailySheetsApi.resendReceipt(row.dailySheetItemId);
+      toast.success(`Receipt sent to ${row.customer?.name ?? 'customer'} on WhatsApp`);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to resend receipt');
+    } finally {
+      setResendingId(null);
+    }
+  };
 
   const vans = ((vansData as any)?.data ?? []) as Array<{ id: string; plateNumber: string }>;
   const customers = ((customersData as any)?.data ?? []) as Array<{ id: string; name: string; customerCode: string }>;
@@ -357,6 +396,54 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
                 <span className="text-xs truncate italic">{r.description || 'No notes available'}</span>
               </div>
             ),
+          },
+          {
+            key: 'actions',
+            header: '',
+            width: '60px',
+            cell: (r) => {
+              // No linked delivery at all (manual payment, adjustment,
+              // collection) — nothing to ever resend, so no menu at all
+              // rather than a permanently-disabled one.
+              if (!r.dailySheetItemId) return null;
+
+              const missingPhone = !r.customer?.phoneNumber;
+              const notCompleted = r.dailySheetItem?.status !== 'COMPLETED';
+              const disabledReason = missingPhone
+                ? 'Customer has no phone number on file'
+                : notCompleted
+                ? 'Receipt is only available for completed deliveries'
+                : null;
+              const isResending = resendingId === r.id;
+
+              return (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                    <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56 p-1.5 rounded-xl" onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenuItem
+                      disabled={!!disabledReason || isResending}
+                      onClick={() => handleResendReceipt(r)}
+                      title={disabledReason ?? undefined}
+                      className="rounded-lg cursor-pointer px-2 py-2 gap-2"
+                    >
+                      {isResending ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
+                      ) : (
+                        <Send className="h-4 w-4 text-emerald-600" />
+                      )}
+                      <span className="flex flex-col items-start">
+                        Resend Receipt
+                        {disabledReason && (
+                          <span className="text-[10px] font-normal normal-case text-muted-foreground">{disabledReason}</span>
+                        )}
+                      </span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              );
+            },
           },
         ]}
       />

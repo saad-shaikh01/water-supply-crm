@@ -342,8 +342,14 @@ export class LedgerService {
       this.prisma.transaction.findMany({
         where,
         include: {
-          customer: { select: { id: true, name: true, customerCode: true } },
+          customer: { select: { id: true, name: true, customerCode: true, phoneNumber: true } },
           product: { select: { id: true, name: true } },
+          // Lets the transactions page offer "Resend Receipt" by reusing
+          // DailySheetService.resendDeliveryReceipt — dailySheetItemId is
+          // already a column on this model; only the linked item's status
+          // is new here, so the button can be disabled up front for a
+          // non-COMPLETED item instead of round-tripping to a 400.
+          dailySheetItem: { select: { status: true } },
         },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
@@ -442,6 +448,12 @@ export class LedgerService {
         where,
         include: {
           product: { select: { id: true, name: true } },
+          // Same "Resend Receipt" reuse as findAllPaginated above — this
+          // customer-scoped view backs the same TransactionList component
+          // (rendered on the customer detail page's transaction tab), which
+          // doesn't otherwise have the customer's phone/item status on hand.
+          customer: { select: { phoneNumber: true } },
+          dailySheetItem: { select: { status: true } },
         },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,

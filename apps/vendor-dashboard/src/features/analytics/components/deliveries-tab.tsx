@@ -84,7 +84,11 @@ export function DeliveriesTab({ from, to }: { from: string; to: string }) {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Bottles Delivered" value={String(bottlesDelivered)} icon={Droplets} color="bg-blue-500/10" />
         <StatCard label="Bottles Returned" value={String(bottlesReturned)} icon={RotateCcw} color="bg-amber-500/10" />
-        <StatCard label="Filled Received" value={String(filledBottlesReturned)} icon={PackageCheck} color="bg-sky-500/10" />
+        {/* Filled Received is rare (account closing / excess stock returns) —
+            hidden entirely rather than showing an empty "0" card. */}
+        {filledBottlesReturned > 0 && (
+          <StatCard label="Filled Received" value={String(filledBottlesReturned)} icon={PackageCheck} color="bg-sky-500/10" />
+        )}
         <StatCard label="Net Bottles Out" value={String(bottlesNet)} icon={Archive} color="bg-violet-500/10" />
       </div>
 
