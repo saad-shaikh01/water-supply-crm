@@ -2281,9 +2281,11 @@ export class DailySheetService implements OnModuleInit {
    * Shared pre-close validation for both the direct Staff/Admin close and the
    * Driver/Salesman self-close request (Soft Close, Amendment R9): sheet
    * exists, not already closed, no active trip, no PENDING items, and — new
-   * with this feature — an END vehicle check has been recorded and carries
-   * no unacknowledged critical failure (mirrors the START check gate on trip
-   * start, vehicle-check.service.ts's assertTripStartClear).
+   * with this feature — an END vehicle check has been recorded (mirrors the
+   * START check gate on trip start, vehicle-check.service.ts's
+   * assertTripStartClear). NOTE (2026-08-25): unlike the trip-start gate,
+   * this no longer also requires the END check's critical failure to be
+   * acknowledged — see assertTripEndClear's docstring for why.
    */
   private async assertSheetCloseable(vendorId: string, sheetId: string) {
     const sheet = await this.fetchSheetForReconciliation(vendorId, sheetId);

@@ -306,25 +306,30 @@ export class VehicleCheckService {
 
   /**
    * The mirror-image gate for sheet close (Soft Close feature, Amendment R9):
-   * an END check must exist and carry no unacknowledged critical failure,
-   * exactly like assertTripStartClear does for trip start. Called by both
-   * the direct Staff/Admin close and the Driver/Salesman self-close request
-   * (daily-sheet.service.ts's closeSheet/requestClose) — so this data point
-   * is captured consistently regardless of which closure path is used.
+   * an END check must exist, exactly like assertTripStartClear requires a
+   * START check for trip start. Called by both the direct Staff/Admin close
+   * and the Driver/Salesman self-close request (daily-sheet.service.ts's
+   * closeSheet/requestClose) — so this data point is captured consistently
+   * regardless of which closure path is used.
+   *
+   * 2026-08-25 (owner request): the unacknowledged-critical-failure hard
+   * block on CLOSE was removed — it was leaving sheets permanently stuck
+   * closed whenever a Staff/Admin acknowledgement never happened (no UI path
+   * surfaced the Acknowledge action for the END check, only for START), with
+   * no way to recover except a direct DB write. The check is still recorded
+   * with hasCriticalFailure/notifyCriticalFailure exactly as before — Staff/
+   * Admin still gets notified and can still override() it — it just no
+   * longer blocks closing the sheet. assertTripStartClear (trip START) is
+   * intentionally unchanged and still hard-blocks on this.
    */
   async assertTripEndClear(vendorId: string, dailySheetId: string): Promise<void> {
     const endCheck = await this.prisma.vehicleDailyCheck.findUnique({
       where: { dailySheetId_checkType: { dailySheetId, checkType: 'END' } },
-      select: { hasCriticalFailure: true, criticalOverrideById: true },
+      select: { id: true },
     });
     if (!endCheck) {
       throw new ConflictException(
         'An end-of-day vehicle check is required before the sheet can be closed.',
-      );
-    }
-    if (endCheck.hasCriticalFailure && !endCheck.criticalOverrideById) {
-      throw new ConflictException(
-        'A critical vehicle issue was reported this evening and must be acknowledged by Staff/Admin before the sheet can be closed.',
       );
     }
   }
