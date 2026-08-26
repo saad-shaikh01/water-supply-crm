@@ -139,6 +139,12 @@ function CustomerHistorySection({ customerId }: { customerId: string }) {
                     {data.map((row, i) => {
                       const amountDue = row.filledDropped * row.pricePerBottle;
                       const balDue = row.financialBalanceAfter;
+                      // Bottle balance must always show a number — never a
+                      // dash — same matchedWallet fallback as the current
+                      // sheet's rows above and the daily sheet PDF.
+                      const matchedWallet =
+                        row.customer?.wallets?.find((w) => w.productId === row.productId) ?? row.customer?.wallets?.[0];
+                      const rowBottleBalance = row.bottleBalanceAfter ?? matchedWallet?.balance ?? 0;
                       const dateStr = row.deliveredAt
                         ? new Date(row.deliveredAt).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: '2-digit' })
                         : new Date(row.dailySheet.date).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: '2-digit' });
@@ -151,7 +157,7 @@ function CustomerHistorySection({ customerId }: { customerId: string }) {
                             <td className="px-2 py-2 text-center font-bold text-sky-600">{row.filledReceived}</td>
                           )}
                           <td className="px-2 py-2 text-center font-bold">
-                            {row.bottleBalanceAfter != null ? row.bottleBalanceAfter : '—'}
+                            {rowBottleBalance}
                           </td>
                           <td className="px-2 py-2 text-right">₨{amountDue.toLocaleString()}</td>
                           <td className="px-2 py-2 text-right text-emerald-600 font-medium">₨{row.cashCollected.toLocaleString()}</td>

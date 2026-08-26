@@ -1104,6 +1104,8 @@ export class DailySheetService implements OnModuleInit {
     const next = new Date(d);
     next.setDate(d.getDate() + 1);
 
+    // ── Delivery rows — unchanged source of truth (DailySheetItem carries
+    // sequence, snapshots, route ordering that Transaction does not) ──
     const items = await this.prisma.dailySheetItem.findMany({
       where: {
         status: { in: [DeliveryStatus.COMPLETED, DeliveryStatus.EMPTY_ONLY] },
@@ -1115,23 +1117,143 @@ export class DailySheetService implements OnModuleInit {
       orderBy: { sequence: 'asc' },
     });
 
-    const rows = items.map((item) =>
+    type ExportRow = {
+      code: string;
+      name: string;
+      type: string;
+      botBalance: unknown;
+      outstanding: unknown;
+      drop: number;
+      empty: number;
+      filledReceived: number;
+      cash: number;
+    };
+
+    const rows: ExportRow[] = items.map((item) => ({
+      code: item.customer.customerCode,
+      name: item.customer.name,
+      type: '',
+      botBalance: item.bottleBalanceAfter,
+      outstanding: item.financialBalanceAfter,
+      drop: item.filledDropped,
+      empty: item.emptyReceived,
+      filledReceived: item.filledReceived,
+      cash: item.cashCollected,
+    }));
+
+    // customerId -> row. A customer has at most one DailySheetItem per
+    // sheet, so this is a safe 1:1 lookup for the merge step below.
+    const rowByCustomerId = new Map<string, ExportRow>();
+    items.forEach((item, i) => rowByCustomerId.set(item.customerId, rows[i]));
+
+    // ── Standalone payments — office/walk-in payments not tied to a
+    // delivery (Transaction.dailySheetItemId is null). Delivery-linked
+    // PAYMENT transactions are excluded: those are already the source of
+    // item.cashCollected above and would double-count if included here.
+    const paymentAgg = await this.prisma.transaction.groupBy({
+      by: ['customerId'],
+      where: {
+        vendorId,
+        type: TransactionType.PAYMENT,
+        dailySheetItemId: null,
+        customerId: { not: null },
+        createdAt: { gte: d, lt: next },
+      },
+      _sum: { amount: true },
+    });
+
+    if (paymentAgg.length > 0) {
+      const standaloneAmounts = new Map<string, number>();
+
+      for (const p of paymentAgg) {
+        const customerId = p.customerId as string;
+        // Stored negative (a payment reduces financialBalance) — CSV shows
+        // the positive cash collected, same sign convention as
+        // item.cashCollected above.
+        const amount = Math.abs(p._sum.amount ?? 0);
+        if (amount === 0) continue;
+
+        const existingRow = rowByCustomerId.get(customerId);
+        if (existingRow) {
+          // Delivery + payment same day: merge onto the existing row —
+          // never a second row for a customer already present.
+          existingRow.cash += amount;
+        } else {
+          standaloneAmounts.set(customerId, amount);
+        }
+      }
+
+      let standaloneCustomerIds = [...standaloneAmounts.keys()];
+
+      if (standaloneCustomerIds.length > 0 && dto.vanIds && dto.vanIds.length > 0) {
+        // Specific-van export: a standalone payment has no vanId of its own,
+        // so attribute it via the customer's operational van for this
+        // date's day-of-week — the same CustomerDeliverySchedule mapping
+        // daily-sheet generation itself uses to place a customer on a van
+        // (see ensureSheetForVanDate above, which resolves dayOfWeek via
+        // targetDate.getDay() the same way). @@unique([customerId, dayOfWeek])
+        // guarantees at most one van per customer per day-of-week, so a
+        // payment can never be attributed to — and never duplicated
+        // across — more than one van.
+        const dayOfWeek = d.getDay();
+        const schedules = await this.prisma.customerDeliverySchedule.findMany({
+          where: { customerId: { in: standaloneCustomerIds }, dayOfWeek },
+          select: { customerId: true, vanId: true },
+        });
+        const vanIdSet = new Set(vanIds);
+        standaloneCustomerIds = schedules
+          .filter((s) => vanIdSet.has(s.vanId))
+          .map((s) => s.customerId);
+        // A payment-only customer with no schedule entry for this
+        // day-of-week has no van to attribute it to and is excluded from a
+        // specific-van export (still included under an "All Vans" export,
+        // the branch above this `if`).
+      }
+
+      if (standaloneCustomerIds.length > 0) {
+        const customers = await this.prisma.customer.findMany({
+          where: { id: { in: standaloneCustomerIds }, vendorId },
+          select: { id: true, customerCode: true, name: true },
+        });
+
+        for (const customer of customers) {
+          rows.push({
+            code: customer.customerCode,
+            name: customer.name,
+            type: 'Payment',
+            // No DailySheetItem snapshot exists for a payment-only row.
+            // Showing today's live customer/wallet balance here would
+            // silently misrepresent the state as of `dto.date` for any
+            // date that isn't today, so these are left blank rather than
+            // guessed.
+            botBalance: '',
+            outstanding: '',
+            drop: 0,
+            empty: 0,
+            filledReceived: 0,
+            cash: standaloneAmounts.get(customer.id) ?? 0,
+          });
+        }
+      }
+    }
+
+    const csvRows = rows.map((row) =>
       [
-        item.customer.customerCode,
-        item.customer.name,
-        '',
-        item.bottleBalanceAfter,
-        item.financialBalanceAfter,
-        item.filledDropped,
-        item.emptyReceived,
-        item.filledReceived,
-        item.cashCollected,
+        row.code,
+        row.name,
+        row.type,
+        row.botBalance,
+        row.outstanding,
+        row.drop,
+        row.empty,
+        row.filledReceived,
+        row.cash,
       ]
         .map((v) => this.csvEscape(v))
         .join(','),
     );
 
-    return [header, ...rows].join('\n');
+    return [header, ...csvRows].join('\n');
   }
 
   // Shared with movedOutLogs.item below — the "Moved Out" tab renders moved
@@ -3135,6 +3257,7 @@ export class DailySheetService implements OnModuleInit {
       take: limit,
       select: {
         id: true,
+        productId: true,
         filledDropped: true,
         emptyReceived: true,
         filledReceived: true,
@@ -3144,6 +3267,13 @@ export class DailySheetService implements OnModuleInit {
         financialBalanceAfter: true,
         deliveredAt: true,
         dailySheet: { select: { date: true } },
+        // Live wallet fallback for legacy rows with no bottleBalanceAfter
+        // snapshot (bottle balance must never render as a dash — same
+        // convention as delivery-items-list.tsx's current-sheet rows and
+        // the daily sheet PDF).
+        customer: {
+          select: { wallets: { select: { productId: true, balance: true } } },
+        },
       },
     });
   }

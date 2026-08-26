@@ -1035,6 +1035,13 @@ export class DailySheetPdfService {
       const totalEmptyRecv = items.reduce((s, i) => s + (i.emptyReceived ?? 0), 0);
       const totalBillAmount = items.reduce((s, i) => s + (i.filledDropped ?? 0) * (i.pricePerBottle ?? 0), 0);
       const totalCash = items.reduce((s, i) => s + (i.cashCollected ?? 0), 0);
+      // Same bottleBalanceAfter → live-wallet fallback as each row (see
+      // drawDeliveryTableLine's item branch) so the sum lines up with what's
+      // actually printed per stop, not just the delivered ones.
+      const totalBalBottles = items.reduce((s, i) => {
+        const matchedWallet = i.customer?.wallets?.find((w: any) => w.productId === i.productId) ?? i.customer?.wallets?.[0];
+        return s + (i.bottleBalanceAfter ?? matchedWallet?.balance ?? 0);
+      }, 0);
       const doneCount = items.filter((i) => i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY').length;
       const editedCount = items.filter((i) => (i.editCount ?? 0) > 0).length;
 
@@ -1052,7 +1059,9 @@ export class DailySheetPdfService {
       }
       cx += cols.filledRecv;
       doc.text(String(totalEmptyRecv), cx, ty, { width: cols.emptyRecv - 4, align: 'right', lineBreak: false });
-      cx += cols.emptyRecv + cols.balBottles;
+      cx += cols.emptyRecv;
+      doc.text(String(totalBalBottles), cx, ty, { width: cols.balBottles - 4, align: 'right', lineBreak: false });
+      cx += cols.balBottles;
       if (cols.billAmount > 0) {
         doc.text(this.rs(totalBillAmount), cx, ty, { width: cols.billAmount - 4, align: 'right', lineBreak: false });
       }
@@ -1142,8 +1151,16 @@ export class DailySheetPdfService {
     cx += cols.emptyRecv;
 
     // Frozen post-delivery bottle-wallet snapshot — no live query needed.
+    // Items with no recorded delivery (NOT_AVAILABLE etc.) never got a
+    // snapshot written, so bottleBalanceAfter stays null — fall back to the
+    // customer's current wallet balance for this item's product, defaulting
+    // to 0 (never a bare dash — every row must show a number, regardless of
+    // delivery status). Mirrors delivery-items-list.tsx's matchedWallet
+    // fallback, which uses the same `?? 0` default.
+    const matchedWallet = item.customer?.wallets?.find((w: any) => w.productId === item.productId) ?? item.customer?.wallets?.[0];
+    const balBottles = item.bottleBalanceAfter ?? matchedWallet?.balance ?? 0;
     doc.fillColor(C.muted)
-      .text(item.bottleBalanceAfter != null ? String(item.bottleBalanceAfter) : '—', cx, textY, { width: cols.balBottles - 4, align: 'right', lineBreak: false });
+      .text(String(balBottles), cx, textY, { width: cols.balBottles - 4, align: 'right', lineBreak: false });
     cx += cols.balBottles;
 
     // Bill amount owed for today's delivery — filledDropped × pricePerBottle,

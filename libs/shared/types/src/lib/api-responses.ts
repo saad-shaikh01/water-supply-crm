@@ -317,6 +317,7 @@ export interface CashCollectionPolicyImpact {
 
 export interface CustomerDeliveryHistoryItem {
   id: string;
+  productId: string;
   filledDropped: number;
   emptyReceived: number;
   filledReceived: number;
@@ -326,6 +327,9 @@ export interface CustomerDeliveryHistoryItem {
   financialBalanceAfter: number | null;
   deliveredAt: string | null;
   dailySheet: { date: string };
+  // Live wallet fallback so bottle balance never renders as a dash — see
+  // delivery-items-list.tsx's CustomerHistorySection.
+  customer: { wallets: { productId: string; balance: number }[] };
 }
 
 export interface LoadTrip {
