@@ -24,9 +24,9 @@
  * checks, fuel logs, service records, maintenance rules), driver GPS tracking,
  * notifications/FCM tokens, balance-reminder logs/config, and the vendor-level
  * policy config rows (collection policy, cash collection policy, warehouse
- * auto-refill). Vehicle + VehicleProfile master rows are KEPT (manually-entered,
- * like Van/Product — user decision 2026-08-26). Only re-import blue-ice while it
- * is safe to lose everything else — i.e. before real CRM usage accumulates.
+ * auto-refill). Only the bare `Vehicle` master row is KEPT (like Van/Product);
+ * `VehicleProfile` IS wiped since it only carries the auto-upserted odometer.
+ * Only re-import blue-ice while it is safe to lose everything else.
  *
  * Run:  node import-blue-ice.mjs            (real run)
  *       node import-blue-ice.mjs --dry      (parse + report only, no DB writes)
@@ -152,8 +152,8 @@ function parseTran() {
 // ── The one authoritative vendor-data wipe ──────────────────────────────────
 // Deletes EVERYTHING scoped to a vendor EXCEPT what a re-import is allowed to
 // keep:  Vendor · User · RBAC (Role/RolePermission/UserPermissionOverride) ·
-// Van/VanDefaultCrew · Product · Vehicle + VehicleProfile (the last two are
-// manually-entered vehicle master, kept per user decision 2026-08-26).
+// Van/VanDefaultCrew · Product · Vehicle (bare master row only — VehicleProfile
+// IS wiped, it just carries the auto odometer; user decision 2026-08-26).
 // Everything else — the HTML-derived data layer AND every downstream table the
 // schema has grown since (payroll, fleet cost/docs, crew cash, driver GPS,
 // notifications, reminder logs, policy config, audit log, delivery move logs) —
@@ -216,15 +216,19 @@ async function wipeVendorDataOnly(vendorId) {
   await prisma.warehouseStock.deleteMany({ where: w });
 
   // ── fleet / vehicle intelligence ──
-  // KEPT (user decision 2026-08-26): `Vehicle` + its 1:1 `VehicleProfile` are
-  // manually-entered vehicle master data — treated like Van/Product, never wiped
-  // here. Everything else fleet-shaped IS wiped: documents, maintenance rules,
-  // fuel/service cost history, and the sheet-tied daily checks.
+  // KEPT (user decision 2026-08-26): only the `Vehicle` master row itself
+  // (plate + usual-van link), treated like Van/Product. Everything else
+  // fleet-shaped IS wiped — including `VehicleProfile`: despite its name it is
+  // NOT manually-entered master data in practice, it is auto-upserted by every
+  // daily-check submission to carry `currentOdometer`, which is the source the
+  // Fleet list + maintenance-overdue rollup read. Leaving it made stale odometer
+  // + "N overdue maintenance" survive a re-import.
   await prisma.fuelLog.deleteMany({ where: w });
   await prisma.vehicleServiceRecord.deleteMany({ where: w });
   await prisma.vehicleMaintenanceRule.deleteMany({ where: w });
   await prisma.vehicleDailyCheck.deleteMany({ where: w });
   await prisma.vehicleDocument.deleteMany({ where: w });
+  await prisma.vehicleProfile.deleteMany({ where: w });
 
   // ── ledger + daily sheets ──
   await prisma.transaction.deleteMany({ where: w });
@@ -263,7 +267,7 @@ async function wipeVendorDataOnly(vendorId) {
   await prisma.customerProductPrice.deleteMany({ where: cw });
   await prisma.customer.deleteMany({ where: w });
   await prisma.route.deleteMany({ where: w });
-  console.log(`   ✅ cleared vendor data (kept: Vendor, Users, RBAC, Vans+crew, Product, Vehicle+Profile)`);
+  console.log(`   ✅ cleared vendor data (kept: Vendor, Users, RBAC, Vans+crew, Product, bare Vehicle rows)`);
 }
 
 // Fully delete a vendor and ALL its data, including everything a re-import would
@@ -274,7 +278,6 @@ async function wipeVendor(slug) {
   const w = { vendorId: v.id };
   await wipeVendorDataOnly(v.id);
   // now the kept rows too, children first
-  await prisma.vehicleProfile.deleteMany({ where: w });
   await prisma.vehicle.deleteMany({ where: w });
   await prisma.vanDefaultCrew.deleteMany({ where: { van: w } });
   await prisma.van.deleteMany({ where: w });
