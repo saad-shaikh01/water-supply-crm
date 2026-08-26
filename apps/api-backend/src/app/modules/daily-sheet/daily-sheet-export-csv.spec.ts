@@ -27,6 +27,11 @@ import { QUEUE_NAMES } from '@water-supply-crm/queue';
  * payment merged onto one row, multi-payment summation, and the
  * empty-day header-only case.
  *
+ * Column layout: 'Type' (3rd column) is ALWAYS blank — it is never used to
+ * mark a payment row. A standalone-payment row is marked only in the new
+ * trailing 'TranType' column ('Payment'); every delivery row (including a
+ * merged delivery+payment row) leaves TranType blank too.
+ *
  * Van scoping: a standalone payment (office cash, online transfer) has no
  * van of its own — it only adjusts the customer's balance — so it is
  * NEVER filtered by the export's van selection. Only the `items`
@@ -106,7 +111,7 @@ describe('DailySheetService.generateExportCsv', () => {
     const lines = csv.split('\n');
 
     expect(lines).toHaveLength(2);
-    expect(lines[1]).toBe('C-A,Customer A,,10,200,4,2,0,500');
+    expect(lines[1]).toBe('C-A,Customer A,,10,200,4,2,0,500,');
   });
 
   // ── Case 2: payment only ──
@@ -124,7 +129,7 @@ describe('DailySheetService.generateExportCsv', () => {
     const lines = csv.split('\n');
 
     expect(lines).toHaveLength(2);
-    expect(lines[1]).toBe('C-B,Customer B,Payment,,,0,0,0,2000');
+    expect(lines[1]).toBe('C-B,Customer B,,,,0,0,0,2000,Payment');
   });
 
   // ── Case 3: delivery + standalone payment same day ──
@@ -139,7 +144,7 @@ describe('DailySheetService.generateExportCsv', () => {
     const lines = csv.split('\n');
 
     expect(lines).toHaveLength(2);
-    expect(lines[1]).toBe('C-A,Customer A,,10,200,4,2,0,800');
+    expect(lines[1]).toBe('C-A,Customer A,,10,200,4,2,0,800,');
     expect(mockPrisma.customer.findMany).not.toHaveBeenCalled();
   });
 
@@ -160,7 +165,7 @@ describe('DailySheetService.generateExportCsv', () => {
     const csv = await service.generateExportCsv(VENDOR_ID, { date: DATE });
     const lines = csv.split('\n');
 
-    expect(lines[1]).toBe('C-B,Customer B,Payment,,,0,0,0,3000');
+    expect(lines[1]).toBe('C-B,Customer B,,,,0,0,0,3000,Payment');
   });
 
   // ── Case 5: specific-van export — standalone payments are never van-filtered ──
@@ -180,8 +185,8 @@ describe('DailySheetService.generateExportCsv', () => {
     const lines = csv.split('\n');
 
     expect(lines).toHaveLength(3);
-    expect(lines[1]).toBe('C-B,Customer B,Payment,,,0,0,0,2000');
-    expect(lines[2]).toBe('C-C,Customer C,Payment,,,0,0,0,1500');
+    expect(lines[1]).toBe('C-B,Customer B,,,,0,0,0,2000,Payment');
+    expect(lines[2]).toBe('C-C,Customer C,,,,0,0,0,1500,Payment');
     // Both customers looked up in one batched call, not per-customer.
     expect(mockPrisma.customer.findMany).toHaveBeenCalledTimes(1);
   });
@@ -214,8 +219,39 @@ describe('DailySheetService.generateExportCsv', () => {
     const csv = await service.generateExportCsv(VENDOR_ID, { date: DATE });
 
     expect(csv).toBe(
-      'Code,Customer Name,Type,Bot Balance,Outstanding Amount,Drop,Empty,Filled Received,Amount Received',
+      'Code,Customer Name,Type,Bot Balance,Outstanding Amount,Drop,Empty,Filled Received,Amount Received,TranType',
     );
     expect(mockPrisma.customer.findMany).not.toHaveBeenCalled();
+  });
+
+  // ── exportType: 'deliveries' — no payment query, no merge, even for a customer with both ──
+  it('exportType "deliveries" skips the payment query entirely and never merges cash', async () => {
+    mockAllVans();
+    mockPrisma.dailySheetItem.findMany.mockResolvedValue([deliveryItem()]);
+
+    const csv = await service.generateExportCsv(VENDOR_ID, { date: DATE, exportType: 'deliveries' });
+    const lines = csv.split('\n');
+
+    expect(lines[1]).toBe('C-A,Customer A,,10,200,4,2,0,500,');
+    expect(mockPrisma.transaction.groupBy).not.toHaveBeenCalled();
+  });
+
+  // ── exportType: 'payments' — no delivery query; even a customer with a delivery
+  //    today becomes a payment-only synthetic row, never merged ──
+  it('exportType "payments" skips the delivery query entirely and only emits payment rows', async () => {
+    mockAllVans();
+    mockPrisma.transaction.groupBy.mockResolvedValue([
+      { customerId: 'cust-A', _sum: { amount: -500 } }, // same customer as deliveryItem(), but delivery query never runs
+    ]);
+    mockPrisma.customer.findMany.mockResolvedValue([
+      { id: 'cust-A', customerCode: 'C-A', name: 'Customer A' },
+    ]);
+
+    const csv = await service.generateExportCsv(VENDOR_ID, { date: DATE, exportType: 'payments' });
+    const lines = csv.split('\n');
+
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toBe('C-A,Customer A,,,,0,0,0,500,Payment');
+    expect(mockPrisma.dailySheetItem.findMany).not.toHaveBeenCalled();
   });
 });

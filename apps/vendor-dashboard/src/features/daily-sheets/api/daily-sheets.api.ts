@@ -122,17 +122,35 @@ export interface GlobalImportConfirmResponse {
   failedGroups: number;
 }
 
+// 'both' (default, unchanged behavior) mixes delivery + standalone-payment
+// rows in one CSV; 'deliveries'/'payments' download only one kind.
+export type ExportType = 'both' | 'deliveries' | 'payments';
+
 export interface ExportPreviewVan {
   vanId: string;
   plateNumber: string;
   completed: number;
   pending: number;
   cancelled: number;
+  filledDropped: number;
+  emptyReceived: number;
+  cashCollected: number;
 }
 
 export interface ExportPreviewResponse {
   perVan: ExportPreviewVan[];
-  totals: { completed: number; pending: number; cancelled: number };
+  totals: {
+    completed: number;
+    pending: number;
+    cancelled: number;
+    filledDropped: number;
+    emptyReceived: number;
+    cashCollected: number;
+    // Office/walk-in "Record Payment" collections — never van-scoped (a
+    // payment has no van of its own), so this is a single vendor+date-wide
+    // figure, not summed from perVan.
+    standalonePayments: number;
+  };
 }
 
 export interface MoveDeliveryItemsData {
@@ -294,11 +312,11 @@ export const dailySheetsApi = {
       { groups },
     ),
   // CSV export
-  getExportPreview: (data: { date: string; vanIds?: string[] }) =>
+  getExportPreview: (data: { date: string; vanIds?: string[]; exportType?: ExportType }) =>
     apiClient.post('/daily-sheets/export/preview', data).then((r) => r.data),
-  downloadExportCsv: (date: string, vanIds?: string[]) =>
+  downloadExportCsv: (date: string, vanIds?: string[], exportType?: ExportType) =>
     apiClient.get('/daily-sheets/export/csv', {
-      params: { date, vanIds: vanIds?.length ? vanIds.join(',') : undefined },
+      params: { date, vanIds: vanIds?.length ? vanIds.join(',') : undefined, exportType },
       responseType: 'blob',
     }),
 };

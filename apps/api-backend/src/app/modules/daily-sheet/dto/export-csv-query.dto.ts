@@ -1,4 +1,4 @@
-import { IsDateString, IsOptional, IsArray, IsUUID } from 'class-validator';
+import { IsDateString, IsOptional, IsArray, IsUUID, IsIn } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class ExportCsvQueryDto {
@@ -10,4 +10,10 @@ export class ExportCsvQueryDto {
   @IsArray()
   @IsUUID('4', { each: true })
   vanIds?: string[];
+
+  // Which rows to include — deliveries (DailySheetItem), standalone payments
+  // (Transaction, office/walk-in), or both (default, unchanged behavior).
+  @IsOptional()
+  @IsIn(['both', 'deliveries', 'payments'])
+  exportType?: 'both' | 'deliveries' | 'payments';
 }

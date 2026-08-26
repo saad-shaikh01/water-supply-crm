@@ -10,6 +10,7 @@ import {
   type GlobalImportPreviewResponse,
   type GlobalImportGroupDto,
   type ExportPreviewResponse,
+  type ExportType,
   type MoveDeliveryItemsData,
   type MoveDeliveryItemsResponse,
   type DestinationOption,
@@ -460,7 +461,7 @@ export const usePreviewGlobalBulkImport = () => {
 
 export const useExportPreview = () => {
   return useMutation({
-    mutationFn: (data: { date: string; vanIds?: string[] }): Promise<ExportPreviewResponse> =>
+    mutationFn: (data: { date: string; vanIds?: string[]; exportType?: ExportType }): Promise<ExportPreviewResponse> =>
       dailySheetsApi.getExportPreview(data),
     onError: (e: any) =>
       toast.error(e?.response?.data?.message ?? 'Failed to load export preview. Please try again.'),

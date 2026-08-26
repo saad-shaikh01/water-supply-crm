@@ -1046,29 +1046,49 @@ export class DailySheetService implements OnModuleInit {
     });
   }
 
-  async getExportPreview(vendorId: string, dto: { date: string; vanIds?: string[] }) {
+  async getExportPreview(
+    vendorId: string,
+    dto: { date: string; vanIds?: string[]; exportType?: 'both' | 'deliveries' | 'payments' },
+  ) {
+    const exportType = dto.exportType ?? 'both';
     const vans = await this.resolveExportVans(vendorId, dto.vanIds);
 
     const d = new Date(dto.date);
     const next = new Date(d);
     next.setDate(d.getDate() + 1);
 
-    const perVan = await Promise.all(
+    // "Payments Only" downloads no delivery rows at all (see
+    // generateExportCsv) — skip the per-van sheet query entirely rather
+    // than compute delivery stats nobody is about to export.
+    const perVan = exportType === 'payments'
+      ? vans.map((van) => ({
+          vanId: van.id, plateNumber: van.plateNumber,
+          completed: 0, pending: 0, cancelled: 0,
+          filledDropped: 0, emptyReceived: 0, cashCollected: 0,
+        }))
+      : await Promise.all(
       vans.map(async (van) => {
         const sheet = await this.prisma.dailySheet.findFirst({
           where: { vendorId, vanId: van.id, date: { gte: d, lt: next } },
-          select: { items: { select: { status: true } } },
+          select: { items: { select: { status: true, filledDropped: true, emptyReceived: true, cashCollected: true } } },
         });
 
         const items = sheet?.items ?? [];
-        const completed = items.filter(
+        const completedItems = items.filter(
           (i) => i.status === DeliveryStatus.COMPLETED || i.status === DeliveryStatus.EMPTY_ONLY,
-        ).length;
+        );
+        const completed = completedItems.length;
         const pending = items.filter((i) => i.status === DeliveryStatus.PENDING).length;
         const cancelledStatuses: string[] = ['CANCELLED', 'NOT_AVAILABLE', 'RESCHEDULED'];
         const cancelled = items.filter((i) => cancelledStatuses.includes(i.status)).length;
 
-        return { vanId: van.id, plateNumber: van.plateNumber, completed, pending, cancelled };
+        // Bottles/cash — same completed+empty_only scope as generateExportCsv,
+        // so this preview's numbers match what actually lands in the CSV.
+        const filledDropped = completedItems.reduce((s, i) => s + i.filledDropped, 0);
+        const emptyReceived = completedItems.reduce((s, i) => s + i.emptyReceived, 0);
+        const cashCollected = completedItems.reduce((s, i) => s + i.cashCollected, 0);
+
+        return { vanId: van.id, plateNumber: van.plateNumber, completed, pending, cancelled, filledDropped, emptyReceived, cashCollected };
       }),
     );
 
@@ -1077,11 +1097,34 @@ export class DailySheetService implements OnModuleInit {
         completed: acc.completed + v.completed,
         pending: acc.pending + v.pending,
         cancelled: acc.cancelled + v.cancelled,
+        filledDropped: acc.filledDropped + v.filledDropped,
+        emptyReceived: acc.emptyReceived + v.emptyReceived,
+        cashCollected: acc.cashCollected + v.cashCollected,
       }),
-      { completed: 0, pending: 0, cancelled: 0 },
+      { completed: 0, pending: 0, cancelled: 0, filledDropped: 0, emptyReceived: 0, cashCollected: 0 },
     );
 
-    return { perVan, totals };
+    // Standalone payments (office/walk-in, Record Payment — not tied to any
+    // delivery) — same exclusion of delivery-linked PAYMENT rows as
+    // generateExportCsv, and NEVER van-scoped (a payment has no van of its
+    // own — see generateExportCsv), so this is one vendor+date-wide sum,
+    // not part of the per-van breakdown above. "Deliveries Only" downloads
+    // no payment rows at all — skip the query.
+    let standalonePayments = 0;
+    if (exportType !== 'deliveries') {
+      const standaloneAgg = await this.prisma.transaction.aggregate({
+        where: {
+          vendorId,
+          type: TransactionType.PAYMENT,
+          dailySheetItemId: null,
+          createdAt: { gte: d, lt: next },
+        },
+        _sum: { amount: true },
+      });
+      standalonePayments = Math.abs(standaloneAgg._sum.amount ?? 0);
+    }
+
+    return { perVan, totals: { ...totals, standalonePayments } };
   }
 
   // Escapes a CSV field: wraps in double-quotes (doubling internal quotes)
@@ -1091,11 +1134,15 @@ export class DailySheetService implements OnModuleInit {
     return s.includes(',') || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s;
   }
 
-  async generateExportCsv(vendorId: string, dto: { date: string; vanIds?: string[] }): Promise<string> {
+  async generateExportCsv(
+    vendorId: string,
+    dto: { date: string; vanIds?: string[]; exportType?: 'both' | 'deliveries' | 'payments' },
+  ): Promise<string> {
+    const exportType = dto.exportType ?? 'both';
     const vans = await this.resolveExportVans(vendorId, dto.vanIds);
     const vanIds = vans.map((v) => v.id);
 
-    const header = 'Code,Customer Name,Type,Bot Balance,Outstanding Amount,Drop,Empty,Filled Received,Amount Received';
+    const header = 'Code,Customer Name,Type,Bot Balance,Outstanding Amount,Drop,Empty,Filled Received,Amount Received,TranType';
     if (vanIds.length === 0) {
       return header;
     }
@@ -1105,17 +1152,20 @@ export class DailySheetService implements OnModuleInit {
     next.setDate(d.getDate() + 1);
 
     // ── Delivery rows — unchanged source of truth (DailySheetItem carries
-    // sequence, snapshots, route ordering that Transaction does not) ──
-    const items = await this.prisma.dailySheetItem.findMany({
-      where: {
-        status: { in: [DeliveryStatus.COMPLETED, DeliveryStatus.EMPTY_ONLY] },
-        dailySheet: { vendorId, vanId: { in: vanIds }, date: { gte: d, lt: next } },
-      },
-      include: {
-        customer: { select: { customerCode: true, name: true } },
-      },
-      orderBy: { sequence: 'asc' },
-    });
+    // sequence, snapshots, route ordering that Transaction does not).
+    // Skipped entirely for a "Payments Only" export — no query, no rows. ──
+    const items = exportType === 'payments'
+      ? []
+      : await this.prisma.dailySheetItem.findMany({
+          where: {
+            status: { in: [DeliveryStatus.COMPLETED, DeliveryStatus.EMPTY_ONLY] },
+            dailySheet: { vendorId, vanId: { in: vanIds }, date: { gte: d, lt: next } },
+          },
+          include: {
+            customer: { select: { customerCode: true, name: true } },
+          },
+          orderBy: { sequence: 'asc' },
+        });
 
     type ExportRow = {
       code: string;
@@ -1127,6 +1177,11 @@ export class DailySheetService implements OnModuleInit {
       empty: number;
       filledReceived: number;
       cash: number;
+      // Last column — 'Payment' only for a standalone (Record Payment) row;
+      // blank for every delivery row, including one whose cash includes a
+      // merged same-day standalone payment (Type stays blank there too —
+      // only TranType marks a row as a payment).
+      tranType: string;
     };
 
     const rows: ExportRow[] = items.map((item) => ({
@@ -1139,6 +1194,7 @@ export class DailySheetService implements OnModuleInit {
       empty: item.emptyReceived,
       filledReceived: item.filledReceived,
       cash: item.cashCollected,
+      tranType: '',
     }));
 
     // customerId -> row. A customer has at most one DailySheetItem per
@@ -1150,17 +1206,20 @@ export class DailySheetService implements OnModuleInit {
     // delivery (Transaction.dailySheetItemId is null). Delivery-linked
     // PAYMENT transactions are excluded: those are already the source of
     // item.cashCollected above and would double-count if included here.
-    const paymentAgg = await this.prisma.transaction.groupBy({
-      by: ['customerId'],
-      where: {
-        vendorId,
-        type: TransactionType.PAYMENT,
-        dailySheetItemId: null,
-        customerId: { not: null },
-        createdAt: { gte: d, lt: next },
-      },
-      _sum: { amount: true },
-    });
+    // Skipped entirely for a "Deliveries Only" export — no query.
+    const paymentAgg = exportType === 'deliveries'
+      ? []
+      : await this.prisma.transaction.groupBy({
+          by: ['customerId'],
+          where: {
+            vendorId,
+            type: TransactionType.PAYMENT,
+            dailySheetItemId: null,
+            customerId: { not: null },
+            createdAt: { gte: d, lt: next },
+          },
+          _sum: { amount: true },
+        });
 
     if (paymentAgg.length > 0) {
       const standaloneAmounts = new Map<string, number>();
@@ -1201,7 +1260,7 @@ export class DailySheetService implements OnModuleInit {
           rows.push({
             code: customer.customerCode,
             name: customer.name,
-            type: 'Payment',
+            type: '',
             // No DailySheetItem snapshot exists for a payment-only row.
             // Showing today's live customer/wallet balance here would
             // silently misrepresent the state as of `dto.date` for any
@@ -1213,6 +1272,7 @@ export class DailySheetService implements OnModuleInit {
             empty: 0,
             filledReceived: 0,
             cash: standaloneAmounts.get(customer.id) ?? 0,
+            tranType: 'Payment',
           });
         }
       }
@@ -1229,6 +1289,7 @@ export class DailySheetService implements OnModuleInit {
         row.empty,
         row.filledReceived,
         row.cash,
+        row.tranType,
       ]
         .map((v) => this.csvEscape(v))
         .join(','),
