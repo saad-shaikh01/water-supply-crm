@@ -517,7 +517,14 @@ export class DailySheetPdfService {
     );
     const delivered = activeItems.reduce((s: number, i: any) => s + (i.filledDropped ?? 0), 0);
     const filledReceived = activeItems.reduce((s: number, i: any) => s + (i.filledReceived ?? 0), 0);
-    const bottleDiscrepancy = sheet.filledOutCount - (sheet.filledInCount + delivered);
+    // Filled bottles taken back from customers (account close / excess-stock
+    // return) physically re-enter the van's filled stock, so they belong on
+    // the supply side of the balance — must mirror
+    // DailySheetService.buildReconciliation() exactly, or the printed verdict
+    // shows a phantom shortage equal to filledReceived on any sheet that had
+    // one (was: filledOutCount - (filledInCount + delivered)).
+    const bottleDiscrepancy =
+      (sheet.filledOutCount + filledReceived) - (sheet.filledInCount + delivered);
     const emptyCollected = activeItems.reduce((s: number, i: any) => s + (i.emptyReceived ?? 0), 0);
     const emptyDiscrepancy = emptyCollected - sheet.emptyInCount;
     const cashDiscrepancy = (sheet.cashCollected ?? 0) - (sheet.cashExpected ?? 0);
@@ -797,9 +804,16 @@ export class DailySheetPdfService {
         filledOut: t.loadedFilled ?? 0,
         filledReturned: t.returnedFilled ?? 0,
         filledReceived,
-        // Verified against the reference sheet's own worked examples:
-        // 100-5-0=95, 50-10-0=40, 50-5-0=45.
-        sold: (t.loadedFilled ?? 0) - (t.returnedFilled ?? 0) - filledReceived,
+        // Physical balance: loadedFilled + filledReceived (taken back from
+        // customers, re-enters van stock) = sold + returnedFilled. So
+        // sold = loadedFilled - returnedFilled + filledReceived — same
+        // supply-side treatment of filledReceived as the sheet-level
+        // DailySheetService.buildReconciliation(). The reference sheet's
+        // worked examples (100-5-0=95, 50-10-0=40, 50-5-0=45) all had
+        // filledReceived=0, so they never pinned down its sign; a sheet
+        // with a real customer return exposed it as a phantom shortfall in
+        // the TOTAL row (was: `- filledReceived`).
+        sold: (t.loadedFilled ?? 0) - (t.returnedFilled ?? 0) + filledReceived,
         emptyReceive: t.collectedEmpty ?? 0,
         cashCollected,
         expense,

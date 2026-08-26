@@ -1047,9 +1047,12 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
               <Receipt className="h-5 w-5" />
             </div>
             <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase text-muted-foreground">Trip Expenses</p>
+              <p className="text-[10px] font-bold uppercase text-muted-foreground" title="All recorded expenses (fuel included) plus cash handed to crew — the full cash-out figure for this sheet">Trip Expenses</p>
               <p className="text-sm font-black text-destructive truncate">
-                ₨ {(data?.expenses ?? []).reduce((s, e) => s + e.amount, 0).toLocaleString()}
+                ₨ {(
+                  (data?.expenses ?? []).reduce((s, e) => s + e.amount, 0) +
+                  (data?.crewCashDistributions ?? []).reduce((s, c) => s + c.amount, 0)
+                ).toLocaleString()}
               </p>
             </div>
           </CardContent>

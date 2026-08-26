@@ -37,6 +37,14 @@ export class FuelLogService {
     if (!vehicle.isActive) throw new BadRequestException('This vehicle is inactive.');
 
     let sheetVanId: string | null = null;
+    // Trip attribution for the spawned Expense — same server-side inference as
+    // ExpenseService.create / CrewCashDistributionService.create: the Expense
+    // is pinned to whichever trip is currently open on the sheet (null if
+    // none). Without it every fuel Expense stayed unattributed and the
+    // per-trip EXPENSE / cash-in-hand breakdown (sheet-detail.tsx tripStats +
+    // the printed Trip Summary) silently dropped fuel, overstating each
+    // trip's running cash-in-hand by the cash-paid fuel amount.
+    let dailySheetLoadId: string | null = null;
     if (dto.dailySheetId) {
       const sheet = await this.prisma.dailySheet.findFirst({
         where: { id: dto.dailySheetId, vendorId: user.vendorId },
@@ -53,6 +61,12 @@ export class FuelLogService {
         throw new BadRequestException('Cannot record a Fuel Log against a closed daily sheet.');
       }
       sheetVanId = sheet.vanId;
+
+      const activeLoad = await this.prisma.dailySheetLoad.findFirst({
+        where: { dailySheetId: dto.dailySheetId, endedAt: null },
+        select: { id: true },
+      });
+      dailySheetLoadId = activeLoad?.id ?? null;
     }
 
     // Most fills come straight out of the driver's collected cash — default
@@ -73,6 +87,7 @@ export class FuelLogService {
           date: new Date(dto.date),
           vanId: sheetVanId,
           dailySheetId: dto.dailySheetId ?? null,
+          dailySheetLoadId,
           createdById: user.userId,
         },
       });
