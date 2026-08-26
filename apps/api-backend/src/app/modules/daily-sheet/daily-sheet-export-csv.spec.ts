@@ -24,9 +24,15 @@ import { QUEUE_NAMES } from '@water-supply-crm/queue';
  * merge (Daily Sheet CSV export enhancement, per docs research).
  *
  * Covers: delivery-only unchanged, payment-only synthetic row, delivery +
- * payment merged onto one row, multi-payment summation, specific-van
- * attribution via CustomerDeliverySchedule, all-vans inclusion, and the
+ * payment merged onto one row, multi-payment summation, and the
  * empty-day header-only case.
+ *
+ * Van scoping: a standalone payment (office cash, online transfer) has no
+ * van of its own — it only adjusts the customer's balance — so it is
+ * NEVER filtered by the export's van selection. Only the `items`
+ * (delivery) query is van-scoped. Cases 5/6 assert this explicitly: the
+ * same standalone payments appear identically whether the export is for
+ * "All Vans" or a specific van.
  */
 describe('DailySheetService.generateExportCsv', () => {
   let service: DailySheetService;
@@ -42,7 +48,6 @@ describe('DailySheetService.generateExportCsv', () => {
       van: { findMany: jest.fn() },
       dailySheetItem: { findMany: jest.fn() },
       transaction: { groupBy: jest.fn() },
-      customerDeliverySchedule: { findMany: jest.fn() },
       customer: { findMany: jest.fn() },
     };
 
@@ -158,36 +163,31 @@ describe('DailySheetService.generateExportCsv', () => {
     expect(lines[1]).toBe('C-B,Customer B,Payment,,,0,0,0,3000');
   });
 
-  // ── Case 5: specific-van export — payment attributed via CustomerDeliverySchedule ──
-  it('includes a payment-only customer under a specific-van export only when their schedule matches the selected van', async () => {
+  // ── Case 5: specific-van export — standalone payments are never van-filtered ──
+  it('includes every standalone payment under a specific-van export, regardless of which van is selected', async () => {
     mockAllVans([VAN_ID]); // resolveExportVans validates the requested van
     mockPrisma.dailySheetItem.findMany.mockResolvedValue([]);
     mockPrisma.transaction.groupBy.mockResolvedValue([
-      { customerId: 'cust-B', _sum: { amount: -2000 } }, // scheduled on VAN_ID
-      { customerId: 'cust-C', _sum: { amount: -1500 } }, // scheduled on OTHER_VAN_ID
-    ]);
-    mockPrisma.customerDeliverySchedule.findMany.mockResolvedValue([
-      { customerId: 'cust-B', vanId: VAN_ID },
-      { customerId: 'cust-C', vanId: OTHER_VAN_ID },
+      { customerId: 'cust-B', _sum: { amount: -2000 } },
+      { customerId: 'cust-C', _sum: { amount: -1500 } },
     ]);
     mockPrisma.customer.findMany.mockResolvedValue([
       { id: 'cust-B', customerCode: 'C-B', name: 'Customer B' },
+      { id: 'cust-C', customerCode: 'C-C', name: 'Customer C' },
     ]);
 
     const csv = await service.generateExportCsv(VENDOR_ID, { date: DATE, vanIds: [VAN_ID] });
     const lines = csv.split('\n');
 
-    expect(lines).toHaveLength(2);
+    expect(lines).toHaveLength(3);
     expect(lines[1]).toBe('C-B,Customer B,Payment,,,0,0,0,2000');
-    // Only the attributed customer is looked up — batched, not per-customer.
+    expect(lines[2]).toBe('C-C,Customer C,Payment,,,0,0,0,1500');
+    // Both customers looked up in one batched call, not per-customer.
     expect(mockPrisma.customer.findMany).toHaveBeenCalledTimes(1);
-    expect(mockPrisma.customer.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ id: { in: ['cust-B'] } }) }),
-    );
   });
 
-  // ── Case 6: all-vans export — every payment-only customer included once, no schedule lookup ──
-  it('includes every standalone payment under an all-vans export without a van-attribution query', async () => {
+  // ── Case 6: all-vans export — identical standalone-payment rows as a specific-van export ──
+  it('includes every standalone payment under an all-vans export, same as a specific-van export', async () => {
     mockAllVans([VAN_ID, OTHER_VAN_ID]);
     mockPrisma.dailySheetItem.findMany.mockResolvedValue([]);
     mockPrisma.transaction.groupBy.mockResolvedValue([
@@ -200,10 +200,9 @@ describe('DailySheetService.generateExportCsv', () => {
     ]);
 
     const csv = await service.generateExportCsv(VENDOR_ID, { date: DATE }); // no vanIds = All Vans
-    const lines = csv.split('\n');
 
+    const lines = csv.split('\n');
     expect(lines).toHaveLength(3);
-    expect(mockPrisma.customerDeliverySchedule.findMany).not.toHaveBeenCalled();
   });
 
   // ── Case 7: no deliveries, no payments ──

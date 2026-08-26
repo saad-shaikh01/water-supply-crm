@@ -1183,32 +1183,13 @@ export class DailySheetService implements OnModuleInit {
         }
       }
 
-      let standaloneCustomerIds = [...standaloneAmounts.keys()];
-
-      if (standaloneCustomerIds.length > 0 && dto.vanIds && dto.vanIds.length > 0) {
-        // Specific-van export: a standalone payment has no vanId of its own,
-        // so attribute it via the customer's operational van for this
-        // date's day-of-week — the same CustomerDeliverySchedule mapping
-        // daily-sheet generation itself uses to place a customer on a van
-        // (see ensureSheetForVanDate above, which resolves dayOfWeek via
-        // targetDate.getDay() the same way). @@unique([customerId, dayOfWeek])
-        // guarantees at most one van per customer per day-of-week, so a
-        // payment can never be attributed to — and never duplicated
-        // across — more than one van.
-        const dayOfWeek = d.getDay();
-        const schedules = await this.prisma.customerDeliverySchedule.findMany({
-          where: { customerId: { in: standaloneCustomerIds }, dayOfWeek },
-          select: { customerId: true, vanId: true },
-        });
-        const vanIdSet = new Set(vanIds);
-        standaloneCustomerIds = schedules
-          .filter((s) => vanIdSet.has(s.vanId))
-          .map((s) => s.customerId);
-        // A payment-only customer with no schedule entry for this
-        // day-of-week has no van to attribute it to and is excluded from a
-        // specific-van export (still included under an "All Vans" export,
-        // the branch above this `if`).
-      }
+      // A standalone payment (office cash, online transfer) has no van of
+      // its own — it just adjusts the customer's balance, independent of
+      // any delivery route. So it's never filtered by the export's van
+      // selection: it shows up whether the export is "All Vans" or a
+      // specific van. Only deliveries (the `items` query above) are
+      // van-scoped.
+      const standaloneCustomerIds = [...standaloneAmounts.keys()];
 
       if (standaloneCustomerIds.length > 0) {
         const customers = await this.prisma.customer.findMany({
