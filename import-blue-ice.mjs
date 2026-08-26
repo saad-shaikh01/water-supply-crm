@@ -8,18 +8,25 @@
  * Builds: Vendor → Product → Vans + Drivers → Customers (+wallet, custom price,
  * delivery schedule, portal login) → DailySheets + DailySheetItems + Transactions.
  *
- * Accounts-preserving re-run model: the vendor, its Users (VENDOR_ADMIN/STAFF/
- * drivers/SUPER_ADMIN), RBAC (Role/RolePermission/UserPermissionOverride), Vans,
- * and Product are found-or-created — NEVER deleted or recreated on a re-run, so
- * real login credentials, custom roles/permissions, and van/driver assignments
- * made in the live CRM survive every re-import. Only the DATA LAYER that this
- * script itself derives from the HTML exports (Customer, BottleWallet,
- * CustomerProductPrice, CustomerDeliverySchedule, Route, DailySheet,
- * DailySheetItem, Transaction) is wiped and rebuilt fresh each run — see
- * wipeVendorDataOnly(). Note: this still means anything tied to a Customer row
- * that this script does NOT generate (damage cases, delivery issues, tickets,
- * orders, payment requests, conversations, expenses, warehouse ops) is lost on
- * re-run too, since customers get fresh ids — flagged, not solved here.
+ * Accounts-preserving re-run model: ONLY the vendor, its Users (VENDOR_ADMIN/
+ * STAFF/drivers/SUPER_ADMIN), RBAC (Role/RolePermission/UserPermissionOverride),
+ * Vans + VanDefaultCrew, and Product are found-or-created — NEVER deleted or
+ * recreated on a re-run, so real login credentials, custom roles/permissions,
+ * and van/driver/crew assignments made in the live CRM survive every re-import.
+ * EVERYTHING ELSE scoped to the vendor is wiped and rebuilt from scratch each
+ * run — see wipeVendorDataOnly(). That now includes not just the HTML-derived
+ * data layer (Customer, wallets, prices, schedules, Route, DailySheet(+Item/
+ * Load/Crew), Transaction) but also every downstream table: damage/discrepancy
+ * cases, delivery issues + move logs, tickets, orders, payment requests,
+ * conversations, expenses, warehouse ops, crew-cash distributions, the whole
+ * Payroll stack (salary structures, staff ledger, payroll periods/entries/
+ * snapshots, settlements), the Fleet cost/document layer (documents, daily
+ * checks, fuel logs, service records, maintenance rules), driver GPS tracking,
+ * notifications/FCM tokens, balance-reminder logs/config, and the vendor-level
+ * policy config rows (collection policy, cash collection policy, warehouse
+ * auto-refill). Vehicle + VehicleProfile master rows are KEPT (manually-entered,
+ * like Van/Product — user decision 2026-08-26). Only re-import blue-ice while it
+ * is safe to lose everything else — i.e. before real CRM usage accumulates.
  *
  * Run:  node import-blue-ice.mjs            (real run)
  *       node import-blue-ice.mjs --dry      (parse + report only, no DB writes)
@@ -142,52 +149,140 @@ function parseTran() {
   })).filter((t) => t.date);
 }
 
-// Fully delete a vendor and ALL its data, in FK-safe order (children first).
-async function wipeVendor(slug) {
-  const v = await prisma.vendor.findUnique({ where: { slug }, select: { id: true, name: true } });
-  if (!v) { console.log(`   (no vendor '${slug}' to wipe)`); return; }
-  const w = { vendorId: v.id };
-  const cw = { customer: { vendorId: v.id } };
-  const dsw = { dailySheet: { vendorId: v.id } };
-  const uw = { user: { vendorId: v.id } };
+// ── The one authoritative vendor-data wipe ──────────────────────────────────
+// Deletes EVERYTHING scoped to a vendor EXCEPT what a re-import is allowed to
+// keep:  Vendor · User · RBAC (Role/RolePermission/UserPermissionOverride) ·
+// Van/VanDefaultCrew · Product · Vehicle + VehicleProfile (the last two are
+// manually-entered vehicle master, kept per user decision 2026-08-26).
+// Everything else — the HTML-derived data layer AND every downstream table the
+// schema has grown since (payroll, fleet cost/docs, crew cash, driver GPS,
+// notifications, reminder logs, policy config, audit log, delivery move logs) —
+// is removed here, in FK-safe order (children first, RESTRICT parents last).
+// wipeVendor() below reuses this, then removes the kept rows too.
+//
+// Ordering notes for the non-obvious constraints:
+//   • DeliveryItemMoveLog has MANDATORY (RESTRICT) FKs to Customer + DailySheet
+//     — it MUST be deleted before them or the whole import aborts.
+//   • DamageCase → RESTRICT ref to Transaction  (delete DamageCase first)
+//   • SheetDiscrepancyCase → refs StaffLedgerEntry/Expense/DailySheet
+//   • CrewCashDistribution → refs StaffLedgerEntry + DailySheetLoad
+//   • WarehouseTransaction → refs DailySheet + RepairBatch
+//   • Payroll: Settlement/PayrollSnapshot/PayrollEntryAuditLog → PayrollEntry → PayrollPeriod
+//   • driver-tracking tables carry dailySheetId as a plain string (no FK) — any order
+async function wipeVendorDataOnly(vendorId) {
+  const w = { vendorId };
+  const cw = { customer: { vendorId } };
+  const dsw = { dailySheet: { vendorId } };
+  const uw = { user: { vendorId } };
 
+  // ── per-entity audit-log leaves ──
   await prisma.damageCaseAuditLog.deleteMany({ where: { damageCase: w } });
-  await prisma.damageCase.deleteMany({ where: w });
-  await prisma.deliveryIssue.deleteMany({ where: w });
-  // Communication Center (ex-DeliveryItemNote → Conversation/ConversationMessage)
+  await prisma.sheetDiscrepancyCaseAuditLog.deleteMany({ where: { discrepancyCase: w } });
+  await prisma.staffLedgerAuditLog.deleteMany({ where: { ledgerEntry: w } });
+  await prisma.payrollEntryAuditLog.deleteMany({ where: { payrollEntry: w } });
+  await prisma.crewCashDistributionAuditLog.deleteMany({ where: { crewCashDistribution: w } });
+
+  // ── communication center ──
   await prisma.conversationRead.deleteMany({ where: { conversation: w } });
   await prisma.conversationMessage.deleteMany({ where: w });
   await prisma.conversation.deleteMany({ where: w });
   await prisma.ticketMessage.deleteMany({ where: { ticket: w } });
   await prisma.customerTicket.deleteMany({ where: w });
   await prisma.customerOrder.deleteMany({ where: w });
+
+  // ── payments + cases holding RESTRICT refs to Transaction/Ledger/Expense/Sheet ──
   await prisma.paymentRequest.deleteMany({ where: w });
-  await prisma.transaction.deleteMany({ where: w });
-  await prisma.sheetDiscrepancyCaseAuditLog.deleteMany({ where: { discrepancyCase: w } });
+  await prisma.damageCase.deleteMany({ where: w });
   await prisma.sheetDiscrepancyCase.deleteMany({ where: w });
-  await prisma.dailySheetItem.deleteMany({ where: dsw });
-  await prisma.dailySheetLoad.deleteMany({ where: dsw });
-  await prisma.dailySheetCrew.deleteMany({ where: dsw });
-  await prisma.expense.deleteMany({ where: w });
+  await prisma.deliveryIssue.deleteMany({ where: w });
+  await prisma.deliveryItemMoveLog.deleteMany({ where: w }); // RESTRICT → Customer + DailySheet
+
+  // ── crew cash (RESTRICT → StaffLedgerEntry, DailySheetLoad) ──
+  await prisma.crewCashDistribution.deleteMany({ where: w });
+
+  // ── payroll stack (child → parent) ──
+  await prisma.settlement.deleteMany({ where: w });
+  await prisma.payrollSnapshot.deleteMany({ where: { payrollEntry: w } });
+  await prisma.payrollEntry.deleteMany({ where: w });
+  await prisma.payrollPeriod.deleteMany({ where: w });
+  await prisma.payrollApprovalRule.deleteMany({ where: w });
+  await prisma.payrollVendorConfig.deleteMany({ where: w });
+  await prisma.salaryStructure.deleteMany({ where: w });
+  await prisma.staffLedgerEntry.deleteMany({ where: w }); // self-rel reversedEntryId is optional → auto SetNull
+
+  // ── warehouse ──
   await prisma.warehouseTransaction.deleteMany({ where: w });
   await prisma.repairBatch.deleteMany({ where: w });
   await prisma.warehouseStock.deleteMany({ where: w });
+
+  // ── fleet / vehicle intelligence ──
+  // KEPT (user decision 2026-08-26): `Vehicle` + its 1:1 `VehicleProfile` are
+  // manually-entered vehicle master data — treated like Van/Product, never wiped
+  // here. Everything else fleet-shaped IS wiped: documents, maintenance rules,
+  // fuel/service cost history, and the sheet-tied daily checks.
+  await prisma.fuelLog.deleteMany({ where: w });
+  await prisma.vehicleServiceRecord.deleteMany({ where: w });
+  await prisma.vehicleMaintenanceRule.deleteMany({ where: w });
+  await prisma.vehicleDailyCheck.deleteMany({ where: w });
+  await prisma.vehicleDocument.deleteMany({ where: w });
+
+  // ── ledger + daily sheets ──
+  await prisma.transaction.deleteMany({ where: w });
+  await prisma.expense.deleteMany({ where: w });
+  await prisma.dailySheetItem.deleteMany({ where: dsw });
+  await prisma.dailySheetLoad.deleteMany({ where: dsw });
+  await prisma.dailySheetCrew.deleteMany({ where: dsw });
   await prisma.dailySheet.deleteMany({ where: w });
+
+  // ── driver GPS tracking (dailySheetId is a plain string here, no FK) ──
+  await prisma.driverStop.deleteMany({ where: w });
+  await prisma.driverRouteSummary.deleteMany({ where: w });
+  await prisma.driverLocationHistory.deleteMany({ where: w });
+  await prisma.driverLastLocation.deleteMany({ where: w });
+
+  // ── notifications / FCM / reminder logs ──
+  await prisma.inAppNotification.deleteMany({ where: { OR: [{ vendorId }, uw] } });
+  await prisma.notificationPreference.deleteMany({ where: uw });
+  await prisma.notificationSetting.deleteMany({ where: w });
+  await prisma.notificationLog.deleteMany({ where: w });
+  await prisma.fcmToken.deleteMany({ where: uw });
+  await prisma.reminderSendLog.deleteMany({ where: w });
+  await prisma.reminderScheduleConfig.deleteMany({ where: w });
+
+  // ── vendor-level policy config ──
+  await prisma.warehouseAutoRefillConfig.deleteMany({ where: w });
+  await prisma.collectionPolicyConfig.deleteMany({ where: w });
+  await prisma.cashCollectionPolicyConfig.deleteMany({ where: w });
+
+  // ── audit log (soft vendorId, no FK) ──
+  await prisma.auditLog.deleteMany({ where: w });
+
+  // ── customer master + directly-derived rows ──
   await prisma.customerDeliverySchedule.deleteMany({ where: cw });
   await prisma.bottleWallet.deleteMany({ where: cw });
   await prisma.customerProductPrice.deleteMany({ where: cw });
   await prisma.customer.deleteMany({ where: w });
   await prisma.route.deleteMany({ where: w });
+  console.log(`   ✅ cleared vendor data (kept: Vendor, Users, RBAC, Vans+crew, Product, Vehicle+Profile)`);
+}
+
+// Fully delete a vendor and ALL its data, including everything a re-import would
+// normally keep. Used only for the old demo vendor(s) in WIPE_SLUGS.
+async function wipeVendor(slug) {
+  const v = await prisma.vendor.findUnique({ where: { slug }, select: { id: true, name: true } });
+  if (!v) { console.log(`   (no vendor '${slug}' to wipe)`); return; }
+  const w = { vendorId: v.id };
+  await wipeVendorDataOnly(v.id);
+  // now the kept rows too, children first
+  await prisma.vehicleProfile.deleteMany({ where: w });
+  await prisma.vehicle.deleteMany({ where: w });
   await prisma.vanDefaultCrew.deleteMany({ where: { van: w } });
   await prisma.van.deleteMany({ where: w });
   await prisma.product.deleteMany({ where: w });
-  await prisma.reminderScheduleConfig.deleteMany({ where: w });
-  await prisma.reminderSendLog.deleteMany({ where: w });
-  await prisma.driverLastLocation.deleteMany({ where: w });
-  await prisma.inAppNotification.deleteMany({ where: uw });
-  await prisma.notificationPreference.deleteMany({ where: uw });
-  await prisma.fcmToken.deleteMany({ where: uw });
+  await prisma.userPermissionOverride.deleteMany({ where: { user: w } });
   await prisma.user.deleteMany({ where: w });
+  await prisma.rolePermission.deleteMany({ where: { role: w } });
+  await prisma.role.deleteMany({ where: w });
   await prisma.vendor.delete({ where: { id: v.id } });
   console.log(`   ✅ wiped vendor '${slug}' (${v.name})`);
 }
@@ -196,46 +291,6 @@ async function wipeAll() {
   console.log('--- Wiping old demo vendor(s) ---');
   for (const slug of WIPE_SLUGS) await wipeVendor(slug);
   console.log('');
-}
-
-// Wipes only the DATA LAYER this script itself derives from the HTML exports,
-// for an EXISTING vendor — never the Vendor row, never Users, never RBAC
-// (Role/RolePermission/UserPermissionOverride), never Van/VanDefaultCrew, never
-// Product. This is what makes re-running the import safe against a live vendor:
-// real login accounts, custom roles/permissions, and van/driver assignments
-// made through the CRM survive every re-import untouched.
-async function wipeVendorDataOnly(vendorId) {
-  const w = { vendorId };
-  const cw = { customer: { vendorId } };
-  const dsw = { dailySheet: { vendorId } };
-
-  await prisma.damageCaseAuditLog.deleteMany({ where: { damageCase: w } });
-  await prisma.damageCase.deleteMany({ where: w });
-  await prisma.deliveryIssue.deleteMany({ where: w });
-  await prisma.conversationRead.deleteMany({ where: { conversation: w } });
-  await prisma.conversationMessage.deleteMany({ where: w });
-  await prisma.conversation.deleteMany({ where: w });
-  await prisma.ticketMessage.deleteMany({ where: { ticket: w } });
-  await prisma.customerTicket.deleteMany({ where: w });
-  await prisma.customerOrder.deleteMany({ where: w });
-  await prisma.paymentRequest.deleteMany({ where: w });
-  await prisma.transaction.deleteMany({ where: w });
-  await prisma.sheetDiscrepancyCaseAuditLog.deleteMany({ where: { discrepancyCase: w } });
-  await prisma.sheetDiscrepancyCase.deleteMany({ where: w });
-  await prisma.dailySheetItem.deleteMany({ where: dsw });
-  await prisma.dailySheetLoad.deleteMany({ where: dsw });
-  await prisma.dailySheetCrew.deleteMany({ where: dsw });
-  await prisma.expense.deleteMany({ where: w });
-  await prisma.warehouseTransaction.deleteMany({ where: w });
-  await prisma.repairBatch.deleteMany({ where: w });
-  await prisma.warehouseStock.deleteMany({ where: w });
-  await prisma.dailySheet.deleteMany({ where: w });
-  await prisma.customerDeliverySchedule.deleteMany({ where: cw });
-  await prisma.bottleWallet.deleteMany({ where: cw });
-  await prisma.customerProductPrice.deleteMany({ where: cw });
-  await prisma.customer.deleteMany({ where: w });
-  await prisma.route.deleteMany({ where: w }); // derived purely from customer Area data — safe to rebuild
-  console.log(`   ✅ cleared data layer for existing vendor (accounts, RBAC, vans, product untouched)`);
 }
 
 async function chunkCreate(model, data) {
