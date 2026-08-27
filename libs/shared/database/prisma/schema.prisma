@@ -64,6 +64,17 @@ enum TransactionType {
   CHECK_IN
 }
 
+// Reason codes for editing/deleting a recorded payment transaction.
+// Not referenced by any model field yet — consumed by DTOs in later phases.
+enum PaymentEditReason {
+  WRONG_AMOUNT
+  CASH_RECOUNTED
+  DUPLICATE_ENTRY
+  WRONG_CUSTOMER
+  CUSTOMER_REQUESTED
+  OTHER
+}
+
 enum ExpenseCategory {
   // LUNCH_EXPENSE_EMPLOYEE, ADVANCE_SALARY_EMPLOYEE and FUEL_EXPENSE are kept
   // (owner-approved 2026-08-21) purely for backward compatibility with
@@ -961,6 +972,9 @@ model Transaction {
   dailySheetItemId String?
   dailySheetItem   DailySheetItem? @relation(fields: [dailySheetItemId], references: [id], onDelete: SetNull)
 
+  paymentRequestId String?
+  paymentRequest   PaymentRequest? @relation(fields: [paymentRequestId], references: [id], onDelete: SetNull)
+
   bottleCount    Int? // NET change to wallet (filledDropped - emptyReceived - filledReceived)
   filledDropped  Int? // Filled bottles given to customer (consumption indicator)
   emptyReceived  Int? // Empty bottles collected from customer (needs refill/wash)
@@ -970,12 +984,17 @@ model Transaction {
   description String?
   damageCase  DamageCase?
 
+  lastEditedAt   DateTime?
+  lastEditedById String?
+
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([vendorId, createdAt])
   @@index([customerId, createdAt])
   @@index([dailySheetId])
   @@index([dailySheetItemId])
+  @@index([paymentRequestId])
   @@index([vendorId, type, createdAt])
 }
 
@@ -1178,6 +1197,8 @@ model PaymentRequest {
 
   vendor   Vendor   @relation(fields: [vendorId], references: [id])
   customer Customer @relation(fields: [customerId], references: [id])
+
+  transactions Transaction[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
