@@ -11,4 +11,8 @@ export class RecordPaymentDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsUUID()
+  paymentRequestId?: string;
 }

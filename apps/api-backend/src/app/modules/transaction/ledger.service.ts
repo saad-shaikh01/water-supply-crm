@@ -1,21 +1,55 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import {
   CacheInvalidationService,
   CACHE_KEYS,
 } from '@water-supply-crm/caching';
-import { Prisma, TransactionType } from '@prisma/client';
+import {
+  Prisma,
+  TransactionType,
+  PaymentEditReason,
+  NotificationType,
+} from '@prisma/client';
+import type { AuthUser } from '@water-supply-crm/types';
 import { RecordPaymentDto } from './dto/record-payment.dto';
 import { RecordAdjustmentDto } from './dto/record-adjustment.dto';
 import { TransactionQueryDto } from './dto/transaction-query.dto';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { paginate } from '../../common/helpers/paginate';
+import { NotificationService } from '../notifications/notification.service';
+import { AuditService } from '../audit/audit.service';
+import { MessageTemplates } from '../whatsapp/templates/message.templates';
+
+/** Plain input shapes — Phase 3 builds the class-validator DTOs that produce these. */
+export interface EditPaymentInput {
+  amount: number;              // new gross payment amount, > 0
+  description?: string;        // optional; when omitted keep existing description
+  reason: PaymentEditReason;
+  reasonNote?: string;         // required by caller only when reason === OTHER (Phase 3 validates)
+  expectedUpdatedAt: string;   // ISO timestamp the client read; optimistic-lock token
+}
+
+export interface DeletePaymentInput {
+  reason: PaymentEditReason;
+  reasonNote?: string;
+  expectedUpdatedAt: string;
+}
 
 @Injectable()
 export class LedgerService {
+  private readonly logger = new Logger(LedgerService.name);
+
   constructor(
     private prisma: PrismaService,
     private cache: CacheInvalidationService,
+    private notifications: NotificationService,
+    private audit: AuditService,
   ) {}
 
   async recordDelivery(
@@ -248,6 +282,7 @@ export class LedgerService {
           customerId: dto.customerId,
           amount: -dto.amount,
           description: dto.description || 'Payment received',
+          ...(dto.paymentRequestId ? { paymentRequestId: dto.paymentRequestId } : {}),
         },
         include: {
           customer: { select: { id: true, name: true, phoneNumber: true, financialBalance: true } },
@@ -258,6 +293,263 @@ export class LedgerService {
 
       return transaction;
     });
+  }
+
+  /**
+   * Manual edit of a standalone PAYMENT transaction (dashboard correction).
+   * Only payments that were entered manually — not collected during a delivery,
+   * and not sourced from an online/portal payment request — are editable here.
+   * Applies the balance delta, keeps an optimistic lock on `updatedAt`, writes
+   * an audit entry and (when the amount changed) a WhatsApp correction notice.
+   */
+  async editPayment(
+    vendorId: string,
+    txId: string,
+    input: EditPaymentInput,
+    user: AuthUser,
+  ) {
+    const tx = await this.prisma.transaction.findFirst({
+      where: { id: txId, vendorId },
+      include: {
+        customer: { select: { id: true, name: true, phoneNumber: true } },
+      },
+    });
+    if (!tx) throw new NotFoundException('Transaction not found');
+
+    if (tx.type !== TransactionType.PAYMENT) {
+      throw new ConflictException('Only payment transactions can be edited.');
+    }
+    if (tx.dailySheetId || tx.dailySheetItemId) {
+      throw new ConflictException(
+        'This payment was collected during a delivery. Edit it from the delivery record instead.',
+      );
+    }
+    if (tx.paymentRequestId) {
+      throw new ConflictException(
+        'This payment came from an online/portal payment request and cannot be edited here.',
+      );
+    }
+
+    // PAYMENT amounts are stored negative. Positive delta ⇒ customer paid less
+    // than before ⇒ financialBalance must go UP.
+    const oldAmount = -Number(tx.amount);
+    const newAmount = input.amount;
+    const delta = oldAmount - newAmount;
+
+    const updated = await this.prisma.$transaction(async (txc) => {
+      const claimed = await txc.transaction.updateMany({
+        where: {
+          id: txId,
+          vendorId,
+          updatedAt: new Date(input.expectedUpdatedAt),
+        },
+        data: {
+          amount: -newAmount,
+          description: input.description ?? tx.description,
+          lastEditedAt: new Date(),
+          lastEditedById: user.userId,
+        },
+      });
+      if (claimed.count === 0) {
+        throw new ConflictException(
+          'This payment was changed by someone else. Reload and try again.',
+        );
+      }
+
+      if (delta !== 0) {
+        await txc.customer.update({
+          where: { id: tx.customerId! },
+          data: { financialBalance: { increment: delta } },
+        });
+      }
+
+      const row = await txc.transaction.findUnique({
+        where: { id: txId },
+        include: {
+          customer: {
+            select: { id: true, name: true, phoneNumber: true, financialBalance: true },
+          },
+        },
+      });
+
+      await Promise.all([
+        this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS),
+        this.cache.invalidateOverview(vendorId),
+        this.cache.invalidateCustomerWallets(vendorId, tx.customerId!),
+        this.cache.invalidateAnalytics(vendorId),
+      ]);
+
+      return row!;
+    });
+
+    // Fire-and-forget side effects — never throw.
+    await this.audit.log({
+      vendorId,
+      userId: user.userId,
+      userName: user.name,
+      action: 'UPDATE',
+      entity: 'Transaction',
+      entityId: txId,
+      changes: {
+        before: { amount: oldAmount, description: tx.description },
+        after: {
+          amount: newAmount,
+          description: input.description ?? tx.description,
+          editReason: input.reason,
+          editReasonNote: input.reasonNote ?? null,
+        },
+      },
+    });
+
+    if (delta !== 0 && updated.customer?.phoneNumber) {
+      this.notifications
+        .queueWhatsApp(
+          updated.customer.phoneNumber,
+          MessageTemplates.paymentCorrected(
+            updated.customer.name,
+            oldAmount,
+            newAmount,
+            Math.max(0, updated.customer.financialBalance),
+          ),
+          `ntf:payment-correction:${txId}:${updated.lastEditedAt!.getTime()}:wa`,
+          {
+            vendorId,
+            type: NotificationType.PAYMENT_RECEIVED,
+            recipientType: 'CUSTOMER',
+            recipientId: tx.customerId!,
+          },
+        )
+        .catch((e) =>
+          this.logger?.warn?.(`payment-correction WhatsApp failed: ${e.message}`),
+        );
+    }
+
+    return {
+      transaction: updated,
+      previousAmount: oldAmount,
+      newAmount,
+      delta,
+      newBalance: updated.customer.financialBalance,
+    };
+  }
+
+  /**
+   * Reverse (hard-delete) a standalone PAYMENT transaction and undo its balance
+   * effect. Same editable-scope guards as `editPayment`.
+   */
+  async deletePayment(
+    vendorId: string,
+    txId: string,
+    input: DeletePaymentInput,
+    user: AuthUser,
+  ) {
+    const tx = await this.prisma.transaction.findFirst({
+      where: { id: txId, vendorId },
+      include: {
+        customer: { select: { id: true, name: true, phoneNumber: true } },
+      },
+    });
+    if (!tx) throw new NotFoundException('Transaction not found');
+
+    if (tx.type !== TransactionType.PAYMENT) {
+      throw new ConflictException('Only payment transactions can be edited.');
+    }
+    if (tx.dailySheetId || tx.dailySheetItemId) {
+      throw new ConflictException(
+        'This payment was collected during a delivery. Edit it from the delivery record instead.',
+      );
+    }
+    if (tx.paymentRequestId) {
+      throw new ConflictException(
+        'This payment came from an online/portal payment request and cannot be edited here.',
+      );
+    }
+
+    // Original write decremented the balance by this amount; deleting undoes it.
+    const reversedAmount = -Number(tx.amount);
+
+    const cust = await this.prisma.$transaction(async (txc) => {
+      const claimed = await txc.transaction.deleteMany({
+        where: {
+          id: txId,
+          vendorId,
+          updatedAt: new Date(input.expectedUpdatedAt),
+        },
+      });
+      if (claimed.count === 0) {
+        throw new ConflictException(
+          'This payment was changed or already removed by someone else. Reload and try again.',
+        );
+      }
+
+      await txc.customer.update({
+        where: { id: tx.customerId! },
+        data: { financialBalance: { increment: reversedAmount } },
+      });
+
+      const row = await txc.customer.findUnique({
+        where: { id: tx.customerId! },
+        select: { financialBalance: true },
+      });
+
+      await Promise.all([
+        this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS),
+        this.cache.invalidateOverview(vendorId),
+        this.cache.invalidateCustomerWallets(vendorId, tx.customerId!),
+        this.cache.invalidateAnalytics(vendorId),
+      ]);
+
+      return row!;
+    });
+
+    await this.audit.log({
+      vendorId,
+      userId: user.userId,
+      userName: user.name,
+      action: 'DELETE',
+      entity: 'Transaction',
+      entityId: txId,
+      changes: {
+        before: {
+          amount: reversedAmount,
+          description: tx.description,
+          customerId: tx.customerId,
+          createdAt: tx.createdAt,
+        },
+        after: {
+          deleteReason: input.reason,
+          deleteReasonNote: input.reasonNote ?? null,
+        },
+      },
+    });
+
+    if (tx.customer?.phoneNumber) {
+      this.notifications
+        .queueWhatsApp(
+          tx.customer.phoneNumber,
+          MessageTemplates.paymentReversed(
+            tx.customer.name,
+            reversedAmount,
+            Math.max(0, cust.financialBalance),
+          ),
+          `ntf:payment-reversal:${txId}:wa`,
+          {
+            vendorId,
+            type: NotificationType.PAYMENT_RECEIVED,
+            recipientType: 'CUSTOMER',
+            recipientId: tx.customerId!,
+          },
+        )
+        .catch((e) =>
+          this.logger?.warn?.(`payment-reversal WhatsApp failed: ${e.message}`),
+        );
+    }
+
+    return {
+      transactionId: txId,
+      reversedAmount,
+      newBalance: cust.financialBalance,
+    };
   }
 
   async recordAdjustment(vendorId: string, dto: RecordAdjustmentDto) {

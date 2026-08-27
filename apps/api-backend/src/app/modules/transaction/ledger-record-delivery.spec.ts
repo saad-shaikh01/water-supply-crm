@@ -3,6 +3,8 @@ import { LedgerService } from './ledger.service';
 import { PrismaService } from '@water-supply-crm/database';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
 import { TransactionType } from '@prisma/client';
+import { NotificationService } from '../notifications/notification.service';
+import { AuditService } from '../audit/audit.service';
 
 // ── Minimal Prisma mock ────────────────────────────────────────────────────────
 function buildMockPrisma() {
@@ -51,6 +53,8 @@ describe('LedgerService.recordDelivery — idempotency', () => {
         LedgerService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: CacheInvalidationService, useValue: mockCache },
+        { provide: NotificationService, useValue: {} },
+        { provide: AuditService, useValue: {} },
       ],
     }).compile();
 

@@ -72,4 +72,19 @@ export const MessageTemplates = {
     cashCollected: number,
   ) =>
     `Assalam o Alaikum ${customerName},\n\n⚠️ Maafi chahte hain — aapki aaj ki delivery mein ek ghalti hui thi jo hum ne correct kar di hai.\n\n✅ Corrected Details:\n🔵 Product: ${productName}\n🫙 Quantity: ${qty} bottles\n💰 Cash Collected: Rs. ${cashCollected}\n\nIs ghalti ke liye muafi chahte hain. Shukriya!`,
+
+  paymentCorrected: (
+    customerName: string,
+    previousAmount: number,
+    newAmount: number,
+    remainingBalance: number,
+  ) =>
+    `Assalam o Alaikum ${customerName},\n\n⚠️ Maafi chahte hain — aapki payment ki entry mein ghalti thi jo hum ne correct kar di hai.\n\n✅ Payment record: Rs. ${previousAmount} se Rs. ${newAmount} kar di gayi hai.\n📊 Updated Remaining Balance: Rs. ${remainingBalance.toFixed(2)}\n\nIs ghalti ke liye muafi chahte hain. Shukriya!`,
+
+  paymentReversed: (
+    customerName: string,
+    amount: number,
+    remainingBalance: number,
+  ) =>
+    `Assalam o Alaikum ${customerName},\n\n⚠️ Maafi chahte hain — aapki Rs. ${amount} ki payment entry reverse (cancel) kar di gayi hai.\n\n📊 Updated Remaining Balance: Rs. ${remainingBalance.toFixed(2)}\n\nKoi sawaal ho toh support se rabta karein. Shukriya!`,
 };

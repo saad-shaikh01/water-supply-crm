@@ -315,6 +315,7 @@ export class PaymentService {
       customerId: request.customerId,
       amount: request.amount,
       description: `Online payment — ${request.method} — Ref: ${request.referenceNo ?? request.gatewayTxId ?? request.id}`,
+      paymentRequestId: request.id,
     });
 
     const newBalance = request.customer.financialBalance - request.amount;
@@ -489,6 +490,7 @@ export class PaymentService {
       customerId: request.customerId,
       amount: request.amount,
       description: `Raast QR payment — TxID: ${gatewayTxId}`,
+      paymentRequestId: request.id,
     });
 
     const newBalance = request.customer.financialBalance - request.amount;
