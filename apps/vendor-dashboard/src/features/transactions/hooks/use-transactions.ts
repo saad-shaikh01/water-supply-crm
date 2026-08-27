@@ -78,6 +78,75 @@ export const useAddPayment = () => {
   });
 };
 
+const fmt = (n: unknown) => `₨${Number(n ?? 0).toLocaleString()}`;
+
+interface MutationError {
+  response?: { status?: number; data?: { message?: string } };
+}
+
+/**
+ * Invalidate every read that a payment's amount feeds — ledger, the customer's
+ * balance, dashboards and analytics. Mirrors what `useAddPayment` /
+ * `invalidatePaymentRequestDependencies` do, plus `dashboard`/`analytics`.
+ */
+const invalidatePaymentMutationDependencies = (
+  queryClient: ReturnType<typeof useQueryClient>,
+) => {
+  queryClient.invalidateQueries({ queryKey: ['transactions'] });
+  queryClient.invalidateQueries({ queryKey: ['customers'] });
+  queryClient.invalidateQueries({ queryKey: ['customer'] });
+  queryClient.invalidateQueries({ queryKey: ['analytics'] });
+  queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+};
+
+export const useEditPayment = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+      transactionsApi.editPayment(id, data).then((r) => r.data),
+    onSuccess: (result: {
+      previousAmount?: number;
+      newAmount?: number;
+      newBalance?: number;
+    }) => {
+      invalidatePaymentMutationDependencies(queryClient);
+      toast.success(
+        `Payment updated: ${fmt(result?.previousAmount)} → ${fmt(result?.newAmount)}. New balance ${fmt(result?.newBalance)}.`,
+      );
+    },
+    onError: (error: unknown) => {
+      const err = error as MutationError;
+      // A 409 means our `expectedUpdatedAt` was stale — pull a fresh list so the
+      // next attempt carries the current token.
+      if (err?.response?.status === 409) {
+        queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      }
+      toast.error(err?.response?.data?.message ?? 'Failed to update payment');
+    },
+  });
+};
+
+export const useDeletePayment = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+      transactionsApi.deletePayment(id, data).then((r) => r.data),
+    onSuccess: (result: { reversedAmount?: number }) => {
+      invalidatePaymentMutationDependencies(queryClient);
+      toast.success(
+        `Payment removed. Customer balance restored by ${fmt(result?.reversedAmount)}.`,
+      );
+    },
+    onError: (error: unknown) => {
+      const err = error as MutationError;
+      if (err?.response?.status === 409) {
+        queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      }
+      toast.error(err?.response?.data?.message ?? 'Failed to remove payment');
+    },
+  });
+};
+
 export const useAddAdjustment = () => {
   const queryClient = useQueryClient();
   return useMutation({

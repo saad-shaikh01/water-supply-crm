@@ -2,11 +2,13 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
 import {
   Button, Badge, Sheet, SheetContent, SheetHeader, SheetTitle, Label,
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@water-supply-crm/ui';
-import { Plus, FileText, Calendar, Wallet, X, SlidersHorizontal, Search, MoreHorizontal, Send, Loader2 } from 'lucide-react';
+import { Plus, FileText, Calendar, Wallet, X, SlidersHorizontal, Search, MoreHorizontal, Send, Loader2, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DataTable } from '../../../components/shared/data-table';
 import { StatusBadge } from '../../../components/shared/status-badge';
@@ -14,10 +16,15 @@ import { SearchInput } from '../../../components/shared/filters/search-input';
 import { DateRangePicker } from '../../../components/shared/date-range-picker';
 import { PaymentForm } from './payment-form';
 import { QuickRecordPayment } from './quick-record-payment';
+import { EditPaymentForm } from './edit-payment-form';
+import { DeletePaymentDialog } from './delete-payment-dialog';
+import { REASON_OPTIONS } from './reason-select';
 import { useTransactions } from '../hooks/use-transactions';
 import { useAllVans } from '../../vans/hooks/use-vans';
 import { useAllCustomers } from '../../customers/hooks/use-customers';
 import { Can } from '../../authz/components/can';
+import { useCan } from '../../authz/hooks/use-can';
+import { auditLogsApi } from '../../audit-logs/api/audit-logs.api';
 import { cn } from '@water-supply-crm/ui';
 // Reusing the exact same resend flow the daily sheet's delivery card uses
 // (see delivery-items-list.tsx's handleResendReceipt) — same API client
@@ -79,8 +86,27 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
     // reuse it, same as delivery-items-list.tsx's item.id.
     dailySheetItemId?: string | null;
     dailySheetItem?: { status?: string } | null;
+    // The list endpoint uses Prisma `include` (not `select`) so every scalar is
+    // already present — used for the edit/delete gate + optimistic-lock token.
+    updatedAt: string;
+    lastEditedAt?: string | null;
+    lastEditedById?: string | null;
+    paymentRequestId?: string | null;
+    dailySheetId?: string | null;
   }>;
   const total = txData?.meta?.total ?? 0;
+
+  const [editRow, setEditRow] = useState<(typeof rows)[number] | null>(null);
+  const [deleteRow, setDeleteRow] = useState<(typeof rows)[number] | null>(null);
+  const [historyRow, setHistoryRow] = useState<(typeof rows)[number] | null>(null);
+
+  const canEditPayment = useCan('transactions:edit_payment');
+  const canDeletePayment = useCan('transactions:delete_payment');
+
+  // Frontend mirror of the backend guards: only a standalone manual PAYMENT is
+  // edit/delete-eligible — never one tied to a delivery or a portal request.
+  const isPaymentEditable = (r: (typeof rows)[number]) =>
+    r.type === 'PAYMENT' && !r.dailySheetId && !r.dailySheetItemId && !r.paymentRequestId;
 
   // Re-push the same WhatsApp PDF receipt as the daily sheet's "Resend
   // Receipt" button — identical handler shape to
@@ -378,11 +404,28 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
               const amount = Number(r.amount);
               const isPayment = amount < 0;
               return (
-                <div className={cn(
-                  'font-mono font-bold text-xs flex items-center gap-1 whitespace-nowrap',
-                  isPayment ? 'text-emerald-400' : 'text-rose-400',
-                )}>
-                  {isPayment ? '-' : '+'} ₨ {Math.abs(amount).toLocaleString()}
+                <div className="flex items-center gap-2">
+                  <div className={cn(
+                    'font-mono font-bold text-xs flex items-center gap-1 whitespace-nowrap',
+                    isPayment ? 'text-emerald-400' : 'text-rose-400',
+                  )}>
+                    {isPayment ? '-' : '+'} ₨ {Math.abs(amount).toLocaleString()}
+                  </div>
+                  {r.lastEditedAt && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setHistoryRow(r); }}
+                      title={`Edited ${new Date(r.lastEditedAt).toLocaleString()}`}
+                      className="shrink-0"
+                    >
+                      <Badge
+                        variant="secondary"
+                        className="text-[9px] px-1.5 py-0 rounded-full font-bold uppercase tracking-wide cursor-pointer"
+                      >
+                        Edited
+                      </Badge>
+                    </button>
+                  )}
                 </div>
               );
             },
@@ -402,10 +445,15 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
             header: '',
             width: '60px',
             cell: (r) => {
-              // No linked delivery at all (manual payment, adjustment,
-              // collection) — nothing to ever resend, so no menu at all
-              // rather than a permanently-disabled one.
-              if (!r.dailySheetItemId) return null;
+              // "Resend Receipt" is only meaningful for a delivery-linked row.
+              const resendAvailable = !!r.dailySheetItemId;
+              const editable = isPaymentEditable(r);
+              const showEdit = editable && canEditPayment;
+              const showDelete = editable && canDeletePayment;
+
+              // Nothing actionable for this row — render no menu at all rather
+              // than a permanently-empty / disabled one.
+              if (!resendAvailable && !showEdit && !showDelete) return null;
 
               const missingPhone = !r.customer?.phoneNumber;
               const notCompleted = r.dailySheetItem?.status !== 'COMPLETED';
@@ -422,24 +470,50 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
                     <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-56 p-1.5 rounded-xl" onClick={(e) => e.stopPropagation()}>
-                    <DropdownMenuItem
-                      disabled={!!disabledReason || isResending}
-                      onClick={() => handleResendReceipt(r)}
-                      title={disabledReason ?? undefined}
-                      className="rounded-lg cursor-pointer px-2 py-2 gap-2"
-                    >
-                      {isResending ? (
-                        <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
-                      ) : (
-                        <Send className="h-4 w-4 text-emerald-600" />
-                      )}
-                      <span className="flex flex-col items-start">
-                        Resend Receipt
-                        {disabledReason && (
-                          <span className="text-[10px] font-normal normal-case text-muted-foreground">{disabledReason}</span>
+                    {resendAvailable && (
+                      <DropdownMenuItem
+                        disabled={!!disabledReason || isResending}
+                        onClick={() => handleResendReceipt(r)}
+                        title={disabledReason ?? undefined}
+                        className="rounded-lg cursor-pointer px-2 py-2 gap-2"
+                      >
+                        {isResending ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
+                        ) : (
+                          <Send className="h-4 w-4 text-emerald-600" />
                         )}
-                      </span>
-                    </DropdownMenuItem>
+                        <span className="flex flex-col items-start">
+                          Resend Receipt
+                          {disabledReason && (
+                            <span className="text-[10px] font-normal normal-case text-muted-foreground">{disabledReason}</span>
+                          )}
+                        </span>
+                      </DropdownMenuItem>
+                    )}
+
+                    {editable && (
+                      <Can permission="transactions:edit_payment">
+                        <DropdownMenuItem
+                          onClick={() => setEditRow(r)}
+                          className="rounded-lg cursor-pointer px-2 py-2 gap-2"
+                        >
+                          <Pencil className="h-4 w-4 text-primary" />
+                          Edit payment
+                        </DropdownMenuItem>
+                      </Can>
+                    )}
+
+                    {editable && (
+                      <Can permission="transactions:delete_payment">
+                        <DropdownMenuItem
+                          onClick={() => setDeleteRow(r)}
+                          className="rounded-lg cursor-pointer px-2 py-2 gap-2 text-rose-500 focus:text-rose-500"
+                        >
+                          <Trash2 className="h-4 w-4 text-rose-500" />
+                          Delete payment
+                        </DropdownMenuItem>
+                      </Can>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               );
@@ -451,6 +525,116 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
       {overrideCustomerId && (overrideCustomerId !== '') && (
         <PaymentForm open={paymentOpen} onOpenChange={setPaymentOpen} customerId={overrideCustomerId} />
       )}
+
+      <EditPaymentForm
+        open={!!editRow}
+        onOpenChange={(o) => { if (!o) setEditRow(null); }}
+        transaction={editRow}
+      />
+      <DeletePaymentDialog
+        open={!!deleteRow}
+        onOpenChange={(o) => { if (!o) setDeleteRow(null); }}
+        transaction={deleteRow}
+      />
+      <PaymentEditHistoryDialog
+        row={historyRow}
+        onClose={() => setHistoryRow(null)}
+      />
     </div>
+  );
+}
+
+/**
+ * Lazy "what changed" popover for an edited payment. Best-effort only — if the
+ * audit-log request fails (e.g. the user lacks `audit_logs:view`) we silently
+ * fall back to the timestamp already shown in the badge's `title`.
+ */
+function PaymentEditHistoryDialog({
+  row,
+  onClose,
+}: {
+  row: { id: string; lastEditedAt?: string | null } | null;
+  onClose: () => void;
+}) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['audit-logs', 'Transaction', row?.id],
+    queryFn: () =>
+      auditLogsApi
+        .getAll({ entity: 'Transaction', entityId: row?.id, limit: 10 })
+        .then((r) => r.data),
+    enabled: !!row,
+  });
+
+  const entries = (((data as { data?: unknown[] } | undefined)?.data ?? []) as Array<{
+    id: string;
+    action: string;
+    createdAt: string;
+    userName?: string | null;
+    user?: { name?: string | null } | null;
+    changes?: {
+      before?: { amount?: number };
+      after?: {
+        amount?: number;
+        editReason?: string;
+        editReasonNote?: string | null;
+        deleteReason?: string;
+        deleteReasonNote?: string | null;
+      };
+    } | null;
+  }>);
+
+  return (
+    <Dialog open={!!row} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="rounded-3xl max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Payment edit history</DialogTitle>
+          <DialogDescription>
+            {row?.lastEditedAt
+              ? `Last edited ${new Date(row.lastEditedAt).toLocaleString()}`
+              : 'Correction log for this payment.'}
+          </DialogDescription>
+        </DialogHeader>
+
+        {isLoading && <p className="text-xs text-muted-foreground">Loading…</p>}
+
+        {!isLoading && (isError || entries.length === 0) && (
+          <p className="text-xs text-muted-foreground">
+            {row?.lastEditedAt
+              ? `This payment was edited ${new Date(row.lastEditedAt).toLocaleString()}.`
+              : 'No detailed history is available for this payment.'}
+          </p>
+        )}
+
+        {entries.length > 0 && (
+          <ul className="space-y-3 max-h-72 overflow-y-auto">
+            {entries.map((e) => {
+              const before = e.changes?.before ?? {};
+              const after = e.changes?.after ?? {};
+              const reasonKey = after.editReason ?? after.deleteReason;
+              const reasonNote = after.editReasonNote ?? after.deleteReasonNote;
+              return (
+                <li key={e.id} className="rounded-xl border border-border/40 bg-accent/20 p-3 space-y-1">
+                  <div className="flex justify-between text-[11px] text-muted-foreground">
+                    <span>{e.user?.name ?? e.userName ?? 'Unknown'}</span>
+                    <span>{new Date(e.createdAt).toLocaleString()}</span>
+                  </div>
+                  <div className="text-xs font-mono text-foreground dark:text-white">
+                    {e.action === 'DELETE'
+                      ? `Removed · was ₨${Number(before.amount ?? 0).toLocaleString()}`
+                      : `₨${Number(before.amount ?? 0).toLocaleString()} → ₨${Number(after.amount ?? 0).toLocaleString()}`}
+                  </div>
+                  {reasonKey && (
+                    <p className="text-[11px] text-muted-foreground">
+                      {REASON_OPTIONS[reasonKey as keyof typeof REASON_OPTIONS] ?? reasonKey}
+                      {reasonNote ? ` — ${reasonNote}` : ''}
+                    </p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

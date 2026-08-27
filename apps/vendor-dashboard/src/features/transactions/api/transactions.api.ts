@@ -30,6 +30,14 @@ export const transactionsApi = {
   addAdjustment: (customerId: string, data: Record<string, unknown>) =>
     apiClient.post('/transactions/adjustments', { ...data, customerId }),
 
+  // Manual payment edit / delete (docs — payment edit/delete feature).
+  // `data` is passed through verbatim: the backend expects `expectedUpdatedAt`
+  // to be the exact `updatedAt` ISO string the row was loaded with.
+  editPayment: (id: string, data: Record<string, unknown>) =>
+    apiClient.patch(`/transactions/payments/${id}`, data),
+  deletePayment: (id: string, data: Record<string, unknown>) =>
+    apiClient.delete(`/transactions/payments/${id}`, { data }),
+
   // Payment Requests (Admin Review)
   getRequests: (params: PaymentRequestQuery) => apiClient.get('/payment-requests', { params }),
   getRequest: (id: string) => apiClient.get(`/payment-requests/${id}`),
