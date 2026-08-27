@@ -46,7 +46,10 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // 164 = 163 + daily_sheets:move_customer — split out of `update` so moving a
 // customer's delivery to another van/sheet is independently grantable
 // (Amendment R10, owner-requested 2026-08-20). No new resource, no new `:page`.
-const FROZEN_TOTAL = 164;
+// 166 = 164 + transactions:{edit_payment, delete_payment} — manual edit/delete
+// of a standalone PAYMENT transaction (Payment Edit/Delete feature, 2026-08-27).
+// No new resource, no new `:page` — `transactions` was already navigable.
+const FROZEN_TOTAL = 166;
 const FROZEN_PAGES = 28;
 const FROZEN_RESOURCES = 30;
 

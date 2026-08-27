@@ -2,6 +2,8 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
+  Delete,
   Body,
   Param,
   Query,
@@ -10,6 +12,8 @@ import { Throttle } from '@nestjs/throttler';
 import { NotificationType } from '@prisma/client';
 import { LedgerService } from './ledger.service';
 import { RecordPaymentDto } from './dto/record-payment.dto';
+import { EditPaymentDto } from './dto/edit-payment.dto';
+import { DeletePaymentDto } from './dto/delete-payment.dto';
 import { RecordAdjustmentDto } from './dto/record-adjustment.dto';
 import { TransactionQueryDto } from './dto/transaction-query.dto';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
@@ -57,6 +61,28 @@ export class TransactionController {
     }
 
     return transaction;
+  }
+
+  @Patch('payments/:id')
+  @RequirePermissions('transactions:edit_payment')
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
+  editPayment(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: EditPaymentDto,
+  ) {
+    return this.ledgerService.editPayment(user.vendorId, id, dto, user);
+  }
+
+  @Delete('payments/:id')
+  @RequirePermissions('transactions:delete_payment')
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
+  deletePayment(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: DeletePaymentDto,
+  ) {
+    return this.ledgerService.deletePayment(user.vendorId, id, dto, user);
   }
 
   @Post('adjustments')

@@ -81,7 +81,7 @@ export const PERMISSION_CATALOG = {
   transactions: {
     label: 'Transactions',
     navigable: true,
-    actions: ['page', 'view', 'record_payment', 'adjust'],
+    actions: ['page', 'view', 'record_payment', 'edit_payment', 'delete_payment', 'adjust'],
   },
   daily_sheets: {
     label: 'Daily Sheets',

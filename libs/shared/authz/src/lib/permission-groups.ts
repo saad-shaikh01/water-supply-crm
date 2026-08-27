@@ -37,6 +37,8 @@ export const ACTION_LABELS: Record<string, string> = {
   mark_damaged: 'Mark damaged / leaked',
   manage_repairs: 'Manage repairs',
   record_payment: 'Record payment',
+  edit_payment: 'Edit payment',
+  delete_payment: 'Delete payment',
   generate: 'Generate',
   load_out: 'Load out',
   check_in: 'Check in',
