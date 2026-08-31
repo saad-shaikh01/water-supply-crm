@@ -69,6 +69,11 @@ export class LedgerService {
       filledReceived?: number;
       cashCollected: number;
       pricePerBottle: number;
+      /** Business date for the posted transactions. Defaults to now (createdAt).
+       * Correction entries pass the closed sheet's date so the delivery lands on
+       * the day it actually happened — on the monthly statement, in analytics,
+       * and in the portal transaction list — rather than the day it was keyed in. */
+      occurredAt?: Date;
     },
     txClient?: Prisma.TransactionClient,
   ) {
@@ -123,6 +128,7 @@ export class LedgerService {
       await tx.transaction.create({
         data: {
           type: TransactionType.DELIVERY,
+          ...(data.occurredAt && { createdAt: data.occurredAt }),
           vendorId: data.vendorId,
           customerId: data.customerId,
           productId: data.productId,
@@ -143,6 +149,7 @@ export class LedgerService {
         await tx.transaction.create({
           data: {
             type: TransactionType.PAYMENT,
+            ...(data.occurredAt && { createdAt: data.occurredAt }),
             vendorId: data.vendorId,
             customerId: data.customerId,
             dailySheetId: data.dailySheetId,
@@ -172,6 +179,9 @@ export class LedgerService {
       emptyReceived: number;
       filledReceived?: number;
       cashCollected: number;
+      /** Preserved from recordDelivery — keeps a corrected entry's business date
+       * (the closed sheet's date) when its transactions are re-posted on edit. */
+      occurredAt?: Date;
     },
     computed: { totalAmount: number; newBottleChange: number; newFinancialEffect: number },
   ): Promise<boolean> {
@@ -225,6 +235,7 @@ export class LedgerService {
     await tx.transaction.create({
       data: {
         type: TransactionType.DELIVERY,
+        ...(data.occurredAt && { createdAt: data.occurredAt }),
         vendorId: data.vendorId,
         customerId: data.customerId,
         productId: data.productId,
@@ -245,6 +256,7 @@ export class LedgerService {
       await tx.transaction.create({
         data: {
           type: TransactionType.PAYMENT,
+          ...(data.occurredAt && { createdAt: data.occurredAt }),
           vendorId: data.vendorId,
           customerId: data.customerId,
           dailySheetId: data.dailySheetId,

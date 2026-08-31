@@ -635,6 +635,10 @@ export class DailySheetService implements OnModuleInit {
           emptyReceived: dto.emptyReceived,
           cashCollected: dto.cashCollected,
           pricePerBottle: price,
+          // A correction entry's ledger rows stay dated to the sheet, even when
+          // edited later — mirrors addCorrectionItem. Normal deliveries keep
+          // "now" (same day as the open sheet anyway).
+          ...(item.isCorrection ? { occurredAt: item.dailySheet.date } : {}),
         }, tx);
 
         // Read via `tx`, not `this.prisma` — ledger.recordDelivery() just wrote the
@@ -1888,6 +1892,9 @@ export class DailySheetService implements OnModuleInit {
         filledReceived: dto.filledReceived,
         cashCollected: dto.cashCollected,
         pricePerBottle: price,
+        // Post the ledger entries on the sheet's date, not today, so the missed
+        // delivery shows on the day it happened (statement / analytics / portal).
+        occurredAt: sheet.date,
       }, tx);
 
       // Same tx-visibility fix as submitDelivery — read via `tx`, not `this.prisma`.

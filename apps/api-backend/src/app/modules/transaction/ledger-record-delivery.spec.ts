@@ -341,4 +341,58 @@ describe('LedgerService.recordDelivery — idempotency', () => {
       expect(mockPrisma.transaction.deleteMany).toHaveBeenCalledTimes(1);
     });
   });
+
+  // ── 5. occurredAt: backdated posting for correction entries ──────────────────
+  describe('occurredAt (correction entry business date)', () => {
+    const SHEET_DATE = new Date('2026-08-20T00:00:00.000Z');
+
+    it('stamps createdAt on both DELIVERY and PAYMENT rows on first post', async () => {
+      mockPrisma.transaction.findFirst.mockResolvedValue(null);
+      mockPrisma.bottleWallet.findUnique.mockResolvedValue({ balance: 1000 });
+
+      await service.recordDelivery({
+        ...BASE,
+        filledDropped: 2,
+        emptyReceived: 1,
+        cashCollected: 200,
+        occurredAt: SHEET_DATE,
+      });
+
+      const creates = mockPrisma.transaction.create.mock.calls.map((c: any) => c[0].data);
+      expect(creates).toHaveLength(2);
+      for (const data of creates) {
+        expect(data.createdAt).toEqual(SHEET_DATE);
+      }
+    });
+
+    it('omits createdAt entirely when occurredAt is not supplied', async () => {
+      mockPrisma.transaction.findFirst.mockResolvedValue(null);
+      mockPrisma.bottleWallet.findUnique.mockResolvedValue({ balance: 1000 });
+
+      await service.recordDelivery({ ...BASE, filledDropped: 1, emptyReceived: 0, cashCollected: 0 });
+
+      const deliveryData = mockPrisma.transaction.create.mock.calls[0][0].data;
+      expect(deliveryData).not.toHaveProperty('createdAt');
+    });
+
+    it('preserves the business date when transactions are re-posted on edit', async () => {
+      mockPrisma.transaction.findFirst
+        .mockResolvedValueOnce({ id: 'tx-d', type: TransactionType.DELIVERY, bottleCount: 2, amount: 200 })
+        .mockResolvedValueOnce({ id: 'tx-p', type: TransactionType.PAYMENT, amount: -200 });
+
+      await service.recordDelivery({
+        ...BASE,
+        filledDropped: 2,
+        emptyReceived: 0,
+        cashCollected: 300,
+        occurredAt: SHEET_DATE,
+      });
+
+      const creates = mockPrisma.transaction.create.mock.calls.map((c: any) => c[0].data);
+      expect(creates).toHaveLength(2);
+      for (const data of creates) {
+        expect(data.createdAt).toEqual(SHEET_DATE);
+      }
+    });
+  });
 });
