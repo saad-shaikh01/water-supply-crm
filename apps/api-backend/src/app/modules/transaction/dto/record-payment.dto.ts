@@ -1,4 +1,5 @@
-import { IsUUID, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsUUID, IsNumber, IsOptional, IsString, IsEnum, Min } from 'class-validator';
+import { PaymentMode } from '@prisma/client';
 
 export class RecordPaymentDto {
   @IsUUID()
@@ -11,6 +12,11 @@ export class RecordPaymentDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  /** How the money arrived. Defaults to CASH when omitted. */
+  @IsOptional()
+  @IsEnum(PaymentMode)
+  paymentMode?: PaymentMode;
 
   @IsOptional()
   @IsUUID()

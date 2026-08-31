@@ -591,6 +591,46 @@ export class CustomerService {
     return this.statementPdf.generate(data);
   }
 
+  /**
+   * Same statement, shaped for on-screen rendering (no PDF): the grouped
+   * delivery / other-transaction rows with running balances the PDF draws,
+   * plus period + opening/closing figures and the totals row.
+   */
+  async getMonthlyStatementData(vendorId: string, customerId: string, month?: string, toMonth?: string) {
+    const data = await this.getMonthlyStatement(vendorId, customerId, month, toMonth);
+    const { deliveryRows, otherRows } = this.statementPdf.buildRows(data.transactions, data.openingBalance);
+
+    const totals = {
+      totalBtl: deliveryRows.reduce((s, r) => s + r.btlDelivered, 0),
+      totalEmpty: deliveryRows.reduce((s, r) => s + r.emptyPickup, 0),
+      totalDue: data.openingBalance + deliveryRows.reduce((s, r) => s + r.amountDue, 0),
+      totalRecv: deliveryRows.reduce((s, r) => s + r.amountReceived, 0),
+      finalBalance: deliveryRows.length
+        ? deliveryRows[deliveryRows.length - 1].runningBalance
+        : data.openingBalance,
+    };
+
+    return {
+      customer: {
+        id: data.customer.id,
+        name: data.customer.name,
+        customerCode: data.customer.customerCode,
+        address: data.customer.address,
+        phoneNumber: data.customer.phoneNumber,
+        paymentType: data.customer.paymentType,
+      },
+      period: data.period,
+      month: data.month,
+      toMonth: data.toMonth,
+      openingBalance: data.openingBalance,
+      closingBalance: data.closingBalance,
+      ratePerBottle: data.ratePerBottle,
+      deliveryRows,
+      otherRows,
+      totals,
+    };
+  }
+
   async deactivate(vendorId: string, id: string) {
     const customer = await this.prisma.customer.findFirst({ where: { id, vendorId } });
     if (!customer) throw new NotFoundException('Customer not found');

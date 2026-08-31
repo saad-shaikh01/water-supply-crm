@@ -14,17 +14,26 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
 // "Sheet Order" reflects the ACTUAL order deliveries happened in, not the
 // static planned route sequence — a driver who does stop #4 before #2/#3
 // (traffic, customer availability, whatever) should see the list settle into
-// 1, 4, 2, 3, 5 once recorded, matching the printed sheet/PDF. Items already
-// recorded (deliveredAt set) sort chronologically by that timestamp; items
-// still PENDING have no deliveredAt yet, so they fall back to the planned
-// `sequence` and stay grouped at the end, in their original relative order.
+// 1, 4, 2, 3, 5 once recorded, matching the printed sheet/PDF. Every recorded
+// stop sorts chronologically by `recordedAt` — the time it was first taken off
+// PENDING, set for EVERY terminal status so a failed visit (NOT_AVAILABLE /
+// RESCHEDULED, no `deliveredAt`) still lands at its real point on the route
+// instead of sinking to the bottom. `deliveredAt` is a fallback for any
+// pre-migration row that predates `recordedAt`; items still PENDING have
+// neither, so they fall back to the planned `sequence` and stay grouped at the
+// end, in their original relative order.
+const timelineTs = (i: DeliveryItem): number | null => {
+  const t = i.recordedAt ?? i.deliveredAt;
+  return t ? new Date(t).getTime() : null;
+};
+
 export function sortBySequence(items: DeliveryItem[]): DeliveryItem[] {
   return [...items].sort((a, b) => {
-    if (a.deliveredAt && b.deliveredAt) {
-      return new Date(a.deliveredAt).getTime() - new Date(b.deliveredAt).getTime();
-    }
-    if (a.deliveredAt) return -1;
-    if (b.deliveredAt) return 1;
+    const ta = timelineTs(a);
+    const tb = timelineTs(b);
+    if (ta != null && tb != null) return ta - tb;
+    if (ta != null) return -1;
+    if (tb != null) return 1;
     return a.sequence - b.sequence;
   });
 }

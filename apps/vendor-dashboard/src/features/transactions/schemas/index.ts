@@ -1,8 +1,19 @@
 import { z } from 'zod';
 
+/** How a manually recorded payment physically arrived. Mirrors the backend `PaymentMode` enum. */
+export const PAYMENT_MODES = ['CASH', 'CHEQUE', 'BANK_TRANSFER'] as const;
+export type PaymentMode = (typeof PAYMENT_MODES)[number];
+
+export const PAYMENT_MODE_LABELS: Record<PaymentMode, string> = {
+  CASH: 'Cash',
+  CHEQUE: 'Cheque',
+  BANK_TRANSFER: 'Bank / Online',
+};
+
 export const paymentSchema = z.object({
   amount: z.number().positive('Amount must be positive'),
   description: z.string().optional(),
+  paymentMode: z.enum(PAYMENT_MODES),
 });
 
 export const adjustmentSchema = z.object({

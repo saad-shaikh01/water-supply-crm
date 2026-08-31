@@ -137,11 +137,32 @@ type DeliveryCols = ReturnType<typeof getDeliveryCols>;
 // Trip Summary mini-table column geometry (10 cols, sums to CONTENT_W) — each
 // trip renders its own stacked block (title + this header + one data row),
 // so there is no separate "trip #" column here (the block title carries it).
-const TRIPCOLS = {
-  filledOut: 50, filledReturned: 55, filledReceived: 55, sold: 42,
-  emptyReceive: 55, cashCollected: 58, expense: 52, cashInHand: 60,
-  timeOut: 44, timeIn: 44.28,
-};
+// FILLED RECV (filledReceived — filled bottles taken back from customers) is
+// only drawn when at least one trip on the sheet has a non-zero value; when
+// hidden its 55pt is spread evenly across the 9 remaining columns so the row
+// still sums to CONTENT_W (same fold convention as getDeliveryCols's F.RCV).
+function getTripCols(showFilledRecv: boolean) {
+  const base = {
+    filledOut: 50, filledReturned: 55, filledReceived: 55, sold: 42,
+    emptyReceive: 55, cashCollected: 58, expense: 52, cashInHand: 60,
+    timeOut: 44, timeIn: 44.28,
+  };
+  if (showFilledRecv) return base;
+  const spread = base.filledReceived / 9;
+  return {
+    filledOut: base.filledOut + spread,
+    filledReturned: base.filledReturned + spread,
+    filledReceived: 0,
+    sold: base.sold + spread,
+    emptyReceive: base.emptyReceive + spread,
+    cashCollected: base.cashCollected + spread,
+    expense: base.expense + spread,
+    cashInHand: base.cashInHand + spread,
+    timeOut: base.timeOut + spread,
+    timeIn: base.timeIn + spread,
+  };
+}
+type TripCols = ReturnType<typeof getTripCols>;
 
 interface TripStat {
   load: any;
@@ -531,10 +552,18 @@ export class DailySheetPdfService {
 
     // Cash Collected card dropped — now shown as its own highlighted box in
     // the Info Card above, so this row stays to just the bottle-flow numbers.
+    // SOLD BOTTLES mirrors the frontend load-trips "Sold" stat: bottles
+    // actually dropped at customers (filledDropped sum) = `delivered`.
+    // FILLED RECEIVED is only shown when a customer handed filled bottles
+    // back this day — otherwise its card is dropped and the row re-flows to
+    // the remaining cards (cardW is derived from cards.length).
     const cards = [
       { label: 'FILLED OUT', value: String(sheet.filledOutCount), accent: '#3b82f6' },
       { label: 'FILLED RETURNED', value: String(sheet.filledInCount), accent: '#10b981' },
-      { label: 'FILLED RECEIVED', value: String(filledReceived), accent: '#7c3aed' },
+      ...(filledReceived !== 0
+        ? [{ label: 'FILLED RECEIVED', value: String(filledReceived), accent: '#7c3aed' }]
+        : []),
+      { label: 'SOLD BOTTLES', value: String(delivered), accent: '#f59e0b' },
       { label: 'EMPTY RECEIVED', value: String(sheet.emptyInCount), accent: '#eab308' },
     ];
 
@@ -866,22 +895,22 @@ export class DailySheetPdfService {
   // exactly), a "TRIP N" label + data row per trip, and a border-top TOTAL
   // row (no fill — matches CustomerStatementPdfService's TOTAL row exactly),
   // instead of the old per-trip navy-filled mini-tables. ───────────────────
-  private drawTripHeaderRow(doc: PDFKit.PDFDocument, x: number, y: number, w: number): number {
+  private drawTripHeaderRow(doc: PDFKit.PDFDocument, x: number, y: number, w: number, cols: TripCols): number {
     const rowH = 22;
     doc.moveTo(x + 10, y + rowH).lineTo(x + w - 10, y + rowH).strokeColor(C.border).lineWidth(0.75).stroke();
     doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(6.2);
     let cx = x;
     const cells: [string, number][] = [
-      ['FILLED OUT', TRIPCOLS.filledOut],
-      ['FILLED RET.', TRIPCOLS.filledReturned],
-      ['FILLED RECV', TRIPCOLS.filledReceived],
-      ['SOLD', TRIPCOLS.sold],
-      ['EMPTY RECV', TRIPCOLS.emptyReceive],
-      ['CASH COLL.', TRIPCOLS.cashCollected],
-      ['EXPENSE', TRIPCOLS.expense],
-      ['CASH IN HAND', TRIPCOLS.cashInHand],
-      ['TIME OUT', TRIPCOLS.timeOut],
-      ['TIME IN', TRIPCOLS.timeIn],
+      ['FILLED OUT', cols.filledOut],
+      ['FILLED RET.', cols.filledReturned],
+      ...(cols.filledReceived > 0 ? [['FILLED RECV', cols.filledReceived] as [string, number]] : []),
+      ['SOLD', cols.sold],
+      ['EMPTY RECV', cols.emptyReceive],
+      ['CASH COLL.', cols.cashCollected],
+      ['EXPENSE', cols.expense],
+      ['CASH IN HAND', cols.cashInHand],
+      ['TIME OUT', cols.timeOut],
+      ['TIME IN', cols.timeIn],
     ];
     cells.forEach(([label, w2]) => {
       doc.text(label, cx, y + 8, { width: w2 - 6, align: 'right', lineBreak: false });
@@ -900,21 +929,22 @@ export class DailySheetPdfService {
       timeOutLabel: string; timeInLabel: string;
     },
     opts?: { bold?: boolean },
+    cols: TripCols = getTripCols(true),
   ): number {
     const rowH = 20;
     doc.fillColor(opts?.bold ? C.navyText : C.textSoft).fontSize(7.5).font(opts?.bold ? 'Helvetica-Bold' : 'Helvetica');
     let cx = x;
     const vals: [string, number][] = [
-      [String(row.filledOut), TRIPCOLS.filledOut],
-      [String(row.filledReturned), TRIPCOLS.filledReturned],
-      [String(row.filledReceived), TRIPCOLS.filledReceived],
-      [String(row.sold), TRIPCOLS.sold],
-      [String(row.emptyReceive), TRIPCOLS.emptyReceive],
-      [this.rs(row.cashCollected), TRIPCOLS.cashCollected],
-      [this.rs(row.expense), TRIPCOLS.expense],
-      [this.rs(row.cashInHand), TRIPCOLS.cashInHand],
-      [row.timeOutLabel, TRIPCOLS.timeOut],
-      [row.timeInLabel, TRIPCOLS.timeIn],
+      [String(row.filledOut), cols.filledOut],
+      [String(row.filledReturned), cols.filledReturned],
+      ...(cols.filledReceived > 0 ? [[String(row.filledReceived), cols.filledReceived] as [string, number]] : []),
+      [String(row.sold), cols.sold],
+      [String(row.emptyReceive), cols.emptyReceive],
+      [this.rs(row.cashCollected), cols.cashCollected],
+      [this.rs(row.expense), cols.expense],
+      [this.rs(row.cashInHand), cols.cashInHand],
+      [row.timeOutLabel, cols.timeOut],
+      [row.timeInLabel, cols.timeIn],
     ];
     vals.forEach(([val, w]) => {
       doc.text(val, cx, y + 6, { width: w - 6, align: 'right', lineBreak: false });
@@ -924,6 +954,13 @@ export class DailySheetPdfService {
   }
 
   private drawTripSummary(doc: PDFKit.PDFDocument, stats: TripStats): void {
+    // FILLED RECV column only appears when a trip actually took filled bottles
+    // back from a customer this day — otherwise it's dropped and its width is
+    // folded into the other columns (see getTripCols).
+    const showFilledRecv =
+      stats.totals.filledReceived !== 0 || stats.perTrip.some((t) => t.filledReceived !== 0);
+    const cols = getTripCols(showFilledRecv);
+
     const TOP_PAD = 6;
     const HEADER_H = 22;
     const LABEL_H = 16;
@@ -947,7 +984,7 @@ export class DailySheetPdfService {
     drawClippedWatermark(doc, ICON_PATH, MARGIN, cardY, CONTENT_W, cardH);
 
     let y = cardY + TOP_PAD;
-    y = this.drawTripHeaderRow(doc, MARGIN, y, CONTENT_W);
+    y = this.drawTripHeaderRow(doc, MARGIN, y, CONTENT_W, cols);
 
     stats.perTrip.forEach((t) => {
       doc.fillColor(C.mutedLt).font('Helvetica-Bold').fontSize(6.5)
@@ -959,7 +996,7 @@ export class DailySheetPdfService {
         cashInHand: t.cashInHand,
         timeOutLabel: this.fmtTripTime(t.timeOut, '—'),
         timeInLabel: this.fmtTripTime(t.timeIn, '(open)'),
-      });
+      }, undefined, cols);
       y += GAP;
     });
 
@@ -976,7 +1013,7 @@ export class DailySheetPdfService {
       expense: stats.totals.expense, cashInHand: stats.totals.cashInHand,
       timeOutLabel: this.fmtTripTime(stats.totals.startingTime, '—'),
       timeInLabel: this.fmtTripTime(stats.totals.closingTime, 'In Progress'),
-    }, { bold: true });
+    }, { bold: true }, cols);
 
     doc.y = cardY + cardH;
   }
@@ -1146,8 +1183,12 @@ export class DailySheetPdfService {
     }
     cx += cols.customer;
 
+    // Falls back to recordedAt so a failed visit (NOT_AVAILABLE / RESCHEDULED —
+    // no deliveredAt) still prints the time it was recorded, matching the
+    // recordedAt-based row order.
+    const rowTime = item.deliveredAt ?? item.recordedAt;
     doc.fillColor(C.muted).fontSize(6.3).font('Helvetica')
-      .text(item.deliveredAt ? this.hm(item.deliveredAt) : '—', cx, textY, { width: cols.time - 4, align: 'right', lineBreak: false });
+      .text(rowTime ? this.hm(rowTime) : '—', cx, textY, { width: cols.time - 4, align: 'right', lineBreak: false });
     cx += cols.time;
 
     doc.fillColor(C.text).fontSize(6.8)

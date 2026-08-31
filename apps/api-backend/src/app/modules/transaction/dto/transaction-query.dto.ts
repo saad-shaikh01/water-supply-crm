@@ -1,5 +1,5 @@
 import { IsOptional, IsUUID, IsEnum, IsDateString, IsString, MaxLength } from 'class-validator';
-import { TransactionType } from '@prisma/client';
+import { TransactionType, PaymentMode } from '@prisma/client';
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
 
 export class TransactionQueryDto extends PaginationQueryDto {
@@ -14,6 +14,11 @@ export class TransactionQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsEnum(TransactionType)
   type?: TransactionType;
+
+  /** Filter PAYMENT rows by how the money arrived (cash / cheque / bank transfer). */
+  @IsOptional()
+  @IsEnum(PaymentMode)
+  paymentMode?: PaymentMode;
 
   @IsOptional()
   @IsDateString()

@@ -19,6 +19,7 @@ import { QuickRecordPayment } from './quick-record-payment';
 import { EditPaymentForm } from './edit-payment-form';
 import { DeletePaymentDialog } from './delete-payment-dialog';
 import { REASON_OPTIONS } from './reason-select';
+import { PAYMENT_MODE_LABELS } from '../schemas';
 import { useTransactions } from '../hooks/use-transactions';
 import { useAllVans } from '../../vans/hooks/use-vans';
 import { useAllCustomers } from '../../customers/hooks/use-customers';
@@ -38,6 +39,13 @@ const TRANSACTION_TYPES = [
   { value: 'PAYMENT', label: 'Payment' },
   { value: 'ADJUSTMENT', label: 'Adjustment' },
   { value: 'COLLECTION', label: 'Collection' },
+];
+
+const PAYMENT_MODE_OPTIONS = [
+  { value: '', label: 'All Methods' },
+  { value: 'CASH', label: 'Cash' },
+  { value: 'CHEQUE', label: 'Cheque' },
+  { value: 'BANK_TRANSFER', label: 'Bank / Online' },
 ];
 
 interface TransactionListProps {
@@ -60,6 +68,8 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
     setVanId,
     type,
     setType,
+    paymentMode,
+    setPaymentMode,
     dateFrom,
     setDateFrom,
     dateTo,
@@ -78,6 +88,7 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
     id: string;
     type: string;
     amount: number;
+    paymentMode?: string | null;
     createdAt: string;
     customer?: { id: string; name: string; phoneNumber?: string | null };
     description?: string;
@@ -132,6 +143,7 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
     !overrideCustomerId && customerId,
     vanId,
     type,
+    paymentMode,
     dateFrom || dateTo
   ].filter(Boolean).length;
 
@@ -142,6 +154,7 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
     if (!overrideCustomerId) setCustomerId(null);
     setVanId(null);
     setType(null);
+    setPaymentMode(null);
     setDateFrom(null);
     setDateTo(null);
     resetPage();
@@ -233,6 +246,12 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
               <button onClick={() => { setType(null); resetPage(); }}><X className="h-3 w-3" /></button>
             </Badge>
           )}
+          {paymentMode && (
+            <Badge variant="secondary" className="rounded-full pl-3 pr-1 py-1 gap-1 bg-primary/10 text-primary border-none">
+              Method: {PAYMENT_MODE_OPTIONS.find(m => m.value === paymentMode)?.label}
+              <button onClick={() => { setPaymentMode(null); resetPage(); }}><X className="h-3 w-3" /></button>
+            </Badge>
+          )}
           {!overrideCustomerId && customerId && (
             <Badge variant="secondary" className="rounded-full pl-3 pr-1 py-1 gap-1 bg-primary/10 text-primary border-none">
               Customer: {customers.find(c => c.id === customerId)?.name || '...'}
@@ -279,6 +298,21 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
                 {TRANSACTION_TYPES.map((t) => (
                   <option key={t.value} value={t.value} className="bg-background text-foreground dark:text-white">
                     {t.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Payment Method</Label>
+              <select
+                value={paymentMode || ''}
+                onChange={(e) => { setPaymentMode(e.target.value || null); resetPage(); }}
+                className="w-full h-10 rounded-xl bg-background/50 border-border text-sm text-foreground dark:text-white px-3 appearance-none cursor-pointer"
+              >
+                {PAYMENT_MODE_OPTIONS.map((m) => (
+                  <option key={m.value} value={m.value} className="bg-background text-foreground dark:text-white">
+                    {m.label}
                   </option>
                 ))}
               </select>
@@ -338,7 +372,7 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
 
       {!isLoading && rows.length === 0 && (
         <div className="py-12 text-center text-muted-foreground space-y-2">
-          {(customerId || vanId || type || dateFrom || dateTo || search) ? (
+          {(customerId || vanId || type || paymentMode || dateFrom || dateTo || search) ? (
             <>
               <p className="font-semibold">No results match your filters.</p>
               <button onClick={clearAll} className="text-xs text-primary underline hover:no-underline font-bold">Clear filters</button>
@@ -392,8 +426,18 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
             key: 'type',
             header: 'Type',
             cell: (r) => (
-              <div className="scale-90 origin-left">
-                <StatusBadge status={r.type} />
+              <div className="flex flex-col items-start gap-1">
+                <div className="scale-90 origin-left">
+                  <StatusBadge status={r.type} />
+                </div>
+                {r.type === 'PAYMENT' && r.paymentMode && (
+                  <Badge
+                    variant="outline"
+                    className="text-[9px] px-1.5 py-0 rounded-full font-bold uppercase tracking-wide text-muted-foreground"
+                  >
+                    {PAYMENT_MODE_LABELS[r.paymentMode as keyof typeof PAYMENT_MODE_LABELS] ?? r.paymentMode}
+                  </Badge>
+                )}
               </div>
             ),
           },

@@ -336,12 +336,24 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
           {
             key: 'phone',
             header: 'Contact',
-            cell: (r) => (
-              <div className="flex items-center gap-2 text-muted-foreground/80 whitespace-nowrap">
-                <Phone className="h-3 w-3 shrink-0" />
-                <span className="text-xs font-medium tabular-nums">{r.phoneNumber}</span>
-              </div>
-            )
+            cell: (r) => {
+              const balance = Number(r.financialBalance ?? 0);
+              const isOwed = balance > 0;
+              return (
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2 text-muted-foreground/80 whitespace-nowrap">
+                    <Phone className="h-3 w-3 shrink-0" />
+                    <span className="text-xs font-medium tabular-nums">{r.phoneNumber}</span>
+                  </div>
+                  <div className={cn(
+                    "font-mono font-bold text-xs px-2 py-0.5 rounded-md inline-block whitespace-nowrap w-fit",
+                    isOwed ? "text-rose-400 bg-rose-500/10" : "text-emerald-400 bg-emerald-500/10"
+                  )}>
+                    ₨ {balance.toLocaleString()}
+                  </div>
+                </div>
+              );
+            }
           },
           {
             key: 'address',
@@ -354,39 +366,21 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             )
           },
           {
-            key: 'route',
-            header: 'Route',
-            cell: (r) => (
-              <div className="max-w-[120px]">
-                <Badge variant="secondary" className="bg-white/5 text-muted-foreground dark:text-white/60 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border-none truncate block text-center">
-                  {r.route?.name ?? 'None'}
-                </Badge>
-              </div>
-            )
-          },
-          {
             key: 'deliveryDays',
             header: 'Delivery Days',
             cell: (r) => {
               const DAY_SHORT: Record<number, string> = { 0: 'Sun', 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat' };
               const schedules = r.deliverySchedules ?? [];
               if (schedules.length === 0) return <span className="text-xs text-muted-foreground/40">—</span>;
-              
-              const visible = schedules.slice(0, 2);
-              const remaining = schedules.length - 2;
 
               return (
-                <div className="flex items-center gap-1 whitespace-nowrap">
-                  {visible.map((s, i) => (
-                    <Badge key={i} variant="secondary" className="text-[9px] font-bold px-1.5 py-0 bg-primary/10 text-primary border-primary/20 rounded-md">
+                <div className="flex flex-wrap items-center gap-1">
+                  {schedules.map((s, i) => (
+                    <Badge key={i} variant="secondary" className="text-[9px] font-bold px-1.5 py-0 bg-primary/10 text-primary border-primary/20 rounded-md whitespace-nowrap">
                       {DAY_SHORT[s.dayOfWeek] ?? s.dayOfWeek}
+                      {s.van?.plateNumber && <span className="ml-1 text-primary/60">· {s.van.plateNumber}</span>}
                     </Badge>
                   ))}
-                  {remaining > 0 && (
-                    <Badge variant="outline" className="text-[9px] font-bold px-1 py-0 border-white/10 text-muted-foreground/60 rounded-md">
-                      +{remaining}
-                    </Badge>
-                  )}
                 </div>
               );
             }
@@ -412,36 +406,19 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
               </div>
             )
           },
-          {
-            key: 'portal',
-            header: 'Portal',
-            cell: (r) => (
-              <Badge className={cn(
-                "text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border-none whitespace-nowrap",
-                r.userId ? "bg-emerald-500/10 text-emerald-500" : "bg-muted text-muted-foreground"
-              )}>
-                {r.userId ? 'Activated' : 'Not Activated'}
-              </Badge>
-            )
-          },
-          {
-            key: 'balance',
-            header: 'Balance',
-            sortable: true,
-            sortField: 'financialBalance',
-            cell: (r) => {
-              const balance = Number(r.financialBalance ?? 0);
-              const isOwed = balance > 0;
-              return (
-                <div className={cn(
-                  "font-mono font-bold text-xs px-2 py-1 rounded-md inline-block whitespace-nowrap",
-                  isOwed ? "text-rose-400 bg-rose-500/10" : "text-emerald-400 bg-emerald-500/10"
-                )}>
-                  ₨ {balance.toLocaleString()}
-                </div>
-              );
-            }
-          },
+          // Portal column hidden for now — uncomment to restore
+          // {
+          //   key: 'portal',
+          //   header: 'Portal',
+          //   cell: (r) => (
+          //     <Badge className={cn(
+          //       "text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border-none whitespace-nowrap",
+          //       r.userId ? "bg-emerald-500/10 text-emerald-500" : "bg-muted text-muted-foreground"
+          //     )}>
+          //       {r.userId ? 'Activated' : 'Not Activated'}
+          //     </Badge>
+          //   )
+          // },
           {
             key: 'actions',
             header: '',

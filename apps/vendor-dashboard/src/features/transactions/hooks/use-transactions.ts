@@ -20,6 +20,7 @@ export const useTransactions = (overrideCustomerId?: string) => {
   const [urlCustomerId, setCustomerId] = useQueryState('customerId', parseAsString.withDefault(''));
   const [vanId, setVanId] = useQueryState('vanId', parseAsString.withDefault(''));
   const [type, setType] = useQueryState('type', parseAsString.withDefault(''));
+  const [paymentMode, setPaymentMode] = useQueryState('paymentMode', parseAsString.withDefault(''));
   // Default to empty (not current-month) so "Clear All" can actually clear the
   // date filter. nuqs reverts to the default when set to null, so a non-empty
   // default made the date chip impossible to remove. Use the "This Month"
@@ -36,6 +37,7 @@ export const useTransactions = (overrideCustomerId?: string) => {
     customerId: effectiveCustomerId || undefined,
     vanId: vanId || undefined,
     type: type || undefined,
+    paymentMode: paymentMode || undefined,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
   };
@@ -57,12 +59,27 @@ export const useTransactions = (overrideCustomerId?: string) => {
     setVanId,
     type,
     setType,
+    paymentMode,
+    setPaymentMode,
     dateFrom,
     setDateFrom,
     dateTo,
     setDateTo,
   };
 };
+
+/**
+ * Monthly snapshot for the Record Payment dialog — prev-month outstanding and
+ * how much the customer has already paid this month. Fetched lazily (only when
+ * the dialog is open for a customer).
+ */
+export const useCustomerPrevMonthOutstanding = (customerId: string, enabled: boolean) =>
+  useQuery({
+    queryKey: ['customer-prev-month-outstanding', customerId],
+    queryFn: () => transactionsApi.getPrevMonthOutstanding(customerId).then((r) => r.data),
+    enabled: enabled && !!customerId,
+    staleTime: 1000 * 60 * 2,
+  });
 
 export const useAddPayment = () => {
   const queryClient = useQueryClient();

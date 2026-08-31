@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import {
   Tabs, TabsContent, TabsList, TabsTrigger,
@@ -13,6 +13,7 @@ import {
   useCustomerConsumption,
   useRemoveCustomPrice,
   useCustomerSchedule,
+  useCustomerStatement,
 } from '../hooks/use-customers';
 import { customersApi } from '../api/customers.api';
 import { TransactionList } from '../../transactions/components/transaction-list';
@@ -24,7 +25,7 @@ import {
   ShieldCheck, Trash2, Globe,
   Lock as LockIcon,
   TrendingUp, TrendingDown, FileText, ChevronDown, Download,
-  CalendarRange,
+  CalendarRange, ChevronLeft, ChevronRight,
   ExternalLink, Navigation, Building2, Landmark,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -56,6 +57,16 @@ function toIso(d: Date) {
 function fmtDisplay(dateStr: string) {
   if (!dateStr) return '';
   return new Date(dateStr + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+
+/** Rs. formatter matching the statement PDF (no decimals, sign-aware). */
+function fmtRs(n: number) {
+  const sign = n < 0 ? '-' : '';
+  return `${sign}Rs.${Math.abs(Math.round(n)).toLocaleString('en-PK')}`;
+}
+
+function fmtStatementDate(d: string) {
+  return new Date(d).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 function buildPresetRange(preset: Exclude<ConsumptionPreset, 'CUSTOM' | 'ALL_TIME'>): { from: string; to: string } {
@@ -252,6 +263,18 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
   const [statementTo, setStatementTo] = useState<string>(statementFrom);
   const [isPickingRange, setIsPickingRange] = useState(false);
   const [isDownloadingStatement, setIsDownloadingStatement] = useState(false);
+
+  // Inline statement view — rendered right on the page so a file download isn't
+  // required just to read a statement. Delivery rows are paginated client-side.
+  const STATEMENT_PAGE_SIZE = 12;
+  const [statementPage, setStatementPage] = useState(1);
+  const { data: statementData, isLoading: isLoadingStatement, isError: isStatementError } =
+    useCustomerStatement(customerId, { month: statementFrom, toMonth: statementTo });
+
+  // Any change to the selected month/range resets to the first page of rows.
+  useEffect(() => {
+    setStatementPage(1);
+  }, [statementFrom, statementTo]);
 
   const handleStatementMonthClick = (value: string) => {
     if (isPickingRange) {
@@ -859,6 +882,186 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                     </p>
                     <p className="text-[10px] text-muted-foreground font-medium">Selected Period</p>
                   </div>
+                </div>
+
+                {/* ── Inline statement — no download needed to read it ───────── */}
+                <div className="pt-2">
+                  {isLoadingStatement ? (
+                    <div className="space-y-3">
+                      {[1, 2, 3, 4, 5].map((i) => <div key={i} className="h-11 bg-muted/30 rounded-xl animate-pulse" />)}
+                    </div>
+                  ) : isStatementError ? (
+                    <p className="text-sm text-muted-foreground text-center py-10">
+                      Statement not available for this period.
+                    </p>
+                  ) : !statementData ? null : (() => {
+                    const s = statementData;
+                    const isCredit = s.closingBalance < 0;
+                    const totalPages = Math.max(1, Math.ceil(s.deliveryRows.length / STATEMENT_PAGE_SIZE));
+                    const pageSafe = Math.min(statementPage, totalPages);
+                    const start = (pageSafe - 1) * STATEMENT_PAGE_SIZE;
+                    const pageRows = s.deliveryRows.slice(start, start + STATEMENT_PAGE_SIZE);
+
+                    return (
+                      <div className="space-y-6">
+                        {/* Summary figures */}
+                        <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
+                          {[
+                            { label: 'Opening Balance', value: fmtRs(s.openingBalance) },
+                            { label: 'Period Deliveries', value: `${s.deliveryRows.length}` },
+                            { label: 'Rate / Bottle', value: s.ratePerBottle > 0 ? fmtRs(s.ratePerBottle) : '—' },
+                            {
+                              label: isCredit ? 'Credit Balance' : 'Balance Due',
+                              value: fmtRs(Math.abs(s.closingBalance)),
+                              accent: isCredit ? 'text-emerald-500' : 'text-rose-500',
+                            },
+                          ].map((c) => (
+                            <div key={c.label} className="rounded-2xl bg-muted/30 p-4">
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{c.label}</p>
+                              <p className={cn('text-lg font-black font-mono mt-1', c.accent)}>{c.value}</p>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Delivery history */}
+                        <div>
+                          <div className="flex items-center justify-between gap-2 mb-2">
+                            <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">Delivery History</p>
+                            <p className="text-[10px] text-muted-foreground font-medium">{s.period}</p>
+                          </div>
+                          <div className="border border-border/50 rounded-2xl overflow-hidden">
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-xs min-w-[640px]">
+                                <thead>
+                                  <tr className="bg-muted/30 text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
+                                    <th className="text-left px-3 py-2">Date</th>
+                                    <th className="text-left px-3 py-2">Trans#</th>
+                                    <th className="text-right px-3 py-2">Btl Del</th>
+                                    <th className="text-right px-3 py-2">Empty</th>
+                                    <th className="text-right px-3 py-2">Bal Btl</th>
+                                    <th className="text-right px-3 py-2">Due</th>
+                                    <th className="text-right px-3 py-2">Recv</th>
+                                    <th className="text-right px-3 py-2">Balance</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-border/40">
+                                  {pageSafe === 1 && (
+                                    <tr className="bg-muted/10">
+                                      <td className="px-3 py-2 italic text-muted-foreground" colSpan={5}>Previous Balance</td>
+                                      <td className="px-3 py-2 text-right font-mono font-bold">{fmtRs(s.openingBalance)}</td>
+                                      <td className="px-3 py-2" />
+                                      <td className="px-3 py-2 text-right font-mono font-bold">{fmtRs(s.openingBalance)}</td>
+                                    </tr>
+                                  )}
+                                  {pageRows.map((r, idx) => (
+                                    <tr key={start + idx} className="hover:bg-accent/20 transition-colors">
+                                      <td className="px-3 py-2 whitespace-nowrap">{fmtStatementDate(r.date)}</td>
+                                      <td className="px-3 py-2 font-mono text-muted-foreground">{r.trans}</td>
+                                      <td className="px-3 py-2 text-right font-mono">{r.btlDelivered}</td>
+                                      <td className="px-3 py-2 text-right font-mono">{r.emptyPickup}</td>
+                                      <td className="px-3 py-2 text-right font-mono">{r.bottleBalance ?? '—'}</td>
+                                      <td className="px-3 py-2 text-right font-mono font-bold">{fmtRs(r.amountDue)}</td>
+                                      <td className="px-3 py-2 text-right font-mono font-bold text-emerald-600">
+                                        {r.amountReceived > 0 ? fmtRs(r.amountReceived) : ''}
+                                      </td>
+                                      <td className="px-3 py-2 text-right font-mono font-bold">{fmtRs(r.runningBalance)}</td>
+                                    </tr>
+                                  ))}
+                                  {s.deliveryRows.length === 0 && (
+                                    <tr>
+                                      <td className="px-3 py-6 text-center text-muted-foreground" colSpan={8}>
+                                        No deliveries recorded for this period.
+                                      </td>
+                                    </tr>
+                                  )}
+                                  {pageSafe === totalPages && s.deliveryRows.length > 0 && (
+                                    <tr className="bg-muted/30 font-bold border-t-2 border-border">
+                                      <td className="px-3 py-2" colSpan={2}>TOTAL</td>
+                                      <td className="px-3 py-2 text-right font-mono">{s.totals.totalBtl}</td>
+                                      <td className="px-3 py-2 text-right font-mono">{s.totals.totalEmpty}</td>
+                                      <td className="px-3 py-2" />
+                                      <td className="px-3 py-2 text-right font-mono">{fmtRs(s.totals.totalDue)}</td>
+                                      <td className="px-3 py-2 text-right font-mono">{fmtRs(s.totals.totalRecv)}</td>
+                                      <td className="px-3 py-2 text-right font-mono">{fmtRs(s.totals.finalBalance)}</td>
+                                    </tr>
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+
+                          {totalPages > 1 && (
+                            <div className="flex items-center justify-between gap-2 mt-3">
+                              <p className="text-[10px] text-muted-foreground font-medium">
+                                Showing {start + 1}–{Math.min(start + STATEMENT_PAGE_SIZE, s.deliveryRows.length)} of {s.deliveryRows.length}
+                              </p>
+                              <div className="flex items-center gap-1.5">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="rounded-lg h-7 px-2"
+                                  disabled={pageSafe <= 1}
+                                  onClick={() => setStatementPage((p) => Math.max(1, p - 1))}
+                                >
+                                  <ChevronLeft className="h-3.5 w-3.5" />
+                                </Button>
+                                <span className="text-[10px] font-bold text-muted-foreground tabular-nums px-1">
+                                  {pageSafe} / {totalPages}
+                                </span>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="rounded-lg h-7 px-2"
+                                  disabled={pageSafe >= totalPages}
+                                  onClick={() => setStatementPage((p) => Math.min(totalPages, p + 1))}
+                                >
+                                  <ChevronRight className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Other transactions */}
+                        {s.otherRows.length > 0 && (
+                          <div>
+                            <p className="text-xs font-black uppercase tracking-widest text-muted-foreground mb-2">Other Transactions</p>
+                            <div className="border border-border/50 rounded-2xl overflow-hidden">
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-xs min-w-[520px]">
+                                  <thead>
+                                    <tr className="bg-muted/30 text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
+                                      <th className="text-left px-3 py-2">Date</th>
+                                      <th className="text-left px-3 py-2">Type</th>
+                                      <th className="text-left px-3 py-2">Description</th>
+                                      <th className="text-right px-3 py-2">Amount</th>
+                                      <th className="text-right px-3 py-2">Balance</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-border/40">
+                                    {s.otherRows.map((r, i) => (
+                                      <tr key={i} className="hover:bg-accent/20 transition-colors">
+                                        <td className="px-3 py-2 whitespace-nowrap">{fmtStatementDate(r.date)}</td>
+                                        <td className="px-3 py-2 font-bold">{r.type}</td>
+                                        <td className="px-3 py-2 text-muted-foreground">{r.description}</td>
+                                        <td className={cn(
+                                          'px-3 py-2 text-right font-mono font-bold',
+                                          r.amount > 0 ? 'text-rose-500' : 'text-emerald-600',
+                                        )}>
+                                          {fmtRs(Math.abs(r.amount))}
+                                        </td>
+                                        <td className="px-3 py-2 text-right font-mono font-bold">{fmtRs(r.runningBalance)}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               </CardContent>
             </Card>

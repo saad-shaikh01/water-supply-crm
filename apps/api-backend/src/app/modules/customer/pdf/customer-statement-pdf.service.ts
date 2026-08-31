@@ -187,7 +187,9 @@ export class CustomerStatementPdfService {
   }
 
   // ── Row building / grouping ──────────────────────────────────────────────
-  private buildRows(
+  // Public so the customer service can reuse the exact same grouping / running
+  // balance logic to serve an on-screen (JSON) statement without re-implementing it.
+  buildRows(
     transactions: any[],
     openingBalance: number,
   ): { deliveryRows: DeliveryRow[]; otherRows: OtherRow[]; ratePerBottle: number } {

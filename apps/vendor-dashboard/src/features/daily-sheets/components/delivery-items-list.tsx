@@ -1010,6 +1010,19 @@ export function DeliveryItemsList({
                               })}
                             </p>
                           )}
+                          {/* Failed visits have no deliveredAt but still happened at a point on
+                              the route — recordedAt is when the driver logged the outcome, and
+                              what the queue now time-sorts on. */}
+                          {!item.deliveredAt && item.recordedAt && (item.status === 'NOT_AVAILABLE' || item.status === 'RESCHEDULED') && (
+                            <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                              <span className="font-bold">Attempted at:</span>
+                              {new Date(item.recordedAt).toLocaleTimeString('en-US', {
+                                hour: 'numeric',
+                                minute: '2-digit',
+                                hour12: true,
+                              })}
+                            </p>
+                          )}
                           {item.editUnlockExpiresAt &&
                             new Date(item.editUnlockExpiresAt) > new Date() && (
                               <p className="text-[11px] font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">

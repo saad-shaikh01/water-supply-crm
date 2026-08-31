@@ -72,6 +72,8 @@ export interface VehicleCostSummary {
   maintenanceServiceCount: number;
   currentOdometer: number;
   costPerKm: number | null;
+  /** Real-world fuel efficiency (km per litre), full-to-full method. Null if too few fills. */
+  fuelAvgKmPerLiter: number | null;
 }
 
 export interface UpdateVehicleProfileData {

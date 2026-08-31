@@ -14,6 +14,7 @@ import {
   Prisma,
   TransactionType,
   PaymentEditReason,
+  PaymentMode,
   NotificationType,
 } from '@prisma/client';
 import type { AuthUser } from '@water-supply-crm/types';
@@ -293,6 +294,7 @@ export class LedgerService {
           vendorId,
           customerId: dto.customerId,
           amount: -dto.amount,
+          paymentMode: dto.paymentMode ?? PaymentMode.CASH,
           description: dto.description || 'Payment received',
           ...(dto.paymentRequestId ? { paymentRequestId: dto.paymentRequestId } : {}),
         },
@@ -618,13 +620,14 @@ export class LedgerService {
   }
 
   async findAllPaginated(vendorId: string, query: TransactionQueryDto) {
-    const { page = 1, limit = 20, customerId, vanId, type, dateFrom, dateTo, search } = query;
+    const { page = 1, limit = 20, customerId, vanId, type, paymentMode, dateFrom, dateTo, search } = query;
 
     const where: any = { vendorId };
 
     if (customerId) where.customerId = customerId;
     if (vanId) where.dailySheet = { vanId };
     if (type) where.type = type;
+    if (paymentMode) where.paymentMode = paymentMode;
     if (dateFrom || dateTo) {
       where.createdAt = {};
       if (dateFrom) where.createdAt.gte = new Date(dateFrom);
@@ -792,6 +795,57 @@ export class LedgerService {
       financialBalance: customer.financialBalance,
       wallets: customer.wallets,
       recentTransactions,
+    };
+  }
+
+  /**
+   * Per-customer monthly financial snapshot for the manual "Record Payment"
+   * dialog — the same aggregation the daily-sheet delivery form exposes
+   * (DailySheetService.getCustomerFinancialSummary), but anchored to *today*
+   * instead of a sheet's date since a manual payment has no sheet context.
+   *
+   * `prevMonthOutstanding` is the balance carried into the current month (live
+   * balance minus everything posted from the 1st onward). The dialog shows
+   * `max(prevMonthOutstanding - currentMonthPaid, 0)` so once a MONTHLY customer
+   * has cleared last month's dues via this month's payments it reads ₨0.
+   */
+  async getCustomerPrevMonthOutstanding(vendorId: string, customerId: string) {
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: customerId, vendorId },
+      select: { financialBalance: true, paymentType: true },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const now = new Date();
+    const curMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+    const [curPayments, fromCurrentMonth] = await Promise.all([
+      this.prisma.transaction.aggregate({
+        where: {
+          customerId,
+          vendorId,
+          type: TransactionType.PAYMENT,
+          createdAt: { gte: curMonthStart, lt: nextMonthStart },
+        },
+        _sum: { amount: true },
+      }),
+      this.prisma.transaction.aggregate({
+        where: { customerId, vendorId, createdAt: { gte: curMonthStart } },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    // PAYMENT amounts are stored negative — show the absolute value.
+    const currentMonthPaid = Math.abs(curPayments._sum.amount ?? 0);
+    const prevMonthOutstanding =
+      customer.financialBalance - (fromCurrentMonth._sum.amount ?? 0);
+
+    return {
+      paymentType: customer.paymentType,
+      currentMonthPaid,
+      prevMonthOutstanding,
+      currentOutstanding: customer.financialBalance,
     };
   }
 }

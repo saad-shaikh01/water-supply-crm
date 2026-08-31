@@ -65,7 +65,11 @@ export function CrewConfirmDialog({
             {row('Driver', driverName ? [driverName] : [], 'No driver')}
             {row(
               salesmen.length > 1 ? 'Salesmen' : 'Salesman',
-              salesmen.map((s) => s.user.name),
+              salesmen.length > 0
+                ? salesmen.map((s) => s.user.name)
+                : driverName
+                  ? [`${driverName} (same as driver)`]
+                  : [],
               'No salesman',
             )}
             {row(
@@ -78,8 +82,9 @@ export function CrewConfirmDialog({
           {crew.length === 0 && (
             <div className="flex items-start gap-2 text-[11px] text-amber-600 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2">
               <Users className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-              No supporting crew is assigned. You can confirm with the driver only, or edit the
-              crew to add a salesman/loaders. Set a default crew on the van to fill this automatically.
+              No separate salesman or loaders are assigned — the driver is treated as the salesman.
+              You can confirm as-is, or edit the crew to add a separate salesman/loaders. Set a
+              default crew on the van to fill this automatically.
             </div>
           )}
         </div>

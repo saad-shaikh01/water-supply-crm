@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2, Gauge, Wallet, Pencil, Truck, Ban, RotateCcw } from 'lucide-react';
+import { Loader2, Gauge, Wallet, Fuel, Pencil, Truck, Ban, RotateCcw } from 'lucide-react';
 import {
   Card, CardContent, CardHeader, CardTitle, Button, Input, Label,
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -162,11 +162,13 @@ export function VehicleOverviewTab({ vehicle, costSummary }: VehicleOverviewTabP
         </Card>
         <Card className="rounded-2xl">
           <CardContent className="p-5 flex items-center gap-3">
-            <Wallet className="h-6 w-6 text-primary" />
+            <Fuel className="h-6 w-6 text-primary" />
             <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold">Cost per KM</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold">Fuel Average</p>
               <p className="text-xl font-black">
-                {costSummary?.costPerKm != null ? `₨${costSummary.costPerKm.toFixed(1)}` : '—'}
+                {costSummary?.fuelAvgKmPerLiter != null
+                  ? `${costSummary.fuelAvgKmPerLiter.toFixed(1)} km/L`
+                  : '—'}
               </p>
             </div>
           </CardContent>

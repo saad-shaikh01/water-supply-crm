@@ -199,6 +199,65 @@ export const useCustomerConsumption = (
   });
 };
 
+export interface StatementDeliveryRow {
+  date: string;
+  trans: string;
+  btlDelivered: number;
+  emptyPickup: number;
+  bottleBalance: number | null;
+  amountDue: number;
+  amountReceived: number;
+  runningBalance: number;
+}
+
+export interface StatementOtherRow {
+  date: string;
+  type: string;
+  description: string;
+  amount: number;
+  runningBalance: number;
+}
+
+export interface CustomerStatementData {
+  customer: {
+    id: string;
+    name: string;
+    customerCode: string;
+    address: string;
+    phoneNumber: string;
+    paymentType: 'MONTHLY' | 'CASH' | null;
+  };
+  period: string;
+  month: string;
+  toMonth: string;
+  openingBalance: number;
+  closingBalance: number;
+  ratePerBottle: number;
+  deliveryRows: StatementDeliveryRow[];
+  otherRows: StatementOtherRow[];
+  totals: {
+    totalBtl: number;
+    totalEmpty: number;
+    totalDue: number;
+    totalRecv: number;
+    finalBalance: number;
+  };
+}
+
+export const useCustomerStatement = (id: string, params: { month: string; toMonth?: string }) =>
+  useQuery({
+    queryKey: ['customers', id, 'statement-data', params.month, params.toMonth ?? params.month],
+    queryFn: (): Promise<CustomerStatementData> =>
+      customersApi
+        .getStatementData(id, {
+          month: params.month,
+          ...(params.toMonth && params.toMonth !== params.month ? { toMonth: params.toMonth } : {}),
+        })
+        .then((r) => r.data),
+    enabled: !!id && !!params.month,
+    placeholderData: (prev) => prev,
+  });
+
 export const useCustomerSchedule = (id: string, params?: { dateFrom?: string; dateTo?: string }) =>
   useQuery({
     queryKey: ['customers', id, 'schedule', params?.dateFrom, params?.dateTo],

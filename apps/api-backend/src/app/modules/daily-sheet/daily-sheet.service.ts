@@ -608,6 +608,11 @@ export class DailySheetService implements OnModuleInit {
           ...(resolvedStatus === DeliveryStatus.COMPLETED || resolvedStatus === DeliveryStatus.EMPTY_ONLY
             ? { deliveredAt: new Date() }
             : { deliveredAt: null }),
+          // Route-timeline anchor — stamped only on the first transition off
+          // PENDING (any terminal status, incl. NOT_AVAILABLE/RESCHEDULED which
+          // never get a deliveredAt), never rewritten on later edits/resubmits.
+          // The queue sorts on COALESCE(deliveredAt, recordedAt).
+          ...(item.status === DeliveryStatus.PENDING ? { recordedAt: new Date() } : {}),
           ...(dto.forceResubmit ? { editUnlockedBy: null, editUnlockExpiresAt: null, editRequestedAt: null } : {}),
           // Same trigger as the DELIVERY_EDIT_OVERRIDE audit log entry above —
           // a genuine re-record of an already-terminal item, not a first-time submit.
@@ -1350,10 +1355,14 @@ export class DailySheetService implements OnModuleInit {
           // static planned route sequence — mirrors the frontend's
           // sortBySequence() default so the on-screen list and the printed
           // PDF (which renders this array as-is, with no client re-sort)
-          // always agree. Items not yet delivered have no deliveredAt, so
-          // they fall back to the planned sequence and land after every
-          // already-recorded item.
+          // always agree. recordedAt is set on the first transition off PENDING
+          // for EVERY terminal status (a failed visit has no deliveredAt but
+          // still happened at a point on the route), so ordering on it keeps
+          // failed stops interleaved chronologically instead of sinking to the
+          // bottom with the never-visited PENDING rows, which have no recordedAt
+          // and fall back to the planned sequence.
           orderBy: [
+            { recordedAt: { sort: 'asc', nulls: 'last' } },
             { deliveredAt: { sort: 'asc', nulls: 'last' } },
             { sequence: 'asc' },
           ],
@@ -1762,6 +1771,9 @@ export class DailySheetService implements OnModuleInit {
           cashCollected: dto.cashCollected,
           pricePerBottle: price,
           deliveredAt: hasDeliveryValues ? new Date() : null,
+          // Mirrors deliveredAt here: a values-carrying ad-hoc entry is recorded
+          // now, a blank one stays PENDING for the driver (see hasDeliveryValues).
+          recordedAt: hasDeliveryValues ? new Date() : null,
           dailySheetLoadId: activeLoad?.id ?? null,
         },
       });
@@ -1874,6 +1886,9 @@ export class DailySheetService implements OnModuleInit {
           cashCollected: dto.cashCollected,
           pricePerBottle: price,
           deliveredAt: sheet.date,
+          // Retroactive entry on a closed sheet — anchor it to that sheet's day
+          // so it time-sorts with the rest of that day's queue, same as deliveredAt.
+          recordedAt: sheet.date,
           isCorrection: true,
           correctionAddedAt: now,
           correctionNote: dto.correctionNote,

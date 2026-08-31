@@ -72,17 +72,23 @@ export function SheetDetailHeader({
             <User className="h-3 w-3 shrink-0" />
             Driver: <span className="font-bold text-foreground">{driverName ?? '—'}</span>
           </span>
-          {salesmen.length > 0 && (
-            <>
-              <span className="text-muted-foreground/40">•</span>
-              <span className="whitespace-nowrap">
+          <span className="text-muted-foreground/40">•</span>
+          <span className="whitespace-nowrap">
+            {salesmen.length > 0 ? (
+              <>
                 Salesm{salesmen.length > 1 ? 'en' : 'an'}:{' '}
                 <span className="font-bold text-foreground">
                   {salesmen.map((s) => s.user.name).join(', ')}
                 </span>
-              </span>
-            </>
-          )}
+              </>
+            ) : (
+              <>
+                Salesman:{' '}
+                <span className="font-bold text-foreground">{driverName ?? '—'}</span>
+                <span className="text-muted-foreground/70"> (same as driver)</span>
+              </>
+            )}
+          </span>
           {loaders.length > 0 && (
             <>
               <span className="text-muted-foreground/40">•</span>

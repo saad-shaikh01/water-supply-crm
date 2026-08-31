@@ -64,6 +64,15 @@ enum TransactionType {
   CHECK_IN
 }
 
+// How a PAYMENT transaction's money physically arrived. Set on manually
+// recorded payments (dashboard "Record Payment" dialog); defaults to CASH.
+// Delivery-collected cash and other transaction types leave this null.
+enum PaymentMode {
+  CASH
+  CHEQUE
+  BANK_TRANSFER
+}
+
 // Reason codes for editing/deleting a recorded payment transaction.
 // Not referenced by any model field yet — consumed by DTOs in later phases.
 enum PaymentEditReason {
@@ -843,6 +852,14 @@ model DailySheetItem {
   failureCategory     String? // CUSTOMER_NOT_HOME | CUSTOMER_NOT_ANSWERING | CUSTOMER_SELF_PICKUP | VAN_BREAKDOWN | ACCESS_ISSUE | CUSTOMER_REFUSED | WEATHER | OTHER
   photoKey            String? // Optional photo evidence (Wasabi object key)
   deliveredAt         DateTime? // Set when delivery is COMPLETED or EMPTY_ONLY
+  // Wall-clock time this item was FIRST recorded off PENDING — stamped on the
+  // first transition to ANY terminal status (COMPLETED/EMPTY_ONLY *and*
+  // NOT_AVAILABLE/RESCHEDULED), never rewritten on later edits/resubmits.
+  // deliveredAt only exists for successful drops, so a failed visit had no
+  // timestamp and sank to the bottom of the time-sorted queue next to
+  // never-visited stops; this gives every recorded stop a point on the route
+  // timeline. The queue sort key everywhere is COALESCE(deliveredAt, recordedAt).
+  recordedAt         DateTime?
   rescheduledTo       DateTime?
   editUnlockedBy      String? // userId of staff/admin who unlocked edit
   editUnlockExpiresAt DateTime? // when unlock window expires (null = locked)
@@ -883,6 +900,7 @@ model DailySheetItem {
   updatedAt DateTime @updatedAt
 
   @@index([dailySheetId, sequence])
+  @@index([dailySheetId, recordedAt])
   @@index([dailySheetId, customerId])
   @@index([customerId, status])
   @@index([dailySheetLoadId])
@@ -981,6 +999,8 @@ model Transaction {
   filledReceived Int? // Already-filled bottles collected back from customer (no refill needed)
   amount         Float? // Positive for charge, negative for payment
 
+  paymentMode PaymentMode? // Set on manually recorded PAYMENT rows (CASH default); null otherwise
+
   description String?
   damageCase  DamageCase?
 
@@ -996,6 +1016,7 @@ model Transaction {
   @@index([dailySheetItemId])
   @@index([paymentRequestId])
   @@index([vendorId, type, createdAt])
+  @@index([vendorId, type, paymentMode])
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

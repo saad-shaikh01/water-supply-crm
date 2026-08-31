@@ -122,4 +122,18 @@ export class TransactionController {
       customerId,
     );
   }
+
+  // Monthly snapshot for the "Record Payment" dialog (prev-month outstanding vs.
+  // this month's payments) → same permission as recording the payment itself.
+  @Get('customers/:customerId/prev-month-outstanding')
+  @RequirePermissions('transactions:record_payment')
+  getCustomerPrevMonthOutstanding(
+    @CurrentUser() user: AuthUser,
+    @Param('customerId') customerId: string,
+  ) {
+    return this.ledgerService.getCustomerPrevMonthOutstanding(
+      user.vendorId,
+      customerId,
+    );
+  }
 }

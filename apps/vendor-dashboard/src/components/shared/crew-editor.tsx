@@ -137,7 +137,7 @@ export function CrewEditor({ value, onChange, excludeUserId }: CrewEditorProps) 
         <Users className="h-3.5 w-3.5" />
         Supporting Crew
       </div>
-      {group('Salesmen', 'salesmanIds', 'SALESMAN', SALESMAN_ELIGIBLE, 'Add salesman', 'No salesmen assigned')}
+      {group('Salesman (if separate from driver)', 'salesmanIds', 'SALESMAN', SALESMAN_ELIGIBLE, 'Add a separate salesman', 'Driver is the salesman — add only if a separate one rides along')}
       {group('Loaders', 'loaderIds', 'LOADER', LOADER_ELIGIBLE, 'Add loader', 'No loaders assigned')}
     </div>
   );

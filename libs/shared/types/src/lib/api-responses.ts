@@ -212,6 +212,9 @@ export interface DeliveryItem {
   pricePerBottle?: number;
   lastFilledDropped?: number | null;
   deliveredAt?: string | null;
+  /** First time this item was recorded off PENDING (any terminal status) — the
+   *  route-timeline anchor the queue sorts on; null while still PENDING. */
+  recordedAt?: string | null;
   editUnlockedBy?: string | null;
   editUnlockExpiresAt?: string | null;
   editRequestedAt?: string | null;

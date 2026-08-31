@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Eye, Calendar, MapPin, User, Truck, SlidersHorizontal, Droplets, DollarSign, AlertTriangle, Zap } from 'lucide-react';
+import { Eye, Calendar, User, Truck, SlidersHorizontal, Droplets, DollarSign, AlertTriangle, Zap } from 'lucide-react';
 import {
   Badge, Button, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
   Sheet, SheetContent, SheetHeader, SheetTitle,
@@ -206,18 +206,12 @@ export function SheetList() {
             )
           },
           {
-            key: 'route',
-            header: 'Route & Van',
+            key: 'van',
+            header: 'Van',
             cell: (r) => (
-              <div className="flex flex-col min-w-0 max-w-[150px]">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-foreground dark:text-white truncate">
-                  <MapPin className="h-3 w-3 text-primary shrink-0" />
-                  {r.route?.name ?? '—'}
-                </div>
-                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground font-mono truncate">
-                  <Truck className="h-2.5 w-2.5 shrink-0" />
-                  {r.van?.plateNumber ?? '—'}
-                </div>
+              <div className="flex items-center gap-1.5 text-xs font-bold text-foreground dark:text-white truncate max-w-[150px]">
+                <Truck className="h-3 w-3 text-primary shrink-0" />
+                {r.van?.plateNumber ?? '—'}
               </div>
             )
           },

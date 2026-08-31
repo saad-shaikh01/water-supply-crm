@@ -158,6 +158,26 @@ export class CustomerController {
    * Add &toMonth=2026-03 to combine month..toMonth into one continuous-ledger PDF
    * (single opening/closing balance spanning the whole range) instead of one month.
    */
+  /**
+   * GET /customers/:id/statement/data?month=2026-01[&toMonth=2026-03] — the same
+   * statement as the PDF export but as JSON, for rendering inline on the customer page.
+   * Declared before :id/statement so the literal /data segment is never ambiguous.
+   */
+  @Get(':id/statement/data')
+  @RequirePermissions('customers:export')
+  getStatementData(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query() query: StatementQueryDto,
+  ) {
+    return this.customerService.getMonthlyStatementData(
+      user.vendorId,
+      id,
+      query.month,
+      query.toMonth,
+    );
+  }
+
   @Get(':id/statement')
   @RequirePermissions('customers:export')
   async getStatement(

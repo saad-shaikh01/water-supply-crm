@@ -6,9 +6,18 @@ export interface TransactionQuery {
   customerId?: string;
   vanId?: string;
   type?: string;
+  /** PaymentMode filter — 'CASH' | 'CHEQUE' | 'BANK_TRANSFER'. */
+  paymentMode?: string;
   search?: string;
   dateFrom?: string;
   dateTo?: string;
+}
+
+export interface CustomerPrevMonthOutstanding {
+  paymentType: 'MONTHLY' | 'CASH';
+  currentMonthPaid: number;
+  prevMonthOutstanding: number;
+  currentOutstanding: number;
 }
 
 export interface PaymentRequestQuery {
@@ -27,6 +36,12 @@ export const transactionsApi = {
   getOne: (id: string) => apiClient.get(`/transactions/${id}`),
   addPayment: (customerId: string, data: Record<string, unknown>) =>
     apiClient.post('/transactions/payments', { ...data, customerId }),
+
+  /** Monthly snapshot for the Record Payment dialog (prev-month outstanding vs. this month's payments). */
+  getPrevMonthOutstanding: (customerId: string) =>
+    apiClient.get<CustomerPrevMonthOutstanding>(
+      `/transactions/customers/${customerId}/prev-month-outstanding`,
+    ),
   addAdjustment: (customerId: string, data: Record<string, unknown>) =>
     apiClient.post('/transactions/adjustments', { ...data, customerId }),
 
