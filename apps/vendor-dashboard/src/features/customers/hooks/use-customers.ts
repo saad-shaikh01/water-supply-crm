@@ -318,6 +318,34 @@ export const useBulkUpdateSchedule = () => {
   });
 };
 
+export interface BulkDeactivateResult {
+  requestedCount: number;
+  deactivatedCount: number;
+  skippedCount: number;
+  skipped: Array<{ customerId: string; name: string; reason: string }>;
+}
+
+export const useBulkDeactivateCustomers = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (customerIds: string[]): Promise<BulkDeactivateResult> =>
+      customersApi.bulkDeactivate(customerIds).then((r) => r.data),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      if (result.deactivatedCount === 0) {
+        toast.error(`No customers deactivated — all ${result.skippedCount} skipped (pending deliveries or outstanding bottles)`);
+      } else if (result.skippedCount > 0) {
+        toast.warning(
+          `Deactivated ${result.deactivatedCount} of ${result.requestedCount} — ${result.skippedCount} skipped (pending deliveries or outstanding bottles)`,
+        );
+      } else {
+        toast.success(`Deactivated ${result.deactivatedCount} customer${result.deactivatedCount !== 1 ? 's' : ''}`);
+      }
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to deactivate customers'),
+  });
+};
+
 export const useUpdateCustomerLocation = () => {
   const queryClient = useQueryClient();
   return useMutation({

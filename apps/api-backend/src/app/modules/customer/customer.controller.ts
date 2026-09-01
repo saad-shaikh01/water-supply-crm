@@ -19,6 +19,7 @@ import { CustomerQueryDto } from './dto/customer-query.dto';
 import { SetCustomPriceDto } from './dto/set-custom-price.dto';
 import { BulkPricePreviewDto, BulkPriceUpdateDto } from './dto/bulk-price-update.dto';
 import { BulkScheduleUpdateDto } from './dto/bulk-schedule-update.dto';
+import { BulkDeactivateDto } from './dto/bulk-deactivate.dto';
 import { StatementQueryDto } from './dto/statement-query.dto';
 import { ScheduleQueryDto } from './dto/schedule-query.dto';
 import { ConsumptionQueryDto } from './dto/consumption-query.dto';
@@ -76,6 +77,15 @@ export class CustomerController {
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   bulkUpdateSchedule(@CurrentUser() user: AuthUser, @Body() dto: BulkScheduleUpdateDto) {
     return this.customerService.bulkUpdateSchedule(user.vendorId, dto);
+  }
+
+  // ── Bulk deactivate (same permission as the per-customer PATCH :id/deactivate) ──
+  /** POST /customers/bulk-deactivate — soft-disable selected customers, skipping any that fail a guard */
+  @Post('bulk-deactivate')
+  @RequirePermissions('customers:deactivate')
+  @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
+  bulkDeactivate(@CurrentUser() user: AuthUser, @Body() dto: BulkDeactivateDto) {
+    return this.customerService.bulkDeactivate(user.vendorId, dto);
   }
 
   @Get(':id')

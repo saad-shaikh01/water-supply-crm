@@ -22,6 +22,7 @@ import {
   BulkPriceUpdateDto,
 } from './dto/bulk-price-update.dto';
 import { BulkScheduleUpdateDto } from './dto/bulk-schedule-update.dto';
+import { BulkDeactivateDto } from './dto/bulk-deactivate.dto';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { paginate } from '../../common/helpers/paginate';
 import { CustomerStatementPdfService } from './pdf/customer-statement-pdf.service';
@@ -1204,6 +1205,77 @@ export class CustomerService {
     return {
       requestedCount: dto.customerIds.length,
       updatedCount,
+      skippedCount: skipped.length,
+      skipped,
+    };
+  }
+
+  /**
+   * Deactivate many customers in one call. Applies the exact same guards as the
+   * per-customer `deactivate()` (open pending deliveries, outstanding bottles) —
+   * any customer that fails a guard is reported in `skipped` and the rest still
+   * go through, so one blocked account never fails the whole batch.
+   */
+  async bulkDeactivate(vendorId: string, dto: BulkDeactivateDto) {
+    const customers = await this.prisma.customer.findMany({
+      where: { id: { in: dto.customerIds }, vendorId, isActive: true },
+      select: { id: true, name: true },
+    });
+
+    if (customers.length === 0) {
+      throw new NotFoundException('No matching active customers found');
+    }
+
+    const skipped: Array<{ customerId: string; name: string; reason: string }> = [];
+    const toDeactivate: string[] = [];
+
+    for (const customer of customers) {
+      const pendingItems = await this.prisma.dailySheetItem.count({
+        where: { customerId: customer.id, status: 'PENDING', dailySheet: { isClosed: false } },
+      });
+      if (pendingItems > 0) {
+        skipped.push({
+          customerId: customer.id,
+          name: customer.name,
+          reason: `${pendingItems} pending delivery item(s)`,
+        });
+        continue;
+      }
+
+      const outstandingWallets = await this.prisma.bottleWallet.findMany({
+        where: { customerId: customer.id, balance: { not: 0 } },
+        select: { balance: true, product: { select: { name: true } } },
+      });
+      if (outstandingWallets.length > 0) {
+        const summary = outstandingWallets.map((w) => `${w.product.name}: ${w.balance}`).join(', ');
+        skipped.push({
+          customerId: customer.id,
+          name: customer.name,
+          reason: `Outstanding bottles (${summary})`,
+        });
+        continue;
+      }
+
+      toDeactivate.push(customer.id);
+    }
+
+    if (toDeactivate.length > 0) {
+      await this.prisma.customer.updateMany({
+        where: { id: { in: toDeactivate } },
+        data: { isActive: false },
+      });
+      await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
+      await this.audit.log({
+        vendorId,
+        action: 'BULK_DEACTIVATE',
+        entity: 'Customer',
+        changes: { after: { customerIds: toDeactivate, deactivatedCount: toDeactivate.length } },
+      });
+    }
+
+    return {
+      requestedCount: dto.customerIds.length,
+      deactivatedCount: toDeactivate.length,
       skippedCount: skipped.length,
       skipped,
     };

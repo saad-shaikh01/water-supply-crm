@@ -14,7 +14,7 @@ import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { SearchInput } from '../../../components/shared/filters/search-input';
 import { RouteFilter } from '../../../components/shared/filters/route-filter';
 import { VanFilter } from '../../../components/shared/filters/van-filter';
-import { useCustomers, useDeleteCustomer, useDeactivateCustomer, useReactivateCustomer } from '../hooks/use-customers';
+import { useCustomers, useDeleteCustomer, useDeactivateCustomer, useReactivateCustomer, useBulkDeactivateCustomers } from '../hooks/use-customers';
 import { CustomerForm } from './customer-form';
 import { BulkScheduleUpdateDialog } from './bulk-schedule-update-dialog';
 import { cn } from '@water-supply-crm/ui';
@@ -33,6 +33,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const { mutate: deleteCustomer, isPending: isDeleting } = useDeleteCustomer();
   const { mutate: deactivateCustomer, isPending: isDeactivating } = useDeactivateCustomer();
   const { mutate: reactivateCustomer, isPending: isReactivating } = useReactivateCustomer();
+  const { mutate: bulkDeactivate, isPending: isBulkDeactivating } = useBulkDeactivateCustomers();
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deactivateId, setDeactivateId] = useState<string | null>(null);
   const [reactivateId, setReactivateId] = useState<string | null>(null);
@@ -40,6 +41,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkScheduleOpen, setBulkScheduleOpen] = useState(false);
+  const [bulkDeactivateOpen, setBulkDeactivateOpen] = useState(false);
   const [paymentType, setPaymentType] = useQueryState('paymentType', parseAsString.withDefault(''));
   const [vanId, setVanId] = useQueryState('vanId', parseAsString.withDefault(''));
   const [dayOfWeek, setDayOfWeek] = useQueryState('dayOfWeek', parseAsInteger.withDefault(0));
@@ -93,6 +95,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     isBillingExempt?: boolean;
     userId?: string | null;
     deliverySchedules?: Array<{ dayOfWeek: number; van?: { plateNumber: string } }>;
+    wallets?: Array<{ balance?: number; product?: { name?: string } }>;
   }>;
   const total = customers?.meta?.total ?? 0;
 
@@ -249,7 +252,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
       </Sheet>
 
       {/* Bulk action bar */}
-      {canUpdate && selectedIds.size > 0 && (
+      {(canUpdate || canDeactivate) && selectedIds.size > 0 && (
         <div className="flex items-center justify-between gap-3 bg-primary/5 border border-primary/20 rounded-2xl px-4 py-3">
           <span className="text-sm font-semibold text-primary">
             {selectedIds.size} customer{selectedIds.size !== 1 ? 's' : ''} selected
@@ -258,10 +261,23 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
               Clear
             </Button>
-            <Button size="sm" onClick={() => setBulkScheduleOpen(true)} className="gap-1.5">
-              <CalendarClock className="h-4 w-4" />
-              Bulk Schedule Update
-            </Button>
+            {canDeactivate && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setBulkDeactivateOpen(true)}
+                className="gap-1.5 border-orange-500/40 text-orange-500 hover:bg-orange-500/10 hover:text-orange-500"
+              >
+                <PowerOff className="h-4 w-4" />
+                Deactivate
+              </Button>
+            )}
+            {canUpdate && (
+              <Button size="sm" onClick={() => setBulkScheduleOpen(true)} className="gap-1.5">
+                <CalendarClock className="h-4 w-4" />
+                Bulk Schedule Update
+              </Button>
+            )}
           </div>
         </div>
       )}
@@ -278,7 +294,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
         sortDir={sortDir}
         onSort={handleSort}
         emptyMessage="No customers found. Start by adding one!"
-        selectable={canUpdate}
+        selectable={canUpdate || canDeactivate}
         selectedIds={selectedIds}
         onToggleRow={toggleRow}
         onToggleAll={toggleAllOnPage}
@@ -357,6 +373,30 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                   isOwed ? "text-rose-400 bg-rose-500/10" : "text-emerald-400 bg-emerald-500/10"
                 )}>
                   ₨ {balance.toLocaleString()}
+                </div>
+              );
+            }
+          },
+          {
+            key: 'bottleBalance',
+            header: 'Bottle Balance',
+            cell: (r) => {
+              const wallets = (r.wallets ?? []).filter((w) => Number(w.balance ?? 0) !== 0);
+              const total = wallets.reduce((s, w) => s + Number(w.balance ?? 0), 0);
+              if (wallets.length === 0) return <span className="text-xs text-muted-foreground/40">—</span>;
+              return (
+                <div className="flex flex-col gap-0.5">
+                  <span className={cn(
+                    "font-mono font-bold text-xs",
+                    total < 0 ? "text-rose-400" : "text-foreground dark:text-white"
+                  )}>
+                    {total} btl
+                  </span>
+                  {wallets.length > 1 && (
+                    <span className="text-[9px] text-muted-foreground/60 truncate max-w-[140px]">
+                      {wallets.map((w) => `${w.product?.name ?? '—'}: ${Number(w.balance ?? 0)}`).join(', ')}
+                    </span>
+                  )}
                 </div>
               );
             }
@@ -524,6 +564,21 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
         onOpenChange={setBulkScheduleOpen}
         customerIds={[...selectedIds]}
         onSuccess={() => setSelectedIds(new Set())}
+      />
+
+      <ConfirmDialog
+        open={bulkDeactivateOpen}
+        onOpenChange={setBulkDeactivateOpen}
+        title="Deactivate Selected Customers"
+        description={`Deactivate ${selectedIds.size} selected customer${selectedIds.size !== 1 ? 's' : ''}? They won't appear in daily sheets. Any customer with pending deliveries or outstanding bottles is skipped automatically. You can reactivate them individually at any time.`}
+        onConfirm={() => {
+          bulkDeactivate([...selectedIds], {
+            onSuccess: () => { setBulkDeactivateOpen(false); setSelectedIds(new Set()); },
+            onError: () => setBulkDeactivateOpen(false),
+          });
+        }}
+        isLoading={isBulkDeactivating}
+        confirmLabel="Deactivate"
       />
     </div>
   );

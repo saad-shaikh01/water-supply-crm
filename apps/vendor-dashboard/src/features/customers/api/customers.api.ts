@@ -42,4 +42,6 @@ export const customersApi = {
     apiClient.get(`/customers/${id}/schedule`, { params }),
   bulkUpdateSchedule: (data: { customerIds: string[]; vanId?: string; dayOfWeek?: number }) =>
     apiClient.post('/customers/schedule/bulk-update', data),
+  bulkDeactivate: (customerIds: string[]) =>
+    apiClient.post('/customers/bulk-deactivate', { customerIds }),
 };
