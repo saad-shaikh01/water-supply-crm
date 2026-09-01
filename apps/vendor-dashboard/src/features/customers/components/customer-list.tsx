@@ -336,21 +336,27 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
           {
             key: 'phone',
             header: 'Contact',
+            cell: (r) => (
+              <div className="flex items-center gap-2 text-muted-foreground/80 whitespace-nowrap">
+                <Phone className="h-3 w-3 shrink-0" />
+                <span className="text-xs font-medium tabular-nums">{r.phoneNumber}</span>
+              </div>
+            )
+          },
+          {
+            key: 'payment',
+            header: 'Payment',
+            sortable: true,
+            sortField: 'financialBalance',
             cell: (r) => {
               const balance = Number(r.financialBalance ?? 0);
               const isOwed = balance > 0;
               return (
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center gap-2 text-muted-foreground/80 whitespace-nowrap">
-                    <Phone className="h-3 w-3 shrink-0" />
-                    <span className="text-xs font-medium tabular-nums">{r.phoneNumber}</span>
-                  </div>
-                  <div className={cn(
-                    "font-mono font-bold text-xs px-2 py-0.5 rounded-md inline-block whitespace-nowrap w-fit",
-                    isOwed ? "text-rose-400 bg-rose-500/10" : "text-emerald-400 bg-emerald-500/10"
-                  )}>
-                    ₨ {balance.toLocaleString()}
-                  </div>
+                <div className={cn(
+                  "font-mono font-bold text-xs px-2 py-1 rounded-md inline-block whitespace-nowrap",
+                  isOwed ? "text-rose-400 bg-rose-500/10" : "text-emerald-400 bg-emerald-500/10"
+                )}>
+                  ₨ {balance.toLocaleString()}
                 </div>
               );
             }
