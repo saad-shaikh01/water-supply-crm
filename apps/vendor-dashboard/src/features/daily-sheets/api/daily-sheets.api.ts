@@ -255,6 +255,10 @@ export const dailySheetsApi = {
     apiClient.patch(`/daily-sheets/items/${itemId}/unlock-edit`, data ?? {}),
   requestDeliveryEdit: (itemId: string) =>
     apiClient.patch(`/daily-sheets/items/${itemId}/request-edit`, {}),
+  // Void Delivery — strikes a stop from the operational record and reverses its
+  // ledger effect. voidNote is required (min 3 chars) only when voidReason === 'OTHER'.
+  voidDelivery: (itemId: string, body: { voidReason: string; voidNote?: string }) =>
+    apiClient.post(`/daily-sheets/items/${itemId}/void`, body),
   // Delivery failure photo
   uploadDeliveryPhoto: (file: File): Promise<{ key: string }> => {
     const formData = new FormData();

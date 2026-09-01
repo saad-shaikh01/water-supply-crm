@@ -99,6 +99,10 @@ const MANAGER_PERMISSIONS: Permission[] = [
   // Soft Close (Amendment R9): Manager reviews a driver/salesman's self-close
   // request — same tier as the existing direct `close` above.
   'daily_sheets:approve_close', 'daily_sheets:reject_close',
+  // Void Delivery (owner-requested 2026-09-01): Admin + Manager may strike a
+  // recorded stop from the operational record (reverses ledger for COMPLETED/
+  // EMPTY_ONLY). Existing vendors get it via PRESET_DRIFT_BACKFILLS.manager.
+  'daily_sheets:void_delivery',
   'damage_cases:page', 'damage_cases:view', 'damage_cases:create', 'damage_cases:update', 'damage_cases:review',
   'delivery_issues:page', 'delivery_issues:view', 'delivery_issues:plan', 'delivery_issues:resolve',
   'expenses:page', 'expenses:view', 'expenses:create', 'expenses:update',

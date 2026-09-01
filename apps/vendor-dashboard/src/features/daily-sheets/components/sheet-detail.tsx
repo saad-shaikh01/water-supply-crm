@@ -14,6 +14,7 @@ import { ReconcileDialog } from './dialogs/reconcile-dialog';
 import { RejectCloseDialog } from './dialogs/reject-close-dialog';
 import { AdhocDeliveryDialog } from './dialogs/adhoc-delivery-dialog';
 import { CorrectionEntryDialog } from './dialogs/correction-entry-dialog';
+import { VoidDeliveryDialog } from './dialogs/void-delivery-dialog';
 import { BulkImportDialog } from './dialogs/bulk-import-dialog';
 import { ReportDamageDialog } from './dialogs/report-damage-dialog';
 import { VehicleCheckDialog } from '../../fleet/components/dialogs/vehicle-check-dialog';
@@ -200,7 +201,7 @@ interface SheetDetailProps {
 // 'moved_out' is NOT a status filter over `items` like the other four — it's
 // a completely separate source (data.movedOutLogs), handled outside this
 // function; see movedOutItems/tabFilter's call sites below.
-type TabKey = 'all' | 'pending' | 'completed' | 'issues' | 'moved_out';
+type TabKey = 'all' | 'pending' | 'completed' | 'issues' | 'moved_out' | 'voided';
 type SortMode = 'sequence' | 'nearest' | 'customerCode';
 
 const ITEMS_PER_PAGE = 20;
@@ -210,8 +211,11 @@ function tabFilter(tab: TabKey, item: DeliveryItem): boolean {
     case 'pending': return item.status === 'PENDING';
     case 'completed': return item.status === 'COMPLETED' || item.status === 'EMPTY_ONLY';
     case 'issues': return item.status === 'RESCHEDULED' || item.status === 'CANCELLED' || item.status === 'NOT_AVAILABLE';
+    case 'voided': return item.status === 'VOIDED';
     case 'moved_out': return false; // never matched here — moved_out bypasses this pipeline entirely
-    default: return true;
+    // 'all' — voided stops are struck from the record, so they leave the default list
+    // and only appear under their own dedicated tab.
+    default: return item.status !== 'VOIDED';
   }
 }
 
@@ -231,6 +235,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   // Amendment R10: split out of daily_sheets:update — independently grantable
   // per role so Move can be restricted without also restricting delivery updates.
   const canMoveCustomer = can('daily_sheets:move_customer');
+  const canVoidDelivery = can('daily_sheets:void_delivery');
   const canCorrect = can('daily_sheets:correct');
   const canLoadOut = can('daily_sheets:load_out');
   const canCloseSheet = can('daily_sheets:close');
@@ -282,6 +287,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const [movedOutExpanded, setMovedOutExpanded] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [moveTargetIds, setMoveTargetIds] = useState<string[] | null>(null);
+  const [voidTargetItem, setVoidTargetItem] = useState<DeliveryItem | null>(null);
   const { location: driverLocation, requestLocation } = useDriverLocation();
 
   // Continuously publish driver GPS to the tracking backend while the sheet is open.
@@ -1269,6 +1275,8 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         isDriver={isDriver}
         canManageEditLocks={canManageEditLocks}
         canMove={canMoveCustomer}
+        canVoidDelivery={canVoidDelivery}
+        onVoidItem={(item) => setVoidTargetItem(item)}
         onUnlockEdit={(itemId) => unlockDeliveryEdit.mutate({ itemId })}
         unlockingItemId={
           unlockDeliveryEdit.isPending
@@ -1362,6 +1370,13 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         open={ui.correctionOpen}
         onClose={() => dispatch({ type: 'CLOSE_CORRECTION' })}
         sheetId={sheetId}
+      />
+      <VoidDeliveryDialog
+        open={!!voidTargetItem}
+        onClose={() => setVoidTargetItem(null)}
+        sheetId={sheetId}
+        item={voidTargetItem}
+        isClosed={isClosed}
       />
       <BulkImportDialog
         open={ui.bulkImportOpen}

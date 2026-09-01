@@ -49,7 +49,10 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // 166 = 164 + transactions:{edit_payment, delete_payment} — manual edit/delete
 // of a standalone PAYMENT transaction (Payment Edit/Delete feature, 2026-08-27).
 // No new resource, no new `:page` — `transactions` was already navigable.
-const FROZEN_TOTAL = 166;
+// 167 = 166 + daily_sheets:void_delivery — strike a recorded stop from the
+// operational record (Void Delivery feature, owner-requested 2026-09-01).
+// No new resource, no new `:page` — `daily_sheets` was already navigable.
+const FROZEN_TOTAL = 167;
 const FROZEN_PAGES = 28;
 const FROZEN_RESOURCES = 30;
 

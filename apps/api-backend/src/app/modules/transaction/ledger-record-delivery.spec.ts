@@ -395,4 +395,151 @@ describe('LedgerService.recordDelivery — idempotency', () => {
       }
     });
   });
+
+  // ── 6. All-zero repost — the ledger reversal engine used by Void Delivery ─────
+  // DailySheetService.voidDelivery reverses a COMPLETED/EMPTY_ONLY stop by
+  // calling recordDelivery({...all zeros}, tx). No new ledger code — the
+  // idempotent repost path computes the full negative delta from the stored
+  // row values and replaces the DELIVERY/PAYMENT rows with a single zero row.
+  describe('all-zero repost (Void Delivery reversal)', () => {
+    it('fully reverses wallet + financialBalance and drops the PAYMENT row', async () => {
+      // Original stop: dropped 2 @ 100 (charge 200), collected 150 cash.
+      //   oldBottleChange     = 2
+      //   oldFinancialEffect  = 200 + (-150) = 50
+      mockPrisma.transaction.findFirst
+        .mockResolvedValueOnce({
+          id: 'tx-delivery',
+          type: TransactionType.DELIVERY,
+          bottleCount: 2,
+          amount: 200,
+        })
+        .mockResolvedValueOnce({
+          id: 'tx-payment',
+          type: TransactionType.PAYMENT,
+          amount: -150,
+        });
+      // deltaBottle = -2 < 0 → guard reads the current wallet; plenty of headroom.
+      mockPrisma.bottleWallet.findUnique.mockResolvedValue({ balance: 10 });
+
+      await service.recordDelivery({
+        ...BASE,
+        filledDropped: 0,
+        emptyReceived: 0,
+        filledReceived: 0,
+        cashCollected: 0,
+      });
+
+      // Wallet returns to pre-delivery: increment by -2 (0 - 2).
+      expect(mockPrisma.bottleWallet.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { balance: { increment: -2 } } }),
+      );
+      // financialBalance returns to pre-delivery: increment by -50 (0 - 50).
+      expect(mockPrisma.customer.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { financialBalance: { increment: -50 } } }),
+      );
+      // Old DELIVERY + PAYMENT rows for the item are wiped.
+      expect(mockPrisma.transaction.deleteMany).toHaveBeenCalledWith({
+        where: { dailySheetItemId: 'item-1' },
+      });
+      // A single zero-value DELIVERY row is recreated; no PAYMENT row (cash 0).
+      const creates = mockPrisma.transaction.create.mock.calls.map((c: any) => c[0].data);
+      expect(creates).toHaveLength(1);
+      expect(creates[0].type).toBe(TransactionType.DELIVERY);
+      expect(creates[0].bottleCount).toBe(0);
+      expect(creates[0].amount).toBe(0);
+      expect(creates[0].filledDropped).toBe(0);
+      expect(creates[0].emptyReceived).toBe(0);
+    });
+
+    it('second consecutive all-zero repost is a no-op (double-void idempotency)', async () => {
+      // The item now carries only the zero row left by the first reversal.
+      mockPrisma.transaction.findFirst
+        .mockResolvedValueOnce({
+          id: 'tx-delivery-zero',
+          type: TransactionType.DELIVERY,
+          bottleCount: 0,
+          amount: 0,
+        })
+        .mockResolvedValueOnce(null); // no PAYMENT row
+
+      await service.recordDelivery({
+        ...BASE,
+        filledDropped: 0,
+        emptyReceived: 0,
+        filledReceived: 0,
+        cashCollected: 0,
+      });
+
+      // deltaBottle = 0, deltaFinancial = 0 → no balance writes at all.
+      expect(mockPrisma.bottleWallet.update).not.toHaveBeenCalled();
+      expect(mockPrisma.customer.update).not.toHaveBeenCalled();
+      // Still replaces the zero row with an identical zero row (harmless).
+      expect(mockPrisma.transaction.deleteMany).toHaveBeenCalledWith({
+        where: { dailySheetItemId: 'item-1' },
+      });
+      const creates = mockPrisma.transaction.create.mock.calls.map((c: any) => c[0].data);
+      expect(creates).toHaveLength(1);
+      expect(creates[0].bottleCount).toBe(0);
+      expect(creates[0].amount).toBe(0);
+    });
+
+    it('throws BadRequestException(/negative/) when the wallet has since dropped below the original bottleChange', async () => {
+      // Original stop dropped 5 bottles (oldBottleChange = +5).
+      mockPrisma.transaction.findFirst
+        .mockResolvedValueOnce({
+          id: 'tx-delivery',
+          type: TransactionType.DELIVERY,
+          bottleCount: 5,
+          amount: 500,
+        })
+        .mockResolvedValueOnce(null);
+      // Wallet has since fallen to 3 — later pickups returned bottles.
+      // deltaBottle = -5 → 3 + (-5) = -2 < 0 → guard trips.
+      mockPrisma.bottleWallet.findUnique.mockResolvedValue({ balance: 3 });
+
+      await expect(
+        service.recordDelivery({
+          ...BASE,
+          filledDropped: 0,
+          emptyReceived: 0,
+          filledReceived: 0,
+          cashCollected: 0,
+        }),
+      ).rejects.toThrow(/negative/i);
+
+      // This is exactly the BadRequestException voidDelivery catches and
+      // rethrows as 422 VOID_WOULD_MAKE_WALLET_NEGATIVE.
+      expect(mockPrisma.bottleWallet.update).not.toHaveBeenCalled();
+      expect(mockPrisma.customer.update).not.toHaveBeenCalled();
+    });
+
+    it('(informational) all-zero repost with NO existing DELIVERY txn falls through to the first-time path and creates a spurious zero DELIVERY row', async () => {
+      // applyIdempotentRepost returns false when it finds no DELIVERY row, so
+      // recordDelivery runs its first-time branch: wallet check (delta 0 passes),
+      // then a zero-value DELIVERY row is created. This is why voidDelivery
+      // guards on item.status ∈ {COMPLETED, EMPTY_ONLY} BEFORE ever calling the
+      // ledger (asserted in void-delivery.service.spec.ts).
+      mockPrisma.transaction.findFirst.mockResolvedValue(null);
+      mockPrisma.bottleWallet.findUnique.mockResolvedValue({ balance: 4 });
+
+      await service.recordDelivery({
+        ...BASE,
+        filledDropped: 0,
+        emptyReceived: 0,
+        filledReceived: 0,
+        cashCollected: 0,
+      });
+
+      expect(mockPrisma.transaction.deleteMany).not.toHaveBeenCalled();
+      const creates = mockPrisma.transaction.create.mock.calls.map((c: any) => c[0].data);
+      expect(creates).toHaveLength(1);
+      expect(creates[0].type).toBe(TransactionType.DELIVERY);
+      expect(creates[0].bottleCount).toBe(0);
+      expect(creates[0].amount).toBe(0);
+      // Zero-delta wallet/customer writes still fire on the first-time path.
+      expect(mockPrisma.bottleWallet.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { balance: { increment: 0 } } }),
+      );
+    });
+  });
 });

@@ -12,6 +12,16 @@ const ACTION_LABEL: Record<string, string> = {
   DELIVERY_EDIT_OVERRIDE: 'Edited',
   DELIVERY_EDIT_UNLOCK: 'Edit Unlocked (Staff)',
   COLLECTION_POLICY_ZERO_CASH: 'Recorded — Zero Cash',
+  DELIVERY_VOIDED: 'Voided',
+};
+
+const VOID_REASON_LABEL: Record<string, string> = {
+  DUPLICATE: 'Duplicate entry',
+  WRONG_SHEET: 'Wrong sheet',
+  WRONG_DATE: 'Wrong date',
+  NEVER_HAPPENED: 'Never happened',
+  DATA_ENTRY_ERROR: 'Data entry error',
+  OTHER: 'Other',
 };
 
 const FIELD_LABEL: Record<string, string> = {
@@ -98,6 +108,27 @@ function HistoryTimeline({ itemId, enabled }: { itemId: string; enabled: boolean
               <p className="text-[10px] text-muted-foreground mt-0.5">by {entry.userName}</p>
             )}
             <ChangedFields entry={entry} />
+            {entry.action === 'DELIVERY_VOIDED' && (() => {
+              const after = (entry.changes?.after ?? {}) as Record<string, unknown>;
+              const reason = after.voidReason ? String(after.voidReason) : null;
+              const note = after.voidNote ? String(after.voidNote) : null;
+              if (!reason && !note) return null;
+              return (
+                <div className="mt-1.5 text-[11px] space-y-0.5">
+                  {reason && (
+                    <p>
+                      <span className="text-muted-foreground">Reason: </span>
+                      <span className="font-bold">{VOID_REASON_LABEL[reason] ?? reason}</span>
+                    </p>
+                  )}
+                  {note && (
+                    <p className="text-muted-foreground">
+                      <span className="font-bold">Detail:</span> {note}
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
       ))}

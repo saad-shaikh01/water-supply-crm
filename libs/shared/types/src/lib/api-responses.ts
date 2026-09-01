@@ -4,7 +4,17 @@ export type DeliveryStatusType =
   | 'EMPTY_ONLY'
   | 'NOT_AVAILABLE'
   | 'RESCHEDULED'
-  | 'CANCELLED';
+  | 'CANCELLED'
+  | 'VOIDED';
+
+/** Void Delivery — structured reason on a void (mirrors the Prisma enum). */
+export type DeliveryVoidReason =
+  | 'DUPLICATE'
+  | 'WRONG_SHEET'
+  | 'WRONG_DATE'
+  | 'NEVER_HAPPENED'
+  | 'DATA_ENTRY_ERROR'
+  | 'OTHER';
 
 export type PaymentTypeValue = 'MONTHLY' | 'CASH';
 
@@ -234,6 +244,12 @@ export interface DeliveryItem {
   isCorrection?: boolean;
   correctionAddedAt?: string | null;
   correctionNote?: string | null;
+  /** Void Delivery — set when this stop was struck from the operational record.
+   *  status is then 'VOIDED'; voidedBy is the actor (id + name). */
+  voidedAt?: string | null;
+  voidReason?: DeliveryVoidReason | null;
+  voidNote?: string | null;
+  voidedBy?: { id: string; name: string } | null;
   /** Bumped on each force-resubmit of a terminal-status item — drives the "Edited" row badge. */
   editCount?: number;
   lastEditedAt?: string | null;

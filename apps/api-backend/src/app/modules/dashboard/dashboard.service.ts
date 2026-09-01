@@ -285,6 +285,9 @@ export class DashboardService {
       include: {
         route: { select: { id: true, name: true } },
         items: {
+          // Voided items are struck from the operational record — excluded from
+          // stop counts, cash sums and completion rate.
+          where: { status: { not: 'VOIDED' } },
           select: {
             status: true,
             filledDropped: true,
@@ -348,6 +351,8 @@ export class DashboardService {
       include: {
         driver: { select: { id: true, name: true } },
         items: {
+          // Voided items don't count toward a driver's totals / completion rate.
+          where: { status: { not: 'VOIDED' } },
           select: {
             status: true,
             filledDropped: true,

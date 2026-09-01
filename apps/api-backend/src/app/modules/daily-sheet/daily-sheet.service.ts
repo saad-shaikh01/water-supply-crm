@@ -33,6 +33,7 @@ import { InsertOrderItemDto, SequenceMode } from './dto/insert-order-item.dto';
 import { AddAdhocItemDto } from './dto/add-adhoc-item.dto';
 import { AddCorrectionItemDto } from './dto/add-correction-item.dto';
 import { MoveDeliveryItemsDto } from './dto/move-delivery-items.dto';
+import { VoidDeliveryDto } from './dto/void-delivery.dto';
 import { paginate } from '../../common/helpers/paginate';
 import { validateSupportCrew, validateDriverAssignment } from '../../common/helpers/crew-validation';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
@@ -391,12 +392,31 @@ export class DailySheetService implements OnModuleInit {
       include: {
         customer: { select: { name: true, customerCode: true, phoneNumber: true, paymentType: true, isBillingExempt: true, financialBalance: true, customPrices: { select: { productId: true, customPrice: true } } } },
         product: { select: { name: true, basePrice: true } },
-        dailySheet: { select: { vendorId: true, date: true, vendor: { select: { name: true } }, van: { select: { plateNumber: true } } } },
+        dailySheet: { select: { vendorId: true, date: true, isClosed: true, vendor: { select: { name: true } }, van: { select: { plateNumber: true } } } },
       },
     });
 
     if (!item || item.dailySheet.vendorId !== vendorId) {
       throw new NotFoundException('Sheet item not found');
+    }
+
+    // A voided item is struck from the operational record — no resubmit, no edit.
+    this.assertItemNotVoided(item);
+
+    // A closed sheet is immutable via the normal delivery flow. Retroactive
+    // changes go through Correction Entry (addCorrectionItem) or a reopen; a
+    // recorded stop is removed via the dedicated void action.
+    if (item.dailySheet.isClosed) {
+      throw new ConflictException(
+        'This sheet is closed. Use Correction Entry to add a missed delivery, or reopen the sheet.',
+      );
+    }
+
+    // VOIDED is a state, not a submittable outcome — it has its own action,
+    // permission, ledger reversal and audit entry. Block it here so a client
+    // can't reach it through the generic status enum.
+    if ((dto.status as string) === 'VOIDED') {
+      throw new BadRequestException('Use the void action to void a delivery');
     }
 
     const TERMINAL_STATUSES: string[] = ['COMPLETED', 'EMPTY_ONLY', 'NOT_AVAILABLE', 'CANCELLED'];
@@ -823,6 +843,197 @@ export class DailySheetService implements OnModuleInit {
     return result;
   }
 
+  /**
+   * Shared immutability guard — a voided item is struck from the operational
+   * record and must not be re-recorded, edit-unlocked or edit-requested. Called
+   * BEFORE the terminal-status logic in each entrypoint (the terminal-status
+   * list is an allow-list in unlockDeliveryEdit but a block-list in
+   * submitDelivery, so VOIDED can't just be folded into it).
+   */
+  private assertItemNotVoided(item: { status: string; voidedAt: Date | null }): void {
+    if (item.status === 'VOIDED' || item.voidedAt) {
+      throw new ConflictException('This delivery has been voided and cannot be modified');
+    }
+  }
+
+  /**
+   * Void a recorded stop — strike it from the operational record.
+   *
+   * Voidable statuses: COMPLETED, EMPTY_ONLY, NOT_AVAILABLE, RESCHEDULED,
+   * CANCELLED. PENDING is rejected (nothing has happened yet). Only
+   * COMPLETED/EMPTY_ONLY carry a ledger effect, so the reversal (an all-zero
+   * idempotent repost that deletes the PAYMENT row and re-inflates the wallet +
+   * financialBalance) runs only for those two; the other three are an
+   * operational hide with an audit entry and no ledger call.
+   *
+   * Allowed on a closed sheet for holders of daily_sheets:void_delivery
+   * (analogous to Correction Entry). On a closed sheet — or for a correction
+   * item on an open sheet — the reversing ledger rows are dated to the sheet's
+   * date (mirrors submitDelivery / addCorrectionItem).
+   */
+  async voidDelivery(user: AuthUser, itemId: string, dto: VoidDeliveryDto) {
+    const vendorId = user.vendorId;
+
+    const item = await this.prisma.dailySheetItem.findUnique({
+      where: { id: itemId },
+      include: {
+        dailySheet: { select: { vendorId: true, isClosed: true, date: true } },
+        customer: { select: { id: true } },
+        product: { select: { id: true } },
+      },
+    });
+
+    if (!item || item.dailySheet.vendorId !== vendorId) {
+      throw new NotFoundException('Sheet item not found');
+    }
+
+    if (item.status === 'VOIDED' || item.voidedAt) {
+      throw new ConflictException('This delivery is already voided');
+    }
+
+    if (item.status === 'PENDING') {
+      throw new BadRequestException(
+        'A pending delivery has not happened yet — mark it not available or reschedule instead of voiding',
+      );
+    }
+
+    const VOIDABLE_STATUSES = ['COMPLETED', 'EMPTY_ONLY', 'NOT_AVAILABLE', 'RESCHEDULED', 'CANCELLED'];
+    if (!VOIDABLE_STATUSES.includes(item.status)) {
+      throw new BadRequestException(`A delivery in status ${item.status} cannot be voided`);
+    }
+
+    const originalStatus = item.status;
+    const hasLedgerEffect = item.status === 'COMPLETED' || item.status === 'EMPTY_ONLY';
+    // Closed sheet, or a correction item on an open sheet → reversing rows keep
+    // the sheet's business date; a normal open-sheet void posts "now".
+    const backdate = item.dailySheet.isClosed || item.isCorrection;
+
+    const voidedAt = new Date();
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Atomic conditional claim — flip the row to VOIDED only while it is still
+      // un-voided. Two concurrent voids race HERE: exactly one updateMany
+      // matches a row; the blocked second txn re-evaluates this WHERE after the
+      // first commits, matches 0 rows, and we throw a clean ConflictException
+      // with no second ledger touch. Replaces the old plain findUnique re-read
+      // (no row lock → both callers could read COMPLETED and both reverse the
+      // ledger, double-reversing wallet + financialBalance).
+      const claimed = await tx.dailySheetItem.updateMany({
+        where: { id: itemId, voidedAt: null, status: { not: DeliveryStatus.VOIDED } },
+        data: {
+          status: DeliveryStatus.VOIDED,
+          voidedAt,
+          voidedById: user.userId,
+          voidReason: dto.voidReason,
+          voidNote: dto.voidNote ?? null,
+        },
+      });
+      if (claimed.count !== 1) {
+        throw new ConflictException('This delivery is already voided');
+      }
+
+      // hasLedgerEffect is derived from the OUTER read's status
+      // (COMPLETED / EMPTY_ONLY), never from a post-flip read — the row now
+      // says VOIDED. A throw anywhere below rolls the whole $transaction back,
+      // status flip included — that is intentional.
+      if (hasLedgerEffect) {
+        // Only reverse if a DELIVERY ledger row actually exists. A legacy /
+        // unlinked item (ledger-bearing status but no DELIVERY txn) would make
+        // recordDelivery throw a confusing raw "Cannot collect 0…" 400 — skip
+        // the ledger entirely; the item is already voided by the claim above.
+        const ledgerRowCount = await tx.transaction.count({
+          where: { dailySheetItemId: itemId, type: TransactionType.DELIVERY },
+        });
+
+        if (ledgerRowCount > 0) {
+          const priceRow = await tx.dailySheetItem.findUnique({
+            where: { id: itemId },
+            select: { pricePerBottle: true },
+          });
+
+          try {
+            await this.ledger.recordDelivery(
+              {
+                vendorId,
+                customerId: item.customerId,
+                productId: item.productId,
+                dailySheetId: item.dailySheetId,
+                dailySheetItemId: itemId,
+                filledDropped: 0,
+                emptyReceived: 0,
+                filledReceived: 0,
+                cashCollected: 0,
+                pricePerBottle: priceRow?.pricePerBottle ?? 0,
+                // forwarded for parity with submitDelivery / addCorrectionItem;
+                // the recreated zero row is deleted below, so this has no
+                // persisted effect today.
+                ...(backdate ? { occurredAt: item.dailySheet.date } : {}),
+              },
+              tx,
+            );
+          } catch (e) {
+            if (e instanceof BadRequestException && /negative/i.test((e as Error).message)) {
+              throw new UnprocessableEntityException({
+                code: 'VOID_WOULD_MAKE_WALLET_NEGATIVE',
+                message: 'Resolve this customer’s bottle balance before voiding this delivery.',
+              });
+            }
+            throw e;
+          }
+
+          // applyIdempotentRepost leaves one zero-value DELIVERY row keyed to
+          // the item (and deletes the PAYMENT row). Drop the leftover so nothing
+          // shows on the customer statement / portal for a delivery that "never
+          // happened".
+          await tx.transaction.deleteMany({
+            where: { dailySheetItemId: itemId, type: TransactionType.DELIVERY },
+          });
+        } else {
+          this.logger.warn(
+            `voidDelivery: item ${itemId} had a ledger-bearing status (${originalStatus}) ` +
+              'but no DELIVERY transaction row — voided without a ledger reversal.',
+          );
+        }
+      }
+
+      // Void fields were already written by the atomic claim above; just return
+      // the current row (this method returned a bare item with no includes).
+      return tx.dailySheetItem.findUnique({ where: { id: itemId } });
+    });
+
+    await this.audit.log({
+      vendorId,
+      userId: user.userId,
+      userName: user.name,
+      action: 'DELIVERY_VOIDED',
+      entity: 'DailySheetItem',
+      entityId: itemId,
+      changes: {
+        before: {
+          status: originalStatus,
+          filledDropped: item.filledDropped,
+          emptyReceived: item.emptyReceived,
+          filledReceived: item.filledReceived,
+          cashCollected: item.cashCollected,
+        },
+        after: {
+          status: 'VOIDED',
+          voidReason: dto.voidReason,
+          voidNote: dto.voidNote ?? null,
+        },
+      },
+    });
+
+    const sheetDate = item.dailySheet.date.toISOString().slice(0, 10);
+    await Promise.all([
+      this.cache.invalidateDailyDashboard(vendorId, sheetDate),
+      this.cache.invalidateOverview(vendorId),
+      this.cache.invalidateAnalytics(vendorId),
+    ]);
+
+    return result;
+  }
+
   async unlockDeliveryEdit(user: AuthUser, itemId: string, dto: UnlockEditDto) {
     const item = await this.prisma.dailySheetItem.findUnique({
       where: { id: itemId },
@@ -832,6 +1043,8 @@ export class DailySheetService implements OnModuleInit {
     if (!item || item.dailySheet.vendorId !== user.vendorId) {
       throw new NotFoundException('Sheet item not found');
     }
+
+    this.assertItemNotVoided(item);
 
     const TERMINAL_STATUSES = ['COMPLETED', 'EMPTY_ONLY', 'NOT_AVAILABLE', 'CANCELLED'];
     if (!TERMINAL_STATUSES.includes(item.status)) {
@@ -885,6 +1098,8 @@ export class DailySheetService implements OnModuleInit {
     if (item.dailySheet.driverId !== user.userId) {
       throw new ForbiddenException('Only the assigned driver can request an edit');
     }
+
+    this.assertItemNotVoided(item);
 
     const TERMINAL_STATUSES = ['COMPLETED', 'EMPTY_ONLY', 'NOT_AVAILABLE', 'CANCELLED'];
     if (!TERMINAL_STATUSES.includes(item.status)) {
@@ -1016,6 +1231,7 @@ export class DailySheetService implements OnModuleInit {
         pending: items.filter((i) => i.status === 'PENDING').length,
         completed: items.filter((i) => i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY').length,
         issues: items.filter((i) => ['NOT_AVAILABLE', 'RESCHEDULED', 'CANCELLED'].includes(i.status)).length,
+        voided: items.filter((i) => i.status === 'VOIDED').length,
       };
       const tripState = {
         tripCount: loads.length,
@@ -1023,7 +1239,9 @@ export class DailySheetService implements OnModuleInit {
       };
       return {
         ...sheet,
-        _count: { items: items.length },
+        // Voided items are struck from the operational record — they don't count
+        // as "stops" on the sheet.
+        _count: { items: items.filter((i) => i.status !== 'VOIDED').length },
         itemCounts,
         tripState,
         issueCount,
@@ -1345,6 +1563,11 @@ export class DailySheetService implements OnModuleInit {
           include: {
             customer: { select: DailySheetService.ITEM_CUSTOMER_SELECT },
             product: true,
+            // Void Delivery — who struck this stop (voidedAt/voidReason/voidNote
+            // are plain scalars, already returned by this `include`). Lets the
+            // sheet-detail row show a "Voided by X" badge without an audit-log
+            // round-trip, mirroring crewConfirmedBy/closureRequestedBy above.
+            voidedBy: { select: { id: true, name: true } },
             _count: {
               select: {
                 notes: { where: { requiresAck: true, acknowledgedAt: null, deletedAt: null } },
@@ -2367,10 +2590,12 @@ export class DailySheetService implements OnModuleInit {
       (s, i) => s + getPrice(i) * i.filledDropped, 0,
     );
 
-    // Driver handover — ALL cash recorded across every item
-    const totalCashRecorded = (sheet.items as any[]).reduce(
-      (s, i) => s + i.cashCollected, 0,
-    );
+    // Driver handover — ALL cash recorded across every item EXCEPT voided ones
+    // (a voided delivery's ledger cash was reversed; its stale item.cashCollected
+    // column must not still count toward what the driver owes).
+    const totalCashRecorded = (sheet.items as any[])
+      .filter((i) => i.status !== DeliveryStatus.VOIDED)
+      .reduce((s, i) => s + i.cashCollected, 0);
     const driverDiscrepancy = totalCashRecorded - sheet.cashCollected;
 
     // Only expenses actually paid out of the driver's van cash-in-hand

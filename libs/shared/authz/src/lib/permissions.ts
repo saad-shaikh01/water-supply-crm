@@ -112,6 +112,11 @@ export const PERMISSION_CATALOG = {
       // items/move) is now its own action, independently grantable per role instead
       // of riding along with the broad `update` grant every field role already has.
       'move_customer',
+      // Void Delivery (owner-requested 2026-09-01): strike a recorded stop from
+      // the operational record — reverses the ledger effect for COMPLETED/
+      // EMPTY_ONLY, an operational hide + audit for the other terminal statuses.
+      // Analogous to `correct`; granted to Admin + Manager.
+      'void_delivery',
     ],
   },
   vans: {

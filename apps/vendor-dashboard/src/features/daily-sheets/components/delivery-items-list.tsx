@@ -8,7 +8,7 @@ import {
 } from '@water-supply-crm/ui';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import {
-  AlertCircle, ArrowRightLeft, Camera, Check, CheckSquare, ChevronDown, ChevronUp, ClipboardList, Download,
+  AlertCircle, ArrowRightLeft, Ban, Camera, Check, CheckSquare, ChevronDown, ChevronUp, ClipboardList, Download,
   History, LocateFixed, Lock, Loader2, MapPin, MessageCircle, MessageSquare, Navigation, Phone, Send, StickyNote, Truck, Unlock, X,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
@@ -27,7 +27,7 @@ import { DeliveryItemHistoryDialog } from './delivery-item-history-dialog';
 // paginatedItems/filteredItems the same as any other tab so this component
 // never needs to know the difference — see isMovedOutView below for the one
 // thing it DOES need to know (read-only rendering).
-type TabKey = 'all' | 'pending' | 'completed' | 'issues' | 'moved_out';
+type TabKey = 'all' | 'pending' | 'completed' | 'issues' | 'moved_out' | 'voided';
 
 const CATEGORY_LABELS: Record<string, string> = {
   CUSTOMER_NOT_HOME: 'Customer Not Home',
@@ -41,6 +41,19 @@ const CATEGORY_LABELS: Record<string, string> = {
   OTHER: 'Other',
 };
 const formatCategory = (cat: string) => CATEGORY_LABELS[cat] ?? cat;
+
+const VOID_REASON_LABELS: Record<string, string> = {
+  DUPLICATE: 'Duplicate entry',
+  WRONG_SHEET: 'Wrong sheet',
+  WRONG_DATE: 'Wrong date',
+  NEVER_HAPPENED: 'Never happened',
+  DATA_ENTRY_ERROR: 'Data entry error',
+  OTHER: 'Other',
+};
+const formatVoidReason = (r?: string | null) => (r ? VOID_REASON_LABELS[r] ?? r : '—');
+
+/** Statuses whose delivery can be voided — mirrors the backend's voidable set (NOT PENDING, NOT already VOIDED). */
+const VOIDABLE_STATUSES = ['COMPLETED', 'EMPTY_ONLY', 'NOT_AVAILABLE', 'RESCHEDULED', 'CANCELLED'];
 
 /** Statuses eligible to move to a different van/sheet — mirrors the backend's MOVE_ELIGIBLE_STATUSES. */
 const MOVE_ELIGIBLE_STATUSES = ['PENDING', 'NOT_AVAILABLE', 'RESCHEDULED'];
@@ -216,6 +229,10 @@ interface DeliveryItemsListProps {
   canManageEditLocks: boolean;
   /** Gates the Select/Move-to-another-van/sheet UI (`daily_sheets:move_customer`). */
   canMove: boolean;
+  /** Gates the per-row "Void" action (`daily_sheets:void_delivery`). */
+  canVoidDelivery: boolean;
+  /** Opens the Void Delivery dialog for the given item. */
+  onVoidItem: (item: DeliveryItem) => void;
   onUnlockEdit: (itemId: string) => void;
   unlockingItemId: string | null;
   onRequestEdit: (itemId: string) => void;
@@ -256,6 +273,8 @@ export function DeliveryItemsList({
   isDriver,
   canManageEditLocks,
   canMove,
+  canVoidDelivery,
+  onVoidItem,
   onUnlockEdit,
   unlockingItemId,
   onRequestEdit,
@@ -385,7 +404,8 @@ export function DeliveryItemsList({
         </h3>
         <div className="flex items-center gap-3">
           <p className="text-xs text-muted-foreground font-medium">
-            {items.filter((i) => i.status !== 'PENDING').length} / {items.length} done
+            {items.filter((i) => i.status !== 'PENDING' && i.status !== 'VOIDED').length}{' '}
+            / {items.filter((i) => i.status !== 'VOIDED').length} done
           </p>
           {/* Trip filter — disabled with a single trip (nothing to disambiguate,
               "All" and that one trip show the same set); once a second trip
@@ -435,28 +455,40 @@ export function DeliveryItemsList({
       </div>
 
       <Tabs value={activeTab} onValueChange={onTabChange}>
-        {/* Moved Out only takes a slot when this sheet actually has any —
-            most sheets never do, so a permanent always-empty 5th tab would
+        {/* Moved Out / Voided only take a slot when this sheet actually has any —
+            most sheets never do, so a permanent always-empty extra tab would
             just be clutter. */}
-        <TabsList className={cn('w-full grid h-10', tabCount('moved_out') > 0 ? 'grid-cols-5' : 'grid-cols-4')}>
-          <TabsTrigger value="all" className="text-xs font-bold">
-            All <span className="ml-1 text-[10px] opacity-60">({tabCount('all')})</span>
-          </TabsTrigger>
-          <TabsTrigger value="pending" className="text-xs font-bold">
-            Pending <span className="ml-1 text-[10px] opacity-60">({tabCount('pending')})</span>
-          </TabsTrigger>
-          <TabsTrigger value="completed" className="text-xs font-bold">
-            Done <span className="ml-1 text-[10px] opacity-60">({tabCount('completed')})</span>
-          </TabsTrigger>
-          <TabsTrigger value="issues" className="text-xs font-bold">
-            Issues <span className="ml-1 text-[10px] opacity-60">({tabCount('issues')})</span>
-          </TabsTrigger>
-          {tabCount('moved_out') > 0 && (
-            <TabsTrigger value="moved_out" className="text-xs font-bold">
-              Moved Out <span className="ml-1 text-[10px] opacity-60">({tabCount('moved_out')})</span>
-            </TabsTrigger>
-          )}
-        </TabsList>
+        {(() => {
+          const extraTabs = (tabCount('moved_out') > 0 ? 1 : 0) + (tabCount('voided') > 0 ? 1 : 0);
+          const gridColsClass =
+            extraTabs === 2 ? 'grid-cols-6' : extraTabs === 1 ? 'grid-cols-5' : 'grid-cols-4';
+          return (
+            <TabsList className={cn('w-full grid h-10', gridColsClass)}>
+              <TabsTrigger value="all" className="text-xs font-bold">
+                All <span className="ml-1 text-[10px] opacity-60">({tabCount('all')})</span>
+              </TabsTrigger>
+              <TabsTrigger value="pending" className="text-xs font-bold">
+                Pending <span className="ml-1 text-[10px] opacity-60">({tabCount('pending')})</span>
+              </TabsTrigger>
+              <TabsTrigger value="completed" className="text-xs font-bold">
+                Done <span className="ml-1 text-[10px] opacity-60">({tabCount('completed')})</span>
+              </TabsTrigger>
+              <TabsTrigger value="issues" className="text-xs font-bold">
+                Issues <span className="ml-1 text-[10px] opacity-60">({tabCount('issues')})</span>
+              </TabsTrigger>
+              {tabCount('moved_out') > 0 && (
+                <TabsTrigger value="moved_out" className="text-xs font-bold">
+                  Moved Out <span className="ml-1 text-[10px] opacity-60">({tabCount('moved_out')})</span>
+                </TabsTrigger>
+              )}
+              {tabCount('voided') > 0 && (
+                <TabsTrigger value="voided" className="text-xs font-bold">
+                  Voided <span className="ml-1 text-[10px] opacity-60">({tabCount('voided')})</span>
+                </TabsTrigger>
+              )}
+            </TabsList>
+          );
+        })()}
       </Tabs>
 
       <div className="grid gap-2">
@@ -469,6 +501,10 @@ export function DeliveryItemsList({
         ) : (
           paginatedItems.map((item, idx) => {
             const isExpanded = expandedItemId === item.id;
+            // A voided stop is struck from the operational record — every mutating
+            // affordance (Record/Edit/unlock/request-edit/Move/receipt/notes) is
+            // suppressed; only expand + view-history stay.
+            const isVoided = item.status === 'VOIDED';
             const customer = item.customer;
             const matchedWallet = customer?.wallets?.find((w) => w.productId === item.productId) ?? customer?.wallets?.[0];
             const walletBalance = matchedWallet?.balance ?? 0;
@@ -491,8 +527,17 @@ export function DeliveryItemsList({
             // Whether the inline record/edit form may be shown for this item.
             const canRecord =
               !rowsLocked &&
+              !isVoided &&
               allAcksCleared &&
               (item.status === 'PENDING' || !isDriver || hasActiveEditUnlock);
+
+            // Void is explicitly allowed on a CLOSED sheet (locked decision #2 —
+            // backend + dialog + tests all support it), so it must NOT be gated
+            // behind rowsLocked (= isClosed || isMovedOutView). Only the
+            // moved-out mirror view and the item's own status/voided state gate
+            // it. Edit / unlock / request-edit stay `!rowsLocked`.
+            const canVoidThisItem =
+              canVoidDelivery && !isMovedOutView && !isVoided && VOIDABLE_STATUSES.includes(item.status);
 
             const isEligibleForMove = MOVE_ELIGIBLE_STATUSES.includes(item.status);
             const isSelected = selectedIds.has(item.id);
@@ -518,6 +563,7 @@ export function DeliveryItemsList({
                 <Card className={cn(
                   'overflow-hidden border-border/50 transition-all',
                   item.status !== 'PENDING' ? 'bg-muted/30' : 'bg-card/50',
+                  isVoided && 'opacity-60',
                   isExpanded ? 'border-primary/30 shadow-sm' : 'hover:border-primary/20',
                   selectMode && !isEligibleForMove && 'opacity-40',
                   selectMode && isEligibleForMove && isSelected && 'border-primary/50 ring-1 ring-primary/40',
@@ -577,6 +623,15 @@ export function DeliveryItemsList({
                               {' · by '}{item.moveInfo.movedBy.name}
                             </p>
                           )}
+                          {isVoided && (
+                            <p
+                              className="text-[11px] text-muted-foreground font-medium flex items-center gap-1 mt-0.5"
+                              title={item.voidNote ?? undefined}
+                            >
+                              <Ban className="h-2.5 w-2.5 shrink-0" />
+                              Voided by {item.voidedBy?.name ?? '—'} · {formatVoidReason(item.voidReason)}
+                            </p>
+                          )}
                           <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                             {(() => {
                               const isMonthly = customer?.paymentType === 'MONTHLY';
@@ -613,17 +668,17 @@ export function DeliveryItemsList({
                               </span>
                             )}
                             {item.status !== 'PENDING' && item.filledDropped > 0 && (
-                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none bg-orange-500/15 text-orange-700 dark:text-orange-400">
+                              <span className={cn('text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none bg-orange-500/15 text-orange-700 dark:text-orange-400', isVoided && 'line-through')}>
                                 ↓{item.filledDropped}
                               </span>
                             )}
                             {item.status !== 'PENDING' && item.emptyReceived > 0 && (
-                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none bg-purple-500/15 text-purple-700 dark:text-purple-400">
+                              <span className={cn('text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none bg-purple-500/15 text-purple-700 dark:text-purple-400', isVoided && 'line-through')}>
                                 ↑{item.emptyReceived}
                               </span>
                             )}
                             {item.status !== 'PENDING' && item.filledReceived > 0 && (
-                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none bg-sky-500/15 text-sky-700 dark:text-sky-400">
+                              <span className={cn('text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none bg-sky-500/15 text-sky-700 dark:text-sky-400', isVoided && 'line-through')}>
                                 ↺{item.filledReceived}
                               </span>
                             )}
@@ -713,7 +768,7 @@ export function DeliveryItemsList({
                             {isExpanded ? 'Close' : 'Record'}
                           </Button>
                         )}
-                        {!rowsLocked && item.status !== 'PENDING' && (
+                        {!rowsLocked && !isVoided && item.status !== 'PENDING' && (
                           <div className="flex items-center gap-1">
                             {isDriver ? (
                               hasActiveEditUnlock ? (
@@ -795,6 +850,15 @@ export function DeliveryItemsList({
                             onClick={(e) => { e.stopPropagation(); onMoveItem(item.id); }}
                           >
                             <Truck className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        {canVoidThisItem && (
+                          <button
+                            className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                            title="Void this delivery"
+                            onClick={(e) => { e.stopPropagation(); onVoidItem(item); }}
+                          >
+                            <Ban className="h-3.5 w-3.5" />
                           </button>
                         )}
                         <button
@@ -1072,7 +1136,7 @@ export function DeliveryItemsList({
                               hasOtherUnrecordedItemsForCustomer={hasOtherUnrecordedItemsForCustomer}
                               onDone={() => onToggleExpand(null)}
                             />
-                          ) : item.status !== 'PENDING' ? (
+                          ) : item.status !== 'PENDING' && !isVoided ? (
                             <DeliveryRecordForm
                               key={`${item.id}-ro`}
                               item={item}
@@ -1158,7 +1222,8 @@ export function DeliveryItemsList({
           item={chatItem}
           sheetId={sheetId}
           isDriver={isDriver}
-          isClosed={isClosed}
+          // A voided stop takes no new notes — thread stays readable but locked.
+          isClosed={isClosed || chatItem.status === 'VOIDED'}
           onClose={() => setChatItem(null)}
         />
       )}

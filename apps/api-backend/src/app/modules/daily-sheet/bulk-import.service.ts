@@ -187,6 +187,12 @@ export class BulkImportService {
       );
     }
 
+    if (dbItem && dbItem.status === 'VOIDED') {
+      errors.push(
+        'This delivery has been voided and cannot be updated via bulk import.',
+      );
+    }
+
     for (const w of row.sanitizationWarnings) {
       warnings.push(w);
     }
@@ -250,6 +256,14 @@ export class BulkImportService {
     const dbItem = dbItems.find((i) => i.id === row.itemId);
     if (!dbItem) {
       throw new BadRequestException(`Item ${row.itemId} not found in sheet`);
+    }
+
+    // A voided delivery is struck from the operational record — bulk import must
+    // not resurrect or re-post it (mirrors DailySheetService.assertItemNotVoided).
+    if (dbItem.status === 'VOIDED') {
+      throw new BadRequestException(
+        `Item ${row.itemId} has been voided and cannot be updated via bulk import.`,
+      );
     }
 
     const resolvedStatus =

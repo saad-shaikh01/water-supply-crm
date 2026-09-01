@@ -258,9 +258,12 @@ export class DailySheetPdfService {
     }
 
     // Delivery Items is kept as the last itemized section (right before
-    // Signatures) — deliberately printed after Crew Cash Distribution.
-    this.drawSectionTitle(doc, `Delivery Items (${sheet.items?.length ?? 0} stops)`, true);
-    this.drawDeliveryTable(doc, sheet.items ?? []);
+    // Signatures) — deliberately printed after Crew Cash Distribution. Voided
+    // deliveries are struck from the operational record — excluded from the
+    // table, its TOTAL/AVG reducers and the stop count entirely.
+    const visibleItems = (sheet.items ?? []).filter((i: any) => i.status !== 'VOIDED');
+    this.drawSectionTitle(doc, `Delivery Items (${visibleItems.length} stops)`, true);
+    this.drawDeliveryTable(doc, visibleItems);
 
     if (sheet.isClosed) this.drawSignatures(doc);
   }
@@ -443,13 +446,16 @@ export class DailySheetPdfService {
         .text(`+${hiddenTeamCount} more`, x1 + 14, y + 47 + visibleTeamRows.length * 11, { lineBreak: false });
     }
 
-    // COL 2 — Sheet #, Stops, Trips, Sold, Empty
-    const activeItems = (sheet.items ?? []).filter((i: any) => i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY');
+    // COL 2 — Sheet #, Stops, Trips, Sold, Empty. Voided deliveries are struck
+    // from the record — not counted as stops, and their stale cashCollected is
+    // excluded from GROSS CASH COLLECTED below.
+    const nonVoidItems = (sheet.items ?? []).filter((i: any) => i.status !== 'VOIDED');
+    const activeItems = nonVoidItems.filter((i: any) => i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY');
     const sold = activeItems.reduce((s: number, i: any) => s + (i.filledDropped ?? 0), 0);
     const tripCount = sheet.loads?.length ?? 0;
     const rows: [string, string][] = [
       ['Sheet #', sheet.id.slice(0, 8).toUpperCase()],
-      ['Stops', String(sheet.items?.length ?? 0)],
+      ['Stops', String(nonVoidItems.length)],
       ['Trips', String(tripCount)],
       ['Sold', String(sold)],
       ['Empty', String(sheet.emptyInCount ?? 0)],
@@ -479,7 +485,7 @@ export class DailySheetPdfService {
     //    Gross − Expense − Crew Cash — that gap is the discrepancy the
     //    "Bottle & Cash Summary" verdict banner below reports once the
     //    sheet is closed (sheet.cashExpected holds that computed figure).
-    const totalItemCash = (sheet.items ?? []).reduce((s: number, i: any) => s + (i.cashCollected ?? 0), 0);
+    const totalItemCash = nonVoidItems.reduce((s: number, i: any) => s + (i.cashCollected ?? 0), 0);
     const totalExpenses = (sheet.expenses ?? [])
       .filter((e: any) => e.paidFromCash !== false)
       .reduce((s: number, e: any) => s + (e.amount ?? 0), 0);

@@ -37,6 +37,7 @@ import { InsertOrderItemDto } from './dto/insert-order-item.dto';
 import { AddAdhocItemDto } from './dto/add-adhoc-item.dto';
 import { AddCorrectionItemDto } from './dto/add-correction-item.dto';
 import { MoveDeliveryItemsDto } from './dto/move-delivery-items.dto';
+import { VoidDeliveryDto } from './dto/void-delivery.dto';
 import { UnlockEditDto } from './dto/unlock-edit.dto';
 import { RejectCloseDto } from './dto/reject-close.dto';
 import { CloseSheetDto } from './dto/close-sheet.dto';
@@ -230,6 +231,21 @@ export class DailySheetController {
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   requestDeliveryEdit(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.dailySheetService.requestDeliveryEdit(user, id);
+  }
+
+  // Void a recorded stop — struck from the operational record, ledger effect
+  // reversed for COMPLETED/EMPTY_ONLY. Own permission (Admin + Manager),
+  // analogous to Correction Entry. Distinct verb + path from @Patch('items/:id'),
+  // so ordering relative to it does not matter for routing.
+  @Post('items/:id/void')
+  @RequirePermissions('daily_sheets:void_delivery')
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
+  voidDelivery(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: VoidDeliveryDto,
+  ) {
+    return this.dailySheetService.voidDelivery(user, id, dto);
   }
 
   @Patch('items/:id')

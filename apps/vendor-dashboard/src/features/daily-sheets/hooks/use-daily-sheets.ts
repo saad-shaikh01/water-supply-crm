@@ -176,6 +176,27 @@ export const useAddCorrectionItem = (sheetId: string) => {
   });
 };
 
+export const useVoidDelivery = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ itemId, voidReason, voidNote }: { itemId: string; voidReason: string; voidNote?: string }) =>
+      dailySheetsApi.voidDelivery(itemId, { voidReason, voidNote }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
+      queryClient.invalidateQueries({ queryKey: ['sheets'] });
+      queryClient.invalidateQueries({ queryKey: ['customer-financial-summary'] });
+      toast.success('Delivery voided');
+    },
+    onError: (error: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      if (error?.response?.data?.code === 'VOID_WOULD_MAKE_WALLET_NEGATIVE') {
+        toast.error(error.response.data.message);
+        return;
+      }
+      toast.error(error?.response?.data?.message ?? 'Failed to void delivery');
+    },
+  });
+};
+
 /** Per-item edit history (AuditLog rows scoped to one DailySheetItem) — fetched lazily, only when the timeline is actually opened. */
 export const useDeliveryItemHistory = (itemId: string, enabled: boolean) => {
   return useQuery({

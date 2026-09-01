@@ -92,6 +92,9 @@ export class AnalyticsService {
       }),
       this.prisma.dailySheetItem.findMany({
         where: {
+          // Voided items are struck from the record — exclude from the
+          // cash-by-payment-type expected/collected split.
+          status: { not: 'VOIDED' },
           dailySheet: {
             vendorId,
             ...(dateFilter && { date: dateFilter }),
@@ -215,6 +218,9 @@ export class AnalyticsService {
     const [items, openIssues, resolvedIssues] = await Promise.all([
       this.prisma.dailySheetItem.findMany({
         where: {
+          // Voided items are struck from the operational record — they must not
+          // count toward total / completionRate / byDay / DOW buckets.
+          status: { not: 'VOIDED' },
           dailySheet: {
             vendorId,
             ...(dateFilter && { date: dateFilter }),
@@ -484,6 +490,9 @@ export class AnalyticsService {
       include: {
         driver: { select: { id: true, name: true, role: true } },
         items: {
+          // Voided items don't count toward a driver's delivery total,
+          // completion rate or cash collected.
+          where: { status: { not: 'VOIDED' } },
           select: { status: true, filledDropped: true, cashCollected: true },
         },
       },

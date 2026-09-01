@@ -35,7 +35,8 @@ const MATRIX: Record<RoleKey, Row> = {
     allow: [
       'dashboard:view', 'customers:view', 'customers:view_financial', 'customers:update', 'customers:update_location',
       'customers:export', 'pricing:update', 'orders:approve', 'daily_sheets:update', 'daily_sheets:confirm_crew',
-      'daily_sheets:manage_edit_locks', 'daily_sheets:export', 'daily_sheets:move_customer', 'inventory:add_stock', 'damage_cases:review',
+      'daily_sheets:manage_edit_locks', 'daily_sheets:export', 'daily_sheets:move_customer', 'daily_sheets:void_delivery',
+      'inventory:add_stock', 'damage_cases:review',
       'tracking:view', 'analytics:export', 'payroll:ledger_create',
       'payroll:salary_structure_manage', 'payroll:period_generate', 'payroll:settlement_record',
       // crew_cash:view_all IS a flat STAFF default here — unlike payroll:view_all
@@ -67,7 +68,7 @@ const MATRIX: Record<RoleKey, Row> = {
   },
   salesman: {
     allow: ['dashboard:view', 'customers:view', 'customers:create', 'customers:update', 'customers:update_location', 'orders:view', 'daily_sheets:update', 'products:view', 'crew_cash:create'],
-    deny: ['customers:view_financial', 'customers:delete', 'orders:approve', 'payments:approve', 'daily_sheets:confirm_crew', 'inventory:add_stock', 'roles:update', 'payroll:view_all', 'crew_cash:approve', 'crew_cash:view_all', 'daily_sheets:move_customer'],
+    deny: ['customers:view_financial', 'customers:delete', 'orders:approve', 'payments:approve', 'daily_sheets:confirm_crew', 'inventory:add_stock', 'roles:update', 'payroll:view_all', 'crew_cash:approve', 'crew_cash:view_all', 'daily_sheets:move_customer', 'daily_sheets:void_delivery'],
   },
   loader: {
     allow: ['dashboard:view', 'inventory:view', 'inventory:add_stock', 'daily_sheets:load_out', 'daily_sheets:check_in', 'vans:view'],
@@ -83,7 +84,7 @@ const MATRIX: Record<RoleKey, Row> = {
       'dashboard:view', 'customers:update', 'customers:view_financial', 'customers:delete', 'daily_sheets:confirm_crew',
       'daily_sheets:manage_edit_locks', 'daily_sheets:export', 'daily_sheets:correct', 'tracking:view', 'expenses:view',
       'payments:approve', 'damage_cases:review', 'roles:view', 'payroll:view_all', 'payroll:ledger_create',
-      'payroll:period_lock', 'crew_cash:approve', 'crew_cash:view_all', 'daily_sheets:move_customer',
+      'payroll:period_lock', 'crew_cash:approve', 'crew_cash:view_all', 'daily_sheets:move_customer', 'daily_sheets:void_delivery',
     ],
   },
   viewer: {

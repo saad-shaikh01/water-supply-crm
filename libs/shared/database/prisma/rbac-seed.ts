@@ -46,10 +46,14 @@ import {
  *     field-ops rationale: Salesman rides the same van and can equally
  *     record the vehicle check). Vendors seeded before either addition never
  *     got the grant on their existing Driver/Salesman roles.
+ *   - daily_sheets:void_delivery — added to `manager` for the Void Delivery
+ *     feature (owner-requested 2026-09-01). Existing vendors' Manager roles
+ *     predate it and need the catch-up grant.
  */
 const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
   driver: ['fleet:record_check', 'fleet:record_fuel'],
   salesman: ['fleet:record_check', 'fleet:record_fuel'],
+  manager: ['daily_sheets:void_delivery'],
 };
 
 /** Per-vendor system roles = every preset except the global-only super_admin. */

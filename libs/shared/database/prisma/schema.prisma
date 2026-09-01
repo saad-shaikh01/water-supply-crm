@@ -39,6 +39,24 @@ enum DeliveryStatus {
   NOT_AVAILABLE
   RESCHEDULED
   CANCELLED
+  // Void Delivery — a recorded stop struck from the operational record by a
+  // holder of daily_sheets:void_delivery. For COMPLETED/EMPTY_ONLY the ledger
+  // effect is reversed (all-zero repost); for the other terminal statuses it is
+  // an operational hide with an audit entry only. The pre-void status, who, when
+  // and why are captured on the DailySheetItem (voidedAt/voidedBy/voidReason/
+  // voidNote) and in AuditLog (action DELIVERY_VOIDED).
+  VOIDED
+}
+
+// Void Delivery — mandatory structured reason on a void (mirrors the
+// failureCategory free-text precedent, but enum-typed). OTHER requires voidNote.
+enum DeliveryVoidReason {
+  DUPLICATE
+  WRONG_SHEET
+  WRONG_DATE
+  NEVER_HAPPENED
+  DATA_ENTRY_ERROR
+  OTHER
 }
 
 enum DeliveryType {
@@ -373,6 +391,9 @@ model User {
   vehicleServiceRecordsRecorded VehicleServiceRecord[] @relation("VehicleServiceRecordRecordedBy")
 
   deliveryItemMoveLogsMoved DeliveryItemMoveLog[]
+
+  // Void Delivery — items this user has voided (voidDelivery())
+  voidedDeliveryItems DailySheetItem[] @relation("DeliveryItemVoidedBy")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -878,6 +899,16 @@ model DailySheetItem {
   isCorrection      Boolean   @default(false) // true when added to a closed sheet retroactively
   correctionAddedAt DateTime? // timestamp when correction was recorded
   correctionNote    String? // mandatory reason (required by service layer)
+
+  // Void Delivery — set atomically with status=VOIDED by voidDelivery(). The
+  // ledger reversal (all-zero repost) runs only when the pre-void status was
+  // COMPLETED/EMPTY_ONLY. voidReason is mandatory; voidNote is mandatory only
+  // when voidReason=OTHER (enforced service-layer, like correctionNote).
+  voidedAt   DateTime?
+  voidedById String?
+  voidedBy   User?               @relation("DeliveryItemVoidedBy", fields: [voidedById], references: [id])
+  voidReason DeliveryVoidReason?
+  voidNote   String?
 
   deliveryIssue              DeliveryIssue?
   transactions               Transaction[]

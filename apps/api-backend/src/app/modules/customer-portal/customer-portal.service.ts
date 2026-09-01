@@ -200,6 +200,9 @@ export class CustomerPortalService {
 
     const where: any = {
       customerId: customer.id,
+      // Voided stops are struck from the operational record — never surface them
+      // in the customer's delivery history.
+      status: { not: 'VOIDED' },
       ...(dateFrom || dateTo
         ? {
             dailySheet: {
