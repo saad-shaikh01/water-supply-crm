@@ -117,6 +117,12 @@ export const PERMISSION_CATALOG = {
       // EMPTY_ONLY, an operational hide + audit for the other terminal statuses.
       // Analogous to `correct`; granted to Admin + Manager.
       'void_delivery',
+      // Post-Close Trip Correction (owner-requested 2026-09-02): amend a
+      // checked-in load trip's physical counts (returned filled / collected
+      // empty / damaged / leaked on van) on an ALREADY-CLOSED sheet, via a
+      // dedicated endpoint that does not relax checkinLoad's isClosed guard.
+      // Analogous to `void_delivery`; granted to Admin + Manager.
+      'edit_closed_trip',
     ],
   },
   vans: {

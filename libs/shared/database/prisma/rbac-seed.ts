@@ -49,11 +49,14 @@ import {
  *   - daily_sheets:void_delivery — added to `manager` for the Void Delivery
  *     feature (owner-requested 2026-09-01). Existing vendors' Manager roles
  *     predate it and need the catch-up grant.
+ *   - daily_sheets:edit_closed_trip — added to `manager` for the Post-Close
+ *     Trip Correction feature (owner-requested 2026-09-02). Same rationale:
+ *     existing vendors' Manager roles predate it.
  */
 const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
   driver: ['fleet:record_check', 'fleet:record_fuel'],
   salesman: ['fleet:record_check', 'fleet:record_fuel'],
-  manager: ['daily_sheets:void_delivery'],
+  manager: ['daily_sheets:void_delivery', 'daily_sheets:edit_closed_trip'],
 };
 
 /** Per-vendor system roles = every preset except the global-only super_admin. */

@@ -152,10 +152,13 @@ Each row: permission → the existing feature/endpoint(s) it gates. `page` sorts
 | `daily_sheets:export` | `GET /daily-sheets/:id/export`, `:id/invoice` |
 | `daily_sheets:move_customer` | `PATCH /daily-sheets/items/move` (move customer(s) to another van/sheet — Amendment R10, split out of `update`) |
 | `daily_sheets:void_delivery` | `POST /daily-sheets/items/:id/void` (strike a recorded stop from the operational record — Amendment R11, owner-requested 2026-09-01) |
+| `daily_sheets:edit_closed_trip` | `PATCH /daily-sheets/:id/loads/:loadId/correct-checkin` (amend a checked-in load trip's physical counts on an already-closed sheet — Amendment R12, owner-requested 2026-09-02) |
 
 *(Individual delivery recording lives here — there is no separate `deliveries` resource; see §D.)*
 
 > **Amendment R11 (Void Delivery, owner-requested 2026-09-01).** New action `daily_sheets:void_delivery`, default holders **Admin + Manager** (analogous to `correct`; `MANAGER_PERMISSIONS` + a `PRESET_DRIFT_BACKFILLS.manager` catch-up for existing vendors). Voids a `COMPLETED`/`EMPTY_ONLY`/`NOT_AVAILABLE`/`RESCHEDULED`/`CANCELLED` item (not `PENDING`); for the first two the ledger effect is reversed via the existing idempotent all-zero repost, the rest are an operational hide + audit only. Allowed on a closed sheet (like Correction Entry). No new `:page` — `daily_sheets` was already navigable. Frozen total 166 → 167; non-page total 97 → 98.
+
+> **Amendment R12 (Post-Close Trip Correction, owner-requested 2026-09-02).** New action `daily_sheets:edit_closed_trip`, default holders **Admin + Manager** (analogous to `void_delivery`; added to `MANAGER_PERMISSIONS` + a `PRESET_DRIFT_BACKFILLS.manager` catch-up for existing vendors, `manager.allow` / `salesman.deny` / `driver.deny` in the enforcement matrix mirroring `void_delivery` exactly). Gates a dedicated endpoint `PATCH /daily-sheets/:id/loads/:loadId/correct-checkin` that amends an already-checked-in load trip's physical counts (returned filled / collected empty / damaged / leaked on van) on a **closed** sheet — it does NOT relax `checkinLoad`'s own `isClosed` guard (that path stays closed-sheet-blocked). Applies the signed deltas through the same warehouse ledger (`recordCheckinCorrection`) and sheet-aggregate adjustments as a normal trip-edit; a mandatory free-text `correctionNote` is stored in the audit `after` block. Like Void Delivery, it accepts the same PDF/reconciliation divergence — the live bottle/empty recompute moves but the frozen close-time `cashExpected` and any `SheetDiscrepancyCase` rows are left untouched. No new `:page` — `daily_sheets` was already navigable. Frozen total 167 → 168; non-page total 98 → 99.
 
 ### 12. Vans — `vans` *(navigable)*
 | Permission | Gates |

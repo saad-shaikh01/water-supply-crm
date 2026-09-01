@@ -43,6 +43,10 @@ interface LoadTripsSectionProps {
   // Trip Edit-Unlock — same shape as delivery-items-list.tsx's edit-unlock props.
   isDriver: boolean;
   canManageEditLocks: boolean;
+  /** Post-Close Trip Correction (daily_sheets:edit_closed_trip) — when true, a
+   * plain Edit button is shown on an ENDED trip of a CLOSED sheet, routing to
+   * the closed-correction path in CheckinDialog. */
+  canEditClosedTrip: boolean;
   onEditTrip: (loadId: string) => void;
   onRequestEditTrip: (loadId: string) => void;
   requestingTripId: string | null;
@@ -65,6 +69,7 @@ export function LoadTripsSection({
   onCheckin,
   isDriver,
   canManageEditLocks,
+  canEditClosedTrip,
   onEditTrip,
   onRequestEditTrip,
   requestingTripId,
@@ -193,6 +198,16 @@ export function LoadTripsSection({
             // "Filled Dropped" stat card up top, which sums across every trip.
             const soldFilled = stats.items.reduce((s, i) => s + (i.filledDropped ?? 0), 0);
 
+            // Option 3 bottle-balance check (only meaningful once the trip has
+            // ended). Backend-matching identity — damaged/leaked on van are NOT
+            // folded in, they're shown as a separate informational sub-line.
+            const tripFilledReceived = stats.items.reduce((s, i) => s + (i.filledReceived ?? 0), 0);
+            const balanceDelta =
+              trip.loadedFilled + tripFilledReceived - (soldFilled + trip.returnedFilled);
+            const showImbalance = !!trip.endedAt && balanceDelta !== 0;
+            const showVanLossLine =
+              !!trip.endedAt && ((trip.damagedOnVan ?? 0) > 0 || (trip.leakedOnVan ?? 0) > 0);
+
             return (
               <motion.div
                 key={trip.id}
@@ -236,7 +251,7 @@ export function LoadTripsSection({
 
                       <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
                         <div className="rounded-xl bg-orange-500/10 px-3 py-2 text-center">
-                          <p className="text-[9px] font-bold uppercase text-orange-500/80">Loaded</p>
+                          <p className="text-[9px] font-bold uppercase text-orange-500/80">{isClosed ? 'Loaded · at check-in' : 'Loaded'}</p>
                           <p className="text-lg font-black font-mono text-orange-500">{trip.loadedFilled}</p>
                         </div>
                         <div className="rounded-xl bg-amber-500/10 px-3 py-2 text-center">
@@ -244,13 +259,13 @@ export function LoadTripsSection({
                           <p className="text-lg font-black font-mono text-amber-500">{soldFilled}</p>
                         </div>
                         <div className={cn('rounded-xl px-3 py-2 text-center', trip.endedAt ? 'bg-blue-500/10' : 'bg-muted/30')}>
-                          <p className="text-[9px] font-bold uppercase text-muted-foreground">Returned</p>
+                          <p className="text-[9px] font-bold uppercase text-muted-foreground">{isClosed ? 'Returned · at check-in' : 'Returned'}</p>
                           <p className={cn('text-lg font-black font-mono', trip.endedAt ? 'text-blue-500' : 'text-muted-foreground/40')}>
                             {trip.endedAt ? trip.returnedFilled : '—'}
                           </p>
                         </div>
                         <div className={cn('rounded-xl px-3 py-2 text-center', trip.endedAt ? 'bg-purple-500/10' : 'bg-muted/30')}>
-                          <p className="text-[9px] font-bold uppercase text-muted-foreground">Empties</p>
+                          <p className="text-[9px] font-bold uppercase text-muted-foreground">{isClosed ? 'Empties · at check-in' : 'Empties'}</p>
                           <p className={cn('text-lg font-black font-mono', trip.endedAt ? 'text-purple-500' : 'text-muted-foreground/40')}>
                             {trip.endedAt ? trip.collectedEmpty : '—'}
                           </p>
@@ -387,7 +402,38 @@ export function LoadTripsSection({
                           )}
                         </div>
                       )}
+
+                      {/* Post-Close Trip Correction — on a CLOSED sheet, an ended
+                          trip gets a plain Edit button (no request/unlock flow)
+                          that routes CheckinDialog to the closed-correction path. */}
+                      {!isActive && isClosed && canEditClosedTrip && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="rounded-full font-bold"
+                            onClick={() => onEditTrip(trip.id)}
+                          >
+                            Edit
+                          </Button>
+                        </div>
+                      )}
                     </div>
+
+                    {showImbalance && (
+                      <p className="text-[11px] font-bold text-amber-600 dark:text-amber-400 flex items-start gap-1 mt-2">
+                        <AlertCircle className="h-3 w-3 shrink-0 mt-0.5" />
+                        <span>
+                          Trip bottles don&apos;t balance: {trip.loadedFilled} loaded + {tripFilledReceived} received
+                          {' ≠ '}{soldFilled} sold + {trip.returnedFilled} returned (Δ {balanceDelta > 0 ? '+' : ''}{balanceDelta})
+                        </span>
+                      </p>
+                    )}
+                    {showVanLossLine && (
+                      <p className="text-[10px] text-muted-foreground mt-1 pl-4">
+                        +{trip.damagedOnVan ?? 0} damaged, +{trip.leakedOnVan ?? 0} leaked on van
+                      </p>
+                    )}
 
                     {hasActiveEditUnlock && (
                       <p className="text-[11px] font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1 mt-2">
@@ -470,7 +516,7 @@ export function LoadTripsSection({
 
                   <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
                     <div className="rounded-xl bg-orange-500/10 px-3 py-2 text-center">
-                      <p className="text-[9px] font-bold uppercase text-orange-500/80">Loaded</p>
+                      <p className="text-[9px] font-bold uppercase text-orange-500/80">{isClosed ? 'Loaded · at check-in' : 'Loaded'}</p>
                       <p className="text-lg font-black font-mono text-orange-500">{tripTotals.loaded}</p>
                     </div>
                     <div className="rounded-xl bg-amber-500/10 px-3 py-2 text-center">
@@ -478,11 +524,11 @@ export function LoadTripsSection({
                       <p className="text-lg font-black font-mono text-amber-500">{tripTotals.sold}</p>
                     </div>
                     <div className="rounded-xl bg-blue-500/10 px-3 py-2 text-center">
-                      <p className="text-[9px] font-bold uppercase text-muted-foreground">Returned</p>
+                      <p className="text-[9px] font-bold uppercase text-muted-foreground">{isClosed ? 'Returned · at check-in' : 'Returned'}</p>
                       <p className="text-lg font-black font-mono text-blue-500">{tripTotals.returned}</p>
                     </div>
                     <div className="rounded-xl bg-purple-500/10 px-3 py-2 text-center">
-                      <p className="text-[9px] font-bold uppercase text-muted-foreground">Empties</p>
+                      <p className="text-[9px] font-bold uppercase text-muted-foreground">{isClosed ? 'Empties · at check-in' : 'Empties'}</p>
                       <p className="text-lg font-black font-mono text-purple-500">{tripTotals.empties}</p>
                     </div>
                     <div className="rounded-xl bg-emerald-500/10 px-3 py-2 text-center">

@@ -103,6 +103,10 @@ const MANAGER_PERMISSIONS: Permission[] = [
   // recorded stop from the operational record (reverses ledger for COMPLETED/
   // EMPTY_ONLY). Existing vendors get it via PRESET_DRIFT_BACKFILLS.manager.
   'daily_sheets:void_delivery',
+  // Post-Close Trip Correction (owner-requested 2026-09-02): Admin + Manager may
+  // amend a checked-in trip's physical counts on a closed sheet. Existing
+  // vendors get it via PRESET_DRIFT_BACKFILLS.manager.
+  'daily_sheets:edit_closed_trip',
   'damage_cases:page', 'damage_cases:view', 'damage_cases:create', 'damage_cases:update', 'damage_cases:review',
   'delivery_issues:page', 'delivery_issues:view', 'delivery_issues:plan', 'delivery_issues:resolve',
   'expenses:page', 'expenses:view', 'expenses:create', 'expenses:update',

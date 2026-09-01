@@ -30,6 +30,7 @@ import { CheckInDto } from './dto/check-in.dto';
 import { SwapDriverDto } from './dto/swap-driver.dto';
 import { CreateLoadDto } from './dto/create-load.dto';
 import { CheckinLoadDto } from './dto/checkin-load.dto';
+import { CorrectClosedTripDto } from './dto/correct-closed-trip.dto';
 import { DailySheetQueryDto } from './dto/daily-sheet-query.dto';
 import { ExportPreviewQueryDto } from './dto/export-preview-query.dto';
 import { ExportCsvQueryDto } from './dto/export-csv-query.dto';
@@ -571,6 +572,21 @@ export class DailySheetController {
     @Body() dto: CheckinLoadDto,
   ) {
     return this.dailySheetService.checkinLoad(user, id, loadId, dto);
+  }
+
+  // Post-Close Trip Correction — amend a checked-in trip's physical counts on
+  // an ALREADY-CLOSED sheet. Dedicated endpoint: does NOT relax checkinLoad's
+  // isClosed guard. Admin + Manager only (daily_sheets:edit_closed_trip).
+  @Patch(':id/loads/:loadId/correct-checkin')
+  @RequirePermissions('daily_sheets:edit_closed_trip')
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
+  correctClosedTrip(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('loadId') loadId: string,
+    @Body() dto: CorrectClosedTripDto,
+  ) {
+    return this.dailySheetService.correctClosedTrip(user, id, loadId, dto);
   }
 
   // Trip Edit-Unlock — driver requests an unlock on their own checked-in trip

@@ -236,6 +236,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   // per role so Move can be restricted without also restricting delivery updates.
   const canMoveCustomer = can('daily_sheets:move_customer');
   const canVoidDelivery = can('daily_sheets:void_delivery');
+  const canEditClosedTrip = can('daily_sheets:edit_closed_trip');
   const canCorrect = can('daily_sheets:correct');
   const canLoadOut = can('daily_sheets:load_out');
   const canCloseSheet = can('daily_sheets:close');
@@ -1119,6 +1120,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         onCheckin={(tripId) => dispatch({ type: 'OPEN_CHECKIN', tripId })}
         isDriver={isDriver}
         canManageEditLocks={canManageEditLocks}
+        canEditClosedTrip={canEditClosedTrip}
         onEditTrip={(loadId) => dispatch({ type: 'OPEN_EDIT_TRIP', tripId: loadId })}
         onRequestEditTrip={(loadId) => requestTripEdit.mutate(loadId)}
         requestingTripId={requestTripEdit.isPending ? ((requestTripEdit.variables as any) ?? null) : null}
@@ -1330,6 +1332,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         onClose={() => dispatch({ type: 'CLOSE_EDIT_TRIP' })}
         sheetId={sheetId}
         mode="edit"
+        isClosed={isClosed}
         trip={loads.find((l: any) => l.id === ui.editTripOpen) ?? undefined}
         editValues={(() => {
           const editingLoad = loads.find((l: any) => l.id === ui.editTripOpen);

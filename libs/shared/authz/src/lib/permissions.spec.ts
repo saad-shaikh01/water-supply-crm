@@ -52,7 +52,10 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // 167 = 166 + daily_sheets:void_delivery — strike a recorded stop from the
 // operational record (Void Delivery feature, owner-requested 2026-09-01).
 // No new resource, no new `:page` — `daily_sheets` was already navigable.
-const FROZEN_TOTAL = 167;
+// 168 = 167 + daily_sheets:edit_closed_trip — amend a checked-in trip's
+// physical counts on an already-closed sheet (Post-Close Trip Correction
+// feature, owner-requested 2026-09-02). No new resource, no new `:page`.
+const FROZEN_TOTAL = 168;
 const FROZEN_PAGES = 28;
 const FROZEN_RESOURCES = 30;
 

@@ -22,6 +22,7 @@ import { CheckInDto } from './dto/check-in.dto';
 import { SwapDriverDto } from './dto/swap-driver.dto';
 import { CreateLoadDto } from './dto/create-load.dto';
 import { CheckinLoadDto } from './dto/checkin-load.dto';
+import { CorrectClosedTripDto } from './dto/correct-closed-trip.dto';
 import { DailySheetQueryDto } from './dto/daily-sheet-query.dto';
 import { LedgerService } from '../transaction/ledger.service';
 import { AuditService } from '../audit/audit.service';
@@ -2224,6 +2225,73 @@ export class DailySheetService implements OnModuleInit {
     return load;
   }
 
+  /**
+   * Shared trip check-in EDIT delta logic — extracted verbatim from
+   * checkinLoad()'s edit branch so the open-sheet trip-edit path AND the
+   * closed-sheet Post-Close Trip Correction path (correctClosedTrip) apply
+   * identical mutations and can never diverge.
+   *
+   * Computes the SIGNED delta of each of the four physical counts against
+   * what `load` already holds, writes the new absolute values (+ editCount /
+   * lastEditedAt), adjusts the sheet-level filledIn/emptyIn aggregates by the
+   * delta, and posts the same signed correction to the warehouse ledger via
+   * recordCheckinCorrection. `endedAt` is deliberately NOT written — an edit
+   * always targets an already-ended trip and resetting it would corrupt the
+   * trip's time window. (checkinLoad's edit branch previously wrote
+   * `endedAt: load.endedAt`, a no-op self-write — behavior is unchanged.)
+   */
+  private async applyTripCheckinDeltas(
+    tx: Prisma.TransactionClient,
+    load: {
+      id: string;
+      returnedFilled: number;
+      collectedEmpty: number;
+      damagedOnVan: number;
+      leakedOnVan: number;
+    },
+    dto: { returnedFilled: number; collectedEmpty: number; damagedOnVan: number; leakedOnVan: number },
+    opts: { sheetId: string; vendorId: string; productId: string | null },
+  ) {
+    const dReturned = dto.returnedFilled - load.returnedFilled;
+    const dEmpty = dto.collectedEmpty - load.collectedEmpty;
+    const dDamaged = dto.damagedOnVan - load.damagedOnVan;
+    const dLeaked = dto.leakedOnVan - load.leakedOnVan;
+
+    const updated = await tx.dailySheetLoad.update({
+      where: { id: load.id },
+      data: {
+        returnedFilled: dto.returnedFilled,
+        collectedEmpty: dto.collectedEmpty,
+        damagedOnVan: dto.damagedOnVan,
+        leakedOnVan: dto.leakedOnVan,
+        editCount: { increment: 1 },
+        lastEditedAt: new Date(),
+      },
+    });
+
+    // Sheet-level aggregates move by the delta only — never re-apply the full
+    // new value (that would double-count the original check-in).
+    await tx.dailySheet.update({
+      where: { id: opts.sheetId },
+      data: {
+        filledInCount: { increment: dReturned },
+        emptyInCount: { increment: dEmpty },
+      },
+    });
+
+    if (opts.productId) {
+      await this.warehouse.recordCheckinCorrection(
+        opts.vendorId,
+        opts.productId,
+        { filledDelta: dReturned, emptyDelta: dEmpty, damagedDelta: dDamaged, leakedDelta: dLeaked },
+        opts.sheetId,
+        tx,
+      );
+    }
+
+    return { load: updated, deltas: { dReturned, dEmpty, dDamaged, dLeaked } };
+  }
+
   async checkinLoad(user: AuthUser, sheetId: string, loadId: string, dto: CheckinLoadDto) {
     const vendorId = user.vendorId;
     const sheet = await this.prisma.dailySheet.findFirst({
@@ -2290,16 +2358,24 @@ export class DailySheetService implements OnModuleInit {
       });
     }
 
-    // On a first-time check-in these equal the raw dto values (nothing to net
-    // against yet); on an edit they're the SIGNED delta against what was
-    // already recorded — applying the raw new value again would double-count
-    // the original check-in in both the sheet aggregates and the warehouse ledger.
-    const dReturned = isEdit ? dto.returnedFilled - load.returnedFilled : dto.returnedFilled;
-    const dEmpty = isEdit ? dto.collectedEmpty - load.collectedEmpty : dto.collectedEmpty;
-    const dDamaged = isEdit ? dto.damagedOnVan - load.damagedOnVan : dto.damagedOnVan;
-    const dLeaked = isEdit ? dto.leakedOnVan - load.leakedOnVan : dto.leakedOnVan;
-
     const checkinResult = await this.prisma.$transaction(async (tx) => {
+      if (isEdit) {
+        // Re-submitting an already-checked-in trip — apply the SIGNED deltas
+        // via the shared helper (also used by the closed-sheet Post-Close Trip
+        // Correction path), so the two edit paths can never diverge.
+        const { load: updated } = await this.applyTripCheckinDeltas(
+          tx,
+          load,
+          dto,
+          { sheetId, vendorId, productId: load.productId },
+        );
+        return updated;
+      }
+
+      // First-time check-in — the four counts are recorded as-is (nothing to
+      // net against yet) and endedAt is stamped now. Cash is NOT touched here
+      // — it's no longer tracked per-trip check-in; DailySheet.cashCollected
+      // is a single actual-cash-handed-in figure captured once at sheet close.
       const updated = await tx.dailySheetLoad.update({
         where: { id: loadId },
         data: {
@@ -2307,40 +2383,23 @@ export class DailySheetService implements OnModuleInit {
           collectedEmpty: dto.collectedEmpty,
           damagedOnVan: dto.damagedOnVan,
           leakedOnVan: dto.leakedOnVan,
-          // Preserve the original check-in timestamp on an edit — resetting
-          // it would corrupt the trip's time window (used elsewhere to
-          // bucket items/expenses into this trip, e.g. the Daily Sheet PDF).
-          endedAt: isEdit ? load.endedAt : new Date(),
-          ...(isEdit ? { editCount: { increment: 1 }, lastEditedAt: new Date() } : {}),
+          endedAt: new Date(),
         },
       });
 
-      // Update sheet-level aggregates — by the delta, so an edit only ever
-      // adjusts by the difference, never re-applies the full new value.
-      // Cash is NOT touched here — it's no longer tracked per-trip check-in;
-      // DailySheet.cashCollected is now a single actual-cash-handed-in figure
-      // captured once at sheet close (see closeSheet/requestClose).
       await tx.dailySheet.update({
         where: { id: sheetId },
         data: {
-          filledInCount: { increment: dReturned },
-          emptyInCount: { increment: dEmpty },
+          filledInCount: { increment: dto.returnedFilled },
+          emptyInCount: { increment: dto.collectedEmpty },
         },
       });
 
       if (load.productId) {
-        if (isEdit) {
-          await this.warehouse.recordCheckinCorrection(
-            vendorId, load.productId,
-            { filledDelta: dReturned, emptyDelta: dEmpty, damagedDelta: dDamaged, leakedDelta: dLeaked },
-            sheetId, tx,
-          );
-        } else {
-          await this.warehouse.recordCheckinFilled(vendorId, load.productId, dReturned, sheetId, tx);
-          await this.warehouse.recordCheckinEmpty(vendorId, load.productId, dEmpty, sheetId, tx);
-          await this.warehouse.recordCheckinDamaged(vendorId, load.productId, dDamaged, sheetId, tx);
-          await this.warehouse.recordCheckinLeaked(vendorId, load.productId, dLeaked, sheetId, tx);
-        }
+        await this.warehouse.recordCheckinFilled(vendorId, load.productId, dto.returnedFilled, sheetId, tx);
+        await this.warehouse.recordCheckinEmpty(vendorId, load.productId, dto.collectedEmpty, sheetId, tx);
+        await this.warehouse.recordCheckinDamaged(vendorId, load.productId, dto.damagedOnVan, sheetId, tx);
+        await this.warehouse.recordCheckinLeaked(vendorId, load.productId, dto.leakedOnVan, sheetId, tx);
       }
 
       return updated;
@@ -2350,6 +2409,153 @@ export class DailySheetService implements OnModuleInit {
     await this.cache.invalidateDailyDashboard(vendorId, sheetDateCL);
 
     return checkinResult;
+  }
+
+  /**
+   * Post-Close Trip Correction — amend an already-checked-in load trip's four
+   * physical counts (returned filled / collected empty / damaged / leaked on
+   * van) on an ALREADY-CLOSED sheet. Deliberately a DEDICATED endpoint rather
+   * than relaxing checkinLoad()'s `isClosed` guard — that path stays
+   * closed-sheet-blocked. Applies the same signed deltas through the warehouse
+   * ledger + sheet aggregates as a normal trip edit (shared
+   * applyTripCheckinDeltas helper); the mandatory free-text `correctionNote`
+   * is persisted only in the audit `after` block.
+   *
+   * ACCEPTED DIVERGENCE (identical to Void Delivery): the reconciliation
+   * preview recomputes bottle/empty figures live, so those move — but this
+   * method does NOT re-run buildReconciliation / createCasesForSheet and does
+   * NOT touch the frozen close-time `cashExpected` (DailySheet.cashCollected)
+   * or any existing SheetDiscrepancyCase rows. The close-time cash figure and
+   * discrepancy cases stay exactly as they were at close.
+   * See docs/features/post-close-trip-correction.md.
+   */
+  async correctClosedTrip(
+    user: AuthUser,
+    sheetId: string,
+    loadId: string,
+    dto: CorrectClosedTripDto,
+  ) {
+    const vendorId = user.vendorId;
+
+    const sheet = await this.prisma.dailySheet.findFirst({
+      where: { id: sheetId, vendorId },
+    });
+    if (!sheet) throw new NotFoundException('Daily sheet not found');
+    if (!sheet.isClosed) {
+      throw new ConflictException('This sheet is not closed. Use the normal trip check-in edit.');
+    }
+
+    const load = await this.prisma.dailySheetLoad.findFirst({
+      where: { id: loadId, dailySheetId: sheetId },
+    });
+    if (!load) throw new NotFoundException('Load trip not found');
+    if (!load.endedAt) throw new ConflictException('Trip has not ended'); // defensive
+
+    // Same cap as checkinLoad — cannot return more filled bottles than the
+    // trip loaded out + what customers physically handed back during it.
+    const filledReceivedThisTrip = await this.prisma.dailySheetItem.aggregate({
+      where: { dailySheetId: sheetId, deliveredAt: { gte: load.startedAt } },
+      _sum: { filledReceived: true },
+    });
+    const maxReturnedFilled = load.loadedFilled + (filledReceivedThisTrip._sum.filledReceived ?? 0);
+    if (dto.returnedFilled > maxReturnedFilled) {
+      throw new BadRequestException(
+        `Cannot return more filled bottles (${dto.returnedFilled}) than loaded + received back from customers (${maxReturnedFilled}).`,
+      );
+    }
+
+    // Audit `before` is the pre-transaction snapshot (what the operator saw).
+    const before = {
+      returnedFilled: load.returnedFilled,
+      collectedEmpty: load.collectedEmpty,
+      damagedOnVan: load.damagedOnVan,
+      leakedOnVan: load.leakedOnVan,
+    };
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Row-lock the load FIRST, before the re-read — `SELECT … FOR UPDATE`
+      // serialises concurrent corrections of the same trip so each one's
+      // in-txn re-read below sees the prior corrector's COMMITTED counts,
+      // never a stale pre-commit snapshot. Without this, two corrections
+      // under READ COMMITTED (Prisma's default, no isolationLevel set) both
+      // read the same base, both compute signed deltas off it, and both
+      // apply — sheet filledIn/emptyIn + warehouse stock/ledger drift
+      // silently and the absolute dailySheetLoad.update is last-writer-wins.
+      // DailySheetLoad.id is a text column — the tagged-template binds it as
+      // a parameter, no ::uuid cast. (checkinLoad's open-sheet edit path is
+      // out of scope — different risk profile, owner did not ask for it.)
+      await tx.$queryRaw`SELECT 1 FROM "DailySheetLoad" WHERE id = ${loadId} FOR UPDATE`;
+
+      // Re-read the load INSIDE the txn and compute deltas from THAT snapshot
+      // (now guaranteed post-lock to be the latest committed row).
+      const freshLoad = await tx.dailySheetLoad.findUnique({
+        where: { id: loadId },
+        select: {
+          id: true,
+          returnedFilled: true,
+          collectedEmpty: true,
+          damagedOnVan: true,
+          leakedOnVan: true,
+          loadedFilled: true,
+          productId: true,
+          endedAt: true,
+        },
+      });
+      if (!freshLoad || !freshLoad.endedAt) {
+        throw new ConflictException('Trip has not ended');
+      }
+
+      try {
+        const { load: updated } = await this.applyTripCheckinDeltas(tx, freshLoad, dto, {
+          sheetId,
+          vendorId,
+          productId: freshLoad.productId,
+        });
+        return updated;
+      } catch (e) {
+        // Warehouse "Insufficient … stock" on a decrease → friendly 422 (mirror
+        // voidDelivery's VOID_WOULD_MAKE_WALLET_NEGATIVE). The ledger is NOT
+        // bypassed — the operator must fix warehouse stock first.
+        if (e instanceof BadRequestException && /insufficient/i.test((e as Error).message)) {
+          throw new UnprocessableEntityException({
+            code: 'CLOSED_TRIP_CORRECTION_INSUFFICIENT_STOCK',
+            message:
+              'Warehouse stock would go negative for this correction. Adjust warehouse stock first.',
+          });
+        }
+        throw e;
+      }
+    });
+
+    // Deliberately NO buildReconciliation / createCasesForSheet / cashExpected
+    // write — see the ACCEPTED DIVERGENCE note on this method.
+    await this.audit.log({
+      vendorId,
+      userId: user.userId,
+      userName: user.name,
+      action: 'CLOSED_TRIP_CHECKIN_CORRECTED',
+      entity: 'DailySheetLoad',
+      entityId: loadId,
+      changes: {
+        before,
+        after: {
+          returnedFilled: dto.returnedFilled,
+          collectedEmpty: dto.collectedEmpty,
+          damagedOnVan: dto.damagedOnVan,
+          leakedOnVan: dto.leakedOnVan,
+          correctionNote: dto.correctionNote,
+        },
+      },
+    });
+
+    const sheetDate = sheet.date.toISOString().slice(0, 10);
+    await Promise.all([
+      this.cache.invalidateDailyDashboard(vendorId, sheetDate),
+      this.cache.invalidateOverview(vendorId),
+      this.cache.invalidateAnalytics(vendorId),
+    ]);
+
+    return result;
   }
 
   /**

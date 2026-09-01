@@ -53,6 +53,7 @@ export const ACTION_LABELS: Record<string, string> = {
   correct: 'Add correction',
   move_customer: 'Move customer to another van/sheet',
   void_delivery: 'Void delivery',
+  edit_closed_trip: 'Edit closed-sheet trip',
   manage_crew: 'Manage default crew',
   report_location: 'Report location',
   plan: 'Plan',

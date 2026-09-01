@@ -241,6 +241,19 @@ export const dailySheetsApi = {
     apiClient.post(`/daily-sheets/${id}/loads`, data),
   checkinLoad: (id: string, loadId: string, data: Record<string, unknown>) =>
     apiClient.patch(`/daily-sheets/${id}/loads/${loadId}/checkin`, data),
+  // Post-Close Trip Correction — amend a checked-in trip's physical counts on an
+  // already-closed sheet. correctionNote is mandatory (min 3 non-whitespace chars).
+  correctClosedTrip: (
+    sheetId: string,
+    loadId: string,
+    body: {
+      returnedFilled: number;
+      collectedEmpty: number;
+      damagedOnVan: number;
+      leakedOnVan: number;
+      correctionNote: string;
+    },
+  ) => apiClient.patch(`/daily-sheets/${sheetId}/loads/${loadId}/correct-checkin`, body),
   getLoads: (id: string) =>
     apiClient.get(`/daily-sheets/${id}/loads`),
   requestTripEdit: (id: string, loadId: string) =>

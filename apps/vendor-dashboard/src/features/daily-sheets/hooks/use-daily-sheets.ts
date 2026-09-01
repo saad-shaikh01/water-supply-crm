@@ -340,6 +340,49 @@ export const useCheckinLoad = (sheetId: string) => {
   });
 };
 
+export const useCorrectClosedTrip = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    // Non-idempotent — applies a SIGNED delta server-side. A blind retry would
+    // double-apply the correction, so never auto-retry this one.
+    retry: 0,
+    mutationFn: ({
+      loadId,
+      returnedFilled,
+      collectedEmpty,
+      damagedOnVan,
+      leakedOnVan,
+      correctionNote,
+    }: {
+      loadId: string;
+      returnedFilled: number;
+      collectedEmpty: number;
+      damagedOnVan: number;
+      leakedOnVan: number;
+      correctionNote: string;
+    }) =>
+      dailySheetsApi.correctClosedTrip(sheetId, loadId, {
+        returnedFilled,
+        collectedEmpty,
+        damagedOnVan,
+        leakedOnVan,
+        correctionNote,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
+      queryClient.invalidateQueries({ queryKey: ['sheets'] });
+      toast.success('Trip check-in corrected');
+    },
+    onError: (error: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      if (error?.response?.data?.code === 'CLOSED_TRIP_CORRECTION_INSUFFICIENT_STOCK') {
+        toast.error(error.response.data.message);
+        return;
+      }
+      toast.error(error?.response?.data?.message ?? 'Failed to correct trip check-in');
+    },
+  });
+};
+
 export const useUpdateCustomerLocation = (sheetId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
