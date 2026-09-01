@@ -35,6 +35,7 @@ import { AddAdhocItemDto } from './dto/add-adhoc-item.dto';
 import { AddCorrectionItemDto } from './dto/add-correction-item.dto';
 import { MoveDeliveryItemsDto } from './dto/move-delivery-items.dto';
 import { VoidDeliveryDto } from './dto/void-delivery.dto';
+import { CorrectDeliveryDto } from './dto/correct-delivery.dto';
 import { paginate } from '../../common/helpers/paginate';
 import { validateSupportCrew, validateDriverAssignment } from '../../common/helpers/crew-validation';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
@@ -1021,6 +1022,181 @@ export class DailySheetService implements OnModuleInit {
           status: 'VOIDED',
           voidReason: dto.voidReason,
           voidNote: dto.voidNote ?? null,
+        },
+      },
+    });
+
+    const sheetDate = item.dailySheet.date.toISOString().slice(0, 10);
+    await Promise.all([
+      this.cache.invalidateDailyDashboard(vendorId, sheetDate),
+      this.cache.invalidateOverview(vendorId),
+      this.cache.invalidateAnalytics(vendorId),
+    ]);
+
+    return result;
+  }
+
+  /**
+   * Edit Closed-Sheet Delivery — directly amend the figures of an
+   * already-recorded COMPLETED / EMPTY_ONLY delivery on a CLOSED sheet, keeping
+   * it a single delivery row. Sits alongside Void Delivery (remove), Add Missed
+   * Delivery (addCorrectionItem) and Post-Close Trip Correction; the previous
+   * only path — void + re-add — split one delivery into two rows.
+   *
+   * The whole balance/wallet engine is ledger.recordDelivery() called with an
+   * item that ALREADY has ledger rows: it posts a signed DELTA (adjusts
+   * BottleWallet + Customer.financialBalance, deletes+recreates the txn rows).
+   * No new ledger code.
+   *
+   * Skips the collection-policy / van-stock / unacknowledged-notes gates — this
+   * is a historical correction, exactly like addCorrectionItem.
+   *
+   * ACCEPTED DIVERGENCE (same as voidDelivery / correctClosedTrip): does NOT
+   * touch the frozen close-time cashExpected and does NOT re-run
+   * buildReconciliation / createCasesForSheet — any close-time discrepancy
+   * cases stay exactly as they were.
+   */
+  async correctClosedDelivery(user: AuthUser, itemId: string, dto: CorrectDeliveryDto) {
+    const vendorId = user.vendorId;
+
+    const item = await this.prisma.dailySheetItem.findUnique({
+      where: { id: itemId },
+      include: {
+        dailySheet: { select: { vendorId: true, isClosed: true, date: true } },
+        customer: { select: { id: true, isBillingExempt: true } },
+        product: { select: { id: true } },
+      },
+    });
+
+    if (!item || item.dailySheet.vendorId !== vendorId) {
+      throw new NotFoundException('Sheet item not found');
+    }
+    if (!item.dailySheet.isClosed) {
+      throw new ConflictException('This sheet is not closed. Use the normal delivery edit.');
+    }
+    if (item.status === DeliveryStatus.VOIDED) {
+      throw new ConflictException('This delivery is voided and cannot be corrected.');
+    }
+    if (
+      item.status !== DeliveryStatus.COMPLETED &&
+      item.status !== DeliveryStatus.EMPTY_ONLY
+    ) {
+      throw new BadRequestException('Only a completed delivery can be corrected.');
+    }
+
+    // Keep the existing per-bottle price unless an override is explicitly given —
+    // never silently re-resolve from custom price / base price on an edit.
+    const price = dto.priceOverride ?? item.pricePerBottle;
+
+    // Mirror submitDelivery's EMPTY_ONLY auto-detect: a correction down to 0
+    // filled becomes EMPTY_ONLY, and a correction back up to >0 becomes COMPLETED.
+    const resolvedStatus =
+      dto.filledDropped === 0 ? DeliveryStatus.EMPTY_ONLY : DeliveryStatus.COMPLETED;
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Row lock FIRST (learned from the trip-correction review) — serialise
+      // concurrent corrections of the same item so the in-txn re-read below
+      // sees the prior corrector's COMMITTED row, never a stale snapshot.
+      // DailySheetItem.id is a text column — bound as a tagged-template param.
+      await tx.$queryRaw`SELECT 1 FROM "DailySheetItem" WHERE id = ${itemId} FOR UPDATE`;
+
+      const fresh = await tx.dailySheetItem.findUnique({
+        where: { id: itemId },
+        select: { status: true, voidedAt: true },
+      });
+      if (
+        !fresh ||
+        fresh.voidedAt ||
+        fresh.status === DeliveryStatus.VOIDED ||
+        (fresh.status !== DeliveryStatus.COMPLETED && fresh.status !== DeliveryStatus.EMPTY_ONLY)
+      ) {
+        throw new ConflictException('This delivery is no longer in a correctable state.');
+      }
+
+      try {
+        await this.ledger.recordDelivery(
+          {
+            vendorId,
+            customerId: item.customerId,
+            productId: item.productId,
+            dailySheetId: item.dailySheetId,
+            dailySheetItemId: itemId,
+            filledDropped: dto.filledDropped,
+            emptyReceived: dto.emptyReceived,
+            filledReceived: dto.filledReceived,
+            cashCollected: dto.cashCollected,
+            pricePerBottle: price,
+            // Post the adjusted rows on the original delivery day, like
+            // addCorrectionItem — statement / analytics / portal stay on that date.
+            occurredAt: item.dailySheet.date,
+          },
+          tx,
+        );
+      } catch (e) {
+        if (e instanceof BadRequestException && /negative/i.test((e as Error).message)) {
+          throw new UnprocessableEntityException({
+            code: 'CLOSED_DELIVERY_CORRECTION_WALLET_NEGATIVE',
+            message:
+              'This correction would make the customer’s bottle wallet negative. Resolve the bottle balance first.',
+          });
+        }
+        throw e;
+      }
+
+      // Read via `tx`, not `this.prisma` — the ledger just wrote the new balances
+      // on this same connection; the outer client can't see the uncommitted
+      // write (same tx-visibility fix as submitDelivery / addCorrectionItem).
+      const updatedWallet = await tx.bottleWallet.findUnique({
+        where: { customerId_productId: { customerId: item.customerId, productId: item.productId } },
+        select: { balance: true },
+      });
+      const updatedCustomer = await tx.customer.findUnique({
+        where: { id: item.customerId },
+        select: { financialBalance: true },
+      });
+
+      return tx.dailySheetItem.update({
+        where: { id: itemId },
+        data: {
+          filledDropped: dto.filledDropped,
+          emptyReceived: dto.emptyReceived,
+          filledReceived: dto.filledReceived,
+          cashCollected: dto.cashCollected,
+          pricePerBottle: price,
+          status: resolvedStatus,
+          isCorrection: true,
+          correctionNote: dto.correctionNote,
+          correctionAddedAt: new Date(),
+          editCount: { increment: 1 },
+          lastEditedAt: new Date(),
+          bottleBalanceAfter: updatedWallet?.balance ?? null,
+          financialBalanceAfter: updatedCustomer?.financialBalance ?? null,
+        },
+      });
+    });
+
+    await this.audit.log({
+      vendorId,
+      userId: user.userId,
+      userName: user.name,
+      action: 'CLOSED_DELIVERY_CORRECTED',
+      entity: 'DailySheetItem',
+      entityId: itemId,
+      changes: {
+        before: {
+          filledDropped: item.filledDropped,
+          emptyReceived: item.emptyReceived,
+          filledReceived: item.filledReceived,
+          cashCollected: item.cashCollected,
+          pricePerBottle: item.pricePerBottle,
+        },
+        after: {
+          filledDropped: dto.filledDropped,
+          emptyReceived: dto.emptyReceived,
+          filledReceived: dto.filledReceived,
+          cashCollected: dto.cashCollected,
+          pricePerBottle: price,
+          correctionNote: dto.correctionNote,
         },
       },
     });

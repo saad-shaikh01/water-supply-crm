@@ -197,6 +197,53 @@ export const useVoidDelivery = (sheetId: string) => {
   });
 };
 
+export const useCorrectClosedDelivery = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    // Applies a signed ledger delta server-side — a blind retry would
+    // double-apply the correction, so never auto-retry.
+    retry: 0,
+    mutationFn: ({
+      itemId,
+      filledDropped,
+      emptyReceived,
+      filledReceived,
+      cashCollected,
+      priceOverride,
+      correctionNote,
+    }: {
+      itemId: string;
+      filledDropped: number;
+      emptyReceived: number;
+      filledReceived: number;
+      cashCollected: number;
+      priceOverride?: number;
+      correctionNote: string;
+    }) =>
+      dailySheetsApi.correctClosedDelivery(itemId, {
+        filledDropped,
+        emptyReceived,
+        filledReceived,
+        cashCollected,
+        priceOverride,
+        correctionNote,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
+      queryClient.invalidateQueries({ queryKey: ['sheets'] });
+      queryClient.invalidateQueries({ queryKey: ['customer-financial-summary'] });
+      toast.success('Delivery corrected');
+    },
+    onError: (error: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      if (error?.response?.data?.code === 'CLOSED_DELIVERY_CORRECTION_WALLET_NEGATIVE') {
+        toast.error(error.response.data.message);
+        return;
+      }
+      toast.error(error?.response?.data?.message ?? 'Failed to correct delivery');
+    },
+  });
+};
+
 /** Per-item edit history (AuditLog rows scoped to one DailySheetItem) — fetched lazily, only when the timeline is actually opened. */
 export const useDeliveryItemHistory = (itemId: string, enabled: boolean) => {
   return useQuery({

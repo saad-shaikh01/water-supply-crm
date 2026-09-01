@@ -15,6 +15,7 @@ import { RejectCloseDialog } from './dialogs/reject-close-dialog';
 import { AdhocDeliveryDialog } from './dialogs/adhoc-delivery-dialog';
 import { CorrectionEntryDialog } from './dialogs/correction-entry-dialog';
 import { VoidDeliveryDialog } from './dialogs/void-delivery-dialog';
+import { EditClosedDeliveryDialog } from './dialogs/edit-closed-delivery-dialog';
 import { BulkImportDialog } from './dialogs/bulk-import-dialog';
 import { ReportDamageDialog } from './dialogs/report-damage-dialog';
 import { VehicleCheckDialog } from '../../fleet/components/dialogs/vehicle-check-dialog';
@@ -289,6 +290,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [moveTargetIds, setMoveTargetIds] = useState<string[] | null>(null);
   const [voidTargetItem, setVoidTargetItem] = useState<DeliveryItem | null>(null);
+  const [correctClosedItem, setCorrectClosedItem] = useState<DeliveryItem | null>(null);
   const { location: driverLocation, requestLocation } = useDriverLocation();
 
   // Continuously publish driver GPS to the tracking backend while the sheet is open.
@@ -1279,6 +1281,8 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         canMove={canMoveCustomer}
         canVoidDelivery={canVoidDelivery}
         onVoidItem={(item) => setVoidTargetItem(item)}
+        canCorrectClosedDelivery={canCorrect}
+        onCorrectClosedItem={(item) => setCorrectClosedItem(item)}
         onUnlockEdit={(itemId) => unlockDeliveryEdit.mutate({ itemId })}
         unlockingItemId={
           unlockDeliveryEdit.isPending
@@ -1380,6 +1384,12 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         sheetId={sheetId}
         item={voidTargetItem}
         isClosed={isClosed}
+      />
+      <EditClosedDeliveryDialog
+        open={!!correctClosedItem}
+        onClose={() => setCorrectClosedItem(null)}
+        sheetId={sheetId}
+        item={correctClosedItem}
       />
       <BulkImportDialog
         open={ui.bulkImportOpen}

@@ -13,6 +13,7 @@ const ACTION_LABEL: Record<string, string> = {
   DELIVERY_EDIT_UNLOCK: 'Edit Unlocked (Staff)',
   COLLECTION_POLICY_ZERO_CASH: 'Recorded — Zero Cash',
   DELIVERY_VOIDED: 'Voided',
+  CLOSED_DELIVERY_CORRECTED: 'Corrected',
 };
 
 const VOID_REASON_LABEL: Record<string, string> = {
@@ -30,11 +31,12 @@ const FIELD_LABEL: Record<string, string> = {
   emptyReceived: 'Empties',
   filledReceived: 'Filled Received',
   cashCollected: 'Cash',
+  pricePerBottle: 'Price',
 };
 
 function formatValue(field: string, value: unknown): string {
   if (value === null || value === undefined) return '—';
-  if (field === 'cashCollected') return `₨${Number(value).toLocaleString()}`;
+  if (field === 'cashCollected' || field === 'pricePerBottle') return `₨${Number(value).toLocaleString()}`;
   return String(value);
 }
 
@@ -108,6 +110,16 @@ function HistoryTimeline({ itemId, enabled }: { itemId: string; enabled: boolean
               <p className="text-[10px] text-muted-foreground mt-0.5">by {entry.userName}</p>
             )}
             <ChangedFields entry={entry} />
+            {entry.action === 'CLOSED_DELIVERY_CORRECTED' && (() => {
+              const after = (entry.changes?.after ?? {}) as Record<string, unknown>;
+              const note = after.correctionNote ? String(after.correctionNote) : null;
+              if (!note) return null;
+              return (
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  <span className="font-bold">Reason:</span> {note}
+                </p>
+              );
+            })()}
             {entry.action === 'DELIVERY_VOIDED' && (() => {
               const after = (entry.changes?.after ?? {}) as Record<string, unknown>;
               const reason = after.voidReason ? String(after.voidReason) : null;

@@ -272,6 +272,20 @@ export const dailySheetsApi = {
   // ledger effect. voidNote is required (min 3 chars) only when voidReason === 'OTHER'.
   voidDelivery: (itemId: string, body: { voidReason: string; voidNote?: string }) =>
     apiClient.post(`/daily-sheets/items/${itemId}/void`, body),
+  // Edit Closed-Sheet Delivery — amend the figures of an already-recorded
+  // COMPLETED/EMPTY_ONLY delivery on a closed sheet (one row, not void + re-add).
+  // correctionNote is mandatory (min 3 non-whitespace chars).
+  correctClosedDelivery: (
+    itemId: string,
+    body: {
+      filledDropped: number;
+      emptyReceived: number;
+      filledReceived: number;
+      cashCollected: number;
+      priceOverride?: number;
+      correctionNote: string;
+    },
+  ) => apiClient.patch(`/daily-sheets/items/${itemId}/correct`, body),
   // Delivery failure photo
   uploadDeliveryPhoto: (file: File): Promise<{ key: string }> => {
     const formData = new FormData();

@@ -9,7 +9,7 @@ import {
 import { StatusBadge } from '../../../components/shared/status-badge';
 import {
   AlertCircle, ArrowRightLeft, Ban, Camera, Check, CheckSquare, ChevronDown, ChevronUp, ClipboardList, Download,
-  History, LocateFixed, Lock, Loader2, MapPin, MessageCircle, MessageSquare, Navigation, Phone, Send, StickyNote, Truck, Unlock, X,
+  History, LocateFixed, Lock, Loader2, MapPin, MessageCircle, MessageSquare, Navigation, Pencil, Phone, Send, StickyNote, Truck, Unlock, X,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -233,6 +233,10 @@ interface DeliveryItemsListProps {
   canVoidDelivery: boolean;
   /** Opens the Void Delivery dialog for the given item. */
   onVoidItem: (item: DeliveryItem) => void;
+  /** Gates the closed-sheet per-row "Edit" action (`daily_sheets:correct`). */
+  canCorrectClosedDelivery: boolean;
+  /** Opens the Edit Closed-Sheet Delivery dialog for the given item. */
+  onCorrectClosedItem: (item: DeliveryItem) => void;
   onUnlockEdit: (itemId: string) => void;
   unlockingItemId: string | null;
   onRequestEdit: (itemId: string) => void;
@@ -275,6 +279,8 @@ export function DeliveryItemsList({
   canMove,
   canVoidDelivery,
   onVoidItem,
+  canCorrectClosedDelivery,
+  onCorrectClosedItem,
   onUnlockEdit,
   unlockingItemId,
   onRequestEdit,
@@ -538,6 +544,15 @@ export function DeliveryItemsList({
             // it. Edit / unlock / request-edit stay `!rowsLocked`.
             const canVoidThisItem =
               canVoidDelivery && !isMovedOutView && !isVoided && VOIDABLE_STATUSES.includes(item.status);
+
+            // Edit Closed-Sheet Delivery — the closed-sheet exception to the
+            // `!rowsLocked` edit gate (same as how Void shows on closed sheets).
+            // Only recorded deliveries with figures + ledger rows are correctable.
+            const canCorrectThisClosedItem =
+              canCorrectClosedDelivery &&
+              isClosed &&
+              !isVoided &&
+              (item.status === 'COMPLETED' || item.status === 'EMPTY_ONLY');
 
             const isEligibleForMove = MOVE_ELIGIBLE_STATUSES.includes(item.status);
             const isSelected = selectedIds.has(item.id);
@@ -850,6 +865,15 @@ export function DeliveryItemsList({
                             onClick={(e) => { e.stopPropagation(); onMoveItem(item.id); }}
                           >
                             <Truck className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        {canCorrectThisClosedItem && (
+                          <button
+                            className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                            title="Correct this delivery's figures"
+                            onClick={(e) => { e.stopPropagation(); onCorrectClosedItem(item); }}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
                           </button>
                         )}
                         {canVoidThisItem && (

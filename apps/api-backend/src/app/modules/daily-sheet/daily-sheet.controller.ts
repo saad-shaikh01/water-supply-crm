@@ -39,6 +39,7 @@ import { AddAdhocItemDto } from './dto/add-adhoc-item.dto';
 import { AddCorrectionItemDto } from './dto/add-correction-item.dto';
 import { MoveDeliveryItemsDto } from './dto/move-delivery-items.dto';
 import { VoidDeliveryDto } from './dto/void-delivery.dto';
+import { CorrectDeliveryDto } from './dto/correct-delivery.dto';
 import { UnlockEditDto } from './dto/unlock-edit.dto';
 import { RejectCloseDto } from './dto/reject-close.dto';
 import { CloseSheetDto } from './dto/close-sheet.dto';
@@ -247,6 +248,21 @@ export class DailySheetController {
     @Body() dto: VoidDeliveryDto,
   ) {
     return this.dailySheetService.voidDelivery(user, id, dto);
+  }
+
+  // Edit Closed-Sheet Delivery — amend the figures of an already-recorded
+  // COMPLETED/EMPTY_ONLY delivery on a CLOSED sheet, keeping it one row (vs
+  // void + re-add). Reuses the Correction Entry permission (Admin-only).
+  // MUST be declared before @Patch('items/:id') so the static suffix wins.
+  @Patch('items/:id/correct')
+  @RequirePermissions('daily_sheets:correct')
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
+  correctClosedDelivery(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: CorrectDeliveryDto,
+  ) {
+    return this.dailySheetService.correctClosedDelivery(user, id, dto);
   }
 
   @Patch('items/:id')
