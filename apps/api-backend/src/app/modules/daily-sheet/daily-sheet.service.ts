@@ -648,6 +648,48 @@ export class DailySheetService implements OnModuleInit {
         },
       });
 
+      // Leaving a ledger-bearing state (COMPLETED / EMPTY_ONLY) for one that
+      // carries no ledger effect (NOT_AVAILABLE / RESCHEDULED / CANCELLED /
+      // PENDING): the posted DELIVERY/PAYMENT rows and their financialBalance +
+      // bottle-wallet effects must be reversed, or they are silently orphaned
+      // on the customer's ledger. Uses the exact same all-zero idempotent-repost
+      // + leftover-row cleanup that voidDelivery relies on — no new ledger logic.
+      const wasLedgerBearing =
+        item.status === DeliveryStatus.COMPLETED ||
+        item.status === DeliveryStatus.EMPTY_ONLY;
+      const nowLedgerBearing =
+        resolvedStatus === DeliveryStatus.COMPLETED ||
+        resolvedStatus === DeliveryStatus.EMPTY_ONLY;
+      if (wasLedgerBearing && !nowLedgerBearing) {
+        const ledgerRowCount = await tx.transaction.count({
+          where: { dailySheetItemId: itemId, type: TransactionType.DELIVERY },
+        });
+        if (ledgerRowCount > 0) {
+          await this.ledger.recordDelivery(
+            {
+              vendorId,
+              customerId: item.customerId,
+              productId: item.productId,
+              dailySheetId: item.dailySheetId,
+              dailySheetItemId: itemId,
+              filledDropped: 0,
+              emptyReceived: 0,
+              filledReceived: 0,
+              cashCollected: 0,
+              pricePerBottle: item.pricePerBottle,
+              ...(item.isCorrection ? { occurredAt: item.dailySheet.date } : {}),
+            },
+            tx,
+          );
+          // applyIdempotentRepost leaves one zero-value DELIVERY row keyed to the
+          // item (and deletes the PAYMENT row) — drop the leftover, same as
+          // voidDelivery, so nothing shows for a delivery that was un-recorded.
+          await tx.transaction.deleteMany({
+            where: { dailySheetItemId: itemId, type: TransactionType.DELIVERY },
+          });
+        }
+      }
+
       if (
         resolvedStatus === DeliveryStatus.COMPLETED ||
         resolvedStatus === DeliveryStatus.EMPTY_ONLY
