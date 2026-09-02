@@ -229,6 +229,7 @@ enum NotificationType {
   ORDER_UPDATE
   TICKET_REPLY
   DELIVERY_FAILED
+  PAYMENT_WARNING // overdue-balance warning after a monthly statement
 }
 
 enum NotificationChannel {
@@ -284,6 +285,7 @@ model Vendor {
   collectionPolicyConfig     CollectionPolicyConfig?
   cashCollectionPolicyConfig CashCollectionPolicyConfig?
   warehouseAutoRefillConfig  WarehouseAutoRefillConfig?
+  balanceReminderConfig      BalanceReminderConfig?
 
   // Staff Payroll & Financial Management — Phase 1 (Foundation)
   salaryStructures     SalaryStructure[]
@@ -1587,26 +1589,54 @@ model CashCollectionPolicyConfig {
   @@index([vendorId])
 }
 
+/// Discriminates what a reminder-send operation actually sent.
+/// REMINDER       — the original balance-reminder / statement flow (default).
+/// STATEMENT_ONLY — pure monthly statement, no payment ask, no balance threshold.
+/// WARNING        — post-statement overdue-balance warning.
+enum ReminderSendKind {
+  REMINDER
+  STATEMENT_ONLY
+  WARNING
+}
+
+/// Per-vendor knobs for the overdue-warning flow. Missing row = defaults
+/// (same convention as CollectionPolicyConfig / WarehouseAutoRefillConfig).
+/// autoWarningsEnabled is reserved for a future auto-run job — not yet wired.
+model BalanceReminderConfig {
+  id                  String   @id @default(uuid())
+  vendorId            String   @unique
+  vendor              Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  warningDelayDays    Int      @default(3) // days after a statement send before a warning may go out
+  warningMinBalance   Float    @default(100) // live outstanding at/above which a warning applies
+  autoWarningsEnabled Boolean  @default(false) // reserved — no auto-run job yet
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([vendorId])
+}
+
 model ReminderSendLog {
-  id               String   @id @default(uuid())
+  id               String           @id @default(uuid())
   vendorId         String
-  vendor           Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vendor           Vendor           @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   trigger          String // 'manual' | 'cron'
   mode             String // 'eligible' | 'single' | 'selected'
+  kind             ReminderSendKind @default(REMINDER)
   month            String // YYYY-MM
   sent             Int
   skipped          Int
-  includeStatement Boolean  @default(false)
-  dryRun           Boolean  @default(false)
+  includeStatement Boolean          @default(false)
+  dryRun           Boolean          @default(false)
   minBalance       Float? // threshold used (eligible mode)
   paymentType      String? // 'MONTHLY' | 'CASH' — null = both
   vanId            String? // delivery-schedule van filter, if applied
   dayOfWeek        Int? // delivery-schedule day filter (1=Mon … 6=Sat), if applied
-  force            Boolean  @default(false)
+  force            Boolean          @default(false)
   details          Json? // per-customer results: [{ customerId, name, balance, status }]
-  createdAt        DateTime @default(now())
+  createdAt        DateTime         @default(now())
 
   @@index([vendorId, createdAt])
+  @@index([vendorId, month, kind])
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

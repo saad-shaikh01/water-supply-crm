@@ -2,6 +2,7 @@
   Controller,
   Get,
   Post,
+  Put,
   Body,
   Param,
   Query,
@@ -10,7 +11,7 @@
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { BalanceReminderService } from './balance-reminder.service';
-import { SendNowDto, SendTargetedDto, PreviewDto } from './dto/schedule-reminder.dto';
+import { SendNowDto, SendTargetedDto, PreviewDto, UpdateBalanceReminderConfigDto } from './dto/schedule-reminder.dto';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
@@ -18,6 +19,26 @@ import type { AuthUser } from '@water-supply-crm/types';
 @Controller('balance-reminders')
 export class BalanceReminderController {
   constructor(private readonly reminderService: BalanceReminderService) {}
+
+  /**
+   * GET /balance-reminders/config
+   * Effective overdue-warning knobs for the vendor (defaults if no row).
+   */
+  @Get('config')
+  @RequirePermissions('balance_reminders:view')
+  getConfig(@CurrentUser() user: AuthUser) {
+    return this.reminderService.getConfig(user.vendorId);
+  }
+
+  /**
+   * PUT /balance-reminders/config
+   * Update overdue-warning knobs. Body: { warningDelayDays?: 1-14, warningMinBalance?: number }
+   */
+  @Put('config')
+  @RequirePermissions('balance_reminders:configure')
+  updateConfig(@CurrentUser() user: AuthUser, @Body() dto: UpdateBalanceReminderConfigDto) {
+    return this.reminderService.updateConfig(user.vendorId, dto);
+  }
 
   /**
    * POST /balance-reminders/send-now
@@ -61,9 +82,10 @@ export class BalanceReminderController {
   }
 
   /**
-   * GET /balance-reminders/history?page=1&limit=10&dateFrom=2026-07-01&dateTo=2026-07-31&result=sent
+   * GET /balance-reminders/history?page=1&limit=10&dateFrom=2026-07-01&dateTo=2026-07-31&result=sent&kind=WARNING
    * Paginated log of past reminder send operations (manual and cron).
    * result: 'sent' (sent > 0) | 'skipped' (skipped > 0) | omit for all.
+   * kind: 'REMINDER' | 'STATEMENT_ONLY' | 'WARNING' | omit for all.
    */
   @Get('history')
   @RequirePermissions('balance_reminders:view')
@@ -74,11 +96,13 @@ export class BalanceReminderController {
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
     @Query('result') result?: string,
+    @Query('kind') kind?: string,
   ) {
     return this.reminderService.getSendHistory(user.vendorId, page, Math.min(limit, 50), {
       dateFrom: /^\d{4}-\d{2}-\d{2}$/.test(dateFrom ?? '') ? dateFrom : undefined,
       dateTo: /^\d{4}-\d{2}-\d{2}$/.test(dateTo ?? '') ? dateTo : undefined,
       result: result === 'sent' || result === 'skipped' ? result : undefined,
+      kind: kind === 'REMINDER' || kind === 'STATEMENT_ONLY' || kind === 'WARNING' ? kind : undefined,
     });
   }
 

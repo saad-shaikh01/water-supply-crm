@@ -244,9 +244,9 @@ Each row: permission → the existing feature/endpoint(s) it gates. `page` sorts
 | Permission | Gates |
 |---|---|
 | `balance_reminders:page` | Open `/dashboard/balance-reminders` |
-| `balance_reminders:view` | `GET /balance-reminders/history`, `history/:id`, `POST /preview` |
-| `balance_reminders:send` | `POST /balance-reminders/send-now`, `send-targeted` |
-| `balance_reminders:configure` | `POST`/`GET`/`DELETE /balance-reminders/schedule` |
+| `balance_reminders:view` | `GET /balance-reminders/history`, `history/:id`, `config`, `POST /preview` |
+| `balance_reminders:send` | `POST /balance-reminders/send-now`, `send-targeted` (both accept `sendKind: 'reminder' \| 'statement_only' \| 'warning'` — no separate permission per kind) |
+| `balance_reminders:configure` | `PUT /balance-reminders/config` (overdue-warning knobs) |
 
 ### 22. Audit Logs — `audit_logs` *(navigable)*
 | Permission | Gates |

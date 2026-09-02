@@ -8,8 +8,26 @@ export interface WhatsAppStatus {
 
 export type PaymentTypeFilter = 'MONTHLY' | 'CASH' | undefined;
 
+/**
+ * 'reminder' (default) · 'statement_only' — pure statement, no payment ask / threshold ·
+ * 'warning' — overdue-balance warning to customers already sent a statement this cycle.
+ */
+export type SendKind = 'reminder' | 'statement_only' | 'warning';
+
+export interface WarningConfig {
+  warningDelayDays: number;
+  warningMinBalance: number;
+  autoWarningsEnabled: boolean;
+}
+
+export interface UpdateWarningConfigPayload {
+  warningDelayDays?: number;
+  warningMinBalance?: number;
+}
+
 export interface SendTargetedPayload {
   mode: 'single' | 'selected' | 'eligible';
+  sendKind?: SendKind;
   customerIds?: string[];
   minBalance?: number;
   dryRun?: boolean;
@@ -23,6 +41,7 @@ export interface SendTargetedPayload {
 
 export interface PreviewPayload {
   mode?: 'single' | 'selected' | 'eligible';
+  sendKind?: SendKind;
   customerIds?: string[];
   minBalance?: number;
   month?: string;
@@ -37,7 +56,11 @@ export const balanceRemindersApi = {
   sendTargeted: (data: SendTargetedPayload) => apiClient.post('/balance-reminders/send-targeted', data),
   preview: (data: PreviewPayload) => apiClient.post('/balance-reminders/preview', data),
   getWhatsAppStatus: () => apiClient.get<WhatsAppStatus>('/whatsapp/status'),
-  getHistory: (page = 1, limit = 10, filters?: { dateFrom?: string; dateTo?: string; result?: string }) =>
+  getHistory: (
+    page = 1,
+    limit = 10,
+    filters?: { dateFrom?: string; dateTo?: string; result?: string; kind?: string },
+  ) =>
     apiClient.get('/balance-reminders/history', {
       params: {
         page,
@@ -45,7 +68,10 @@ export const balanceRemindersApi = {
         dateFrom: filters?.dateFrom || undefined,
         dateTo: filters?.dateTo || undefined,
         result: filters?.result || undefined,
+        kind: filters?.kind || undefined,
       },
     }),
   getHistoryDetail: (id: string) => apiClient.get(`/balance-reminders/history/${id}`),
+  getConfig: () => apiClient.get<WarningConfig>('/balance-reminders/config'),
+  updateConfig: (data: UpdateWarningConfigPayload) => apiClient.put<WarningConfig>('/balance-reminders/config', data),
 };

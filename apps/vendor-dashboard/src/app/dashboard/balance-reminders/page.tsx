@@ -4,12 +4,12 @@ import { useState, useEffect } from 'react';
 import {
   Send, Users, CheckCircle2, Loader2,
   User, FileText, ChevronRight, AlertCircle, Info, Wifi, WifiOff, Zap, History,
-  ChevronLeft, Download,
+  ChevronLeft, Download, AlertTriangle, Settings2,
 } from 'lucide-react';
 import {
   Card, CardContent, CardHeader, CardTitle, Button, Input, Label,
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-  Badge, Dialog, DialogContent, DialogHeader, DialogTitle,
+  Badge, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from '@water-supply-crm/ui';
 import { PageHeader } from '../../../components/shared/page-header';
 import {
@@ -18,9 +18,12 @@ import {
   useWhatsAppStatus,
   useReminderHistory,
   useReminderHistoryDetail,
+  useReminderConfig,
+  useUpdateReminderConfig,
 } from '../../../features/balance-reminders/hooks/use-balance-reminders';
 import { useCustomerSearch } from '../../../features/customers/hooks/use-customers';
 import { useAllVans } from '../../../features/vans/hooks/use-vans';
+import { useCan } from '../../../features/authz/hooks/use-can';
 import { cn } from '@water-supply-crm/ui';
 
 const WEEKDAYS = [
@@ -42,6 +45,12 @@ const REASON_LABELS: Record<string, string> = {
   'skipped-excluded': 'EXCLUDED',
   'skipped-disconnected': 'DISCONNECTED',
   'skipped-invalid-phone': 'INVALID PHONE',
+  'skipped-pdf-failed': 'PDF FAILED',
+  'skipped-no-statement': 'NO STATEMENT',
+  'skipped-too-soon': 'TOO SOON',
+  'skipped-paid': 'PAID',
+  'skipped-payment-pending': 'PAYMENT PENDING',
+  'skipped-already-warned': 'ALREADY WARNED',
 };
 
 const REASON_STYLES: Record<string, string> = {
@@ -54,7 +63,34 @@ const REASON_STYLES: Record<string, string> = {
   'skipped-excluded': 'bg-violet-500/10 text-violet-400',
   'skipped-disconnected': 'bg-destructive/10 text-destructive',
   'skipped-invalid-phone': 'bg-destructive/10 text-destructive',
+  'skipped-pdf-failed': 'bg-destructive/10 text-destructive',
+  'skipped-no-statement': 'bg-white/10 text-muted-foreground',
+  'skipped-too-soon': 'bg-amber-500/10 text-amber-400',
+  'skipped-paid': 'bg-emerald-500/10 text-emerald-400',
+  'skipped-payment-pending': 'bg-blue-500/10 text-blue-400',
+  'skipped-already-warned': 'bg-violet-500/10 text-violet-400',
 };
+
+const KIND_LABEL: Record<string, string> = {
+  REMINDER: 'Reminder',
+  STATEMENT_ONLY: 'Statement',
+  WARNING: 'Warning',
+};
+
+const KIND_STYLE: Record<string, string> = {
+  REMINDER: 'bg-primary/10 text-primary',
+  STATEMENT_ONLY: 'bg-blue-500/10 text-blue-400',
+  WARNING: 'bg-amber-500/10 text-amber-400',
+};
+
+const KIND_TO_SENDKIND: Record<string, 'reminder' | 'statement_only' | 'warning'> = {
+  REMINDER: 'reminder',
+  STATEMENT_ONLY: 'statement_only',
+  WARNING: 'warning',
+};
+
+/** Statuses that mean "attempted but not delivered" — eligible for re-send. */
+const RESENDABLE_STATUSES = new Set(['failed', 'skipped-disconnected']);
 
 function currentMonth() {
   return new Date().toISOString().slice(0, 7);
@@ -82,7 +118,14 @@ function downloadCsv(filename: string, headers: string[], rows: unknown[][]) {
 }
 
 type SendMode = 'eligible' | 'single';
+type SendType = 'reminder' | 'statement_only' | 'warning';
 type PaymentTypeFilter = 'MONTHLY' | 'CASH' | 'BOTH';
+
+const SEND_TYPES: { value: SendType; label: string }[] = [
+  { value: 'reminder', label: 'Reminder' },
+  { value: 'statement_only', label: 'Statement Only' },
+  { value: 'warning', label: 'Overdue Warning' },
+];
 
 export default function BalanceRemindersPage() {
   const { mutate: sendTargeted, isPending: isSending } = useSendTargeted();
@@ -90,8 +133,12 @@ export default function BalanceRemindersPage() {
   const { mutate: preview, isPending: isPreviewing, data: previewData, reset: resetPreview } = usePreviewReminders();
   const { data: allVansData } = useAllVans();
   const { data: waStatus } = useWhatsAppStatus();
+  const { data: warningConfig } = useReminderConfig();
+  const { mutate: updateConfig, isPending: isSavingConfig } = useUpdateReminderConfig();
+  const canConfigure = useCan('balance_reminders:configure');
 
   // Manual send state
+  const [sendType, setSendType] = useState<SendType>('reminder');
   const [sendMode, setSendMode] = useState<SendMode>('eligible');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
@@ -115,14 +162,28 @@ export default function BalanceRemindersPage() {
   const [historyDateFrom, setHistoryDateFrom] = useState('');
   const [historyDateTo, setHistoryDateTo] = useState('');
   const [historyResult, setHistoryResult] = useState<'all' | 'sent' | 'skipped'>('all');
+  const [historyKind, setHistoryKind] = useState<'all' | 'REMINDER' | 'STATEMENT_ONLY' | 'WARNING'>('all');
   const { data: historyData, isLoading: isHistoryLoading } = useReminderHistory(historyPage, 8, {
     dateFrom: historyDateFrom || undefined,
     dateTo: historyDateTo || undefined,
     result: historyResult === 'all' ? undefined : historyResult,
+    kind: historyKind === 'all' ? undefined : historyKind,
   });
   const [detailLogId, setDetailLogId] = useState<string | null>(null);
   const [detailSearch, setDetailSearch] = useState('');
   const { data: logDetail, isLoading: isDetailLoading } = useReminderHistoryDetail(detailLogId);
+  const [resendingLogId, setResendingLogId] = useState<string | null>(null);
+
+  // Overdue-warning config editor
+  const [cfgDelay, setCfgDelay] = useState('');
+  const [cfgMinBalance, setCfgMinBalance] = useState('');
+  useEffect(() => {
+    if (warningConfig) {
+      setCfgDelay(String(warningConfig.warningDelayDays));
+      setCfgMinBalance(String(warningConfig.warningMinBalance));
+    }
+  }, [warningConfig]);
+  const [showWarnConfirm, setShowWarnConfirm] = useState(false);
 
   // Debounce combobox search so we don't hit the API on every keystroke
   useEffect(() => {
@@ -140,23 +201,34 @@ export default function BalanceRemindersPage() {
   const resolvedVanId = vanFilter === 'all' ? undefined : vanFilter;
   const resolvedDayOfWeek = dayFilter === 'all' ? undefined : Number(dayFilter);
 
+  // Statement-only always attaches the PDF and ignores the balance threshold / cooldown-bypass.
+  // Overdue-warning is text-only, uses the vendor's warningMinBalance, no threshold input.
+  const isStatementOnly = sendType === 'statement_only';
+  const isWarning = sendType === 'warning';
+  const effectiveIncludeStatement = isStatementOnly ? true : isWarning ? false : includeStatement;
+  const effectiveForce = isStatementOnly || isWarning ? false : forceOverride;
+
   const buildSendPayload = (dryRun = false) => {
-    const base = { mode: sendMode, month, includeStatement, dryRun, force: forceOverride, paymentType: resolvedPaymentType };
+    const base = { sendKind: sendType, mode: sendMode, month, includeStatement: effectiveIncludeStatement, dryRun, force: effectiveForce, paymentType: resolvedPaymentType };
     if (sendMode === 'single') return { ...base, customerIds: [selectedCustomerId] };
     return {
       ...base,
       minBalance: Number(minBalance),
-      vanId: resolvedVanId,
-      dayOfWeek: resolvedDayOfWeek,
+      vanId: isWarning ? undefined : resolvedVanId,
+      dayOfWeek: isWarning ? undefined : resolvedDayOfWeek,
       excludeCustomerIds: excludedIds.size > 0 ? Array.from(excludedIds) : undefined,
     };
   };
 
   const buildPreviewPayload = () => {
-    const base = { mode: sendMode, month, includeStatement, paymentType: resolvedPaymentType };
+    const base = { sendKind: sendType, mode: sendMode, month, includeStatement: effectiveIncludeStatement, paymentType: resolvedPaymentType };
     if (sendMode === 'single') return { ...base, customerIds: [selectedCustomerId] };
-    return { ...base, minBalance: Number(minBalance), vanId: resolvedVanId, dayOfWeek: resolvedDayOfWeek };
+    return { ...base, minBalance: Number(minBalance), vanId: isWarning ? undefined : resolvedVanId, dayOfWeek: isWarning ? undefined : resolvedDayOfWeek };
   };
+
+  const lastWarningRun = ((historyData as any)?.data ?? []).find(
+    (l: any) => l.kind === 'WARNING' && l.month === month && !l.dryRun,
+  );
 
   const handlePreview = () => {
     setPreviewTab('send');
@@ -173,7 +245,7 @@ export default function BalanceRemindersPage() {
   const handleSendToOne = (customerId: string) => {
     setSendingCustomerId(customerId);
     sendToOne(
-      { mode: 'single', customerIds: [customerId], month, includeStatement, force: forceOverride } as any,
+      { sendKind: sendType, mode: 'single', customerIds: [customerId], month, includeStatement: effectiveIncludeStatement, force: effectiveForce } as any,
       {
         onSuccess: () => {
           setSentIds((prev) => new Set(prev).add(customerId));
@@ -194,16 +266,53 @@ export default function BalanceRemindersPage() {
     });
   };
 
-  const handleSend = () => {
+  const doSend = () => {
     sendTargeted(buildSendPayload(false) as any, {
       onSuccess: () => {
         setShowPreview(false);
+        setShowWarnConfirm(false);
         resetPreview();
       },
     });
   };
 
-  const canSend = sendMode === 'eligible' || (sendMode === 'single' && !!selectedCustomerId);
+  // Overdue warnings are a stronger message than a reminder — make the operator confirm.
+  const handleSend = () => {
+    if (isWarning) { setShowWarnConfirm(true); return; }
+    doSend();
+  };
+
+  const saveConfig = () => {
+    updateConfig({
+      warningDelayDays: cfgDelay ? Number(cfgDelay) : undefined,
+      warningMinBalance: cfgMinBalance ? Number(cfgMinBalance) : undefined,
+    });
+  };
+
+  // Block sends only once we KNOW WhatsApp is not connected (undefined = still loading → allow).
+  const waBlocked = !!waStatus && waStatus.status !== 'connected';
+
+  /** Re-send to just the customers a past run attempted but did not deliver. */
+  const handleResendFailed = (log: any) => {
+    const failedIds = ((log?.details ?? []) as any[])
+      .filter((d) => RESENDABLE_STATUSES.has(d.status))
+      .map((d) => d.customerId);
+    if (failedIds.length === 0) return;
+    setResendingLogId(log.id);
+    sendTargeted(
+      {
+        sendKind: KIND_TO_SENDKIND[log.kind] ?? 'reminder',
+        mode: 'selected',
+        customerIds: failedIds,
+        month: log.month,
+        force: true,
+      } as any,
+      { onSettled: () => setResendingLogId(null) },
+    );
+  };
+
+  const hasRecipients = sendMode === 'eligible' || (sendMode === 'single' && !!selectedCustomerId);
+  const canSend = hasRecipients && !waBlocked;
 
   const previewResult = (previewData as any)?.data;
   const excludedInPreview = previewResult
@@ -274,6 +383,42 @@ export default function BalanceRemindersPage() {
             </CardHeader>
             <CardContent className="pt-6 space-y-5">
 
+              {/* Send type selector */}
+              <div className="space-y-2">
+                <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Send Type</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {SEND_TYPES.map((t) => (
+                    <button
+                      key={t.value}
+                      type="button"
+                      onClick={() => { setSendType(t.value); setSendMode('eligible'); setShowPreview(false); resetPreview(); }}
+                      className={cn(
+                        'flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl text-[11px] font-bold border transition-colors',
+                        sendType === t.value
+                          ? 'bg-primary/15 border-primary/40 text-primary'
+                          : 'bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10',
+                      )}
+                    >
+                      {t.value === 'reminder' ? <Send className="h-3.5 w-3.5" /> : t.value === 'statement_only' ? <FileText className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10px] text-muted-foreground ml-1">
+                  {isStatementOnly
+                    ? 'Pure monthly statement — no balance threshold, no payment request. PDF is always attached.'
+                    : isWarning
+                      ? `Text warning to customers sent a statement ≥ ${warningConfig?.warningDelayDays ?? 3} days ago who still owe ≥ ₨${(warningConfig?.warningMinBalance ?? 100).toLocaleString()}.`
+                      : 'Balance reminder / statement with a payment request for customers over the threshold.'}
+                </p>
+                {isWarning && lastWarningRun && (
+                  <p className="text-[10px] text-amber-400/80 ml-1">
+                    Last warning run for {formatMonthDisplay(month)}: {lastWarningRun.sent} sent
+                    {' · '}{new Date(lastWarningRun.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                )}
+              </div>
+
               {/* Mode selector */}
               <div className="space-y-2">
                 <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Recipients</Label>
@@ -297,8 +442,8 @@ export default function BalanceRemindersPage() {
                 </div>
               </div>
 
-              {/* Payment type filter (eligible mode only) */}
-              {sendMode === 'eligible' && (
+              {/* Payment type filter (eligible mode only; not for warnings) */}
+              {sendMode === 'eligible' && !isWarning && (
                 <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
                   <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Customer Type</Label>
                   <div className="grid grid-cols-3 gap-2">
@@ -324,8 +469,8 @@ export default function BalanceRemindersPage() {
                 </div>
               )}
 
-              {/* Van + delivery day filters (eligible mode only) */}
-              {sendMode === 'eligible' && (
+              {/* Van + delivery day filters (eligible mode only; not for warnings) */}
+              {sendMode === 'eligible' && !isWarning && (
                 <div className="grid grid-cols-2 gap-3 animate-in fade-in slide-in-from-top-2">
                   <div className="space-y-2">
                     <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Van</Label>
@@ -442,8 +587,8 @@ export default function BalanceRemindersPage() {
                 </div>
               )}
 
-              {/* Bulk min-balance (eligible mode) */}
-              {sendMode === 'eligible' && (
+              {/* Bulk min-balance (eligible mode, not statement-only) */}
+              {sendMode === 'eligible' && !isStatementOnly && !isWarning && (
                 <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
                   <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Min Balance Threshold (₨)</Label>
                   <div className="relative">
@@ -475,57 +620,76 @@ export default function BalanceRemindersPage() {
                 </p>
               </div>
 
-              {/* Force override cooldown toggle */}
-              <div className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
-                <div className="flex items-center gap-2">
-                  <Zap className="h-4 w-4 text-amber-400" />
-                  <div>
-                    <p className="text-xs font-bold text-foreground dark:text-white">Bypass 23h Cooldown</p>
-                    <p className="text-[10px] text-muted-foreground">Re-send even if customer received a reminder today</p>
+              {/* Force override cooldown toggle (not shown for statement-only / warning) */}
+              {!isStatementOnly && !isWarning && (
+                <div className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
+                  <div className="flex items-center gap-2">
+                    <Zap className="h-4 w-4 text-amber-400" />
+                    <div>
+                      <p className="text-xs font-bold text-foreground dark:text-white">Bypass 23h Cooldown</p>
+                      <p className="text-[10px] text-muted-foreground">Re-send even if customer received a reminder today</p>
+                    </div>
                   </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => { setForceOverride((v) => !v); setShowPreview(false); resetPreview(); }}
-                  className={cn(
-                    'relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none',
-                    forceOverride ? 'bg-amber-400' : 'bg-white/20',
-                  )}
-                >
-                  <span
+                  <button
+                    type="button"
+                    onClick={() => { setForceOverride((v) => !v); setShowPreview(false); resetPreview(); }}
                     className={cn(
-                      'inline-block h-4 w-4 rounded-full bg-white shadow transition-transform',
-                      forceOverride ? 'translate-x-6' : 'translate-x-1',
+                      'relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none',
+                      forceOverride ? 'bg-amber-400' : 'bg-white/20',
                     )}
-                  />
-                </button>
-              </div>
+                  >
+                    <span
+                      className={cn(
+                        'inline-block h-4 w-4 rounded-full bg-white shadow transition-transform',
+                        forceOverride ? 'translate-x-6' : 'translate-x-1',
+                      )}
+                    />
+                  </button>
+                </div>
+              )}
 
-              {/* Include statement toggle */}
-              <div className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
-                <div className="flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-primary" />
-                  <div>
-                    <p className="text-xs font-bold text-foreground dark:text-white">Attach Statement PDF</p>
-                    <p className="text-[10px] text-muted-foreground">Sends the monthly statement PDF file with the message</p>
+              {/* Include statement toggle — forced ON/locked for statement-only, hidden for text-only warnings */}
+              {!isWarning && (
+                <div className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-primary" />
+                    <div>
+                      <p className="text-xs font-bold text-foreground dark:text-white">Attach Statement PDF</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {isStatementOnly ? 'Always attached in statement-only mode' : 'Sends the monthly statement PDF file with the message'}
+                      </p>
+                    </div>
                   </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => { setIncludeStatement((v) => !v); setShowPreview(false); resetPreview(); }}
-                  className={cn(
-                    'relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none',
-                    includeStatement ? 'bg-primary' : 'bg-white/20',
-                  )}
-                >
-                  <span
+                  <button
+                    type="button"
+                    disabled={isStatementOnly}
+                    onClick={() => { setIncludeStatement((v) => !v); setShowPreview(false); resetPreview(); }}
                     className={cn(
-                      'inline-block h-4 w-4 rounded-full bg-white shadow transition-transform',
-                      includeStatement ? 'translate-x-6' : 'translate-x-1',
+                      'relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none',
+                      effectiveIncludeStatement ? 'bg-primary' : 'bg-white/20',
+                      isStatementOnly && 'opacity-60 cursor-not-allowed',
                     )}
-                  />
-                </button>
-              </div>
+                  >
+                    <span
+                      className={cn(
+                        'inline-block h-4 w-4 rounded-full bg-white shadow transition-transform',
+                        effectiveIncludeStatement ? 'translate-x-6' : 'translate-x-1',
+                      )}
+                    />
+                  </button>
+                </div>
+              )}
+
+              {isWarning && (
+                <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-500/5 border border-amber-500/20 text-[11px] text-amber-300/90">
+                  <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+                  <span>
+                    Only customers already sent a statement this cycle who still owe are targeted. The delay and
+                    minimum are set in <span className="font-bold">Overdue Warning Settings</span> below. Each customer
+                    is warned at most once per billing month.
+                  </span>
+                </div>
+              )}
 
               {/* Validation warning for single mode */}
               {sendMode === 'single' && !selectedCustomerId && (
@@ -540,7 +704,7 @@ export default function BalanceRemindersPage() {
                 <Button
                   variant="outline"
                   onClick={handlePreview}
-                  disabled={!canSend || isPreviewing || isSending}
+                  disabled={!hasRecipients || isPreviewing || isSending}
                   className="flex-1 rounded-xl h-10 text-xs font-bold border-border/50 bg-white/5 hover:bg-white/10"
                 >
                   {isPreviewing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ChevronRight className="h-3.5 w-3.5 mr-1" />}
@@ -549,25 +713,110 @@ export default function BalanceRemindersPage() {
                 <Button
                   onClick={handleSend}
                   disabled={!canSend || isSending || isPreviewing}
-                  className="flex-2 flex-1 rounded-xl h-10 text-xs font-bold shadow-lg shadow-primary/20"
+                  className={cn(
+                    'flex-2 flex-1 rounded-xl h-10 text-xs font-bold shadow-lg',
+                    isWarning ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/20' : 'shadow-primary/20',
+                  )}
                 >
                   {isSending ? (
                     <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Sending…</>
                   ) : (
-                    <><Send className="mr-1.5 h-3.5 w-3.5" /> Send Now</>
+                    <>{isWarning ? <AlertTriangle className="mr-1.5 h-3.5 w-3.5" /> : <Send className="mr-1.5 h-3.5 w-3.5" />} {isWarning ? 'Send Warnings' : 'Send Now'}</>
                   )}
                 </Button>
               </div>
 
+              {waBlocked && (
+                <p className="text-[10px] text-destructive/90 italic px-1">
+                  WhatsApp is not connected — sending is disabled until the connection is restored.
+                </p>
+              )}
+
               <p className="text-[10px] text-muted-foreground italic px-1">
-                {includeStatement
-                  ? 'Each recipient will receive a WhatsApp message with their monthly statement PDF attached.'
-                  : 'Recipients will receive a WhatsApp balance reminder message.'}
+                {isWarning
+                  ? 'Each recipient will receive a WhatsApp overdue-balance warning — no PDF, no payment link.'
+                  : isStatementOnly
+                    ? 'Each recipient will receive their monthly statement PDF with a neutral cover message — no payment request.'
+                    : effectiveIncludeStatement
+                      ? 'Each recipient will receive a WhatsApp message with their monthly statement PDF attached.'
+                      : 'Recipients will receive a WhatsApp balance reminder message.'}
               </p>
             </CardContent>
           </Card>
+
+          {/* Overdue Warning Settings */}
+          {canConfigure && (
+            <Card className="bg-card/50 backdrop-blur-sm border-border/50 overflow-hidden">
+              <CardHeader className="pb-3 border-b border-border/50 bg-white/5">
+                <CardTitle className="text-sm font-bold flex items-center gap-2 uppercase tracking-widest text-muted-foreground">
+                  <Settings2 className="h-4 w-4 text-primary" />
+                  Overdue Warning Settings
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-6 space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Delay (days)</Label>
+                    <Input
+                      type="number" min={1} max={14}
+                      value={cfgDelay}
+                      onChange={(e) => setCfgDelay(e.target.value)}
+                      className="bg-accent/30 border-border/50 font-mono h-10 rounded-xl"
+                    />
+                    <p className="text-[10px] text-muted-foreground ml-1">Days after a statement before a warning may go out (1–14).</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Min Balance (₨)</Label>
+                    <Input
+                      type="number" min={0}
+                      value={cfgMinBalance}
+                      onChange={(e) => setCfgMinBalance(e.target.value)}
+                      className="bg-accent/30 border-border/50 font-mono h-10 rounded-xl"
+                    />
+                    <p className="text-[10px] text-muted-foreground ml-1">Warn only if the live balance is at least this much.</p>
+                  </div>
+                </div>
+                <Button
+                  onClick={saveConfig}
+                  disabled={isSavingConfig}
+                  className="w-full rounded-xl h-9 text-xs font-bold"
+                >
+                  {isSavingConfig ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Save Settings'}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
+
+      {/* Overdue-warning confirm speed-bump */}
+      <Dialog open={showWarnConfirm} onOpenChange={setShowWarnConfirm}>
+        <DialogContent className="rounded-3xl max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base text-amber-400">
+              <AlertTriangle className="h-4 w-4" />
+              Send overdue warnings?
+            </DialogTitle>
+            <DialogDescription className="text-xs pt-2">
+              This sends a service-interruption warning — a stronger message than a normal reminder — to every
+              eligible customer for {formatMonthDisplay(month)}. They are each warned at most once this month.
+              {previewResult && isWarning ? ` Preview matched ${previewResult.totalWouldSend} customer(s).` : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => setShowWarnConfirm(false)} className="rounded-xl h-9 text-xs font-bold">
+              Cancel
+            </Button>
+            <Button
+              onClick={doSend}
+              disabled={isSending || waBlocked}
+              className="rounded-xl h-9 text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white"
+            >
+              {isSending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Yes, send warnings'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Send History */}
       <Card className="bg-card/50 backdrop-blur-sm border-border/50 overflow-hidden">
@@ -616,11 +865,28 @@ export default function BalanceRemindersPage() {
                 </button>
               ))}
             </div>
-            {(historyDateFrom || historyDateTo || historyResult !== 'all') && (
+            <div className="flex gap-1.5">
+              {(['all', 'REMINDER', 'STATEMENT_ONLY', 'WARNING'] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => { setHistoryKind(k); setHistoryPage(1); }}
+                  className={cn(
+                    'px-3 h-8 rounded-lg text-xs font-bold border transition-colors',
+                    historyKind === k
+                      ? 'bg-primary/15 border-primary/40 text-primary'
+                      : 'bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10',
+                  )}
+                >
+                  {k === 'all' ? 'All Kinds' : KIND_LABEL[k]}
+                </button>
+              ))}
+            </div>
+            {(historyDateFrom || historyDateTo || historyResult !== 'all' || historyKind !== 'all') && (
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => { setHistoryDateFrom(''); setHistoryDateTo(''); setHistoryResult('all'); setHistoryPage(1); }}
+                onClick={() => { setHistoryDateFrom(''); setHistoryDateTo(''); setHistoryResult('all'); setHistoryKind('all'); setHistoryPage(1); }}
                 className="h-8 px-2 rounded-lg text-xs text-muted-foreground"
               >
                 Clear
@@ -638,7 +904,7 @@ export default function BalanceRemindersPage() {
             <div className="flex flex-col items-center justify-center py-10 text-center space-y-2">
               <History className="h-8 w-8 text-muted-foreground/30" />
               <p className="text-sm text-muted-foreground">
-                {historyDateFrom || historyDateTo || historyResult !== 'all'
+                {historyDateFrom || historyDateTo || historyResult !== 'all' || historyKind !== 'all'
                   ? 'No sends match these filters.'
                   : 'No reminders have been sent yet.'}
               </p>
@@ -650,6 +916,7 @@ export default function BalanceRemindersPage() {
                   <thead>
                     <tr className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground border-b border-border/30">
                       <th className="text-left pb-2 pr-4">Date</th>
+                      <th className="text-left pb-2 pr-4">Kind</th>
                       <th className="text-left pb-2 pr-4">Trigger</th>
                       <th className="text-left pb-2 pr-4">Mode</th>
                       <th className="text-left pb-2 pr-4">Month</th>
@@ -666,6 +933,14 @@ export default function BalanceRemindersPage() {
                       >
                         <td className="py-2.5 pr-4 text-muted-foreground whitespace-nowrap">
                           {new Date(log.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </td>
+                        <td className="py-2.5 pr-4">
+                          <Badge className={cn(
+                            'text-[9px] font-black px-1.5 border-none',
+                            KIND_STYLE[log.kind] ?? 'bg-white/10 text-muted-foreground',
+                          )}>
+                            {(KIND_LABEL[log.kind] ?? log.kind ?? 'Reminder').toUpperCase()}
+                          </Badge>
                         </td>
                         <td className="py-2.5 pr-4">
                           <Badge className={cn(
@@ -756,7 +1031,12 @@ export default function BalanceRemindersPage() {
                     {String(count)} {REASON_LABELS[reason] ?? reason.toUpperCase()}
                   </Badge>
                 ))}
-                {includeStatement && (
+                {isStatementOnly && (
+                  <Badge className="bg-primary/10 text-primary text-[10px] font-bold px-2 border-none">
+                    Statement Only
+                  </Badge>
+                )}
+                {effectiveIncludeStatement && !isStatementOnly && (
                   <Badge className="bg-primary/10 text-primary text-[10px] font-bold px-2 border-none">
                     With Statement PDF
                   </Badge>
@@ -879,7 +1159,7 @@ export default function BalanceRemindersPage() {
                             <Button
                               size="sm"
                               onClick={() => handleSendToOne(e.customerId)}
-                              disabled={isRowSending || !!sendingCustomerId || isSending || isExcluded}
+                              disabled={isRowSending || !!sendingCustomerId || isSending || isExcluded || waBlocked}
                               className="h-6 px-2 ml-2 rounded-lg text-[10px] font-bold flex-shrink-0 bg-emerald-600 hover:bg-emerald-500 text-white shadow-none"
                             >
                               {isRowSending
@@ -922,14 +1202,17 @@ export default function BalanceRemindersPage() {
                   Close
                 </Button>
                 <Button
-                  onClick={handleSend}
-                  disabled={isSending || effectiveSendCount === 0}
-                  className="flex-1 rounded-xl h-10 text-xs font-bold shadow-lg shadow-primary/20"
+                  onClick={doSend}
+                  disabled={isSending || effectiveSendCount === 0 || waBlocked}
+                  className={cn(
+                    'flex-1 rounded-xl h-10 text-xs font-bold shadow-lg',
+                    isWarning ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/20' : 'shadow-primary/20',
+                  )}
                 >
                   {isSending ? (
                     <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Sending…</>
                   ) : (
-                    <><Send className="mr-1.5 h-3.5 w-3.5" /> Send to {effectiveSendCount}</>
+                    <>{isWarning ? <AlertTriangle className="mr-1.5 h-3.5 w-3.5" /> : <Send className="mr-1.5 h-3.5 w-3.5" />} Send to {effectiveSendCount}</>
                   )}
                 </Button>
               </div>
@@ -956,6 +1239,12 @@ export default function BalanceRemindersPage() {
             <div className="flex flex-col gap-4 overflow-hidden">
               {/* Filter / context chips */}
               <div className="flex flex-wrap gap-1.5">
+                <Badge className={cn(
+                  'text-[9px] font-black px-1.5 border-none',
+                  KIND_STYLE[(logDetail as any).kind] ?? 'bg-white/10 text-muted-foreground',
+                )}>
+                  {(KIND_LABEL[(logDetail as any).kind] ?? (logDetail as any).kind ?? 'Reminder').toUpperCase()}
+                </Badge>
                 <Badge className={cn(
                   'text-[9px] font-black px-1.5 border-none',
                   (logDetail as any).trigger === 'cron' ? 'bg-blue-500/10 text-blue-400' : 'bg-violet-500/10 text-violet-400',
@@ -999,12 +1288,31 @@ export default function BalanceRemindersPage() {
               </div>
 
               {/* Summary */}
-              <div className="flex items-center gap-4 text-xs">
+              <div className="flex flex-wrap items-center gap-3 text-xs">
                 <span className="text-muted-foreground">
                   {new Date((logDetail as any).createdAt).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                 </span>
                 <span className="text-emerald-400 font-bold">{(logDetail as any).sent} sent</span>
                 <span className="text-muted-foreground">{(logDetail as any).skipped} skipped</span>
+
+                {(() => {
+                  const resendable = (((logDetail as any).details ?? []) as any[]).filter((d) => RESENDABLE_STATUSES.has(d.status));
+                  if (resendable.length === 0) return null;
+                  const isResending = resendingLogId === (logDetail as any).id;
+                  return (
+                    <Button
+                      size="sm"
+                      onClick={() => handleResendFailed(logDetail)}
+                      disabled={isResending || isSending || waBlocked}
+                      className="h-7 px-2.5 rounded-lg text-[10px] font-bold bg-primary/90 hover:bg-primary text-primary-foreground"
+                    >
+                      {isResending
+                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : <><Send className="h-3 w-3 mr-1" /> Re-send to Failed ({resendable.length})</>}
+                    </Button>
+                  );
+                })()}
+
                 {(logDetail as any).skipped > 0 && (
                   <Button
                     variant="outline"
