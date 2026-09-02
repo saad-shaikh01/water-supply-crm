@@ -625,6 +625,20 @@ export interface SheetDetail {
   /** Customer Move/Transfer footprint — this sheet as the destination of the move. */
   movedInLogs: DeliveryItemMoveLogEntry[];
   crewCashDistributions: SheetCrewCashDistribution[];
+  /**
+   * Post-Close Divergence Banner (Option C). Present only on a CLOSED sheet
+   * whose `cashExpected` snapshot was taken at close time. `diverged` is true
+   * when a post-close void / delivery correction / trip check-in correction has
+   * moved the live reconciliation away from that frozen snapshot. Purely
+   * informational — no figure on the sheet is changed. Missing == not diverged.
+   */
+  postCloseDivergence?: {
+    diverged: boolean;
+    cashExpectedAtClose?: number;
+    cashExpectedNow?: number;
+    cashDelta?: number;
+    reasons?: string[];
+  };
 }
 
 /** One Crew Cash Distribution row as returned by GET /daily-sheets/:id (nested

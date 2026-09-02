@@ -534,6 +534,10 @@ From research §"Regression hotlist" — each is a verifiable check.
   the stored `cashExpected` nor the already-created `SheetDiscrepancyCase` rows. The ledger
   stays correct; the close-time snapshot and the live view can disagree. Accepted by the
   orchestrator (Open Question #3) — not a data-integrity bug.
+  **Update (2026-09-02):** this divergence is now made legible by the Post-Close Divergence
+  Banner (Option C) — see `docs/features/post-close-divergence-banner.md`. `findOne` attaches
+  `postCloseDivergence` and `sheet-detail.tsx` shows an informational "Modified after close"
+  banner. It changes no figure.
 
 ---
 

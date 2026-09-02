@@ -2012,6 +2012,65 @@ export class DailySheetService implements OnModuleInit {
     // (docs/features/cash-customer-collection-policy.md §9.3). Cached read.
     (sheet as any).cashCollectionPolicy = await this.collectionPolicy.getCashPolicy(vendorId);
 
+    // ── Post-close divergence banner (Option C) ────────────────────────────
+    // On a CLOSED sheet, `cashExpected` / `cashCollected` and the
+    // SheetDiscrepancyCase rows are frozen snapshots taken at close time. The
+    // three sibling retroactive tools (Void Delivery, Edit Closed-Sheet
+    // Delivery, Post-Close Trip Correction — plus Add Missed Delivery) all
+    // deliberately leave that snapshot untouched (see docs/features/*), so
+    // after any of them the live customer ledger and the on-sheet
+    // reconciliation summary legitimately disagree. buildReconciliation is a
+    // pure in-memory computation over the items/loads/expenses already loaded
+    // above — re-running it on the CURRENT data and comparing to the value
+    // persisted at close tells us whether a post-close change has moved the
+    // numbers, without a single extra DB query. Purely informational; changes
+    // no figure. Must never break findOne → any failure degrades to
+    // { diverged: false }.
+    if (sheet.isClosed && (sheet as any).cashExpected != null) {
+      try {
+        const liveRecon = this.buildReconciliation(sheet);
+        // cashExpected is persisted at close as reconciliation.driver.netToHandIn
+        // (see closeSheet / requestClose / approveClose).
+        const cashExpectedNow = liveRecon.driver.netToHandIn;
+        const cashExpectedAtClose = (sheet as any).cashExpected as number;
+        const cashDelta = Math.round((cashExpectedNow - cashExpectedAtClose) * 100) / 100;
+
+        const items = sheet.items as any[];
+        const loads = (sheet.loads ?? []) as any[];
+        const voidedCount = items.filter((i) => i.voidedAt != null).length;
+        const correctionCount = items.filter(
+          (i) => i.isCorrection && i.correctionAddedAt != null,
+        ).length;
+        // editCount > 0 can, in a rare case, count a pre-close in-window trip
+        // edit that happened before this sheet was ever closed — accepted minor
+        // over-flag (the banner is informational only).
+        const tripCorrectCount = loads.filter((l) => (l.editCount ?? 0) > 0).length;
+
+        const reasons: string[] = [];
+        if (voidedCount) {
+          reasons.push(`${voidedCount} deliver${voidedCount > 1 ? 'ies' : 'y'} voided`);
+        }
+        if (correctionCount) {
+          reasons.push(`${correctionCount} delivery correction${correctionCount > 1 ? 's' : ''}`);
+        }
+        if (tripCorrectCount) {
+          reasons.push(
+            `${tripCorrectCount} trip check-in correction${tripCorrectCount > 1 ? 's' : ''}`,
+          );
+        }
+
+        const diverged = Math.abs(cashDelta) >= 1 || reasons.length > 0;
+        (sheet as any).postCloseDivergence = diverged
+          ? { diverged: true, cashExpectedAtClose, cashExpectedNow, cashDelta, reasons }
+          : { diverged: false };
+      } catch (err) {
+        this.logger.warn(
+          `postCloseDivergence computation failed for sheet ${id}: ${(err as Error).message}`,
+        );
+        (sheet as any).postCloseDivergence = { diverged: false };
+      }
+    }
+
     return sheet;
   }
 

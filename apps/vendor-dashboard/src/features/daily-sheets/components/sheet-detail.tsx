@@ -27,7 +27,7 @@ import { toast } from 'sonner';
 import {
   CheckCircle2, ChevronDown, ChevronUp, ClipboardList, DollarSign, Gauge, ShieldAlert,
   Droplets, Loader2, Package, Pencil, Receipt, Route, RotateCcw, Search, Truck, Upload, User, X,
-  AlertOctagon, ArrowRightLeft, XCircle,
+  AlertOctagon, ArrowRightLeft, XCircle, History,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { VehicleCheckType } from '@water-supply-crm/types';
@@ -873,6 +873,45 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
           >
             Review
           </Button>
+        </div>
+      )}
+
+      {/* Post-Close Divergence Banner (Option C) — informational only. A closed
+          sheet's Cash Expected / Cash Collected tiles, the reconciliation card
+          and any Discrepancy Cases are frozen at close time; a later void /
+          delivery correction / trip check-in correction updates the customer
+          ledger but NOT that snapshot. This banner makes that legible; it
+          changes no figure. Backend attaches data.postCloseDivergence in
+          findOne() only when it actually diverged. */}
+      {data.postCloseDivergence?.diverged && (
+        <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-start gap-3">
+          <History className="h-5 w-5 text-amber-500 mt-0.5 flex-shrink-0" />
+          <div className="flex-1 min-w-[200px] space-y-1">
+            <p className="text-sm font-bold text-amber-700 dark:text-amber-400">Modified after close</p>
+            <p className="text-xs text-muted-foreground">
+              This sheet was changed after it was closed. The reconciliation summary and Cash Expected / Cash Collected figures below are frozen at their close-time values.
+            </p>
+            {typeof data.postCloseDivergence.cashDelta === 'number' && data.postCloseDivergence.cashDelta !== 0 && (
+              <p className="text-xs text-muted-foreground">
+                Expected cash at close: ₨{(data.postCloseDivergence.cashExpectedAtClose ?? 0).toLocaleString()} · recalculated now: ₨{(data.postCloseDivergence.cashExpectedNow ?? 0).toLocaleString()} ({data.postCloseDivergence.cashDelta > 0 ? '+' : ''}₨{data.postCloseDivergence.cashDelta.toLocaleString()}).
+              </p>
+            )}
+            {(data.postCloseDivergence.reasons?.length ?? 0) > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Changes: {data.postCloseDivergence.reasons!.join(', ')}.
+              </p>
+            )}
+          </div>
+          {openDiscrepancyCount > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-full text-xs h-7 shrink-0"
+              onClick={() => router.push(`/dashboard/discrepancy-cases?dailySheetId=${sheetId}`)}
+            >
+              View discrepancy cases
+            </Button>
+          )}
         </div>
       )}
 
