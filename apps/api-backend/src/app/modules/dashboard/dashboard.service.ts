@@ -6,6 +6,11 @@ import {
   CACHE_TTLS,
 } from '@water-supply-crm/caching';
 import { TransactionType } from '@prisma/client';
+import {
+  resolveSheetCash,
+  dailySheetItemModifiedOrWhere,
+  SHEET_CASH_RELOAD_INCLUDE,
+} from '../daily-sheet/sheet-cash.util';
 
 @Injectable()
 export class DashboardService {
@@ -439,9 +444,52 @@ export class DashboardService {
       }),
       this.prisma.dailySheet.findMany({
         where: { vendorId, date: { gte: rangeStart } },
-        select: { date: true, cashExpected: true, cashCollected: true },
+        select: { id: true, date: true, cashExpected: true, cashCollected: true },
       }),
     ]);
+
+    // ── Hybrid cash rollups (docs/features/post-close-divergence-banner.md) ──
+    // On a CLOSED sheet the frozen cashExpected/cashCollected columns are never
+    // rewritten by post-close voids/corrections. Cheaply detect which closed
+    // sheets in the range were edited after close, targeted-reload only those,
+    // and use the live VOIDED-excluding recompute for them. Every other sheet
+    // keeps its frozen columns so historical months stay byte-identical.
+    const [modItems, modLoads] = await Promise.all([
+      this.prisma.dailySheetItem.findMany({
+        where: {
+          dailySheet: { vendorId, date: { gte: rangeStart }, isClosed: true },
+          OR: dailySheetItemModifiedOrWhere as any,
+        },
+        select: { dailySheetId: true },
+      }),
+      this.prisma.dailySheetLoad.findMany({
+        where: {
+          dailySheet: { vendorId, date: { gte: rangeStart }, isClosed: true },
+          editCount: { gt: 0 },
+        },
+        select: { dailySheetId: true },
+      }),
+    ]);
+    const modifiedSheetIds = new Set<string>([
+      ...modItems.map((r) => r.dailySheetId),
+      ...modLoads.map((r) => r.dailySheetId),
+    ]);
+    const resolvedCashMap = new Map<string, ReturnType<typeof resolveSheetCash>>();
+    if (modifiedSheetIds.size > 0) {
+      const fullSheets = await this.prisma.dailySheet.findMany({
+        where: { id: { in: Array.from(modifiedSheetIds) }, vendorId },
+        include: SHEET_CASH_RELOAD_INCLUDE as any,
+      });
+      for (const fs of fullSheets) resolvedCashMap.set(fs.id, resolveSheetCash(fs));
+    }
+    const effCash = (sh: { id: string; cashExpected: number | null; cashCollected: number | null }) => {
+      const r = resolvedCashMap.get(sh.id);
+      return r ?? {
+        cashCollected: sh.cashCollected ?? 0,
+        cashExpected: sh.cashExpected ?? 0,
+        postCloseModified: false,
+      };
+    };
 
     const result = Array.from({ length: months }, (_, idx) => {
       const monthIndex = months - 1 - idx;
@@ -458,8 +506,10 @@ export class DashboardService {
       const bottlesDelivered = monthItems.reduce((s, i) => s + i.filledDropped, 0);
       const emptyReceived = monthItems.reduce((s, i) => s + i.emptyReceived, 0);
       const filledReceived = monthItems.reduce((s, i) => s + i.filledReceived, 0);
-      const cashExpected = monthSheets.reduce((s, sh) => s + sh.cashExpected, 0);
-      const cashCollected = monthSheets.reduce((s, sh) => s + sh.cashCollected, 0);
+      const monthCash = monthSheets.map(effCash);
+      const cashExpected = monthCash.reduce((s, c) => s + c.cashExpected, 0);
+      const cashCollected = monthCash.reduce((s, c) => s + c.cashCollected, 0);
+      const hasModifiedClosedSheets = monthCash.some((c) => c.postCloseModified);
 
       return {
         month: monthStart.toLocaleString('en', { month: 'short', year: 'numeric' }),
@@ -469,6 +519,7 @@ export class DashboardService {
         cashExpected,
         cashCollected,
         collectionRate: cashExpected > 0 ? Math.round((cashCollected / cashExpected) * 100) : 0,
+        hasModifiedClosedSheets,
       };
     });
 

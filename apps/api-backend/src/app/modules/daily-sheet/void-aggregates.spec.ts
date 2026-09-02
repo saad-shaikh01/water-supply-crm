@@ -148,6 +148,121 @@ describe('DailySheetService.findAllPaginated — voided items', () => {
   });
 });
 
+// ── findAllPaginated — hybrid cash (post-close-modified rows) ──────────────
+describe('DailySheetService.findAllPaginated — hybrid cash', () => {
+  let service: DailySheetService;
+  let mockPrisma: any;
+
+  beforeEach(async () => {
+    mockPrisma = {
+      dailySheet: { findMany: jest.fn(), count: jest.fn().mockResolvedValue(1) },
+    };
+    const module: TestingModule = await Test.createTestingModule({
+      providers: DAILY_SHEET_PROVIDERS(mockPrisma),
+    }).compile();
+    service = module.get<DailySheetService>(DailySheetService);
+    (service as any).prisma = mockPrisma;
+  });
+
+  const row = (over: any) => ({
+    id: 's1',
+    isClosed: true,
+    cashCollected: 999, // frozen close-time snapshot
+    route: null,
+    van: null,
+    driver: null,
+    crew: [],
+    loads: [{ endedAt: null, editCount: 0 }],
+    items: [],
+    ...over,
+  });
+
+  it('closed sheet with a voided item → cashCollected = Σ non-voided item cash, postCloseModified true', async () => {
+    mockPrisma.dailySheet.findMany.mockResolvedValue([
+      row({
+        items: [
+          { status: 'COMPLETED', deliveryType: 'SCHEDULED', deliveryIssue: null, cashCollected: 300, voidedAt: null, isCorrection: false, correctionAddedAt: null },
+          { status: 'EMPTY_ONLY', deliveryType: 'SCHEDULED', deliveryIssue: null, cashCollected: 0, voidedAt: null, isCorrection: false, correctionAddedAt: null },
+          { status: 'VOIDED', deliveryType: 'SCHEDULED', deliveryIssue: null, cashCollected: 200, voidedAt: new Date(), isCorrection: false, correctionAddedAt: null },
+        ],
+      }),
+    ]);
+
+    const res = await service.findAllPaginated('vendor-1', {} as any);
+    const r = res.data[0] as any;
+
+    expect(r.postCloseModified).toBe(true);
+    expect(r.cashCollected).toBe(300); // 300 + 0, voided 200 excluded — NOT the frozen 999
+  });
+
+  it('untouched closed sheet → cashCollected stays frozen, postCloseModified false', async () => {
+    mockPrisma.dailySheet.findMany.mockResolvedValue([
+      row({
+        items: [
+          { status: 'COMPLETED', deliveryType: 'SCHEDULED', deliveryIssue: null, cashCollected: 300, voidedAt: null, isCorrection: false, correctionAddedAt: null },
+        ],
+      }),
+    ]);
+
+    const res = await service.findAllPaginated('vendor-1', {} as any);
+    const r = res.data[0] as any;
+
+    expect(r.postCloseModified).toBe(false);
+    expect(r.cashCollected).toBe(999); // frozen, untouched
+  });
+});
+
+// ── getDriverStats — voided stops excluded from totals ────────────────────
+describe('DailySheetService.getDriverStats — voided items', () => {
+  let service: DailySheetService;
+  let mockPrisma: any;
+
+  beforeEach(async () => {
+    mockPrisma = {
+      dailySheetItem: {
+        groupBy: jest.fn(({ by }: any) => {
+          if (by[0] === 'status') {
+            return Promise.resolve([
+              { status: 'COMPLETED', _count: { id: 5 }, _sum: { filledDropped: 10, emptyReceived: 8, filledReceived: 0 } },
+              { status: 'NOT_AVAILABLE', _count: { id: 2 }, _sum: { filledDropped: 0, emptyReceived: 0, filledReceived: 0 } },
+            ]);
+          }
+          return Promise.resolve([]); // failureCategory + dailySheetId groups
+        }),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      dailySheetLoad: { findMany: jest.fn().mockResolvedValue([]) },
+      dailySheet: {
+        aggregate: jest.fn().mockResolvedValue({ _count: { id: 1 } }),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+    };
+    const module: TestingModule = await Test.createTestingModule({
+      providers: DAILY_SHEET_PROVIDERS(mockPrisma),
+    }).compile();
+    service = module.get<DailySheetService>(DailySheetService);
+    (service as any).prisma = mockPrisma;
+  });
+
+  it('itemStats groupBy filters out VOIDED so totalItems / successRate ignore voided stops', async () => {
+    const res: any = await service.getDriverStats('vendor-1', 'driver-1', {});
+
+    const statusGroupBy = mockPrisma.dailySheetItem.groupBy.mock.calls.find(
+      (c: any[]) => c[0].by[0] === 'status',
+    );
+    expect(statusGroupBy[0].where.status).toEqual({ not: 'VOIDED' });
+
+    const failureGroupBy = mockPrisma.dailySheetItem.groupBy.mock.calls.find(
+      (c: any[]) => c[0].by[0] === 'failureCategory',
+    );
+    expect(failureGroupBy[0].where.status).toEqual({ not: 'VOIDED' });
+
+    expect(res.totalItems).toBe(7); // 5 completed + 2 not-available, no voided group
+    expect(res.deliveredCount).toBe(5);
+    expect(res.successRate).toBe(71); // round(5/7*100)
+  });
+});
+
 // ── analytics.getDeliveries ────────────────────────────────────────────────
 describe('AnalyticsService.getDeliveries — voided items', () => {
   let service: AnalyticsService;

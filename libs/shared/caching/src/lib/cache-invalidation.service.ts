@@ -48,9 +48,24 @@ export class CacheInvalidationService {
     }
   }
 
-  /** Invalidate all analytics cache entries for a vendor (all date ranges). */
+  /**
+   * Invalidate all analytics cache entries for a vendor (all date ranges), plus
+   * the other derived dashboard rollups that SUM DailySheet cash columns and so
+   * go stale on a post-close void / delivery correction / trip correction
+   * (monthly-summary, revenue, top-customers, route/staff performance). The
+   * per-day dashboard key has its own date-targeted invalidation and is left
+   * alone here.
+   */
   async invalidateAnalytics(vendorId: string): Promise<void> {
-    await this.delByPattern(`vendor:${vendorId}:${CACHE_KEYS.DASHBOARD}:analytics:*`);
+    const base = `vendor:${vendorId}:${CACHE_KEYS.DASHBOARD}`;
+    await Promise.all([
+      this.delByPattern(`${base}:analytics:*`),
+      this.delByPattern(`${base}:monthly-summary:*`),
+      this.delByPattern(`${base}:revenue:*`),
+      this.delByPattern(`${base}:top-customers:*`),
+      this.delByPattern(`${base}:route-performance:*`),
+      this.delByPattern(`${base}:staff-performance:*`),
+    ]);
   }
 
   /** Invalidate the dashboard overview for a vendor. */

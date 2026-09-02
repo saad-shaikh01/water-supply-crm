@@ -20,6 +20,8 @@ export interface DriverStats {
     deliveredItems: number;
     cashCollected: number;
     cashExpected: number;
+    /** Cash figures were live-recomputed because this closed sheet was edited after close. */
+    postCloseModified?: boolean;
   }[];
 }
 

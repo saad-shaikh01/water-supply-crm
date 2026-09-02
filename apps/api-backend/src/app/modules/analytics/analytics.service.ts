@@ -5,6 +5,11 @@ import {
   CACHE_KEYS,
 } from '@water-supply-crm/caching';
 import { TransactionType, PaymentType } from '@prisma/client';
+import {
+  resolveSheetCash,
+  dailySheetItemModifiedOrWhere,
+  SHEET_CASH_RELOAD_INCLUDE,
+} from '../daily-sheet/sheet-cash.util';
 
 function groupSum<T>(items: T[], keyFn: (i: T) => string, valueFn: (i: T) => number): Map<string, number> {
   const map = new Map<string, number>();
@@ -78,6 +83,7 @@ export class AnalyticsService {
           ...(dateFilter && { date: dateFilter }),
         },
         select: {
+          id: true,
           cashExpected: true,
           cashCollected: true,
           routeId: true,
@@ -108,6 +114,47 @@ export class AnalyticsService {
         },
       }),
     ]);
+
+    // ── Hybrid cash rollups (docs/features/post-close-divergence-banner.md) ──
+    // DailySheet.cashExpected/cashCollected are frozen at close and never
+    // rewritten by post-close voids/corrections. Detect the closed sheets in
+    // range that were edited after close, targeted-reload only those, and use
+    // the live VOIDED-excluding recompute for them. Untouched sheets keep their
+    // frozen columns so historical numbers stay byte-identical.
+    const [modItems, modLoads] = await Promise.all([
+      this.prisma.dailySheetItem.findMany({
+        where: {
+          dailySheet: { vendorId, ...(dateFilter && { date: dateFilter }), isClosed: true },
+          OR: dailySheetItemModifiedOrWhere as any,
+        },
+        select: { dailySheetId: true },
+      }),
+      this.prisma.dailySheetLoad.findMany({
+        where: {
+          dailySheet: { vendorId, ...(dateFilter && { date: dateFilter }), isClosed: true },
+          editCount: { gt: 0 },
+        },
+        select: { dailySheetId: true },
+      }),
+    ]);
+    const modifiedSheetIds = new Set<string>([
+      ...modItems.map((r) => r.dailySheetId),
+      ...modLoads.map((r) => r.dailySheetId),
+    ]);
+    const resolvedCashMap = new Map<string, ReturnType<typeof resolveSheetCash>>();
+    if (modifiedSheetIds.size > 0) {
+      const fullSheets = await this.prisma.dailySheet.findMany({
+        where: { id: { in: Array.from(modifiedSheetIds) }, vendorId },
+        include: SHEET_CASH_RELOAD_INCLUDE as any,
+      });
+      for (const fs of fullSheets) resolvedCashMap.set(fs.id, resolveSheetCash(fs));
+    }
+    const effCash = (sh: { id: string; cashExpected: number | null; cashCollected: number | null }) =>
+      resolvedCashMap.get(sh.id) ?? {
+        cashCollected: sh.cashCollected ?? 0,
+        cashExpected: sh.cashExpected ?? 0,
+        postCloseModified: false,
+      };
 
     // Revenue totals
     const totalRevenue = transactions.reduce((s, t) => s + (t.amount ?? 0), 0);
@@ -144,7 +191,7 @@ export class AnalyticsService {
       // route). Bucket route-less sheets under "Unassigned" instead of crashing.
       const key = sheet.routeId ?? 'unassigned';
       const entry = routeRevMap.get(key) ?? { routeId: key, routeName: sheet.route?.name ?? 'Unassigned', revenue: 0 };
-      entry.revenue += sheet.cashCollected;
+      entry.revenue += effCash(sheet).cashCollected;
       routeRevMap.set(key, entry);
     }
     const revenueByRoute = Array.from(routeRevMap.values()).sort((a, b) => b.revenue - a.revenue);
@@ -158,8 +205,9 @@ export class AnalyticsService {
         cashExpected: 0,
         cashCollected: 0,
       };
-      entry.cashExpected += sheet.cashExpected;
-      entry.cashCollected += sheet.cashCollected;
+      const c = effCash(sheet);
+      entry.cashExpected += c.cashExpected;
+      entry.cashCollected += c.cashCollected;
       vanCashMap.set(sheet.vanId, entry);
     }
     const cashByVan = Array.from(vanCashMap.values()).sort((a, b) => b.cashCollected - a.cashCollected);
@@ -173,8 +221,8 @@ export class AnalyticsService {
     }
 
     // Collection rate
-    const totalExpected = sheets.reduce((s, sh) => s + sh.cashExpected, 0);
-    const totalCollected = sheets.reduce((s, sh) => s + sh.cashCollected, 0);
+    const totalExpected = sheets.reduce((s, sh) => s + effCash(sh).cashExpected, 0);
+    const totalCollected = sheets.reduce((s, sh) => s + effCash(sh).cashCollected, 0);
     const collectionRate = totalExpected > 0 ? Math.round((totalCollected / totalExpected) * 100) : 0;
 
     // Cash expected/collected split by customer payment type (itemized, since

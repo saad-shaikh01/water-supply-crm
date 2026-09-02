@@ -38,6 +38,8 @@ export function SheetList() {
     filledInCount: number;
     emptyInCount: number;
     cashCollected: number;
+    /** Closed sheet edited after close — cashCollected above is a live recompute, not the frozen snapshot. */
+    postCloseModified?: boolean;
     route?: { name: string };
     driver?: { name: string };
     van?: { plateNumber: string };
@@ -267,8 +269,16 @@ export function SheetList() {
             key: 'cash',
             header: 'Cash',
             cell: (r) => (
-              <div className="text-xs font-mono font-bold text-emerald-400 whitespace-nowrap">
-                ₨ {Number(r.cashCollected ?? 0).toLocaleString()}
+              <div className="flex items-center gap-1.5 whitespace-nowrap">
+                <span className="text-xs font-mono font-bold text-emerald-400">
+                  ₨ {Number(r.cashCollected ?? 0).toLocaleString()}
+                </span>
+                {r.postCloseModified && (
+                  <span
+                    title="Recalculated — this sheet was edited after close"
+                    className="h-1.5 w-1.5 rounded-full bg-amber-400/80"
+                  />
+                )}
               </div>
             )
           },

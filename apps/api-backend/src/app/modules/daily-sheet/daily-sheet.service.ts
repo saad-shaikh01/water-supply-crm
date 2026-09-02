@@ -50,10 +50,25 @@ import { evaluateCollectionPolicy, evaluateCashCollectionPolicy } from '../../co
 import { CrewCashDistributionService } from '../payroll/crew-cash-distribution.service';
 import { VehicleCheckService } from '../fleet/vehicle-check.service';
 import { SheetDiscrepancyCaseService } from '../sheet-discrepancy-case/sheet-discrepancy-case.service';
+import {
+  buildReconciliation as buildReconciliationPure,
+  isSheetModifiedAfterClose,
+  resolveSheetCash,
+  dailySheetItemModifiedOrWhere,
+  SHEET_CASH_RELOAD_INCLUDE,
+} from './sheet-cash.util';
 
 const AUTO_GENERATE_CRON = '5 0 * * *'; // 00:05 AM, evaluated in AUTO_GENERATE_TZ
 const AUTO_GENERATE_TZ = 'Asia/Karachi';
 const AUTO_GENERATE_JOB_ID = 'daily-sheet-auto-generation';
+
+// What reconcileTripAfterDeliveryChange() hands back to its caller so the
+// existing closed-trip-correction audit row can be written after the txn.
+type TripReconcileResult = {
+  loadId: string;
+  before: { returnedFilled: number; collectedEmpty: number };
+  after: { returnedFilled: number; collectedEmpty: number };
+};
 
 @Injectable()
 export class DailySheetService implements OnModuleInit {
@@ -973,6 +988,8 @@ export class DailySheetService implements OnModuleInit {
 
     const voidedAt = new Date();
 
+    let tripReconcile: TripReconcileResult | null = null;
+
     const result = await this.prisma.$transaction(async (tx) => {
       // Atomic conditional claim — flip the row to VOIDED only while it is still
       // un-voided. Two concurrent voids race HERE: exactly one updateMany
@@ -1061,6 +1078,25 @@ export class DailySheetService implements OnModuleInit {
 
       // Void fields were already written by the atomic claim above; just return
       // the current row (this method returned a bare item with no includes).
+
+      // Auto-reconcile the affected trip's physical counts — a voided delivery's
+      // figures go to zero, so shift the trip counts by the offsetting delta
+      // (reuses the manual Post-Close Trip Correction path). No-ops on an open
+      // sheet or an unattributed / product-mismatched item.
+      tripReconcile = await this.reconcileTripAfterDeliveryChange(tx, {
+        vendorId,
+        sheetId: item.dailySheetId,
+        isClosed: item.dailySheet.isClosed,
+        dailySheetLoadId: item.dailySheetLoadId,
+        itemProductId: item.productId,
+        old: {
+          filledDropped: item.filledDropped,
+          emptyReceived: item.emptyReceived,
+          filledReceived: item.filledReceived,
+        },
+        next: { filledDropped: 0, emptyReceived: 0, filledReceived: 0 },
+      });
+
       return tx.dailySheetItem.findUnique({ where: { id: itemId } });
     });
 
@@ -1086,6 +1122,24 @@ export class DailySheetService implements OnModuleInit {
         },
       },
     });
+
+    if (tripReconcile) {
+      await this.audit.log({
+        vendorId,
+        userId: user.userId,
+        userName: user.name,
+        action: 'CLOSED_TRIP_CHECKIN_CORRECTED',
+        entity: 'DailySheetLoad',
+        entityId: tripReconcile.loadId,
+        changes: {
+          before: tripReconcile.before,
+          after: {
+            ...tripReconcile.after,
+            correctionNote: `Auto-reconciled from closed-sheet delivery void on item ${itemId}`,
+          },
+        },
+      });
+    }
 
     const sheetDate = item.dailySheet.date.toISOString().slice(0, 10);
     await Promise.all([
@@ -1154,6 +1208,8 @@ export class DailySheetService implements OnModuleInit {
     const resolvedStatus =
       dto.filledDropped === 0 ? DeliveryStatus.EMPTY_ONLY : DeliveryStatus.COMPLETED;
 
+    let tripReconcile: TripReconcileResult | null = null;
+
     const result = await this.prisma.$transaction(async (tx) => {
       // Row lock FIRST (learned from the trip-correction review) — serialise
       // concurrent corrections of the same item so the in-txn re-read below
@@ -1216,7 +1272,7 @@ export class DailySheetService implements OnModuleInit {
         select: { financialBalance: true },
       });
 
-      return tx.dailySheetItem.update({
+      const updatedItem = await tx.dailySheetItem.update({
         where: { id: itemId },
         data: {
           filledDropped: dto.filledDropped,
@@ -1234,6 +1290,30 @@ export class DailySheetService implements OnModuleInit {
           financialBalanceAfter: updatedCustomer?.financialBalance ?? null,
         },
       });
+
+      // Auto-reconcile the affected trip's physical counts so a bottle
+      // discrepancy caused purely by this correction is closed (reuses the
+      // manual Post-Close Trip Correction delta path). No-ops unless the item
+      // is attributed to a product-matching trip on this closed sheet.
+      tripReconcile = await this.reconcileTripAfterDeliveryChange(tx, {
+        vendorId,
+        sheetId: item.dailySheetId,
+        isClosed: item.dailySheet.isClosed,
+        dailySheetLoadId: item.dailySheetLoadId,
+        itemProductId: item.productId,
+        old: {
+          filledDropped: item.filledDropped,
+          emptyReceived: item.emptyReceived,
+          filledReceived: item.filledReceived,
+        },
+        next: {
+          filledDropped: dto.filledDropped,
+          emptyReceived: dto.emptyReceived,
+          filledReceived: dto.filledReceived,
+        },
+      });
+
+      return updatedItem;
     });
 
     await this.audit.log({
@@ -1261,6 +1341,24 @@ export class DailySheetService implements OnModuleInit {
         },
       },
     });
+
+    if (tripReconcile) {
+      await this.audit.log({
+        vendorId,
+        userId: user.userId,
+        userName: user.name,
+        action: 'CLOSED_TRIP_CHECKIN_CORRECTED',
+        entity: 'DailySheetLoad',
+        entityId: tripReconcile.loadId,
+        changes: {
+          before: tripReconcile.before,
+          after: {
+            ...tripReconcile.after,
+            correctionNote: `Auto-reconciled from closed-sheet delivery correction on item ${itemId}`,
+          },
+        },
+      });
+    }
 
     const sheetDate = item.dailySheet.date.toISOString().slice(0, 10);
     await Promise.all([
@@ -1451,9 +1549,14 @@ export class DailySheetService implements OnModuleInit {
               status: true,
               deliveryType: true,
               deliveryIssue: { select: { id: true, status: true } },
+              // post-close-modified detection + light cash recompute (below)
+              cashCollected: true,
+              voidedAt: true,
+              isCorrection: true,
+              correctionAddedAt: true,
             },
           },
-          loads: { select: { endedAt: true } },
+          loads: { select: { endedAt: true, editCount: true } },
         },
         orderBy: { date: sortDir },
         skip: (page - 1) * limit,
@@ -1475,8 +1578,21 @@ export class DailySheetService implements OnModuleInit {
         tripCount: loads.length,
         hasActiveTrip: loads.some((l) => l.endedAt === null),
       };
+      // Hybrid cash (docs/features/post-close-divergence-banner.md): on a closed
+      // sheet edited after close the frozen `cashCollected` column is stale.
+      // The list only surfaces cashCollected, so a light non-voided re-sum is
+      // enough here — no buildReconciliation per list row.
+      const postCloseModified =
+        sheet.isClosed && isSheetModifiedAfterClose({ items, loads });
+      const cashCollected = postCloseModified
+        ? items
+            .filter((i) => i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY')
+            .reduce((s, i) => s + (i.cashCollected ?? 0), 0)
+        : sheet.cashCollected;
       return {
         ...sheet,
+        cashCollected,
+        postCloseModified,
         // Voided items are struck from the operational record — they don't count
         // as "stops" on the sheet.
         _count: { items: items.filter((i) => i.status !== 'VOIDED').length },
@@ -2588,6 +2704,96 @@ export class DailySheetService implements OnModuleInit {
     return { load: updated, deltas: { dReturned, dEmpty, dDamaged, dLeaked } };
   }
 
+  /**
+   * Auto-reconcile the affected trip's physical bottle counts after a
+   * closed-sheet delivery correction or void.
+   *
+   * `buildReconciliation`'s `bottleDiscrepancy` reads `item.filledDropped` /
+   * `filledReceived` LIVE, so the moment a closed-sheet delivery is corrected
+   * or voided the trip's `returnedFilled` / `collectedEmpty` no longer balance
+   * against it — a discrepancy appears that is caused purely by the edit, not
+   * by anything physical. This shifts the trip counts by the offsetting delta
+   * so that gap closes automatically:
+   *
+   *   returnedFilled += deltaFilledReceived - deltaDrop
+   *   collectedEmpty += deltaEmpty
+   *
+   * Reuses `applyTripCheckinDeltas` — the exact signed-delta path a manual
+   * Post-Close Trip Correction takes (writes the load's new absolute counts,
+   * moves `DailySheet.filledInCount` / `emptyInCount` by the delta, posts the
+   * signed warehouse `TRIP_EDIT_CORRECTION` row, bumps `editCount` /
+   * `lastEditedAt`). `damagedOnVan` / `leakedOnVan` are transit losses — never
+   * touched.
+   *
+   * No-ops (returns null) unless the sheet is closed, the item is attributed to
+   * a trip, and that trip's product matches the item's (the warehouse ledger is
+   * product-keyed). Returns the before/after load counts so the caller can
+   * write the existing `CLOSED_TRIP_CHECKIN_CORRECTED` audit row.
+   */
+  private async reconcileTripAfterDeliveryChange(
+    tx: Prisma.TransactionClient,
+    args: {
+      vendorId: string;
+      sheetId: string;
+      isClosed: boolean;
+      dailySheetLoadId: string | null;
+      itemProductId: string;
+      old: { filledDropped: number; emptyReceived: number; filledReceived: number };
+      next: { filledDropped: number; emptyReceived: number; filledReceived: number };
+    },
+  ): Promise<TripReconcileResult | null> {
+    if (!args.isClosed || !args.dailySheetLoadId) return null;
+
+    const deltaDrop = args.next.filledDropped - args.old.filledDropped;
+    const deltaEmpty = args.next.emptyReceived - args.old.emptyReceived;
+    const deltaFilledReceived = args.next.filledReceived - args.old.filledReceived;
+
+    const dReturned = deltaFilledReceived - deltaDrop;
+    const dEmpty = deltaEmpty;
+    if (dReturned === 0 && dEmpty === 0) return null;
+
+    // Row-lock + re-read the load inside this txn (mirrors correctClosedTrip)
+    // so concurrent corrections of the same trip net against committed counts.
+    await tx.$queryRaw`SELECT 1 FROM "DailySheetLoad" WHERE id = ${args.dailySheetLoadId} FOR UPDATE`;
+    const load = await tx.dailySheetLoad.findUnique({
+      where: { id: args.dailySheetLoadId },
+      select: {
+        id: true,
+        returnedFilled: true,
+        collectedEmpty: true,
+        damagedOnVan: true,
+        leakedOnVan: true,
+        productId: true,
+      },
+    });
+    if (!load || load.productId == null || load.productId !== args.itemProductId) {
+      return null;
+    }
+
+    const after = {
+      returnedFilled: load.returnedFilled + dReturned,
+      collectedEmpty: load.collectedEmpty + dEmpty,
+    };
+
+    await this.applyTripCheckinDeltas(
+      tx,
+      load,
+      {
+        returnedFilled: after.returnedFilled,
+        collectedEmpty: after.collectedEmpty,
+        damagedOnVan: load.damagedOnVan,
+        leakedOnVan: load.leakedOnVan,
+      },
+      { sheetId: args.sheetId, vendorId: args.vendorId, productId: load.productId },
+    );
+
+    return {
+      loadId: load.id,
+      before: { returnedFilled: load.returnedFilled, collectedEmpty: load.collectedEmpty },
+      after,
+    };
+  }
+
   async checkinLoad(user: AuthUser, sheetId: string, loadId: string, dto: CheckinLoadDto) {
     const vendorId = user.vendorId;
     const sheet = await this.prisma.dailySheet.findFirst({
@@ -3052,129 +3258,11 @@ export class DailySheetService implements OnModuleInit {
   }
 
   // ── Reconciliation helper ─────────────────────────────────────────────
+  // Pure computation lives in ./sheet-cash.util so dashboard / analytics cash
+  // rollups can reuse it (see resolveSheetCash). Kept as a thin method so the
+  // existing `jest.spyOn(service, 'buildReconciliation')` specs still work.
   private buildReconciliation(sheet: any) {
-    const activeItems = (sheet.items as any[]).filter(
-      (i) => i.status === DeliveryStatus.COMPLETED || i.status === DeliveryStatus.EMPTY_ONLY,
-    );
-
-    const getPrice = (item: any): number => {
-      if (item.pricePerBottle && item.pricePerBottle > 0) return item.pricePerBottle;
-      const custom = item.customer?.customPrices?.find(
-        (cp: any) => cp.productId === item.productId,
-      );
-      return custom?.customPrice ?? item.product?.basePrice ?? 0;
-    };
-
-    // Bottle summary
-    const totalDelivered = activeItems.reduce((s, i) => s + i.filledDropped, 0);
-    // Filled bottles received back from customers (account closing / excess stock
-    // return) are a second source of filled stock on the van, alongside the
-    // warehouse load — they get checked back in as part of filledInCount too, so
-    // they must be added to the "in" side for the discrepancy check to balance.
-    const totalFilledReceived = activeItems.reduce((s, i) => s + i.filledReceived, 0);
-    const bottleDiscrepancy =
-      (sheet.filledOutCount + totalFilledReceived) - (sheet.filledInCount + totalDelivered);
-
-    // Empty bottle summary
-    const totalEmptyCollected = activeItems.reduce((s, i) => s + i.emptyReceived, 0);
-    const emptyDiscrepancy = totalEmptyCollected - sheet.emptyInCount;
-
-    // Cash breakdown by payment type
-    const cashItems = activeItems.filter((i) => i.customer?.paymentType === PaymentType.CASH);
-    const monthlyItems = activeItems.filter((i) => i.customer?.paymentType === PaymentType.MONTHLY);
-
-    const cashBilled = cashItems.reduce(
-      (s, i) => s + getPrice(i) * i.filledDropped, 0,
-    );
-    const cashCollectedFromCash = cashItems.reduce((s, i) => s + i.cashCollected, 0);
-
-    const monthlyBilled = monthlyItems.reduce(
-      (s, i) => s + getPrice(i) * i.filledDropped, 0,
-    );
-
-    // Driver handover — ALL cash recorded across every item EXCEPT voided ones
-    // (a voided delivery's ledger cash was reversed; its stale item.cashCollected
-    // column must not still count toward what the driver owes).
-    const totalCashRecorded = (sheet.items as any[])
-      .filter((i) => i.status !== DeliveryStatus.VOIDED)
-      .reduce((s, i) => s + i.cashCollected, 0);
-    const driverDiscrepancy = totalCashRecorded - sheet.cashCollected;
-
-    // Only expenses actually paid out of the driver's van cash-in-hand
-    // (paidFromCash, default true) reduce the cash hand-in — a fuel fill or
-    // trip expense paid by card/bank/company account never touched that
-    // cash, so it must not be subtracted from it. totalExpensesAll is kept
-    // for cost-tracking displays (Cash Summary "Expenses" line) which still
-    // want the full spend regardless of payment source.
-    const allExpenses = (sheet.expenses ?? []) as any[];
-    const totalExpensesAll = allExpenses.reduce((s: number, e: any) => s + e.amount, 0);
-    const totalExpenses = allExpenses
-      .filter((e: any) => e.paidFromCash !== false)
-      .reduce((s: number, e: any) => s + e.amount, 0);
-    const totalExpensesNonCash = totalExpensesAll - totalExpenses;
-
-    // Crew Cash rows are physical cash already handed to crew off the van
-    // (meals/tea/emergency) — the money is gone from the driver's pocket the
-    // moment it's recorded, regardless of whether that row has cleared its
-    // payroll-approval gate yet (that gate only governs the Payroll Ledger
-    // sync, not whether the cash was actually spent). All rows on the sheet
-    // must reduce cash-on-hand here, the same way every recorded Expense does.
-    const totalCrewCash = ((sheet.crewCashDistributions ?? []) as any[]).reduce(
-      (s: number, c: any) => s + c.amount,
-      0,
-    );
-
-    const pendingCount = (sheet.items as any[]).filter(
-      (i) => i.status === DeliveryStatus.PENDING,
-    ).length;
-
-    return {
-      pendingCount,
-      bottles: {
-        dispatched: sheet.filledOutCount,
-        delivered: totalDelivered,
-        returned: sheet.filledInCount,
-        receivedFromCustomers: totalFilledReceived,
-        discrepancy: bottleDiscrepancy,
-      },
-      empties: {
-        collectedFromCustomers: totalEmptyCollected,
-        returnedToWarehouse: sheet.emptyInCount,
-        discrepancy: emptyDiscrepancy,
-      },
-      cashCustomers: {
-        count: cashItems.length,
-        billed: cashBilled,
-        collected: cashCollectedFromCash,
-        addedToBalance: cashBilled - cashCollectedFromCash,
-      },
-      monthlyCustomers: {
-        count: monthlyItems.length,
-        billedToAccounts: monthlyBilled,
-      },
-      expenses: {
-        // Full spend regardless of payment source (cost-tracking figure).
-        total: totalExpensesAll,
-        // Subset that actually left the driver's cash — this is what's
-        // deducted below in driver.netToHandIn, not `total`.
-        paidFromCash: totalExpenses,
-        // Subset paid by card/bank/company account — real cost, but never
-        // touched the driver's cash so it's excluded from the deduction.
-        paidByOther: totalExpensesNonCash,
-      },
-      crewCash: {
-        total: totalCrewCash,
-      },
-      driver: {
-        shouldHandIn: totalCashRecorded,
-        expensePaidFromCash: totalExpenses,
-        crewCashPaidFromCash: totalCrewCash,
-        netToHandIn: Math.max(0, totalCashRecorded - totalExpenses - totalCrewCash),
-        handedIn: sheet.cashCollected,
-        discrepancy: driverDiscrepancy,
-        unexplainedDiscrepancy: driverDiscrepancy - totalExpenses - totalCrewCash,
-      },
-    };
+    return buildReconciliationPure(sheet);
   }
 
   // Fetch sheet with pricing data needed for reconciliation
@@ -3930,23 +4018,28 @@ export class DailySheetService implements OnModuleInit {
     const completedStatuses: DeliveryStatus[] = [DeliveryStatus.COMPLETED, DeliveryStatus.EMPTY_ONLY];
 
     const [itemStats, failureStats, cashAgg, deliveredPerSheet, sheets] = await Promise.all([
-      // aggregate totals by status
+      // aggregate totals by status — VOIDED stops are struck from the record,
+      // they must not inflate totalItems / drag down successRate.
       this.prisma.dailySheetItem.groupBy({
         by: ['status'],
-        where: { dailySheet: sheetWhere },
+        where: { dailySheet: sheetWhere, status: { not: DeliveryStatus.VOIDED } },
         _count: { id: true },
         _sum: { filledDropped: true, emptyReceived: true, filledReceived: true },
       }),
-      // failure breakdown
+      // failure breakdown (same VOIDED guard for consistency)
       this.prisma.dailySheetItem.groupBy({
         by: ['failureCategory'],
-        where: { dailySheet: sheetWhere, failureCategory: { not: null } },
+        where: {
+          dailySheet: sheetWhere,
+          failureCategory: { not: null },
+          status: { not: DeliveryStatus.VOIDED },
+        },
         _count: { id: true },
       }),
-      // cash totals + sheet count
+      // sheet count (cash totals are computed below via resolveSheetCash so
+      // post-close voids/corrections are reflected — see Hybrid cash rollups).
       this.prisma.dailySheet.aggregate({
         where: sheetWhere,
-        _sum: { cashExpected: true, cashCollected: true },
         _count: { id: true },
       }),
       // delivered item count per sheet for the per-sheet list
@@ -3973,6 +4066,41 @@ export class DailySheetService implements OnModuleInit {
 
     const deliveredMap = new Map(deliveredPerSheet.map((r) => [r.dailySheetId, r._count.id]));
 
+    // ── Hybrid cash: recompute only the sheets edited after close ─────────
+    // Cheap detect pass, then a targeted full re-load of just the (rare)
+    // modified sheets. Untouched sheets keep their frozen close-time columns
+    // so historical figures stay byte-identical.
+    const [modItems, modLoads] = await Promise.all([
+      this.prisma.dailySheetItem.findMany({
+        where: { dailySheet: sheetWhere, OR: dailySheetItemModifiedOrWhere as any },
+        select: { dailySheetId: true },
+      }),
+      this.prisma.dailySheetLoad.findMany({
+        where: { dailySheet: sheetWhere, editCount: { gt: 0 } },
+        select: { dailySheetId: true },
+      }),
+    ]);
+    const modifiedSheetIds = new Set<string>([
+      ...modItems.map((r) => r.dailySheetId),
+      ...modLoads.map((r) => r.dailySheetId),
+    ]);
+    const resolvedCashMap = new Map<string, ReturnType<typeof resolveSheetCash>>();
+    if (modifiedSheetIds.size > 0) {
+      const fullSheets = await this.prisma.dailySheet.findMany({
+        where: { id: { in: Array.from(modifiedSheetIds) }, vendorId },
+        include: SHEET_CASH_RELOAD_INCLUDE as any,
+      });
+      for (const fs of fullSheets) {
+        resolvedCashMap.set(fs.id, resolveSheetCash(fs));
+      }
+    }
+    const effCash = (s: { id: string; cashCollected: number | null; cashExpected: number | null }) => {
+      const r = resolvedCashMap.get(s.id);
+      return r
+        ? { cashCollected: r.cashCollected, cashExpected: r.cashExpected, postCloseModified: r.postCloseModified }
+        : { cashCollected: s.cashCollected ?? 0, cashExpected: s.cashExpected ?? 0, postCloseModified: false };
+    };
+
     const totalItems = itemStats.reduce((s, r) => s + r._count.id, 0);
     const deliveredCount = itemStats
       .filter((r) => completedStatuses.includes(r.status as DeliveryStatus))
@@ -3989,8 +4117,8 @@ export class DailySheetService implements OnModuleInit {
     const failureBreakdown = Object.fromEntries(
       failureStats.map((r) => [r.failureCategory!, r._count.id]),
     );
-    const cashExpected = cashAgg._sum.cashExpected ?? 0;
-    const cashCollected = cashAgg._sum.cashCollected ?? 0;
+    const cashExpected = sheets.reduce((acc, s) => acc + effCash(s).cashExpected, 0);
+    const cashCollected = sheets.reduce((acc, s) => acc + effCash(s).cashCollected, 0);
 
     return {
       totalSheets: cashAgg._count.id,
@@ -4004,16 +4132,20 @@ export class DailySheetService implements OnModuleInit {
       cashCollected,
       cashDiscrepancy: cashExpected - cashCollected,
       failureBreakdown,
-      sheets: sheets.map((s) => ({
-        id: s.id,
-        date: s.date,
-        van: s.van.plateNumber,
-        route: s.route?.name ?? null,
-        totalItems: s._count.items,
-        deliveredItems: deliveredMap.get(s.id) ?? 0,
-        cashCollected: s.cashCollected,
-        cashExpected: s.cashExpected,
-      })),
+      sheets: sheets.map((s) => {
+        const c = effCash(s);
+        return {
+          id: s.id,
+          date: s.date,
+          van: s.van.plateNumber,
+          route: s.route?.name ?? null,
+          totalItems: s._count.items,
+          deliveredItems: deliveredMap.get(s.id) ?? 0,
+          cashCollected: c.cashCollected,
+          cashExpected: c.cashExpected,
+          postCloseModified: c.postCloseModified,
+        };
+      }),
     };
   }
 

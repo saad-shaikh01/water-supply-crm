@@ -18,6 +18,10 @@ type MonthRow = {
   cashExpected: number;
   cashCollected: number;
   collectionRate: number;
+  /** True when a closed sheet in this month was edited after close, so the cash
+   *  figures are live-recomputed from current deliveries rather than the frozen
+   *  close-time snapshot. */
+  hasModifiedClosedSheets?: boolean;
 };
 
 function fmtCash(n: number) {
@@ -58,6 +62,10 @@ export function MonthlySummaryWidget() {
   // and table column only earn their place when at least one of the last 6
   // months actually has a value, same whole-series rule as the daily sheet PDF.
   const hasFilledReceived = rows.some((r) => (r.filledReceived ?? 0) > 0);
+  // Post-close edits (voids / delivery corrections / trip corrections) on a
+  // closed sheet leave its frozen cash snapshot untouched — for those months
+  // the cash figures here are recalculated from current deliveries instead.
+  const hasRecalculatedMonths = rows.some((r) => r.hasModifiedClosedSheets);
 
   return (
     <Card className="bg-white/[0.03] backdrop-blur-2xl border-white/10 rounded-2xl shadow-2xl">
@@ -141,7 +149,9 @@ export function MonthlySummaryWidget() {
                 <tbody>
                   {rows.map((r) => (
                     <tr key={r.month} className="border-b border-white/5 hover:bg-white/[0.03] transition-colors">
-                      <td className="py-3 pr-4 font-bold text-foreground dark:text-white/90">{r.month}</td>
+                      <td className="py-3 pr-4 font-bold text-foreground dark:text-white/90">
+                        {r.month}{r.hasModifiedClosedSheets && <span className="text-muted-foreground/60"> *</span>}
+                      </td>
                       <td className="py-3 pr-4 text-right font-mono tabular-nums">{r.bottlesDelivered.toLocaleString()}</td>
                       <td className="py-3 pr-4 text-right font-mono tabular-nums">{r.emptyReceived.toLocaleString()}</td>
                       {hasFilledReceived && (
@@ -154,6 +164,11 @@ export function MonthlySummaryWidget() {
                   ))}
                 </tbody>
               </table>
+              {hasRecalculatedMonths && (
+                <p className="mt-3 text-[11px] text-muted-foreground/60">
+                  * Cash figures for months with post-close edits are recalculated from current deliveries.
+                </p>
+              )}
             </div>
           </>
         )}
