@@ -105,7 +105,18 @@ describe('DailySheetService.submitDelivery — Cash Collection Policy gate', () 
     // `this.prisma` (same-transaction visibility fix) — the tx mock needs
     // its own bottleWallet/customer.findUnique alongside the outer mockPrisma ones.
     const tx = {
-      dailySheetItem: { update: jest.fn().mockResolvedValue({ id: ITEM_ID }) },
+      // submitDelivery now row-locks + re-reads the item at the top of its
+      // transaction (concurrency guard, mirrors correctClosedDelivery). The
+      // re-read only gates "voided?" and the ledger-reversal-on-downgrade
+      // branch — neither applies to these gate tests, so a plain non-voided
+      // PENDING stub is sufficient.
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      dailySheetItem: {
+        update: jest.fn().mockResolvedValue({ id: ITEM_ID }),
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ status: DeliveryStatus.PENDING, voidedAt: null }),
+      },
       bottleWallet: { findUnique: jest.fn().mockResolvedValue({ balance: 5 }) },
       customer: { findUnique: jest.fn().mockResolvedValue({ financialBalance: 500 }) },
     };

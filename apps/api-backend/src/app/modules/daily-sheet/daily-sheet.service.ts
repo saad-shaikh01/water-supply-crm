@@ -615,6 +615,23 @@ export class DailySheetService implements OnModuleInit {
       let updatedWallet: { balance: number } | null = null;
       let updatedCustomer: { financialBalance: number } | null = null;
 
+      // Serialise against a concurrent voidDelivery / correctClosedDelivery on
+      // this same item (mirrors correctClosedDelivery). Every guard above ran
+      // against a pre-transaction read; without this lock + re-read a void that
+      // commits in between would be silently undone by the writes below (its
+      // ledger reversal lost, the item resurrected out of VOIDED).
+      // DailySheetItem.id is a text column — bound as a tagged-template param.
+      await tx.$queryRaw`SELECT 1 FROM "DailySheetItem" WHERE id = ${itemId} FOR UPDATE`;
+      const fresh = await tx.dailySheetItem.findUnique({
+        where: { id: itemId },
+        select: { status: true, voidedAt: true },
+      });
+      if (!fresh || fresh.status === DeliveryStatus.VOIDED || fresh.voidedAt) {
+        throw new ConflictException(
+          'This delivery has been voided and cannot be modified',
+        );
+      }
+
       const updatedItem = await tx.dailySheetItem.update({
         where: { id: itemId },
         data: {
@@ -654,9 +671,11 @@ export class DailySheetService implements OnModuleInit {
       // bottle-wallet effects must be reversed, or they are silently orphaned
       // on the customer's ledger. Uses the exact same all-zero idempotent-repost
       // + leftover-row cleanup that voidDelivery relies on — no new ledger logic.
+      // Keyed off `fresh.status` (the row locked + re-read above), not the
+      // pre-transaction read, so the reversal decision can't be raced.
       const wasLedgerBearing =
-        item.status === DeliveryStatus.COMPLETED ||
-        item.status === DeliveryStatus.EMPTY_ONLY;
+        fresh.status === DeliveryStatus.COMPLETED ||
+        fresh.status === DeliveryStatus.EMPTY_ONLY;
       const nowLedgerBearing =
         resolvedStatus === DeliveryStatus.COMPLETED ||
         resolvedStatus === DeliveryStatus.EMPTY_ONLY;
