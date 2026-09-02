@@ -1,6 +1,22 @@
 import { IsString, IsNumber, IsOptional, Min, Max, IsInt, IsBoolean, IsIn, IsArray, ArrayMinSize, Matches } from 'class-validator';
 
+/**
+ * Which flavour of message to send.
+ *  'reminder'       — balance reminder / monthly statement (default; unchanged behaviour)
+ *  'statement_only' — pure monthly statement: no payment ask, no balance threshold,
+ *                     PDF always attached, sent regardless of balance
+ *  'warning'        — post-statement overdue-balance warning (text only). Targets only
+ *                     customers already sent a statement this cycle who still owe.
+ */
+export type SendKind = 'reminder' | 'statement_only' | 'warning';
+
+const SEND_KINDS: SendKind[] = ['reminder', 'statement_only', 'warning'];
+
 export class SendNowDto {
+  @IsOptional()
+  @IsIn(SEND_KINDS)
+  sendKind?: SendKind;
+
   @IsOptional()
   @IsNumber()
   @Min(0)
@@ -58,6 +74,10 @@ export class SendNowDto {
 }
 
 export class PreviewDto {
+  @IsOptional()
+  @IsIn(SEND_KINDS)
+  sendKind?: SendKind;
+
   /**
    * 'eligible' scans all vendor customers and classifies each.
    * 'selected'/'single' scans only the provided customerIds.
@@ -114,6 +134,10 @@ export class PreviewDto {
 // (PreviewDto needs no excludeCustomerIds — exclusion is picked client-side from preview results)
 
 export class SendTargetedDto {
+  @IsOptional()
+  @IsIn(SEND_KINDS)
+  sendKind?: SendKind;
+
   /**
    * Send mode:
    *   single   — send to exactly one customer (customerIds must have exactly one entry)
@@ -196,4 +220,20 @@ export class SendTargetedDto {
   @IsArray()
   @IsString({ each: true })
   excludeCustomerIds?: string[];
+}
+
+/** PUT /balance-reminders/config — overdue-warning knobs. */
+export class UpdateBalanceReminderConfigDto {
+  /** Days after a statement send before a warning may be sent (1–14). */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(14)
+  warningDelayDays?: number;
+
+  /** Live outstanding balance at/above which a warning applies. */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  warningMinBalance?: number;
 }

@@ -1,6 +1,6 @@
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { balanceRemindersApi, PreviewPayload, SendTargetedPayload } from '../api/balance-reminders.api';
+import { balanceRemindersApi, PreviewPayload, SendTargetedPayload, UpdateWarningConfigPayload } from '../api/balance-reminders.api';
 
 export const useSendRemindersNow = () => {
   return useMutation({
@@ -15,6 +15,7 @@ export const useSendRemindersNow = () => {
 };
 
 export const useSendTargeted = () => {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (payload: SendTargetedPayload) => balanceRemindersApi.sendTargeted(payload),
     onSuccess: (res) => {
@@ -23,6 +24,8 @@ export const useSendTargeted = () => {
       const month = data?.month ?? '';
       const withStatement = data?.includeStatement ? ' with statement' : '';
       toast.success(`Sent ${count} reminder${count !== 1 ? 's' : ''}${withStatement} for ${month}`);
+      // a non-dry-run send writes a new ReminderSendLog row
+      if (!data?.dryRun) qc.invalidateQueries({ queryKey: ['reminder-history'] });
     },
     onError: () => toast.error('Failed to send reminders'),
   });
@@ -45,10 +48,10 @@ export const useWhatsAppStatus = () =>
 export const useReminderHistory = (
   page = 1,
   limit = 10,
-  filters?: { dateFrom?: string; dateTo?: string; result?: string },
+  filters?: { dateFrom?: string; dateTo?: string; result?: string; kind?: string },
 ) =>
   useQuery({
-    queryKey: ['reminder-history', page, limit, filters?.dateFrom ?? '', filters?.dateTo ?? '', filters?.result ?? ''],
+    queryKey: ['reminder-history', page, limit, filters?.dateFrom ?? '', filters?.dateTo ?? '', filters?.result ?? '', filters?.kind ?? ''],
     queryFn: () => balanceRemindersApi.getHistory(page, limit, filters).then((r) => r.data),
     placeholderData: (prev) => prev,
   });
@@ -59,3 +62,21 @@ export const useReminderHistoryDetail = (id: string | null) =>
     queryFn: () => balanceRemindersApi.getHistoryDetail(id as string).then((r) => r.data),
     enabled: !!id,
   });
+
+export const useReminderConfig = () =>
+  useQuery({
+    queryKey: ['balance-reminder-config'],
+    queryFn: () => balanceRemindersApi.getConfig().then((r) => r.data),
+  });
+
+export const useUpdateReminderConfig = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: UpdateWarningConfigPayload) => balanceRemindersApi.updateConfig(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['balance-reminder-config'] });
+      toast.success('Warning settings saved');
+    },
+    onError: () => toast.error('Failed to save warning settings'),
+  });
+};

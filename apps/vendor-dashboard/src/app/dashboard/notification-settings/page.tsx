@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  MessageCircle, Bell, Package, FileText, Wallet, ShoppingCart, LifeBuoy, Loader2, PackageX,
+  MessageCircle, Bell, Package, FileText, Wallet, ShoppingCart, LifeBuoy, Loader2, PackageX, AlertTriangle,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, cn } from '@water-supply-crm/ui';
 import { PageHeader } from '../../../components/shared/page-header';
@@ -55,12 +55,19 @@ const FLOWS: Record<
     icon: PackageX,
     channels: ['WHATSAPP', 'PUSH'],
   },
+  PAYMENT_WARNING: {
+    label: 'Overdue Balance Warning',
+    description: 'Sent from Balance Reminders to customers who received a statement and still have an overdue balance. WhatsApp only.',
+    icon: AlertTriangle,
+    channels: ['WHATSAPP'],
+  },
 };
 
 const FLOW_ORDER: NotificationType[] = [
   'DELIVERY_RECEIPT',
   'DELIVERY_FAILED',
   'MONTHLY_STATEMENT',
+  'PAYMENT_WARNING',
   'PAYMENT_RECEIVED',
   'ORDER_UPDATE',
   'TICKET_REPLY',

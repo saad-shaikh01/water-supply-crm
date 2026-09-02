@@ -95,6 +95,25 @@ Thank you for choosing Blue Ice.
 
 ---
 
+### 4b. `monthly_statement_neutral`  — Statement ONLY, no payment ask (PDF ke saath)
+- **Category:** UTILITY · **Language:** English · **Header:** Document (PDF)
+- **Wired:** balance-reminder "Statement only" send mode (`sendKind=statement_only`). Pure monthly
+  statement — sent to every selected customer regardless of balance, with **no** balance / payment /
+  overdue wording. No plain-text fallback: if the PDF cannot be generated the customer is skipped
+  (`skipped-pdf-failed`).
+- **Body:**
+```
+Assalamu Alaikum, {{1}}
+
+Please find your {{2}} statement attached for your records.
+
+Thank you for choosing Blue Ice.
+```
+- **Variables:** `{{1}}` = customer name · `{{2}}` = month (e.g. September 2026)
+- **Sample:** `{{1}}` = `Ahmed`, `{{2}}` = `September 2026`
+
+---
+
 ## Text-only templates (no header)
 
 ### 5. `payment_received`  — Payment receive hui
@@ -130,6 +149,27 @@ Thank you for choosing Blue Ice.
 ```
 - **Variables:** `{{1}}` = name · `{{2}}` = balance
 - **Sample:** `Ahmed`, `1500.00`
+
+---
+
+### 6b. `payment_overdue_warning`  — Balance still pending after a statement (text only, no PDF)
+- **Category:** UTILITY · **Language:** English
+- **Wired:** balance-reminder "Overdue warning" send mode (`sendKind=warning`). Sent only to customers
+  who already received a monthly statement this cycle, still owe ≥ the vendor's `warningMinBalance`,
+  and were not warned yet this month. Deliberately factual (UTILITY) wording — a service-continuity
+  notice, not a marketing "pay or lose service" message.
+- **Body:**
+```
+Assalamu Alaikum, {{1}}
+
+This is a reminder that your account has an outstanding balance of Rs. {{2}} which is still pending.
+
+To avoid any interruption to your scheduled deliveries, please clear the outstanding amount at your earliest convenience.
+
+Thank you for choosing Blue Ice.
+```
+- **Variables:** `{{1}}` = customer name · `{{2}}` = current outstanding balance
+- **Sample:** `{{1}}` = `Ahmed`, `{{2}}` = `1500.00`
 
 ---
 
