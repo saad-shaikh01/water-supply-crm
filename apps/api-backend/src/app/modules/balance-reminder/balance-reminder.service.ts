@@ -515,6 +515,9 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     month: string;
     endDate: Date;
     customerIds?: string[]; // set when mode is single/selected
+    paymentType?: 'MONTHLY' | 'CASH';
+    vanId?: string;
+    dayOfWeek?: number;
     resolveCooldown: boolean;
   }): Promise<AudienceCandidate[]> {
     const { vendorId, month } = opts;
@@ -570,6 +573,8 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
         isActive: true,
         isBillingExempt: false,
         phoneNumber: { not: '' },
+        ...(opts.paymentType ? { paymentType: opts.paymentType } : {}),
+        ...this.scheduleFilter(opts.vanId, opts.dayOfWeek),
       },
       select: {
         id: true, name: true, customerCode: true, phoneNumber: true, financialBalance: true,
@@ -615,10 +620,16 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     const config = await this.getConfig(vendorId);
     const cutoff = this.warningCutoff(config.warningDelayDays);
     const mode = dto.mode ?? 'eligible';
-    const scopedIds = mode === 'eligible' ? undefined : (dto.customerIds ?? []);
+    const isEligible = mode === 'eligible';
+    const scopedIds = isEligible ? undefined : (dto.customerIds ?? []);
 
     const candidates = await this.resolveWarningAudience({
-      vendorId, phase: 'preview', month, endDate, customerIds: scopedIds, resolveCooldown: true,
+      vendorId, phase: 'preview', month, endDate, customerIds: scopedIds,
+      // audience filters only narrow the eligible (whole-vendor) scan
+      paymentType: isEligible ? dto.paymentType : undefined,
+      vanId: isEligible ? dto.vanId : undefined,
+      dayOfWeek: isEligible ? dto.dayOfWeek : undefined,
+      resolveCooldown: true,
     });
 
     type PreviewEntry = { customerId: string; name: string; customerCode: string; balance: number; phone: string; paymentType: string; reason: string };
@@ -641,7 +652,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
 
     return {
       vendorId, mode, kind: 'WARNING', minBalance: config.warningMinBalance, month,
-      includeStatement: false, paymentType: dto.paymentType ?? 'BOTH',
+      includeStatement: false, paymentType: (isEligible ? dto.paymentType : undefined) ?? 'BOTH',
       warningDelayDays: config.warningDelayDays,
       totalWouldSend: wouldSend.length, totalSkipped: skipped.length, wouldSend, skipped,
     };
@@ -654,14 +665,20 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     const month = dto.month ?? this.currentMonth();
     const endDate = this.monthEndDate(month);
     const cutoff = this.warningCutoff(config.warningDelayDays);
-    const scopedIds = dto.mode === 'eligible' ? undefined : (dto.customerIds ?? []);
+    const isEligible = dto.mode === 'eligible';
+    const scopedIds = isEligible ? undefined : (dto.customerIds ?? []);
 
-    if (dto.mode !== 'eligible' && scopedIds!.length === 0) {
+    if (!isEligible && scopedIds!.length === 0) {
       return { vendorId, sent: 0, skipped: 0, dryRun, month, includeStatement: false, customers: [], error: 'customerIds is required for mode=single or mode=selected' };
     }
 
     const candidates = await this.resolveWarningAudience({
-      vendorId, phase: 'send', month, endDate, customerIds: scopedIds, resolveCooldown: false,
+      vendorId, phase: 'send', month, endDate, customerIds: scopedIds,
+      // audience filters only narrow the eligible (whole-vendor) scan
+      paymentType: isEligible ? dto.paymentType : undefined,
+      vanId: isEligible ? dto.vanId : undefined,
+      dayOfWeek: isEligible ? dto.dayOfWeek : undefined,
+      resolveCooldown: false,
     });
 
     if (candidates.length === 0) {
@@ -692,6 +709,9 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
           vendorId, trigger: 'manual', mode: dto.mode, kind: ReminderSendKind.WARNING, month,
           sent, skipped, includeStatement: false, dryRun, force,
           minBalance: config.warningMinBalance,
+          paymentType: isEligible ? (dto.paymentType ?? null) : null,
+          vanId: isEligible ? (dto.vanId ?? null) : null,
+          dayOfWeek: isEligible ? (dto.dayOfWeek ?? null) : null,
           details: this.toLogDetails(results),
         },
       });

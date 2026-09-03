@@ -214,8 +214,8 @@ export default function BalanceRemindersPage() {
     return {
       ...base,
       minBalance: Number(minBalance),
-      vanId: isWarning ? undefined : resolvedVanId,
-      dayOfWeek: isWarning ? undefined : resolvedDayOfWeek,
+      vanId: resolvedVanId,
+      dayOfWeek: resolvedDayOfWeek,
       excludeCustomerIds: excludedIds.size > 0 ? Array.from(excludedIds) : undefined,
     };
   };
@@ -223,7 +223,7 @@ export default function BalanceRemindersPage() {
   const buildPreviewPayload = () => {
     const base = { sendKind: sendType, mode: sendMode, month, includeStatement: effectiveIncludeStatement, paymentType: resolvedPaymentType };
     if (sendMode === 'single') return { ...base, customerIds: [selectedCustomerId] };
-    return { ...base, minBalance: Number(minBalance), vanId: isWarning ? undefined : resolvedVanId, dayOfWeek: isWarning ? undefined : resolvedDayOfWeek };
+    return { ...base, minBalance: Number(minBalance), vanId: resolvedVanId, dayOfWeek: resolvedDayOfWeek };
   };
 
   const lastWarningRun = ((historyData as any)?.data ?? []).find(
@@ -442,8 +442,8 @@ export default function BalanceRemindersPage() {
                 </div>
               </div>
 
-              {/* Payment type filter (eligible mode only; not for warnings) */}
-              {sendMode === 'eligible' && !isWarning && (
+              {/* Payment type filter (eligible mode) */}
+              {sendMode === 'eligible' && (
                 <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
                   <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Customer Type</Label>
                   <div className="grid grid-cols-3 gap-2">
@@ -469,8 +469,8 @@ export default function BalanceRemindersPage() {
                 </div>
               )}
 
-              {/* Van + delivery day filters (eligible mode only; not for warnings) */}
-              {sendMode === 'eligible' && !isWarning && (
+              {/* Van + delivery day filters (eligible mode) */}
+              {sendMode === 'eligible' && (
                 <div className="grid grid-cols-2 gap-3 animate-in fade-in slide-in-from-top-2">
                   <div className="space-y-2">
                     <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Van</Label>
@@ -684,9 +684,10 @@ export default function BalanceRemindersPage() {
                 <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-500/5 border border-amber-500/20 text-[11px] text-amber-300/90">
                   <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
                   <span>
-                    Only customers already sent a statement this cycle who still owe are targeted. The delay and
-                    minimum are set in <span className="font-bold">Overdue Warning Settings</span> below. Each customer
-                    is warned at most once per billing month.
+                    Only customers already sent a statement this cycle who still owe are targeted, further narrowed by
+                    the Customer Type / Van / Delivery Day filters above. The delay and minimum are set in{' '}
+                    <span className="font-bold">Overdue Warning Settings</span> below. Each customer is warned at most
+                    once per billing month.
                   </span>
                 </div>
               )}

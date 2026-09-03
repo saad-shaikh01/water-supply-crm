@@ -749,6 +749,45 @@ describe('BalanceReminderService (Phase 0 pipeline)', () => {
         );
         expect(res.totalWouldSend).toBe(0);
       });
+
+      it('paymentType filter is pushed into the audience query (eligible mode)', async () => {
+        setLogs([statementLog(['c1'])]);
+        prisma.customer.findMany.mockResolvedValue([]);
+        const res: any = await service.previewReminders(
+          'v1',
+          { sendKind: 'warning', mode: 'eligible', month: MONTH, paymentType: 'MONTHLY' } as any,
+        );
+        expect(prisma.customer.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({ where: expect.objectContaining({ paymentType: 'MONTHLY' }) }),
+        );
+        expect(res.paymentType).toBe('MONTHLY');
+      });
+
+      it('van + dayOfWeek filter is pushed in via a deliverySchedules.some clause', async () => {
+        setLogs([statementLog(['c1'])]);
+        prisma.customer.findMany.mockResolvedValue([]);
+        await service.previewReminders(
+          'v1',
+          { sendKind: 'warning', mode: 'eligible', month: MONTH, vanId: 'van-1', dayOfWeek: 3 } as any,
+        );
+        expect(prisma.customer.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({ deliverySchedules: { some: { vanId: 'van-1', dayOfWeek: 3 } } }),
+          }),
+        );
+      });
+
+      it('audience filters are NOT applied in single/selected mode', async () => {
+        setLogs([statementLog(['c1'])]);
+        prisma.customer.findMany.mockResolvedValue([]);
+        await service.previewReminders(
+          'v1',
+          { sendKind: 'warning', mode: 'selected', customerIds: ['c1'], month: MONTH, paymentType: 'MONTHLY', vanId: 'van-1' } as any,
+        );
+        const where = prisma.customer.findMany.mock.calls[0][0].where;
+        expect(where).not.toHaveProperty('paymentType');
+        expect(where).not.toHaveProperty('deliverySchedules');
+      });
     });
 
     // ── send ────────────────────────────────────────────────────────────────
