@@ -47,14 +47,14 @@ export function PaymentForm({ open, onOpenChange, customerId }: PaymentFormProps
 
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<PaymentInput>({
     resolver: zodResolver(paymentSchema),
-    defaultValues: { amount: 0, description: '', paymentMode: 'CASH' },
+    defaultValues: { amount: 0, description: '', paymentMode: 'BANK_TRANSFER' },
   });
 
   const watchedAmount = watch('amount', 0);
   const watchedMode = watch('paymentMode');
 
   useEffect(() => {
-    if (balance > 0) reset({ amount: balance, description: '', paymentMode: 'CASH' });
+    if (balance > 0) reset({ amount: balance, description: '', paymentMode: 'BANK_TRANSFER' });
   }, [balance]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onSubmit = (data: PaymentInput) => {

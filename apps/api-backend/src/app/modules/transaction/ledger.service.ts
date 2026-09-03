@@ -303,7 +303,16 @@ export class LedgerService {
         },
       });
 
-      await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
+      // Same fan-out as editPayment/deletePayment — a manual payment moves the
+      // customer balance, so the overview cards (Pending Balance / Outstanding /
+      // today's Collections) and analytics must drop their cached snapshots too,
+      // not just the customers list.
+      await Promise.all([
+        this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS),
+        this.cache.invalidateOverview(vendorId),
+        this.cache.invalidateAnalytics(vendorId),
+        this.cache.invalidateCustomerWallets(vendorId, dto.customerId),
+      ]);
 
       return transaction;
     });

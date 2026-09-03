@@ -13,6 +13,22 @@ const invalidatePaymentRequestDependencies = async (queryClient: ReturnType<type
   ]);
 };
 
+/**
+ * Invalidate every read that a payment's amount feeds — ledger, the customer's
+ * balance, dashboards and analytics. Shared by the add / edit / delete payment
+ * flows so all of them refresh the overview + analytics snapshots, not just the
+ * transactions and customers lists.
+ */
+const invalidatePaymentMutationDependencies = (
+  queryClient: ReturnType<typeof useQueryClient>,
+) => {
+  queryClient.invalidateQueries({ queryKey: ['transactions'] });
+  queryClient.invalidateQueries({ queryKey: ['customers'] });
+  queryClient.invalidateQueries({ queryKey: ['customer'] });
+  queryClient.invalidateQueries({ queryKey: ['analytics'] });
+  queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+};
+
 export const useTransactions = (overrideCustomerId?: string) => {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
@@ -87,8 +103,9 @@ export const useAddPayment = () => {
     mutationFn: ({ customerId, data }: { customerId: string; data: Record<string, unknown> }) =>
       transactionsApi.addPayment(customerId, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      // Mirror edit/delete payment — also refresh dashboard + analytics reads so
+      // Pending Balance / Outstanding / today's Collections move immediately.
+      invalidatePaymentMutationDependencies(queryClient);
       toast.success('Payment recorded');
     },
     onError: () => toast.error('Failed to record payment'),
@@ -100,21 +117,6 @@ const fmt = (n: unknown) => `₨${Number(n ?? 0).toLocaleString()}`;
 interface MutationError {
   response?: { status?: number; data?: { message?: string } };
 }
-
-/**
- * Invalidate every read that a payment's amount feeds — ledger, the customer's
- * balance, dashboards and analytics. Mirrors what `useAddPayment` /
- * `invalidatePaymentRequestDependencies` do, plus `dashboard`/`analytics`.
- */
-const invalidatePaymentMutationDependencies = (
-  queryClient: ReturnType<typeof useQueryClient>,
-) => {
-  queryClient.invalidateQueries({ queryKey: ['transactions'] });
-  queryClient.invalidateQueries({ queryKey: ['customers'] });
-  queryClient.invalidateQueries({ queryKey: ['customer'] });
-  queryClient.invalidateQueries({ queryKey: ['analytics'] });
-  queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-};
 
 export const useEditPayment = () => {
   const queryClient = useQueryClient();
