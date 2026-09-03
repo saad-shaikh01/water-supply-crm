@@ -49,6 +49,18 @@ export class CustomerQueryDto extends PaginationQueryDto {
   @Min(0)
   balanceMax?: number;
 
+  /**
+   * Only return customers with NO successful delivery (COMPLETED / EMPTY_ONLY)
+   * in the last N days — i.e. customers whose last delivery is older than N days
+   * ago, plus customers who have never received a delivery.
+   */
+  @IsOptional()
+  @Transform(({ value }) => parseInt(value, 10))
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  notDeliveredInDays?: number;
+
   @IsOptional()
   @IsIn(['name', 'customerCode', 'createdAt', 'financialBalance'])
   sort?: string = 'name';

@@ -8,8 +8,8 @@ import {
 } from '@water-supply-crm/ui';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import {
-  AlertCircle, ArrowRightLeft, Ban, Camera, Check, CheckSquare, ChevronDown, ChevronUp, ClipboardList, Download,
-  History, LocateFixed, Lock, Loader2, MapPin, MessageCircle, MessageSquare, Navigation, Pencil, Phone, Send, StickyNote, Truck, Unlock, X,
+  AlertCircle, ArrowRightLeft, Ban, CalendarClock, Camera, Check, CheckSquare, ChevronDown, ChevronUp, ClipboardList, Download,
+  Droplet, History, LocateFixed, Lock, Loader2, MapPin, MessageCircle, MessageSquare, Navigation, Pencil, Phone, Send, StickyNote, Truck, Unlock, X,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -664,6 +664,27 @@ export function DeliveryItemsList({
                                 </span>
                               );
                             })()}
+                            <span
+                              className={cn(
+                                'inline-flex items-center gap-1 text-sm font-black px-2.5 py-1 rounded-lg leading-none border',
+                                walletBalance > 0
+                                  ? 'bg-sky-500/15 text-sky-700 dark:text-sky-400 border-sky-500/30'
+                                  : 'bg-muted text-muted-foreground border-border/50',
+                              )}
+                              title="Bottle balance (empties held by customer)"
+                            >
+                              <Droplet className="h-3 w-3 shrink-0" />
+                              {walletBalance.toLocaleString()}
+                            </span>
+                            <span
+                              className="inline-flex items-center gap-1 text-sm font-bold px-2.5 py-1 rounded-lg leading-none border border-border/50 bg-muted text-muted-foreground"
+                              title="Last delivery that dropped filled bottles"
+                            >
+                              <CalendarClock className="h-3 w-3 shrink-0" />
+                              {item.lastFilledDeliveryAt
+                                ? new Date(item.lastFilledDeliveryAt).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: '2-digit' })
+                                : '—'}
+                            </span>
                             {(() => {
                               const estimate = estimateCashCollectAmount(item, cashCollectionPolicy);
                               return estimate > 0 ? (
@@ -672,14 +693,17 @@ export function DeliveryItemsList({
                                 </span>
                               ) : null;
                             })()}
-                            {customer?.consumptionRate30d != null && (
-                              <span className={cn(
-                                'text-[9px] font-bold',
-                                customer.consumptionRate30d >= 80
-                                  ? 'text-emerald-600 dark:text-emerald-400'
-                                  : 'text-destructive',
-                              )}>
-                                {customer.consumptionRate30d}%
+                            {customer?.consumptionRate != null && (
+                              <span
+                                className={cn(
+                                  'text-[9px] font-bold',
+                                  customer.consumptionRate >= 80
+                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                    : 'text-destructive',
+                                )}
+                                title={`Stock turnover: avg bottles delivered ÷ bottles held (last ${customer.consumptionSampleSize ?? 0} deliver${(customer.consumptionSampleSize ?? 0) === 1 ? 'y' : 'ies'}). Low = bottles locked at customer.`}
+                              >
+                                {customer.consumptionRate}%
                               </span>
                             )}
                             {item.status !== 'PENDING' && item.filledDropped > 0 && (

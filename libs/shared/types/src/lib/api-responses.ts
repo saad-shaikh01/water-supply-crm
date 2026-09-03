@@ -204,7 +204,14 @@ export interface DeliveryItem {
     isBillingExempt?: boolean;
     financialBalance?: number;
     previousMonthOutstanding?: number;
-    consumptionRate30d?: number | null;
+    /** Avg bottles dropped per delivery ÷ current bottle-wallet balance (×100,
+     *  capped at 100) — how much of the stock the customer holds actually
+     *  cycles each visit. Low = bottles piling up / locked at the customer.
+     *  Averaged over the last few deliveries (`consumptionSampleSize`); null
+     *  when there is no delivery to sample or the wallet balance is 0. */
+    consumptionRate?: number | null;
+    /** Number of recent deliveries that fed `consumptionRate` (0 = none). */
+    consumptionSampleSize?: number;
     wallets?: CustomerWalletSummary[];
     customPrices?: { productId: string; customPrice: number }[];
   };
@@ -221,6 +228,9 @@ export interface DeliveryItem {
   photoKey?: string | null;
   pricePerBottle?: number;
   lastFilledDropped?: number | null;
+  /** Last time filled bottles were actually delivered to this customer+product
+   *  on a prior sheet (null if no such delivery exists yet). Sheet-header only. */
+  lastFilledDeliveryAt?: string | null;
   deliveredAt?: string | null;
   /** First time this item was recorded off PENDING (any terminal status) — the
    *  route-timeline anchor the queue sorts on; null while still PENDING. */

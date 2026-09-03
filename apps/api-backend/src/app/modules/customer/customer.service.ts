@@ -7,7 +7,7 @@ import {
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '@water-supply-crm/database';
-import { DamageCaseStatus, DamageCaseType, Prisma } from '@prisma/client';
+import { DamageCaseStatus, DamageCaseType, DeliveryStatus, Prisma } from '@prisma/client';
 import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
 import {
   CacheInvalidationService,
@@ -155,7 +155,7 @@ export class CustomerService {
   }
 
   async findAllPaginated(vendorId: string, query: CustomerQueryDto) {
-    const { page = 1, limit = 20, search, routeId, paymentType, vanId, dayOfWeek, isActive, hasPortalAccess, balanceMin, balanceMax, sort = 'name', sortDir = 'asc' } = query;
+    const { page = 1, limit = 20, search, routeId, paymentType, vanId, dayOfWeek, isActive, hasPortalAccess, balanceMin, balanceMax, notDeliveredInDays, sort = 'name', sortDir = 'asc' } = query;
 
     // Filter by status only when explicitly requested. When no isActive param is
     // sent (the "All Status" option in the UI), return both active and inactive
@@ -200,6 +200,21 @@ export class CustomerService {
       if (balanceMax !== undefined) where.financialBalance.lte = balanceMax;
     }
 
+    // "Not delivered in the last N days" — keep only customers that have NO
+    // successful delivery item stamped after the cutoff. Customers with zero
+    // delivery history are kept too (they trivially satisfy `none`).
+    if (notDeliveredInDays !== undefined && notDeliveredInDays > 0) {
+      const cutoff = new Date();
+      cutoff.setHours(0, 0, 0, 0);
+      cutoff.setDate(cutoff.getDate() - notDeliveredInDays);
+      where.sheetItems = {
+        none: {
+          status: { in: [DeliveryStatus.COMPLETED, DeliveryStatus.EMPTY_ONLY] },
+          deliveredAt: { gte: cutoff },
+        },
+      };
+    }
+
     const [data, total] = await Promise.all([
       this.prisma.customer.findMany({
         where,
@@ -218,7 +233,29 @@ export class CustomerService {
       this.prisma.customer.count({ where }),
     ]);
 
-    return paginate(data, total, page, limit);
+    // Attach each customer's most recent successful delivery date (one grouped
+    // query for the whole page) so the list can show a "Last Delivery" column.
+    const customerIds = data.map((c) => c.id);
+    const lastDeliveries = customerIds.length
+      ? await this.prisma.dailySheetItem.groupBy({
+          by: ['customerId'],
+          where: {
+            customerId: { in: customerIds },
+            status: { in: [DeliveryStatus.COMPLETED, DeliveryStatus.EMPTY_ONLY] },
+            deliveredAt: { not: null },
+          },
+          _max: { deliveredAt: true },
+        })
+      : [];
+    const lastDeliveryMap = new Map(
+      lastDeliveries.map((g) => [g.customerId, g._max.deliveredAt]),
+    );
+    const dataWithLastDelivery = data.map((c) => ({
+      ...c,
+      lastDeliveryAt: lastDeliveryMap.get(c.id) ?? null,
+    }));
+
+    return paginate(dataWithLastDelivery, total, page, limit);
   }
 
   async findOne(vendorId: string, id: string) {

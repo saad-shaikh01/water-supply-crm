@@ -4,6 +4,7 @@ import * as path from 'path';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import PDFDocument = require('pdfkit');
 import { drawShadowShape, brandGradient, drawClippedWatermark } from '../../../common/pdf/pdf-theme.util';
+import { resolveSheetCash } from '../sheet-cash.util';
 
 // NOTE: standard PDF fonts (Helvetica) only support WinAnsi characters —
 // no emoji, no check/warning glyphs. Stick to ASCII + · × — for decorations.
@@ -477,14 +478,18 @@ export class DailySheetPdfService {
     //    deliveries.
     //  - Total Expense = only cash-paid expenses (card/bank-paid ones are
     //    excluded — they never touched the driver's cash-in-hand).
-    //  - Net Cash In Hand = sheet.cashCollected — NOT a computed "expected"
-    //    figure. This field is the driver/salesman's ACTUAL physical
-    //    hand-in, captured once as a single figure when the sheet is closed
-    //    (closeSheet()/requestClose()) — no longer accumulated per-trip at
-    //    check-in. It can legitimately differ from
-    //    Gross − Expense − Crew Cash — that gap is the discrepancy the
-    //    "Bottle & Cash Summary" verdict banner below reports once the
-    //    sheet is closed (sheet.cashExpected holds that computed figure).
+    //  - Net Cash In Hand = resolveSheetCash(sheet).cashCollected. For an open
+    //    sheet or a closed sheet untouched since close this is the frozen
+    //    DailySheet.cashCollected — the driver/salesman's ACTUAL physical
+    //    hand-in captured once at close (closeSheet()/requestClose()), byte
+    //    identical to before. For a closed sheet MODIFIED after close (Void
+    //    Delivery / Correct Closed Delivery / Post-Close Trip Correction) the
+    //    frozen column is stale, so this is the live recompute
+    //    (Σ non-VOIDED item.cashCollected) — same hybrid the dashboard /
+    //    analytics / sheet-list rollups already use. It can legitimately
+    //    differ from Gross − Expense − Crew Cash — that gap is the discrepancy
+    //    the "Bottle & Cash Summary" verdict banner below reports.
+    const resolvedCash = resolveSheetCash(sheet);
     const totalItemCash = nonVoidItems.reduce((s: number, i: any) => s + (i.cashCollected ?? 0), 0);
     const totalExpenses = (sheet.expenses ?? [])
       .filter((e: any) => e.paidFromCash !== false)
@@ -501,7 +506,7 @@ export class DailySheetPdfService {
     const chips: [string, string, string][] = [
       ['GROSS CASH COLLECTED', this.rs(totalItemCash), C.navy],
       ['TOTAL DEDUCTIONS', this.rs(totalExpenses + totalCrewCash), C.textSoft],
-      ['NET CASH IN HAND', this.rs(sheet.cashCollected), C.accent],
+      ['NET CASH IN HAND', this.rs(resolvedCash.cashCollected), C.accent],
     ];
     const chipPad = 8;
     const chipGap = 6;
@@ -554,7 +559,12 @@ export class DailySheetPdfService {
       (sheet.filledOutCount + filledReceived) - (sheet.filledInCount + delivered);
     const emptyCollected = activeItems.reduce((s: number, i: any) => s + (i.emptyReceived ?? 0), 0);
     const emptyDiscrepancy = emptyCollected - sheet.emptyInCount;
-    const cashDiscrepancy = (sheet.cashCollected ?? 0) - (sheet.cashExpected ?? 0);
+    // Hybrid cash — frozen close-time columns for an untouched/open sheet,
+    // live recompute for a closed sheet edited after close (Void / Correct
+    // Closed Delivery / Post-Close Trip Correction). Mirrors the Info Card's
+    // NET CASH IN HAND chip and every other recomputed rollup surface.
+    const resolvedCash = resolveSheetCash(sheet);
+    const cashDiscrepancy = resolvedCash.cashCollected - resolvedCash.cashExpected;
 
     // Cash Collected card dropped — now shown as its own highlighted box in
     // the Info Card above, so this row stays to just the bottle-flow numbers.
@@ -613,7 +623,26 @@ export class DailySheetPdfService {
         .text('Sheet is still open — reconciliation pending until close.', MARGIN + 12, bannerY + 9, { lineBreak: false });
     }
 
-    doc.y = bannerY + bannerH + 18;
+    doc.y = bannerY + bannerH + 6;
+
+    // "Modified after close" note — this closed sheet was edited after close
+    // (Void Delivery / Correct Closed Delivery / Post-Close Trip Correction),
+    // so the cash figures above are the LIVE recompute, not the frozen
+    // close-time snapshot. Mirrors the on-screen "Modified after close" banner
+    // so the printed sheet isn't silently disagreeing with it.
+    if (sheet.isClosed && resolvedCash.postCloseModified) {
+      const atClose = sheet.postCloseDivergence?.cashExpectedAtClose;
+      const noteY = doc.y;
+      const msg =
+        atClose != null && Math.round(atClose) !== Math.round(resolvedCash.cashExpected)
+          ? `Modified after close — cash recalculated from current records (was ${this.rs(atClose)} expected at close, now ${this.rs(resolvedCash.cashExpected)}).`
+          : 'Modified after close — cash figures recalculated from current records.';
+      doc.fillColor(C.muted).fontSize(7).font('Helvetica-Oblique')
+        .text(msg, MARGIN + 2, noteY, { width: CONTENT_W - 4, lineBreak: false });
+      doc.y = noteY + 12;
+    }
+
+    doc.y += 12;
   }
 
   // ─── Discrepancy Details — one row per SheetDiscrepancyCase (BOTTLE/EMPTY/

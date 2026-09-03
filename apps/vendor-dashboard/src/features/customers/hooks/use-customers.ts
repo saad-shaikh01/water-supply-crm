@@ -17,6 +17,7 @@ export const useCustomers = () => {
   const [hasPortalAccess, setHasPortalAccess] = useQueryState('hasPortalAccess', parseAsString.withDefault('all'));
   const [balanceMin] = useQueryState('balanceMin', parseAsFloat.withDefault(NaN));
   const [balanceMax] = useQueryState('balanceMax', parseAsFloat.withDefault(NaN));
+  const [notDeliveredInDays] = useQueryState('notDeliveredInDays', parseAsInteger.withDefault(0));
   const [sort, setSort] = useQueryState('sort', parseAsString.withDefault(''));
   const [sortDir, setSortDir] = useQueryState('sortDir', parseAsString.withDefault(''));
 
@@ -34,6 +35,7 @@ export const useCustomers = () => {
     hasPortalAccess: hasPortalAccess === 'true' ? true : hasPortalAccess === 'false' ? false : undefined,
     balanceMin: !isNaN(balanceMin) ? balanceMin : undefined,
     balanceMax: !isNaN(balanceMax) ? balanceMax : undefined,
+    notDeliveredInDays: notDeliveredInDays > 0 ? notDeliveredInDays : undefined,
     sort: sort || undefined,
     sortDir: (sortDir as 'asc' | 'desc') || undefined,
   };
@@ -58,6 +60,7 @@ export const useCustomers = () => {
     setHasPortalAccess,
     balanceMin,
     balanceMax,
+    notDeliveredInDays,
     sort,
     setSort,
     sortDir,

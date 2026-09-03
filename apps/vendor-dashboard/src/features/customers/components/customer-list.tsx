@@ -7,7 +7,7 @@ import { MoreHorizontal, Pencil, Trash2, Eye, MapPin, Phone, PowerOff, Power, Sl
 import {
   Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuTrigger, Badge, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-  Sheet, SheetContent, SheetHeader, SheetTitle, Label,
+  Sheet, SheetContent, SheetHeader, SheetTitle, Label, Input,
 } from '@water-supply-crm/ui';
 import { DataTable } from '../../../components/shared/data-table';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
@@ -45,6 +45,8 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const [paymentType, setPaymentType] = useQueryState('paymentType', parseAsString.withDefault(''));
   const [vanId, setVanId] = useQueryState('vanId', parseAsString.withDefault(''));
   const [dayOfWeek, setDayOfWeek] = useQueryState('dayOfWeek', parseAsInteger.withDefault(0));
+  const [notDeliveredInDays, setNotDeliveredInDays] = useQueryState('notDeliveredInDays', parseAsInteger.withDefault(0));
+  const [notDeliveredInput, setNotDeliveredInput] = useState<string>(notDeliveredInDays > 0 ? String(notDeliveredInDays) : '');
 
   const DAY_NAMES: Record<number, string> = { 1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday', 6: 'Saturday' };
 
@@ -70,6 +72,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     hasPortalAccess !== 'all' ? { label: hasPortalAccess === 'true' ? 'Portal: Activated' : 'Portal: Not Activated', clear: () => { resetPage(); setHasPortalAccess('all'); } } : null,
     dayOfWeek ? { label: `Day: ${DAY_NAMES[dayOfWeek] ?? dayOfWeek}`, clear: () => { resetPage(); setDayOfWeek(null); } } : null,
     vanId ? { label: 'Van filter', clear: () => { resetPage(); setVanId(null); } } : null,
+    notDeliveredInDays > 0 ? { label: `No delivery in ${notDeliveredInDays}d`, clear: () => { resetPage(); setNotDeliveredInDays(null); setNotDeliveredInput(''); } } : null,
   ].filter(Boolean) as Array<{ label: string; clear: () => void }>;
 
   const clearAllFilters = () => {
@@ -79,6 +82,15 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     setHasPortalAccess('all');
     setDayOfWeek(null);
     setVanId(null);
+    setNotDeliveredInDays(null);
+    setNotDeliveredInput('');
+  };
+
+  // Commit the free-text days input to the query param (empty / 0 clears it)
+  const applyNotDeliveredDays = () => {
+    const n = parseInt(notDeliveredInput, 10);
+    resetPage();
+    setNotDeliveredInDays(Number.isFinite(n) && n > 0 ? n : null);
   };
 
   const customers = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
@@ -96,6 +108,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     userId?: string | null;
     deliverySchedules?: Array<{ dayOfWeek: number; van?: { plateNumber: string } }>;
     wallets?: Array<{ balance?: number; product?: { name?: string } }>;
+    lastDeliveryAt?: string | null;
   }>;
   const total = customers?.meta?.total ?? 0;
 
@@ -239,6 +252,33 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             <div className="space-y-2">
               <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Van</Label>
               <VanFilter onBeforeChange={resetPage} />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">No Delivery In Last (Days)</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={1}
+                  inputMode="numeric"
+                  placeholder="e.g. 15"
+                  value={notDeliveredInput}
+                  onChange={(e) => setNotDeliveredInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') applyNotDeliveredDays(); }}
+                  onBlur={applyNotDeliveredDays}
+                  className="rounded-xl bg-background/50 border-border h-10"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="rounded-xl h-10 shrink-0"
+                  onClick={applyNotDeliveredDays}
+                >
+                  Apply
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground/70">
+                Shows customers with no successful delivery in the last N days (includes customers never delivered to).
+              </p>
             </div>
           </div>
           {activeFilters.length > 0 && (
@@ -427,6 +467,34 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                       {s.van?.plateNumber && <span className="ml-1 text-primary/60">· {s.van.plateNumber}</span>}
                     </Badge>
                   ))}
+                </div>
+              );
+            }
+          },
+          {
+            key: 'lastDelivery',
+            header: 'Last Delivery',
+            cell: (r) => {
+              if (!r.lastDeliveryAt) {
+                return (
+                  <Badge className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border-none whitespace-nowrap bg-rose-500/10 text-rose-400">
+                    Never
+                  </Badge>
+                );
+              }
+              const d = new Date(r.lastDeliveryAt);
+              const daysAgo = Math.floor((Date.now() - d.getTime()) / 86400000);
+              return (
+                <div className="flex flex-col gap-0.5 whitespace-nowrap">
+                  <span className="text-xs font-semibold text-foreground dark:text-white tabular-nums">
+                    {d.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  </span>
+                  <span className={cn(
+                    "text-[10px] font-medium",
+                    daysAgo >= 15 ? "text-amber-500" : "text-muted-foreground/60"
+                  )}>
+                    {daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : `${daysAgo}d ago`}
+                  </span>
                 </div>
               );
             }

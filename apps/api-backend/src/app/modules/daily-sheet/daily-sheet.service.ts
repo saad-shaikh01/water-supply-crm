@@ -1882,6 +1882,14 @@ export class DailySheetService implements OnModuleInit {
   // Shared with movedOutLogs.item below — the "Moved Out" tab renders moved
   // items through the exact same DeliveryItemsList card as every other tab,
   // so it needs the exact same customer/product shape `items` already gets.
+  /** Consumption ratio sample: how many of the customer's most recent
+   *  deliveries (filledDropped > 0) to average empties/filled over. */
+  private static readonly CONSUMPTION_SAMPLE_SIZE = 5;
+  /** Hard date floor for the consumption-ratio lookup so a customer with years
+   *  of history doesn't drag their whole ledger back; 180 days comfortably
+   *  covers 5 weekly deliveries even with a month of skipped visits. */
+  private static readonly CONSUMPTION_LOOKBACK_DAYS = 180;
+
   private static readonly ITEM_CUSTOMER_SELECT = {
     id: true, name: true, customerCode: true,
     address: true, floor: true, nearbyLandmark: true,
@@ -2100,31 +2108,91 @@ export class DailySheetService implements OnModuleInit {
         it.lastFilledDropped = last?.filledDropped ?? null;
       }
 
-      // Batch 30-day empty return rate: emptyReceived / filledDropped × 100
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const recentDeliveries30d = await this.prisma.dailySheetItem.findMany({
+      // Last date bottles were actually delivered to this customer+product — the
+      // sheet-header row shows it next to Outstanding / bottle balance so the
+      // driver sees recency at a glance. Separate from lastFilledDropped above:
+      // that one intentionally includes zero-drop / EMPTY_ONLY stops for the
+      // collection-policy math, whereas here we want the last stop that dropped
+      // at least one filled bottle. Ordered by deliveredAt (the actual recorded
+      // time), current sheet excluded so "last" always means a prior visit.
+      const lastFilledDeliveries = await this.prisma.dailySheetItem.findMany({
         where: {
           status: { in: ['COMPLETED', 'EMPTY_ONLY'] },
+          filledDropped: { gt: 0 },
+          deliveredAt: { not: null },
+          dailySheetId: { not: sheet.id },
           dailySheet: { vendorId },
-          updatedAt: { gte: thirtyDaysAgo },
+          OR: itemPairs.map((p) => ({
+            customerId: p.customerId,
+            productId: p.productId,
+          })),
+        },
+        orderBy: { deliveredAt: 'desc' },
+        distinct: ['customerId', 'productId'],
+        select: { customerId: true, productId: true, deliveredAt: true },
+      });
+      for (const it of sheet.items as any[]) {
+        const last = lastFilledDeliveries.find(
+          (ld) => ld.customerId === it.customerId && ld.productId === it.productId,
+        );
+        it.lastFilledDeliveryAt = last?.deliveredAt ?? null;
+      }
+
+      // Consumption ratio — how much of the bottle stock the customer is
+      // holding actually gets cycled each delivery:
+      //     avg bottles dropped per delivery ÷ current bottle-wallet balance × 100
+      // wallet 10, typical drop 5 → 50% (half their bottles just sit there,
+      // locked at the customer). 100% = every bottle they hold turns over each
+      // visit (healthy); a low number means bottles are piling up there even if
+      // each individual visit's empty-return looks fine.
+      //
+      // "avg bottles dropped per delivery" is taken over the last N actual
+      // deliveries rather than a fixed calendar window — delivery cadence
+      // varies (most customers weekly, some 2–3×), so a 30-day window is noisy:
+      // a skipped week starves it, a dense week over-weights it. A fixed sample
+      // of recent deliveries is cadence-independent (weekly → ~35 days,
+      // twice-weekly → ~18) and always the same number of data points.
+      const consumptionLookback = new Date(
+        Date.now() - DailySheetService.CONSUMPTION_LOOKBACK_DAYS * 24 * 60 * 60 * 1000,
+      );
+      const consumptionRows = await this.prisma.dailySheetItem.findMany({
+        where: {
+          status: { in: ['COMPLETED', 'EMPTY_ONLY'] },
+          filledDropped: { gt: 0 },
+          deliveredAt: { not: null, gte: consumptionLookback },
+          dailySheet: { vendorId },
           OR: itemPairs.map((p) => ({ customerId: p.customerId, productId: p.productId })),
         },
-        select: { customerId: true, productId: true, filledDropped: true, emptyReceived: true },
+        orderBy: { deliveredAt: 'desc' },
+        select: { customerId: true, productId: true, filledDropped: true },
       });
-      const filledMap = new Map<string, number>();
-      const emptyMap = new Map<string, number>();
-      for (const d of recentDeliveries30d) {
+      // Rows arrive newest-first; average filledDropped over the most recent N
+      // per customer+product.
+      const dropAgg = new Map<string, { total: number; count: number }>();
+      for (const d of consumptionRows) {
         const key = `${d.customerId}:${d.productId}`;
-        filledMap.set(key, (filledMap.get(key) ?? 0) + d.filledDropped);
-        emptyMap.set(key, (emptyMap.get(key) ?? 0) + d.emptyReceived);
+        const agg = dropAgg.get(key) ?? { total: 0, count: 0 };
+        if (agg.count >= DailySheetService.CONSUMPTION_SAMPLE_SIZE) continue;
+        agg.total += d.filledDropped;
+        agg.count += 1;
+        dropAgg.set(key, agg);
       }
       for (const it of sheet.items as any[]) {
-        const key = `${it.customerId}:${it.productId}`;
-        const filled = filledMap.get(key) ?? 0;
-        const empty = emptyMap.get(key) ?? 0;
-        if (it.customer) {
-          it.customer.consumptionRate30d = filled > 0 ? Math.round((empty / filled) * 100) : null;
+        if (!it.customer) continue;
+        const agg = dropAgg.get(`${it.customerId}:${it.productId}`);
+        const wallet =
+          it.customer.wallets?.find((w: any) => w.productId === it.productId)?.balance ??
+          it.customer.wallets?.[0]?.balance ??
+          0;
+        if (agg && agg.count > 0 && wallet > 0) {
+          const avgDrop = agg.total / agg.count;
+          // Capped at 100 — a customer turning stock over faster than they hold
+          // it is still just "fully healthy", not >100%.
+          it.customer.consumptionRate = Math.min(100, Math.round((avgDrop / wallet) * 100));
+        } else {
+          it.customer.consumptionRate = null;
         }
+        it.customer.consumptionSampleSize = agg?.count ?? 0;
       }
 
       // Batch prev-month outstanding for MONTHLY customers (single groupBy query)

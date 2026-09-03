@@ -12,6 +12,7 @@ export interface CustomerQuery {
   hasPortalAccess?: boolean;
   balanceMin?: number;
   balanceMax?: number;
+  notDeliveredInDays?: number;
   sort?: string;
   sortDir?: 'asc' | 'desc';
 }
