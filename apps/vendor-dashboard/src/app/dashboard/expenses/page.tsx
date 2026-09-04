@@ -3,10 +3,10 @@
 import { useState } from 'react';
 import { PageHeader } from '../../../components/shared/page-header';
 import { DateRangePicker } from '../../../components/shared/date-range-picker';
-import { ExpenseForm } from '../../../features/expenses/components/expense-form';
 import { ExpenseKpiStrip } from '../../../features/expense-center/components/expense-kpi-strip';
 import { ExpenseDomainBreakdown } from '../../../features/expense-center/components/expense-domain-breakdown';
 import { ExpenseTimeline } from '../../../features/expense-center/components/expense-timeline';
+import { AddExpenseWizard } from '../../../features/expense-center/wizard/add-expense-wizard';
 import { Button } from '@water-supply-crm/ui';
 import { Plus } from 'lucide-react';
 
@@ -15,9 +15,9 @@ export default function ExpensesPage() {
 
   return (
     <>
-      {/* Phase 2 (§04): the header action becomes an Add-Expense *type picker*
+      {/* Phase 2a (§04): the header action opens the Add-Expense *type picker*
           (Vehicle / Employee / Office / Inventory / Capital) that dispatches to
-          the right domain form; today it still opens the plain ExpenseForm. */}
+          the right domain form. */}
       <PageHeader
         title="Expenses"
         description="Track operational costs — fuel, maintenance, salaries and more"
@@ -42,10 +42,11 @@ export default function ExpensesPage() {
         </div>
         {/* Phase 1 replaces the Expenses-only <ExpenseList /> with the unified,
             cross-source timeline. ExpenseList/ExpenseForm stay in the tree for
-            the Phase 2 (§07) row-click edit-routing work. */}
+            the Phase 2 (§07) row-click edit-routing work (ExpenseForm is also
+            reused directly by the wizard below, for its plain-Expense types). */}
         <ExpenseTimeline />
       </div>
-      <ExpenseForm open={addOpen} onOpenChange={setAddOpen} />
+      <AddExpenseWizard open={addOpen} onOpenChange={setAddOpen} />
     </>
   );
 }
