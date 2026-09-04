@@ -30,6 +30,7 @@ import { EmailModule } from './modules/email/email.module';
 import { BalanceReminderModule } from './modules/balance-reminder/balance-reminder.module';
 import { PaymentModule } from './modules/payment/payment.module';
 import { ExpenseModule } from './modules/expense/expense.module';
+import { ExpenseCenterModule } from './modules/expense-center/expense-center.module';
 import { FcmModule } from './modules/fcm/fcm.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
@@ -76,6 +77,7 @@ import { SheetDiscrepancyCaseModule } from './modules/sheet-discrepancy-case/she
     PaymentModule,
     FcmModule,
     ExpenseModule,
+    ExpenseCenterModule,
     AuditModule,
     AnalyticsModule,
     OrderModule,
