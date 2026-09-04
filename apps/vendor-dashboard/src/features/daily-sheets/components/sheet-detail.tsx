@@ -321,6 +321,8 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const hasPromptedVehicleCheck = useRef(false);
   useEffect(() => {
     if (!data || !vehicleChecks || hasPromptedVehicleCheck.current) return;
+    // Walk-in / Self-Pickup Delivery sheets have no van/trip — never prompt.
+    if (data.kind === 'WALK_IN') return;
     if (canRecordVehicleCheck && !data.isClosed && data.crewConfirmed && !startCheck) {
       hasPromptedVehicleCheck.current = true;
       dispatch({ type: 'OPEN_VEHICLE_CHECK', checkType: 'START' });
@@ -546,6 +548,9 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const activeTrip = loads.find((l) => !l.endedAt) ?? null;
   const hasAnyTrip = loads.length > 0;
   const isClosed = !!data?.isClosed;
+  // Walk-in / Self-Pickup Delivery (docs/features/walk-in-delivery.md) — no
+  // van/odometer/load-out/trip/crew-confirmation UI applies to this sheet.
+  const isWalkIn = data?.kind === 'WALK_IN';
   const openDiscrepancyCount = openDiscrepancyCases?.data?.length ?? 0;
   const currentStatus = isClosed ? 'CLOSED' : activeTrip ? 'LOADED' : hasAnyTrip ? 'CHECKED_IN' : 'OPEN';
   // Filled bottles received back from customers physically re-enter the van's
@@ -627,8 +632,8 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
     <div className="space-y-8 pb-20">
       <SheetDetailHeader
         date={data!.date}
-        routeName={data?.route?.name ?? null}
-        vanPlateNumber={data?.van?.plateNumber ?? null}
+        routeName={isWalkIn ? 'Walk-in / Self-pickup' : (data?.route?.name ?? null)}
+        vanPlateNumber={isWalkIn ? null : (data?.van?.plateNumber ?? null)}
         driverName={data?.driver?.name ?? null}
         crew={data?.crew ?? []}
         crewConfirmed={!!data?.crewConfirmed}
@@ -643,29 +648,39 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         onPrintInvoice={handlePrintInvoice}
       />
 
-      {/* Lifecycle Stepper */}
-      <div className="grid grid-cols-4 gap-2">
-        {[
-          { label: 'Generated', active: true, icon: ClipboardList },
-          { label: 'Loaded', active: hasAnyTrip || isClosed, icon: Package },
-          { label: 'Check-In', active: (hasAnyTrip && !activeTrip) || isClosed, icon: DollarSign },
-          { label: 'Closed', active: isClosed, icon: CheckCircle2 },
-        ].map((step, i) => (
-          <div key={i} className="flex flex-col items-center gap-2">
-            <div className={cn(
-              'h-8 w-8 sm:h-10 sm:w-10 rounded-full flex items-center justify-center transition-all duration-500',
-              step.active ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20' : 'bg-muted text-muted-foreground',
-            )}>
-              <step.icon className="h-4 w-4 sm:h-5 sm:w-5" />
+      {/* Lifecycle Stepper — Walk-in / Self-Pickup sheets have no load/check-in
+          trip lifecycle, just a simple badge instead. */}
+      {isWalkIn ? (
+        <div className="rounded-2xl border border-indigo-500/30 bg-indigo-500/5 px-4 py-3 flex items-center gap-3">
+          <Package className="h-5 w-5 text-indigo-500 flex-shrink-0" />
+          <p className="text-sm font-bold text-indigo-600 dark:text-indigo-400">
+            Walk-in / Self-Pickup — no van, odometer or trip involved.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-4 gap-2">
+          {[
+            { label: 'Generated', active: true, icon: ClipboardList },
+            { label: 'Loaded', active: hasAnyTrip || isClosed, icon: Package },
+            { label: 'Check-In', active: (hasAnyTrip && !activeTrip) || isClosed, icon: DollarSign },
+            { label: 'Closed', active: isClosed, icon: CheckCircle2 },
+          ].map((step, i) => (
+            <div key={i} className="flex flex-col items-center gap-2">
+              <div className={cn(
+                'h-8 w-8 sm:h-10 sm:w-10 rounded-full flex items-center justify-center transition-all duration-500',
+                step.active ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20' : 'bg-muted text-muted-foreground',
+              )}>
+                <step.icon className="h-4 w-4 sm:h-5 sm:w-5" />
+              </div>
+              <span className={cn('text-[9px] sm:text-[10px] font-bold uppercase tracking-tight text-center leading-tight', step.active ? 'text-primary' : 'text-muted-foreground')}>
+                {step.label}
+              </span>
             </div>
-            <span className={cn('text-[9px] sm:text-[10px] font-bold uppercase tracking-tight text-center leading-tight', step.active ? 'text-primary' : 'text-muted-foreground')}>
-              {step.label}
-            </span>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
-      {!data.crewConfirmed && !isClosed && (
+      {!isWalkIn && !data.crewConfirmed && !isClosed && (
         <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-center gap-3 flex-wrap">
           <span className="text-amber-500 text-lg flex-shrink-0">⚠</span>
           <div className="flex-1 min-w-[200px]">
@@ -686,7 +701,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         </div>
       )}
 
-      {canRecordVehicleCheck && data.crewConfirmed && !startCheck && !isClosed && (
+      {!isWalkIn && canRecordVehicleCheck && data.crewConfirmed && !startCheck && !isClosed && (
         <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-center gap-3 flex-wrap">
           <Gauge className="h-5 w-5 text-amber-500 flex-shrink-0" />
           <div className="flex-1 min-w-[200px]">
@@ -705,7 +720,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         </div>
       )}
 
-      {unresolvedCriticalCheck && !isClosed && (
+      {!isWalkIn && unresolvedCriticalCheck && !isClosed && (
         <div className="rounded-2xl border border-destructive/50 bg-destructive/10 px-4 py-3 flex items-center gap-3 flex-wrap">
           <ShieldAlert className="h-5 w-5 text-destructive flex-shrink-0" />
           <div className="flex-1 min-w-[200px]">
@@ -915,7 +930,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         </div>
       )}
 
-      {canRecordVehicleCheck && startCheck && !endCheck && hasAnyTrip && !isClosed && (
+      {!isWalkIn && canRecordVehicleCheck && startCheck && !endCheck && hasAnyTrip && !isClosed && (
         <div className="rounded-2xl border border-blue-500/40 bg-blue-500/10 px-4 py-3 flex items-center gap-3 flex-wrap">
           <Gauge className="h-5 w-5 text-blue-500 flex-shrink-0" />
           <div className="flex-1 min-w-[200px]">
@@ -936,7 +951,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
       {/* Odometer Correction (2026-08-23): a compact readout of both recorded
           readings with a Staff/Admin-only fix, replacing the old permanent
           lock (once submitted, it used to never be editable again). */}
-      {(startCheck || endCheck) && (
+      {!isWalkIn && (startCheck || endCheck) && (
         <div className="rounded-2xl border border-border/50 bg-card/50 backdrop-blur-sm px-4 py-3 flex flex-wrap items-center gap-x-6 gap-y-2">
           <div className="flex items-center gap-1.5 text-xs font-bold uppercase text-muted-foreground">
             <Gauge className="h-4 w-4" />
@@ -983,7 +998,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         </div>
       )}
 
-      {!hasAnyTrip && !isClosed && (
+      {!isWalkIn && !hasAnyTrip && !isClosed && (
         <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-start gap-3">
           <span className="text-amber-500 text-lg mt-0.5 flex-shrink-0">⚠</span>
           <div>
@@ -1006,30 +1021,32 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             </div>
           </CardContent>
         </Card>
-        <Card className="bg-card/50 backdrop-blur-sm">
-          <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
-            <div className={cn(
-              'h-10 w-10 rounded-xl flex items-center justify-center shrink-0',
-              kmTraveledIsAnomaly ? 'bg-destructive/10 text-destructive' : 'bg-teal-500/10 text-teal-500',
-            )}>
-              <Route className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase text-muted-foreground">Km Traveled Today</p>
-              {kmTraveledToday === null ? (
-                <p className="text-sm font-black truncate text-muted-foreground">
-                  {startCheck ? 'In Progress' : '—'}
-                </p>
-              ) : kmTraveledIsAnomaly ? (
-                <p className="text-sm font-black truncate text-destructive" title="End odometer reading is lower than the start reading — check the entries.">
-                  ⚠ Check entry
-                </p>
-              ) : (
-                <p className="text-sm font-black truncate">{kmTraveledToday.toLocaleString()} <span className="text-xs font-normal text-muted-foreground">km</span></p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+        {!isWalkIn && (
+          <Card className="bg-card/50 backdrop-blur-sm">
+            <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
+              <div className={cn(
+                'h-10 w-10 rounded-xl flex items-center justify-center shrink-0',
+                kmTraveledIsAnomaly ? 'bg-destructive/10 text-destructive' : 'bg-teal-500/10 text-teal-500',
+              )}>
+                <Route className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase text-muted-foreground">Km Traveled Today</p>
+                {kmTraveledToday === null ? (
+                  <p className="text-sm font-black truncate text-muted-foreground">
+                    {startCheck ? 'In Progress' : '—'}
+                  </p>
+                ) : kmTraveledIsAnomaly ? (
+                  <p className="text-sm font-black truncate text-destructive" title="End odometer reading is lower than the start reading — check the entries.">
+                    ⚠ Check entry
+                  </p>
+                ) : (
+                  <p className="text-sm font-black truncate">{kmTraveledToday.toLocaleString()} <span className="text-xs font-normal text-muted-foreground">km</span></p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
         <Card className="bg-card/50 backdrop-blur-sm">
           <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
             <div className="h-10 w-10 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-500 shrink-0">
@@ -1078,145 +1095,156 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             </div>
           </CardContent>
         </Card>
-        <Card className="bg-card/50 backdrop-blur-sm">
-          <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
-            <div className="h-10 w-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500 shrink-0">
-              <Truck className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase text-muted-foreground" title="Bottles loaded but not yet recorded as delivered or returned">Unrecorded</p>
-              <p className="text-sm font-black truncate">{bottlesInTruck} bottles</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="bg-card/50 backdrop-blur-sm">
-          <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
-            <div className="h-10 w-10 rounded-xl bg-destructive/10 flex items-center justify-center text-destructive shrink-0">
-              <Receipt className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase text-muted-foreground" title="All recorded expenses (fuel included) plus cash handed to crew — the full cash-out figure for this sheet">Trip Expenses</p>
-              <p className="text-sm font-black text-destructive truncate">
-                ₨ {(
-                  (data?.expenses ?? []).reduce((s, e) => s + e.amount, 0) +
-                  (data?.crewCashDistributions ?? []).reduce((s, c) => s + c.amount, 0)
-                ).toLocaleString()}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+        {!isWalkIn && (
+          <Card className="bg-card/50 backdrop-blur-sm">
+            <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
+              <div className="h-10 w-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500 shrink-0">
+                <Truck className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase text-muted-foreground" title="Bottles loaded but not yet recorded as delivered or returned">Unrecorded</p>
+                <p className="text-sm font-black truncate">{bottlesInTruck} bottles</p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+        {!isWalkIn && (
+          <Card className="bg-card/50 backdrop-blur-sm">
+            <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
+              <div className="h-10 w-10 rounded-xl bg-destructive/10 flex items-center justify-center text-destructive shrink-0">
+                <Receipt className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase text-muted-foreground" title="All recorded expenses (fuel included) plus cash handed to crew — the full cash-out figure for this sheet">Trip Expenses</p>
+                <p className="text-sm font-black text-destructive truncate">
+                  ₨ {(
+                    (data?.expenses ?? []).reduce((s, e) => s + e.amount, 0) +
+                    (data?.crewCashDistributions ?? []).reduce((s, c) => s + c.amount, 0)
+                  ).toLocaleString()}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
-      <LoadTripsSection
-        loads={loads}
-        isClosed={isClosed}
-        activeTrip={activeTrip}
-        hasAnyTrip={hasAnyTrip}
-        canLoadOut={canLoadOut}
-        canClose={canCloseSheet}
-        tripStats={tripStats}
-        canRequestClose={canRequestClose}
-        onNewTrip={() => {
-          // Backend also enforces this — trips cannot start with an unconfirmed crew
-          if (!data.crewConfirmed) {
-            toast.warning('Confirm today’s crew before starting a trip');
-            dispatch({ type: 'OPEN_CREW_CONFIRM' });
-            return;
-          }
-          // Backend also enforces this — a start-of-day vehicle check is required
-          // before a trip can start (Fleet Phase 1, plan doc §7.2 "Mandatory").
-          if (canRecordVehicleCheck && !startCheck) {
-            toast.warning('Record the start-of-day vehicle check before starting a trip');
-            dispatch({ type: 'OPEN_VEHICLE_CHECK', checkType: 'START' });
-            return;
-          }
-          // Backend also enforces this — a critical vehicle-check failure blocks
-          // trip start until Staff/Admin acknowledges it (Fleet Phase 1).
-          if (unresolvedCriticalCheck) {
-            toast.warning('A critical vehicle issue must be acknowledged before the trip can start');
-            if (canOverrideCriticalCheck) dispatch({ type: 'OPEN_CRITICAL_OVERRIDE' });
-            return;
-          }
-          dispatch({ type: 'OPEN_NEW_TRIP' });
-        }}
-        onReconcile={() => {
-          // Backend also enforces this — an end-of-day vehicle check is required
-          // before the sheet can be closed (Soft Close, Amendment R9, mirrors the
-          // start-of-day gate on trip start).
-          if (canRecordVehicleCheck && !endCheck) {
-            toast.warning('Record the end-of-day vehicle check before closing the sheet');
-            dispatch({ type: 'OPEN_VEHICLE_CHECK', checkType: 'END' });
-            return;
-          }
-          dispatch({ type: 'OPEN_RECONCILE' });
-        }}
-        onRequestClose={() => {
-          if (canRecordVehicleCheck && !endCheck) {
-            toast.warning('Record the end-of-day vehicle check before closing the sheet');
-            dispatch({ type: 'OPEN_VEHICLE_CHECK', checkType: 'END' });
-            return;
-          }
-          dispatch({ type: 'OPEN_RECONCILE' });
-        }}
-        onCheckin={(tripId) => dispatch({ type: 'OPEN_CHECKIN', tripId })}
-        isDriver={isDriver}
-        canManageEditLocks={canManageEditLocks}
-        canEditClosedTrip={canEditClosedTrip}
-        onEditTrip={(loadId) => dispatch({ type: 'OPEN_EDIT_TRIP', tripId: loadId })}
-        onRequestEditTrip={(loadId) => requestTripEdit.mutate(loadId)}
-        requestingTripId={requestTripEdit.isPending ? ((requestTripEdit.variables as any) ?? null) : null}
-        onUnlockEditTrip={(loadId) => unlockTripEdit.mutate({ loadId })}
-        unlockingTripId={unlockTripEdit.isPending ? ((unlockTripEdit.variables as any)?.loadId ?? null) : null}
-      />
-
-      <SheetCashOutSection
-        sheetId={sheetId}
-        date={data!.date}
-        expenses={data?.expenses ?? []}
-        crewMembers={crewCashEmployees}
-        isClosed={isClosed}
-        canDeleteExpense={canDeleteExpense}
-        canUpdateExpense={canUpdateExpense}
-        currentUserId={user?.id}
-        canEditAllCrewCash={canEditAllCrewCash}
-        canDeleteAllCrewCash={canDeleteAllCrewCash}
-      />
-
-      {/* Ad-hoc / Correction Entry Actions */}
-      {(
-        (canBulkImport && !isClosed) ||
-        (canRecordFuel && !isClosed) ||
-        (canCreateExpense && !isClosed) ||
-        (canCreateCrewCash && !isClosed) ||
-        ((!isClosed && canUpdateSheet) || (isClosed && canCorrect)) ||
-        canReportDamage
-      ) && (
-        <div className="flex justify-end gap-2">
-          {canBulkImport && !isClosed && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => dispatch({ type: 'OPEN_BULK_IMPORT' })}
-              className="gap-2"
-            >
-              <Upload className="h-4 w-4" />
-              Import Deliveries
-            </Button>
-          )}
-          <AddRecordMenu
-            canLogFuel={canRecordFuel && !isClosed}
-            canAddExpense={canCreateExpense && !isClosed}
-            canAddCrewCash={canCreateCrewCash && !isClosed}
-            canAddDelivery={(!isClosed && canUpdateSheet) || (isClosed && canCorrect)}
+      {/* Walk-in / Self-Pickup sheets have no van/trip — Load Trips, sheet-level
+          Expenses/Crew Cash and the Fuel/Bulk-Import/Damage actions below don't
+          apply. Use the header's "Record Delivery" action to add more. */}
+      {!isWalkIn && (
+        <>
+          <LoadTripsSection
+            loads={loads}
             isClosed={isClosed}
-            canReportDamage={canReportDamage}
-            onLogFuel={() => dispatch({ type: 'OPEN_FUEL_LOG' })}
-            onAddExpense={() => dispatch({ type: 'OPEN_EXPENSE' })}
-            onAddCrewCash={() => dispatch({ type: 'OPEN_CREW_CASH' })}
-            onAddDelivery={() => dispatch({ type: isClosed ? 'OPEN_CORRECTION' : 'OPEN_ADHOC' })}
-            onReportDamage={() => dispatch({ type: 'OPEN_DAMAGE' })}
+            activeTrip={activeTrip}
+            hasAnyTrip={hasAnyTrip}
+            canLoadOut={canLoadOut}
+            canClose={canCloseSheet}
+            tripStats={tripStats}
+            canRequestClose={canRequestClose}
+            onNewTrip={() => {
+              // Backend also enforces this — trips cannot start with an unconfirmed crew
+              if (!data.crewConfirmed) {
+                toast.warning('Confirm today’s crew before starting a trip');
+                dispatch({ type: 'OPEN_CREW_CONFIRM' });
+                return;
+              }
+              // Backend also enforces this — a start-of-day vehicle check is required
+              // before a trip can start (Fleet Phase 1, plan doc §7.2 "Mandatory").
+              if (canRecordVehicleCheck && !startCheck) {
+                toast.warning('Record the start-of-day vehicle check before starting a trip');
+                dispatch({ type: 'OPEN_VEHICLE_CHECK', checkType: 'START' });
+                return;
+              }
+              // Backend also enforces this — a critical vehicle-check failure blocks
+              // trip start until Staff/Admin acknowledges it (Fleet Phase 1).
+              if (unresolvedCriticalCheck) {
+                toast.warning('A critical vehicle issue must be acknowledged before the trip can start');
+                if (canOverrideCriticalCheck) dispatch({ type: 'OPEN_CRITICAL_OVERRIDE' });
+                return;
+              }
+              dispatch({ type: 'OPEN_NEW_TRIP' });
+            }}
+            onReconcile={() => {
+              // Backend also enforces this — an end-of-day vehicle check is required
+              // before the sheet can be closed (Soft Close, Amendment R9, mirrors the
+              // start-of-day gate on trip start).
+              if (canRecordVehicleCheck && !endCheck) {
+                toast.warning('Record the end-of-day vehicle check before closing the sheet');
+                dispatch({ type: 'OPEN_VEHICLE_CHECK', checkType: 'END' });
+                return;
+              }
+              dispatch({ type: 'OPEN_RECONCILE' });
+            }}
+            onRequestClose={() => {
+              if (canRecordVehicleCheck && !endCheck) {
+                toast.warning('Record the end-of-day vehicle check before closing the sheet');
+                dispatch({ type: 'OPEN_VEHICLE_CHECK', checkType: 'END' });
+                return;
+              }
+              dispatch({ type: 'OPEN_RECONCILE' });
+            }}
+            onCheckin={(tripId) => dispatch({ type: 'OPEN_CHECKIN', tripId })}
+            isDriver={isDriver}
+            canManageEditLocks={canManageEditLocks}
+            canEditClosedTrip={canEditClosedTrip}
+            onEditTrip={(loadId) => dispatch({ type: 'OPEN_EDIT_TRIP', tripId: loadId })}
+            onRequestEditTrip={(loadId) => requestTripEdit.mutate(loadId)}
+            requestingTripId={requestTripEdit.isPending ? ((requestTripEdit.variables as any) ?? null) : null}
+            onUnlockEditTrip={(loadId) => unlockTripEdit.mutate({ loadId })}
+            unlockingTripId={unlockTripEdit.isPending ? ((unlockTripEdit.variables as any)?.loadId ?? null) : null}
           />
-        </div>
+
+          <SheetCashOutSection
+            sheetId={sheetId}
+            date={data!.date}
+            expenses={data?.expenses ?? []}
+            crewMembers={crewCashEmployees}
+            isClosed={isClosed}
+            canDeleteExpense={canDeleteExpense}
+            canUpdateExpense={canUpdateExpense}
+            currentUserId={user?.id}
+            canEditAllCrewCash={canEditAllCrewCash}
+            canDeleteAllCrewCash={canDeleteAllCrewCash}
+          />
+
+          {/* Ad-hoc / Correction Entry Actions */}
+          {(
+            (canBulkImport && !isClosed) ||
+            (canRecordFuel && !isClosed) ||
+            (canCreateExpense && !isClosed) ||
+            (canCreateCrewCash && !isClosed) ||
+            ((!isClosed && canUpdateSheet) || (isClosed && canCorrect)) ||
+            canReportDamage
+          ) && (
+            <div className="flex justify-end gap-2">
+              {canBulkImport && !isClosed && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => dispatch({ type: 'OPEN_BULK_IMPORT' })}
+                  className="gap-2"
+                >
+                  <Upload className="h-4 w-4" />
+                  Import Deliveries
+                </Button>
+              )}
+              <AddRecordMenu
+                canLogFuel={canRecordFuel && !isClosed}
+                canAddExpense={canCreateExpense && !isClosed}
+                canAddCrewCash={canCreateCrewCash && !isClosed}
+                canAddDelivery={(!isClosed && canUpdateSheet) || (isClosed && canCorrect)}
+                isClosed={isClosed}
+                canReportDamage={canReportDamage}
+                onLogFuel={() => dispatch({ type: 'OPEN_FUEL_LOG' })}
+                onAddExpense={() => dispatch({ type: 'OPEN_EXPENSE' })}
+                onAddCrewCash={() => dispatch({ type: 'OPEN_CREW_CASH' })}
+                onAddDelivery={() => dispatch({ type: isClosed ? 'OPEN_CORRECTION' : 'OPEN_ADHOC' })}
+                onReportDamage={() => dispatch({ type: 'OPEN_DAMAGE' })}
+              />
+            </div>
+          )}
+        </>
       )}
 
       {/* Search + Sort Controls */}

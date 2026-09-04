@@ -605,6 +605,10 @@ export interface SheetDetail {
   date: string;
   isClosed: boolean;
   vendorId: string;
+  // Walk-in / Self-Pickup Delivery (docs/features/walk-in-delivery.md) — 'ROUTE'
+  // for every generation-pipeline sheet, 'WALK_IN' for the synthetic per-vendor-
+  // per-date sheet off-route deliveries are appended to (no van/odometer/trip).
+  kind?: 'ROUTE' | 'WALK_IN';
   filledOutCount: number;
   vanId: string | null;
   driverId: string | null;

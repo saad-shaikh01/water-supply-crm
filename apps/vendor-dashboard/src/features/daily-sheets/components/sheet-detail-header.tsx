@@ -60,11 +60,15 @@ export function SheetDetailHeader({
             <MapPin className="h-3 w-3 shrink-0" />
             {routeName ?? 'No Route'}
           </span>
-          <span className="text-muted-foreground/40">•</span>
-          <span className="flex items-center gap-1 whitespace-nowrap">
-            <Truck className="h-3 w-3 shrink-0" />
-            {vanPlateNumber}
-          </span>
+          {vanPlateNumber && (
+            <>
+              <span className="text-muted-foreground/40">•</span>
+              <span className="flex items-center gap-1 whitespace-nowrap">
+                <Truck className="h-3 w-3 shrink-0" />
+                {vanPlateNumber}
+              </span>
+            </>
+          )}
         </div>
         {/* Crew line */}
         <div className="text-muted-foreground text-xs flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 font-medium">
