@@ -52,11 +52,19 @@ import {
  *   - daily_sheets:edit_closed_trip — added to `manager` for the Post-Close
  *     Trip Correction feature (owner-requested 2026-09-02). Same rationale:
  *     existing vendors' Manager roles predate it.
+ *   - daily_sheets:record_walk_in — added to `manager` for the Walk-in /
+ *     Self-Pickup Delivery feature (owner-requested 2026-09-04). Same rationale.
  */
 const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
   driver: ['fleet:record_check', 'fleet:record_fuel'],
   salesman: ['fleet:record_check', 'fleet:record_fuel'],
-  manager: ['daily_sheets:void_delivery', 'daily_sheets:edit_closed_trip'],
+  manager: [
+    'daily_sheets:void_delivery',
+    'daily_sheets:edit_closed_trip',
+    // Walk-in / Self-Pickup Delivery (owner-requested 2026-09-04). Existing
+    // vendors' Manager roles predate it and need the catch-up grant.
+    'daily_sheets:record_walk_in',
+  ],
 };
 
 /** Per-vendor system roles = every preset except the global-only super_admin. */

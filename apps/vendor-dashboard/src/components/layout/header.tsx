@@ -20,6 +20,7 @@ import {
 import { useAuthStore } from '../../store/auth.store';
 import { syncVendorSessionFcmToken } from '../../features/auth/hooks/use-auth';
 import { QuickRecordPayment } from '../../features/transactions/components/quick-record-payment';
+import { RecordWalkInDelivery } from '../../features/daily-sheets/components/record-walk-in-delivery';
 import { Can } from '../../features/authz/components/can';
 
 interface InAppNotification {
@@ -176,6 +177,15 @@ export function Header() {
             transaction.controller.ts). Field roles (driver/salesman/loader)
             don't get this by default; a vendor can still grant it to a
             custom role via Roles & Access if they ever want to. */}
+        {/* Walk-in / self-pickup delivery — same trust tier as Record Payment
+            (Admin + Manager); backend enforces daily_sheets:record_walk_in on
+            POST /daily-sheets/walk-in. */}
+        <Can permission="daily_sheets:record_walk_in">
+          <RecordWalkInDelivery
+            buttonLabel="Record Delivery"
+            buttonClassName="h-10 sm:h-11 px-3 sm:px-4"
+          />
+        </Can>
         <Can permission="transactions:record_payment">
           <QuickRecordPayment
             buttonLabel="Record Payment"

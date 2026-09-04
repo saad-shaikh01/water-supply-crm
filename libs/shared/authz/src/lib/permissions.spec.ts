@@ -55,7 +55,10 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // 168 = 167 + daily_sheets:edit_closed_trip — amend a checked-in trip's
 // physical counts on an already-closed sheet (Post-Close Trip Correction
 // feature, owner-requested 2026-09-02). No new resource, no new `:page`.
-const FROZEN_TOTAL = 168;
+// 169 = 168 + daily_sheets:record_walk_in — record a delivery made off the
+// route pipeline (Walk-in / Self-Pickup Delivery feature, owner-requested
+// 2026-09-04). No new resource, no new `:page`.
+const FROZEN_TOTAL = 169;
 const FROZEN_PAGES = 28;
 const FROZEN_RESOURCES = 30;
 

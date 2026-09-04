@@ -14,7 +14,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '@water-supply-crm/database';
 import { QUEUE_NAMES, JOB_NAMES, NOTIFICATION_EVENTS } from '@water-supply-crm/queue';
-import { DeliveryStatus, PaymentType, TransactionType, NotificationType, NotificationChannel, Prisma, CrewRole, UserRole } from '@prisma/client';
+import { DeliveryStatus, PaymentType, TransactionType, NotificationType, NotificationChannel, Prisma, CrewRole, UserRole, DailySheetKind, DeliveryChannel } from '@prisma/client';
 import { GenerateSheetsDto } from './dto/generate-sheets.dto';
 import { SubmitDeliveryDto } from './dto/submit-delivery.dto';
 import { LoadOutDto } from './dto/load-out.dto';
@@ -33,6 +33,7 @@ import { InAppNotificationService } from '../notifications/in-app-notification.s
 import { InsertOrderItemDto, SequenceMode } from './dto/insert-order-item.dto';
 import { AddAdhocItemDto } from './dto/add-adhoc-item.dto';
 import { AddCorrectionItemDto } from './dto/add-correction-item.dto';
+import { RecordWalkInDeliveryDto } from './dto/record-walk-in-delivery.dto';
 import { MoveDeliveryItemsDto } from './dto/move-delivery-items.dto';
 import { VoidDeliveryDto } from './dto/void-delivery.dto';
 import { CorrectDeliveryDto } from './dto/correct-delivery.dto';
@@ -1511,9 +1512,15 @@ export class DailySheetService implements OnModuleInit {
   }
 
   async findAllPaginated(vendorId: string, query: DailySheetQueryDto) {
-    const { page = 1, limit = 20, date, dateFrom, dateTo, routeId, driverId, vanId, isClosed, sortDir = 'desc' } = query;
+    const { page = 1, limit = 20, date, dateFrom, dateTo, routeId, driverId, vanId, isClosed, sortDir = 'desc', kind } = query;
 
     const where: any = { vendorId };
+
+    // Walk-in / Self-Pickup Delivery — synthetic WALK_IN sheets are hidden from
+    // the main list unless explicitly asked for (kind=WALK_IN) or opted-in to
+    // both (kind=ALL).
+    if (kind === 'WALK_IN') where.kind = DailySheetKind.WALK_IN;
+    else if (kind !== 'ALL') where.kind = DailySheetKind.ROUTE;
 
     if (date) {
       const d = new Date(date);
@@ -2659,6 +2666,337 @@ export class DailySheetService implements OnModuleInit {
     ]);
 
     return result;
+  }
+
+  // ── Walk-in / Self-Pickup Delivery ──────────────────────────────────────────
+  // docs/features/walk-in-delivery.md — a lightweight "Record Delivery" action,
+  // parallel to "Record Payment", for a delivery made off the route pipeline
+  // (customer self-collected, or it went through another channel). No van /
+  // odometer / load-out / trip / crew confirmation: this finds-or-creates the
+  // synthetic per-vendor-per-date WALK_IN sheet (owned by per-vendor sentinel
+  // van + user) and appends one DailySheetItem, then posts to the ledger exactly
+  // like submitDelivery / addAdhocItem.
+
+  private static readonly WALK_IN_VAN_PLATE_PREFIX = 'WALK-IN';
+
+  /**
+   * Find-or-create the per-vendor sentinel van + "counter" user that own every
+   * WALK_IN daily sheet. Both carry isSystem = true so they stay out of
+   * auto-generation, fleet/route pickers, staff lists and per-van/crew analytics.
+   */
+  private async ensureWalkInInfra(
+    vendorId: string,
+  ): Promise<{ vanId: string; driverId: string }> {
+    const plateNumber = `${DailySheetService.WALK_IN_VAN_PLATE_PREFIX}-${vendorId}`;
+
+    let van = await this.prisma.van.findFirst({
+      where: { vendorId, isSystem: true },
+      select: { id: true },
+    });
+    if (!van) {
+      van = await this.prisma.van.upsert({
+        where: { plateNumber },
+        update: { isSystem: true, isActive: true },
+        create: { vendorId, plateNumber, isSystem: true, isActive: true },
+        select: { id: true },
+      });
+    }
+
+    let sentinelUser = await this.prisma.user.findFirst({
+      where: { vendorId, isSystem: true },
+      select: { id: true },
+    });
+    if (!sentinelUser) {
+      sentinelUser = await this.prisma.user.create({
+        data: {
+          vendorId,
+          name: 'Walk-in / Self Pickup',
+          role: UserRole.DRIVER,
+          isSystem: true,
+          isActive: true,
+        },
+        select: { id: true },
+      });
+    }
+
+    return { vanId: van.id, driverId: sentinelUser.id };
+  }
+
+  /**
+   * Find-or-create the WALK_IN sheet for (vendorId, date). One per vendor per
+   * calendar date — guaranteed by DailySheet @@unique([vendorId, vanId, date])
+   * on the sentinel van. Created crewConfirmed = true (no trip gate).
+   */
+  private async findOrCreateWalkInSheet(
+    tx: Prisma.TransactionClient,
+    vendorId: string,
+    dateOnly: Date,
+    infra: { vanId: string; driverId: string },
+  ) {
+    const existing = await tx.dailySheet.findUnique({
+      where: {
+        vendorId_vanId_date: { vendorId, vanId: infra.vanId, date: dateOnly },
+      },
+    });
+    if (existing) return existing;
+
+    return tx.dailySheet.create({
+      data: {
+        vendorId,
+        vanId: infra.vanId,
+        driverId: infra.driverId,
+        routeId: null,
+        date: dateOnly,
+        kind: DailySheetKind.WALK_IN,
+        crewConfirmed: true,
+        crewConfirmedAt: new Date(),
+      },
+    });
+  }
+
+  async recordWalkInDelivery(user: AuthUser, dto: RecordWalkInDeliveryDto) {
+    const vendorId = user.vendorId;
+
+    // ── Date: today or earlier, normalised to local midnight ──
+    const dateOnly = new Date(dto.date);
+    if (Number.isNaN(dateOnly.getTime())) {
+      throw new BadRequestException('Invalid date');
+    }
+    dateOnly.setHours(0, 0, 0, 0);
+    const todayOnly = new Date();
+    todayOnly.setHours(0, 0, 0, 0);
+    if (dateOnly.getTime() > todayOnly.getTime()) {
+      throw new BadRequestException('Walk-in delivery date cannot be in the future');
+    }
+    const isBackDated = dateOnly.getTime() < todayOnly.getTime();
+
+    const filledDropped = dto.filledDropped;
+    const emptyReceived = dto.emptyReceived;
+    const filledReceived = dto.filledReceived;
+    const cashCollected = dto.cashCollected ?? 0;
+
+    // Cash-only carries no bottle movement — that is a payment, not a delivery.
+    if (filledDropped === 0 && emptyReceived === 0 && filledReceived === 0) {
+      throw new BadRequestException(
+        'Enter at least one of delivered / empty received / filled received. For a cash-only entry use Record Payment.',
+      );
+    }
+
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: dto.customerId, vendorId },
+      select: {
+        id: true,
+        name: true,
+        customerCode: true,
+        phoneNumber: true,
+        paymentType: true,
+        isBillingExempt: true,
+        customPrices: { select: { productId: true, customPrice: true } },
+      },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const product = await this.prisma.product.findFirst({
+      where: { id: dto.productId, vendorId },
+      select: { id: true, name: true, basePrice: true },
+    });
+    if (!product) throw new NotFoundException('Product not found');
+
+    // Price is the customer's own rate — never taken from the request.
+    const customPrice = customer.customPrices.find((p) => p.productId === dto.productId);
+    const price = customer.isBillingExempt
+      ? 0
+      : customPrice
+        ? customPrice.customPrice
+        : product.basePrice;
+
+    const channel = dto.deliveryChannel ?? DeliveryChannel.OTHER;
+    const status =
+      filledDropped === 0 ? DeliveryStatus.EMPTY_ONLY : DeliveryStatus.COMPLETED;
+    const note = dto.note?.trim() || null;
+
+    const infra = await this.ensureWalkInInfra(vendorId);
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const sheet = await this.findOrCreateWalkInSheet(tx, vendorId, dateOnly, infra);
+
+      // Anchor the ledger + timeline to the delivery's own date whenever it is
+      // not "today" (back-dated, or the walk-in sheet was already closed) — the
+      // same rule submitDelivery / addCorrectionItem use via `isCorrection`.
+      const dateAnchored = isBackDated || sheet.isClosed;
+      const stamp = dateAnchored ? dateOnly : new Date();
+
+      const count = await tx.dailySheetItem.count({
+        where: { dailySheetId: sheet.id },
+      });
+
+      const item = await tx.dailySheetItem.create({
+        data: {
+          dailySheetId: sheet.id,
+          customerId: customer.id,
+          productId: product.id,
+          sequence: count + 1,
+          deliveryType: 'ON_DEMAND',
+          deliveryChannel: channel,
+          status,
+          filledDropped,
+          emptyReceived,
+          filledReceived,
+          cashCollected,
+          pricePerBottle: price,
+          deliveredAt: stamp,
+          recordedAt: stamp,
+          reason: note,
+          ...(dateAnchored
+            ? {
+                isCorrection: true,
+                correctionAddedAt: new Date(),
+                correctionNote:
+                  note ??
+                  `Walk-in / self-pickup delivery for ${dateOnly
+                    .toISOString()
+                    .slice(0, 10)}`,
+              }
+            : {}),
+        },
+      });
+
+      // A first-ever purchase by a walk-in customer may have no wallet row for
+      // this product — ledger.recordDelivery() requires one to exist.
+      await tx.bottleWallet.upsert({
+        where: {
+          customerId_productId: { customerId: customer.id, productId: product.id },
+        },
+        update: {},
+        create: { customerId: customer.id, productId: product.id, balance: 0 },
+      });
+
+      await this.ledger.recordDelivery(
+        {
+          vendorId,
+          customerId: customer.id,
+          productId: product.id,
+          dailySheetId: sheet.id,
+          dailySheetItemId: item.id,
+          filledDropped,
+          emptyReceived,
+          filledReceived,
+          cashCollected,
+          pricePerBottle: price,
+          ...(dateAnchored ? { occurredAt: dateOnly } : {}),
+        },
+        tx,
+      );
+
+      // Read via `tx` — ledger.recordDelivery just wrote the new balances on
+      // this connection (same fix as submitDelivery / addAdhocItem).
+      const updatedWallet = await tx.bottleWallet.findUnique({
+        where: {
+          customerId_productId: { customerId: customer.id, productId: product.id },
+        },
+        select: { balance: true },
+      });
+      const updatedCustomer = await tx.customer.findUnique({
+        where: { id: customer.id },
+        select: { financialBalance: true },
+      });
+
+      const saved = await tx.dailySheetItem.update({
+        where: { id: item.id },
+        data: {
+          bottleBalanceAfter: updatedWallet?.balance ?? null,
+          financialBalanceAfter: updatedCustomer?.financialBalance ?? null,
+        },
+      });
+
+      return {
+        item: saved,
+        sheetDate: sheet.date,
+        financialBalanceAfter: updatedCustomer?.financialBalance ?? 0,
+        bottleBalanceAfter: updatedWallet?.balance ?? 0,
+      };
+    });
+
+    await this.audit.log({
+      vendorId,
+      userId: user.userId,
+      userName: user.name,
+      action: 'WALK_IN_DELIVERY_ADDED',
+      entity: 'DailySheetItem',
+      entityId: result.item.id,
+      changes: {
+        after: {
+          customerId: customer.id,
+          productId: product.id,
+          deliveryChannel: channel,
+          filledDropped,
+          emptyReceived,
+          filledReceived,
+          cashCollected,
+          date: dateOnly.toISOString().slice(0, 10),
+        },
+      },
+    });
+
+    const sheetDateStr = result.sheetDate.toISOString().slice(0, 10);
+    await Promise.all([
+      this.cache.invalidateDailyDashboard(vendorId, sheetDateStr),
+      this.cache.invalidateOverview(vendorId),
+      this.cache.invalidateAnalytics(vendorId),
+      this.cache.invalidateCustomerWallets(vendorId, customer.id),
+    ]);
+
+    // WhatsApp PDF receipt — same shape submitDelivery sends. Real drops only
+    // (not empty-only pickups), and only when a phone number is on file.
+    if (
+      dto.sendWhatsapp !== false &&
+      status === DeliveryStatus.COMPLETED &&
+      filledDropped > 0 &&
+      customer.phoneNumber
+    ) {
+      const vendor = await this.prisma.vendor.findUnique({
+        where: { id: vendorId },
+        select: { name: true },
+      });
+      const now = new Date();
+      const receiptData = {
+        customerName: customer.name,
+        customerCode: customer.customerCode,
+        productName: product.name,
+        van: 'Self Pickup',
+        filledDropped,
+        emptyReceived,
+        filledReceived,
+        cashCollected,
+        pricePerBottle: price,
+        financialBalanceAfter: result.financialBalanceAfter,
+        bottleBalanceAfter: result.bottleBalanceAfter,
+        deliveryDate: sheetDateStr,
+        deliveryTime: now.toLocaleTimeString('en-PK', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true,
+          timeZone: 'Asia/Karachi',
+        }),
+        vendorName: vendor?.name ?? 'Water Supply',
+      };
+      this.notifications
+        .queueWhatsAppPdf(customer.phoneNumber, receiptData, {
+          entityType: 'DELIVERY_ITEM',
+          entityId: result.item.id,
+          vendorId,
+          type: NotificationType.DELIVERY_RECEIPT,
+          recipientType: 'CUSTOMER',
+          recipientId: customer.id,
+        })
+        .catch((e: Error) =>
+          this.logger.warn(
+            `WhatsApp PDF walk-in receipt failed for item ${result.item.id}: ${e.message}`,
+          ),
+        );
+    }
+
+    return result.item;
   }
 
   async createLoad(vendorId: string, sheetId: string, dto: CreateLoadDto) {

@@ -123,6 +123,11 @@ export const PERMISSION_CATALOG = {
       // dedicated endpoint that does not relax checkinLoad's isClosed guard.
       // Analogous to `void_delivery`; granted to Admin + Manager.
       'edit_closed_trip',
+      // Walk-in / Self-Pickup Delivery (owner-requested 2026-09-04): record a
+      // delivery made off the route pipeline (customer self-collected, or
+      // another channel) — no van / odometer / load-out / trip. Granted to
+      // Admin + Manager. Existing vendors get it via PRESET_DRIFT_BACKFILLS.manager.
+      'record_walk_in',
     ],
   },
   vans: {

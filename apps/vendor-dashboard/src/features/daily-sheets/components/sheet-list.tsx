@@ -24,6 +24,10 @@ export function SheetList() {
   const user = useAuthStore((s) => s.user);
   const { data, isLoading, page, setPage, limit, setLimit, routeId, vanId, driverId } = useDailySheets();
   const [isClosed, setIsClosed] = useQueryState('isClosed', parseAsString.withDefault(''));
+  // Walk-in / Self-Pickup Delivery — '' = route sheets (default), 'WALK_IN' = the
+  // synthetic per-vendor-per-date walk-in sheets.
+  const [kind, setKind] = useQueryState('kind', parseAsString.withDefault(''));
+  const isWalkIn = kind === 'WALK_IN';
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   const sheets = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
@@ -31,6 +35,7 @@ export function SheetList() {
     id: string;
     date: string;
     isClosed: boolean;
+    kind?: 'ROUTE' | 'WALK_IN';
     crewConfirmed?: boolean;
     /** Soft Close (Amendment R9). */
     closureStatus?: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | null;
@@ -78,6 +83,32 @@ export function SheetList() {
         <div className="flex-1 min-w-0">
           <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1 mb-1 block sm:hidden">Date Range</Label>
           <DateRangePicker />
+        </div>
+
+        <div>
+          <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1 mb-1 block">View</Label>
+          <div className="inline-flex rounded-xl border border-border bg-background/50 p-0.5 h-10">
+            <button
+              type="button"
+              onClick={() => { resetPage(); setKind(null); }}
+              className={cn(
+                'px-3 rounded-lg text-xs font-bold transition-colors',
+                !isWalkIn ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              Route
+            </button>
+            <button
+              type="button"
+              onClick={() => { resetPage(); setKind('WALK_IN'); }}
+              className={cn(
+                'px-3 rounded-lg text-xs font-bold transition-colors whitespace-nowrap',
+                isWalkIn ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              Walk-in
+            </button>
+          </div>
         </div>
 
         <div className="hidden sm:block">
@@ -213,7 +244,7 @@ export function SheetList() {
             cell: (r) => (
               <div className="flex items-center gap-1.5 text-xs font-bold text-foreground dark:text-white truncate max-w-[150px]">
                 <Truck className="h-3 w-3 text-primary shrink-0" />
-                {r.van?.plateNumber ?? '—'}
+                {r.kind === 'WALK_IN' ? 'Walk-in' : (r.van?.plateNumber ?? '—')}
               </div>
             )
           },

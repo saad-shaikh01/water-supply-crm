@@ -209,6 +209,7 @@ describe('role presets', () => {
     expect(eff).toContain('daily_sheets:close');
     expect(eff).toContain('daily_sheets:void_delivery'); // Admin + Manager (owner-requested 2026-09-01)
     expect(eff).toContain('daily_sheets:edit_closed_trip'); // Admin + Manager (owner-requested 2026-09-02)
+    expect(eff).toContain('daily_sheets:record_walk_in'); // Admin + Manager (owner-requested 2026-09-04)
     // but NOT destructive / financial-sensitive / admin-only
     expect(eff).not.toContain('customers:delete');
     expect(eff).not.toContain('users:create');

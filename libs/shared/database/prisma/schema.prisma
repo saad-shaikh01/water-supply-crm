@@ -64,6 +64,26 @@ enum DeliveryType {
   ON_DEMAND
 }
 
+// Walk-in / Self-Pickup Delivery (docs/features/walk-in-delivery.md).
+// ROUTE  — a normal per-van daily sheet from the generation pipeline.
+// WALK_IN — a synthetic per-vendor-per-date sheet, lazily created the first time
+//   a walk-in / self-pickup / off-channel delivery is recorded for that date. It
+//   carries a sentinel van + driver (Van.isSystem / User.isSystem), is created
+//   crewConfirmed=true, and is skipped by auto-generation, crew confirmation,
+//   load-out / trips, van-cash reconciliation and per-van analytics.
+enum DailySheetKind {
+  ROUTE
+  WALK_IN
+}
+
+// The channel a walk-in delivery came through. Set only on items recorded via
+// the walk-in flow; null on every route-pipeline item.
+enum DeliveryChannel {
+  SELF_PICKUP
+  THIRD_PARTY
+  OTHER
+}
+
 // Soft Close workflow (DailySheet.closureStatus) — null means the sheet was
 // never soft-closed (either still open, or closed the legacy direct way by
 // Staff/Admin, which skips straight to isClosed=true with no status row).
@@ -322,6 +342,11 @@ model User {
   phoneNumber String?  @unique
   role        UserRole
   isActive    Boolean  @default(true)
+  // Walk-in / Self-Pickup Delivery — a per-vendor sentinel "counter" user that
+  // anchors the synthetic WALK_IN daily sheets (DailySheet.driverId is a
+  // non-null FK). Never logs in (email/password null), excluded from staff
+  // pickers, crew and driver analytics.
+  isSystem    Boolean  @default(false)
   vendorId    String?
   vendor      Vendor?  @relation(fields: [vendorId], references: [id])
 
@@ -384,13 +409,13 @@ model User {
   crewCashAuditLogs   CrewCashDistributionAuditLog[]
 
   // Fleet Operations & Vehicle Intelligence — Phase 1
-  vehicleDocumentsCreated       VehicleDocument[]      @relation("VehicleDocumentCreatedBy")
-  vehicleDailyChecksRecorded    VehicleDailyCheck[]    @relation("VehicleDailyCheckRecordedBy")
-  vehicleCheckCriticalOverrides VehicleDailyCheck[]    @relation("VehicleCheckCriticalOverrideBy")
+  vehicleDocumentsCreated          VehicleDocument[]      @relation("VehicleDocumentCreatedBy")
+  vehicleDailyChecksRecorded       VehicleDailyCheck[]    @relation("VehicleDailyCheckRecordedBy")
+  vehicleCheckCriticalOverrides    VehicleDailyCheck[]    @relation("VehicleCheckCriticalOverrideBy")
   // Odometer Correction (2026-08-23) — see comment on VehicleDailyCheck below.
-  vehicleDailyChecksOdometerEdited VehicleDailyCheck[] @relation("VehicleDailyCheckOdometerEditedBy")
-  fuelLogsRecorded              FuelLog[]              @relation("FuelLogRecordedBy")
-  vehicleServiceRecordsRecorded VehicleServiceRecord[] @relation("VehicleServiceRecordRecordedBy")
+  vehicleDailyChecksOdometerEdited VehicleDailyCheck[]    @relation("VehicleDailyCheckOdometerEditedBy")
+  fuelLogsRecorded                 FuelLog[]              @relation("FuelLogRecordedBy")
+  vehicleServiceRecordsRecorded    VehicleServiceRecord[] @relation("VehicleServiceRecordRecordedBy")
 
   deliveryItemMoveLogsMoved DeliveryItemMoveLog[]
 
@@ -623,6 +648,10 @@ model Van {
   plateNumber String @unique
 
   isActive        Boolean @default(true)
+  // Walk-in / Self-Pickup Delivery — a per-vendor sentinel van that owns the
+  // synthetic WALK_IN daily sheets. Excluded from auto-generation, fleet/route
+  // pickers, van-cash reconciliation and per-van analytics.
+  isSystem        Boolean @default(false)
   defaultDriverId String? @unique
   defaultDriver   User?   @relation("VanDriver", fields: [defaultDriverId], references: [id])
 
@@ -641,10 +670,10 @@ model Van {
   // `VehicleDailyCheck` is the one exception — it keeps `vanId` (which
   // route's trip this check belongs to) alongside the new `vehicleId`
   // (which physical vehicle was actually checked).
-  vehicleDailyChecks VehicleDailyCheck[]
+  vehicleDailyChecks     VehicleDailyCheck[]
   // Vehicles that usually (not exclusively) serve this route — see
   // Vehicle.usualVanId.
-  vehiclesUsuallyServing Vehicle[] @relation("VehicleUsualVan")
+  vehiclesUsuallyServing Vehicle[]           @relation("VehicleUsualVan")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -712,6 +741,11 @@ model DailySheet {
   driverId String
   driver   User   @relation("DriverSheets", fields: [driverId], references: [id])
 
+  // Walk-in / Self-Pickup Delivery (docs/features/walk-in-delivery.md) — ROUTE
+  // for every generation-pipeline sheet; WALK_IN for the synthetic per-vendor-
+  // per-date sheet that off-route deliveries are appended to.
+  kind DailySheetKind @default(ROUTE)
+
   isClosed Boolean @default(false)
 
   // Crew confirmation workflow — the day's crew (auto-stamped from the van's
@@ -773,6 +807,7 @@ model DailySheet {
   @@unique([vendorId, vanId, date])
   @@index([vendorId, date])
   @@index([vendorId, routeId, date])
+  @@index([vendorId, kind, date])
   @@index([driverId, date])
   @@index([vanId, date])
 }
@@ -851,6 +886,11 @@ model DailySheetItem {
   deliveryType  DeliveryType   @default(SCHEDULED)
   sourceOrderId String?
 
+  // Walk-in / Self-Pickup Delivery (docs/features/walk-in-delivery.md) — set
+  // only on items recorded through the walk-in flow (customer self-collected or
+  // delivered off-channel); null on every route-pipeline delivery.
+  deliveryChannel DeliveryChannel?
+
   // Trip this item was recorded under (Trip feature) — stamped from the
   // sheet's currently-active trip (DailySheetLoad.endedAt is null) the first
   // time the item transitions into a terminal status; left untouched on
@@ -882,7 +922,7 @@ model DailySheetItem {
   // timestamp and sank to the bottom of the time-sorted queue next to
   // never-visited stops; this gives every recorded stop a point on the route
   // timeline. The queue sort key everywhere is COALESCE(deliveredAt, recordedAt).
-  recordedAt         DateTime?
+  recordedAt          DateTime?
   rescheduledTo       DateTime?
   editUnlockedBy      String? // userId of staff/admin who unlocked edit
   editUnlockExpiresAt DateTime? // when unlock window expires (null = locked)

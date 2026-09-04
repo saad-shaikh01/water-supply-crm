@@ -96,7 +96,7 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
     // recorded) — just newly selected by ledger.service.ts so this page can
     // reuse it, same as delivery-items-list.tsx's item.id.
     dailySheetItemId?: string | null;
-    dailySheetItem?: { status?: string } | null;
+    dailySheetItem?: { status?: string; deliveryChannel?: 'SELF_PICKUP' | 'THIRD_PARTY' | 'OTHER' | null } | null;
     // The list endpoint uses Prisma `include` (not `select`) so every scalar is
     // already present — used for the edit/delete gate + optimistic-lock token.
     updatedAt: string;
@@ -436,6 +436,18 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
                     className="text-[9px] px-1.5 py-0 rounded-full font-bold uppercase tracking-wide text-muted-foreground"
                   >
                     {PAYMENT_MODE_LABELS[r.paymentMode as keyof typeof PAYMENT_MODE_LABELS] ?? r.paymentMode}
+                  </Badge>
+                )}
+                {r.dailySheetItem?.deliveryChannel && (
+                  <Badge
+                    variant="outline"
+                    className="text-[9px] px-1.5 py-0 rounded-full font-bold uppercase tracking-wide border-indigo-500/20 bg-indigo-500/10 text-indigo-400"
+                  >
+                    {r.dailySheetItem.deliveryChannel === 'SELF_PICKUP'
+                      ? 'Self-pickup'
+                      : r.dailySheetItem.deliveryChannel === 'THIRD_PARTY'
+                        ? 'Third-party'
+                        : 'Walk-in'}
                   </Badge>
                 )}
               </div>

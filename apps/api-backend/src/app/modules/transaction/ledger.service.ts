@@ -665,7 +665,7 @@ export class LedgerService {
           // already a column on this model; only the linked item's status
           // is new here, so the button can be disabled up front for a
           // non-COMPLETED item instead of round-tripping to a 400.
-          dailySheetItem: { select: { status: true } },
+          dailySheetItem: { select: { status: true, deliveryChannel: true } },
         },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
@@ -769,7 +769,7 @@ export class LedgerService {
           // (rendered on the customer detail page's transaction tab), which
           // doesn't otherwise have the customer's phone/item status on hand.
           customer: { select: { phoneNumber: true } },
-          dailySheetItem: { select: { status: true } },
+          dailySheetItem: { select: { status: true, deliveryChannel: true } },
         },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,

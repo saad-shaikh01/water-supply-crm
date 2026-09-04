@@ -29,6 +29,9 @@ export const useDailySheets = () => {
   const [vanId] = useQueryState('vanId', parseAsString.withDefault(''));
   const [driverId] = useQueryState('driverId', parseAsString.withDefault(''));
   const [isClosed] = useQueryState('isClosed', parseAsString.withDefault(''));
+  // Walk-in / Self-Pickup Delivery — synthetic WALK_IN sheets are hidden from
+  // the main list unless this is set to 'WALK_IN'.
+  const [kind] = useQueryState('kind', parseAsString.withDefault(''));
 
   const params: SheetQuery = {
     page,
@@ -38,6 +41,7 @@ export const useDailySheets = () => {
     routeId: routeId || undefined,
     vanId: vanId || undefined,
     isClosed: isClosed === 'true' ? true : isClosed === 'false' ? false : undefined,
+    kind: kind === 'WALK_IN' ? 'WALK_IN' : undefined,
     // DRIVER only sees their own sheets
     driverId: user?.role === 'DRIVER' ? user.id : (driverId || undefined),
   };
@@ -173,6 +177,29 @@ export const useAddCorrectionItem = (sheetId: string) => {
       toast.success('Correction entry recorded');
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to add correction'),
+  });
+};
+
+// Walk-in / Self-Pickup Delivery — records a delivery made off the route
+// pipeline. No sheet id: the backend finds-or-creates the synthetic WALK_IN
+// sheet. Moves the customer's balance + bottle wallet like any delivery, so the
+// customers / transactions / analytics / dashboard caches must drop too.
+export const useRecordWalkInDelivery = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: import('../api/daily-sheets.api').RecordWalkInDeliveryData) =>
+      dailySheetsApi.recordWalkIn(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sheets'] });
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['customer'] });
+      queryClient.invalidateQueries({ queryKey: ['analytics'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      toast.success('Walk-in delivery recorded');
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? 'Failed to record walk-in delivery'),
   });
 };
 

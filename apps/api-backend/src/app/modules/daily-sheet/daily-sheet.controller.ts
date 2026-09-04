@@ -37,6 +37,7 @@ import { ExportCsvQueryDto } from './dto/export-csv-query.dto';
 import { InsertOrderItemDto } from './dto/insert-order-item.dto';
 import { AddAdhocItemDto } from './dto/add-adhoc-item.dto';
 import { AddCorrectionItemDto } from './dto/add-correction-item.dto';
+import { RecordWalkInDeliveryDto } from './dto/record-walk-in-delivery.dto';
 import { MoveDeliveryItemsDto } from './dto/move-delivery-items.dto';
 import { VoidDeliveryDto } from './dto/void-delivery.dto';
 import { CorrectDeliveryDto } from './dto/correct-delivery.dto';
@@ -76,6 +77,20 @@ export class DailySheetController {
   @RequirePermissions('daily_sheets:generate')
   getGenerationStatus(@Param('jobId') jobId: string) {
     return this.dailySheetService.getGenerationStatus(jobId);
+  }
+
+  // Walk-in / Self-Pickup Delivery — record a delivery made off the route
+  // pipeline (customer self-collected, or another channel). No van / odometer /
+  // load-out / trip: the service finds-or-creates the synthetic per-vendor-per-
+  // date WALK_IN sheet and appends one item. Static path → declared before /:id.
+  @Post('walk-in')
+  @RequirePermissions('daily_sheets:record_walk_in')
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
+  recordWalkInDelivery(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: RecordWalkInDeliveryDto,
+  ) {
+    return this.dailySheetService.recordWalkInDelivery(user, dto);
   }
 
   @Get('driver/:driverId/stats')

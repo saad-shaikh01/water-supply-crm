@@ -185,6 +185,23 @@ export interface SheetQuery {
   vanId?: string;
   driverId?: string;
   isClosed?: boolean;
+  // Walk-in / Self-Pickup Delivery — omit for only ROUTE sheets (default),
+  // 'WALK_IN' for only walk-in sheets, 'ALL' for both.
+  kind?: 'ROUTE' | 'WALK_IN' | 'ALL';
+}
+
+export interface RecordWalkInDeliveryData {
+  customerId: string;
+  productId: string;
+  filledDropped: number;
+  emptyReceived: number;
+  filledReceived: number;
+  cashCollected: number;
+  /** YYYY-MM-DD; today or earlier. */
+  date: string;
+  deliveryChannel: 'SELF_PICKUP' | 'THIRD_PARTY' | 'OTHER';
+  note?: string;
+  sendWhatsapp: boolean;
 }
 
 export const dailySheetsApi = {
@@ -222,6 +239,10 @@ export const dailySheetsApi = {
     id: string,
     data: { customerId: string; productId: string; filledDropped: number; emptyReceived: number; cashCollected: number; priceOverride?: number; correctionNote: string },
   ) => apiClient.post(`/daily-sheets/${id}/items/correction`, data),
+  // Walk-in / Self-Pickup Delivery — no sheet id: the backend finds-or-creates
+  // the synthetic per-vendor-per-date WALK_IN sheet.
+  recordWalkIn: (data: RecordWalkInDeliveryData) =>
+    apiClient.post('/daily-sheets/walk-in', data).then((r) => r.data),
   updateDeliveryItem: (itemId: string, data: Record<string, unknown>) =>
     apiClient.patch(`/daily-sheets/items/${itemId}`, data),
   swapAssignment: (id: string, data: Record<string, unknown>) =>

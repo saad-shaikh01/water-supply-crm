@@ -35,4 +35,11 @@ export class DailySheetQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsIn(['asc', 'desc'])
   sortDir?: 'asc' | 'desc' = 'desc';
+
+  // Walk-in / Self-Pickup Delivery (docs/features/walk-in-delivery.md).
+  // Omitted → only ROUTE sheets (the synthetic WALK_IN sheets are hidden from
+  // the main list). 'WALK_IN' → only walk-in sheets. 'ALL' → both.
+  @IsOptional()
+  @IsIn(['ROUTE', 'WALK_IN', 'ALL'])
+  kind?: 'ROUTE' | 'WALK_IN' | 'ALL';
 }

@@ -107,10 +107,12 @@ export class DailySheetProcessor extends WorkerHost {
       return { sheetIds: [], skippedVans: [], insertedOnDemandCount: 0, skippedOnDemand: [] };
     }
 
-    // Fetch active vans (optionally filtered by vanIds)
+    // Fetch active vans (optionally filtered by vanIds). isSystem vans are the
+    // per-vendor walk-in sentinel (docs/features/walk-in-delivery.md) — never
+    // part of route-sheet generation.
     const vanWhere = vanIds?.length
-      ? { vendorId, isActive: true, id: { in: vanIds } }
-      : { vendorId, isActive: true };
+      ? { vendorId, isActive: true, isSystem: false, id: { in: vanIds } }
+      : { vendorId, isActive: true, isSystem: false };
 
     const vans = await this.prisma.van.findMany({
       where: vanWhere,

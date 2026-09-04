@@ -107,6 +107,10 @@ const MANAGER_PERMISSIONS: Permission[] = [
   // amend a checked-in trip's physical counts on a closed sheet. Existing
   // vendors get it via PRESET_DRIFT_BACKFILLS.manager.
   'daily_sheets:edit_closed_trip',
+  // Walk-in / Self-Pickup Delivery (owner-requested 2026-09-04): Admin + Manager
+  // may record a delivery made off the route pipeline. Existing vendors get it
+  // via PRESET_DRIFT_BACKFILLS.manager.
+  'daily_sheets:record_walk_in',
   'damage_cases:page', 'damage_cases:view', 'damage_cases:create', 'damage_cases:update', 'damage_cases:review',
   'delivery_issues:page', 'delivery_issues:view', 'delivery_issues:plan', 'delivery_issues:resolve',
   'expenses:page', 'expenses:view', 'expenses:create', 'expenses:update',
