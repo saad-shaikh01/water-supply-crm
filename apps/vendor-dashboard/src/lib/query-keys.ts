@@ -81,8 +81,10 @@ export const queryKeys = {
     costSummary: (vehicleId: string) => ['fleet', 'cost-summary', vehicleId] as const,
     dailyChecks: (dailySheetId: string) => ['fleet', 'daily-checks', dailySheetId] as const,
     fuelLogs: (params?: object) => ['fleet', 'fuel-logs', ...(params ? [params] : [])],
+    fuelLog: (id: string) => ['fleet', 'fuel-logs', id] as const,
     maintenanceStatus: (vehicleId: string) => ['fleet', 'maintenance-status', vehicleId] as const,
     maintenanceFleetStatus: () => ['fleet', 'maintenance-status'] as const,
     serviceRecords: (params?: object) => ['fleet', 'service-records', ...(params ? [params] : [])],
+    serviceRecord: (id: string) => ['fleet', 'service-records', id] as const,
   },
 };

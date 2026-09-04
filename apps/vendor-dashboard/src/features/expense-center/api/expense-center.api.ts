@@ -26,8 +26,15 @@ export type ExpenseCenterDomain =
  */
 export type ExpenseCenterCostSign = 'DEBIT' | 'CREDIT';
 
-/** Which underlying table the row was projected from. */
-export type ExpenseCenterSourceType = 'EXPENSE' | 'STAFF_LEDGER' | 'CREW_CASH';
+/**
+ * Which underlying table the row was projected from. Phase 2b (§08) refines
+ * what was a coarse 3-way split in Phase 1 — `EXPENSE` now splits further
+ * into `FUEL_LOG`/`VEHICLE_SERVICE` (both of which still spawn a linked
+ * plain `Expense` row under the hood, but have their own dedicated edit
+ * surfaces in Fleet) — so the detail drawer can route each row to the right
+ * place instead of only ever opening the plain Expense form.
+ */
+export type ExpenseCenterSourceType = 'EXPENSE' | 'FUEL_LOG' | 'VEHICLE_SERVICE' | 'STAFF_LEDGER' | 'CREW_CASH';
 
 export interface ExpenseCenterTopCategory {
   category: string;
@@ -70,6 +77,12 @@ export interface ExpenseCenterRow {
   sourceBadge: string;
   vanPlateNumber: string | null;
   employeeName: string | null;
+  /** The id of the actual record whose own update endpoint edits this row. */
+  sourceRecordId: string;
+  /** `true` when this row can no longer be edited/deleted from anywhere. */
+  locked: boolean;
+  /** e.g. "Daily Sheet closed — read only", "Synced to the Payroll Ledger — manage this in Payroll." Only meaningful when `locked` is true. */
+  lockedReason: string | null;
 }
 
 export interface ExpenseCenterSummaryQuery {

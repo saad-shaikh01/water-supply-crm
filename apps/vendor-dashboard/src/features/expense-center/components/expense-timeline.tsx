@@ -1,17 +1,19 @@
 'use client';
 
+import { useState } from 'react';
 import { Inbox } from 'lucide-react';
 import {
   Badge, Card, CardContent, Skeleton, DataTablePagination, cn,
 } from '@water-supply-crm/ui';
 import { useExpenseCenterTimeline } from '../hooks/use-expense-center';
 import { domainMeta } from '../constants';
+import { ExpenseDetailDrawer } from '../detail/expense-detail-drawer';
 import type { ExpenseCenterRow } from '../api/expense-center.api';
 
 const fmtDate = (d: string) =>
   new Date(d).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' });
 
-function TimelineRow({ row }: { row: ExpenseCenterRow }) {
+function TimelineRow({ row, onClick }: { row: ExpenseCenterRow; onClick: () => void }) {
   const meta = domainMeta(row.domain);
 
   // Everything the row can say about *who* the money moved through, collapsed
@@ -22,10 +24,17 @@ function TimelineRow({ row }: { row: ExpenseCenterRow }) {
     row.recordedByName ? `by ${row.recordedByName}` : null,
   ].filter(Boolean) as string[];
 
-  // Phase 2 (§07): clicking a row will route to the owning domain's own edit
-  // form (Expense / Payroll ledger / Crew Cash). Read-only for now.
+  // Phase 2b (§08): clicking a row opens the detail drawer, which routes
+  // Edit/Delete to whichever domain actually owns the record (Expense /
+  // Fleet / Payroll / Crew Cash) — see expense-detail-drawer.tsx.
   return (
-    <Card className="bg-card/50 border-border/40 rounded-2xl">
+    <Card
+      className="bg-card/50 border-border/40 rounded-2xl cursor-pointer transition-colors hover:bg-card/80"
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
+    >
       <CardContent className="p-3 flex items-center gap-3">
         <span className={cn('h-2.5 w-2.5 rounded-full shrink-0', meta.solid)} aria-hidden />
 
@@ -65,6 +74,7 @@ function TimelineRow({ row }: { row: ExpenseCenterRow }) {
 
 export function ExpenseTimeline() {
   const { data, isLoading, page, setPage, limit, setLimit } = useExpenseCenterTimeline();
+  const [selectedRow, setSelectedRow] = useState<ExpenseCenterRow | null>(null);
 
   const rows = data?.data ?? [];
   const total = data?.meta?.total ?? 0;
@@ -91,7 +101,7 @@ export function ExpenseTimeline() {
       ) : (
         <div className="space-y-2">
           {rows.map((row) => (
-            <TimelineRow key={`${row.sourceType}:${row.id}`} row={row} />
+            <TimelineRow key={`${row.sourceType}:${row.id}`} row={row} onClick={() => setSelectedRow(row)} />
           ))}
         </div>
       )}
@@ -111,6 +121,12 @@ export function ExpenseTimeline() {
           </div>
         </div>
       )}
+
+      <ExpenseDetailDrawer
+        row={selectedRow}
+        open={!!selectedRow}
+        onOpenChange={(o) => { if (!o) setSelectedRow(null); }}
+      />
     </div>
   );
 }

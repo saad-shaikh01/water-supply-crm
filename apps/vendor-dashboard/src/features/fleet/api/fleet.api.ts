@@ -208,6 +208,9 @@ export const fleetApi = {
   createFuelLog: (data: CreateFuelLogData) => apiClient.post<FuelLogEntry>('/fleet/fuel-logs', data).then((r) => r.data),
   getFuelLogs: (params?: { page?: number; limit?: number; vehicleId?: string; dateFrom?: string; dateTo?: string }) =>
     apiClient.get<FleetPaginatedResult<FuelLogEntry>>('/fleet/fuel-logs', { params }).then((r) => r.data),
+  // Single-record fetch — used by the Expense Center detail drawer (Phase
+  // 2b) to pre-fill FuelLogFormDialog's edit mode by `sourceRecordId`.
+  getFuelLog: (id: string) => apiClient.get<FuelLogEntry>(`/fleet/fuel-logs/${id}`).then((r) => r.data),
   updateFuelLog: (id: string, data: Partial<CreateFuelLogData>) =>
     apiClient.patch<FuelLogEntry>(`/fleet/fuel-logs/${id}`, data).then((r) => r.data),
   removeFuelLog: (id: string) => apiClient.delete(`/fleet/fuel-logs/${id}`),
@@ -229,6 +232,16 @@ export const fleetApi = {
     apiClient
       .get<FleetPaginatedResult<VehicleServiceRecordEntry>>('/fleet/maintenance/service-records', { params })
       .then((r) => r.data),
+  // Single-record fetch — used by the Expense Center detail drawer (Phase
+  // 2b) to pre-fill ServiceRecordFormDialog's edit mode by `sourceRecordId`.
+  getServiceRecord: (id: string) =>
+    apiClient.get<VehicleServiceRecordEntry>(`/fleet/maintenance/service-records/${id}`).then((r) => r.data),
+  // PATCH/DELETE below call endpoints added alongside this phase's backend
+  // half (permission `fleet:manage_maintenance`, same DTO shape as create
+  // minus required-ness) — see docs/features/expense-center §08.
+  updateServiceRecord: (id: string, data: Partial<CreateServiceRecordData>) =>
+    apiClient.patch<VehicleServiceRecordEntry>(`/fleet/maintenance/service-records/${id}`, data).then((r) => r.data),
+  removeServiceRecord: (id: string) => apiClient.delete(`/fleet/maintenance/service-records/${id}`),
 };
 
 export type { ChecklistItemResult };

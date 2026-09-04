@@ -9,6 +9,15 @@ export const useFuelLogs = (params?: { page?: number; limit?: number; vehicleId?
     queryFn: () => fleetApi.getFuelLogs(params),
   });
 
+// Single-record fetch — used by the Expense Center detail drawer (Phase 2b)
+// to pre-fill FuelLogFormDialog's edit mode by `sourceRecordId`.
+export const useFuelLog = (id: string | undefined) =>
+  useQuery({
+    queryKey: queryKeys.fleet.fuelLog(id ?? ''),
+    queryFn: () => fleetApi.getFuelLog(id as string),
+    enabled: !!id,
+  });
+
 export const useCreateFuelLog = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -32,8 +41,12 @@ export const useUpdateFuelLog = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<CreateFuelLogData> }) => fleetApi.updateFuelLog(id, data),
-    onSuccess: () => {
+    onSuccess: (_result, { id }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.fuelLogs() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.fleet.fuelLog(id) });
+      // The fuel fill also projects into Expense Center's Timeline/Summary —
+      // see useUpdateExpense's identical note.
+      queryClient.invalidateQueries({ queryKey: ['expense-center'] });
       toast.success('Fuel log updated');
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to update fuel log'),
@@ -46,6 +59,7 @@ export const useRemoveFuelLog = () => {
     mutationFn: (id: string) => fleetApi.removeFuelLog(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.fuelLogs() });
+      queryClient.invalidateQueries({ queryKey: ['expense-center'] });
       toast.success('Fuel log deleted');
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to delete fuel log'),
