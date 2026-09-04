@@ -43,7 +43,17 @@ export const EXPENSE_CENTER_DOMAINS: readonly ExpenseCenterDomain[] = [
   'DISCREPANCY',
 ];
 
-export type ExpenseCenterSourceType = 'EXPENSE' | 'STAFF_LEDGER' | 'CREW_CASH';
+/**
+ * Phase 2b — refined from the coarser Phase 1 `'EXPENSE' | 'STAFF_LEDGER' |
+ * 'CREW_CASH'` for edit-routing: this + `sourceRecordId` tell the frontend
+ * WHICH record's own update/delete endpoint to call, not just which of the
+ * three read sources a row came from. An `Expense` row auto-spawned by a Fuel
+ * Log or a Vehicle Service must route edits to that FuelLog/
+ * VehicleServiceRecord (the source record), not to the linked-frozen Expense
+ * row itself — see FuelLogService.update / VehicleMaintenanceService.
+ * updateServiceRecord for the lockstep write side.
+ */
+export type ExpenseCenterSourceType = 'EXPENSE' | 'FUEL_LOG' | 'VEHICLE_SERVICE' | 'STAFF_LEDGER' | 'CREW_CASH';
 
 /**
  * DEBIT = money leaving the business the normal way.
@@ -163,9 +173,14 @@ export interface ExpenseCenterRow {
   paidFromCash: boolean | null;
   recordedByName: string | null;
   sourceType: ExpenseCenterSourceType;
+  /** The id of the record whose OWN update/delete endpoint the frontend should call for this row. */
+  sourceRecordId: string;
   sourceBadge: string;
   vanPlateNumber: string | null;
   employeeName: string | null;
+  /** True when this row cannot be edited/deleted from the Expense Center — see lockedReason for why. */
+  locked: boolean;
+  lockedReason: string | null;
 }
 
 /**
@@ -185,6 +200,7 @@ export interface NormalizableExpenseRow {
   vehicleServiceRecord?: { id: string } | null;
   van?: { plateNumber: string } | null;
   createdBy?: { name: string } | null;
+  dailySheet?: { isClosed: boolean } | null;
 }
 
 export interface NormalizableStaffLedgerRow {
@@ -196,6 +212,8 @@ export interface NormalizableStaffLedgerRow {
   effectiveDate: Date;
   user?: { name: string } | null;
   createdBy?: { name: string } | null;
+  /** Set once this entry is rolled into a frozen payroll period — see fields below. */
+  payrollEntryId?: string | null;
 }
 
 export interface NormalizableCrewCashRow {
@@ -207,12 +225,43 @@ export interface NormalizableCrewCashRow {
   dailySheetId: string;
   employee?: { name: string } | null;
   distributedBy?: { name: string } | null;
+  /** Set once this distribution has been synced into a StaffLedgerEntry. */
+  syncedAt?: Date | null;
   dailySheet?: { van?: { plateNumber: string } | null } | null;
+}
+
+/** Shared reason text for the two "locked because the sheet/discrepancy is frozen" cases. */
+const CLOSED_SHEET_LOCK_REASON = 'Daily Sheet closed — read only';
+const DISCREPANCY_LOCK_REASON = 'Resolved discrepancy — immutable';
+const PAYROLL_PERIOD_LOCK_REASON = 'Rolled into a locked payroll period — manage this in Payroll.';
+const SYNCED_CREW_CASH_LOCK_REASON = 'Synced to the Payroll Ledger — manage this in Payroll.';
+
+/**
+ * Lock computation for Expense / FuelLog / VehicleService rows (all three are
+ * projections of an `Expense` row plus, for the latter two, a linked source
+ * record — see the file header). A resolved discrepancy write-off is
+ * immutable regardless of sheet state; otherwise a row is locked exactly when
+ * it belongs to a closed daily sheet. `VehicleServiceRecord` never has a
+ * `dailySheetId` (confirmed against vehicle-maintenance.service.ts) and a
+ * discrepancy write-off is never linked to one either, so VEHICLE_SERVICE
+ * rows are unlocked in practice — that falls out of this logic rather than
+ * being special-cased.
+ */
+function lockForExpenseRow(row: NormalizableExpenseRow): { locked: boolean; lockedReason: string | null } {
+  if (row.category === ExpenseCategory.DISCREPANCY_WRITE_OFF) {
+    return { locked: true, lockedReason: DISCREPANCY_LOCK_REASON };
+  }
+  if (row.dailySheetId && row.dailySheet?.isClosed) {
+    return { locked: true, lockedReason: CLOSED_SHEET_LOCK_REASON };
+  }
+  return { locked: false, lockedReason: null };
 }
 
 export function normalizeExpenseRow(row: NormalizableExpenseRow): ExpenseCenterRow {
   const categoryLabel = labelForExpenseCategory(row.category);
   const description = row.description?.trim();
+  const { sourceType, sourceRecordId } = expenseEditRouting(row);
+  const { locked, lockedReason } = lockForExpenseRow(row);
 
   return {
     id: `EXPENSE:${row.id}`,
@@ -226,12 +275,29 @@ export function normalizeExpenseRow(row: NormalizableExpenseRow): ExpenseCenterR
     costSign: 'DEBIT',
     paidFromCash: row.paidFromCash,
     recordedByName: row.createdBy?.name ?? null,
-    sourceType: 'EXPENSE',
+    sourceType,
+    sourceRecordId,
     sourceBadge: expenseSourceBadge(row),
     vanPlateNumber: row.van?.plateNumber ?? null,
     // An Expense is not attributed to an employee anywhere in the schema.
     employeeName: null,
+    locked,
+    lockedReason,
   };
+}
+
+/**
+ * Which record's own update/delete endpoint an Expense-table row should
+ * route edits to. A row with a linked FuelLog/VehicleServiceRecord must edit
+ * THAT record (its update endpoint keeps the linked Expense in lockstep —
+ * see FuelLogService.update / VehicleMaintenanceService.updateServiceRecord);
+ * every other Expense row (manual, Trip Expense, Ice/Extra Loader, discrepancy
+ * write-off) edits the Expense row itself.
+ */
+function expenseEditRouting(row: NormalizableExpenseRow): { sourceType: ExpenseCenterSourceType; sourceRecordId: string } {
+  if (row.fuelLog) return { sourceType: 'FUEL_LOG', sourceRecordId: row.fuelLog.id };
+  if (row.vehicleServiceRecord) return { sourceType: 'VEHICLE_SERVICE', sourceRecordId: row.vehicleServiceRecord.id };
+  return { sourceType: 'EXPENSE', sourceRecordId: row.id };
 }
 
 function expenseSourceBadge(row: NormalizableExpenseRow): string {
@@ -247,6 +313,7 @@ export function normalizeStaffLedgerRow(row: NormalizableStaffLedgerRow): Expens
   const categoryLabel = labelForStaffLedgerCategory(row.category);
   const employeeName = row.user?.name ?? null;
   const description = row.description?.trim();
+  const locked = row.payrollEntryId != null;
 
   return {
     id: `STAFF_LEDGER:${row.id}`,
@@ -262,15 +329,19 @@ export function normalizeStaffLedgerRow(row: NormalizableStaffLedgerRow): Expens
     paidFromCash: null,
     recordedByName: row.createdBy?.name ?? null,
     sourceType: 'STAFF_LEDGER',
+    sourceRecordId: row.id,
     sourceBadge: 'via Payroll',
     // StaffLedgerEntry has no van relation at all.
     vanPlateNumber: null,
     employeeName,
+    locked,
+    lockedReason: locked ? PAYROLL_PERIOD_LOCK_REASON : null,
   };
 }
 
 export function normalizeCrewCashRow(row: NormalizableCrewCashRow): ExpenseCenterRow {
   const notes = row.notes?.trim();
+  const locked = row.syncedAt != null;
 
   return {
     id: `CREW_CASH:${row.id}`,
@@ -291,8 +362,11 @@ export function normalizeCrewCashRow(row: NormalizableCrewCashRow): ExpenseCente
     // which is the "who entered this" identity the timeline wants.
     recordedByName: row.distributedBy?.name ?? null,
     sourceType: 'CREW_CASH',
+    sourceRecordId: row.id,
     // CrewCashDistribution.dailySheetId is non-nullable — always a sheet badge.
     sourceBadge: `via Daily Sheet #${shortSheetId(row.dailySheetId)}`,
+    locked,
+    lockedReason: locked ? SYNCED_CREW_CASH_LOCK_REASON : null,
     vanPlateNumber: row.dailySheet?.van?.plateNumber ?? null,
     employeeName: row.employee?.name ?? null,
   };

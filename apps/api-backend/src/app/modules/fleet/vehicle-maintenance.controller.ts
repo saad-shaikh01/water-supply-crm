@@ -1,8 +1,9 @@
-import { Controller, Get, Post, Patch, Body, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { VehicleMaintenanceService } from './vehicle-maintenance.service';
 import { UpdateMaintenanceRuleDto } from './dto/update-maintenance-rule.dto';
 import { CreateServiceRecordDto } from './dto/create-service-record.dto';
+import { UpdateServiceRecordDto } from './dto/update-service-record.dto';
 import { ServiceRecordQueryDto } from './dto/service-record-query.dto';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -37,6 +38,20 @@ export class VehicleMaintenanceController {
   @RequirePermissions('fleet:view')
   getServiceRecord(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.maintenanceService.getServiceRecord(user.vendorId, id);
+  }
+
+  @Patch('service-records/:id')
+  @RequirePermissions('fleet:manage_maintenance')
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
+  updateServiceRecord(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateServiceRecordDto) {
+    return this.maintenanceService.updateServiceRecord(user, id, dto);
+  }
+
+  @Delete('service-records/:id')
+  @RequirePermissions('fleet:manage_maintenance')
+  @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
+  removeServiceRecord(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.maintenanceService.removeServiceRecord(user, id);
   }
 
   @Get('vehicles/:vehicleId/status')

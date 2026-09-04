@@ -7,6 +7,7 @@ import type { AuthUser } from '@water-supply-crm/types';
 import { AuditService } from '../audit/audit.service';
 import { UpdateMaintenanceRuleDto } from './dto/update-maintenance-rule.dto';
 import { CreateServiceRecordDto } from './dto/create-service-record.dto';
+import { UpdateServiceRecordDto } from './dto/update-service-record.dto';
 import { ServiceRecordQueryDto } from './dto/service-record-query.dto';
 import { computeMaintenanceStatus } from './fleet-maintenance.util';
 
@@ -239,5 +240,82 @@ export class VehicleMaintenanceService {
     });
     if (!record) throw new NotFoundException('Service record not found');
     return record;
+  }
+
+  async updateServiceRecord(user: AuthUser, id: string, dto: UpdateServiceRecordDto) {
+    const record = await this.prisma.vehicleServiceRecord.findFirst({
+      where: { id, vendorId: user.vendorId },
+      include: { vehicle: { select: { id: true, plateNumber: true } } },
+    });
+    if (!record) throw new NotFoundException('Service record not found');
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (
+        record.expenseId &&
+        (dto.cost !== undefined || dto.performedAtDate !== undefined || dto.serviceType !== undefined)
+      ) {
+        await tx.expense.update({
+          where: { id: record.expenseId },
+          data: {
+            ...(dto.cost !== undefined && { amount: dto.cost }),
+            ...(dto.performedAtDate !== undefined && { date: new Date(dto.performedAtDate) }),
+            ...(dto.serviceType !== undefined && {
+              description: `${VEHICLE_SERVICE_TYPE_LABELS[dto.serviceType]} — ${record.vehicle.plateNumber}`,
+            }),
+          },
+        });
+      }
+
+      return tx.vehicleServiceRecord.update({
+        where: { id },
+        data: {
+          ...(dto.serviceType !== undefined && { serviceType: dto.serviceType }),
+          ...(dto.performedAtOdometer !== undefined && { performedAtOdometer: dto.performedAtOdometer }),
+          ...(dto.performedAtDate !== undefined && { performedAtDate: new Date(dto.performedAtDate) }),
+          ...(dto.cost !== undefined && { cost: dto.cost }),
+          ...(dto.workshopName !== undefined && { workshopName: dto.workshopName }),
+          ...(dto.invoicePhotoKey !== undefined && { invoicePhotoKey: dto.invoicePhotoKey }),
+          ...(dto.partsReplaced !== undefined && { partsReplaced: dto.partsReplaced }),
+          ...(dto.notes !== undefined && { notes: dto.notes }),
+        },
+        include: serviceRecordInclude,
+      });
+    });
+
+    await this.audit.log({
+      vendorId: user.vendorId,
+      userId: user.userId,
+      userName: user.name,
+      action: 'UPDATED',
+      entity: 'VehicleServiceRecord',
+      entityId: id,
+      changes: { before: record, after: updated },
+    });
+
+    return updated;
+  }
+
+  async removeServiceRecord(user: AuthUser, id: string) {
+    const record = await this.prisma.vehicleServiceRecord.findFirst({ where: { id, vendorId: user.vendorId } });
+    if (!record) throw new NotFoundException('Service record not found');
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.vehicleServiceRecord.delete({ where: { id } });
+      if (record.expenseId) {
+        await tx.expense.delete({ where: { id: record.expenseId } });
+      }
+    });
+
+    await this.audit.log({
+      vendorId: user.vendorId,
+      userId: user.userId,
+      userName: user.name,
+      action: 'DELETED',
+      entity: 'VehicleServiceRecord',
+      entityId: id,
+      changes: { before: record },
+    });
+
+    return { deleted: true };
   }
 }

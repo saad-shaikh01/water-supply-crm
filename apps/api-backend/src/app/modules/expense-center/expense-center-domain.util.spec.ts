@@ -94,6 +94,58 @@ describe('normalizeExpenseRow', () => {
     ).toBe('via Fleet');
     expect(normalizeExpenseRow(base).sourceBadge).toBe('via Expenses');
   });
+
+  it('routes a plain manual expense to EXPENSE, itself as the source record', () => {
+    const row = normalizeExpenseRow(base);
+    expect(row.sourceType).toBe('EXPENSE');
+    expect(row.sourceRecordId).toBe('e1');
+  });
+
+  it('routes a fuel-linked expense to FUEL_LOG, the fuel log as the source record', () => {
+    const row = normalizeExpenseRow({ ...base, fuelLog: { id: 'fuel-1' } });
+    expect(row.sourceType).toBe('FUEL_LOG');
+    expect(row.sourceRecordId).toBe('fuel-1');
+  });
+
+  it('routes a maintenance-linked expense to VEHICLE_SERVICE, the service record as the source record', () => {
+    const row = normalizeExpenseRow({ ...base, vehicleServiceRecord: { id: 'svc-1' } });
+    expect(row.sourceType).toBe('VEHICLE_SERVICE');
+    expect(row.sourceRecordId).toBe('svc-1');
+  });
+
+  it('is unlocked when it belongs to no sheet, or an open one', () => {
+    expect(normalizeExpenseRow(base).locked).toBe(false);
+    expect(normalizeExpenseRow(base).lockedReason).toBeNull();
+
+    const openSheetRow = normalizeExpenseRow({
+      ...base,
+      dailySheetId: 'sheet-1',
+      dailySheet: { isClosed: false },
+    });
+    expect(openSheetRow.locked).toBe(false);
+    expect(openSheetRow.lockedReason).toBeNull();
+  });
+
+  it('locks a row belonging to a closed daily sheet with the sheet reason', () => {
+    const row = normalizeExpenseRow({
+      ...base,
+      dailySheetId: 'sheet-1',
+      dailySheet: { isClosed: true },
+    });
+    expect(row.locked).toBe(true);
+    expect(row.lockedReason).toBe('Daily Sheet closed — read only');
+  });
+
+  it('locks a discrepancy write-off unconditionally, even on an open (or no) sheet', () => {
+    const row = normalizeExpenseRow({
+      ...base,
+      category: ExpenseCategory.DISCREPANCY_WRITE_OFF,
+      dailySheetId: 'sheet-1',
+      dailySheet: { isClosed: false },
+    });
+    expect(row.locked).toBe(true);
+    expect(row.lockedReason).toBe('Resolved discrepancy — immutable');
+  });
 });
 
 describe('normalizeStaffLedgerRow', () => {
@@ -125,6 +177,24 @@ describe('normalizeStaffLedgerRow', () => {
     expect(row.vanPlateNumber).toBeNull();
     expect(row.employeeName).toBe('Bilal');
   });
+
+  it('routes to STAFF_LEDGER with itself as the source record', () => {
+    const row = normalizeStaffLedgerRow(base);
+    expect(row.sourceType).toBe('STAFF_LEDGER');
+    expect(row.sourceRecordId).toBe('s1');
+  });
+
+  it('is unlocked when not rolled into a payroll period', () => {
+    const row = normalizeStaffLedgerRow(base);
+    expect(row.locked).toBe(false);
+    expect(row.lockedReason).toBeNull();
+  });
+
+  it('locks once rolled into a payroll period', () => {
+    const row = normalizeStaffLedgerRow({ ...base, payrollEntryId: 'payroll-1' });
+    expect(row.locked).toBe(true);
+    expect(row.lockedReason).toBe('Rolled into a locked payroll period — manage this in Payroll.');
+  });
 });
 
 describe('normalizeCrewCashRow', () => {
@@ -155,6 +225,24 @@ describe('normalizeCrewCashRow', () => {
     expect(normalizeCrewCashRow({ ...base, notes: 'lunch for 3' }).title).toBe(
       'Crew Cash — MEAL: lunch for 3',
     );
+  });
+
+  it('routes to CREW_CASH with itself as the source record', () => {
+    const row = normalizeCrewCashRow(base);
+    expect(row.sourceType).toBe('CREW_CASH');
+    expect(row.sourceRecordId).toBe('c1');
+  });
+
+  it('is unlocked while unsynced', () => {
+    const row = normalizeCrewCashRow(base);
+    expect(row.locked).toBe(false);
+    expect(row.lockedReason).toBeNull();
+  });
+
+  it('locks once synced to the payroll ledger', () => {
+    const row = normalizeCrewCashRow({ ...base, syncedAt: DATE });
+    expect(row.locked).toBe(true);
+    expect(row.lockedReason).toBe('Synced to the Payroll Ledger — manage this in Payroll.');
   });
 });
 
