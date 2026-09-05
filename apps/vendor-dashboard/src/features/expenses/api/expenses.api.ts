@@ -28,10 +28,26 @@ export interface ExpenseSummary {
   grossProfit: number;
 }
 
+/**
+ * The full Expense record, as returned by `GET /expenses/:id` — used by the
+ * Expense Center detail drawer (Phase 2b) to pre-fill `ExpenseForm` for edit,
+ * since the Timeline row itself is a coarser read-only projection missing
+ * fields like `description`/`vanId`.
+ */
+export interface ExpenseRecord {
+  id: string;
+  amount: number;
+  category: ExpenseCategory;
+  description: string | null;
+  date: string;
+  vanId: string | null;
+  paidFromCash: boolean;
+}
+
 export const expensesApi = {
   getAll: (params: ExpenseQuery) => apiClient.get('/expenses', { params }),
   getSummary: (params?: Pick<ExpenseQuery, 'from' | 'to'>) => apiClient.get<ExpenseSummary>('/expenses/summary', { params }),
-  getOne: (id: string) => apiClient.get(`/expenses/${id}`),
+  getOne: (id: string) => apiClient.get<ExpenseRecord>(`/expenses/${id}`).then((r) => r.data),
   create: (data: Record<string, unknown>) => apiClient.post('/expenses', data),
   update: (id: string, data: Record<string, unknown>) => apiClient.patch(`/expenses/${id}`, data),
   remove: (id: string) => apiClient.delete(`/expenses/${id}`),

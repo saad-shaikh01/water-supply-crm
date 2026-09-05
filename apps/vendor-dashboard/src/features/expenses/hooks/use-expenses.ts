@@ -35,6 +35,17 @@ export const useExpenses = () => {
   };
 };
 
+// Fetches the full Expense record by id — used by the Expense Center detail
+// drawer (Phase 2b) to pre-fill `ExpenseForm` for edit, since the Timeline
+// row itself is a coarser read-only projection missing fields like
+// `description`/`vanId`.
+export const useExpense = (id: string | undefined) =>
+  useQuery({
+    queryKey: [QUERY_KEY, id],
+    queryFn: () => expensesApi.getOne(id as string),
+    enabled: !!id,
+  });
+
 export const useExpenseSummary = () => {
   const [from] = useQueryState('from', parseAsString.withDefault(''));
   const [to] = useQueryState('to', parseAsString.withDefault(''));
@@ -68,6 +79,10 @@ export const useUpdateExpense = () => {
       expensesApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [QUERY_KEY] });
+      // Expense Center's own Timeline/Summary read layer projects these same
+      // rows — without this, editing from its detail drawer (Phase 2b) would
+      // leave the timeline showing stale data until a manual reload.
+      queryClient.invalidateQueries({ queryKey: ['expense-center'] });
       toast.success('Expense updated');
     },
     onError: () => toast.error('Failed to update expense'),
@@ -80,6 +95,7 @@ export const useDeleteExpense = () => {
     mutationFn: (id: string) => expensesApi.remove(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [QUERY_KEY] });
+      queryClient.invalidateQueries({ queryKey: ['expense-center'] });
       toast.success('Expense deleted');
     },
     onError: () => toast.error('Failed to delete expense'),

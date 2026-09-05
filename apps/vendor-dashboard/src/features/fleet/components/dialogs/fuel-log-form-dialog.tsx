@@ -1,14 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Loader2, Fuel } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, Button, Input, Label,
 } from '@water-supply-crm/ui';
+import type { FuelLogEntry } from '@water-supply-crm/types';
 import { fuelLogSchema, type FuelLogInput } from '../../schemas';
-import { useCreateFuelLog } from '../../hooks/use-fuel-logs';
+import { useCreateFuelLog, useUpdateFuelLog } from '../../hooks/use-fuel-logs';
 import { useVehicleDailyChecks } from '../../hooks/use-vehicle-checks';
 import { FleetPhotoUpload } from '../fleet-photo-upload';
 
@@ -30,6 +31,12 @@ interface FuelLogFormDialogProps {
   dailySheetId?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  // Edit mode — passed by the Expense Center detail drawer (Phase 2b) with
+  // the full record fetched via `useFuelLog(sourceRecordId)`. When present,
+  // every field prefills from it, the title/submit label switch to "Edit"/
+  // "Save changes", and submit calls `useUpdateFuelLog` instead of create.
+  // Absent (create mode, the original behaviour) this is fully unchanged.
+  fuelLog?: FuelLogEntry;
 }
 
 /** Same visual toggle used across Fleet forms — matches collection-policy's Toggle exactly for consistency. */
@@ -50,11 +57,14 @@ function Toggle({ enabled, onToggle, label }: { enabled: boolean; onToggle: () =
   );
 }
 
-export function FuelLogFormDialog({ vehicleId, dailySheetId, open, onOpenChange }: FuelLogFormDialogProps) {
+export function FuelLogFormDialog({ vehicleId, dailySheetId, open, onOpenChange, fuelLog }: FuelLogFormDialogProps) {
+  const isEdit = !!fuelLog;
   const [receiptPhotoKey, setReceiptPhotoKey] = useState<string | undefined>(undefined);
-  const { mutate: createFuelLog, isPending } = useCreateFuelLog();
-  const { data: checks } = useVehicleDailyChecks(vehicleId ? undefined : dailySheetId);
-  const resolvedVehicleId = vehicleId ?? checks?.find((c) => c.checkType === 'START')?.vehicleId ?? undefined;
+  const { mutate: createFuelLog, isPending: isCreating } = useCreateFuelLog();
+  const { mutate: updateFuelLog, isPending: isUpdating } = useUpdateFuelLog();
+  const isPending = isCreating || isUpdating;
+  const { data: checks } = useVehicleDailyChecks(vehicleId || isEdit ? undefined : dailySheetId);
+  const resolvedVehicleId = fuelLog?.vehicleId ?? vehicleId ?? checks?.find((c) => c.checkType === 'START')?.vehicleId ?? undefined;
 
   const { register, handleSubmit, reset, control, watch, formState: { errors } } = useForm<FuelLogInput>({
     resolver: zodResolver(fuelLogSchema),
@@ -75,7 +85,42 @@ export function FuelLogFormDialog({ vehicleId, dailySheetId, open, onOpenChange 
   const isFullTank = watch('isFullTank');
   const paidFromCash = watch('paidFromCash');
 
+  useEffect(() => {
+    if (open && fuelLog) {
+      reset({
+        date: fuelLog.date.slice(0, 10),
+        odometerAtFill: fuelLog.odometerAtFill,
+        litersFilled: fuelLog.litersFilled,
+        amountPaid: fuelLog.amountPaid,
+        isFullTank: fuelLog.isFullTank,
+        paidFromCash: fuelLog.paidFromCash,
+        fuelStation: fuelLog.fuelStation ?? '',
+        notes: fuelLog.notes ?? '',
+      });
+      setReceiptPhotoKey(fuelLog.receiptPhotoKey ?? undefined);
+    } else if (open && !fuelLog) {
+      reset({
+        date: new Date().toISOString().slice(0, 10),
+        odometerAtFill: 0,
+        litersFilled: 0,
+        amountPaid: 0,
+        isFullTank: true,
+        paidFromCash: false,
+        fuelStation: '',
+        notes: '',
+      });
+      setReceiptPhotoKey(undefined);
+    }
+  }, [open, fuelLog, reset]);
+
   function onSubmit(values: FuelLogInput) {
+    if (isEdit) {
+      updateFuelLog(
+        { id: fuelLog!.id, data: { ...values, receiptPhotoKey } },
+        { onSuccess: () => onOpenChange(false) },
+      );
+      return;
+    }
     if (!resolvedVehicleId) return;
     createFuelLog(
       { vehicleId: resolvedVehicleId, dailySheetId, ...values, receiptPhotoKey },
@@ -95,7 +140,7 @@ export function FuelLogFormDialog({ vehicleId, dailySheetId, open, onOpenChange 
         <DialogHeader>
           <DialogTitle className="text-xl font-black flex items-center gap-2">
             <Fuel className="h-5 w-5 text-primary" />
-            Log Fuel Fill
+            {isEdit ? 'Edit Fuel Fill' : 'Log Fuel Fill'}
           </DialogTitle>
         </DialogHeader>
 
@@ -180,7 +225,7 @@ export function FuelLogFormDialog({ vehicleId, dailySheetId, open, onOpenChange 
             </Button>
             <Button type="submit" disabled={isPending} className="rounded-xl font-bold">
               {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              Save
+              {isEdit ? 'Save changes' : 'Save'}
             </Button>
           </DialogFooter>
         </form>

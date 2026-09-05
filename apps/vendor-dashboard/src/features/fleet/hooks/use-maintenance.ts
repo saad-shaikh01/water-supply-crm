@@ -58,3 +58,43 @@ export const useCreateServiceRecord = () => {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to add service record'),
   });
 };
+
+// Single-record fetch — used by the Expense Center detail drawer (Phase 2b)
+// to pre-fill ServiceRecordFormDialog's edit mode by `sourceRecordId`.
+export const useServiceRecord = (id: string | undefined) =>
+  useQuery({
+    queryKey: queryKeys.fleet.serviceRecord(id ?? ''),
+    queryFn: () => fleetApi.getServiceRecord(id as string),
+    enabled: !!id,
+  });
+
+export const useUpdateServiceRecord = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<CreateServiceRecordData> }) => fleetApi.updateServiceRecord(id, data),
+    onSuccess: (_result, { id }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.fleet.serviceRecords() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.fleet.serviceRecord(id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.fleet.maintenanceFleetStatus() });
+      // The service record also projects into Expense Center's Timeline/
+      // Summary — see use-expenses.ts's useUpdateExpense identical note.
+      queryClient.invalidateQueries({ queryKey: ['expense-center'] });
+      toast.success('Service record updated');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to update service record'),
+  });
+};
+
+export const useDeleteServiceRecord = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => fleetApi.removeServiceRecord(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.fleet.serviceRecords() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.fleet.maintenanceFleetStatus() });
+      queryClient.invalidateQueries({ queryKey: ['expense-center'] });
+      toast.success('Service record deleted');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to delete service record'),
+  });
+};
