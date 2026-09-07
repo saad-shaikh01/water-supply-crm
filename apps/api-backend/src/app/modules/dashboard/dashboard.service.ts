@@ -454,7 +454,7 @@ export class DashboardService {
     // sheets in the range were edited after close, targeted-reload only those,
     // and use the live VOIDED-excluding recompute for them. Every other sheet
     // keeps its frozen columns so historical months stay byte-identical.
-    const [modItems, modLoads] = await Promise.all([
+    const [modItems, modLoads, modExpenseSheets] = await Promise.all([
       this.prisma.dailySheetItem.findMany({
         where: {
           dailySheet: { vendorId, date: { gte: rangeStart }, isClosed: true },
@@ -469,10 +469,22 @@ export class DashboardService {
         },
         select: { dailySheetId: true },
       }),
+      // Post-Close Expense Correction — closed sheets whose expense rows were
+      // edited / voided / added after close (marker column bumped each time).
+      this.prisma.dailySheet.findMany({
+        where: {
+          vendorId,
+          date: { gte: rangeStart },
+          isClosed: true,
+          postCloseExpenseCorrectionCount: { gt: 0 },
+        },
+        select: { id: true },
+      }),
     ]);
     const modifiedSheetIds = new Set<string>([
       ...modItems.map((r) => r.dailySheetId),
       ...modLoads.map((r) => r.dailySheetId),
+      ...modExpenseSheets.map((r) => r.id),
     ]);
     const resolvedCashMap = new Map<string, ReturnType<typeof resolveSheetCash>>();
     if (modifiedSheetIds.size > 0) {

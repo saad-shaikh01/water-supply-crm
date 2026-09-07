@@ -145,3 +145,63 @@ export const useDeleteSheetExpense = (sheetId: string) => {
     onError: () => toast.error('Failed to delete expense'),
   });
 };
+
+// ── Post-Close Expense Correction ──────────────────────────────────────────
+// Edit / void / add an Expense row on an already-closed daily sheet. Each is a
+// server-side row-locked, audited, marker-bumping operation — a blind retry
+// could double-apply (esp. the counter + a re-add), so `retry: 0` on all three.
+// They invalidate every read layer that projects these rows or the sheet's cash
+// figures: the general Expenses list, the sheet detail + list, the Expense
+// Center timeline/summary, and analytics/dashboard rollups.
+const CLOSED_CORRECTION_INVALIDATE = (queryClient: ReturnType<typeof useQueryClient>, sheetId: string) => {
+  queryClient.invalidateQueries({ queryKey: [QUERY_KEY] });
+  queryClient.invalidateQueries({ queryKey: ['sheets', sheetId] });
+  queryClient.invalidateQueries({ queryKey: ['sheets'] });
+  queryClient.invalidateQueries({ queryKey: ['expense-center'] });
+  queryClient.invalidateQueries({ queryKey: ['analytics'] });
+  queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+};
+
+export const useCorrectClosedExpense = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    retry: 0,
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+      expensesApi.correctClosed(id, data),
+    onSuccess: () => {
+      CLOSED_CORRECTION_INVALIDATE(queryClient, sheetId);
+      toast.success('Closed-sheet expense corrected');
+    },
+    onError: (e: any) => // eslint-disable-line @typescript-eslint/no-explicit-any
+      toast.error(e?.response?.data?.message ?? 'Failed to correct expense'),
+  });
+};
+
+export const useVoidClosedExpense = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    retry: 0,
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+      expensesApi.voidClosed(id, data),
+    onSuccess: () => {
+      CLOSED_CORRECTION_INVALIDATE(queryClient, sheetId);
+      toast.success('Closed-sheet expense deleted');
+    },
+    onError: (e: any) => // eslint-disable-line @typescript-eslint/no-explicit-any
+      toast.error(e?.response?.data?.message ?? 'Failed to delete expense'),
+  });
+};
+
+export const useAddClosedSheetExpense = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    retry: 0,
+    mutationFn: (data: Record<string, unknown>) => expensesApi.createClosed({ ...data, dailySheetId: sheetId }),
+    onSuccess: () => {
+      CLOSED_CORRECTION_INVALIDATE(queryClient, sheetId);
+      toast.success('Expense added to closed sheet');
+    },
+    onError: (e: any) => // eslint-disable-line @typescript-eslint/no-explicit-any
+      toast.error(e?.response?.data?.message ?? 'Failed to add expense'),
+  });
+};

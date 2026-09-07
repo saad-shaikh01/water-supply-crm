@@ -7,6 +7,8 @@ import { cn } from '@water-supply-crm/ui';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { useDeleteSheetExpense } from '../../expenses/hooks/use-expenses';
 import { ExpenseForm } from '../../expenses/components/expense-form';
+import { EditClosedExpenseDialog } from './dialogs/edit-closed-expense-dialog';
+import { VoidClosedExpenseDialog } from './dialogs/void-closed-expense-dialog';
 import type { SheetExpense } from '@water-supply-crm/types';
 
 // LUNCH_EXPENSE_EMPLOYEE/ADVANCE_SALARY_EMPLOYEE/FUEL_EXPENSE kept here
@@ -40,6 +42,10 @@ interface SheetExpensesSectionProps {
   isClosed: boolean;
   canDelete: boolean;
   canUpdate: boolean;
+  /** daily_sheets:edit_closed_expense — Admin + Manager. Lets the Pencil / Trash
+   *  actions stay live on a CLOSED sheet, routing to the dedicated
+   *  correct / void endpoints instead of the plain update/delete. */
+  canCorrectClosedExpense?: boolean;
 }
 
 export function SheetExpensesSection({
@@ -49,9 +55,12 @@ export function SheetExpensesSection({
   isClosed,
   canDelete,
   canUpdate,
+  canCorrectClosedExpense = false,
 }: SheetExpensesSectionProps) {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [editExpense, setEditExpense] = useState<SheetExpense | null>(null);
+  const [closedEditExpense, setClosedEditExpense] = useState<SheetExpense | null>(null);
+  const [closedVoidExpense, setClosedVoidExpense] = useState<SheetExpense | null>(null);
   const { mutate: deleteExpense, isPending: isDeleting } = useDeleteSheetExpense(sheetId);
 
   const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
@@ -62,8 +71,8 @@ export function SheetExpensesSection({
   const cashExpenses = expenses.filter((e) => e.paidFromCash !== false).reduce((s, e) => s + e.amount, 0);
   const nonCashExpenses = totalExpenses - cashExpenses;
 
-  const canRemove = canDelete && !isClosed;
-  const canEdit = canUpdate && !isClosed;
+  const canRemove = (canDelete && !isClosed) || (canCorrectClosedExpense && isClosed);
+  const canEdit = (canUpdate && !isClosed) || (canCorrectClosedExpense && isClosed);
 
   return (
     <div className="space-y-3">
@@ -120,7 +129,7 @@ export function SheetExpensesSection({
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7 text-muted-foreground hover:text-orange-500 shrink-0"
-                      onClick={() => setEditExpense(expense)}
+                      onClick={() => (isClosed ? setClosedEditExpense(expense) : setEditExpense(expense))}
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
@@ -130,7 +139,7 @@ export function SheetExpensesSection({
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0"
-                      onClick={() => setDeleteId(expense.id)}
+                      onClick={() => (isClosed ? setClosedVoidExpense(expense) : setDeleteId(expense.id))}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
@@ -179,6 +188,21 @@ export function SheetExpensesSection({
         onOpenChange={(o) => { if (!o) setEditExpense(null); }}
         expense={editExpense as unknown as Record<string, unknown> | null}
         dailySheetId={sheetId}
+      />
+
+      {/* Closed-sheet correction path — dedicated /correct + /void endpoints. */}
+      <EditClosedExpenseDialog
+        open={!!closedEditExpense}
+        onClose={() => setClosedEditExpense(null)}
+        sheetId={sheetId}
+        sheetDate={date}
+        expense={closedEditExpense}
+      />
+      <VoidClosedExpenseDialog
+        open={!!closedVoidExpense}
+        onClose={() => setClosedVoidExpense(null)}
+        sheetId={sheetId}
+        expense={closedVoidExpense}
       />
     </div>
   );

@@ -1590,7 +1590,12 @@ export class DailySheetService implements OnModuleInit {
       // The list only surfaces cashCollected, so a light non-voided re-sum is
       // enough here — no buildReconciliation per list row.
       const postCloseModified =
-        sheet.isClosed && isSheetModifiedAfterClose({ items, loads });
+        sheet.isClosed &&
+        isSheetModifiedAfterClose({
+          items,
+          loads,
+          postCloseExpenseCorrectionCount: sheet.postCloseExpenseCorrectionCount,
+        });
       const cashCollected = postCloseModified
         ? items
             .filter((i) => i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY')
@@ -2297,6 +2302,9 @@ export class DailySheetService implements OnModuleInit {
         // edit that happened before this sheet was ever closed — accepted minor
         // over-flag (the banner is informational only).
         const tripCorrectCount = loads.filter((l) => (l.editCount ?? 0) > 0).length;
+        // Post-Close Expense Correction — the marker column bumped by every
+        // edit / void / add on a closed sheet's Expense rows.
+        const expenseCorrectCount = (sheet as any).postCloseExpenseCorrectionCount ?? 0;
 
         const reasons: string[] = [];
         if (voidedCount) {
@@ -2308,6 +2316,11 @@ export class DailySheetService implements OnModuleInit {
         if (tripCorrectCount) {
           reasons.push(
             `${tripCorrectCount} trip check-in correction${tripCorrectCount > 1 ? 's' : ''}`,
+          );
+        }
+        if (expenseCorrectCount) {
+          reasons.push(
+            `${expenseCorrectCount} expense correction${expenseCorrectCount > 1 ? 's' : ''}`,
           );
         }
 
@@ -4476,7 +4489,7 @@ export class DailySheetService implements OnModuleInit {
     // Cheap detect pass, then a targeted full re-load of just the (rare)
     // modified sheets. Untouched sheets keep their frozen close-time columns
     // so historical figures stay byte-identical.
-    const [modItems, modLoads] = await Promise.all([
+    const [modItems, modLoads, modExpenseSheets] = await Promise.all([
       this.prisma.dailySheetItem.findMany({
         where: { dailySheet: sheetWhere, OR: dailySheetItemModifiedOrWhere as any },
         select: { dailySheetId: true },
@@ -4485,10 +4498,18 @@ export class DailySheetService implements OnModuleInit {
         where: { dailySheet: sheetWhere, editCount: { gt: 0 } },
         select: { dailySheetId: true },
       }),
+      // Post-Close Expense Correction — closed sheets whose expense rows were
+      // edited / voided / added after close (marker column bumped each time).
+      // sheetWhere already pins vendorId / driverId / date-range / isClosed.
+      this.prisma.dailySheet.findMany({
+        where: { ...sheetWhere, postCloseExpenseCorrectionCount: { gt: 0 } },
+        select: { id: true },
+      }),
     ]);
     const modifiedSheetIds = new Set<string>([
       ...modItems.map((r) => r.dailySheetId),
       ...modLoads.map((r) => r.dailySheetId),
+      ...modExpenseSheets.map((r) => r.id),
     ]);
     const resolvedCashMap = new Map<string, ReturnType<typeof resolveSheetCash>>();
     if (modifiedSheetIds.size > 0) {

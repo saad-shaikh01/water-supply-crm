@@ -771,6 +771,16 @@ model DailySheet {
   cashExpected   Float @default(0)
   cashCollected  Float @default(0)
 
+  // Post-Close Expense Correction (docs/features/post-close-expense-correction.md,
+  // owner-requested 2026-09-07): incremented by every edit / void / add applied
+  // to a closed sheet's Expense rows through the dedicated /expenses/:id/correct,
+  // /expenses/:id/void and /expenses/closed endpoints. Purely a marker — like the
+  // Void Delivery / Post-Close Trip Correction siblings these endpoints
+  // deliberately never rewrite the frozen close-time cashExpected / cashCollected
+  // columns; this counter lets the divergence banner + hybrid cash rollups detect
+  // that a closed sheet's live expense total no longer matches its snapshot.
+  postCloseExpenseCorrectionCount Int @default(0)
+
   items                 DailySheetItem[]
   transactions          Transaction[]
   loads                 DailySheetLoad[]

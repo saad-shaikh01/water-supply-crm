@@ -34,6 +34,10 @@ Plus three change tallies over the loaded items/loads:
 - `tripCorrectCount` — loads with `editCount > 0`. **Known minor over-flag:** a
   pre-close in-window trip edit made before the sheet was ever closed also has
   `editCount > 0` and will be counted — acceptable, the banner is informational.
+- `expenseCorrectCount` — `sheet.postCloseExpenseCorrectionCount`, the marker
+  column bumped by every edit / void / add applied to a closed sheet's Expense
+  rows (**Post-Close Expense Correction**, `docs/features/post-close-expense-correction.md`).
+  The same `isSheetModifiedAfterClose` marker drives the hybrid cash rollups.
 
 `diverged = Math.abs(cashDelta) >= 1 || reasons.length > 0`. The response carries
 `postCloseDivergence: { diverged: true, cashExpectedAtClose, cashExpectedNow,

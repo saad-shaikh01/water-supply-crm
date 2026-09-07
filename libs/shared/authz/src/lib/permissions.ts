@@ -128,6 +128,13 @@ export const PERMISSION_CATALOG = {
       // another channel) — no van / odometer / load-out / trip. Granted to
       // Admin + Manager. Existing vendors get it via PRESET_DRIFT_BACKFILLS.manager.
       'record_walk_in',
+      // Post-Close Expense Correction (owner-requested 2026-09-07): edit / void /
+      // add an Expense row on an ALREADY-CLOSED sheet, via dedicated
+      // /expenses/:id/correct, /expenses/:id/void and /expenses/closed endpoints
+      // that do not relax the ordinary ExpenseService closed-sheet guard.
+      // Analogous to `edit_closed_trip`; granted to Admin + Manager. Existing
+      // vendors get it via PRESET_DRIFT_BACKFILLS.manager.
+      'edit_closed_expense',
     ],
   },
   vans: {

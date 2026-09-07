@@ -210,6 +210,7 @@ describe('role presets', () => {
     expect(eff).toContain('daily_sheets:void_delivery'); // Admin + Manager (owner-requested 2026-09-01)
     expect(eff).toContain('daily_sheets:edit_closed_trip'); // Admin + Manager (owner-requested 2026-09-02)
     expect(eff).toContain('daily_sheets:record_walk_in'); // Admin + Manager (owner-requested 2026-09-04)
+    expect(eff).toContain('daily_sheets:edit_closed_expense'); // Admin + Manager (owner-requested 2026-09-07)
     // but NOT destructive / financial-sensitive / admin-only
     expect(eff).not.toContain('customers:delete');
     expect(eff).not.toContain('users:create');
@@ -237,6 +238,7 @@ describe('role presets', () => {
     expect(driver).not.toContain('daily_sheets:correct'); // admin-only financial correction
     expect(driver).not.toContain('daily_sheets:void_delivery'); // Admin + Manager only
     expect(driver).not.toContain('daily_sheets:edit_closed_trip'); // Admin + Manager only
+    expect(driver).not.toContain('daily_sheets:edit_closed_expense'); // Admin + Manager only
     expect(driver).toContain('daily_sheets:load_out'); // manages load trips
     expect(driver).not.toContain('payments:approve');
     expect(driver).not.toContain('tracking:view'); // reports location, can't watch the fleet

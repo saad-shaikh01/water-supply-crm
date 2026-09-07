@@ -16,6 +16,7 @@ interface SheetCashOutSectionProps {
   isClosed: boolean;
   canDeleteExpense: boolean;
   canUpdateExpense: boolean;
+  canCorrectClosedExpense?: boolean;
   currentUserId?: string;
   canEditAllCrewCash: boolean;
   canDeleteAllCrewCash: boolean;
@@ -40,6 +41,7 @@ export function SheetCashOutSection({
   isClosed,
   canDeleteExpense,
   canUpdateExpense,
+  canCorrectClosedExpense,
   currentUserId,
   canEditAllCrewCash,
   canDeleteAllCrewCash,
@@ -93,6 +95,7 @@ export function SheetCashOutSection({
             isClosed={isClosed}
             canDelete={canDeleteExpense}
             canUpdate={canUpdateExpense}
+            canCorrectClosedExpense={canCorrectClosedExpense}
           />
           <SheetCrewCashSection
             sheetId={sheetId}

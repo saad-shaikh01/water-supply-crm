@@ -54,4 +54,13 @@ export const expensesApi = {
   create: (data: Record<string, unknown>) => apiClient.post('/expenses', data),
   update: (id: string, data: Record<string, unknown>) => apiClient.patch(`/expenses/${id}`, data),
   remove: (id: string) => apiClient.delete(`/expenses/${id}`),
+
+  // ── Post-Close Expense Correction — dedicated endpoints for an Expense row on
+  // an already-closed sheet (the plain update/remove now reject those). Gated by
+  // `daily_sheets:edit_closed_expense` (Admin + Manager).
+  correctClosed: (id: string, data: Record<string, unknown>) =>
+    apiClient.patch(`/expenses/${id}/correct`, data),
+  voidClosed: (id: string, data: Record<string, unknown>) =>
+    apiClient.post(`/expenses/${id}/void`, data),
+  createClosed: (data: Record<string, unknown>) => apiClient.post('/expenses/closed', data),
 };

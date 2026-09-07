@@ -111,6 +111,10 @@ const MANAGER_PERMISSIONS: Permission[] = [
   // may record a delivery made off the route pipeline. Existing vendors get it
   // via PRESET_DRIFT_BACKFILLS.manager.
   'daily_sheets:record_walk_in',
+  // Post-Close Expense Correction (owner-requested 2026-09-07): Admin + Manager
+  // may edit / void / add an Expense row on an already-closed sheet. Existing
+  // vendors get it via PRESET_DRIFT_BACKFILLS.manager.
+  'daily_sheets:edit_closed_expense',
   'damage_cases:page', 'damage_cases:view', 'damage_cases:create', 'damage_cases:update', 'damage_cases:review',
   'delivery_issues:page', 'delivery_issues:view', 'delivery_issues:plan', 'delivery_issues:resolve',
   'expenses:page', 'expenses:view', 'expenses:create', 'expenses:update',

@@ -161,6 +161,22 @@ describe('DailySheetService.findOne — postCloseDivergence (Option C)', () => {
     expect(result.postCloseDivergence).toEqual({ diverged: false });
   });
 
+  it('closed sheet, cash unchanged, but postCloseExpenseCorrectionCount > 0 → diverged with an "expense correction" reason', async () => {
+    const sheet = buildSheet({
+      cashExpected: 4500,
+      postCloseExpenseCorrectionCount: 1,
+      items: [buildItem({ status: DeliveryStatus.COMPLETED, cashCollected: 4500 })],
+    });
+    mockPrisma.dailySheet.findFirst.mockResolvedValue(sheet);
+
+    const result: any = await service.findOne(VENDOR_ID, SHEET_ID);
+
+    expect(result.postCloseDivergence.diverged).toBe(true);
+    expect(result.postCloseDivergence.reasons).toEqual(
+      expect.arrayContaining([expect.stringMatching(/1 expense correction/)]),
+    );
+  });
+
   it('open sheet → no postCloseDivergence attached at all', async () => {
     const sheet = buildSheet({
       isClosed: false,

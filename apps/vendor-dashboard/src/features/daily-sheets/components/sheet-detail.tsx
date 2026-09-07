@@ -42,6 +42,7 @@ import { DeliveryItemsList } from './delivery-items-list';
 import { SheetCashOutSection } from './sheet-cash-out-section';
 import { AddRecordMenu } from './add-record-menu';
 import { ExpenseForm } from '../../expenses/components/expense-form';
+import { EditClosedExpenseDialog } from './dialogs/edit-closed-expense-dialog';
 import { CrewCashForm } from '../../crew-cash/components/crew-cash-form';
 import { sortBySequence, sortByNearest, sortByCustomerCode } from '../utils/sort-items';
 import { useDriverLocation } from '../hooks/use-driver-location';
@@ -70,6 +71,9 @@ interface UiState {
   fuelLogOpen: boolean;
   // Unified "+ Add / Record" launcher (mirrors fuelLogOpen's pattern exactly).
   expenseOpen: boolean;
+  // Post-Close Expense Correction — the "add a missed expense" flow on a CLOSED
+  // sheet (routes to POST /expenses/closed, not the normal ExpenseForm).
+  closedExpenseOpen: boolean;
   crewCashOpen: boolean;
   damageOpen: boolean;
   activeTab: TabKey;
@@ -112,6 +116,8 @@ type UiAction =
   | { type: 'CLOSE_FUEL_LOG' }
   | { type: 'OPEN_EXPENSE' }
   | { type: 'CLOSE_EXPENSE' }
+  | { type: 'OPEN_CLOSED_EXPENSE' }
+  | { type: 'CLOSE_CLOSED_EXPENSE' }
   | { type: 'OPEN_CREW_CASH' }
   | { type: 'CLOSE_CREW_CASH' }
   | { type: 'OPEN_DAMAGE' }
@@ -139,6 +145,7 @@ const initialUiState: UiState = {
   criticalOverrideOpen: false,
   fuelLogOpen: false,
   expenseOpen: false,
+  closedExpenseOpen: false,
   crewCashOpen: false,
   damageOpen: false,
   activeTab: 'all',
@@ -180,6 +187,8 @@ function uiReducer(state: UiState, action: UiAction): UiState {
     case 'CLOSE_FUEL_LOG': return { ...state, fuelLogOpen: false };
     case 'OPEN_EXPENSE': return { ...state, expenseOpen: true };
     case 'CLOSE_EXPENSE': return { ...state, expenseOpen: false };
+    case 'OPEN_CLOSED_EXPENSE': return { ...state, closedExpenseOpen: true };
+    case 'CLOSE_CLOSED_EXPENSE': return { ...state, closedExpenseOpen: false };
     case 'OPEN_CREW_CASH': return { ...state, crewCashOpen: true };
     case 'CLOSE_CREW_CASH': return { ...state, crewCashOpen: false };
     case 'OPEN_DAMAGE': return { ...state, damageOpen: true };
@@ -248,6 +257,9 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const canCreateExpense = can('expenses:create');
   const canDeleteExpense = can('expenses:delete');
   const canUpdateExpense = can('expenses:update');
+  // Post-Close Expense Correction (Admin + Manager) — edit / void / add an
+  // expense on a CLOSED sheet via the dedicated /correct, /void, /closed endpoints.
+  const canCorrectClosedExpense = can('daily_sheets:edit_closed_expense');
   const canManageEditLocks = can('daily_sheets:manage_edit_locks');
   const canCreateCrewCash = can('crew_cash:create');
   const canEditAllCrewCash = can('crew_cash:edit');
@@ -1203,6 +1215,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             isClosed={isClosed}
             canDeleteExpense={canDeleteExpense}
             canUpdateExpense={canUpdateExpense}
+            canCorrectClosedExpense={canCorrectClosedExpense}
             currentUserId={user?.id}
             canEditAllCrewCash={canEditAllCrewCash}
             canDeleteAllCrewCash={canDeleteAllCrewCash}
@@ -1213,6 +1226,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             (canBulkImport && !isClosed) ||
             (canRecordFuel && !isClosed) ||
             (canCreateExpense && !isClosed) ||
+            (canCorrectClosedExpense && isClosed) ||
             (canCreateCrewCash && !isClosed) ||
             ((!isClosed && canUpdateSheet) || (isClosed && canCorrect)) ||
             canReportDamage
@@ -1231,13 +1245,13 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
               )}
               <AddRecordMenu
                 canLogFuel={canRecordFuel && !isClosed}
-                canAddExpense={canCreateExpense && !isClosed}
+                canAddExpense={(canCreateExpense && !isClosed) || (canCorrectClosedExpense && isClosed)}
                 canAddCrewCash={canCreateCrewCash && !isClosed}
                 canAddDelivery={(!isClosed && canUpdateSheet) || (isClosed && canCorrect)}
                 isClosed={isClosed}
                 canReportDamage={canReportDamage}
                 onLogFuel={() => dispatch({ type: 'OPEN_FUEL_LOG' })}
-                onAddExpense={() => dispatch({ type: 'OPEN_EXPENSE' })}
+                onAddExpense={() => dispatch({ type: isClosed ? 'OPEN_CLOSED_EXPENSE' : 'OPEN_EXPENSE' })}
                 onAddCrewCash={() => dispatch({ type: 'OPEN_CREW_CASH' })}
                 onAddDelivery={() => dispatch({ type: isClosed ? 'OPEN_CORRECTION' : 'OPEN_ADHOC' })}
                 onReportDamage={() => dispatch({ type: 'OPEN_DAMAGE' })}
@@ -1500,6 +1514,15 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         onOpenChange={(o) => dispatch({ type: o ? 'OPEN_EXPENSE' : 'CLOSE_EXPENSE' })}
         dailySheetId={sheetId}
         defaultVanId={data?.vanId ?? undefined}
+      />
+      {/* Post-Close Expense Correction — add a missed expense onto a CLOSED
+          sheet (reuses the edit dialog with empty values + createClosed). */}
+      <EditClosedExpenseDialog
+        open={ui.closedExpenseOpen}
+        onClose={() => dispatch({ type: 'CLOSE_CLOSED_EXPENSE' })}
+        sheetId={sheetId}
+        sheetDate={data?.date}
+        expense={null}
       />
       <CrewCashForm
         open={ui.crewCashOpen}

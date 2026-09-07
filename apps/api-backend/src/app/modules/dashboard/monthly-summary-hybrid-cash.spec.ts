@@ -40,7 +40,9 @@ describe('DashboardService.getMonthlySummary — hybrid cash', () => {
       },
       dailySheetLoad: { findMany: jest.fn().mockResolvedValue([]) },
       dailySheet: {
-        findMany: jest.fn(({ include }: any) => {
+        findMany: jest.fn(({ include, where }: any) => {
+          // Post-Close Expense Correction detect probe — none here.
+          if (where?.postCloseExpenseCorrectionCount) return Promise.resolve([]);
           if (include) {
             // targeted full re-load of the modified sheet
             return Promise.resolve([
@@ -104,7 +106,8 @@ describe('DashboardService.getMonthlySummary — hybrid cash', () => {
       },
       dailySheetLoad: { findMany: jest.fn().mockResolvedValue([]) },
       dailySheet: {
-        findMany: jest.fn(({ include }: any) => {
+        findMany: jest.fn(({ include, where }: any) => {
+          if (where?.postCloseExpenseCorrectionCount) return Promise.resolve([]);
           if (include) {
             reloadSpy();
             return Promise.resolve([]);
@@ -136,7 +139,8 @@ describe('DashboardService.getMonthlySummary — hybrid cash', () => {
       },
       dailySheetLoad: { findMany: jest.fn().mockResolvedValue([]) },
       dailySheet: {
-        findMany: jest.fn(({ include }: any) => {
+        findMany: jest.fn(({ include, where }: any) => {
+          if (where?.postCloseExpenseCorrectionCount) return Promise.resolve([]);
           if (include) {
             return Promise.resolve([
               {
@@ -184,5 +188,63 @@ describe('DashboardService.getMonthlySummary — hybrid cash', () => {
     expect(res[0].cashExpected).toBe(2000);
     expect(res[0].cashCollected).toBe(1800);
     expect(res[0].hasModifiedClosedSheets).toBe(true);
+  });
+
+  it('a closed sheet with ONLY postCloseExpenseCorrectionCount > 0 lands in modifiedSheetIds → live recompute', async () => {
+    const mockPrisma: any = {
+      dailySheetItem: { findMany: jest.fn().mockResolvedValue([]) }, // no voided/corrected items
+      dailySheetLoad: { findMany: jest.fn().mockResolvedValue([]) }, // no trip edits
+      dailySheet: {
+        findMany: jest.fn(({ include, where }: any) => {
+          // the new expense-correction detect probe finds s1
+          if (where?.postCloseExpenseCorrectionCount) return Promise.resolve([{ id: 's1' }]);
+          if (include) {
+            return Promise.resolve([
+              {
+                id: 's1',
+                isClosed: true,
+                postCloseExpenseCorrectionCount: 1,
+                filledOutCount: 0,
+                filledInCount: 0,
+                emptyInCount: 0,
+                cashCollected: 1000,
+                cashExpected: 1000,
+                items: [
+                  {
+                    status: 'COMPLETED',
+                    voidedAt: null,
+                    isCorrection: false,
+                    correctionAddedAt: null,
+                    cashCollected: 1000,
+                    filledDropped: 0,
+                    filledReceived: 0,
+                    emptyReceived: 0,
+                    pricePerBottle: 100,
+                    productId: 'p1',
+                    customer: { paymentType: 'CASH', customPrices: [] },
+                    product: { basePrice: 100 },
+                  },
+                ],
+                // an expense edited post-close — live recon subtracts 200
+                expenses: [{ amount: 200, paidFromCash: true }],
+                crewCashDistributions: [],
+                loads: [],
+              },
+            ]);
+          }
+          return Promise.resolve([
+            { id: 's1', date: new Date(), cashExpected: 1000, cashCollected: 1000 },
+          ]);
+        }),
+      },
+    };
+
+    const service = await makeService(mockPrisma);
+    const res = await service.getMonthlySummary('vendor-1', 1);
+
+    expect(res[0].hasModifiedClosedSheets).toBe(true);
+    // live: shouldHandIn = Σ non-voided item cash = 1000; netToHandIn = 1000 - 200 = 800
+    expect(res[0].cashCollected).toBe(1000);
+    expect(res[0].cashExpected).toBe(800);
   });
 });

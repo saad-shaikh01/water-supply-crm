@@ -13,6 +13,9 @@ import { ExpenseService } from './expense.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { ExpenseQueryDto } from './dto/expense-query.dto';
+import { CorrectClosedExpenseDto } from './dto/correct-closed-expense.dto';
+import { VoidClosedExpenseDto } from './dto/void-closed-expense.dto';
+import { AddClosedExpenseDto } from './dto/add-closed-expense.dto';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
@@ -26,6 +29,41 @@ export class ExpenseController {
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateExpenseDto) {
     return this.expenseService.create(user.vendorId, user.userId, dto);
+  }
+
+  // ── Post-Close Expense Correction — static-suffix routes MUST be declared
+  // before any `:id`-only param route so NestJS does not shadow `closed` as an
+  // `:id` (mirrors the daily-sheet.controller "static routes before /:id"
+  // ordering note). `/:id/correct` and `/:id/void` cannot collide with
+  // `/:id` (GET/PATCH/DELETE) since they carry an extra segment, but are kept
+  // grouped here for readability.
+  @Post('closed')
+  @RequirePermissions('daily_sheets:edit_closed_expense')
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
+  createClosed(@CurrentUser() user: AuthUser, @Body() dto: AddClosedExpenseDto) {
+    return this.expenseService.createClosed(user, dto);
+  }
+
+  @Patch(':id/correct')
+  @RequirePermissions('daily_sheets:edit_closed_expense')
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
+  correctClosed(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: CorrectClosedExpenseDto,
+  ) {
+    return this.expenseService.correctClosed(user, id, dto);
+  }
+
+  @Post(':id/void')
+  @RequirePermissions('daily_sheets:edit_closed_expense')
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
+  voidClosed(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: VoidClosedExpenseDto,
+  ) {
+    return this.expenseService.voidClosed(user, id, dto);
   }
 
   @Get()

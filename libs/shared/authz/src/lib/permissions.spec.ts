@@ -58,7 +58,10 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // 169 = 168 + daily_sheets:record_walk_in — record a delivery made off the
 // route pipeline (Walk-in / Self-Pickup Delivery feature, owner-requested
 // 2026-09-04). No new resource, no new `:page`.
-const FROZEN_TOTAL = 169;
+// 170 = 169 + daily_sheets:edit_closed_expense — edit / void / add an Expense
+// row on an already-closed sheet (Post-Close Expense Correction feature,
+// owner-requested 2026-09-07). No new resource, no new `:page`.
+const FROZEN_TOTAL = 170;
 const FROZEN_PAGES = 28;
 const FROZEN_RESOURCES = 30;
 

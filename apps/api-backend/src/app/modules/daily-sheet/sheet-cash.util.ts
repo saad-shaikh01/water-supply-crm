@@ -163,13 +163,19 @@ export function buildReconciliation(sheet: any) {
 export function isSheetModifiedAfterClose(sheet: {
   items?: any[];
   loads?: any[];
+  // Post-Close Expense Correction — every edit / void / add applied to a closed
+  // sheet's Expense rows bumps this marker. Its live expense total then no
+  // longer matches the frozen close-time cashExpected, so the sheet must switch
+  // to a live recompute in the rollups just like a void / delivery correction.
+  postCloseExpenseCorrectionCount?: number | null;
 }): boolean {
   const items = (sheet.items ?? []) as any[];
   const loads = (sheet.loads ?? []) as any[];
   return (
     items.some((i) => i.voidedAt != null) ||
     items.some((i) => i.isCorrection && i.correctionAddedAt != null) ||
-    loads.some((l) => (l.editCount ?? 0) > 0)
+    loads.some((l) => (l.editCount ?? 0) > 0) ||
+    (sheet.postCloseExpenseCorrectionCount ?? 0) > 0
   );
 }
 
