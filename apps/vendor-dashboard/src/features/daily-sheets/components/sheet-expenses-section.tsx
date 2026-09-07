@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Button, Card, CardContent, Badge } from '@water-supply-crm/ui';
-import { Trash2, Pencil, Receipt, Fuel, Wrench, Users, AlertTriangle, CreditCard, Snowflake, PackagePlus, type LucideIcon } from 'lucide-react';
+import { Trash2, Pencil, Receipt, Fuel, Wrench, Users, AlertTriangle, CreditCard, Snowflake, PackagePlus, Building2, Zap, FileText, Droplet, Package, FlaskConical, type LucideIcon } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { useDeleteSheetExpense } from '../../expenses/hooks/use-expenses';
@@ -20,6 +20,16 @@ const CATEGORY_CONFIG: Record<string, { label: string; color: string; icon: Luci
   FUEL_EXPENSE:            { label: 'Fuel Exp',            color: 'bg-orange-500/10 text-orange-500',   icon: Fuel },
   ICE_PURCHASED:           { label: 'Ice Purchased',       color: 'bg-cyan-500/10 text-cyan-600',       icon: Snowflake },
   EXTRA_LOADER:            { label: 'Extra Loader',        color: 'bg-purple-500/10 text-purple-500',   icon: PackagePlus },
+  // Added 2026-09-07 (owner request) — office overhead + inventory
+  // procurement categories. Colors picked distinct from every entry above
+  // and from expense-center/constants.ts's DOMAIN_CONFIG palette (sky,
+  // violet, amber, lime, slate, rose) — see that file's own color note.
+  RENT:                    { label: 'Rent',                 color: 'bg-indigo-500/10 text-indigo-500',   icon: Building2 },
+  UTILITIES:               { label: 'Utilities',            color: 'bg-fuchsia-500/10 text-fuchsia-500', icon: Zap },
+  STATIONARY:              { label: 'Stationary',           color: 'bg-pink-500/10 text-pink-500',       icon: FileText },
+  BOTTLE_PURCHASED:        { label: 'Bottle Purchase',      color: 'bg-green-600/10 text-green-600',     icon: Droplet },
+  CAPS_PURCHASED:          { label: 'Caps Purchase',        color: 'bg-zinc-500/10 text-zinc-500',       icon: Package },
+  CHEMICALS_PURCHASED:     { label: 'Chemicals Purchase',   color: 'bg-stone-500/10 text-stone-500',     icon: FlaskConical },
   OTHER:                   { label: 'Others',              color: 'bg-muted text-muted-foreground',     icon: AlertTriangle },
 };
 

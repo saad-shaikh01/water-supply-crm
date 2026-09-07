@@ -36,10 +36,19 @@ function Toggle({ enabled, onToggle, label }: { enabled: boolean; onToggle: () =
 // EXTRA_LOADER — the enum values themselves are kept (see schema.prisma)
 // so existing Expense rows tagged with the old categories still display
 // correctly everywhere else, only new submissions can no longer pick them.
+// RENT/UTILITIES/STATIONARY/BOTTLE_PURCHASED/CAPS_PURCHASED/
+// CHEMICALS_PURCHASED added 2026-09-07 (owner request) — office overhead +
+// inventory procurement categories.
 const CATEGORIES = [
   { value: 'VEHICLE_MAINTENANCE', label: 'Vehicle Maintenance' },
   { value: 'ICE_PURCHASED', label: 'Ice Purchased' },
   { value: 'EXTRA_LOADER', label: 'Extra Loader' },
+  { value: 'RENT', label: 'Rent' },
+  { value: 'UTILITIES', label: 'Utilities' },
+  { value: 'STATIONARY', label: 'Stationary' },
+  { value: 'BOTTLE_PURCHASED', label: 'Bottle Purchase' },
+  { value: 'CAPS_PURCHASED', label: 'Caps Purchase' },
+  { value: 'CHEMICALS_PURCHASED', label: 'Chemicals Purchase' },
   { value: 'OTHER', label: 'Others' },
 ] as const;
 

@@ -74,6 +74,14 @@ export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
   EXTRA_LOADER: 'Extra Loader',
   DISCREPANCY_WRITE_OFF: 'Discrepancy Write-off',
   OTHER: 'Miscellaneous',
+  // Added 2026-09-07 (owner request): office overhead + inventory procurement
+  // categories for the "add expense" dropdown.
+  RENT: 'Rent',
+  UTILITIES: 'Utilities',
+  STATIONARY: 'Stationary',
+  BOTTLE_PURCHASED: 'Bottle Purchase',
+  CAPS_PURCHASED: 'Caps Purchase',
+  CHEMICALS_PURCHASED: 'Chemicals Purchase',
   // Retained-for-history categories (dropped from the add-expense dropdown
   // 2026-08-21 but still present on old rows) — labelled as legacy so a
   // reader can tell them apart from the live ones at a glance.
@@ -106,6 +114,13 @@ export const EXPENSE_CATEGORY_DOMAINS: Record<ExpenseCategory, ExpenseCenterDoma
   ADVANCE_SALARY_EMPLOYEE: 'EMPLOYEES',
   DISCREPANCY_WRITE_OFF: 'DISCREPANCY',
   OTHER: 'OFFICE',
+  // Added 2026-09-07 (owner request): office overhead + inventory procurement.
+  RENT: 'OFFICE',
+  UTILITIES: 'OFFICE',
+  STATIONARY: 'OFFICE',
+  BOTTLE_PURCHASED: 'INVENTORY',
+  CAPS_PURCHASED: 'INVENTORY',
+  CHEMICALS_PURCHASED: 'INVENTORY',
 };
 
 /**

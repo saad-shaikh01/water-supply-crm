@@ -143,6 +143,14 @@ enum ExpenseCategory {
   // "add expense" dropdown.
   ICE_PURCHASED
   EXTRA_LOADER
+  // Added 2026-09-07 (owner request): new selectable categories — office
+  // overhead + inventory procurement — for the "add expense" dropdown.
+  RENT
+  UTILITIES
+  STATIONARY
+  BOTTLE_PURCHASED
+  CAPS_PURCHASED
+  CHEMICALS_PURCHASED
 }
 
 enum DamageSeverity {

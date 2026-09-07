@@ -30,6 +30,15 @@ describe('domain classification', () => {
     expect(domainForExpenseCategory(ExpenseCategory.EXTRA_LOADER)).toBe('EMPLOYEES');
   });
 
+  it('routes the new office-overhead categories to OFFICE and procurement categories to INVENTORY', () => {
+    expect(domainForExpenseCategory(ExpenseCategory.RENT)).toBe('OFFICE');
+    expect(domainForExpenseCategory(ExpenseCategory.UTILITIES)).toBe('OFFICE');
+    expect(domainForExpenseCategory(ExpenseCategory.STATIONARY)).toBe('OFFICE');
+    expect(domainForExpenseCategory(ExpenseCategory.BOTTLE_PURCHASED)).toBe('INVENTORY');
+    expect(domainForExpenseCategory(ExpenseCategory.CAPS_PURCHASED)).toBe('INVENTORY');
+    expect(domainForExpenseCategory(ExpenseCategory.CHEMICALS_PURCHASED)).toBe('INVENTORY');
+  });
+
   it('has a label for every category in both enums', () => {
     for (const category of Object.values(ExpenseCategory)) {
       expect(EXPENSE_CATEGORY_LABELS[category]).toBeTruthy();
