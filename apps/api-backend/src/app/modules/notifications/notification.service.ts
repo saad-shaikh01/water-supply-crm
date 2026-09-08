@@ -47,6 +47,32 @@ export class NotificationService {
     );
   }
 
+  /**
+   * Business-initiated WhatsApp send via a Meta-approved template. Unlike
+   * `queueWhatsApp` (free text), a template can open a fresh conversation, so it
+   * actually reaches the customer even when they haven't messaged us in the last
+   * 24h — which is the norm for payment confirmations. `bodyParams` must match
+   * the approved template's `{{1..n}}` order exactly or Meta rejects it (132000).
+   */
+  async queueWhatsAppTemplate(
+    phoneNumber: string,
+    templateName: string,
+    bodyParams: string[],
+    idempotencyKey?: string,
+    meta?: { entityType?: string; entityId?: string; vendorId?: string; type?: NotificationType; recipientType?: string; recipientId?: string },
+  ) {
+    if (!(await this.allowed(meta, NotificationChannel.WHATSAPP))) {
+      await this.logs.logSkipped({ channel: 'WHATSAPP', recipientAddress: phoneNumber, eventType: meta?.type, ...meta });
+      return null;
+    }
+
+    return this.notificationQueue.add(
+      JOB_NAMES.SEND_WHATSAPP_TEMPLATE,
+      { phoneNumber, templateName, bodyParams, ...meta },
+      idempotencyKey ? { jobId: idempotencyKey } : undefined,
+    );
+  }
+
   async queueWhatsAppPdf(
     phoneNumber: string,
     receiptData: Record<string, unknown>,

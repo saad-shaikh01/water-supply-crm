@@ -117,20 +117,21 @@ Thank you for choosing Blue Ice.
 ## Text-only templates (no header)
 
 ### 5. `payment_received`  — Payment receive hui
-- **Category:** UTILITY · **Language:** English
-- **Replaces:** `paymentReceived`
-- **Body:**
+- **Category:** UTILITY · **Language:** English · **Header:** Text — `Payment Received`
+- **Replaces:** `paymentReceived` — wired in `payment.service.ts` (`approvePayment` + `handlePaymobWebhook`) via `notifications.queueWhatsAppTemplate(... CloudTemplateNames.PAYMENT_RECEIVED ...)`
+- **Body (as actually approved on Meta — confirmed 2026-09-09):**
 ```
-Assalam o Alaikum {{1}}! 💚
+Assalamu Alaikum {{1}}!
 
-Aapki payment receive hui:
-💰 Amount: Rs. {{2}}
+Your payment has been received successfully.
+
+💰 Amount Received: Rs. {{2}}
 📊 Remaining Balance: Rs. {{3}}
 
-Shukriya apna business karne ke liye!
+Thank you for choosing Blue Ice. We appreciate your business!
 ```
-- **Variables:** `{{1}}` = name · `{{2}}` = amount · `{{3}}` = remaining balance
-- **Sample:** `Ahmed`, `2000`, `500.00`
+- **Variables:** `{{1}}` = name · `{{2}}` = amount received · `{{3}}` = remaining balance
+- **Sample:** `jhon`, `2000`, `200`
 
 ---
 

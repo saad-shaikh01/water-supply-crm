@@ -19,7 +19,7 @@ import {
 } from './providers/payment-provider.interface';
 import { LedgerService } from '../transaction/ledger.service';
 import { NotificationService } from '../notifications/notification.service';
-import { MessageTemplates } from '../whatsapp/templates/message.templates';
+import { CloudTemplateNames } from '../whatsapp/templates/cloud-template-names';
 import { AuditService } from '../audit/audit.service';
 import { FcmService } from '../fcm/fcm.service';
 import { NOTIFICATION_EVENTS } from '@water-supply-crm/queue';
@@ -320,16 +320,15 @@ export class PaymentService {
 
     const newBalance = request.customer.financialBalance - request.amount;
 
-    // WhatsApp notification to customer
-    const message = MessageTemplates.paymentReceived(
-      request.customer.name,
-      request.amount,
-      Math.max(0, newBalance),
-    );
+    // WhatsApp notification to customer — Meta-approved `payment_received`
+    // template ({{1}} name · {{2}} amount received · {{3}} remaining balance).
+    // Must be a template, not free text: the customer rarely has an open 24h
+    // session, so a free-text send is accepted by Meta but never delivered.
     await this.notifications
-      .queueWhatsApp(
+      .queueWhatsAppTemplate(
         request.customer.phoneNumber,
-        message,
+        CloudTemplateNames.PAYMENT_RECEIVED,
+        [request.customer.name, String(request.amount), Math.max(0, newBalance).toFixed(2)],
         `ntf:${NOTIFICATION_EVENTS.PAYMENT_APPROVED}:${requestId}:wa`,
         { vendorId, type: NotificationType.PAYMENT_RECEIVED, recipientType: 'CUSTOMER', recipientId: request.customerId },
       )
@@ -495,16 +494,14 @@ export class PaymentService {
 
     const newBalance = request.customer.financialBalance - request.amount;
 
-    // WhatsApp confirmation
-    const message = MessageTemplates.paymentReceived(
-      request.customer.name,
-      request.amount,
-      Math.max(0, newBalance),
-    );
+    // WhatsApp confirmation — Meta-approved `payment_received` template
+    // ({{1}} name · {{2}} amount received · {{3}} remaining balance). Template,
+    // not free text, so it delivers with no open 24h customer session.
     await this.notifications
-      .queueWhatsApp(
+      .queueWhatsAppTemplate(
         request.customer.phoneNumber,
-        message,
+        CloudTemplateNames.PAYMENT_RECEIVED,
+        [request.customer.name, String(request.amount), Math.max(0, newBalance).toFixed(2)],
         `ntf:${NOTIFICATION_EVENTS.PAYMENT_APPROVED}:${request.id}:wa`,
         { vendorId: request.vendorId, type: NotificationType.PAYMENT_RECEIVED, recipientType: 'CUSTOMER', recipientId: request.customerId },
       )

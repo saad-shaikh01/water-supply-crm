@@ -2,6 +2,7 @@ export const JOB_NAMES = {
   GENERATE_SHEETS: 'generate-sheets',
   AUTO_GENERATE_DAILY_SHEETS: 'auto-generate-daily-sheets',
   SEND_WHATSAPP: 'send-whatsapp',
+  SEND_WHATSAPP_TEMPLATE: 'send-whatsapp-template',
   SEND_WHATSAPP_PDF: 'send-whatsapp-pdf',
   SEND_WHATSAPP_DELIVERY_FAILURE: 'send-whatsapp-delivery-failure',
   SEND_SMS: 'send-sms',

@@ -7,6 +7,12 @@ export const MessageTemplates = {
   ) =>
     `Assalam o Alaikum ${customerName}! ✅\n\nAapki delivery complete hui:\n🔵 Product: ${productName}\n🫙 Quantity: ${qty} bottles\n💰 Cash Collected: Rs. ${cashCollected}\n\nShukriya!`,
 
+  /**
+   * @deprecated Not sent anymore. Payment confirmations go out via the
+   * Meta-approved `payment_received` Cloud API template (see
+   * cloud-api-templates.md #5) because a free-text send is accepted by Meta but
+   * never delivered without an open 24h customer session. Kept for reference.
+   */
   paymentReceived: (
     customerName: string,
     amount: number,

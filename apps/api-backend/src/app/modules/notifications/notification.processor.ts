@@ -61,6 +61,19 @@ export class NotificationProcessor extends WorkerHost {
           return 'Message not delivered — number may not be on WhatsApp or client not ready';
         }
       }
+      case JOB_NAMES.SEND_WHATSAPP_TEMPLATE: {
+        const { phoneNumber, templateName, bodyParams } = job.data as {
+          phoneNumber: string;
+          templateName: string;
+          bodyParams: string[];
+        };
+        const sent = await this.whatsapp.sendTemplate(phoneNumber, templateName, bodyParams);
+        if (sent) {
+          this.logger.log(`WhatsApp template "${templateName}" sent to ${phoneNumber}`);
+          return null;
+        }
+        return `Template "${templateName}" not delivered — WhatsApp not ready, number not registered, or template not yet approved`;
+      }
       case JOB_NAMES.SEND_WHATSAPP_PDF: {
         const { phoneNumber, receiptData, entityType, entityId } = job.data;
         const pdfBuffer = await this.pdfService.generate(receiptData as any);
@@ -151,7 +164,10 @@ export class NotificationProcessor extends WorkerHost {
     error: string | null,
   ): Promise<void> {
     const channel =
-      job.name === JOB_NAMES.SEND_WHATSAPP || job.name === JOB_NAMES.SEND_WHATSAPP_PDF ? 'WHATSAPP'
+      job.name === JOB_NAMES.SEND_WHATSAPP ||
+      job.name === JOB_NAMES.SEND_WHATSAPP_TEMPLATE ||
+      job.name === JOB_NAMES.SEND_WHATSAPP_PDF ||
+      job.name === JOB_NAMES.SEND_WHATSAPP_DELIVERY_FAILURE ? 'WHATSAPP'
       : job.name === JOB_NAMES.SEND_SMS ? 'SMS'
       : 'FCM';
 
