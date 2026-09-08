@@ -1,6 +1,7 @@
 import {
   Fuel, Wrench, Wallet, Receipt, Snowflake, PackagePlus, Building2, Users,
   Zap, FileText, Droplet, Package, FlaskConical, Landmark,
+  Shield, Smartphone, Stamp, Bandage, Handshake, HeartHandshake,
   type LucideIcon,
 } from 'lucide-react';
 import type { CreatableStaffLedgerCategory } from '@water-supply-crm/types';
@@ -43,6 +44,14 @@ const LEDGER_ENTRIES: ExpenseTypeEntry[] = CREATABLE_LEDGER_CATEGORIES.map((cat)
 export const EXPENSE_TYPE_REGISTRY: ExpenseTypeEntry[] = [
   { key: 'FUEL', label: 'Fuel', domain: 'VEHICLE', icon: Fuel, kind: 'FUEL' },
   { key: 'MAINTENANCE', label: 'Vehicle Maintenance', domain: 'VEHICLE', icon: Wrench, kind: 'MAINTENANCE' },
+  {
+    key: 'POLICE',
+    label: 'Police',
+    domain: 'VEHICLE',
+    icon: Shield,
+    kind: 'EXPENSE',
+    presetExpenseCategory: 'POLICE',
+  },
   ...LEDGER_ENTRIES,
   { key: 'CREW_CASH', label: 'Crew Cash', domain: 'EMPLOYEES', icon: Wallet, kind: 'CREW_CASH' },
   {
@@ -69,6 +78,14 @@ export const EXPENSE_TYPE_REGISTRY: ExpenseTypeEntry[] = [
     icon: PackagePlus,
     kind: 'EXPENSE',
     presetExpenseCategory: 'EXTRA_LOADER',
+  },
+  {
+    key: 'CONTRACTOR_PAYMENT',
+    label: 'Contractor Payment',
+    domain: 'EMPLOYEES',
+    icon: Handshake,
+    kind: 'EXPENSE',
+    presetExpenseCategory: 'CONTRACTOR_PAYMENT',
   },
   {
     key: 'OFFICE_MISC',
@@ -114,6 +131,30 @@ export const EXPENSE_TYPE_REGISTRY: ExpenseTypeEntry[] = [
     presetExpenseCategory: 'STATIONARY',
   },
   {
+    key: 'MOBILE_LOAD',
+    label: 'Mobile Load (EasyLoad)',
+    domain: 'OFFICE',
+    icon: Smartphone,
+    kind: 'EXPENSE',
+    presetExpenseCategory: 'MOBILE_LOAD',
+  },
+  {
+    key: 'PSQCA',
+    label: 'PSQCA',
+    domain: 'OFFICE',
+    icon: Stamp,
+    kind: 'EXPENSE',
+    presetExpenseCategory: 'PSQCA',
+  },
+  {
+    key: 'CHARITY',
+    label: 'Sadqa / Charity',
+    domain: 'OFFICE',
+    icon: HeartHandshake,
+    kind: 'EXPENSE',
+    presetExpenseCategory: 'CHARITY',
+  },
+  {
     key: 'BOTTLE_PURCHASE',
     label: 'Bottle Purchase',
     domain: 'INVENTORY',
@@ -136,6 +177,14 @@ export const EXPENSE_TYPE_REGISTRY: ExpenseTypeEntry[] = [
     icon: FlaskConical,
     kind: 'EXPENSE',
     presetExpenseCategory: 'CHEMICALS_PURCHASED',
+  },
+  {
+    key: 'BOTTLE_REPAIR',
+    label: 'Bottle Repair',
+    domain: 'INVENTORY',
+    icon: Bandage,
+    kind: 'EXPENSE',
+    presetExpenseCategory: 'BOTTLE_REPAIR',
   },
   {
     key: 'VEHICLE_PURCHASE',

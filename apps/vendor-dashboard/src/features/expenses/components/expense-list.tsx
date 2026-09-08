@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQueryState, parseAsString } from 'nuqs';
-import { MoreHorizontal, Pencil, Trash2, Receipt, Fuel, Wrench, Users, AlertTriangle, Snowflake, PackagePlus, Building2, Zap, FileText, Droplet, Package, FlaskConical, type LucideIcon } from 'lucide-react';
+import { MoreHorizontal, Pencil, Trash2, Receipt, Fuel, Wrench, Users, AlertTriangle, Snowflake, PackagePlus, Building2, Zap, FileText, Droplet, Package, FlaskConical, Shield, Smartphone, Stamp, Bandage, Handshake, HeartHandshake, type LucideIcon } from 'lucide-react';
 import {
   Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuTrigger, Badge, Card, CardContent,
@@ -34,6 +34,16 @@ const CATEGORY_CONFIG: Record<ExpenseCategory, { label: string; color: string; i
   BOTTLE_PURCHASED:        { label: 'Bottle Purchase',      color: 'bg-green-600/10 text-green-600',     icon: Droplet },
   CAPS_PURCHASED:          { label: 'Caps Purchase',        color: 'bg-zinc-500/10 text-zinc-500',       icon: Package },
   CHEMICALS_PURCHASED:     { label: 'Chemicals Purchase',   color: 'bg-stone-500/10 text-stone-500',     icon: FlaskConical },
+  // Added 2026-09-08 (owner request) — vehicle checkpoint cost, office/
+  // regulatory overhead, inventory repair, and contractor/charity payouts
+  // (same palette as sheet-expenses-section.tsx's CATEGORY_CONFIG, kept in
+  // sync for visual consistency).
+  POLICE:                  { label: 'Police',              color: 'bg-red-600/10 text-red-600',         icon: Shield },
+  MOBILE_LOAD:             { label: 'Mobile Load (EasyLoad)', color: 'bg-teal-500/10 text-teal-500',    icon: Smartphone },
+  PSQCA:                   { label: 'PSQCA',               color: 'bg-emerald-600/10 text-emerald-600', icon: Stamp },
+  BOTTLE_REPAIR:           { label: 'Bottle Repair',       color: 'bg-gray-500/10 text-gray-500',       icon: Bandage },
+  CONTRACTOR_PAYMENT:      { label: 'Contractor Payment',  color: 'bg-neutral-600/10 text-neutral-600', icon: Handshake },
+  CHARITY:                 { label: 'Sadqa / Charity',     color: 'bg-amber-500/10 text-amber-500',     icon: HeartHandshake },
   OTHER:                   { label: 'Others',              color: 'bg-muted text-muted-foreground',     icon: AlertTriangle },
 };
 

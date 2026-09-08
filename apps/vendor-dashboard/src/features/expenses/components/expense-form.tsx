@@ -49,6 +49,12 @@ const CATEGORIES = [
   { value: 'BOTTLE_PURCHASED', label: 'Bottle Purchase' },
   { value: 'CAPS_PURCHASED', label: 'Caps Purchase' },
   { value: 'CHEMICALS_PURCHASED', label: 'Chemicals Purchase' },
+  { value: 'POLICE', label: 'Police' },
+  { value: 'MOBILE_LOAD', label: 'Mobile Load (EasyLoad)' },
+  { value: 'PSQCA', label: 'PSQCA' },
+  { value: 'BOTTLE_REPAIR', label: 'Bottle Repair' },
+  { value: 'CONTRACTOR_PAYMENT', label: 'Contractor Payment' },
+  { value: 'CHARITY', label: 'Sadqa / Charity' },
   { value: 'OTHER', label: 'Others' },
 ] as const;
 

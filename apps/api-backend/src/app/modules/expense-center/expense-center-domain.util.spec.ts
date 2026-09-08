@@ -39,6 +39,15 @@ describe('domain classification', () => {
     expect(domainForExpenseCategory(ExpenseCategory.CHEMICALS_PURCHASED)).toBe('INVENTORY');
   });
 
+  it('routes the new vehicle/office/inventory/employee categories to their expected domains', () => {
+    expect(domainForExpenseCategory(ExpenseCategory.POLICE)).toBe('VEHICLE');
+    expect(domainForExpenseCategory(ExpenseCategory.MOBILE_LOAD)).toBe('OFFICE');
+    expect(domainForExpenseCategory(ExpenseCategory.PSQCA)).toBe('OFFICE');
+    expect(domainForExpenseCategory(ExpenseCategory.BOTTLE_REPAIR)).toBe('INVENTORY');
+    expect(domainForExpenseCategory(ExpenseCategory.CONTRACTOR_PAYMENT)).toBe('EMPLOYEES');
+    expect(domainForExpenseCategory(ExpenseCategory.CHARITY)).toBe('OFFICE');
+  });
+
   it('has a label for every category in both enums', () => {
     for (const category of Object.values(ExpenseCategory)) {
       expect(EXPENSE_CATEGORY_LABELS[category]).toBeTruthy();

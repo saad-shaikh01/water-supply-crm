@@ -6,7 +6,11 @@ export type ExpenseCategory =
   | 'ICE_PURCHASED' | 'EXTRA_LOADER'
   // Added 2026-09-07 — office overhead + inventory procurement categories.
   | 'RENT' | 'UTILITIES' | 'STATIONARY'
-  | 'BOTTLE_PURCHASED' | 'CAPS_PURCHASED' | 'CHEMICALS_PURCHASED';
+  | 'BOTTLE_PURCHASED' | 'CAPS_PURCHASED' | 'CHEMICALS_PURCHASED'
+  // Added 2026-09-08 — vehicle checkpoint, office/regulatory, inventory repair,
+  // and contractor/charity payout categories.
+  | 'POLICE' | 'MOBILE_LOAD' | 'PSQCA'
+  | 'BOTTLE_REPAIR' | 'CONTRACTOR_PAYMENT' | 'CHARITY';
 
 export interface ExpenseQuery {
   page?: number;

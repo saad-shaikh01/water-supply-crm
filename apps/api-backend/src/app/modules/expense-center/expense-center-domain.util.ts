@@ -82,6 +82,14 @@ export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
   BOTTLE_PURCHASED: 'Bottle Purchase',
   CAPS_PURCHASED: 'Caps Purchase',
   CHEMICALS_PURCHASED: 'Chemicals Purchase',
+  // Added 2026-09-08 (owner request): vehicle checkpoint cost, office/
+  // regulatory overhead, inventory repair, and contractor/charity payouts.
+  POLICE: 'Police',
+  MOBILE_LOAD: 'Mobile Load (EasyLoad)',
+  PSQCA: 'PSQCA',
+  BOTTLE_REPAIR: 'Bottle Repair',
+  CONTRACTOR_PAYMENT: 'Contractor Payment',
+  CHARITY: 'Sadqa / Charity',
   // Retained-for-history categories (dropped from the add-expense dropdown
   // 2026-08-21 but still present on old rows) — labelled as legacy so a
   // reader can tell them apart from the live ones at a glance.
@@ -121,6 +129,14 @@ export const EXPENSE_CATEGORY_DOMAINS: Record<ExpenseCategory, ExpenseCenterDoma
   BOTTLE_PURCHASED: 'INVENTORY',
   CAPS_PURCHASED: 'INVENTORY',
   CHEMICALS_PURCHASED: 'INVENTORY',
+  // Added 2026-09-08 (owner request): vehicle checkpoint cost, office/
+  // regulatory overhead, inventory repair, and contractor/charity payouts.
+  POLICE: 'VEHICLE',
+  MOBILE_LOAD: 'OFFICE',
+  PSQCA: 'OFFICE',
+  BOTTLE_REPAIR: 'INVENTORY',
+  CONTRACTOR_PAYMENT: 'EMPLOYEES',
+  CHARITY: 'OFFICE',
 };
 
 /**
