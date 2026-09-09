@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
-import { TransactionType } from '@prisma/client';
+import { Prisma, TransactionType } from '@prisma/client';
 import type { AuthUser } from '@water-supply-crm/types';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
@@ -16,6 +16,8 @@ import { VoidClosedExpenseDto } from './dto/void-closed-expense.dto';
 import { AddClosedExpenseDto } from './dto/add-closed-expense.dto';
 import { AuditService } from '../audit/audit.service';
 import { paginate } from '../../common/helpers/paginate';
+import { resolveSheetCash, SHEET_CASH_RELOAD_INCLUDE } from '../daily-sheet/sheet-cash.util';
+import { VanCashLedgerService } from '../van-cash-ledger/van-cash-ledger.service';
 
 @Injectable()
 export class ExpenseService {
@@ -23,7 +25,27 @@ export class ExpenseService {
     private prisma: PrismaService,
     private audit: AuditService,
     private cache: CacheInvalidationService,
+    private vanCashLedger: VanCashLedgerService,
   ) {}
+
+  /**
+   * Van Cash Ledger hook #2 (owner-requested 2026-09-09) — a closed sheet's
+   * `paidFromCash` Expense total feeds directly into `resolveSheetCash(...)
+   * .cashExpected` (the "cash the driver should hand in" figure), so any
+   * post-close Expense correction can move it. Recomputes that figure INSIDE
+   * the caller's own transaction (so it sees the just-applied Expense change)
+   * and hands it to `VanCashLedgerService.handlePostCloseCorrection`, right
+   * alongside the `postCloseExpenseCorrectionCount` bump it already does.
+   */
+  private async syncVanCashLedgerForClosedSheet(tx: Prisma.TransactionClient, vendorId: string, dailySheetId: string) {
+    const sheet = await tx.dailySheet.findUnique({
+      where: { id: dailySheetId },
+      include: SHEET_CASH_RELOAD_INCLUDE,
+    });
+    if (!sheet) return;
+    const resolved = resolveSheetCash(sheet as unknown as Record<string, unknown>);
+    await this.vanCashLedger.handlePostCloseCorrection(tx, vendorId, dailySheetId, resolved.cashExpected);
+  }
 
   async create(vendorId: string, createdById: string, dto: CreateExpenseDto) {
     // Vendor-scoped ownership checks — same pattern as FuelLogService.create,
@@ -283,6 +305,8 @@ export class ExpenseService {
         data: { postCloseExpenseCorrectionCount: { increment: 1 } },
       });
 
+      await this.syncVanCashLedgerForClosedSheet(tx, vendorId, dailySheetId);
+
       return row;
     });
 
@@ -341,6 +365,8 @@ export class ExpenseService {
         where: { id: dailySheetId },
         data: { postCloseExpenseCorrectionCount: { increment: 1 } },
       });
+
+      await this.syncVanCashLedgerForClosedSheet(tx, vendorId, dailySheetId);
     });
 
     await this.audit.log({
@@ -411,6 +437,8 @@ export class ExpenseService {
         where: { id: dto.dailySheetId },
         data: { postCloseExpenseCorrectionCount: { increment: 1 } },
       });
+
+      await this.syncVanCashLedgerForClosedSheet(tx, vendorId, dto.dailySheetId);
 
       return row;
     });

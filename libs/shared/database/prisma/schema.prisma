@@ -349,6 +349,10 @@ model Vendor {
   vehicleServiceRecords   VehicleServiceRecord[]
 
   deliveryItemMoveLogs DeliveryItemMoveLog[]
+
+  // Van Cash Ledger (owner-requested 2026-09-09)
+  vanCashOpeningBalances VanCashOpeningBalance[]
+  vanCashHandovers       VanCashHandover[]
 }
 
 model User {
@@ -438,6 +442,11 @@ model User {
 
   // Void Delivery — items this user has voided (voidDelivery())
   voidedDeliveryItems DailySheetItem[] @relation("DeliveryItemVoidedBy")
+
+  // Van Cash Ledger (owner-requested 2026-09-09)
+  vanCashOpeningBalancesSet VanCashOpeningBalance[]
+  submittedVanCashHandovers VanCashHandover[]       @relation("VanCashHandoverSubmittedBy")
+  approvedVanCashHandovers  VanCashHandover[]       @relation("VanCashHandoverApprovedBy")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -692,6 +701,10 @@ model Van {
   // Vehicle.usualVanId.
   vehiclesUsuallyServing Vehicle[]           @relation("VehicleUsualVan")
 
+  // Van Cash Ledger (owner-requested 2026-09-09)
+  vanCashOpeningBalance VanCashOpeningBalance?
+  vanCashHandovers      VanCashHandover[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -809,6 +822,8 @@ model DailySheet {
   conversations         Conversation[]
   crewCashDistributions CrewCashDistribution[]
   discrepancyCases      SheetDiscrepancyCase[]
+  // Van Cash Ledger (owner-requested 2026-09-09)
+  vanCashHandovers      VanCashHandover[]
 
   // Fleet Operations & Vehicle Intelligence — Phase 1
   vehicleDailyChecks VehicleDailyCheck[]
@@ -2858,4 +2873,87 @@ model VehicleServiceRecord {
 
   @@index([vendorId, vehicleId, serviceType])
   @@index([vendorId, performedAtDate])
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Van Cash Ledger (owner-requested 2026-09-09)
+// Mirrors CrewCashDistribution's architecture (source record -> pending ->
+// approve -> posted, self-relation for post-close corrections, check-then-create
+// idempotency, per-action audit trail) for the driver -> office cash-custody
+// handoff: when a route's Daily Sheet closes, the cash it collected becomes a
+// pending VanCashHandover that office staff must approve before it counts
+// toward the van's running cash balance.
+// ──────────────────────────────────────────────────────────────────────────────
+
+enum VanCashHandoverStatus {
+  PENDING
+  APPROVED
+  VOIDED
+}
+
+// One row per van — the starting cash balance a van's physical cash-in-hand is
+// assumed to have carried before the Van Cash Ledger started tracking it.
+model VanCashOpeningBalance {
+  id             String   @id @default(uuid())
+  vendorId       String
+  vendor         Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vanId          String   @unique
+  van            Van      @relation(fields: [vanId], references: [id], onDelete: Cascade)
+  openingBalance Float
+  openingDate    DateTime
+  setById        String
+  setBy          User     @relation(fields: [setById], references: [id])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([vendorId])
+}
+
+// One row per Daily Sheet close — the "driver handed over cash" event. Never
+// mutated in place once APPROVED (mirrors CrewCashDistribution's own
+// mutable-while-pending / frozen-once-posted split). A post-close correction
+// to an already-approved handover creates a NEW row pointing back via
+// correctsEntryId, carrying the DELTA (not the new total) as its own amount,
+// so summing every row for a sheet always equals the true total.
+//
+// No plain `@@unique([dailySheetId])` — a correction row legitimately shares
+// its parent's dailySheetId (it's a different logical event, not a duplicate
+// original). "At most one non-correction handover per sheet" is instead
+// enforced in application code via a check-then-create inside the same
+// `$transaction` VanCashLedgerService.createHandoverForClosedSheet runs in —
+// same discipline CrewCashDistributionService's own duplicate-guard comment
+// documents for its analogous case.
+model VanCashHandover {
+  id           String     @id @default(uuid())
+  vendorId     String
+  vendor       Vendor     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vanId        String
+  van          Van        @relation(fields: [vanId], references: [id], onDelete: Restrict)
+  dailySheetId String
+  dailySheet   DailySheet @relation(fields: [dailySheetId], references: [id], onDelete: Restrict)
+
+  amount        Float
+  submittedById String
+  submittedBy   User                  @relation("VanCashHandoverSubmittedBy", fields: [submittedById], references: [id])
+  date          DateTime
+  status        VanCashHandoverStatus @default(PENDING)
+
+  approvedById     String?
+  approvedBy       User?     @relation("VanCashHandoverApprovedBy", fields: [approvedById], references: [id])
+  approvedAt       DateTime?
+  approvedAmount   Float?
+  adjustmentReason String?
+
+  correctsEntryId String?
+  correctsEntry   VanCashHandover?  @relation("VanCashHandoverCorrection", fields: [correctsEntryId], references: [id], onDelete: SetNull)
+  corrections     VanCashHandover[] @relation("VanCashHandoverCorrection")
+
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vendorId, vanId, date])
+  @@index([vendorId, status])
+  @@index([dailySheetId])
+  @@index([correctsEntryId])
 }

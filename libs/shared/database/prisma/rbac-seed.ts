@@ -63,6 +63,11 @@ import {
  *     deactivate still refuses any customer with an outstanding balance;
  *     customers:force_deactivate (VENDOR_ADMIN only, no backfill) is what
  *     pushes past that. Existing vendors' Salesman roles predate the grant.
+ *   - van_cash_ledger:view / van_cash_ledger:approve — added to `manager` and
+ *     `accountant` for the Van Cash Ledger feature (owner-requested
+ *     2026-09-09). Existing vendors' Manager/Accountant roles predate it and
+ *     need the catch-up grant. `van_cash_ledger:manage` (opening balances)
+ *     is VENDOR_ADMIN-only, no backfill.
  */
 const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
   driver: ['fleet:record_check', 'fleet:record_fuel'],
@@ -81,6 +86,16 @@ const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
     // Post-Close Expense Correction (owner-requested 2026-09-07). Existing
     // vendors' Manager roles predate it and need the catch-up grant.
     'daily_sheets:edit_closed_expense',
+    // Van Cash Ledger (owner-requested 2026-09-09). Existing vendors' Manager
+    // roles predate it and need the catch-up grant.
+    'van_cash_ledger:view',
+    'van_cash_ledger:approve',
+  ],
+  accountant: [
+    // Van Cash Ledger (owner-requested 2026-09-09). Existing vendors'
+    // Accountant roles predate it and need the catch-up grant.
+    'van_cash_ledger:view',
+    'van_cash_ledger:approve',
   ],
 };
 

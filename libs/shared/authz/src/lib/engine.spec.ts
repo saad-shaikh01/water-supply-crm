@@ -265,7 +265,9 @@ describe('role presets', () => {
       for (const resource of resourcesTouched) {
         // non-navigable resources — no /dashboard/* route exists to gate.
         // payroll now has a route (Amendment R6) and is no longer exempt.
-        if (resource === 'whatsapp' || resource === 'crew_cash') continue;
+        // van_cash_ledger: surfaced inside the existing Expense Center page,
+        // no dedicated route (owner-requested 2026-09-09).
+        if (resource === 'whatsapp' || resource === 'crew_cash' || resource === 'van_cash_ledger') continue;
         expect(eff.has(`${resource}:page` as Permission)).toBe(true);
       }
     }

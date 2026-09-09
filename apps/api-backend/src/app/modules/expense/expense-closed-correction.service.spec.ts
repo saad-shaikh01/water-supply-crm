@@ -19,6 +19,7 @@ describe('ExpenseService — post-close expense correction', () => {
   let mockPrisma: any;
   let mockAudit: any;
   let mockCache: any;
+  let mockVanCashLedger: any;
   let tx: any;
 
   const VENDOR_ID = 'vendor-001';
@@ -70,7 +71,22 @@ describe('ExpenseService — post-close expense correction', () => {
         delete: jest.fn().mockResolvedValue({ id: EXPENSE_ID }),
         create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ id: 'expense-new', ...data })),
       },
-      dailySheet: { update: jest.fn().mockResolvedValue({}) },
+      dailySheet: {
+        update: jest.fn().mockResolvedValue({}),
+        // Read by ExpenseService.syncVanCashLedgerForClosedSheet (Van Cash
+        // Ledger hook #2) via SHEET_CASH_RELOAD_INCLUDE — a minimal
+        // resolveSheetCash-safe shape (isClosed + empty relation arrays).
+        findUnique: jest.fn().mockResolvedValue({
+          id: SHEET_ID,
+          isClosed: true,
+          cashCollected: 0,
+          cashExpected: 0,
+          items: [],
+          expenses: [],
+          crewCashDistributions: [],
+          loads: [],
+        }),
+      },
     };
     mockPrisma = {
       expense: { findFirst: jest.fn().mockResolvedValue(buildExpense()) },
@@ -85,7 +101,8 @@ describe('ExpenseService — post-close expense correction', () => {
       invalidateOverview: jest.fn().mockResolvedValue(undefined),
       invalidateAnalytics: jest.fn().mockResolvedValue(undefined),
     };
-    service = new ExpenseService(mockPrisma, mockAudit, mockCache);
+    mockVanCashLedger = { handlePostCloseCorrection: jest.fn().mockResolvedValue(null) };
+    service = new ExpenseService(mockPrisma, mockAudit, mockCache, mockVanCashLedger);
   });
 
   afterEach(() => jest.clearAllMocks());
@@ -144,6 +161,9 @@ describe('ExpenseService — post-close expense correction', () => {
       expect(call[0].data).not.toHaveProperty('cashCollected');
     }
 
+    // Van Cash Ledger hook #2 — recomputed inside the same transaction
+    expect(mockVanCashLedger.handlePostCloseCorrection).toHaveBeenCalledWith(tx, VENDOR_ID, SHEET_ID, 0);
+
     // audit
     const audit = mockAudit.log.mock.calls[0][0];
     expect(audit.action).toBe('CLOSED_EXPENSE_CORRECTED');
@@ -166,6 +186,8 @@ describe('ExpenseService — post-close expense correction', () => {
       where: { id: SHEET_ID },
       data: { postCloseExpenseCorrectionCount: { increment: 1 } },
     });
+
+    expect(mockVanCashLedger.handlePostCloseCorrection).toHaveBeenCalledWith(tx, VENDOR_ID, SHEET_ID, 0);
 
     const audit = mockAudit.log.mock.calls[0][0];
     expect(audit.action).toBe('CLOSED_EXPENSE_VOIDED');
@@ -214,6 +236,7 @@ describe('ExpenseService — post-close expense correction', () => {
       where: { id: SHEET_ID },
       data: { postCloseExpenseCorrectionCount: { increment: 1 } },
     });
+    expect(mockVanCashLedger.handlePostCloseCorrection).toHaveBeenCalledWith(tx, VENDOR_ID, SHEET_ID, 0);
     const audit = mockAudit.log.mock.calls[0][0];
     expect(audit.action).toBe('CLOSED_EXPENSE_ADDED');
     expect(audit.changes.after.correctionNote).toBe('forgot to log it');

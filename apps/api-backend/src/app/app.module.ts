@@ -46,6 +46,7 @@ import { CustomerActivationModule } from './modules/customer-activation/customer
 import { PayrollModule } from './modules/payroll/payroll.module';
 import { FleetModule } from './modules/fleet/fleet.module';
 import { SheetDiscrepancyCaseModule } from './modules/sheet-discrepancy-case/sheet-discrepancy-case.module';
+import { VanCashLedgerModule } from './modules/van-cash-ledger/van-cash-ledger.module';
 
 @Module({
   imports: [
@@ -92,6 +93,7 @@ import { SheetDiscrepancyCaseModule } from './modules/sheet-discrepancy-case/she
     PayrollModule,
     FleetModule,
     SheetDiscrepancyCaseModule,
+    VanCashLedgerModule,
   ],
   controllers: [AppController],
   providers: [
