@@ -429,7 +429,7 @@ export class DashboardService {
 
     const completedStatuses = new Set(['COMPLETED', 'EMPTY_ONLY']);
 
-    const [items, sheets] = await Promise.all([
+    const [items, sheets, standalonePayments] = await Promise.all([
       this.prisma.dailySheetItem.findMany({
         where: {
           dailySheet: { vendorId, date: { gte: rangeStart } },
@@ -446,6 +446,20 @@ export class DashboardService {
       this.prisma.dailySheet.findMany({
         where: { vendorId, date: { gte: rangeStart } },
         select: { id: true, date: true, cashExpected: true, cashCollected: true },
+      }),
+      // Payments recorded via "Record Payment" (and approved online payments) —
+      // standalone PAYMENT transactions not tied to any delivery line, so the
+      // sheet reconciliation columns above never see them. Delivery-collected
+      // cash always carries a dailySheetId, so `dailySheetId: null` keeps this
+      // from double-counting it. Bucketed by entry date (createdAt).
+      this.prisma.transaction.findMany({
+        where: {
+          vendorId,
+          type: TransactionType.PAYMENT,
+          dailySheetId: null,
+          createdAt: { gte: rangeStart },
+        },
+        select: { amount: true, createdAt: true },
       }),
     ]);
 
@@ -526,7 +540,13 @@ export class DashboardService {
       const averageRate = bottlesDelivered > 0 ? Math.round(revenue / bottlesDelivered) : 0;
       const monthCash = monthSheets.map(effCash);
       const cashExpected = monthCash.reduce((s, c) => s + c.cashExpected, 0);
-      const cashCollected = monthCash.reduce((s, c) => s + c.cashCollected, 0);
+      // Route/van cash from sheet reconciliation — the denominator basis for the
+      // collection rate (vs the reconciliation target `cashExpected`).
+      const sheetCashCollected = monthCash.reduce((s, c) => s + c.cashCollected, 0);
+      const manualCollected = standalonePayments
+        .filter((p) => p.createdAt >= monthStart && p.createdAt <= monthEnd)
+        .reduce((s, p) => s + Math.abs(p.amount ?? 0), 0);
+      const cashCollected = sheetCashCollected + manualCollected;
       const hasModifiedClosedSheets = monthCash.some((c) => c.postCloseModified);
 
       return {
@@ -538,7 +558,7 @@ export class DashboardService {
         averageRate,
         cashExpected,
         cashCollected,
-        collectionRate: cashExpected > 0 ? Math.round((cashCollected / cashExpected) * 100) : 0,
+        collectionRate: cashExpected > 0 ? Math.round((sheetCashCollected / cashExpected) * 100) : 0,
         hasModifiedClosedSheets,
       };
     });

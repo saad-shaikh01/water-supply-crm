@@ -30,6 +30,7 @@ function makeService(mockPrisma: any) {
 describe('DashboardService.getMonthlySummary — hybrid cash', () => {
   it('recomputes cash (→ ~0) for a closed sheet whose only delivery is voided', async () => {
     const mockPrisma: any = {
+      transaction: { findMany: jest.fn().mockResolvedValue([]) },
       dailySheetItem: {
         findMany: jest.fn(({ where }: any) => {
           // modified-detection pass carries an OR clause + selects only the id
@@ -101,6 +102,7 @@ describe('DashboardService.getMonthlySummary — hybrid cash', () => {
     ];
     const reloadSpy = jest.fn();
     const mockPrisma: any = {
+      transaction: { findMany: jest.fn().mockResolvedValue([]) },
       dailySheetItem: {
         findMany: jest.fn().mockResolvedValue([]), // no bottles, no modified items
       },
@@ -132,6 +134,7 @@ describe('DashboardService.getMonthlySummary — hybrid cash', () => {
 
   it('only the modified sheet in a month is recomputed; the rest stay frozen', async () => {
     const mockPrisma: any = {
+      transaction: { findMany: jest.fn().mockResolvedValue([]) },
       dailySheetItem: {
         findMany: jest.fn(({ where }: any) =>
           Promise.resolve(where.OR ? [{ dailySheetId: 's1' }] : []),
@@ -192,6 +195,7 @@ describe('DashboardService.getMonthlySummary — hybrid cash', () => {
 
   it('a closed sheet with ONLY postCloseExpenseCorrectionCount > 0 lands in modifiedSheetIds → live recompute', async () => {
     const mockPrisma: any = {
+      transaction: { findMany: jest.fn().mockResolvedValue([]) },
       dailySheetItem: { findMany: jest.fn().mockResolvedValue([]) }, // no voided/corrected items
       dailySheetLoad: { findMany: jest.fn().mockResolvedValue([]) }, // no trip edits
       dailySheet: {
@@ -246,5 +250,36 @@ describe('DashboardService.getMonthlySummary — hybrid cash', () => {
     // live: shouldHandIn = Σ non-voided item cash = 1000; netToHandIn = 1000 - 200 = 800
     expect(res[0].cashCollected).toBe(1000);
     expect(res[0].cashExpected).toBe(800);
+  });
+
+  it('adds standalone "Record Payment" transactions to cashCollected, but not to the collection rate', async () => {
+    const mockPrisma: any = {
+      // two office payments this month: 3000 + 1500 (stored negative)
+      transaction: {
+        findMany: jest.fn().mockResolvedValue([
+          { amount: -3000, createdAt: new Date() },
+          { amount: -1500, createdAt: new Date() },
+        ]),
+      },
+      dailySheetItem: { findMany: jest.fn().mockResolvedValue([]) },
+      dailySheetLoad: { findMany: jest.fn().mockResolvedValue([]) },
+      dailySheet: {
+        findMany: jest.fn(({ include, where }: any) => {
+          if (where?.postCloseExpenseCorrectionCount) return Promise.resolve([]);
+          if (include) return Promise.resolve([]);
+          return Promise.resolve([
+            { id: 's1', date: new Date(), cashExpected: 5000, cashCollected: 4000 },
+          ]);
+        }),
+      },
+    };
+
+    const service = await makeService(mockPrisma);
+    const res = await service.getMonthlySummary('vendor-1', 1);
+
+    // 4000 route cash + 4500 office payments
+    expect(res[0].cashCollected).toBe(8500);
+    // rate stays route-only: 4000 / 5000 = 80%
+    expect(res[0].collectionRate).toBe(80);
   });
 });
