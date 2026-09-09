@@ -41,7 +41,13 @@ import { paginate } from '../../common/helpers/paginate';
 import { validateSupportCrew, validateDriverAssignment } from '../../common/helpers/crew-validation';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
 import type { AuthUser, SheetAuditLogEntry } from '@water-supply-crm/types';
-import { auditActionMeta, extractReason } from './daily-sheet-audit-log.util';
+import {
+  auditActionMeta,
+  collectAuditBlobIds,
+  extractReason,
+  humanizeAuditBlob,
+  type AuditBlobNameMaps,
+} from './daily-sheet-audit-log.util';
 import { UnlockEditDto } from './dto/unlock-edit.dto';
 import { StorageService } from '../../common/storage/storage.service';
 import { WarehouseService } from '../warehouse/warehouse.service';
@@ -1722,10 +1728,58 @@ export class DailySheetService implements OnModuleInit {
     for (const c of sheet.vehicleDailyChecks) {
       for (const id of [c.recordedById, c.odometerEditedById, c.criticalOverrideById]) if (id) actorIds.add(id);
     }
-    const users = actorIds.size
-      ? await this.prisma.user.findMany({ where: { id: { in: [...actorIds] } }, select: { id: true, name: true, role: true } })
-      : [];
+
+    // ── entity ids referenced *inside* the before/after blobs (driver, van,
+    // customer, product, crew members) — resolved to names so the timeline
+    // never shows a raw uuid. ──
+    const blobVanIds = new Set<string>();
+    const blobCustomerIds = new Set<string>();
+    const blobProductIds = new Set<string>();
+    const harvestBlob = (blob: unknown) => {
+      const { userIds, vanIds, customerIds, productIds } = collectAuditBlobIds(blob);
+      userIds.forEach((id) => actorIds.add(id));
+      vanIds.forEach((id) => blobVanIds.add(id));
+      customerIds.forEach((id) => blobCustomerIds.add(id));
+      productIds.forEach((id) => blobProductIds.add(id));
+    };
+    for (const r of auditRows) {
+      const c = (r.changes ?? null) as { before?: unknown; after?: unknown } | null;
+      harvestBlob(c?.before);
+      harvestBlob(c?.after);
+    }
+    for (const r of crewCashRows) {
+      harvestBlob(r.beforeJson);
+      harvestBlob(r.afterJson);
+    }
+    for (const r of discrepancyRows) harvestBlob(r.payload);
+    for (const r of damageRows) harvestBlob(r.payload);
+
+    const [users, blobVans, blobCustomers, blobProducts] = await Promise.all([
+      actorIds.size
+        ? this.prisma.user.findMany({ where: { id: { in: [...actorIds] } }, select: { id: true, name: true, role: true } })
+        : Promise.resolve([]),
+      blobVanIds.size
+        ? this.prisma.van.findMany({ where: { id: { in: [...blobVanIds] } }, select: { id: true, plateNumber: true } })
+        : Promise.resolve([]),
+      blobCustomerIds.size
+        ? this.prisma.customer.findMany({ where: { id: { in: [...blobCustomerIds] } }, select: { id: true, name: true, customerCode: true } })
+        : Promise.resolve([]),
+      blobProductIds.size
+        ? this.prisma.product.findMany({ where: { id: { in: [...blobProductIds] } }, select: { id: true, name: true } })
+        : Promise.resolve([]),
+    ]);
     const userById = new Map(users.map((u) => [u.id, u]));
+
+    const nameMaps: AuditBlobNameMaps = {
+      user: new Map(users.map((u) => [u.id, u.name])),
+      van: new Map(blobVans.map((v) => [v.id, v.plateNumber])),
+      customer: new Map(
+        blobCustomers.map((c) => [c.id, c.customerCode ? `${c.name} (${c.customerCode})` : c.name]),
+      ),
+      product: new Map(blobProducts.map((p) => [p.id, p.name])),
+    };
+    const humanize = (blob: Record<string, unknown> | null | undefined) =>
+      humanizeAuditBlob((blob ?? null) as Record<string, unknown> | null, nameMaps);
 
     // Direct-close / crew-confirm AuditLog rows carry no userId — recover the
     // actor from the sheet's own *ById columns by action type.
@@ -1768,8 +1822,8 @@ export class DailySheetService implements OnModuleInit {
         actorId: resolvedActorId ?? null,
         actorName: resolvedUser?.name ?? r.userName ?? null,
         actorRole: resolvedUser?.role ?? null,
-        before: changes?.before ?? null,
-        after: changes?.after ?? null,
+        before: humanize(changes?.before),
+        after: humanize(changes?.after),
         reason: extractReason(changes),
       });
     }
@@ -1789,8 +1843,8 @@ export class DailySheetService implements OnModuleInit {
         actorId: r.actorId,
         actorName: r.actor?.name ?? null,
         actorRole: r.actorRole ?? null,
-        before: (r.beforeJson ?? null) as Record<string, unknown> | null,
-        after: (r.afterJson ?? null) as Record<string, unknown> | null,
+        before: humanize(r.beforeJson as Record<string, unknown> | null),
+        after: humanize(r.afterJson as Record<string, unknown> | null),
         reason: r.reason ?? extractReason(r.afterJson) ?? null,
       });
     }
@@ -1812,7 +1866,7 @@ export class DailySheetService implements OnModuleInit {
         actorName: u?.name ?? null,
         actorRole: r.actorRole ?? u?.role ?? null,
         before: null,
-        after: (r.payload ?? null) as Record<string, unknown> | null,
+        after: humanize(r.payload as Record<string, unknown> | null),
         reason: extractReason(r.payload),
       });
     }
@@ -1834,7 +1888,7 @@ export class DailySheetService implements OnModuleInit {
         actorName: u?.name ?? null,
         actorRole: r.actorRole ?? u?.role ?? null,
         before: null,
-        after: (r.payload ?? null) as Record<string, unknown> | null,
+        after: humanize(r.payload as Record<string, unknown> | null),
         reason: extractReason(r.payload),
       });
     }

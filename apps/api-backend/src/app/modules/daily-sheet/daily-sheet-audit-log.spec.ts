@@ -33,6 +33,9 @@ function emptyPrisma(): any {
     damageCaseAuditLog: { findMany: jest.fn().mockResolvedValue([]) },
     deliveryItemMoveLog: { findMany: jest.fn().mockResolvedValue([]) },
     user: { findMany: jest.fn().mockResolvedValue([]) },
+    van: { findMany: jest.fn().mockResolvedValue([]) },
+    customer: { findMany: jest.fn().mockResolvedValue([]) },
+    product: { findMany: jest.fn().mockResolvedValue([]) },
   };
 }
 
@@ -165,6 +168,79 @@ describe('DailySheetService.getSheetAuditLog', () => {
     expect(entry.actionLabel).toBe('Close approved');
     expect(entry.actorId).toBe('u-approver');
     expect(entry.actorName).toBe('Closer');
+  });
+
+  it('resolves ids inside before/after blobs to names (driver, van, crew members, customer)', async () => {
+    const prisma = emptyPrisma();
+    prisma.dailySheet.findFirst.mockResolvedValue({ ...baseSheet, crewConfirmedById: 'u-mgr' });
+    prisma.auditLog.findMany.mockResolvedValue([
+      {
+        id: 'a-crew',
+        action: 'CONFIRM_CREW',
+        entity: 'DailySheet',
+        entityId: SHEET_ID,
+        userId: null,
+        userName: null,
+        createdAt: new Date('2026-09-05T10:00:00Z'),
+        changes: {
+          after: {
+            crewConfirmed: true,
+            crewConfirmedBy: 'u-mgr',
+            driverId: 'u-driver',
+            crew: [{ userId: 'u-sales', role: 'SALESMAN' }],
+          },
+        },
+      },
+      {
+        id: 'a-swap',
+        action: 'SWAP_ASSIGNMENT',
+        entity: 'DailySheet',
+        entityId: SHEET_ID,
+        userId: 'u-mgr',
+        userName: null,
+        createdAt: new Date('2026-09-04T10:00:00Z'),
+        changes: { after: { driverId: 'u-driver', vanId: 'van-7', crew: [] } },
+      },
+      {
+        id: 'a-adhoc',
+        action: 'ADHOC_DELIVERY_ADDED',
+        entity: 'DailySheetItem',
+        entityId: 'item-1',
+        userId: 'u-mgr',
+        userName: null,
+        createdAt: new Date('2026-09-03T10:00:00Z'),
+        changes: { after: { customerId: 'cust-3', productId: 'prod-1', filledDropped: 2 } },
+      },
+    ]);
+    prisma.user.findMany.mockResolvedValue([
+      { id: 'u-mgr', name: 'Manager', role: 'MANAGER' },
+      { id: 'u-driver', name: 'Ali Khan', role: 'DRIVER' },
+      { id: 'u-sales', name: 'Sana', role: 'SALESMAN' },
+    ]);
+    prisma.van.findMany.mockResolvedValue([{ id: 'van-7', plateNumber: 'LES-1234' }]);
+    prisma.customer.findMany.mockResolvedValue([{ id: 'cust-3', name: 'Bilal Store', customerCode: 'C-030' }]);
+    prisma.product.findMany.mockResolvedValue([{ id: 'prod-1', name: '19L Bottle' }]);
+
+    const svc = await makeService(prisma);
+    const log = await svc.getSheetAuditLog(VENDOR_ID, SHEET_ID);
+
+    const confirm = log.find((e) => e.id === 'a-crew')!;
+    expect(confirm.after).toEqual({
+      crewConfirmed: true,
+      'Crew confirmed by': 'Manager',
+      Driver: 'Ali Khan',
+      Crew: 'Sana (Salesman)',
+    });
+
+    const swap = log.find((e) => e.id === 'a-swap')!;
+    expect(swap.after).toEqual({ Driver: 'Ali Khan', Van: 'LES-1234', Crew: 'None' });
+
+    const adhoc = log.find((e) => e.id === 'a-adhoc')!;
+    expect(adhoc.after).toEqual({
+      Customer: 'Bilal Store (C-030)',
+      Product: '19L Bottle',
+      filledDropped: 2,
+    });
   });
 
   it('synthesizes vehicle-check entries (recorded + odometer correction with reason)', async () => {

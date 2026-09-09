@@ -105,6 +105,133 @@ export function auditActionMeta(source: Source, action: string): AuditActionMeta
   return BY_SOURCE[source]?.[action] ?? { label: titleCase(action), category: 'OTHER', entity: 'Sheet' };
 }
 
+/**
+ * Keys inside an audit `before`/`after` blob whose value is a raw entity id.
+ * On display these are swapped for the entity's name and the key is relabelled
+ * (so `driverId: "<uuid>"` renders as `Driver: Ali Khan`, not `Driver Id: <uuid>`).
+ */
+export const AUDIT_ID_KEY_LABELS = {
+  user: {
+    driverId: 'Driver',
+    newDriverId: 'New driver',
+    previousDriverId: 'Previous driver',
+    crewConfirmedBy: 'Crew confirmed by',
+    crewConfirmedById: 'Crew confirmed by',
+    unlockedBy: 'Unlocked by',
+    unlockedById: 'Unlocked by',
+    acknowledgedById: 'Acknowledged by',
+    reportedById: 'Reported by',
+    resolvedById: 'Resolved by',
+    salesmanId: 'Salesman',
+    loader1Id: 'Loader 1',
+    loader2Id: 'Loader 2',
+    employeeId: 'Employee',
+    createdById: 'Created by',
+    distributedById: 'Distributed by',
+    approvedById: 'Approved by',
+    userId: 'User',
+  } as Record<string, string>,
+  van: {
+    vanId: 'Van',
+    newVanId: 'New van',
+    previousVanId: 'Previous van',
+  } as Record<string, string>,
+  customer: {
+    customerId: 'Customer',
+  } as Record<string, string>,
+  product: {
+    productId: 'Product',
+  } as Record<string, string>,
+};
+
+export interface AuditBlobNameMaps {
+  user: Map<string, string>;
+  van: Map<string, string>;
+  customer: Map<string, string>;
+  product: Map<string, string>;
+}
+
+/** Gathers every entity id referenced by known keys in a before/after blob. */
+export function collectAuditBlobIds(blob: unknown): {
+  userIds: string[];
+  vanIds: string[];
+  customerIds: string[];
+  productIds: string[];
+} {
+  const userIds: string[] = [];
+  const vanIds: string[] = [];
+  const customerIds: string[] = [];
+  const productIds: string[] = [];
+  if (blob && typeof blob === 'object') {
+    for (const [key, value] of Object.entries(blob as Record<string, unknown>)) {
+      if (key === 'crew' && Array.isArray(value)) {
+        for (const c of value) {
+          const uid = (c as Record<string, unknown> | null)?.['userId'];
+          if (typeof uid === 'string') userIds.push(uid);
+        }
+        continue;
+      }
+      if (typeof value !== 'string') continue;
+      if (key in AUDIT_ID_KEY_LABELS.user) userIds.push(value);
+      else if (key in AUDIT_ID_KEY_LABELS.van) vanIds.push(value);
+      else if (key in AUDIT_ID_KEY_LABELS.customer) customerIds.push(value);
+      else if (key in AUDIT_ID_KEY_LABELS.product) productIds.push(value);
+    }
+  }
+  return { userIds, vanIds, customerIds, productIds };
+}
+
+/**
+ * Rewrites an audit before/after blob for display: known id-bearing keys are
+ * relabelled and their value resolved to the entity's name, and the `crew`
+ * array is collapsed to a readable "Name (Role), …" string ("None" when empty).
+ * Unknown keys pass through untouched. Ids that can't be resolved keep their
+ * raw value so nothing is silently dropped.
+ */
+export function humanizeAuditBlob(
+  blob: Record<string, unknown> | null,
+  names: AuditBlobNameMaps,
+): Record<string, unknown> | null {
+  if (!blob) return null;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(blob)) {
+    if (key === 'crew' && Array.isArray(value)) {
+      out['Crew'] = value.length
+        ? value
+            .map((c) => {
+              const member = c as Record<string, unknown> | null;
+              const uid = typeof member?.['userId'] === 'string' ? (member['userId'] as string) : null;
+              const name = (uid && names.user.get(uid)) || 'Unknown';
+              const role = typeof member?.['role'] === 'string' ? titleCase(member['role'] as string) : null;
+              return role ? `${name} (${role})` : name;
+            })
+            .join(', ')
+        : 'None';
+      continue;
+    }
+    if (typeof value === 'string') {
+      if (key in AUDIT_ID_KEY_LABELS.user) {
+        out[AUDIT_ID_KEY_LABELS.user[key]] = names.user.get(value) ?? value;
+        continue;
+      }
+      if (key in AUDIT_ID_KEY_LABELS.van) {
+        out[AUDIT_ID_KEY_LABELS.van[key]] = names.van.get(value) ?? value;
+        continue;
+      }
+      if (key in AUDIT_ID_KEY_LABELS.customer) {
+        out[AUDIT_ID_KEY_LABELS.customer[key]] = names.customer.get(value) ?? value;
+        continue;
+      }
+      if (key in AUDIT_ID_KEY_LABELS.product) {
+        out[AUDIT_ID_KEY_LABELS.product[key]] = names.product.get(value) ?? value;
+        continue;
+      }
+    }
+    out[key] = value;
+  }
+  return out;
+}
+
 /** Pulls a human "reason / note" out of a changes/payload blob, if one is present. */
 export function extractReason(blob: unknown): string | null {
   if (!blob || typeof blob !== 'object') return null;

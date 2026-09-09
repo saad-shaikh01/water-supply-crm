@@ -42,7 +42,13 @@ function fmt(v: unknown): string {
   return String(v);
 }
 
-const HIDE_KEYS = new Set(['dailySheetId', 'dailySheetItemId', 'sheetId', 'correctionNote', 'voidNote', 'reason', 'rejectionReason', 'resolutionNote', 'note']);
+const HIDE_KEYS = new Set([
+  'dailySheetId', 'dailySheetItemId', 'sheetId', 'correctionNote', 'voidNote', 'reason',
+  'rejectionReason', 'resolutionNote', 'note',
+  // internal record refs with no human-readable name — the backend leaves these
+  // raw (they aren't user/van/customer/product ids); nothing useful to show.
+  'staffLedgerEntryId', 'expenseId', 'syncedLedgerEntryId', 'rowSyncedLedgerEntryId', 'sourceOrderId',
+]);
 
 function ChangedFields({ before, after }: { before: Record<string, unknown> | null; after: Record<string, unknown> | null }) {
   const keys = useMemo(() => {
