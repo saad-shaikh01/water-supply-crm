@@ -1233,6 +1233,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             currentUserId={user?.id}
             canEditAllCrewCash={canEditAllCrewCash}
             canDeleteAllCrewCash={canDeleteAllCrewCash}
+            canCorrectClosedCrewCash={canCorrectClosedExpense}
           />
 
           {/* Ad-hoc / Correction Entry Actions */}

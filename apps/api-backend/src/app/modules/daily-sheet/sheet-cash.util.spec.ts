@@ -38,4 +38,20 @@ describe('isSheetModifiedAfterClose', () => {
       isSheetModifiedAfterClose({ items: [], loads: [], postCloseExpenseCorrectionCount: 0 }),
     ).toBe(false);
   });
+
+  // Post-Close Crew Cash Correction
+  it('true for { postCloseCrewCashCorrectionCount: 1 } alone', () => {
+    expect(isSheetModifiedAfterClose({ postCloseCrewCashCorrectionCount: 1 })).toBe(true);
+  });
+
+  it('false when both post-close correction counters are 0', () => {
+    expect(
+      isSheetModifiedAfterClose({
+        items: [],
+        loads: [],
+        postCloseExpenseCorrectionCount: 0,
+        postCloseCrewCashCorrectionCount: 0,
+      }),
+    ).toBe(false);
+  });
 });

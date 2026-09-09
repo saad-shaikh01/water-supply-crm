@@ -561,11 +561,18 @@ export class CrewCashDistributionService implements OnModuleInit {
 
   /**
    * Post-sync correction (doc §9) for an already-synced Crew Cash
-   * Distribution row. The row's OWN data fields (`category`/`amount`/
-   * `employeeId`/`syncedLedgerEntryId`) are never rewritten here — it stays
-   * permanently paired with the ORIGINAL `StaffLedgerEntry` it produced; the
-   * correction is a ledger-level fact, traceable via the linked entry's own
-   * reversal/correction chain plus this method's own audit log row.
+   * Distribution row.
+   *
+   * The ledger side is a reverse-then-replace: the ORIGINAL `StaffLedgerEntry`
+   * is voided/reversed/corrected and a fresh entry carries the corrected
+   * numbers. The CrewCash row's OWN `category`/`amount`/`employeeId` are then
+   * rewritten to match, and `syncedLedgerEntryId` is repointed to the fresh
+   * entry — so the sheet shows the truth and the row can never disagree with
+   * its ledger entry. `DailySheet.postCloseCrewCashCorrectionCount` is bumped
+   * (the frozen close-time cash columns are deliberately left alone, exactly
+   * like Expense post-close corrections — the divergence banner / hybrid
+   * rollups surface the drift off that marker). Full history stays in the
+   * linked entry's reversal/correction chain plus this method's audit log row.
    *
    * `StaffLedgerService.correct()` hardcodes the fresh corrected entry's
    * `userId` to the original entry's `userId` — it structurally cannot
@@ -634,6 +641,10 @@ export class CrewCashDistributionService implements OnModuleInit {
 
       let action: CrewCashAuditAction;
       let afterJson: Prisma.InputJsonValue;
+      // The StaffLedgerEntry that now carries the corrected numbers — the row's
+      // `syncedLedgerEntryId` is repointed to it below so the CrewCash row and
+      // its ledger entry can never disagree on amount/employee/category.
+      let newLedgerEntryId: string;
 
       if (ledgerEntry.payrollEntryId === null) {
         // Not yet locked — correct()/reverse() both REQUIRE payrollEntryId
@@ -644,6 +655,7 @@ export class CrewCashDistributionService implements OnModuleInit {
           reason: dto.reason,
         });
         const fresh = await this.createFreshLedgerEntry(tx, user, row, targetEmployeeId, targetCategory, targetAmount, dto.reason);
+        newLedgerEntryId = fresh.id;
 
         action = CrewCashAuditAction.CORRECTED;
         afterJson = {
@@ -662,6 +674,7 @@ export class CrewCashDistributionService implements OnModuleInit {
           reason: dto.reason,
           correctedAmount: -targetAmount,
         });
+        newLedgerEntryId = correction.id;
 
         action = CrewCashAuditAction.CORRECTED;
         afterJson = {
@@ -680,6 +693,7 @@ export class CrewCashDistributionService implements OnModuleInit {
           reason: dto.reason,
         });
         const fresh = await this.createFreshLedgerEntry(tx, user, row, targetEmployeeId, targetCategory, targetAmount, dto.reason);
+        newLedgerEntryId = fresh.id;
 
         action = CrewCashAuditAction.REVERSED;
         afterJson = {
@@ -691,10 +705,30 @@ export class CrewCashDistributionService implements OnModuleInit {
         };
       }
 
-      // The row's own data fields are deliberately left untouched — see this
-      // method's doc comment. syncedLedgerEntryId also keeps pointing at the
-      // ORIGINAL entry; it is not repointed to whichever entry now carries
-      // the corrected numbers.
+      // Post-close correction (owner request 2026-09-09): unlike the pure
+      // ledger-level correction this used to be, the CrewCash row itself is now
+      // updated so the Daily Sheet shows the corrected values, and it is
+      // repointed at the fresh ledger entry so row <-> ledger stay in lockstep.
+      // The frozen close-time DailySheet.cashExpected / cashCollected columns
+      // are still NOT rewritten (same accepted divergence as Expense
+      // corrections); the postCloseCrewCashCorrectionCount marker below lets the
+      // divergence banner + hybrid cash rollups surface the drift.
+      await tx.crewCashDistribution.update({
+        where: { id: row.id },
+        data: {
+          employeeId: targetEmployeeId,
+          category: targetCategory,
+          amount: targetAmount,
+          syncedLedgerEntryId: newLedgerEntryId,
+          version: { increment: 1 },
+        },
+      });
+
+      await tx.dailySheet.update({
+        where: { id: row.dailySheetId },
+        data: { postCloseCrewCashCorrectionCount: { increment: 1 } },
+      });
+
       await tx.crewCashDistributionAuditLog.create({
         data: {
           crewCashDistributionId: row.id,
@@ -703,7 +737,7 @@ export class CrewCashDistributionService implements OnModuleInit {
           action,
           reason: dto.reason,
           beforeJson,
-          afterJson,
+          afterJson: { ...(afterJson as Record<string, unknown>), rowSyncedLedgerEntryId: newLedgerEntryId },
         },
       });
 

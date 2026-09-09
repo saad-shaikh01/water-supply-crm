@@ -20,6 +20,8 @@ interface SheetCashOutSectionProps {
   currentUserId?: string;
   canEditAllCrewCash: boolean;
   canDeleteAllCrewCash: boolean;
+  /** Reuses `daily_sheets:edit_closed_expense` — closed-sheet crew-cash corrections. */
+  canCorrectClosedCrewCash?: boolean;
 }
 
 /**
@@ -45,6 +47,7 @@ export function SheetCashOutSection({
   currentUserId,
   canEditAllCrewCash,
   canDeleteAllCrewCash,
+  canCorrectClosedCrewCash,
 }: SheetCashOutSectionProps) {
   // Same query key SheetCrewCashSection uses below — react-query dedupes
   // this into a single network request, not two.
@@ -104,6 +107,7 @@ export function SheetCashOutSection({
             currentUserId={currentUserId}
             canEditAll={canEditAllCrewCash}
             canDeleteAll={canDeleteAllCrewCash}
+            canCorrectClosedCrewCash={canCorrectClosedCrewCash}
           />
         </AccordionContent>
       </AccordionItem>

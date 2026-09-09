@@ -43,7 +43,7 @@ describe('DashboardService.getMonthlySummary — hybrid cash', () => {
       dailySheet: {
         findMany: jest.fn(({ include, where }: any) => {
           // Post-Close Expense Correction detect probe — none here.
-          if (where?.postCloseExpenseCorrectionCount) return Promise.resolve([]);
+          if (where?.OR) return Promise.resolve([]);
           if (include) {
             // targeted full re-load of the modified sheet
             return Promise.resolve([
@@ -109,7 +109,7 @@ describe('DashboardService.getMonthlySummary — hybrid cash', () => {
       dailySheetLoad: { findMany: jest.fn().mockResolvedValue([]) },
       dailySheet: {
         findMany: jest.fn(({ include, where }: any) => {
-          if (where?.postCloseExpenseCorrectionCount) return Promise.resolve([]);
+          if (where?.OR) return Promise.resolve([]);
           if (include) {
             reloadSpy();
             return Promise.resolve([]);
@@ -143,7 +143,7 @@ describe('DashboardService.getMonthlySummary — hybrid cash', () => {
       dailySheetLoad: { findMany: jest.fn().mockResolvedValue([]) },
       dailySheet: {
         findMany: jest.fn(({ include, where }: any) => {
-          if (where?.postCloseExpenseCorrectionCount) return Promise.resolve([]);
+          if (where?.OR) return Promise.resolve([]);
           if (include) {
             return Promise.resolve([
               {
@@ -201,7 +201,7 @@ describe('DashboardService.getMonthlySummary — hybrid cash', () => {
       dailySheet: {
         findMany: jest.fn(({ include, where }: any) => {
           // the new expense-correction detect probe finds s1
-          if (where?.postCloseExpenseCorrectionCount) return Promise.resolve([{ id: 's1' }]);
+          if (where?.OR) return Promise.resolve([{ id: 's1' }]);
           if (include) {
             return Promise.resolve([
               {
@@ -265,7 +265,7 @@ describe('DashboardService.getMonthlySummary — hybrid cash', () => {
       dailySheetLoad: { findMany: jest.fn().mockResolvedValue([]) },
       dailySheet: {
         findMany: jest.fn(({ include, where }: any) => {
-          if (where?.postCloseExpenseCorrectionCount) return Promise.resolve([]);
+          if (where?.OR) return Promise.resolve([]);
           if (include) return Promise.resolve([]);
           return Promise.resolve([
             { id: 's1', date: new Date(), cashExpected: 5000, cashCollected: 4000 },

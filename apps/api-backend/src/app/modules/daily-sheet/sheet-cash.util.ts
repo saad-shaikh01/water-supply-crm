@@ -168,6 +168,10 @@ export function isSheetModifiedAfterClose(sheet: {
   // longer matches the frozen close-time cashExpected, so the sheet must switch
   // to a live recompute in the rollups just like a void / delivery correction.
   postCloseExpenseCorrectionCount?: number | null;
+  // Post-Close Crew Cash Correction — same idea for a closed sheet's synced
+  // CrewCashDistribution rows (bumped by /crew-cash/:id/correct). Live crew-cash
+  // total then no longer matches the frozen close-time cashExpected.
+  postCloseCrewCashCorrectionCount?: number | null;
 }): boolean {
   const items = (sheet.items ?? []) as any[];
   const loads = (sheet.loads ?? []) as any[];
@@ -175,7 +179,8 @@ export function isSheetModifiedAfterClose(sheet: {
     items.some((i) => i.voidedAt != null) ||
     items.some((i) => i.isCorrection && i.correctionAddedAt != null) ||
     loads.some((l) => (l.editCount ?? 0) > 0) ||
-    (sheet.postCloseExpenseCorrectionCount ?? 0) > 0
+    (sheet.postCloseExpenseCorrectionCount ?? 0) > 0 ||
+    (sheet.postCloseCrewCashCorrectionCount ?? 0) > 0
   );
 }
 

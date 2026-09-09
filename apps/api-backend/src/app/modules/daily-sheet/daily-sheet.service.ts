@@ -1615,6 +1615,7 @@ export class DailySheetService implements OnModuleInit {
           items,
           loads,
           postCloseExpenseCorrectionCount: sheet.postCloseExpenseCorrectionCount,
+          postCloseCrewCashCorrectionCount: sheet.postCloseCrewCashCorrectionCount,
         });
       const cashCollected = postCloseModified
         ? items
@@ -2325,6 +2326,8 @@ export class DailySheetService implements OnModuleInit {
         // Post-Close Expense Correction — the marker column bumped by every
         // edit / void / add on a closed sheet's Expense rows.
         const expenseCorrectCount = (sheet as any).postCloseExpenseCorrectionCount ?? 0;
+        // Post-Close Crew Cash Correction — same, for /crew-cash/:id/correct.
+        const crewCashCorrectCount = (sheet as any).postCloseCrewCashCorrectionCount ?? 0;
 
         const reasons: string[] = [];
         if (voidedCount) {
@@ -2341,6 +2344,11 @@ export class DailySheetService implements OnModuleInit {
         if (expenseCorrectCount) {
           reasons.push(
             `${expenseCorrectCount} expense correction${expenseCorrectCount > 1 ? 's' : ''}`,
+          );
+        }
+        if (crewCashCorrectCount) {
+          reasons.push(
+            `${crewCashCorrectCount} crew cash correction${crewCashCorrectCount > 1 ? 's' : ''}`,
           );
         }
 
@@ -4519,11 +4527,18 @@ export class DailySheetService implements OnModuleInit {
         where: { dailySheet: sheetWhere, editCount: { gt: 0 } },
         select: { dailySheetId: true },
       }),
-      // Post-Close Expense Correction — closed sheets whose expense rows were
-      // edited / voided / added after close (marker column bumped each time).
-      // sheetWhere already pins vendorId / driverId / date-range / isClosed.
+      // Post-Close Expense / Crew Cash Correction — closed sheets whose expense
+      // or synced crew-cash rows were corrected after close (marker column
+      // bumped each time). sheetWhere already pins vendorId / driverId /
+      // date-range / isClosed.
       this.prisma.dailySheet.findMany({
-        where: { ...sheetWhere, postCloseExpenseCorrectionCount: { gt: 0 } },
+        where: {
+          ...sheetWhere,
+          OR: [
+            { postCloseExpenseCorrectionCount: { gt: 0 } },
+            { postCloseCrewCashCorrectionCount: { gt: 0 } },
+          ],
+        },
         select: { id: true },
       }),
     ]);

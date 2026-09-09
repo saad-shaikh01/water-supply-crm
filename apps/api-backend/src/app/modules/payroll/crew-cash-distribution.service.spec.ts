@@ -147,6 +147,8 @@ function makeTx(
     },
     dailySheet: {
       findUnique: jest.fn().mockResolvedValue({ isClosed: opts.sheetIsClosed ?? false }),
+      // correctSyncedEntry() bumps the post-close crew-cash correction marker.
+      update: jest.fn().mockResolvedValue({ id: SHEET_ID }),
     },
     auditLogStore,
     ledgerEntryStore,
@@ -926,22 +928,57 @@ describe('CrewCashDistributionService', () => {
       });
     });
 
-    it("never mutates the CrewCashDistribution row's own data fields — category/amount/employeeId/syncedLedgerEntryId stay exactly as they were before the correction", async () => {
+    it("rewrites the CrewCashDistribution row's own fields to the corrected values and repoints it at the fresh ledger entry", async () => {
       const { svc, tx } = makeService({ entrySnapshot: syncedEntry, ledgerEntrySnapshot: lockedLedgerEntry, targetEmployeeExists: true });
 
       const result = await svc.correctSyncedEntry(adminUser, ENTRY_ID, {
         newEmployeeId: 'other-employee-001',
         newCategory: CrewCashCategory.EMERGENCY_CASH,
         newAmount: 9999,
-        reason: 'testing row immutability',
+        reason: 'testing row rewrite',
       });
 
-      expect(result.category).toBe(syncedEntry.category);
-      expect(result.amount).toBe(syncedEntry.amount);
-      expect(result.employeeId).toBe(syncedEntry.employeeId);
-      expect(result.syncedLedgerEntryId).toBe(syncedEntry.syncedLedgerEntryId);
-      expect(tx.crewCashDistribution.update).not.toHaveBeenCalled();
-      expect(tx.crewCashDistribution.updateMany).not.toHaveBeenCalled();
+      expect(tx.crewCashDistribution.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: ENTRY_ID },
+          data: expect.objectContaining({
+            employeeId: 'other-employee-001',
+            category: CrewCashCategory.EMERGENCY_CASH,
+            amount: 9999,
+            // locked + different employee → reverse + fresh entry
+            syncedLedgerEntryId: 'fresh-ledger-1',
+          }),
+        }),
+      );
+      expect(result.category).toBe(CrewCashCategory.EMERGENCY_CASH);
+      expect(result.amount).toBe(9999);
+      expect(result.employeeId).toBe('other-employee-001');
+      expect(result.syncedLedgerEntryId).toBe('fresh-ledger-1');
+    });
+
+    it('bumps DailySheet.postCloseCrewCashCorrectionCount so the divergence banner / rollups pick the sheet up', async () => {
+      const { svc, tx } = makeService({ entrySnapshot: syncedEntry, ledgerEntrySnapshot: lockedLedgerEntry });
+
+      await svc.correctSyncedEntry(adminUser, ENTRY_ID, correctAmountOnly);
+
+      expect(tx.dailySheet.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: SHEET_ID },
+          data: { postCloseCrewCashCorrectionCount: { increment: 1 } },
+        }),
+      );
+    });
+
+    it('for the locked same-employee branch, repoints the row at the correction ledger entry', async () => {
+      const { svc, tx } = makeService({ entrySnapshot: syncedEntry, ledgerEntrySnapshot: lockedLedgerEntry });
+
+      await svc.correctSyncedEntry(adminUser, ENTRY_ID, correctAmountOnly);
+
+      expect(tx.crewCashDistribution.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ syncedLedgerEntryId: 'correction-ledger-1', amount: 300 }),
+        }),
+      );
     });
   });
 

@@ -136,14 +136,18 @@ export class AnalyticsService {
         },
         select: { dailySheetId: true },
       }),
-      // Post-Close Expense Correction — closed sheets whose expense rows were
-      // edited / voided / added after close (marker column bumped each time).
+      // Post-Close Expense / Crew Cash Correction — closed sheets whose expense
+      // or synced crew-cash rows were corrected after close (marker column
+      // bumped each time).
       this.prisma.dailySheet.findMany({
         where: {
           vendorId,
           ...(dateFilter && { date: dateFilter }),
           isClosed: true,
-          postCloseExpenseCorrectionCount: { gt: 0 },
+          OR: [
+            { postCloseExpenseCorrectionCount: { gt: 0 } },
+            { postCloseCrewCashCorrectionCount: { gt: 0 } },
+          ],
         },
         select: { id: true },
       }),

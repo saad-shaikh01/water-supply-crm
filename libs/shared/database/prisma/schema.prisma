@@ -790,6 +790,16 @@ model DailySheet {
   // that a closed sheet's live expense total no longer matches its snapshot.
   postCloseExpenseCorrectionCount Int @default(0)
 
+  // Post-Close Crew Cash Correction (owner-requested 2026-09-09): incremented by
+  // every correction applied to a closed sheet's synced CrewCashDistribution
+  // rows through /crew-cash/:id/correct. Unlike the Expense sibling this flow
+  // DOES rewrite the row's own amount/category/employee (and repoints it to a
+  // fresh StaffLedgerEntry) so the sheet stays truthful, but the frozen
+  // close-time cashExpected / cashCollected columns are still not rewritten —
+  // this counter lets the divergence banner + hybrid cash rollups detect that a
+  // closed sheet's live crew-cash total no longer matches its snapshot.
+  postCloseCrewCashCorrectionCount Int @default(0)
+
   items                 DailySheetItem[]
   transactions          Transaction[]
   loads                 DailySheetLoad[]

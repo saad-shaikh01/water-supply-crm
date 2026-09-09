@@ -8,6 +8,7 @@ import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { CrewCashForm, type CrewCashEmployeeOption } from '../../crew-cash/components/crew-cash-form';
 import { useCrewCashForSheet, useDeleteCrewCash } from '../../crew-cash/hooks/use-crew-cash';
 import { CREW_CASH_CATEGORY_CONFIG } from '../../crew-cash/constants';
+import { EditClosedCrewCashDialog } from './dialogs/edit-closed-crew-cash-dialog';
 import type { CrewCashEntry } from '@water-supply-crm/types';
 
 interface SheetCrewCashSectionProps {
@@ -21,6 +22,8 @@ interface SheetCrewCashSectionProps {
   /** `crew_cash:edit` / `crew_cash:delete` — the entry's own creator may also always edit/delete their own row (backend-enforced; mirrored here for the affordance). */
   canEditAll: boolean;
   canDeleteAll: boolean;
+  /** `daily_sheets:edit_closed_expense` — reused so a closed sheet's synced crew-cash rows are correctable under the same conditions as its expenses. */
+  canCorrectClosedCrewCash?: boolean;
 }
 
 export function SheetCrewCashSection({
@@ -30,18 +33,29 @@ export function SheetCrewCashSection({
   currentUserId,
   canEditAll,
   canDeleteAll,
+  canCorrectClosedCrewCash,
 }: SheetCrewCashSectionProps) {
   const { data: entries, isLoading, isError } = useCrewCashForSheet(sheetId);
   const { mutate: deleteEntry, isPending: isDeleting } = useDeleteCrewCash(sheetId);
   const [formOpen, setFormOpen] = useState(false);
   const [editEntry, setEditEntry] = useState<CrewCashEntry | null>(null);
+  const [closedEditEntry, setClosedEditEntry] = useState<CrewCashEntry | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const list = entries ?? [];
   const employeeName = (employeeId: string) =>
     crewMembers.find((m) => m.id === employeeId)?.name ?? 'Unknown';
 
-  const openEdit = (entry: CrewCashEntry) => { setEditEntry(entry); setFormOpen(true); };
+  const openEdit = (entry: CrewCashEntry) => {
+    // On a closed sheet a synced row can only be changed through the ledger-safe
+    // post-close correction flow (mirrors closed-sheet expense editing).
+    if (isClosed && entry.syncedAt != null) {
+      setClosedEditEntry(entry);
+      return;
+    }
+    setEditEntry(entry);
+    setFormOpen(true);
+  };
 
   return (
     <div className="space-y-3">
@@ -72,7 +86,9 @@ export function SheetCrewCashSection({
             const cfg = CREW_CASH_CATEGORY_CONFIG[entry.category] ?? CREW_CASH_CATEGORY_CONFIG.OTHER;
             const Icon = cfg.icon;
             const isPendingApproval = entry.requiresApproval && !entry.approvedAt;
-            const canEditRow = !isClosed && (canEditAll || entry.createdById === currentUserId);
+            const canEditRow =
+              (!isClosed && (canEditAll || entry.createdById === currentUserId)) ||
+              (isClosed && !!canCorrectClosedCrewCash && entry.syncedAt != null);
             const canDeleteRow = !isClosed && (canDeleteAll || entry.createdById === currentUserId);
 
             return (
@@ -143,6 +159,14 @@ export function SheetCrewCashSection({
         sheetId={sheetId}
         employees={crewMembers}
         entry={editEntry}
+      />
+
+      <EditClosedCrewCashDialog
+        open={!!closedEditEntry}
+        onClose={() => setClosedEditEntry(null)}
+        sheetId={sheetId}
+        crewMembers={crewMembers}
+        entry={closedEditEntry}
       />
 
       <ConfirmDialog

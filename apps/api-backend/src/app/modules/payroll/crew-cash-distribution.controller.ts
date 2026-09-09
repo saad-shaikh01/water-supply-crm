@@ -6,7 +6,7 @@ import { ApproveCrewCashDistributionDto } from './dto/approve-crew-cash-distribu
 import { RemoveCrewCashDistributionDto } from './dto/remove-crew-cash-distribution.dto';
 import { CorrectCrewCashDistributionDto } from './dto/correct-crew-cash-distribution.dto';
 import { AuthenticatedOnly } from '../../common/decorators/authz-markers.decorator';
-import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
+import { RequirePermissions, RequireAnyPermission } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 
@@ -22,8 +22,11 @@ import type { AuthUser } from '@water-supply-crm/types';
  *     `CrewCashDistributionService` (see its doc comments), same precedent
  *     as `StaffLedgerController.voidEntry`.
  *   - approve → crew_cash:approve  (STAFF, VENDOR_ADMIN by preset)
- *   - correctSyncedEntry → `payroll:ledger_correct` (VENDOR_ADMIN-only by
- *     preset), NOT any `crew_cash:*` permission. This action fundamentally
+ *   - correctSyncedEntry → `payroll:ledger_correct` OR
+ *     `daily_sheets:edit_closed_expense` (the latter added 2026-09-09 so a
+ *     closed sheet's Crew Cash is editable under the exact same cohort/
+ *     conditions as its Expenses — see the decorator note on the method).
+ *     NOT any `crew_cash:*` permission. This action fundamentally
  *     IS a `StaffLedgerEntry` reversal/correction wearing a Crew Cash
  *     wrapper — `StaffLedgerService.voidEntry` enforces its own "creator OR
  *     payroll:ledger_void" check internally, but `.reverse()`/`.correct()`
@@ -123,7 +126,11 @@ export class CrewCashDistributionController {
    * rather than a `crew_cash:*` permission.
    */
   @Post('crew-cash/:id/correct')
-  @RequirePermissions('payroll:ledger_correct')
+  // `payroll:ledger_correct` (VENDOR_ADMIN) keeps the original Payroll-side
+  // access; `daily_sheets:edit_closed_expense` is reused verbatim so editing a
+  // closed sheet's Crew Cash lands on the exact same cohort (Admin + Manager)
+  // and conditions as editing a closed sheet's Expenses — no new RBAC key.
+  @RequireAnyPermission('payroll:ledger_correct', 'daily_sheets:edit_closed_expense')
   correctSyncedEntry(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
