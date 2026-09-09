@@ -1,7 +1,7 @@
 import {
   Fuel, Wrench, Wallet, Receipt, Snowflake, PackagePlus, Building2, Users,
   Zap, FileText, Droplet, Package, FlaskConical, Landmark,
-  Shield, Smartphone, Stamp, Bandage, Handshake, HeartHandshake,
+  Shield, Smartphone, Stamp, Bandage, Handshake, HeartHandshake, KeyRound,
   type LucideIcon,
 } from 'lucide-react';
 import type { CreatableStaffLedgerCategory } from '@water-supply-crm/types';
@@ -51,6 +51,14 @@ export const EXPENSE_TYPE_REGISTRY: ExpenseTypeEntry[] = [
     icon: Shield,
     kind: 'EXPENSE',
     presetExpenseCategory: 'POLICE',
+  },
+  {
+    key: 'VEHICLE_RENT',
+    label: 'Vehicle Rent',
+    domain: 'VEHICLE',
+    icon: KeyRound,
+    kind: 'EXPENSE',
+    presetExpenseCategory: 'VEHICLE_RENT',
   },
   ...LEDGER_ENTRIES,
   { key: 'CREW_CASH', label: 'Crew Cash', domain: 'EMPLOYEES', icon: Wallet, kind: 'CREW_CASH' },

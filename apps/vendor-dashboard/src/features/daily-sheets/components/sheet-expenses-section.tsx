@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Button, Card, CardContent, Badge } from '@water-supply-crm/ui';
-import { Trash2, Pencil, Receipt, Fuel, Wrench, Users, AlertTriangle, CreditCard, Snowflake, PackagePlus, Building2, Zap, FileText, Droplet, Package, FlaskConical, Shield, Smartphone, Stamp, Bandage, Handshake, HeartHandshake, type LucideIcon } from 'lucide-react';
+import { Trash2, Pencil, Receipt, Fuel, Wrench, Users, AlertTriangle, CreditCard, Snowflake, PackagePlus, Building2, Zap, FileText, Droplet, Package, FlaskConical, Shield, Smartphone, Stamp, Bandage, Handshake, HeartHandshake, KeyRound, type LucideIcon } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { useDeleteSheetExpense } from '../../expenses/hooks/use-expenses';
@@ -41,6 +41,10 @@ const CATEGORY_CONFIG: Record<string, { label: string; color: string; icon: Luci
   BOTTLE_REPAIR:           { label: 'Bottle Repair',       color: 'bg-gray-500/10 text-gray-500',       icon: Bandage },
   CONTRACTOR_PAYMENT:      { label: 'Contractor Payment',  color: 'bg-neutral-600/10 text-neutral-600', icon: Handshake },
   CHARITY:                 { label: 'Sadqa / Charity',     color: 'bg-amber-500/10 text-amber-500',     icon: HeartHandshake },
+  // Added 2026-09-09 (owner request) — renting an additional truck/vehicle,
+  // distinct from RENT (OFFICE premises rent) above (kept in sync with
+  // expenses/components/expense-list.tsx's CATEGORY_CONFIG).
+  VEHICLE_RENT:            { label: 'Vehicle Rent',        color: 'bg-sky-500/10 text-sky-500',         icon: KeyRound },
   OTHER:                   { label: 'Others',              color: 'bg-muted text-muted-foreground',     icon: AlertTriangle },
 };
 

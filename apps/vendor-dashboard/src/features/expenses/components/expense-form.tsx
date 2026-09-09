@@ -39,8 +39,11 @@ function Toggle({ enabled, onToggle, label }: { enabled: boolean; onToggle: () =
 // RENT/UTILITIES/STATIONARY/BOTTLE_PURCHASED/CAPS_PURCHASED/
 // CHEMICALS_PURCHASED added 2026-09-07 (owner request) — office overhead +
 // inventory procurement categories.
+// VEHICLE_RENT added 2026-09-09 (owner request) — renting an additional
+// truck/vehicle, distinct from the OFFICE-domain RENT (premises/warehouse).
 const CATEGORIES = [
   { value: 'VEHICLE_MAINTENANCE', label: 'Vehicle Maintenance' },
+  { value: 'VEHICLE_RENT', label: 'Vehicle Rent' },
   { value: 'ICE_PURCHASED', label: 'Ice Purchased' },
   { value: 'EXTRA_LOADER', label: 'Extra Loader' },
   { value: 'RENT', label: 'Rent' },

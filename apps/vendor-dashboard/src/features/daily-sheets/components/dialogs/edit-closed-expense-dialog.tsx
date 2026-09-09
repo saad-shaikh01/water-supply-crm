@@ -19,6 +19,7 @@ import {
 // isn't blank on edit).
 const CATEGORIES = [
   { value: 'VEHICLE_MAINTENANCE', label: 'Vehicle Maintenance' },
+  { value: 'VEHICLE_RENT', label: 'Vehicle Rent' },
   { value: 'ICE_PURCHASED', label: 'Ice Purchased' },
   { value: 'EXTRA_LOADER', label: 'Extra Loader' },
   { value: 'RENT', label: 'Rent' },

@@ -160,6 +160,9 @@ enum ExpenseCategory {
   BOTTLE_REPAIR
   CONTRACTOR_PAYMENT
   CHARITY
+  // Added 2026-09-09 (owner request): renting an additional truck/vehicle —
+  // distinct from RENT (OFFICE premises/warehouse rent) above.
+  VEHICLE_RENT
 }
 
 enum DamageSeverity {
