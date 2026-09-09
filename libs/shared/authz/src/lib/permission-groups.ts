@@ -21,6 +21,7 @@ export const ACTION_LABELS: Record<string, string> = {
   view_financial: 'View financial summary',
   delete: 'Delete',
   deactivate: 'Deactivate',
+  force_deactivate: 'Force deactivate (write off balance)',
   restore: 'Restore',
   export: 'Export',
   clone: 'Clone',

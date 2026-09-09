@@ -39,6 +39,9 @@ function buildMockTx() {
   return {
     dailySheet: {
       findFirst: jest.fn(),
+      // createSheetForVan learns the driver's actual visit order from the van's
+      // prior sheets; no history in these move tests -> empty list.
+      findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn(),
       // Post-move re-sync step: fetches the destination sheet's van/driver/date
       // to denormalize onto any moved-item Conversations.

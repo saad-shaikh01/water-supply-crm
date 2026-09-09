@@ -61,7 +61,12 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // 170 = 169 + daily_sheets:edit_closed_expense — edit / void / add an Expense
 // row on an already-closed sheet (Post-Close Expense Correction feature,
 // owner-requested 2026-09-07). No new resource, no new `:page`.
-const FROZEN_TOTAL = 170;
+// 171 = 170 + customers:force_deactivate — deactivate past the outstanding-balance
+// guard, writing the remaining financialBalance off as a company loss (Customer
+// Force Deactivate feature, owner-requested 2026-09-09). No new resource, no new
+// `:page` — split from customers:deactivate so Salesman can hold the guarded
+// deactivate without ever forcing a write-off.
+const FROZEN_TOTAL = 171;
 const FROZEN_PAGES = 28;
 const FROZEN_RESOURCES = 30;
 

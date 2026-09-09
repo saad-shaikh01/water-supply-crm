@@ -258,6 +258,15 @@ export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
       'customers:create',
       'customers:update',
       'customers:update_location',
+      // Deactivate / Restore (owner-requested 2026-09-09): the field Salesman
+      // closes out customer accounts on the route. The guarded `deactivate`
+      // still refuses any customer with pending deliveries, outstanding
+      // bottles, OR an outstanding financial balance — only a holder of the
+      // separate `customers:force_deactivate` (VENDOR_ADMIN only by default)
+      // can push past the balance guard and write the remainder off as a
+      // company loss. Existing vendors get these via PRESET_DRIFT_BACKFILLS.salesman.
+      'customers:deactivate',
+      'customers:restore',
       'orders:page',
       'orders:view',
       'daily_sheets:page',

@@ -20,6 +20,7 @@ import { SetCustomPriceDto } from './dto/set-custom-price.dto';
 import { BulkPricePreviewDto, BulkPriceUpdateDto } from './dto/bulk-price-update.dto';
 import { BulkScheduleUpdateDto } from './dto/bulk-schedule-update.dto';
 import { BulkDeactivateDto } from './dto/bulk-deactivate.dto';
+import { DeactivateCustomerDto } from './dto/deactivate-customer.dto';
 import { StatementQueryDto } from './dto/statement-query.dto';
 import { ScheduleQueryDto } from './dto/schedule-query.dto';
 import { ConsumptionQueryDto } from './dto/consumption-query.dto';
@@ -224,12 +225,21 @@ export class CustomerController {
     return this.customerService.updateLocation(user.vendorId, id, dto.latitude, dto.longitude);
   }
 
-  /** PATCH /customers/:id/deactivate — soft-disable customer, preserves history */
+  /**
+   * PATCH /customers/:id/deactivate — soft-disable customer, preserves history.
+   * `{ force: true }` in the body pushes past the outstanding-balance guard and
+   * writes the remaining balance off as a company loss; that path additionally
+   * requires `customers:force_deactivate` (checked inside the service).
+   */
   @Patch(':id/deactivate')
   @RequirePermissions('customers:deactivate')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
-  deactivate(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.customerService.deactivate(user.vendorId, id);
+  deactivate(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: DeactivateCustomerDto,
+  ) {
+    return this.customerService.deactivate(user.vendorId, id, { force: dto.force ?? false }, user);
   }
 
   /** PATCH /customers/:id/reactivate — re-enable a deactivated customer */

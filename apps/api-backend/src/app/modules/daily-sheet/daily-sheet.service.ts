@@ -250,6 +250,73 @@ export class DailySheetService implements OnModuleInit {
   }
 
   /**
+   * The customer visit order the van's driver actually followed on its most
+   * recent prior run — preferring the same weekday, since route membership is
+   * per-weekday — returned as a `customerId -> rank` map (rank 0 = visited
+   * first). Empty when the van has no prior sheet. Feeds `createSheetForVan`
+   * so a freshly generated sheet is pre-sorted into the real-world route order
+   * the driver settled into, instead of the static hand-set `routeSequence`
+   * (Next-Day Tasks #10).
+   *
+   * Ordering key is `recordedAt ?? deliveredAt` — the same "Sheet Order" the
+   * dashboard shows (vendor-dashboard `utils/sort-items.ts`). `recordedAt` is
+   * stamped on the first move off PENDING for EVERY terminal status, so a
+   * failed / rescheduled visit still contributes its true position on the
+   * route. Stops never actioned (still PENDING) have neither timestamp and
+   * fall back to their stored `sequence`, trailing the visited ones. CANCELLED
+   * items (pull-forward artifacts, never really on the route) are ignored.
+   */
+  private async getLearnedCustomerOrder(
+    db: Prisma.TransactionClient | PrismaService,
+    vendorId: string,
+    vanId: string,
+    dayOfWeek: number,
+    targetDate: Date,
+  ): Promise<Map<string, number>> {
+    const startOfDay = new Date(targetDate);
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const recentSheets = await db.dailySheet.findMany({
+      where: { vendorId, vanId, date: { lt: startOfDay } },
+      orderBy: { date: 'desc' },
+      take: 8,
+      select: { id: true, date: true },
+    });
+    if (recentSheets.length === 0) return new Map();
+
+    // Prefer the last sheet on the same weekday (its customer set overlaps
+    // today's the most); fall back to the single most recent run otherwise.
+    const sourceSheet =
+      recentSheets.find((s) => s.date.getDay() === dayOfWeek) ?? recentSheets[0];
+
+    const items = await db.dailySheetItem.findMany({
+      where: { dailySheetId: sourceSheet.id, status: { not: 'CANCELLED' } },
+      select: { customerId: true, sequence: true, recordedAt: true, deliveredAt: true },
+    });
+    if (items.length === 0) return new Map();
+
+    const ts = (i: { recordedAt: Date | null; deliveredAt: Date | null }): number | null => {
+      const t = i.recordedAt ?? i.deliveredAt;
+      return t ? t.getTime() : null;
+    };
+
+    const ordered = [...items].sort((a, b) => {
+      const ta = ts(a);
+      const tb = ts(b);
+      if (ta != null && tb != null) return ta - tb;
+      if (ta != null) return -1;
+      if (tb != null) return 1;
+      return a.sequence - b.sequence;
+    });
+
+    const rank = new Map<string, number>();
+    for (const i of ordered) {
+      if (!rank.has(i.customerId)) rank.set(i.customerId, rank.size);
+    }
+    return rank;
+  }
+
+  /**
    * Builds and creates a single van's sheet for a date: regular schedule
    * items, rescheduled-item pull-forward (auto-cancelling anything older
    * than 60 days), and eligible on-demand orders. Extracted verbatim from
@@ -341,11 +408,28 @@ export class DailySheetService implements OnModuleInit {
       (o) => !alreadyInsertedOrderIds.has(o.id),
     );
 
+    // Reorder the regular schedule to mirror the sequence the driver actually
+    // followed on this van's last run (Next-Day Tasks #10). The hand-set
+    // per-customer `routeSequence` is only the starting point; once a real
+    // sheet exists, its recorded delivery timeline predicts tomorrow's route
+    // better than the static plan. Customers with no history (new to the
+    // route, or skipped last time) keep their `routeSequence`/name order and
+    // trail the learned ones. Falls back to the old behavior verbatim when the
+    // van has never run.
+    const learnedOrder = await this.getLearnedCustomerOrder(db, vendorId, van.id, dayOfWeek, targetDate);
+    const useLearnedOrder = learnedOrder.size > 0;
+    const orderedRegularSchedules = useLearnedOrder
+      ? regularSchedules
+          .map((s, i) => ({ s, i, rank: learnedOrder.get(s.customerId) ?? Number.MAX_SAFE_INTEGER }))
+          .sort((a, b) => a.rank - b.rank || a.i - b.i)
+          .map((x) => x.s)
+      : regularSchedules;
+
     const baseCount = regularSchedules.length + rescheduledItems.length;
     const allItems = [
-      ...regularSchedules.map((s, index) => ({
+      ...orderedRegularSchedules.map((s, index) => ({
         customerId: s.customerId,
-        sequence: s.routeSequence ?? index + 1,
+        sequence: useLearnedOrder ? index + 1 : (s.routeSequence ?? index + 1),
         productId: defaultProduct.id,
         deliveryType: 'SCHEDULED' as const,
       })),

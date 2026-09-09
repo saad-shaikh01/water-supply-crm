@@ -57,10 +57,21 @@ import {
  *   - daily_sheets:edit_closed_expense — added to `manager` for the Post-Close
  *     Expense Correction feature (owner-requested 2026-09-07). Same rationale:
  *     existing vendors' Manager roles predate it.
+ *   - customers:deactivate / customers:restore — added to `salesman` for the
+ *     Customer Force Deactivate feature (owner-requested 2026-09-09) so field
+ *     sales can close out customer accounts on the route. The guarded
+ *     deactivate still refuses any customer with an outstanding balance;
+ *     customers:force_deactivate (VENDOR_ADMIN only, no backfill) is what
+ *     pushes past that. Existing vendors' Salesman roles predate the grant.
  */
 const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
   driver: ['fleet:record_check', 'fleet:record_fuel'],
-  salesman: ['fleet:record_check', 'fleet:record_fuel'],
+  salesman: [
+    'fleet:record_check',
+    'fleet:record_fuel',
+    'customers:deactivate',
+    'customers:restore',
+  ],
   manager: [
     'daily_sheets:void_delivery',
     'daily_sheets:edit_closed_trip',

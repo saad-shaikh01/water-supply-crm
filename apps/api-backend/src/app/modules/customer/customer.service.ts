@@ -2,12 +2,14 @@ import {
   Injectable,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '@water-supply-crm/database';
-import { DamageCaseStatus, DamageCaseType, DeliveryStatus, Prisma } from '@prisma/client';
+import { DamageCaseStatus, DamageCaseType, DeliveryStatus, Prisma, TransactionType } from '@prisma/client';
+import type { AuthUser } from '@water-supply-crm/types';
 import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
 import {
   CacheInvalidationService,
@@ -27,6 +29,7 @@ import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { paginate } from '../../common/helpers/paginate';
 import { CustomerStatementPdfService } from './pdf/customer-statement-pdf.service';
 import { AuditService } from '../audit/audit.service';
+import { PermissionService } from '../authz/permission.service';
 import { ConsumptionQueryDto } from './dto/consumption-query.dto';
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -38,6 +41,7 @@ export class CustomerService {
     private cache: CacheInvalidationService,
     private statementPdf: CustomerStatementPdfService,
     private audit: AuditService,
+    private permissions: PermissionService,
     @InjectQueue(QUEUE_NAMES.BULK_PRICE_UPDATE)
     private bulkPriceQueue: Queue,
   ) {}
@@ -705,7 +709,27 @@ export class CustomerService {
     };
   }
 
-  async deactivate(vendorId: string, id: string) {
+  /**
+   * Soft-disable a customer, preserving all history.
+   *
+   * Three guards, checked in order — a customer that trips any of the first two
+   * can never be deactivated until it is physically resolved:
+   *   1. no open PENDING delivery items,
+   *   2. every bottle wallet settled to zero,
+   *   3. no outstanding financial balance (customer owes nothing).
+   *
+   * Guard 3 is the only one `force` can push past, and only when the caller
+   * holds `customers:force_deactivate` (VENDOR_ADMIN by default). The forced
+   * path writes the remaining balance off to zero through an ADJUSTMENT
+   * transaction — a visible company loss (bad debt) — and audits it as
+   * `FORCE_DEACTIVATE`.
+   */
+  async deactivate(
+    vendorId: string,
+    id: string,
+    opts: { force?: boolean } = {},
+    actor?: AuthUser,
+  ) {
     const customer = await this.prisma.customer.findFirst({ where: { id, vendorId } });
     if (!customer) throw new NotFoundException('Customer not found');
 
@@ -720,7 +744,9 @@ export class CustomerService {
 
     // Refuse to close a customer who is still holding company bottles — the
     // driver must first record the final return delivery (Filled/Empty Received)
-    // so the bottle wallet settles to zero before the account is closed.
+    // so the bottle wallet settles to zero before the account is closed. `force`
+    // does NOT bypass this: physical bottles are recovered through the delivery
+    // flow, never written off here.
     const outstandingWallets = await this.prisma.bottleWallet.findMany({
       where: { customerId: id, balance: { not: 0 } },
       select: { balance: true, product: { select: { name: true } } },
@@ -733,13 +759,96 @@ export class CustomerService {
       );
     }
 
+    // Outstanding financial balance guard. A positive balance means the customer
+    // still owes money. The guarded `customers:deactivate` cannot get past this;
+    // only a `force` request from a `customers:force_deactivate` holder can, and
+    // that path writes the remainder off as a company loss.
+    const owed = Number(customer.financialBalance ?? 0);
+    if (owed > 0 && !opts.force) {
+      throw new ConflictException({
+        code: 'OUTSTANDING_BALANCE',
+        message:
+          `Customer owes ₨${owed.toLocaleString()}. Collect the payment first, or Force Deactivate ` +
+          `to write it off as a company loss.`,
+        financialBalance: owed,
+        customerName: customer.name,
+      });
+    }
+
+    if (opts.force && owed > 0) {
+      if (!actor) {
+        throw new ForbiddenException('Force deactivate requires an authenticated actor.');
+      }
+      const allowed = await this.permissions.can(
+        actor.userId,
+        'customers:force_deactivate',
+      );
+      if (!allowed) {
+        throw new ForbiddenException(
+          'You do not have permission to force-deactivate a customer with an outstanding balance.',
+        );
+      }
+
+      const writeOffNote =
+        `Bad-debt write-off on account closure — company loss ` +
+        `(force deactivate by ${actor.name ?? actor.userId})`;
+
+      const updated = await this.prisma.$transaction(async (tx) => {
+        await tx.transaction.create({
+          data: {
+            type: TransactionType.ADJUSTMENT,
+            vendorId,
+            customerId: id,
+            amount: -owed,
+            description: writeOffNote,
+          },
+        });
+        await tx.customer.update({
+          where: { id },
+          data: { financialBalance: { increment: -owed } },
+        });
+        return tx.customer.update({
+          where: { id },
+          data: { isActive: false },
+          select: { id: true, name: true, customerCode: true, isActive: true },
+        });
+      });
+
+      await Promise.all([
+        this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS),
+        this.cache.invalidateOverview(vendorId),
+        this.cache.invalidateAnalytics(vendorId),
+        this.cache.invalidateCustomerWallets(vendorId, id),
+      ]);
+      await this.audit.log({
+        vendorId,
+        userId: actor.userId,
+        userName: actor.name,
+        action: 'FORCE_DEACTIVATE',
+        entity: 'Customer',
+        entityId: id,
+        changes: {
+          before: { financialBalance: owed, isActive: true },
+          after: { financialBalance: 0, isActive: false, writtenOff: owed },
+        },
+      });
+      return updated;
+    }
+
     const updated = await this.prisma.customer.update({
       where: { id },
       data: { isActive: false },
       select: { id: true, name: true, customerCode: true, isActive: true },
     });
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
-    await this.audit.log({ vendorId, action: 'DEACTIVATE', entity: 'Customer', entityId: id });
+    await this.audit.log({
+      vendorId,
+      userId: actor?.userId,
+      userName: actor?.name,
+      action: 'DEACTIVATE',
+      entity: 'Customer',
+      entityId: id,
+    });
     return updated;
   }
 
@@ -1285,14 +1394,16 @@ export class CustomerService {
 
   /**
    * Deactivate many customers in one call. Applies the exact same guards as the
-   * per-customer `deactivate()` (open pending deliveries, outstanding bottles) —
-   * any customer that fails a guard is reported in `skipped` and the rest still
-   * go through, so one blocked account never fails the whole batch.
+   * per-customer `deactivate()` (open pending deliveries, outstanding bottles,
+   * outstanding financial balance) — any customer that fails a guard is reported
+   * in `skipped` and the rest still go through, so one blocked account never
+   * fails the whole batch. There is deliberately no bulk `force`: each write-off
+   * needs its own explicit single-customer review.
    */
   async bulkDeactivate(vendorId: string, dto: BulkDeactivateDto) {
     const customers = await this.prisma.customer.findMany({
       where: { id: { in: dto.customerIds }, vendorId, isActive: true },
-      select: { id: true, name: true },
+      select: { id: true, name: true, financialBalance: true },
     });
 
     if (customers.length === 0) {
@@ -1325,6 +1436,16 @@ export class CustomerService {
           customerId: customer.id,
           name: customer.name,
           reason: `Outstanding bottles (${summary})`,
+        });
+        continue;
+      }
+
+      const owed = Number(customer.financialBalance ?? 0);
+      if (owed > 0) {
+        skipped.push({
+          customerId: customer.id,
+          name: customer.name,
+          reason: `Outstanding balance ₨${owed.toLocaleString()} — deactivate individually to Force / write off`,
         });
         continue;
       }

@@ -25,7 +25,8 @@ export const customersApi = {
   updateLocation: (id: string, latitude: number, longitude: number) =>
     apiClient.patch(`/customers/${id}/location`, { latitude, longitude }),
   remove: (id: string) => apiClient.delete(`/customers/${id}`),
-  deactivate: (id: string) => apiClient.patch(`/customers/${id}/deactivate`),
+  deactivate: (id: string, force = false) =>
+    apiClient.patch(`/customers/${id}/deactivate`, { force }),
   reactivate: (id: string) => apiClient.patch(`/customers/${id}/reactivate`),
   setCustomPrice: (customerId: string, data: Record<string, unknown>) =>
     apiClient.post(`/customers/${customerId}/custom-prices`, data),

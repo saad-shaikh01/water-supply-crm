@@ -14,7 +14,8 @@ import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { SearchInput } from '../../../components/shared/filters/search-input';
 import { RouteFilter } from '../../../components/shared/filters/route-filter';
 import { VanFilter } from '../../../components/shared/filters/van-filter';
-import { useCustomers, useDeleteCustomer, useDeactivateCustomer, useReactivateCustomer, useBulkDeactivateCustomers } from '../hooks/use-customers';
+import { toast } from 'sonner';
+import { useCustomers, useDeleteCustomer, useDeactivateCustomer, useReactivateCustomer, useBulkDeactivateCustomers, isOutstandingBalanceError } from '../hooks/use-customers';
 import { CustomerForm } from './customer-form';
 import { BulkScheduleUpdateDialog } from './bulk-schedule-update-dialog';
 import { cn } from '@water-supply-crm/ui';
@@ -27,6 +28,7 @@ interface CustomerListProps {
 export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const canUpdate = useCan('customers:update');
   const canDeactivate = useCan('customers:deactivate');
+  const canForceDeactivate = useCan('customers:force_deactivate');
   const canRestore = useCan('customers:restore');
   const canDelete = useCan('customers:delete');
   const { data, isLoading, page, setPage, limit, setLimit, isActive, setIsActive, hasPortalAccess, setHasPortalAccess, sort, setSort, sortDir, setSortDir } = useCustomers();
@@ -36,6 +38,10 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const { mutate: bulkDeactivate, isPending: isBulkDeactivating } = useBulkDeactivateCustomers();
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deactivateId, setDeactivateId] = useState<string | null>(null);
+  // Set only after a normal deactivate is rejected for an outstanding balance
+  // AND the current user holds customers:force_deactivate — drives the write-off
+  // escalation dialog.
+  const [forceTarget, setForceTarget] = useState<{ id: string; name: string; balance: number } | null>(null);
   const [reactivateId, setReactivateId] = useState<string | null>(null);
   const [editCustomer, setEditCustomer] = useState<Record<string, unknown> | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -607,9 +613,50 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
         onOpenChange={(o) => { if (!o) setDeactivateId(null); }}
         title="Deactivate Customer"
         description="This customer will be marked inactive and won't appear in daily sheets. You can reactivate them at any time."
-        onConfirm={() => { if (deactivateId) { deactivateCustomer(deactivateId, { onSuccess: () => setDeactivateId(null) }); } }}
+        onConfirm={() => {
+          if (!deactivateId) return;
+          const id = deactivateId;
+          deactivateCustomer(
+            { id },
+            {
+              onSuccess: () => setDeactivateId(null),
+              onError: (e) => {
+                const outstanding = isOutstandingBalanceError(e);
+                if (!outstanding) return; // generic errors handled by the hook toast
+                setDeactivateId(null);
+                if (canForceDeactivate) {
+                  setForceTarget({ id, name: outstanding.customerName, balance: outstanding.financialBalance });
+                } else {
+                  toast.error(
+                    `${outstanding.customerName} owes ₨${outstanding.financialBalance.toLocaleString()}. Collect the payment before deactivating.`,
+                  );
+                }
+              },
+            },
+          );
+        }}
         isLoading={isDeactivating}
         confirmLabel="Deactivate"
+      />
+
+      <ConfirmDialog
+        open={!!forceTarget}
+        onOpenChange={(o) => { if (!o) setForceTarget(null); }}
+        title="Force Deactivate — Write Off Balance"
+        description={
+          forceTarget
+            ? `${forceTarget.name} has an outstanding balance of ₨${forceTarget.balance.toLocaleString()}. Force deactivating will write this amount off as a company loss (bad debt) and cannot be reversed. Outstanding bottles, if any, must still be recovered separately.`
+            : ''
+        }
+        onConfirm={() => {
+          if (!forceTarget) return;
+          deactivateCustomer(
+            { id: forceTarget.id, force: true },
+            { onSuccess: () => setForceTarget(null) },
+          );
+        }}
+        isLoading={isDeactivating}
+        confirmLabel={forceTarget ? `Force Deactivate & Write Off ₨${forceTarget.balance.toLocaleString()}` : 'Force Deactivate'}
       />
 
       <ConfirmDialog
@@ -639,7 +686,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
         open={bulkDeactivateOpen}
         onOpenChange={setBulkDeactivateOpen}
         title="Deactivate Selected Customers"
-        description={`Deactivate ${selectedIds.size} selected customer${selectedIds.size !== 1 ? 's' : ''}? They won't appear in daily sheets. Any customer with pending deliveries or outstanding bottles is skipped automatically. You can reactivate them individually at any time.`}
+        description={`Deactivate ${selectedIds.size} selected customer${selectedIds.size !== 1 ? 's' : ''}? They won't appear in daily sheets. Any customer with pending deliveries, outstanding bottles, or an outstanding balance is skipped automatically — deactivate those individually to Force / write off. You can reactivate them at any time.`}
         onConfirm={() => {
           bulkDeactivate([...selectedIds], {
             onSuccess: () => { setBulkDeactivateOpen(false); setSelectedIds(new Set()); },

@@ -148,15 +148,34 @@ export const useDeleteCustomer = () => {
   });
 };
 
+/** Shape of the 409 body the backend sends when a customer still owes money. */
+export interface OutstandingBalanceError {
+  code: 'OUTSTANDING_BALANCE';
+  message: string;
+  financialBalance: number;
+  customerName: string;
+}
+
+export const isOutstandingBalanceError = (e: unknown): OutstandingBalanceError | null => {
+  const body = (e as any)?.response?.data;
+  return body?.code === 'OUTSTANDING_BALANCE' ? (body as OutstandingBalanceError) : null;
+};
+
 export const useDeactivateCustomer = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => customersApi.deactivate(id),
-    onSuccess: () => {
+    mutationFn: ({ id, force = false }: { id: string; force?: boolean }) =>
+      customersApi.deactivate(id, force),
+    onSuccess: (_res, { force }) => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
-      toast.success('Customer deactivated');
+      toast.success(force ? 'Customer force-deactivated — balance written off as company loss' : 'Customer deactivated');
     },
-    onError: () => toast.error('Failed to deactivate customer'),
+    onError: (e: any) => {
+      // The outstanding-balance 409 is not a failure to surface as a toast — the
+      // caller turns it into the Force Deactivate escalation flow.
+      if (isOutstandingBalanceError(e)) return;
+      toast.error(e?.response?.data?.message ?? 'Failed to deactivate customer');
+    },
   });
 };
 
@@ -336,10 +355,10 @@ export const useBulkDeactivateCustomers = () => {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
       if (result.deactivatedCount === 0) {
-        toast.error(`No customers deactivated — all ${result.skippedCount} skipped (pending deliveries or outstanding bottles)`);
+        toast.error(`No customers deactivated — all ${result.skippedCount} skipped (pending deliveries, outstanding bottles, or outstanding balance)`);
       } else if (result.skippedCount > 0) {
         toast.warning(
-          `Deactivated ${result.deactivatedCount} of ${result.requestedCount} — ${result.skippedCount} skipped (pending deliveries or outstanding bottles)`,
+          `Deactivated ${result.deactivatedCount} of ${result.requestedCount} — ${result.skippedCount} skipped (pending deliveries, outstanding bottles, or outstanding balance)`,
         );
       } else {
         toast.success(`Deactivated ${result.deactivatedCount} customer${result.deactivatedCount !== 1 ? 's' : ''}`);

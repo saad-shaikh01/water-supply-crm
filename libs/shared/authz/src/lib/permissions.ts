@@ -43,6 +43,10 @@ export const PERMISSION_CATALOG = {
     navigable: true,
     // view_financial: financial/consumption summaries (financial-summary, consumption).
     // update_location: GPS pinning, separate from general edit (update).
+    // force_deactivate: deactivate a customer past the outstanding-balance guard,
+    //   writing the remaining financialBalance off as a company loss (bad debt).
+    //   Split from `deactivate` so a field role (Salesman) can hold the normal,
+    //   guard-respecting deactivate without ever being able to force a write-off.
     actions: [
       'page',
       'view',
@@ -51,6 +55,7 @@ export const PERMISSION_CATALOG = {
       'update',
       'update_location',
       'deactivate',
+      'force_deactivate',
       'restore',
       'delete',
       'export',

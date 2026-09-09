@@ -17,6 +17,8 @@ import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.serv
 import { NotificationSettingsService } from '../notifications/notification-settings.service';
 import { CollectionPolicyService } from '../collection-policy/collection-policy.service';
 import { CrewCashDistributionService } from '../payroll/crew-cash-distribution.service';
+import { VehicleCheckService } from '../fleet/vehicle-check.service';
+import { SheetDiscrepancyCaseService } from '../sheet-discrepancy-case/sheet-discrepancy-case.service';
 
 /**
  * Regression coverage for the Phase 1 refactor: `createSheetForVan` /
@@ -29,7 +31,7 @@ import { CrewCashDistributionService } from '../payroll/crew-cash-distribution.s
  */
 function buildMockPrisma() {
   const db = {
-    dailySheet: { findFirst: jest.fn(), create: jest.fn() },
+    dailySheet: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]), create: jest.fn() },
     dailySheetItem: { findMany: jest.fn(), updateMany: jest.fn() },
     customerOrder: { findMany: jest.fn(), updateMany: jest.fn() },
     van: { findFirst: jest.fn() },
@@ -56,6 +58,8 @@ async function buildService(mockPrisma: ReturnType<typeof buildMockPrisma>) {
       { provide: NotificationSettingsService, useValue: {} },
       { provide: CollectionPolicyService, useValue: {} },
       { provide: CrewCashDistributionService, useValue: {} },
+      { provide: VehicleCheckService, useValue: {} },
+      { provide: SheetDiscrepancyCaseService, useValue: {} },
       {
         provide: getQueueToken(QUEUE_NAMES.DAILY_SHEET_GENERATION),
         useValue: { add: jest.fn(), getJob: jest.fn(), getRepeatableJobs: jest.fn().mockResolvedValue([]), upsertJobScheduler: jest.fn() },
@@ -134,6 +138,66 @@ describe('DailySheetService.createSheetForVan (extracted from processor)', () =>
     expect(result.sheet.id).toBe('sheet-new');
     expect(result.eligibleOnDemandOrderIds).toEqual([]);
     expect(result.alreadyInsertedOnDemandOrderIds).toEqual([]);
+  });
+
+  it('reorders the regular schedule to the order the driver actually followed on the van\'s last same-weekday sheet', async () => {
+    // The van has a prior sheet on the same weekday as TARGET_DATE.
+    mockPrisma.dailySheet.findMany.mockResolvedValue([{ id: 'prev-sheet', date: TARGET_DATE }]);
+    mockPrisma.dailySheetItem.findMany
+      .mockResolvedValueOnce([]) // rescheduled pull-forward lookup
+      .mockResolvedValueOnce([
+        // Driver hit cust-a first (09:00) then cust-b (10:00) — the REVERSE of
+        // their routeSequence (cust-b=1, cust-a=2). Tomorrow must follow this.
+        { customerId: 'cust-a', sequence: 2, recordedAt: new Date('2026-07-03T09:00:00Z'), deliveredAt: new Date('2026-07-03T09:00:00Z') },
+        { customerId: 'cust-b', sequence: 1, recordedAt: new Date('2026-07-03T10:00:00Z'), deliveredAt: new Date('2026-07-03T10:00:00Z') },
+      ]);
+    mockPrisma.dailySheetItem.updateMany.mockResolvedValue({ count: 0 });
+    mockPrisma.dailySheet.create.mockResolvedValue({ id: 'sheet-new' });
+
+    await service.createSheetForVan(
+      mockPrisma as any,
+      VENDOR_ID,
+      VAN,
+      TARGET_DATE,
+      TARGET_DATE.getDay(),
+      DEFAULT_PRODUCT,
+      [],
+    );
+
+    const createArgs = mockPrisma.dailySheet.create.mock.calls[0][0];
+    expect(createArgs.data.items.create).toEqual([
+      { customerId: 'cust-a', sequence: 1, productId: 'product-1', deliveryType: 'SCHEDULED' },
+      { customerId: 'cust-b', sequence: 2, productId: 'product-1', deliveryType: 'SCHEDULED' },
+    ]);
+  });
+
+  it('keeps customers with no delivery history in routeSequence order, trailing the learned ones', async () => {
+    mockPrisma.dailySheet.findMany.mockResolvedValue([{ id: 'prev-sheet', date: TARGET_DATE }]);
+    mockPrisma.dailySheetItem.findMany
+      .mockResolvedValueOnce([]) // rescheduled pull-forward lookup
+      .mockResolvedValueOnce([
+        // Only cust-a was on the last run; cust-b is new to the route.
+        { customerId: 'cust-a', sequence: 2, recordedAt: new Date('2026-07-03T09:00:00Z'), deliveredAt: null },
+      ]);
+    mockPrisma.dailySheetItem.updateMany.mockResolvedValue({ count: 0 });
+    mockPrisma.dailySheet.create.mockResolvedValue({ id: 'sheet-new' });
+
+    await service.createSheetForVan(
+      mockPrisma as any,
+      VENDOR_ID,
+      VAN,
+      TARGET_DATE,
+      TARGET_DATE.getDay(),
+      DEFAULT_PRODUCT,
+      [],
+    );
+
+    const createArgs = mockPrisma.dailySheet.create.mock.calls[0][0];
+    // cust-a (has history) leads; cust-b (no history) trails in its own order.
+    expect(createArgs.data.items.create).toEqual([
+      { customerId: 'cust-a', sequence: 1, productId: 'product-1', deliveryType: 'SCHEDULED' },
+      { customerId: 'cust-b', sequence: 2, productId: 'product-1', deliveryType: 'SCHEDULED' },
+    ]);
   });
 
   it('pulls forward RESCHEDULED items, excludes those customers from the regular schedule, and cancels the old rows', async () => {
