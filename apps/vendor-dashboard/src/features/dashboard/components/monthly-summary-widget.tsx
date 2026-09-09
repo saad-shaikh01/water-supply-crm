@@ -14,8 +14,10 @@ type MonthRow = {
   month: string;
   bottlesDelivered: number;
   emptyReceived: number;
-  filledReceived: number;
-  cashExpected: number;
+  /** Actual sales revenue for the month (delivered bottles × their sold rate). */
+  revenue: number;
+  /** Weighted average selling price per bottle for the month. */
+  averageRate: number;
   cashCollected: number;
   collectionRate: number;
   /** True when a closed sheet in this month was edited after close, so the cash
@@ -58,10 +60,6 @@ export function MonthlySummaryWidget() {
   const legendStyle = { fontSize: '11px', fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.05em' };
 
   const rows = (data ?? []) as MonthRow[];
-  // Filled Received is rare (account closing / excess stock returns) — the bar
-  // and table column only earn their place when at least one of the last 6
-  // months actually has a value, same whole-series rule as the daily sheet PDF.
-  const hasFilledReceived = rows.some((r) => (r.filledReceived ?? 0) > 0);
   // Post-close edits (voids / delivery corrections / trip corrections) on a
   // closed sheet leave its frozen cash snapshot untouched — for those months
   // the cash figures here are recalculated from current deliveries instead.
@@ -97,15 +95,12 @@ export function MonthlySummaryWidget() {
                     <Legend wrapperStyle={legendStyle} />
                     <Bar dataKey="bottlesDelivered" name="Delivered" fill="#6366f1" radius={[4, 4, 0, 0]} barSize={14} />
                     <Bar dataKey="emptyReceived" name="Empty Received" fill="#06b6d4" radius={[4, 4, 0, 0]} barSize={14} />
-                    {hasFilledReceived && (
-                      <Bar dataKey="filledReceived" name="Filled Received" fill="#0ea5e9" radius={[4, 4, 0, 0]} barSize={14} />
-                    )}
                   </BarChart>
                 </ResponsiveContainer>
               </div>
 
               <div>
-                <p className="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-widest mb-2">Cash</p>
+                <p className="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-widest mb-2">Revenue vs Cash</p>
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={rows}>
                     <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
@@ -113,7 +108,7 @@ export function MonthlySummaryWidget() {
                     <YAxis stroke={axisColor} fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => `₨${(v / 1000).toFixed(0)}k`} />
                     <Tooltip cursor={{ fill: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)' }} contentStyle={tooltipStyle} formatter={(v: any) => fmtCash(Number(v))} />
                     <Legend wrapperStyle={legendStyle} />
-                    <Bar dataKey="cashExpected" name="Expected" fill="#8b5cf6" radius={[4, 4, 0, 0]} barSize={14} />
+                    <Bar dataKey="revenue" name="Revenue" fill="#8b5cf6" radius={[4, 4, 0, 0]} barSize={14} />
                     <Bar dataKey="cashCollected" name="Collected" fill="#10b981" radius={[4, 4, 0, 0]} barSize={14} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -140,8 +135,8 @@ export function MonthlySummaryWidget() {
                     <th className="pb-3 pr-4">Month</th>
                     <th className="pb-3 pr-4 text-right">Delivered</th>
                     <th className="pb-3 pr-4 text-right">Empty Recv.</th>
-                    {hasFilledReceived && <th className="pb-3 pr-4 text-right">Filled Recv.</th>}
-                    <th className="pb-3 pr-4 text-right">Cash Expected</th>
+                    <th className="pb-3 pr-4 text-right">Revenue</th>
+                    <th className="pb-3 pr-4 text-right">Avg. Rate</th>
                     <th className="pb-3 pr-4 text-right">Cash Collected</th>
                     <th className="pb-3 text-center">Rate</th>
                   </tr>
@@ -154,10 +149,8 @@ export function MonthlySummaryWidget() {
                       </td>
                       <td className="py-3 pr-4 text-right font-mono tabular-nums">{r.bottlesDelivered.toLocaleString()}</td>
                       <td className="py-3 pr-4 text-right font-mono tabular-nums">{r.emptyReceived.toLocaleString()}</td>
-                      {hasFilledReceived && (
-                        <td className="py-3 pr-4 text-right font-mono tabular-nums">{r.filledReceived.toLocaleString()}</td>
-                      )}
-                      <td className="py-3 pr-4 text-right font-mono tabular-nums">{fmtCash(r.cashExpected)}</td>
+                      <td className="py-3 pr-4 text-right font-mono tabular-nums">{fmtCash(r.revenue)}</td>
+                      <td className="py-3 pr-4 text-right font-mono tabular-nums">{fmtCash(r.averageRate)}</td>
                       <td className="py-3 pr-4 text-right font-mono tabular-nums text-emerald-400">{fmtCash(r.cashCollected)}</td>
                       <td className="py-3 text-center"><RateBadge rate={r.collectionRate} /></td>
                     </tr>

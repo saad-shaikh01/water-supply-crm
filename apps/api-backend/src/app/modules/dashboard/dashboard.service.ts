@@ -439,6 +439,7 @@ export class DashboardService {
           filledDropped: true,
           emptyReceived: true,
           filledReceived: true,
+          pricePerBottle: true,
           dailySheet: { select: { date: true } },
         },
       }),
@@ -518,6 +519,11 @@ export class DashboardService {
       const bottlesDelivered = monthItems.reduce((s, i) => s + i.filledDropped, 0);
       const emptyReceived = monthItems.reduce((s, i) => s + i.emptyReceived, 0);
       const filledReceived = monthItems.reduce((s, i) => s + i.filledReceived, 0);
+      // Actual sales revenue = every delivered bottle priced at the rate it was
+      // sold for (pricePerBottle is persisted per line, 0 for billing-exempt).
+      const revenue = monthItems.reduce((s, i) => s + i.filledDropped * (i.pricePerBottle ?? 0), 0);
+      // Weighted average selling price per bottle for the month.
+      const averageRate = bottlesDelivered > 0 ? Math.round(revenue / bottlesDelivered) : 0;
       const monthCash = monthSheets.map(effCash);
       const cashExpected = monthCash.reduce((s, c) => s + c.cashExpected, 0);
       const cashCollected = monthCash.reduce((s, c) => s + c.cashCollected, 0);
@@ -528,6 +534,8 @@ export class DashboardService {
         bottlesDelivered,
         emptyReceived,
         filledReceived,
+        revenue,
+        averageRate,
         cashExpected,
         cashCollected,
         collectionRate: cashExpected > 0 ? Math.round((cashCollected / cashExpected) * 100) : 0,
