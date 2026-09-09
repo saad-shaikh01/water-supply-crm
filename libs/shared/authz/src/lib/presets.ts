@@ -166,6 +166,12 @@ const MANAGER_PERMISSIONS: Permission[] = [
   // the user's explicit requirement was STAFF + VENDOR_ADMIN resolution
   // authority, no override-only tier the way payroll:view_all has.
   'sheet_discrepancies:page', 'sheet_discrepancies:view', 'sheet_discrepancies:resolve',
+  // Van Cash Ledger (owner-requested 2026-09-09): Manager sees the ledger and
+  // may approve a pending cash handover — the same "Manager/Accountant tier
+  // and up" cohort the feature spec calls for. `van_cash_ledger:manage`
+  // (setting opening balances) is deliberately VENDOR_ADMIN-only — NOT
+  // granted here. Existing vendors get these via PRESET_DRIFT_BACKFILLS.manager.
+  'van_cash_ledger:view', 'van_cash_ledger:approve',
 ];
 
 export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
@@ -220,6 +226,11 @@ export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
       'customers:view',
       'customers:view_financial',
       'customers:export',
+      // Van Cash Ledger (owner-requested 2026-09-09): Accountant is one of the
+      // named "Manager/Accountant/Admin" approve-tier roles. Not `:manage`
+      // (opening balances stay VENDOR_ADMIN-only).
+      'van_cash_ledger:view',
+      'van_cash_ledger:approve',
     ],
   },
   support: {

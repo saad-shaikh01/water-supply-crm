@@ -17,6 +17,7 @@ import { CollectionPolicyService } from '../collection-policy/collection-policy.
 import { CrewCashDistributionService } from '../payroll/crew-cash-distribution.service';
 import { VehicleCheckService } from '../fleet/vehicle-check.service';
 import { SheetDiscrepancyCaseService } from '../sheet-discrepancy-case/sheet-discrepancy-case.service';
+import { VanCashLedgerService } from '../van-cash-ledger/van-cash-ledger.service';
 import { StorageService } from '../../common/storage/storage.service';
 import { WarehouseService } from '../warehouse/warehouse.service';
 import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.service';
@@ -127,6 +128,7 @@ describe('DailySheetService — Post-Close Trip Correction guards / checkinLoad 
         { provide: CrewCashDistributionService, useValue: {} },
         { provide: VehicleCheckService, useValue: {} },
         { provide: SheetDiscrepancyCaseService, useValue: {} },
+        { provide: VanCashLedgerService, useValue: { createHandoverForClosedSheet: jest.fn().mockResolvedValue(null) } },
         { provide: StorageService, useValue: {} },
         { provide: WarehouseService, useValue: mockWarehouse },
         { provide: DeliveryReceiptPdfService, useValue: {} },

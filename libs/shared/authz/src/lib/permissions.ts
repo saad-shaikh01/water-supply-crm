@@ -275,6 +275,18 @@ export const PERMISSION_CATALOG = {
     navigable: true,
     actions: ['page', 'view', 'resolve'],
   },
+  // Van Cash Ledger (owner-requested 2026-09-09): the "cash in" counterpart to
+  // the Expense Center — tracks the driver -> office cash-custody handoff
+  // recorded at each Daily Sheet close, plus the van's running cash balance.
+  // Non-navigable for now, same reasoning as `crew_cash`/`payroll` before their
+  // own dedicated routes existed: surfaced inside the existing Expense Center
+  // page rather than a brand-new route. `manage` (set opening balances) is
+  // VENDOR_ADMIN-only by default; `view`/`approve` reach Manager/Accountant.
+  van_cash_ledger: {
+    label: 'Van Cash Ledger',
+    navigable: false,
+    actions: ['view', 'approve', 'manage'],
+  },
 } as const satisfies Record<string, ResourceDefinition>;
 
 /** Union of every resource key, e.g. `'customers' | 'orders' | …`. */

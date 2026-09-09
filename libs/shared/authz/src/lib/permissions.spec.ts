@@ -66,9 +66,15 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // Force Deactivate feature, owner-requested 2026-09-09). No new resource, no new
 // `:page` — split from customers:deactivate so Salesman can hold the guarded
 // deactivate without ever forcing a write-off.
-const FROZEN_TOTAL = 171;
+// 174 = 171 + van_cash_ledger (view, approve, manage) — new resource for the Van
+// Cash Ledger feature (owner-requested 2026-09-09): the "cash in" counterpart to
+// the Expense Center, tracking the driver -> office cash handover recorded at
+// each Daily Sheet close. Non-navigable (surfaced inside the existing Expense
+// Center page) — same reasoning as `crew_cash`/pre-Amendment-R6 `payroll` — so
+// no new `:page` permission, but +1 resource.
+const FROZEN_TOTAL = 174;
 const FROZEN_PAGES = 28;
-const FROZEN_RESOURCES = 30;
+const FROZEN_RESOURCES = 31;
 
 describe('permission catalog (frozen contract)', () => {
   it('has the frozen totals', () => {
@@ -99,13 +105,15 @@ describe('permission catalog (frozen contract)', () => {
     }
   });
 
-  it('no action exists without its resource also having a :page (except whatsapp, crew_cash)', () => {
+  it('no action exists without its resource also having a :page (except whatsapp, crew_cash, van_cash_ledger)', () => {
     // payroll now has its own `:page` (Amendment R6) and is no longer exempt.
     // crew_cash: recorded from a card on the existing Daily Sheet detail page,
     // not a dedicated route (Amendment R5) — stays non-navigable.
+    // van_cash_ledger: surfaced inside the existing Expense Center page, not a
+    // dedicated route — stays non-navigable (owner-requested 2026-09-09).
     for (const resource of RESOURCES) {
       const def = PERMISSION_CATALOG[resource];
-      if (resource === 'whatsapp' || resource === 'crew_cash') continue;
+      if (resource === 'whatsapp' || resource === 'crew_cash' || resource === 'van_cash_ledger') continue;
       expect(def.actions).toContain('page');
     }
   });

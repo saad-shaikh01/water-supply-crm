@@ -59,6 +59,7 @@ import { evaluateCollectionPolicy, evaluateCashCollectionPolicy } from '../../co
 import { CrewCashDistributionService } from '../payroll/crew-cash-distribution.service';
 import { VehicleCheckService } from '../fleet/vehicle-check.service';
 import { SheetDiscrepancyCaseService } from '../sheet-discrepancy-case/sheet-discrepancy-case.service';
+import { VanCashLedgerService } from '../van-cash-ledger/van-cash-ledger.service';
 import {
   buildReconciliation as buildReconciliationPure,
   isSheetModifiedAfterClose,
@@ -105,6 +106,7 @@ export class DailySheetService implements OnModuleInit {
     private crewCashDistribution: CrewCashDistributionService,
     private vehicleCheck: VehicleCheckService,
     private discrepancyCases: SheetDiscrepancyCaseService,
+    private vanCashLedger: VanCashLedgerService,
     @InjectQueue(QUEUE_NAMES.DAILY_SHEET_GENERATION)
     private sheetQueue: Queue,
   ) {}
@@ -4264,6 +4266,13 @@ export class DailySheetService implements OnModuleInit {
 
       const sync = await this.crewCashDistribution.syncSheetToLedger(tx, vendorId, sheetId, actorId, actorRole);
 
+      // Van Cash Ledger (owner-requested 2026-09-09): the cash this sheet
+      // collected becomes a pending (or, for a WALK_IN sheet, auto-approved)
+      // handover in the same transaction as the crew-cash sync above — a
+      // sheet can never end up closed with its cash handover only partially
+      // created.
+      await this.vanCashLedger.createHandoverForClosedSheet(tx, vendorId, sheetId);
+
       const discrepancies = await this.discrepancyCases.createCasesForSheet(
         tx,
         vendorId,
@@ -4386,6 +4395,11 @@ export class DailySheetService implements OnModuleInit {
       });
 
       const sync = await this.crewCashDistribution.syncSheetToLedger(tx, vendorId, sheetId, actorId, actorRole);
+
+      // Van Cash Ledger (owner-requested 2026-09-09) — same placement as
+      // closeSheet() above: deferred to this explicit review step for a
+      // Soft-Closed sheet, same as the crew-cash sync it sits beside.
+      await this.vanCashLedger.createHandoverForClosedSheet(tx, vendorId, sheetId);
 
       const discrepancies = await this.discrepancyCases.createCasesForSheet(
         tx,

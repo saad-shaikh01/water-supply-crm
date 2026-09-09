@@ -15,6 +15,7 @@ import { CollectionPolicyModule } from '../collection-policy/collection-policy.m
 import { PayrollModule } from '../payroll/payroll.module';
 import { FleetModule } from '../fleet/fleet.module';
 import { SheetDiscrepancyCaseModule } from '../sheet-discrepancy-case/sheet-discrepancy-case.module';
+import { VanCashLedgerModule } from '../van-cash-ledger/van-cash-ledger.module';
 
 @Module({
   imports: [
@@ -32,6 +33,10 @@ import { SheetDiscrepancyCaseModule } from '../sheet-discrepancy-case/sheet-disc
     PayrollModule,
     FleetModule,
     SheetDiscrepancyCaseModule,
+    // Van Cash Ledger — closeSheet()/approveClose() call
+    // VanCashLedgerService.createHandoverForClosedSheet() in the same
+    // transaction as CrewCashDistributionService.syncSheetToLedger().
+    VanCashLedgerModule,
   ],
   controllers: [DailySheetController],
   providers: [DailySheetService, DailySheetProcessor, DailySheetPdfService, BulkImportService],
