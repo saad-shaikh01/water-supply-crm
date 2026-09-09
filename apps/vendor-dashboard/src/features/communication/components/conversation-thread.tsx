@@ -75,7 +75,11 @@ function DeliveryDivider({ item }: { item: ConversationMessageItem }) {
  */
 export function ConversationThread({ itemId, sheetId, variant, isDriver, itemIsPending, isClosed }: ConversationThreadProps) {
   const currentUserId = useAuthStore((s) => s.user?.id) ?? '';
+  const currentUserRole = useAuthStore((s) => s.user?.role);
   const canSend = useCan('conversations:send');
+  // Authoring a delivery-blocking "Instruction" (requiresAck) is Admin-only —
+  // must mirror MessageService.resolveRequiresAck on the backend.
+  const canInstruct = currentUserRole === 'SUPER_ADMIN' || currentUserRole === 'VENDOR_ADMIN';
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const conversationQuery = useConversationForItem(itemId, true);
@@ -193,8 +197,8 @@ export function ConversationThread({ itemId, sheetId, variant, isDriver, itemIsP
       </div>
 
       <MessageComposer
-        canSetRequiresAck={!isDriver}
-        defaultRequiresAck={itemIsPending}
+        canSetRequiresAck={!isDriver && canInstruct}
+        defaultRequiresAck={itemIsPending && canInstruct}
         disabled={composerDisabled}
         disabledReason={composerDisabledReason}
         isSending={sendText.isPending || sendVoice.isPending}

@@ -117,10 +117,18 @@ export class MessageService {
     });
   }
 
+  // Authoring a delivery-blocking "Instruction" (requiresAck) message is an
+  // Admin-only capability — a Salesman/Loader/Staff message must never silently
+  // become something the driver has to acknowledge before recording a delivery.
+  // The client flag is advisory; anything else is downgraded to a plain message.
+  private static readonly ACK_AUTHOR_ROLES: readonly UserRole[] = [
+    UserRole.SUPER_ADMIN,
+    UserRole.VENDOR_ADMIN,
+  ];
+
   private resolveRequiresAck(user: AuthUser, requested?: boolean): boolean {
-    // Driver messages never block a delivery.
-    if (user.role === UserRole.DRIVER) return false;
-    return !!requested;
+    if (!requested) return false;
+    return MessageService.ACK_AUTHOR_ROLES.includes(user.role);
   }
 
   /**
