@@ -1,4 +1,5 @@
 import { apiClient } from '@water-supply-crm/data-access';
+import type { SheetAuditLogEntry } from '@water-supply-crm/types';
 
 export interface PreviewRowResult {
   rowIndex: number;
@@ -227,6 +228,8 @@ export const dailySheetsApi = {
     apiClient.get(`/daily-sheets/${id}/reconciliation-preview`).then((r) => r.data),
   getItemHistory: (itemId: string) =>
     apiClient.get(`/daily-sheets/items/${itemId}/history`).then((r) => r.data),
+  getAuditLog: (id: string): Promise<SheetAuditLogEntry[]> =>
+    apiClient.get(`/daily-sheets/${id}/audit-log`).then((r) => r.data),
   insertItemFromOrder: (
     id: string,
     data: { orderId: string; sequenceMode?: 'APPEND' | 'CUSTOM'; sequence?: number },

@@ -40,7 +40,8 @@ import { CorrectDeliveryDto } from './dto/correct-delivery.dto';
 import { paginate } from '../../common/helpers/paginate';
 import { validateSupportCrew, validateDriverAssignment } from '../../common/helpers/crew-validation';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
-import type { AuthUser } from '@water-supply-crm/types';
+import type { AuthUser, SheetAuditLogEntry } from '@water-supply-crm/types';
+import { auditActionMeta, extractReason } from './daily-sheet-audit-log.util';
 import { UnlockEditDto } from './dto/unlock-edit.dto';
 import { StorageService } from '../../common/storage/storage.service';
 import { WarehouseService } from '../warehouse/warehouse.service';
@@ -1529,6 +1530,315 @@ export class DailySheetService implements OnModuleInit {
     });
 
     return [...logs.data].reverse();
+  }
+
+  /**
+   * Complete A-to-Z activity history for ONE Daily Sheet — the union of every
+   * audit source already captured elsewhere, normalized into one time-sorted
+   * list. No new logging: reads generic `AuditLog` (sheet / items / trips /
+   * expenses / message acks), `CrewCashDistributionAuditLog`,
+   * `SheetDiscrepancyCaseAuditLog`, `DamageCaseAuditLog`, `DeliveryItemMoveLog`,
+   * and synthesizes entries for vehicle checks (which have no log table).
+   */
+  async getSheetAuditLog(vendorId: string, sheetId: string): Promise<SheetAuditLogEntry[]> {
+    const sheet = await this.prisma.dailySheet.findFirst({
+      where: { id: sheetId, vendorId },
+      select: {
+        id: true,
+        crewConfirmedById: true,
+        closureRequestedById: true,
+        closureApprovedById: true,
+        closureRejectedById: true,
+        items: { select: { id: true, sequence: true, customer: { select: { name: true, customerCode: true } } } },
+        loads: { select: { id: true, tripNumber: true } },
+        expenses: { select: { id: true, description: true, category: true } },
+        vehicleDailyChecks: {
+          select: {
+            id: true, checkType: true, odometerReading: true, originalOdometerReading: true,
+            recordedById: true, recordedAt: true,
+            odometerEditedById: true, odometerEditedAt: true, odometerEditReason: true,
+            criticalOverrideById: true, criticalOverrideAt: true, criticalOverrideNote: true,
+          },
+        },
+      },
+    });
+    if (!sheet) throw new NotFoundException('Daily sheet not found');
+
+    const itemIds = sheet.items.map((i) => i.id);
+    const loadIds = sheet.loads.map((l) => l.id);
+    const expenseIds = sheet.expenses.map((e) => e.id);
+    const itemLabelById = new Map(
+      sheet.items.map((i) => [
+        i.id,
+        i.customer ? `${i.customer.name}${i.customer.customerCode ? ` (${i.customer.customerCode})` : ''}` : `Stop #${i.sequence}`,
+      ]),
+    );
+    const tripLabelById = new Map(sheet.loads.map((l) => [l.id, `Trip ${l.tripNumber}`]));
+    const expenseLabelById = new Map(sheet.expenses.map((e) => [e.id, e.description || e.category]));
+
+    const messages = itemIds.length
+      ? await this.prisma.conversationMessage.findMany({
+          where: { dailySheetItemId: { in: itemIds } },
+          select: { id: true, dailySheetItemId: true },
+        })
+      : [];
+    const messageItemById = new Map(messages.map((m) => [m.id, m.dailySheetItemId]));
+    const messageIds = messages.map((m) => m.id);
+
+    const [auditRows, crewCashRows, discrepancyRows, damageRows, moveRows] = await Promise.all([
+      this.prisma.auditLog.findMany({
+        where: {
+          vendorId,
+          OR: [
+            { entity: 'DailySheet', entityId: sheetId },
+            { entity: 'DailySheetItem', entityId: { in: itemIds } },
+            { entity: 'DailySheetLoad', entityId: { in: loadIds } },
+            { entity: 'Expense', entityId: { in: expenseIds } },
+            // hard-deleted closed-sheet expenses no longer have a live row to key off
+            { entity: 'Expense', changes: { path: ['before', 'dailySheetId'], equals: sheetId } },
+            { entity: 'Expense', changes: { path: ['after', 'dailySheetId'], equals: sheetId } },
+            { entity: 'ConversationMessage', entityId: { in: messageIds } },
+          ],
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.crewCashDistributionAuditLog.findMany({
+        where: { crewCashDistribution: { dailySheetId: sheetId } },
+        include: { actor: { select: { id: true, name: true, role: true } } },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.sheetDiscrepancyCaseAuditLog.findMany({
+        where: { discrepancyCase: { dailySheetId: sheetId } },
+        orderBy: { createdAt: 'asc' },
+      }),
+      itemIds.length
+        ? this.prisma.damageCaseAuditLog.findMany({
+            where: { damageCase: { dailySheetItemId: { in: itemIds } } },
+            orderBy: { createdAt: 'asc' },
+          })
+        : Promise.resolve([]),
+      this.prisma.deliveryItemMoveLog.findMany({
+        where: { OR: [{ fromSheetId: sheetId }, { toSheetId: sheetId }] },
+        include: {
+          movedBy: { select: { id: true, name: true, role: true } },
+          customer: { select: { name: true, customerCode: true } },
+        },
+        orderBy: { movedAt: 'asc' },
+      }),
+    ]);
+
+    // ── actor resolution (one query for every id gathered above) ──
+    const actorIds = new Set<string>();
+    for (const r of auditRows) if (r.userId) actorIds.add(r.userId);
+    for (const r of discrepancyRows) actorIds.add(r.actorId);
+    for (const r of damageRows) actorIds.add(r.actorId);
+    for (const id of [sheet.crewConfirmedById, sheet.closureRequestedById, sheet.closureApprovedById, sheet.closureRejectedById]) {
+      if (id) actorIds.add(id);
+    }
+    for (const c of sheet.vehicleDailyChecks) {
+      for (const id of [c.recordedById, c.odometerEditedById, c.criticalOverrideById]) if (id) actorIds.add(id);
+    }
+    const users = actorIds.size
+      ? await this.prisma.user.findMany({ where: { id: { in: [...actorIds] } }, select: { id: true, name: true, role: true } })
+      : [];
+    const userById = new Map(users.map((u) => [u.id, u]));
+
+    // Direct-close / crew-confirm AuditLog rows carry no userId — recover the
+    // actor from the sheet's own *ById columns by action type.
+    const sheetActionActorId: Record<string, string | null> = {
+      CLOSE: null, // no closedById column exists
+      REQUEST_CLOSE: sheet.closureRequestedById ?? null,
+      APPROVE_CLOSE: sheet.closureApprovedById ?? null,
+      REJECT_CLOSE: sheet.closureRejectedById ?? null,
+      CONFIRM_CREW: sheet.crewConfirmedById ?? null,
+    };
+
+    const entries: SheetAuditLogEntry[] = [];
+
+    for (const r of auditRows) {
+      const meta = auditActionMeta('AUDIT_LOG', r.action);
+      const changes = (r.changes ?? null) as { before?: Record<string, unknown>; after?: Record<string, unknown> } | null;
+      let entityId: string | null = r.entityId ?? null;
+      let entityLabel: string | null = null;
+      if (r.entity === 'DailySheetItem' && entityId) entityLabel = itemLabelById.get(entityId) ?? null;
+      else if (r.entity === 'DailySheetLoad' && entityId) entityLabel = tripLabelById.get(entityId) ?? null;
+      else if (r.entity === 'Expense' && entityId) entityLabel = expenseLabelById.get(entityId) ?? null;
+      else if (r.entity === 'ConversationMessage' && entityId) {
+        const linkedItemId = messageItemById.get(entityId);
+        entityLabel = linkedItemId ? itemLabelById.get(linkedItemId) ?? null : null;
+        entityId = linkedItemId ?? entityId;
+      }
+      const fallbackActorId = sheetActionActorId[r.action] ?? null;
+      const resolvedActorId = r.userId ?? fallbackActorId;
+      const resolvedUser = resolvedActorId ? userById.get(resolvedActorId) : undefined;
+      entries.push({
+        id: r.id,
+        at: r.createdAt.toISOString(),
+        source: 'AUDIT_LOG',
+        action: r.action,
+        actionLabel: meta.label,
+        category: meta.category,
+        entity: meta.entity,
+        entityId,
+        entityLabel,
+        actorId: resolvedActorId ?? null,
+        actorName: resolvedUser?.name ?? r.userName ?? null,
+        actorRole: resolvedUser?.role ?? null,
+        before: changes?.before ?? null,
+        after: changes?.after ?? null,
+        reason: extractReason(changes),
+      });
+    }
+
+    for (const r of crewCashRows) {
+      const meta = auditActionMeta('CREW_CASH', r.action);
+      entries.push({
+        id: r.id,
+        at: r.createdAt.toISOString(),
+        source: 'CREW_CASH',
+        action: r.action,
+        actionLabel: meta.label,
+        category: meta.category,
+        entity: meta.entity,
+        entityId: r.crewCashDistributionId ?? null,
+        entityLabel: null,
+        actorId: r.actorId,
+        actorName: r.actor?.name ?? null,
+        actorRole: r.actorRole ?? null,
+        before: (r.beforeJson ?? null) as Record<string, unknown> | null,
+        after: (r.afterJson ?? null) as Record<string, unknown> | null,
+        reason: r.reason ?? extractReason(r.afterJson) ?? null,
+      });
+    }
+
+    for (const r of discrepancyRows) {
+      const meta = auditActionMeta('DISCREPANCY_CASE', r.action);
+      const u = userById.get(r.actorId);
+      entries.push({
+        id: r.id,
+        at: r.createdAt.toISOString(),
+        source: 'DISCREPANCY_CASE',
+        action: r.action,
+        actionLabel: meta.label,
+        category: meta.category,
+        entity: meta.entity,
+        entityId: r.discrepancyCaseId,
+        entityLabel: null,
+        actorId: r.actorId,
+        actorName: u?.name ?? null,
+        actorRole: r.actorRole ?? u?.role ?? null,
+        before: null,
+        after: (r.payload ?? null) as Record<string, unknown> | null,
+        reason: extractReason(r.payload),
+      });
+    }
+
+    for (const r of damageRows) {
+      const meta = auditActionMeta('DAMAGE_CASE', r.action);
+      const u = userById.get(r.actorId);
+      entries.push({
+        id: r.id,
+        at: r.createdAt.toISOString(),
+        source: 'DAMAGE_CASE',
+        action: r.action,
+        actionLabel: meta.label,
+        category: meta.category,
+        entity: meta.entity,
+        entityId: r.damageCaseId,
+        entityLabel: null,
+        actorId: r.actorId,
+        actorName: u?.name ?? null,
+        actorRole: r.actorRole ?? u?.role ?? null,
+        before: null,
+        after: (r.payload ?? null) as Record<string, unknown> | null,
+        reason: extractReason(r.payload),
+      });
+    }
+
+    for (const r of moveRows) {
+      const movedOut = r.fromSheetId === sheetId;
+      const meta = auditActionMeta('MOVE_LOG', movedOut ? 'DELIVERY_MOVED_OUT' : 'DELIVERY_MOVED_IN');
+      const cust = r.customer ? `${r.customer.name}${r.customer.customerCode ? ` (${r.customer.customerCode})` : ''}` : null;
+      entries.push({
+        id: r.id,
+        at: r.movedAt.toISOString(),
+        source: 'MOVE_LOG',
+        action: movedOut ? 'DELIVERY_MOVED_OUT' : 'DELIVERY_MOVED_IN',
+        actionLabel: meta.label,
+        category: meta.category,
+        entity: meta.entity,
+        entityId: r.itemId,
+        entityLabel: cust,
+        actorId: r.movedById,
+        actorName: r.movedBy?.name ?? null,
+        actorRole: r.movedBy?.role ?? null,
+        before: { sheetId: r.fromSheetId },
+        after: { sheetId: r.toSheetId },
+        reason: null,
+      });
+    }
+
+    // ── synthesized vehicle-check entries (no audit table for these) ──
+    for (const c of sheet.vehicleDailyChecks) {
+      const label = c.checkType === 'START' ? 'Start-of-day check' : 'End-of-day check';
+      entries.push({
+        id: `vdc-rec-${c.id}`,
+        at: c.recordedAt.toISOString(),
+        source: 'VEHICLE_CHECK',
+        action: 'VEHICLE_CHECK_RECORDED',
+        actionLabel: `${auditActionMeta('VEHICLE_CHECK', 'VEHICLE_CHECK_RECORDED').label} — ${label}`,
+        category: 'CREATE',
+        entity: 'Vehicle Check',
+        entityId: c.id,
+        entityLabel: label,
+        actorId: c.recordedById,
+        actorName: userById.get(c.recordedById)?.name ?? null,
+        actorRole: userById.get(c.recordedById)?.role ?? null,
+        before: null,
+        after: { checkType: c.checkType, odometerReading: c.odometerReading },
+        reason: null,
+      });
+      if (c.odometerEditedAt) {
+        entries.push({
+          id: `vdc-odo-${c.id}`,
+          at: c.odometerEditedAt.toISOString(),
+          source: 'VEHICLE_CHECK',
+          action: 'VEHICLE_ODOMETER_CORRECTED',
+          actionLabel: auditActionMeta('VEHICLE_CHECK', 'VEHICLE_ODOMETER_CORRECTED').label,
+          category: 'CORRECTION',
+          entity: 'Vehicle Check',
+          entityId: c.id,
+          entityLabel: label,
+          actorId: c.odometerEditedById ?? null,
+          actorName: c.odometerEditedById ? userById.get(c.odometerEditedById)?.name ?? null : null,
+          actorRole: c.odometerEditedById ? userById.get(c.odometerEditedById)?.role ?? null : null,
+          before: { odometerReading: c.originalOdometerReading },
+          after: { odometerReading: c.odometerReading },
+          reason: c.odometerEditReason ?? null,
+        });
+      }
+      if (c.criticalOverrideAt) {
+        entries.push({
+          id: `vdc-crit-${c.id}`,
+          at: c.criticalOverrideAt.toISOString(),
+          source: 'VEHICLE_CHECK',
+          action: 'VEHICLE_CRITICAL_OVERRIDE',
+          actionLabel: auditActionMeta('VEHICLE_CHECK', 'VEHICLE_CRITICAL_OVERRIDE').label,
+          category: 'OTHER',
+          entity: 'Vehicle Check',
+          entityId: c.id,
+          entityLabel: label,
+          actorId: c.criticalOverrideById ?? null,
+          actorName: c.criticalOverrideById ? userById.get(c.criticalOverrideById)?.name ?? null : null,
+          actorRole: c.criticalOverrideById ? userById.get(c.criticalOverrideById)?.role ?? null : null,
+          before: null,
+          after: null,
+          reason: c.criticalOverrideNote ?? null,
+        });
+      }
+    }
+
+    return entries.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
   }
 
   async findAllPaginated(vendorId: string, query: DailySheetQueryDto) {

@@ -43,6 +43,7 @@ import { SheetCashOutSection } from './sheet-cash-out-section';
 import { AddRecordMenu } from './add-record-menu';
 import { ExpenseForm } from '../../expenses/components/expense-form';
 import { EditClosedExpenseDialog } from './dialogs/edit-closed-expense-dialog';
+import { SheetAuditLogDialog } from './dialogs/sheet-audit-log-dialog';
 import { CrewCashForm } from '../../crew-cash/components/crew-cash-form';
 import { sortBySequence, sortByNearest, sortByCustomerCode } from '../utils/sort-items';
 import { useDriverLocation } from '../hooks/use-driver-location';
@@ -311,6 +312,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const [moveTargetIds, setMoveTargetIds] = useState<string[] | null>(null);
   const [voidTargetItem, setVoidTargetItem] = useState<DeliveryItem | null>(null);
   const [correctClosedItem, setCorrectClosedItem] = useState<DeliveryItem | null>(null);
+  const [auditLogOpen, setAuditLogOpen] = useState(false);
   const { location: driverLocation, requestLocation } = useDriverLocation();
 
   // Continuously publish driver GPS to the tracking backend while the sheet is open.
@@ -666,6 +668,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         onSwap={() => dispatch({ type: 'OPEN_SWAP' })}
         onExportPdf={handleExportPdf}
         onPrintInvoice={handlePrintInvoice}
+        onViewAuditLog={() => setAuditLogOpen(true)}
       />
 
       {/* Lifecycle Stepper — Walk-in / Self-Pickup sheets have no load/check-in
@@ -936,6 +939,13 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
                 Changes: {data.postCloseDivergence.reasons!.join(', ')}.
               </p>
             )}
+            <button
+              type="button"
+              onClick={() => setAuditLogOpen(true)}
+              className="text-xs font-bold text-amber-700 dark:text-amber-400 underline underline-offset-2 hover:opacity-80"
+            >
+              View full audit log
+            </button>
           </div>
           {openDiscrepancyCount > 0 && (
             <Button
@@ -1486,6 +1496,11 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         onClose={() => setCorrectClosedItem(null)}
         sheetId={sheetId}
         item={correctClosedItem}
+      />
+      <SheetAuditLogDialog
+        open={auditLogOpen}
+        onClose={() => setAuditLogOpen(false)}
+        sheetId={sheetId}
       />
       <BulkImportDialog
         open={ui.bulkImportOpen}

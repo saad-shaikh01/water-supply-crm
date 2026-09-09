@@ -2,7 +2,7 @@
 
 import { Button } from '@water-supply-crm/ui';
 import { StatusBadge } from '../../../components/shared/status-badge';
-import { ArrowLeft, ArrowRightLeft, Download, MapPin, Printer, ShieldAlert, ShieldCheck, Truck, User, Users } from 'lucide-react';
+import { ArrowLeft, ArrowRightLeft, Download, History, MapPin, Printer, ShieldAlert, ShieldCheck, Truck, User, Users } from 'lucide-react';
 import type { SheetCrewMember } from '@water-supply-crm/types';
 
 interface SheetDetailHeaderProps {
@@ -21,6 +21,7 @@ interface SheetDetailHeaderProps {
   onSwap: () => void;
   onExportPdf: () => void;
   onPrintInvoice: () => void;
+  onViewAuditLog: () => void;
 }
 
 export function SheetDetailHeader({
@@ -39,6 +40,7 @@ export function SheetDetailHeader({
   onSwap,
   onExportPdf,
   onPrintInvoice,
+  onViewAuditLog,
 }: SheetDetailHeaderProps) {
   const salesmen = crew.filter((c) => c.role === 'SALESMAN');
   const loaders = crew.filter((c) => c.role === 'LOADER');
@@ -134,6 +136,9 @@ export function SheetDetailHeader({
             <ArrowRightLeft className="h-4 w-4" />
           </Button>
         )}
+        <Button variant="outline" size="icon" className="rounded-full" onClick={onViewAuditLog} title="Audit log">
+          <History className="h-4 w-4" />
+        </Button>
         {canExport && (
           <Button variant="outline" size="icon" className="rounded-full" onClick={onExportPdf} title="Download PDF">
             <Download className="h-4 w-4" />

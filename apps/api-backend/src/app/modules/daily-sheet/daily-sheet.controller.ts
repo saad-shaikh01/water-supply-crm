@@ -230,6 +230,13 @@ export class DailySheetController {
     return this.dailySheetService.getItemHistory(user.vendorId, id);
   }
 
+  /** GET /daily-sheets/:id/audit-log — complete A-to-Z activity history for one sheet. */
+  @Get(':id/audit-log')
+  @RequirePermissions('daily_sheets:view')
+  getAuditLog(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.dailySheetService.getSheetAuditLog(user.vendorId, id);
+  }
+
   // Staff override that grants edit access on a locked delivery — NOT a driver capability.
   @Patch('items/:id/unlock-edit')
   @RequirePermissions('daily_sheets:manage_edit_locks')

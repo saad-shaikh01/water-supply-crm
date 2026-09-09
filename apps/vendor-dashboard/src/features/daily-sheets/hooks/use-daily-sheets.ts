@@ -281,6 +281,15 @@ export const useDeliveryItemHistory = (itemId: string, enabled: boolean) => {
   });
 };
 
+export const useSheetAuditLog = (sheetId: string, enabled: boolean) => {
+  return useQuery({
+    queryKey: ['daily-sheet-audit-log', sheetId],
+    queryFn: (): Promise<import('@water-supply-crm/types').SheetAuditLogEntry[]> =>
+      dailySheetsApi.getAuditLog(sheetId),
+    enabled: enabled && !!sheetId,
+  });
+};
+
 export const useCloseSheet = (sheetId: string) => {
   const queryClient = useQueryClient();
   return useMutation({

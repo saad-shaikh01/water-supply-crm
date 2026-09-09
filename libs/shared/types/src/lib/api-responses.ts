@@ -734,6 +734,44 @@ export interface DeliveryItemHistoryEntry {
   } | null;
 }
 
+export type SheetAuditCategory =
+  | 'CREATE'
+  | 'EDIT'
+  | 'CORRECTION'
+  | 'VOID'
+  | 'DELETE'
+  | 'CLOSE'
+  | 'CREW'
+  | 'MOVE'
+  | 'ACK'
+  | 'DISCREPANCY'
+  | 'OTHER';
+
+/**
+ * One normalized activity entry for a single Daily Sheet — the union of every
+ * existing audit source (generic AuditLog, CrewCashDistributionAuditLog,
+ * SheetDiscrepancyCaseAuditLog, DamageCaseAuditLog, DeliveryItemMoveLog) plus
+ * synthesized entries for events with no durable log row (vehicle checks).
+ * Returned by GET /daily-sheets/:id/audit-log, newest first.
+ */
+export interface SheetAuditLogEntry {
+  id: string;
+  at: string; // ISO
+  source: 'AUDIT_LOG' | 'CREW_CASH' | 'DISCREPANCY_CASE' | 'DAMAGE_CASE' | 'MOVE_LOG' | 'VEHICLE_CHECK';
+  action: string; // raw action string, preserved
+  actionLabel: string; // human-readable
+  category: SheetAuditCategory;
+  entity: string; // 'Delivery' | 'Expense' | 'Crew Cash' | 'Trip' | 'Sheet' | 'Vehicle Check' | 'Discrepancy Case' | 'Damage Case' | 'Message'
+  entityId: string | null;
+  entityLabel: string | null; // e.g. customer "Ali Traders (C-012)" / "Trip 2"
+  actorId: string | null;
+  actorName: string | null;
+  actorRole: string | null;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  reason: string | null;
+}
+
 export interface VanSummary {
   id: string;
   plateNumber: string;
