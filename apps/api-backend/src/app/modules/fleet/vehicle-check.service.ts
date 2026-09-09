@@ -8,7 +8,9 @@ import { NotificationService } from '../notifications/notification.service';
 import { CreateVehicleDailyCheckDto } from './dto/create-vehicle-daily-check.dto';
 import { OverrideCriticalCheckDto } from './dto/override-critical-check.dto';
 import { UpdateVehicleDailyCheckDto } from './dto/update-vehicle-daily-check.dto';
+import { VehicleCheckHistoryQueryDto } from './dto/vehicle-check-history-query.dto';
 import { normalizeChecklistResults, hasCriticalFailure } from './fleet-checklist.util';
+import { paginate } from '../../common/helpers/paginate';
 
 @Injectable()
 export class VehicleCheckService {
@@ -160,6 +162,82 @@ export class VehicleCheckService {
       },
       orderBy: { recordedAt: 'asc' },
     });
+  }
+
+  /**
+   * Per-vehicle daily meter-reading history for the Fleet detail page's
+   * "Meter Readings" tab. Paginates over the DailySheets this physical
+   * vehicle was checked on (newest first), folding each sheet's START/END
+   * pair into one row with the day's distance, the driver who ran it and
+   * the van/route slot it served. One sheet has at most one START + one END
+   * (`@@unique([dailySheetId, checkType])`), so grouping is exact.
+   */
+  async getHistoryForVehicle(user: AuthUser, vehicleId: string, query: VehicleCheckHistoryQueryDto) {
+    const vehicle = await this.prisma.vehicle.findFirst({
+      where: { id: vehicleId, vendorId: user.vendorId },
+      select: { id: true },
+    });
+    if (!vehicle) throw new NotFoundException('Vehicle not found');
+
+    const { page = 1, limit = 20, dateFrom, dateTo } = query;
+
+    const where: Prisma.DailySheetWhereInput = {
+      vendorId: user.vendorId,
+      vehicleDailyChecks: { some: { vehicleId } },
+    };
+    if (dateFrom || dateTo) {
+      where.date = {};
+      if (dateFrom) where.date.gte = new Date(dateFrom);
+      if (dateTo) {
+        const end = new Date(dateTo);
+        end.setHours(23, 59, 59, 999);
+        where.date.lte = end;
+      }
+    }
+
+    const [sheets, total] = await Promise.all([
+      this.prisma.dailySheet.findMany({
+        where,
+        select: {
+          id: true,
+          date: true,
+          kind: true,
+          van: { select: { id: true, plateNumber: true } },
+          driver: { select: { id: true, name: true } },
+          vehicleDailyChecks: {
+            where: { vehicleId },
+            include: {
+              recordedBy: { select: { id: true, name: true } },
+              odometerEditedBy: { select: { id: true, name: true } },
+            },
+            orderBy: { recordedAt: 'asc' },
+          },
+        },
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.dailySheet.count({ where }),
+    ]);
+
+    const data = sheets.map((sheet) => {
+      const start = sheet.vehicleDailyChecks.find((c) => c.checkType === 'START') ?? null;
+      const end = sheet.vehicleDailyChecks.find((c) => c.checkType === 'END') ?? null;
+      return {
+        dailySheetId: sheet.id,
+        date: sheet.date,
+        sheetKind: sheet.kind,
+        van: sheet.van,
+        driver: sheet.driver,
+        // Only meaningful when both ends of the trip were recorded; a lone
+        // START (trip still running / END never recorded) has no distance.
+        distanceKm: start && end ? end.odometerReading - start.odometerReading : null,
+        start,
+        end,
+      };
+    });
+
+    return paginate(data, total, page, limit);
   }
 
   /**

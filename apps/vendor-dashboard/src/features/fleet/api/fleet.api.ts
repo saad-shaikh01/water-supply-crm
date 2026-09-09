@@ -3,6 +3,7 @@ import type {
   VehicleProfileEntry,
   VehicleDocumentEntry,
   VehicleDailyCheckEntry,
+  VehicleCheckHistoryEntry,
   FuelLogEntry,
   VehicleMaintenanceRuleEntry,
   VehicleServiceRecordEntry,
@@ -197,6 +198,11 @@ export const fleetApi = {
     apiClient.post<VehicleDailyCheckEntry>('/fleet/daily-checks', data).then((r) => r.data),
   getChecksForSheet: (dailySheetId: string) =>
     apiClient.get<VehicleDailyCheckEntry[]>(`/fleet/daily-checks/sheet/${dailySheetId}`).then((r) => r.data),
+  // Per-vehicle daily meter-reading history — Fleet detail page "Meter Readings" tab.
+  getVehicleCheckHistory: (vehicleId: string, params?: { page?: number; limit?: number; dateFrom?: string; dateTo?: string }) =>
+    apiClient
+      .get<FleetPaginatedResult<VehicleCheckHistoryEntry>>(`/fleet/daily-checks/vehicle/${vehicleId}/history`, { params })
+      .then((r) => r.data),
   // Odometer Correction (2026-08-23) — Staff/Admin fixing a mis-entered
   // reading on an already-submitted check. `reason` is mandatory server-side.
   updateDailyCheck: (id: string, data: { odometerReading: number; reason: string }) =>

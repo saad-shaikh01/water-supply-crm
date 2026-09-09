@@ -10,6 +10,21 @@ export const useVehicleDailyChecks = (dailySheetId: string | undefined) =>
     enabled: !!dailySheetId,
   });
 
+/**
+ * Per-vehicle daily meter-reading history for the Fleet detail page's
+ * "Meter Readings" tab — newest first, one row per DailySheet the vehicle
+ * was checked on.
+ */
+export const useVehicleCheckHistory = (
+  vehicleId: string | undefined,
+  params?: { page?: number; limit?: number; dateFrom?: string; dateTo?: string },
+) =>
+  useQuery({
+    queryKey: queryKeys.fleet.checkHistory(vehicleId ?? '', params),
+    queryFn: () => fleetApi.getVehicleCheckHistory(vehicleId as string, params),
+    enabled: !!vehicleId,
+  });
+
 export const useCreateVehicleDailyCheck = () => {
   const queryClient = useQueryClient();
   return useMutation({

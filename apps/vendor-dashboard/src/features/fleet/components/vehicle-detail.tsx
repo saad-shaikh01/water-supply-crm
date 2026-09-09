@@ -7,6 +7,7 @@ import { VehicleOverviewTab } from './vehicle-overview-tab';
 import { VehicleDocumentsTab } from './vehicle-documents-tab';
 import { VehicleMaintenanceTab } from './vehicle-maintenance-tab';
 import { VehicleFuelTab } from './vehicle-fuel-tab';
+import { VehicleMeterReadingsTab } from './vehicle-meter-readings-tab';
 
 interface VehicleDetailProps {
   // §17 Amendment (2026-08-21): Fleet's detail page is keyed by the physical
@@ -53,6 +54,7 @@ export function VehicleDetail({ vehicleId }: VehicleDetailProps) {
           <TabsTrigger value="documents">Documents</TabsTrigger>
           <TabsTrigger value="maintenance">Maintenance</TabsTrigger>
           <TabsTrigger value="fuel">Fuel</TabsTrigger>
+          <TabsTrigger value="meter-readings">Meter Readings</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-4">
@@ -66,6 +68,9 @@ export function VehicleDetail({ vehicleId }: VehicleDetailProps) {
         </TabsContent>
         <TabsContent value="fuel" className="mt-4">
           <VehicleFuelTab vehicleId={vehicleId} />
+        </TabsContent>
+        <TabsContent value="meter-readings" className="mt-4">
+          <VehicleMeterReadingsTab vehicleId={vehicleId} />
         </TabsContent>
       </Tabs>
     </div>

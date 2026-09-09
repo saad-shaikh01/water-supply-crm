@@ -1,9 +1,10 @@
-import { Controller, Get, Post, Patch, Body, Param } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { VehicleCheckService } from './vehicle-check.service';
 import { CreateVehicleDailyCheckDto } from './dto/create-vehicle-daily-check.dto';
 import { OverrideCriticalCheckDto } from './dto/override-critical-check.dto';
 import { UpdateVehicleDailyCheckDto } from './dto/update-vehicle-daily-check.dto';
+import { VehicleCheckHistoryQueryDto } from './dto/vehicle-check-history-query.dto';
 import { RequirePermissions, RequireAnyPermission } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
@@ -23,6 +24,18 @@ export class VehicleCheckController {
   @RequireAnyPermission('fleet:record_check', 'fleet:view')
   getForSheet(@CurrentUser() user: AuthUser, @Param('dailySheetId') dailySheetId: string) {
     return this.vehicleCheckService.getForSheet(user, dailySheetId);
+  }
+
+  // Per-vehicle daily meter-reading history — powers the Fleet detail page's
+  // "Meter Readings" tab. Same fleet:view bar as the detail page itself.
+  @Get('vehicle/:vehicleId/history')
+  @RequirePermissions('fleet:view')
+  getHistoryForVehicle(
+    @CurrentUser() user: AuthUser,
+    @Param('vehicleId') vehicleId: string,
+    @Query() query: VehicleCheckHistoryQueryDto,
+  ) {
+    return this.vehicleCheckService.getHistoryForVehicle(user, vehicleId, query);
   }
 
   // Odometer Correction (2026-08-23, owner request) — Staff/Admin only, NOT

@@ -45,6 +45,7 @@ import { UnlockEditDto } from './dto/unlock-edit.dto';
 import { StorageService } from '../../common/storage/storage.service';
 import { WarehouseService } from '../warehouse/warehouse.service';
 import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.service';
+import { CloudTemplateNames } from '../whatsapp/templates/cloud-template-names';
 import { NotificationSettingsService } from '../notifications/notification-settings.service';
 import { CollectionPolicyService } from '../collection-policy/collection-policy.service';
 import { evaluateCollectionPolicy, evaluateCashCollectionPolicy } from '../../common/helpers/collection-policy.util';
@@ -831,6 +832,25 @@ export class DailySheetService implements OnModuleInit {
             vendorName: item.dailySheet.vendor?.name ?? 'Water Supply',
             previousMonthOutstanding,
           };
+          // On a correction, lead with an apology note so the customer understands
+          // why a second receipt is arriving. Meta-approved `delivery_corrected`
+          // template: {{1}} name · {{2}} product · {{3}} qty · {{4}} cash collected.
+          if (isCorrection) {
+            this.notifications
+              .queueWhatsAppTemplate(
+                item.customer.phoneNumber,
+                CloudTemplateNames.DELIVERY_CORRECTED,
+                [
+                  item.customer.name,
+                  item.product.name,
+                  String(dto.filledDropped ?? 0),
+                  String(dto.cashCollected ?? 0),
+                ],
+                `ntf:delivery-corrected:${itemId}:${now.getTime()}:wa`,
+                { entityType: 'DELIVERY_ITEM', entityId: itemId, vendorId, type: NotificationType.DELIVERY_RECEIPT, recipientType: 'CUSTOMER', recipientId: item.customerId },
+              )
+              .catch((e: Error) => this.logger.warn(`WhatsApp delivery-corrected note failed for item ${itemId}: ${e.message}`));
+          }
           this.notifications.queueWhatsAppPdf(
             item.customer.phoneNumber,
             receiptData,

@@ -320,6 +320,8 @@ Driver aapke ghar aayega. Shukriya!
 ### 15. `delivery_corrected`  — Delivery mein ghalti correct ki (text only)
 - **Category:** UTILITY · **Language:** English
 - **Replaces:** `deliveryCorrected`
+- **Wired:** `daily-sheet.service.ts` `submitDelivery()` COMPLETED branch, **correction only** (`isCorrection = !!item.whatsappSentAt`) → `notifications.queueWhatsAppTemplate(... CloudTemplateNames.DELIVERY_CORRECTED ...)` → job `SEND_WHATSAPP_TEMPLATE`. Sent right before the re-sent PDF receipt so the customer knows why a second receipt is arriving. Gated by `NotificationType.DELIVERY_RECEIPT`.
+- **⚠️ Must be submitted + approved on Meta** — body below is the intended text (from the old free-text helper), not yet confirmed-approved. Until approved, the send fails with Graph API error 132000 and the correction still delivers the PDF receipt.
 - **Body:**
 ```
 Assalam o Alaikum {{1}},
@@ -436,7 +438,7 @@ Payment of {{1}} received. New balance: {{2}}. Thank you!
 | 12 | `order_dispatched` | ✅ |
 | 13 | `ticket_replied` | ✅ |
 | 14 | `delivery_scheduled` | ⚪ Optional |
-| 15 | `delivery_corrected` | ⚪ Optional |
+| 15 | `delivery_corrected` | ✅ Code wired — submit for Meta approval |
 | 16 | `delivery_completed` | ⚪ Optional |
 | 17 | `delivery_unsuccessful` | ✅ Code wired — submit for Meta approval |
 | 18 | `payment_recorded` | ⚪ Optional |

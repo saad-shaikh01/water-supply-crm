@@ -14,6 +14,7 @@ export const CloudTemplateNames = {
   BALANCE_CLEAR: 'balance_clear',
   PAYMENT_OVERDUE_WARNING: 'payment_overdue_warning',
   PAYMENT_RECEIVED: 'payment_received',
+  DELIVERY_CORRECTED: 'delivery_corrected',
   ORDER_APPROVED: 'order_approved',
   ORDER_REJECTED: 'order_rejected',
   ORDER_PLANNED: 'order_planned',

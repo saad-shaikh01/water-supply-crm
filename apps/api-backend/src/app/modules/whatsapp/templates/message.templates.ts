@@ -71,6 +71,12 @@ export const MessageTemplates = {
   orderDispatched: (customerName: string, productName: string, qty: number) =>
     `Assalam o Alaikum ${customerName}! 🚚\n\nAapka order aaj deliver ho raha hai:\n🔵 Product: ${productName}\n🫙 Quantity: ${qty}\n\nDriver raaste mein hai. Shukriya!`,
 
+  /**
+   * @deprecated Not sent as free text. The delivery-correction flow
+   * (`daily-sheet.service.ts` submitDelivery, correction branch) now sends the
+   * Meta-approved `delivery_corrected` Cloud API template (cloud-api-templates.md
+   * #15) — this body is kept as the reference for that template's text.
+   */
   deliveryCorrected: (
     customerName: string,
     productName: string,

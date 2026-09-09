@@ -528,6 +528,24 @@ export interface VehicleDailyCheckEntry {
   odometerEditReason: string | null;
 }
 
+/**
+ * One day's meter-reading row for a vehicle — a DailySheet's START/END check
+ * pair folded together with the day's distance, the driver who ran the trip
+ * and the van/route slot it served. Powers the Fleet detail page's "Meter
+ * Readings" tab. `start`/`end` are null when that end of the trip was never
+ * recorded (lone START = trip still running or END skipped).
+ */
+export interface VehicleCheckHistoryEntry {
+  dailySheetId: string;
+  date: string;
+  sheetKind: 'ROUTE' | 'WALK_IN';
+  van: { id: string; plateNumber: string };
+  driver: { id: string; name: string };
+  distanceKm: number | null;
+  start: VehicleDailyCheckEntry | null;
+  end: VehicleDailyCheckEntry | null;
+}
+
 export interface FuelLogEntry {
   id: string;
   vehicleId: string;
