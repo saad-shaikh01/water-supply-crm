@@ -48,6 +48,11 @@ describe('domain classification', () => {
     expect(domainForExpenseCategory(ExpenseCategory.CHARITY)).toBe('OFFICE');
   });
 
+  it('routes VEHICLE_RENT to VEHICLE, distinct from the OFFICE-domain RENT category', () => {
+    expect(domainForExpenseCategory(ExpenseCategory.VEHICLE_RENT)).toBe('VEHICLE');
+    expect(domainForExpenseCategory(ExpenseCategory.RENT)).toBe('OFFICE');
+  });
+
   it('has a label for every category in both enums', () => {
     for (const category of Object.values(ExpenseCategory)) {
       expect(EXPENSE_CATEGORY_LABELS[category]).toBeTruthy();

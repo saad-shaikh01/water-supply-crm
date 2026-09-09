@@ -90,6 +90,9 @@ export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
   BOTTLE_REPAIR: 'Bottle Repair',
   CONTRACTOR_PAYMENT: 'Contractor Payment',
   CHARITY: 'Sadqa / Charity',
+  // Added 2026-09-09 (owner request): renting an additional truck/vehicle —
+  // distinct from RENT (OFFICE premises/warehouse rent) above.
+  VEHICLE_RENT: 'Vehicle Rent',
   // Retained-for-history categories (dropped from the add-expense dropdown
   // 2026-08-21 but still present on old rows) — labelled as legacy so a
   // reader can tell them apart from the live ones at a glance.
@@ -137,6 +140,9 @@ export const EXPENSE_CATEGORY_DOMAINS: Record<ExpenseCategory, ExpenseCenterDoma
   BOTTLE_REPAIR: 'INVENTORY',
   CONTRACTOR_PAYMENT: 'EMPLOYEES',
   CHARITY: 'OFFICE',
+  // Added 2026-09-09 (owner request): renting an additional truck/vehicle —
+  // distinct from RENT (OFFICE premises/warehouse rent) above.
+  VEHICLE_RENT: 'VEHICLE',
 };
 
 /**

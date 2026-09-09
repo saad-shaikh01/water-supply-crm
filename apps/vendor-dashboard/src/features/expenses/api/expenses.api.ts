@@ -10,7 +10,9 @@ export type ExpenseCategory =
   // Added 2026-09-08 — vehicle checkpoint, office/regulatory, inventory repair,
   // and contractor/charity payout categories.
   | 'POLICE' | 'MOBILE_LOAD' | 'PSQCA'
-  | 'BOTTLE_REPAIR' | 'CONTRACTOR_PAYMENT' | 'CHARITY';
+  | 'BOTTLE_REPAIR' | 'CONTRACTOR_PAYMENT' | 'CHARITY'
+  // Added 2026-09-09 — vehicle rental category, distinct from the OFFICE-domain RENT.
+  | 'VEHICLE_RENT';
 
 export interface ExpenseQuery {
   page?: number;

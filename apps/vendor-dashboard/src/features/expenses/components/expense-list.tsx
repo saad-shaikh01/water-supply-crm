@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQueryState, parseAsString } from 'nuqs';
-import { MoreHorizontal, Pencil, Trash2, Receipt, Fuel, Wrench, Users, AlertTriangle, Snowflake, PackagePlus, Building2, Zap, FileText, Droplet, Package, FlaskConical, Shield, Smartphone, Stamp, Bandage, Handshake, HeartHandshake, type LucideIcon } from 'lucide-react';
+import { MoreHorizontal, Pencil, Trash2, Receipt, Fuel, Wrench, Users, AlertTriangle, Snowflake, PackagePlus, Building2, Zap, FileText, Droplet, Package, FlaskConical, Shield, Smartphone, Stamp, Bandage, Handshake, HeartHandshake, KeyRound, type LucideIcon } from 'lucide-react';
 import {
   Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuTrigger, Badge, Card, CardContent,
@@ -44,6 +44,12 @@ const CATEGORY_CONFIG: Record<ExpenseCategory, { label: string; color: string; i
   BOTTLE_REPAIR:           { label: 'Bottle Repair',       color: 'bg-gray-500/10 text-gray-500',       icon: Bandage },
   CONTRACTOR_PAYMENT:      { label: 'Contractor Payment',  color: 'bg-neutral-600/10 text-neutral-600', icon: Handshake },
   CHARITY:                 { label: 'Sadqa / Charity',     color: 'bg-amber-500/10 text-amber-500',     icon: HeartHandshake },
+  // Added 2026-09-09 (owner request) — renting an additional truck/vehicle,
+  // distinct from RENT (OFFICE premises rent) above. Color is sky-500 —
+  // same hue as DOMAIN_CONFIG's VEHICLE (sky-600) but a different shade,
+  // same precedent as CHARITY/amber-500 vs OFFICE/amber-700 above — and
+  // distinct from every other category color in this map.
+  VEHICLE_RENT:            { label: 'Vehicle Rent',        color: 'bg-sky-500/10 text-sky-500',         icon: KeyRound },
   OTHER:                   { label: 'Others',              color: 'bg-muted text-muted-foreground',     icon: AlertTriangle },
 };
 
