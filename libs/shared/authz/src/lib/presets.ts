@@ -166,6 +166,11 @@ const MANAGER_PERMISSIONS: Permission[] = [
   // the user's explicit requirement was STAFF + VENDOR_ADMIN resolution
   // authority, no override-only tier the way payroll:view_all has.
   'sheet_discrepancies:page', 'sheet_discrepancies:view', 'sheet_discrepancies:resolve',
+  // Van Cash Ledger (owner-requested 2026-09-09): flat STAFF/VENDOR_ADMIN
+  // default, same tier as crew_cash/fleet above — Manager reviews/approves
+  // driver cash handovers and sets a van's opening balance; existing vendors
+  // get it via PRESET_DRIFT_BACKFILLS.manager.
+  'van_cash_ledger:page', 'van_cash_ledger:view', 'van_cash_ledger:manage', 'van_cash_ledger:approve',
 ];
 
 export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {

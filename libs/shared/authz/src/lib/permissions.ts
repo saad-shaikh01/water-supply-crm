@@ -275,6 +275,18 @@ export const PERMISSION_CATALOG = {
     navigable: true,
     actions: ['page', 'view', 'resolve'],
   },
+  // Van Cash Ledger (owner-requested 2026-09-09): new resource — running cash
+  // balance per van, folding Daily Sheet cash handovers (once approved) and
+  // Expense Center cash-outs into one chronological feed. Navigable:
+  // /dashboard/cash-ledger is a dedicated page. `manage` covers setting a
+  // van's opening balance; `approve` is the office-side review/approval of a
+  // driver's cash handover (separate action since it can also override the
+  // handed-over amount with a reason, unlike a plain view/manage grant).
+  van_cash_ledger: {
+    label: 'Van Cash Ledger',
+    navigable: true,
+    actions: ['page', 'view', 'manage', 'approve'],
+  },
 } as const satisfies Record<string, ResourceDefinition>;
 
 /** Union of every resource key, e.g. `'customers' | 'orders' | …`. */

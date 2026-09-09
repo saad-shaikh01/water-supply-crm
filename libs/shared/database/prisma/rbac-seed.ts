@@ -81,6 +81,12 @@ const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
     // Post-Close Expense Correction (owner-requested 2026-09-07). Existing
     // vendors' Manager roles predate it and need the catch-up grant.
     'daily_sheets:edit_closed_expense',
+    // Van Cash Ledger (owner-requested 2026-09-09). Existing vendors' Manager
+    // roles predate this new resource and need the catch-up grant.
+    'van_cash_ledger:page',
+    'van_cash_ledger:view',
+    'van_cash_ledger:manage',
+    'van_cash_ledger:approve',
   ],
 };
 
