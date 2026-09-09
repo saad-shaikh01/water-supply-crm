@@ -332,6 +332,16 @@ Each row: permission → the existing feature/endpoint(s) it gates. `page` sorts
 | `sheet_discrepancies:view` | `GET /sheet-discrepancy-cases`, `GET /sheet-discrepancy-cases/:id`, `GET /sheet-discrepancy-cases/:id/audit-log` |
 | `sheet_discrepancies:resolve` | `PATCH /sheet-discrepancy-cases/:id/resolve` |
 
+### 30. Van Cash Ledger — `van_cash_ledger` *(navigable — `/dashboard/cash-ledger`)*
+> **Amendment R14 (Van Cash Ledger, owner-requested 2026-09-09).** New resource — a running cash balance per van, folding a driver's Daily Sheet cash handover (once office staff approves it) into a chronological feed alongside the existing Expense Center's cash-paid costs. Default holders **Admin + Manager** (added to `MANAGER_PERMISSIONS` + a `PRESET_DRIFT_BACKFILLS.manager` catch-up for existing vendors). `manage` covers setting a van's opening balance (`POST /van-cash-ledger/opening-balance`); `approve` is the office-side review of a driver's cash handover, which may also override the handed-over amount with a mandatory reason (`PATCH /van-cash-ledger/cash-in/:id/approve`). Frozen total 171 → 175; +1 page permission, +1 resource.
+
+| Permission | Gates |
+|---|---|
+| `van_cash_ledger:page` | `/dashboard/cash-ledger` route access |
+| `van_cash_ledger:view` | `GET /van-cash-ledger/timeline`, `GET /van-cash-ledger/stats`, `GET /van-cash-ledger/pending-handovers` |
+| `van_cash_ledger:manage` | `POST /van-cash-ledger/opening-balance` |
+| `van_cash_ledger:approve` | `PATCH /van-cash-ledger/cash-in/:id/approve` |
+
 ---
 
 ## B. Reference lists

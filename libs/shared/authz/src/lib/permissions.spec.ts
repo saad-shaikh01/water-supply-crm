@@ -66,14 +66,13 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // Force Deactivate feature, owner-requested 2026-09-09). No new resource, no new
 // `:page` — split from customers:deactivate so Salesman can hold the guarded
 // deactivate without ever forcing a write-off.
-// 174 = 171 + van_cash_ledger (view, approve, manage) — new resource for the Van
-// Cash Ledger feature (owner-requested 2026-09-09): the "cash in" counterpart to
-// the Expense Center, tracking the driver -> office cash handover recorded at
-// each Daily Sheet close. Non-navigable (surfaced inside the existing Expense
-// Center page) — same reasoning as `crew_cash`/pre-Amendment-R6 `payroll` — so
-// no new `:page` permission, but +1 resource.
-const FROZEN_TOTAL = 174;
-const FROZEN_PAGES = 28;
+// 175 = 171 + van_cash_ledger (page, view, manage, approve) — new resource for
+// the Van Cash Ledger feature (owner-requested 2026-09-09): a running cash
+// balance per van folding Daily Sheet cash handovers and Expense Center
+// cash-outs into one timeline. Navigable (`/dashboard/cash-ledger`) — +1 page
+// permission, +1 resource too.
+const FROZEN_TOTAL = 175;
+const FROZEN_PAGES = 29;
 const FROZEN_RESOURCES = 31;
 
 describe('permission catalog (frozen contract)', () => {

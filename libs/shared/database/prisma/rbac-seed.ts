@@ -87,13 +87,17 @@ const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
     // vendors' Manager roles predate it and need the catch-up grant.
     'daily_sheets:edit_closed_expense',
     // Van Cash Ledger (owner-requested 2026-09-09). Existing vendors' Manager
-    // roles predate it and need the catch-up grant.
+    // roles predate this new resource and need the catch-up grant. `manage`
+    // (opening balances) is deliberately excluded — VENDOR_ADMIN-only.
+    'van_cash_ledger:page',
     'van_cash_ledger:view',
     'van_cash_ledger:approve',
   ],
   accountant: [
     // Van Cash Ledger (owner-requested 2026-09-09). Existing vendors'
-    // Accountant roles predate it and need the catch-up grant.
+    // Accountant roles predate it and need the catch-up grant. `manage`
+    // (opening balances) is deliberately excluded — VENDOR_ADMIN-only.
+    'van_cash_ledger:page',
     'van_cash_ledger:view',
     'van_cash_ledger:approve',
   ],
