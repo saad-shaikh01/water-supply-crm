@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import { paginate } from '../../common/helpers/paginate';
+import { normalizePhone } from '../whatsapp/phone.util';
 import { NotificationLogQueryDto } from './dto/notification-log-query.dto';
 
 @Injectable()
@@ -44,7 +45,7 @@ export class NotificationLogService {
       this.prisma.notificationLog.count({ where }),
     ]);
 
-    const enriched = await this.attachCustomerAndSheet(data);
+    const enriched = await this.attachCustomerAndSheet(vendorId, data);
     return paginate(enriched, total, page, limit);
   }
 
@@ -52,8 +53,15 @@ export class NotificationLogService {
    * Attaches customer name/code + the daily sheet a delivery notification belongs to.
    * recipientId/entityId are loose string fields (not Prisma relations), so this is a
    * manual batch join rather than a Prisma `include`.
+   *
+   * Many notification producers (Record Payment, order updates, ticket replies)
+   * enqueue with only `{ vendorId, type }` and no recipient metadata, so their
+   * rows have neither `recipientId` nor `entityId` — historically that left the
+   * customer column blank, most visibly on FAILED sends. As a last resort we
+   * match `recipientAddress` (the phone number) against the vendor's customers.
    */
-  private async attachCustomerAndSheet<T extends { recipientType: string | null; recipientId: string | null; entityType: string | null; entityId: string | null }>(
+  private async attachCustomerAndSheet<T extends { recipientType: string | null; recipientId: string | null; entityType: string | null; entityId: string | null; recipientAddress?: string | null }>(
+    vendorId: string,
     logs: T[],
   ) {
     const deliveryItemIds = [...new Set(logs.filter((l) => l.entityType === 'DELIVERY_ITEM' && l.entityId).map((l) => l.entityId as string))];
@@ -79,10 +87,35 @@ export class NotificationLogService {
       : [];
     const customerById = new Map(customers.map((c) => [c.id, c]));
 
+    const resolvedCustomerId = (log: T) =>
+      (log.recipientType === 'CUSTOMER' ? log.recipientId : null) ??
+      (log.entityType === 'DELIVERY_ITEM' && log.entityId ? itemById.get(log.entityId)?.customerId : undefined) ??
+      null;
+
+    // Phone-number fallback for rows that carry no usable recipient/entity id.
+    const unresolvedPhones = new Set(
+      logs
+        .filter((l) => !resolvedCustomerId(l) && normalizePhone(l.recipientAddress))
+        .map((l) => normalizePhone(l.recipientAddress)),
+    );
+    const customerByPhone = new Map<string, { id: string; name: string; customerCode: string }>();
+    if (unresolvedPhones.size) {
+      const withPhones = await this.prisma.customer.findMany({
+        where: { vendorId, phoneNumber: { not: null } },
+        select: { id: true, name: true, customerCode: true, phoneNumber: true },
+      });
+      for (const c of withPhones) {
+        const key = normalizePhone(c.phoneNumber);
+        if (key && !customerByPhone.has(key)) customerByPhone.set(key, c);
+      }
+    }
+
     return logs.map((log) => {
       const item = log.entityType === 'DELIVERY_ITEM' && log.entityId ? itemById.get(log.entityId) : undefined;
-      const customerId = (log.recipientType === 'CUSTOMER' ? log.recipientId : null) ?? item?.customerId ?? null;
-      const customer = customerId ? customerById.get(customerId) : undefined;
+      const customerId = resolvedCustomerId(log);
+      const customer =
+        (customerId ? customerById.get(customerId) : undefined) ??
+        customerByPhone.get(normalizePhone(log.recipientAddress));
       return {
         ...log,
         customerName: customer?.name ?? null,
