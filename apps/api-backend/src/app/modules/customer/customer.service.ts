@@ -712,17 +712,22 @@ export class CustomerService {
   /**
    * Soft-disable a customer, preserving all history.
    *
-   * Three guards, checked in order — a customer that trips any of the first two
-   * can never be deactivated until it is physically resolved:
-   *   1. no open PENDING delivery items,
-   *   2. every bottle wallet settled to zero,
-   *   3. no outstanding financial balance (customer owes nothing).
+   * Two hard guards, checked in order — a customer that trips either can never
+   * be deactivated until it is physically resolved:
+   *   1. every bottle wallet settled to zero,
+   *   2. no outstanding financial balance (customer owes nothing).
    *
-   * Guard 3 is the only one `force` can push past, and only when the caller
+   * Guard 2 is the only one `force` can push past, and only when the caller
    * holds `customers:force_deactivate` (VENDOR_ADMIN by default). The forced
    * path writes the remaining balance off to zero through an ADJUSTMENT
    * transaction — a visible company loss (bad debt) — and audits it as
    * `FORCE_DEACTIVATE`.
+   *
+   * The customer's still-PENDING delivery items on open (non-closed) sheets are
+   * auto-CANCELLED as part of the deactivation — nothing has been delivered or
+   * collected on a PENDING item, so it carries no ledger effect and a pending
+   * stop must never block closing the account. The count comes back as
+   * `cancelledDeliveries` and is recorded on the audit entry.
    */
   async deactivate(
     vendorId: string,
@@ -732,15 +737,6 @@ export class CustomerService {
   ) {
     const customer = await this.prisma.customer.findFirst({ where: { id, vendorId } });
     if (!customer) throw new NotFoundException('Customer not found');
-
-    const pendingItems = await this.prisma.dailySheetItem.count({
-      where: { customerId: id, status: 'PENDING', dailySheet: { isClosed: false } },
-    });
-    if (pendingItems > 0) {
-      throw new ConflictException(
-        `Customer has ${pendingItems} pending delivery item(s). Complete or cancel them before deactivating.`
-      );
-    }
 
     // Refuse to close a customer who is still holding company bottles — the
     // driver must first record the final return delivery (Filled/Empty Received)
@@ -775,6 +771,15 @@ export class CustomerService {
       });
     }
 
+    // Still-PENDING stops on open sheets are cancelled as part of the close —
+    // nothing has posted to the ledger for a PENDING item, so this is a pure
+    // status flip (mirrors the RESCHEDULED→CANCELLED sweep in daily-sheet.service).
+    const pendingWhere: Prisma.DailySheetItemWhereInput = {
+      customerId: id,
+      status: DeliveryStatus.PENDING,
+      dailySheet: { isClosed: false },
+    };
+
     if (opts.force && owed > 0) {
       if (!actor) {
         throw new ForbiddenException('Force deactivate requires an authenticated actor.');
@@ -794,6 +799,10 @@ export class CustomerService {
         `(force deactivate by ${actor.name ?? actor.userId})`;
 
       const updated = await this.prisma.$transaction(async (tx) => {
+        const { count: cancelledDeliveries } = await tx.dailySheetItem.updateMany({
+          where: pendingWhere,
+          data: { status: DeliveryStatus.CANCELLED },
+        });
         await tx.transaction.create({
           data: {
             type: TransactionType.ADJUSTMENT,
@@ -807,11 +816,12 @@ export class CustomerService {
           where: { id },
           data: { financialBalance: { increment: -owed } },
         });
-        return tx.customer.update({
+        const c = await tx.customer.update({
           where: { id },
           data: { isActive: false },
           select: { id: true, name: true, customerCode: true, isActive: true },
         });
+        return { ...c, cancelledDeliveries };
       });
 
       await Promise.all([
@@ -819,6 +829,7 @@ export class CustomerService {
         this.cache.invalidateOverview(vendorId),
         this.cache.invalidateAnalytics(vendorId),
         this.cache.invalidateCustomerWallets(vendorId, id),
+        ...(updated.cancelledDeliveries > 0 ? [this.cache.invalidateDailyDashboard(vendorId)] : []),
       ]);
       await this.audit.log({
         vendorId,
@@ -829,18 +840,33 @@ export class CustomerService {
         entityId: id,
         changes: {
           before: { financialBalance: owed, isActive: true },
-          after: { financialBalance: 0, isActive: false, writtenOff: owed },
+          after: {
+            financialBalance: 0,
+            isActive: false,
+            writtenOff: owed,
+            cancelledDeliveries: updated.cancelledDeliveries,
+          },
         },
       });
       return updated;
     }
 
-    const updated = await this.prisma.customer.update({
-      where: { id },
-      data: { isActive: false },
-      select: { id: true, name: true, customerCode: true, isActive: true },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const { count: cancelledDeliveries } = await tx.dailySheetItem.updateMany({
+        where: pendingWhere,
+        data: { status: DeliveryStatus.CANCELLED },
+      });
+      const c = await tx.customer.update({
+        where: { id },
+        data: { isActive: false },
+        select: { id: true, name: true, customerCode: true, isActive: true },
+      });
+      return { ...c, cancelledDeliveries };
     });
-    await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
+    await Promise.all([
+      this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS),
+      ...(updated.cancelledDeliveries > 0 ? [this.cache.invalidateDailyDashboard(vendorId)] : []),
+    ]);
     await this.audit.log({
       vendorId,
       userId: actor?.userId,
@@ -848,6 +874,7 @@ export class CustomerService {
       action: 'DEACTIVATE',
       entity: 'Customer',
       entityId: id,
+      changes: { after: { isActive: false, cancelledDeliveries: updated.cancelledDeliveries } },
     });
     return updated;
   }
@@ -1393,12 +1420,13 @@ export class CustomerService {
   }
 
   /**
-   * Deactivate many customers in one call. Applies the exact same guards as the
-   * per-customer `deactivate()` (open pending deliveries, outstanding bottles,
-   * outstanding financial balance) — any customer that fails a guard is reported
-   * in `skipped` and the rest still go through, so one blocked account never
-   * fails the whole batch. There is deliberately no bulk `force`: each write-off
-   * needs its own explicit single-customer review.
+   * Deactivate many customers in one call. Applies the same guards as the
+   * per-customer `deactivate()` — outstanding bottles and an outstanding
+   * financial balance still send a customer to `skipped` (there is deliberately
+   * no bulk `force`: each write-off needs its own single-customer review). A
+   * still-PENDING delivery does NOT skip: those stops are auto-CANCELLED for
+   * every deactivated customer, exactly as the single flow does. One blocked
+   * account never fails the whole batch.
    */
   async bulkDeactivate(vendorId: string, dto: BulkDeactivateDto) {
     const customers = await this.prisma.customer.findMany({
@@ -1414,18 +1442,6 @@ export class CustomerService {
     const toDeactivate: string[] = [];
 
     for (const customer of customers) {
-      const pendingItems = await this.prisma.dailySheetItem.count({
-        where: { customerId: customer.id, status: 'PENDING', dailySheet: { isClosed: false } },
-      });
-      if (pendingItems > 0) {
-        skipped.push({
-          customerId: customer.id,
-          name: customer.name,
-          reason: `${pendingItems} pending delivery item(s)`,
-        });
-        continue;
-      }
-
       const outstandingWallets = await this.prisma.bottleWallet.findMany({
         where: { customerId: customer.id, balance: { not: 0 } },
         select: { balance: true, product: { select: { name: true } } },
@@ -1453,23 +1469,45 @@ export class CustomerService {
       toDeactivate.push(customer.id);
     }
 
+    let cancelledDeliveries = 0;
     if (toDeactivate.length > 0) {
-      await this.prisma.customer.updateMany({
-        where: { id: { in: toDeactivate } },
-        data: { isActive: false },
+      await this.prisma.$transaction(async (tx) => {
+        const cancelled = await tx.dailySheetItem.updateMany({
+          where: {
+            customerId: { in: toDeactivate },
+            status: DeliveryStatus.PENDING,
+            dailySheet: { isClosed: false },
+          },
+          data: { status: DeliveryStatus.CANCELLED },
+        });
+        cancelledDeliveries = cancelled.count;
+        await tx.customer.updateMany({
+          where: { id: { in: toDeactivate } },
+          data: { isActive: false },
+        });
       });
-      await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
+      await Promise.all([
+        this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS),
+        ...(cancelledDeliveries > 0 ? [this.cache.invalidateDailyDashboard(vendorId)] : []),
+      ]);
       await this.audit.log({
         vendorId,
         action: 'BULK_DEACTIVATE',
         entity: 'Customer',
-        changes: { after: { customerIds: toDeactivate, deactivatedCount: toDeactivate.length } },
+        changes: {
+          after: {
+            customerIds: toDeactivate,
+            deactivatedCount: toDeactivate.length,
+            cancelledDeliveries,
+          },
+        },
       });
     }
 
     return {
       requestedCount: dto.customerIds.length,
       deactivatedCount: toDeactivate.length,
+      cancelledDeliveries,
       skippedCount: skipped.length,
       skipped,
     };

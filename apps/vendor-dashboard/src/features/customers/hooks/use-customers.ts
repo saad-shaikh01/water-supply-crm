@@ -166,9 +166,13 @@ export const useDeactivateCustomer = () => {
   return useMutation({
     mutationFn: ({ id, force = false }: { id: string; force?: boolean }) =>
       customersApi.deactivate(id, force),
-    onSuccess: (_res, { force }) => {
+    onSuccess: (res: any, { force }) => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
-      toast.success(force ? 'Customer force-deactivated — balance written off as company loss' : 'Customer deactivated');
+      const cancelled = Number(res?.data?.cancelledDeliveries ?? 0);
+      const base = force
+        ? 'Customer force-deactivated — balance written off as company loss'
+        : 'Customer deactivated';
+      toast.success(cancelled > 0 ? `${base}. ${cancelled} pending deliver${cancelled === 1 ? 'y' : 'ies'} cancelled` : base);
     },
     onError: (e: any) => {
       // The outstanding-balance 409 is not a failure to surface as a toast — the
@@ -343,6 +347,7 @@ export const useBulkUpdateSchedule = () => {
 export interface BulkDeactivateResult {
   requestedCount: number;
   deactivatedCount: number;
+  cancelledDeliveries: number;
   skippedCount: number;
   skipped: Array<{ customerId: string; name: string; reason: string }>;
 }
@@ -354,14 +359,17 @@ export const useBulkDeactivateCustomers = () => {
       customersApi.bulkDeactivate(customerIds).then((r) => r.data),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
+      const cancelledSuffix = result.cancelledDeliveries > 0
+        ? ` · ${result.cancelledDeliveries} pending deliver${result.cancelledDeliveries === 1 ? 'y' : 'ies'} cancelled`
+        : '';
       if (result.deactivatedCount === 0) {
-        toast.error(`No customers deactivated — all ${result.skippedCount} skipped (pending deliveries, outstanding bottles, or outstanding balance)`);
+        toast.error(`No customers deactivated — all ${result.skippedCount} skipped (outstanding bottles or balance)`);
       } else if (result.skippedCount > 0) {
         toast.warning(
-          `Deactivated ${result.deactivatedCount} of ${result.requestedCount} — ${result.skippedCount} skipped (pending deliveries, outstanding bottles, or outstanding balance)`,
+          `Deactivated ${result.deactivatedCount} of ${result.requestedCount} — ${result.skippedCount} skipped (outstanding bottles or balance)${cancelledSuffix}`,
         );
       } else {
-        toast.success(`Deactivated ${result.deactivatedCount} customer${result.deactivatedCount !== 1 ? 's' : ''}`);
+        toast.success(`Deactivated ${result.deactivatedCount} customer${result.deactivatedCount !== 1 ? 's' : ''}${cancelledSuffix}`);
       }
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to deactivate customers'),

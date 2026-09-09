@@ -612,7 +612,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
         open={!!deactivateId}
         onOpenChange={(o) => { if (!o) setDeactivateId(null); }}
         title="Deactivate Customer"
-        description="This customer will be marked inactive and won't appear in daily sheets. You can reactivate them at any time."
+        description="This customer will be marked inactive and won't appear in daily sheets. Any of their still-pending deliveries on open sheets will be cancelled. You can reactivate them at any time."
         onConfirm={() => {
           if (!deactivateId) return;
           const id = deactivateId;
@@ -686,7 +686,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
         open={bulkDeactivateOpen}
         onOpenChange={setBulkDeactivateOpen}
         title="Deactivate Selected Customers"
-        description={`Deactivate ${selectedIds.size} selected customer${selectedIds.size !== 1 ? 's' : ''}? They won't appear in daily sheets. Any customer with pending deliveries, outstanding bottles, or an outstanding balance is skipped automatically — deactivate those individually to Force / write off. You can reactivate them at any time.`}
+        description={`Deactivate ${selectedIds.size} selected customer${selectedIds.size !== 1 ? 's' : ''}? They won't appear in daily sheets and any of their still-pending deliveries on open sheets will be cancelled. Any customer with outstanding bottles or an outstanding balance is skipped automatically — deactivate those individually to Force / write off. You can reactivate them at any time.`}
         onConfirm={() => {
           bulkDeactivate([...selectedIds], {
             onSuccess: () => { setBulkDeactivateOpen(false); setSelectedIds(new Set()); },
