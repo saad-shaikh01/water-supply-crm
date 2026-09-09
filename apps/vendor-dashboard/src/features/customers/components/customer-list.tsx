@@ -420,6 +420,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
           {
             key: 'bottleBalance',
             header: 'Bottle Balance',
+            sortable: true,
             cell: (r) => {
               const wallets = (r.wallets ?? []).filter((w) => Number(w.balance ?? 0) !== 0);
               const total = wallets.reduce((s, w) => s + Number(w.balance ?? 0), 0);

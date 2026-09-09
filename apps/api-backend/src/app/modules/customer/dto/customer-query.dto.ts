@@ -62,7 +62,7 @@ export class CustomerQueryDto extends PaginationQueryDto {
   notDeliveredInDays?: number;
 
   @IsOptional()
-  @IsIn(['name', 'customerCode', 'createdAt', 'financialBalance'])
+  @IsIn(['name', 'customerCode', 'createdAt', 'financialBalance', 'bottleBalance'])
   sort?: string = 'name';
 
   @IsOptional()

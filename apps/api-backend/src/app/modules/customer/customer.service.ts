@@ -215,23 +215,59 @@ export class CustomerService {
       };
     }
 
-    const [data, total] = await Promise.all([
-      this.prisma.customer.findMany({
-        where,
-        include: {
-          route: { select: { id: true, name: true } },
-          wallets: { include: { product: { select: { id: true, name: true } } } },
-          deliverySchedules: {
-            include: { van: { select: { id: true, plateNumber: true } } },
-            orderBy: { dayOfWeek: 'asc' },
-          },
-        },
-        orderBy: { [sort]: sortDir },
-        skip: (page - 1) * limit,
-        take: limit,
-      }),
-      this.prisma.customer.count({ where }),
-    ]);
+    const listInclude = {
+      route: { select: { id: true, name: true } },
+      wallets: { include: { product: { select: { id: true, name: true } } } },
+      deliverySchedules: {
+        include: { van: { select: { id: true, plateNumber: true } } },
+        orderBy: { dayOfWeek: 'asc' as const },
+      },
+    };
+
+    let data: any[];
+    let total: number;
+
+    if (sort === 'bottleBalance') {
+      // "Bottle Balance" is Σ of the customer's per-product BottleWallet.balance
+      // rows — not a scalar column, and Prisma can't `orderBy` a relation _sum.
+      // Fetch every matching id (name-ordered for a stable tiebreak), sum the
+      // wallets in one grouped query, order in memory, then hydrate just the page.
+      const [allRows, count] = await Promise.all([
+        this.prisma.customer.findMany({ where, select: { id: true }, orderBy: { name: 'asc' } }),
+        this.prisma.customer.count({ where }),
+      ]);
+      const ids = allRows.map((c) => c.id);
+      const sums = ids.length
+        ? await this.prisma.bottleWallet.groupBy({
+            by: ['customerId'],
+            where: { customerId: { in: ids } },
+            _sum: { balance: true },
+          })
+        : [];
+      const sumByCustomer = new Map(sums.map((s) => [s.customerId, s._sum.balance ?? 0]));
+      const dir = sortDir === 'desc' ? -1 : 1;
+      const sortedIds = [...ids].sort(
+        (a, b) => ((sumByCustomer.get(a) ?? 0) - (sumByCustomer.get(b) ?? 0)) * dir,
+      );
+      const pageIds = sortedIds.slice((page - 1) * limit, page * limit);
+      const rows = pageIds.length
+        ? await this.prisma.customer.findMany({ where: { id: { in: pageIds } }, include: listInclude })
+        : [];
+      const byId = new Map(rows.map((r) => [r.id, r]));
+      data = pageIds.map((id) => byId.get(id)).filter((r): r is (typeof rows)[number] => !!r);
+      total = count;
+    } else {
+      [data, total] = await Promise.all([
+        this.prisma.customer.findMany({
+          where,
+          include: listInclude,
+          orderBy: { [sort]: sortDir },
+          skip: (page - 1) * limit,
+          take: limit,
+        }),
+        this.prisma.customer.count({ where }),
+      ]);
+    }
 
     // Attach each customer's most recent successful delivery date (one grouped
     // query for the whole page) so the list can show a "Last Delivery" column.
