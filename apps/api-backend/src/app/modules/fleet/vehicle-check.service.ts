@@ -159,6 +159,7 @@ export class VehicleCheckService {
       include: {
         recordedBy: { select: { id: true, name: true } },
         odometerEditedBy: { select: { id: true, name: true } },
+        vehicle: { select: { id: true, plateNumber: true } },
       },
       orderBy: { recordedAt: 'asc' },
     });
@@ -209,6 +210,7 @@ export class VehicleCheckService {
             include: {
               recordedBy: { select: { id: true, name: true } },
               odometerEditedBy: { select: { id: true, name: true } },
+              vehicle: { select: { id: true, plateNumber: true } },
             },
             orderBy: { recordedAt: 'asc' },
           },

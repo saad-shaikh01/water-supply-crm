@@ -2379,6 +2379,7 @@ export class DailySheetService implements OnModuleInit {
     const [vehicleDailyChecks, fuelLogs] = await Promise.all([
       this.prisma.vehicleDailyCheck.findMany({
         where: { vendorId, dailySheetId: sheetId },
+        include: { vehicle: { select: { id: true, plateNumber: true } } },
         orderBy: { recordedAt: 'asc' },
       }),
       this.prisma.fuelLog.findMany({

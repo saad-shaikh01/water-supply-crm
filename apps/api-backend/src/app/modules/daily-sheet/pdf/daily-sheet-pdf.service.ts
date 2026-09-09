@@ -415,12 +415,21 @@ export class DailySheetPdfService {
     doc.moveTo(x2, y + 12).lineTo(x2, y + boxH - 12).strokeColor(C.border).lineWidth(0.75).stroke();
     doc.moveTo(x3, y + 12).lineTo(x3, y + boxH - 12).strokeColor(C.border).lineWidth(0.75).stroke();
 
-    // COL 1 — Van + Team Members (driver + every crew member, own role-labeled line)
+    // COL 1 — Vehicle + Team Members (driver + every crew member, own role-labeled line)
     const col1TextW = col1W - 24;
+    // Real vehicle registration recorded on the start/end check; falls back to
+    // the van's display label ("Van2") on sheets with no linked vehicle.
+    const startVehicleCheck = (sheet.vehicleDailyChecks ?? []).find((c: any) => c.checkType === 'START');
+    const endVehicleCheck = (sheet.vehicleDailyChecks ?? []).find((c: any) => c.checkType === 'END');
+    const vehicleLabel =
+      startVehicleCheck?.vehicle?.plateNumber ??
+      endVehicleCheck?.vehicle?.plateNumber ??
+      sheet.van?.plateNumber ??
+      '—';
     doc.fillColor(C.muted).font('Helvetica').fontSize(7)
-      .text('VAN', x1 + 14, y + 9, { characterSpacing: 0.5, lineBreak: false });
+      .text('VEHICLE', x1 + 14, y + 9, { characterSpacing: 0.5, lineBreak: false });
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(11)
-      .text(sheet.van?.plateNumber ?? '—', x1 + 14, y + 19, { width: col1TextW, height: 13, ellipsis: true });
+      .text(vehicleLabel, x1 + 14, y + 19, { width: col1TextW, height: 13, ellipsis: true });
 
     const crewConfirmed = !!sheet.crewConfirmed;
     doc.fillColor(C.muted).font('Helvetica').fontSize(6.5)
@@ -710,6 +719,23 @@ export class DailySheetPdfService {
     const checks: any[] = sheet.vehicleDailyChecks ?? [];
     const startCheck = checks.find((c) => c.checkType === 'START') ?? null;
     const endCheck = checks.find((c) => c.checkType === 'END') ?? null;
+
+    // Real vehicle registration recorded on the trip; falls back to the van's
+    // display label when no physical vehicle was linked.
+    const vehicleLabel =
+      startCheck?.vehicle?.plateNumber ??
+      endCheck?.vehicle?.plateNumber ??
+      sheet.van?.plateNumber ??
+      null;
+    if (vehicleLabel) {
+      const vy = doc.y;
+      doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(6.5)
+        .text('VEHICLE', MARGIN, vy, { characterSpacing: 0.3, lineBreak: false });
+      doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(10)
+        .text(vehicleLabel, MARGIN + 44, vy - 2, { lineBreak: false });
+      doc.y = vy + 16;
+    }
+
     const kmTraveled = startCheck && endCheck ? endCheck.odometerReading - startCheck.odometerReading : null;
     const kmIsAnomaly = kmTraveled !== null && kmTraveled < 0;
     const kmValue = kmTraveled === null

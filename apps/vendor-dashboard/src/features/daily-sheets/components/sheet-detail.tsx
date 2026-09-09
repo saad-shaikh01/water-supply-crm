@@ -279,6 +279,14 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const startCheck = vehicleChecks?.find((c) => c.checkType === 'START') ?? null;
   const endCheck = vehicleChecks?.find((c) => c.checkType === 'END') ?? null;
   const unresolvedCriticalCheck = startCheck?.hasCriticalFailure && !startCheck.criticalOverrideById ? startCheck : null;
+  // Real vehicle registration for this trip, from whichever check recorded the
+  // physical vehicle. Falls back to the van's display label ("Van2") on legacy
+  // sheets with no linked vehicle.
+  const vehiclePlate =
+    startCheck?.vehicle?.plateNumber ??
+    endCheck?.vehicle?.plateNumber ??
+    data?.van?.plateNumber ??
+    null;
   // Km traveled today — plain odometer delta between the two vehicle checks,
   // deliberately independent of fuel/efficiency data (see FuelLog for that).
   // null = not calculable yet (a check is missing); negative deltas are
@@ -645,7 +653,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
       <SheetDetailHeader
         date={data!.date}
         routeName={isWalkIn ? 'Walk-in / Self-pickup' : (data?.route?.name ?? null)}
-        vanPlateNumber={isWalkIn ? null : (data?.van?.plateNumber ?? null)}
+        vanPlateNumber={isWalkIn ? null : vehiclePlate}
         driverName={data?.driver?.name ?? null}
         crew={data?.crew ?? []}
         crewConfirmed={!!data?.crewConfirmed}
@@ -969,6 +977,12 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             <Gauge className="h-4 w-4" />
             Odometer
           </div>
+          {vehiclePlate && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Vehicle:</span>
+              <span className="text-sm font-black">{vehiclePlate}</span>
+            </div>
+          )}
           {startCheck && (
             <div className="flex items-center gap-1.5">
               <span className="text-xs text-muted-foreground">Start:</span>

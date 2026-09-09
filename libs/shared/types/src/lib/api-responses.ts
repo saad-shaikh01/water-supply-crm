@@ -501,6 +501,10 @@ export interface VehicleDailyCheckEntry {
   // Physical vehicle actually checked (§17 Amendment, 2026-08-21) — nullable
   // because historical rows can't retroactively say which truck it was.
   vehicleId: string | null;
+  // The physical vehicle's real registration/plate, resolved from vehicleId.
+  // Null on legacy rows with no linked vehicle — callers fall back to the
+  // van's display label in that case.
+  vehicle: { id: string; plateNumber: string } | null;
   dailySheetId: string;
   checkType: VehicleCheckType;
   odometerReading: number;
