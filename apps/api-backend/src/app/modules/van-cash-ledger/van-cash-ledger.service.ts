@@ -67,10 +67,27 @@ export interface VanCashLedgerRow {
   displayAmount: number;
   /** Filled in by the running-balance fold in getTimeline — 0 until then. */
   runningBalance: number;
-  description: string;
+  title: string;
+  vanId: string | null;
   vanPlateNumber: string | null;
   sourceType: string;
   sourceRecordId: string;
+  sourceBadge: string;
+  /**
+   * Only meaningful for CASH_IN / CASH_IN_CORRECTION — always 'APPROVED' in
+   * practice here, since getTimeline only ever queries APPROVED handovers
+   * (a PENDING one has no place in a settled running balance; it surfaces
+   * instead via getPendingHandovers / the Pending Approvals panel). Carried
+   * through anyway for type-consistency with that endpoint's rows and so a
+   * future change to what getTimeline queries doesn't silently break the
+   * frontend's status check.
+   */
+  status: VanCashHandoverStatus | null;
+  dailySheetId: string | null;
+  submittedByName: string | null;
+  approvedByName: string | null;
+  /** Optimistic-concurrency token for the approve action — null where not applicable (opening balance / cash-out rows are never approved from here). */
+  version: number | null;
 }
 
 export interface VanCashLedgerStats {
@@ -469,7 +486,11 @@ export class VanCashLedgerService {
           ...(vanId && { vanId }),
           ...(dateFilter && { date: dateFilter }),
         },
-        include: { van: { select: { plateNumber: true } } },
+        include: {
+          van: { select: { plateNumber: true } },
+          submittedBy: { select: { name: true } },
+          approvedBy: { select: { name: true } },
+        },
         orderBy: { date: 'asc' },
       }),
       this.prisma.expense.findMany({
@@ -655,6 +676,7 @@ export class VanCashLedgerService {
       const row = await this.prisma.vanCashOpeningBalance.findFirst({ where: { vendorId, vanId } });
       if (!row) return [];
       if (to && row.openingDate > to) return [];
+      const openingVan = await this.prisma.van.findUnique({ where: { id: vanId }, select: { plateNumber: true } });
       return [
         {
           id: `OPENING_BALANCE:${row.id}`,
@@ -663,10 +685,17 @@ export class VanCashLedgerService {
           amount: row.openingBalance,
           displayAmount: Math.abs(row.openingBalance),
           runningBalance: 0,
-          description: 'Opening Balance',
-          vanPlateNumber: null,
+          title: 'Opening Balance',
+          vanId,
+          vanPlateNumber: openingVan?.plateNumber ?? null,
           sourceType: 'OPENING_BALANCE',
           sourceRecordId: row.id,
+          sourceBadge: 'Opening Balance',
+          status: null,
+          dailySheetId: null,
+          submittedByName: null,
+          approvedByName: null,
+          version: null,
         },
       ];
     }
@@ -689,16 +718,26 @@ export class VanCashLedgerService {
         amount: total,
         displayAmount: Math.abs(total),
         runningBalance: 0,
-        description: 'Opening Balance (all vans)',
+        title: 'Opening Balance (all vans)',
+        vanId: null,
         vanPlateNumber: null,
         sourceType: 'OPENING_BALANCE',
         sourceRecordId: 'ALL',
+        sourceBadge: 'Opening Balance (all vans)',
+        status: null,
+        dailySheetId: null,
+        submittedByName: null,
+        approvedByName: null,
+        version: null,
       },
     ];
   }
 
-  private normalizeCashIn(row: VanCashHandover & { van: { plateNumber: string } }): VanCashLedgerRow {
+  private normalizeCashIn(
+    row: VanCashHandover & { van: { plateNumber: string }; submittedBy: { name: string } | null; approvedBy: { name: string } | null },
+  ): VanCashLedgerRow {
     const isCorrection = row.correctsEntryId !== null;
+    const badge = `via Daily Sheet #${shortSheetId(row.dailySheetId)}`;
     return {
       id: `${isCorrection ? 'CASH_IN_CORRECTION' : 'CASH_IN'}:${row.id}`,
       date: row.date.toISOString(),
@@ -708,12 +747,19 @@ export class VanCashLedgerService {
       amount: row.amount,
       displayAmount: Math.abs(row.amount),
       runningBalance: 0,
-      description: isCorrection
+      title: isCorrection
         ? `Cash handover correction — Daily Sheet #${shortSheetId(row.dailySheetId)}`
         : `Cash handover — Daily Sheet #${shortSheetId(row.dailySheetId)}`,
+      vanId: row.vanId,
       vanPlateNumber: row.van.plateNumber,
       sourceType: 'VAN_CASH_HANDOVER',
       sourceRecordId: row.id,
+      sourceBadge: badge,
+      status: row.status,
+      dailySheetId: row.dailySheetId,
+      submittedByName: row.submittedBy?.name ?? null,
+      approvedByName: row.approvedBy?.name ?? null,
+      version: row.version,
     };
   }
 
@@ -725,10 +771,21 @@ export class VanCashLedgerService {
       amount: -row.amount,
       displayAmount: row.amount,
       runningBalance: 0,
-      description: row.title,
+      title: row.title,
+      // ExpenseCenterRow carries no raw vanId/dailySheetId today — plateNumber
+      // (already present) covers display, and van-scoping already happened
+      // server-side via the query filter, so this is a display-only gap, not
+      // a functional one. Revisit if ExpenseCenterRow ever exposes vanId.
+      vanId: null,
       vanPlateNumber: row.vanPlateNumber,
       sourceType: row.sourceType,
       sourceRecordId: row.sourceRecordId,
+      sourceBadge: row.sourceBadge,
+      status: null,
+      dailySheetId: null,
+      submittedByName: row.recordedByName,
+      approvedByName: null,
+      version: null,
     };
   }
 }

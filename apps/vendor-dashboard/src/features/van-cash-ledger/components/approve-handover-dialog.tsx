@@ -24,6 +24,8 @@ export interface HandoverApprovalTarget {
   date: string;
   /** The originally handed-over amount. */
   amount: number;
+  /** Optimistic-concurrency token — now surfaced by both read endpoints. */
+  version: number;
 }
 
 interface ApproveHandoverDialogProps {
@@ -60,11 +62,7 @@ export function ApproveHandoverDialog({ target, open, onOpenChange }: ApproveHan
       {
         id: target.sourceRecordId,
         data: {
-          // NOTE: neither the Timeline nor Pending Handover read endpoints
-          // expose the handover's optimistic-lock `version` — defaulting to 1
-          // (a freshly-recorded, not-yet-approved handover). Revisit once the
-          // backend contract surfaces the real version on those rows.
-          version: 1,
+          version: target.version,
           approvedAmount: isAmountChanged ? parsedAmount : undefined,
           adjustmentReason: isAmountChanged ? reason.trim() : undefined,
         },

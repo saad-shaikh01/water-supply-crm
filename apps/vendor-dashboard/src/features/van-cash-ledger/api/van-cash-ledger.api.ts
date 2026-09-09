@@ -38,6 +38,8 @@ export interface CashLedgerRow {
   submittedByName: string | null;
   approvedByName: string | null;
   sourceBadge: string;
+  /** Optimistic-concurrency token for the approve action — null where not applicable (opening balance / cash-out rows). */
+  version: number | null;
 }
 
 export interface CashLedgerTimelineQuery {
@@ -87,6 +89,8 @@ export interface PendingHandover {
   driverName: string;
   date: string;
   amount: number;
+  /** Optimistic-concurrency token required by the approve action. */
+  version: number;
 }
 
 export interface SetOpeningBalancePayload {

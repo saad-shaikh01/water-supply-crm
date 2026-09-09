@@ -123,6 +123,11 @@ export function CashLedgerTimeline() {
                   driverName: row.submittedByName,
                   date: row.date,
                   amount: row.amount,
+                  // Always real now (Timeline CASH_IN/CASH_IN_CORRECTION rows carry
+                  // their handover's actual version) — the `?? 1` only guards the
+                  // types for OPENING_BALANCE/CASH_OUT rows, which never reach here
+                  // since canApprove/onApprove only wire up for CASH_IN family rows.
+                  version: row.version ?? 1,
                 });
               }}
             />

@@ -39,6 +39,7 @@ export function PendingApprovalsPanel({ open, onOpenChange }: PendingApprovalsPa
     driverName: h.driverName,
     date: h.date,
     amount: h.amount,
+    version: h.version,
   });
 
   return (
