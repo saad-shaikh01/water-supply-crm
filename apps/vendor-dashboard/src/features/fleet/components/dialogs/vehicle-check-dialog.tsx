@@ -1,8 +1,11 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, Button, Input, Label } from '@water-supply-crm/ui';
-import { Loader2, Gauge, CheckCircle2, XCircle, Truck, Search } from 'lucide-react';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, Button, Input, Label,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@water-supply-crm/ui';
+import { Loader2, Gauge, CheckCircle2, XCircle, Truck } from 'lucide-react';
 import { VEHICLE_CHECKLIST_ITEMS } from '@water-supply-crm/types';
 import type { VehicleCheckType } from '@water-supply-crm/types';
 import { useCreateVehicleDailyCheck, useVehicleDailyChecks } from '../../hooks/use-vehicle-checks';
@@ -47,7 +50,6 @@ export function VehicleCheckDialog({ open, onClose, sheetId, checkType, vanId }:
   const [damagePhotoKeys, setDamagePhotoKeys] = useState<string[]>([]);
   const [note, setNote] = useState('');
   const [vehicleId, setVehicleId] = useState<string | undefined>(undefined);
-  const [vehicleSearch, setVehicleSearch] = useState('');
 
   // Van's own display label ("Van1", "Van2"…) — shown next to each plate so
   // the picker always answers "which route is this plate usually behind?",
@@ -65,15 +67,12 @@ export function VehicleCheckDialog({ open, onClose, sheetId, checkType, vanId }:
 
   const sortedVehicles = useMemo(() => {
     const vehicles = vehiclesPage?.data ?? [];
-    const filtered = vehicleSearch
-      ? vehicles.filter((v) => v.plateNumber.toLowerCase().includes(vehicleSearch.toLowerCase()))
-      : vehicles;
-    return [...filtered].sort((a, b) => {
+    return [...vehicles].sort((a, b) => {
       const aUsual = vanId && a.usualVanId === vanId ? 0 : 1;
       const bUsual = vanId && b.usualVanId === vanId ? 0 : 1;
       return aUsual - bUsual || a.plateNumber.localeCompare(b.plateNumber);
     });
-  }, [vehiclesPage, vehicleSearch, vanId]);
+  }, [vehiclesPage, vanId]);
 
   useEffect(() => {
     if (open) {
@@ -84,7 +83,6 @@ export function VehicleCheckDialog({ open, onClose, sheetId, checkType, vanId }:
       setDamageNote('');
       setDamagePhotoKeys([]);
       setNote('');
-      setVehicleSearch('');
       setVehicleId(undefined);
     }
   }, [open, checkType]);
@@ -138,41 +136,34 @@ export function VehicleCheckDialog({ open, onClose, sheetId, checkType, vanId }:
           {checkType === 'START' ? (
             <div className="space-y-2">
               <Label>Which vehicle is taking this route out today?</Label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  className="rounded-xl pl-9"
-                  placeholder="Search by plate number…"
-                  value={vehicleSearch}
-                  onChange={(e) => setVehicleSearch(e.target.value)}
-                />
-              </div>
-              <div className="max-h-40 overflow-y-auto rounded-xl border border-border/50 divide-y divide-border/50">
-                {vehiclesLoading ? (
-                  <div className="p-3 text-sm text-muted-foreground">Loading vehicles…</div>
-                ) : sortedVehicles.length === 0 ? (
-                  <div className="p-3 text-sm text-muted-foreground">No active vehicles found.</div>
-                ) : (
-                  sortedVehicles.map((v) => (
-                    <button
-                      key={v.id}
-                      type="button"
-                      onClick={() => setVehicleId(v.id)}
-                      className={`w-full flex items-center gap-2 px-3 py-2.5 text-left text-sm font-semibold transition-colors ${
-                        vehicleId === v.id ? 'bg-primary/10 text-primary' : 'hover:bg-muted/50'
-                      }`}
-                    >
-                      <Truck className="h-4 w-4 shrink-0" />
-                      {v.plateNumber}
-                      <span className="text-[11px] font-normal text-muted-foreground">
-                        {v.usualVanId
-                          ? `usually ${vanLabelById.get(v.usualVanId) ?? '—'}${v.usualVanId === vanId ? ' (this route)' : ''}`
-                          : 'no usual route'}
-                      </span>
-                    </button>
-                  ))
-                )}
-              </div>
+              <Select
+                value={vehicleId ?? ''}
+                onValueChange={(v) => setVehicleId(v || undefined)}
+                disabled={vehiclesLoading}
+              >
+                <SelectTrigger className="rounded-xl">
+                  <SelectValue placeholder={vehiclesLoading ? 'Loading vehicles…' : 'Select a vehicle…'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {sortedVehicles.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-muted-foreground">No active vehicles found.</div>
+                  ) : (
+                    sortedVehicles.map((v) => (
+                      <SelectItem key={v.id} value={v.id}>
+                        <span className="flex items-center gap-2">
+                          <Truck className="h-4 w-4 shrink-0" />
+                          <span className="font-semibold">{v.plateNumber}</span>
+                          <span className="text-[11px] font-normal text-muted-foreground">
+                            {v.usualVanId
+                              ? `usually ${vanLabelById.get(v.usualVanId) ?? '—'}${v.usualVanId === vanId ? ' (this route)' : ''}`
+                              : 'no usual route'}
+                          </span>
+                        </span>
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
               {!vehicleId && (
                 <p className="text-xs text-muted-foreground">Select the vehicle before submitting.</p>
               )}
