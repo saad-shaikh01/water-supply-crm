@@ -280,14 +280,18 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const startCheck = vehicleChecks?.find((c) => c.checkType === 'START') ?? null;
   const endCheck = vehicleChecks?.find((c) => c.checkType === 'END') ?? null;
   const unresolvedCriticalCheck = startCheck?.hasCriticalFailure && !startCheck.criticalOverrideById ? startCheck : null;
-  // Real vehicle registration for this trip, from whichever check recorded the
-  // physical vehicle. Falls back to the van's display label ("Van2") on legacy
-  // sheets with no linked vehicle.
+  // Vehicle identity for this trip: the van's operational slot label ("Van2")
+  // shown alongside the real registration recorded on whichever check picked
+  // the physical vehicle, as "Van2 · LEB-1234". Legacy sheets with no linked
+  // vehicle fall back to just the slot label; a sheet whose slot label already
+  // equals the plate shows it once.
+  const vanSlotLabel = data?.van?.plateNumber ?? null;
+  const realVehiclePlate =
+    startCheck?.vehicle?.plateNumber ?? endCheck?.vehicle?.plateNumber ?? null;
   const vehiclePlate =
-    startCheck?.vehicle?.plateNumber ??
-    endCheck?.vehicle?.plateNumber ??
-    data?.van?.plateNumber ??
-    null;
+    realVehiclePlate && vanSlotLabel && realVehiclePlate !== vanSlotLabel
+      ? `${vanSlotLabel} · ${realVehiclePlate}`
+      : realVehiclePlate ?? vanSlotLabel;
   // Km traveled today — plain odometer delta between the two vehicle checks,
   // deliberately independent of fuel/efficiency data (see FuelLog for that).
   // null = not calculable yet (a check is missing); negative deltas are

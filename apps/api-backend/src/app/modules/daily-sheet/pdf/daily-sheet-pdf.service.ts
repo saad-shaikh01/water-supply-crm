@@ -417,15 +417,18 @@ export class DailySheetPdfService {
 
     // COL 1 — Vehicle + Team Members (driver + every crew member, own role-labeled line)
     const col1TextW = col1W - 24;
-    // Real vehicle registration recorded on the start/end check; falls back to
-    // the van's display label ("Van2") on sheets with no linked vehicle.
+    // Van slot label ("Van2") shown alongside the real registration recorded on
+    // the start/end check, as "Van2 · LEB-1234". Sheets with no linked vehicle
+    // fall back to just the slot label; matching slot/plate shows once.
     const startVehicleCheck = (sheet.vehicleDailyChecks ?? []).find((c: any) => c.checkType === 'START');
     const endVehicleCheck = (sheet.vehicleDailyChecks ?? []).find((c: any) => c.checkType === 'END');
+    const realPlate =
+      startVehicleCheck?.vehicle?.plateNumber ?? endVehicleCheck?.vehicle?.plateNumber ?? null;
+    const vanSlot = sheet.van?.plateNumber ?? null;
     const vehicleLabel =
-      startVehicleCheck?.vehicle?.plateNumber ??
-      endVehicleCheck?.vehicle?.plateNumber ??
-      sheet.van?.plateNumber ??
-      '—';
+      realPlate && vanSlot && realPlate !== vanSlot
+        ? `${vanSlot} · ${realPlate}`
+        : realPlate ?? vanSlot ?? '—';
     doc.fillColor(C.muted).font('Helvetica').fontSize(7)
       .text('VEHICLE', x1 + 14, y + 9, { characterSpacing: 0.5, lineBreak: false });
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(11)
@@ -720,13 +723,16 @@ export class DailySheetPdfService {
     const startCheck = checks.find((c) => c.checkType === 'START') ?? null;
     const endCheck = checks.find((c) => c.checkType === 'END') ?? null;
 
-    // Real vehicle registration recorded on the trip; falls back to the van's
-    // display label when no physical vehicle was linked.
+    // Van slot label ("Van2") shown alongside the real registration recorded on
+    // the trip, as "Van2 · LEB-1234"; falls back to just the slot label when no
+    // physical vehicle was linked, or shows once when slot label equals plate.
+    const realPlate =
+      startCheck?.vehicle?.plateNumber ?? endCheck?.vehicle?.plateNumber ?? null;
+    const vanSlot = sheet.van?.plateNumber ?? null;
     const vehicleLabel =
-      startCheck?.vehicle?.plateNumber ??
-      endCheck?.vehicle?.plateNumber ??
-      sheet.van?.plateNumber ??
-      null;
+      realPlate && vanSlot && realPlate !== vanSlot
+        ? `${vanSlot} · ${realPlate}`
+        : realPlate ?? vanSlot ?? null;
     if (vehicleLabel) {
       const vy = doc.y;
       doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(6.5)

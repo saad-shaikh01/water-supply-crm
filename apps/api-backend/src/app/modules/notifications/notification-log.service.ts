@@ -100,8 +100,10 @@ export class NotificationLogService {
     );
     const customerByPhone = new Map<string, { id: string; name: string; customerCode: string }>();
     if (unresolvedPhones.size) {
+      // phoneNumber is a required column, so the guard is against the "" / "-"
+      // placeholder rows, not null (matches the balance-reminder query).
       const withPhones = await this.prisma.customer.findMany({
-        where: { vendorId, phoneNumber: { not: null } },
+        where: { vendorId, phoneNumber: { not: '' } },
         select: { id: true, name: true, customerCode: true, phoneNumber: true },
       });
       for (const c of withPhones) {
