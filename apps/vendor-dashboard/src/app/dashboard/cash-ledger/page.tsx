@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Landmark, Plus } from 'lucide-react';
 import { Button } from '@water-supply-crm/ui';
 import { PageHeader } from '../../../components/shared/page-header';
 import { DateRangePicker } from '../../../components/shared/date-range-picker';
@@ -10,11 +10,14 @@ import { useCan } from '../../../features/authz/hooks/use-can';
 import { CashLedgerTimeline } from '../../../features/van-cash-ledger/components/cash-ledger-timeline';
 import { CashLedgerStatsBar } from '../../../features/van-cash-ledger/components/cash-ledger-stats-bar';
 import { SetOpeningBalanceDialog } from '../../../features/van-cash-ledger/components/set-opening-balance-dialog';
+import { RecordRemittanceDialog } from '../../../features/van-cash-ledger/components/record-remittance-dialog';
 import { VAN_CASH_LEDGER_PERMISSIONS } from '../../../features/van-cash-ledger/constants';
 
 export default function CashLedgerPage() {
   const [openingBalanceOpen, setOpeningBalanceOpen] = useState(false);
+  const [remittanceOpen, setRemittanceOpen] = useState(false);
   const canManage = useCan(VAN_CASH_LEDGER_PERMISSIONS.manage);
+  const canRemit = useCan(VAN_CASH_LEDGER_PERMISSIONS.remit);
 
   return (
     <>
@@ -22,14 +25,28 @@ export default function CashLedgerPage() {
         title="Cash Ledger"
         description="Every cash handover and cash-paid expense per van, in one running balance"
         action={
-          canManage ? (
-            <Button
-              onClick={() => setOpeningBalanceOpen(true)}
-              className="rounded-full px-4 sm:px-5 py-3 sm:py-6 h-auto shadow-lg shadow-primary/20 transition-all hover:scale-105 active:scale-95 flex items-center gap-2 text-sm sm:text-base font-bold w-full sm:w-auto justify-center"
-            >
-              <Plus className="h-4 w-4 sm:h-5 sm:w-5" />
-              Set Opening Balance
-            </Button>
+          canManage || canRemit ? (
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+              {canRemit && (
+                <Button
+                  variant="outline"
+                  onClick={() => setRemittanceOpen(true)}
+                  className="rounded-full px-4 sm:px-5 py-3 sm:py-6 h-auto transition-all hover:scale-105 active:scale-95 flex items-center gap-2 text-sm sm:text-base font-bold w-full sm:w-auto justify-center"
+                >
+                  <Landmark className="h-4 w-4 sm:h-5 sm:w-5" />
+                  Record Owner Handover
+                </Button>
+              )}
+              {canManage && (
+                <Button
+                  onClick={() => setOpeningBalanceOpen(true)}
+                  className="rounded-full px-4 sm:px-5 py-3 sm:py-6 h-auto shadow-lg shadow-primary/20 transition-all hover:scale-105 active:scale-95 flex items-center gap-2 text-sm sm:text-base font-bold w-full sm:w-auto justify-center"
+                >
+                  <Plus className="h-4 w-4 sm:h-5 sm:w-5" />
+                  Set Opening Balance
+                </Button>
+              )}
+            </div>
           ) : undefined
         }
       />
@@ -49,6 +66,7 @@ export default function CashLedgerPage() {
       <CashLedgerStatsBar />
 
       <SetOpeningBalanceDialog open={openingBalanceOpen} onOpenChange={setOpeningBalanceOpen} />
+      <RecordRemittanceDialog open={remittanceOpen} onOpenChange={setRemittanceOpen} />
     </>
   );
 }

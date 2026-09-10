@@ -68,6 +68,11 @@ import {
  *     2026-09-09). Existing vendors' Manager/Accountant roles predate it and
  *     need the catch-up grant. `van_cash_ledger:manage` (opening balances)
  *     is VENDOR_ADMIN-only, no backfill.
+ *   - van_cash_ledger:remit / van_cash_ledger:remit_approve — added to
+ *     `manager` (both) and `accountant` (`remit` only) for the Office Cash
+ *     Remittance feature (owner-requested 2026-09-10). `van_cash_ledger:
+ *     remit_void` (voiding an already-approved remittance) is VENDOR_ADMIN-only,
+ *     no backfill.
  */
 const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
   driver: ['fleet:record_check', 'fleet:record_fuel'],
@@ -92,6 +97,10 @@ const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
     'van_cash_ledger:page',
     'van_cash_ledger:view',
     'van_cash_ledger:approve',
+    // Office Cash Remittance (owner-requested 2026-09-10). Manager records AND
+    // approves; `remit_void` stays VENDOR_ADMIN-only.
+    'van_cash_ledger:remit',
+    'van_cash_ledger:remit_approve',
   ],
   accountant: [
     // Van Cash Ledger (owner-requested 2026-09-09). Existing vendors'
@@ -100,6 +109,9 @@ const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
     'van_cash_ledger:page',
     'van_cash_ledger:view',
     'van_cash_ledger:approve',
+    // Office Cash Remittance (owner-requested 2026-09-10). Accountant may
+    // RECORD a remittance only — not approve it (segregation of duties).
+    'van_cash_ledger:remit',
   ],
 };
 

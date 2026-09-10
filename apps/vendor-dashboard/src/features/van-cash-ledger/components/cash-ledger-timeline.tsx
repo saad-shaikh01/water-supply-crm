@@ -9,6 +9,8 @@ import { useCan } from '../../authz/hooks/use-can';
 import { useCashLedgerTimeline } from '../hooks/use-van-cash-ledger';
 import { cashLedgerRowMeta, VAN_CASH_LEDGER_PERMISSIONS } from '../constants';
 import { ApproveHandoverDialog, type HandoverApprovalTarget } from './approve-handover-dialog';
+import { VoidRemittanceDialog, type RemittanceVoidTarget } from './void-remittance-dialog';
+import { CorrectRemittanceDialog, type RemittanceCorrectTarget } from './correct-remittance-dialog';
 import type { CashLedgerRow } from '../api/van-cash-ledger.api';
 
 const fmtDate = (d: string) =>
@@ -16,19 +18,32 @@ const fmtDate = (d: string) =>
 
 const money = (n: number) => `₨ ${Math.abs(Number(n)).toLocaleString()}`;
 
-function TimelineRow({ row, canApprove, onApprove }: {
+interface TimelineRowProps {
   row: CashLedgerRow;
   canApprove: boolean;
+  canRemitApprove: boolean;
+  canRemitVoid: boolean;
   onApprove: () => void;
-}) {
+  onVoidRemittance: () => void;
+  onCorrectRemittance: () => void;
+}
+
+function TimelineRow({
+  row, canApprove, canRemitApprove, canRemitVoid,
+  onApprove, onVoidRemittance, onCorrectRemittance,
+}: TimelineRowProps) {
   const meta = cashLedgerRowMeta(row.type);
   const isPending = row.status === 'PENDING';
   const isCashInLike = row.type === 'CASH_IN' || row.type === 'CASH_IN_CORRECTION';
+  const isRemittance = row.type === 'CASH_REMITTANCE_OUT';
   const canApproveThisRow = isCashInLike && isPending && canApprove && !!row.sourceRecordId;
+  // A voided remittance is a terminal audit row — no further actions.
+  const canActOnRemittance = isRemittance && !row.isVoided && !!row.sourceRecordId;
 
   const metadata = [
     row.submittedByName ? `by ${row.submittedByName}` : null,
     row.approvedByName ? `approved by ${row.approvedByName}` : null,
+    row.isVoided && row.voidReason ? `voided — ${row.voidReason}` : null,
   ].filter(Boolean) as string[];
 
   return (
@@ -50,15 +65,22 @@ function TimelineRow({ row, canApprove, onApprove }: {
                 PENDING
               </Badge>
             )}
+            {isRemittance && row.isVoided && (
+              <Badge className="text-[10px] font-bold px-2 py-0.5 rounded-full border-none bg-destructive/10 text-destructive">
+                VOIDED
+              </Badge>
+            )}
           </div>
-          <p className="text-xs font-semibold truncate mt-1">{row.title}</p>
+          <p className={cn('text-xs font-semibold truncate mt-1', row.isVoided && 'line-through text-muted-foreground')}>
+            {row.title}
+          </p>
           {metadata.length > 0 && (
             <p className="text-[10px] text-muted-foreground truncate mt-0.5">{metadata.join(' · ')}</p>
           )}
         </div>
 
         <div className="text-right shrink-0 space-y-1">
-          <p className={cn('font-mono font-black text-sm', meta.amountClass)}>
+          <p className={cn('font-mono font-black text-sm', meta.amountClass, row.isVoided && 'line-through opacity-60')}>
             {row.amount < 0 ? '-' : '+'} {money(row.amount)}
           </p>
           <p className="text-[10px] text-muted-foreground tabular-nums">
@@ -70,6 +92,31 @@ function TimelineRow({ row, canApprove, onApprove }: {
               Approve
             </Button>
           )}
+          {canActOnRemittance && (canRemitApprove || canRemitVoid) && (
+            <div className="flex justify-end gap-1">
+              {/* Correct only on the ROOT of a logical remittance — a per-row
+                  amount on a correction (delta) row would be mistaken for the
+                  chain total. Void stays available on delta rows (LIFO unwind). */}
+              {canRemitApprove && !row.isCorrection && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 rounded-full text-[10px] px-2.5 font-bold"
+                  onClick={onCorrectRemittance}
+                >
+                  Correct
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 rounded-full text-[10px] px-2.5 font-bold text-destructive"
+                onClick={onVoidRemittance}
+              >
+                Void
+              </Button>
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>
@@ -79,14 +126,25 @@ function TimelineRow({ row, canApprove, onApprove }: {
 export function CashLedgerTimeline() {
   const { data, isLoading, page, setPage, limit, setLimit } = useCashLedgerTimeline();
   const canApprove = useCan(VAN_CASH_LEDGER_PERMISSIONS.approve);
+  const canRemitApprove = useCan(VAN_CASH_LEDGER_PERMISSIONS.remitApprove);
+  const canRemitVoid = useCan(VAN_CASH_LEDGER_PERMISSIONS.remitVoid);
   const [approveTarget, setApproveTarget] = useState<HandoverApprovalTarget | null>(null);
+  const [voidTarget, setVoidTarget] = useState<RemittanceVoidTarget | null>(null);
+  const [correctTarget, setCorrectTarget] = useState<RemittanceCorrectTarget | null>(null);
 
-  // The API returns the timeline oldest-to-newest, matching the natural
-  // reading order of a running balance (each row's `runningBalance` is the
-  // cumulative total up to and including that row) — rendered as-is, not
-  // re-sorted client-side.
+  // The API returns the timeline newest-to-oldest (most recent movement first),
+  // while each row's `runningBalance` is still the cumulative total up to and
+  // including that row (the server folds it chronologically before reversing) —
+  // rendered as-is, not re-sorted client-side.
   const rows = data?.data ?? [];
   const total = data?.meta?.total ?? 0;
+
+  const remittanceTarget = (row: CashLedgerRow) => ({
+    sourceRecordId: row.sourceRecordId as string,
+    amount: row.displayAmount ?? Math.abs(row.amount),
+    destinationLabel: row.sourceBadge,
+    version: row.version ?? 1,
+  });
 
   return (
     <div className="space-y-3">
@@ -114,6 +172,8 @@ export function CashLedgerTimeline() {
               key={`${row.type}:${row.id}`}
               row={row}
               canApprove={canApprove}
+              canRemitApprove={canRemitApprove}
+              canRemitVoid={canRemitVoid}
               onApprove={() => {
                 if (!row.sourceRecordId) return;
                 setApproveTarget({
@@ -129,6 +189,14 @@ export function CashLedgerTimeline() {
                   // since canApprove/onApprove only wire up for CASH_IN family rows.
                   version: row.version ?? 1,
                 });
+              }}
+              onVoidRemittance={() => {
+                if (!row.sourceRecordId) return;
+                setVoidTarget(remittanceTarget(row));
+              }}
+              onCorrectRemittance={() => {
+                if (!row.sourceRecordId) return;
+                setCorrectTarget(remittanceTarget(row));
               }}
             />
           ))}
@@ -155,6 +223,16 @@ export function CashLedgerTimeline() {
         target={approveTarget}
         open={!!approveTarget}
         onOpenChange={(o) => { if (!o) setApproveTarget(null); }}
+      />
+      <VoidRemittanceDialog
+        target={voidTarget}
+        open={!!voidTarget}
+        onOpenChange={(o) => { if (!o) setVoidTarget(null); }}
+      />
+      <CorrectRemittanceDialog
+        target={correctTarget}
+        open={!!correctTarget}
+        onOpenChange={(o) => { if (!o) setCorrectTarget(null); }}
       />
     </div>
   );

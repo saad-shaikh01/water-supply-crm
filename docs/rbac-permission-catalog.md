@@ -341,6 +341,11 @@ Each row: permission → the existing feature/endpoint(s) it gates. `page` sorts
 | `van_cash_ledger:view` | `GET /van-cash-ledger/timeline`, `GET /van-cash-ledger/stats`, `GET /van-cash-ledger/pending-handovers` |
 | `van_cash_ledger:manage` | `POST /van-cash-ledger/opening-balance` |
 | `van_cash_ledger:approve` | `PATCH /van-cash-ledger/cash-in/:id/approve` |
+| `van_cash_ledger:remit` | `POST /van-cash-ledger/remittance`, `POST /van-cash-ledger/remittance/attachment` |
+| `van_cash_ledger:remit_approve` | `PATCH /van-cash-ledger/remittance/:id/approve`, `PATCH /van-cash-ledger/remittance/:id/correct`, `PATCH /van-cash-ledger/remittance/:id/void` (PENDING rows) |
+| `van_cash_ledger:remit_void` | `PATCH /van-cash-ledger/remittance/:id/void` when the remittance is already APPROVED (checked in the service) |
+
+> **Amendment R15 (Office Cash Remittance, owner-requested 2026-09-10).** Adds the office → owner/CEO/bank cash hop as a vendor-wide `OfficeCashRemittance` (PENDING → APPROVED → counts toward the balance; a post-approval fix is a new DELTA row via `correctsEntryId`; a void is a status flip, never a DELETE). Three new actions on the existing `van_cash_ledger` resource: `remit` (record — **Accountant + Manager**), `remit_approve` (approve/reject/correct — **Manager + Admin**, deliberately NOT Accountant so a recorder cannot approve their own), `remit_void` (void an already-approved remittance — **Admin only**). `MANAGER_PERMISSIONS` + `PRESET_DRIFT_BACKFILLS` (`manager` gets `remit` + `remit_approve`; `accountant` gets `remit`). No new `:page`, no new resource. Frozen total 175 → 178; non-page total unchanged +3.
 
 ---
 

@@ -1,5 +1,5 @@
 import {
-  PiggyBank, ArrowDownCircle, PencilLine, ArrowUpCircle, type LucideIcon,
+  PiggyBank, ArrowDownCircle, PencilLine, ArrowUpCircle, Landmark, type LucideIcon,
 } from 'lucide-react';
 import type { Permission } from '@water-supply-crm/authz';
 import type { CashLedgerRowType } from './api/van-cash-ledger.api';
@@ -51,6 +51,13 @@ export const CASH_LEDGER_ROW_CONFIG: Record<CashLedgerRowType, CashLedgerRowMeta
     amountClass: 'text-destructive',
     icon: ArrowUpCircle,
   },
+  CASH_REMITTANCE_OUT: {
+    label: 'Handover Out',
+    color: 'bg-violet-500/10 text-violet-500',
+    solid: 'bg-violet-500',
+    amountClass: 'text-violet-500',
+    icon: Landmark,
+  },
 };
 
 /** Safe lookup — mirrors Expense Center's `domainMeta` defensive fallback. */
@@ -72,4 +79,7 @@ export const cashLedgerRowMeta = (type: CashLedgerRowType | string): CashLedgerR
 export const VAN_CASH_LEDGER_PERMISSIONS = {
   approve: 'van_cash_ledger:approve' as Permission,
   manage: 'van_cash_ledger:manage' as Permission,
+  remit: 'van_cash_ledger:remit' as Permission,
+  remitApprove: 'van_cash_ledger:remit_approve' as Permission,
+  remitVoid: 'van_cash_ledger:remit_void' as Permission,
 };

@@ -172,6 +172,10 @@ const MANAGER_PERMISSIONS: Permission[] = [
   // (setting a van's opening balance) is deliberately VENDOR_ADMIN-only — NOT
   // granted here. Existing vendors get these via PRESET_DRIFT_BACKFILLS.manager.
   'van_cash_ledger:page', 'van_cash_ledger:view', 'van_cash_ledger:approve',
+  // Office Cash Remittance (owner-requested 2026-09-10): Manager may record AND
+  // approve an office -> owner/bank handover. `remit_void` (voiding an
+  // already-approved remittance) stays VENDOR_ADMIN-only — NOT granted here.
+  'van_cash_ledger:remit', 'van_cash_ledger:remit_approve',
 ];
 
 export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
@@ -231,6 +235,10 @@ export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
       // (opening balances stay VENDOR_ADMIN-only).
       'van_cash_ledger:view',
       'van_cash_ledger:approve',
+      // Office Cash Remittance (owner-requested 2026-09-10): Accountant may
+      // RECORD an office -> owner/bank handover but NOT approve it — segregation
+      // of duties (the recorder cannot approve their own remittance).
+      'van_cash_ledger:remit',
     ],
   },
   support: {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { AlertCircle, Banknote, TrendingDown, Wallet } from 'lucide-react';
+import { AlertCircle, Banknote, Landmark, TrendingDown, Wallet } from 'lucide-react';
 import { Badge, Skeleton, cn } from '@water-supply-crm/ui';
 import { useCashLedgerStats } from '../hooks/use-van-cash-ledger';
 import { PendingApprovalsPanel } from './pending-approvals-panel';
@@ -50,6 +50,9 @@ export function CashLedgerStatsBar() {
   if (!stats) return null;
 
   const pendingCount = stats.pendingHandoverCount ?? 0;
+  const pendingRemittanceCount = stats.pendingRemittanceCount ?? 0;
+  const available = stats.availableBalance ?? 0;
+  const isNegative = available < 0;
 
   return (
     <>
@@ -72,24 +75,37 @@ export function CashLedgerStatsBar() {
                 value={money(stats.totalCashIn)}
               />
               <Stat
+                label="Handover to Owner"
+                icon={Landmark}
+                iconClass="bg-violet-500/10 text-violet-500"
+                valueClass="text-violet-500"
+                value={money(stats.totalRemitted)}
+              />
+              <Stat
                 label="Available Balance"
                 icon={Wallet}
-                iconClass="bg-primary/10 text-primary"
-                value={money(stats.availableBalance)}
+                iconClass={isNegative ? 'bg-destructive/10 text-destructive' : 'bg-primary/10 text-primary'}
+                valueClass={isNegative ? 'text-destructive' : undefined}
+                value={money(available)}
               />
 
-              {pendingCount > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setPanelOpen(true)}
-                  className="ml-auto"
-                >
-                  <Badge className="flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-full border-none bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 transition-colors cursor-pointer">
+              <div className="ml-auto flex items-center gap-2">
+                {isNegative && (
+                  <Badge className="flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-full border-none bg-destructive/10 text-destructive">
                     <AlertCircle className="h-3.5 w-3.5" />
-                    {pendingCount} pending approval{pendingCount === 1 ? '' : 's'}
+                    Negative cash position
                   </Badge>
-                </button>
-              )}
+                )}
+                {(pendingCount > 0 || pendingRemittanceCount > 0) && (
+                  <button type="button" onClick={() => setPanelOpen(true)}>
+                    <Badge className="flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-full border-none bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 transition-colors cursor-pointer">
+                      <AlertCircle className="h-3.5 w-3.5" />
+                      {pendingCount + pendingRemittanceCount} pending approval
+                      {pendingCount + pendingRemittanceCount === 1 ? '' : 's'}
+                    </Badge>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>

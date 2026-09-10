@@ -115,6 +115,8 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     deliverySchedules?: Array<{ dayOfWeek: number; van?: { plateNumber: string } }>;
     wallets?: Array<{ balance?: number; product?: { name?: string } }>;
     lastDeliveryAt?: string | null;
+    lastPaymentAt?: string | null;
+    previousMonthOutstanding?: number | null;
   }>;
   const total = customers?.meta?.total ?? 0;
 
@@ -444,6 +446,48 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                       {wallets.map((w) => `${w.product?.name ?? '—'}: ${Number(w.balance ?? 0)}`).join(', ')}
                     </span>
                   )}
+                </div>
+              );
+            }
+          },
+          {
+            key: 'pendingAmount',
+            header: 'Pending Amount',
+            cell: (r) => {
+              const isMonthly = r.paymentType === 'MONTHLY';
+              // MONTHLY → what's still owed from last month; CASH → live overall balance
+              const pending = isMonthly
+                ? Number(r.previousMonthOutstanding ?? 0)
+                : Number(r.financialBalance ?? 0);
+              const isOwed = pending > 0;
+
+              let lastPaid: string;
+              if (!r.lastPaymentAt) {
+                lastPaid = 'no payments yet';
+              } else {
+                const d = new Date(r.lastPaymentAt);
+                const daysAgo = Math.floor((Date.now() - d.getTime()) / 86400000);
+                lastPaid =
+                  daysAgo <= 0 ? 'paid today' : daysAgo === 1 ? 'paid yesterday' : `paid ${daysAgo}d ago`;
+              }
+
+              return (
+                <div className="flex flex-col gap-0.5 whitespace-nowrap">
+                  <span className={cn(
+                    "font-mono font-bold text-xs px-2 py-1 rounded-md inline-block w-fit",
+                    isOwed ? "text-rose-400 bg-rose-500/10" : "text-emerald-400 bg-emerald-500/10"
+                  )}>
+                    ₨ {pending.toLocaleString()}
+                  </span>
+                  <span className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground/50">
+                    {isMonthly ? 'prev month' : 'overall'}
+                  </span>
+                  <span className={cn(
+                    "text-[10px] font-medium",
+                    !r.lastPaymentAt ? "text-rose-400/70" : "text-muted-foreground/60"
+                  )}>
+                    {lastPaid}
+                  </span>
                 </div>
               );
             }

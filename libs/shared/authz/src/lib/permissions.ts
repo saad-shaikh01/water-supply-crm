@@ -284,10 +284,21 @@ export const PERMISSION_CATALOG = {
   // office-side review/approval of a driver's cash handover (separate action
   // since it can also override the handed-over amount with a reason, unlike a
   // plain view/manage grant).
+  //
+  // Office Cash Remittance (owner-requested 2026-09-10) — the office -> owner/
+  // CEO/bank cash hop, a vendor-wide event surfaced on the same page:
+  //   `remit`         record a pending remittance (Accountant, Manager);
+  //   `remit_approve` approve / reject / correct a pending remittance —
+  //                   deliberately NOT granted to Accountant, so the person who
+  //                   records a remittance cannot approve their own (Manager,
+  //                   Vendor Admin);
+  //   `remit_void`    void an ALREADY-APPROVED remittance — the tightest tier
+  //                   (Vendor Admin only). Voiding a still-PENDING row only
+  //                   needs `remit_approve` (checked in the service).
   van_cash_ledger: {
     label: 'Van Cash Ledger',
     navigable: true,
-    actions: ['page', 'view', 'manage', 'approve'],
+    actions: ['page', 'view', 'manage', 'approve', 'remit', 'remit_approve', 'remit_void'],
   },
 } as const satisfies Record<string, ResourceDefinition>;
 

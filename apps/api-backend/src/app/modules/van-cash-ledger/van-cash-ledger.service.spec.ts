@@ -1,6 +1,13 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { VanCashLedgerService } from './van-cash-ledger.service';
-import { DailySheetKind, DiscrepancyCaseStatus, DiscrepancyType, VanCashHandoverStatus } from '@prisma/client';
+import {
+  DailySheetKind,
+  DiscrepancyCaseStatus,
+  DiscrepancyType,
+  OfficeCashRemittanceDestination,
+  OfficeCashRemittanceStatus,
+  VanCashHandoverStatus,
+} from '@prisma/client';
 import type { AuthUser } from '@water-supply-crm/types';
 
 // ─── fixtures ───────────────────────────────────────────────────────────────
@@ -125,9 +132,174 @@ function makeService(txOpts: Parameters<typeof makeTx>[0] = {}) {
     },
   };
   const audit = { log: jest.fn().mockResolvedValue(undefined) };
-  const svc = new VanCashLedgerService(prisma as any, audit as any);
-  return { svc, prisma, tx, audit };
+  const permissions = { can: jest.fn().mockResolvedValue(true) };
+  const svc = new VanCashLedgerService(prisma as any, audit as any, permissions as any);
+  return { svc, prisma, tx, audit, permissions };
 }
+
+// ─── Office Cash Remittance fixtures + factory ──────────────────────────────
+
+const REMITTANCE_ID = 'remit-001';
+
+const baseRemittance = {
+  id: REMITTANCE_ID,
+  vendorId: VENDOR_ID,
+  submittedAmount: 5000,
+  amount: 5000,
+  date: new Date('2026-09-10'),
+  destination: OfficeCashRemittanceDestination.OWNER,
+  destinationName: null as string | null,
+  reference: null as string | null,
+  attachmentKey: null as string | null,
+  note: null as string | null,
+  status: OfficeCashRemittanceStatus.PENDING as OfficeCashRemittanceStatus,
+  submittedById: 'accountant-001',
+  approvedById: null as string | null,
+  approvedAt: null as Date | null,
+  approvedAmount: null as number | null,
+  adjustmentReason: null as string | null,
+  negativeOverrideReason: null as string | null,
+  voidedById: null as string | null,
+  voidedAt: null as Date | null,
+  voidReason: null as string | null,
+  correctsEntryId: null as string | null,
+  version: 1,
+  createdAt: new Date('2026-09-10'),
+  updatedAt: new Date('2026-09-10'),
+};
+
+type Remittance = typeof baseRemittance;
+
+/**
+ * Focused factory for the Office Cash Remittance methods. `computeAvailableBalance`
+ * is spied (not mocked at the DB layer) so a test can dial the office cash
+ * position directly.
+ */
+function makeRemittanceService(opts: {
+  remittance?: Remittance | null;
+  chain?: Remittance[];
+  available?: number;
+  liveCorrection?: { id: string } | null;
+  canRemitVoid?: boolean;
+  canRemitApprove?: boolean;
+} = {}) {
+  const {
+    remittance = null,
+    chain = [],
+    available = 100000,
+    liveCorrection = null,
+    canRemitVoid = true,
+    canRemitApprove = true,
+  } = opts;
+
+  // Single mutable store keyed by id, seeded from `chain` + any standalone row,
+  // so `update` / `updateMany` / `findUniqueOrThrow` all agree.
+  const rows = new Map<string, Remittance>();
+  for (const r of chain) rows.set(r.id, { ...r });
+  if (remittance) rows.set(remittance.id, { ...remittance });
+  let lastTouchedId: string | null =
+    remittance?.id ?? (chain.length === 1 ? chain[0].id : null);
+
+  const officeCashRemittance = {
+    findFirst: jest.fn().mockImplementation(async (args: any) => {
+      const w = args?.where ?? {};
+      // voidRemittance's live-correction probe: { vendorId, correctsEntryId, status: { not } }
+      if (w.correctsEntryId !== undefined && w.status !== undefined) return liveCorrection;
+      // loadRemittanceChain walk-down: { correctsEntryId: tip.id, vendorId }
+      if (w.correctsEntryId !== undefined) {
+        return [...rows.values()].find((r) => r.correctsEntryId === w.correctsEntryId) ?? null;
+      }
+      if (w.id !== undefined) {
+        const r = rows.get(w.id);
+        return r ? { ...r } : null;
+      }
+      return null;
+    }),
+    findUniqueOrThrow: jest.fn().mockImplementation(async ({ where }: any = {}) => {
+      const r = rows.get(where?.id ?? lastTouchedId ?? '');
+      if (!r) throw new Error('not found');
+      return { ...r };
+    }),
+    create: jest.fn().mockImplementation(async ({ data }: any) => {
+      const row = {
+        id: 'new-remit-001',
+        version: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        destinationName: null,
+        reference: null,
+        attachmentKey: null,
+        note: null,
+        approvedById: null,
+        approvedAt: null,
+        approvedAmount: null,
+        adjustmentReason: null,
+        negativeOverrideReason: null,
+        voidedById: null,
+        voidedAt: null,
+        voidReason: null,
+        correctsEntryId: null,
+        ...data,
+      } as Remittance;
+      rows.set(row.id, row);
+      lastTouchedId = row.id;
+      return { ...row };
+    }),
+    update: jest.fn().mockImplementation(async ({ where, data }: any) => {
+      const base = rows.get(where.id);
+      if (!base) throw new Error('not found');
+      const bump = data.version?.increment ?? 0;
+      const updated = { ...base, ...data, version: (base.version ?? 1) + bump } as Remittance;
+      rows.set(where.id, updated);
+      lastTouchedId = where.id;
+      return { ...updated };
+    }),
+    updateMany: jest.fn().mockImplementation(async ({ where, data }: any) => {
+      const base = rows.get(where.id);
+      if (!base || (where.version !== undefined && where.version !== base.version)) return { count: 0 };
+      const bump = data.version?.increment ?? 0;
+      rows.set(where.id, { ...base, ...data, version: base.version + bump } as Remittance);
+      lastTouchedId = where.id;
+      return { count: 1 };
+    }),
+  };
+
+  const tx = { officeCashRemittance };
+  const prisma = {
+    $transaction: jest.fn().mockImplementation(async (cb: any) => cb(tx)),
+    officeCashRemittance,
+  };
+  const audit = { log: jest.fn().mockResolvedValue(undefined) };
+  const grants = new Set<string>();
+  if (canRemitApprove) grants.add('van_cash_ledger:remit_approve');
+  if (canRemitVoid) grants.add('van_cash_ledger:remit_void');
+  const permissions = {
+    can: jest.fn().mockImplementation(async (_uid: string, perm: string) => grants.has(perm)),
+  };
+  const svc = new VanCashLedgerService(prisma as any, audit as any, permissions as any);
+  const computeSpy = jest
+    .spyOn(svc as any, 'computeAvailableBalance')
+    .mockResolvedValue(available);
+  return { svc, prisma, tx, audit, permissions, computeSpy };
+}
+
+const accountantUser: AuthUser = {
+  userId: 'accountant-001',
+  email: 'acc@example.com',
+  name: 'Accountant',
+  role: 'STAFF',
+  vendorId: VENDOR_ID,
+  customerId: null,
+};
+
+const managerUser: AuthUser = {
+  userId: 'manager-001',
+  email: 'mgr@example.com',
+  name: 'Manager',
+  role: 'STAFF',
+  vendorId: VENDOR_ID,
+  customerId: null,
+};
 
 // ─── tests ──────────────────────────────────────────────────────────────────
 
@@ -369,6 +541,454 @@ describe('VanCashLedgerService', () => {
     it('throws ConflictException on stale version (CAS mismatch)', async () => {
       const { svc } = makeService({ handover: { ...baseHandover, version: 5 } });
       await expect(svc.approveHandover(adminUser, HANDOVER_ID, { version: 1 })).rejects.toThrow(ConflictException);
+    });
+  });
+
+  // ─── Office Cash Remittance ───────────────────────────────────────────────
+
+  describe('createRemittance()', () => {
+    it('creates a PENDING remittance and audits it', async () => {
+      const { svc, prisma, audit } = makeRemittanceService({ available: 50000 });
+
+      const result = await svc.createRemittance(accountantUser, {
+        amount: 8000,
+        date: '2026-09-10',
+        destination: OfficeCashRemittanceDestination.OWNER,
+      });
+
+      expect(prisma.officeCashRemittance.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            vendorId: VENDOR_ID,
+            // C1: submittedAmount is seeded equal to the requested amount.
+            submittedAmount: 8000,
+            amount: 8000,
+            status: OfficeCashRemittanceStatus.PENDING,
+            submittedById: accountantUser.userId,
+          }),
+        }),
+      );
+      expect(result.wouldGoNegative).toBe(false);
+      expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'CREATED', entity: 'OfficeCashRemittance' }));
+    });
+
+    it('flags wouldGoNegative but still creates the row when a note is provided', async () => {
+      const { svc, prisma } = makeRemittanceService({ available: 3000 });
+
+      const result = await svc.createRemittance(accountantUser, {
+        amount: 8000,
+        date: '2026-09-10',
+        destination: OfficeCashRemittanceDestination.BANK,
+        note: 'a van handover is still pending entry',
+      });
+
+      expect(result.wouldGoNegative).toBe(true);
+      expect(prisma.officeCashRemittance.create).toHaveBeenCalled();
+    });
+
+    it('M5: rejects an over-remittance recorded without a note', async () => {
+      const { svc, prisma } = makeRemittanceService({ available: 3000 });
+
+      await expect(
+        svc.createRemittance(accountantUser, {
+          amount: 8000,
+          date: '2026-09-10',
+          destination: OfficeCashRemittanceDestination.BANK,
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.officeCashRemittance.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('approveRemittance()', () => {
+    it('approves a PENDING remittance with no adjustment', async () => {
+      const { svc, tx } = makeRemittanceService({
+        remittance: { ...baseRemittance, version: 1 },
+        available: 100000,
+      });
+
+      const result = await svc.approveRemittance(managerUser, REMITTANCE_ID, { version: 1 });
+
+      expect(tx.officeCashRemittance.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: REMITTANCE_ID, vendorId: VENDOR_ID, version: 1 },
+          data: expect.objectContaining({
+            status: OfficeCashRemittanceStatus.APPROVED,
+            approvedById: managerUser.userId,
+            approvedAmount: 5000,
+            amount: 5000,
+          }),
+        }),
+      );
+      expect(result.status).toBe(OfficeCashRemittanceStatus.APPROVED);
+    });
+
+    it('blocks the recorder from approving their own remittance', async () => {
+      const { svc } = makeRemittanceService({ remittance: { ...baseRemittance, submittedById: managerUser.userId } });
+      await expect(
+        svc.approveRemittance(managerUser, REMITTANCE_ID, { version: 1 }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects approving a non-PENDING remittance', async () => {
+      const { svc } = makeRemittanceService({
+        remittance: { ...baseRemittance, status: OfficeCashRemittanceStatus.APPROVED },
+      });
+      await expect(svc.approveRemittance(managerUser, REMITTANCE_ID, { version: 1 })).rejects.toThrow(BadRequestException);
+    });
+
+    it('requires adjustmentReason when approvedAmount differs from the amount', async () => {
+      const { svc } = makeRemittanceService({ remittance: { ...baseRemittance, version: 1 } });
+      await expect(
+        svc.approveRemittance(managerUser, REMITTANCE_ID, { version: 1, approvedAmount: 4500 }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('blocks an approval that drives office cash negative unless negativeOverrideReason is given', async () => {
+      const { svc } = makeRemittanceService({ remittance: { ...baseRemittance, version: 1 }, available: 3000 });
+      await expect(
+        svc.approveRemittance(managerUser, REMITTANCE_ID, { version: 1 }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('accepts a negative-driving approval when negativeOverrideReason is provided', async () => {
+      const { svc, tx } = makeRemittanceService({ remittance: { ...baseRemittance, version: 1 }, available: 3000 });
+      const result = await svc.approveRemittance(managerUser, REMITTANCE_ID, {
+        version: 1,
+        negativeOverrideReason: 'van handover still pending entry',
+      });
+      expect(tx.officeCashRemittance.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ negativeOverrideReason: 'van handover still pending entry' }),
+        }),
+      );
+      expect(result.status).toBe(OfficeCashRemittanceStatus.APPROVED);
+    });
+
+    it('throws ConflictException on stale version', async () => {
+      const { svc } = makeRemittanceService({ remittance: { ...baseRemittance, version: 5 } });
+      await expect(svc.approveRemittance(managerUser, REMITTANCE_ID, { version: 1 })).rejects.toThrow(ConflictException);
+    });
+
+    it('C1: an adjusted approval sets amount + approvedAmount but never touches submittedAmount', async () => {
+      const { svc, tx } = makeRemittanceService({
+        remittance: { ...baseRemittance, version: 1, submittedAmount: 5000, amount: 5000 },
+      });
+
+      const result = await svc.approveRemittance(managerUser, REMITTANCE_ID, {
+        version: 1,
+        approvedAmount: 4500,
+        adjustmentReason: 'short by 500 on recount',
+      });
+
+      const data = tx.officeCashRemittance.updateMany.mock.calls[0][0].data;
+      expect(data.amount).toBe(4500);
+      expect(data.approvedAmount).toBe(4500);
+      expect(data).not.toHaveProperty('submittedAmount');
+      expect(result.submittedAmount).toBe(5000);
+      expect(result.amount).toBe(4500);
+    });
+  });
+
+  describe('voidRemittance()', () => {
+    it('voids a PENDING remittance (status flip + reason + audit)', async () => {
+      const { svc, tx, audit } = makeRemittanceService({ remittance: { ...baseRemittance, version: 1 } });
+
+      const result = await svc.voidRemittance(accountantUser, REMITTANCE_ID, {
+        version: 1,
+        voidReason: 'entered by mistake',
+      });
+
+      expect(tx.officeCashRemittance.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: OfficeCashRemittanceStatus.VOIDED,
+            voidedById: accountantUser.userId,
+            voidReason: 'entered by mistake',
+          }),
+        }),
+      );
+      expect(result.status).toBe(OfficeCashRemittanceStatus.VOIDED);
+      expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'VOIDED', entity: 'OfficeCashRemittance' }));
+    });
+
+    it('blocks voiding an APPROVED remittance without van_cash_ledger:remit_void', async () => {
+      const { svc } = makeRemittanceService({
+        remittance: { ...baseRemittance, version: 1, status: OfficeCashRemittanceStatus.APPROVED },
+        canRemitVoid: false,
+      });
+      await expect(
+        svc.voidRemittance(managerUser, REMITTANCE_ID, { version: 1, voidReason: 'wrong amount entirely' }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('blocks voiding an APPROVED remittance that still has a live correction', async () => {
+      const { svc } = makeRemittanceService({
+        remittance: { ...baseRemittance, version: 1, status: OfficeCashRemittanceStatus.APPROVED },
+        canRemitVoid: true,
+        liveCorrection: { id: 'correction-001' },
+      });
+      await expect(
+        svc.voidRemittance(managerUser, REMITTANCE_ID, { version: 1, voidReason: 'needs full reversal' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects double-void', async () => {
+      const { svc } = makeRemittanceService({
+        remittance: { ...baseRemittance, version: 1, status: OfficeCashRemittanceStatus.VOIDED },
+      });
+      await expect(
+        svc.voidRemittance(managerUser, REMITTANCE_ID, { version: 1, voidReason: 'already gone though' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws ConflictException on stale version', async () => {
+      const { svc } = makeRemittanceService({ remittance: { ...baseRemittance, version: 5 } });
+      await expect(
+        svc.voidRemittance(accountantUser, REMITTANCE_ID, { version: 1, voidReason: 'stale token retry' }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('M1: a creator may void their OWN pending remittance with no approver/void grant', async () => {
+      const { svc, tx } = makeRemittanceService({
+        remittance: { ...baseRemittance, version: 1, submittedById: accountantUser.userId },
+        canRemitApprove: false,
+        canRemitVoid: false,
+      });
+
+      const result = await svc.voidRemittance(accountantUser, REMITTANCE_ID, {
+        version: 1,
+        voidReason: 'recorded the wrong bank',
+      });
+
+      expect(result.status).toBe(OfficeCashRemittanceStatus.VOIDED);
+      expect(tx.officeCashRemittance.updateMany).toHaveBeenCalled();
+    });
+
+    it('M1: blocks a non-creator without remit_approve from voiding a pending remittance', async () => {
+      const { svc } = makeRemittanceService({
+        remittance: { ...baseRemittance, version: 1, submittedById: 'someone-else-001' },
+        canRemitApprove: false,
+        canRemitVoid: false,
+      });
+
+      await expect(
+        svc.voidRemittance(managerUser, REMITTANCE_ID, { version: 1, voidReason: 'not mine to void' }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('correctRemittance()', () => {
+    it('M2: rewrites a still-PENDING standalone remittance in place via a version CAS', async () => {
+      const root = { ...baseRemittance, version: 2, status: OfficeCashRemittanceStatus.PENDING };
+      const { svc, tx } = makeRemittanceService({ chain: [root] });
+
+      const result = await svc.correctRemittance(accountantUser, REMITTANCE_ID, {
+        version: 2,
+        newAmount: 6500,
+        correctionReason: 'typo in the amount',
+      });
+
+      // Plain update() must NOT be used — the in-place branch is a CAS updateMany
+      // keyed on { id, vendorId, version }.
+      expect(tx.officeCashRemittance.update).not.toHaveBeenCalled();
+      expect(tx.officeCashRemittance.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: REMITTANCE_ID, vendorId: VENDOR_ID, version: 2 },
+          data: expect.objectContaining({ amount: 6500, version: { increment: 1 } }),
+        }),
+      );
+      expect(tx.officeCashRemittance.create).not.toHaveBeenCalled();
+      expect(result.amount).toBe(6500);
+    });
+
+    it('M2: an in-place correction rejects a stale version when the CAS matches no row', async () => {
+      const root = { ...baseRemittance, version: 2, status: OfficeCashRemittanceStatus.PENDING };
+      const { svc, tx } = makeRemittanceService({ chain: [root] });
+      // Simulate a concurrent bump: the CAS matches 0 rows.
+      tx.officeCashRemittance.updateMany.mockResolvedValueOnce({ count: 0 });
+
+      await expect(
+        svc.correctRemittance(accountantUser, REMITTANCE_ID, {
+          version: 2,
+          newAmount: 6500,
+          correctionReason: 'lost the race to a concurrent edit',
+        }),
+      ).rejects.toThrow(ConflictException);
+      expect(tx.officeCashRemittance.create).not.toHaveBeenCalled();
+    });
+
+    it('appends a PENDING DELTA row when the original is APPROVED', async () => {
+      const root = { ...baseRemittance, version: 3, status: OfficeCashRemittanceStatus.APPROVED };
+      const { svc, tx } = makeRemittanceService({ chain: [root] });
+
+      const result = await svc.correctRemittance(managerUser, REMITTANCE_ID, {
+        version: 3,
+        newAmount: 6500,
+        correctionReason: 'bank credited more than recorded',
+      });
+
+      expect(tx.officeCashRemittance.update).not.toHaveBeenCalled();
+      expect(tx.officeCashRemittance.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            // C1: a delta row's submittedAmount is the proposed delta.
+            submittedAmount: 1500,
+            amount: 1500, // 6500 - 5000
+            status: OfficeCashRemittanceStatus.PENDING,
+            correctsEntryId: REMITTANCE_ID,
+            submittedById: managerUser.userId,
+          }),
+        }),
+      );
+      expect(result.amount).toBe(1500);
+    });
+
+    it('M3: a concurrent correction of the same parent is rejected and creates no child', async () => {
+      const root = { ...baseRemittance, version: 3, status: OfficeCashRemittanceStatus.APPROVED };
+      const { svc, tx } = makeRemittanceService({ chain: [root] });
+      // The parent-claim CAS (bump mostRecent.version) matches 0 rows — another
+      // correction already advanced it.
+      tx.officeCashRemittance.updateMany.mockResolvedValueOnce({ count: 0 });
+
+      await expect(
+        svc.correctRemittance(managerUser, REMITTANCE_ID, {
+          version: 3,
+          newAmount: 6500,
+          correctionReason: 'two approvers corrected at once',
+        }),
+      ).rejects.toThrow(ConflictException);
+      expect(tx.officeCashRemittance.create).not.toHaveBeenCalled();
+    });
+
+    it('M1: a creator may correct their OWN pending remittance in place with no approver grant', async () => {
+      const root = {
+        ...baseRemittance,
+        version: 2,
+        status: OfficeCashRemittanceStatus.PENDING,
+        submittedById: accountantUser.userId,
+      };
+      const { svc, tx } = makeRemittanceService({ chain: [root], canRemitApprove: false });
+
+      const result = await svc.correctRemittance(accountantUser, REMITTANCE_ID, {
+        version: 2,
+        newAmount: 6500,
+        correctionReason: 'fixing my own entry before approval',
+      });
+
+      expect(tx.officeCashRemittance.updateMany).toHaveBeenCalled();
+      expect(result.amount).toBe(6500);
+    });
+
+    it('M1: blocks a non-creator without remit_approve from correcting a pending remittance', async () => {
+      const root = {
+        ...baseRemittance,
+        version: 2,
+        status: OfficeCashRemittanceStatus.PENDING,
+        submittedById: 'someone-else-001',
+      };
+      const { svc } = makeRemittanceService({ chain: [root], canRemitApprove: false });
+
+      await expect(
+        svc.correctRemittance(managerUser, REMITTANCE_ID, {
+          version: 2,
+          newAmount: 6500,
+          correctionReason: 'not my entry to touch',
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('M1: correcting an APPROVED remittance requires remit_approve', async () => {
+      const root = { ...baseRemittance, version: 3, status: OfficeCashRemittanceStatus.APPROVED };
+      const { svc } = makeRemittanceService({ chain: [root], canRemitApprove: false });
+
+      await expect(
+        svc.correctRemittance(accountantUser, REMITTANCE_ID, {
+          version: 3,
+          newAmount: 6500,
+          correctionReason: 'approved rows are not self-service',
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('creates a NEGATIVE delta row when correcting an approved remittance downward', async () => {
+      const root = { ...baseRemittance, version: 3, status: OfficeCashRemittanceStatus.APPROVED };
+      const { svc, tx } = makeRemittanceService({ chain: [root] });
+
+      await svc.correctRemittance(managerUser, REMITTANCE_ID, {
+        version: 3,
+        newAmount: 2000,
+        correctionReason: 'over-recorded by three thousand',
+      });
+
+      expect(tx.officeCashRemittance.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ amount: -3000 }) }),
+      );
+    });
+
+    it('appends onto an existing correction chain (delta vs current total)', async () => {
+      const root = { ...baseRemittance, id: 'root-1', version: 1, status: OfficeCashRemittanceStatus.APPROVED };
+      const c1 = {
+        ...baseRemittance,
+        id: 'corr-1',
+        amount: 1000,
+        version: 1,
+        status: OfficeCashRemittanceStatus.APPROVED,
+        correctsEntryId: 'root-1',
+      };
+      const { svc, tx } = makeRemittanceService({ chain: [root, c1] });
+
+      // currentTotal = 5000 + 1000 = 6000; newAmount 6800 => delta 800
+      await svc.correctRemittance(managerUser, 'root-1', {
+        version: 1,
+        newAmount: 6800,
+        correctionReason: 'final reconciliation adjustment',
+      });
+
+      expect(tx.officeCashRemittance.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ amount: 800, correctsEntryId: 'corr-1' }) }),
+      );
+    });
+
+    it('rejects a no-op correction (delta 0)', async () => {
+      const root = { ...baseRemittance, version: 2, status: OfficeCashRemittanceStatus.PENDING };
+      const { svc } = makeRemittanceService({ chain: [root] });
+      await expect(
+        svc.correctRemittance(accountantUser, REMITTANCE_ID, {
+          version: 2,
+          newAmount: 5000,
+          correctionReason: 'no actual change here',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws ConflictException on stale version', async () => {
+      const root = { ...baseRemittance, version: 9, status: OfficeCashRemittanceStatus.PENDING };
+      const { svc } = makeRemittanceService({ chain: [root] });
+      await expect(
+        svc.correctRemittance(accountantUser, REMITTANCE_ID, {
+          version: 1,
+          newAmount: 6000,
+          correctionReason: 'stale token on correct',
+        }),
+      ).rejects.toThrow(ConflictException);
+    });
+  });
+
+  describe('normalizeRemittanceOut() — M4', () => {
+    it('flags DELTA correction rows via isCorrection so the UI keeps "Correct" off them', () => {
+      const { svc } = makeRemittanceService();
+      const base = {
+        ...baseRemittance,
+        status: OfficeCashRemittanceStatus.APPROVED,
+        submittedBy: null,
+        approvedBy: null,
+        voidedBy: null,
+      };
+      const root = (svc as any).normalizeRemittanceOut({ ...base, correctsEntryId: null });
+      const delta = (svc as any).normalizeRemittanceOut({ ...base, correctsEntryId: 'root-1' });
+      expect(root.isCorrection).toBe(false);
+      expect(delta.isCorrection).toBe(true);
     });
   });
 });

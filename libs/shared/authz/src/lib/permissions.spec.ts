@@ -71,7 +71,11 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // balance per van folding Daily Sheet cash handovers and Expense Center
 // cash-outs into one timeline. Navigable (`/dashboard/cash-ledger`) — +1 page
 // permission, +1 resource too.
-const FROZEN_TOTAL = 175;
+// 178 = 175 + van_cash_ledger:{remit, remit_approve, remit_void} — the Office
+// Cash Remittance feature (owner-requested 2026-09-10): the office -> owner/
+// CEO/bank cash hop, folded into the same Cash Ledger timeline. No new
+// resource, no new `:page` — added to the existing `van_cash_ledger` resource.
+const FROZEN_TOTAL = 178;
 const FROZEN_PAGES = 29;
 const FROZEN_RESOURCES = 31;
 

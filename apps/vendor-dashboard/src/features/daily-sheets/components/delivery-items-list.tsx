@@ -701,7 +701,7 @@ export function DeliveryItemsList({
                                     ? 'text-emerald-600 dark:text-emerald-400'
                                     : 'text-destructive',
                                 )}
-                                title={`Stock turnover: avg bottles delivered ÷ bottles held (last ${customer.consumptionSampleSize ?? 0} deliver${(customer.consumptionSampleSize ?? 0) === 1 ? 'y' : 'ies'}). Low = bottles locked at customer.`}
+                                title={`Stock turnover: avg bottles dropped per visit ÷ bottles held (last ${customer.consumptionSampleSize ?? 0} visit${(customer.consumptionSampleSize ?? 0) === 1 ? '' : 's'}, incl. empty-only & customer-not-home). Low = bottles locked at customer.`}
                               >
                                 {customer.consumptionRate}%
                               </span>

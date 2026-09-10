@@ -276,24 +276,83 @@ export class CustomerService {
     // Attach each customer's most recent successful delivery date (one grouped
     // query for the whole page) so the list can show a "Last Delivery" column.
     const customerIds = data.map((c) => c.id);
-    const lastDeliveries = customerIds.length
-      ? await this.prisma.dailySheetItem.groupBy({
-          by: ['customerId'],
-          where: {
-            customerId: { in: customerIds },
-            status: { in: [DeliveryStatus.COMPLETED, DeliveryStatus.EMPTY_ONLY] },
-            deliveredAt: { not: null },
-          },
-          _max: { deliveredAt: true },
-        })
-      : [];
+    // MONTHLY customers on this page — the only ones that need the prev-month
+    // outstanding netting; CASH customers show their live financialBalance as-is.
+    const monthlyCustomerIds = data
+      .filter((c) => c.paymentType === 'MONTHLY')
+      .map((c) => c.id);
+    const now = new Date();
+    const curMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+    // Prisma handles an empty `in: []` gracefully (matches nothing), so these can
+    // run unconditionally even when the page has no rows / no MONTHLY customers.
+    const [lastDeliveries, lastPayments, curMonthTxns, curMonthPayments] = await Promise.all([
+      this.prisma.dailySheetItem.groupBy({
+        by: ['customerId'],
+        where: {
+          customerId: { in: customerIds },
+          status: { in: [DeliveryStatus.COMPLETED, DeliveryStatus.EMPTY_ONLY] },
+          deliveredAt: { not: null },
+        },
+        _max: { deliveredAt: true },
+      }),
+      // Most recent PAYMENT transaction per customer — covers both delivery-time
+      // cash collection and manually recorded payments; drives the "last cash
+      // collected N days ago" line under the pending-amount column.
+      this.prisma.transaction.groupBy({
+        by: ['customerId'],
+        where: { customerId: { in: customerIds }, vendorId, type: TransactionType.PAYMENT },
+        _max: { createdAt: true },
+      }),
+      // Prev-month outstanding for MONTHLY customers = opening balance of the
+      // current month (live balance minus everything booked this month), then
+      // net out this month's payments. Mirrors DailySheetService.
+      this.prisma.transaction.groupBy({
+        by: ['customerId'],
+        where: {
+          customerId: { in: monthlyCustomerIds },
+          vendorId,
+          createdAt: { gte: curMonthStart },
+        },
+        _sum: { amount: true },
+      }),
+      this.prisma.transaction.groupBy({
+        by: ['customerId'],
+        where: {
+          customerId: { in: monthlyCustomerIds },
+          vendorId,
+          type: TransactionType.PAYMENT,
+          createdAt: { gte: curMonthStart, lt: nextMonthStart },
+        },
+        _sum: { amount: true },
+      }),
+    ]);
+
     const lastDeliveryMap = new Map(
       lastDeliveries.map((g) => [g.customerId, g._max.deliveredAt]),
     );
-    const dataWithLastDelivery = data.map((c) => ({
-      ...c,
-      lastDeliveryAt: lastDeliveryMap.get(c.id) ?? null,
-    }));
+    const lastPaymentMap = new Map(
+      lastPayments.map((g) => [g.customerId, g._max.createdAt]),
+    );
+    const curMonthTxnMap = new Map(curMonthTxns.map((t) => [t.customerId, t._sum.amount ?? 0]));
+    const curMonthPaidMap = new Map(
+      curMonthPayments.map((t) => [t.customerId, Math.abs(t._sum.amount ?? 0)]),
+    );
+
+    const dataWithLastDelivery = data.map((c) => {
+      const isMonthly = c.paymentType === 'MONTHLY';
+      const opening = (c.financialBalance ?? 0) - (curMonthTxnMap.get(c.id) ?? 0);
+      const previousMonthOutstanding = isMonthly
+        ? Math.max(0, opening - (curMonthPaidMap.get(c.id) ?? 0))
+        : null;
+      return {
+        ...c,
+        lastDeliveryAt: lastDeliveryMap.get(c.id) ?? null,
+        lastPaymentAt: lastPaymentMap.get(c.id) ?? null,
+        previousMonthOutstanding,
+      };
+    });
 
     return paginate(dataWithLastDelivery, total, page, limit);
   }

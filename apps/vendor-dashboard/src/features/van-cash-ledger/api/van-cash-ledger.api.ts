@@ -15,7 +15,8 @@ export type CashLedgerRowType =
   | 'OPENING_BALANCE'
   | 'CASH_IN'
   | 'CASH_IN_CORRECTION'
-  | 'CASH_OUT';
+  | 'CASH_OUT'
+  | 'CASH_REMITTANCE_OUT';
 
 export type CashLedgerRowStatus = 'PENDING' | 'APPROVED' | null;
 
@@ -26,13 +27,15 @@ export interface CashLedgerRow {
   vanId: string | null;
   vanPlateNumber: string | null;
   title: string;
-  /** Signed — positive for IN/opening, negative for OUT. */
+  /** Signed — positive for IN/opening, negative for OUT. A voided remittance row is 0 here (see `displayAmount`). */
   amount: number;
+  /** Always the positive magnitude of the underlying record — non-zero even when `amount` is 0 for a voided row. */
+  displayAmount: number;
   /** Cumulative, server-computed. */
   runningBalance: number;
   /** Only meaningful for CASH_IN / CASH_IN_CORRECTION. */
   status: CashLedgerRowStatus;
-  /** The VanCashHandover id, for the approve action. */
+  /** The VanCashHandover / OfficeCashRemittance id, for the row's own action. */
   sourceRecordId: string | null;
   dailySheetId: string | null;
   submittedByName: string | null;
@@ -40,6 +43,12 @@ export interface CashLedgerRow {
   sourceBadge: string;
   /** Optimistic-concurrency token for the approve action — null where not applicable (opening balance / cash-out rows). */
   version: number | null;
+  /** CASH_REMITTANCE_OUT only — true when the office→owner handover has been voided (shown struck-through, folds in as 0). */
+  isVoided?: boolean;
+  /** CASH_REMITTANCE_OUT only — the reason captured when the row was voided. */
+  voidReason?: string | null;
+  /** CASH_REMITTANCE_OUT only — true when this row is a DELTA correction row, not the root of a logical remittance. */
+  isCorrection?: boolean;
 }
 
 export interface CashLedgerTimelineQuery {
@@ -76,6 +85,10 @@ export interface CashLedgerStats {
   /** NOT date-range scoped — the true current balance. */
   availableBalance: number;
   pendingHandoverCount: number;
+  /** Date-range scoped — sum of APPROVED office→owner remittances in the window. */
+  totalRemitted: number;
+  /** NOT date-range scoped — count of PENDING office→owner remittances awaiting approval. */
+  pendingRemittanceCount: number;
 }
 
 export interface PendingHandoverQuery {
@@ -91,6 +104,63 @@ export interface PendingHandover {
   amount: number;
   /** Optimistic-concurrency token required by the approve action. */
   version: number;
+}
+
+// ── Office Cash Remittance (office → owner / CEO / bank) ─────────────────────
+
+export type RemittanceDestination = 'OWNER' | 'CEO' | 'BANK' | 'OTHER';
+export type RemittanceStatus = 'PENDING' | 'APPROVED' | 'VOIDED';
+
+export interface PendingRemittance {
+  id: string;
+  amount: number;
+  date: string;
+  destination: RemittanceDestination;
+  destinationName: string | null;
+  reference: string | null;
+  note: string | null;
+  attachmentKey: string | null;
+  submittedBy: { id: string; name: string } | null;
+  correctsEntryId: string | null;
+  /** Optimistic-concurrency token required by the approve action. */
+  version: number;
+}
+
+export interface CreateRemittancePayload {
+  amount: number;
+  date: string;
+  destination: RemittanceDestination;
+  destinationName?: string;
+  reference?: string;
+  note?: string;
+  attachmentKey?: string;
+}
+
+export interface CreateRemittanceResult extends PendingRemittance {
+  status: RemittanceStatus;
+  /** Server-computed — true when the recorded amount exceeds current office cash. */
+  wouldGoNegative: boolean;
+  availableBalance: number;
+}
+
+export interface ApproveRemittancePayload {
+  version: number;
+  approvedAmount?: number;
+  adjustmentReason?: string;
+  negativeOverrideReason?: string;
+}
+
+export interface VoidRemittancePayload {
+  version: number;
+  voidReason: string;
+}
+
+export interface CorrectRemittancePayload {
+  version: number;
+  newAmount: number;
+  destinationName?: string;
+  reference?: string;
+  correctionReason: string;
 }
 
 export interface SetOpeningBalancePayload {
@@ -116,4 +186,27 @@ export const vanCashLedgerApi = {
     apiClient.get<PendingHandover[]>('/van-cash-ledger/pending-handovers', { params }),
   approveHandover: (id: string, data: ApproveHandoverPayload) =>
     apiClient.patch(`/van-cash-ledger/cash-in/${id}/approve`, data),
+
+  // Office Cash Remittance
+  getPendingRemittances: () =>
+    apiClient.get<PendingRemittance[]>('/van-cash-ledger/pending-remittances'),
+  createRemittance: (data: CreateRemittancePayload) =>
+    apiClient.post<CreateRemittanceResult>('/van-cash-ledger/remittance', data),
+  uploadRemittanceAttachment: (file: File): Promise<{ key: string }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return apiClient
+      .post<{ key: string }>('/van-cash-ledger/remittance/attachment', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data);
+  },
+  getRemittanceAttachment: (id: string) =>
+    apiClient.get<{ signedUrl: string }>(`/van-cash-ledger/remittance/${id}/attachment`),
+  approveRemittance: (id: string, data: ApproveRemittancePayload) =>
+    apiClient.patch(`/van-cash-ledger/remittance/${id}/approve`, data),
+  correctRemittance: (id: string, data: CorrectRemittancePayload) =>
+    apiClient.patch(`/van-cash-ledger/remittance/${id}/correct`, data),
+  voidRemittance: (id: string, data: VoidRemittancePayload) =>
+    apiClient.patch(`/van-cash-ledger/remittance/${id}/void`, data),
 };

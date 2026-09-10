@@ -8,6 +8,10 @@ import {
   type PendingHandoverQuery,
   type SetOpeningBalancePayload,
   type ApproveHandoverPayload,
+  type CreateRemittancePayload,
+  type ApproveRemittancePayload,
+  type VoidRemittancePayload,
+  type CorrectRemittancePayload,
 } from '../api/van-cash-ledger.api';
 
 const QUERY_KEY = 'van-cash-ledger';
@@ -65,6 +69,12 @@ export const usePendingHandovers = (params?: PendingHandoverQuery) =>
     queryFn: () => vanCashLedgerApi.getPendingHandovers(params).then((r) => r.data),
   });
 
+export const usePendingRemittances = () =>
+  useQuery({
+    queryKey: [QUERY_KEY, 'pending-remittances'],
+    queryFn: () => vanCashLedgerApi.getPendingRemittances().then((r) => r.data),
+  });
+
 const INVALIDATE_ALL = (queryClient: ReturnType<typeof useQueryClient>) => {
   queryClient.invalidateQueries({ queryKey: [QUERY_KEY] });
 };
@@ -94,5 +104,65 @@ export const useApproveHandover = () => {
     },
     onError: (e: any) => // eslint-disable-line @typescript-eslint/no-explicit-any
       toast.error(e?.response?.data?.message ?? 'Failed to approve handover'),
+  });
+};
+
+// ── Office Cash Remittance ──────────────────────────────────────────────────
+
+export const useCreateRemittance = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: CreateRemittancePayload) => vanCashLedgerApi.createRemittance(data),
+    onSuccess: () => {
+      INVALIDATE_ALL(queryClient);
+      toast.success('Owner handover recorded — pending approval');
+    },
+    onError: (e: any) => // eslint-disable-line @typescript-eslint/no-explicit-any
+      toast.error(e?.response?.data?.message ?? 'Failed to record owner handover'),
+  });
+};
+
+export const useApproveRemittance = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    retry: 0,
+    mutationFn: ({ id, data }: { id: string; data: ApproveRemittancePayload }) =>
+      vanCashLedgerApi.approveRemittance(id, data),
+    onSuccess: () => {
+      INVALIDATE_ALL(queryClient);
+      toast.success('Owner handover approved');
+    },
+    onError: (e: any) => // eslint-disable-line @typescript-eslint/no-explicit-any
+      toast.error(e?.response?.data?.message ?? 'Failed to approve owner handover'),
+  });
+};
+
+export const useVoidRemittance = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    retry: 0,
+    mutationFn: ({ id, data }: { id: string; data: VoidRemittancePayload }) =>
+      vanCashLedgerApi.voidRemittance(id, data),
+    onSuccess: () => {
+      INVALIDATE_ALL(queryClient);
+      toast.success('Owner handover voided');
+    },
+    onError: (e: any) => // eslint-disable-line @typescript-eslint/no-explicit-any
+      toast.error(e?.response?.data?.message ?? 'Failed to void owner handover'),
+  });
+};
+
+export const useCorrectRemittance = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    retry: 0,
+    mutationFn: ({ id, data }: { id: string; data: CorrectRemittancePayload }) =>
+      vanCashLedgerApi.correctRemittance(id, data),
+    onSuccess: () => {
+      INVALIDATE_ALL(queryClient);
+      toast.success('Correction submitted — pending approval');
+    },
+    onError: (e: any) => // eslint-disable-line @typescript-eslint/no-explicit-any
+      toast.error(e?.response?.data?.message ?? 'Failed to submit correction'),
   });
 };

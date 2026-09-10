@@ -356,6 +356,9 @@ model Vendor {
   // Van Cash Ledger (owner-requested 2026-09-09)
   vanCashOpeningBalances VanCashOpeningBalance[]
   vanCashHandovers       VanCashHandover[]
+
+  // Office Cash Remittance (owner-requested 2026-09-10) — office -> owner/bank
+  officeCashRemittances OfficeCashRemittance[]
 }
 
 model User {
@@ -450,6 +453,11 @@ model User {
   vanCashOpeningBalancesSet VanCashOpeningBalance[]
   submittedVanCashHandovers VanCashHandover[]       @relation("VanCashHandoverSubmittedBy")
   approvedVanCashHandovers  VanCashHandover[]       @relation("VanCashHandoverApprovedBy")
+
+  // Office Cash Remittance (owner-requested 2026-09-10)
+  officeCashRemittancesSubmitted OfficeCashRemittance[] @relation("OfficeCashRemittanceSubmittedBy")
+  officeCashRemittancesApproved  OfficeCashRemittance[] @relation("OfficeCashRemittanceApprovedBy")
+  officeCashRemittancesVoided    OfficeCashRemittance[] @relation("OfficeCashRemittanceVoidedBy")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2958,5 +2966,79 @@ model VanCashHandover {
   @@index([vendorId, vanId, date])
   @@index([vendorId, status])
   @@index([dailySheetId])
+  @@index([correctsEntryId])
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Office Cash Remittance (owner-requested 2026-09-10)
+// The third cash-custody tier the Van Cash Ledger was missing:
+//   Van (driver) --VanCashHandover--> Office cash box --OfficeCashRemittance--> Owner / CEO / Bank
+// Vendor-wide (the office pool is fungible once van handovers are APPROVED — no
+// vanId). Same lifecycle discipline as VanCashHandover: PENDING -> APPROVED
+// counts toward the balance; a post-approval fix creates a NEW row via
+// correctsEntryId carrying the DELTA (not the new total); never mutated in
+// place once APPROVED; never deleted (a void is a status flip to VOIDED).
+// Optimistic concurrency via `version` (CAS on updateMany).
+// ──────────────────────────────────────────────────────────────────────────────
+
+enum OfficeCashRemittanceStatus {
+  PENDING
+  APPROVED
+  VOIDED
+}
+
+enum OfficeCashRemittanceDestination {
+  OWNER
+  CEO
+  BANK
+  OTHER
+}
+
+model OfficeCashRemittance {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  // The figure the submitter originally recorded. Set once at create, NEVER
+  // modified thereafter (not by approve, not by an in-place correction) — the
+  // immutable audit anchor. `amount` is the live figure that drives balances;
+  // `approvedAmount` is what the approver accepted.
+  submittedAmount Float
+  amount          Float
+  date            DateTime
+  destination     OfficeCashRemittanceDestination @default(OWNER)
+  destinationName String?
+  reference       String?
+  attachmentKey   String?
+  note            String?
+
+  status OfficeCashRemittanceStatus @default(PENDING)
+
+  submittedById String
+  submittedBy   User   @relation("OfficeCashRemittanceSubmittedBy", fields: [submittedById], references: [id])
+
+  approvedById String?
+  approvedBy   User?     @relation("OfficeCashRemittanceApprovedBy", fields: [approvedById], references: [id])
+  approvedAt   DateTime?
+
+  approvedAmount         Float?
+  adjustmentReason       String?
+  negativeOverrideReason String?
+
+  voidedById String?
+  voidedBy   User?     @relation("OfficeCashRemittanceVoidedBy", fields: [voidedById], references: [id])
+  voidedAt   DateTime?
+  voidReason String?
+
+  correctsEntryId String?
+  correctsEntry   OfficeCashRemittance?  @relation("OfficeCashRemittanceCorrection", fields: [correctsEntryId], references: [id], onDelete: SetNull)
+  corrections     OfficeCashRemittance[] @relation("OfficeCashRemittanceCorrection")
+
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vendorId, date])
+  @@index([vendorId, status])
   @@index([correctsEntryId])
 }

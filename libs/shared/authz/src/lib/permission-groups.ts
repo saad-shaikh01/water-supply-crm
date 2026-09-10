@@ -81,6 +81,9 @@ export const ACTION_LABELS: Record<string, string> = {
   period_lock: 'Lock payroll period',
   period_unlock: 'Unlock payroll period',
   settlement_record: 'Record settlement',
+  remit: 'Record office cash handover to owner',
+  remit_approve: 'Approve office cash handover',
+  remit_void: 'Void an approved office cash handover',
 };
 
 /** A single permission with display metadata for the role editor. */

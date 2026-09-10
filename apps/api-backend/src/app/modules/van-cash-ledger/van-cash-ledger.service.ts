@@ -1,10 +1,13 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import {
   DailySheetKind,
   DiscrepancyCaseStatus,
   DiscrepancyType,
   LedgerEntryStatus,
+  OfficeCashRemittance,
+  OfficeCashRemittanceDestination,
+  OfficeCashRemittanceStatus,
   Prisma,
   StaffLedgerCategory,
   VanCashHandover,
@@ -13,6 +16,7 @@ import {
 import type { AuthUser } from '@water-supply-crm/types';
 import { paginate, type PaginatedResult } from '../../common/helpers/paginate';
 import { AuditService } from '../audit/audit.service';
+import { PermissionService } from '../authz/permission.service';
 import { resolveSheetCash, SHEET_CASH_RELOAD_INCLUDE } from '../daily-sheet/sheet-cash.util';
 import {
   normalizeCrewCashRow,
@@ -23,6 +27,10 @@ import {
 } from '../expense-center/expense-center-domain.util';
 import { SetOpeningBalanceDto } from './dto/set-opening-balance.dto';
 import { ApproveHandoverDto } from './dto/approve-handover.dto';
+import { CreateRemittanceDto } from './dto/create-remittance.dto';
+import { ApproveRemittanceDto } from './dto/approve-remittance.dto';
+import { VoidRemittanceDto } from './dto/void-remittance.dto';
+import { CorrectRemittanceDto } from './dto/correct-remittance.dto';
 import { VanCashLedgerStatsQueryDto, VanCashLedgerTimelineQueryDto } from './dto/van-cash-ledger-query.dto';
 
 function versionMismatch(expected: number, received: number): ConflictException {
@@ -48,7 +56,12 @@ function buildDateFilter(from?: Date, to?: Date): { gte?: Date; lte?: Date } | u
   return filter;
 }
 
-export type VanCashLedgerRowType = 'OPENING_BALANCE' | 'CASH_IN' | 'CASH_IN_CORRECTION' | 'CASH_OUT';
+export type VanCashLedgerRowType =
+  | 'OPENING_BALANCE'
+  | 'CASH_IN'
+  | 'CASH_IN_CORRECTION'
+  | 'CASH_OUT'
+  | 'CASH_REMITTANCE_OUT';
 
 export interface VanCashLedgerRow {
   /** `${type}:${originalId}` — stable and unique across the merged sources. */
@@ -88,6 +101,22 @@ export interface VanCashLedgerRow {
   approvedByName: string | null;
   /** Optimistic-concurrency token for the approve action — null where not applicable (opening balance / cash-out rows are never approved from here). */
   version: number | null;
+  /**
+   * CASH_REMITTANCE_OUT only — true when this office->owner handover has been
+   * VOIDED. A voided row is still shown in the timeline (struck-through, with
+   * `voidReason`) for the audit trail, but contributes 0 to the running
+   * balance. `false`/omitted for every other row type.
+   */
+  isVoided?: boolean;
+  /** CASH_REMITTANCE_OUT only — the mandatory reason captured when the row was voided. */
+  voidReason?: string | null;
+  /**
+   * CASH_REMITTANCE_OUT only — true when this row is a DELTA correction row
+   * (`correctsEntryId != null`), not the root of a logical remittance. The
+   * frontend uses this to keep the "Correct" action off correction rows, where
+   * a per-row amount would be mistaken for the chain total.
+   */
+  isCorrection?: boolean;
 }
 
 export interface VanCashLedgerStats {
@@ -95,6 +124,10 @@ export interface VanCashLedgerStats {
   totalCashIn: number;
   availableBalance: number;
   pendingHandoverCount: number;
+  /** Date-range scoped — sum of APPROVED office->owner remittances in the window. */
+  totalRemitted: number;
+  /** NOT date-range scoped — count of PENDING office->owner remittances awaiting approval. */
+  pendingRemittanceCount: number;
 }
 
 /**
@@ -116,6 +149,7 @@ export class VanCashLedgerService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly permissions: PermissionService,
   ) {}
 
   // ── Opening balance ───────────────────────────────────────────────────────
@@ -414,6 +448,375 @@ export class VanCashLedgerService {
     return updated;
   }
 
+  // ── Office Cash Remittance (office -> owner / CEO / bank) ─────────────────
+  //
+  // The third cash-custody tier. Vendor-wide (no vanId — the office pool is
+  // fungible once van handovers are APPROVED). Same lifecycle discipline as
+  // VanCashHandover: PENDING -> APPROVED counts toward the balance; a post-
+  // approval fix is a NEW row carrying the DELTA via correctsEntryId; a void is
+  // a status flip, never a DELETE; optimistic concurrency via `version`.
+
+  /**
+   * Records a PENDING remittance. Over-remittance is a soft gate, never a hard
+   * block (see the plan's real-world rationale): the row is always created, and
+   * `wouldGoNegative` is returned so the caller can surface a warning / require
+   * a note. `attachmentKey` is a Wasabi key already uploaded via the attachment
+   * endpoint.
+   */
+  async createRemittance(user: AuthUser, dto: CreateRemittanceDto) {
+    const availableBalance = round2(await this.computeAvailableBalance(user.vendorId));
+    const wouldGoNegative = round2(availableBalance - dto.amount) < 0;
+
+    // Over-remittance is a soft gate — allowed, but a note explaining the
+    // shortfall is mandatory (plan §7). Enforced here so a direct API call
+    // cannot bypass the dialog's client-side check.
+    if (wouldGoNegative && !dto.note?.trim()) {
+      throw new BadRequestException(
+        `A note is required: this remittance exceeds recorded office cash (₨${availableBalance.toLocaleString()}) ` +
+          `by ₨${round2(dto.amount - availableBalance).toLocaleString()}.`,
+      );
+    }
+
+    const created = await this.prisma.officeCashRemittance.create({
+      data: {
+        vendorId: user.vendorId,
+        submittedAmount: dto.amount,
+        amount: dto.amount,
+        date: new Date(dto.date),
+        destination: dto.destination,
+        destinationName: dto.destinationName ?? null,
+        reference: dto.reference ?? null,
+        attachmentKey: dto.attachmentKey ?? null,
+        note: dto.note ?? null,
+        status: OfficeCashRemittanceStatus.PENDING,
+        submittedById: user.userId,
+      },
+    });
+
+    await this.audit.log({
+      vendorId: user.vendorId,
+      userId: user.userId,
+      userName: user.name,
+      action: 'CREATED',
+      entity: 'OfficeCashRemittance',
+      entityId: created.id,
+      changes: {
+        after: {
+          amount: created.amount,
+          date: created.date,
+          destination: created.destination,
+          destinationName: created.destinationName,
+          reference: created.reference,
+          status: created.status,
+        },
+      },
+    });
+
+    return { ...created, wouldGoNegative, availableBalance };
+  }
+
+  /**
+   * Approves a PENDING remittance. Mirrors approveHandover, plus:
+   *   - segregation of duties — the recorder cannot approve their own row;
+   *   - a soft negative-balance gate — if the approval drives office cash below
+   *     zero, `negativeOverrideReason` is mandatory (but nothing is blocked once
+   *     it is supplied).
+   * When `approvedAmount` differs from the row's `amount`, `amount` is rewritten
+   * to the approved value (the running balance and availableBalance both fold
+   * `amount`, so the approved figure must land there) and the original amount is
+   * preserved in the audit trail + `adjustmentReason`.
+   */
+  async approveRemittance(user: AuthUser, id: string, dto: ApproveRemittanceDto) {
+    const { updated, previousStatus, previousAmount } = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.officeCashRemittance.findFirst({ where: { id, vendorId: user.vendorId } });
+      if (!row) throw new NotFoundException('Office cash remittance not found.');
+      if (row.status !== OfficeCashRemittanceStatus.PENDING) {
+        throw new BadRequestException('Only a PENDING remittance can be approved.');
+      }
+      if (row.submittedById === user.userId) {
+        throw new BadRequestException('You cannot approve a remittance you recorded yourself.');
+      }
+
+      const approvedAmount = dto.approvedAmount ?? row.amount;
+      const approvedAmountChanged = approvedAmount !== row.amount;
+      if (approvedAmountChanged && !dto.adjustmentReason) {
+        throw new BadRequestException(
+          'adjustmentReason is required when approvedAmount differs from the remittance amount.',
+        );
+      }
+
+      // `computeAvailableBalance` counts only APPROVED remittances, so this row
+      // (still PENDING) is not yet in it — the projection is simply
+      // available - approvedAmount.
+      const available = round2(await this.computeAvailableBalance(user.vendorId));
+      const projected = round2(available - approvedAmount);
+      if (projected < 0 && !dto.negativeOverrideReason) {
+        throw new BadRequestException(
+          `This approval drives office cash negative (₨${projected.toLocaleString()}). ` +
+            'Provide negativeOverrideReason to proceed.',
+        );
+      }
+
+      const claim = await tx.officeCashRemittance.updateMany({
+        where: { id, vendorId: user.vendorId, version: dto.version },
+        data: {
+          status: OfficeCashRemittanceStatus.APPROVED,
+          approvedById: user.userId,
+          approvedAt: new Date(),
+          approvedAmount,
+          amount: approvedAmount,
+          adjustmentReason: dto.adjustmentReason ?? null,
+          negativeOverrideReason: dto.negativeOverrideReason ?? null,
+          version: { increment: 1 },
+        },
+      });
+      if (claim.count === 0) {
+        throw versionMismatch(row.version, dto.version);
+      }
+
+      return {
+        updated: await tx.officeCashRemittance.findUniqueOrThrow({ where: { id } }),
+        previousStatus: row.status,
+        previousAmount: row.amount,
+      };
+    });
+
+    await this.audit.log({
+      vendorId: user.vendorId,
+      userId: user.userId,
+      userName: user.name,
+      action: 'APPROVED',
+      entity: 'OfficeCashRemittance',
+      entityId: id,
+      changes: {
+        before: { status: previousStatus, amount: previousAmount },
+        after: {
+          status: updated.status,
+          amount: updated.amount,
+          approvedAmount: updated.approvedAmount,
+          adjustmentReason: updated.adjustmentReason,
+          negativeOverrideReason: updated.negativeOverrideReason,
+        },
+      },
+    });
+
+    return updated;
+  }
+
+  /**
+   * Voids a remittance (status flip to VOIDED — never a DELETE). SOP §8:
+   *   - a still-PENDING row can be voided by its own creator (no extra grant
+   *     needed) or by any `van_cash_ledger:remit_approve` holder;
+   *   - an APPROVED row additionally requires `van_cash_ledger:remit_void`, and
+   *     cannot be voided while it still has a live (non-voided) correction —
+   *     the latest correction must be voided first (LIFO down the chain).
+   */
+  async voidRemittance(user: AuthUser, id: string, dto: VoidRemittanceDto) {
+    const { updated, previousStatus } = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.officeCashRemittance.findFirst({ where: { id, vendorId: user.vendorId } });
+      if (!row) throw new NotFoundException('Office cash remittance not found.');
+      if (row.status === OfficeCashRemittanceStatus.VOIDED) {
+        throw new BadRequestException('This remittance is already voided.');
+      }
+
+      if (row.status === OfficeCashRemittanceStatus.PENDING) {
+        // A creator may always retract their own pending remittance; anyone
+        // else needs approver authority.
+        if (row.submittedById !== user.userId) {
+          const isApprover = await this.permissions.can(user.userId, 'van_cash_ledger:remit_approve');
+          if (!isApprover) {
+            throw new ForbiddenException('You may only void a pending remittance you recorded yourself.');
+          }
+        }
+      }
+
+      if (row.status === OfficeCashRemittanceStatus.APPROVED) {
+        const canVoidApproved = await this.permissions.can(user.userId, 'van_cash_ledger:remit_void');
+        if (!canVoidApproved) {
+          throw new ForbiddenException(
+            'Voiding an already-approved remittance requires the van_cash_ledger:remit_void permission.',
+          );
+        }
+        const liveCorrection = await tx.officeCashRemittance.findFirst({
+          where: {
+            vendorId: user.vendorId,
+            correctsEntryId: id,
+            status: { not: OfficeCashRemittanceStatus.VOIDED },
+          },
+          select: { id: true },
+        });
+        if (liveCorrection) {
+          throw new BadRequestException('Void the latest correction on this remittance first.');
+        }
+      }
+
+      const claim = await tx.officeCashRemittance.updateMany({
+        where: { id, vendorId: user.vendorId, version: dto.version },
+        data: {
+          status: OfficeCashRemittanceStatus.VOIDED,
+          voidedById: user.userId,
+          voidedAt: new Date(),
+          voidReason: dto.voidReason,
+          version: { increment: 1 },
+        },
+      });
+      if (claim.count === 0) {
+        throw versionMismatch(row.version, dto.version);
+      }
+
+      return {
+        updated: await tx.officeCashRemittance.findUniqueOrThrow({ where: { id } }),
+        previousStatus: row.status,
+      };
+    });
+
+    await this.audit.log({
+      vendorId: user.vendorId,
+      userId: user.userId,
+      userName: user.name,
+      action: 'VOIDED',
+      entity: 'OfficeCashRemittance',
+      entityId: id,
+      changes: {
+        before: { status: previousStatus },
+        after: { status: updated.status, voidReason: updated.voidReason },
+      },
+    });
+
+    return updated;
+  }
+
+  /**
+   * Corrects a remittance chain. `newAmount` is the intended NEW TOTAL for the
+   * whole logical remittance (root + every non-voided correction). Mirrors
+   * handlePostCloseCorrection:
+   *   - a still-PENDING standalone original (no chain) is rewritten in place;
+   *   - otherwise a NEW row carrying the DELTA (`newAmount - currentTotal`) is
+   *     appended, itself PENDING, going through its own approval cycle.
+   */
+  async correctRemittance(user: AuthUser, id: string, dto: CorrectRemittanceDto) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      const chain = await this.loadRemittanceChain(tx, user.vendorId, id);
+      if (chain.length === 0) throw new NotFoundException('Office cash remittance not found.');
+
+      const target = chain.find((r) => r.id === id);
+      if (!target) throw new NotFoundException('Office cash remittance not found.');
+      if (chain.some((r) => r.status === OfficeCashRemittanceStatus.VOIDED && r.correctsEntryId === null)) {
+        throw new BadRequestException('This remittance has been voided and cannot be corrected.');
+      }
+      if (target.version !== dto.version) {
+        throw versionMismatch(target.version, dto.version);
+      }
+
+      const nonVoided = chain.filter((r) => r.status !== OfficeCashRemittanceStatus.VOIDED);
+      const currentTotal = round2(nonVoided.reduce((sum, r) => sum + r.amount, 0));
+      const delta = round2(dto.newAmount - currentTotal);
+      if (delta === 0) {
+        throw new BadRequestException('The corrected amount is the same as the current total.');
+      }
+
+      const root = chain[0];
+      const mostRecent = nonVoided[nonVoided.length - 1] ?? root;
+      const isInPlace = chain.length === 1 && root.status === OfficeCashRemittanceStatus.PENDING;
+
+      // A creator may correct their OWN still-pending remittance in place with
+      // no extra grant; every other case (someone else's pending row, or an
+      // already-approved chain) needs approver authority.
+      if (!(isInPlace && root.submittedById === user.userId)) {
+        const isApprover = await this.permissions.can(user.userId, 'van_cash_ledger:remit_approve');
+        if (!isApprover) {
+          throw new ForbiddenException(
+            isInPlace
+              ? 'You may only correct a pending remittance you recorded yourself.'
+              : 'Correcting an approved remittance requires the van_cash_ledger:remit_approve permission.',
+          );
+        }
+      }
+
+      // PENDING standalone original — rewrite in place. CAS on `version` so two
+      // concurrent in-place corrections cannot both land (matches approve/void).
+      if (isInPlace) {
+        const claim = await tx.officeCashRemittance.updateMany({
+          where: { id: root.id, vendorId: user.vendorId, version: dto.version },
+          data: {
+            amount: dto.newAmount,
+            destinationName: dto.destinationName ?? root.destinationName,
+            reference: dto.reference ?? root.reference,
+            note: dto.correctionReason,
+            version: { increment: 1 },
+          },
+        });
+        if (claim.count === 0) {
+          throw versionMismatch(root.version, dto.version);
+        }
+        const updated = await tx.officeCashRemittance.findUniqueOrThrow({ where: { id: root.id } });
+        await this.audit.log({
+          vendorId: user.vendorId,
+          userId: user.userId,
+          userName: user.name,
+          action: 'CORRECTED',
+          entity: 'OfficeCashRemittance',
+          entityId: root.id,
+          changes: {
+            before: { amount: root.amount },
+            after: { amount: updated.amount, correctionReason: dto.correctionReason },
+          },
+        });
+        return updated;
+      }
+
+      // APPROVED original / existing chain — append a PENDING DELTA row.
+      // CAS-bump the parent (`mostRecent`) first: two concurrent corrections of
+      // the same parent then serialise, and the loser gets a version mismatch,
+      // so a parent can never end up with two live children.
+      const parentClaim = await tx.officeCashRemittance.updateMany({
+        where: { id: mostRecent.id, vendorId: user.vendorId, version: mostRecent.version },
+        data: { version: { increment: 1 } },
+      });
+      if (parentClaim.count === 0) {
+        throw new ConflictException(
+          'Version mismatch: this remittance was corrected concurrently. Reload and retry.',
+        );
+      }
+
+      const correction = await tx.officeCashRemittance.create({
+        data: {
+          vendorId: user.vendorId,
+          submittedAmount: delta,
+          amount: delta,
+          date: mostRecent.date,
+          destination: mostRecent.destination,
+          destinationName: dto.destinationName ?? mostRecent.destinationName,
+          reference: dto.reference ?? mostRecent.reference,
+          note: dto.correctionReason,
+          status: OfficeCashRemittanceStatus.PENDING,
+          submittedById: user.userId,
+          correctsEntryId: mostRecent.id,
+        },
+      });
+      await this.audit.log({
+        vendorId: user.vendorId,
+        userId: user.userId,
+        userName: user.name,
+        action: 'CORRECTED',
+        entity: 'OfficeCashRemittance',
+        entityId: correction.id,
+        changes: {
+          before: { currentTotal },
+          after: {
+            newAmount: dto.newAmount,
+            delta,
+            correctsEntryId: mostRecent.id,
+            correctionReason: dto.correctionReason,
+          },
+        },
+      });
+      return correction;
+    });
+
+    return result;
+  }
+
   // ── Reads ────────────────────────────────────────────────────────────────
 
   async getPendingHandovers(vendorId: string, vanId?: string) {
@@ -428,34 +831,76 @@ export class VanCashLedgerService {
     });
   }
 
+  /** PENDING office->owner remittances awaiting approval (vendor-wide). */
+  async getPendingRemittances(vendorId: string) {
+    return this.prisma.officeCashRemittance.findMany({
+      where: { vendorId, status: OfficeCashRemittanceStatus.PENDING },
+      include: {
+        submittedBy: { select: { id: true, name: true } },
+      },
+      orderBy: { date: 'desc' },
+    });
+  }
+
+  /** Resolves a remittance's stored attachment key (vendor-scoped); 404 if the row or its attachment is missing. */
+  async getRemittanceAttachmentKey(vendorId: string, id: string): Promise<string> {
+    const row = await this.prisma.officeCashRemittance.findFirst({
+      where: { id, vendorId },
+      select: { attachmentKey: true },
+    });
+    if (!row) throw new NotFoundException('Office cash remittance not found.');
+    if (!row.attachmentKey) throw new NotFoundException('This remittance has no attachment.');
+    return row.attachmentKey;
+  }
+
   async getStats(vendorId: string, query: VanCashLedgerStatsQueryDto): Promise<VanCashLedgerStats> {
     const { vanId } = query;
     const from = query.from ? new Date(query.from) : undefined;
     const to = query.to ? endOfDay(new Date(query.to)) : undefined;
     const dateFilter = buildDateFilter(from, to);
 
-    const [cashInAgg, totalExpense, pendingHandoverCount, availableBalance] = await Promise.all([
-      this.prisma.vanCashHandover.aggregate({
-        where: {
-          vendorId,
-          status: VanCashHandoverStatus.APPROVED,
-          ...(vanId && { vanId }),
-          ...(dateFilter && { date: dateFilter }),
-        },
-        _sum: { amount: true },
-      }),
-      this.collectCashOutTotal(vendorId, vanId, dateFilter),
-      this.prisma.vanCashHandover.count({
-        where: { vendorId, status: VanCashHandoverStatus.PENDING, ...(vanId && { vanId }) },
-      }),
-      this.computeAvailableBalance(vendorId, vanId),
-    ]);
+    const [cashInAgg, totalExpense, pendingHandoverCount, availableBalance, remittedAgg, pendingRemittanceCount] =
+      await Promise.all([
+        this.prisma.vanCashHandover.aggregate({
+          where: {
+            vendorId,
+            status: VanCashHandoverStatus.APPROVED,
+            ...(vanId && { vanId }),
+            ...(dateFilter && { date: dateFilter }),
+          },
+          _sum: { amount: true },
+        }),
+        this.collectCashOutTotal(vendorId, vanId, dateFilter),
+        this.prisma.vanCashHandover.count({
+          where: { vendorId, status: VanCashHandoverStatus.PENDING, ...(vanId && { vanId }) },
+        }),
+        this.computeAvailableBalance(vendorId, vanId),
+        // Office->owner remittances are vendor-wide — a van-scoped view of the
+        // ledger does not attribute them (same treatment StaffLedgerEntry gets).
+        vanId
+          ? Promise.resolve({ _sum: { amount: 0 } } as { _sum: { amount: number | null } })
+          : this.prisma.officeCashRemittance.aggregate({
+              where: {
+                vendorId,
+                status: OfficeCashRemittanceStatus.APPROVED,
+                ...(dateFilter && { date: dateFilter }),
+              },
+              _sum: { amount: true },
+            }),
+        vanId
+          ? Promise.resolve(0)
+          : this.prisma.officeCashRemittance.count({
+              where: { vendorId, status: OfficeCashRemittanceStatus.PENDING },
+            }),
+      ]);
 
     return {
       totalCashIn: round2(cashInAgg._sum.amount ?? 0),
       totalExpense: round2(totalExpense),
       pendingHandoverCount,
       availableBalance: round2(availableBalance),
+      totalRemitted: round2(remittedAgg._sum.amount ?? 0),
+      pendingRemittanceCount,
     };
   }
 
@@ -477,7 +922,7 @@ export class VanCashLedgerService {
     const to = query.to ? endOfDay(new Date(query.to)) : undefined;
     const dateFilter = buildDateFilter(from, to);
 
-    const [openingRows, cashInRows, expenseRows, ledgerRows, crewCashRows] = await Promise.all([
+    const [openingRows, cashInRows, expenseRows, ledgerRows, crewCashRows, remittanceRows] = await Promise.all([
       this.buildOpeningBalanceRows(vendorId, vanId, to),
       this.prisma.vanCashHandover.findMany({
         where: {
@@ -559,6 +1004,31 @@ export class VanCashLedgerService {
         },
         orderBy: { date: 'asc' },
       }),
+      // Office->owner remittances are vendor-wide and cannot be attributed to a
+      // single van — excluded from a van-scoped view (same treatment as
+      // StaffLedgerEntry above). VOIDED rows are still fetched so the timeline
+      // can show the struck-through audit row; they fold in as amount 0.
+      vanId
+        ? Promise.resolve([] as Array<
+            OfficeCashRemittance & {
+              submittedBy: { name: string } | null;
+              approvedBy: { name: string } | null;
+              voidedBy: { name: string } | null;
+            }
+          >)
+        : this.prisma.officeCashRemittance.findMany({
+            where: {
+              vendorId,
+              status: { in: [OfficeCashRemittanceStatus.APPROVED, OfficeCashRemittanceStatus.VOIDED] },
+              ...(dateFilter && { date: dateFilter }),
+            },
+            include: {
+              submittedBy: { select: { name: true } },
+              approvedBy: { select: { name: true } },
+              voidedBy: { select: { name: true } },
+            },
+            orderBy: { date: 'asc' },
+          }),
     ]);
 
     const merged: VanCashLedgerRow[] = [...openingRows];
@@ -566,6 +1036,7 @@ export class VanCashLedgerService {
     for (const row of expenseRows) merged.push(this.normalizeCashOut(normalizeExpenseRow(row)));
     for (const row of ledgerRows) merged.push(this.normalizeCashOut(normalizeStaffLedgerRow(row)));
     for (const row of crewCashRows) merged.push(this.normalizeCashOut(normalizeCrewCashRow(row)));
+    for (const row of remittanceRows) merged.push(this.normalizeRemittanceOut(row));
 
     merged.sort((a, b) => {
       if (a.date !== b.date) return a.date < b.date ? -1 : 1;
@@ -577,6 +1048,12 @@ export class VanCashLedgerService {
       running = round2(running + row.amount);
       row.runningBalance = running;
     }
+
+    // Running balance is folded oldest→newest (each row's `runningBalance` is
+    // the cumulative total up to and including it), but the timeline is DISPLAYED
+    // newest-first — reverse the fully-folded set before paginating so page 1
+    // carries the most recent movements with their balances intact.
+    merged.reverse();
 
     const total = merged.length;
     const skip = (page - 1) * limit;
@@ -638,9 +1115,14 @@ export class VanCashLedgerService {
    * The true current balance — opening balance + all approved cash-in to date
    * minus all cash-out to date, ignoring any `from`/`to` filter (only
    * `vanId`, when given, narrows it).
+   *
+   * Office->owner remittances are subtracted for the vendor-wide balance only:
+   * they leave the shared office pool, not any one van's cash-in-hand, so a
+   * van-scoped balance (which reports that single van's position) must not
+   * count them.
    */
   private async computeAvailableBalance(vendorId: string, vanId?: string): Promise<number> {
-    const [openingTotal, cashInAgg, cashOutTotal] = await Promise.all([
+    const [openingTotal, cashInAgg, cashOutTotal, remittedTotal] = await Promise.all([
       vanId
         ? this.prisma.vanCashOpeningBalance
             .findFirst({ where: { vendorId, vanId } })
@@ -653,9 +1135,17 @@ export class VanCashLedgerService {
         _sum: { amount: true },
       }),
       this.collectCashOutTotal(vendorId, vanId, undefined),
+      vanId
+        ? Promise.resolve(0)
+        : this.prisma.officeCashRemittance
+            .aggregate({
+              where: { vendorId, status: OfficeCashRemittanceStatus.APPROVED },
+              _sum: { amount: true },
+            })
+            .then((agg) => agg._sum.amount ?? 0),
     ]);
 
-    return openingTotal + (cashInAgg._sum.amount ?? 0) - cashOutTotal;
+    return openingTotal + (cashInAgg._sum.amount ?? 0) - cashOutTotal - remittedTotal;
   }
 
   /**
@@ -787,5 +1277,99 @@ export class VanCashLedgerService {
       approvedByName: null,
       version: null,
     };
+  }
+
+  /** Human label for a remittance's destination, folding in the free-text name where relevant. */
+  private static destinationLabel(
+    destination: OfficeCashRemittanceDestination,
+    destinationName: string | null,
+  ): string {
+    switch (destination) {
+      case OfficeCashRemittanceDestination.OWNER:
+        return destinationName ? `Owner (${destinationName})` : 'Owner';
+      case OfficeCashRemittanceDestination.CEO:
+        return destinationName ? `CEO (${destinationName})` : 'CEO';
+      case OfficeCashRemittanceDestination.BANK:
+        return destinationName ? `Bank (${destinationName})` : 'Bank';
+      default:
+        return destinationName ?? 'Other';
+    }
+  }
+
+  private normalizeRemittanceOut(
+    row: OfficeCashRemittance & {
+      submittedBy: { name: string } | null;
+      approvedBy: { name: string } | null;
+      voidedBy: { name: string } | null;
+    },
+  ): VanCashLedgerRow {
+    const isVoided = row.status === OfficeCashRemittanceStatus.VOIDED;
+    const isCorrection = row.correctsEntryId !== null;
+    const label = VanCashLedgerService.destinationLabel(row.destination, row.destinationName);
+    return {
+      id: `CASH_REMITTANCE_OUT:${row.id}`,
+      date: row.date.toISOString(),
+      type: 'CASH_REMITTANCE_OUT',
+      // A voided remittance is shown for the audit trail but must not move the
+      // running balance — it folds in as 0. A correction row carries its own
+      // signed DELTA (which may be negative for a downward adjustment).
+      amount: isVoided ? 0 : -row.amount,
+      displayAmount: Math.abs(row.amount),
+      runningBalance: 0,
+      title: isCorrection ? `Handover to ${label} — correction` : `Handover to ${label}`,
+      vanId: null,
+      vanPlateNumber: null,
+      sourceType: 'OFFICE_CASH_REMITTANCE',
+      sourceRecordId: row.id,
+      sourceBadge: row.reference ? `Ref ${row.reference}` : label,
+      status: null,
+      dailySheetId: null,
+      submittedByName: row.submittedBy?.name ?? null,
+      approvedByName: row.approvedBy?.name ?? null,
+      version: row.version,
+      isVoided,
+      voidReason: row.voidReason ?? null,
+      isCorrection,
+    };
+  }
+
+  /**
+   * Loads the full logical remittance chain (root + every correction) that
+   * `anyId` belongs to, in creation order. Corrections form a linear chain —
+   * each points at the previous tip via `correctsEntryId` — so this walks up
+   * to the root and then down through the descendants. Volume is tiny (a
+   * handful of rows per logical remittance at most), the same trade-off the
+   * class-level getTimeline doc calls out.
+   */
+  private async loadRemittanceChain(
+    tx: Prisma.TransactionClient,
+    vendorId: string,
+    anyId: string,
+  ): Promise<OfficeCashRemittance[]> {
+    let cursor = await tx.officeCashRemittance.findFirst({ where: { id: anyId, vendorId } });
+    if (!cursor) return [];
+
+    // Walk up to the root.
+    while (cursor.correctsEntryId) {
+      const parent = await tx.officeCashRemittance.findFirst({
+        where: { id: cursor.correctsEntryId, vendorId },
+      });
+      if (!parent) break;
+      cursor = parent;
+    }
+
+    // Walk down through the (linear) descendant chain.
+    const chain: OfficeCashRemittance[] = [cursor];
+    let tip = cursor;
+    for (;;) {
+      const child = await tx.officeCashRemittance.findFirst({
+        where: { correctsEntryId: tip.id, vendorId },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (!child) break;
+      chain.push(child);
+      tip = child;
+    }
+    return chain;
   }
 }

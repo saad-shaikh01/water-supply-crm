@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { VanCashLedgerService } from './van-cash-ledger.service';
 import { VanCashLedgerController } from './van-cash-ledger.controller';
 import { AuditModule } from '../audit/audit.module';
+import { StorageModule } from '../../common/storage/storage.module';
 
 /**
  * Van Cash Ledger — the "cash in" counterpart to the Expense Center (see
@@ -12,7 +13,7 @@ import { AuditModule } from '../audit/audit.module';
  * functions directly, not the ExpenseCenterModule itself).
  */
 @Module({
-  imports: [AuditModule],
+  imports: [AuditModule, StorageModule],
   controllers: [VanCashLedgerController],
   providers: [VanCashLedgerService],
   exports: [VanCashLedgerService],

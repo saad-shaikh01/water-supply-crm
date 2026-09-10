@@ -2366,11 +2366,22 @@ export class DailySheetService implements OnModuleInit {
   // items through the exact same DeliveryItemsList card as every other tab,
   // so it needs the exact same customer/product shape `items` already gets.
   /** Consumption ratio sample: how many of the customer's most recent
-   *  deliveries (filledDropped > 0) to average empties/filled over. */
+   *  *visits* (COMPLETED / EMPTY_ONLY / NOT_AVAILABLE — any stop the driver
+   *  actioned, not just the ones that dropped a filled bottle) to average
+   *  filledDropped over. A weekly customer's last 5 visits span ~35 days, so
+   *  a stretch where only 2 of those visits actually dropped bottles still
+   *  divides the total by 5 — the empty-only / customer-not-home visits drag
+   *  the ratio down, which is the point (their bottles sat idle those weeks). */
   private static readonly CONSUMPTION_SAMPLE_SIZE = 5;
+  /** Statuses that count as a "visit" for the consumption-ratio denominator. */
+  private static readonly CONSUMPTION_VISIT_STATUSES = [
+    'COMPLETED',
+    'EMPTY_ONLY',
+    'NOT_AVAILABLE',
+  ] as const;
   /** Hard date floor for the consumption-ratio lookup so a customer with years
    *  of history doesn't drag their whole ledger back; 180 days comfortably
-   *  covers 5 weekly deliveries even with a month of skipped visits. */
+   *  covers 5 weekly visits even with a month of skipped weeks. */
   private static readonly CONSUMPTION_LOOKBACK_DAYS = 180;
 
   private static readonly ITEM_CUSTOMER_SELECT = {
@@ -2622,43 +2633,69 @@ export class DailySheetService implements OnModuleInit {
       }
 
       // Consumption ratio — how much of the bottle stock the customer is
-      // holding actually gets cycled each delivery:
-      //     avg bottles dropped per delivery ÷ current bottle-wallet balance × 100
-      // wallet 10, typical drop 5 → 50% (half their bottles just sit there,
-      // locked at the customer). 100% = every bottle they hold turns over each
-      // visit (healthy); a low number means bottles are piling up there even if
-      // each individual visit's empty-return looks fine.
+      // holding actually gets cycled per visit:
+      //     avg bottles dropped per visit ÷ current bottle-wallet balance × 100
+      // wallet 10, avg drop 5 → 50% (half their bottles just sit there, locked
+      // at the customer). 100% = every bottle they hold turns over each visit
+      // (healthy); a low number means bottles are piling up there.
       //
-      // "avg bottles dropped per delivery" is taken over the last N actual
-      // deliveries rather than a fixed calendar window — delivery cadence
-      // varies (most customers weekly, some 2–3×), so a 30-day window is noisy:
-      // a skipped week starves it, a dense week over-weights it. A fixed sample
-      // of recent deliveries is cadence-independent (weekly → ~35 days,
-      // twice-weekly → ~18) and always the same number of data points.
+      // The average is taken over the customer's last N *visits* — every stop
+      // the driver actioned (COMPLETED / EMPTY_ONLY / NOT_AVAILABLE), not only
+      // the ones that dropped a filled bottle. So a weekly customer whose last
+      // 5 visits span ~35 days but only twice actually dropped bottles (the
+      // rest empty-only, or nobody home) still has the filled total divided by
+      // 5 — those idle weeks pull the ratio down, which is exactly the signal.
+      // A visit-count sample rather than a fixed calendar window keeps it
+      // cadence-independent (weekly → ~35 days, twice-weekly → ~18) with the
+      // same number of data points every time.
       const consumptionLookback = new Date(
         Date.now() - DailySheetService.CONSUMPTION_LOOKBACK_DAYS * 24 * 60 * 60 * 1000,
       );
       const consumptionRows = await this.prisma.dailySheetItem.findMany({
         where: {
-          status: { in: ['COMPLETED', 'EMPTY_ONLY'] },
-          filledDropped: { gt: 0 },
-          deliveredAt: { not: null, gte: consumptionLookback },
+          status: { in: [...DailySheetService.CONSUMPTION_VISIT_STATUSES] },
           dailySheet: { vendorId },
-          OR: itemPairs.map((p) => ({ customerId: p.customerId, productId: p.productId })),
+          AND: [
+            { OR: itemPairs.map((p) => ({ customerId: p.customerId, productId: p.productId })) },
+            // NOT_AVAILABLE rows never get a deliveredAt, so the recency floor
+            // (and the sort key below) is COALESCE(deliveredAt, recordedAt) —
+            // the same key the rest of the sheet timeline uses.
+            {
+              OR: [
+                { deliveredAt: { gte: consumptionLookback } },
+                { AND: [{ deliveredAt: null }, { recordedAt: { gte: consumptionLookback } }] },
+              ],
+            },
+          ],
         },
-        orderBy: { deliveredAt: 'desc' },
-        select: { customerId: true, productId: true, filledDropped: true },
+        select: {
+          customerId: true,
+          productId: true,
+          filledDropped: true,
+          deliveredAt: true,
+          recordedAt: true,
+        },
       });
-      // Rows arrive newest-first; average filledDropped over the most recent N
-      // per customer+product.
-      const dropAgg = new Map<string, { total: number; count: number }>();
+      // Prisma can't ORDER BY a COALESCE, so sort in JS: newest visit first per
+      // customer+product, then average filledDropped over the most recent N.
+      const visitTs = (r: { deliveredAt: Date | null; recordedAt: Date | null }) =>
+        (r.deliveredAt ?? r.recordedAt)?.getTime() ?? 0;
+      const consumptionByKey = new Map<string, typeof consumptionRows>();
       for (const d of consumptionRows) {
         const key = `${d.customerId}:${d.productId}`;
-        const agg = dropAgg.get(key) ?? { total: 0, count: 0 };
-        if (agg.count >= DailySheetService.CONSUMPTION_SAMPLE_SIZE) continue;
-        agg.total += d.filledDropped;
-        agg.count += 1;
-        dropAgg.set(key, agg);
+        const arr = consumptionByKey.get(key);
+        if (arr) arr.push(d);
+        else consumptionByKey.set(key, [d]);
+      }
+      const dropAgg = new Map<string, { total: number; count: number }>();
+      for (const [key, rows] of consumptionByKey.entries()) {
+        const recent = rows
+          .sort((a, b) => visitTs(b) - visitTs(a))
+          .slice(0, DailySheetService.CONSUMPTION_SAMPLE_SIZE);
+        dropAgg.set(key, {
+          total: recent.reduce((s, r) => s + r.filledDropped, 0),
+          count: recent.length,
+        });
       }
       for (const it of sheet.items as any[]) {
         if (!it.customer) continue;
