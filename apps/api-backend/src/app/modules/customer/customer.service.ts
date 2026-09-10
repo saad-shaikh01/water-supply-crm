@@ -231,7 +231,66 @@ export class CustomerService {
     let data: any[];
     let total: number;
 
-    if (sort === 'bottleBalance') {
+    if (sort === 'pendingAmount') {
+      // "Pending Amount" is type-dependent and (for MONTHLY) a netted, computed
+      // figure — not a column Prisma can `orderBy`. Fetch every matching id with
+      // just paymentType + financialBalance, compute the figure in memory
+      // (MONTHLY → remaining previous-month outstanding; CASH → live balance),
+      // order, then hydrate only the page — same shape as the bottleBalance path.
+      const [allRows, count] = await Promise.all([
+        this.prisma.customer.findMany({
+          where,
+          select: { id: true, paymentType: true, financialBalance: true },
+          orderBy: { name: 'asc' },
+        }),
+        this.prisma.customer.count({ where }),
+      ]);
+      const monthlyIds = allRows.filter((c) => c.paymentType === 'MONTHLY').map((c) => c.id);
+      const sortNow = new Date();
+      const sortMonthStart = new Date(sortNow.getFullYear(), sortNow.getMonth(), 1);
+      const sortNextMonthStart = new Date(sortNow.getFullYear(), sortNow.getMonth() + 1, 1);
+      const [mTxns, mPayments] = await Promise.all([
+        this.prisma.transaction.groupBy({
+          by: ['customerId'],
+          where: { customerId: { in: monthlyIds }, vendorId, createdAt: { gte: sortMonthStart } },
+          _sum: { amount: true },
+        }),
+        this.prisma.transaction.groupBy({
+          by: ['customerId'],
+          where: {
+            customerId: { in: monthlyIds },
+            vendorId,
+            type: TransactionType.PAYMENT,
+            createdAt: { gte: sortMonthStart, lt: sortNextMonthStart },
+          },
+          _sum: { amount: true },
+        }),
+      ]);
+      const mTxnMap = new Map(mTxns.map((t) => [t.customerId, t._sum.amount ?? 0]));
+      const mPaidMap = new Map(mPayments.map((t) => [t.customerId, Math.abs(t._sum.amount ?? 0)]));
+      const pendingByCustomer = new Map(
+        allRows.map((c) => {
+          const bal = c.financialBalance ?? 0;
+          const pending =
+            c.paymentType === 'MONTHLY'
+              ? Math.max(0, bal - (mTxnMap.get(c.id) ?? 0) - (mPaidMap.get(c.id) ?? 0))
+              : bal;
+          return [c.id, pending];
+        }),
+      );
+      const ids = allRows.map((c) => c.id);
+      const dir = sortDir === 'desc' ? -1 : 1;
+      const sortedIds = [...ids].sort(
+        (a, b) => ((pendingByCustomer.get(a) ?? 0) - (pendingByCustomer.get(b) ?? 0)) * dir,
+      );
+      const pageIds = sortedIds.slice((page - 1) * limit, page * limit);
+      const rows = pageIds.length
+        ? await this.prisma.customer.findMany({ where: { id: { in: pageIds } }, include: listInclude })
+        : [];
+      const byId = new Map(rows.map((r) => [r.id, r]));
+      data = pageIds.map((id) => byId.get(id)).filter((r): r is (typeof rows)[number] => !!r);
+      total = count;
+    } else if (sort === 'bottleBalance') {
       // "Bottle Balance" is Σ of the customer's per-product BottleWallet.balance
       // rows — not a scalar column, and Prisma can't `orderBy` a relation _sum.
       // Fetch every matching id (name-ordered for a stable tiebreak), sum the

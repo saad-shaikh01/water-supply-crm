@@ -453,6 +453,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
           {
             key: 'pendingAmount',
             header: 'Pending Amount',
+            sortable: true,
             cell: (r) => {
               const isMonthly = r.paymentType === 'MONTHLY';
               // MONTHLY → what's still owed from last month; CASH → live overall balance
