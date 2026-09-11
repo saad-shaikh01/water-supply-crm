@@ -2,14 +2,19 @@ import { apiClient } from '@water-supply-crm/data-access';
 import type {
   AttendanceStatus,
   CreatableStaffLedgerCategory,
+  PayFrequency,
   SettlementMethod,
   StaffAttendance,
 } from '@water-supply-crm/types';
 
 export interface CreateSalaryStructureData {
   userId: string;
-  /** Whole positive rupees only — mirrors `CreateSalaryStructureDto.baseAmount` (no fractional currency). */
+  /** Whole positive rupees only — mirrors `CreateSalaryStructureDto.baseAmount` (no fractional currency).
+   * Meaning depends on `payFrequency`: MONTHLY = monthly salary, DAILY = daily rate,
+   * WEEKLY = rate per 7-calendar-day week (Staff Attendance & Wage Types Phase 3). */
   baseAmount: number;
+  /** Defaults to MONTHLY server-side when omitted. */
+  payFrequency?: PayFrequency;
   effectiveFrom: string;
 }
 

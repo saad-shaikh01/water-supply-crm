@@ -829,7 +829,12 @@ export interface StaffLedgerEntry {
   updatedAt: string;
 }
 
-export type PayFrequency = 'MONTHLY';
+/**
+ * Staff Attendance & Wage Types Phase 3. `SalaryStructure.baseAmount` is
+ * reinterpreted by frequency — MONTHLY: monthly salary (unchanged); DAILY: a
+ * daily rate; WEEKLY: a rate per 7-calendar-day week. No separate rate field.
+ */
+export type PayFrequency = 'MONTHLY' | 'WEEKLY' | 'DAILY';
 
 export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'HALF_DAY' | 'LEAVE' | 'WEEKLY_OFF';
 export type AttendanceSource = 'CREW_CONFIRM' | 'MANUAL';
