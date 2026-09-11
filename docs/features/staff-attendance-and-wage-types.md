@@ -794,3 +794,46 @@ Work top to bottom. Do not start until this document is accepted.
     `nx build vendor-dashboard` green (route `/dashboard/payroll/attendance`
     prerendered); daily-sheet module 187 green (22 suites; the 1 pre-existing
     `daily-sheet-notifications.spec.ts` failure is unrelated).
+- **2026-09-12** — **Phase 3 implemented (DAILY/WEEKLY wage types).** Additive
+  only; MONTHLY payroll output byte-identical — every pre-existing MONTHLY
+  assertion in `payroll-entry.service.spec.ts` passes unchanged (the shared
+  fixture only gained an explicit `payFrequency: MONTHLY` field, not a new
+  expectation), and `payroll-period.service.spec.ts` / settlement / carry-
+  forward specs are untouched and green.
+  - Schema: `PayFrequency` += `WEEKLY`, `DAILY`. Migration
+    `20260912000000_add_pay_frequency_weekly_daily` is enum-value-only (per
+    §6.3 C2 — ships in the same release as the engine change, never
+    enum-first). **No `dailyRate` column** — `SalaryStructure.baseAmount` is
+    reinterpreted by frequency, exactly as documented.
+  - Engine (`payroll-entry.service.ts`): new private `resolvePeriodBase()` —
+    MONTHLY returns `baseAmount` unchanged (no arithmetic, no attendance
+    read); DAILY/WEEKLY multiply the rate by attended units (PRESENT=1,
+    HALF_DAY=0.5) from a new private `aggregateAttendance()` (one `groupBy`
+    query per `generateDraft` run, not per employee), rounded once via
+    `roundToNearestRupee`. WEEKLY's ÷7 is a fixed calendar-week unit
+    conversion, not a working-days policy divisor — no 26/30/31 anywhere.
+    Swapped in only at the single base-resolution call site;
+    `computeEntryBreakdown` / `computeLedgerContribution` / `lockPeriod` /
+    settlement / carry-forward **not touched**.
+  - **§6.3 C1 resolution: zero change to `lockPeriod`.** It already only
+    re-reads the stored `entry.baseSalary` (never `SalaryStructure`) —
+    the exact same mechanism that already "freezes" a MONTHLY base at
+    approval now freezes a DAILY/WEEKLY base too, satisfying D2 without a new
+    freeze strategy or any risk to the byte-identical-MONTHLY constraint.
+  - Frontend: `PayFrequency` widened in `api-responses.ts`; a Pay Frequency
+    `<Select>` + dynamic rate label in `salary-structure-dialog.tsx`
+    (Monthly/Daily/Weekly; the Current→New→Difference comparison is
+    suppressed when frequency itself is changing).
+  - Tests: 8 new unit cases in `payroll-entry.service.spec.ts` (byte-identical
+    MONTHLY guard, DAILY/HALF_DAY math, WEEKLY rounding, zero-attendance,
+    cross-employee isolation, query-shape, regenerate-picks-up-new-attendance)
+    — 26/26 pass. A fully-isolated new DAILY/WEEKLY scenario added to
+    `payroll-integration.spec.ts` (own vendor/period so it cannot perturb the
+    existing MONTHLY exact-match assertions) — compiles clean, **unexecuted**
+    (no reachable local Postgres in this environment, same limitation as
+    every prior session). Full payroll module: 274/279 unit tests pass; the 5
+    failures are all the pre-existing `payroll-integration.spec.ts` DB-
+    unreachable cascade, not a new failure mode. `nx build vendor-dashboard`
+    and `tsc` (app + spec configs) clean.
+  - **Not built (Phase 4):** casual-loader payroll integration, `PER_TRIP`
+    wage, configurable working-days basis, days-worked display columns.
