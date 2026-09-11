@@ -208,6 +208,15 @@ export const PERMISSION_CATALOG = {
   // needs no permission at all (enforced in code, not RBAC — every role can see
   // their own record); `view_all` gates seeing every OTHER employee's records too,
   // and is intentionally granted to NO default preset (override-only) — see presets.ts.
+  // Amendment R16 (Staff Attendance & Wage Types Phase 1, owner-approved
+  // 2026-09-11): `attendance_view` / `attendance_mark` added to this same
+  // resource (no new resource, no new `:page` — an attendance screen lives under
+  // /dashboard/payroll and inherits `payroll:page`). `attendance_view` gates the
+  // vendor-wide attendance grid; viewing one's OWN attendance needs no
+  // permission (code-level self-scope, like `view_all`). `attendance_mark`
+  // covers manual marking, incl. an ABSENT/HALF_DAY marking that posts a
+  // LEAVE_UNPAID ledger entry. Default holder: Manager (+ `*` roles) — see
+  // presets.ts / docs/features/staff-attendance-and-wage-types.md §3 D6.
   payroll: {
     label: 'Payroll',
     navigable: true,
@@ -225,6 +234,8 @@ export const PERMISSION_CATALOG = {
       'period_lock',
       'period_unlock',
       'settlement_record',
+      'attendance_view',
+      'attendance_mark',
     ],
   },
   // Amendment R5 (Crew Cash Phase 3, owner-approved 2026-08-07): new resource — see

@@ -73,6 +73,10 @@ import {
  *     Remittance feature (owner-requested 2026-09-10). `van_cash_ledger:
  *     remit_void` (voiding an already-approved remittance) is VENDOR_ADMIN-only,
  *     no backfill.
+ *   - payroll:attendance_view / payroll:attendance_mark — added to `manager`
+ *     for Staff Attendance & Wage Types Phase 1 (owner-approved 2026-09-11,
+ *     Amendment R16). Existing vendors' Manager roles predate the new actions
+ *     and need the catch-up grant.
  */
 const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
   driver: ['fleet:record_check', 'fleet:record_fuel'],
@@ -101,6 +105,10 @@ const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
     // approves; `remit_void` stays VENDOR_ADMIN-only.
     'van_cash_ledger:remit',
     'van_cash_ledger:remit_approve',
+    // Staff Attendance & Wage Types Phase 1 (owner-approved 2026-09-11,
+    // Amendment R16). Existing vendors' Manager roles predate these actions.
+    'payroll:attendance_view',
+    'payroll:attendance_mark',
   ],
   accountant: [
     // Van Cash Ledger (owner-requested 2026-09-09). Existing vendors'

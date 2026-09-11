@@ -250,8 +250,8 @@ export const dailySheetsApi = {
     apiClient.patch(`/daily-sheets/items/${itemId}`, data),
   swapAssignment: (id: string, data: Record<string, unknown>) =>
     apiClient.patch(`/daily-sheets/${id}/swap-assignment`, data),
-  confirmCrew: (id: string) =>
-    apiClient.post(`/daily-sheets/${id}/confirm-crew`),
+  confirmCrew: (id: string, body?: { absentUserIds?: string[] }) =>
+    apiClient.post(`/daily-sheets/${id}/confirm-crew`, body ?? {}),
   moveDeliveryItems: (data: MoveDeliveryItemsData) =>
     apiClient.patch<MoveDeliveryItemsResponse>('/daily-sheets/items/move', data).then((r) => r.data),
   getDestinationOptions: (date: string) =>

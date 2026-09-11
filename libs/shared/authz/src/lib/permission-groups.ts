@@ -81,6 +81,8 @@ export const ACTION_LABELS: Record<string, string> = {
   period_lock: 'Lock payroll period',
   period_unlock: 'Unlock payroll period',
   settlement_record: 'Record settlement',
+  attendance_view: 'View attendance',
+  attendance_mark: 'Mark attendance',
   remit: 'Record office cash handover to owner',
   remit_approve: 'Approve office cash handover',
   remit_void: 'Void an approved office cash handover',

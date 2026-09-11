@@ -12,6 +12,7 @@ import { InAppNotificationService } from '../notifications/in-app-notification.s
 import { NotificationSettingsService } from '../notifications/notification-settings.service';
 import { CollectionPolicyService } from '../collection-policy/collection-policy.service';
 import { CrewCashDistributionService } from '../payroll/crew-cash-distribution.service';
+import { StaffAttendanceService } from '../payroll/staff-attendance.service';
 import { VehicleCheckService } from '../fleet/vehicle-check.service';
 import { SheetDiscrepancyCaseService } from '../sheet-discrepancy-case/sheet-discrepancy-case.service';
 import { VanCashLedgerService } from '../van-cash-ledger/van-cash-ledger.service';
@@ -177,6 +178,7 @@ describe('DailySheetService.submitDelivery — Cash Collection Policy gate', () 
         { provide: NotificationSettingsService, useValue: mockNotifSettings },
         { provide: CollectionPolicyService, useValue: mockCollectionPolicy },
         { provide: CrewCashDistributionService, useValue: {} },
+        { provide: StaffAttendanceService, useValue: {} },
         // Not exercised by submitDelivery — only wired so Nest can resolve
         // DailySheetService's full constructor (Fleet Phase 1 / Sheet
         // Discrepancy Case deps, added after this suite was written).

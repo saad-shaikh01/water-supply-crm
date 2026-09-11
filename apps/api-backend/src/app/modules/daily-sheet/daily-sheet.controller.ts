@@ -44,6 +44,7 @@ import { CorrectDeliveryDto } from './dto/correct-delivery.dto';
 import { UnlockEditDto } from './dto/unlock-edit.dto';
 import { RejectCloseDto } from './dto/reject-close.dto';
 import { CloseSheetDto } from './dto/close-sheet.dto';
+import { ConfirmCrewDto } from './dto/confirm-crew.dto';
 import { RequirePermissions, RequireAnyPermission } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
@@ -578,13 +579,15 @@ export class DailySheetController {
 
   /**
    * POST /daily-sheets/:id/confirm-crew
-   * Confirms today's crew — mandatory before any trip can start.
+   * Confirms today's crew — mandatory before any trip can start. Optional body
+   * `{ absentUserIds }` records those roster members as ABSENT for the day
+   * (Staff Attendance Phase 2) — operational only, no ledger entry.
    */
   @Post(':id/confirm-crew')
   @RequirePermissions('daily_sheets:confirm_crew')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 20 } })
-  confirmCrew(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.dailySheetService.confirmCrew(user.vendorId, id, user);
+  confirmCrew(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: ConfirmCrewDto) {
+    return this.dailySheetService.confirmCrew(user.vendorId, id, user, body?.absentUserIds);
   }
 
   // ── Load trips (multi-trip per sheet) — driver + staff ───────────────

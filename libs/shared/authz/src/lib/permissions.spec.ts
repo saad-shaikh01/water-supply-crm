@@ -75,7 +75,12 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // Cash Remittance feature (owner-requested 2026-09-10): the office -> owner/
 // CEO/bank cash hop, folded into the same Cash Ledger timeline. No new
 // resource, no new `:page` — added to the existing `van_cash_ledger` resource.
-const FROZEN_TOTAL = 178;
+// 180 = 178 + payroll:{attendance_view, attendance_mark} — Staff Attendance &
+// Wage Types Phase 1 (docs/features/staff-attendance-and-wage-types.md,
+// owner-approved 2026-09-11, Amendment R16). No new resource, no new `:page` —
+// added to the existing `payroll` resource; an attendance screen lives under
+// /dashboard/payroll and inherits `payroll:page`.
+const FROZEN_TOTAL = 180;
 const FROZEN_PAGES = 29;
 const FROZEN_RESOURCES = 31;
 

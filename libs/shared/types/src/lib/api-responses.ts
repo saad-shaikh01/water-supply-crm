@@ -831,6 +831,31 @@ export interface StaffLedgerEntry {
 
 export type PayFrequency = 'MONTHLY';
 
+export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'HALF_DAY' | 'LEAVE' | 'WEEKLY_OFF';
+export type AttendanceSource = 'CREW_CONFIRM' | 'MANUAL';
+
+/**
+ * Mirrors the raw `StaffAttendance` row (Staff Attendance & Wage Types Phase 1).
+ * Operational per-employee-per-day record. `leaveLedgerEntryId` is set only for
+ * an ABSENT / HALF_DAY marking that spawned a LEAVE_UNPAID `StaffLedgerEntry`.
+ */
+export interface StaffAttendance {
+  id: string;
+  vendorId: string;
+  userId: string;
+  /** Midnight-UTC of the attended calendar day. */
+  date: string;
+  status: AttendanceStatus;
+  source: AttendanceSource;
+  dailySheetId: string | null;
+  note: string | null;
+  markedById: string;
+  leaveLedgerEntryId: string | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** Mirrors the raw `SalaryStructure` row. */
 export interface SalaryStructure {
   id: string;

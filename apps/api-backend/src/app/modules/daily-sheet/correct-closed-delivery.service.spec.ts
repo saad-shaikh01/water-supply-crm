@@ -21,6 +21,7 @@ import { InAppNotificationService } from '../notifications/in-app-notification.s
 import { NotificationSettingsService } from '../notifications/notification-settings.service';
 import { CollectionPolicyService } from '../collection-policy/collection-policy.service';
 import { CrewCashDistributionService } from '../payroll/crew-cash-distribution.service';
+import { StaffAttendanceService } from '../payroll/staff-attendance.service';
 import { VehicleCheckService } from '../fleet/vehicle-check.service';
 import { SheetDiscrepancyCaseService } from '../sheet-discrepancy-case/sheet-discrepancy-case.service';
 import { VanCashLedgerService } from '../van-cash-ledger/van-cash-ledger.service';
@@ -137,6 +138,7 @@ describe('DailySheetService.correctClosedDelivery', () => {
         { provide: NotificationSettingsService, useValue: {} },
         { provide: CollectionPolicyService, useValue: {} },
         { provide: CrewCashDistributionService, useValue: {} },
+        { provide: StaffAttendanceService, useValue: {} },
         { provide: VehicleCheckService, useValue: {} },
         { provide: SheetDiscrepancyCaseService, useValue: {} },
         { provide: VanCashLedgerService, useValue: { createHandoverForClosedSheet: jest.fn().mockResolvedValue(null) } },

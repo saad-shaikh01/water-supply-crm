@@ -57,6 +57,7 @@ import { NotificationSettingsService } from '../notifications/notification-setti
 import { CollectionPolicyService } from '../collection-policy/collection-policy.service';
 import { evaluateCollectionPolicy, evaluateCashCollectionPolicy } from '../../common/helpers/collection-policy.util';
 import { CrewCashDistributionService } from '../payroll/crew-cash-distribution.service';
+import { StaffAttendanceService } from '../payroll/staff-attendance.service';
 import { VehicleCheckService } from '../fleet/vehicle-check.service';
 import { SheetDiscrepancyCaseService } from '../sheet-discrepancy-case/sheet-discrepancy-case.service';
 import { VanCashLedgerService } from '../van-cash-ledger/van-cash-ledger.service';
@@ -104,6 +105,7 @@ export class DailySheetService implements OnModuleInit {
     private notifSettings: NotificationSettingsService,
     private collectionPolicy: CollectionPolicyService,
     private crewCashDistribution: CrewCashDistributionService,
+    private staffAttendance: StaffAttendanceService,
     private vehicleCheck: VehicleCheckService,
     private discrepancyCases: SheetDiscrepancyCaseService,
     private vanCashLedger: VanCashLedgerService,
@@ -4631,8 +4633,23 @@ export class DailySheetService implements OnModuleInit {
   /**
    * Confirms the sheet's crew for the day. Trips cannot start until the crew
    * is confirmed; any later crew/driver change resets the confirmation.
+   *
+   * Staff Attendance & Wage Types — Phase 1: this now also captures a PRESENT
+   * attendance row for every roster member (driver + DailySheetCrew), inside
+   * the same transaction as the `crewConfirmed` flip.
+   * `StaffAttendanceService.captureForConfirmedCrew` is idempotent and
+   * reconciling, so it runs on the idempotent re-confirm path too (e.g. after a
+   * swap-assignment reset `crewConfirmed`), and never overwrites a manually-
+   * marked day. The external contract is unchanged: same 404 / 409, same
+   * response shape, and the CONFIRM_CREW audit row is still written only on the
+   * first (state-changing) confirmation.
+   *
+   * Phase 2: `absentUserIds` (optional) records those roster members as ABSENT
+   * for the day instead of PRESENT — operational only, no ledger entry (the
+   * crew-confirm flow has no amount input; the deduction is a separate step via
+   * `POST /payroll/attendance/mark`). An id not on the roster is ignored.
    */
-  async confirmCrew(vendorId: string, sheetId: string, user: AuthUser) {
+  async confirmCrew(vendorId: string, sheetId: string, user: AuthUser, absentUserIds?: string[]) {
     const sheet = await this.prisma.dailySheet.findFirst({
       where: { id: sheetId, vendorId },
     });
@@ -4645,38 +4662,56 @@ export class DailySheetService implements OnModuleInit {
       crewConfirmedBy: { select: { id: true, name: true } },
     };
 
-    if (sheet.crewConfirmed) {
-      // Idempotent — return current state without overwriting the original confirmer
-      return this.prisma.dailySheet.findFirst({
-        where: { id: sheetId },
-        include: crewInclude,
+    const wasAlreadyConfirmed = sheet.crewConfirmed;
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      // On the idempotent path, re-read (with the same include) without
+      // overwriting the original confirmer; otherwise flip the flag.
+      const sheetRow = wasAlreadyConfirmed
+        ? await tx.dailySheet.findUniqueOrThrow({ where: { id: sheetId }, include: crewInclude })
+        : await tx.dailySheet.update({
+            where: { id: sheetId },
+            data: {
+              crewConfirmed: true,
+              crewConfirmedAt: new Date(),
+              crewConfirmedById: user.userId,
+            },
+            include: crewInclude,
+          });
+
+      await this.staffAttendance.captureForConfirmedCrew(
+        tx,
+        vendorId,
+        {
+          id: sheetRow.id,
+          kind: sheetRow.kind,
+          date: sheetRow.date,
+          driverId: sheetRow.driverId,
+          crew: sheetRow.crew.map((c) => ({ userId: c.userId, role: c.role })),
+        },
+        user.userId,
+        absentUserIds,
+      );
+
+      return sheetRow;
+    });
+
+    if (!wasAlreadyConfirmed) {
+      await this.audit.log({
+        vendorId,
+        action: 'CONFIRM_CREW',
+        entity: 'DailySheet',
+        entityId: sheetId,
+        changes: {
+          after: {
+            crewConfirmed: true,
+            crewConfirmedBy: user.userId,
+            driverId: updated.driverId,
+            crew: updated.crew.map((c) => ({ userId: c.userId, role: c.role })),
+          },
+        },
       });
     }
-
-    const updated = await this.prisma.dailySheet.update({
-      where: { id: sheetId },
-      data: {
-        crewConfirmed: true,
-        crewConfirmedAt: new Date(),
-        crewConfirmedById: user.userId,
-      },
-      include: crewInclude,
-    });
-
-    await this.audit.log({
-      vendorId,
-      action: 'CONFIRM_CREW',
-      entity: 'DailySheet',
-      entityId: sheetId,
-      changes: {
-        after: {
-          crewConfirmed: true,
-          crewConfirmedBy: user.userId,
-          driverId: updated.driverId,
-          crew: updated.crew.map((c) => ({ userId: c.userId, role: c.role })),
-        },
-      },
-    });
 
     return updated;
   }

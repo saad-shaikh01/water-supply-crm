@@ -28,7 +28,7 @@ const MATRIX: Record<RoleKey, Row> = {
     deny: [],
   },
   vendor_admin: {
-    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'settings:update', 'whatsapp:manage', 'inventory:write_off', 'payroll:period_lock', 'payroll:view_all', 'crew_cash:approve', 'crew_cash:view_all', 'customers:deactivate', 'customers:force_deactivate'],
+    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'settings:update', 'whatsapp:manage', 'inventory:write_off', 'payroll:period_lock', 'payroll:view_all', 'payroll:attendance_view', 'payroll:attendance_mark', 'crew_cash:approve', 'crew_cash:view_all', 'customers:deactivate', 'customers:force_deactivate'],
     deny: [],
   },
   manager: {
@@ -40,6 +40,9 @@ const MATRIX: Record<RoleKey, Row> = {
       'inventory:add_stock', 'damage_cases:review',
       'tracking:view', 'analytics:export', 'payroll:ledger_create',
       'payroll:salary_structure_manage', 'payroll:period_generate', 'payroll:settlement_record',
+      // Staff Attendance & Wage Types Phase 1 (Amendment R16) — Manager records
+      // and reviews attendance, flat default alongside the four payroll actions above.
+      'payroll:attendance_view', 'payroll:attendance_mark',
       // crew_cash:view_all IS a flat STAFF default here — unlike payroll:view_all
       // below, this resource's §11 table has no distinctly-worded override-only
       // phrasing for view_all (Amendment R5).
@@ -72,7 +75,7 @@ const MATRIX: Record<RoleKey, Row> = {
   },
   salesman: {
     allow: ['dashboard:view', 'customers:view', 'customers:create', 'customers:update', 'customers:update_location', 'customers:deactivate', 'customers:restore', 'orders:view', 'daily_sheets:update', 'products:view', 'crew_cash:create'],
-    deny: ['customers:view_financial', 'customers:force_deactivate', 'customers:delete', 'orders:approve', 'payments:approve', 'daily_sheets:confirm_crew', 'inventory:add_stock', 'roles:update', 'payroll:view_all', 'crew_cash:approve', 'crew_cash:view_all', 'daily_sheets:move_customer', 'daily_sheets:void_delivery', 'daily_sheets:edit_closed_trip', 'daily_sheets:record_walk_in', 'daily_sheets:edit_closed_expense'],
+    deny: ['customers:view_financial', 'customers:force_deactivate', 'customers:delete', 'orders:approve', 'payments:approve', 'daily_sheets:confirm_crew', 'inventory:add_stock', 'roles:update', 'payroll:view_all', 'payroll:attendance_mark', 'crew_cash:approve', 'crew_cash:view_all', 'daily_sheets:move_customer', 'daily_sheets:void_delivery', 'daily_sheets:edit_closed_trip', 'daily_sheets:record_walk_in', 'daily_sheets:edit_closed_expense'],
   },
   loader: {
     allow: ['dashboard:view', 'inventory:view', 'inventory:add_stock', 'daily_sheets:load_out', 'daily_sheets:check_in', 'vans:view'],
@@ -88,7 +91,7 @@ const MATRIX: Record<RoleKey, Row> = {
       'dashboard:view', 'customers:update', 'customers:view_financial', 'customers:delete', 'daily_sheets:confirm_crew',
       'daily_sheets:manage_edit_locks', 'daily_sheets:export', 'daily_sheets:correct', 'tracking:view', 'expenses:view',
       'payments:approve', 'damage_cases:review', 'roles:view', 'payroll:view_all', 'payroll:ledger_create',
-      'payroll:period_lock', 'crew_cash:approve', 'crew_cash:view_all', 'daily_sheets:move_customer', 'daily_sheets:void_delivery',
+      'payroll:attendance_mark', 'payroll:period_lock', 'crew_cash:approve', 'crew_cash:view_all', 'daily_sheets:move_customer', 'daily_sheets:void_delivery',
       'daily_sheets:edit_closed_trip', 'daily_sheets:record_walk_in', 'daily_sheets:edit_closed_expense',
     ],
   },
@@ -97,7 +100,7 @@ const MATRIX: Record<RoleKey, Row> = {
     deny: [
       'customers:view_financial', 'customers:create', 'customers:update', 'customers:delete', 'customers:export',
       'orders:approve', 'roles:update', 'payments:approve', 'daily_sheets:update', 'inventory:add_stock', 'users:create',
-      'payroll:view_all', 'crew_cash:create', 'crew_cash:view_all',
+      'payroll:view_all', 'payroll:attendance_mark', 'crew_cash:create', 'crew_cash:view_all',
     ],
   },
 };
