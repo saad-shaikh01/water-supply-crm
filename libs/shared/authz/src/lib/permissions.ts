@@ -47,6 +47,11 @@ export const PERMISSION_CATALOG = {
     //   writing the remaining financialBalance off as a company loss (bad debt).
     //   Split from `deactivate` so a field role (Salesman) can hold the normal,
     //   guard-respecting deactivate without ever being able to force a write-off.
+    // force_deactivate_bottles: additionally push past the outstanding-bottle
+    //   guard — zeroes every non-zero BottleWallet with a matching ADJUSTMENT
+    //   entry (company writes the physical bottles off). Separate from
+    //   force_deactivate so a vendor can allow a balance write-off but still
+    //   require bottles to be physically recovered (or vice-versa).
     actions: [
       'page',
       'view',
@@ -56,6 +61,7 @@ export const PERMISSION_CATALOG = {
       'update_location',
       'deactivate',
       'force_deactivate',
+      'force_deactivate_bottles',
       'restore',
       'delete',
       'export',

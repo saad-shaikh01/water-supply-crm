@@ -19,7 +19,6 @@ import { AuditService } from '../audit/audit.service';
 import { PermissionService } from '../authz/permission.service';
 import { resolveSheetCash, SHEET_CASH_RELOAD_INCLUDE } from '../daily-sheet/sheet-cash.util';
 import {
-  normalizeCrewCashRow,
   normalizeExpenseRow,
   normalizeStaffLedgerRow,
   shortSheetId,
@@ -915,6 +914,16 @@ export class VanCashLedgerService {
    * per van per day, plus its related cash-out rows) is orders of magnitude
    * smaller than the general Expense Center dataset this pattern was
    * designed for.
+   *
+   * CASH-OUT SCOPE — office cash only. A cash-paid Expense that belongs to a
+   * Daily Sheet (or WALK_IN sheet) is ALREADY netted out of that sheet's
+   * `VanCashHandover.amount` (= `resolveSheetCash().cashExpected` =
+   * `netToHandIn` = cashRecorded − sheetExpenses − crewCash), so folding it in
+   * again here would double-count it. We therefore include only Expense rows
+   * with `dailySheetId: null` (recorded directly in the Expense Center) plus
+   * StaffLedgerEntry (office payroll, never sheet-linked). CrewCashDistribution
+   * is `dailySheetId`-mandatory and always inside a handover, so it is not a
+   * source here at all.
    */
   async getTimeline(vendorId: string, query: VanCashLedgerTimelineQueryDto): Promise<PaginatedResult<VanCashLedgerRow>> {
     const { page = 1, limit = 20, vanId } = query;
@@ -922,7 +931,7 @@ export class VanCashLedgerService {
     const to = query.to ? endOfDay(new Date(query.to)) : undefined;
     const dateFilter = buildDateFilter(from, to);
 
-    const [openingRows, cashInRows, expenseRows, ledgerRows, crewCashRows, remittanceRows] = await Promise.all([
+    const [openingRows, cashInRows, expenseRows, ledgerRows, remittanceRows] = await Promise.all([
       this.buildOpeningBalanceRows(vendorId, vanId, to),
       this.prisma.vanCashHandover.findMany({
         where: {
@@ -942,6 +951,9 @@ export class VanCashLedgerService {
         where: {
           vendorId,
           paidFromCash: true,
+          // Sheet-linked expenses are already netted out of the sheet's
+          // VanCashHandover — only Expense-Center-direct rows are office cash-out.
+          dailySheetId: null,
           ...(vanId && { vanId }),
           ...(dateFilter && { date: dateFilter }),
         },
@@ -984,26 +996,10 @@ export class VanCashLedgerService {
             },
             orderBy: { effectiveDate: 'asc' },
           }),
-      this.prisma.crewCashDistribution.findMany({
-        where: {
-          vendorId,
-          ...(vanId && { dailySheet: { vanId } }),
-          ...(dateFilter && { date: dateFilter }),
-        },
-        select: {
-          id: true,
-          category: true,
-          amount: true,
-          notes: true,
-          date: true,
-          dailySheetId: true,
-          employee: { select: { name: true } },
-          distributedBy: { select: { name: true } },
-          dailySheet: { select: { van: { select: { plateNumber: true } } } },
-          syncedAt: true,
-        },
-        orderBy: { date: 'asc' },
-      }),
+      // NOTE: CrewCashDistribution is intentionally NOT a source here — every
+      // crew-cash row is `dailySheetId`-mandatory and already netted out of that
+      // sheet's VanCashHandover (see the CASH-OUT SCOPE note above).
+
       // Office->owner remittances are vendor-wide and cannot be attributed to a
       // single van — excluded from a van-scoped view (same treatment as
       // StaffLedgerEntry above). VOIDED rows are still fetched so the timeline
@@ -1035,7 +1031,6 @@ export class VanCashLedgerService {
     for (const row of cashInRows) merged.push(this.normalizeCashIn(row));
     for (const row of expenseRows) merged.push(this.normalizeCashOut(normalizeExpenseRow(row)));
     for (const row of ledgerRows) merged.push(this.normalizeCashOut(normalizeStaffLedgerRow(row)));
-    for (const row of crewCashRows) merged.push(this.normalizeCashOut(normalizeCrewCashRow(row)));
     for (const row of remittanceRows) merged.push(this.normalizeRemittanceOut(row));
 
     merged.sort((a, b) => {
@@ -1063,23 +1058,26 @@ export class VanCashLedgerService {
   // ── Internal helpers ─────────────────────────────────────────────────────
 
   /**
-   * Cash-out total across the three cash-only Expense Center sources: `Expense`
-   * rows with `paidFromCash: true` (a card-paid expense never touches physical
-   * cash), plus StaffLedgerEntry and CrewCashDistribution rows in full — those
-   * two have no `paidFromCash` concept and are treated as always-cash, matching
-   * the Expense Center's own documented assumption (see
-   * expense-center.service.ts's `collectPeriodTotals` doc comment).
+   * OFFICE cash-out total (mirrors `getTimeline`'s CASH-OUT SCOPE note):
+   *   - `Expense` rows with `paidFromCash: true` AND `dailySheetId: null` — a
+   *     card-paid expense never touched physical cash, and a sheet-linked one is
+   *     already netted out of that sheet's VanCashHandover (double-count).
+   *   - StaffLedgerEntry (office payroll, never sheet-linked, no `paidFromCash`
+   *     concept — treated as always-cash, per expense-center.service.ts).
+   * CrewCashDistribution is deliberately excluded — every row is sheet-linked
+   * and already inside a handover.
    */
   private async collectCashOutTotal(
     vendorId: string,
     vanId: string | undefined,
     dateFilter?: { gte?: Date; lte?: Date },
   ): Promise<number> {
-    const [expenseAgg, ledgerRows, crewCashAgg] = await Promise.all([
+    const [expenseAgg, ledgerRows] = await Promise.all([
       this.prisma.expense.aggregate({
         where: {
           vendorId,
           paidFromCash: true,
+          dailySheetId: null,
           ...(vanId && { vanId }),
           ...(dateFilter && { date: dateFilter }),
         },
@@ -1097,18 +1095,10 @@ export class VanCashLedgerService {
             },
             select: { amount: true },
           }),
-      this.prisma.crewCashDistribution.aggregate({
-        where: {
-          vendorId,
-          ...(vanId && { dailySheet: { vanId } }),
-          ...(dateFilter && { date: dateFilter }),
-        },
-        _sum: { amount: true },
-      }),
     ]);
 
     const ledgerTotal = ledgerRows.reduce((sum, row) => sum + Math.abs(row.amount), 0);
-    return (expenseAgg._sum.amount ?? 0) + ledgerTotal + (crewCashAgg._sum.amount ?? 0);
+    return (expenseAgg._sum.amount ?? 0) + ledgerTotal;
   }
 
   /**

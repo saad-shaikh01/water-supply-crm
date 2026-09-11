@@ -75,7 +75,12 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // Cash Remittance feature (owner-requested 2026-09-10): the office -> owner/
 // CEO/bank cash hop, folded into the same Cash Ledger timeline. No new
 // resource, no new `:page` — added to the existing `van_cash_ledger` resource.
-const FROZEN_TOTAL = 178;
+// 179 = 178 + customers:force_deactivate_bottles — push past the outstanding-
+// bottle guard on a force deactivate, zeroing every non-zero BottleWallet with a
+// matching ADJUSTMENT entry (Customer Force Deactivate Rev 3, owner-requested
+// 2026-09-11). No new resource, no new `:page` — split from force_deactivate so a
+// vendor can allow a balance write-off but still require bottles to be recovered.
+const FROZEN_TOTAL = 179;
 const FROZEN_PAGES = 29;
 const FROZEN_RESOURCES = 31;
 

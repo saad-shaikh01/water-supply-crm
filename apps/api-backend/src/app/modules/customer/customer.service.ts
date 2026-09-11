@@ -830,16 +830,17 @@ export class CustomerService {
   /**
    * Soft-disable a customer, preserving all history.
    *
-   * Two hard guards, checked in order — a customer that trips either can never
-   * be deactivated until it is physically resolved:
-   *   1. every bottle wallet settled to zero,
-   *   2. no outstanding financial balance (customer owes nothing).
-   *
-   * Guard 2 is the only one `force` can push past, and only when the caller
-   * holds `customers:force_deactivate` (VENDOR_ADMIN by default). The forced
-   * path writes the remaining balance off to zero through an ADJUSTMENT
-   * transaction — a visible company loss (bad debt) — and audits it as
-   * `FORCE_DEACTIVATE`.
+   * Two blockers stop a plain deactivate — the customer still owes money
+   * (`financialBalance > 0`) or is still holding company bottles (any
+   * `BottleWallet.balance ≠ 0`). Either one throws a `DEACTIVATE_BLOCKED` 409
+   * unless `opts.force` is set, and force is gated per-blocker:
+   *   - writing the balance off  → `customers:force_deactivate`
+   *   - writing the bottles off  → `customers:force_deactivate_bottles`
+   * (VENDOR_ADMIN holds both by default; they are separate so a vendor can allow
+   * one and still require the other to be physically resolved.) The forced path
+   * posts one ADJUSTMENT per write-off — `amount: -owed` for the balance,
+   * `bottleCount: -balance` per product for the bottles — a visible company loss,
+   * and audits it as `FORCE_DEACTIVATE`.
    *
    * The customer's still-PENDING delivery items on open (non-closed) sheets are
    * auto-CANCELLED as part of the deactivation — nothing has been delivered or
@@ -856,36 +857,35 @@ export class CustomerService {
     const customer = await this.prisma.customer.findFirst({ where: { id, vendorId } });
     if (!customer) throw new NotFoundException('Customer not found');
 
-    // Refuse to close a customer who is still holding company bottles — the
-    // driver must first record the final return delivery (Filled/Empty Received)
-    // so the bottle wallet settles to zero before the account is closed. `force`
-    // does NOT bypass this: physical bottles are recovered through the delivery
-    // flow, never written off here.
     const outstandingWallets = await this.prisma.bottleWallet.findMany({
       where: { customerId: id, balance: { not: 0 } },
-      select: { balance: true, product: { select: { name: true } } },
+      select: { balance: true, productId: true, product: { select: { name: true } } },
     });
-    if (outstandingWallets.length > 0) {
-      const summary = outstandingWallets.map((w) => `${w.product.name}: ${w.balance}`).join(', ');
-      throw new ConflictException(
-        `Customer still has outstanding bottles (${summary}). Record the final return delivery ` +
-        `(Filled/Empty Received) before deactivating.`
-      );
-    }
-
-    // Outstanding financial balance guard. A positive balance means the customer
-    // still owes money. The guarded `customers:deactivate` cannot get past this;
-    // only a `force` request from a `customers:force_deactivate` holder can, and
-    // that path writes the remainder off as a company loss.
     const owed = Number(customer.financialBalance ?? 0);
-    if (owed > 0 && !opts.force) {
+    const hasBottles = outstandingWallets.length > 0;
+    const hasBalance = owed > 0;
+    const bottleSummary = outstandingWallets
+      .map((w) => `${w.product.name}: ${w.balance}`)
+      .join(', ');
+    const bottlesWrittenOff = outstandingWallets.map((w) => ({
+      product: w.product.name,
+      balance: w.balance,
+    }));
+
+    // Blocked unless forced. One structured 409 carries every blocker so the
+    // client can offer the right escalation in a single step.
+    if ((hasBalance || hasBottles) && !opts.force) {
+      const parts: string[] = [];
+      if (hasBalance) parts.push(`owes ₨${owed.toLocaleString()}`);
+      if (hasBottles) parts.push(`is holding company bottles (${bottleSummary})`);
       throw new ConflictException({
-        code: 'OUTSTANDING_BALANCE',
+        code: 'DEACTIVATE_BLOCKED',
         message:
-          `Customer owes ₨${owed.toLocaleString()}. Collect the payment first, or Force Deactivate ` +
-          `to write it off as a company loss.`,
-        financialBalance: owed,
+          `${customer.name} ${parts.join(' and ')}. Collect / recover first, or Force Deactivate to ` +
+          `write ${hasBalance && hasBottles ? 'them' : 'it'} off as a company loss.`,
         customerName: customer.name,
+        financialBalance: hasBalance ? owed : 0,
+        outstandingBottles: bottlesWrittenOff,
       });
     }
 
@@ -898,42 +898,68 @@ export class CustomerService {
       dailySheet: { isClosed: false },
     };
 
-    if (opts.force && owed > 0) {
+    if (opts.force && (hasBalance || hasBottles)) {
       if (!actor) {
         throw new ForbiddenException('Force deactivate requires an authenticated actor.');
       }
-      const allowed = await this.permissions.can(
-        actor.userId,
-        'customers:force_deactivate',
-      );
-      if (!allowed) {
+      if (hasBalance && !(await this.permissions.can(actor.userId, 'customers:force_deactivate'))) {
         throw new ForbiddenException(
           'You do not have permission to force-deactivate a customer with an outstanding balance.',
         );
       }
+      if (
+        hasBottles &&
+        !(await this.permissions.can(actor.userId, 'customers:force_deactivate_bottles'))
+      ) {
+        throw new ForbiddenException(
+          'You do not have permission to force-deactivate a customer still holding company bottles.',
+        );
+      }
 
-      const writeOffNote =
-        `Bad-debt write-off on account closure — company loss ` +
-        `(force deactivate by ${actor.name ?? actor.userId})`;
+      const by = actor.name ?? actor.userId;
+      const balanceNote = `Bad-debt write-off on account closure — company loss (force deactivate by ${by})`;
+      const bottleNote = `Bottle write-off on account closure — company loss (force deactivate by ${by})`;
 
       const updated = await this.prisma.$transaction(async (tx) => {
         const { count: cancelledDeliveries } = await tx.dailySheetItem.updateMany({
           where: pendingWhere,
           data: { status: DeliveryStatus.CANCELLED },
         });
-        await tx.transaction.create({
-          data: {
-            type: TransactionType.ADJUSTMENT,
-            vendorId,
-            customerId: id,
-            amount: -owed,
-            description: writeOffNote,
-          },
-        });
-        await tx.customer.update({
-          where: { id },
-          data: { financialBalance: { increment: -owed } },
-        });
+
+        if (hasBalance) {
+          await tx.transaction.create({
+            data: {
+              type: TransactionType.ADJUSTMENT,
+              vendorId,
+              customerId: id,
+              amount: -owed,
+              description: balanceNote,
+            },
+          });
+          await tx.customer.update({
+            where: { id },
+            data: { financialBalance: { increment: -owed } },
+          });
+        }
+
+        for (const w of outstandingWallets) {
+          await tx.transaction.create({
+            data: {
+              type: TransactionType.ADJUSTMENT,
+              vendorId,
+              customerId: id,
+              productId: w.productId,
+              bottleCount: -w.balance,
+              amount: 0,
+              description: `${bottleNote} — ${w.product.name}: ${w.balance}`,
+            },
+          });
+          await tx.bottleWallet.update({
+            where: { customerId_productId: { customerId: id, productId: w.productId } },
+            data: { balance: { increment: -w.balance } },
+          });
+        }
+
         const c = await tx.customer.update({
           where: { id },
           data: { isActive: false },
@@ -957,16 +983,17 @@ export class CustomerService {
         entity: 'Customer',
         entityId: id,
         changes: {
-          before: { financialBalance: owed, isActive: true },
+          before: { financialBalance: owed, bottleBalances: bottlesWrittenOff, isActive: true },
           after: {
-            financialBalance: 0,
+            financialBalance: hasBalance ? 0 : owed,
             isActive: false,
-            writtenOff: owed,
+            writtenOff: hasBalance ? owed : 0,
+            bottlesWrittenOff,
             cancelledDeliveries: updated.cancelledDeliveries,
           },
         },
       });
-      return updated;
+      return { ...updated, writtenOff: hasBalance ? owed : 0, bottlesWrittenOff };
     }
 
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -1569,7 +1596,7 @@ export class CustomerService {
         skipped.push({
           customerId: customer.id,
           name: customer.name,
-          reason: `Outstanding bottles (${summary})`,
+          reason: `Outstanding bottles (${summary}) — deactivate individually to Force / write off`,
         });
         continue;
       }

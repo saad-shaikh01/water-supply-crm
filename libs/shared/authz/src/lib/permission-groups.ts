@@ -22,6 +22,7 @@ export const ACTION_LABELS: Record<string, string> = {
   delete: 'Delete',
   deactivate: 'Deactivate',
   force_deactivate: 'Force deactivate (write off balance)',
+  force_deactivate_bottles: 'Force deactivate (write off bottles)',
   restore: 'Restore',
   export: 'Export',
   clone: 'Clone',

@@ -70,8 +70,9 @@ Each row: permission → the existing feature/endpoint(s) it gates. `page` sorts
 | `customers:create` | `POST /customers` |
 | `customers:update` | `PATCH /customers/:id` (general edit) |
 | `customers:update_location` | `PATCH /customers/:id/location` (GPS pinning) |
-| `customers:deactivate` | `PATCH /customers/:id/deactivate` — refuses any customer with pending deliveries, outstanding bottles, or an outstanding financial balance |
-| `customers:force_deactivate` | `PATCH /customers/:id/deactivate` with `{ force: true }` — deactivate past the outstanding-balance guard, writing the remaining `financialBalance` off as a company loss (ADJUSTMENT transaction + `FORCE_DEACTIVATE` audit). Does **not** bypass the pending-delivery or outstanding-bottle guards. VENDOR_ADMIN only by default. |
+| `customers:deactivate` | `PATCH /customers/:id/deactivate` — refuses any customer with an outstanding bottle balance or financial balance (`DEACTIVATE_BLOCKED` 409). Still-PENDING stops on open sheets are auto-cancelled, not blocked. |
+| `customers:force_deactivate` | `PATCH /customers/:id/deactivate` with `{ force: true }` — write the remaining `financialBalance` off as a company loss (ADJUSTMENT `amount: -owed` + `FORCE_DEACTIVATE` audit). VENDOR_ADMIN only by default. |
+| `customers:force_deactivate_bottles` | Same endpoint with `{ force: true }` — additionally write off every non-zero `BottleWallet` (one ADJUSTMENT `bottleCount: -balance` per product, wallet zeroed). Separate from `force_deactivate` so a vendor can allow a balance write-off but still require bottles to be recovered (or vice-versa). VENDOR_ADMIN only by default. |
 | `customers:restore` | `PATCH /customers/:id/reactivate` |
 | `customers:delete` | `DELETE /customers/:id` |
 | `customers:export` | Download statement / consumption exports |
@@ -386,8 +387,8 @@ dashboard:view
 users:view  users:create  users:update  users:deactivate  users:restore  users:delete
 # roles (8)
 roles:view  roles:create  roles:update  roles:delete  roles:clone  roles:reset  roles:assign  roles:manage_overrides
-# customers (10)
-customers:view  customers:view_financial  customers:create  customers:update  customers:update_location  customers:deactivate  customers:force_deactivate  customers:restore  customers:delete  customers:export  customers:manage_portal
+# customers (11)
+customers:view  customers:view_financial  customers:create  customers:update  customers:update_location  customers:deactivate  customers:force_deactivate  customers:force_deactivate_bottles  customers:restore  customers:delete  customers:export  customers:manage_portal
 # orders (4)
 orders:view  orders:approve  orders:reject  orders:dispatch
 # products (4)

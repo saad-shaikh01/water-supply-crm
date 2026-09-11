@@ -15,7 +15,7 @@ import { SearchInput } from '../../../components/shared/filters/search-input';
 import { RouteFilter } from '../../../components/shared/filters/route-filter';
 import { VanFilter } from '../../../components/shared/filters/van-filter';
 import { toast } from 'sonner';
-import { useCustomers, useDeleteCustomer, useDeactivateCustomer, useReactivateCustomer, useBulkDeactivateCustomers, isOutstandingBalanceError } from '../hooks/use-customers';
+import { useCustomers, useDeleteCustomer, useDeactivateCustomer, useReactivateCustomer, useBulkDeactivateCustomers, isDeactivateBlockedError } from '../hooks/use-customers';
 import { CustomerForm } from './customer-form';
 import { BulkScheduleUpdateDialog } from './bulk-schedule-update-dialog';
 import { cn } from '@water-supply-crm/ui';
@@ -29,6 +29,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const canUpdate = useCan('customers:update');
   const canDeactivate = useCan('customers:deactivate');
   const canForceDeactivate = useCan('customers:force_deactivate');
+  const canForceDeactivateBottles = useCan('customers:force_deactivate_bottles');
   const canRestore = useCan('customers:restore');
   const canDelete = useCan('customers:delete');
   const { data, isLoading, page, setPage, limit, setLimit, isActive, setIsActive, hasPortalAccess, setHasPortalAccess, sort, setSort, sortDir, setSortDir } = useCustomers();
@@ -38,10 +39,12 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const { mutate: bulkDeactivate, isPending: isBulkDeactivating } = useBulkDeactivateCustomers();
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deactivateId, setDeactivateId] = useState<string | null>(null);
-  // Set only after a normal deactivate is rejected for an outstanding balance
-  // AND the current user holds customers:force_deactivate — drives the write-off
-  // escalation dialog.
-  const [forceTarget, setForceTarget] = useState<{ id: string; name: string; balance: number } | null>(null);
+  // Set only after a normal deactivate is rejected with DEACTIVATE_BLOCKED AND
+  // the current user holds the force permission(s) for every blocker — drives
+  // the write-off escalation dialog.
+  const [forceTarget, setForceTarget] = useState<
+    { id: string; name: string; balance: number; bottles: Array<{ product: string; balance: number }> } | null
+  >(null);
   const [reactivateId, setReactivateId] = useState<string | null>(null);
   const [editCustomer, setEditCustomer] = useState<Record<string, unknown> | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -666,15 +669,23 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             {
               onSuccess: () => setDeactivateId(null),
               onError: (e) => {
-                const outstanding = isOutstandingBalanceError(e);
-                if (!outstanding) return; // generic errors handled by the hook toast
+                const blocked = isDeactivateBlockedError(e);
+                if (!blocked) return; // generic errors handled by the hook toast
                 setDeactivateId(null);
-                if (canForceDeactivate) {
-                  setForceTarget({ id, name: outstanding.customerName, balance: outstanding.financialBalance });
+                const needBalancePerm = blocked.financialBalance > 0;
+                const needBottlesPerm = (blocked.outstandingBottles ?? []).length > 0;
+                const covered =
+                  (!needBalancePerm || canForceDeactivate) &&
+                  (!needBottlesPerm || canForceDeactivateBottles);
+                if (covered) {
+                  setForceTarget({
+                    id,
+                    name: blocked.customerName,
+                    balance: blocked.financialBalance,
+                    bottles: blocked.outstandingBottles ?? [],
+                  });
                 } else {
-                  toast.error(
-                    `${outstanding.customerName} owes ₨${outstanding.financialBalance.toLocaleString()}. Collect the payment before deactivating.`,
-                  );
+                  toast.error(blocked.message);
                 }
               },
             },
@@ -687,12 +698,17 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
       <ConfirmDialog
         open={!!forceTarget}
         onOpenChange={(o) => { if (!o) setForceTarget(null); }}
-        title="Force Deactivate — Write Off Balance"
-        description={
-          forceTarget
-            ? `${forceTarget.name} has an outstanding balance of ₨${forceTarget.balance.toLocaleString()}. Force deactivating will write this amount off as a company loss (bad debt) and cannot be reversed. Outstanding bottles, if any, must still be recovered separately.`
-            : ''
-        }
+        title="Force Deactivate — Write Off"
+        description={(() => {
+          if (!forceTarget) return '';
+          const parts: string[] = [];
+          if (forceTarget.balance > 0) parts.push(`an outstanding balance of ₨${forceTarget.balance.toLocaleString()}`);
+          if (forceTarget.bottles.length > 0) {
+            const btl = forceTarget.bottles.map((b) => `${b.product}: ${b.balance}`).join(', ');
+            parts.push(`company bottles (${btl})`);
+          }
+          return `${forceTarget.name} has ${parts.join(' and ')}. Force deactivating will write ${parts.length > 1 ? 'these' : 'this'} off as a company loss and cannot be reversed. Any still-pending deliveries on open sheets will also be cancelled.`;
+        })()}
         onConfirm={() => {
           if (!forceTarget) return;
           deactivateCustomer(
@@ -701,7 +717,14 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
           );
         }}
         isLoading={isDeactivating}
-        confirmLabel={forceTarget ? `Force Deactivate & Write Off ₨${forceTarget.balance.toLocaleString()}` : 'Force Deactivate'}
+        confirmLabel={(() => {
+          if (!forceTarget) return 'Force Deactivate';
+          const bits: string[] = [];
+          if (forceTarget.balance > 0) bits.push(`₨${forceTarget.balance.toLocaleString()}`);
+          const btlTotal = forceTarget.bottles.reduce((s, b) => s + b.balance, 0);
+          if (btlTotal !== 0) bits.push(`${btlTotal} bottle${btlTotal === 1 ? '' : 's'}`);
+          return bits.length ? `Force Deactivate & Write Off ${bits.join(' + ')}` : 'Force Deactivate';
+        })()}
       />
 
       <ConfirmDialog

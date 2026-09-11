@@ -148,17 +148,23 @@ export const useDeleteCustomer = () => {
   });
 };
 
-/** Shape of the 409 body the backend sends when a customer still owes money. */
-export interface OutstandingBalanceError {
-  code: 'OUTSTANDING_BALANCE';
+/**
+ * Shape of the 409 body the backend sends when a plain deactivate is blocked —
+ * the customer still owes money and/or is still holding company bottles.
+ */
+export interface DeactivateBlockedError {
+  code: 'DEACTIVATE_BLOCKED';
   message: string;
-  financialBalance: number;
   customerName: string;
+  /** > 0 when a balance write-off is one of the blockers. */
+  financialBalance: number;
+  /** non-empty when a bottle write-off is one of the blockers. */
+  outstandingBottles: Array<{ product: string; balance: number }>;
 }
 
-export const isOutstandingBalanceError = (e: unknown): OutstandingBalanceError | null => {
+export const isDeactivateBlockedError = (e: unknown): DeactivateBlockedError | null => {
   const body = (e as any)?.response?.data;
-  return body?.code === 'OUTSTANDING_BALANCE' ? (body as OutstandingBalanceError) : null;
+  return body?.code === 'DEACTIVATE_BLOCKED' ? (body as DeactivateBlockedError) : null;
 };
 
 export const useDeactivateCustomer = () => {
@@ -169,15 +175,24 @@ export const useDeactivateCustomer = () => {
     onSuccess: (res: any, { force }) => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
       const cancelled = Number(res?.data?.cancelledDeliveries ?? 0);
-      const base = force
-        ? 'Customer force-deactivated — balance written off as company loss'
-        : 'Customer deactivated';
+      let base = 'Customer deactivated';
+      if (force) {
+        const wrote: string[] = [];
+        const off = Number(res?.data?.writtenOff ?? 0);
+        const btl = (res?.data?.bottlesWrittenOff ?? []) as Array<{ balance: number }>;
+        if (off > 0) wrote.push(`₨${off.toLocaleString()}`);
+        const btlTotal = btl.reduce((s, b) => s + Number(b.balance ?? 0), 0);
+        if (btlTotal !== 0) wrote.push(`${btlTotal} bottle${btlTotal === 1 ? '' : 's'}`);
+        base = wrote.length
+          ? `Customer force-deactivated — ${wrote.join(' + ')} written off as company loss`
+          : 'Customer force-deactivated';
+      }
       toast.success(cancelled > 0 ? `${base}. ${cancelled} pending deliver${cancelled === 1 ? 'y' : 'ies'} cancelled` : base);
     },
     onError: (e: any) => {
-      // The outstanding-balance 409 is not a failure to surface as a toast — the
+      // The DEACTIVATE_BLOCKED 409 is not a failure to surface as a toast — the
       // caller turns it into the Force Deactivate escalation flow.
-      if (isOutstandingBalanceError(e)) return;
+      if (isDeactivateBlockedError(e)) return;
       toast.error(e?.response?.data?.message ?? 'Failed to deactivate customer');
     },
   });

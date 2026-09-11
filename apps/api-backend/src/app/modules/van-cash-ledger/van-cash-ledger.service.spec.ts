@@ -4,6 +4,7 @@ import {
   DailySheetKind,
   DiscrepancyCaseStatus,
   DiscrepancyType,
+  ExpenseCategory,
   OfficeCashRemittanceDestination,
   OfficeCashRemittanceStatus,
   VanCashHandoverStatus,
@@ -989,6 +990,102 @@ describe('VanCashLedgerService', () => {
       const delta = (svc as any).normalizeRemittanceOut({ ...base, correctsEntryId: 'root-1' });
       expect(root.isCorrection).toBe(false);
       expect(delta.isCorrection).toBe(true);
+    });
+  });
+
+  // ─── Cash-out scope: sheet-linked expenses / crew cash are NOT deducted ────
+  // They are already netted out of the sheet's VanCashHandover.amount
+  // (= resolveSheetCash().cashExpected = netToHandIn). Folding them in here too
+  // would double-count. Only Expense-Center-direct (dailySheetId: null) rows +
+  // office StaffLedgerEntry are office cash-out.
+
+  describe('cash-out scope', () => {
+    const AGG0 = { _sum: { amount: null, openingBalance: null } };
+
+    function makeLedgerReadService(overrides: Record<string, any> = {}) {
+      const prisma: any = {
+        vanCashHandover: {
+          aggregate: jest.fn().mockResolvedValue(AGG0),
+          count: jest.fn().mockResolvedValue(0),
+          findMany: jest.fn().mockResolvedValue([]),
+        },
+        vanCashOpeningBalance: {
+          aggregate: jest.fn().mockResolvedValue(AGG0),
+          findFirst: jest.fn().mockResolvedValue(null),
+          findMany: jest.fn().mockResolvedValue([]),
+        },
+        expense: {
+          aggregate: jest.fn().mockResolvedValue(AGG0),
+          findMany: jest.fn().mockResolvedValue([]),
+        },
+        staffLedgerEntry: { findMany: jest.fn().mockResolvedValue([]) },
+        crewCashDistribution: {
+          aggregate: jest.fn().mockResolvedValue(AGG0),
+          findMany: jest.fn().mockResolvedValue([]),
+        },
+        officeCashRemittance: {
+          aggregate: jest.fn().mockResolvedValue(AGG0),
+          count: jest.fn().mockResolvedValue(0),
+          findMany: jest.fn().mockResolvedValue([]),
+        },
+        van: { findUnique: jest.fn().mockResolvedValue(null) },
+        ...overrides,
+      };
+      const audit = { log: jest.fn().mockResolvedValue(undefined) };
+      const permissions = { can: jest.fn().mockResolvedValue(true) };
+      const svc = new VanCashLedgerService(prisma, audit as any, permissions as any);
+      return { svc, prisma };
+    }
+
+    it('getStats: the expense cash-out aggregate filters dailySheetId: null and CrewCashDistribution is not queried', async () => {
+      const { svc, prisma } = makeLedgerReadService();
+      await svc.getStats(VENDOR_ID, {});
+      expect(prisma.expense.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ paidFromCash: true, dailySheetId: null }),
+        }),
+      );
+      expect(prisma.crewCashDistribution.aggregate).not.toHaveBeenCalled();
+    });
+
+    it('getTimeline: the expense source filters dailySheetId: null and CrewCashDistribution is not queried', async () => {
+      const { svc, prisma } = makeLedgerReadService();
+      await svc.getTimeline(VENDOR_ID, {});
+      expect(prisma.expense.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ paidFromCash: true, dailySheetId: null }),
+        }),
+      );
+      expect(prisma.crewCashDistribution.findMany).not.toHaveBeenCalled();
+    });
+
+    it('getTimeline: an office (dailySheetId: null) cash expense is folded once as a -amount cash-out row', async () => {
+      const officeExpense = {
+        id: 'exp-office',
+        category: ExpenseCategory.OTHER,
+        amount: 300,
+        paidFromCash: true,
+        description: 'Stationery',
+        date: new Date('2026-09-10'),
+        dailySheetId: null,
+        fuelLog: null,
+        vehicleServiceRecord: null,
+        van: null,
+        createdBy: { name: 'Accountant' },
+        dailySheet: null,
+      };
+      const { svc } = makeLedgerReadService({
+        expense: {
+          aggregate: jest.fn().mockResolvedValue({ _sum: { amount: 300 } }),
+          findMany: jest.fn().mockResolvedValue([officeExpense]),
+        },
+      });
+
+      const page = await svc.getTimeline(VENDOR_ID, {});
+      const row = page.data.find((r) => r.sourceRecordId === 'exp-office');
+      expect(row).toBeDefined();
+      expect(row?.amount).toBe(-300);
+      expect(row?.runningBalance).toBe(-300); // moved down by 300 exactly once
     });
   });
 });

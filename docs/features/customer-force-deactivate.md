@@ -12,6 +12,12 @@ auto-CANCELLED (PENDING → CANCELLED, no ledger effect) for the deactivated
 customer, in both the single and bulk flows. `deactivate()` / `bulkDeactivate()`
 now return `cancelledDeliveries`.**
 
+**Revision 3 (2026-09-11, owner-requested): force can now also bypass the
+outstanding-bottle guard, gated by a NEW separate permission
+`customers:force_deactivate_bottles` (VENDOR_ADMIN only, independently
+grant/revocable). The two blockers are merged into one `DEACTIVATE_BLOCKED` 409
+that lists every blocker at once. Frozen total 178 → 179.**
+
 This document is the single source of truth for the feature. Architectural changes
 require an explicit revision approved by the project owner and a Change Log entry.
 
@@ -33,17 +39,23 @@ Two changes to the customer deactivate flow on `/dashboard/customers`:
    writes the remaining balance off as a **company loss (bad debt)** — a visible
    `ADJUSTMENT` transaction — and audits it as `FORCE_DEACTIVATE`.
 
-### 1.1 Guard matrix (locked — Revision 2)
+### 1.1 Guard matrix (locked — Revision 3)
 
-`deactivate()` checks **two** hard guards, in order. Both can **never** be
-bypassed — a customer that trips them is physically un-closable until resolved:
+`deactivate()` has **two blockers**. Either one throws a single
+`DEACTIVATE_BLOCKED` 409 (carrying *both* blockers so the client can offer the
+right escalation in one step) unless `opts.force` is set, and force is gated
+**per blocker** by its own permission:
 
-| # | Guard | Condition | `force` bypasses? |
+| Blocker | Condition | Force needs | Write-off on force |
 |---|---|---|---|
-| 1 | Outstanding bottles | any `BottleWallet.balance ≠ 0` | **No** — bottles are recovered through the delivery flow, never written off here |
-| 2 | Outstanding balance | `financialBalance > 0` | **Yes**, with `customers:force_deactivate` |
+| Outstanding balance | `financialBalance > 0` | `customers:force_deactivate` | one `ADJUSTMENT` `amount: -owed`; `financialBalance → 0` |
+| Outstanding bottles | any `BottleWallet.balance ≠ 0` | `customers:force_deactivate_bottles` | one `ADJUSTMENT` `bottleCount: -balance` **per product**; each wallet `→ 0` |
 
-**Pending deliveries** are no longer a guard. Any `status = PENDING`
+The two force permissions are **independent** — a customer blocked by both needs
+*both* permissions; a customer blocked by only one needs only that one. Both are
+VENDOR_ADMIN/SUPER_ADMIN by default, in no other preset, no drift backfill.
+
+**Pending deliveries** are not a blocker. Any `status = PENDING`
 `DailySheetItem` on a non-closed sheet for the customer is set to `CANCELLED`
 inside the same transaction as the `isActive = false` write (a PENDING item has
 posted nothing to the ledger, so this is a pure status flip — mirrors the
@@ -51,15 +63,15 @@ posted nothing to the ledger, so this is a pure status flip — mirrors the
 count is returned as `cancelledDeliveries` and recorded on the audit entry; when
 `> 0`, the vendor's daily-dashboard cache is flushed (`invalidateDailyDashboard(vendorId)`).
 
-Decisions taken with the owner (2026-09-09):
-- Force bypasses **only** the financial guard, not bottles.
+Decisions taken with the owner:
+- **Rev 3 (2026-09-11):** force now covers bottles too, but only via the separate
+  `customers:force_deactivate_bottles` — so a vendor can allow a balance write-off
+  and still require bottles to be physically recovered (or the reverse).
 - Removing the pending-delivery guard + auto-cancel applies to **both** the single
   `deactivate()` and `bulkDeactivate()` (no bulk `force`, but bulk does auto-cancel).
-- `customers:force_deactivate` ships to **Vendor Admin / Super Admin only**. It is a
-  separate permission (not folded into `deactivate`) precisely so a vendor can later
-  grant it to Salesman from Roles & Access without also handing them anything else.
-- Company-loss reporting for phase 1 is the `ADJUSTMENT` transaction + the
-  `FORCE_DEACTIVATE` audit entry. No dedicated analytics/P&L "bad debt" tile yet.
+- Company-loss reporting is the `ADJUSTMENT` transactions + the `FORCE_DEACTIVATE`
+  audit entry (`changes.after.writtenOff` + `.bottlesWrittenOff`). No dedicated
+  analytics/P&L "bad debt" tile yet.
 
 ---
 
@@ -68,8 +80,9 @@ Decisions taken with the owner (2026-09-09):
 ### 2.1 Permission catalog
 
 `libs/shared/authz/src/lib/permissions.ts` — `customers` gains `force_deactivate`
-(after `deactivate`). `permission-groups.ts` label: *"Force deactivate (write off
-balance)"*. Frozen totals in `permissions.spec.ts`: `FROZEN_TOTAL` 170 → 171
+and (Rev 3) `force_deactivate_bottles`. `permission-groups.ts` labels: *"Force
+deactivate (write off balance)"* / *"Force deactivate (write off bottles)"*.
+`permissions.spec.ts` `FROZEN_TOTAL`: 170 → 171 (Rev 1) → **178 → 179 (Rev 3)**
 (`FROZEN_PAGES` / `FROZEN_RESOURCES` unchanged). Catalog doc updated
 (`docs/rbac-permission-catalog.md` §4 + Appendix B.2).
 
@@ -92,24 +105,37 @@ New signature:
 deactivate(vendorId: string, id: string, opts: { force?: boolean } = {}, actor?: AuthUser)
 ```
 
-- Bottle guard unchanged. Balance guard: `owed = Number(customer.financialBalance ?? 0)`.
-  - `owed > 0 && !opts.force` → `409 ConflictException` with a **structured body**:
-    ```json
-    { "code": "OUTSTANDING_BALANCE", "message": "...", "financialBalance": <owed>, "customerName": "..." }
-    ```
+- Load once: `outstandingWallets` (`select: balance, productId, product.name`) and
+  `owed`. `hasBottles = outstandingWallets.length > 0`, `hasBalance = owed > 0`.
+- `(hasBalance || hasBottles) && !opts.force` → `409 ConflictException` with a
+  **structured body carrying every blocker**:
+  ```json
+  {
+    "code": "DEACTIVATE_BLOCKED",
+    "message": "...",
+    "customerName": "...",
+    "financialBalance": <owed | 0>,
+    "outstandingBottles": [{ "product": "19L", "balance": 3 }]
+  }
+  ```
 - A `pendingWhere` (`customerId`, `status: PENDING`, `dailySheet: { isClosed: false }`)
-  is built once and used by both write paths below.
-  - **Force path** (`opts.force && owed > 0`):
-    - no `actor` → `403 ForbiddenException`; `permissions.can(actor.userId, 'customers:force_deactivate')` false → `403`.
-    - one `$transaction`: `dailySheetItem.updateMany(pendingWhere → CANCELLED)` (captures
-      `count`) → `transaction.create` `type: ADJUSTMENT` `amount: -owed` → `customer.update`
-      `financialBalance { increment: -owed }` → `customer.update` `isActive: false`.
-    - cache: `CUSTOMERS` + overview + analytics + wallets + (`invalidateDailyDashboard(vendorId)` iff `count > 0`).
-    - `audit.log` `action: 'FORCE_DEACTIVATE'`, `changes.after` carries `writtenOff` **and `cancelledDeliveries`**.
-  - **Normal path** (all guards pass): one `$transaction` — `dailySheetItem.updateMany(pendingWhere → CANCELLED)`
-    then `customer.update` `isActive: false`. cache `CUSTOMERS` + (`invalidateDailyDashboard` iff `count > 0`).
-    `audit.log` `action: 'DEACTIVATE'` with `changes.after.cancelledDeliveries`.
-- Both paths return `{ id, name, customerCode, isActive, cancelledDeliveries }`.
+  is built once.
+  - **Force path** (`opts.force && (hasBalance || hasBottles)`):
+    - no `actor` → `403`. `hasBalance` and NOT `can('customers:force_deactivate')` → `403`.
+      `hasBottles` and NOT `can('customers:force_deactivate_bottles')` → `403`. (Checked
+      per-blocker — a bottles-only customer needs only the bottles permission, etc.)
+    - one `$transaction`: `dailySheetItem.updateMany(pendingWhere → CANCELLED)` (captures `count`)
+      → if `hasBalance`: `ADJUSTMENT amount: -owed` + `financialBalance { increment: -owed }`
+      → for each outstanding wallet: `ADJUSTMENT { productId, bottleCount: -balance, amount: 0 }`
+        + `bottleWallet.update({ where: { customerId_productId }, data: { balance: { increment: -balance } } })`
+      → `customer.update isActive: false`.
+    - cache: `CUSTOMERS` + overview + analytics + wallets + (`invalidateDailyDashboard` iff `count > 0`).
+    - `audit.log` `FORCE_DEACTIVATE`; `changes.after` = `{ financialBalance, isActive, writtenOff, bottlesWrittenOff, cancelledDeliveries }`.
+    - returns `{ ...customer, cancelledDeliveries, writtenOff, bottlesWrittenOff }`.
+  - **Normal path** (no blocker, or `force` with nothing to write off): one `$transaction` —
+    `dailySheetItem.updateMany(pendingWhere → CANCELLED)` then `customer.update isActive: false`.
+    cache `CUSTOMERS` + (`invalidateDailyDashboard` iff `count > 0`). `audit.log` `DEACTIVATE`
+    with `changes.after.cancelledDeliveries`. Returns `{ ...customer, cancelledDeliveries }`.
 
 `PermissionService` (from the `@Global` `AuthzModule`) is injected into
 `CustomerService` — no module import needed.
@@ -124,8 +150,8 @@ Guard stays `@RequirePermissions('customers:deactivate')`; the finer
 ### 2.5 `bulkDeactivate()`
 
 - Skip checks: outstanding bottles and `financialBalance > 0` still send a customer
-  to `skipped` (balance reason: `"Outstanding balance ₨X — deactivate individually
-  to Force / write off"`). **No bulk `force`.**
+  to `skipped` (both reasons end `"— deactivate individually to Force / write off"`).
+  **No bulk `force`** — every write-off needs its own single-customer review.
 - The pending-delivery skip is **removed** — after the `customer.updateMany(isActive:false)`,
   a single `dailySheetItem.updateMany({ customerId: { in: toDeactivate }, status: PENDING,
   dailySheet: { isClosed: false } } → CANCELLED)` runs in the same `$transaction`.
@@ -136,39 +162,43 @@ Guard stays `@RequirePermissions('customers:deactivate')`; the finer
 
 ## 3. Frontend (`features/customers`)
 
-- `customers.api.ts` — `deactivate(id, force = false)` now sends `{ force }`.
+- `customers.api.ts` — `deactivate(id, force = false)` sends `{ force }`.
 - `use-customers.ts`:
-  - `useDeactivateCustomer` mutates `{ id, force? }`. Its `onError` **swallows** the
-    `OUTSTANDING_BALANCE` 409 (the caller turns it into the escalation flow) and
-    toasts every other error. Success toast is force-aware and appends
-    *"N pending deliveries cancelled"* when `res.data.cancelledDeliveries > 0`.
-  - `isOutstandingBalanceError(e)` helper — returns the typed 409 body or `null`.
-  - `BulkDeactivateResult` gains `cancelledDeliveries`; bulk toast appends the
-    cancelled-deliveries count and no longer lists "pending deliveries" as a skip reason.
+  - `useDeactivateCustomer` mutates `{ id, force? }`. `onError` **swallows** the
+    `DEACTIVATE_BLOCKED` 409 (the caller turns it into the escalation flow) and
+    toasts every other error. Success toast is force-aware: appends the written-off
+    amount(s) — `"₨X"` / `"N bottles"` / both — and `"N pending deliveries cancelled"`.
+  - `DeactivateBlockedError` interface + `isDeactivateBlockedError(e)` helper
+    (`{ code, message, customerName, financialBalance, outstandingBottles[] }`).
+  - `BulkDeactivateResult` gains `cancelledDeliveries`; bulk toast appends it.
 - `customer-list.tsx`:
-  - `canForceDeactivate = useCan('customers:force_deactivate')`.
-  - Normal "Deactivate" → confirm → `deactivateCustomer({ id })`. On
-    `OUTSTANDING_BALANCE`:
-    - `canForceDeactivate` → open the **Force Deactivate** `ConfirmDialog`
-      (`forceTarget` state), description spells out the ₨ amount and that it is an
-      irreversible company-loss write-off; confirm label
-      *"Force Deactivate & Write Off ₨X"* → `deactivateCustomer({ id, force: true })`.
-    - otherwise → `toast.error("<name> owes ₨X. Collect the payment before deactivating.")`.
-  - Both the single and bulk deactivate `ConfirmDialog` copy now says pending
-    deliveries on open sheets will be cancelled.
+  - `canForceDeactivate = useCan('customers:force_deactivate')`,
+    `canForceDeactivateBottles = useCan('customers:force_deactivate_bottles')`.
+  - Normal "Deactivate" → confirm → `deactivateCustomer({ id })`. On `DEACTIVATE_BLOCKED`:
+    - the user is "covered" iff they hold the force permission for **every** blocker
+      present (`financialBalance > 0 ⇒ canForceDeactivate`, `outstandingBottles.length ⇒ canForceDeactivateBottles`).
+    - covered → open the **Force Deactivate — Write Off** `ConfirmDialog` (`forceTarget`
+      = `{ id, name, balance, bottles[] }`); description lists the balance and/or bottles,
+      confirm label *"Force Deactivate & Write Off ₨X + N bottles"* → `deactivateCustomer({ id, force: true })`.
+    - not covered → `toast.error(blocked.message)`.
+  - Both single and bulk deactivate `ConfirmDialog` copy says pending deliveries on
+    open sheets will be cancelled.
 
 ---
 
 ## 4. Tests
 
-- `authz`: `permissions.spec.ts` (171), `enforcement-matrix.spec.ts` (salesman/manager/vendor_admin rows).
-- `api-backend`: `customer-deactivate.service.spec.ts` (8 cases) — 404; clean
-  deactivate (zero balance, inside a `$transaction`); PENDING→CANCELLED auto-cancel
-  + `cancelledDeliveries` count + `invalidateDailyDashboard`; no dashboard flush
-  when nothing cancelled; `OUTSTANDING_BALANCE` 409 body; force without permission
-  → 403; force with permission → auto-cancel + `ADJUSTMENT(-owed)` + balance 0 +
-  `isActive:false` + `FORCE_DEACTIVATE` audit (`writtenOff` + `cancelledDeliveries`);
-  force does **not** bypass the bottle guard (and does not run the cancel when it throws).
+- `authz`: `permissions.spec.ts` (`FROZEN_TOTAL` 179), `enforcement-matrix.spec.ts`
+  (`vendor_admin.allow` / `manager.deny` / `salesman.deny` gain `customers:force_deactivate_bottles`).
+- `api-backend`: `customer-deactivate.service.spec.ts` (10 cases) — 404; clean
+  deactivate inside a `$transaction`; PENDING→CANCELLED auto-cancel + count +
+  `invalidateDailyDashboard` (and not when nothing cancelled); `DEACTIVATE_BLOCKED`
+  409 carrying `financialBalance` + `outstandingBottles`; force with only the
+  balance perm 403s when bottles present, and vice-versa; force + `force_deactivate`
+  writes the balance ADJUSTMENT; force + both perms writes the balance ADJUSTMENT
+  **and** one `bottleCount: -balance` ADJUSTMENT per wallet + zeroes each wallet +
+  `bottlesWrittenOff` on the audit; force + `force_deactivate_bottles` only closes a
+  bottles-only customer without the balance perm.
 
 ---
 
@@ -179,3 +209,7 @@ Guard stays `@RequirePermissions('customers:deactivate')`; the finer
 - **2026-09-09 (Revision 2)** — Removed the pending-delivery guard. Deactivate (single
   + bulk) now auto-CANCELs the customer's PENDING stops on open sheets and returns
   `cancelledDeliveries`. Owner-requested.
+- **2026-09-11 (Revision 3)** — Force can now also write off outstanding bottles,
+  gated by a new, independent `customers:force_deactivate_bottles` permission
+  (VENDOR_ADMIN only). Merged the balance/bottle blockers into one `DEACTIVATE_BLOCKED`
+  409. Frozen total 178 → 179. Owner-requested.
