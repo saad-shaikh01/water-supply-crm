@@ -61,6 +61,10 @@ function makeTx(overrides: any = {}) {
   return {
     salaryStructure: {
       findMany: jest.fn().mockResolvedValue([salaryStructure]),
+      // Mid-period-structure-change guard (H1): no prior overlapping
+      // structure by default, so every existing MONTHLY/DAILY/WEEKLY test
+      // that doesn't care about this check passes through unaffected.
+      findFirst: jest.fn().mockResolvedValue(null),
     },
     payrollEntry: {
       findUnique: jest.fn().mockResolvedValue(null),
@@ -229,7 +233,7 @@ describe('PayrollEntryService', () => {
       const dailyStructure = { ...salaryStructure, payFrequency: PayFrequency.DAILY, baseAmount: 1000 };
       const { svc, tx } = makeService({
         txOverrides: {
-          salaryStructure: { findMany: jest.fn().mockResolvedValue([dailyStructure]) },
+          salaryStructure: { findMany: jest.fn().mockResolvedValue([dailyStructure]), findFirst: jest.fn().mockResolvedValue(null) },
           staffLedgerEntry: { findMany: jest.fn().mockResolvedValue([]) },
           staffAttendance: {
             groupBy: jest.fn().mockResolvedValue(
@@ -248,7 +252,7 @@ describe('PayrollEntryService', () => {
       const dailyStructure = { ...salaryStructure, payFrequency: PayFrequency.DAILY, baseAmount: 1000 };
       const { svc, tx } = makeService({
         txOverrides: {
-          salaryStructure: { findMany: jest.fn().mockResolvedValue([dailyStructure]) },
+          salaryStructure: { findMany: jest.fn().mockResolvedValue([dailyStructure]), findFirst: jest.fn().mockResolvedValue(null) },
           staffLedgerEntry: { findMany: jest.fn().mockResolvedValue([]) },
           staffAttendance: {
             groupBy: jest.fn().mockResolvedValue(
@@ -270,7 +274,7 @@ describe('PayrollEntryService', () => {
       const weeklyStructure = { ...salaryStructure, payFrequency: PayFrequency.WEEKLY, baseAmount: 5000 };
       const { svc, tx } = makeService({
         txOverrides: {
-          salaryStructure: { findMany: jest.fn().mockResolvedValue([weeklyStructure]) },
+          salaryStructure: { findMany: jest.fn().mockResolvedValue([weeklyStructure]), findFirst: jest.fn().mockResolvedValue(null) },
           staffLedgerEntry: { findMany: jest.fn().mockResolvedValue([]) },
           staffAttendance: {
             groupBy: jest.fn().mockResolvedValue(
@@ -290,7 +294,7 @@ describe('PayrollEntryService', () => {
       const dailyStructure = { ...salaryStructure, payFrequency: PayFrequency.DAILY, baseAmount: 1000 };
       const { svc, tx } = makeService({
         txOverrides: {
-          salaryStructure: { findMany: jest.fn().mockResolvedValue([dailyStructure]) },
+          salaryStructure: { findMany: jest.fn().mockResolvedValue([dailyStructure]), findFirst: jest.fn().mockResolvedValue(null) },
           staffLedgerEntry: { findMany: jest.fn().mockResolvedValue([]) },
           // No rows for this employee at all.
           staffAttendance: { groupBy: jest.fn().mockResolvedValue([]) },
@@ -308,7 +312,7 @@ describe('PayrollEntryService', () => {
       const dailyStructure = { ...salaryStructure, payFrequency: PayFrequency.DAILY, baseAmount: 1000 };
       const { svc, tx } = makeService({
         txOverrides: {
-          salaryStructure: { findMany: jest.fn().mockResolvedValue([dailyStructure]) },
+          salaryStructure: { findMany: jest.fn().mockResolvedValue([dailyStructure]), findFirst: jest.fn().mockResolvedValue(null) },
           staffLedgerEntry: { findMany: jest.fn().mockResolvedValue([]) },
           staffAttendance: {
             groupBy: jest.fn().mockResolvedValue(
@@ -352,7 +356,7 @@ describe('PayrollEntryService', () => {
       };
       const { svc, tx } = makeService({
         txOverrides: {
-          salaryStructure: { findMany: jest.fn().mockResolvedValue([dailyStructure]) },
+          salaryStructure: { findMany: jest.fn().mockResolvedValue([dailyStructure]), findFirst: jest.fn().mockResolvedValue(null) },
           staffLedgerEntry: { findMany: jest.fn().mockResolvedValue([]) },
           payrollEntry: {
             findUnique: jest.fn().mockResolvedValue(existingDraft),
@@ -371,6 +375,101 @@ describe('PayrollEntryService', () => {
       expect(result.regenerated).toEqual([EMPLOYEE_ID]);
       const updated = tx.payrollEntry.update.mock.calls[0][0].data;
       expect(updated.baseSalary).toBe(12000);
+    });
+  });
+
+  describe('generateDraft() — mid-period SalaryStructure change (merge-review finding H1)', () => {
+    it('flags a mid-period MONTHLY -> DAILY switch as a data error instead of applying the new rate to the whole period', async () => {
+      const dailyStructure = { ...salaryStructure, id: 'ss-002', payFrequency: PayFrequency.DAILY, baseAmount: 1000, effectiveFrom: new Date('2026-08-16') };
+      const { svc, tx } = makeService({
+        txOverrides: {
+          salaryStructure: {
+            findMany: jest.fn().mockResolvedValue([dailyStructure]),
+            // A prior MONTHLY row was still effective for the first half of August.
+            findFirst: jest.fn().mockResolvedValue({
+              id: 'ss-001', payFrequency: PayFrequency.MONTHLY, effectiveTo: new Date('2026-08-15'),
+            }),
+          },
+          staffLedgerEntry: { findMany: jest.fn().mockResolvedValue([]) },
+          staffAttendance: {
+            groupBy: jest.fn().mockResolvedValue(
+              [{ userId: EMPLOYEE_ID, status: AttendanceStatus.PRESENT, _count: { _all: 30 } }],
+            ),
+          },
+        },
+      });
+      const result = await svc.generateDraft(adminUser, PERIOD_ID);
+
+      expect(result.generated).toEqual([]);
+      expect(tx.payrollEntry.create).not.toHaveBeenCalled();
+      expect(result.skippedDataError).toHaveLength(1);
+      expect(result.skippedDataError[0].userId).toBe(EMPLOYEE_ID);
+      expect(result.skippedDataError[0].reason).toMatch(/mid-period/i);
+      expect(result.skippedDataError[0].reason).toMatch(/MONTHLY to DAILY/);
+    });
+
+    it('flags a mid-period DAILY-rate change the same way (non-MONTHLY -> non-MONTHLY)', async () => {
+      const newDailyStructure = { ...salaryStructure, id: 'ss-003', payFrequency: PayFrequency.DAILY, baseAmount: 1200, effectiveFrom: new Date('2026-08-16') };
+      const { svc, tx } = makeService({
+        txOverrides: {
+          salaryStructure: {
+            findMany: jest.fn().mockResolvedValue([newDailyStructure]),
+            findFirst: jest.fn().mockResolvedValue({
+              id: 'ss-002', payFrequency: PayFrequency.DAILY, effectiveTo: new Date('2026-08-15'),
+            }),
+          },
+        },
+      });
+      const result = await svc.generateDraft(adminUser, PERIOD_ID);
+      expect(tx.payrollEntry.create).not.toHaveBeenCalled();
+      expect(result.skippedDataError).toHaveLength(1);
+    });
+
+    it('does NOT flag a MONTHLY employee whose rate changed mid-period — MONTHLY keeps its existing, documented "whole period gets the new flat rate" behavior unchanged', async () => {
+      const raisedStructure = { ...salaryStructure, id: 'ss-002', payFrequency: PayFrequency.MONTHLY, baseAmount: 35000, effectiveFrom: new Date('2026-08-16') };
+      const { svc, tx } = makeService({
+        txOverrides: {
+          salaryStructure: {
+            findMany: jest.fn().mockResolvedValue([raisedStructure]),
+            // Guard is gated on payFrequency !== MONTHLY, so this should never
+            // even be consulted for a MONTHLY employee — but seed it as if a
+            // prior row existed anyway, to prove the MONTHLY path ignores it.
+            findFirst: jest.fn().mockResolvedValue({
+              id: 'ss-001', payFrequency: PayFrequency.MONTHLY, effectiveTo: new Date('2026-08-15'),
+            }),
+          },
+        },
+      });
+      const result = await svc.generateDraft(adminUser, PERIOD_ID);
+
+      expect(result.skippedDataError).toEqual([]);
+      expect(tx.payrollEntry.create).toHaveBeenCalledTimes(1);
+      const created = tx.payrollEntry.create.mock.calls[0][0].data;
+      expect(created.baseSalary).toBe(35000);
+    });
+
+    it('does not flag a DAILY employee whose structure covered the whole period cleanly (no prior overlap)', async () => {
+      const dailyStructure = { ...salaryStructure, payFrequency: PayFrequency.DAILY, baseAmount: 1000, effectiveFrom: new Date('2026-01-01') };
+      const { svc, tx } = makeService({
+        txOverrides: {
+          salaryStructure: {
+            findMany: jest.fn().mockResolvedValue([dailyStructure]),
+            findFirst: jest.fn().mockResolvedValue(null), // no prior overlapping row
+          },
+          staffLedgerEntry: { findMany: jest.fn().mockResolvedValue([]) },
+          staffAttendance: {
+            groupBy: jest.fn().mockResolvedValue(
+              [{ userId: EMPLOYEE_ID, status: AttendanceStatus.PRESENT, _count: { _all: 20 } }],
+            ),
+          },
+        },
+      });
+      const result = await svc.generateDraft(adminUser, PERIOD_ID);
+
+      expect(result.skippedDataError).toEqual([]);
+      expect(tx.payrollEntry.create).toHaveBeenCalledTimes(1);
+      const created = tx.payrollEntry.create.mock.calls[0][0].data;
+      expect(created.baseSalary).toBe(20000);
     });
   });
 

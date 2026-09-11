@@ -794,6 +794,52 @@ Work top to bottom. Do not start until this document is accepted.
     `nx build vendor-dashboard` green (route `/dashboard/payroll/attendance`
     prerendered); daily-sheet module 187 green (22 suites; the 1 pre-existing
     `daily-sheet-notifications.spec.ts` failure is unrelated).
+- **2026-09-12** — **Merge-review fixes.** An independent staff-engineer-style
+  review of Phases 1–3 (not trusting the implementation reports above) found
+  four issues worth fixing before Phase 4; all four are now fixed and tested,
+  additive only, MONTHLY still byte-identical.
+  - **H1 — mid-period `SalaryStructure`/frequency change miscalculated
+    DAILY/WEEKLY pay.** `generateDraft` selected the one structure effective
+    on `period.endDate` and applied its rate to the **whole period's**
+    attendance, even when a prior (different-rate or different-frequency)
+    structure had covered part of that same period. Fixed: for a non-MONTHLY
+    employee, if a prior `SalaryStructure` was still effective for any part
+    of the period before being superseded, the employee is now reported as
+    `skippedDataError` ("mid-period" reason) instead of a silently wrong
+    number — the same mechanism already used for overlapping-structure data
+    errors. MONTHLY is explicitly untouched (gated on `payFrequency !==
+    MONTHLY`) — its existing, deliberate "whole period gets the new flat
+    rate" behavior (Payroll Doc §5) is preserved exactly.
+  - **H2 — attendance reconciliation could silently corrupt an
+    already-LOCKED/SETTLED employee's wage basis.** `captureForConfirmedCrew`
+    could create, flip, or hard-delete a `StaffAttendance` row for a date
+    already frozen into a locked payroll entry, with no ledger entry and no
+    audit trail — `StaffAttendance` had no equivalent to
+    `StaffLedgerEntry.payrollEntryId`'s claim-protection. Fixed: a new
+    `isDateInLockedPeriod()` check now guards all three mutation paths
+    (create, reconcile-update, reconcile-delete) — a date already locked or
+    settled for that user is left untouched.
+  - **N1 — `markStatus` accepted a `userId` from any role in the vendor.**
+    No check restricted the target to a payroll-eligible role, so attendance
+    (and, for ABSENT/HALF_DAY, a real `LEAVE_UNPAID` ledger entry) could be
+    posted against a `CUSTOMER`/`VENDOR_ADMIN` account. Fixed: `markStatus`
+    now rejects a non-`PAYROLL_ELIGIBLE_ROLES` target with `BadRequestException`
+    (that const is now exported from `payroll-entry.service.ts` for reuse).
+  - **H4 — `DailySheetService.confirmCrew()` had zero test coverage.** New
+    `daily-sheet-confirm-crew.spec.ts` (5 tests) covers 404/409, the
+    first-confirm vs idempotent-re-confirm branching, `captureForConfirmedCrew`
+    being called with the exact sheet snapshot inside the same transaction on
+    **both** branches, `absentUserIds` threading, and audit-log-once.
+  - **Explicitly deferred** (per owner instruction — incremental, don't block
+    Phase 4): optimistic-lock/version CAS on `markStatus`'s update path;
+    pagination on `listByPeriod`/the attendance grid.
+  - Tests: `staff-attendance.service.spec.ts` 34/34, `payroll-entry.service.spec.ts`
+    30/30, `daily-sheet-confirm-crew.spec.ts` 5/5 (new). Full payroll module
+    288/293 (5 fails = the same pre-existing DB-unreachable cascade in
+    `payroll-integration.spec.ts`); full daily-sheet module 192/192 passing
+    (1 suite fails to compile — the same pre-existing, unrelated
+    `daily-sheet-notifications.spec.ts`). `authz` unchanged (no RBAC touched
+    this pass). `tsc`/`eslint` clean of new issues.
 - **2026-09-12** — **Phase 3 implemented (DAILY/WEEKLY wage types).** Additive
   only; MONTHLY payroll output byte-identical — every pre-existing MONTHLY
   assertion in `payroll-entry.service.spec.ts` passes unchanged (the shared

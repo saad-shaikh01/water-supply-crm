@@ -5,6 +5,7 @@ import {
   AttendanceStatus,
   CrewRole,
   DailySheetKind,
+  PayrollEntryStatus,
   Prisma,
   StaffLedgerCategory,
 } from '@prisma/client';
@@ -12,6 +13,7 @@ import type { AuthUser } from '@water-supply-crm/types';
 import { assertCanViewEmployeeAttendance } from '../../common/helpers/attendance-view-scope.util';
 import { PermissionService } from '../authz/permission.service';
 import { StaffLedgerService } from './staff-ledger.service';
+import { PAYROLL_ELIGIBLE_ROLES } from './payroll-entry.service';
 import { MarkAttendanceDto, UNPAID_ATTENDANCE_STATUSES } from './dto/mark-attendance.dto';
 
 /** Midnight UTC of the given day — the canonical bucket for a (userId, date) row. */
@@ -121,6 +123,13 @@ export class StaffAttendanceService {
       if (existing) {
         // Manual decisions and financially-bridged rows are untouchable here.
         if (existing.source === AttendanceSource.MANUAL || existing.leaveLedgerEntryId !== null) continue;
+        // Merge-review finding H2: never touch a day already frozen into a
+        // LOCKED/SETTLED PayrollEntry for this user — StaffAttendance has no
+        // ledger-style `payrollEntryId` claim to protect it the way
+        // StaffLedgerEntry does, so this check is the only thing standing
+        // between an unrelated crew-swap reconcile and silently changing what
+        // a future unlock+regenerate would compute for this employee.
+        if (await this.isDateInLockedPeriod(tx, vendorId, userId, day)) continue;
         // Reconcile an existing auto row: re-point it at this sheet (a swap moved
         // the crew) and/or flip PRESENT<->ABSENT to match the confirmation.
         if (existing.dailySheetId !== sheet.id || existing.status !== desiredStatus) {
@@ -136,6 +145,11 @@ export class StaffAttendanceService {
         }
         continue;
       }
+
+      // Same H2 guard for a brand-new row: a date already locked into this
+      // user's pay must not gain attendance it didn't have when it was
+      // computed, for the same reason it must not lose any.
+      if (await this.isDateInLockedPeriod(tx, vendorId, userId, day)) continue;
 
       try {
         await tx.staffAttendance.create({
@@ -165,15 +179,53 @@ export class StaffAttendanceService {
         leaveLedgerEntryId: null,
         userId: { notIn: rosterIds },
       },
-      select: { id: true },
+      select: { id: true, userId: true, date: true },
     });
     let reconciled = 0;
     if (staleRows.length > 0) {
-      const res = await tx.staffAttendance.deleteMany({ where: { id: { in: staleRows.map((r) => r.id) } } });
-      reconciled = res.count;
+      const deletableIds: string[] = [];
+      for (const row of staleRows) {
+        // H2 guard, third and last mutation path: don't delete a day already
+        // locked into this user's pay just because they left the roster.
+        if (await this.isDateInLockedPeriod(tx, vendorId, row.userId, row.date)) continue;
+        deletableIds.push(row.id);
+      }
+      if (deletableIds.length > 0) {
+        const res = await tx.staffAttendance.deleteMany({ where: { id: { in: deletableIds } } });
+        reconciled = res.count;
+      }
     }
 
     return { captured, reconciled };
+  }
+
+  /**
+   * True if `date` falls inside a PayrollPeriod for this vendor whose
+   * PayrollEntry for `userId` is already LOCKED or SETTLED — i.e. this day's
+   * contribution to that employee's pay has already been frozen into a
+   * PayrollSnapshot. `captureForConfirmedCrew` must never create, flip, or
+   * delete a StaffAttendance row for such a date (merge-review finding H2):
+   * doing so would silently change what a future unlock+regenerate computes,
+   * with no ledger entry and no audit trail to explain why (StaffAttendance
+   * deliberately has none — see the class doc comment).
+   */
+  private async isDateInLockedPeriod(
+    tx: Prisma.TransactionClient,
+    vendorId: string,
+    userId: string,
+    date: Date,
+  ): Promise<boolean> {
+    const period = await tx.payrollPeriod.findFirst({
+      where: { vendorId, startDate: { lte: date }, endDate: { gte: date } },
+      select: { id: true },
+    });
+    if (!period) return false;
+
+    const entry = await tx.payrollEntry.findUnique({
+      where: { periodId_userId: { periodId: period.id, userId } },
+      select: { status: true },
+    });
+    return entry?.status === PayrollEntryStatus.LOCKED || entry?.status === PayrollEntryStatus.SETTLED;
   }
 
   /**
@@ -199,9 +251,17 @@ export class StaffAttendanceService {
 
     const employee = await this.prisma.user.findFirst({
       where: { id: dto.userId, vendorId: user.vendorId },
-      select: { id: true },
+      select: { id: true, role: true },
     });
     if (!employee) throw new NotFoundException('Employee not found.');
+    // Merge-review finding N1: without this, attendance (and, for ABSENT/
+    // HALF_DAY, a real LEAVE_UNPAID ledger entry) could be posted against any
+    // account in the vendor — a CUSTOMER, a VENDOR_ADMIN — not just staff.
+    if (!PAYROLL_ELIGIBLE_ROLES.includes(employee.role)) {
+      throw new BadRequestException(
+        `Attendance can only be marked for payroll-eligible staff (${PAYROLL_ELIGIBLE_ROLES.join(', ')}).`,
+      );
+    }
 
     const day = startOfUtcDay(new Date(dto.date));
 

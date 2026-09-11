@@ -1,6 +1,14 @@
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { StaffAttendanceService } from './staff-attendance.service';
-import { AttendanceSource, AttendanceStatus, CrewRole, DailySheetKind, StaffLedgerCategory } from '@prisma/client';
+import {
+  AttendanceSource,
+  AttendanceStatus,
+  CrewRole,
+  DailySheetKind,
+  PayrollEntryStatus,
+  StaffLedgerCategory,
+  UserRole,
+} from '@prisma/client';
 
 // ─── fixtures ─────────────────────────────────────────────────────────────────
 
@@ -45,14 +53,31 @@ function makeTx(overrides: any = {}) {
       ]),
       ...(overrides.user ?? {}),
     },
+    // Merge-review finding H2 (isDateInLockedPeriod): no period covers this
+    // date by default, so the lock guard is a no-op for every existing test
+    // that doesn't care about it.
+    payrollPeriod: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      ...(overrides.payrollPeriod ?? {}),
+    },
+    payrollEntry: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      ...(overrides.payrollEntry ?? {}),
+    },
   };
 }
 
-function makeService(opts: { tx?: any; canViewAll?: boolean; employeeExists?: boolean } = {}) {
+function makeService(
+  opts: { tx?: any; canViewAll?: boolean; employeeExists?: boolean; employeeRole?: UserRole } = {},
+) {
   const tx = opts.tx ?? makeTx();
   const prisma = {
     $transaction: jest.fn().mockImplementation(async (cb: any) => cb(tx)),
-    user: { findFirst: jest.fn().mockResolvedValue(opts.employeeExists === false ? null : { id: DRIVER_ID }) },
+    user: {
+      findFirst: jest.fn().mockResolvedValue(
+        opts.employeeExists === false ? null : { id: DRIVER_ID, role: opts.employeeRole ?? UserRole.DRIVER },
+      ),
+    },
     payrollPeriod: { findFirst: jest.fn().mockResolvedValue({ id: 'period-001', startDate: DAY, endDate: DAY }) },
     dailySheet: { findFirst: jest.fn().mockResolvedValue({ id: SHEET_ID }) },
     staffAttendance: { findMany: jest.fn().mockResolvedValue([]) },
@@ -303,6 +328,89 @@ describe('StaffAttendanceService', () => {
         svc.captureForConfirmedCrew(tx as any, VENDOR_ID, routeSheet, managerUser.userId),
       ).resolves.toEqual(expect.objectContaining({ captured: 2 }));
     });
+
+    describe('locked-period protection (merge-review finding H2)', () => {
+      const lockedPeriod = { id: 'period-locked-001' };
+
+      it('does NOT create a new PRESENT row for a date already LOCKED into this user\'s pay', async () => {
+        const tx = makeTx({
+          payrollPeriod: { findFirst: jest.fn().mockResolvedValue(lockedPeriod) },
+          payrollEntry: { findUnique: jest.fn().mockResolvedValue({ status: PayrollEntryStatus.LOCKED }) },
+        });
+        const res = await svcCaptureWith(tx);
+
+        expect(tx.staffAttendance.create).not.toHaveBeenCalled();
+        expect(res.captured).toBe(0);
+      });
+
+      it('does NOT create a new row for a date already SETTLED', async () => {
+        const tx = makeTx({
+          payrollPeriod: { findFirst: jest.fn().mockResolvedValue(lockedPeriod) },
+          payrollEntry: { findUnique: jest.fn().mockResolvedValue({ status: PayrollEntryStatus.SETTLED }) },
+        });
+        const res = await svcCaptureWith(tx);
+
+        expect(tx.staffAttendance.create).not.toHaveBeenCalled();
+        expect(res.captured).toBe(0);
+      });
+
+      it('still captures normally when the covering period exists but is NOT locked (DRAFT/APPROVED)', async () => {
+        const tx = makeTx({
+          payrollPeriod: { findFirst: jest.fn().mockResolvedValue(lockedPeriod) },
+          payrollEntry: { findUnique: jest.fn().mockResolvedValue({ status: PayrollEntryStatus.APPROVED }) },
+        });
+        const res = await svcCaptureWith(tx);
+
+        expect(tx.staffAttendance.create).toHaveBeenCalledTimes(3);
+        expect(res.captured).toBe(3);
+      });
+
+      it('does NOT reconcile (re-point/flip) an EXISTING auto row for a date already LOCKED', async () => {
+        const tx = makeTx({
+          staffAttendance: {
+            findUnique: jest.fn().mockResolvedValue({
+              id: 'att-locked-existing',
+              status: AttendanceStatus.PRESENT,
+              source: AttendanceSource.CREW_CONFIRM,
+              leaveLedgerEntryId: null,
+              dailySheetId: 'a-different-sheet', // would normally trigger a re-point
+            }),
+            findMany: jest.fn().mockResolvedValue([]),
+            deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+            create: jest.fn(),
+            update: jest.fn(),
+          },
+          payrollPeriod: { findFirst: jest.fn().mockResolvedValue(lockedPeriod) },
+          payrollEntry: { findUnique: jest.fn().mockResolvedValue({ status: PayrollEntryStatus.LOCKED }) },
+        });
+        await svcCaptureWith(tx);
+
+        expect(tx.staffAttendance.update).not.toHaveBeenCalled();
+      });
+
+      it('does NOT hard-delete a stale reconcile row for a date already LOCKED, even though its user left the roster', async () => {
+        const tx = makeTx({
+          staffAttendance: {
+            findUnique: jest.fn().mockResolvedValue(null),
+            findMany: jest.fn().mockResolvedValue([{ id: 'stale-locked-1', userId: 'someone-else-002', date: SHEET_DATE }]),
+            deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+            create: jest.fn().mockResolvedValue({ id: 'x' }),
+            update: jest.fn(),
+          },
+          payrollPeriod: { findFirst: jest.fn().mockResolvedValue(lockedPeriod) },
+          payrollEntry: { findUnique: jest.fn().mockResolvedValue({ status: PayrollEntryStatus.LOCKED }) },
+        });
+        const res = await svcCaptureWith(tx);
+
+        expect(tx.staffAttendance.deleteMany).not.toHaveBeenCalled();
+        expect(res.reconciled).toBe(0);
+      });
+
+      function svcCaptureWith(tx: any) {
+        const { svc } = makeService({ tx });
+        return svc.captureForConfirmedCrew(tx as any, VENDOR_ID, routeSheet, managerUser.userId);
+      }
+    });
   });
 
   describe('markStatus()', () => {
@@ -408,6 +516,25 @@ describe('StaffAttendanceService', () => {
         svc.markStatus(managerUser, { userId: 'ghost', date: '2026-08-05', status: AttendanceStatus.PRESENT }),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
+
+    it('rejects marking attendance for a non-payroll-eligible role (merge-review finding N1)', async () => {
+      const { svc, tx, prisma } = makeService({ employeeRole: UserRole.CUSTOMER });
+      await expect(
+        svc.markStatus(managerUser, { userId: 'a-customer-001', date: '2026-08-05', status: AttendanceStatus.PRESENT }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(tx.staffAttendance.create).not.toHaveBeenCalled();
+    });
+
+    it.each([UserRole.STAFF, UserRole.DRIVER, UserRole.SALESMAN, UserRole.LOADER])(
+      'permits marking attendance for the eligible role %s',
+      async (role) => {
+        const { svc } = makeService({ employeeRole: role });
+        await expect(
+          svc.markStatus(managerUser, { userId: DRIVER_ID, date: '2026-08-05', status: AttendanceStatus.PRESENT }),
+        ).resolves.toBeDefined();
+      },
+    );
 
     it('rolls back — if the ledger createTx throws, the attendance row is never written', async () => {
       const tx = makeTx({

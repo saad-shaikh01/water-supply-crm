@@ -21,8 +21,12 @@ function versionMismatch(expected: number, received: number): ConflictException 
   return new ConflictException(`Version mismatch: expected ${expected}, received ${received}. Reload and retry.`);
 }
 
-/** Roles that receive a PayrollEntry when a period's draft is generated. */
-const PAYROLL_ELIGIBLE_ROLES: UserRole[] = [
+/**
+ * Roles that receive a PayrollEntry when a period's draft is generated.
+ * Exported so `StaffAttendanceService.markStatus` can reject attendance
+ * marked against a non-payroll-eligible account (merge-review finding N1).
+ */
+export const PAYROLL_ELIGIBLE_ROLES: UserRole[] = [
   UserRole.STAFF,
   UserRole.DRIVER,
   UserRole.SALESMAN,
@@ -186,6 +190,41 @@ export class PayrollEntryService {
               .slice(0, 10)} — data error, resolve before generating this employee's entry.`,
           });
           continue;
+        }
+
+        // Merge-review finding H1: a DAILY/WEEKLY employee's base is
+        // attendance-derived across the WHOLE period (see resolvePeriodBase /
+        // aggregateAttendance below) — it has no notion of "which structure
+        // was in force on which day". If a prior SalaryStructure version was
+        // still effective for any part of this period before being
+        // superseded by the current (non-MONTHLY) one, applying the current
+        // rate to the full period's attendance would silently misattribute
+        // pay for the days that were actually under the old rate/frequency.
+        // MONTHLY is untouched (it already applies one flat rate to the
+        // whole period by design — Payroll Doc §5 "simplest, most
+        // predictable rule", accepted and documented before this feature).
+        if (structures[0].payFrequency !== PayFrequency.MONTHLY) {
+          const priorStructure = await tx.salaryStructure.findFirst({
+            where: {
+              vendorId: user.vendorId,
+              userId: employee.id,
+              id: { not: structures[0].id },
+              effectiveTo: { gte: period.startDate },
+            },
+            select: { id: true, payFrequency: true, effectiveTo: true },
+          });
+          if (priorStructure) {
+            skippedDataError.push({
+              userId: employee.id,
+              name: employee.name,
+              reason:
+                `Salary structure changed mid-period (from ${priorStructure.payFrequency} to ` +
+                `${structures[0].payFrequency}, effective ${structures[0].effectiveFrom.toISOString().slice(0, 10)}) — ` +
+                'a DAILY/WEEKLY base cannot span a rate or frequency change within one period. ' +
+                'Resolve manually (e.g. settle via the prior period, or a manual ledger Adjustment) before generating this entry.',
+            });
+            continue;
+          }
         }
 
         const existingEntry = await tx.payrollEntry.findUnique({
