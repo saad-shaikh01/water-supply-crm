@@ -1,6 +1,14 @@
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PayrollEntryService } from './payroll-entry.service';
-import { LedgerEntryStatus, PayrollAuditAction, PayrollEntryStatus, PayrollPeriodStatus, StaffLedgerCategory } from '@prisma/client';
+import {
+  AttendanceStatus,
+  LedgerEntryStatus,
+  PayFrequency,
+  PayrollAuditAction,
+  PayrollEntryStatus,
+  PayrollPeriodStatus,
+  StaffLedgerCategory,
+} from '@prisma/client';
 
 // ─── fixtures ─────────────────────────────────────────────────────────────────
 
@@ -26,6 +34,9 @@ const salaryStructure = {
   vendorId: VENDOR_ID,
   userId: EMPLOYEE_ID,
   baseAmount: 30000,
+  // Every real SalaryStructure row always has this set (NOT NULL DEFAULT
+  // MONTHLY) — explicit here now that resolvePeriodBase() branches on it.
+  payFrequency: PayFrequency.MONTHLY,
   effectiveFrom: new Date('2026-01-01'),
   effectiveTo: null,
 };
@@ -74,6 +85,13 @@ function makeTx(overrides: any = {}) {
     },
     settlement: {
       aggregate: jest.fn().mockResolvedValue({ _sum: { amount: null } }),
+    },
+    // generateDraft() now aggregates attendance once per run regardless of any
+    // employee's frequency (§4 Phase 3) — every test needs this mock to exist,
+    // even MONTHLY-only ones. Empty by default: harmless, since a MONTHLY
+    // employee's resolvePeriodBase() never reads the resulting map.
+    staffAttendance: {
+      groupBy: jest.fn().mockResolvedValue([]),
     },
     ...overrides,
   };
@@ -176,6 +194,183 @@ describe('PayrollEntryService', () => {
       await svc.generateDraft(adminUser, PERIOD_ID);
       const created = tx.payrollEntry.create.mock.calls[0][0].data;
       expect(created.finalPayable).toBe(-4000);
+    });
+  });
+
+  describe('generateDraft() — DAILY / WEEKLY wage types (§4 Phase 3)', () => {
+    function groupByRows(rows: Array<{ userId: string; status: AttendanceStatus; count: number }>) {
+      return rows.map((r) => ({ userId: r.userId, status: r.status, _count: { _all: r.count } }));
+    }
+
+    it('MONTHLY stays byte-identical even when the aggregated attendance map has rows for this employee', async () => {
+      // The single most important regression guard: generateDraft() now always
+      // aggregates attendance once per run, but a MONTHLY employee's base must
+      // never read it — prove that even when attendance data EXISTS for them,
+      // baseSalary/finalPayable are the exact same numbers as the MONTHLY-only
+      // tests above.
+      const { svc, tx } = makeService({
+        txOverrides: {
+          staffAttendance: {
+            groupBy: jest.fn().mockResolvedValue(
+              groupByRows([{ userId: EMPLOYEE_ID, status: AttendanceStatus.PRESENT, count: 3 }]),
+            ),
+          },
+        },
+      });
+      const result = await svc.generateDraft(adminUser, PERIOD_ID);
+      expect(result.generated).toEqual([EMPLOYEE_ID]);
+      const created = tx.payrollEntry.create.mock.calls[0][0].data;
+      expect(created.baseSalary).toBe(30000);
+      // Same mixedLedgerEntries fixture as the very first test in this file.
+      expect(created.finalPayable).toBe(28400);
+    });
+
+    it('DAILY: base = dailyRate x attended PRESENT days', async () => {
+      const dailyStructure = { ...salaryStructure, payFrequency: PayFrequency.DAILY, baseAmount: 1000 };
+      const { svc, tx } = makeService({
+        txOverrides: {
+          salaryStructure: { findMany: jest.fn().mockResolvedValue([dailyStructure]) },
+          staffLedgerEntry: { findMany: jest.fn().mockResolvedValue([]) },
+          staffAttendance: {
+            groupBy: jest.fn().mockResolvedValue(
+              groupByRows([{ userId: EMPLOYEE_ID, status: AttendanceStatus.PRESENT, count: 20 }]),
+            ),
+          },
+        },
+      });
+      await svc.generateDraft(adminUser, PERIOD_ID);
+      const created = tx.payrollEntry.create.mock.calls[0][0].data;
+      expect(created.baseSalary).toBe(20000); // 1000 x 20
+      expect(created.finalPayable).toBe(20000);
+    });
+
+    it('DAILY: HALF_DAY rows contribute half a unit each, alongside full PRESENT days', async () => {
+      const dailyStructure = { ...salaryStructure, payFrequency: PayFrequency.DAILY, baseAmount: 1000 };
+      const { svc, tx } = makeService({
+        txOverrides: {
+          salaryStructure: { findMany: jest.fn().mockResolvedValue([dailyStructure]) },
+          staffLedgerEntry: { findMany: jest.fn().mockResolvedValue([]) },
+          staffAttendance: {
+            groupBy: jest.fn().mockResolvedValue(
+              groupByRows([
+                { userId: EMPLOYEE_ID, status: AttendanceStatus.PRESENT, count: 20 },
+                { userId: EMPLOYEE_ID, status: AttendanceStatus.HALF_DAY, count: 2 },
+              ]),
+            ),
+          },
+        },
+      });
+      await svc.generateDraft(adminUser, PERIOD_ID);
+      const created = tx.payrollEntry.create.mock.calls[0][0].data;
+      // (20 + 0.5*2) x 1000 = 21000
+      expect(created.baseSalary).toBe(21000);
+    });
+
+    it('WEEKLY: base = round((weeklyRate / 7) x attended units) — a fixed 7-day conversion, not a working-days policy divisor', async () => {
+      const weeklyStructure = { ...salaryStructure, payFrequency: PayFrequency.WEEKLY, baseAmount: 5000 };
+      const { svc, tx } = makeService({
+        txOverrides: {
+          salaryStructure: { findMany: jest.fn().mockResolvedValue([weeklyStructure]) },
+          staffLedgerEntry: { findMany: jest.fn().mockResolvedValue([]) },
+          staffAttendance: {
+            groupBy: jest.fn().mockResolvedValue(
+              groupByRows([{ userId: EMPLOYEE_ID, status: AttendanceStatus.PRESENT, count: 3 }]),
+            ),
+          },
+        },
+      });
+      await svc.generateDraft(adminUser, PERIOD_ID);
+      const created = tx.payrollEntry.create.mock.calls[0][0].data;
+      // 5000 / 7 = 714.2857... x 3 = 2142.857... -> rounds to 2143 (single
+      // rounding at the end, never per-day).
+      expect(created.baseSalary).toBe(2143);
+    });
+
+    it('DAILY employee with zero attendance rows gets baseSalary 0 — never defaulted to full pay', async () => {
+      const dailyStructure = { ...salaryStructure, payFrequency: PayFrequency.DAILY, baseAmount: 1000 };
+      const { svc, tx } = makeService({
+        txOverrides: {
+          salaryStructure: { findMany: jest.fn().mockResolvedValue([dailyStructure]) },
+          staffLedgerEntry: { findMany: jest.fn().mockResolvedValue([]) },
+          // No rows for this employee at all.
+          staffAttendance: { groupBy: jest.fn().mockResolvedValue([]) },
+        },
+      });
+      const result = await svc.generateDraft(adminUser, PERIOD_ID);
+      // Still generated — a missing attendance record is not the same as a
+      // missing SalaryStructure (that path is skippedMissingSalaryStructure).
+      expect(result.generated).toEqual([EMPLOYEE_ID]);
+      const created = tx.payrollEntry.create.mock.calls[0][0].data;
+      expect(created.baseSalary).toBe(0);
+    });
+
+    it('attendance rows belonging to a different employee never leak into this one\'s count', async () => {
+      const dailyStructure = { ...salaryStructure, payFrequency: PayFrequency.DAILY, baseAmount: 1000 };
+      const { svc, tx } = makeService({
+        txOverrides: {
+          salaryStructure: { findMany: jest.fn().mockResolvedValue([dailyStructure]) },
+          staffLedgerEntry: { findMany: jest.fn().mockResolvedValue([]) },
+          staffAttendance: {
+            groupBy: jest.fn().mockResolvedValue(
+              groupByRows([
+                { userId: EMPLOYEE_ID, status: AttendanceStatus.PRESENT, count: 5 },
+                { userId: 'someone-else-002', status: AttendanceStatus.PRESENT, count: 25 },
+              ]),
+            ),
+          },
+        },
+      });
+      await svc.generateDraft(adminUser, PERIOD_ID);
+      const created = tx.payrollEntry.create.mock.calls[0][0].data;
+      expect(created.baseSalary).toBe(5000); // 1000 x 5, not x30
+    });
+
+    it('aggregateAttendance queries only PRESENT/HALF_DAY rows for this vendor, dated within the period', async () => {
+      const { svc, tx } = makeService();
+      await svc.generateDraft(adminUser, PERIOD_ID);
+
+      expect(tx.staffAttendance.groupBy).toHaveBeenCalledTimes(1);
+      expect(tx.staffAttendance.groupBy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          by: ['userId', 'status'],
+          where: expect.objectContaining({
+            vendorId: VENDOR_ID,
+            date: { gte: openPeriod.startDate, lte: openPeriod.endDate },
+            status: { in: [AttendanceStatus.PRESENT, AttendanceStatus.HALF_DAY] },
+          }),
+        }),
+      );
+    });
+
+    it('regenerating a still-DRAFT DAILY entry re-derives base from current attendance (not the stale generate-time count)', async () => {
+      const dailyStructure = { ...salaryStructure, payFrequency: PayFrequency.DAILY, baseAmount: 1000 };
+      const existingDraft = {
+        id: 'entry-001',
+        status: PayrollEntryStatus.DRAFT,
+        baseSalary: 5000,
+        finalPayable: 5000,
+      };
+      const { svc, tx } = makeService({
+        txOverrides: {
+          salaryStructure: { findMany: jest.fn().mockResolvedValue([dailyStructure]) },
+          staffLedgerEntry: { findMany: jest.fn().mockResolvedValue([]) },
+          payrollEntry: {
+            findUnique: jest.fn().mockResolvedValue(existingDraft),
+            update: jest.fn().mockImplementation(async ({ where, data }: any) => ({ id: where.id, ...data })),
+            create: jest.fn(),
+          },
+          staffAttendance: {
+            // Attendance grew since the first generate (5 -> 12 present days).
+            groupBy: jest.fn().mockResolvedValue(
+              groupByRows([{ userId: EMPLOYEE_ID, status: AttendanceStatus.PRESENT, count: 12 }]),
+            ),
+          },
+        },
+      });
+      const result = await svc.generateDraft(adminUser, PERIOD_ID);
+      expect(result.regenerated).toEqual([EMPLOYEE_ID]);
+      const updated = tx.payrollEntry.update.mock.calls[0][0].data;
+      expect(updated.baseSalary).toBe(12000);
     });
   });
 

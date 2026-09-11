@@ -1,6 +1,15 @@
 import { randomUUID } from 'crypto';
 import { PrismaService } from '@water-supply-crm/database';
-import { LedgerEntryStatus, PayrollEntryStatus, PayrollPeriodStatus, StaffLedgerCategory, UserRole } from '@prisma/client';
+import {
+  AttendanceSource,
+  AttendanceStatus,
+  LedgerEntryStatus,
+  PayFrequency,
+  PayrollEntryStatus,
+  PayrollPeriodStatus,
+  StaffLedgerCategory,
+  UserRole,
+} from '@prisma/client';
 import type { AuthUser } from '@water-supply-crm/types';
 import { PayrollApprovalGateService } from './payroll-approval-gate.service';
 import { StaffLedgerService } from './staff-ledger.service';
@@ -128,6 +137,7 @@ interface CleanupClient {
   payrollEntry: { deleteMany: (args: unknown) => Promise<unknown> };
   payrollPeriod: { deleteMany: (args: unknown) => Promise<unknown> };
   salaryStructure: { deleteMany: (args: unknown) => Promise<unknown> };
+  staffAttendance: { deleteMany: (args: unknown) => Promise<unknown> };
   payrollVendorConfig: { deleteMany: (args: unknown) => Promise<unknown> };
   user: { deleteMany: (args: unknown) => Promise<unknown> };
   vendor: { delete: (args: unknown) => Promise<unknown> };
@@ -158,6 +168,7 @@ async function cleanupTestData(client: CleanupClient, targetVendorId: string | u
   await client.payrollEntry.deleteMany({ where: { vendorId: targetVendorId } });
   await client.payrollPeriod.deleteMany({ where: { vendorId: targetVendorId } });
   await client.salaryStructure.deleteMany({ where: { vendorId: targetVendorId } });
+  await client.staffAttendance.deleteMany({ where: { vendorId: targetVendorId } });
   await client.payrollVendorConfig.deleteMany({ where: { vendorId: targetVendorId } });
   await client.user.deleteMany({ where: { vendorId: targetVendorId } });
   await client.vendor.delete({ where: { id: targetVendorId } });
@@ -264,6 +275,7 @@ describe('cleanupTestData guard', () => {
       payrollEntry: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       payrollPeriod: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       salaryStructure: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      staffAttendance: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       payrollVendorConfig: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       user: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       vendor: { delete: jest.fn().mockResolvedValue({}) },
@@ -282,6 +294,7 @@ describe('cleanupTestData guard', () => {
     expect(client.payrollEntry.deleteMany).not.toHaveBeenCalled();
     expect(client.payrollPeriod.deleteMany).not.toHaveBeenCalled();
     expect(client.salaryStructure.deleteMany).not.toHaveBeenCalled();
+    expect(client.staffAttendance.deleteMany).not.toHaveBeenCalled();
     expect(client.payrollVendorConfig.deleteMany).not.toHaveBeenCalled();
     expect(client.user.deleteMany).not.toHaveBeenCalled();
     expect(client.vendor.delete).not.toHaveBeenCalled();
@@ -309,6 +322,7 @@ describe('cleanupTestData guard', () => {
     expect(client.payrollEntry.deleteMany).toHaveBeenCalledWith({ where: { vendorId: realVendorId } });
     expect(client.payrollPeriod.deleteMany).toHaveBeenCalledWith({ where: { vendorId: realVendorId } });
     expect(client.salaryStructure.deleteMany).toHaveBeenCalledWith({ where: { vendorId: realVendorId } });
+    expect(client.staffAttendance.deleteMany).toHaveBeenCalledWith({ where: { vendorId: realVendorId } });
     expect(client.payrollVendorConfig.deleteMany).toHaveBeenCalledWith({ where: { vendorId: realVendorId } });
     expect(client.user.deleteMany).toHaveBeenCalledWith({ where: { vendorId: realVendorId } });
     expect(client.vendor.delete).toHaveBeenCalledWith({ where: { id: realVendorId } });
@@ -550,4 +564,191 @@ it('runs the full ledger -> draft -> approve -> lock payroll pipeline with exact
   expect(ledgerRowsE2).toHaveLength(1);
   expect(ledgerRowsE2[0].status).toBe(LedgerEntryStatus.POSTED);
   expect(ledgerRowsE2[0].payrollEntryId).toBe(finalEntry2.id);
+});
+
+/**
+ * Staff Attendance & Wage Types — Phase 3 (docs/features/staff-attendance-and-wage-types.md
+ * §4). Fully isolated: its own vendor/admin/employees/period, cleaned up in its
+ * own `afterAll`, so it cannot affect (or be affected by) the MONTHLY-only
+ * assertions in the `it(...)` block above — adding a 3rd/4th payroll-eligible
+ * employee to the SHARED vendor would break `draft1.generated`'s exact-match
+ * assertion there, which is why this scenario gets a fully separate vendor.
+ */
+describe('DAILY / WEEKLY wage types — real-database integration (§4 Phase 3)', () => {
+  let vendorId2: string;
+  let adminUserId2: string;
+  let dailyWorkerId: string;
+  let weeklyWorkerId: string;
+  let adminAuthUser2: AuthUser;
+
+  // 20 full days + 2 half days for the DAILY worker, all inside August 2026.
+  const dailyPresentDates = [
+    '2026-08-04', '2026-08-05', '2026-08-06', '2026-08-07', '2026-08-08',
+    '2026-08-11', '2026-08-12', '2026-08-13', '2026-08-14', '2026-08-15',
+    '2026-08-18', '2026-08-19', '2026-08-20', '2026-08-21', '2026-08-22',
+    '2026-08-25', '2026-08-26', '2026-08-27', '2026-08-28', '2026-08-29',
+  ];
+  const dailyHalfDates = ['2026-08-30', '2026-08-31'];
+  // 3 present days for the WEEKLY worker.
+  const weeklyPresentDates = ['2026-08-03', '2026-08-10', '2026-08-17'];
+
+  beforeAll(async () => {
+    const vendor2 = await prisma.vendor.create({
+      data: { name: `Payroll Wage-Type ITest Vendor ${RUN_ID}`, slug: `payroll-wage-itest-${RUN_ID}` },
+    });
+    vendorId2 = vendor2.id;
+
+    const admin2 = await prisma.user.create({
+      data: {
+        vendorId: vendorId2,
+        role: UserRole.VENDOR_ADMIN,
+        name: `Wage ITest Admin ${RUN_ID}`,
+        email: `payroll-wage-itest-admin-${RUN_ID}@test.local`,
+      },
+    });
+    adminUserId2 = admin2.id;
+    adminAuthUser2 = {
+      userId: admin2.id,
+      email: admin2.email as string,
+      name: admin2.name,
+      role: 'VENDOR_ADMIN',
+      vendorId: vendorId2,
+      customerId: null,
+    };
+
+    const dailyWorker = await prisma.user.create({
+      data: {
+        vendorId: vendorId2,
+        role: UserRole.LOADER,
+        name: `Wage ITest Daily Loader ${RUN_ID}`,
+        email: `payroll-wage-itest-daily-${RUN_ID}@test.local`,
+      },
+    });
+    dailyWorkerId = dailyWorker.id;
+
+    const weeklyWorker = await prisma.user.create({
+      data: {
+        vendorId: vendorId2,
+        role: UserRole.LOADER,
+        name: `Wage ITest Weekly Loader ${RUN_ID}`,
+        email: `payroll-wage-itest-weekly-${RUN_ID}@test.local`,
+      },
+    });
+    weeklyWorkerId = weeklyWorker.id;
+
+    await prisma.salaryStructure.create({
+      data: {
+        vendorId: vendorId2,
+        userId: dailyWorkerId,
+        baseAmount: 1000, // daily rate
+        payFrequency: PayFrequency.DAILY,
+        effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
+        effectiveTo: null,
+        createdById: adminUserId2,
+      },
+    });
+    await prisma.salaryStructure.create({
+      data: {
+        vendorId: vendorId2,
+        userId: weeklyWorkerId,
+        baseAmount: 5000, // rate per 7-calendar-day week
+        payFrequency: PayFrequency.WEEKLY,
+        effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
+        effectiveTo: null,
+        createdById: adminUserId2,
+      },
+    });
+    await prisma.payrollVendorConfig.create({
+      data: { vendorId: vendorId2, cutoffDay: 1, autoLockEnabled: false, updatedById: adminUserId2 },
+    });
+
+    for (const d of dailyPresentDates) {
+      await prisma.staffAttendance.create({
+        data: {
+          vendorId: vendorId2,
+          userId: dailyWorkerId,
+          date: new Date(`${d}T00:00:00.000Z`),
+          status: AttendanceStatus.PRESENT,
+          source: AttendanceSource.MANUAL,
+          markedById: adminUserId2,
+        },
+      });
+    }
+    for (const d of dailyHalfDates) {
+      await prisma.staffAttendance.create({
+        data: {
+          vendorId: vendorId2,
+          userId: dailyWorkerId,
+          date: new Date(`${d}T00:00:00.000Z`),
+          status: AttendanceStatus.HALF_DAY,
+          source: AttendanceSource.MANUAL,
+          markedById: adminUserId2,
+        },
+      });
+    }
+    for (const d of weeklyPresentDates) {
+      await prisma.staffAttendance.create({
+        data: {
+          vendorId: vendorId2,
+          userId: weeklyWorkerId,
+          date: new Date(`${d}T00:00:00.000Z`),
+          status: AttendanceStatus.PRESENT,
+          source: AttendanceSource.MANUAL,
+          markedById: adminUserId2,
+        },
+      });
+    }
+  });
+
+  afterAll(async () => {
+    await cleanupTestData(prisma, vendorId2);
+  });
+
+  it('resolves DAILY/WEEKLY base salary from real StaffAttendance rows, and locks unchanged through the untouched lockPeriod path', async () => {
+    const period2 = await withFixedNow(() => payrollPeriodService.getOrCreateOpenPeriod(adminAuthUser2));
+    expect(period2.periodLabel).toBe('2026-08');
+
+    const draft = await payrollEntryService.generateDraft(adminAuthUser2, period2.id);
+    expect(draft.generated.sort()).toEqual([dailyWorkerId, weeklyWorkerId].sort());
+    expect(draft.skippedMissingSalaryStructure).toEqual([]);
+
+    const dailyEntry = await prisma.payrollEntry.findUniqueOrThrow({
+      where: { periodId_userId: { periodId: period2.id, userId: dailyWorkerId } },
+    });
+    // (20 PRESENT + 2 x 0.5 HALF_DAY) x 1000/day = 21000. No other ledger
+    // activity for this employee, so finalPayable equals baseSalary exactly.
+    expect(dailyEntry.baseSalary).toBe(21000);
+    expect(dailyEntry.finalPayable).toBe(21000);
+
+    const weeklyEntry = await prisma.payrollEntry.findUniqueOrThrow({
+      where: { periodId_userId: { periodId: period2.id, userId: weeklyWorkerId } },
+    });
+    // round((5000 / 7) x 3) = round(2142.857...) = 2143.
+    expect(weeklyEntry.baseSalary).toBe(2143);
+    expect(weeklyEntry.finalPayable).toBe(2143);
+
+    // Approve + lock proves the UNTOUCHED lockPeriod path (which passes the
+    // already-stored entry.baseSalary through to computeEntryBreakdown
+    // verbatim, never re-deriving from SalaryStructure) reproduces the exact
+    // same wage-type numbers end-to-end — the C1 resolution requires zero
+    // lockPeriod changes, and this proves it holds for DAILY/WEEKLY too.
+    await payrollEntryService.approveEntry(adminAuthUser2, dailyEntry.id, dailyEntry.version);
+    await payrollEntryService.approveEntry(adminAuthUser2, weeklyEntry.id, weeklyEntry.version);
+
+    const lock = await payrollPeriodService.lockPeriod(adminAuthUser2, period2.id);
+    expect(lock.lockedEntryCount).toBe(2);
+
+    const dailySnapshot = await prisma.payrollSnapshot.findFirst({
+      where: { payrollEntryId: dailyEntry.id },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(dailySnapshot?.breakdownJson).toMatchObject({ baseSalary: 21000, finalPayable: 21000 });
+    expect(dailySnapshot?.breakdownJson).not.toHaveProperty('approvedFinalPayable');
+
+    const weeklySnapshot = await prisma.payrollSnapshot.findFirst({
+      where: { payrollEntryId: weeklyEntry.id },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(weeklySnapshot?.breakdownJson).toMatchObject({ baseSalary: 2143, finalPayable: 2143 });
+  });
 });
