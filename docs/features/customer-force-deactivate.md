@@ -18,6 +18,15 @@ outstanding-bottle guard, gated by a NEW separate permission
 grant/revocable). The two blockers are merged into one `DEACTIVATE_BLOCKED` 409
 that lists every blocker at once. Frozen total 178 → 179.**
 
+**Revision 4 (2026-09-11, owner-requested): `bulkDeactivate()` now supports
+`force` too — it previously only ever skipped a blocked customer. `POST
+/customers/bulk-deactivate` takes `{ customerIds, force? }`; force is checked
+**per blocker per customer** using the same two permissions as the single flow,
+so a customer whose blocker the caller isn't permitted to force still lands in
+`skipped` (reason names the missing permission) while the rest of the batch
+still goes through. No new permission — reuses `customers:force_deactivate` /
+`customers:force_deactivate_bottles`.**
+
 This document is the single source of truth for the feature. Architectural changes
 require an explicit revision approved by the project owner and a Change Log entry.
 
@@ -68,10 +77,14 @@ Decisions taken with the owner:
   `customers:force_deactivate_bottles` — so a vendor can allow a balance write-off
   and still require bottles to be physically recovered (or the reverse).
 - Removing the pending-delivery guard + auto-cancel applies to **both** the single
-  `deactivate()` and `bulkDeactivate()` (no bulk `force`, but bulk does auto-cancel).
-- Company-loss reporting is the `ADJUSTMENT` transactions + the `FORCE_DEACTIVATE`
-  audit entry (`changes.after.writtenOff` + `.bottlesWrittenOff`). No dedicated
-  analytics/P&L "bad debt" tile yet.
+  `deactivate()` and `bulkDeactivate()`.
+- **Rev 4 (2026-09-11):** `bulkDeactivate()` also gained `force` — the initial Rev 1
+  "no bulk force, single-customer review only" call was reversed after the owner
+  found always having to drop to single-customer deactivate too slow for cleaning
+  up a batch of old accounts. Same per-blocker permission gate as the single flow.
+- Company-loss reporting is the `ADJUSTMENT` transactions + the `FORCE_DEACTIVATE` /
+  `BULK_FORCE_DEACTIVATE` audit entry (`changes.after.writtenOff` + `.bottlesWrittenOff`).
+  No dedicated analytics/P&L "bad debt" tile yet.
 
 ---
 
@@ -147,16 +160,33 @@ Guard stays `@RequirePermissions('customers:deactivate')`; the finer
 `force_deactivate` check is inside the service so one endpoint serves both paths.
 `@CurrentUser()` is forwarded as `actor`.
 
-### 2.5 `bulkDeactivate()`
+### 2.5 `bulkDeactivate()` (Rev 4 signature)
 
-- Skip checks: outstanding bottles and `financialBalance > 0` still send a customer
-  to `skipped` (both reasons end `"— deactivate individually to Force / write off"`).
-  **No bulk `force`** — every write-off needs its own single-customer review.
-- The pending-delivery skip is **removed** — after the `customer.updateMany(isActive:false)`,
-  a single `dailySheetItem.updateMany({ customerId: { in: toDeactivate }, status: PENDING,
-  dailySheet: { isClosed: false } } → CANCELLED)` runs in the same `$transaction`.
-- Returns `cancelledDeliveries` (batch total); `BULK_DEACTIVATE` audit `changes.after`
-  carries it; `invalidateDailyDashboard(vendorId)` iff `> 0`.
+```ts
+bulkDeactivate(vendorId: string, dto: BulkDeactivateDto /* { customerIds, force? } */, actor?: AuthUser)
+```
+
+- The pending-delivery skip is removed (Rev 2) — a single `dailySheetItem.updateMany`
+  (all ids in the batch → `CANCELLED`) runs inside the batch `$transaction` regardless
+  of force.
+- Per customer: load `outstandingWallets` + `owed` same as the single flow.
+  - No blocker → `toDeactivate` (plain `customer.updateMany(isActive:false)`).
+  - Blocker(s) present:
+    - `!force`, or `force` but missing the permission for a present blocker → `skipped`
+      (reason names the missing permission when `force` was set, e.g. `"Outstanding
+      bottles (19L: 3) (missing customers:force_deactivate_bottles)"`).
+    - `force` **and** covered for every present blocker → `toForceDeactivate`, processed
+      per-customer inside the same `$transaction` exactly like the single force path
+      (balance `ADJUSTMENT` + per-wallet `ADJUSTMENT`/zero), still ending in
+      `customer.update(isActive:false)`.
+  - `canForceBalance`/`canForceBottles` are resolved **once** up front (not per customer)
+    — same actor, same permissions for the whole batch. `force && !actor` → `403`.
+- Returns `{ requestedCount, deactivatedCount, forceDeactivatedCount, writtenOff,
+  bottlesWrittenOff, cancelledDeliveries, skippedCount, skipped }`.
+- Cache: `CUSTOMERS` always; `invalidateDailyDashboard` iff any pending cancelled;
+  overview + analytics + per-customer wallets iff any force write-off happened.
+- Audit: `BULK_FORCE_DEACTIVATE` when `forceDeactivatedCount > 0`, else `BULK_DEACTIVATE`
+  (mirrors the single flow's `FORCE_DEACTIVATE` vs `DEACTIVATE` split).
 
 ---
 
@@ -170,7 +200,10 @@ Guard stays `@RequirePermissions('customers:deactivate')`; the finer
     amount(s) — `"₨X"` / `"N bottles"` / both — and `"N pending deliveries cancelled"`.
   - `DeactivateBlockedError` interface + `isDeactivateBlockedError(e)` helper
     (`{ code, message, customerName, financialBalance, outstandingBottles[] }`).
-  - `BulkDeactivateResult` gains `cancelledDeliveries`; bulk toast appends it.
+  - `customers.api.ts` — `bulkDeactivate(customerIds, force = false)` sends `{ customerIds, force }`.
+  - `BulkDeactivateResult` gains `forceDeactivatedCount`, `writtenOff`, `bottlesWrittenOff`
+    (on top of `cancelledDeliveries`); `useBulkDeactivateCustomers` mutates
+    `{ customerIds, force? }` and its toast appends the write-off total(s) when present.
 - `customer-list.tsx`:
   - `canForceDeactivate = useCan('customers:force_deactivate')`,
     `canForceDeactivateBottles = useCan('customers:force_deactivate_bottles')`.
@@ -181,6 +214,12 @@ Guard stays `@RequirePermissions('customers:deactivate')`; the finer
       = `{ id, name, balance, bottles[] }`); description lists the balance and/or bottles,
       confirm label *"Force Deactivate & Write Off ₨X + N bottles"* → `deactivateCustomer({ id, force: true })`.
     - not covered → `toast.error(blocked.message)`.
+  - **Bulk (Rev 4):** "Deactivate Selected" → `bulkDeactivate({ customerIds }, { force: false })`.
+    If `result.skippedCount > 0` and the user holds at least one force permission, a
+    second `ConfirmDialog` ("Force Deactivate — Write Off Remaining", `bulkForceTarget`
+    state) auto-opens listing the skipped customers; confirming re-calls `bulkDeactivate`
+    with `{ customerIds: skippedIds, force: true }` — anyone still missing a permission
+    for their specific blocker lands in `skipped` again (visible in the next toast).
   - Both single and bulk deactivate `ConfirmDialog` copy says pending deliveries on
     open sheets will be cancelled.
 
@@ -199,6 +238,14 @@ Guard stays `@RequirePermissions('customers:deactivate')`; the finer
   **and** one `bottleCount: -balance` ADJUSTMENT per wallet + zeroes each wallet +
   `bottlesWrittenOff` on the audit; force + `force_deactivate_bottles` only closes a
   bottles-only customer without the balance perm.
+- `api-backend`: `customer-bulk-deactivate.service.spec.ts` (6 cases, new — Rev 4) —
+  404 on no matching customers; without force, balance/bottle customers skip and the
+  clean one deactivates + cancels its pending stops; `force: true` without an actor
+  → 403; force with only the balance permission writes off the balance customer and
+  still skips the bottles one (reason names the missing permission); force with both
+  permissions writes off balance **and** bottles across the batch and audits
+  `BULK_FORCE_DEACTIVATE`; pending stops are cancelled in one pass covering both the
+  plain-deactivated and force-deactivated ids.
 
 ---
 
@@ -212,4 +259,10 @@ Guard stays `@RequirePermissions('customers:deactivate')`; the finer
 - **2026-09-11 (Revision 3)** — Force can now also write off outstanding bottles,
   gated by a new, independent `customers:force_deactivate_bottles` permission
   (VENDOR_ADMIN only). Merged the balance/bottle blockers into one `DEACTIVATE_BLOCKED`
-  409. Frozen total 178 → 179. Owner-requested.
+  409. Frozen total 178 → 179.
+- **2026-09-11 (Revision 4)** — `bulkDeactivate()` now accepts `force` too (previously
+  bulk only ever skipped a blocked customer). Per-blocker permission gate, same as
+  the single flow; reuses the existing two force permissions — no new permission,
+  no frozen-total change. Frontend: a "Force Deactivate — Write Off Remaining" dialog
+  auto-opens after a normal bulk deactivate leaves skipped customers, when the user
+  holds a force permission.

@@ -4200,6 +4200,27 @@ export class DailySheetService implements OnModuleInit {
     return buildReconciliationPure(sheet);
   }
 
+  /**
+   * WALK_IN sheets have no van load-out/load-in at all —
+   * `filledOutCount`/`filledInCount`/`emptyInCount` stay 0 forever
+   * (docs/features/walk-in-delivery.md §3, no trip/load infrastructure) — so
+   * `buildReconciliation`'s BOTTLE/EMPTY discrepancy figures aren't a real
+   * discrepancy for one, they're just "however many bottles were sold today"
+   * reflected back with the wrong sign. Creating a Sheet Discrepancy Case
+   * from that on every single close would be noise, not a finding. Used ONLY
+   * for the discrepancy-case call at close time — the real `reconciliation`
+   * object (cashExpected, audit log) is untouched; the CASH discrepancy type
+   * still applies (a genuine counter-cash reconciliation, same as ROUTE).
+   */
+  private static discrepancyInputFor(kind: DailySheetKind, reconciliation: ReturnType<typeof buildReconciliationPure>) {
+    if (kind !== DailySheetKind.WALK_IN) return reconciliation;
+    return {
+      ...reconciliation,
+      bottles: { ...reconciliation.bottles, discrepancy: 0 },
+      empties: { ...reconciliation.empties, discrepancy: 0 },
+    };
+  }
+
   // Fetch sheet with pricing data needed for reconciliation
   private async fetchSheetForReconciliation(vendorId: string, sheetId: string) {
     return this.prisma.dailySheet.findFirst({
@@ -4267,7 +4288,13 @@ export class DailySheetService implements OnModuleInit {
       );
     }
 
-    await this.vehicleCheck.assertTripEndClear(vendorId, sheetId);
+    // WALK_IN sheets have no van/trip/vehicle-check infrastructure at all
+    // (docs/features/walk-in-delivery.md §3-4) — the end-of-day vehicle
+    // check this gate requires is never recorded for one, so it would
+    // otherwise be permanently unclosable.
+    if ((sheet as unknown as { kind: DailySheetKind }).kind !== DailySheetKind.WALK_IN) {
+      await this.vehicleCheck.assertTripEndClear(vendorId, sheetId);
+    }
 
     return sheet;
   }
@@ -4303,8 +4330,9 @@ export class DailySheetService implements OnModuleInit {
 
       const sync = await this.crewCashDistribution.syncSheetToLedger(tx, vendorId, sheetId, actorId, actorRole);
 
-      // Van Cash Ledger (owner-requested 2026-09-09): the cash this sheet
-      // collected becomes a pending (or, for a WALK_IN sheet, auto-approved)
+      // Van Cash Ledger (owner-requested 2026-09-09; ROUTE + WALK_IN treated
+      // identically since 2026-09-11 — the client denied auto-approving
+      // WALK_IN handovers): the cash this sheet collected becomes a PENDING
       // handover in the same transaction as the crew-cash sync above — a
       // sheet can never end up closed with its cash handover only partially
       // created.
@@ -4314,7 +4342,7 @@ export class DailySheetService implements OnModuleInit {
         tx,
         vendorId,
         { id: sheetId, driverId: sheet.driverId },
-        reconciliation,
+        DailySheetService.discrepancyInputFor((sheet as unknown as { kind: DailySheetKind }).kind, reconciliation),
         actorId,
         actorRole,
       );
@@ -4442,7 +4470,7 @@ export class DailySheetService implements OnModuleInit {
         tx,
         vendorId,
         { id: sheetId, driverId: sheet.driverId },
-        reconciliation,
+        DailySheetService.discrepancyInputFor((sheet as unknown as { kind: DailySheetKind }).kind, reconciliation),
         actorId,
         actorRole,
       );

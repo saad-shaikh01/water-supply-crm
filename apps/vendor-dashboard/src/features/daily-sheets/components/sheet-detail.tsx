@@ -1148,24 +1148,22 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             </CardContent>
           </Card>
         )}
-        {!isWalkIn && (
-          <Card className="bg-card/50 backdrop-blur-sm">
-            <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
-              <div className="h-10 w-10 rounded-xl bg-destructive/10 flex items-center justify-center text-destructive shrink-0">
-                <Receipt className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] font-bold uppercase text-muted-foreground" title="All recorded expenses (fuel included) plus cash handed to crew — the full cash-out figure for this sheet">Trip Expenses</p>
-                <p className="text-sm font-black text-destructive truncate">
-                  ₨ {(
-                    (data?.expenses ?? []).reduce((s, e) => s + e.amount, 0) +
-                    (data?.crewCashDistributions ?? []).reduce((s, c) => s + c.amount, 0)
-                  ).toLocaleString()}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+        <Card className="bg-card/50 backdrop-blur-sm">
+          <CardContent className="p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
+            <div className="h-10 w-10 rounded-xl bg-destructive/10 flex items-center justify-center text-destructive shrink-0">
+              <Receipt className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase text-muted-foreground" title="All recorded expenses (fuel included) plus cash handed to crew — the full cash-out figure for this sheet">{isWalkIn ? 'Expenses' : 'Trip Expenses'}</p>
+              <p className="text-sm font-black text-destructive truncate">
+                ₨ {(
+                  (data?.expenses ?? []).reduce((s, e) => s + e.amount, 0) +
+                  (data?.crewCashDistributions ?? []).reduce((s, c) => s + c.amount, 0)
+                ).toLocaleString()}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Walk-in / Self-Pickup sheets have no van/trip — Load Trips, sheet-level
@@ -1285,6 +1283,70 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
                 onAddDelivery={() => dispatch({ type: isClosed ? 'OPEN_CORRECTION' : 'OPEN_ADHOC' })}
                 onReportDamage={() => dispatch({ type: 'OPEN_DAMAGE' })}
               />
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Walk-in / Self-Pickup sheets skip Load Trips + Crew Cash (no van/
+          trip/crew exists for one) but still get Expenses and a proper
+          Close Sheet action (owner-requested 2026-09-11 — client denied
+          auto-approving walk-in cash, so it now closes through the exact
+          same close→PENDING-handover→approve flow a ROUTE sheet uses; see
+          docs/features/walk-in-delivery.md's 2026-09-11 Change Log entry). */}
+      {isWalkIn && (
+        <>
+          <SheetCashOutSection
+            sheetId={sheetId}
+            date={data!.date}
+            expenses={data?.expenses ?? []}
+            crewMembers={crewCashEmployees}
+            isClosed={isClosed}
+            canDeleteExpense={canDeleteExpense}
+            canUpdateExpense={canUpdateExpense}
+            canCorrectClosedExpense={canCorrectClosedExpense}
+            currentUserId={user?.id}
+            canEditAllCrewCash={canEditAllCrewCash}
+            canDeleteAllCrewCash={canDeleteAllCrewCash}
+            canCorrectClosedCrewCash={canCorrectClosedExpense}
+          />
+
+          {/* Full-parity Add/Record row (owner-requested 2026-09-11) — same
+              Fuel Fill / Expense / Crew Cash / Damage actions a ROUTE sheet
+              gets. "Missed / Ad-hoc Delivery" stays excluded: the header's
+              own "Record Delivery" quick-action already covers that for a
+              WALK_IN sheet (see docs/features/walk-in-delivery.md). */}
+          {(
+            (!isClosed && (canCloseSheet || canRequestClose)) ||
+            (canRecordFuel && !isClosed) ||
+            (canCreateExpense && !isClosed) ||
+            (canCorrectClosedExpense && isClosed) ||
+            (canCreateCrewCash && !isClosed) ||
+            canReportDamage
+          ) && (
+            <div className="flex justify-end gap-2">
+              <AddRecordMenu
+                canLogFuel={canRecordFuel && !isClosed}
+                canAddExpense={(canCreateExpense && !isClosed) || (canCorrectClosedExpense && isClosed)}
+                canAddCrewCash={canCreateCrewCash && !isClosed}
+                canAddDelivery={false}
+                isClosed={isClosed}
+                canReportDamage={canReportDamage}
+                onLogFuel={() => dispatch({ type: 'OPEN_FUEL_LOG' })}
+                onAddExpense={() => dispatch({ type: isClosed ? 'OPEN_CLOSED_EXPENSE' : 'OPEN_EXPENSE' })}
+                onAddCrewCash={() => dispatch({ type: 'OPEN_CREW_CASH' })}
+                onAddDelivery={() => {}}
+                onReportDamage={() => dispatch({ type: 'OPEN_DAMAGE' })}
+              />
+              {!isClosed && (canCloseSheet || canRequestClose) && (
+                <Button
+                  size="sm"
+                  className="rounded-full font-bold"
+                  onClick={() => dispatch({ type: 'OPEN_RECONCILE' })}
+                >
+                  Close Sheet
+                </Button>
+              )}
             </div>
           )}
         </>

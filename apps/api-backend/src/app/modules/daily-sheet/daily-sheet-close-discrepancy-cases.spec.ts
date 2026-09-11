@@ -19,7 +19,7 @@ import { StorageService } from '../../common/storage/storage.service';
 import { WarehouseService } from '../warehouse/warehouse.service';
 import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.service';
 import { QUEUE_NAMES } from '@water-supply-crm/queue';
-import { UserRole } from '@prisma/client';
+import { DailySheetKind, DeliveryStatus, PaymentType, UserRole } from '@prisma/client';
 
 /**
  * Unit tests: `DailySheetService.closeSheet()`'s composition with
@@ -36,6 +36,7 @@ describe('DailySheetService.closeSheet — Discrepancy Case creation', () => {
   let mockCache: any;
   let mockCrewCash: any;
   let mockDiscrepancyCases: any;
+  let mockVehicleCheck: any;
   let tx: any;
 
   const VENDOR_ID = 'vendor-001';
@@ -74,6 +75,13 @@ describe('DailySheetService.closeSheet — Discrepancy Case creation', () => {
     };
     mockCrewCash = { syncSheetToLedger: jest.fn().mockResolvedValue({ synced: 0, skippedPendingApproval: 0 }) };
     mockDiscrepancyCases = { createCasesForSheet: jest.fn().mockResolvedValue({ createdCount: 0, types: [] }) };
+    mockVehicleCheck = {
+      assertTripStartClear: jest.fn().mockResolvedValue(undefined),
+      // Soft Close (Amendment R9): closeSheet's assertSheetCloseable now
+      // also requires an END check before closing, same tier as the
+      // START check gate on trip start.
+      assertTripEndClear: jest.fn().mockResolvedValue(undefined),
+    };
 
     tx = {
       dailySheet: {
@@ -104,16 +112,7 @@ describe('DailySheetService.closeSheet — Discrepancy Case creation', () => {
         { provide: StorageService, useValue: {} },
         { provide: WarehouseService, useValue: {} },
         { provide: DeliveryReceiptPdfService, useValue: {} },
-        {
-          provide: VehicleCheckService,
-          useValue: {
-            assertTripStartClear: jest.fn().mockResolvedValue(undefined),
-            // Soft Close (Amendment R9): closeSheet's assertSheetCloseable now
-            // also requires an END check before closing, same tier as the
-            // START check gate on trip start.
-            assertTripEndClear: jest.fn().mockResolvedValue(undefined),
-          },
-        },
+        { provide: VehicleCheckService, useValue: mockVehicleCheck },
         { provide: SheetDiscrepancyCaseService, useValue: mockDiscrepancyCases },
         {
           provide: VanCashLedgerService,
@@ -188,5 +187,57 @@ describe('DailySheetService.closeSheet — Discrepancy Case creation', () => {
     const result = await service.closeSheet(VENDOR_ID, SHEET_ID, ACTOR_ID, ACTOR_ROLE, ACTUAL_CASH_HANDED_IN);
 
     expect(result.discrepancyCasesCreated).toBe(0);
+  });
+
+  // ── WALK_IN close (2026-09-11): the client asked for walk-in sheets to
+  // close properly through this exact same flow — two things must differ. ──
+  describe('WALK_IN sheet', () => {
+    it('closes WITHOUT requiring an end-of-day vehicle check (no van/trip infrastructure exists for one)', async () => {
+      mockPrisma.dailySheet.findFirst.mockResolvedValue(buildOpenSheet({ kind: DailySheetKind.WALK_IN }));
+
+      await service.closeSheet(VENDOR_ID, SHEET_ID, ACTOR_ID, ACTOR_ROLE, ACTUAL_CASH_HANDED_IN);
+
+      expect(mockVehicleCheck.assertTripEndClear).not.toHaveBeenCalled();
+    });
+
+    it('suppresses BOTTLE/EMPTY discrepancy-case creation (filledOutCount/filledInCount are structurally always 0 for a walk-in day) but still passes the real CASH figures through', async () => {
+      // filledDropped=3, emptyReceived=2, cashCollected=300 fully matching the
+      // billed amount — a clean, ordinary walk-in day. Without suppression
+      // this would spuriously report BOTTLE -3 / EMPTY +2 on every close.
+      mockPrisma.dailySheet.findFirst.mockResolvedValue(
+        buildOpenSheet({
+          kind: DailySheetKind.WALK_IN,
+          cashCollected: 300,
+          items: [
+            {
+              status: DeliveryStatus.COMPLETED,
+              filledDropped: 3,
+              filledReceived: 0,
+              emptyReceived: 2,
+              cashCollected: 300,
+              pricePerBottle: 100,
+              productId: 'p1',
+              customer: { paymentType: PaymentType.CASH, customPrices: [] },
+              product: { basePrice: 100 },
+            },
+          ],
+        }),
+      );
+
+      await service.closeSheet(VENDOR_ID, SHEET_ID, ACTOR_ID, ACTOR_ROLE, 300);
+
+      expect(mockDiscrepancyCases.createCasesForSheet).toHaveBeenCalledWith(
+        tx,
+        VENDOR_ID,
+        { id: SHEET_ID, driverId: DRIVER_ID },
+        expect.objectContaining({
+          bottles: expect.objectContaining({ discrepancy: 0 }),
+          empties: expect.objectContaining({ discrepancy: 0 }),
+          driver: expect.objectContaining({ discrepancy: 0 }),
+        }),
+        ACTOR_ID,
+        ACTOR_ROLE,
+      );
+    });
   });
 });

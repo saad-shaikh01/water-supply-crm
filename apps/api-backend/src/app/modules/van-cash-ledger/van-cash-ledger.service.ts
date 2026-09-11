@@ -1,7 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import {
-  DailySheetKind,
   DiscrepancyCaseStatus,
   DiscrepancyType,
   LedgerEntryStatus,
@@ -203,9 +202,11 @@ export class VanCashLedgerService {
    * (which itself delegates to `buildReconciliation` for a freshly-closed,
    * unmodified sheet — see sheet-cash.util.ts). Skips creating anything when
    * that figure is 0 (no meaningful cash event — e.g. an all-monthly route
-   * with nothing collected). WALK_IN sheets post their handover already
-   * APPROVED (no office review needed for a synthetic self-pickup sheet with
-   * no real driver custody handoff); every other sheet starts PENDING.
+   * with nothing collected). Every sheet — ROUTE or WALK_IN alike — starts
+   * PENDING: WALK_IN originally posted auto-APPROVED (no office review, a
+   * synthetic self-pickup sheet has no real driver custody handoff), but the
+   * client explicitly denied that on 2026-09-11 — a walk-in day's cash now
+   * goes through the exact same Pending Approvals review as a route sheet's.
    */
   async createHandoverForClosedSheet(
     tx: Prisma.TransactionClient,
@@ -234,9 +235,7 @@ export class VanCashLedgerService {
       vanId: string;
       driverId: string;
       date: Date;
-      kind: DailySheetKind;
     };
-    const isWalkIn = sheetRow.kind === DailySheetKind.WALK_IN;
 
     return tx.vanCashHandover.create({
       data: {
@@ -246,8 +245,8 @@ export class VanCashLedgerService {
         amount: resolved.cashExpected,
         submittedById: sheetRow.driverId,
         date: sheetRow.date,
-        status: isWalkIn ? VanCashHandoverStatus.APPROVED : VanCashHandoverStatus.PENDING,
-        approvedAt: isWalkIn ? new Date() : null,
+        status: VanCashHandoverStatus.PENDING,
+        approvedAt: null,
         approvedById: null,
       },
     });
@@ -294,10 +293,9 @@ export class VanCashLedgerService {
 
       const sheet = await tx.dailySheet.findUnique({
         where: { id: sheetId },
-        select: { vanId: true, driverId: true, date: true, kind: true },
+        select: { vanId: true, driverId: true, date: true },
       });
       if (!sheet) throw new NotFoundException('Daily sheet not found.');
-      const isWalkIn = sheet.kind === DailySheetKind.WALK_IN;
 
       const seeded = await tx.vanCashHandover.create({
         data: {
@@ -307,8 +305,8 @@ export class VanCashLedgerService {
           amount: newCashAmount,
           submittedById: sheet.driverId,
           date: sheet.date,
-          status: isWalkIn ? VanCashHandoverStatus.APPROVED : VanCashHandoverStatus.PENDING,
-          approvedAt: isWalkIn ? new Date() : null,
+          status: VanCashHandoverStatus.PENDING,
+          approvedAt: null,
           approvedById: null,
         },
       });
@@ -1218,6 +1216,9 @@ export class VanCashLedgerService {
   ): VanCashLedgerRow {
     const isCorrection = row.correctsEntryId !== null;
     const badge = `via Daily Sheet #${shortSheetId(row.dailySheetId)}`;
+    const title = isCorrection
+      ? `Cash handover correction — Daily Sheet #${shortSheetId(row.dailySheetId)}`
+      : `Cash handover — Daily Sheet #${shortSheetId(row.dailySheetId)}`;
     return {
       id: `${isCorrection ? 'CASH_IN_CORRECTION' : 'CASH_IN'}:${row.id}`,
       date: row.date.toISOString(),
@@ -1227,9 +1228,7 @@ export class VanCashLedgerService {
       amount: row.amount,
       displayAmount: Math.abs(row.amount),
       runningBalance: 0,
-      title: isCorrection
-        ? `Cash handover correction — Daily Sheet #${shortSheetId(row.dailySheetId)}`
-        : `Cash handover — Daily Sheet #${shortSheetId(row.dailySheetId)}`,
+      title,
       vanId: row.vanId,
       vanPlateNumber: row.van.plateNumber,
       sourceType: 'VAN_CASH_HANDOVER',

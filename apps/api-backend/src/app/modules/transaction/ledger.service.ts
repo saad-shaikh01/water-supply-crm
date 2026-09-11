@@ -280,6 +280,27 @@ export class LedgerService {
       throw new NotFoundException('Customer not found');
     }
 
+    // ── Backdate: today or earlier, normalised to local midnight ──
+    // Mirrors the walk-in delivery date rule (daily-sheet.service.ts
+    // recordWalkInDelivery). Omitted/today's date keeps the live `now()`
+    // timestamp (no createdAt override) so intra-day ordering is unaffected.
+    let occurredAt: Date | undefined;
+    if (dto.date) {
+      const dateOnly = new Date(dto.date);
+      if (Number.isNaN(dateOnly.getTime())) {
+        throw new BadRequestException('Invalid date');
+      }
+      dateOnly.setHours(0, 0, 0, 0);
+      const todayOnly = new Date();
+      todayOnly.setHours(0, 0, 0, 0);
+      if (dateOnly.getTime() > todayOnly.getTime()) {
+        throw new BadRequestException('Payment date cannot be in the future');
+      }
+      if (dateOnly.getTime() < todayOnly.getTime()) {
+        occurredAt = dateOnly;
+      }
+    }
+
     return this.prisma.$transaction(async (tx) => {
       await tx.customer.update({
         where: { id: dto.customerId },
@@ -297,6 +318,7 @@ export class LedgerService {
           paymentMode: dto.paymentMode ?? PaymentMode.CASH,
           description: dto.description || 'Payment received',
           ...(dto.paymentRequestId ? { paymentRequestId: dto.paymentRequestId } : {}),
+          ...(occurredAt && { createdAt: occurredAt }),
         },
         include: {
           customer: { select: { id: true, name: true, phoneNumber: true, financialBalance: true } },

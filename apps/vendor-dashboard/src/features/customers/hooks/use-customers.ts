@@ -18,6 +18,7 @@ export const useCustomers = () => {
   const [balanceMin] = useQueryState('balanceMin', parseAsFloat.withDefault(NaN));
   const [balanceMax] = useQueryState('balanceMax', parseAsFloat.withDefault(NaN));
   const [notDeliveredInDays] = useQueryState('notDeliveredInDays', parseAsInteger.withDefault(0));
+  const [notPaidInDays] = useQueryState('notPaidInDays', parseAsInteger.withDefault(0));
   const [sort, setSort] = useQueryState('sort', parseAsString.withDefault(''));
   const [sortDir, setSortDir] = useQueryState('sortDir', parseAsString.withDefault(''));
 
@@ -36,6 +37,7 @@ export const useCustomers = () => {
     balanceMin: !isNaN(balanceMin) ? balanceMin : undefined,
     balanceMax: !isNaN(balanceMax) ? balanceMax : undefined,
     notDeliveredInDays: notDeliveredInDays > 0 ? notDeliveredInDays : undefined,
+    notPaidInDays: notPaidInDays > 0 ? notPaidInDays : undefined,
     sort: sort || undefined,
     sortDir: (sortDir as 'asc' | 'desc') || undefined,
   };
@@ -61,6 +63,7 @@ export const useCustomers = () => {
     balanceMin,
     balanceMax,
     notDeliveredInDays,
+    notPaidInDays,
     sort,
     setSort,
     sortDir,
@@ -362,6 +365,9 @@ export const useBulkUpdateSchedule = () => {
 export interface BulkDeactivateResult {
   requestedCount: number;
   deactivatedCount: number;
+  forceDeactivatedCount: number;
+  writtenOff: number;
+  bottlesWrittenOff: number;
   cancelledDeliveries: number;
   skippedCount: number;
   skipped: Array<{ customerId: string; name: string; reason: string }>;
@@ -370,21 +376,27 @@ export interface BulkDeactivateResult {
 export const useBulkDeactivateCustomers = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (customerIds: string[]): Promise<BulkDeactivateResult> =>
-      customersApi.bulkDeactivate(customerIds).then((r) => r.data),
+    mutationFn: ({ customerIds, force = false }: { customerIds: string[]; force?: boolean }): Promise<BulkDeactivateResult> =>
+      customersApi.bulkDeactivate(customerIds, force).then((r) => r.data),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
       const cancelledSuffix = result.cancelledDeliveries > 0
         ? ` · ${result.cancelledDeliveries} pending deliver${result.cancelledDeliveries === 1 ? 'y' : 'ies'} cancelled`
         : '';
+      const writeOffBits: string[] = [];
+      if (result.writtenOff > 0) writeOffBits.push(`₨${result.writtenOff.toLocaleString()}`);
+      if (result.bottlesWrittenOff > 0) writeOffBits.push(`${result.bottlesWrittenOff} bottle line${result.bottlesWrittenOff === 1 ? '' : 's'}`);
+      const writeOffSuffix = writeOffBits.length
+        ? ` · ${writeOffBits.join(' + ')} written off as company loss (${result.forceDeactivatedCount} force-deactivated)`
+        : '';
       if (result.deactivatedCount === 0) {
         toast.error(`No customers deactivated — all ${result.skippedCount} skipped (outstanding bottles or balance)`);
       } else if (result.skippedCount > 0) {
         toast.warning(
-          `Deactivated ${result.deactivatedCount} of ${result.requestedCount} — ${result.skippedCount} skipped (outstanding bottles or balance)${cancelledSuffix}`,
+          `Deactivated ${result.deactivatedCount} of ${result.requestedCount} — ${result.skippedCount} skipped (outstanding bottles or balance)${cancelledSuffix}${writeOffSuffix}`,
         );
       } else {
-        toast.success(`Deactivated ${result.deactivatedCount} customer${result.deactivatedCount !== 1 ? 's' : ''}${cancelledSuffix}`);
+        toast.success(`Deactivated ${result.deactivatedCount} customer${result.deactivatedCount !== 1 ? 's' : ''}${cancelledSuffix}${writeOffSuffix}`);
       }
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to deactivate customers'),

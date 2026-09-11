@@ -51,11 +51,19 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkScheduleOpen, setBulkScheduleOpen] = useState(false);
   const [bulkDeactivateOpen, setBulkDeactivateOpen] = useState(false);
+  // Set after a normal bulk deactivate leaves some customers skipped (outstanding
+  // balance/bottles) AND the current user holds at least one force permission —
+  // drives the bulk write-off escalation dialog.
+  const [bulkForceTarget, setBulkForceTarget] = useState<
+    { ids: string[]; skipped: Array<{ customerId: string; name: string; reason: string }> } | null
+  >(null);
   const [paymentType, setPaymentType] = useQueryState('paymentType', parseAsString.withDefault(''));
   const [vanId, setVanId] = useQueryState('vanId', parseAsString.withDefault(''));
   const [dayOfWeek, setDayOfWeek] = useQueryState('dayOfWeek', parseAsInteger.withDefault(0));
   const [notDeliveredInDays, setNotDeliveredInDays] = useQueryState('notDeliveredInDays', parseAsInteger.withDefault(0));
   const [notDeliveredInput, setNotDeliveredInput] = useState<string>(notDeliveredInDays > 0 ? String(notDeliveredInDays) : '');
+  const [notPaidInDays, setNotPaidInDays] = useQueryState('notPaidInDays', parseAsInteger.withDefault(0));
+  const [notPaidInput, setNotPaidInput] = useState<string>(notPaidInDays > 0 ? String(notPaidInDays) : '');
 
   const DAY_NAMES: Record<number, string> = { 1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday', 6: 'Saturday' };
 
@@ -82,6 +90,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     dayOfWeek ? { label: `Day: ${DAY_NAMES[dayOfWeek] ?? dayOfWeek}`, clear: () => { resetPage(); setDayOfWeek(null); } } : null,
     vanId ? { label: 'Van filter', clear: () => { resetPage(); setVanId(null); } } : null,
     notDeliveredInDays > 0 ? { label: `No delivery in ${notDeliveredInDays}d`, clear: () => { resetPage(); setNotDeliveredInDays(null); setNotDeliveredInput(''); } } : null,
+    notPaidInDays > 0 ? { label: `No payment in ${notPaidInDays}d`, clear: () => { resetPage(); setNotPaidInDays(null); setNotPaidInput(''); } } : null,
   ].filter(Boolean) as Array<{ label: string; clear: () => void }>;
 
   const clearAllFilters = () => {
@@ -93,6 +102,8 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     setVanId(null);
     setNotDeliveredInDays(null);
     setNotDeliveredInput('');
+    setNotPaidInDays(null);
+    setNotPaidInput('');
   };
 
   // Commit the free-text days input to the query param (empty / 0 clears it)
@@ -100,6 +111,13 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     const n = parseInt(notDeliveredInput, 10);
     resetPage();
     setNotDeliveredInDays(Number.isFinite(n) && n > 0 ? n : null);
+  };
+
+  // Commit the free-text days input to the query param (empty / 0 clears it)
+  const applyNotPaidDays = () => {
+    const n = parseInt(notPaidInput, 10);
+    resetPage();
+    setNotPaidInDays(Number.isFinite(n) && n > 0 ? n : null);
   };
 
   const customers = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
@@ -289,6 +307,33 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
               </div>
               <p className="text-[11px] text-muted-foreground/70">
                 Shows customers with no successful delivery in the last N days (includes customers never delivered to).
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">No Payment Received In Last (Days)</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={1}
+                  inputMode="numeric"
+                  placeholder="e.g. 10"
+                  value={notPaidInput}
+                  onChange={(e) => setNotPaidInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') applyNotPaidDays(); }}
+                  onBlur={applyNotPaidDays}
+                  className="rounded-xl bg-background/50 border-border h-10"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="rounded-xl h-10 shrink-0"
+                  onClick={applyNotPaidDays}
+                >
+                  Apply
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground/70">
+                Shows customers with no payment received in the last N days — whether collected during delivery or via Record Payment (includes customers who never paid).
               </p>
             </div>
           </div>
@@ -754,15 +799,44 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
         open={bulkDeactivateOpen}
         onOpenChange={setBulkDeactivateOpen}
         title="Deactivate Selected Customers"
-        description={`Deactivate ${selectedIds.size} selected customer${selectedIds.size !== 1 ? 's' : ''}? They won't appear in daily sheets and any of their still-pending deliveries on open sheets will be cancelled. Any customer with outstanding bottles or an outstanding balance is skipped automatically — deactivate those individually to Force / write off. You can reactivate them at any time.`}
+        description={`Deactivate ${selectedIds.size} selected customer${selectedIds.size !== 1 ? 's' : ''}? They won't appear in daily sheets and any of their still-pending deliveries on open sheets will be cancelled. Any customer with outstanding bottles or an outstanding balance is skipped automatically — you can then Force Deactivate the rest, or handle them individually.`}
         onConfirm={() => {
-          bulkDeactivate([...selectedIds], {
-            onSuccess: () => { setBulkDeactivateOpen(false); setSelectedIds(new Set()); },
-            onError: () => setBulkDeactivateOpen(false),
-          });
+          bulkDeactivate(
+            { customerIds: [...selectedIds] },
+            {
+              onSuccess: (result) => {
+                setBulkDeactivateOpen(false);
+                setSelectedIds(new Set());
+                if (result.skippedCount > 0 && (canForceDeactivate || canForceDeactivateBottles)) {
+                  setBulkForceTarget({ ids: result.skipped.map((s) => s.customerId), skipped: result.skipped });
+                }
+              },
+              onError: () => setBulkDeactivateOpen(false),
+            },
+          );
         }}
         isLoading={isBulkDeactivating}
         confirmLabel="Deactivate"
+      />
+
+      <ConfirmDialog
+        open={!!bulkForceTarget}
+        onOpenChange={(o) => { if (!o) setBulkForceTarget(null); }}
+        title="Force Deactivate — Write Off Remaining"
+        description={
+          bulkForceTarget
+            ? `${bulkForceTarget.ids.length} customer${bulkForceTarget.ids.length !== 1 ? 's' : ''} were skipped for an outstanding balance and/or bottles: ${bulkForceTarget.skipped.slice(0, 5).map((s) => s.name).join(', ')}${bulkForceTarget.skipped.length > 5 ? `, +${bulkForceTarget.skipped.length - 5} more` : ''}. Force deactivating will write off their balances/bottles as a company loss and cannot be reversed. Anyone whose blocker you don't have permission to force will be skipped again.`
+            : ''
+        }
+        onConfirm={() => {
+          if (!bulkForceTarget) return;
+          bulkDeactivate(
+            { customerIds: bulkForceTarget.ids, force: true },
+            { onSuccess: () => setBulkForceTarget(null) },
+          );
+        }}
+        isLoading={isBulkDeactivating}
+        confirmLabel={bulkForceTarget ? `Force Deactivate ${bulkForceTarget.ids.length} Customer${bulkForceTarget.ids.length !== 1 ? 's' : ''}` : 'Force Deactivate'}
       />
     </div>
   );

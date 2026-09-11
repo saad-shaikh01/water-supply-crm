@@ -61,6 +61,19 @@ export class CustomerQueryDto extends PaginationQueryDto {
   @Max(3650)
   notDeliveredInDays?: number;
 
+  /**
+   * Only return customers with NO payment (PAYMENT transaction) recorded in
+   * the last N days — covers both cash collected during a delivery and
+   * payments logged via "Record Payment". Customers who have never paid are
+   * included too (they trivially satisfy `none`).
+   */
+  @IsOptional()
+  @Transform(({ value }) => parseInt(value, 10))
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  notPaidInDays?: number;
+
   @IsOptional()
   @IsIn(['name', 'customerCode', 'createdAt', 'financialBalance', 'bottleBalance', 'pendingAmount'])
   sort?: string = 'name';

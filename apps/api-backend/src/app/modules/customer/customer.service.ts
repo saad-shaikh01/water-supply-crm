@@ -159,7 +159,7 @@ export class CustomerService {
   }
 
   async findAllPaginated(vendorId: string, query: CustomerQueryDto) {
-    const { page = 1, limit = 20, search, routeId, paymentType, vanId, dayOfWeek, isActive, hasPortalAccess, balanceMin, balanceMax, notDeliveredInDays, sort = 'name', sortDir = 'asc' } = query;
+    const { page = 1, limit = 20, search, routeId, paymentType, vanId, dayOfWeek, isActive, hasPortalAccess, balanceMin, balanceMax, notDeliveredInDays, notPaidInDays, sort = 'name', sortDir = 'asc' } = query;
 
     // Filter by status only when explicitly requested. When no isActive param is
     // sent (the "All Status" option in the UI), return both active and inactive
@@ -215,6 +215,23 @@ export class CustomerService {
         none: {
           status: { in: [DeliveryStatus.COMPLETED, DeliveryStatus.EMPTY_ONLY] },
           deliveredAt: { gte: cutoff },
+        },
+      };
+    }
+
+    // "No payment received in the last N days" — keep only customers with no
+    // PAYMENT transaction stamped after the cutoff. This covers payments
+    // collected during a delivery as well as ones logged via Record Payment
+    // (both write the same PAYMENT transaction). Customers who have never
+    // paid are kept too (they trivially satisfy `none`).
+    if (notPaidInDays !== undefined && notPaidInDays > 0) {
+      const cutoff = new Date();
+      cutoff.setHours(0, 0, 0, 0);
+      cutoff.setDate(cutoff.getDate() - notPaidInDays);
+      where.transactions = {
+        none: {
+          type: TransactionType.PAYMENT,
+          createdAt: { gte: cutoff },
         },
       };
     }
@@ -1565,15 +1582,20 @@ export class CustomerService {
   }
 
   /**
-   * Deactivate many customers in one call. Applies the same guards as the
-   * per-customer `deactivate()` — outstanding bottles and an outstanding
-   * financial balance still send a customer to `skipped` (there is deliberately
-   * no bulk `force`: each write-off needs its own single-customer review). A
-   * still-PENDING delivery does NOT skip: those stops are auto-CANCELLED for
-   * every deactivated customer, exactly as the single flow does. One blocked
-   * account never fails the whole batch.
+   * Deactivate many customers in one call. A customer with a still-PENDING
+   * delivery is never skipped — those stops are auto-CANCELLED for every
+   * deactivated customer, exactly as the single flow does.
+   *
+   * A customer with an outstanding balance and/or bottles is skipped UNLESS
+   * `dto.force` is set, in which case it is written off exactly like the
+   * single-customer force path — gated per-blocker by the same permissions
+   * (`customers:force_deactivate` / `customers:force_deactivate_bottles`).
+   * A customer whose blocker the caller isn't permitted to force still lands
+   * in `skipped` (with a reason naming the missing permission), so one
+   * under-permissioned or blocked account never fails the whole batch.
    */
-  async bulkDeactivate(vendorId: string, dto: BulkDeactivateDto) {
+  async bulkDeactivate(vendorId: string, dto: BulkDeactivateDto, actor?: AuthUser) {
+    const force = dto.force ?? false;
     const customers = await this.prisma.customer.findMany({
       where: { id: { in: dto.customerIds }, vendorId, isActive: true },
       select: { id: true, name: true, financialBalance: true },
@@ -1583,67 +1605,167 @@ export class CustomerService {
       throw new NotFoundException('No matching active customers found');
     }
 
+    let canForceBalance = false;
+    let canForceBottles = false;
+    if (force) {
+      if (!actor) {
+        throw new ForbiddenException('Force deactivate requires an authenticated actor.');
+      }
+      [canForceBalance, canForceBottles] = await Promise.all([
+        this.permissions.can(actor.userId, 'customers:force_deactivate'),
+        this.permissions.can(actor.userId, 'customers:force_deactivate_bottles'),
+      ]);
+    }
+
     const skipped: Array<{ customerId: string; name: string; reason: string }> = [];
     const toDeactivate: string[] = [];
+    const toForceDeactivate: Array<{
+      id: string;
+      owed: number;
+      wallets: Array<{ productId: string; balance: number; name: string }>;
+    }> = [];
 
     for (const customer of customers) {
       const outstandingWallets = await this.prisma.bottleWallet.findMany({
         where: { customerId: customer.id, balance: { not: 0 } },
-        select: { balance: true, product: { select: { name: true } } },
+        select: { balance: true, productId: true, product: { select: { name: true } } },
       });
-      if (outstandingWallets.length > 0) {
-        const summary = outstandingWallets.map((w) => `${w.product.name}: ${w.balance}`).join(', ');
-        skipped.push({
-          customerId: customer.id,
-          name: customer.name,
-          reason: `Outstanding bottles (${summary}) — deactivate individually to Force / write off`,
-        });
-        continue;
-      }
-
       const owed = Number(customer.financialBalance ?? 0);
-      if (owed > 0) {
-        skipped.push({
-          customerId: customer.id,
-          name: customer.name,
-          reason: `Outstanding balance ₨${owed.toLocaleString()} — deactivate individually to Force / write off`,
+      const hasBottles = outstandingWallets.length > 0;
+      const hasBalance = owed > 0;
+
+      if (!hasBottles && !hasBalance) {
+        toDeactivate.push(customer.id);
+        continue;
+      }
+
+      const balanceCovered = !hasBalance || canForceBalance;
+      const bottlesCovered = !hasBottles || canForceBottles;
+      if (force && balanceCovered && bottlesCovered) {
+        toForceDeactivate.push({
+          id: customer.id,
+          owed: hasBalance ? owed : 0,
+          wallets: outstandingWallets.map((w) => ({
+            productId: w.productId,
+            balance: w.balance,
+            name: w.product.name,
+          })),
         });
         continue;
       }
 
-      toDeactivate.push(customer.id);
+      const reasons: string[] = [];
+      if (hasBalance) {
+        reasons.push(
+          `Outstanding balance ₨${owed.toLocaleString()}` +
+            (force && !canForceBalance ? ' (missing customers:force_deactivate)' : ''),
+        );
+      }
+      if (hasBottles) {
+        const summary = outstandingWallets.map((w) => `${w.product.name}: ${w.balance}`).join(', ');
+        reasons.push(
+          `Outstanding bottles (${summary})` +
+            (force && !canForceBottles ? ' (missing customers:force_deactivate_bottles)' : ''),
+        );
+      }
+      skipped.push({
+        customerId: customer.id,
+        name: customer.name,
+        reason: force
+          ? reasons.join(' and ')
+          : `${reasons.join(' and ')} — deactivate individually or with Force to write off`,
+      });
     }
 
+    const allIds = [...toDeactivate, ...toForceDeactivate.map((c) => c.id)];
     let cancelledDeliveries = 0;
-    if (toDeactivate.length > 0) {
+    let writtenOff = 0;
+    let bottlesWrittenOff = 0;
+
+    if (allIds.length > 0) {
       await this.prisma.$transaction(async (tx) => {
         const cancelled = await tx.dailySheetItem.updateMany({
           where: {
-            customerId: { in: toDeactivate },
+            customerId: { in: allIds },
             status: DeliveryStatus.PENDING,
             dailySheet: { isClosed: false },
           },
           data: { status: DeliveryStatus.CANCELLED },
         });
         cancelledDeliveries = cancelled.count;
-        await tx.customer.updateMany({
-          where: { id: { in: toDeactivate } },
-          data: { isActive: false },
-        });
+
+        if (toDeactivate.length > 0) {
+          await tx.customer.updateMany({
+            where: { id: { in: toDeactivate } },
+            data: { isActive: false },
+          });
+        }
+
+        const by = actor?.name ?? actor?.userId ?? 'unknown';
+        for (const c of toForceDeactivate) {
+          if (c.owed > 0) {
+            await tx.transaction.create({
+              data: {
+                type: TransactionType.ADJUSTMENT,
+                vendorId,
+                customerId: c.id,
+                amount: -c.owed,
+                description: `Bad-debt write-off on account closure — company loss (bulk force deactivate by ${by})`,
+              },
+            });
+            await tx.customer.update({
+              where: { id: c.id },
+              data: { financialBalance: { increment: -c.owed } },
+            });
+            writtenOff += c.owed;
+          }
+          for (const w of c.wallets) {
+            await tx.transaction.create({
+              data: {
+                type: TransactionType.ADJUSTMENT,
+                vendorId,
+                customerId: c.id,
+                productId: w.productId,
+                bottleCount: -w.balance,
+                amount: 0,
+                description: `Bottle write-off on account closure — company loss (bulk force deactivate by ${by}) — ${w.name}: ${w.balance}`,
+              },
+            });
+            await tx.bottleWallet.update({
+              where: { customerId_productId: { customerId: c.id, productId: w.productId } },
+              data: { balance: { increment: -w.balance } },
+            });
+            bottlesWrittenOff += 1;
+          }
+          await tx.customer.update({ where: { id: c.id }, data: { isActive: false } });
+        }
       });
+
       await Promise.all([
         this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS),
         ...(cancelledDeliveries > 0 ? [this.cache.invalidateDailyDashboard(vendorId)] : []),
+        ...(toForceDeactivate.length > 0
+          ? [
+              this.cache.invalidateOverview(vendorId),
+              this.cache.invalidateAnalytics(vendorId),
+              ...toForceDeactivate.map((c) => this.cache.invalidateCustomerWallets(vendorId, c.id)),
+            ]
+          : []),
       ]);
       await this.audit.log({
         vendorId,
-        action: 'BULK_DEACTIVATE',
+        userId: actor?.userId,
+        userName: actor?.name,
+        action: toForceDeactivate.length > 0 ? 'BULK_FORCE_DEACTIVATE' : 'BULK_DEACTIVATE',
         entity: 'Customer',
         changes: {
           after: {
-            customerIds: toDeactivate,
-            deactivatedCount: toDeactivate.length,
+            customerIds: allIds,
+            deactivatedCount: allIds.length,
             cancelledDeliveries,
+            forceDeactivatedCount: toForceDeactivate.length,
+            writtenOff,
+            bottlesWrittenOff,
           },
         },
       });
@@ -1651,7 +1773,10 @@ export class CustomerService {
 
     return {
       requestedCount: dto.customerIds.length,
-      deactivatedCount: toDeactivate.length,
+      deactivatedCount: allIds.length,
+      forceDeactivatedCount: toForceDeactivate.length,
+      writtenOff,
+      bottlesWrittenOff,
       cancelledDeliveries,
       skippedCount: skipped.length,
       skipped,

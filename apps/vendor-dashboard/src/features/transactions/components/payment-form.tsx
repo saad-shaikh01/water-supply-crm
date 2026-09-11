@@ -11,13 +11,18 @@ import {
 import { paymentSchema, type PaymentInput, PAYMENT_MODES, PAYMENT_MODE_LABELS } from '../schemas';
 import { useAddPayment, useCustomerPrevMonthOutstanding } from '../hooks/use-transactions';
 import { customersApi } from '../../customers/api/customers.api';
-import { Banknote, CreditCard, FileText, Landmark } from 'lucide-react';
+import { Banknote, CalendarDays, CreditCard, FileText, Landmark } from 'lucide-react';
 
 const PAYMENT_MODE_ICONS = {
   CASH: Banknote,
   CHEQUE: FileText,
   BANK_TRANSFER: Landmark,
 } as const;
+
+const todayStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 interface PaymentFormProps {
   open: boolean;
@@ -35,6 +40,8 @@ export function PaymentForm({ open, onOpenChange, customerId }: PaymentFormProps
   });
   const balance = Number((customerData as any)?.financialBalance ?? 0);
   const isMonthly = (customerData as any)?.paymentType === 'MONTHLY';
+  const customerName = (customerData as any)?.name as string | undefined;
+  const customerCode = (customerData as any)?.customerCode as string | undefined;
 
   // For MONTHLY customers, surface the previous month's carried-over balance —
   // and drop it to ₨0 once this month's payments have covered it. Mirrors the
@@ -47,15 +54,30 @@ export function PaymentForm({ open, onOpenChange, customerId }: PaymentFormProps
 
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<PaymentInput>({
     resolver: zodResolver(paymentSchema),
-    defaultValues: { amount: 0, description: '', paymentMode: 'BANK_TRANSFER' },
+    defaultValues: { amount: 0, description: '', paymentMode: 'BANK_TRANSFER', date: todayStr() },
   });
 
   const watchedAmount = watch('amount', 0);
   const watchedMode = watch('paymentMode');
+  const watchedDate = watch('date');
+  const isBackdated = watchedDate && watchedDate < todayStr();
 
+  // Prefill amount: MONTHLY customers get the previous month's remaining
+  // carry-over (not the full outstanding, which may include this month's
+  // not-yet-due charges); CASH customers keep the existing full-outstanding
+  // prefill. Also resets the date to today each time the sheet (re)opens, so
+  // a backdate picked in a previous session doesn't silently carry over.
   useEffect(() => {
-    if (balance > 0) reset({ amount: balance, description: '', paymentMode: 'BANK_TRANSFER' });
-  }, [balance]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!open) return;
+    if (isMonthly) {
+      if (!finSummary) return; // wait for prev-month data before prefilling
+      if (prevMonthRemaining > 0) {
+        reset({ amount: prevMonthRemaining, description: '', paymentMode: 'BANK_TRANSFER', date: todayStr() });
+      }
+    } else if (balance > 0) {
+      reset({ amount: balance, description: '', paymentMode: 'BANK_TRANSFER', date: todayStr() });
+    }
+  }, [open, isMonthly, finSummary, balance]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onSubmit = (data: PaymentInput) => {
     addPayment({ customerId, data }, {
@@ -77,6 +99,16 @@ export function PaymentForm({ open, onOpenChange, customerId }: PaymentFormProps
         </SheetHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 py-8">
+          {customerName && (
+            <div className="flex items-center justify-between rounded-xl bg-accent/30 border border-border/50 px-4 py-3">
+              <span className="font-bold text-sm text-foreground dark:text-white truncate">{customerName}</span>
+              {customerCode && (
+                <span className="font-mono text-[11px] font-bold text-muted-foreground bg-background/60 border border-border/50 rounded-md px-2 py-0.5 shrink-0">
+                  {customerCode}
+                </span>
+              )}
+            </div>
+          )}
           {(balance > 0 || (isMonthly && finSummary)) && (
             <div className="rounded-xl bg-primary/5 border border-primary/10 divide-y divide-primary/10">
               {isMonthly && finSummary && (
@@ -126,6 +158,24 @@ export function PaymentForm({ open, onOpenChange, customerId }: PaymentFormProps
               <p className="text-[11px] text-muted-foreground leading-relaxed">
                 For online transfers the customer submits from the portal, use the
                 Payment Requests screen instead so the screenshot can be verified.
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-sm font-semibold flex items-center gap-2">
+              <CalendarDays className="h-3 w-3" /> Date Collected
+            </Label>
+            <Input
+              type="date"
+              max={todayStr()}
+              className="bg-accent/30 border-border/50 h-11 focus:border-primary/50 transition-all"
+              {...register('date')}
+            />
+            {errors.date && <p className="text-xs font-medium text-destructive">{errors.date.message}</p>}
+            {isBackdated && (
+              <p className="text-xs text-amber-500 font-medium">
+                Backdated — this payment will appear on {watchedDate} in the ledger and statement, not today.
               </p>
             )}
           </div>

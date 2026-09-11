@@ -328,7 +328,7 @@ describe('VanCashLedgerService', () => {
       expect(result).not.toBeNull();
     });
 
-    it('auto-approves a WALK_IN sheet handover', async () => {
+    it('a WALK_IN sheet handover is PENDING too — same review flow as ROUTE (client denied auto-approve 2026-09-11)', async () => {
       const { svc, tx } = makeService({ sheet: buildClosedSheet({ kind: DailySheetKind.WALK_IN }) });
 
       await svc.createHandoverForClosedSheet(tx as any, VENDOR_ID, SHEET_ID);
@@ -336,13 +336,12 @@ describe('VanCashLedgerService', () => {
       expect(tx.vanCashHandover.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            status: VanCashHandoverStatus.APPROVED,
+            status: VanCashHandoverStatus.PENDING,
+            approvedAt: null,
             approvedById: null,
           }),
         }),
       );
-      const call = tx.vanCashHandover.create.mock.calls[0][0];
-      expect(call.data.approvedAt).toBeInstanceOf(Date);
     });
 
     it('skips creation when the resolved cash figure is 0 (no meaningful cash event)', async () => {

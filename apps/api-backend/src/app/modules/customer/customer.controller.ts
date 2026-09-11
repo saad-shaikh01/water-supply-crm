@@ -86,7 +86,7 @@ export class CustomerController {
   @RequirePermissions('customers:deactivate')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   bulkDeactivate(@CurrentUser() user: AuthUser, @Body() dto: BulkDeactivateDto) {
-    return this.customerService.bulkDeactivate(user.vendorId, dto);
+    return this.customerService.bulkDeactivate(user.vendorId, dto, user);
   }
 
   @Get(':id')

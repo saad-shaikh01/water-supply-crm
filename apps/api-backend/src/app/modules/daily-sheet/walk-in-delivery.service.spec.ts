@@ -40,6 +40,7 @@ describe('DailySheetService.recordWalkInDelivery', () => {
   let mockLedger: any;
   let mockAudit: any;
   let mockCache: any;
+  let mockVanCashLedger: any;
 
   const VENDOR_ID = 'vendor-001';
   const CUSTOMER_ID = 'customer-001';
@@ -103,6 +104,7 @@ describe('DailySheetService.recordWalkInDelivery', () => {
   beforeEach(async () => {
     mockLedger = { recordDelivery: jest.fn().mockResolvedValue({ success: true }) };
     mockAudit = { log: jest.fn().mockResolvedValue(undefined) };
+    mockVanCashLedger = { createHandoverForClosedSheet: jest.fn().mockResolvedValue(null) };
     mockCache = {
       invalidateDailyDashboard: jest.fn().mockResolvedValue(undefined),
       invalidateOverview: jest.fn().mockResolvedValue(undefined),
@@ -152,7 +154,7 @@ describe('DailySheetService.recordWalkInDelivery', () => {
         { provide: CrewCashDistributionService, useValue: {} },
         { provide: VehicleCheckService, useValue: {} },
         { provide: SheetDiscrepancyCaseService, useValue: {} },
-        { provide: VanCashLedgerService, useValue: { createHandoverForClosedSheet: jest.fn().mockResolvedValue(null) } },
+        { provide: VanCashLedgerService, useValue: mockVanCashLedger },
         { provide: StorageService, useValue: {} },
         { provide: WarehouseService, useValue: {} },
         { provide: DeliveryReceiptPdfService, useValue: {} },

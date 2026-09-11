@@ -14,6 +14,8 @@ export const paymentSchema = z.object({
   amount: z.number().positive('Amount must be positive'),
   description: z.string().optional(),
   paymentMode: z.enum(PAYMENT_MODES),
+  /** YYYY-MM-DD. Defaults to today; a past date backdates the transaction. */
+  date: z.string().min(1, 'Date is required'),
 });
 
 export const adjustmentSchema = z.object({

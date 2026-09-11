@@ -45,6 +45,7 @@ describe('DailySheetService.voidDelivery', () => {
   let mockLedger: any;
   let mockAudit: any;
   let mockCache: any;
+  let mockVanCashLedger: any;
 
   const VENDOR_ID = 'vendor-001';
   const OTHER_VENDOR = 'vendor-999';
@@ -121,6 +122,7 @@ describe('DailySheetService.voidDelivery', () => {
       invalidateOverview: jest.fn().mockResolvedValue(undefined),
       invalidateAnalytics: jest.fn().mockResolvedValue(undefined),
     };
+    mockVanCashLedger = { createHandoverForClosedSheet: jest.fn().mockResolvedValue(null) };
     mockPrisma = {
       dailySheetItem: { findUnique: jest.fn() },
       $transaction: jest.fn(),
@@ -142,7 +144,7 @@ describe('DailySheetService.voidDelivery', () => {
         { provide: CrewCashDistributionService, useValue: {} },
         { provide: VehicleCheckService, useValue: {} },
         { provide: SheetDiscrepancyCaseService, useValue: {} },
-        { provide: VanCashLedgerService, useValue: { createHandoverForClosedSheet: jest.fn().mockResolvedValue(null) } },
+        { provide: VanCashLedgerService, useValue: mockVanCashLedger },
         { provide: StorageService, useValue: {} },
         { provide: WarehouseService, useValue: {} },
         { provide: DeliveryReceiptPdfService, useValue: {} },
