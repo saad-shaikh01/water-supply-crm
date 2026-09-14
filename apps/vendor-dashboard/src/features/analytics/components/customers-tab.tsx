@@ -9,7 +9,8 @@ import {
 } from 'recharts';
 import { useTheme } from 'next-themes';
 import { useCustomerAnalytics } from '../hooks/use-analytics';
-import { Users, UserCheck, UserX, UserPlus, UserMinus, ShieldCheck } from 'lucide-react';
+import { Users, UserCheck, UserX, UserPlus, UserMinus, ShieldCheck, AlertOctagon, PackageX } from 'lucide-react';
+import { cn } from '@water-supply-crm/ui';
 
 const PIE_COLORS = ['#3b82f6', '#10b981'];
 
@@ -70,6 +71,7 @@ export function CustomersTab({ from, to }: { from: string; to: string }) {
   const growthByMonth = d.growthByMonth ?? [];
   const topByRevenue = (d.topByRevenue ?? []).slice(0, 10);
   const highestBalances = (d.highestBalances ?? []).slice(0, 10);
+  const companyLosses = d.companyLosses ?? { balanceWriteOffTotal: 0, bottleWriteOffTotal: 0, details: [] };
 
   const paymentPieData = [
     { name: 'Cash', value: CASH },
@@ -179,6 +181,63 @@ export function CustomersTab({ from, to }: { from: string; to: string }) {
           </CardContent>
         </Card>
       </div>
+
+      {/* Company losses — write-offs posted when a customer is Force Deactivated
+          with a balance still owed and/or company bottles still on hand
+          (see CustomerService.deactivate / bulkDeactivate). */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <StatCard label="Balance Written Off" value={fmt(companyLosses.balanceWriteOffTotal)} icon={AlertOctagon} />
+        <StatCard label="Bottles Written Off" value={String(companyLosses.bottleWriteOffTotal)} icon={PackageX} />
+      </div>
+
+      <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
+        <CardHeader>
+          <CardTitle className="text-sm font-bold uppercase tracking-widest text-muted-foreground">
+            Company Loss Detail — Force Deactivate Write-offs
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {companyLosses.details.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-12">No write-offs in the selected period</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-muted-foreground uppercase tracking-widest border-b border-border/50">
+                    <th className="pb-3 pr-4">Date</th>
+                    <th className="pb-3 pr-4">Customer</th>
+                    <th className="pb-3 pr-4">Reason</th>
+                    <th className="pb-3 text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {companyLosses.details.map((row: any) => (
+                    <tr key={row.id} className="border-b border-border/30 hover:bg-accent/20 transition-colors">
+                      <td className="py-3 pr-4 text-xs text-muted-foreground">{new Date(row.date).toLocaleDateString()}</td>
+                      <td className="py-3 pr-4 font-semibold">
+                        {row.customerName}
+                        {row.customerCode && <span className="text-xs text-muted-foreground font-normal"> · {row.customerCode}</span>}
+                      </td>
+                      <td className="py-3 pr-4">
+                        <span className={cn(
+                          'px-2 py-0.5 rounded-full text-xs font-bold',
+                          row.type === 'BALANCE' ? 'bg-destructive/20 text-destructive' : 'bg-amber-500/20 text-amber-600 dark:text-amber-400',
+                        )}
+                        >
+                          {row.type === 'BALANCE' ? 'Balance write-off' : `Bottle write-off${row.product ? ` — ${row.product}` : ''}`}
+                        </span>
+                      </td>
+                      <td className="py-3 text-right font-mono">
+                        {row.type === 'BALANCE' ? fmt(row.amount) : `${row.bottleCount} bottle(s)`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

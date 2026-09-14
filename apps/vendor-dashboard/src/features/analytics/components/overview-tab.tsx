@@ -13,7 +13,7 @@ import {
 } from '../hooks/use-analytics';
 import {
   TrendingUp, TrendingDown, DollarSign, Percent, Package, CheckCircle2, Users, Wallet, ArrowRight,
-  Landmark, UserCircle2, PackageX,
+  Landmark, UserCircle2, PackageX, AlertOctagon,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 
@@ -79,7 +79,7 @@ export function OverviewTab({ from, to, onNavigate }: { from: string; to: string
     return (
       <div className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {Array.from({ length: 12 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-[2rem]" />)}
+          {Array.from({ length: 13 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-[2rem]" />)}
         </div>
         <Skeleton className="h-[300px] w-full rounded-2xl" />
         <div className="grid gap-4 md:grid-cols-2">
@@ -105,13 +105,18 @@ export function OverviewTab({ from, to, onNavigate }: { from: string; to: string
   const completionRate = d?.summary?.completionRate ?? 0;
 
   const totalCustomers = c?.summary?.total ?? 0;
+  const activeCustomers = c?.summary?.active ?? 0;
   const outstandingBalance = f?.outstandingBalance ?? 0;
   const topCustomers = (c?.topByRevenue ?? []).slice(0, 5);
 
   const profitMargin = f?.profitMargin ?? 0;
   const officeCashAvailable = f?.officeCash?.available ?? 0;
   const bottlesOutstanding = d?.bottleStats?.outstandingWithCustomers ?? 0;
-  const avgRevenuePerCustomer = totalCustomers > 0 ? Math.round(revenue / totalCustomers) : 0;
+  // Revenue ÷ ACTIVE customers only — dividing by the total (which includes
+  // long-deactivated accounts that generated zero revenue this period) would
+  // silently understate the figure every active customer actually earns.
+  const avgRevenuePerCustomer = activeCustomers > 0 ? Math.round(revenue / activeCustomers) : 0;
+  const companyLoss = c?.companyLosses?.balanceWriteOffTotal ?? 0;
 
   const { CASH: cashCustomerCount = 0, MONTHLY: monthlyCustomerCount = 0 } = c?.paymentTypeBreakdown ?? {};
   const cashByPaymentType = f?.cashByPaymentType ?? {
@@ -152,8 +157,9 @@ export function OverviewTab({ from, to, onNavigate }: { from: string; to: string
         <StatCard label="Outstanding Balance" value={fmt(outstandingBalance)} icon={Wallet} positive={outstandingBalance <= 0} />
         <StatCard label="Profit Margin" value={`${profitMargin}%`} icon={Percent} positive={profitMargin >= 0} />
         <StatCard label="Office Cash Available" value={fmt(officeCashAvailable)} icon={Landmark} />
-        <StatCard label="Avg Revenue / Customer" value={fmt(avgRevenuePerCustomer)} icon={UserCircle2} />
+        <StatCard label="Avg Revenue / Active Customer" value={fmt(avgRevenuePerCustomer)} icon={UserCircle2} />
         <StatCard label="Bottles Pending Recovery" value={String(bottlesOutstanding)} icon={PackageX} />
+        <StatCard label="Company Loss (Write-offs)" value={fmt(companyLoss)} icon={AlertOctagon} positive={companyLoss <= 0} />
       </div>
 
       {/* Revenue vs Expenses trend */}

@@ -634,6 +634,59 @@ export class AnalyticsService {
       },
     });
 
+    // Company losses — Force Deactivate write-offs (docs/customer force-deactivate:
+    // an outstanding balance or held bottles on a force-closed account is posted
+    // as a real `Transaction` (type ADJUSTMENT, description tagged "company loss"),
+    // by BOTH the single (`deactivate`) and bulk (`bulkDeactivate`) force paths —
+    // reading from Transaction (rather than re-parsing AuditLog's two differently-
+    // shaped payloads) gives one consistent source for both. `amount` carries the
+    // balance write-off (negative → magnitude taken below); `bottleCount` carries
+    // the bottle write-off the same way; a given row is one or the other, never both.
+    const writeOffRows = await this.prisma.transaction.findMany({
+      where: {
+        vendorId,
+        type: TransactionType.ADJUSTMENT,
+        description: { contains: 'company loss' },
+        ...(dateFilter && { createdAt: dateFilter }),
+      },
+      select: {
+        id: true,
+        amount: true,
+        bottleCount: true,
+        description: true,
+        createdAt: true,
+        customerId: true,
+        customer: { select: { name: true, customerCode: true } },
+        product: { select: { name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    let balanceWriteOffTotal = 0;
+    let bottleWriteOffTotal = 0;
+    const writeOffDetails = writeOffRows.map((t) => {
+      const isBalance = (t.description ?? '').startsWith('Bad-debt write-off');
+      if (isBalance) balanceWriteOffTotal += Math.abs(t.amount ?? 0);
+      else bottleWriteOffTotal += Math.abs(t.bottleCount ?? 0);
+      return {
+        id: t.id,
+        date: t.createdAt,
+        customerId: t.customerId,
+        customerName: t.customer?.name ?? 'Unknown',
+        customerCode: t.customer?.customerCode ?? null,
+        type: isBalance ? ('BALANCE' as const) : ('BOTTLES' as const),
+        amount: isBalance ? Math.abs(t.amount ?? 0) : 0,
+        bottleCount: isBalance ? 0 : Math.abs(t.bottleCount ?? 0),
+        product: t.product?.name ?? null,
+      };
+    });
+    const companyLosses = {
+      balanceWriteOffTotal: round2(balanceWriteOffTotal),
+      bottleWriteOffTotal,
+      // Full totals above are computed over every matching row; only the most
+      // recent 25 are sent for the detail table so the payload stays bounded.
+      details: writeOffDetails.slice(0, 25),
+    };
+
     const total = allCustomers.length;
     const active = allCustomers.filter((c) => c.isActive).length;
     const inactive = total - active;
@@ -682,6 +735,7 @@ export class AnalyticsService {
       growthByMonth,
       topByRevenue: topByRevenueEnriched,
       highestBalances,
+      companyLosses,
     };
 
     await this.cache.set(cacheKey, result, 120);
