@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import {
+  CrewRole,
   DiscrepancyCaseStatus,
   DiscrepancyType,
   LedgerEntryStatus,
@@ -817,15 +818,35 @@ export class VanCashLedgerService {
   // ── Reads ────────────────────────────────────────────────────────────────
 
   async getPendingHandovers(vendorId: string, vanId?: string) {
-    return this.prisma.vanCashHandover.findMany({
+    const rows = await this.prisma.vanCashHandover.findMany({
       where: { vendorId, status: VanCashHandoverStatus.PENDING, ...(vanId && { vanId }) },
       include: {
         van: { select: { id: true, plateNumber: true } },
         submittedBy: { select: { id: true, name: true } },
-        dailySheet: { select: { id: true, date: true } },
+        dailySheet: {
+          select: {
+            id: true,
+            date: true,
+            crew: { where: { role: CrewRole.SALESMAN }, select: { user: { select: { name: true } } } },
+          },
+        },
       },
       orderBy: { date: 'desc' },
     });
+
+    // Flattened for the Pending Approvals panel — the driver is who actually
+    // submits a handover (submittedById === dailySheet.driverId, see
+    // createHandoverForClosedSheet), so it doubles as "driverName" here.
+    return rows.map((row) => ({
+      id: row.id,
+      dailySheetId: row.dailySheetId,
+      vanPlateNumber: row.van.plateNumber,
+      driverName: row.submittedBy?.name ?? '—',
+      salesmanName: row.dailySheet.crew[0]?.user.name ?? null,
+      date: row.date,
+      amount: row.amount,
+      version: row.version,
+    }));
   }
 
   /** PENDING office->owner remittances awaiting approval (vendor-wide). */

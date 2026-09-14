@@ -100,6 +100,8 @@ export interface PendingHandover {
   dailySheetId: string;
   vanPlateNumber: string;
   driverName: string;
+  /** Sheet's confirmed salesman crew member, if any. */
+  salesmanName: string | null;
   date: string;
   amount: number;
   /** Optimistic-concurrency token required by the approve action. */

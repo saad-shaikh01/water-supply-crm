@@ -106,9 +106,12 @@ export function PendingApprovalsPanel({ open, onOpenChange }: PendingApprovalsPa
                   <Card key={h.id} className="bg-card/50 border-border/40 rounded-2xl">
                     <CardContent className="p-3 flex items-center gap-3">
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-bold truncate">{h.driverName}</p>
+                        <p className="text-sm font-bold truncate">
+                          {h.vanPlateNumber} · {h.driverName}
+                        </p>
                         <p className="text-[11px] text-muted-foreground truncate">
-                          {h.vanPlateNumber} · {fmtDate(h.date)}
+                          {h.salesmanName ? `Salesman: ${h.salesmanName} · ` : ''}
+                          {fmtDate(h.date)}
                         </p>
                       </div>
                       <div className="text-right shrink-0 space-y-1">
