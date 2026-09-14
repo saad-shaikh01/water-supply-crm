@@ -229,11 +229,14 @@ export class StaffAttendanceService {
   }
 
   /**
-   * Manual attendance marking. One `$transaction`: for ABSENT / HALF_DAY it also
-   * creates exactly one LEAVE_UNPAID `StaffLedgerEntry` (negative amount,
-   * `effectiveDate` = the marked day, never `now()`) via
-   * `StaffLedgerService.createTx`, so the attendance row and its financial
-   * consequence commit or roll back together.
+   * Manual attendance marking. One `$transaction`: for ABSENT / HALF_DAY, an
+   * explicit `amount` is OPTIONAL — when given, it also creates exactly one
+   * LEAVE_UNPAID `StaffLedgerEntry` (negative amount, `effectiveDate` = the
+   * marked day, never `now()`) via `StaffLedgerService.createTx`, so the
+   * attendance row and its financial consequence commit or roll back together.
+   * When omitted, the day is recorded operationally only — no ledger entry —
+   * since the actual deduction is normally decided later by the admin when
+   * payroll is built, not at mark-time.
    *
    * A day that already carries a `leaveLedgerEntryId` is NOT re-marked here —
    * changing a posted ledger entry is the payroll ledger's job (void / reverse /
@@ -242,12 +245,10 @@ export class StaffAttendanceService {
    */
   async markStatus(user: AuthUser, dto: MarkAttendanceDto) {
     const isUnpaid = UNPAID_ATTENDANCE_STATUSES.includes(dto.status);
-    if (isUnpaid && (dto.amount == null || dto.amount <= 0)) {
-      throw new BadRequestException('An explicit positive `amount` is required for an ABSENT or HALF_DAY marking.');
-    }
     if (!isUnpaid && dto.amount != null) {
       throw new BadRequestException('`amount` is only accepted for an ABSENT or HALF_DAY marking.');
     }
+    const hasAmount = isUnpaid && dto.amount != null;
 
     const employee = await this.prisma.user.findFirst({
       where: { id: dto.userId, vendorId: user.vendorId },
@@ -278,7 +279,7 @@ export class StaffAttendanceService {
       }
 
       let leaveLedgerEntryId: string | null = null;
-      if (isUnpaid) {
+      if (hasAmount) {
         const entry = await this.staffLedger.createTx(tx, user, {
           userId: dto.userId,
           category: StaffLedgerCategory.LEAVE_UNPAID,

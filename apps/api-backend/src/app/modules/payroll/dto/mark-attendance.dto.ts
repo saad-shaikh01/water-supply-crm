@@ -1,4 +1,4 @@
-import { IsDateString, IsEnum, IsInt, IsOptional, IsPositive, IsString, IsUUID, MaxLength, ValidateIf } from 'class-validator';
+import { IsDateString, IsEnum, IsInt, IsOptional, IsPositive, IsString, IsUUID, MaxLength } from 'class-validator';
 import { AttendanceStatus } from '@prisma/client';
 
 /**
@@ -15,11 +15,14 @@ export const UNPAID_ATTENDANCE_STATUSES: AttendanceStatus[] = [
 /**
  * Manual attendance marking (`POST /payroll/attendance/mark`).
  *
- * `amount` is the explicit rupee magnitude to debit for an unpaid day — REQUIRED
- * for ABSENT / HALF_DAY, rejected for every other status. No hidden per-day
- * divisor logic (doc §6.3 C7): the caller supplies the number; the service
- * applies the debit sign. `date` is the attended calendar day and becomes the
- * `effectiveDate` of any spawned ledger entry verbatim — never "now".
+ * `amount` is an OPTIONAL explicit rupee magnitude to debit immediately for an
+ * unpaid day (ABSENT / HALF_DAY); rejected for every other status. Deduction
+ * is normally decided later by the admin when payroll is actually built, not
+ * at mark-time — so leaving it blank just records the day operationally, with
+ * no ledger entry. If given, no hidden per-day divisor logic (doc §6.3 C7):
+ * the caller supplies the number; the service applies the debit sign. `date`
+ * is the attended calendar day and becomes the `effectiveDate` of any spawned
+ * ledger entry verbatim — never "now".
  */
 export class MarkAttendanceDto {
   @IsUUID()
@@ -36,8 +39,8 @@ export class MarkAttendanceDto {
   @MaxLength(500)
   note?: string;
 
-  /** Whole positive rupees. Required iff `status` is ABSENT or HALF_DAY. */
-  @ValidateIf((o) => UNPAID_ATTENDANCE_STATUSES.includes(o.status))
+  /** Whole positive rupees. Only accepted when `status` is ABSENT or HALF_DAY; always optional. */
+  @IsOptional()
   @IsInt()
   @IsPositive()
   amount?: number;

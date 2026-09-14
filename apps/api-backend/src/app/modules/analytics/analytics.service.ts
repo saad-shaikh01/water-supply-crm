@@ -4,12 +4,19 @@ import {
   CacheInvalidationService,
   CACHE_KEYS,
 } from '@water-supply-crm/caching';
-import { TransactionType, PaymentType } from '@prisma/client';
+import { TransactionType, PaymentType, DailySheetKind } from '@prisma/client';
 import {
   resolveSheetCash,
   dailySheetItemModifiedOrWhere,
   SHEET_CASH_RELOAD_INCLUDE,
 } from '../daily-sheet/sheet-cash.util';
+import { VanCashLedgerService } from '../van-cash-ledger/van-cash-ledger.service';
+
+// Customer deactivation actions the generic AuditLog records (see
+// CustomerService.deactivate / forceDeactivate / bulkDeactivate) — used to
+// derive the Customers tab's "deactivated this period" / retention stat
+// without a dedicated column on Customer.
+const CUSTOMER_DEACTIVATION_ACTIONS = ['DEACTIVATE', 'FORCE_DEACTIVATE', 'BULK_DEACTIVATE', 'BULK_FORCE_DEACTIVATE'];
 
 function groupSum<T>(items: T[], keyFn: (i: T) => string, valueFn: (i: T) => number): Map<string, number> {
   const map = new Map<string, number>();
@@ -18,6 +25,11 @@ function groupSum<T>(items: T[], keyFn: (i: T) => string, valueFn: (i: T) => num
     map.set(key, (map.get(key) ?? 0) + valueFn(item));
   }
   return map;
+}
+
+/** Money is reported to 2dp — float sums otherwise leak 0.30000000000000004-style noise. */
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }
 
 function buildDateFilter(from?: string, to?: string) {
@@ -37,6 +49,7 @@ export class AnalyticsService {
   constructor(
     private prisma: PrismaService,
     private cache: CacheInvalidationService,
+    private vanCashLedger: VanCashLedgerService,
   ) {}
 
   async getFinancial(vendorId: string, from?: string, to?: string) {
@@ -90,6 +103,7 @@ export class AnalyticsService {
           route: { select: { id: true, name: true } },
           vanId: true,
           van: { select: { id: true, plateNumber: true } },
+          kind: true,
         },
       }),
       this.prisma.customer.aggregate({
@@ -172,6 +186,66 @@ export class AnalyticsService {
         postCloseModified: false,
       };
 
+    // ── Owner-requested van/office cash drilldown (2026-09-14) ──────────────
+    // Van-wise expense + crew-cash totals (to sit alongside the existing
+    // van-wise cash-collected/expected), the Walk-in sheets' cash contribution
+    // (sheets already in `sheets` above — just split by `kind`), and the
+    // Office Cash Ledger's live snapshot (available balance is intentionally
+    // NOT date-scoped — "how much cash is in the office right now").
+    const [vanExpenseRows, vanCrewCashRows, officeCashStats] = await Promise.all([
+      this.prisma.expense.findMany({
+        where: {
+          vendorId,
+          vanId: { not: null },
+          ...(dateFilter && { date: dateFilter }),
+        },
+        select: { vanId: true, amount: true },
+      }),
+      this.prisma.crewCashDistribution.findMany({
+        where: {
+          vendorId,
+          ...(dateFilter && { date: dateFilter }),
+        },
+        select: { amount: true, dailySheet: { select: { vanId: true } } },
+      }),
+      this.vanCashLedger.getStats(vendorId, { from, to } as any),
+    ]);
+    const expenseByVanMap = groupSum(vanExpenseRows, (r) => r.vanId as string, (r) => r.amount);
+    const crewCashByVanMap = groupSum(vanCrewCashRows, (r) => r.dailySheet.vanId, (r) => r.amount);
+
+    // Previous-period comparison (month-over-month / period-over-period
+    // growth) — only meaningful when the caller picked an explicit range;
+    // an "all time" query (no from/to) has no natural "previous period".
+    let momGrowth: {
+      previousRevenue: number;
+      previousProfit: number;
+      revenueChangePct: number | null;
+      profitChangePct: number | null;
+    } | null = null;
+    if (from && to) {
+      const fromDate = new Date(from);
+      const toDate = new Date(to);
+      const periodMs = toDate.getTime() - fromDate.getTime();
+      const prevTo = new Date(fromDate.getTime() - 1);
+      const prevFrom = new Date(prevTo.getTime() - periodMs);
+      const prevDateFilter = buildDateFilter(prevFrom.toISOString(), prevTo.toISOString());
+      const [prevRevAgg, prevExpAgg] = await Promise.all([
+        this.prisma.transaction.aggregate({
+          where: { vendorId, type: TransactionType.DELIVERY, dailySheet: { date: prevDateFilter } },
+          _sum: { amount: true },
+        }),
+        this.prisma.expense.aggregate({
+          where: { vendorId, date: prevDateFilter },
+          _sum: { amount: true },
+        }),
+      ]);
+      const previousRevenue = prevRevAgg._sum.amount ?? 0;
+      const previousProfit = previousRevenue - (prevExpAgg._sum.amount ?? 0);
+      // revenueChangePct/profitChangePct are filled in below once totalRevenue
+      // and totalExpenses are computed (this block runs before that section).
+      momGrowth = { previousRevenue, previousProfit, revenueChangePct: null, profitChangePct: null };
+    }
+
     // Revenue totals
     const totalRevenue = transactions.reduce((s, t) => s + (t.amount ?? 0), 0);
 
@@ -185,6 +259,15 @@ export class AnalyticsService {
 
     // Expenses totals and by category
     const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
+    const profitTotal = totalRevenue - totalExpenses;
+    if (momGrowth) {
+      momGrowth.revenueChangePct =
+        momGrowth.previousRevenue > 0 ? Math.round(((totalRevenue - momGrowth.previousRevenue) / momGrowth.previousRevenue) * 100) : null;
+      momGrowth.profitChangePct =
+        momGrowth.previousProfit !== 0
+          ? Math.round(((profitTotal - momGrowth.previousProfit) / Math.abs(momGrowth.previousProfit)) * 100)
+          : null;
+    }
     const byCatMap = groupSum(expenses, (e) => e.category, (e) => e.amount);
     const expByDayMap = groupSum(expenses, (e) => e.date.toISOString().slice(0, 10), (e) => e.amount);
     const expensesByCategory = Array.from(byCatMap.entries()).map(([category, amount]) => ({ category, amount }));
@@ -212,7 +295,10 @@ export class AnalyticsService {
     }
     const revenueByRoute = Array.from(routeRevMap.values()).sort((a, b) => b.revenue - a.revenue);
 
-    // Cash collected by van
+    // Cash collected by van — extended (owner-requested 2026-09-14) with each
+    // van's expenses and crew-cash totals plus the resulting pending balance
+    // (cashExpected - cashCollected), so the Financial tab can show one
+    // consolidated per-van row instead of just cash in/out.
     const vanCashMap = new Map<string, { vanId: string; plateNumber: string; cashExpected: number; cashCollected: number }>();
     for (const sheet of sheets) {
       const entry = vanCashMap.get(sheet.vanId) ?? {
@@ -226,7 +312,23 @@ export class AnalyticsService {
       entry.cashCollected += c.cashCollected;
       vanCashMap.set(sheet.vanId, entry);
     }
-    const cashByVan = Array.from(vanCashMap.values()).sort((a, b) => b.cashCollected - a.cashCollected);
+    const cashByVan = Array.from(vanCashMap.values())
+      .map((v) => ({
+        ...v,
+        pending: round2(v.cashExpected - v.cashCollected),
+        expenses: round2(expenseByVanMap.get(v.vanId) ?? 0),
+        crewCash: round2(crewCashByVanMap.get(v.vanId) ?? 0),
+      }))
+      .sort((a, b) => b.cashCollected - a.cashCollected);
+
+    // Walk-in sheets' cash contribution — same `sheets`/`effCash` already
+    // computed above, just split out by kind instead of a fresh query.
+    const walkInSheets = sheets.filter((sh) => sh.kind === DailySheetKind.WALK_IN);
+    const walkInCash = {
+      collected: round2(walkInSheets.reduce((s, sh) => s + effCash(sh).cashCollected, 0)),
+      expected: round2(walkInSheets.reduce((s, sh) => s + effCash(sh).cashExpected, 0)),
+      sheetCount: walkInSheets.length,
+    };
 
     // Revenue by payment type
     const revenueByPaymentType = { CASH: 0, MONTHLY: 0 };
@@ -256,13 +358,27 @@ export class AnalyticsService {
     const result = {
       revenue: { total: totalRevenue, byDay: revenueByDay },
       expenses: { total: totalExpenses, byCategory: expensesByCategory, byDay: expensesByDay },
-      profit: { total: totalRevenue - totalExpenses, byDay: profitByDay },
+      profit: { total: profitTotal, byDay: profitByDay },
+      profitMargin: totalRevenue > 0 ? Math.round((profitTotal / totalRevenue) * 100) : 0,
       revenueByRoute,
       cashByVan,
       cashByPaymentType,
       revenueByPaymentType,
       collectionRate,
       outstandingBalance: customers._sum.financialBalance ?? 0,
+      walkInCash,
+      // Office Cash Ledger snapshot — `available` is the LIVE office cash
+      // balance (never date-scoped, see VanCashLedgerService.computeAvailableBalance);
+      // the rest are scoped to the selected period like everything else here.
+      officeCash: {
+        available: officeCashStats.availableBalance,
+        periodExpense: officeCashStats.totalExpense,
+        periodCashIn: officeCashStats.totalCashIn,
+        periodRemitted: officeCashStats.totalRemitted,
+        pendingHandoverCount: officeCashStats.pendingHandoverCount,
+        pendingRemittanceCount: officeCashStats.pendingRemittanceCount,
+      },
+      momGrowth,
     };
 
     await this.cache.set(cacheKey, result, 120);
@@ -321,6 +437,17 @@ export class AnalyticsService {
         select: { resolution: true },
       }),
     ]);
+
+    // Bottles currently sitting with customers, awaiting empty-return pickup
+    // — a LIVE balance (BottleWallet.balance), not scoped to the selected
+    // date range: it answers "how many empties do we need to collect right
+    // now", not "how many were dropped in this period" (that's bottleStats
+    // below, which IS period-scoped).
+    const bottlesOutstandingAgg = await this.prisma.bottleWallet.aggregate({
+      where: { customer: { vendorId } },
+      _sum: { balance: true },
+    });
+    const bottlesOutstanding = bottlesOutstandingAgg._sum.balance ?? 0;
 
     const completedStatuses = new Set(['COMPLETED', 'EMPTY_ONLY']);
     const missedStatuses = new Set(['CANCELLED', 'NOT_AVAILABLE']);
@@ -444,6 +571,8 @@ export class AnalyticsService {
         returned: bottlesReturned,
         filledReturned: filledBottlesReturned,
         net: bottlesDelivered - bottlesReturned - filledBottlesReturned,
+        // Live, not period-scoped — see query comment above.
+        outstandingWithCustomers: bottlesOutstanding,
       },
     };
 
@@ -493,11 +622,34 @@ export class AnalyticsService {
       }),
     ]);
 
+    // Deactivated this period — Customer has no deactivatedAt column, so this
+    // is derived from the generic AuditLog (see CUSTOMER_DEACTIVATION_ACTIONS
+    // doc comment at the top of the file).
+    const deactivatedThisPeriod = await this.prisma.auditLog.count({
+      where: {
+        vendorId,
+        entity: 'Customer',
+        action: { in: CUSTOMER_DEACTIVATION_ACTIONS },
+        ...(dateFilter && { createdAt: dateFilter }),
+      },
+    });
+
     const total = allCustomers.length;
     const active = allCustomers.filter((c) => c.isActive).length;
     const inactive = total - active;
     const cashCustomers = allCustomers.filter((c) => c.paymentType === PaymentType.CASH).length;
     const monthlyCustomers = allCustomers.filter((c) => c.paymentType === PaymentType.MONTHLY).length;
+    // Retention rate — of customers that existed BEFORE this period started,
+    // what fraction are still active today. Falls back to null (not 0/100)
+    // when there's no "before the period" baseline to measure against, e.g.
+    // an all-time query or a brand-new vendor.
+    const existedBeforePeriod = from
+      ? allCustomers.filter((c) => c.createdAt < new Date(from)).length
+      : total - newCustomers;
+    const retentionRate =
+      existedBeforePeriod > 0
+        ? Math.round(((existedBeforePeriod - deactivatedThisPeriod) / existedBeforePeriod) * 100)
+        : null;
 
     // Growth by month (last 12 months regardless of date range)
     const now = new Date();
@@ -525,7 +677,7 @@ export class AnalyticsService {
     }));
 
     const result = {
-      summary: { total, active, inactive, newThisPeriod: newCustomers },
+      summary: { total, active, inactive, newThisPeriod: newCustomers, deactivatedThisPeriod, retentionRate },
       paymentTypeBreakdown: { CASH: cashCustomers, MONTHLY: monthlyCustomers },
       growthByMonth,
       topByRevenue: topByRevenueEnriched,

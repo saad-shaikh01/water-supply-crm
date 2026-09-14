@@ -470,12 +470,16 @@ describe('StaffAttendanceService', () => {
       );
     });
 
-    it('rejects an ABSENT marking with no amount', async () => {
-      const { svc, prisma } = makeService();
-      await expect(
-        svc.markStatus(managerUser, { userId: DRIVER_ID, date: '2026-08-05', status: AttendanceStatus.ABSENT }),
-      ).rejects.toBeInstanceOf(BadRequestException);
-      expect(prisma.$transaction).not.toHaveBeenCalled();
+    it('ABSENT with no amount records the day operationally with no ledger entry (admin adjusts pay later)', async () => {
+      const { svc, tx, staffLedger } = makeService();
+      await svc.markStatus(managerUser, { userId: DRIVER_ID, date: '2026-08-05', status: AttendanceStatus.ABSENT });
+
+      expect(staffLedger.createTx).not.toHaveBeenCalled();
+      expect(tx.staffAttendance.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: AttendanceStatus.ABSENT, leaveLedgerEntryId: null }),
+        }),
+      );
     });
 
     it('rejects an amount on a non-unpaid status', async () => {

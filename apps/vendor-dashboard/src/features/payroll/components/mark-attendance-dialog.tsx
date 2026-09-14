@@ -28,8 +28,8 @@ const STATUS_OPTIONS: Array<{ value: AttendanceStatus; label: string }> = [
   { value: 'WEEKLY_OFF', label: 'Weekly off' },
 ];
 
-/** Statuses that require an explicit deduction amount (mirrors the server DTO rule). */
-const AMOUNT_REQUIRED = new Set<AttendanceStatus>(['ABSENT', 'HALF_DAY']);
+/** Statuses that accept an optional explicit deduction amount (mirrors the server DTO rule). */
+const AMOUNT_ELIGIBLE = new Set<AttendanceStatus>(['ABSENT', 'HALF_DAY']);
 
 export interface MarkAttendanceTarget {
   userId: string;
@@ -62,8 +62,8 @@ export function MarkAttendanceDialog({ target, onOpenChange }: MarkAttendanceDia
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target?.userId, target?.date]);
 
-  const amountRequired = !!status && AMOUNT_REQUIRED.has(status);
-  const isValid = !!target && !!status && (!amountRequired || (!!amount && amount > 0));
+  const amountEligible = !!status && AMOUNT_ELIGIBLE.has(status);
+  const isValid = !!target && !!status;
 
   const handleSubmit = () => {
     if (!isValid || !target || !status) return;
@@ -72,7 +72,7 @@ export function MarkAttendanceDialog({ target, onOpenChange }: MarkAttendanceDia
         userId: target.userId,
         date: target.date,
         status,
-        amount: amountRequired ? amount : undefined,
+        amount: amountEligible && amount && amount > 0 ? amount : undefined,
         note: note.trim() || undefined,
       },
       { onSuccess: () => onOpenChange(false) },
@@ -115,16 +115,16 @@ export function MarkAttendanceDialog({ target, onOpenChange }: MarkAttendanceDia
             </Select>
           </div>
 
-          {amountRequired && (
+          {amountEligible && (
             <div className="space-y-2">
               <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
-                Deduction amount (₨) <span className="text-destructive">*</span>
+                Deduction amount (₨) — optional
               </Label>
               <Input
                 type="number"
                 min={1}
                 step={1}
-                placeholder="0"
+                placeholder="Leave blank — admin adjusts at payroll"
                 value={amount ?? ''}
                 onChange={(e) =>
                   setAmount(e.target.value === '' ? undefined : Math.trunc(Number(e.target.value)))
@@ -132,7 +132,8 @@ export function MarkAttendanceDialog({ target, onOpenChange }: MarkAttendanceDia
                 className="h-12 text-xl font-black font-mono"
               />
               <p className="text-[11px] text-muted-foreground">
-                Posts a LEAVE_UNPAID entry to this employee&apos;s payroll ledger for {target?.date}.
+                Only if you want to post a LEAVE_UNPAID entry to this employee&apos;s payroll ledger right now.
+                Otherwise this day is just recorded — the admin decides deductions when payroll is built.
               </p>
             </div>
           )}

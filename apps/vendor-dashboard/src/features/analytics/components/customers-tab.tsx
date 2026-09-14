@@ -9,7 +9,7 @@ import {
 } from 'recharts';
 import { useTheme } from 'next-themes';
 import { useCustomerAnalytics } from '../hooks/use-analytics';
-import { Users, UserCheck, UserX, UserPlus } from 'lucide-react';
+import { Users, UserCheck, UserX, UserPlus, UserMinus, ShieldCheck } from 'lucide-react';
 
 const PIE_COLORS = ['#3b82f6', '#10b981'];
 
@@ -65,7 +65,7 @@ export function CustomersTab({ from, to }: { from: string; to: string }) {
   const d = data as any;
   if (!d) return null;
 
-  const { total = 0, active = 0, inactive = 0, newThisPeriod = 0 } = d.summary ?? {};
+  const { total = 0, active = 0, inactive = 0, newThisPeriod = 0, deactivatedThisPeriod = 0, retentionRate = null } = d.summary ?? {};
   const { CASH = 0, MONTHLY = 0 } = d.paymentTypeBreakdown ?? {};
   const growthByMonth = d.growthByMonth ?? [];
   const topByRevenue = (d.topByRevenue ?? []).slice(0, 10);
@@ -83,6 +83,11 @@ export function CustomersTab({ from, to }: { from: string; to: string }) {
         <StatCard label="Active" value={String(active)} icon={UserCheck} />
         <StatCard label="New This Period" value={String(newThisPeriod)} icon={UserPlus} />
         <StatCard label="Inactive" value={String(inactive)} icon={UserX} />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="Deactivated This Period" value={String(deactivatedThisPeriod)} icon={UserMinus} />
+        <StatCard label="Retention Rate" value={retentionRate === null ? 'N/A' : `${retentionRate}%`} icon={ShieldCheck} />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">

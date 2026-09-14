@@ -13,6 +13,7 @@ import {
 } from '../hooks/use-analytics';
 import {
   TrendingUp, TrendingDown, DollarSign, Percent, Package, CheckCircle2, Users, Wallet, ArrowRight,
+  Landmark, UserCircle2, PackageX,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 
@@ -78,7 +79,7 @@ export function OverviewTab({ from, to, onNavigate }: { from: string; to: string
     return (
       <div className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-[2rem]" />)}
+          {Array.from({ length: 12 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-[2rem]" />)}
         </div>
         <Skeleton className="h-[300px] w-full rounded-2xl" />
         <div className="grid gap-4 md:grid-cols-2">
@@ -106,6 +107,11 @@ export function OverviewTab({ from, to, onNavigate }: { from: string; to: string
   const totalCustomers = c?.summary?.total ?? 0;
   const outstandingBalance = f?.outstandingBalance ?? 0;
   const topCustomers = (c?.topByRevenue ?? []).slice(0, 5);
+
+  const profitMargin = f?.profitMargin ?? 0;
+  const officeCashAvailable = f?.officeCash?.available ?? 0;
+  const bottlesOutstanding = d?.bottleStats?.outstandingWithCustomers ?? 0;
+  const avgRevenuePerCustomer = totalCustomers > 0 ? Math.round(revenue / totalCustomers) : 0;
 
   const { CASH: cashCustomerCount = 0, MONTHLY: monthlyCustomerCount = 0 } = c?.paymentTypeBreakdown ?? {};
   const cashByPaymentType = f?.cashByPaymentType ?? {
@@ -144,6 +150,10 @@ export function OverviewTab({ from, to, onNavigate }: { from: string; to: string
         <StatCard label="Completion Rate" value={`${completionRate}%`} icon={CheckCircle2} />
         <StatCard label="Total Customers" value={String(totalCustomers)} icon={Users} />
         <StatCard label="Outstanding Balance" value={fmt(outstandingBalance)} icon={Wallet} positive={outstandingBalance <= 0} />
+        <StatCard label="Profit Margin" value={`${profitMargin}%`} icon={Percent} positive={profitMargin >= 0} />
+        <StatCard label="Office Cash Available" value={fmt(officeCashAvailable)} icon={Landmark} />
+        <StatCard label="Avg Revenue / Customer" value={fmt(avgRevenuePerCustomer)} icon={UserCircle2} />
+        <StatCard label="Bottles Pending Recovery" value={String(bottlesOutstanding)} icon={PackageX} />
       </div>
 
       {/* Revenue vs Expenses trend */}
