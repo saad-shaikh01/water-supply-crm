@@ -18,6 +18,7 @@ import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.serv
 import { NotificationSettingsService } from '../notifications/notification-settings.service';
 import { CollectionPolicyService } from '../collection-policy/collection-policy.service';
 import { CrewCashDistributionService } from '../payroll/crew-cash-distribution.service';
+import { StaffAttendanceService } from '../payroll/staff-attendance.service';
 import { VehicleCheckService } from '../fleet/vehicle-check.service';
 import { SheetDiscrepancyCaseService } from '../sheet-discrepancy-case/sheet-discrepancy-case.service';
 import { VanCashLedgerService } from '../van-cash-ledger/van-cash-ledger.service';
@@ -87,6 +88,7 @@ async function buildService(mockAudit: ReturnType<typeof buildMockAudit>) {
       { provide: NotificationSettingsService, useValue: {} },
       { provide: CollectionPolicyService, useValue: {} },
       { provide: CrewCashDistributionService, useValue: {} },
+      { provide: StaffAttendanceService, useValue: {} },
       {
         // Same pre-existing DI gap fixed in daily-sheet-close-discrepancy-cases.spec.ts
         // and daily-sheet-close-crew-cash-sync.spec.ts this session — this file predates

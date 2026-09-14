@@ -80,7 +80,14 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // matching ADJUSTMENT entry (Customer Force Deactivate Rev 3, owner-requested
 // 2026-09-11). No new resource, no new `:page` — split from force_deactivate so a
 // vendor can allow a balance write-off but still require bottles to be recovered.
-const FROZEN_TOTAL = 179;
+// 181 = 179 + payroll:{attendance_view, attendance_mark} — Staff Attendance &
+// Wage Types Phase 1 (docs/features/staff-attendance-and-wage-types.md,
+// owner-approved 2026-09-11, Amendment R16). No new resource, no new `:page` —
+// added to the existing `payroll` resource; an attendance screen lives under
+// /dashboard/payroll and inherits `payroll:page`. (Merged onto
+// force_deactivate_bottles above — both landed independently on main and
+// feat/attendance-flow before this merge, 2026-09-14.)
+const FROZEN_TOTAL = 181;
 const FROZEN_PAGES = 29;
 const FROZEN_RESOURCES = 31;
 

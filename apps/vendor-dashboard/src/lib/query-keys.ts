@@ -70,6 +70,8 @@ export const queryKeys = {
     entryBreakdown: (entryId: string) => ['payroll', 'entry-breakdown', entryId] as const,
     periods: () => ['payroll', 'periods'] as const,
     entrySettlements: (entryId: string) => ['payroll', 'entry-settlements', entryId] as const,
+    attendanceByPeriod: (periodId: string) => ['payroll', 'attendance-period', periodId] as const,
+    attendanceByEmployee: (userId: string) => ['payroll', 'attendance-employee', userId] as const,
   },
   // Fleet Operations & Vehicle Intelligence (docs/features/fleet-operations-vehicle-intelligence.md).
   fleet: {

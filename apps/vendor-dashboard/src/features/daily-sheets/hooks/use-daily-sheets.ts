@@ -363,7 +363,9 @@ export const useConfirmCrew = (sheetId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
     retry: 2,
-    mutationFn: () => dailySheetsApi.confirmCrew(sheetId),
+    // Optional `absentUserIds` records those roster members ABSENT for the day
+    // (Staff Attendance Phase 2). Idempotent — safe to retry.
+    mutationFn: (body?: { absentUserIds?: string[] }) => dailySheetsApi.confirmCrew(sheetId, body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
       toast.success("Today's crew confirmed");

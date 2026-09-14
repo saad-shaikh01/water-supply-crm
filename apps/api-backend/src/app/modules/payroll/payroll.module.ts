@@ -15,6 +15,8 @@ import { SettlementController } from './settlement.controller';
 import { CrewCashDistributionService } from './crew-cash-distribution.service';
 import { CrewCashDistributionController } from './crew-cash-distribution.controller';
 import { CrewCashSyncProcessor } from './crew-cash-sync.processor';
+import { StaffAttendanceService } from './staff-attendance.service';
+import { StaffAttendanceController } from './staff-attendance.controller';
 
 /**
  * Staff Payroll & Financial Management — Phase 1b.
@@ -57,6 +59,7 @@ import { CrewCashSyncProcessor } from './crew-cash-sync.processor';
     PayrollEntryController,
     SettlementController,
     CrewCashDistributionController,
+    StaffAttendanceController,
   ],
   providers: [
     SalaryStructureService,
@@ -67,6 +70,7 @@ import { CrewCashSyncProcessor } from './crew-cash-sync.processor';
     SettlementService,
     CrewCashDistributionService,
     CrewCashSyncProcessor,
+    StaffAttendanceService,
   ],
   exports: [
     SalaryStructureService,
@@ -76,6 +80,7 @@ import { CrewCashSyncProcessor } from './crew-cash-sync.processor';
     PayrollEntryService,
     SettlementService,
     CrewCashDistributionService,
+    StaffAttendanceService,
   ],
 })
 export class PayrollModule {}

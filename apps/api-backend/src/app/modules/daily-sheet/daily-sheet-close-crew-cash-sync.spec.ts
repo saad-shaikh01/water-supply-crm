@@ -12,6 +12,7 @@ import { InAppNotificationService } from '../notifications/in-app-notification.s
 import { NotificationSettingsService } from '../notifications/notification-settings.service';
 import { CollectionPolicyService } from '../collection-policy/collection-policy.service';
 import { CrewCashDistributionService } from '../payroll/crew-cash-distribution.service';
+import { StaffAttendanceService } from '../payroll/staff-attendance.service';
 import { VehicleCheckService } from '../fleet/vehicle-check.service';
 import { SheetDiscrepancyCaseService } from '../sheet-discrepancy-case/sheet-discrepancy-case.service';
 import { VanCashLedgerService } from '../van-cash-ledger/van-cash-ledger.service';
@@ -97,6 +98,7 @@ describe('DailySheetService.closeSheet — Crew Cash Ledger sync', () => {
         { provide: NotificationSettingsService, useValue: {} },
         { provide: CollectionPolicyService, useValue: {} },
         { provide: CrewCashDistributionService, useValue: mockCrewCash },
+        { provide: StaffAttendanceService, useValue: {} },
         // Not exercised by this suite (Crew Cash sync only) — only wired so
         // Nest can resolve DailySheetService's full constructor and so
         // assertSheetCloseable's END-check gate / the discrepancy-case step

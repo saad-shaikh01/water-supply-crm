@@ -3,12 +3,20 @@
 import { useEffect, useState } from 'react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-  Button, Input, Label, Skeleton,
+  Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton,
 } from '@water-supply-crm/ui';
 import { cn } from '@water-supply-crm/ui';
 import { Loader2, Landmark, ArrowRight, Clock3 } from 'lucide-react';
+import type { PayFrequency } from '@water-supply-crm/types';
 import { useEffectiveSalaryStructure } from '../hooks/use-employee-profile';
 import { useCreateSalaryStructure } from '../hooks/use-salary-structure';
+
+/** `baseAmount`'s meaning per frequency (Staff Attendance & Wage Types Phase 3, §4). */
+const PAY_FREQUENCY_OPTIONS: Array<{ value: PayFrequency; label: string; rateLabel: string }> = [
+  { value: 'MONTHLY', label: 'Monthly', rateLabel: 'Monthly Salary (₨)' },
+  { value: 'DAILY', label: 'Daily', rateLabel: 'Daily Rate (₨)' },
+  { value: 'WEEKLY', label: 'Weekly', rateLabel: 'Weekly Rate (₨)' },
+];
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -46,15 +54,18 @@ export function SalaryStructureDialog({ employee, onOpenChange, onSuccess }: Sal
   const { mutate: create, isPending } = useCreateSalaryStructure();
 
   const [baseAmount, setBaseAmount] = useState<number | undefined>(undefined);
+  const [payFrequency, setPayFrequency] = useState<PayFrequency>('MONTHLY');
   const [effectiveFrom, setEffectiveFrom] = useState(todayIso());
 
   useEffect(() => {
     if (!employee) return;
     setBaseAmount(undefined);
+    setPayFrequency(current?.payFrequency ?? 'MONTHLY');
     setEffectiveFrom(todayIso());
-    // Only re-sync when a different employee opens — not on every keystroke.
+    // Only re-sync when a different employee opens (or their current structure
+    // finishes loading) — not on every keystroke.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [employee?.id]);
+  }, [employee?.id, current?.payFrequency]);
 
   const isUpdate = !!current;
   const minEffectiveFrom = current ? dayAfterIso(current.effectiveFrom) : undefined;
@@ -63,15 +74,20 @@ export function SalaryStructureDialog({ employee, onOpenChange, onSuccess }: Sal
     : null;
   const isFutureDated = effectiveFrom > todayIso();
 
-  const diff = current && baseAmount != null ? baseAmount - current.baseAmount : null;
+  // A raise/rate-change comparison only makes sense within the same frequency —
+  // switching e.g. MONTHLY -> DAILY isn't a "difference" in the same units.
+  const sameFrequency = !current || current.payFrequency === payFrequency;
+  const diff = sameFrequency && current && baseAmount != null ? baseAmount - current.baseAmount : null;
   const diffPercent = diff != null && current && current.baseAmount > 0 ? (diff / current.baseAmount) * 100 : null;
+
+  const rateLabel = PAY_FREQUENCY_OPTIONS.find((o) => o.value === payFrequency)?.rateLabel ?? 'Base Amount (₨)';
 
   const isValid = !!employee && !!baseAmount && baseAmount > 0 && !dateError;
 
   const handleSubmit = () => {
     if (!isValid || !employee || !baseAmount) return;
     create(
-      { userId: employee.id, baseAmount, effectiveFrom },
+      { userId: employee.id, baseAmount, payFrequency, effectiveFrom },
       { onSuccess: () => { onOpenChange(false); onSuccess?.(employee.id); } },
     );
   };
@@ -138,12 +154,31 @@ export function SalaryStructureDialog({ employee, onOpenChange, onSuccess }: Sal
               {!current && (
                 <p className="text-xs text-muted-foreground">No active salary structure yet — this will be their first.</p>
               )}
+              {current && !sameFrequency && (
+                <p className="text-xs text-muted-foreground">
+                  Switching frequency ({current.payFrequency} → {payFrequency}) — amounts aren&apos;t directly comparable.
+                </p>
+              )}
             </div>
           )}
 
           <div className="space-y-2">
+            <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">Pay Frequency</Label>
+            <Select value={payFrequency} onValueChange={(v) => setPayFrequency(v as PayFrequency)}>
+              <SelectTrigger className="h-10">
+                <SelectValue placeholder="Select frequency" />
+              </SelectTrigger>
+              <SelectContent>
+                {PAY_FREQUENCY_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
             <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
-              Base Amount (₨) <span className="text-destructive">*</span>
+              {rateLabel} <span className="text-destructive">*</span>
             </Label>
             <Input
               type="number"

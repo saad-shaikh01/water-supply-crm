@@ -1536,6 +1536,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         open={ui.crewConfirmOpen}
         onClose={() => dispatch({ type: 'CLOSE_CREW_CONFIRM' })}
         sheetId={sheetId}
+        driverId={data?.driverId ?? null}
         driverName={data?.driver?.name ?? null}
         crew={data?.crew ?? []}
         onEditCrew={() => dispatch({ type: 'OPEN_SWAP' })}

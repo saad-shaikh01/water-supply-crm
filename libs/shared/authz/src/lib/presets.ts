@@ -150,6 +150,11 @@ const MANAGER_PERMISSIONS: Permission[] = [
   'payroll:page',
   'payroll:ledger_create', 'payroll:salary_structure_manage', 'payroll:period_generate',
   'payroll:settlement_record',
+  // Staff Attendance & Wage Types Phase 1 (Amendment R16,
+  // docs/features/staff-attendance-and-wage-types.md §3 D6): Manager records
+  // and reviews attendance. Existing vendors get these via
+  // PRESET_DRIFT_BACKFILLS.manager.
+  'payroll:attendance_view', 'payroll:attendance_mark',
   // Crew Cash Distribution (Amendment R5, crew-operational-cash-distribution.md §11):
   // all five actions are flat STAFF/VENDOR_ADMIN defaults — including view_all, which
   // (unlike payroll:view_all above) is NOT override-only for this resource; §11's table

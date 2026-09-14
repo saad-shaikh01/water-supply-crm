@@ -1,7 +1,9 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import {
+  AttendanceStatus,
   LedgerEntryStatus,
+  PayFrequency,
   PayrollAuditAction,
   PayrollEntryStatus,
   PayrollPeriod,
@@ -12,14 +14,19 @@ import {
 } from '@prisma/client';
 import type { AuthUser } from '@water-supply-crm/types';
 import { assertCanViewEmployeePayroll } from '../../common/helpers/payroll-view-scope.util';
+import { roundToNearestRupee } from '../../common/helpers/payroll-rounding.util';
 import { PermissionService } from '../authz/permission.service';
 
 function versionMismatch(expected: number, received: number): ConflictException {
   return new ConflictException(`Version mismatch: expected ${expected}, received ${received}. Reload and retry.`);
 }
 
-/** Roles that receive a PayrollEntry when a period's draft is generated. */
-const PAYROLL_ELIGIBLE_ROLES: UserRole[] = [
+/**
+ * Roles that receive a PayrollEntry when a period's draft is generated.
+ * Exported so `StaffAttendanceService.markStatus` can reject attendance
+ * marked against a non-payroll-eligible account (merge-review finding N1).
+ */
+export const PAYROLL_ELIGIBLE_ROLES: UserRole[] = [
   UserRole.STAFF,
   UserRole.DRIVER,
   UserRole.SALESMAN,
@@ -98,6 +105,17 @@ interface SkippedAlreadyReviewed {
 }
 
 /**
+ * Pre-aggregated PRESENT / HALF_DAY StaffAttendance counts for one employee
+ * within a period (Staff Attendance & Wage Types Phase 3, §4). Feeds
+ * `resolvePeriodBase()` for a DAILY/WEEKLY employee only — a MONTHLY
+ * employee's base never reads this.
+ */
+interface AttendanceAggregate {
+  presentDays: number;
+  halfDays: number;
+}
+
+/**
  * The payroll calculation engine (§ schema module note, PayrollEntry).
  *
  * `finalPayable` is always a single flat sum — `baseSalary + every bucket +
@@ -143,6 +161,12 @@ export class PayrollEntryService {
     const skippedAlreadyReviewed: SkippedAlreadyReviewed[] = [];
 
     await this.prisma.$transaction(async (tx) => {
+      // Pre-aggregated ONCE per run, not per employee (§4 Phase 3) — keeps the
+      // existing single transaction short. Harmless no-op for a vendor with
+      // only MONTHLY employees: resolvePeriodBase() never reads this map for
+      // them.
+      const attendanceByUser = await this.aggregateAttendance(tx, user.vendorId, period);
+
       for (const employee of eligibleEmployees) {
         const structures = await tx.salaryStructure.findMany({
           where: {
@@ -168,6 +192,41 @@ export class PayrollEntryService {
           continue;
         }
 
+        // Merge-review finding H1: a DAILY/WEEKLY employee's base is
+        // attendance-derived across the WHOLE period (see resolvePeriodBase /
+        // aggregateAttendance below) — it has no notion of "which structure
+        // was in force on which day". If a prior SalaryStructure version was
+        // still effective for any part of this period before being
+        // superseded by the current (non-MONTHLY) one, applying the current
+        // rate to the full period's attendance would silently misattribute
+        // pay for the days that were actually under the old rate/frequency.
+        // MONTHLY is untouched (it already applies one flat rate to the
+        // whole period by design — Payroll Doc §5 "simplest, most
+        // predictable rule", accepted and documented before this feature).
+        if (structures[0].payFrequency !== PayFrequency.MONTHLY) {
+          const priorStructure = await tx.salaryStructure.findFirst({
+            where: {
+              vendorId: user.vendorId,
+              userId: employee.id,
+              id: { not: structures[0].id },
+              effectiveTo: { gte: period.startDate },
+            },
+            select: { id: true, payFrequency: true, effectiveTo: true },
+          });
+          if (priorStructure) {
+            skippedDataError.push({
+              userId: employee.id,
+              name: employee.name,
+              reason:
+                `Salary structure changed mid-period (from ${priorStructure.payFrequency} to ` +
+                `${structures[0].payFrequency}, effective ${structures[0].effectiveFrom.toISOString().slice(0, 10)}) — ` +
+                'a DAILY/WEEKLY base cannot span a rate or frequency change within one period. ' +
+                'Resolve manually (e.g. settle via the prior period, or a manual ledger Adjustment) before generating this entry.',
+            });
+            continue;
+          }
+        }
+
         const existingEntry = await tx.payrollEntry.findUnique({
           where: { periodId_userId: { periodId, userId: employee.id } },
         });
@@ -176,7 +235,7 @@ export class PayrollEntryService {
           continue;
         }
 
-        const baseSalary = structures[0].baseAmount;
+        const baseSalary = this.resolvePeriodBase(structures[0], attendanceByUser.get(employee.id));
         const { buckets, carryForwardIn, finalPayable } = await this.computeEntryBreakdown(
           tx,
           user.vendorId,
@@ -427,5 +486,76 @@ export class PayrollEntryService {
     });
 
     return previousEntry.finalPayable - (settled._sum.amount ?? 0);
+  }
+
+  /**
+   * Resolves the period's base salary from the employee's effective
+   * SalaryStructure (§4 Phase 3). `MONTHLY` returns `structure.baseAmount`
+   * **unchanged** — byte-identical to the pre-Phase-3 flat copy this line
+   * used to be, no arithmetic, no attendance read, so a MONTHLY-only vendor's
+   * output cannot move by even one rupee.
+   *
+   * `DAILY` / `WEEKLY` reinterpret `baseAmount` as a rate (a daily rate, or a
+   * rate per 7-calendar-day week — never a new column, see the schema
+   * comment on `PayFrequency`) and multiply it by the employee's attended
+   * units for the period, rounded once via `roundToNearestRupee`. "Attended
+   * units" is a straight count of that employee's own `StaffAttendance` rows
+   * (PRESENT = 1, HALF_DAY = 0.5) — never a hardcoded 26/30/31 working-days
+   * divisor (§6.3 C7 forbids exactly that). The WEEKLY→daily-equivalent ÷7 is
+   * a fixed unit conversion (a week is unambiguously 7 calendar days), not a
+   * business-policy divisor, so it is not the "hidden divisor" C7 warns
+   * against — it is the literal meaning of "a weekly rate".
+   *
+   * Deliberately takes the pre-aggregated `attendance` map entry rather than
+   * `period` — the aggregation is already period-scoped by `aggregateAttendance`,
+   * so a third `period` parameter here would go unused.
+   */
+  private resolvePeriodBase(
+    structure: { baseAmount: number; payFrequency: PayFrequency },
+    attendance: AttendanceAggregate | undefined,
+  ): number {
+    if (structure.payFrequency === PayFrequency.MONTHLY) {
+      return structure.baseAmount;
+    }
+
+    const perDayRate =
+      structure.payFrequency === PayFrequency.WEEKLY ? structure.baseAmount / 7 : structure.baseAmount;
+    const attendedUnits = (attendance?.presentDays ?? 0) + 0.5 * (attendance?.halfDays ?? 0);
+
+    return roundToNearestRupee(perDayRate * attendedUnits);
+  }
+
+  /**
+   * Pre-aggregates PRESENT / HALF_DAY `StaffAttendance` counts for every
+   * employee with a row dated inside this period, in ONE query, ONCE per
+   * `generateDraft` run — not once per employee (§4 Phase 3), so the existing
+   * single transaction stays short regardless of headcount. ABSENT / LEAVE /
+   * WEEKLY_OFF rows, and employees with no attendance row at all, are simply
+   * absent from the result map (`resolvePeriodBase` treats a missing entry as
+   * zero attended units) — never defaulted to "fully present".
+   */
+  private async aggregateAttendance(
+    tx: Prisma.TransactionClient,
+    vendorId: string,
+    period: PayrollPeriod,
+  ): Promise<Map<string, AttendanceAggregate>> {
+    const rows = await tx.staffAttendance.groupBy({
+      by: ['userId', 'status'],
+      where: {
+        vendorId,
+        date: { gte: period.startDate, lte: period.endDate },
+        status: { in: [AttendanceStatus.PRESENT, AttendanceStatus.HALF_DAY] },
+      },
+      _count: { _all: true },
+    });
+
+    const byUser = new Map<string, AttendanceAggregate>();
+    for (const row of rows) {
+      const current = byUser.get(row.userId) ?? { presentDays: 0, halfDays: 0 };
+      if (row.status === AttendanceStatus.PRESENT) current.presentDays = row._count._all;
+      else current.halfDays = row._count._all;
+      byUser.set(row.userId, current);
+    }
+    return byUser;
   }
 }
