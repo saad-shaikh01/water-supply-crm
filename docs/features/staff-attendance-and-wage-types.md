@@ -883,3 +883,46 @@ Work top to bottom. Do not start until this document is accepted.
     and `tsc` (app + spec configs) clean.
   - **Not built (Phase 4):** casual-loader payroll integration, `PER_TRIP`
     wage, configurable working-days basis, days-worked display columns.
+- **2026-09-14** — **Phase 4 scoped and closed — no code change.** The owner
+  scoped Phase 4 as: casual loaders can receive `DAILY` salary structures,
+  participate in attendance, and participate in payroll generation, without
+  regressing Phases 1–3. Before writing any code, a full trace against the
+  current repository (not the document — this scope was never in the
+  original Phase Plan, only mentioned as an unvalidated future item at D3)
+  found the requirement **already fully satisfied by the existing
+  architecture, with zero gaps**:
+  - `LOADER` has been in `PAYROLL_ELIGIBLE_ROLES` since Phase 1, on both
+    backend (`payroll-entry.service.ts:29-34`, exported for the N1 fix) and
+    frontend (`payroll/constants.ts:58`) — never role-restricted.
+  - `SalaryStructureService.create` has no role restriction; a `LOADER` user
+    can already be given a `DAILY` structure (Phase 3 enum + `resolvePeriodBase`
+    are role-agnostic).
+  - The Users screen already creates `role: LOADER` accounts (no-login by
+    default).
+  - `swapAssignment` (`daily-sheet.service.ts:4531`) can add any active
+    `LOADER` in the vendor to **one specific day's** `DailySheetCrew` without
+    them ever having been in that van's permanent `VanDefaultCrew` template —
+    the natural "hire a casual loader for today" path.
+  - `confirmCrew` → `captureForConfirmedCrew` captures attendance for the
+    effective roster (`driverId` + `DailySheetCrew`) regardless of role; manual
+    `markStatus` already accepts any `PAYROLL_ELIGIBLE_ROLES` user.
+  - `generateDraft` already includes every active LOADER with an effective
+    `SalaryStructure`; `resolvePeriodBase`'s DAILY math is role-agnostic and
+    already has a zero-attendance path (baseSalary resolves to ₨0, not an
+    error).
+  - **End-to-end flow with zero new code:** create a `LOADER` user → give them
+    a `DAILY` `SalaryStructure` → add them to a sheet's crew (or mark
+    attendance manually) → they appear in the next `generateDraft` run, paid
+    for exactly the days `StaffAttendance` says they worked.
+  - **One noted, accepted tradeoff (not a bug):** once a casual loader has a
+    *current* `SalaryStructure`, `generateDraft` produces a `PayrollEntry` for
+    them every period going forward, even a period with zero attendance
+    (baseSalary = ₨0 via the existing zero-attendance path) — a harmless but
+    real "0-value draft row" a reviewer sees each period. Flagged to the
+    owner; explicitly **not** addressed (would be new scope, e.g. an
+    auto-skip-on-zero-attendance rule or a casual/permanent distinction —
+    neither was asked for).
+  - Owner decision (2026-09-14): close Phase 4 with no code change rather than
+    build unrequested polish. Zero risk to Phases 1–3 — nothing was touched.
+  - `PER_TRIP` wage and configurable working-days basis remain out of scope,
+    per D4 and §8, unchanged.
