@@ -4,7 +4,10 @@ import {
   CacheInvalidationService,
   CACHE_KEYS,
 } from '@water-supply-crm/caching';
-import { TransactionType, PaymentType, DailySheetKind } from '@prisma/client';
+import {
+  TransactionType, PaymentType, DailySheetKind, ExpenseCategory,
+  PayrollEntryStatus, DiscrepancyResolutionType,
+} from '@prisma/client';
 import {
   resolveSheetCash,
   dailySheetItemModifiedOrWhere,
@@ -52,15 +55,23 @@ export class AnalyticsService {
     private vanCashLedger: VanCashLedgerService,
   ) {}
 
-  async getFinancial(vendorId: string, from?: string, to?: string) {
+  async getFinancial(vendorId: string, from?: string, to?: string, vanId?: string) {
     const cacheKey = this.cache.vendorKey(
       vendorId,
-      `${CACHE_KEYS.DASHBOARD}:analytics:financial:${from ?? ''}:${to ?? ''}`,
+      `${CACHE_KEYS.DASHBOARD}:analytics:financial:${from ?? ''}:${to ?? ''}:${vanId ?? ''}`,
     );
     const cached = await this.cache.get<any>(cacheKey);
     if (cached) return cached;
 
     const dateFilter = buildDateFilter(from, to);
+    // Merged date+van scope for queries that reach the van through the
+    // DailySheet relation (Transaction/DailySheetItem don't carry vanId
+    // themselves).
+    const sheetScope = dateFilter || vanId ? { ...(dateFilter && { date: dateFilter }), ...(vanId && { vanId }) } : undefined;
+    // Customers don't carry a van directly — scoped via their CURRENT
+    // delivery-schedule assignment when a van filter is active. Best-effort:
+    // a customer switching vans mid-period isn't reflected retroactively.
+    const customerVanScope = vanId ? { deliverySchedules: { some: { vanId } } } : {};
 
     const [transactions, expenses, sheets, customers, deliveryItems] = await Promise.all([
       this.prisma.transaction.findMany({
@@ -71,7 +82,7 @@ export class AnalyticsService {
           // posted from — filter/group by the sheet's business date, not createdAt
           // (createdAt is the DB insert time, which can lag the actual delivery
           // date when a sheet is entered late).
-          ...(dateFilter && { dailySheet: { date: dateFilter } }),
+          ...(sheetScope && { dailySheet: sheetScope }),
         },
         select: {
           amount: true,
@@ -86,6 +97,7 @@ export class AnalyticsService {
         where: {
           vendorId,
           ...(dateFilter && { date: dateFilter }),
+          ...(vanId && { vanId }),
         },
         select: { amount: true, category: true, date: true },
         orderBy: { date: 'asc' },
@@ -94,6 +106,7 @@ export class AnalyticsService {
         where: {
           vendorId,
           ...(dateFilter && { date: dateFilter }),
+          ...(vanId && { vanId }),
         },
         select: {
           id: true,
@@ -107,7 +120,7 @@ export class AnalyticsService {
         },
       }),
       this.prisma.customer.aggregate({
-        where: { vendorId },
+        where: { vendorId, ...customerVanScope },
         _sum: { financialBalance: true },
       }),
       this.prisma.dailySheetItem.findMany({
@@ -117,7 +130,7 @@ export class AnalyticsService {
           status: { not: 'VOIDED' },
           dailySheet: {
             vendorId,
-            ...(dateFilter && { date: dateFilter }),
+            ...sheetScope,
           },
         },
         select: {
@@ -125,6 +138,7 @@ export class AnalyticsService {
           filledDropped: true,
           pricePerBottle: true,
           customer: { select: { paymentType: true } },
+          product: { select: { id: true, name: true } },
         },
       }),
     ]);
@@ -138,14 +152,14 @@ export class AnalyticsService {
     const [modItems, modLoads, modExpenseSheets] = await Promise.all([
       this.prisma.dailySheetItem.findMany({
         where: {
-          dailySheet: { vendorId, ...(dateFilter && { date: dateFilter }), isClosed: true },
+          dailySheet: { vendorId, ...sheetScope, isClosed: true },
           OR: dailySheetItemModifiedOrWhere as any,
         },
         select: { dailySheetId: true },
       }),
       this.prisma.dailySheetLoad.findMany({
         where: {
-          dailySheet: { vendorId, ...(dateFilter && { date: dateFilter }), isClosed: true },
+          dailySheet: { vendorId, ...sheetScope, isClosed: true },
           editCount: { gt: 0 },
         },
         select: { dailySheetId: true },
@@ -157,6 +171,7 @@ export class AnalyticsService {
         where: {
           vendorId,
           ...(dateFilter && { date: dateFilter }),
+          ...(vanId && { vanId }),
           isClosed: true,
           OR: [
             { postCloseExpenseCorrectionCount: { gt: 0 } },
@@ -196,7 +211,7 @@ export class AnalyticsService {
       this.prisma.expense.findMany({
         where: {
           vendorId,
-          vanId: { not: null },
+          vanId: vanId ?? { not: null },
           ...(dateFilter && { date: dateFilter }),
         },
         select: { vanId: true, amount: true },
@@ -205,13 +220,76 @@ export class AnalyticsService {
         where: {
           vendorId,
           ...(dateFilter && { date: dateFilter }),
+          ...(vanId && { dailySheet: { vanId } }),
         },
         select: { amount: true, dailySheet: { select: { vanId: true } } },
       }),
-      this.vanCashLedger.getStats(vendorId, { from, to } as any),
+      // vanId here narrows this to that ONE van's own running cash balance
+      // (opening + its handovers - its cash-out), not the vendor-wide office
+      // pool — see the `officeCash` result comment below.
+      this.vanCashLedger.getStats(vendorId, { from, to, vanId } as any),
     ]);
     const expenseByVanMap = groupSum(vanExpenseRows, (r) => r.vanId as string, (r) => r.amount);
     const crewCashByVanMap = groupSum(vanCrewCashRows, (r) => r.dailySheet.vanId, (r) => r.amount);
+
+    // ── Payroll cost (owner-requested 2026-09-16) ────────────────────────
+    // "Total Expenses" above never included staff salaries — PayrollEntry
+    // lives entirely outside the Expense table — so Gross Profit/Profit
+    // Margin were silently overstated. Summed separately as `payrollCost`;
+    // `netProfit`/`netProfitMargin` are computed after it below, while Gross
+    // Profit itself is left untouched (operational profit before payroll) so
+    // nothing that already reads it changes meaning.
+    // Payroll periods are typically monthly and rarely line up with an
+    // arbitrary analytics date range — a period counts if it overlaps
+    // [from, to] at all (or unconditionally, when no range is given). Only
+    // finalized entries (APPROVED and beyond) are summed — DRAFT/UNDER_REVIEW
+    // rows aren't yet a committed obligation. Always vendor-wide — a payroll
+    // period's cost isn't meaningfully splittable to "this one van".
+    const payrollWhere: any = {
+      vendorId,
+      status: { in: [PayrollEntryStatus.APPROVED, PayrollEntryStatus.LOCKED, PayrollEntryStatus.SETTLED] },
+    };
+    if (from || to) {
+      payrollWhere.period = {
+        ...(to && { startDate: { lte: new Date(to) } }),
+        ...(from && { endDate: { gte: new Date(from) } }),
+      };
+    }
+
+    // Discrepancy write-offs — cash/bottle/empty shortfalls resolved as
+    // COMPANY_LOSS (SheetDiscrepancyCaseService.resolve). Distinct from the
+    // Customers tab's Force-Deactivate write-offs: this is operational
+    // (driver/route) shrinkage, not a specific customer's bad debt.
+    const [payrollAgg, discrepancyRows] = await Promise.all([
+      this.prisma.payrollEntry.aggregate({ where: payrollWhere, _sum: { finalPayable: true } }),
+      this.prisma.sheetDiscrepancyCase.findMany({
+        where: {
+          vendorId,
+          resolutionType: DiscrepancyResolutionType.COMPANY_LOSS,
+          ...(dateFilter && { resolvedAt: dateFilter }),
+          ...(vanId && { dailySheet: { vanId } }),
+        },
+        select: {
+          id: true,
+          type: true,
+          resolvedAt: true,
+          resolutionAmount: true,
+          driver: { select: { name: true } },
+          dailySheet: { select: { van: { select: { plateNumber: true } } } },
+        },
+        orderBy: { resolvedAt: 'desc' },
+      }),
+    ]);
+    const payrollCost = round2(payrollAgg._sum.finalPayable ?? 0);
+    const discrepancyWriteOffTotal = round2(discrepancyRows.reduce((s, r) => s + (r.resolutionAmount ?? 0), 0));
+    const discrepancyDetails = discrepancyRows.slice(0, 25).map((r) => ({
+      id: r.id,
+      date: r.resolvedAt,
+      type: r.type,
+      amount: round2(r.resolutionAmount ?? 0),
+      driverName: r.driver.name,
+      vanPlateNumber: r.dailySheet.van?.plateNumber ?? 'Unknown',
+    }));
 
     // Previous-period comparison (month-over-month / period-over-period
     // growth) — only meaningful when the caller picked an explicit range;
@@ -231,11 +309,15 @@ export class AnalyticsService {
       const prevDateFilter = buildDateFilter(prevFrom.toISOString(), prevTo.toISOString());
       const [prevRevAgg, prevExpAgg] = await Promise.all([
         this.prisma.transaction.aggregate({
-          where: { vendorId, type: TransactionType.DELIVERY, dailySheet: { date: prevDateFilter } },
+          where: {
+            vendorId,
+            type: TransactionType.DELIVERY,
+            dailySheet: { date: prevDateFilter, ...(vanId && { vanId }) },
+          },
           _sum: { amount: true },
         }),
         this.prisma.expense.aggregate({
-          where: { vendorId, date: prevDateFilter },
+          where: { vendorId, date: prevDateFilter, ...(vanId && { vanId }) },
           _sum: { amount: true },
         }),
       ]);
@@ -355,11 +437,37 @@ export class AnalyticsService {
       bucket.collected += item.cashCollected;
     }
 
+    // Revenue by product — same `deliveryItems` already fetched above (no
+    // per-product split exists on the DailySheet/Transaction totals).
+    const productMap = new Map<string, { productId: string; productName: string; revenue: number; bottles: number }>();
+    for (const item of deliveryItems) {
+      const entry = productMap.get(item.product.id) ?? {
+        productId: item.product.id,
+        productName: item.product.name,
+        revenue: 0,
+        bottles: 0,
+      };
+      entry.revenue += item.filledDropped * item.pricePerBottle;
+      entry.bottles += item.filledDropped;
+      productMap.set(item.product.id, entry);
+    }
+    const revenueByProduct = Array.from(productMap.values())
+      .map((p) => ({ ...p, revenue: round2(p.revenue) }))
+      .sort((a, b) => b.revenue - a.revenue);
+
     const result = {
       revenue: { total: totalRevenue, byDay: revenueByDay },
       expenses: { total: totalExpenses, byCategory: expensesByCategory, byDay: expensesByDay },
       profit: { total: profitTotal, byDay: profitByDay },
       profitMargin: totalRevenue > 0 ? Math.round((profitTotal / totalRevenue) * 100) : 0,
+      // Payroll sits outside `expenses` (see query comment above) — netProfit
+      // is the truer bottom line once salaries are accounted for; Gross
+      // Profit/profitMargin above are left as pre-payroll operational figures.
+      payrollCost,
+      netProfit: round2(profitTotal - payrollCost),
+      netProfitMargin: totalRevenue > 0 ? Math.round(((profitTotal - payrollCost) / totalRevenue) * 100) : 0,
+      discrepancyWriteOff: { total: discrepancyWriteOffTotal, details: discrepancyDetails },
+      revenueByProduct,
       revenueByRoute,
       cashByVan,
       cashByPaymentType,
@@ -367,10 +475,14 @@ export class AnalyticsService {
       collectionRate,
       outstandingBalance: customers._sum.financialBalance ?? 0,
       walkInCash,
-      // Office Cash Ledger snapshot — `available` is the LIVE office cash
-      // balance (never date-scoped, see VanCashLedgerService.computeAvailableBalance);
-      // the rest are scoped to the selected period like everything else here.
+      // Office Cash Ledger snapshot — `available` is the LIVE balance (never
+      // date-scoped, see VanCashLedgerService.computeAvailableBalance); the
+      // rest are scoped to the selected period like everything else here.
+      // When `vanId` is set this is that ONE van's own cash-in-hand (not yet
+      // handed to office), not the vendor-wide office pool — `scope` tells the
+      // frontend which label to show.
       officeCash: {
+        scope: vanId ? ('VAN' as const) : ('OFFICE' as const),
         available: officeCashStats.availableBalance,
         periodExpense: officeCashStats.totalExpense,
         periodCashIn: officeCashStats.totalCashIn,
@@ -379,16 +491,17 @@ export class AnalyticsService {
         pendingRemittanceCount: officeCashStats.pendingRemittanceCount,
       },
       momGrowth,
+      vanId: vanId ?? null,
     };
 
     await this.cache.set(cacheKey, result, 120);
     return result;
   }
 
-  async getDeliveries(vendorId: string, from?: string, to?: string) {
+  async getDeliveries(vendorId: string, from?: string, to?: string, vanId?: string) {
     const cacheKey = this.cache.vendorKey(
       vendorId,
-      `${CACHE_KEYS.DASHBOARD}:analytics:deliveries:${from ?? ''}:${to ?? ''}`,
+      `${CACHE_KEYS.DASHBOARD}:analytics:deliveries:${from ?? ''}:${to ?? ''}:${vanId ?? ''}`,
     );
     const cached = await this.cache.get<any>(cacheKey);
     if (cached) return cached;
@@ -404,6 +517,7 @@ export class AnalyticsService {
           dailySheet: {
             vendorId,
             ...(dateFilter && { date: dateFilter }),
+            ...(vanId && { vanId }),
           },
         },
         select: {
@@ -425,6 +539,7 @@ export class AnalyticsService {
         where: {
           vendorId,
           status: { in: ['OPEN', 'PLANNED', 'IN_RETRY'] },
+          ...(vanId && { dailySheetItem: { dailySheet: { vanId } } }),
         },
         select: { createdAt: true, status: true },
       }),
@@ -433,6 +548,7 @@ export class AnalyticsService {
           vendorId,
           status: 'RESOLVED',
           ...(dateFilter && { resolvedAt: dateFilter }),
+          ...(vanId && { dailySheetItem: { dailySheet: { vanId } } }),
         },
         select: { resolution: true },
       }),
@@ -442,9 +558,10 @@ export class AnalyticsService {
     // — a LIVE balance (BottleWallet.balance), not scoped to the selected
     // date range: it answers "how many empties do we need to collect right
     // now", not "how many were dropped in this period" (that's bottleStats
-    // below, which IS period-scoped).
+    // below, which IS period-scoped). Scoped to the van's currently-scheduled
+    // customers when `vanId` is set (best-effort — see getCustomers comment).
     const bottlesOutstandingAgg = await this.prisma.bottleWallet.aggregate({
-      where: { customer: { vendorId } },
+      where: { customer: { vendorId, ...(vanId && { deliverySchedules: { some: { vanId } } }) } },
       _sum: { balance: true },
     });
     const bottlesOutstanding = bottlesOutstandingAgg._sum.balance ?? 0;
@@ -580,24 +697,31 @@ export class AnalyticsService {
     return result;
   }
 
-  async getCustomers(vendorId: string, from?: string, to?: string) {
+  async getCustomers(vendorId: string, from?: string, to?: string, vanId?: string) {
     const cacheKey = this.cache.vendorKey(
       vendorId,
-      `${CACHE_KEYS.DASHBOARD}:analytics:customers:${from ?? ''}:${to ?? ''}`,
+      `${CACHE_KEYS.DASHBOARD}:analytics:customers:${from ?? ''}:${to ?? ''}:${vanId ?? ''}`,
     );
     const cached = await this.cache.get<any>(cacheKey);
     if (cached) return cached;
 
     const dateFilter = buildDateFilter(from, to);
+    // Customers don't carry a van directly — scoped via their CURRENT
+    // delivery-schedule assignment when a van filter is active (best-effort:
+    // a customer switching vans mid-period isn't reflected retroactively, and
+    // this covers every summary/growth figure below since `allCustomers` is
+    // the shared base for all of them).
+    const customerVanScope = vanId ? { deliverySchedules: { some: { vanId } } } : {};
 
     const [allCustomers, newCustomers, topByRevenue, highestBalances] = await Promise.all([
       this.prisma.customer.findMany({
-        where: { vendorId },
+        where: { vendorId, ...customerVanScope },
         select: { id: true, isActive: true, paymentType: true, createdAt: true },
       }),
       this.prisma.customer.count({
         where: {
           vendorId,
+          ...customerVanScope,
           ...(dateFilter && { createdAt: dateFilter }),
         },
       }),
@@ -608,14 +732,16 @@ export class AnalyticsService {
           type: TransactionType.DELIVERY,
           customerId: { not: null },
           // Same reasoning as getFinancial: filter by the sheet's business date.
-          ...(dateFilter && { dailySheet: { date: dateFilter } }),
+          ...((dateFilter || vanId) && {
+            dailySheet: { ...(dateFilter && { date: dateFilter }), ...(vanId && { vanId }) },
+          }),
         },
         _sum: { amount: true },
         orderBy: { _sum: { amount: 'desc' } },
         take: 10,
       }),
       this.prisma.customer.findMany({
-        where: { vendorId, financialBalance: { gt: 0 } },
+        where: { vendorId, financialBalance: { gt: 0 }, ...customerVanScope },
         select: { id: true, name: true, customerCode: true, financialBalance: true },
         orderBy: { financialBalance: 'desc' },
         take: 10,
@@ -624,13 +750,17 @@ export class AnalyticsService {
 
     // Deactivated this period — Customer has no deactivatedAt column, so this
     // is derived from the generic AuditLog (see CUSTOMER_DEACTIVATION_ACTIONS
-    // doc comment at the top of the file).
+    // doc comment at the top of the file). AuditLog carries no van relation,
+    // so when van-scoped this narrows to `allCustomers`' own ids (already
+    // scoped above) instead.
+    const vanCustomerIds = vanId ? allCustomers.map((c) => c.id) : null;
     const deactivatedThisPeriod = await this.prisma.auditLog.count({
       where: {
         vendorId,
         entity: 'Customer',
         action: { in: CUSTOMER_DEACTIVATION_ACTIONS },
         ...(dateFilter && { createdAt: dateFilter }),
+        ...(vanCustomerIds && { entityId: { in: vanCustomerIds } }),
       },
     });
 
@@ -648,6 +778,7 @@ export class AnalyticsService {
         type: TransactionType.ADJUSTMENT,
         description: { contains: 'company loss' },
         ...(dateFilter && { createdAt: dateFilter }),
+        ...(vanCustomerIds && { customerId: { in: vanCustomerIds } }),
       },
       select: {
         id: true,
@@ -742,10 +873,10 @@ export class AnalyticsService {
     return result;
   }
 
-  async getStaff(vendorId: string, from?: string, to?: string) {
+  async getStaff(vendorId: string, from?: string, to?: string, vanId?: string) {
     const cacheKey = this.cache.vendorKey(
       vendorId,
-      `${CACHE_KEYS.DASHBOARD}:analytics:staff:${from ?? ''}:${to ?? ''}`,
+      `${CACHE_KEYS.DASHBOARD}:analytics:staff:${from ?? ''}:${to ?? ''}:${vanId ?? ''}`,
     );
     const cached = await this.cache.get<any>(cacheKey);
     if (cached) return cached;
@@ -756,6 +887,7 @@ export class AnalyticsService {
       where: {
         vendorId,
         ...(dateFilter && { date: dateFilter }),
+        ...(vanId && { vanId }),
       },
       include: {
         driver: { select: { id: true, name: true, role: true } },
@@ -796,6 +928,176 @@ export class AnalyticsService {
 
     staff.sort((a, b) => b.completionRate - a.completionRate);
     const result = { staff, leaderboard: staff };
+
+    await this.cache.set(cacheKey, result, 120);
+    return result;
+  }
+
+  /**
+   * Operations tab (owner-requested 2026-09-16) — surfaces four modules that
+   * previously had zero presence in Analytics: Fleet cost/efficiency, Damage
+   * Cases, Customer Support Tickets, and WhatsApp Balance Reminders.
+   */
+  async getOperations(vendorId: string, from?: string, to?: string, vanId?: string) {
+    const cacheKey = this.cache.vendorKey(
+      vendorId,
+      `${CACHE_KEYS.DASHBOARD}:analytics:operations:${from ?? ''}:${to ?? ''}:${vanId ?? ''}`,
+    );
+    const cached = await this.cache.get<any>(cacheKey);
+    if (cached) return cached;
+
+    const dateFilter = buildDateFilter(from, to);
+
+    const [vans, fuelLogs, checks, maintenanceAgg, damageCases, tickets, reminderLogs] = await Promise.all([
+      this.prisma.van.findMany({ where: { vendorId }, select: { id: true, plateNumber: true } }),
+      // FuelLog.vehicleId, not vanId — attributed to a van via its sheet
+      // (dailySheet.vanId) or, when logged off-sheet, the vehicle's usual van.
+      this.prisma.fuelLog.findMany({
+        where: { vendorId, ...(dateFilter && { date: dateFilter }) },
+        select: {
+          amountPaid: true,
+          litersFilled: true,
+          dailySheet: { select: { vanId: true } },
+          vehicle: { select: { usualVanId: true } },
+        },
+      }),
+      // Distance per van — same START/END odometer pairing as
+      // vehicle-check.service.ts's per-vehicle history, aggregated by van
+      // instead of by vehicle.
+      this.prisma.vehicleDailyCheck.findMany({
+        where: {
+          vendorId,
+          ...(vanId && { vanId }),
+          dailySheet: { ...(dateFilter && { date: dateFilter }) },
+        },
+        select: { vanId: true, dailySheetId: true, checkType: true, odometerReading: true },
+      }),
+      this.prisma.expense.aggregate({
+        where: {
+          vendorId,
+          category: ExpenseCategory.VEHICLE_MAINTENANCE,
+          ...(dateFilter && { date: dateFilter }),
+          ...(vanId && { vanId }),
+        },
+        _sum: { amount: true },
+      }),
+      // DamageCase has no direct vanId — only reachable via its (nullable)
+      // linked DailySheetItem, so a van filter here narrows to damage cases
+      // that were logged against an actual delivery stop.
+      this.prisma.damageCase.findMany({
+        where: {
+          vendorId,
+          ...(dateFilter && { createdAt: dateFilter }),
+          ...(vanId && { dailySheetItem: { dailySheet: { vanId } } }),
+        },
+        select: { status: true, chargeAmount: true, bottleCount: true },
+      }),
+      // Customer support tickets aren't van-attributable — always vendor-wide.
+      this.prisma.customerTicket.findMany({
+        where: { vendorId, ...(dateFilter && { createdAt: dateFilter }) },
+        select: { status: true, createdAt: true, resolvedAt: true },
+      }),
+      this.prisma.reminderSendLog.findMany({
+        where: { vendorId, ...(dateFilter && { createdAt: dateFilter }), ...(vanId && { vanId }) },
+        select: { sent: true, skipped: true },
+      }),
+    ]);
+
+    const vanPlateMap = new Map(vans.map((v) => [v.id, v.plateNumber]));
+
+    // ── Fleet: fuel cost + distance per van ──────────────────────────────
+    const fuelByVanMap = new Map<string, { cost: number; liters: number }>();
+    for (const f of fuelLogs) {
+      const effVanId = f.dailySheet?.vanId ?? f.vehicle?.usualVanId ?? null;
+      if (vanId && effVanId !== vanId) continue; // post-hoc filter — attribution needs the fallback above first
+      const key = effVanId ?? 'unassigned';
+      const entry = fuelByVanMap.get(key) ?? { cost: 0, liters: 0 };
+      entry.cost += f.amountPaid;
+      entry.liters += f.litersFilled;
+      fuelByVanMap.set(key, entry);
+    }
+
+    const checksBySheet = new Map<string, { vanId: string; start?: number; end?: number }>();
+    for (const c of checks) {
+      const entry = checksBySheet.get(c.dailySheetId) ?? { vanId: c.vanId };
+      if (c.checkType === 'START') entry.start = c.odometerReading;
+      else if (c.checkType === 'END') entry.end = c.odometerReading;
+      checksBySheet.set(c.dailySheetId, entry);
+    }
+    const distanceByVanMap = new Map<string, number>();
+    for (const entry of checksBySheet.values()) {
+      if (entry.start != null && entry.end != null && entry.end >= entry.start) {
+        distanceByVanMap.set(entry.vanId, (distanceByVanMap.get(entry.vanId) ?? 0) + (entry.end - entry.start));
+      }
+    }
+
+    const fleetVanIds = new Set([...fuelByVanMap.keys(), ...distanceByVanMap.keys()].filter((k) => k !== 'unassigned'));
+    const fleetByVan = Array.from(fleetVanIds)
+      .map((vId) => {
+        const fuel = fuelByVanMap.get(vId) ?? { cost: 0, liters: 0 };
+        const distanceKm = distanceByVanMap.get(vId) ?? 0;
+        return {
+          vanId: vId,
+          plateNumber: vanPlateMap.get(vId) ?? 'Unknown',
+          fuelCost: round2(fuel.cost),
+          litersFilled: round2(fuel.liters),
+          distanceKm,
+          costPerKm: distanceKm > 0 ? round2(fuel.cost / distanceKm) : null,
+        };
+      })
+      .sort((a, b) => b.fuelCost - a.fuelCost);
+
+    const unassignedFuelCost = fuelByVanMap.get('unassigned')?.cost ?? 0;
+    const totalFuelCost = round2(fleetByVan.reduce((s, v) => s + v.fuelCost, 0) + unassignedFuelCost);
+    const totalDistanceKm = fleetByVan.reduce((s, v) => s + v.distanceKm, 0);
+    const totalMaintenanceCost = round2(maintenanceAgg._sum.amount ?? 0);
+
+    const fleet = {
+      totalFuelCost,
+      totalMaintenanceCost,
+      totalDistanceKm,
+      overallCostPerKm: totalDistanceKm > 0 ? round2(totalFuelCost / totalDistanceKm) : null,
+      byVan: fleetByVan,
+    };
+
+    // ── Damage Cases ──────────────────────────────────────────────────────
+    const openDamageStatuses = new Set(['REPORTED', 'UNDER_REVIEW']);
+    const damageOpen = damageCases.filter((d) => openDamageStatuses.has(d.status)).length;
+    const damage = {
+      total: damageCases.length,
+      open: damageOpen,
+      resolved: damageCases.length - damageOpen,
+      totalBottles: damageCases.reduce((s, d) => s + d.bottleCount, 0),
+      totalCharged: round2(damageCases.reduce((s, d) => s + (d.chargeAmount ?? 0), 0)),
+    };
+
+    // ── Customer Support Tickets ──────────────────────────────────────────
+    const openTicketStatuses = new Set(['OPEN', 'IN_PROGRESS']);
+    const ticketsOpen = tickets.filter((t) => openTicketStatuses.has(t.status)).length;
+    const resolvedWithTimes = tickets.filter((t): t is typeof t & { resolvedAt: Date } => t.resolvedAt != null);
+    const avgResolutionHours =
+      resolvedWithTimes.length > 0
+        ? Math.round(
+            resolvedWithTimes.reduce((s, t) => s + (t.resolvedAt.getTime() - t.createdAt.getTime()), 0) /
+              resolvedWithTimes.length /
+              3_600_000,
+          )
+        : null;
+    const supportTickets = {
+      total: tickets.length,
+      open: ticketsOpen,
+      resolved: tickets.length - ticketsOpen,
+      avgResolutionHours,
+    };
+
+    // ── WhatsApp Balance Reminders ─────────────────────────────────────────
+    const reminders = {
+      batches: reminderLogs.length,
+      sent: reminderLogs.reduce((s, r) => s + r.sent, 0),
+      skipped: reminderLogs.reduce((s, r) => s + r.skipped, 0),
+    };
+
+    const result = { fleet, damage, supportTickets, reminders };
 
     await this.cache.set(cacheKey, result, 120);
     return result;

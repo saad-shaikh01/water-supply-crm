@@ -13,7 +13,7 @@ import {
 } from '../hooks/use-analytics';
 import {
   TrendingUp, TrendingDown, DollarSign, Percent, Package, CheckCircle2, Users, Wallet, ArrowRight,
-  Landmark, UserCircle2, PackageX, AlertOctagon,
+  Landmark, Tag, PackageX, AlertOctagon, Info,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 
@@ -21,7 +21,9 @@ function fmt(n: number) {
   return `₨${n.toLocaleString('en', { maximumFractionDigits: 0 })}`;
 }
 
-function StatCard({ label, value, icon: Icon, positive }: { label: string; value: string; icon: any; positive?: boolean }) {
+function StatCard({
+  label, value, icon: Icon, positive, tooltip,
+}: { label: string; value: string; icon: any; positive?: boolean; tooltip?: string }) {
   return (
     <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
       <CardContent className="pt-6">
@@ -30,13 +32,20 @@ function StatCard({ label, value, icon: Icon, positive }: { label: string; value
             <Icon className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <p className="text-xs text-muted-foreground uppercase tracking-widest font-bold">{label}</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-widest font-bold flex items-center gap-1">
+              {label}
+              {tooltip && <Info className="h-3 w-3 text-muted-foreground/60 shrink-0" title={tooltip} />}
+            </p>
             <p className={cn('text-xl font-bold mt-0.5', positive === false && 'text-destructive')}>{value}</p>
           </div>
         </div>
       </CardContent>
     </Card>
   );
+}
+
+function KpiGroupTitle({ children }: { children: React.ReactNode }) {
+  return <p className="text-xs font-black uppercase tracking-widest text-muted-foreground pt-1">{children}</p>;
 }
 
 function SectionCard({ title, onViewAll, children }: { title: string; onViewAll?: () => void; children: React.ReactNode }) {
@@ -55,11 +64,13 @@ function SectionCard({ title, onViewAll, children }: { title: string; onViewAll?
   );
 }
 
-export function OverviewTab({ from, to, onNavigate }: { from: string; to: string; onNavigate: (tab: string) => void }) {
-  const { data: financial, isLoading: loadingFinancial } = useFinancialAnalytics(from, to);
-  const { data: deliveries, isLoading: loadingDeliveries } = useDeliveryAnalytics(from, to);
-  const { data: customers, isLoading: loadingCustomers } = useCustomerAnalytics(from, to);
-  const { data: staff, isLoading: loadingStaff } = useStaffAnalytics(from, to);
+export function OverviewTab({
+  from, to, vanId, onNavigate,
+}: { from: string; to: string; vanId?: string; onNavigate: (tab: string) => void }) {
+  const { data: financial, isLoading: loadingFinancial } = useFinancialAnalytics(from, to, vanId);
+  const { data: deliveries, isLoading: loadingDeliveries } = useDeliveryAnalytics(from, to, vanId);
+  const { data: customers, isLoading: loadingCustomers } = useCustomerAnalytics(from, to, vanId);
+  const { data: staff, isLoading: loadingStaff } = useStaffAnalytics(from, to, vanId);
 
   const { theme } = useTheme();
   const isDark = theme === 'dark';
@@ -105,17 +116,17 @@ export function OverviewTab({ from, to, onNavigate }: { from: string; to: string
   const completionRate = d?.summary?.completionRate ?? 0;
 
   const totalCustomers = c?.summary?.total ?? 0;
-  const activeCustomers = c?.summary?.active ?? 0;
   const outstandingBalance = f?.outstandingBalance ?? 0;
   const topCustomers = (c?.topByRevenue ?? []).slice(0, 5);
 
   const profitMargin = f?.profitMargin ?? 0;
   const officeCashAvailable = f?.officeCash?.available ?? 0;
   const bottlesOutstanding = d?.bottleStats?.outstandingWithCustomers ?? 0;
-  // Revenue ÷ ACTIVE customers only — dividing by the total (which includes
-  // long-deactivated accounts that generated zero revenue this period) would
-  // silently understate the figure every active customer actually earns.
-  const avgRevenuePerCustomer = activeCustomers > 0 ? Math.round(revenue / activeCustomers) : 0;
+  const bottlesDelivered = d?.bottleStats?.delivered ?? 0;
+  // Weighted average selling price per bottle — same formula as the home
+  // dashboard's Monthly Summary widget (dashboard.service.ts averageRate):
+  // Revenue ÷ Bottles Delivered, not revenue divided by a customer count.
+  const avgRatePerBottle = bottlesDelivered > 0 ? Math.round(revenue / bottlesDelivered) : 0;
   const companyLoss = c?.companyLosses?.balanceWriteOffTotal ?? 0;
 
   const { CASH: cashCustomerCount = 0, MONTHLY: monthlyCustomerCount = 0 } = c?.paymentTypeBreakdown ?? {};
@@ -145,21 +156,31 @@ export function OverviewTab({ from, to, onNavigate }: { from: string; to: string
 
   return (
     <div className="space-y-4">
-      {/* KPI strip */}
+      {/* KPI strip — grouped so it scans as Financial / Operations / Customers
+          instead of one flat wall of 13 cards. */}
+      <KpiGroupTitle>Financial</KpiGroupTitle>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Total Revenue" value={fmt(revenue)} icon={TrendingUp} />
         <StatCard label="Total Expenses" value={fmt(expenses)} icon={TrendingDown} positive={false} />
-        <StatCard label="Gross Profit" value={fmt(profit)} icon={DollarSign} positive={profit >= 0} />
+        <StatCard label="Gross Profit" value={fmt(profit)} icon={DollarSign} positive={profit >= 0} tooltip="Revenue minus operational expenses, before staff payroll — see the Financial tab for Net Profit (after payroll)." />
+        <StatCard label="Profit Margin" value={`${profitMargin}%`} icon={Percent} positive={profitMargin >= 0} tooltip="Gross Profit ÷ Revenue, before payroll." />
         <StatCard label="Collection Rate" value={`${collectionRate}%`} icon={Percent} />
+        <StatCard label="Outstanding Balance" value={fmt(outstandingBalance)} icon={Wallet} positive={outstandingBalance <= 0} />
+        <StatCard label="Office Cash Available" value={fmt(officeCashAvailable)} icon={Landmark} tooltip="Live cash currently in office custody (Van Cash Ledger) — not scoped to the selected date range." />
+        <StatCard label="Avg Rate / Bottle Sold" value={fmt(avgRatePerBottle)} icon={Tag} tooltip="Weighted average selling price: Revenue ÷ Bottles Delivered." />
+      </div>
+
+      <KpiGroupTitle>Operations</KpiGroupTitle>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Total Deliveries" value={String(totalDeliveries)} icon={Package} />
         <StatCard label="Completion Rate" value={`${completionRate}%`} icon={CheckCircle2} />
+        <StatCard label="Bottles Pending Recovery" value={String(bottlesOutstanding)} icon={PackageX} tooltip="Live balance — empty bottles currently with customers, awaiting pickup." />
+      </div>
+
+      <KpiGroupTitle>Customers</KpiGroupTitle>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Total Customers" value={String(totalCustomers)} icon={Users} />
-        <StatCard label="Outstanding Balance" value={fmt(outstandingBalance)} icon={Wallet} positive={outstandingBalance <= 0} />
-        <StatCard label="Profit Margin" value={`${profitMargin}%`} icon={Percent} positive={profitMargin >= 0} />
-        <StatCard label="Office Cash Available" value={fmt(officeCashAvailable)} icon={Landmark} />
-        <StatCard label="Avg Revenue / Active Customer" value={fmt(avgRevenuePerCustomer)} icon={UserCircle2} />
-        <StatCard label="Bottles Pending Recovery" value={String(bottlesOutstanding)} icon={PackageX} />
-        <StatCard label="Company Loss (Write-offs)" value={fmt(companyLoss)} icon={AlertOctagon} positive={companyLoss <= 0} />
+        <StatCard label="Company Loss (Write-offs)" value={fmt(companyLoss)} icon={AlertOctagon} positive={companyLoss <= 0} tooltip="Balance written off when a customer was Force Deactivated still owing money — see the Customers tab for detail." />
       </div>
 
       {/* Revenue vs Expenses trend */}

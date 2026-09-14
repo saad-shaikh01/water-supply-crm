@@ -29,8 +29,8 @@ function StatCard({ label, value, icon: Icon, color }: { label: string; value: s
   );
 }
 
-export function DeliveriesTab({ from, to }: { from: string; to: string }) {
-  const { data, isLoading } = useDeliveryAnalytics(from, to);
+export function DeliveriesTab({ from, to, vanId }: { from: string; to: string; vanId?: string }) {
+  const { data, isLoading } = useDeliveryAnalytics(from, to, vanId);
   const { theme } = useTheme();
   const isDark = theme === 'dark';
   const gridColor = isDark ? '#333' : '#eee';

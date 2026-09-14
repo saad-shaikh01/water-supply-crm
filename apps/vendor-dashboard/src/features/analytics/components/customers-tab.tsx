@@ -36,8 +36,8 @@ function StatCard({ label, value, icon: Icon }: { label: string; value: string; 
   );
 }
 
-export function CustomersTab({ from, to }: { from: string; to: string }) {
-  const { data, isLoading } = useCustomerAnalytics(from, to);
+export function CustomersTab({ from, to, vanId }: { from: string; to: string; vanId?: string }) {
+  const { data, isLoading } = useCustomerAnalytics(from, to, vanId);
   const { theme } = useTheme();
   const isDark = theme === 'dark';
   const gridColor = isDark ? '#333' : '#eee';

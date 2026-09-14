@@ -23,8 +23,8 @@ function RateBadge({ rate }: { rate: number }) {
   );
 }
 
-export function StaffTab({ from, to }: { from: string; to: string }) {
-  const { data, isLoading } = useStaffAnalytics(from, to);
+export function StaffTab({ from, to, vanId }: { from: string; to: string; vanId?: string }) {
+  const { data, isLoading } = useStaffAnalytics(from, to, vanId);
   const { theme } = useTheme();
   const isDark = theme === 'dark';
   const gridColor = isDark ? '#333' : '#eee';

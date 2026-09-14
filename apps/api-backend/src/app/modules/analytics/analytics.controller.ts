@@ -13,21 +13,26 @@ export class AnalyticsController {
 
   @Get('financial')
   getFinancial(@CurrentUser() user: AuthUser, @Query() dto: DateRangeDto) {
-    return this.analyticsService.getFinancial(user.vendorId, dto.from, dto.to);
+    return this.analyticsService.getFinancial(user.vendorId, dto.from, dto.to, dto.vanId);
   }
 
   @Get('deliveries')
   getDeliveries(@CurrentUser() user: AuthUser, @Query() dto: DateRangeDto) {
-    return this.analyticsService.getDeliveries(user.vendorId, dto.from, dto.to);
+    return this.analyticsService.getDeliveries(user.vendorId, dto.from, dto.to, dto.vanId);
   }
 
   @Get('customers')
   getCustomers(@CurrentUser() user: AuthUser, @Query() dto: DateRangeDto) {
-    return this.analyticsService.getCustomers(user.vendorId, dto.from, dto.to);
+    return this.analyticsService.getCustomers(user.vendorId, dto.from, dto.to, dto.vanId);
   }
 
   @Get('staff')
   getStaff(@CurrentUser() user: AuthUser, @Query() dto: DateRangeDto) {
-    return this.analyticsService.getStaff(user.vendorId, dto.from, dto.to);
+    return this.analyticsService.getStaff(user.vendorId, dto.from, dto.to, dto.vanId);
+  }
+
+  @Get('operations')
+  getOperations(@CurrentUser() user: AuthUser, @Query() dto: DateRangeDto) {
+    return this.analyticsService.getOperations(user.vendorId, dto.from, dto.to, dto.vanId);
   }
 }

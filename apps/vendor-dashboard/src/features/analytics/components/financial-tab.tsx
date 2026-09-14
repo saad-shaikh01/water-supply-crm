@@ -11,6 +11,7 @@ import { useTheme } from 'next-themes';
 import { useFinancialAnalytics } from '../hooks/use-analytics';
 import {
   TrendingUp, TrendingDown, DollarSign, Percent, Landmark, Wallet, Clock, Store, ArrowUpRight, ArrowDownRight,
+  Users, ShieldAlert,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 
@@ -56,8 +57,8 @@ function StatCard({
   );
 }
 
-export function FinancialTab({ from, to }: { from: string; to: string }) {
-  const { data, isLoading } = useFinancialAnalytics(from, to);
+export function FinancialTab({ from, to, vanId }: { from: string; to: string; vanId?: string }) {
+  const { data, isLoading } = useFinancialAnalytics(from, to, vanId);
   const { theme } = useTheme();
   const isDark = theme === 'dark';
   const gridColor = isDark ? '#333' : '#eee';
@@ -94,6 +95,11 @@ export function FinancialTab({ from, to }: { from: string; to: string }) {
   const profitMargin = d.profitMargin ?? 0;
   const collectionRate = d.collectionRate ?? 0;
   const momGrowth = d.momGrowth as { revenueChangePct: number | null; profitChangePct: number | null } | null;
+  const payrollCost = d.payrollCost ?? 0;
+  const netProfit = d.netProfit ?? profit;
+  const netProfitMargin = d.netProfitMargin ?? profitMargin;
+  const discrepancyWriteOff = d.discrepancyWriteOff ?? { total: 0, details: [] };
+  const revenueByProduct = d.revenueByProduct ?? [];
 
   const profitByDay = (d.profit?.byDay ?? []).map((p: any) => ({
     date: p.date.slice(5), // MM-DD
@@ -109,8 +115,13 @@ export function FinancialTab({ from, to }: { from: string; to: string }) {
   const vanBreakdown = d.cashByVan ?? [];
   const walkInCash = d.walkInCash ?? { collected: 0, expected: 0, sheetCount: 0 };
   const officeCash = d.officeCash ?? {
-    available: 0, periodExpense: 0, periodCashIn: 0, periodRemitted: 0, pendingHandoverCount: 0, pendingRemittanceCount: 0,
+    scope: 'OFFICE', available: 0, periodExpense: 0, periodCashIn: 0, periodRemitted: 0, pendingHandoverCount: 0, pendingRemittanceCount: 0,
   };
+  // A single van is already selected — the per-van table below would just
+  // repeat that one row, so it's skipped in favor of the summary cards above.
+  const isVanScoped = !!vanId;
+  const cashLabel = isVanScoped ? 'Van Cash on Hand' : 'Office Cash Available';
+  const cashSublabel = isVanScoped ? 'not yet handed to office' : 'as of now';
 
   return (
     <div className="space-y-4">
@@ -121,6 +132,14 @@ export function FinancialTab({ from, to }: { from: string; to: string }) {
         <StatCard label="Gross Profit" value={fmt(profit)} icon={DollarSign} positive={profit >= 0} deltaPct={momGrowth?.profitChangePct} />
         <StatCard label="Profit Margin" value={`${profitMargin}%`} icon={Percent} positive={profitMargin >= 0} />
         <StatCard label="Collection Rate" value={`${collectionRate}%`} icon={Percent} />
+      </div>
+
+      {/* Net Profit — Gross Profit above is pre-payroll (Total Expenses never
+          included staff salaries); this row is the truer bottom line. */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <StatCard label="Payroll Cost" value={fmt(payrollCost)} icon={Users} positive={false} sublabel="approved + settled" />
+        <StatCard label="Net Profit (after payroll)" value={fmt(netProfit)} icon={DollarSign} positive={netProfit >= 0} />
+        <StatCard label="Net Profit Margin" value={`${netProfitMargin}%`} icon={Percent} positive={netProfitMargin >= 0} />
       </div>
 
       {/* Revenue vs Expenses area chart */}
@@ -205,6 +224,26 @@ export function FinancialTab({ from, to }: { from: string; to: string }) {
         </Card>
       </div>
 
+      {/* Revenue by product — only worth a chart when there's more than one */}
+      {revenueByProduct.length > 1 && (
+        <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
+          <CardHeader>
+            <CardTitle className="text-sm font-bold uppercase tracking-widest text-muted-foreground">Revenue by Product</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={Math.max(180, revenueByProduct.length * 44)}>
+              <BarChart data={revenueByProduct} layout="vertical" margin={{ left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={gridColor} horizontal={false} />
+                <XAxis type="number" stroke="#888" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `₨${(v / 1000).toFixed(0)}k`} />
+                <YAxis type="category" dataKey="productName" stroke="#888" fontSize={11} tickLine={false} axisLine={false} width={100} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v: any, name: string) => (name === 'revenue' ? fmt(v) : v)} />
+                <Bar dataKey="revenue" fill="#8b5cf6" radius={[0, 4, 4, 0]} barSize={18} name="revenue" />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Payment type split */}
       <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
         <CardHeader>
@@ -225,52 +264,97 @@ export function FinancialTab({ from, to }: { from: string; to: string }) {
         </CardContent>
       </Card>
 
-      {/* Cash Ledger snapshot — office cash on hand right now, plus walk-in's contribution */}
+      {/* Cash Ledger snapshot — office/van cash on hand right now, plus walk-in's contribution */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Office Cash Available" value={fmt(officeCash.available)} icon={Landmark} sublabel="as of now" />
+        <StatCard label={cashLabel} value={fmt(officeCash.available)} icon={Landmark} sublabel={cashSublabel} />
         <StatCard label="Cash Ledger Expense" value={fmt(officeCash.periodExpense)} icon={Wallet} positive={false} sublabel="this period" />
         <StatCard label="Pending Handovers" value={String(officeCash.pendingHandoverCount)} icon={Clock} sublabel="awaiting office approval" />
-        <StatCard label="Walk-in Cash Collected" value={fmt(walkInCash.collected)} icon={Store} sublabel={`${walkInCash.sheetCount} walk-in day(s)`} />
+        {!isVanScoped && (
+          <StatCard label="Walk-in Cash Collected" value={fmt(walkInCash.collected)} icon={Store} sublabel={`${walkInCash.sheetCount} walk-in day(s)`} />
+        )}
       </div>
 
-      {/* Van-wise breakdown — cash collected/expected/pending alongside each van's own expenses and crew cash */}
-      <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
-        <CardHeader>
-          <CardTitle className="text-sm font-bold uppercase tracking-widest text-muted-foreground">Van-wise Cash &amp; Expense Breakdown</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {vanBreakdown.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-12">No van data for selected period</p>
-          ) : (
+      {/* Discrepancy write-offs — cash/bottle/empty shortfalls resolved as a
+          company loss (distinct from the Customers tab's Force-Deactivate
+          write-offs — this is route/driver shrinkage, not a customer's debt). */}
+      <div className="grid gap-4 sm:grid-cols-1">
+        <StatCard label="Discrepancy Write-offs" value={fmt(discrepancyWriteOff.total)} icon={ShieldAlert} positive={discrepancyWriteOff.total <= 0} sublabel="cash/bottle shortfalls written off this period" />
+      </div>
+      {discrepancyWriteOff.details.length > 0 && (
+        <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
+          <CardHeader>
+            <CardTitle className="text-sm font-bold uppercase tracking-widest text-muted-foreground">Discrepancy Write-off Detail</CardTitle>
+          </CardHeader>
+          <CardContent>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-xs text-muted-foreground uppercase tracking-widest border-b border-border/50">
+                    <th className="pb-3 pr-4">Date</th>
                     <th className="pb-3 pr-4">Van</th>
-                    <th className="pb-3 pr-4 text-right">Collected</th>
-                    <th className="pb-3 pr-4 text-right">Expected</th>
-                    <th className="pb-3 pr-4 text-right">Pending</th>
-                    <th className="pb-3 pr-4 text-right">Expenses</th>
-                    <th className="pb-3 text-right">Crew Cash</th>
+                    <th className="pb-3 pr-4">Driver</th>
+                    <th className="pb-3 pr-4">Type</th>
+                    <th className="pb-3 text-right">Amount</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {vanBreakdown.map((v: any) => (
-                    <tr key={v.vanId} className="border-b border-border/30 hover:bg-accent/20 transition-colors">
-                      <td className="py-3 pr-4 font-semibold">{v.plateNumber}</td>
-                      <td className="py-3 pr-4 text-right font-mono text-emerald-500">{fmt(v.cashCollected)}</td>
-                      <td className="py-3 pr-4 text-right font-mono text-muted-foreground">{fmt(v.cashExpected)}</td>
-                      <td className={cn('py-3 pr-4 text-right font-mono', v.pending > 0 && 'text-amber-500')}>{fmt(v.pending)}</td>
-                      <td className="py-3 pr-4 text-right font-mono text-destructive">{fmt(v.expenses)}</td>
-                      <td className="py-3 text-right font-mono">{fmt(v.crewCash)}</td>
+                  {discrepancyWriteOff.details.map((row: any) => (
+                    <tr key={row.id} className="border-b border-border/30 hover:bg-accent/20 transition-colors">
+                      <td className="py-3 pr-4 text-xs text-muted-foreground">{new Date(row.date).toLocaleDateString()}</td>
+                      <td className="py-3 pr-4 font-semibold">{row.vanPlateNumber}</td>
+                      <td className="py-3 pr-4">{row.driverName}</td>
+                      <td className="py-3 pr-4 text-xs text-muted-foreground capitalize">{row.type.toLowerCase()}</td>
+                      <td className="py-3 text-right font-mono">{fmt(row.amount)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Van-wise breakdown — skipped when one van is already selected, since
+          it would just repeat the summary cards above as a single row. */}
+      {!isVanScoped && (
+        <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
+          <CardHeader>
+            <CardTitle className="text-sm font-bold uppercase tracking-widest text-muted-foreground">Van-wise Cash &amp; Expense Breakdown</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {vanBreakdown.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-12">No van data for selected period</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-muted-foreground uppercase tracking-widest border-b border-border/50">
+                      <th className="pb-3 pr-4">Van</th>
+                      <th className="pb-3 pr-4 text-right">Collected</th>
+                      <th className="pb-3 pr-4 text-right">Expected</th>
+                      <th className="pb-3 pr-4 text-right">Pending</th>
+                      <th className="pb-3 pr-4 text-right">Expenses</th>
+                      <th className="pb-3 text-right">Crew Cash</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {vanBreakdown.map((v: any) => (
+                      <tr key={v.vanId} className="border-b border-border/30 hover:bg-accent/20 transition-colors">
+                        <td className="py-3 pr-4 font-semibold">{v.plateNumber}</td>
+                        <td className="py-3 pr-4 text-right font-mono text-emerald-500">{fmt(v.cashCollected)}</td>
+                        <td className="py-3 pr-4 text-right font-mono text-muted-foreground">{fmt(v.cashExpected)}</td>
+                        <td className={cn('py-3 pr-4 text-right font-mono', v.pending > 0 && 'text-amber-500')}>{fmt(v.pending)}</td>
+                        <td className="py-3 pr-4 text-right font-mono text-destructive">{fmt(v.expenses)}</td>
+                        <td className="py-3 text-right font-mono">{fmt(v.crewCash)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
