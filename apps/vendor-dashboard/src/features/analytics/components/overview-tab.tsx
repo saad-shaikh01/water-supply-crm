@@ -34,7 +34,11 @@ function StatCard({
           <div>
             <p className="text-xs text-muted-foreground uppercase tracking-widest font-bold flex items-center gap-1">
               {label}
-              {tooltip && <Info className="h-3 w-3 text-muted-foreground/60 shrink-0" title={tooltip} />}
+              {tooltip && (
+                <span title={tooltip} className="inline-flex shrink-0">
+                  <Info className="h-3 w-3 text-muted-foreground/60" />
+                </span>
+              )}
             </p>
             <p className={cn('text-xl font-bold mt-0.5', positive === false && 'text-destructive')}>{value}</p>
           </div>

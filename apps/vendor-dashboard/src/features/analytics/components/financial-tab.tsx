@@ -236,7 +236,7 @@ export function FinancialTab({ from, to, vanId }: { from: string; to: string; va
                 <CartesianGrid strokeDasharray="3 3" stroke={gridColor} horizontal={false} />
                 <XAxis type="number" stroke="#888" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `₨${(v / 1000).toFixed(0)}k`} />
                 <YAxis type="category" dataKey="productName" stroke="#888" fontSize={11} tickLine={false} axisLine={false} width={100} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(v: any, name: string) => (name === 'revenue' ? fmt(v) : v)} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v: any) => fmt(v)} />
                 <Bar dataKey="revenue" fill="#8b5cf6" radius={[0, 4, 4, 0]} barSize={18} name="revenue" />
               </BarChart>
             </ResponsiveContainer>
