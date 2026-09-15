@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useQueryState, parseAsString } from 'nuqs';
 import { Fuel, Landmark, Plus, Receipt } from 'lucide-react';
 import { Button } from '@water-supply-crm/ui';
 import { PageHeader } from '../../../components/shared/page-header';
@@ -13,7 +12,7 @@ import { CashLedgerStatsBar } from '../../../features/van-cash-ledger/components
 import { SetOpeningBalanceDialog } from '../../../features/van-cash-ledger/components/set-opening-balance-dialog';
 import { RecordRemittanceDialog } from '../../../features/van-cash-ledger/components/record-remittance-dialog';
 import { VAN_CASH_LEDGER_PERMISSIONS } from '../../../features/van-cash-ledger/constants';
-import { ExpenseForm } from '../../../features/expenses/components/expense-form';
+import { AddExpenseWizard } from '../../../features/expense-center/wizard/add-expense-wizard';
 import { TopUpFuelCardDialog } from '../../../features/fuel-cards/components/topup-fuel-card-dialog';
 import { FUEL_CARD_PERMISSIONS } from '../../../features/fuel-cards/constants';
 
@@ -26,9 +25,6 @@ export default function CashLedgerPage() {
   const canRemit = useCan(VAN_CASH_LEDGER_PERMISSIONS.remit);
   const canCreateExpense = useCan('expenses:create');
   const canTopUpFuelCard = useCan(FUEL_CARD_PERMISSIONS.topup);
-  // Same van filter the timeline/stats already read — prefills the quick-add
-  // form so an expense logged while looking at one van's ledger lands on it.
-  const [vanId] = useQueryState('vanId', parseAsString.withDefault(''));
 
   return (
     <>
@@ -98,11 +94,7 @@ export default function CashLedgerPage() {
 
       <SetOpeningBalanceDialog open={openingBalanceOpen} onOpenChange={setOpeningBalanceOpen} />
       <RecordRemittanceDialog open={remittanceOpen} onOpenChange={setRemittanceOpen} />
-      <ExpenseForm
-        open={expenseOpen}
-        onOpenChange={setExpenseOpen}
-        defaultVanId={vanId || undefined}
-      />
+      <AddExpenseWizard open={expenseOpen} onOpenChange={setExpenseOpen} />
       <TopUpFuelCardDialog open={fuelTopUpOpen} onOpenChange={setFuelTopUpOpen} />
     </>
   );

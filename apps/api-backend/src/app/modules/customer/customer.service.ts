@@ -443,6 +443,7 @@ export class CustomerService {
           select: {
             id: true,
             balance: true,
+            productId: true,
             product: { select: { id: true, name: true } },
           },
         },
