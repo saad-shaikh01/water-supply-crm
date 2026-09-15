@@ -101,6 +101,13 @@ interface DeliveryRow {
   amountDue: number;
   amountReceived: number;
   runningBalance: number;
+  // Bulk Closed Delivery Repricing — the real row id + eligibility, so the
+  // on-screen statement (customer-detail.tsx) can offer per-row selection.
+  // `trans` above stays a display-only truncated Transaction.id slice; this is
+  // the actual DailySheetItem.id the bulk-reprice endpoint takes.
+  dailySheetItemId: string | null;
+  pricePerBottle: number | null;
+  repriceEligible: boolean;
 }
 
 interface OtherRow {
@@ -222,15 +229,23 @@ export class CustomerStatementPdfService {
       totalBottleAmount += amountDue;
       totalBottles += filledDropped;
 
+      const dsi = t.dailySheetItem;
       deliveryRows.push({
         date: t.createdAt,
         trans: t.id.slice(-6).toUpperCase(),
         btlDelivered: filledDropped,
         emptyPickup: t.emptyReceived ?? 0,
-        bottleBalance: t.dailySheetItem?.bottleBalanceAfter ?? null,
+        bottleBalance: dsi?.bottleBalanceAfter ?? null,
         amountDue,
         amountReceived: paired ? Math.abs(paired.amount ?? 0) : 0,
         runningBalance: runningAfter.get(paired ? paired.id : t.id) ?? running,
+        dailySheetItemId: t.dailySheetItemId ?? null,
+        pricePerBottle: dsi?.pricePerBottle ?? null,
+        repriceEligible:
+          !!dsi &&
+          dsi.dailySheet?.isClosed === true &&
+          !dsi.voidedAt &&
+          (dsi.status === 'COMPLETED' || dsi.status === 'EMPTY_ONLY'),
       });
     }
 

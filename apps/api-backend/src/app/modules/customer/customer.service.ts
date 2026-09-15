@@ -742,7 +742,21 @@ export class CustomerService {
       },
       include: {
         product: { select: { name: true, basePrice: true } },
-        dailySheetItem: { select: { bottleBalanceAfter: true } },
+        // id/pricePerBottle/status/voidedAt/dailySheet.isClosed feed the Bulk
+        // Closed Delivery Repricing "select rows to reprice" UI — buildRows()
+        // derives a repriceEligible flag from these so the frontend never has
+        // to re-derive eligibility rules (the bulk endpoint re-validates
+        // regardless; this is a UX hint only, not the security boundary).
+        dailySheetItem: {
+          select: {
+            id: true,
+            bottleBalanceAfter: true,
+            pricePerBottle: true,
+            status: true,
+            voidedAt: true,
+            dailySheet: { select: { isClosed: true } },
+          },
+        },
       },
       orderBy: { createdAt: 'asc' },
     });

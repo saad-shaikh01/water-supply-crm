@@ -6,6 +6,7 @@ import { DailySheetController } from './daily-sheet.controller';
 import { DailySheetProcessor } from './daily-sheet.processor';
 import { DailySheetPdfService } from './pdf/daily-sheet-pdf.service';
 import { BulkImportService } from './bulk-import.service';
+import { DeliveryRepricingService } from './delivery-repricing.service';
 import { AuditModule } from '../audit/audit.module';
 import { DeliveryIssueModule } from '../delivery-issue/delivery-issue.module';
 import { NotificationsModule } from '../notifications/notifications.module';
@@ -39,7 +40,7 @@ import { VanCashLedgerModule } from '../van-cash-ledger/van-cash-ledger.module';
     VanCashLedgerModule,
   ],
   controllers: [DailySheetController],
-  providers: [DailySheetService, DailySheetProcessor, DailySheetPdfService, BulkImportService],
+  providers: [DailySheetService, DailySheetProcessor, DailySheetPdfService, BulkImportService, DeliveryRepricingService],
   exports: [DailySheetService],
 })
 export class DailySheetModule {}

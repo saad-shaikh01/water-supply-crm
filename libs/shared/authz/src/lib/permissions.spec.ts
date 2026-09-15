@@ -105,7 +105,13 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // History" entry point lives on the existing Products page, not a dedicated
 // route — same reasoning as `crew_cash`/`van_cash_ledger`. No new `:page`, so
 // FROZEN_PAGES is unchanged; +1 resource.
-const FROZEN_TOTAL = 189;
+// 190 = 189 + daily_sheets:reprice — Bulk Closed Delivery Repricing feature
+// (owner-requested 2026-09-15): retroactive rate change on N closed deliveries
+// for one customer, separate from `daily_sheets:correct` (driver-mistake fixes).
+// No new resource, no new `:page` — `daily_sheets` was already navigable. No
+// default preset grants it explicitly; reaches vendors via the vendor_admin/
+// super_admin `*` wildcard only, same as `correct`.
+const FROZEN_TOTAL = 190;
 const FROZEN_PAGES = 30;
 const FROZEN_RESOURCES = 33;
 

@@ -178,6 +178,10 @@ export function isSheetModifiedAfterClose(sheet: {
   return (
     items.some((i) => i.voidedAt != null) ||
     items.some((i) => i.isCorrection && i.correctionAddedAt != null) ||
+    // Bulk Closed Delivery Repricing — a separate marker from isCorrection
+    // above (business rate change, not a driver mistake), but it still means
+    // this item's billed figures no longer match what was frozen at close.
+    items.some((i) => i.isRepriced && i.repricedAt != null) ||
     loads.some((l) => (l.editCount ?? 0) > 0) ||
     (sheet.postCloseExpenseCorrectionCount ?? 0) > 0 ||
     (sheet.postCloseCrewCashCorrectionCount ?? 0) > 0
@@ -193,6 +197,7 @@ export function isSheetModifiedAfterClose(sheet: {
 export const dailySheetItemModifiedOrWhere = [
   { voidedAt: { not: null } },
   { AND: [{ isCorrection: true }, { correctionAddedAt: { not: null } }] },
+  { AND: [{ isRepriced: true }, { repricedAt: { not: null } }] },
 ];
 
 // ── Targeted reload shape ─────────────────────────────────────────────────
@@ -212,6 +217,8 @@ export const SHEET_CASH_RELOAD_INCLUDE = {
       voidedAt: true,
       isCorrection: true,
       correctionAddedAt: true,
+      isRepriced: true,
+      repricedAt: true,
       customer: {
         select: {
           paymentType: true,

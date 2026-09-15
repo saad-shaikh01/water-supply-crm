@@ -24,11 +24,11 @@ interface Row {
 
 const MATRIX: Record<RoleKey, Row> = {
   super_admin: {
-    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'settings:update', 'whatsapp:manage', 'payroll:period_lock'],
+    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'daily_sheets:reprice', 'settings:update', 'whatsapp:manage', 'payroll:period_lock'],
     deny: [],
   },
   vendor_admin: {
-    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'settings:update', 'whatsapp:manage', 'inventory:write_off', 'payroll:period_lock', 'payroll:view_all', 'payroll:attendance_view', 'payroll:attendance_mark', 'crew_cash:approve', 'crew_cash:view_all', 'customers:deactivate', 'customers:force_deactivate', 'customers:force_deactivate_bottles'],
+    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'daily_sheets:reprice', 'settings:update', 'whatsapp:manage', 'inventory:write_off', 'payroll:period_lock', 'payroll:view_all', 'payroll:attendance_view', 'payroll:attendance_mark', 'crew_cash:approve', 'crew_cash:view_all', 'customers:deactivate', 'customers:force_deactivate', 'customers:force_deactivate_bottles'],
     deny: [],
   },
   manager: {
@@ -61,6 +61,10 @@ const MATRIX: Record<RoleKey, Row> = {
       // by default — Manager can be granted it explicitly but does not hold it.
       'customers:force_deactivate',
       'customers:force_deactivate_bottles',
+      // Bulk Closed Delivery Repricing (owner-requested 2026-09-15) is ADMIN-only
+      // by default, same as daily_sheets:correct above — Manager can be granted
+      // it explicitly but does not hold it.
+      'daily_sheets:reprice',
     ],
   },
   accountant: {
@@ -90,7 +94,7 @@ const MATRIX: Record<RoleKey, Row> = {
     ],
     deny: [
       'dashboard:view', 'customers:update', 'customers:view_financial', 'customers:delete', 'daily_sheets:confirm_crew',
-      'daily_sheets:manage_edit_locks', 'daily_sheets:export', 'daily_sheets:correct', 'tracking:view', 'expenses:view',
+      'daily_sheets:manage_edit_locks', 'daily_sheets:export', 'daily_sheets:correct', 'daily_sheets:reprice', 'tracking:view', 'expenses:view',
       'payments:approve', 'damage_cases:review', 'roles:view', 'payroll:view_all', 'payroll:ledger_create',
       'payroll:attendance_mark', 'payroll:period_lock', 'crew_cash:approve', 'crew_cash:view_all', 'daily_sheets:move_customer', 'daily_sheets:void_delivery',
       'daily_sheets:edit_closed_trip', 'daily_sheets:record_walk_in', 'daily_sheets:edit_closed_expense',

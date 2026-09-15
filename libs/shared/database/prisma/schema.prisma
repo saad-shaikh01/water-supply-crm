@@ -367,6 +367,11 @@ model Vendor {
   // Fuel Card Wallet (owner-requested 2026-09-15) — office -> fuel card top-ups
   fuelCards        FuelCard[]
   fuelCardTopUps   FuelCardTopUp[]
+
+  // Bulk Closed Delivery Repricing (owner-requested 2026-09-15) — retroactive
+  // rate change on N closed deliveries for one customer, separate from the
+  // driver-mistake Correction Entry flow.
+  deliveryRepricingBatches DeliveryRepricingBatch[]
 }
 
 model User {
@@ -412,6 +417,7 @@ model User {
   conversationReads        ConversationRead[]       @relation("ConversationReader")
   createdWarehouseTx       WarehouseTransaction[]   @relation("WarehouseTxCreatedBy")
   createdRepairBatches     RepairBatch[]            @relation("RepairBatchCreatedBy")
+  createdDeliveryRepricingBatches DeliveryRepricingBatch[] @relation("DeliveryRepricingBatchCreatedBy")
   crewAssignments          DailySheetCrew[]         @relation("CrewMember")
   vanDefaultCrew           VanDefaultCrew[]         @relation("VanDefaultCrewMember")
   confirmedCrewSheets      DailySheet[]             @relation("CrewConfirmedBy")
@@ -617,6 +623,7 @@ model Customer {
   damageCases          DamageCase[]
   conversations        Conversation[]
   deliveryItemMoveLogs DeliveryItemMoveLog[]
+  deliveryRepricingBatches DeliveryRepricingBatch[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1031,6 +1038,16 @@ model DailySheetItem {
   correctionAddedAt DateTime? // timestamp when correction was recorded
   correctionNote    String? // mandatory reason (required by service layer)
 
+  // Bulk Closed Delivery Repricing — deliberately SEPARATE from isCorrection/
+  // correctionNote above (those mean "this was a mistake"; a reprice is a
+  // management-approved business rate change, not an error). Set by
+  // DeliveryRepricingService.bulkReprice(), never by correctClosedDelivery.
+  // Also feeds isSheetModifiedAfterClose() in sheet-cash.util.ts so the
+  // post-close divergence banner/hybrid cash rollup pick up repriced sheets
+  // the same way they already do for corrected ones.
+  isRepriced Boolean   @default(false)
+  repricedAt DateTime?
+
   // Void Delivery — set atomically with status=VOIDED by voidDelivery(). The
   // ledger reversal (all-zero repost) runs only when the pre-void status was
   // COMPLETED/EMPTY_ONLY. voidReason is mandatory; voidNote is mandatory only
@@ -1057,6 +1074,10 @@ model DailySheetItem {
   // move; this gives both the source and destination sheet a direct, indexed
   // way to list their moved-out/moved-in items without parsing changes JSON.
   moveLogs                   DeliveryItemMoveLog[]
+  // Bulk Closed Delivery Repricing footprint — one row per bulkReprice() batch
+  // this item was included in (normally at most one, but not enforced globally
+  // in case a later batch legitimately re-adjusts an earlier reprice).
+  repricingItems             DeliveryRepricingItem[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2205,6 +2226,64 @@ model RepairBatch {
 
   @@index([vendorId])
   @@index([vendorId, status])
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Bulk Closed Delivery Repricing (owner-requested 2026-09-15)
+//
+// A management-approved retroactive rate change applied to several already-
+// CLOSED DailySheetItem deliveries for one customer (e.g. a customer refused
+// a vendor-wide rate increase and was approved to stay on the old rate after
+// several deliveries already went out at the new one). Deliberately a separate
+// entity/flow from the single-item "Correct Closed-Sheet Delivery"
+// (correctClosedDelivery / isCorrection / correctionNote) — that flow is for
+// driver mistakes; this one is a business decision and needs its own durable,
+// queryable audit trail rather than being buried in generic AuditLog JSON.
+// Quantities are never touched, only pricePerBottle — see
+// DeliveryRepricingService.bulkReprice(), which reuses LedgerService's
+// idempotent-repost delta engine unmodified.
+// ──────────────────────────────────────────────────────────────────────────────
+model DeliveryRepricingBatch {
+  id                String   @id @default(uuid())
+  vendorId          String
+  vendor            Vendor   @relation(fields: [vendorId], references: [id])
+  customerId        String
+  customer          Customer @relation(fields: [customerId], references: [id])
+  newPricePerBottle Float
+  reason            String // mandatory management-approval note, min 3 chars (service-layer enforced)
+  itemCount         Int
+  totalDifference   Float // Σ (newAmount - oldAmount) across all items in the batch
+
+  createdById   String?
+  createdBy     User?    @relation("DeliveryRepricingBatchCreatedBy", fields: [createdById], references: [id])
+  createdByName String? // snapshot, like AuditLog.userName — survives the user being renamed/removed
+
+  createdAt DateTime @default(now())
+
+  items DeliveryRepricingItem[]
+
+  @@index([vendorId, customerId])
+  @@index([vendorId, createdAt])
+}
+
+model DeliveryRepricingItem {
+  id                String                 @id @default(uuid())
+  batchId           String
+  batch             DeliveryRepricingBatch @relation(fields: [batchId], references: [id])
+  dailySheetItemId  String
+  dailySheetItem    DailySheetItem         @relation(fields: [dailySheetItemId], references: [id])
+  dailySheetId      String // denormalized — cheap per-sheet reporting without a join through dailySheetItem
+  quantity          Int // filledDropped snapshot at repricing time (unchanged by design)
+  oldPricePerBottle Float
+  newPricePerBottle Float
+  oldAmount         Float
+  newAmount         Float
+  difference        Float // newAmount - oldAmount
+
+  createdAt DateTime @default(now())
+
+  @@unique([batchId, dailySheetItemId])
+  @@index([dailySheetItemId])
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

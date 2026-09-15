@@ -252,6 +252,12 @@ export interface StatementDeliveryRow {
   amountDue: number;
   amountReceived: number;
   runningBalance: number;
+  // Bulk Closed Delivery Repricing — the real DailySheetItem id (trans above
+  // is a display-only truncated Transaction.id slice) + server-computed
+  // eligibility (closed sheet, not voided, terminal status).
+  dailySheetItemId: string | null;
+  pricePerBottle: number | null;
+  repriceEligible: boolean;
 }
 
 export interface StatementOtherRow {

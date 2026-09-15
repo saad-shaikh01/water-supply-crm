@@ -35,7 +35,9 @@ import type { CustomerDetail as CustomerDetailType, CustomerConsumption, Custome
 import { CustomerForm } from './customer-form';
 import { EditLocationDialog } from './dialogs/edit-location-dialog';
 import { CustomPriceDialog } from './dialogs/custom-price-dialog';
+import { BulkRepriceDialog } from './dialogs/bulk-reprice-dialog';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
+import { useCan } from '../../authz/hooks/use-can';
 
 // ---------------------------------------------------------------------------
 // Consumption range picker (local — does NOT use nuqs to avoid clashing with
@@ -239,6 +241,11 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
   const [editOpen, setEditOpen] = useState(false);
   const [customPriceOpen, setCustomPriceOpen] = useState(false);
   const [locationOpen, setLocationOpen] = useState(false);
+  // Bulk Closed Delivery Repricing — row selection lives on Delivery History
+  // (below); cleared whenever the statement period or customer changes.
+  const [bulkRepriceOpen, setBulkRepriceOpen] = useState(false);
+  const [selectedRepriceIds, setSelectedRepriceIds] = useState<Set<string>>(new Set());
+  const canBulkReprice = useCan('daily_sheets:reprice');
   const [consumptionRange, setConsumptionRange] = useState<ConsumptionRange>(() => {
     const today = new Date();
     const from = new Date(today);
@@ -270,6 +277,12 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
   const [statementPage, setStatementPage] = useState(1);
   const { data: statementData, isLoading: isLoadingStatement, isError: isStatementError } =
     useCustomerStatement(customerId, { month: statementFrom, toMonth: statementTo });
+
+  // Bulk Closed Delivery Repricing — selection is period-scoped; a new
+  // period/customer means different rows, so drop any stale selection.
+  useEffect(() => {
+    setSelectedRepriceIds(new Set());
+  }, [customerId, statementFrom, statementTo]);
 
   // Any change to the selected month/range resets to the first page of rows.
   useEffect(() => {
@@ -925,15 +938,32 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
 
                         {/* Delivery history */}
                         <div>
-                          <div className="flex items-center justify-between gap-2 mb-2">
-                            <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">Delivery History</p>
-                            <p className="text-[10px] text-muted-foreground font-medium">{s.period}</p>
+                          <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                            <div className="flex items-center gap-2">
+                              <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">Delivery History</p>
+                              <p className="text-[10px] text-muted-foreground font-medium">{s.period}</p>
+                            </div>
+                            {/* Bulk Closed Delivery Repricing — appears once ≥1 eligible
+                                row is checked; permission-gated on the frontend (the
+                                backend re-validates regardless). */}
+                            {canBulkReprice && selectedRepriceIds.size > 0 && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 rounded-lg text-[11px] font-bold gap-1.5"
+                                onClick={() => setBulkRepriceOpen(true)}
+                              >
+                                <Tag className="h-3 w-3" />
+                                Adjust Delivery Rates ({selectedRepriceIds.size})
+                              </Button>
+                            )}
                           </div>
                           <div className="border border-border/50 rounded-2xl overflow-hidden">
                             <div className="overflow-x-auto">
                               <table className="w-full text-xs min-w-[640px]">
                                 <thead>
                                   <tr className="bg-muted/30 text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
+                                    {canBulkReprice && <th className="px-3 py-2 w-8" />}
                                     <th className="text-left px-3 py-2">Date</th>
                                     <th className="text-left px-3 py-2">Trans#</th>
                                     <th className="text-right px-3 py-2">Btl Del</th>
@@ -947,7 +977,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                                 <tbody className="divide-y divide-border/40">
                                   {pageSafe === 1 && (
                                     <tr className="bg-muted/10">
-                                      <td className="px-3 py-2 italic text-muted-foreground" colSpan={5}>Previous Balance</td>
+                                      <td className="px-3 py-2 italic text-muted-foreground" colSpan={canBulkReprice ? 6 : 5}>Previous Balance</td>
                                       <td className="px-3 py-2 text-right font-mono font-bold">{fmtRs(s.openingBalance)}</td>
                                       <td className="px-3 py-2" />
                                       <td className="px-3 py-2 text-right font-mono font-bold">{fmtRs(s.openingBalance)}</td>
@@ -955,6 +985,25 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                                   )}
                                   {pageRows.map((r, idx) => (
                                     <tr key={start + idx} className="hover:bg-accent/20 transition-colors">
+                                      {canBulkReprice && (
+                                        <td className="px-3 py-2">
+                                          {r.repriceEligible && r.dailySheetItemId && (
+                                            <input
+                                              type="checkbox"
+                                              className="h-3.5 w-3.5 rounded border-border/50 accent-primary"
+                                              checked={selectedRepriceIds.has(r.dailySheetItemId)}
+                                              onChange={(e) => {
+                                                const id = r.dailySheetItemId!;
+                                                setSelectedRepriceIds((prev) => {
+                                                  const next = new Set(prev);
+                                                  if (e.target.checked) next.add(id); else next.delete(id);
+                                                  return next;
+                                                });
+                                              }}
+                                            />
+                                          )}
+                                        </td>
+                                      )}
                                       <td className="px-3 py-2 whitespace-nowrap">{fmtStatementDate(r.date)}</td>
                                       <td className="px-3 py-2 font-mono text-muted-foreground">{r.trans}</td>
                                       <td className="px-3 py-2 text-right font-mono">{r.btlDelivered}</td>
@@ -969,14 +1018,14 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                                   ))}
                                   {s.deliveryRows.length === 0 && (
                                     <tr>
-                                      <td className="px-3 py-6 text-center text-muted-foreground" colSpan={8}>
+                                      <td className="px-3 py-6 text-center text-muted-foreground" colSpan={canBulkReprice ? 9 : 8}>
                                         No deliveries recorded for this period.
                                       </td>
                                     </tr>
                                   )}
                                   {pageSafe === totalPages && s.deliveryRows.length > 0 && (
                                     <tr className="bg-muted/30 font-bold border-t-2 border-border">
-                                      <td className="px-3 py-2" colSpan={2}>TOTAL</td>
+                                      <td className="px-3 py-2" colSpan={canBulkReprice ? 3 : 2}>TOTAL</td>
                                       <td className="px-3 py-2 text-right font-mono">{s.totals.totalBtl}</td>
                                       <td className="px-3 py-2 text-right font-mono">{s.totals.totalEmpty}</td>
                                       <td className="px-3 py-2" />
@@ -1283,6 +1332,22 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
         onClose={() => setCustomPriceOpen(false)}
         customerId={customerId}
       />
+
+      {canBulkReprice && (
+        <BulkRepriceDialog
+          open={bulkRepriceOpen}
+          onClose={() => { setBulkRepriceOpen(false); setSelectedRepriceIds(new Set()); }}
+          customerId={customerId}
+          rows={(statementData?.deliveryRows ?? [])
+            .filter((r) => r.dailySheetItemId && r.pricePerBottle != null && selectedRepriceIds.has(r.dailySheetItemId))
+            .map((r) => ({
+              dailySheetItemId: r.dailySheetItemId as string,
+              date: r.date,
+              btlDelivered: r.btlDelivered,
+              pricePerBottle: r.pricePerBottle as number,
+            }))}
+        />
+      )}
 
       <CustomerForm
         open={editOpen}

@@ -160,6 +160,14 @@ export const PERMISSION_CATALOG = {
       // Analogous to `edit_closed_trip`; granted to Admin + Manager. Existing
       // vendors get it via PRESET_DRIFT_BACKFILLS.manager.
       'edit_closed_expense',
+      // Bulk Closed Delivery Repricing (owner-requested 2026-09-15): retroactively
+      // change the rate on N already-closed deliveries for one customer after a
+      // management-approved rate exception (e.g. a customer refused a vendor-wide
+      // rate increase). Deliberately a separate permission from `correct` — a
+      // higher-blast-radius bulk operation across possibly many sheets/dates, not
+      // a single driver-mistake fix. Admin-only via the super_admin/vendor_admin
+      // wildcard, same as `correct` — not granted to any named preset.
+      'reprice',
     ],
   },
   vans: {

@@ -20,6 +20,7 @@ import { UserRole } from '@prisma/client';
 import { DailySheetService } from './daily-sheet.service';
 import { DailySheetPdfService } from './pdf/daily-sheet-pdf.service';
 import { BulkImportService } from './bulk-import.service';
+import { DeliveryRepricingService } from './delivery-repricing.service';
 import { StorageService } from '../../common/storage/storage.service';
 import { BulkImportConfirmDto } from './dto/bulk-import-confirm.dto';
 import { GlobalImportConfirmDto } from './dto/global-import-confirm.dto';
@@ -41,6 +42,7 @@ import { RecordWalkInDeliveryDto } from './dto/record-walk-in-delivery.dto';
 import { MoveDeliveryItemsDto } from './dto/move-delivery-items.dto';
 import { VoidDeliveryDto } from './dto/void-delivery.dto';
 import { CorrectDeliveryDto } from './dto/correct-delivery.dto';
+import { BulkRepriceDeliveriesDto } from './dto/bulk-reprice-deliveries.dto';
 import { UnlockEditDto } from './dto/unlock-edit.dto';
 import { RejectCloseDto } from './dto/reject-close.dto';
 import { CloseSheetDto } from './dto/close-sheet.dto';
@@ -62,6 +64,7 @@ export class DailySheetController {
     private readonly pdfService: DailySheetPdfService,
     private readonly bulkImportService: BulkImportService,
     private readonly storage: StorageService,
+    private readonly deliveryRepricingService: DeliveryRepricingService,
   ) {}
 
   // ── Static routes MUST come before /:id ──────────────────────────────
@@ -288,6 +291,20 @@ export class DailySheetController {
     @Body() dto: CorrectDeliveryDto,
   ) {
     return this.dailySheetService.correctClosedDelivery(user, id, dto);
+  }
+
+  // Bulk Closed Delivery Repricing — retroactive rate change on N closed
+  // deliveries for one customer, management-approved. Deliberately a
+  // SEPARATE flow/permission from Correction Entry (`daily_sheets:correct`,
+  // driver-mistake fixes) — see delivery-repricing.service.ts. Static
+  // 'bulk-reprice' segment under 'items/'; no bare @Post('items/:id') exists
+  // in this controller, so there's no ordering conflict, but it's declared
+  // here for readability alongside the other items/ static routes.
+  @Post('items/bulk-reprice')
+  @RequirePermissions('daily_sheets:reprice')
+  @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
+  bulkRepriceClosedDeliveries(@CurrentUser() user: AuthUser, @Body() dto: BulkRepriceDeliveriesDto) {
+    return this.deliveryRepricingService.bulkReprice(user, dto);
   }
 
   @Patch('items/:id')
