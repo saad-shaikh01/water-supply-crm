@@ -212,7 +212,7 @@ interface SheetDetailProps {
 // 'moved_out' is NOT a status filter over `items` like the other four — it's
 // a completely separate source (data.movedOutLogs), handled outside this
 // function; see movedOutItems/tabFilter's call sites below.
-type TabKey = 'all' | 'pending' | 'completed' | 'issues' | 'moved_out' | 'voided';
+type TabKey = 'all' | 'pending' | 'completed' | 'issues' | 'moved_out' | 'voided' | 'needs_ack';
 type SortMode = 'sequence' | 'nearest' | 'customerCode';
 
 const ITEMS_PER_PAGE = 20;
@@ -223,6 +223,11 @@ function tabFilter(tab: TabKey, item: DeliveryItem): boolean {
     case 'completed': return item.status === 'COMPLETED' || item.status === 'EMPTY_ONLY';
     case 'issues': return item.status === 'RESCHEDULED' || item.status === 'CANCELLED' || item.status === 'NOT_AVAILABLE';
     case 'voided': return item.status === 'VOIDED';
+    // Deliveries actually blocked right now by an unacknowledged requiresAck
+    // instruction (same gate delivery-items-list.tsx's canRecord enforces) —
+    // once delivered/voided the delivery itself isn't "blocked" anymore even
+    // if a newer instruction later raises pendingAckCount again.
+    case 'needs_ack': return item.status === 'PENDING' && (item.pendingAckCount ?? 0) > 0;
     case 'moved_out': return false; // never matched here — moved_out bypasses this pipeline entirely
     // 'all' — voided stops are struck from the record, so they leave the default list
     // and only appear under their own dedicated tab.

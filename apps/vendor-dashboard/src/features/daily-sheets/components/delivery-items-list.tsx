@@ -27,7 +27,7 @@ import { DeliveryItemHistoryDialog } from './delivery-item-history-dialog';
 // paginatedItems/filteredItems the same as any other tab so this component
 // never needs to know the difference — see isMovedOutView below for the one
 // thing it DOES need to know (read-only rendering).
-type TabKey = 'all' | 'pending' | 'completed' | 'issues' | 'moved_out' | 'voided';
+type TabKey = 'all' | 'pending' | 'completed' | 'issues' | 'moved_out' | 'voided' | 'needs_ack';
 
 const CATEGORY_LABELS: Record<string, string> = {
   CUSTOMER_NOT_HOME: 'Customer Not Home',
@@ -461,13 +461,16 @@ export function DeliveryItemsList({
       </div>
 
       <Tabs value={activeTab} onValueChange={onTabChange}>
-        {/* Moved Out / Voided only take a slot when this sheet actually has any —
-            most sheets never do, so a permanent always-empty extra tab would
-            just be clutter. */}
+        {/* Needs Ack / Moved Out / Voided only take a slot when this sheet actually
+            has any — most sheets never do, so a permanent always-empty extra tab
+            would just be clutter. */}
         {(() => {
-          const extraTabs = (tabCount('moved_out') > 0 ? 1 : 0) + (tabCount('voided') > 0 ? 1 : 0);
+          const extraTabs =
+            (tabCount('needs_ack') > 0 ? 1 : 0) +
+            (tabCount('moved_out') > 0 ? 1 : 0) +
+            (tabCount('voided') > 0 ? 1 : 0);
           const gridColsClass =
-            extraTabs === 2 ? 'grid-cols-6' : extraTabs === 1 ? 'grid-cols-5' : 'grid-cols-4';
+            extraTabs === 3 ? 'grid-cols-7' : extraTabs === 2 ? 'grid-cols-6' : extraTabs === 1 ? 'grid-cols-5' : 'grid-cols-4';
           return (
             <TabsList className={cn('w-full grid h-10', gridColsClass)}>
               <TabsTrigger value="all" className="text-xs font-bold">
@@ -482,6 +485,11 @@ export function DeliveryItemsList({
               <TabsTrigger value="issues" className="text-xs font-bold">
                 Issues <span className="ml-1 text-[10px] opacity-60">({tabCount('issues')})</span>
               </TabsTrigger>
+              {tabCount('needs_ack') > 0 && (
+                <TabsTrigger value="needs_ack" className="text-xs font-bold">
+                  Needs Ack <span className="ml-1 text-[10px] opacity-60">({tabCount('needs_ack')})</span>
+                </TabsTrigger>
+              )}
               {tabCount('moved_out') > 0 && (
                 <TabsTrigger value="moved_out" className="text-xs font-bold">
                   Moved Out <span className="ml-1 text-[10px] opacity-60">({tabCount('moved_out')})</span>
