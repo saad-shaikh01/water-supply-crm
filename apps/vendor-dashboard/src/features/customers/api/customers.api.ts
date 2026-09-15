@@ -47,4 +47,8 @@ export const customersApi = {
     apiClient.post('/customers/schedule/bulk-update', data),
   bulkDeactivate: (customerIds: string[], force = false) =>
     apiClient.post('/customers/bulk-deactivate', { customerIds, force }),
+  adjustBottleWallet: (
+    customerId: string,
+    data: { productId: string; mode: 'DELTA' | 'SET'; delta?: number; newBalance?: number; reason: string },
+  ) => apiClient.patch(`/customers/${customerId}/bottle-wallet/adjust`, data),
 };

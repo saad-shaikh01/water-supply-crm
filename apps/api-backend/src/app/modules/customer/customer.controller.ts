@@ -21,6 +21,7 @@ import { BulkPricePreviewDto, BulkPriceUpdateDto } from './dto/bulk-price-update
 import { BulkScheduleUpdateDto } from './dto/bulk-schedule-update.dto';
 import { BulkDeactivateDto } from './dto/bulk-deactivate.dto';
 import { DeactivateCustomerDto } from './dto/deactivate-customer.dto';
+import { AdjustBottleWalletDto } from './dto/adjust-bottle-wallet.dto';
 import { StatementQueryDto } from './dto/statement-query.dto';
 import { ScheduleQueryDto } from './dto/schedule-query.dto';
 import { ConsumptionQueryDto } from './dto/consumption-query.dto';
@@ -248,6 +249,23 @@ export class CustomerController {
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   reactivate(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.customerService.reactivate(user.vendorId, id);
+  }
+
+  /**
+   * PATCH /customers/:id/bottle-wallet/adjust — ADMIN-only inventory correction
+   * of a customer's BottleWallet.balance for one product (DELTA +/- or SET
+   * exact). Never touches financialBalance, Transaction/Payment/Expense/Ledger,
+   * or any Daily Sheet/Delivery row.
+   */
+  @Patch(':id/bottle-wallet/adjust')
+  @RequirePermissions('customers:bottle_wallet_adjust')
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
+  adjustBottleWallet(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: AdjustBottleWalletDto,
+  ) {
+    return this.customerService.adjustBottleWallet(user.vendorId, id, dto, user);
   }
 
   /** GET /customers/:id/consumption — bottle consumption stats (financial/analytics). */

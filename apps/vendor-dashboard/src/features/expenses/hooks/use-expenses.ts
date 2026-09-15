@@ -66,6 +66,12 @@ export const useCreateExpense = () => {
     mutationFn: (data: Record<string, unknown>) => expensesApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [QUERY_KEY] });
+      // A standalone (non-sheet) cash-paid expense feeds straight into the
+      // van's running cash-out total (see van-cash-ledger.service.ts
+      // collectCashOutTotal) — without this, the Cash Ledger page's own
+      // "Add Expense" quick action wouldn't reflect the new balance until a
+      // manual reload.
+      queryClient.invalidateQueries({ queryKey: ['van-cash-ledger'] });
       toast.success('Expense recorded');
     },
     onError: () => toast.error('Failed to record expense'),

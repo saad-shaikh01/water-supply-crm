@@ -30,6 +30,7 @@ export const ACTION_LABELS: Record<string, string> = {
   assign: 'Assign',
   manage_overrides: 'Manage overrides',
   manage_portal: 'Manage portal account',
+  bottle_wallet_adjust: 'Adjust bottle wallet (inventory correction)',
   approve: 'Approve',
   reject: 'Reject',
   dispatch: 'Dispatch',

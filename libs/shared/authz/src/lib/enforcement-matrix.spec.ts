@@ -28,7 +28,7 @@ const MATRIX: Record<RoleKey, Row> = {
     deny: [],
   },
   vendor_admin: {
-    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'settings:update', 'whatsapp:manage', 'inventory:write_off', 'payroll:period_lock', 'payroll:view_all', 'payroll:attendance_view', 'payroll:attendance_mark', 'crew_cash:approve', 'crew_cash:view_all', 'customers:deactivate', 'customers:force_deactivate', 'customers:force_deactivate_bottles'],
+    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'settings:update', 'whatsapp:manage', 'inventory:write_off', 'payroll:period_lock', 'payroll:view_all', 'payroll:attendance_view', 'payroll:attendance_mark', 'crew_cash:approve', 'crew_cash:view_all', 'customers:deactivate', 'customers:force_deactivate', 'customers:force_deactivate_bottles', 'customers:bottle_wallet_adjust'],
     deny: [],
   },
   manager: {
@@ -61,6 +61,9 @@ const MATRIX: Record<RoleKey, Row> = {
       // by default — Manager can be granted it explicitly but does not hold it.
       'customers:force_deactivate',
       'customers:force_deactivate_bottles',
+      // Bottle Wallet Adjustment (owner-requested 2026-09-15) is ADMIN-only by
+      // default — Manager can be granted it explicitly but does not hold it.
+      'customers:bottle_wallet_adjust',
     ],
   },
   accountant: {
@@ -76,7 +79,7 @@ const MATRIX: Record<RoleKey, Row> = {
   },
   salesman: {
     allow: ['dashboard:view', 'customers:view', 'customers:create', 'customers:update', 'customers:update_location', 'customers:deactivate', 'customers:restore', 'orders:view', 'daily_sheets:update', 'products:view', 'crew_cash:create'],
-    deny: ['customers:view_financial', 'customers:force_deactivate', 'customers:force_deactivate_bottles', 'customers:delete', 'orders:approve', 'payments:approve', 'daily_sheets:confirm_crew', 'inventory:add_stock', 'roles:update', 'payroll:view_all', 'payroll:attendance_mark', 'crew_cash:approve', 'crew_cash:view_all', 'daily_sheets:move_customer', 'daily_sheets:void_delivery', 'daily_sheets:edit_closed_trip', 'daily_sheets:record_walk_in', 'daily_sheets:edit_closed_expense'],
+    deny: ['customers:view_financial', 'customers:force_deactivate', 'customers:force_deactivate_bottles', 'customers:bottle_wallet_adjust', 'customers:delete', 'orders:approve', 'payments:approve', 'daily_sheets:confirm_crew', 'inventory:add_stock', 'roles:update', 'payroll:view_all', 'payroll:attendance_mark', 'crew_cash:approve', 'crew_cash:view_all', 'daily_sheets:move_customer', 'daily_sheets:void_delivery', 'daily_sheets:edit_closed_trip', 'daily_sheets:record_walk_in', 'daily_sheets:edit_closed_expense'],
   },
   loader: {
     allow: ['dashboard:view', 'inventory:view', 'inventory:add_stock', 'daily_sheets:load_out', 'daily_sheets:check_in', 'vans:view'],

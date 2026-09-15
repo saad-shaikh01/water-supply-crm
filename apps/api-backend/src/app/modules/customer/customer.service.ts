@@ -25,6 +25,7 @@ import {
 } from './dto/bulk-price-update.dto';
 import { BulkScheduleUpdateDto } from './dto/bulk-schedule-update.dto';
 import { BulkDeactivateDto } from './dto/bulk-deactivate.dto';
+import { AdjustBottleWalletDto, BottleWalletAdjustmentMode } from './dto/adjust-bottle-wallet.dto';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { paginate } from '../../common/helpers/paginate';
 import { CustomerStatementPdfService } from './pdf/customer-statement-pdf.service';
@@ -1064,6 +1065,94 @@ export class CustomerService {
     }
     await this.audit.log({ vendorId, action: 'REACTIVATE', entity: 'Customer', entityId: id });
     return updated;
+  }
+
+  /**
+   * Pure inventory correction: overwrite/nudge a customer's `BottleWallet.balance`
+   * for one product to fix a miscount (theft, breakage, data-entry error). Writes
+   * ONLY `BottleWallet.balance` inside a single transaction — never a Transaction,
+   * Payment, Expense, Ledger, Daily Sheet or Delivery row, and never touches
+   * `Customer.financialBalance` — so it cannot move any financial figure or
+   * analytics. Gated by `customers:bottle_wallet_adjust` (ADMIN-only; see
+   * permissions.ts). Every call is audited with the old/new balance, mode,
+   * delta and mandatory reason.
+   */
+  async adjustBottleWallet(
+    vendorId: string,
+    customerId: string,
+    dto: AdjustBottleWalletDto,
+    actor: AuthUser,
+  ) {
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: customerId, vendorId },
+      select: { id: true, name: true },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const product = await this.prisma.product.findFirst({
+      where: { id: dto.productId, vendorId },
+      select: { id: true, name: true },
+    });
+    if (!product) throw new NotFoundException('Product not found');
+
+    const { oldBalance, newBalance } = await this.prisma.$transaction(async (tx) => {
+      const wallet = await tx.bottleWallet.findUnique({
+        where: { customerId_productId: { customerId, productId: dto.productId } },
+        select: { balance: true },
+      });
+      const oldBalance = wallet?.balance ?? 0;
+      const newBalance =
+        dto.mode === BottleWalletAdjustmentMode.SET ? dto.newBalance! : oldBalance + (dto.delta ?? 0);
+
+      if (newBalance < 0) {
+        throw new BadRequestException(
+          `Resulting balance cannot be negative (current balance is ${oldBalance}).`,
+        );
+      }
+
+      const updated = await tx.bottleWallet.upsert({
+        where: { customerId_productId: { customerId, productId: dto.productId } },
+        create: { customerId, productId: dto.productId, balance: newBalance },
+        update: { balance: newBalance },
+        select: { balance: true },
+      });
+
+      return { oldBalance, newBalance: updated.balance };
+    });
+
+    await this.audit.log({
+      vendorId,
+      userId: actor.userId,
+      userName: actor.name,
+      action: 'BOTTLE_WALLET_ADJUSTED',
+      entity: 'BottleWallet',
+      entityId: customerId,
+      changes: {
+        before: { balance: oldBalance },
+        after: {
+          balance: newBalance,
+          customerId,
+          customerName: customer.name,
+          productId: product.id,
+          productName: product.name,
+          mode: dto.mode,
+          delta: dto.mode === BottleWalletAdjustmentMode.DELTA ? dto.delta : undefined,
+          reason: dto.reason,
+        },
+      },
+    });
+
+    await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
+
+    return {
+      customerId,
+      productId: product.id,
+      productName: product.name,
+      oldBalance,
+      newBalance,
+      mode: dto.mode,
+      reason: dto.reason,
+    };
   }
 
   async getConsumptionStats(vendorId: string, customerId: string, query: ConsumptionQueryDto) {

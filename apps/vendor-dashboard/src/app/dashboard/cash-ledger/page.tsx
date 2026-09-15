@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Landmark, Plus } from 'lucide-react';
+import { useQueryState, parseAsString } from 'nuqs';
+import { Fuel, Landmark, Plus, Receipt } from 'lucide-react';
 import { Button } from '@water-supply-crm/ui';
 import { PageHeader } from '../../../components/shared/page-header';
 import { DateRangePicker } from '../../../components/shared/date-range-picker';
@@ -12,12 +13,22 @@ import { CashLedgerStatsBar } from '../../../features/van-cash-ledger/components
 import { SetOpeningBalanceDialog } from '../../../features/van-cash-ledger/components/set-opening-balance-dialog';
 import { RecordRemittanceDialog } from '../../../features/van-cash-ledger/components/record-remittance-dialog';
 import { VAN_CASH_LEDGER_PERMISSIONS } from '../../../features/van-cash-ledger/constants';
+import { ExpenseForm } from '../../../features/expenses/components/expense-form';
+import { TopUpFuelCardDialog } from '../../../features/fuel-cards/components/topup-fuel-card-dialog';
+import { FUEL_CARD_PERMISSIONS } from '../../../features/fuel-cards/constants';
 
 export default function CashLedgerPage() {
   const [openingBalanceOpen, setOpeningBalanceOpen] = useState(false);
   const [remittanceOpen, setRemittanceOpen] = useState(false);
+  const [expenseOpen, setExpenseOpen] = useState(false);
+  const [fuelTopUpOpen, setFuelTopUpOpen] = useState(false);
   const canManage = useCan(VAN_CASH_LEDGER_PERMISSIONS.manage);
   const canRemit = useCan(VAN_CASH_LEDGER_PERMISSIONS.remit);
+  const canCreateExpense = useCan('expenses:create');
+  const canTopUpFuelCard = useCan(FUEL_CARD_PERMISSIONS.topup);
+  // Same van filter the timeline/stats already read — prefills the quick-add
+  // form so an expense logged while looking at one van's ledger lands on it.
+  const [vanId] = useQueryState('vanId', parseAsString.withDefault(''));
 
   return (
     <>
@@ -25,8 +36,28 @@ export default function CashLedgerPage() {
         title="Cash Ledger"
         description="Every cash handover and cash-paid expense per van, in one running balance"
         action={
-          canManage || canRemit ? (
+          canManage || canRemit || canCreateExpense || canTopUpFuelCard ? (
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+              {canCreateExpense && (
+                <Button
+                  variant="outline"
+                  onClick={() => setExpenseOpen(true)}
+                  className="rounded-full px-4 sm:px-5 py-3 sm:py-6 h-auto transition-all hover:scale-105 active:scale-95 flex items-center gap-2 text-sm sm:text-base font-bold w-full sm:w-auto justify-center"
+                >
+                  <Receipt className="h-4 w-4 sm:h-5 sm:w-5" />
+                  Add Expense
+                </Button>
+              )}
+              {canTopUpFuelCard && (
+                <Button
+                  variant="outline"
+                  onClick={() => setFuelTopUpOpen(true)}
+                  className="rounded-full px-4 sm:px-5 py-3 sm:py-6 h-auto transition-all hover:scale-105 active:scale-95 flex items-center gap-2 text-sm sm:text-base font-bold w-full sm:w-auto justify-center"
+                >
+                  <Fuel className="h-4 w-4 sm:h-5 sm:w-5" />
+                  Top Up Fuel Card
+                </Button>
+              )}
               {canRemit && (
                 <Button
                   variant="outline"
@@ -67,6 +98,12 @@ export default function CashLedgerPage() {
 
       <SetOpeningBalanceDialog open={openingBalanceOpen} onOpenChange={setOpeningBalanceOpen} />
       <RecordRemittanceDialog open={remittanceOpen} onOpenChange={setRemittanceOpen} />
+      <ExpenseForm
+        open={expenseOpen}
+        onOpenChange={setExpenseOpen}
+        defaultVanId={vanId || undefined}
+      />
+      <TopUpFuelCardDialog open={fuelTopUpOpen} onOpenChange={setFuelTopUpOpen} />
     </>
   );
 }

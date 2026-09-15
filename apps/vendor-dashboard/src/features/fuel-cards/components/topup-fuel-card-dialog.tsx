@@ -5,14 +5,22 @@ import { Fuel, Paperclip, TriangleAlert, X } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
   Button, Input, Label, Textarea,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@water-supply-crm/ui';
 import { toast } from 'sonner';
 import { useCashLedgerStats } from '../../van-cash-ledger/hooks/use-van-cash-ledger';
-import { useCreateFuelCardTopUp } from '../hooks/use-fuel-cards';
+import { useCreateFuelCardTopUp, useFuelCards } from '../hooks/use-fuel-cards';
 import { fuelCardApi, type FuelCard } from '../api/fuel-card.api';
 
 interface TopUpFuelCardDialogProps {
-  card: FuelCard | null;
+  /**
+   * Preset card (Fuel Cards page — clicking a specific card's "Top Up"
+   * button). Omit/pass null to let the user pick any active card from a
+   * dropdown instead (Cash Ledger / Expenses page entry points) — so
+   * recording a top-up never requires navigating to /dashboard/fuel-cards
+   * first.
+   */
+  card?: FuelCard | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
@@ -23,11 +31,13 @@ function todayIso() {
 
 const money = (n: number) => `₨ ${Number(n ?? 0).toLocaleString()}`;
 
-export function TopUpFuelCardDialog({ card, open, onOpenChange }: TopUpFuelCardDialogProps) {
+export function TopUpFuelCardDialog({ card: presetCard, open, onOpenChange }: TopUpFuelCardDialogProps) {
   const { data: stats } = useCashLedgerStats();
+  const { data: allCards } = useFuelCards();
   const createTopUp = useCreateFuelCardTopUp();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [selectedCardId, setSelectedCardId] = useState<string | undefined>(undefined);
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(todayIso());
   const [reference, setReference] = useState('');
@@ -36,8 +46,12 @@ export function TopUpFuelCardDialog({ card, open, onOpenChange }: TopUpFuelCardD
   const [attachmentName, setAttachmentName] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
+  const activeCards = (allCards ?? []).filter((c) => c.isActive);
+  const card = presetCard ?? activeCards.find((c) => c.id === selectedCardId) ?? null;
+
   useEffect(() => {
     if (open) {
+      setSelectedCardId(presetCard?.id);
       setAmount('');
       setDate(todayIso());
       setReference('');
@@ -46,6 +60,8 @@ export function TopUpFuelCardDialog({ card, open, onOpenChange }: TopUpFuelCardD
       setAttachmentName(null);
       setUploading(false);
     }
+    // presetCard is only meaningful at the moment the dialog opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const parsedAmount = Number(amount);
@@ -92,11 +108,37 @@ export function TopUpFuelCardDialog({ card, open, onOpenChange }: TopUpFuelCardD
         <DialogHeader>
           <DialogTitle className="text-xl font-black flex items-center gap-2">
             <Fuel className="h-5 w-5 text-orange-500" />
-            Top Up {card?.name}
+            {presetCard ? `Top Up ${presetCard.name}` : 'Top Up Fuel Card'}
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
+          {!presetCard && (
+            <div className="space-y-2">
+              <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
+                Fuel Card <span className="text-destructive">*</span>
+              </Label>
+              {activeCards.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No active fuel cards yet — register one on the Fuel Cards page first.
+                </p>
+              ) : (
+                <Select value={selectedCardId} onValueChange={setSelectedCardId}>
+                  <SelectTrigger className="h-10 rounded-xl">
+                    <SelectValue placeholder="Select a card" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {activeCards.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name} · ₨ {c.balance.toLocaleString()}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
@@ -110,7 +152,7 @@ export function TopUpFuelCardDialog({ card, open, onOpenChange }: TopUpFuelCardD
                 onChange={(e) => setAmount(e.target.value)}
                 className="h-10 rounded-xl"
                 placeholder="0.00"
-                autoFocus
+                autoFocus={!!presetCard}
               />
             </div>
             <div className="space-y-2">

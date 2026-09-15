@@ -555,6 +555,77 @@ export class AnalyticsService {
     const grossProfitMargin =
       grossProfit === null ? null : totalRevenue > 0 ? Math.round((grossProfit / totalRevenue) * 100) : null;
 
+    // ── Plant Balance — outstanding balance owed to the plant (owner-requested
+    // 2026-09-15 follow-up) ──────────────────────────────────────────────────
+    // Deliberately NOT scoped by the `from`/`to` filter, exactly like
+    // `officeCash.available` above (see its comment) — this is a running
+    // liability ("how much do we currently owe the plant"), not a period P&L
+    // figure. Recomputed all-time on every call: `totalCogs` = every
+    // delivered bottle ever, costed via the same applicable-historical-cost
+    // lookup as the period COGS above, and `totalPaid` = every Expense ever
+    // recorded under the existing BOTTLE_PURCHASED category (cash actually
+    // handed to the plant — unchanged, unrelated table, this is the first
+    // time anything reads it FOR this purpose). `outstanding` = the gap: what
+    // the business has consumed but not yet paid for. Can go negative if the
+    // plant has been pre-paid/overpaid (an advance/credit), which is valid,
+    // not an error — the frontend renders that state distinctly.
+    //
+    // Scale note: this re-scans the vendor's ENTIRE delivery history every
+    // call (bounded only by the 120s cache below), not just the selected
+    // date range. At this business's current scale that's cheap; if a
+    // long-lived vendor's history ever makes this measurably slow, the
+    // documented next step (mirroring ExpenseCenterService's own precedent
+    // for the same trade-off) is a materialized running-balance rollup
+    // updated incrementally on each new delivery/payment, not a bigger scan.
+    const [allTimeDeliveryItems, allTimeCostRows, plantPaidAgg] = await Promise.all([
+      this.prisma.dailySheetItem.findMany({
+        where: {
+          status: { not: 'VOIDED' },
+          filledDropped: { gt: 0 },
+          dailySheet: { vendorId },
+        },
+        select: { productId: true, filledDropped: true, dailySheet: { select: { date: true } } },
+      }),
+      this.prisma.productCost.findMany({
+        where: { vendorId, voidedAt: null },
+        orderBy: { effectiveFrom: 'asc' },
+      }),
+      this.prisma.expense.aggregate({
+        where: { vendorId, category: ExpenseCategory.BOTTLE_PURCHASED },
+        _sum: { amount: true },
+      }),
+    ]);
+    const allTimeCostsByProduct = new Map<string, typeof allTimeCostRows>();
+    for (const c of allTimeCostRows) {
+      const list = allTimeCostsByProduct.get(c.productId) ?? [];
+      list.push(c);
+      allTimeCostsByProduct.set(c.productId, list);
+    }
+    const findAllTimeApplicableCost = (productId: string, date: Date) => {
+      const list = allTimeCostsByProduct.get(productId);
+      if (!list) return null;
+      let applicable: (typeof list)[number] | null = null;
+      for (const c of list) {
+        if (c.effectiveFrom > date) break;
+        if (c.effectiveTo && c.effectiveTo < date) continue;
+        applicable = c;
+      }
+      return applicable;
+    };
+    let totalCogsAllTime = 0;
+    for (const item of allTimeDeliveryItems) {
+      const bucketDate = item.dailySheet?.date ?? null;
+      const applicableCost = bucketDate ? findAllTimeApplicableCost(item.productId, bucketDate) : null;
+      if (applicableCost) totalCogsAllTime += item.filledDropped * applicableCost.costPerUnit;
+    }
+    totalCogsAllTime = round2(totalCogsAllTime);
+    const totalPaidAllTime = round2(plantPaidAgg._sum.amount ?? 0);
+    const plantBalance = {
+      totalCogs: totalCogsAllTime,
+      totalPaid: totalPaidAllTime,
+      outstanding: round2(totalCogsAllTime - totalPaidAllTime),
+    };
+
     const result = {
       revenue: { total: totalRevenue, byDay: revenueByDay },
       expenses: { total: totalExpenses, byCategory: expensesByCategory, byDay: expensesByDay },
@@ -573,6 +644,8 @@ export class AnalyticsService {
       cogs,
       grossProfit,
       grossProfitMargin,
+      // All-time, not date-scoped — see the computation comment above.
+      plantBalance,
       revenueByProduct,
       revenueByRoute,
       cashByVan,

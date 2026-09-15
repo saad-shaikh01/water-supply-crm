@@ -39,14 +39,30 @@ function deliveryItem(overrides: Partial<Record<string, any>> = {}) {
  * the function issues gets a sensible zero/empty default so the function
  * runs end-to-end without touching a real DB, with `deliveryItems` and
  * `productCost` driven by test fixtures (the two inputs this suite actually
- * exercises). `dailySheetItem.findMany` is called twice in the real
- * function for two different purposes (the COGS/revenue source, and the
- * post-close hybrid-cash-rollup "modItems" check) — distinguished here by
- * `select` shape, mirroring the two distinct call sites in the source.
+ * exercises). `dailySheetItem.findMany` is called THREE times in the real
+ * function for three different purposes — distinguished here by `select`
+ * shape, mirroring the distinct call sites in the source:
+ *   1. the post-close hybrid-cash-rollup "modItems" check (`{dailySheetId:
+ *      true}` only);
+ *   2. the period-scoped COGS/revenue source (full shape: `product`,
+ *      `customer`, etc. nested selects) — driven by `opts.deliveryItems`;
+ *   3. the Plant Balance all-time scan (flat `productId`/`filledDropped` +
+ *      `dailySheet.date`, no `product`/`customer` nested selects) — driven
+ *      by `opts.allTimeDeliveryItems` (defaults to `opts.deliveryItems` when
+ *      a test doesn't care about the distinction).
  */
-function makePrisma(opts: { deliveryItems?: any[]; costRows?: any[]; transactions?: any[] }) {
+function makePrisma(opts: {
+  deliveryItems?: any[];
+  allTimeDeliveryItems?: any[];
+  costRows?: any[];
+  allTimeCostRows?: any[];
+  transactions?: any[];
+  plantPaidTotal?: number;
+}) {
   const deliveryItems = opts.deliveryItems ?? [];
+  const allTimeDeliveryItems = opts.allTimeDeliveryItems ?? deliveryItems;
   const costRows = opts.costRows ?? [];
+  const allTimeCostRows = opts.allTimeCostRows ?? costRows;
   const transactions = opts.transactions ?? [];
 
   return {
@@ -56,7 +72,7 @@ function makePrisma(opts: { deliveryItems?: any[]; costRows?: any[]; transaction
     },
     expense: {
       findMany: jest.fn().mockResolvedValue([]),
-      aggregate: jest.fn().mockResolvedValue({ _sum: { amount: 0 } }),
+      aggregate: jest.fn().mockResolvedValue({ _sum: { amount: opts.plantPaidTotal ?? 0 } }),
     },
     dailySheet: {
       findMany: jest.fn().mockResolvedValue([]),
@@ -65,21 +81,39 @@ function makePrisma(opts: { deliveryItems?: any[]; costRows?: any[]; transaction
       aggregate: jest.fn().mockResolvedValue({ _sum: { financialBalance: 0 } }),
     },
     dailySheetItem: {
-      findMany: jest.fn().mockImplementation(({ select }: any) =>
-        Promise.resolve(
-          select?.dailySheetId === true && Object.keys(select).length === 1 ? [] : deliveryItems,
-        ),
-      ),
+      findMany: jest.fn().mockImplementation(({ select }: any) => {
+        if (select?.dailySheetId === true && Object.keys(select).length === 1) {
+          return Promise.resolve([]); // modItems check
+        }
+        if (select?.productId === true && !select?.product && !select?.customer) {
+          return Promise.resolve(allTimeDeliveryItems); // Plant Balance all-time scan
+        }
+        return Promise.resolve(deliveryItems); // period-scoped COGS/revenue source
+      }),
     },
     dailySheetLoad: { findMany: jest.fn().mockResolvedValue([]) },
     crewCashDistribution: { findMany: jest.fn().mockResolvedValue([]) },
     payrollEntry: { aggregate: jest.fn().mockResolvedValue({ _sum: { finalPayable: 0 } }) },
     sheetDiscrepancyCase: { findMany: jest.fn().mockResolvedValue([]) },
-    productCost: { findMany: jest.fn().mockResolvedValue(costRows) },
+    productCost: {
+      findMany: jest.fn().mockImplementation(({ where }: any) => {
+        // Period-scoped query filters by `productId: { in: [...] }`; the
+        // all-time Plant Balance query has no `productId` filter at all —
+        // distinguish on that, same idea as the dailySheetItem branching above.
+        return Promise.resolve(where?.productId ? costRows : allTimeCostRows);
+      }),
+    },
   };
 }
 
-function makeService(opts: { deliveryItems?: any[]; costRows?: any[]; transactions?: any[] }) {
+function makeService(opts: {
+  deliveryItems?: any[];
+  allTimeDeliveryItems?: any[];
+  costRows?: any[];
+  allTimeCostRows?: any[];
+  transactions?: any[];
+  plantPaidTotal?: number;
+}) {
   const prisma = makePrisma(opts);
   const cache = {
     vendorKey: jest.fn((_v: string, k: string) => k),
@@ -224,5 +258,57 @@ describe('AnalyticsService.getFinancial() — COGS (Historical Product Cost & CO
     expect(result.payrollCost).toBe(0);
     expect(result.netProfit).toBe(1500);
     expect(result.netProfitMargin).toBe(100);
+  });
+});
+
+describe('AnalyticsService.getFinancial() — Plant Balance (owner-requested 2026-09-15 follow-up)', () => {
+  it('computes outstanding = all-time COGS minus all-time BOTTLE_PURCHASED payments', async () => {
+    const { svc } = makeService({
+      // Period-scoped deliveryItems (irrelevant here, kept minimal) vs the
+      // ALL-TIME set used for Plant Balance — deliberately different sizes to
+      // prove plantBalance is not scoped by the getFinancial() date filter.
+      deliveryItems: [deliveryItem({ filledDropped: 1 })],
+      allTimeDeliveryItems: [
+        { productId: PRODUCT_ID, filledDropped: 20, dailySheet: { date: new Date('2025-06-01') } }, // outside the requested Jan-2026 range
+        { productId: PRODUCT_ID, filledDropped: 10, dailySheet: { date: new Date('2026-01-10') } },
+      ],
+      allTimeCostRows: [productCostRow({ costPerUnit: 100, effectiveFrom: new Date('2025-01-01'), effectiveTo: null })],
+      plantPaidTotal: 2000, // already paid Rs.2000 toward the plant
+    });
+
+    const result = await svc.getFinancial(VENDOR_ID, '2026-01-01', '2026-01-31');
+
+    expect(result.plantBalance.totalCogs).toBe(3000); // (20 + 10) * 100, all-time, ignoring the date filter
+    expect(result.plantBalance.totalPaid).toBe(2000);
+    expect(result.plantBalance.outstanding).toBe(1000); // 3000 - 2000 still owed
+  });
+
+  it('outstanding goes negative (a credit/advance) when payments exceed cost incurred, without erroring', async () => {
+    const { svc } = makeService({
+      deliveryItems: [],
+      allTimeDeliveryItems: [{ productId: PRODUCT_ID, filledDropped: 5, dailySheet: { date: new Date('2026-01-10') } }],
+      allTimeCostRows: [productCostRow({ costPerUnit: 100 })],
+      plantPaidTotal: 1000, // paid 1000 for only 500 worth of cost
+    });
+
+    const result = await svc.getFinancial(VENDOR_ID, '2026-01-01', '2026-01-31');
+
+    expect(result.plantBalance.totalCogs).toBe(500);
+    expect(result.plantBalance.totalPaid).toBe(1000);
+    expect(result.plantBalance.outstanding).toBe(-500);
+  });
+
+  it('an all-time delivery with no covering cost row is silently excluded from totalCogs (never fabricated)', async () => {
+    const { svc } = makeService({
+      deliveryItems: [],
+      allTimeDeliveryItems: [{ productId: 'uncosted-product', filledDropped: 100, dailySheet: { date: new Date('2026-01-10') } }],
+      allTimeCostRows: [], // no cost history for this product at all
+      plantPaidTotal: 0,
+    });
+
+    const result = await svc.getFinancial(VENDOR_ID, '2026-01-01', '2026-01-31');
+
+    expect(result.plantBalance.totalCogs).toBe(0);
+    expect(result.plantBalance.outstanding).toBe(0);
   });
 });

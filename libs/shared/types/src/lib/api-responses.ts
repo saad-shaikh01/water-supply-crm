@@ -39,6 +39,18 @@ export interface BottleWallet {
   product: Pick<ProductSummary, 'id' | 'name'>;
 }
 
+export type BottleWalletAdjustmentMode = 'DELTA' | 'SET';
+
+export interface BottleWalletAdjustmentResult {
+  customerId: string;
+  productId: string;
+  productName: string;
+  oldBalance: number;
+  newBalance: number;
+  mode: BottleWalletAdjustmentMode;
+  reason: string;
+}
+
 export interface CustomPrice {
   id: string;
   customPrice: number;

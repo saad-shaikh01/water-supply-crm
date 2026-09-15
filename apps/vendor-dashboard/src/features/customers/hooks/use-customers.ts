@@ -1,7 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useQueryState, parseAsInteger, parseAsString, parseAsFloat } from 'nuqs';
 import { toast } from 'sonner';
-import type { CustomerDetail, CustomerConsumption, CustomerScheduleItem, PaymentTypeValue } from '@water-supply-crm/types';
+import type {
+  CustomerDetail,
+  CustomerConsumption,
+  CustomerScheduleItem,
+  PaymentTypeValue,
+  BottleWalletAdjustmentResult,
+} from '@water-supply-crm/types';
 import { customersApi } from '../api/customers.api';
 import { queryKeys } from '../../../lib/query-keys';
 
@@ -400,6 +406,36 @@ export const useBulkDeactivateCustomers = () => {
       }
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to deactivate customers'),
+  });
+};
+
+export interface AdjustBottleWalletInput {
+  customerId: string;
+  productId: string;
+  mode: 'DELTA' | 'SET';
+  delta?: number;
+  newBalance?: number;
+  reason: string;
+}
+
+/**
+ * ADMIN-only inventory correction of a customer's bottle wallet balance —
+ * never touches financialBalance/transactions, so only the customer-detail
+ * cache (which embeds `wallets`) needs invalidating, not the broader
+ * `['customers']` list (financial sort/filters on the list are unaffected).
+ */
+export const useAdjustBottleWallet = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ customerId, ...data }: AdjustBottleWalletInput): Promise<BottleWalletAdjustmentResult> =>
+      customersApi.adjustBottleWallet(customerId, data).then((r) => r.data),
+    onSuccess: (result, { customerId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.customers.one(customerId) });
+      toast.success(
+        `${result.productName} bottle wallet updated: ${result.oldBalance} → ${result.newBalance}`,
+      );
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to adjust bottle wallet'),
   });
 };
 

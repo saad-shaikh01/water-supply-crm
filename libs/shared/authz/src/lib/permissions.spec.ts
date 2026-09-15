@@ -105,7 +105,13 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // History" entry point lives on the existing Products page, not a dedicated
 // route — same reasoning as `crew_cash`/`van_cash_ledger`. No new `:page`, so
 // FROZEN_PAGES is unchanged; +1 resource.
-const FROZEN_TOTAL = 189;
+// 190 = 189 + customers:bottle_wallet_adjust — Bottle Wallet Adjustment feature
+// (owner-requested 2026-09-15): ADMIN-only inventory correction of a customer's
+// BottleWallet.balance for a product, independent of financialBalance/ledger.
+// No new resource, no new `:page` — `customers` was already navigable. No
+// default preset grants it explicitly; reaches vendors via the vendor_admin/
+// super_admin `*` wildcard only.
+const FROZEN_TOTAL = 190;
 const FROZEN_PAGES = 30;
 const FROZEN_RESOURCES = 33;
 

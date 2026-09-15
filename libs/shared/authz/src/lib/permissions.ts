@@ -52,6 +52,14 @@ export const PERMISSION_CATALOG = {
     //   entry (company writes the physical bottles off). Separate from
     //   force_deactivate so a vendor can allow a balance write-off but still
     //   require bottles to be physically recovered (or vice-versa).
+    // bottle_wallet_adjust (owner-requested 2026-09-15): correct a customer's
+    //   BottleWallet.balance for a specific product to fix a miscount (theft,
+    //   breakage, data-entry error) — pure inventory correction, ADMIN-only.
+    //   Writes ONLY BottleWallet.balance inside one transaction; never touches
+    //   financialBalance, Transaction, Payment, Expense or any Daily Sheet/
+    //   Delivery record, so it cannot move any financial figure or analytics.
+    //   No default preset grants it explicitly — reaches vendors only via the
+    //   vendor_admin/super_admin `*` wildcard (see presets.ts).
     actions: [
       'page',
       'view',
@@ -66,6 +74,7 @@ export const PERMISSION_CATALOG = {
       'delete',
       'export',
       'manage_portal',
+      'bottle_wallet_adjust',
     ],
   },
   orders: {

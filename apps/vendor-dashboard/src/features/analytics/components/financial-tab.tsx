@@ -116,6 +116,13 @@ export function FinancialTab({ from, to, vanId }: { from: string; to: string; va
   const grossProfit: number | null = d.grossProfit ?? null;
   const grossProfitMargin: number | null = d.grossProfitMargin ?? null;
 
+  // Plant Balance (owner-requested 2026-09-15 follow-up) — ALL-TIME, never
+  // scoped by the page's from/to filter (mirrors officeCash.available below):
+  // this is a running "how much do we still owe the plant" liability, not a
+  // period P&L number. `outstanding` can be negative (an advance/credit paid
+  // ahead of cost incurred) — that's a valid state, not an error.
+  const plantBalance = d.plantBalance ?? { totalCogs: 0, totalPaid: 0, outstanding: 0 };
+
   const profitByDay = (d.profit?.byDay ?? []).map((p: any) => ({
     date: p.date.slice(5), // MM-DD
     Revenue: p.revenue,
@@ -207,6 +214,36 @@ export function FinancialTab({ from, to, vanId }: { from: string; to: string; va
               />
             </div>
           )}
+        </div>
+      )}
+
+      {/* Plant Balance (owner-requested 2026-09-15 follow-up) — ALL-TIME, not
+          scoped by this page's date range (same reasoning as `officeCash`
+          below: this is a running liability, not a period figure). Gated by
+          the same `analytics:view_margins` permission as COGS/Gross Profit
+          above, since it's the same class of margin/cost-sensitive data. */}
+      {canViewMargins && (
+        <div className="grid gap-4 sm:grid-cols-3">
+          <StatCard
+            label="Plant Cost Incurred (All-Time)"
+            value={fmt(plantBalance.totalCogs)}
+            icon={PackageSearch}
+            positive={false}
+            sublabel="every delivered bottle, all-time"
+          />
+          <StatCard
+            label="Paid to Plant (All-Time)"
+            value={fmt(plantBalance.totalPaid)}
+            icon={Landmark}
+            sublabel="sum of Bottle Purchased expenses"
+          />
+          <StatCard
+            label={plantBalance.outstanding < 0 ? 'Plant Credit / Advance' : 'Outstanding to Plant'}
+            value={fmt(Math.abs(plantBalance.outstanding))}
+            icon={Wallet}
+            positive={plantBalance.outstanding <= 0}
+            sublabel={plantBalance.outstanding < 0 ? 'paid ahead of cost incurred' : 'not yet paid to the plant'}
+          />
         </div>
       )}
 

@@ -35,7 +35,9 @@ import type { CustomerDetail as CustomerDetailType, CustomerConsumption, Custome
 import { CustomerForm } from './customer-form';
 import { EditLocationDialog } from './dialogs/edit-location-dialog';
 import { CustomPriceDialog } from './dialogs/custom-price-dialog';
+import { AdjustBottleWalletDialog } from './dialogs/adjust-bottle-wallet-dialog';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
+import { useCan } from '../../authz/hooks/use-can';
 
 // ---------------------------------------------------------------------------
 // Consumption range picker (local — does NOT use nuqs to avoid clashing with
@@ -239,6 +241,8 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
   const [editOpen, setEditOpen] = useState(false);
   const [customPriceOpen, setCustomPriceOpen] = useState(false);
   const [locationOpen, setLocationOpen] = useState(false);
+  const [bottleWalletAdjustOpen, setBottleWalletAdjustOpen] = useState(false);
+  const canAdjustBottleWallet = useCan('customers:bottle_wallet_adjust');
   const [consumptionRange, setConsumptionRange] = useState<ConsumptionRange>(() => {
     const today = new Date();
     const from = new Date(today);
@@ -505,10 +509,20 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
           <TabsContent value="inventory">
             <div className="grid gap-6 md:grid-cols-2">
               <Card className="rounded-3xl border-border/50 bg-card/30 backdrop-blur-sm">
-                <CardHeader className="border-b bg-muted/20 px-6 py-4">
+                <CardHeader className="border-b bg-muted/20 px-6 py-4 flex flex-row items-center justify-between gap-3">
                   <CardTitle className="text-base font-bold flex items-center gap-2">
                     <Droplets className="h-4 w-4 text-primary" /> Bottle Wallets
                   </CardTitle>
+                  {canAdjustBottleWallet && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-xl font-bold h-8"
+                      onClick={() => setBottleWalletAdjustOpen(true)}
+                    >
+                      Adjust Balance
+                    </Button>
+                  )}
                 </CardHeader>
                 <CardContent className="p-0">
                   {customer.wallets?.length > 0 ? (
@@ -1283,6 +1297,15 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
         onClose={() => setCustomPriceOpen(false)}
         customerId={customerId}
       />
+
+      {canAdjustBottleWallet && (
+        <AdjustBottleWalletDialog
+          open={bottleWalletAdjustOpen}
+          onClose={() => setBottleWalletAdjustOpen(false)}
+          customerId={customerId}
+          wallets={customer.wallets ?? []}
+        />
+      )}
 
       <CustomerForm
         open={editOpen}
