@@ -87,6 +87,8 @@ export const ACTION_LABELS: Record<string, string> = {
   remit: 'Record office cash handover to owner',
   remit_approve: 'Approve office cash handover',
   remit_void: 'Void an approved office cash handover',
+  topup: 'Record fuel card top-up',
+  topup_void: 'Void a fuel card top-up',
 };
 
 /** A single permission with display metadata for the role editor. */

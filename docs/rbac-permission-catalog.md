@@ -352,6 +352,17 @@ Each row: permission → the existing feature/endpoint(s) it gates. `page` sorts
 >
 > **Amendment R15 (Office Cash Remittance, owner-requested 2026-09-10).** Adds the office → owner/CEO/bank cash hop as a vendor-wide `OfficeCashRemittance` (PENDING → APPROVED → counts toward the balance; a post-approval fix is a new DELTA row via `correctsEntryId`; a void is a status flip, never a DELETE). Three new actions on the existing `van_cash_ledger` resource: `remit` (record — **Accountant + Manager**), `remit_approve` (approve/reject/correct — **Manager + Admin**, deliberately NOT Accountant so a recorder cannot approve their own), `remit_void` (void an already-approved remittance — **Admin only**). `MANAGER_PERMISSIONS` + `PRESET_DRIFT_BACKFILLS` (`manager` gets `remit` + `remit_approve`; `accountant` gets `remit`). No new `:page`, no new resource. Frozen total 175 → 178; non-page total unchanged +3.
 
+### 31. Fuel Cards — `fuel_cards` *(navigable — `/dashboard/fuel-cards`)*
+> **Amendment R17 (Fuel Card Wallet, owner-requested 2026-09-15).** Fuel card top-ups (office cash → a specific `FuelCard`) were previously logged as a generic `Expense`, while the fuel actually filled into a vehicle from that card *also* generated its own `FUEL_EXPENSE` via `FuelLog` — the same rupee counted as a company cost twice. A top-up is now its own vendor-wide cash-custody tier (`FuelCardTopUp`, same family as `OfficeCashRemittance`): it reduces the Office Cash Ledger's available balance the instant it's recorded, but is never an `Expense` row — the real cost is still, and only, recognized at the `FuelLog` fill. Single-step entry (owner chose this over a second PENDING → APPROVED tier); a mistake is corrected by voiding the row (reason required, nothing deleted) and recording a fresh one. Multi-vendor, multi-card — each vendor may register any number of `FuelCard` rows. Deliberately its own resource (not folded into `fleet`) so Accountant can get `topup`/`view` without inheriting the full Fleet browse surface (`fleet:page`). Default holders: **Manager** gets the full set; **Accountant** gets `page`/`view`/`topup` only (not `manage` or `topup_void`); **Vendor Admin** via `*`. `PRESET_DRIFT_BACKFILLS` catches up existing vendors' Manager/Accountant roles. Frozen total 181 → 186; +1 page permission, +1 resource.
+
+| Permission | Gates |
+|---|---|
+| `fuel_cards:page` | `/dashboard/fuel-cards` route access |
+| `fuel_cards:view` | `GET /fuel-cards`, `GET /fuel-cards/:id/top-ups` |
+| `fuel_cards:manage` | `POST /fuel-cards`, `PATCH /fuel-cards/:id/deactivate` |
+| `fuel_cards:topup` | `POST /fuel-cards/:id/top-ups` |
+| `fuel_cards:topup_void` | `PATCH /fuel-cards/top-ups/:id/void` |
+
 ---
 
 ## B. Reference lists

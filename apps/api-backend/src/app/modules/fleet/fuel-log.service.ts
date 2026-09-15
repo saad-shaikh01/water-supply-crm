@@ -10,6 +10,7 @@ import { FuelLogQueryDto } from './dto/fuel-log-query.dto';
 const fuelLogInclude = {
   recordedBy: { select: { id: true, name: true } },
   vehicle: { select: { id: true, plateNumber: true } },
+  fuelCard: { select: { id: true, name: true } },
 };
 
 /**
@@ -35,6 +36,20 @@ export class FuelLogService {
     const vehicle = await this.prisma.vehicle.findFirst({ where: { id: dto.vehicleId, vendorId: user.vendorId } });
     if (!vehicle) throw new NotFoundException('Vehicle not found');
     if (!vehicle.isActive) throw new BadRequestException('This vehicle is inactive.');
+
+    // Fuel Card Wallet (owner-requested 2026-09-15): when a specific FuelCard
+    // paid for this fill, it must belong to this vendor and be active. The
+    // top-up itself already left Office Cash (FuelCardTopUpService) — this
+    // fill only draws down that card's own balance, so paidFromCash is forced
+    // false regardless of what the caller sent (mirrors the "cash never
+    // touched" reality of every other non-cash fill).
+    if (dto.fuelCardId) {
+      const card = await this.prisma.fuelCard.findFirst({
+        where: { id: dto.fuelCardId, vendorId: user.vendorId },
+      });
+      if (!card) throw new NotFoundException('Fuel card not found');
+      if (!card.isActive) throw new BadRequestException('This fuel card is inactive.');
+    }
 
     let sheetVanId: string | null = null;
     // Trip attribution for the spawned Expense — same server-side inference as
@@ -74,7 +89,7 @@ export class FuelLogService {
     // fuel was paid by card/bank/company account instead: the Expense this
     // spawns then no longer reduces the driver's cash hand-in (see
     // daily-sheet.service.ts buildReconciliation).
-    const paidFromCash = dto.paidFromCash ?? true;
+    const paidFromCash = dto.fuelCardId ? false : (dto.paidFromCash ?? true);
 
     return this.prisma.$transaction(async (tx) => {
       const expense = await tx.expense.create({
@@ -83,6 +98,7 @@ export class FuelLogService {
           category: ExpenseCategory.FUEL_EXPENSE,
           amount: dto.amountPaid,
           paidFromCash,
+          fuelCardId: dto.fuelCardId ?? null,
           description: `Fuel — ${dto.litersFilled}L (${vehicle.plateNumber})`,
           date: new Date(dto.date),
           vanId: sheetVanId,
@@ -102,6 +118,7 @@ export class FuelLogService {
           litersFilled: dto.litersFilled,
           amountPaid: dto.amountPaid,
           paidFromCash,
+          fuelCardId: dto.fuelCardId ?? null,
           isFullTank: dto.isFullTank ?? true,
           fuelStation: dto.fuelStation ?? null,
           receiptPhotoKey: dto.receiptPhotoKey ?? null,
@@ -152,13 +169,34 @@ export class FuelLogService {
     const fuelLog = await this.prisma.fuelLog.findFirst({ where: { id, vendorId } });
     if (!fuelLog) throw new NotFoundException('Fuel log not found');
 
+    // Fuel Card Wallet (owner-requested 2026-09-15): re-validate a newly-set
+    // card and force paidFromCash = false with it, same as create(). Passing
+    // fuelCardId: null clears a previously-set card without forcing
+    // paidFromCash either way — the caller's own paidFromCash (or the
+    // existing value) then applies.
+    let paidFromCash = dto.paidFromCash;
+    if (dto.fuelCardId !== undefined && dto.fuelCardId !== null) {
+      const card = await this.prisma.fuelCard.findFirst({ where: { id: dto.fuelCardId, vendorId } });
+      if (!card) throw new NotFoundException('Fuel card not found');
+      if (!card.isActive) throw new BadRequestException('This fuel card is inactive.');
+      paidFromCash = false;
+    }
+
     return this.prisma.$transaction(async (tx) => {
-      if (fuelLog.expenseId && (dto.amountPaid !== undefined || dto.date !== undefined || dto.litersFilled !== undefined || dto.paidFromCash !== undefined)) {
+      if (
+        fuelLog.expenseId &&
+        (dto.amountPaid !== undefined ||
+          dto.date !== undefined ||
+          dto.litersFilled !== undefined ||
+          paidFromCash !== undefined ||
+          dto.fuelCardId !== undefined)
+      ) {
         await tx.expense.update({
           where: { id: fuelLog.expenseId },
           data: {
             ...(dto.amountPaid !== undefined && { amount: dto.amountPaid }),
-            ...(dto.paidFromCash !== undefined && { paidFromCash: dto.paidFromCash }),
+            ...(paidFromCash !== undefined && { paidFromCash }),
+            ...(dto.fuelCardId !== undefined && { fuelCardId: dto.fuelCardId }),
             ...(dto.date !== undefined && { date: new Date(dto.date) }),
             ...(dto.litersFilled !== undefined && {
               description: `Fuel — ${dto.litersFilled}L`,
@@ -174,7 +212,8 @@ export class FuelLogService {
           ...(dto.odometerAtFill !== undefined && { odometerAtFill: dto.odometerAtFill }),
           ...(dto.litersFilled !== undefined && { litersFilled: dto.litersFilled }),
           ...(dto.amountPaid !== undefined && { amountPaid: dto.amountPaid }),
-          ...(dto.paidFromCash !== undefined && { paidFromCash: dto.paidFromCash }),
+          ...(paidFromCash !== undefined && { paidFromCash }),
+          ...(dto.fuelCardId !== undefined && { fuelCardId: dto.fuelCardId }),
           ...(dto.isFullTank !== undefined && { isFullTank: dto.isFullTank }),
           ...(dto.fuelStation !== undefined && { fuelStation: dto.fuelStation }),
           ...(dto.receiptPhotoKey !== undefined && { receiptPhotoKey: dto.receiptPhotoKey }),

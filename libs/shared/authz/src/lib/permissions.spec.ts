@@ -87,9 +87,18 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // /dashboard/payroll and inherits `payroll:page`. (Merged onto
 // force_deactivate_bottles above — both landed independently on main and
 // feat/attendance-flow before this merge, 2026-09-14.)
-const FROZEN_TOTAL = 181;
-const FROZEN_PAGES = 29;
-const FROZEN_RESOURCES = 31;
+// 186 = 181 + fuel_cards (page, view, manage, topup, topup_void) — new resource
+// for the Fuel Card Wallet feature (owner-requested 2026-09-15): fuel card
+// top-ups (office cash -> a specific fuel card) are their own vendor-wide
+// cash-custody tier, same family as van_cash_ledger's Office Cash Remittance,
+// instead of being logged as a generic Expense (which double-counted against
+// the FUEL_EXPENSE FuelLog already generates when the fuel is actually used).
+// Kept as its own resource rather than folded into `fleet` so Accountant can
+// get `topup`/`view` without inheriting the full Fleet browse surface.
+// Navigable (`/dashboard/fuel-cards`) — +1 page permission, +1 resource too.
+const FROZEN_TOTAL = 186;
+const FROZEN_PAGES = 30;
+const FROZEN_RESOURCES = 32;
 
 describe('permission catalog (frozen contract)', () => {
   it('has the frozen totals', () => {

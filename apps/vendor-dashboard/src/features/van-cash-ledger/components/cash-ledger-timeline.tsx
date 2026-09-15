@@ -65,7 +65,7 @@ function TimelineRow({
                 PENDING
               </Badge>
             )}
-            {isRemittance && row.isVoided && (
+            {row.isVoided && (
               <Badge className="text-[10px] font-bold px-2 py-0.5 rounded-full border-none bg-destructive/10 text-destructive">
                 VOIDED
               </Badge>

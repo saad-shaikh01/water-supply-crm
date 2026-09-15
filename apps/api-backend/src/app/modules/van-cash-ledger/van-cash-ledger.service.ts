@@ -4,6 +4,8 @@ import {
   CrewRole,
   DiscrepancyCaseStatus,
   DiscrepancyType,
+  FuelCardTopUp,
+  FuelCardTopUpStatus,
   LedgerEntryStatus,
   OfficeCashRemittance,
   OfficeCashRemittanceDestination,
@@ -60,7 +62,8 @@ export type VanCashLedgerRowType =
   | 'CASH_IN'
   | 'CASH_IN_CORRECTION'
   | 'CASH_OUT'
-  | 'CASH_REMITTANCE_OUT';
+  | 'CASH_REMITTANCE_OUT'
+  | 'FUEL_CARD_TOPUP_OUT';
 
 export interface VanCashLedgerRow {
   /** `${type}:${originalId}` — stable and unique across the merged sources. */
@@ -101,13 +104,13 @@ export interface VanCashLedgerRow {
   /** Optimistic-concurrency token for the approve action — null where not applicable (opening balance / cash-out rows are never approved from here). */
   version: number | null;
   /**
-   * CASH_REMITTANCE_OUT only — true when this office->owner handover has been
-   * VOIDED. A voided row is still shown in the timeline (struck-through, with
-   * `voidReason`) for the audit trail, but contributes 0 to the running
+   * CASH_REMITTANCE_OUT / FUEL_CARD_TOPUP_OUT only — true when this row has
+   * been VOIDED. A voided row is still shown in the timeline (struck-through,
+   * with `voidReason`) for the audit trail, but contributes 0 to the running
    * balance. `false`/omitted for every other row type.
    */
   isVoided?: boolean;
-  /** CASH_REMITTANCE_OUT only — the mandatory reason captured when the row was voided. */
+  /** CASH_REMITTANCE_OUT / FUEL_CARD_TOPUP_OUT only — the mandatory reason captured when the row was voided. */
   voidReason?: string | null;
   /**
    * CASH_REMITTANCE_OUT only — true when this row is a DELTA correction row
@@ -127,6 +130,8 @@ export interface VanCashLedgerStats {
   totalRemitted: number;
   /** NOT date-range scoped — count of PENDING office->owner remittances awaiting approval. */
   pendingRemittanceCount: number;
+  /** Date-range scoped — sum of ACTIVE (non-voided) fuel card top-ups in the window. */
+  totalFuelCardTopUps: number;
 }
 
 /**
@@ -877,8 +882,15 @@ export class VanCashLedgerService {
     const to = query.to ? endOfDay(new Date(query.to)) : undefined;
     const dateFilter = buildDateFilter(from, to);
 
-    const [cashInAgg, totalExpense, pendingHandoverCount, availableBalance, remittedAgg, pendingRemittanceCount] =
-      await Promise.all([
+    const [
+      cashInAgg,
+      totalExpense,
+      pendingHandoverCount,
+      availableBalance,
+      remittedAgg,
+      pendingRemittanceCount,
+      fuelCardTopUpAgg,
+    ] = await Promise.all([
         this.prisma.vanCashHandover.aggregate({
           where: {
             vendorId,
@@ -910,6 +922,16 @@ export class VanCashLedgerService {
           : this.prisma.officeCashRemittance.count({
               where: { vendorId, status: OfficeCashRemittanceStatus.PENDING },
             }),
+        vanId
+          ? Promise.resolve({ _sum: { amount: 0 } } as { _sum: { amount: number | null } })
+          : this.prisma.fuelCardTopUp.aggregate({
+              where: {
+                vendorId,
+                status: FuelCardTopUpStatus.ACTIVE,
+                ...(dateFilter && { date: dateFilter }),
+              },
+              _sum: { amount: true },
+            }),
       ]);
 
     return {
@@ -919,6 +941,7 @@ export class VanCashLedgerService {
       availableBalance: round2(availableBalance),
       totalRemitted: round2(remittedAgg._sum.amount ?? 0),
       pendingRemittanceCount,
+      totalFuelCardTopUps: round2(fuelCardTopUpAgg._sum.amount ?? 0),
     };
   }
 
@@ -950,7 +973,7 @@ export class VanCashLedgerService {
     const to = query.to ? endOfDay(new Date(query.to)) : undefined;
     const dateFilter = buildDateFilter(from, to);
 
-    const [openingRows, cashInRows, expenseRows, ledgerRows, remittanceRows] = await Promise.all([
+    const [openingRows, cashInRows, expenseRows, ledgerRows, remittanceRows, fuelCardTopUpRows] = await Promise.all([
       this.buildOpeningBalanceRows(vendorId, vanId, to),
       this.prisma.vanCashHandover.findMany({
         where: {
@@ -1044,6 +1067,30 @@ export class VanCashLedgerService {
             },
             orderBy: { date: 'asc' },
           }),
+      // Fuel Card top-ups are vendor-wide (see computeAvailableBalance) —
+      // excluded from a van-scoped view, same as remittances. VOIDED rows are
+      // still fetched so the timeline can show the struck-through audit row.
+      vanId
+        ? Promise.resolve([] as Array<
+            FuelCardTopUp & {
+              fuelCard: { name: string } | null;
+              createdBy: { name: string } | null;
+              voidedBy: { name: string } | null;
+            }
+          >)
+        : this.prisma.fuelCardTopUp.findMany({
+            where: {
+              vendorId,
+              status: { in: [FuelCardTopUpStatus.ACTIVE, FuelCardTopUpStatus.VOIDED] },
+              ...(dateFilter && { date: dateFilter }),
+            },
+            include: {
+              fuelCard: { select: { name: true } },
+              createdBy: { select: { name: true } },
+              voidedBy: { select: { name: true } },
+            },
+            orderBy: { date: 'asc' },
+          }),
     ]);
 
     const merged: VanCashLedgerRow[] = [...openingRows];
@@ -1051,6 +1098,7 @@ export class VanCashLedgerService {
     for (const row of expenseRows) merged.push(this.normalizeCashOut(normalizeExpenseRow(row)));
     for (const row of ledgerRows) merged.push(this.normalizeCashOut(normalizeStaffLedgerRow(row)));
     for (const row of remittanceRows) merged.push(this.normalizeRemittanceOut(row));
+    for (const row of fuelCardTopUpRows) merged.push(this.normalizeFuelCardTopUpOut(row));
 
     merged.sort((a, b) => {
       if (a.date !== b.date) return a.date < b.date ? -1 : 1;
@@ -1131,7 +1179,7 @@ export class VanCashLedgerService {
    * count them.
    */
   private async computeAvailableBalance(vendorId: string, vanId?: string): Promise<number> {
-    const [openingTotal, cashInAgg, cashOutTotal, remittedTotal] = await Promise.all([
+    const [openingTotal, cashInAgg, cashOutTotal, remittedTotal, fuelCardTopUpTotal] = await Promise.all([
       vanId
         ? this.prisma.vanCashOpeningBalance
             .findFirst({ where: { vendorId, vanId } })
@@ -1152,9 +1200,21 @@ export class VanCashLedgerService {
               _sum: { amount: true },
             })
             .then((agg) => agg._sum.amount ?? 0),
+      // Fuel Card top-ups are the same vendor-wide office-cash-out tier as
+      // OfficeCashRemittance — they leave the shared office pool the instant
+      // they're recorded, so a van-scoped balance (a single van's own cash
+      // position) must not count them either.
+      vanId
+        ? Promise.resolve(0)
+        : this.prisma.fuelCardTopUp
+            .aggregate({
+              where: { vendorId, status: FuelCardTopUpStatus.ACTIVE },
+              _sum: { amount: true },
+            })
+            .then((agg) => agg._sum.amount ?? 0),
     ]);
 
-    return openingTotal + (cashInAgg._sum.amount ?? 0) - cashOutTotal - remittedTotal;
+    return openingTotal + (cashInAgg._sum.amount ?? 0) - cashOutTotal - remittedTotal - fuelCardTopUpTotal;
   }
 
   /**
@@ -1340,6 +1400,40 @@ export class VanCashLedgerService {
       isVoided,
       voidReason: row.voidReason ?? null,
       isCorrection,
+    };
+  }
+
+  private normalizeFuelCardTopUpOut(
+    row: FuelCardTopUp & {
+      fuelCard: { name: string } | null;
+      createdBy: { name: string } | null;
+      voidedBy: { name: string } | null;
+    },
+  ): VanCashLedgerRow {
+    const isVoided = row.status === FuelCardTopUpStatus.VOIDED;
+    const cardName = row.fuelCard?.name ?? 'Fuel Card';
+    return {
+      id: `FUEL_CARD_TOPUP_OUT:${row.id}`,
+      date: row.date.toISOString(),
+      type: 'FUEL_CARD_TOPUP_OUT',
+      // A voided top-up is shown for the audit trail but must not move the
+      // running balance — it folds in as 0.
+      amount: isVoided ? 0 : -row.amount,
+      displayAmount: Math.abs(row.amount),
+      runningBalance: 0,
+      title: `Fuel card top-up — ${cardName}`,
+      vanId: null,
+      vanPlateNumber: null,
+      sourceType: 'FUEL_CARD_TOPUP',
+      sourceRecordId: row.id,
+      sourceBadge: row.reference ? `Ref ${row.reference}` : cardName,
+      status: null,
+      dailySheetId: null,
+      submittedByName: row.createdBy?.name ?? null,
+      approvedByName: null,
+      version: null,
+      isVoided,
+      voidReason: row.voidReason ?? null,
     };
   }
 

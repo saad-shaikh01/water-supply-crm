@@ -132,6 +132,8 @@ export interface CreateFuelLogData {
   amountPaid: number;
   isFullTank?: boolean;
   paidFromCash?: boolean;
+  // Fuel Card Wallet (owner-requested 2026-09-15) — see fuelLogSchema.
+  fuelCardId?: string;
   fuelStation?: string;
   receiptPhotoKey?: string;
   notes?: string;

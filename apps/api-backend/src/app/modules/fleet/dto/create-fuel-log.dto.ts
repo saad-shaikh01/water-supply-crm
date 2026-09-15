@@ -39,6 +39,14 @@ export class CreateFuelLogDto {
   @IsBoolean()
   paidFromCash?: boolean;
 
+  // Fuel Card Wallet (owner-requested 2026-09-15): set when this fill was
+  // paid from a specific registered FuelCard rather than driver cash or an
+  // unspecified bank/company account. Forces paidFromCash = false server-side
+  // (FuelLogService.create) and draws down that card's balance.
+  @IsOptional()
+  @IsUUID()
+  fuelCardId?: string;
+
   @IsOptional() @IsString() @MaxLength(150) fuelStation?: string;
   @IsOptional() @IsString() receiptPhotoKey?: string;
   @IsOptional() @IsString() @MaxLength(500) notes?: string;

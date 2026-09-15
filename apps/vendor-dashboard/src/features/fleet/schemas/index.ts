@@ -56,6 +56,10 @@ export const fuelLogSchema = z.object({
   // true = paid from the driver's van cash-in-hand (default — deducted from
   // cash hand-in); false = paid by card/bank/company account (not deducted).
   paidFromCash: z.boolean(),
+  // Fuel Card Wallet (owner-requested 2026-09-15): which registered FuelCard
+  // paid for this fill, when it wasn't cash or an unspecified bank/company
+  // account. Forces paidFromCash = false server-side.
+  fuelCardId: z.string().uuid().optional(),
   fuelStation: z.string().max(150).optional(),
   notes: z.string().max(500).optional(),
 });

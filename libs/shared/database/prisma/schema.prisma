@@ -360,6 +360,10 @@ model Vendor {
 
   // Office Cash Remittance (owner-requested 2026-09-10) — office -> owner/bank
   officeCashRemittances OfficeCashRemittance[]
+
+  // Fuel Card Wallet (owner-requested 2026-09-15) — office -> fuel card top-ups
+  fuelCards        FuelCard[]
+  fuelCardTopUps   FuelCardTopUp[]
 }
 
 model User {
@@ -463,6 +467,11 @@ model User {
   officeCashRemittancesSubmitted OfficeCashRemittance[] @relation("OfficeCashRemittanceSubmittedBy")
   officeCashRemittancesApproved  OfficeCashRemittance[] @relation("OfficeCashRemittanceApprovedBy")
   officeCashRemittancesVoided    OfficeCashRemittance[] @relation("OfficeCashRemittanceVoidedBy")
+
+  // Fuel Card Wallet (owner-requested 2026-09-15)
+  fuelCardsCreated      FuelCard[]      @relation("FuelCardCreatedBy")
+  fuelCardTopUpsCreated FuelCardTopUp[] @relation("FuelCardTopUpCreatedBy")
+  fuelCardTopUpsVoided  FuelCardTopUp[] @relation("FuelCardTopUpVoidedBy")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1391,6 +1400,12 @@ model Expense {
   // rows with paidFromCash=false still count as a real vendor cost (Expense
   // Analytics, getSummary) but leave the driver's handover untouched.
   paidFromCash     Boolean         @default(true)
+  // Set only when this Expense is a vehicle fuel fill paid via a FuelCard
+  // (FuelLogService.create) — mirrors FuelLog.fuelCardId. Lets the Fuel Card
+  // Wallet compute each card's balance (topUps - card-paid FuelLog amounts)
+  // by summing Expense/FuelLog rows without joining through FuelLog alone.
+  fuelCardId       String?
+  fuelCard         FuelCard?       @relation(fields: [fuelCardId], references: [id], onDelete: SetNull)
   description      String
   date             DateTime
   vanId            String?
@@ -2902,6 +2917,16 @@ model FuelLog {
   receiptPhotoKey String?
   notes           String?
 
+  // Fuel Card Wallet (owner-requested 2026-09-15): set when this fill was paid
+  // from a specific FuelCard rather than driver cash or an unspecified
+  // bank/company account. Implies paidFromCash = false (enforced in
+  // FuelLogService). Draws down that card's balance — the top-up itself
+  // already left Office Cash (FuelCardTopUp), so this fill must NOT also
+  // reduce the office cash pool a second time (collectCashOutTotal already
+  // only counts paidFromCash: true rows, so it doesn't).
+  fuelCardId String?
+  fuelCard   FuelCard? @relation(fields: [fuelCardId], references: [id], onDelete: SetNull)
+
   expenseId String?  @unique
   expense   Expense? @relation(fields: [expenseId], references: [id], onDelete: SetNull)
 
@@ -2912,6 +2937,82 @@ model FuelLog {
 
   @@index([vendorId, vehicleId, date])
   @@index([dailySheetId])
+  @@index([fuelCardId])
+}
+
+/// Fuel Card Wallet (owner-requested 2026-09-15). Each vendor may register any
+/// number of physical fuel cards (PSO/Shell/bank fuel cards, etc.). A card is a
+/// prepaid-wallet asset: topping it up (FuelCardTopUp) moves cash OUT of the
+/// Office Cash Ledger pool (same tier as OfficeCashRemittance) but is NOT an
+/// Expense — no company cost is recognized at top-up time, only a transfer
+/// between two custodial pools. The real Expense (FUEL_EXPENSE) is recognized
+/// only when fuel is actually filled into a vehicle (FuelLog), same as today —
+/// this prevents the same rupee being counted twice (once as "topped up the
+/// card", once as "filled the vehicle").
+model FuelCard {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  name       String // e.g. "PSO Fleet Card", "Shell Card #4521"
+  cardNumber String? // optional last-4 / masked reference, free text
+  issuer     String? // e.g. "PSO", "Shell", "Bank Al Habib"
+  isActive   Boolean @default(true)
+
+  createdById String
+  createdBy   User   @relation("FuelCardCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  topUps   FuelCardTopUp[]
+  fuelLogs FuelLog[]
+  expenses Expense[]
+
+  @@index([vendorId, isActive])
+}
+
+enum FuelCardTopUpStatus {
+  ACTIVE
+  VOIDED
+}
+
+/// The office -> fuel card cash hop. Vendor-wide cash tier (same as
+/// OfficeCashRemittance) — a top-up leaves the shared Office Cash pool the
+/// instant it's recorded (no PENDING/APPROVED gate; owner chose single-step
+/// entry with a full audit trail instead of a second approval step). Never
+/// mutated or deleted once created: a mistake is corrected by voiding this row
+/// (status -> VOIDED, reason required) and recording a fresh, correct one —
+/// nothing is ever overwritten, so the full history of "kitna paisa kab kis
+/// card me dala, kis ne dala" is always reconstructable.
+model FuelCardTopUp {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  fuelCardId String
+  fuelCard   FuelCard @relation(fields: [fuelCardId], references: [id], onDelete: Cascade)
+
+  amount        Float
+  date          DateTime
+  reference     String?
+  attachmentKey String?
+  note          String?
+
+  status FuelCardTopUpStatus @default(ACTIVE)
+
+  createdById String
+  createdBy   User   @relation("FuelCardTopUpCreatedBy", fields: [createdById], references: [id])
+
+  voidedById String?
+  voidedBy   User?     @relation("FuelCardTopUpVoidedBy", fields: [voidedById], references: [id])
+  voidedAt   DateTime?
+  voidReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vendorId, fuelCardId, date])
+  @@index([vendorId, status])
 }
 
 // Per-vehicle service interval config. Always per-vehicle (vehicleId required,

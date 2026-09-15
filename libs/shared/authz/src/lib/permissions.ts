@@ -317,6 +317,27 @@ export const PERMISSION_CATALOG = {
     navigable: true,
     actions: ['page', 'view', 'manage', 'approve', 'remit', 'remit_approve', 'remit_void'],
   },
+  // Fuel Card Wallet (owner-requested 2026-09-15): fuel card top-ups (office
+  // cash -> a specific fuel card) were previously logged as a generic Expense,
+  // while the fuel actually filled into vehicles from that card ALSO generated
+  // its own FUEL_EXPENSE via FuelLog — the same rupee counted twice. A top-up
+  // is now its own vendor-wide cash-custody tier (same family as
+  // OfficeCashRemittance) instead of an Expense. Deliberately its own resource
+  // (not folded into `fleet`) so Accountant can be granted `topup`/`view`
+  // without inheriting the full Fleet browse surface (`fleet:page`) it has no
+  // need for. Navigable: dedicated /dashboard/fuel-cards page.
+  //   `manage`      register / deactivate a fuel card (Vendor Admin, Manager).
+  //   `topup`       record a top-up (Accountant, Manager).
+  //   `topup_void`  void an already-recorded top-up (Vendor Admin, Manager) —
+  //                 no separate approval tier exists here (owner chose
+  //                 single-step entry over a second approval step), so void is
+  //                 the only correction path and is kept a notch tighter than
+  //                 plain `topup`.
+  fuel_cards: {
+    label: 'Fuel Cards',
+    navigable: true,
+    actions: ['page', 'view', 'manage', 'topup', 'topup_void'],
+  },
 } as const satisfies Record<string, ResourceDefinition>;
 
 /** Union of every resource key, e.g. `'customers' | 'orders' | …`. */

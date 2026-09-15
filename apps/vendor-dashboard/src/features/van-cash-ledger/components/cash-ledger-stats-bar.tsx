@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { AlertCircle, Banknote, Landmark, TrendingDown, Wallet } from 'lucide-react';
+import { AlertCircle, Banknote, Fuel, Landmark, TrendingDown, Wallet } from 'lucide-react';
 import { Badge, Skeleton, cn } from '@water-supply-crm/ui';
 import { useCashLedgerStats } from '../hooks/use-van-cash-ledger';
 import { PendingApprovalsPanel } from './pending-approvals-panel';
@@ -80,6 +80,13 @@ export function CashLedgerStatsBar() {
                 iconClass="bg-violet-500/10 text-violet-500"
                 valueClass="text-violet-500"
                 value={money(stats.totalRemitted)}
+              />
+              <Stat
+                label="Fuel Card Top-ups"
+                icon={Fuel}
+                iconClass="bg-orange-500/10 text-orange-500"
+                valueClass="text-orange-500"
+                value={money(stats.totalFuelCardTopUps)}
               />
               <Stat
                 label="Available Balance"

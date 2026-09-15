@@ -82,6 +82,10 @@ import {
  *     2026-09-15): Salesman now drives their own route (S43 parity) and
  *     needs the same conversation access Driver already has. Existing
  *     vendors' Salesman roles predate the module entirely.
+ *   - fuel_cards:{page,view,manage,topup,topup_void} — new resource for the
+ *     Fuel Card Wallet feature (owner-requested 2026-09-15). Existing vendors'
+ *     Manager roles predate it entirely; Accountant gets `page/view/topup`
+ *     only (no `manage`/`topup_void`, same split as the fresh preset).
  */
 const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
   driver: ['fleet:record_check', 'fleet:record_fuel'],
@@ -122,6 +126,13 @@ const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
     // Amendment R16). Existing vendors' Manager roles predate these actions.
     'payroll:attendance_view',
     'payroll:attendance_mark',
+    // Fuel Card Wallet (owner-requested 2026-09-15). Existing vendors'
+    // Manager roles predate this new resource entirely.
+    'fuel_cards:page',
+    'fuel_cards:view',
+    'fuel_cards:manage',
+    'fuel_cards:topup',
+    'fuel_cards:topup_void',
   ],
   accountant: [
     // Van Cash Ledger (owner-requested 2026-09-09). Existing vendors'
@@ -133,6 +144,12 @@ const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
     // Office Cash Remittance (owner-requested 2026-09-10). Accountant may
     // RECORD a remittance only — not approve it (segregation of duties).
     'van_cash_ledger:remit',
+    // Fuel Card Wallet (owner-requested 2026-09-15). Existing vendors'
+    // Accountant roles predate this new resource entirely. `manage`/
+    // `topup_void` deliberately excluded, same split as the fresh preset.
+    'fuel_cards:page',
+    'fuel_cards:view',
+    'fuel_cards:topup',
   ],
 };
 

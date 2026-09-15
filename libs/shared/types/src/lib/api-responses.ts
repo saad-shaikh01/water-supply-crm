@@ -559,6 +559,10 @@ export interface FuelLogEntry {
   litersFilled: number;
   amountPaid: number;
   paidFromCash: boolean;
+  // Fuel Card Wallet (owner-requested 2026-09-15) — set when this fill was
+  // paid from a specific registered FuelCard.
+  fuelCardId: string | null;
+  fuelCard: { id: string; name: string } | null;
   isFullTank: boolean;
   fuelStation: string | null;
   receiptPhotoKey: string | null;

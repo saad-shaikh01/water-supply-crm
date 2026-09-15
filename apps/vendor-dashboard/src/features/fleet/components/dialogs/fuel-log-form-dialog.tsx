@@ -6,11 +6,13 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Loader2, Fuel } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, Button, Input, Label,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@water-supply-crm/ui';
 import type { FuelLogEntry } from '@water-supply-crm/types';
 import { fuelLogSchema, type FuelLogInput } from '../../schemas';
 import { useCreateFuelLog, useUpdateFuelLog } from '../../hooks/use-fuel-logs';
 import { useVehicleDailyChecks } from '../../hooks/use-vehicle-checks';
+import { useFuelCards } from '../../../fuel-cards/hooks/use-fuel-cards';
 import { FleetPhotoUpload } from '../fleet-photo-upload';
 
 interface FuelLogFormDialogProps {
@@ -84,6 +86,8 @@ export function FuelLogFormDialog({ vehicleId, dailySheetId, open, onOpenChange,
   });
   const isFullTank = watch('isFullTank');
   const paidFromCash = watch('paidFromCash');
+  const { data: fuelCards } = useFuelCards();
+  const activeFuelCards = (fuelCards ?? []).filter((c) => c.isActive);
 
   useEffect(() => {
     if (open && fuelLog) {
@@ -94,6 +98,7 @@ export function FuelLogFormDialog({ vehicleId, dailySheetId, open, onOpenChange,
         amountPaid: fuelLog.amountPaid,
         isFullTank: fuelLog.isFullTank,
         paidFromCash: fuelLog.paidFromCash,
+        fuelCardId: fuelLog.fuelCardId ?? undefined,
         fuelStation: fuelLog.fuelStation ?? '',
         notes: fuelLog.notes ?? '',
       });
@@ -208,9 +213,47 @@ export function FuelLogFormDialog({ vehicleId, dailySheetId, open, onOpenChange,
             <Controller
               name="paidFromCash"
               control={control}
-              render={({ field }) => <Toggle enabled={field.value} onToggle={() => field.onChange(!field.value)} label="Paid from van cash" />}
+              render={({ field }) => (
+                <Toggle
+                  enabled={field.value}
+                  onToggle={() => field.onChange(!field.value)}
+                  label="Paid from van cash"
+                />
+              )}
             />
           </div>
+
+          {!paidFromCash && activeFuelCards.length > 0 && (
+            <div className="space-y-2">
+              <Label>Fuel Card (optional)</Label>
+              <Controller
+                name="fuelCardId"
+                control={control}
+                render={({ field }) => (
+                  <Select
+                    value={field.value ?? 'none'}
+                    onValueChange={(v) => field.onChange(v === 'none' ? undefined : v)}
+                  >
+                    <SelectTrigger className="rounded-xl">
+                      <SelectValue placeholder="Bank / other (no specific card)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Bank / other (no specific card)</SelectItem>
+                      {activeFuelCards.map((card) => (
+                        <SelectItem key={card.id} value={card.id}>
+                          {card.name} · ₨ {card.balance.toLocaleString()}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              <p className="text-xs text-muted-foreground">
+                Selecting a card draws this fill down from its own balance — the top-up already left office
+                cash, so this fill won&apos;t be counted as a second cash outflow.
+              </p>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label>Fuel Station (optional)</Label>
