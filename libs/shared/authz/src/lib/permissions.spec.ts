@@ -111,7 +111,13 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // No new resource, no new `:page` — `customers` was already navigable. No
 // default preset grants it explicitly; reaches vendors via the vendor_admin/
 // super_admin `*` wildcard only.
-const FROZEN_TOTAL = 190;
+// 191 = 190 + daily_sheets:reprice — Bulk Closed Delivery Repricing feature
+// (owner-requested 2026-09-15): retroactive rate change on N closed deliveries
+// for one customer, separate from `daily_sheets:correct` (driver-mistake fixes).
+// No new resource, no new `:page` — `daily_sheets` was already navigable. No
+// default preset grants it explicitly; reaches vendors via the vendor_admin/
+// super_admin `*` wildcard only, same as `correct`.
+const FROZEN_TOTAL = 191;
 const FROZEN_PAGES = 30;
 const FROZEN_RESOURCES = 33;
 

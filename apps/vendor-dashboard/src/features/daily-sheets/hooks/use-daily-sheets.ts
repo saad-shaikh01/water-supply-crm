@@ -272,6 +272,58 @@ export const useCorrectClosedDelivery = (sheetId: string) => {
   });
 };
 
+export interface BulkRepriceResult {
+  batchId: string;
+  customerId: string;
+  itemCount: number;
+  totalDifference: number;
+  items: Array<{
+    dailySheetItemId: string;
+    oldPricePerBottle: number;
+    newPricePerBottle: number;
+    oldAmount: number;
+    newAmount: number;
+    difference: number;
+  }>;
+}
+
+/**
+ * Bulk Closed Delivery Repricing — retroactive rate change on N closed
+ * deliveries for one customer, applied across possibly several sheets/dates
+ * in one management-approved action. Deliberately separate from
+ * useCorrectClosedDelivery above (driver-mistake fixes on a single item vs a
+ * business decision spanning several).
+ */
+export const useBulkRepriceClosedDeliveries = (customerId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    // Applies a signed ledger delta per item server-side — a blind retry
+    // would double-apply the batch, so never auto-retry.
+    retry: 0,
+    mutationFn: (data: { dailySheetItemIds: string[]; newPricePerBottle: number; reason: string }): Promise<BulkRepriceResult> =>
+      dailySheetsApi.bulkRepriceClosedDeliveries(data).then((r) => r.data),
+    onSuccess: (result) => {
+      // A batch can span multiple sheets, so invalidate broadly rather than
+      // one specific sheetId.
+      queryClient.invalidateQueries({ queryKey: ['sheets'] });
+      queryClient.invalidateQueries({ queryKey: ['customers', customerId, 'statement-data'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.customers.one(customerId) });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['customer-financial-summary'] });
+      toast.success(
+        `${result.itemCount} deliver${result.itemCount === 1 ? 'y' : 'ies'} repriced — balance ${result.totalDifference >= 0 ? 'increased' : 'decreased'} by ₨${Math.abs(result.totalDifference).toLocaleString()}`,
+      );
+    },
+    onError: (error: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      if (error?.response?.data?.code === 'BULK_REPRICE_WALLET_NEGATIVE') {
+        toast.error(error.response.data.message);
+        return;
+      }
+      toast.error(error?.response?.data?.message ?? 'Failed to reprice deliveries');
+    },
+  });
+};
+
 /** Per-item edit history (AuditLog rows scoped to one DailySheetItem) — fetched lazily, only when the timeline is actually opened. */
 export const useDeliveryItemHistory = (itemId: string, enabled: boolean) => {
   return useQuery({

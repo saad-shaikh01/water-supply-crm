@@ -310,6 +310,16 @@ export const dailySheetsApi = {
       correctionNote: string;
     },
   ) => apiClient.patch(`/daily-sheets/items/${itemId}/correct`, body),
+  // Bulk Closed Delivery Repricing — retroactive rate change (management-
+  // approved) on N closed deliveries for one customer. Deliberately a
+  // SEPARATE endpoint from correctClosedDelivery above (driver mistakes vs a
+  // business decision). Quantities are never part of this call — only the
+  // rate changes. `reason` is always mandatory (min 3 chars).
+  bulkRepriceClosedDeliveries: (body: {
+    dailySheetItemIds: string[];
+    newPricePerBottle: number;
+    reason: string;
+  }) => apiClient.post('/daily-sheets/items/bulk-reprice', body),
   // Delivery failure photo
   uploadDeliveryPhoto: (file: File): Promise<{ key: string }> => {
     const formData = new FormData();

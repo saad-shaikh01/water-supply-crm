@@ -59,6 +59,7 @@ export const ACTION_LABELS: Record<string, string> = {
   edit_closed_trip: 'Edit closed-sheet trip',
   record_walk_in: 'Record walk-in / self-pickup delivery',
   edit_closed_expense: 'Edit closed-sheet expense',
+  reprice: 'Bulk reprice closed deliveries',
   manage_crew: 'Manage default crew',
   report_location: 'Report location',
   plan: 'Plan',
