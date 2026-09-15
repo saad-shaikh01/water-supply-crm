@@ -119,10 +119,12 @@ export default function RepairsPage() {
         onPageChange={setPage}
         onLimitChange={setLimit}
         emptyMessage="No repair batches found."
+        tableId="warehouse-repairs-list"
         columns={[
           {
             key: 'sentAt',
             header: 'Date Sent',
+            defaultVisible: false,
             cell: (r: any) => (
               <div className="flex flex-col min-w-[90px]">
                 <span className="text-xs font-bold text-foreground dark:text-white tabular-nums">
@@ -134,6 +136,7 @@ export default function RepairsPage() {
           {
             key: 'product',
             header: 'Product',
+            essential: true,
             cell: (r: any) => (
               <span className="text-sm font-bold text-foreground dark:text-white">{r.product?.name ?? '—'}</span>
             ),
@@ -162,6 +165,7 @@ export default function RepairsPage() {
           {
             key: 'bottlesWrittenOff',
             header: 'Written Off',
+            defaultVisible: false,
             cell: (r: any) => (
               <span className={`font-mono font-black ${r.bottlesWrittenOff > 0 ? 'text-red-500' : 'text-muted-foreground'}`}>
                 {r.bottlesWrittenOff}
@@ -176,6 +180,7 @@ export default function RepairsPage() {
           {
             key: 'returnedAt',
             header: 'Date Returned',
+            defaultVisible: false,
             cell: (r: any) => (
               <span className="text-xs text-muted-foreground">
                 {r.returnedAt
@@ -188,6 +193,7 @@ export default function RepairsPage() {
             key: 'actions',
             header: '',
             width: '90px',
+            essential: true,
             cell: (r: any) => {
               if (r.status === 'COMPLETED') return null;
               return (

@@ -394,9 +394,12 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
         selectedIds={selectedIds}
         onToggleRow={toggleRow}
         onToggleAll={toggleAllOnPage}
+        tableId="customers-list"
         columns={[
           {
             key: 'name',
+            essential: true,
+            label: 'Name / Code',
             header: (
               <div className="flex items-center gap-2">
                 <button
@@ -544,6 +547,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
           {
             key: 'address',
             header: 'Location',
+            defaultVisible: false,
             cell: (r) => (
               <div className="flex items-center gap-2 text-muted-foreground/70 max-w-[180px]">
                 <MapPin className="h-3 w-3 shrink-0" />
@@ -554,6 +558,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
           {
             key: 'deliveryDays',
             header: 'Delivery Days',
+            defaultVisible: false,
             cell: (r) => {
               const DAY_SHORT: Record<number, string> = { 0: 'Sun', 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat' };
               const schedules = r.deliverySchedules ?? [];
@@ -574,6 +579,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
           {
             key: 'lastDelivery',
             header: 'Last Delivery',
+            defaultVisible: false,
             cell: (r) => {
               if (!r.lastDeliveryAt) {
                 return (
@@ -602,6 +608,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
           {
             key: 'paymentType',
             header: 'Type',
+            defaultVisible: false,
             cell: (r) => (
               <div className="flex flex-col gap-1">
                 <Badge className={cn(
@@ -635,6 +642,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
           // },
           {
             key: 'actions',
+            essential: true,
             header: '',
             width: '60px',
             cell: (r) => (

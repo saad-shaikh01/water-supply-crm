@@ -32,10 +32,12 @@ export function RoleList({ onEdit, onClone }: RoleListProps) {
         data={roles}
         isLoading={isLoading}
         emptyMessage="No roles found"
+        tableId="roles-list"
         columns={[
           {
             key: 'name',
             header: 'Name',
+            essential: true,
             cell: (r) => (
               <div className="flex items-center gap-2">
                 <span
@@ -52,6 +54,7 @@ export function RoleList({ onEdit, onClone }: RoleListProps) {
           {
             key: 'description',
             header: 'Description',
+            defaultVisible: false,
             cell: (r) => (
               <span className={cn('text-muted-foreground', !r.description && 'italic')}>
                 {r.description || 'No description'}
@@ -64,6 +67,7 @@ export function RoleList({ onEdit, onClone }: RoleListProps) {
             key: 'actions',
             header: '',
             width: '60px',
+            essential: true,
             cell: (r) => (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

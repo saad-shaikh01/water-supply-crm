@@ -121,10 +121,12 @@ export function DiscrepancyCasesList() {
         onPageChange={setPage}
         onLimitChange={setLimit}
         emptyMessage="No discrepancy cases found."
+        tableId="discrepancy-cases-list"
         columns={[
           {
             key: 'date',
             header: 'Date',
+            defaultVisible: false,
             cell: (r) => (
               <div className="flex items-center gap-2 text-muted-foreground/80 whitespace-nowrap">
                 <Calendar className="h-3 w-3 shrink-0" />
@@ -137,10 +139,12 @@ export function DiscrepancyCasesList() {
           {
             key: 'van',
             header: 'Van',
+            defaultVisible: false,
             cell: (r) => <span className="text-sm font-medium">{r.dailySheet?.van?.plateNumber ?? '—'}</span>,
           },
           {
             key: 'driver',
+            essential: true,
             header: 'Driver',
             cell: (r) => <span className="text-sm font-medium">{r.driver?.name ?? '—'}</span>,
           },
@@ -169,6 +173,7 @@ export function DiscrepancyCasesList() {
           },
           {
             key: 'actions',
+            essential: true,
             header: '',
             width: '80px',
             cell: (r) => (

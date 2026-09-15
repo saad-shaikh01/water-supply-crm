@@ -454,6 +454,7 @@ export function DeliveryIssuesInbox() {
         selectedIds={selectedIds}
         onToggleRow={toggleRow}
         onToggleAll={toggleAllOnPage}
+        tableId="delivery-issues-inbox"
         columns={[
           {
             key: 'reportedAt',
@@ -467,6 +468,7 @@ export function DeliveryIssuesInbox() {
           },
           {
             key: 'customer',
+            essential: true,
             header: 'Customer',
             cell: (row: DeliveryIssueRow) => (
               <div>
@@ -478,6 +480,7 @@ export function DeliveryIssuesInbox() {
           {
             key: 'context',
             header: 'Van',
+            defaultVisible: false,
             cell: (row: DeliveryIssueRow) => (
               <p className="text-xs font-semibold">{row.dailySheetItem?.dailySheet?.van?.plateNumber ?? '-'}</p>
             ),
@@ -500,6 +503,7 @@ export function DeliveryIssuesInbox() {
           {
             key: 'bottleWallet',
             header: 'Bottle Wallet',
+            defaultVisible: false,
             cell: (row: DeliveryIssueRow) => {
               const wallets = (row.dailySheetItem?.customer?.wallets ?? []).filter((w) => Number(w.balance ?? 0) !== 0);
               const total = wallets.reduce((s, w) => s + Number(w.balance ?? 0), 0);
@@ -512,6 +516,7 @@ export function DeliveryIssuesInbox() {
           {
             key: 'lastDelivery',
             header: 'Last Delivery',
+            defaultVisible: false,
             cell: (row: DeliveryIssueRow) => {
               const iso = row.dailySheetItem?.customer?.lastDeliveryAt;
               if (!iso) return <span className="text-[10px] font-semibold text-rose-400">Never</span>;
@@ -532,6 +537,7 @@ export function DeliveryIssuesInbox() {
           {
             key: 'lastPayment',
             header: 'Last Payment',
+            defaultVisible: false,
             cell: (row: DeliveryIssueRow) => {
               const iso = row.dailySheetItem?.customer?.lastPaymentAt;
               if (!iso) return <span className="text-[10px] font-semibold text-rose-400/70">No payments yet</span>;
@@ -580,6 +586,7 @@ export function DeliveryIssuesInbox() {
           },
           {
             key: 'actions',
+            essential: true,
             header: '',
             width: '220px',
             cell: (row: DeliveryIssueRow) => {

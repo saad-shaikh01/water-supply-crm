@@ -391,6 +391,7 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
         onPageChange={setPage}
         onLimitChange={setLimit}
         emptyMessage="No transactions found in this period."
+        tableId="transactions-list"
         columns={[
           {
             key: 'date',
@@ -414,6 +415,7 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
           },
           ...(overrideCustomerId ? [] : [{
             key: 'customer',
+            essential: true,
             header: 'Customer',
             cell: (r: typeof rows[0]) =>
               r.customer?.id ? (
@@ -489,6 +491,7 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
           {
             key: 'notes',
             header: 'Description',
+            defaultVisible: false,
             cell: (r) => (
               <div className="flex items-center gap-2 text-muted-foreground/60 max-w-[250px]">
                 <FileText className="h-3 w-3 shrink-0" />
@@ -498,6 +501,7 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
           },
           {
             key: 'actions',
+            essential: true,
             header: '',
             width: '60px',
             cell: (r) => {

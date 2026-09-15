@@ -42,9 +42,11 @@ export function UserList({ onEdit }: UserListProps) {
         onPageChange={setPage}
         onLimitChange={setLimit}
         emptyMessage="No users found"
+        tableId="users-list"
         columns={[
           {
             key: 'name', header: 'Name',
+            essential: true,
             cell: (r) => (
               <div className={cn("flex items-center gap-2", !r.isActive && "opacity-60")}>
                 <span className="font-medium">{r.name}</span>
@@ -56,7 +58,7 @@ export function UserList({ onEdit }: UserListProps) {
               </div>
             )
           },
-          { key: 'email', header: 'Email', cell: (r) => r.email },
+          { key: 'email', header: 'Email', defaultVisible: false, cell: (r) => r.email },
           { key: 'role', header: 'Role', cell: (r) => <StatusBadge status={r.role} /> },
           {
             key: 'status', header: 'Status',
@@ -71,6 +73,7 @@ export function UserList({ onEdit }: UserListProps) {
           },
           {
             key: 'actions', header: '', width: '60px',
+            essential: true,
             cell: (r) => (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

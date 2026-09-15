@@ -276,6 +276,7 @@ export function PaymentRequestList() {
         onPageChange={setPage}
         onLimitChange={setLimit}
         emptyMessage="No payment requests found."
+        tableId="payment-requests-list"
         columns={[
           {
             key: 'date',
@@ -292,6 +293,7 @@ export function PaymentRequestList() {
           {
             key: 'customer',
             header: 'Customer',
+            essential: true,
             cell: (r) => (
               <div className="flex flex-col min-w-0 max-w-[180px]">
                 <CustomerLink id={r.customer?.id} name={r.customer?.name} className="font-bold text-sm text-foreground dark:text-white truncate" />
@@ -311,6 +313,7 @@ export function PaymentRequestList() {
           {
             key: 'method',
             header: 'Method',
+            defaultVisible: false,
             cell: (r) => (
               <Badge variant="outline" className="font-mono text-[9px] bg-white/5 border-white/10 text-muted-foreground dark:text-white/60 px-1.5 py-0 rounded-md whitespace-nowrap">
                 {r.method.replace('MANUAL_', '').replace('_', ' ')}
@@ -330,6 +333,7 @@ export function PaymentRequestList() {
             key: 'actions',
             header: '',
             width: '100px',
+            essential: true,
             cell: (r) => (
               <div className="flex items-center gap-1 shrink-0">
                 {r.status === 'PENDING' && (

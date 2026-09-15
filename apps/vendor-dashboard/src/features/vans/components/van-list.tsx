@@ -152,9 +152,11 @@ export function VanList({ onEdit }: VanListProps) {
         onPageChange={setPage}
         onLimitChange={setLimit}
         emptyMessage="No vans found"
+        tableId="vans-list"
         columns={[
           {
             key: 'plate', header: 'Plate Number',
+            essential: true,
             cell: (r) => (
               <div className={cn("flex items-center gap-2 whitespace-nowrap", !r.isActive && "opacity-60")}>
                 <span className="font-bold text-sm text-foreground dark:text-white">{r.plateNumber}</span>
@@ -166,9 +168,10 @@ export function VanList({ onEdit }: VanListProps) {
               </div>
             )
           },
-          { 
-            key: 'model', header: 'Model', 
-            cell: (r) => <span className="text-xs font-medium text-muted-foreground/80 truncate max-w-[120px] block">{r.model ?? '—'}</span> 
+          {
+            key: 'model', header: 'Model',
+            defaultVisible: false,
+            cell: (r) => <span className="text-xs font-medium text-muted-foreground/80 truncate max-w-[120px] block">{r.model ?? '—'}</span>
           },
           {
             key: 'driver',
@@ -218,6 +221,7 @@ export function VanList({ onEdit }: VanListProps) {
           },
           {
             key: 'actions', header: '', width: '60px',
+            essential: true,
             cell: (r) => (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

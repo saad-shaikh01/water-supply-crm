@@ -238,16 +238,17 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
           isLoading={entriesLoading}
           emptyMessage="No payroll entries generated yet — click Generate Draft to compute this period's payroll."
           onRowClick={(row) => setBreakdownEntryId(row.id)}
+          tableId="payroll-monthly"
           columns={[
-            { key: 'employee', header: 'Employee', cell: (r) => <span className="font-bold">{r.user.name}</span> },
+            { key: 'employee', essential: true, header: 'Employee', cell: (r) => <span className="font-bold">{r.user.name}</span> },
             { key: 'baseSalary', header: 'Base', cell: (r) => <span className="font-mono">₨ {r.baseSalary.toLocaleString()}</span> },
             { key: 'bonuses', header: 'Bonuses', cell: (r) => amountCell(r.bonuses) },
-            { key: 'overtime', header: 'Overtime', cell: (r) => amountCell(r.overtime) },
-            { key: 'incentives', header: 'Incentives', cell: (r) => amountCell(r.incentives) },
+            { key: 'overtime', header: 'Overtime', defaultVisible: false, cell: (r) => amountCell(r.overtime) },
+            { key: 'incentives', header: 'Incentives', defaultVisible: false, cell: (r) => amountCell(r.incentives) },
             { key: 'advances', header: 'Advances', cell: (r) => amountCell(r.advances) },
-            { key: 'expenses', header: 'Expenses', cell: (r) => amountCell(r.expenses) },
+            { key: 'expenses', header: 'Expenses', defaultVisible: false, cell: (r) => amountCell(r.expenses) },
             { key: 'penalties', header: 'Penalties', cell: (r) => amountCell(r.penalties) },
-            { key: 'otherDeductions', header: 'Other Deductions', cell: (r) => amountCell(r.otherDeductions) },
+            { key: 'otherDeductions', header: 'Other Deductions', defaultVisible: false, cell: (r) => amountCell(r.otherDeductions) },
             {
               key: 'finalPayable',
               header: 'Final Payable',
@@ -261,6 +262,7 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
             { key: 'status', header: 'Status', cell: (r) => <StatusBadge status={r.status} /> },
             {
               key: 'actions',
+              essential: true,
               header: 'Actions',
               cell: (r) => {
                 const showApprove = canApprove && r.status === 'DRAFT';

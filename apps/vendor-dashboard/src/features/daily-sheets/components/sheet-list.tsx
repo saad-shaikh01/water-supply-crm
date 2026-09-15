@@ -225,9 +225,11 @@ export function SheetList() {
         onPageChange={setPage}
         onLimitChange={setLimit}
         emptyMessage="No sheets found for this selection."
+        tableId="daily-sheets-list"
         columns={[
           {
             key: 'date',
+            essential: true,
             header: 'Date',
             cell: (r) => (
               <div className="flex items-center gap-2 whitespace-nowrap">
@@ -253,6 +255,7 @@ export function SheetList() {
           {
             key: 'driver',
             header: 'Driver',
+            defaultVisible: false,
             cell: (r) => (
               <div className="flex items-center gap-2 whitespace-nowrap max-w-[120px]">
                 <div className="h-6 w-6 rounded-full bg-white/5 border border-white/5 flex items-center justify-center shrink-0">
@@ -289,6 +292,7 @@ export function SheetList() {
           {
             key: 'bottles',
             header: 'Bottles',
+            defaultVisible: false,
             cell: (r) => (
               <div className="flex items-center gap-1.5 text-xs whitespace-nowrap">
                 <span className="font-bold text-foreground dark:text-white">{r.filledOutCount ?? 0}</span>
@@ -318,6 +322,7 @@ export function SheetList() {
           {
             key: 'ops',
             header: 'Signals',
+            defaultVisible: false,
             cell: (r) => (
               <div className="flex items-center gap-1.5 whitespace-nowrap">
                 {!r.isClosed && r.crewConfirmed === false && (
@@ -355,6 +360,7 @@ export function SheetList() {
           },
           {
             key: 'actions',
+            essential: true,
             header: '',
             width: '60px',
             cell: (r) => (

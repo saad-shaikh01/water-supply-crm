@@ -243,10 +243,12 @@ function TicketsContent() {
         onPageChange={setPage}
         onLimitChange={setLimit}
         emptyMessage="No tickets found."
+        tableId="tickets-list"
         columns={[
           {
             key: 'date',
             header: 'Date',
+            defaultVisible: false,
             cell: (r: any) => (
               <span className="text-xs text-muted-foreground">
                 {new Date(r.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
@@ -256,6 +258,7 @@ function TicketsContent() {
           {
             key: 'customer',
             header: 'Customer',
+            essential: true,
             cell: (r: any) => (
               <div>
                 <p className="font-bold text-sm">{r.customer?.name}</p>
@@ -296,6 +299,7 @@ function TicketsContent() {
           {
             key: 'resolution',
             header: 'Resolution',
+            defaultVisible: false,
             cell: (r: any) => {
               if (r.resolvedAt) {
                 return (
@@ -322,6 +326,7 @@ function TicketsContent() {
             key: 'actions',
             header: '',
             width: '80px',
+            essential: true,
             cell: (r: any) =>
               r.status !== 'CLOSED' ? (
                 <Button

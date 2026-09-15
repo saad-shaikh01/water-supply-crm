@@ -409,11 +409,13 @@ function OrdersContent() {
         onPageChange={setPage}
         onLimitChange={setLimit}
         emptyMessage="No orders found."
+        tableId="orders-list"
         columns={[
           {
             key: 'select',
             header: '',
             width: '40px',
+            essential: true,
             cell: (r: any) => (
               <input
                 type="checkbox"
@@ -446,6 +448,7 @@ function OrdersContent() {
           {
             key: 'customer',
             header: 'Customer',
+            essential: true,
             cell: (r: any) => (
               <div className="flex flex-col max-w-[200px] min-w-[150px]">
                 <p className="font-bold text-sm text-foreground dark:text-white truncate">{r.customer?.name}</p>
@@ -466,6 +469,7 @@ function OrdersContent() {
           {
             key: 'preferredDate',
             header: 'Preferred Date',
+            defaultVisible: false,
             cell: (r: any) => (
               <div className="flex flex-col min-w-[100px]">
                 <span className="text-xs font-bold text-foreground dark:text-white whitespace-nowrap">
@@ -478,6 +482,7 @@ function OrdersContent() {
           {
             key: 'reviewedAt',
             header: 'Reviewed At',
+            defaultVisible: false,
             cell: (r: any) => (
               <div className="flex flex-col min-w-[120px]">
                 {r.reviewedAt ? (
@@ -536,6 +541,7 @@ function OrdersContent() {
             key: 'actions',
             header: '',
             width: '100px',
+            essential: true,
             cell: (r: any) => {
               if (r.status === 'PENDING') {
                 return (

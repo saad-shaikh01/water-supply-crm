@@ -346,9 +346,10 @@ export function EmployeeFinancialProfile({ employeeId }: EmployeeFinancialProfil
             onPageChange={setTimelinePage}
             onLimitChange={(l) => { setTimelineLimit(l); setTimelinePage(1); }}
             emptyMessage="No ledger entries yet"
+            tableId="payroll-employee-financial-profile"
             columns={[
               {
-                key: 'category', header: 'Category',
+                key: 'category', header: 'Category', essential: true,
                 cell: (r) => (
                   <span className="font-semibold">
                     {LEDGER_CATEGORY_CONFIG[r.category as CreatableStaffLedgerCategory]?.label ?? r.category}
@@ -365,7 +366,7 @@ export function EmployeeFinancialProfile({ employeeId }: EmployeeFinancialProfil
               },
               { key: 'status', header: 'Status', cell: (r) => <StatusBadge status={r.status} /> },
               { key: 'effectiveDate', header: 'Date', cell: (r) => formatDate(r.effectiveDate) },
-              { key: 'description', header: 'Description', cell: (r) => r.description || '—' },
+              { key: 'description', header: 'Description', defaultVisible: false, cell: (r) => r.description || '—' },
             ]}
           />
         )}

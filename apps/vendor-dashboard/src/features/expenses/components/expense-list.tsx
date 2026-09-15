@@ -130,9 +130,10 @@ export function ExpenseList() {
         onPageChange={setPage}
         onLimitChange={setLimit}
         emptyMessage="No expenses recorded yet"
+        tableId="expenses-list"
         columns={[
           {
-            key: 'category', header: 'Category',
+            key: 'category', header: 'Category', essential: true,
             cell: (r) => {
               const cfg = CATEGORY_CONFIG[r.category] ?? CATEGORY_CONFIG['OTHER'];
               const Icon = cfg.icon;
@@ -167,11 +168,11 @@ export function ExpenseList() {
               : <span className="text-muted-foreground text-xs">—</span>
           },
           {
-            key: 'description', header: 'Note',
+            key: 'description', header: 'Note', defaultVisible: false,
             cell: (r) => <span className="text-xs text-muted-foreground truncate max-w-[180px] block">{r.description ?? '—'}</span>
           },
           {
-            key: 'actions', header: '', width: '60px',
+            key: 'actions', header: '', width: '60px', essential: true,
             cell: (r) => (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

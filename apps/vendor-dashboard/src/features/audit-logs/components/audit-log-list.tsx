@@ -80,6 +80,7 @@ export function AuditLogList() {
         onPageChange={setPage}
         onLimitChange={setLimit}
         emptyMessage="No audit logs found"
+        tableId="audit-log-list"
         columns={[
           {
             key: 'action', header: 'Action',
@@ -91,6 +92,7 @@ export function AuditLogList() {
           },
           {
             key: 'entity', header: 'Entity',
+            essential: true,
             cell: (r) => (
               <div>
                 <span className="font-semibold text-sm">{r.entity.replace('_', ' ')}</span>
@@ -104,6 +106,7 @@ export function AuditLogList() {
           },
           {
             key: 'time', header: 'Time',
+            defaultVisible: false,
             cell: (r) => (
               <span className="text-xs text-muted-foreground whitespace-nowrap">
                 {new Date(r.createdAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
@@ -112,6 +115,7 @@ export function AuditLogList() {
           },
           {
             key: 'actions', header: '', width: '60px',
+            essential: true,
             cell: (r) => r.changes ? (
               <Button variant="ghost" size="icon" onClick={() => setViewLog(r)}>
                 <Eye className="h-4 w-4" />

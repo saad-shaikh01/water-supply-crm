@@ -137,10 +137,12 @@ export default function WarehouseTransactionsPage() {
         onPageChange={setPage}
         onLimitChange={setLimit}
         emptyMessage="No transactions found."
+        tableId="warehouse-transactions-list"
         columns={[
           {
             key: 'createdAt',
             header: 'Date / Time',
+            defaultVisible: false,
             cell: (r: any) => (
               <div className="flex flex-col min-w-[100px]">
                 <span className="text-xs font-bold text-foreground dark:text-white tabular-nums">
@@ -155,6 +157,7 @@ export default function WarehouseTransactionsPage() {
           {
             key: 'product',
             header: 'Product',
+            essential: true,
             cell: (r: any) => (
               <span className="text-sm font-bold text-foreground dark:text-white">{r.product?.name ?? '—'}</span>
             ),
@@ -180,6 +183,7 @@ export default function WarehouseTransactionsPage() {
           {
             key: 'notes',
             header: 'Notes',
+            defaultVisible: false,
             cell: (r: any) => (
               <span className="text-xs text-muted-foreground max-w-[200px] truncate block">
                 {r.notes ?? (r.repairBatch ? `Shop: ${r.repairBatch.shopName}` : '—')}

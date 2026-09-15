@@ -226,10 +226,12 @@ export function DamageCasesList() {
         onPageChange={setPage}
         onLimitChange={setLimit}
         emptyMessage="No damage cases found."
+        tableId="damage-cases-list"
         columns={[
           {
             key: 'date',
             header: 'Date',
+            defaultVisible: false,
             cell: (r) => (
               <div className="flex items-center gap-2 text-muted-foreground/80 whitespace-nowrap">
                 <Calendar className="h-3 w-3 shrink-0" />
@@ -242,12 +244,14 @@ export function DamageCasesList() {
           {
             key: 'driver',
             header: 'Driver',
+            defaultVisible: false,
             cell: (r) => (
               <span className="text-sm font-medium">{r.driver?.name ?? '—'}</span>
             ),
           },
           {
             key: 'customer',
+            essential: true,
             header: 'Customer',
             cell: (r) => (
               <div className="flex flex-col min-w-0 max-w-[180px]">
@@ -289,6 +293,7 @@ export function DamageCasesList() {
           },
           {
             key: 'actions',
+            essential: true,
             header: '',
             width: '80px',
             cell: (r) => (

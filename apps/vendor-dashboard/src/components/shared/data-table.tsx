@@ -1,11 +1,13 @@
 'use client';
 
-import { ReactNode } from 'react';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-  Button, Skeleton, DataTablePagination
+  Button, Skeleton, DataTablePagination,
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem,
+  DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuItem,
 } from '@water-supply-crm/ui';
-import { Inbox, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
+import { Inbox, ChevronUp, ChevronDown, ChevronsUpDown, Columns3 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 
 interface Column<T> {
@@ -15,6 +17,12 @@ interface Column<T> {
   width?: string;
   sortable?: boolean;
   sortField?: string;
+  /** Label shown in the "Columns" toggle menu when `header` isn't a plain string. */
+  label?: string;
+  /** Always rendered — excluded from the column-visibility menu entirely (e.g. name, actions). */
+  essential?: boolean;
+  /** Whether an optional (non-essential) column starts visible before the user customizes it. Defaults to true. */
+  defaultVisible?: boolean;
 }
 
 interface DataTableProps<T> {
@@ -37,6 +45,32 @@ interface DataTableProps<T> {
   onToggleRow?: (id: string) => void;
   /** Toggles selection for every row currently rendered on this page. */
   onToggleAll?: () => void;
+  /**
+   * Stable identifier for this table (e.g. "customers-list"). When set alongside at least
+   * one non-essential column, renders a "Columns" toggle and persists the user's show/hide
+   * choices in localStorage under this key, per browser.
+   */
+  tableId?: string;
+}
+
+const COLUMN_PREFS_PREFIX = 'wsc:dt-cols:';
+
+function readColumnPrefs(tableId: string): Record<string, boolean> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(COLUMN_PREFS_PREFIX + tableId);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeColumnPrefs(tableId: string, prefs: Record<string, boolean>) {
+  try {
+    window.localStorage.setItem(COLUMN_PREFS_PREFIX + tableId, JSON.stringify(prefs));
+  } catch {
+    // localStorage unavailable (private mode / quota) — visibility just won't persist
+  }
 }
 
 export function DataTable<T extends { id: string }>({
@@ -57,12 +91,85 @@ export function DataTable<T extends { id: string }>({
   selectedIds,
   onToggleRow,
   onToggleAll,
+  tableId,
 }: DataTableProps<T>) {
   const allOnPageSelected = selectable && !!data?.length && data.every((row) => selectedIds?.has(row.id));
+
+  // User overrides for column visibility, loaded from localStorage after mount (so SSR/first
+  // paint always matches the author-defined defaults — no hydration flash/mismatch).
+  const [prefs, setPrefs] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    if (tableId) setPrefs(readColumnPrefs(tableId));
+  }, [tableId]);
+
+  const isColumnVisible = (col: Column<T>) =>
+    !!col.essential || (prefs[col.key] ?? col.defaultVisible !== false);
+
+  const optionalColumns = useMemo(() => columns.filter((c) => !c.essential), [columns]);
+  const visibleColumns = useMemo(() => columns.filter(isColumnVisible), [columns, prefs]);
+  const hiddenCount = optionalColumns.length - visibleColumns.filter((c) => !c.essential).length;
+
+  const toggleColumn = (col: Column<T>) => {
+    if (!tableId || col.essential) return;
+    const next = { ...prefs, [col.key]: !isColumnVisible(col) };
+    setPrefs(next);
+    writeColumnPrefs(tableId, next);
+  };
+
+  const resetColumns = () => {
+    if (!tableId) return;
+    setPrefs({});
+    writeColumnPrefs(tableId, {});
+  };
+
+  const columnToggle = tableId && optionalColumns.length > 0 && (
+    <div className="flex justify-end mb-3">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" className="gap-2 rounded-xl text-xs font-bold">
+            <Columns3 className="h-3.5 w-3.5" />
+            Columns
+            {hiddenCount > 0 && (
+              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/15 px-1 text-[10px] font-bold text-primary">
+                {hiddenCount}
+              </span>
+            )}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Toggle columns
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          {columns.map((col) => (
+            <DropdownMenuCheckboxItem
+              key={col.key}
+              checked={isColumnVisible(col)}
+              disabled={col.essential}
+              onSelect={(e) => e.preventDefault()}
+              onCheckedChange={() => toggleColumn(col)}
+            >
+              {col.label ?? (typeof col.header === 'string' && col.header ? col.header : col.key)}
+            </DropdownMenuCheckboxItem>
+          ))}
+          {hiddenCount > 0 && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={resetColumns} className="justify-center text-xs text-muted-foreground">
+                Reset to default
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+
   // Component implementation
   if (isLoading) {
     return (
       <div className="space-y-4">
+        {columnToggle}
         <div className="rounded-2xl border border-border overflow-hidden bg-white/[0.02] backdrop-blur-2xl">
           <div className="h-12 sm:h-14 bg-white/[0.01] border-b border-border" />
           {Array.from({ length: 5 }).map((_, i) => (
@@ -77,6 +184,7 @@ export function DataTable<T extends { id: string }>({
 
   return (
     <div className="flex flex-col min-h-0 flex-1 relative">
+      {columnToggle}
       <div className="rounded-2xl border border-border bg-white/[0.02] backdrop-blur-2xl overflow-hidden shadow-2xl mb-6">
         <Table>
           <TableHeader>
@@ -92,7 +200,7 @@ export function DataTable<T extends { id: string }>({
                   />
                 </TableHead>
               )}
-              {columns.map((col) => {
+              {visibleColumns.map((col) => {
                 const field = col.sortField ?? col.key;
                 const isActive = col.sortable && sortKey === field;
                 return (
@@ -126,7 +234,7 @@ export function DataTable<T extends { id: string }>({
             {!data?.length ? (
               <TableRow>
                 <TableCell
-                  colSpan={columns.length + (selectable ? 1 : 0)}
+                  colSpan={visibleColumns.length + (selectable ? 1 : 0)}
                   className="h-72 text-center"
                 >
                   <div className="flex flex-col items-center justify-center space-y-4">
@@ -158,7 +266,7 @@ export function DataTable<T extends { id: string }>({
                       />
                     </TableCell>
                   )}
-                  {columns.map((col) => (
+                  {visibleColumns.map((col) => (
                     <TableCell key={col.key} className="py-3 px-4 sm:py-4 sm:px-6">
                       <div className={cn(
                         "text-sm font-medium transition-colors text-foreground/90 group-hover:text-primary",

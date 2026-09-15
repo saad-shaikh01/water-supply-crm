@@ -61,9 +61,11 @@ export function VehicleList() {
         onLimitChange={setLimit}
         emptyMessage="No vehicles found"
         onRowClick={(row) => router.push(`/dashboard/fleet/${row.id}`)}
+        tableId="fleet-vehicle-list"
         columns={[
           {
             key: 'vehicle',
+            essential: true,
             header: 'Vehicle',
             cell: (row) => (
               <div className="flex items-center gap-2">
@@ -80,6 +82,7 @@ export function VehicleList() {
           {
             key: 'route',
             header: 'Usual Route',
+            defaultVisible: false,
             cell: (row) =>
               row.usualVanId ? (
                 <Badge variant="outline" className="font-semibold">{vanLabelById.get(row.usualVanId) ?? '—'}</Badge>
@@ -90,6 +93,7 @@ export function VehicleList() {
           {
             key: 'driver',
             header: 'Usual Driver',
+            defaultVisible: false,
             cell: (row) => row.usualVanDefaultDriver?.name ?? <span className="text-muted-foreground">Unassigned</span>,
           },
           {
