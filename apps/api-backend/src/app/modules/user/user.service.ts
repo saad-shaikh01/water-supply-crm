@@ -141,12 +141,14 @@ export class UserService {
 
   async findAllPaginated(vendorId: string, query: UserQueryDto) {
     const { page = 1, limit = 20, role, isActive } = query;
-    const cacheKey = this.cache.vendorKey(vendorId, `${CACHE_KEYS.USERS}:p:${page}:l:${limit}:r:${role ?? ''}:a:${isActive ?? ''}`);
+    const cacheKey = this.cache.vendorKey(vendorId, `${CACHE_KEYS.USERS}:p:${page}:l:${limit}:r:${role?.join(',') ?? ''}:a:${isActive ?? ''}`);
     const cached = await this.cache.get(cacheKey);
     if (cached) return cached;
 
     const where: any = { vendorId };
-    if (role) where.role = role;
+    // `role` is always an array once past the DTO transform (single value or comma-list) —
+    // `in` degrades gracefully to an exact match for a one-element array.
+    if (role?.length) where.role = { in: role };
     if (isActive !== undefined) where.isActive = isActive;
 
     const [data, total] = await Promise.all([

@@ -42,8 +42,9 @@ export const useDailySheets = () => {
     vanId: vanId || undefined,
     isClosed: isClosed === 'true' ? true : isClosed === 'false' ? false : undefined,
     kind: kind === 'WALK_IN' ? 'WALK_IN' : undefined,
-    // DRIVER only sees their own sheets
-    driverId: user?.role === 'DRIVER' ? user.id : (driverId || undefined),
+    // DRIVER/SALESMAN (treated as an interchangeable field-driver role — see
+    // crew-validation.ts's FIELD_STAFF_ROLES) only sees their own sheets
+    driverId: user?.role === 'DRIVER' || user?.role === 'SALESMAN' ? user.id : (driverId || undefined),
   };
 
   return {

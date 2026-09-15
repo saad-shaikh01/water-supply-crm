@@ -22,10 +22,12 @@ export function DriverMobileNav() {
   const user = useAuthStore((s) => s.user);
   const { can } = usePermissions();
 
-  // This compact bottom nav is a display mode for DRIVER users on mobile, not a
-  // general permission surface (mirrors the Sidebar's "Driver" group); each item's
-  // own visibility still resolves through the page registry below.
-  if (user?.role !== 'DRIVER') return null;
+  // This compact bottom nav is a display mode for DRIVER (and SALESMAN, treated
+  // as an interchangeable field-driver role — see crew-validation.ts's
+  // FIELD_STAFF_ROLES) users on mobile, not a general permission surface
+  // (mirrors the Sidebar's "Driver" group); each item's own visibility still
+  // resolves through the page registry below.
+  if (user?.role !== 'DRIVER' && user?.role !== 'SALESMAN') return null;
 
   const visibleItems = NAV_ITEMS.filter(({ href }) => {
     const permission = pagePermissionForPath(href);

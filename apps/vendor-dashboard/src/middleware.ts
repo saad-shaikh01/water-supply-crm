@@ -28,8 +28,11 @@ export function middleware(request: NextRequest) {
   }
 
   // Redirect authenticated users away from auth pages
+  // SALESMAN is treated as an alternate field-driver role (mirrors DRIVER's
+  // home screen) — see the same DRIVER/SALESMAN pairing in use-auth.ts,
+  // sidebar.tsx, driver-mobile-nav.tsx, access-denied.tsx and use-daily-sheets.ts.
   if (token && pathname.startsWith('/auth')) {
-    return redirectTo(role === 'DRIVER' ? '/dashboard/home' : '/dashboard/overview');
+    return redirectTo(role === 'DRIVER' || role === 'SALESMAN' ? '/dashboard/home' : '/dashboard/overview');
   }
 
   // Per-route access is enforced by RouteGuard (client, via the live PAGE_REGISTRY + granted

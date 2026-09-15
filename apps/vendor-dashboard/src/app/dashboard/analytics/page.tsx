@@ -62,7 +62,7 @@ function AnalyticsContent() {
       setFrom(range.from);
       setTo(range.to);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Intentionally mount-only — see comment above.
   }, []);
 
   const { data: financialData } = useFinancialAnalytics(from, to, vanId);

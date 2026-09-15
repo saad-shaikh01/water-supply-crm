@@ -233,7 +233,9 @@ function tabFilter(tab: TabKey, item: DeliveryItem): boolean {
 export function SheetDetail({ sheetId }: SheetDetailProps) {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
-  const isDriver = user?.role === 'DRIVER';
+  // SALESMAN is treated as an interchangeable field-driver role (see
+  // crew-validation.ts's FIELD_STAFF_ROLES) — gets the exact same driver-mode screens.
+  const isDriver = user?.role === 'DRIVER' || user?.role === 'SALESMAN';
   const { can } = usePermissions();
   const canConfirmCrew = can('daily_sheets:confirm_crew');
   const canSwapAssignment = can('daily_sheets:swap_assignment');

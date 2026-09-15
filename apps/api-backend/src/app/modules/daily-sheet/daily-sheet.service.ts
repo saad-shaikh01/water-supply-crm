@@ -561,15 +561,26 @@ export class DailySheetService implements OnModuleInit {
       });
     }
 
-    // Block delivery while instruction messages (requiresAck) on this item are
-    // unacknowledged. Casual conversation replies do NOT block (Communication
-    // Center §9); pre-existing notes were backfilled requiresAck=true.
+    // Block delivery while instruction messages (requiresAck) anywhere in this
+    // CUSTOMER's conversation are unacknowledged — scoped by customer, not by
+    // this single delivery item. Conversation is per-customer (not per-item),
+    // and delivery for a weekly/infrequent-schedule customer is often a brand
+    // new DailySheetItem each time an instruction was raised against a prior
+    // one; the gate must therefore follow the customer across sheets, not stay
+    // pinned to the item the instruction happened to be posted against. Casual
+    // conversation replies do NOT block (Communication Center §9); pre-existing
+    // notes were backfilled requiresAck=true.
     const unacknowledgedCount = await this.prisma.conversationMessage.count({
-      where: { dailySheetItemId: itemId, requiresAck: true, acknowledgedAt: null, deletedAt: null },
+      where: {
+        requiresAck: true,
+        acknowledgedAt: null,
+        deletedAt: null,
+        conversation: { customerId: item.customerId },
+      },
     });
     if (unacknowledgedCount > 0) {
       throw new BadRequestException(
-        `This delivery has ${unacknowledgedCount} unacknowledged note(s). Driver must acknowledge all notes before recording delivery.`,
+        `This customer has ${unacknowledgedCount} unacknowledged instruction message(s). Acknowledge them in Communications before recording this delivery.`,
       );
     }
 
@@ -2009,7 +2020,13 @@ export class DailySheetService implements OnModuleInit {
     }
 
     if (routeId) where.routeId = routeId;
-    if (driverId) where.driverId = driverId;
+    // `driverId` means "sheets this person touched" — matches either the assigned
+    // driver or a supporting-crew member (DRIVER/SALESMAN/LOADER are one
+    // interchangeable field-staff pool, see crew-validation.ts's FIELD_STAFF_ROLES;
+    // a SALESMAN who only ever rides as crew, never as the sheet's driverId, must
+    // still see their own sheets in "my sheets" views like use-daily-sheets.ts /
+    // DriverHome's today's-sheet query, both of which send this same param).
+    if (driverId) where.OR = [{ driverId }, { crew: { some: { userId: driverId } } }];
     if (vanId) where.vanId = vanId;
     if (isClosed !== undefined) where.isClosed = isClosed;
 
@@ -2426,11 +2443,6 @@ export class DailySheetService implements OnModuleInit {
             // sheet-detail row show a "Voided by X" badge without an audit-log
             // round-trip, mirroring crewConfirmedBy/closureRequestedBy above.
             voidedBy: { select: { id: true, name: true } },
-            _count: {
-              select: {
-                notes: { where: { requiresAck: true, acknowledgedAt: null, deletedAt: null } },
-              },
-            },
           },
           // Reflects the ACTUAL order deliveries were recorded in, not the
           // static planned route sequence — mirrors the frontend's
@@ -2541,6 +2553,29 @@ export class DailySheetService implements OnModuleInit {
     });
     const messageCountByItemId = new Map(itemMessageCounts.map((c) => [c.dailySheetItemId, c._count.id]));
 
+    // pendingAckCount, by contrast, MUST follow the customer (matches the
+    // submitDelivery gate above it in this file) — an instruction posted
+    // against a past item still has to block every future item for the same
+    // customer until acknowledged, not just the one it happened to be sent
+    // on. Conversation is unique per (vendorId, customerId), so one row per
+    // customer here gives the same "pending anywhere in this thread" count
+    // the gate uses.
+    const customerIds = Array.from(new Set(sheet.items.map((i) => i.customerId)));
+    const pendingAckConversations = customerIds.length
+      ? await this.prisma.conversation.findMany({
+          where: { customerId: { in: customerIds } },
+          select: {
+            customerId: true,
+            _count: {
+              select: { messages: { where: { requiresAck: true, acknowledgedAt: null, deletedAt: null } } },
+            },
+          },
+        })
+      : [];
+    const pendingAckByCustomerId = new Map(
+      pendingAckConversations.map((c) => [c.customerId, c._count.messages]),
+    );
+
     // WhatsApp delivery-receipt outcome per item: whatsappSentAt already covers success;
     // this fills in the FAILED/SKIPPED case (Meta rejection or a disabled notification
     // setting) which otherwise leaves the item with no visible signal at all.
@@ -2561,8 +2596,7 @@ export class DailySheetService implements OnModuleInit {
 
     for (const it of sheet.items as any[]) {
       it.messageCount = messageCountByItemId.get(it.id) ?? 0;
-      it.pendingAckCount = it._count.notes;
-      delete it._count;
+      it.pendingAckCount = pendingAckByCustomerId.get(it.customerId) ?? 0;
 
       if (it.whatsappSentAt) {
         it.whatsappStatus = 'SENT';
@@ -5021,9 +5055,15 @@ export class DailySheetService implements OnModuleInit {
 
     const sheetWhere = {
       vendorId,
-      driverId,
       isClosed: true,
       date: { gte: startDate, lte: endDate },
+      // "My stats" must include sheets this person rode as supporting crew, not
+      // only ones they were the assigned driver for (same driver-or-crew match as
+      // findAllPaginated's `driverId` filter — see its comment for why). Wrapped in
+      // `AND` rather than a flat `OR` so this survives being spread with a further
+      // top-level `OR` below (post-close-correction detection) without either one
+      // silently overwriting the other.
+      AND: [{ OR: [{ driverId }, { crew: { some: { userId: driverId } } }] }],
     };
     const completedStatuses: DeliveryStatus[] = [DeliveryStatus.COMPLETED, DeliveryStatus.EMPTY_ONLY];
 
@@ -5091,8 +5131,9 @@ export class DailySheetService implements OnModuleInit {
       }),
       // Post-Close Expense / Crew Cash Correction — closed sheets whose expense
       // or synced crew-cash rows were corrected after close (marker column
-      // bumped each time). sheetWhere already pins vendorId / driverId /
-      // date-range / isClosed.
+      // bumped each time). sheetWhere already pins vendorId / driver-or-crew /
+      // date-range / isClosed (its own driver-or-crew match lives under `AND`
+      // precisely so this sibling top-level `OR` can be added here safely).
       this.prisma.dailySheet.findMany({
         where: {
           ...sheetWhere,

@@ -77,6 +77,11 @@ import {
  *     for Staff Attendance & Wage Types Phase 1 (owner-approved 2026-09-11,
  *     Amendment R16). Existing vendors' Manager roles predate the new actions
  *     and need the catch-up grant.
+ *   - conversations:page/view/create/send/acknowledge — added to `salesman`
+ *     for Communication Center acknowledgment-gate parity (owner-requested
+ *     2026-09-15): Salesman now drives their own route (S43 parity) and
+ *     needs the same conversation access Driver already has. Existing
+ *     vendors' Salesman roles predate the module entirely.
  */
 const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
   driver: ['fleet:record_check', 'fleet:record_fuel'],
@@ -85,6 +90,14 @@ const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
     'fleet:record_fuel',
     'customers:deactivate',
     'customers:restore',
+    // Communication Center (owner-requested 2026-09-15). Existing vendors'
+    // Salesman roles predate the module entirely and need the catch-up
+    // grant — same set Driver has held since the feature shipped.
+    'conversations:page',
+    'conversations:view',
+    'conversations:create',
+    'conversations:send',
+    'conversations:acknowledge',
   ],
   manager: [
     'daily_sheets:void_delivery',

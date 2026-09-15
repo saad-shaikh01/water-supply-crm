@@ -93,6 +93,7 @@ export function OperationsTab({ from, to, vanId }: { from: string; to: string; v
                       <th className="pb-3 pr-4 text-right">Fuel Cost</th>
                       <th className="pb-3 pr-4 text-right">Liters</th>
                       <th className="pb-3 pr-4 text-right">Distance</th>
+                      <th className="pb-3 pr-4 text-right">Avg KM / L</th>
                       <th className="pb-3 text-right">Cost / KM</th>
                     </tr>
                   </thead>
@@ -103,6 +104,7 @@ export function OperationsTab({ from, to, vanId }: { from: string; to: string; v
                         <td className="py-3 pr-4 text-right font-mono">{fmt(v.fuelCost)}</td>
                         <td className="py-3 pr-4 text-right font-mono text-muted-foreground">{v.litersFilled.toLocaleString()} L</td>
                         <td className="py-3 pr-4 text-right font-mono text-muted-foreground">{v.distanceKm.toLocaleString()} km</td>
+                        <td className="py-3 pr-4 text-right font-mono">{v.kmPerLiter == null ? 'N/A' : `${v.kmPerLiter} km/L`}</td>
                         <td className="py-3 text-right font-mono">{v.costPerKm == null ? 'N/A' : fmt(v.costPerKm)}</td>
                       </tr>
                     ))}

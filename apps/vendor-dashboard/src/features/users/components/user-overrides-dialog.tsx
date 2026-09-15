@@ -4,12 +4,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { X, ShieldAlert } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-  Button, Badge, Skeleton, Tabs, TabsList, TabsTrigger, TabsContent,
+  Button, Badge, Skeleton,
 } from '@water-supply-crm/ui';
-import { expandPattern, type Permission } from '@water-supply-crm/authz';
+import { expandPattern, resolveEffectivePermissions, type Permission } from '@water-supply-crm/authz';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { PermissionMatrix } from '../../roles/components/permission-matrix';
 import { usePermissionCatalog } from '../../roles/hooks/use-permission-catalog';
+import { useRole } from '../../roles/hooks/use-roles';
 import { useUserAccess, useSetOverrides } from '../hooks/use-user-access';
 
 interface UserOverridesDialogProps {
@@ -36,17 +37,26 @@ function overridesEqual(a: OverridesMap, b: OverridesMap): boolean {
 }
 
 /**
- * Per-user permission override manager. Reuses `PermissionMatrix` (D6) verbatim as three
- * views into one `OverridesMap` state — an effective-permissions read view, and two
- * editable picks (Allow / Deny) that are kept mutually exclusive per permission, since the
- * backend only accepts one override row per permission. Saves as a full replacement via
- * `PATCH /users/:id/overrides`, matching how the Role Editor always sends a complete
- * permission array rather than incremental add/remove calls.
+ * Per-user permission override manager. Reuses `PermissionMatrix` (D6) as a single editable
+ * view of the user's *effective* permissions (role ∪ ALLOW overrides, minus DENY overrides) —
+ * checked state always matches what the user can currently do, so there's no separate
+ * "Effective Permissions" tab to cross-reference before deciding what to change. Toggling a
+ * box is diffed against the role's own baseline (fetched separately via `useRole`) to decide
+ * which override it implies: checking something the role doesn't grant writes an ALLOW
+ * override; unchecking something the role does grant writes a DENY override; toggling back to
+ * the baseline value removes the override entirely rather than leaving a redundant row. Saves
+ * as a full replacement via `PATCH /users/:id/overrides`, matching how the Role Editor always
+ * sends a complete permission array rather than incremental add/remove calls.
  */
 export function UserOverridesDialog({ open, onOpenChange, userId, userName }: UserOverridesDialogProps) {
-  const { data: userAccess, isLoading, isError } = useUserAccess(open ? userId : null);
+  const { data: userAccess, isLoading: isLoadingAccess, isError } = useUserAccess(open ? userId : null);
+  const { data: roleDetail, isLoading: isLoadingRole } = useRole(open ? userAccess?.role?.id ?? null : null);
   const { data: catalogGroups } = usePermissionCatalog();
   const { mutate: saveOverrides, isPending: isSaving } = useSetOverrides();
+
+  // Waiting on the role's own baseline too — without it a toggle right after opening the
+  // dialog can't tell an ALLOW-worthy addition from a "just remove the DENY override" one.
+  const isLoading = isLoadingAccess || (!!userAccess?.role?.id && isLoadingRole);
 
   const [overridesMap, setOverridesMap] = useState<OverridesMap>(new Map());
   const [initialMap, setInitialMap] = useState<OverridesMap>(new Map());
@@ -89,22 +99,35 @@ export function UserOverridesDialog({ open, onOpenChange, userId, userName }: Us
     return map;
   }, [catalogGroups]);
 
-  const allowSet = useMemo(() => {
-    const set = new Set<Permission>();
-    for (const [key, value] of overridesMap) if (value.effect === 'ALLOW') set.add(key);
-    return set;
-  }, [overridesMap]);
-
-  const denySet = useMemo(() => {
-    const set = new Set<Permission>();
-    for (const [key, value] of overridesMap) if (value.effect === 'DENY') set.add(key);
-    return set;
-  }, [overridesMap]);
-
+  // Live effective set — recomputed from the role's raw grants plus the *in-progress*
+  // `overridesMap` via the same canonical resolver the backend uses (imported, not
+  // reimplemented), so the matrix reflects each toggle immediately instead of the frozen
+  // server snapshot, and expiry dates are honored exactly as they will be on save.
   const effectiveSet = useMemo(
-    () => new Set((userAccess?.permissions ?? []) as Permission[]),
-    [userAccess],
+    () =>
+      new Set(
+        resolveEffectivePermissions({
+          rolePermissions: roleDetail?.permissions ?? [],
+          overrides: [...overridesMap.entries()].map(([permission, entry]) => ({
+            permission,
+            effect: entry.effect,
+            expiresAt: entry.expiresAt,
+          })),
+        }),
+      ),
+    [roleDetail, overridesMap],
   );
+
+  // The role's own grants, untouched by this user's overrides — the baseline a toggle is
+  // diffed against to decide whether it implies an ALLOW override, a DENY override, or just
+  // removes one that's now redundant.
+  const baselineSet = useMemo(() => {
+    const set = new Set<Permission>();
+    for (const pattern of roleDetail?.permissions ?? []) {
+      for (const permission of expandPattern(pattern)) set.add(permission);
+    }
+    return set;
+  }, [roleDetail]);
 
   const activeOverrides = useMemo(
     () =>
@@ -114,20 +137,22 @@ export function UserOverridesDialog({ open, onOpenChange, userId, userName }: Us
     [overridesMap, permissionMeta],
   );
 
-  /** Applies a matrix's full "next selected" set as overrides of the given effect — additions
-   * are written (or re-effected, preserving any expiry already set), removals are deleted
-   * entirely (never left dangling as the other effect). */
-  const applyChange = (next: Set<Permission>, effect: Effect) => {
+  /** Diffs the matrix's full "next selected" (= next effective) set against both the current
+   * effective set and the role baseline, and writes exactly the override each changed
+   * permission implies: newly checked + role doesn't grant it → ALLOW; newly unchecked + role
+   * does grant it → DENY; toggled back to what the role already says → override removed. */
+  const handleEffectiveChange = (next: Set<Permission>) => {
     setOverridesMap((prev) => {
       const nextMap = new Map(prev);
-      for (const [key, value] of prev) {
-        if (value.effect === effect && !next.has(key)) nextMap.delete(key);
+      for (const permission of next) {
+        if (effectiveSet.has(permission)) continue; // unchanged
+        if (baselineSet.has(permission)) nextMap.delete(permission); // was DENY-overridden; restore
+        else nextMap.set(permission, { effect: 'ALLOW', expiresAt: prev.get(permission)?.expiresAt ?? null });
       }
-      for (const key of next) {
-        const existing = nextMap.get(key);
-        if (!existing || existing.effect !== effect) {
-          nextMap.set(key, { effect, expiresAt: existing?.expiresAt ?? null });
-        }
+      for (const permission of effectiveSet) {
+        if (next.has(permission)) continue; // unchanged
+        if (baselineSet.has(permission)) nextMap.set(permission, { effect: 'DENY', expiresAt: prev.get(permission)?.expiresAt ?? null });
+        else nextMap.delete(permission); // was ALLOW-overridden; revoke
       }
       return nextMap;
     });
@@ -188,42 +213,18 @@ export function UserOverridesDialog({ open, onOpenChange, userId, userName }: Us
                 Base role: <span className="font-medium text-foreground">{userAccess?.role?.name ?? 'No role assigned'}</span>
               </p>
 
-              <Tabs defaultValue="effective">
-                <TabsList>
-                  <TabsTrigger value="effective">Effective Permissions</TabsTrigger>
-                  <TabsTrigger value="allow">Allow Overrides</TabsTrigger>
-                  <TabsTrigger value="deny">Deny Overrides</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="effective" className="pt-3">
-                  <p className="text-xs text-muted-foreground pb-2">
-                    What this user can currently do, from their role plus any active overrides below.
-                  </p>
-                  <PermissionMatrix selected={effectiveSet} onChange={() => undefined} disabled />
-                </TabsContent>
-
-                <TabsContent value="allow" className="pt-3">
-                  <p className="text-xs text-muted-foreground pb-2">
-                    Grant permissions this user&apos;s role wouldn&apos;t otherwise allow.
-                  </p>
-                  <PermissionMatrix
-                    selected={allowSet}
-                    onChange={(next) => applyChange(next, 'ALLOW')}
-                    disabled={isSaving}
-                  />
-                </TabsContent>
-
-                <TabsContent value="deny" className="pt-3">
-                  <p className="text-xs text-muted-foreground pb-2">
-                    Block permissions this user&apos;s role would otherwise allow. Deny always wins.
-                  </p>
-                  <PermissionMatrix
-                    selected={denySet}
-                    onChange={(next) => applyChange(next, 'DENY')}
-                    disabled={isSaving}
-                  />
-                </TabsContent>
-              </Tabs>
+              <div>
+                <p className="text-xs text-muted-foreground pb-2">
+                  Checked = what this user can do right now (role plus any active overrides).
+                  Check a box to grant it, uncheck one to block it — each change is saved below
+                  as the ALLOW or DENY override it implies.
+                </p>
+                <PermissionMatrix
+                  selected={effectiveSet}
+                  onChange={handleEffectiveChange}
+                  disabled={isSaving}
+                />
+              </div>
 
               <div className="space-y-2 pt-2 border-t border-border/50">
                 <div className="flex items-center justify-between">

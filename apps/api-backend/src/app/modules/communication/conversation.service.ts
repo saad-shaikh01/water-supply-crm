@@ -10,6 +10,13 @@ import { AuditService } from '../audit/audit.service';
 import { ConversationQueryDto } from './dto/conversation-query.dto';
 import type { AuthUser } from '@water-supply-crm/types';
 
+// SALESMAN is treated as an interchangeable field-driver role (see
+// daily-sheet.controller.ts's identical rule, S43 2026-09-15 parity): a
+// salesman driving their own route needs the exact same conversation
+// scoping, "waiting on" side, and notification routing a DRIVER gets.
+// Every place this module used to key off `UserRole.DRIVER` alone now keys
+// off this pair instead.
+const FIELD_DRIVER_ROLES: UserRole[] = [UserRole.DRIVER, UserRole.SALESMAN];
 // Context block returned with every conversation (inbox rows + detail).
 const CONVERSATION_INCLUDE = {
   customer: { select: { id: true, name: true, customerCode: true, phoneNumber: true } },
@@ -38,23 +45,45 @@ export class ConversationService {
   // ── access helpers ──────────────────────────────────────────────────────────
 
   /**
-   * Loads a sheet item and verifies tenancy (+ current-driver scope for DRIVER
-   * callers). Authorization always resolves the sheet's CURRENT driver — never
-   * the denormalized Conversation.driverId. Not private: MessageService reuses
-   * this as the single source of truth for item-scoped DRIVER authorization
-   * (get-or-create, send) — see resolveConversationForUser for why sending
-   * can't reuse *that* method's history-based check instead.
+   * Loads a sheet item and verifies tenancy (+ current-driver-or-crew scope
+   * for DRIVER/SALESMAN callers). Authorization always resolves the sheet's
+   * CURRENT driver and crew — never the denormalized Conversation.driverId.
+   * Not private: MessageService reuses this as the single source of truth
+   * for item-scoped authorization (get-or-create, send) — see
+   * resolveConversationForUser for why sending can't reuse *that* method's
+   * history-based check instead.
+   *
+   * Crew, not just driverId: a SALESMAN (or DRIVER) can ride as supporting
+   * crew (DailySheetCrew) on a sheet someone else drives — the exact same
+   * driver-or-crew gap this module's daily-sheet counterparts already close
+   * (e.g. the own-sheets list filter's `OR: [{driverId}, {crew:{some:...}}]`
+   * ). A crew-only member must get the same conversation access as the
+   * driver, not a 404.
    */
   async resolveItemForUser(user: AuthUser, itemId: string) {
     const item = await this.prisma.dailySheetItem.findUnique({
       where: { id: itemId },
-      include: { dailySheet: { select: { id: true, vendorId: true, vanId: true, driverId: true, date: true } } },
+      include: {
+        dailySheet: {
+          select: {
+            id: true,
+            vendorId: true,
+            vanId: true,
+            driverId: true,
+            date: true,
+            crew: { select: { userId: true } },
+          },
+        },
+      },
     });
     if (!item || item.dailySheet.vendorId !== user.vendorId) {
       throw new NotFoundException('Sheet item not found');
     }
-    if (user.role === UserRole.DRIVER && item.dailySheet.driverId !== user.userId) {
-      throw new NotFoundException('Sheet item not found');
+    if (FIELD_DRIVER_ROLES.includes(user.role)) {
+      const isOnSheet =
+        item.dailySheet.driverId === user.userId ||
+        item.dailySheet.crew.some((c) => c.userId === user.userId);
+      if (!isOnSheet) throw new NotFoundException('Sheet item not found');
     }
     return item;
   }
@@ -74,9 +103,19 @@ export class ConversationService {
     if (!conversation || conversation.vendorId !== user.vendorId) {
       throw new NotFoundException('Conversation not found');
     }
-    if (user.role === UserRole.DRIVER) {
+    if (FIELD_DRIVER_ROLES.includes(user.role)) {
+      // Driver OR crew (same gap as resolveItemForUser above) — a message
+      // whose item was on a sheet this user rode as supporting crew counts
+      // as history too, not just sheets they personally drove.
       const hasAccess = await this.prisma.conversationMessage.findFirst({
-        where: { conversationId, item: { dailySheet: { driverId: user.userId } } },
+        where: {
+          conversationId,
+          item: {
+            dailySheet: {
+              OR: [{ driverId: user.userId }, { crew: { some: { userId: user.userId } } }],
+            },
+          },
+        },
         select: { id: true },
       });
       if (!hasAccess) throw new NotFoundException('Conversation not found');
@@ -107,7 +146,7 @@ export class ConversationService {
 
   private waitingOn(lastMessageSenderRole: string | null): WaitingOn {
     if (!lastMessageSenderRole) return null;
-    return lastMessageSenderRole === UserRole.DRIVER ? 'OFFICE' : 'DRIVER';
+    return FIELD_DRIVER_ROLES.includes(lastMessageSenderRole as UserRole) ? 'OFFICE' : 'DRIVER';
   }
 
   // ── get-or-create (THE entry seam, incl. future Collection Policy) ─────────
@@ -141,13 +180,18 @@ export class ConversationService {
     // every delivery-card open) with zero messages ever sent. Those aren't
     // real conversations and shouldn't clutter the inbox.
     const where: Prisma.ConversationWhereInput = { vendorId: user.vendorId, messageCount: { gt: 0 } };
-    if (user.role === UserRole.DRIVER) {
+    if (FIELD_DRIVER_ROLES.includes(user.role)) {
       // History-based scope (per owner decision): a driver's inbox shows
       // every customer thread they've personally sent/received a message in,
       // even after a later route reassignment. The embedded thread on their
       // own current delivery card works regardless (item-scoped auth), so
       // this is purely a convenience aggregator, not the only access path.
-      where.messages = { some: { item: { dailySheet: { driverId: user.userId } } } };
+      // Driver OR crew — see resolveItemForUser for why.
+      where.messages = {
+        some: {
+          item: { dailySheet: { OR: [{ driverId: user.userId }, { crew: { some: { userId: user.userId } } }] } },
+        },
+      };
     }
     if (query.status) where.status = query.status;
     if (query.vanId) where.vanId = query.vanId;
@@ -160,10 +204,10 @@ export class ConversationService {
       };
     }
     if (query.waitingOn === 'OFFICE') {
-      where.lastMessageSenderRole = UserRole.DRIVER;
+      where.lastMessageSenderRole = { in: FIELD_DRIVER_ROLES };
     } else if (query.waitingOn === 'DRIVER') {
       where.lastMessageAt = { not: null };
-      where.lastMessageSenderRole = { not: UserRole.DRIVER };
+      where.lastMessageSenderRole = { notIn: FIELD_DRIVER_ROLES };
     }
     if (query.search) {
       where.OR = [
@@ -220,13 +264,17 @@ export class ConversationService {
   private async getUnreadConversationIds(user: AuthUser): Promise<string[]> {
     // History-based (same rule as findMany's driver scope): a driver's
     // unread badge only counts threads they've personally been part of.
+    // Driver OR crew (LEFT JOIN "DailySheetCrew" — same gap as
+    // resolveItemForUser above) — a sheet this user rode as supporting crew
+    // counts as "been part of" too, not just sheets they personally drove.
     const driverScope =
-      user.role === UserRole.DRIVER
+      FIELD_DRIVER_ROLES.includes(user.role)
         ? Prisma.sql`AND EXISTS (
             SELECT 1 FROM "ConversationMessage" m
             JOIN "DailySheetItem" i ON i."id" = m."dailySheetItemId"
             JOIN "DailySheet" s ON s."id" = i."dailySheetId"
-            WHERE m."conversationId" = c."id" AND s."driverId" = ${user.userId}
+            LEFT JOIN "DailySheetCrew" dsc ON dsc."dailySheetId" = s."id" AND dsc."userId" = ${user.userId}
+            WHERE m."conversationId" = c."id" AND (s."driverId" = ${user.userId} OR dsc."userId" IS NOT NULL)
           )`
         : Prisma.empty;
     const rows = await this.prisma.$queryRaw<Array<{ id: string }>>`

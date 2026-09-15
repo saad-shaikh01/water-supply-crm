@@ -12,9 +12,12 @@ interface DriverFilterProps {
 export function DriverFilter({ onBeforeChange }: DriverFilterProps) {
   const [driverId, setDriverId] = useQueryState('driverId', parseAsString.withDefault(''));
 
+  // SALESMAN is treated as an interchangeable field-driver role (see
+  // crew-validation.ts's FIELD_STAFF_ROLES) — a salesman can be a sheet's
+  // driverId just like a DRIVER-role user, so this list must include both.
   const { data } = useQuery({
     queryKey: ['drivers', 'dropdown'],
-    queryFn: () => usersApi.getAll({ limit: 100, role: 'DRIVER', isActive: true }).then((r) => r.data),
+    queryFn: () => usersApi.getAll({ limit: 100, role: 'DRIVER,SALESMAN', isActive: true }).then((r) => r.data),
     staleTime: 5 * 60 * 1000,
   });
 

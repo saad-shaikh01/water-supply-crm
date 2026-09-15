@@ -64,7 +64,9 @@ export function SheetList() {
     return 'OPEN';
   };
 
-  const isDriver = user?.role === 'DRIVER';
+  // SALESMAN is treated as an interchangeable field-driver role (see
+  // crew-validation.ts's FIELD_STAFF_ROLES) — same restricted "own sheets" view as DRIVER.
+  const isDriver = user?.role === 'DRIVER' || user?.role === 'SALESMAN';
 
   const resetPage = () => setPage(1);
 

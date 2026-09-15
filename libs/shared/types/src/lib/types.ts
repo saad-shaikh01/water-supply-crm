@@ -2,6 +2,8 @@ export type UserRoleType =
   | 'VENDOR_ADMIN'
   | 'STAFF'
   | 'DRIVER'
+  | 'SALESMAN'
+  | 'LOADER'
   | 'SUPER_ADMIN'
   | 'CUSTOMER';
 

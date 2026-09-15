@@ -43,6 +43,19 @@ describe('ConversationService', () => {
     customerId: null,
   };
 
+  // A SALESMAN riding as supporting crew (DailySheetCrew) on a van someone
+  // else drives — never the sheet's driverId. S43-parity regression guard:
+  // this user must get the same access a DRIVER-on-their-own-sheet gets, not
+  // a 404 just because they aren't in `dailySheet.driverId`.
+  const CREW_SALESMAN_USER: AuthUser = {
+    userId: 'crew-salesman-1',
+    email: 'cs@example.com',
+    name: 'Crew Salesman',
+    role: UserRole.SALESMAN,
+    vendorId: VENDOR_ID,
+    customerId: null,
+  };
+
   function buildItem(overrides: Record<string, unknown> = {}) {
     return {
       id: ITEM_ID,
@@ -54,6 +67,7 @@ describe('ConversationService', () => {
         vanId: 'van-001',
         driverId: DRIVER_USER.userId,
         date: new Date('2026-07-17T00:00:00.000Z'),
+        crew: [],
       },
       ...overrides,
     };
@@ -129,6 +143,33 @@ describe('ConversationService', () => {
 
       await expect(service.getOrCreateForItem(DRIVER_USER, ITEM_ID)).rejects.toThrow(NotFoundException);
     });
+
+    it('allows a SALESMAN who rides as supporting crew (not the sheet driver) to open the item', async () => {
+      mockPrisma.dailySheetItem.findUnique.mockResolvedValue(
+        buildItem({
+          dailySheet: {
+            ...buildItem().dailySheet,
+            driverId: 'other-driver',
+            crew: [{ userId: CREW_SALESMAN_USER.userId }],
+          },
+        }),
+      );
+      mockPrisma.conversation.upsert.mockResolvedValue({ id: CONVERSATION_ID, lastMessageSenderRole: null });
+
+      await expect(
+        service.getOrCreateForItem(CREW_SALESMAN_USER, ITEM_ID),
+      ).resolves.toBeTruthy();
+    });
+
+    it('still denies a SALESMAN who is neither the driver nor listed crew', async () => {
+      mockPrisma.dailySheetItem.findUnique.mockResolvedValue(
+        buildItem({ dailySheet: { ...buildItem().dailySheet, driverId: 'other-driver', crew: [] } }),
+      );
+
+      await expect(service.getOrCreateForItem(CREW_SALESMAN_USER, ITEM_ID)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
   });
 
   describe('findMany', () => {
@@ -151,7 +192,13 @@ describe('ConversationService', () => {
 
       const whereArg = mockPrisma.conversation.count.mock.calls[0][0].where;
       expect(whereArg.messages).toEqual({
-        some: { item: { dailySheet: { driverId: DRIVER_USER.userId } } },
+        some: {
+          item: {
+            dailySheet: {
+              OR: [{ driverId: DRIVER_USER.userId }, { crew: { some: { userId: DRIVER_USER.userId } } }],
+            },
+          },
+        },
       });
       expect(whereArg.item).toBeUndefined();
     });
@@ -172,6 +219,29 @@ describe('ConversationService', () => {
       mockPrisma.conversationMessage.findFirst.mockResolvedValue({ id: 'msg-1' });
 
       await expect(service.resolveConversationForUser(DRIVER_USER, CONVERSATION_ID)).resolves.toBeTruthy();
+    });
+
+    it('scopes the history check by driver OR crew, not driverId alone', async () => {
+      mockPrisma.conversation.findUnique.mockResolvedValue({ id: CONVERSATION_ID, vendorId: VENDOR_ID });
+      mockPrisma.conversationMessage.findFirst.mockResolvedValue({ id: 'msg-1' });
+
+      await service.resolveConversationForUser(CREW_SALESMAN_USER, CONVERSATION_ID);
+
+      expect(mockPrisma.conversationMessage.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            conversationId: CONVERSATION_ID,
+            item: {
+              dailySheet: {
+                OR: [
+                  { driverId: CREW_SALESMAN_USER.userId },
+                  { crew: { some: { userId: CREW_SALESMAN_USER.userId } } },
+                ],
+              },
+            },
+          },
+        }),
+      );
     });
   });
 

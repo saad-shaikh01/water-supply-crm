@@ -18,7 +18,11 @@ const PAGE_LIMIT = 20;
 
 function CommunicationsContent() {
   const user = useAuthStore((s) => s.user);
-  const isDriver = user?.role === 'DRIVER';
+  // SALESMAN mirrors DRIVER (S43 2026-09-15 parity) — a salesman driving
+  // their own route gets the same driver-side Communications experience
+  // (acknowledge button, own-thread scoping) as the embedded thread on the
+  // Daily Sheet page already gives them.
+  const isDriver = user?.role === 'DRIVER' || user?.role === 'SALESMAN';
 
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [status, setStatus] = useQueryState('status', parseAsString.withDefault('all'));

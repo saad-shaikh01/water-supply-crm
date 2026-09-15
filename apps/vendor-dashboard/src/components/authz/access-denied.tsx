@@ -8,7 +8,9 @@ import { useAuthStore } from '../../store/auth.store';
 /** Layer-2 render-time gate: shown by `RouteGuard` when the current route's `:page` permission is missing. */
 export function AccessDenied() {
   const user = useAuthStore((s) => s.user);
-  const homeHref = user?.role === 'DRIVER' ? '/dashboard/home' : '/dashboard/overview';
+  // SALESMAN mirrors DRIVER's home screen (see the DRIVER/SALESMAN pairing in
+  // middleware.ts, use-auth.ts, sidebar.tsx, driver-mobile-nav.tsx and use-daily-sheets.ts).
+  const homeHref = user?.role === 'DRIVER' || user?.role === 'SALESMAN' ? '/dashboard/home' : '/dashboard/overview';
 
   return (
     <div className="h-[60vh] flex flex-col items-center justify-center text-center space-y-4 animate-in fade-in duration-500">

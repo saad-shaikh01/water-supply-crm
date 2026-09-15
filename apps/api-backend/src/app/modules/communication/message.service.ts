@@ -25,6 +25,12 @@ const VOICE_PREVIEW = '🎤 Voice message';
 const NOTIFICATION_EVENT_TYPE = 'conversation.message';
 const IN_APP_NOTIFICATION_TYPE = 'CONVERSATION_MESSAGE';
 
+// SALESMAN mirrors DRIVER (S43 2026-09-15 parity, same rule as
+// conversation.service.ts's FIELD_DRIVER_ROLES): a salesman driving their
+// own route sends "driver-side" messages too, so their sends must notify
+// the office, not try to notify "the sheet's driver" (themselves).
+const FIELD_DRIVER_ROLES: UserRole[] = [UserRole.DRIVER, UserRole.SALESMAN];
+
 // `item` context is the per-message "which delivery is this about" tag —
 // surfaced in the thread UI as a divider/link whenever it changes between
 // consecutive messages.
@@ -288,7 +294,7 @@ export class MessageService {
     const body = `${context.customer.name} · Stop #${context.item.sequence}: ${preview}`;
 
     const recipientIds =
-      user.role === UserRole.DRIVER
+      FIELD_DRIVER_ROLES.includes(user.role)
         ? (
             await this.prisma.user.findMany({
               where: {

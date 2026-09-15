@@ -122,7 +122,7 @@ export function CustomersTab({ from, to, vanId }: { from: string; to: string; va
         {/* Payment type pie */}
         <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
           <CardHeader>
-            <CardTitle className="text-sm font-bold uppercase tracking-widest text-muted-foreground">Customer by Payment Type</CardTitle>
+            <CardTitle className="text-sm font-bold uppercase tracking-widest text-muted-foreground">Active Customers by Payment Type</CardTitle>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={280}>

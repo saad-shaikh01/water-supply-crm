@@ -225,7 +225,10 @@ export const useLogin = () => {
       // and denies access until a refresh forces a fresh fetch. Invalidate instead so the
       // dashboard's first render fetches the authoritative profile with permissions.
       queryClient.invalidateQueries({ queryKey: queryKeys.auth.me });
-      if (data.user.role === 'DRIVER') {
+      // SALESMAN mirrors DRIVER's home screen (see middleware.ts and the other
+      // DRIVER/SALESMAN pairings across sidebar.tsx, driver-mobile-nav.tsx,
+      // access-denied.tsx and use-daily-sheets.ts).
+      if (data.user.role === 'DRIVER' || data.user.role === 'SALESMAN') {
         router.push('/dashboard/home');
       } else {
         router.push('/dashboard/overview');

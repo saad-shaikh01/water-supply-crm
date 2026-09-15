@@ -87,6 +87,7 @@ describe('DailySheetService.findOne — postCloseDivergence (Option C)', () => {
     mockPrisma = {
       dailySheet: { findFirst: jest.fn() },
       conversationMessage: { groupBy: jest.fn().mockResolvedValue([]) },
+      conversation: { findMany: jest.fn().mockResolvedValue([]) },
       notificationLog: { findMany: jest.fn().mockResolvedValue([]) },
       dailySheetItem: { findMany: jest.fn().mockResolvedValue([]) },
       transaction: { groupBy: jest.fn().mockResolvedValue([]) },

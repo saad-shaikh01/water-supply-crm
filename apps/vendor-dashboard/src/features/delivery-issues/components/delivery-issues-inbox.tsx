@@ -9,6 +9,10 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   Input,
   Label,
   Select,
@@ -18,9 +22,11 @@ import {
   SelectValue,
   Textarea,
 } from '@water-supply-crm/ui';
-import { AlertTriangle, CalendarClock, CheckCircle2, Clock3, Loader2, Truck, X } from 'lucide-react';
+import { AlertTriangle, CalendarClock, CheckCircle2, Clock3, Loader2, MoreHorizontal, Power, PowerOff, Truck, X } from 'lucide-react';
+import { toast } from 'sonner';
 import { DataTable } from '../../../components/shared/data-table';
 import { CustomerLink } from '../../../components/shared/customer-link';
+import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { DateRangePicker } from '../../../components/shared/date-range-picker';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import {
@@ -37,6 +43,16 @@ import { usersApi } from '../../users/api/users.api';
 // new sheet" / "closed" projection the Move dialog there uses, so Bulk
 // Schedule doesn't reimplement that lookup.
 import { useDestinationOptions } from '../../daily-sheets/hooks/use-daily-sheets';
+// Same Deactivate/Force-Deactivate/Reactivate/Bulk-Deactivate flow as the
+// Customers list page (/dashboard/customers) — ported as-is, operating on
+// the customer behind each issue's delivery.
+import {
+  useDeactivateCustomer,
+  useReactivateCustomer,
+  useBulkDeactivateCustomers,
+  isDeactivateBlockedError,
+} from '../../customers/hooks/use-customers';
+import { useCan } from '../../authz/hooks/use-can';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All Statuses' },
@@ -83,7 +99,17 @@ interface DeliveryIssueRow {
     status: string;
     failureCategory?: string;
     reason?: string;
-    customer?: { id: string; name: string; customerCode: string; address: string };
+    customer?: {
+      id: string;
+      name: string;
+      customerCode: string;
+      address: string;
+      isActive?: boolean;
+      financialBalance?: number;
+      wallets?: Array<{ balance?: number }>;
+      lastDeliveryAt?: string | null;
+      lastPaymentAt?: string | null;
+    };
     product?: { id: string; name: string };
     dailySheet?: {
       id: string;
@@ -127,6 +153,15 @@ export function DeliveryIssuesInbox() {
   const { mutate: bulkSchedule, isPending: isBulkScheduling } = useBulkScheduleDeliveryIssues();
   const { mutate: bulkResolve, isPending: isBulkResolving } = useBulkResolveDeliveryIssues();
 
+  // Same customer Deactivate flow as /dashboard/customers.
+  const canDeactivateCustomer = useCan('customers:deactivate');
+  const canForceDeactivate = useCan('customers:force_deactivate');
+  const canForceDeactivateBottles = useCan('customers:force_deactivate_bottles');
+  const canRestoreCustomer = useCan('customers:restore');
+  const { mutate: deactivateCustomer, isPending: isDeactivating } = useDeactivateCustomer();
+  const { mutate: reactivateCustomer, isPending: isReactivating } = useReactivateCustomer();
+  const { mutate: bulkDeactivateCustomers, isPending: isBulkDeactivating } = useBulkDeactivateCustomers();
+
   const { data: staffData } = useQuery({
     queryKey: ['delivery-issues', 'staff-options'],
     queryFn: () => usersApi.getAll({ limit: 100, role: 'STAFF', isActive: true }).then((r) => r.data),
@@ -166,6 +201,30 @@ export function DeliveryIssuesInbox() {
   const [bulkScheduleForm, setBulkScheduleForm] = useState({ destinationDate: '', destinationVanId: '' });
   const [bulkResolveOpen, setBulkResolveOpen] = useState(false);
   const [bulkResolveForm, setBulkResolveForm] = useState({ resolution: 'DELIVERED', notes: '' });
+
+  // Same Deactivate/Force-Deactivate/Reactivate state shape as customer-list.tsx.
+  const [deactivateTarget, setDeactivateTarget] = useState<{ id: string; name: string } | null>(null);
+  const [forceTarget, setForceTarget] = useState<
+    { id: string; name: string; balance: number; bottles: Array<{ product: string; balance: number }> } | null
+  >(null);
+  const [reactivateTarget, setReactivateTarget] = useState<{ id: string; name: string } | null>(null);
+  const [bulkDeactivateOpen, setBulkDeactivateOpen] = useState(false);
+  const [bulkForceTarget, setBulkForceTarget] = useState<
+    { ids: string[]; skipped: Array<{ customerId: string; name: string; reason: string }> } | null
+  >(null);
+
+  // Selected issues → unique customer ids behind them (an issue is per-delivery,
+  // deactivate is per-customer, and the same customer can have >1 open issue).
+  const selectedCustomers = useMemo(() => {
+    const map = new Map<string, string>();
+    rows
+      .filter((r) => selectedIds.has(r.id))
+      .forEach((r) => {
+        const customer = r.dailySheetItem?.customer;
+        if (customer) map.set(customer.id, customer.name);
+      });
+    return Array.from(map, ([id, name]) => ({ id, name }));
+  }, [rows, selectedIds]);
 
   const toggleRow = (id: string) => {
     setSelectedIds((prev) => {
@@ -365,6 +424,17 @@ export function DeliveryIssuesInbox() {
             <CheckCircle2 className="h-3.5 w-3.5" />
             Resolve Selected
           </Button>
+          {canDeactivateCustomer && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-9 rounded-xl font-bold text-xs gap-1.5 border-orange-500/40 text-orange-500 hover:bg-orange-500/10 hover:text-orange-500"
+              onClick={() => setBulkDeactivateOpen(true)}
+            >
+              <PowerOff className="h-3.5 w-3.5" />
+              Deactivate Customers
+            </Button>
+          )}
           <Button size="sm" variant="ghost" className="h-9 font-semibold text-xs ml-auto" onClick={clearSelection}>
             Clear selection
           </Button>
@@ -407,13 +477,72 @@ export function DeliveryIssuesInbox() {
           },
           {
             key: 'context',
-            header: 'Route / Van',
+            header: 'Van',
             cell: (row: DeliveryIssueRow) => (
-              <div>
-                <p className="text-xs font-semibold">{row.dailySheetItem?.dailySheet?.route?.name ?? '-'}</p>
-                <p className="text-[10px] text-muted-foreground">{row.dailySheetItem?.dailySheet?.van?.plateNumber ?? '-'}</p>
-              </div>
+              <p className="text-xs font-semibold">{row.dailySheetItem?.dailySheet?.van?.plateNumber ?? '-'}</p>
             ),
+          },
+          {
+            key: 'balance',
+            header: 'Balance',
+            cell: (row: DeliveryIssueRow) => {
+              const balance = Number(row.dailySheetItem?.customer?.financialBalance ?? 0);
+              const isOwed = balance > 0;
+              return (
+                <span className={`font-mono font-bold text-xs px-2 py-1 rounded-md inline-block whitespace-nowrap ${
+                  isOwed ? 'text-rose-400 bg-rose-500/10' : 'text-emerald-400 bg-emerald-500/10'
+                }`}>
+                  ₨ {balance.toLocaleString()}
+                </span>
+              );
+            },
+          },
+          {
+            key: 'bottleWallet',
+            header: 'Bottle Wallet',
+            cell: (row: DeliveryIssueRow) => {
+              const wallets = (row.dailySheetItem?.customer?.wallets ?? []).filter((w) => Number(w.balance ?? 0) !== 0);
+              const total = wallets.reduce((s, w) => s + Number(w.balance ?? 0), 0);
+              if (wallets.length === 0) return <span className="text-xs text-muted-foreground/40">—</span>;
+              return (
+                <span className={`font-mono font-bold text-xs ${total < 0 ? 'text-rose-400' : ''}`}>{total} btl</span>
+              );
+            },
+          },
+          {
+            key: 'lastDelivery',
+            header: 'Last Delivery',
+            cell: (row: DeliveryIssueRow) => {
+              const iso = row.dailySheetItem?.customer?.lastDeliveryAt;
+              if (!iso) return <span className="text-[10px] font-semibold text-rose-400">Never</span>;
+              const d = new Date(iso);
+              const daysAgo = Math.floor((Date.now() - d.getTime()) / 86400000);
+              return (
+                <div className="flex flex-col gap-0.5 whitespace-nowrap">
+                  <span className="text-xs font-semibold tabular-nums">
+                    {d.toLocaleDateString('en-PK', { day: '2-digit', month: 'short' })}
+                  </span>
+                  <span className={`text-[10px] font-medium ${daysAgo >= 15 ? 'text-amber-500' : 'text-muted-foreground/60'}`}>
+                    {daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : `${daysAgo}d ago`}
+                  </span>
+                </div>
+              );
+            },
+          },
+          {
+            key: 'lastPayment',
+            header: 'Last Payment',
+            cell: (row: DeliveryIssueRow) => {
+              const iso = row.dailySheetItem?.customer?.lastPaymentAt;
+              if (!iso) return <span className="text-[10px] font-semibold text-rose-400/70">No payments yet</span>;
+              const d = new Date(iso);
+              const daysAgo = Math.floor((Date.now() - d.getTime()) / 86400000);
+              return (
+                <span className="text-[10px] font-medium text-muted-foreground/70 whitespace-nowrap">
+                  {daysAgo <= 0 ? 'Paid today' : daysAgo === 1 ? 'Paid yesterday' : `Paid ${daysAgo}d ago`}
+                </span>
+              );
+            },
           },
           {
             key: 'issue',
@@ -452,9 +581,10 @@ export function DeliveryIssuesInbox() {
           {
             key: 'actions',
             header: '',
-            width: '180px',
+            width: '220px',
             cell: (row: DeliveryIssueRow) => {
               const isClosed = row.status === 'RESOLVED' || row.status === 'DROPPED';
+              const customer = row.dailySheetItem?.customer;
               return (
                 <div className="flex items-center gap-1.5">
                   <Button
@@ -476,6 +606,38 @@ export function DeliveryIssuesInbox() {
                     <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
                     Resolve
                   </Button>
+                  {customer && (canDeactivateCustomer || canRestoreCustomer) && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="icon" variant="ghost" className="h-8 w-8 rounded-xl shrink-0">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-52 p-1.5 rounded-xl border-border/50 bg-background/95 backdrop-blur-xl">
+                        {customer.isActive !== false ? (
+                          canDeactivateCustomer && (
+                            <DropdownMenuItem
+                              onClick={() => setDeactivateTarget({ id: customer.id, name: customer.name })}
+                              className="rounded-lg cursor-pointer px-2 py-2 text-orange-500 focus:text-orange-500 focus:bg-orange-500/10"
+                            >
+                              <PowerOff className="mr-2 h-4 w-4" />
+                              <span className="font-medium text-sm">Deactivate Customer</span>
+                            </DropdownMenuItem>
+                          )
+                        ) : (
+                          canRestoreCustomer && (
+                            <DropdownMenuItem
+                              onClick={() => setReactivateTarget({ id: customer.id, name: customer.name })}
+                              className="rounded-lg cursor-pointer px-2 py-2 text-emerald-500 focus:text-emerald-500 focus:bg-emerald-500/10"
+                            >
+                              <Power className="mr-2 h-4 w-4" />
+                              <span className="font-medium text-sm">Reactivate Customer</span>
+                            </DropdownMenuItem>
+                          )
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                 </div>
               );
             },
@@ -844,6 +1006,135 @@ export function DeliveryIssuesInbox() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Deactivate / Force-Deactivate / Reactivate — same flow as
+          /dashboard/customers, ported as-is onto the customer behind this issue. */}
+      <ConfirmDialog
+        open={!!deactivateTarget}
+        onOpenChange={(open) => !open && setDeactivateTarget(null)}
+        title="Deactivate Customer"
+        description="This customer will be marked inactive and won't appear in daily sheets. Any of their still-pending deliveries on open sheets will be cancelled. You can reactivate them at any time."
+        onConfirm={() => {
+          if (!deactivateTarget) return;
+          const target = deactivateTarget;
+          deactivateCustomer(
+            { id: target.id },
+            {
+              onSuccess: () => setDeactivateTarget(null),
+              onError: (e) => {
+                const blocked = isDeactivateBlockedError(e);
+                if (!blocked) return; // generic errors handled by the hook toast
+                setDeactivateTarget(null);
+                const needBalancePerm = blocked.financialBalance > 0;
+                const needBottlesPerm = (blocked.outstandingBottles ?? []).length > 0;
+                const covered =
+                  (!needBalancePerm || canForceDeactivate) &&
+                  (!needBottlesPerm || canForceDeactivateBottles);
+                if (covered) {
+                  setForceTarget({
+                    id: target.id,
+                    name: blocked.customerName,
+                    balance: blocked.financialBalance,
+                    bottles: blocked.outstandingBottles ?? [],
+                  });
+                } else {
+                  toast.error(blocked.message);
+                }
+              },
+            },
+          );
+        }}
+        isLoading={isDeactivating}
+        confirmLabel="Deactivate"
+      />
+
+      <ConfirmDialog
+        open={!!forceTarget}
+        onOpenChange={(open) => !open && setForceTarget(null)}
+        title="Force Deactivate — Write Off"
+        description={(() => {
+          if (!forceTarget) return '';
+          const parts: string[] = [];
+          if (forceTarget.balance > 0) parts.push(`an outstanding balance of ₨${forceTarget.balance.toLocaleString()}`);
+          if (forceTarget.bottles.length > 0) {
+            const btl = forceTarget.bottles.map((b) => `${b.product}: ${b.balance}`).join(', ');
+            parts.push(`company bottles (${btl})`);
+          }
+          return `${forceTarget.name} has ${parts.join(' and ')}. Force deactivating will write ${parts.length > 1 ? 'these' : 'this'} off as a company loss and cannot be reversed. Any still-pending deliveries on open sheets will also be cancelled.`;
+        })()}
+        onConfirm={() => {
+          if (!forceTarget) return;
+          deactivateCustomer(
+            { id: forceTarget.id, force: true },
+            { onSuccess: () => setForceTarget(null) },
+          );
+        }}
+        isLoading={isDeactivating}
+        confirmLabel={(() => {
+          if (!forceTarget) return 'Force Deactivate';
+          const bits: string[] = [];
+          if (forceTarget.balance > 0) bits.push(`₨${forceTarget.balance.toLocaleString()}`);
+          const btlTotal = forceTarget.bottles.reduce((s, b) => s + b.balance, 0);
+          if (btlTotal !== 0) bits.push(`${btlTotal} bottle${btlTotal === 1 ? '' : 's'}`);
+          return bits.length ? `Force Deactivate & Write Off ${bits.join(' + ')}` : 'Force Deactivate';
+        })()}
+      />
+
+      <ConfirmDialog
+        open={!!reactivateTarget}
+        onOpenChange={(open) => !open && setReactivateTarget(null)}
+        title="Reactivate Customer"
+        description="This customer will be marked active again and will appear in daily sheets and delivery planning."
+        onConfirm={() => {
+          if (reactivateTarget) reactivateCustomer(reactivateTarget.id, { onSuccess: () => setReactivateTarget(null) });
+        }}
+        isLoading={isReactivating}
+        confirmLabel="Reactivate"
+      />
+
+      <ConfirmDialog
+        open={bulkDeactivateOpen}
+        onOpenChange={setBulkDeactivateOpen}
+        title="Deactivate Selected Customers"
+        description={`Deactivate ${selectedCustomers.length} selected customer${selectedCustomers.length !== 1 ? 's' : ''}? They won't appear in daily sheets and any of their still-pending deliveries on open sheets will be cancelled. Any customer with outstanding bottles or an outstanding balance is skipped automatically — you can then Force Deactivate the rest, or handle them individually.`}
+        onConfirm={() => {
+          bulkDeactivateCustomers(
+            { customerIds: selectedCustomers.map((c) => c.id) },
+            {
+              onSuccess: (result) => {
+                setBulkDeactivateOpen(false);
+                clearSelection();
+                if (result.skippedCount > 0 && (canForceDeactivate || canForceDeactivateBottles)) {
+                  setBulkForceTarget({ ids: result.skipped.map((s) => s.customerId), skipped: result.skipped });
+                }
+              },
+              onError: () => setBulkDeactivateOpen(false),
+            },
+          );
+        }}
+        isLoading={isBulkDeactivating}
+        confirmLabel="Deactivate"
+      />
+
+      <ConfirmDialog
+        open={!!bulkForceTarget}
+        onOpenChange={(open) => !open && setBulkForceTarget(null)}
+        title="Force Deactivate — Write Off Remaining"
+        description={
+          bulkForceTarget
+            ? `${bulkForceTarget.ids.length} customer${bulkForceTarget.ids.length !== 1 ? 's' : ''} were skipped for an outstanding balance and/or bottles: ${bulkForceTarget.skipped.slice(0, 5).map((s) => s.name).join(', ')}${bulkForceTarget.skipped.length > 5 ? `, +${bulkForceTarget.skipped.length - 5} more` : ''}. Force deactivating will write off their balances/bottles as a company loss and cannot be reversed. Anyone whose blocker you don't have permission to force will be skipped again.`
+            : ''
+        }
+        onConfirm={() => {
+          if (!bulkForceTarget) return;
+          bulkDeactivateCustomers(
+            { customerIds: bulkForceTarget.ids, force: true },
+            { onSuccess: () => setBulkForceTarget(null) },
+          );
+        }}
+        isLoading={isBulkDeactivating}
+        confirmLabel={bulkForceTarget ? `Force Deactivate ${bulkForceTarget.ids.length} Customer${bulkForceTarget.ids.length !== 1 ? 's' : ''}` : 'Force Deactivate'}
+      />
     </div>
   );
 }

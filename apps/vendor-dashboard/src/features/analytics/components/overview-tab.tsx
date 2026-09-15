@@ -256,7 +256,7 @@ export function OverviewTab({
 
       <div className="grid gap-4 md:grid-cols-2">
         {/* Customer payment mix */}
-        <SectionCard title="Customer Payment Mix" onViewAll={() => onNavigate('customers')}>
+        <SectionCard title="Active Customer Payment Mix" onViewAll={() => onNavigate('customers')}>
           <div className="flex items-center justify-center gap-12 py-6">
             <div className="text-center">
               <p className="text-3xl font-bold text-blue-500">{cashCustomerCount}</p>

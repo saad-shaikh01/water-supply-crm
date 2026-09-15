@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
-import { DeliveryIssueStatus, IssueNextAction, IssueResolution } from '@prisma/client';
+import { DeliveryIssueStatus, DeliveryStatus, IssueNextAction, IssueResolution, TransactionType } from '@prisma/client';
 import type { AuthUser } from '@water-supply-crm/types';
 import { paginate } from '../../common/helpers/paginate';
 import { DeliveryIssueQueryDto } from './dto/delivery-issue-query.dto';
@@ -26,7 +26,20 @@ const ISSUE_INCLUDE = {
       status: true,
       failureCategory: true,
       reason: true,
-      customer: { select: { id: true, name: true, customerCode: true, address: true } },
+      customer: {
+        select: {
+          id: true,
+          name: true,
+          customerCode: true,
+          address: true,
+          isActive: true,
+          // Balance / bottle wallet snapshot — same fields the Customers list
+          // page (/dashboard/customers) already shows, so ops can triage an
+          // issue without leaving this page.
+          financialBalance: true,
+          wallets: { select: { balance: true } },
+        },
+      },
       product: { select: { id: true, name: true } },
       dailySheet: {
         select: {
@@ -126,7 +139,47 @@ export class DeliveryIssueService {
       this.prisma.deliveryIssue.count({ where }),
     ]);
 
-    return paginate(data, total, page, limit);
+    // Last delivery / last payment dates — same "most recent" snapshot the
+    // Customers list page computes, scoped to just this page's customers.
+    const customerIds = Array.from(
+      new Set(data.map((d) => d.dailySheetItem?.customer?.id).filter((id): id is string => !!id)),
+    );
+    const [lastDeliveries, lastPayments] = await Promise.all([
+      this.prisma.dailySheetItem.groupBy({
+        by: ['customerId'],
+        where: {
+          customerId: { in: customerIds },
+          status: { in: [DeliveryStatus.COMPLETED, DeliveryStatus.EMPTY_ONLY] },
+          deliveredAt: { not: null },
+        },
+        _max: { deliveredAt: true },
+      }),
+      this.prisma.transaction.groupBy({
+        by: ['customerId'],
+        where: { customerId: { in: customerIds }, vendorId, type: TransactionType.PAYMENT },
+        _max: { createdAt: true },
+      }),
+    ]);
+    const lastDeliveryMap = new Map(lastDeliveries.map((g) => [g.customerId, g._max.deliveredAt]));
+    const lastPaymentMap = new Map(lastPayments.map((g) => [g.customerId, g._max.createdAt]));
+
+    const enriched = data.map((issue) => {
+      const customer = issue.dailySheetItem?.customer;
+      if (!customer) return issue;
+      return {
+        ...issue,
+        dailySheetItem: {
+          ...issue.dailySheetItem,
+          customer: {
+            ...customer,
+            lastDeliveryAt: lastDeliveryMap.get(customer.id) ?? null,
+            lastPaymentAt: lastPaymentMap.get(customer.id) ?? null,
+          },
+        },
+      };
+    });
+
+    return paginate(enriched, total, page, limit);
   }
 
   async findOne(vendorId: string, id: string) {

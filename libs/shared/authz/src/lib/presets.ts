@@ -316,6 +316,16 @@ export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
       // no fleet:override_check).
       'fleet:record_check',
       'fleet:record_fuel',
+      // Communication Center (owner-requested 2026-09-15): Salesman now drives
+      // their own route (S43 parity) and needs the exact same conversation
+      // access as Driver below — read/send/acknowledge instruction messages,
+      // both from the embedded Daily Sheet thread and the standalone
+      // Communications inbox.
+      'conversations:page',
+      'conversations:view',
+      'conversations:create',
+      'conversations:send',
+      'conversations:acknowledge',
     ],
   },
   loader: {

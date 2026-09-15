@@ -30,7 +30,7 @@ interface NavItem {
   children?: ChildNavItem[];
   /** Communication Center unread count pill (Phase 4). */
   unreadBadge?: boolean;
-  /** Hide this entry for DRIVER even if permitted — it duplicates the dedicated Driver-group entry for the same page. */
+  /** Hide this entry for DRIVER/SALESMAN even if permitted — it duplicates the dedicated Driver-group entry for the same page. */
   hideForDriver?: boolean;
 }
 
@@ -38,7 +38,7 @@ interface NavItem {
 // (@water-supply-crm/authz) — no permission is hardcoded here, so this list can never
 // drift from the frozen catalog. See `canAccess()` in `Sidebar`/`CollapsibleNavGroup`.
 const navItems: NavItem[] = [
-  // Driver — display mode only shown to DRIVER users (see visibleItems filter below);
+  // Driver — display mode only shown to DRIVER/SALESMAN users (see visibleItems filter below);
   // each item's own visibility still resolves through the page registry.
   { label: 'Home', href: '/dashboard/home', icon: Home, group: 'Driver' },
   { label: 'My History', href: '/dashboard/history', icon: History, group: 'Driver' },
@@ -233,15 +233,18 @@ export function Sidebar({ className }: { className?: string }) {
   const visibleItems = isReady
     ? navItems.filter((item) => {
         if (!user) return false;
-        // Driver nav is a display mode reserved for DRIVER users, same as DriverMobileNav;
-        // each item's own visibility still resolves through the page registry below.
+        // Driver nav is a display mode reserved for DRIVER (and SALESMAN, treated as an
+        // interchangeable field-driver role — see crew-validation.ts's FIELD_STAFF_ROLES),
+        // same as DriverMobileNav; each item's own visibility still resolves through the
+        // page registry below.
+        const isFieldDriver = user.role === 'DRIVER' || user.role === 'SALESMAN';
         if (item.group === 'Driver') {
-          return user.role === 'DRIVER' && (item.href ? canAccess(item.href) : true);
+          return isFieldDriver && (item.href ? canAccess(item.href) : true);
         }
         // Collapsible groups have no href of their own — CollapsibleNavGroup hides the
         // whole group once none of its children resolve to a granted page permission.
         if (item.children) return true;
-        if (item.hideForDriver && user.role === 'DRIVER') return false;
+        if (item.hideForDriver && isFieldDriver) return false;
         return item.href ? canAccess(item.href) : false;
       })
     : [];
@@ -325,7 +328,7 @@ export function Sidebar({ className }: { className?: string }) {
       <div className="px-3 py-4 border-t border-zinc-200/80 dark:border-border/50">
         <div className="px-4 py-3 rounded-xl bg-zinc-50 border border-zinc-200/80 dark:bg-white/[0.03] dark:border-border/50">
           <p className="text-[9px] uppercase tracking-widest font-bold text-primary">
-            {user?.role === 'DRIVER' ? 'Driver' : 'Operator'}
+            {user?.role === 'DRIVER' || user?.role === 'SALESMAN' ? 'Driver' : 'Operator'}
           </p>
           <p className="text-sm font-semibold truncate text-zinc-900 dark:text-white mt-0.5">{user?.name || 'User'}</p>
           <div className="flex items-center gap-1.5 mt-1">

@@ -103,8 +103,10 @@ export class DailySheetController {
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
   ) {
-    // DRIVER can only query their own stats
-    const resolvedDriverId = user.role === UserRole.DRIVER ? user.userId : driverId;
+    // DRIVER/SALESMAN (treated as an interchangeable field-driver role — see
+    // crew-validation.ts's FIELD_STAFF_ROLES) can only query their own stats
+    const resolvedDriverId =
+      user.role === UserRole.DRIVER || user.role === UserRole.SALESMAN ? user.userId : driverId;
     return this.dailySheetService.getDriverStats(user.vendorId, resolvedDriverId, {
       month,
       dateFrom,

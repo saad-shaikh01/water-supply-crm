@@ -821,8 +821,10 @@ export class AnalyticsService {
     const total = allCustomers.length;
     const active = allCustomers.filter((c) => c.isActive).length;
     const inactive = total - active;
-    const cashCustomers = allCustomers.filter((c) => c.paymentType === PaymentType.CASH).length;
-    const monthlyCustomers = allCustomers.filter((c) => c.paymentType === PaymentType.MONTHLY).length;
+    // Active-only — a deactivated customer isn't being delivered to any more,
+    // so counting them here would overstate the live cash/monthly mix.
+    const cashCustomers = allCustomers.filter((c) => c.isActive && c.paymentType === PaymentType.CASH).length;
+    const monthlyCustomers = allCustomers.filter((c) => c.isActive && c.paymentType === PaymentType.MONTHLY).length;
     // Retention rate — of customers that existed BEFORE this period started,
     // what fraction are still active today. Falls back to null (not 0/100)
     // when there's no "before the period" baseline to measure against, e.g.
@@ -908,6 +910,75 @@ export class AnalyticsService {
       byDriver.set(sheet.driverId, entry);
     }
 
+    // Attendance (owner-requested 2026-09-16) — StaffAttendance covers every
+    // crew role (driver/salesman/loader), not just drivers, so it's fetched
+    // and summarized independently of the driver-only `staff`/`sheets` above
+    // rather than trying to force it onto that shape.
+    const attendanceRows = await this.prisma.staffAttendance.findMany({
+      where: {
+        vendorId,
+        ...(dateFilter && { date: dateFilter }),
+        ...(vanId && { dailySheet: { vanId } }),
+      },
+      select: { userId: true, status: true, user: { select: { name: true, role: true } } },
+    });
+    const attendanceByUser = new Map<
+      string,
+      { name: string; role: string; present: number; absent: number; halfDay: number; leave: number; weeklyOff: number }
+    >();
+    for (const row of attendanceRows) {
+      const entry = attendanceByUser.get(row.userId) ?? {
+        name: row.user.name,
+        role: row.user.role,
+        present: 0,
+        absent: 0,
+        halfDay: 0,
+        leave: 0,
+        weeklyOff: 0,
+      };
+      if (row.status === 'PRESENT') entry.present++;
+      else if (row.status === 'ABSENT') entry.absent++;
+      else if (row.status === 'HALF_DAY') entry.halfDay++;
+      else if (row.status === 'LEAVE') entry.leave++;
+      else if (row.status === 'WEEKLY_OFF') entry.weeklyOff++;
+      attendanceByUser.set(row.userId, entry);
+    }
+    // Attendance rate excludes WEEKLY_OFF from the denominator — a scheduled
+    // off day isn't a work day to be present/absent against. Half days count
+    // as half toward the numerator.
+    const attendanceByStaff = Array.from(attendanceByUser.entries())
+      .map(([userId, a]) => {
+        const workDays = a.present + a.absent + a.halfDay + a.leave;
+        return {
+          userId,
+          name: a.name,
+          role: a.role,
+          present: a.present,
+          absent: a.absent,
+          halfDay: a.halfDay,
+          leave: a.leave,
+          weeklyOff: a.weeklyOff,
+          attendanceRate: workDays > 0 ? Math.round(((a.present + a.halfDay * 0.5) / workDays) * 100) : null,
+        };
+      })
+      .sort((a, b) => (b.attendanceRate ?? -1) - (a.attendanceRate ?? -1));
+
+    const attendanceSummary = attendanceByStaff.reduce(
+      (acc, a) => ({
+        present: acc.present + a.present,
+        absent: acc.absent + a.absent,
+        halfDay: acc.halfDay + a.halfDay,
+        leave: acc.leave + a.leave,
+        weeklyOff: acc.weeklyOff + a.weeklyOff,
+      }),
+      { present: 0, absent: 0, halfDay: 0, leave: 0, weeklyOff: 0 },
+    );
+    const summaryWorkDays = attendanceSummary.present + attendanceSummary.absent + attendanceSummary.halfDay + attendanceSummary.leave;
+    const overallAttendanceRate =
+      summaryWorkDays > 0
+        ? Math.round(((attendanceSummary.present + attendanceSummary.halfDay * 0.5) / summaryWorkDays) * 100)
+        : null;
+
     const staff = Array.from(byDriver.values()).map(({ driver, sheets: driverSheets }) => {
       const allItems = driverSheets.flatMap((s) => s.items);
       const totalItems = allItems.length;
@@ -916,18 +987,29 @@ export class AnalyticsService {
         .filter((i) => completedStatuses.has(i.status))
         .reduce((s, i) => s + i.filledDropped, 0);
       const cashCollected = allItems.reduce((s, i) => s + i.cashCollected, 0);
+      // Merge in this driver's own attendance counts, if any were recorded.
+      const attendance = attendanceByUser.get(driver.id);
       return {
+        userId: driver.id,
         name: driver.name,
         role: driver.role,
         deliveries: totalItems,
         completionRate: totalItems > 0 ? Math.round((deliveredItems / totalItems) * 100) : 0,
         cashCollected,
         bottlesDelivered,
+        attendanceRate: attendance
+          ? attendanceByStaff.find((a) => a.userId === driver.id)?.attendanceRate ?? null
+          : null,
+        absentDays: attendance?.absent ?? 0,
       };
     });
 
     staff.sort((a, b) => b.completionRate - a.completionRate);
-    const result = { staff, leaderboard: staff };
+    const result = {
+      staff,
+      leaderboard: staff,
+      attendance: { byStaff: attendanceByStaff, summary: { ...attendanceSummary, overallAttendanceRate } },
+    };
 
     await this.cache.set(cacheKey, result, 120);
     return result;
@@ -1043,6 +1125,7 @@ export class AnalyticsService {
           litersFilled: round2(fuel.liters),
           distanceKm,
           costPerKm: distanceKm > 0 ? round2(fuel.cost / distanceKm) : null,
+          kmPerLiter: fuel.liters > 0 ? round2(distanceKm / fuel.liters) : null,
         };
       })
       .sort((a, b) => b.fuelCost - a.fuelCost);
