@@ -321,7 +321,7 @@ export class LedgerService {
           ...(occurredAt && { createdAt: occurredAt }),
         },
         include: {
-          customer: { select: { id: true, name: true, phoneNumber: true, financialBalance: true } },
+          customer: { select: { id: true, name: true, customerCode: true, phoneNumber: true, financialBalance: true } },
         },
       });
 

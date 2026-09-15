@@ -413,15 +413,36 @@ We'll try again on your next scheduled delivery day.
 
 ### 18. `payment_recorded`  — Manual payment record confirmation (text only)
 - **Category:** UTILITY · **Language:** English
-- **Replaces:** `transaction.controller.ts:60` (manual payment record)
-- **Body:**
+- **Wired:** `transaction.controller.ts` `recordPayment()` (dashboard manual payment record) →
+  `notifications.queueWhatsAppTemplate(... CloudTemplateNames.PAYMENT_RECORDED ...)`.
+- **⚠️ Must be submitted + approved on Meta** — new template body, submitted for review 2026-09-15
+  (replaces the old 2-variable body). Until approved, the send fails with Graph API error 132000.
+- **Body (submitted for approval 2026-09-15):**
 ```
-Payment of {{1}} received. New balance: {{2}}. Thank you!
+Assalamu Alaikum, {{1}},
+
+Customer Code: {{2}}
+
+We confirm that your partial payment of Rs.{{3}} has been received successfully.
+
+Invoice Amount: Rs. {{4}}
+Payment Received: Rs. {{5}}
+Invoice Amount Balance: Rs. {{6}}
+Current Balance Rs. {{7}}
+
+Kindly arrange payment of the remaining outstanding balance at your earliest convenience to keep your account up to date.
+
+Thank you for your prompt cooperation and for choosing Blue Ice.
+
+Blue Ice Purified Drinking Water
 ```
-- **Variables:** `{{1}}` = amount · `{{2}}` = new balance
-- **Sample:** `2000`, `500`
-- **Note:** Yeh `payment_received` (#5) jaisa hi hai — chaho to dono ko ek hi template mein merge kar sakte ho
-  (recommended: sirf `payment_received` rakho aur is flow ko bhi wahi use karwao). Tab #17 ki zaroorat nahi.
+- **Variables:** `{{1}}` = customer name · `{{2}}` = customer code · `{{3}}` = amount just paid ·
+  `{{4}}` = balance owed before this payment ("Invoice Amount") · `{{5}}` = amount just paid again
+  (repeated as "Payment Received") · `{{6}}` = balance owed after this payment · `{{7}}` = current
+  account balance (same value as `{{6}}` — this system has no separate per-invoice balance, so both
+  labels resolve to the customer's running `financialBalance` after the payment)
+- **Sample:** `{{1}}` = `Sharjeel`, `{{2}}` = `H1021`, `{{3}}` = `1000`, `{{4}}` = `2000`, `{{5}}` = `1000`,
+  `{{6}}` = `1000`, `{{7}}` = `1000`
 
 ---
 
@@ -446,7 +467,7 @@ Payment of {{1}} received. New balance: {{2}}. Thank you!
 | 15 | `delivery_corrected` | ✅ Code wired — submit for Meta approval |
 | 16 | `delivery_completed` | ⚪ Optional |
 | 17 | `delivery_unsuccessful` | ✅ Code wired — submit for Meta approval |
-| 18 | `payment_recorded` | ⚪ Optional |
+| 18 | `payment_recorded` | ✅ Code wired — submit for Meta approval |
 | 19 | `delivery_unsuccessful_photo` | ✅ Code wired — submit for Meta approval |
 
 > **Go-live se pehle #1–#13 approve hone chahiye.** Jab tak approve na ho, un notifications ke messages nahi jaayenge.

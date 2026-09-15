@@ -79,6 +79,20 @@ export const PERMISSION_CATALOG = {
     actions: ['page', 'view', 'create', 'update', 'delete'],
   },
   pricing: { label: 'Pricing', navigable: true, actions: ['page', 'view', 'update'] },
+  // Product Cost History & COGS (owner-requested 2026-09-15): kept separate from
+  // `products` above for the same reason `pricing` was already split out — cost/margin
+  // data is more sensitive than catalog metadata (a Salesman who can view/create
+  // products in the catalog should not automatically see what the business pays the
+  // plant). Non-navigable: surfaced as a "Cost History" entry point per product row on
+  // the existing Products page (a dialog/drawer scoped to one product), not a dedicated
+  // route — same reasoning as `crew_cash`/`van_cash_ledger` staying non-navigable. No
+  // `page`/`create`/`update`/`delete` split — `manage` covers add/edit/void as one
+  // grant since void is a narrow, safety-railed operation that doesn't warrant its own.
+  product_costs: {
+    label: 'Product Costs',
+    navigable: false,
+    actions: ['view', 'manage'],
+  },
   inventory: {
     label: 'Inventory / Warehouse',
     navigable: true,
@@ -178,7 +192,11 @@ export const PERMISSION_CATALOG = {
     navigable: true,
     actions: ['page', 'view', 'create', 'update', 'delete'],
   },
-  analytics: { label: 'Analytics', navigable: true, actions: ['page', 'view', 'export'] },
+  // `view_margins` (owner-requested 2026-09-15, Product Cost History & COGS): gates the
+  // COGS/Gross-Profit/Net-Profit columns and section in Financial analytics. Plain
+  // `analytics:view` is unaffected — it continues to show Revenue/Expenses/the existing
+  // `profitTotal`/`profitMargin` figures regardless of whether the viewer holds this.
+  analytics: { label: 'Analytics', navigable: true, actions: ['page', 'view', 'export', 'view_margins'] },
   tickets: { label: 'Tickets', navigable: true, actions: ['page', 'view', 'reply'] },
   notifications: {
     label: 'Notification Controls',

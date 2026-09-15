@@ -102,6 +102,10 @@ const MATRIX: Record<RoleKey, Row> = {
       'customers:view_financial', 'customers:create', 'customers:update', 'customers:delete', 'customers:export',
       'orders:approve', 'roles:update', 'payments:approve', 'daily_sheets:update', 'inventory:add_stock', 'users:create',
       'payroll:view_all', 'payroll:attendance_mark', 'crew_cash:create', 'crew_cash:view_all',
+      // Product Cost History & COGS (2026-09-15 polish): READ_ONLY_EXCLUDED in
+      // presets.ts keeps this out of Viewer's blanket read-only grant despite its
+      // action literally being `view` — regression test for that exclusion.
+      'product_costs:view',
     ],
   },
 };

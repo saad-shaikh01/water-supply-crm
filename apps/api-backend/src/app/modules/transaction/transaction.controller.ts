@@ -21,6 +21,7 @@ import { RequirePermissions } from '../../common/decorators/require-permissions.
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 import { NotificationService } from '../notifications/notification.service';
+import { CloudTemplateNames } from '../whatsapp/templates/cloud-template-names';
 
 @Controller('transactions')
 export class TransactionController {
@@ -51,12 +52,28 @@ export class TransactionController {
     );
 
     if (transaction.customer?.phoneNumber) {
-      const message = `Payment of ${dto.amount} received. New balance: ${transaction.customer.financialBalance}. Thank you!`;
+      // Meta-approved `payment_recorded` template ({{1}} name · {{2}} customer
+      // code · {{3}} amount paid · {{4}} balance owed before this payment ·
+      // {{5}} amount paid (repeated) · {{6}}/{{7}} balance after this payment).
+      // Must be a template, not free text — see cloud-api-templates.md #18.
+      const newBalance = transaction.customer.financialBalance;
+      const previousBalance = newBalance + dto.amount;
       await this.notificationService
-        .queueWhatsApp(transaction.customer.phoneNumber, message, undefined, {
-          vendorId: user.vendorId,
-          type: NotificationType.PAYMENT_RECEIVED,
-        })
+        .queueWhatsAppTemplate(
+          transaction.customer.phoneNumber,
+          CloudTemplateNames.PAYMENT_RECORDED,
+          [
+            transaction.customer.name,
+            transaction.customer.customerCode,
+            String(dto.amount),
+            previousBalance.toFixed(2),
+            String(dto.amount),
+            newBalance.toFixed(2),
+            newBalance.toFixed(2),
+          ],
+          `ntf:payment-recorded:${transaction.id}:wa`,
+          { vendorId: user.vendorId, type: NotificationType.PAYMENT_RECEIVED, recipientType: 'CUSTOMER', recipientId: dto.customerId },
+        )
         .catch(() => {});
     }
 

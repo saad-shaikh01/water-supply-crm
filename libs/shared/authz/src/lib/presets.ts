@@ -69,10 +69,25 @@ export const NON_NAVIGATIONAL_PERMISSIONS: ReadonlySet<Permission> = new Set<Per
 ]);
 
 // ── Computed presets ────────────────────────────────────────────────────────────
-// Read-only: reach + read every module (all :page and :view permissions).
+// Read-only: reach + read every module (all :page and :view permissions), EXCEPT the
+// small denylist below. This is the first resource whose `:view` action needed to be
+// excluded from the blanket read-only grant — every prior confidentiality-restricted
+// resource dodged this by naming its action `view_all` instead of plain `view`
+// (`payroll:view_all`, `crew_cash:view_all`), which this filter's `action === 'view'`
+// check never matches. `product_costs:view` couldn't take that path (its controller
+// guard is fixed to the literal string, already shipped in a concurrently-built
+// backend module), so it needs an explicit exclusion instead of a naming dodge.
+// Add a permission here only when it is genuinely confidentiality-sensitive enough
+// that even blanket read-only access (Viewer) should not include it by default.
+const READ_ONLY_EXCLUDED: Permission[] = [
+  // Product Cost History & COGS (owner-requested 2026-09-15): plant cost/margin data
+  // is restricted to Vendor Admin + Accountant (design doc §8) — Viewer's blanket
+  // read-only grant must not silently include it just because the action is `view`.
+  'product_costs:view',
+];
 const READ_ONLY_PERMISSIONS: Permission[] = PERMISSIONS.filter((p) => {
   const [, action] = splitPermission(p);
-  return action === 'page' || action === 'view';
+  return (action === 'page' || action === 'view') && !READ_ONLY_EXCLUDED.includes(p);
 });
 
 // Manager (= legacy STAFF): reconciled to the current @Roles matrix during the Phase C
@@ -81,6 +96,10 @@ const READ_ONLY_PERMISSIONS: Permission[] = PERMISSIONS.filter((p) => {
 // access control, settings, audit logs, or balance reminders (all VENDOR_ADMIN-only).
 const MANAGER_PERMISSIONS: Permission[] = [
   'dashboard:page', 'dashboard:view',
+  // Product Cost History & COGS (owner-requested 2026-09-15): `analytics:view_margins`
+  // and `product_costs:{view,manage}` are deliberately NOT granted to Manager per the
+  // design doc's §8 preset table — margin data is restricted by default (Vendor Admin
+  // + Accountant only), same confidentiality tier as `payroll:view_all`.
   'analytics:page', 'analytics:view', 'analytics:export',
   // customers:export → STAFF currently downloads monthly statements (customers:export).
   // view_financial + update_location: STAFF sees financial summaries and pins GPS.
@@ -257,6 +276,15 @@ export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
       'fuel_cards:page',
       'fuel_cards:view',
       'fuel_cards:topup',
+      // Product Cost History & COGS (owner-requested 2026-09-15): Accountant already
+      // handles financial reconciliation elsewhere in this codebase (e.g.
+      // BOTTLE_PURCHASED expense entry) and gets full access here per the design
+      // doc's §8 preset table — same trusted-financial tier as Vendor Admin, unlike
+      // Manager which is deliberately excluded. Existing vendors get these via
+      // PRESET_DRIFT_BACKFILLS.accountant.
+      'product_costs:view',
+      'product_costs:manage',
+      'analytics:view_margins',
     ],
   },
   support: {

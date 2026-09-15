@@ -139,6 +139,11 @@ export class AnalyticsService {
           pricePerBottle: true,
           customer: { select: { paymentType: true } },
           product: { select: { id: true, name: true } },
+          // COGS bucketing key (docs/features/product-cost-history-and-cogs.md
+          // §3/D5) — the sheet's business date, NOT deliveredAt/createdAt, for
+          // consistency with how revenue-by-day/revenue-by-product already
+          // bucket by DailySheet.date elsewhere in this function.
+          dailySheet: { select: { date: true } },
         },
       }),
     ]);
@@ -437,23 +442,118 @@ export class AnalyticsService {
       bucket.collected += item.cashCollected;
     }
 
+    // ── Historical Product Cost & COGS (docs/features/product-cost-history-and-cogs.md §3/§5) ──
+    // Bulk-fetch the full cost history for every product appearing in this
+    // report's deliveries — one query, no per-item round trip (§3 "Execution
+    // technique"). Voided rows are excluded: a voided ProductCost row isn't a
+    // real historical rate. No date filter/pagination — a product's entire
+    // cost history is at most tens of rows.
+    const costProductIds = Array.from(new Set(deliveryItems.map((i) => i.product.id)));
+    const costRows = costProductIds.length
+      ? await this.prisma.productCost.findMany({
+          where: { vendorId, productId: { in: costProductIds }, voidedAt: null },
+          orderBy: { effectiveFrom: 'asc' },
+        })
+      : [];
+    const costsByProduct = new Map<string, typeof costRows>();
+    for (const c of costRows) {
+      const list = costsByProduct.get(c.productId) ?? [];
+      list.push(c);
+      costsByProduct.set(c.productId, list);
+    }
+    // Latest row (by effectiveFrom, list is sorted ascending) whose range
+    // covers `date` — effectiveFrom <= date AND (effectiveTo is null OR
+    // effectiveTo >= date). Same rule as SalaryStructureService.getEffectiveOn.
+    const findApplicableCost = (productId: string, date: Date) => {
+      const list = costsByProduct.get(productId);
+      if (!list) return null;
+      let applicable: (typeof list)[number] | null = null;
+      for (const c of list) {
+        if (c.effectiveFrom > date) break; // sorted ascending — no later row can match once past `date`
+        if (c.effectiveTo && c.effectiveTo < date) continue;
+        applicable = c;
+      }
+      return applicable;
+    };
+
     // Revenue by product — same `deliveryItems` already fetched above (no
-    // per-product split exists on the DailySheet/Transaction totals).
-    const productMap = new Map<string, { productId: string; productName: string; revenue: number; bottles: number }>();
+    // per-product split exists on the DailySheet/Transaction totals). Folds
+    // in the per-item cost lookup so this stays a single pass over
+    // `deliveryItems` rather than a second separate loop.
+    const productMap = new Map<
+      string,
+      { productId: string; productName: string; revenue: number; bottles: number; costTotal: number; bottlesCosted: number }
+    >();
+    let uncostedBottles = 0;
     for (const item of deliveryItems) {
       const entry = productMap.get(item.product.id) ?? {
         productId: item.product.id,
         productName: item.product.name,
         revenue: 0,
         bottles: 0,
+        costTotal: 0,
+        bottlesCosted: 0,
       };
       entry.revenue += item.filledDropped * item.pricePerBottle;
       entry.bottles += item.filledDropped;
+
+      const bucketDate = item.dailySheet?.date ?? null;
+      const applicableCost = bucketDate ? findApplicableCost(item.product.id, bucketDate) : null;
+      if (applicableCost) {
+        entry.costTotal += item.filledDropped * applicableCost.costPerUnit;
+        entry.bottlesCosted += item.filledDropped;
+      } else {
+        uncostedBottles += item.filledDropped;
+      }
+
       productMap.set(item.product.id, entry);
     }
     const revenueByProduct = Array.from(productMap.values())
-      .map((p) => ({ ...p, revenue: round2(p.revenue) }))
+      .map((p) => {
+        const revenue = round2(p.revenue);
+        const cost = round2(p.costTotal);
+        const margin = round2(p.revenue - p.costTotal);
+        return {
+          productId: p.productId,
+          productName: p.productName,
+          revenue,
+          bottles: p.bottles,
+          cost,
+          margin,
+          marginPercent: revenue > 0 ? Math.round((margin / revenue) * 100) : null,
+        };
+      })
       .sort((a, b) => b.revenue - a.revenue);
+
+    // COGS aggregation (§5, Revision 1 shape) — uncosted bottles (no
+    // covering ProductCost row) are excluded from `cogs.total` and surfaced
+    // separately, never silently treated as zero cost (§9/§10 "Missing
+    // historical costs").
+    const totalBottlesDelivered = Array.from(productMap.values()).reduce((s, p) => s + p.bottles, 0);
+    const totalBottlesCosted = Array.from(productMap.values()).reduce((s, p) => s + p.bottlesCosted, 0);
+    const cogsTotal = round2(Array.from(productMap.values()).reduce((s, p) => s + p.costTotal, 0));
+    const coverage = totalBottlesDelivered > 0 ? Math.round((totalBottlesCosted / totalBottlesDelivered) * 100) : null;
+    const cogs = {
+      total: cogsTotal,
+      byProduct: Array.from(productMap.values()).map((p) => ({
+        productId: p.productId,
+        productName: p.productName,
+        bottlesDelivered: p.bottles,
+        bottlesCosted: p.bottlesCosted,
+        costTotal: round2(p.costTotal),
+      })),
+      uncostedBottles,
+      coverage,
+      isPartial: uncostedBottles > 0,
+    };
+    // grossProfit/grossProfitMargin: null (never a fabricated `totalRevenue -
+    // 0`) when there's no cost data at all for the period — either zero
+    // deliveries in range (coverage === null) or deliveries exist but none
+    // were costed (coverage === 0). A partial-but-nonzero COGS still yields a
+    // real, conservative grossProfit.
+    const grossProfit = coverage === null || coverage === 0 ? null : round2(totalRevenue - cogsTotal);
+    const grossProfitMargin =
+      grossProfit === null ? null : totalRevenue > 0 ? Math.round((grossProfit / totalRevenue) * 100) : null;
 
     const result = {
       revenue: { total: totalRevenue, byDay: revenueByDay },
@@ -467,6 +567,12 @@ export class AnalyticsService {
       netProfit: round2(profitTotal - payrollCost),
       netProfitMargin: totalRevenue > 0 ? Math.round(((profitTotal - payrollCost) / totalRevenue) * 100) : 0,
       discrepancyWriteOff: { total: discrepancyWriteOffTotal, details: discrepancyDetails },
+      // Historical Product Cost & COGS (docs/features/product-cost-history-and-cogs.md
+      // §5/§6) — purely additive fields; profitTotal/profitMargin/netProfit/
+      // netProfitMargin above are unchanged in meaning and computation.
+      cogs,
+      grossProfit,
+      grossProfitMargin,
       revenueByProduct,
       revenueByRoute,
       cashByVan,

@@ -48,6 +48,7 @@ import { FleetModule } from './modules/fleet/fleet.module';
 import { SheetDiscrepancyCaseModule } from './modules/sheet-discrepancy-case/sheet-discrepancy-case.module';
 import { VanCashLedgerModule } from './modules/van-cash-ledger/van-cash-ledger.module';
 import { FuelCardModule } from './modules/fuel-card/fuel-card.module';
+import { ProductCostModule } from './modules/product-cost/product-cost.module';
 
 @Module({
   imports: [
@@ -96,6 +97,7 @@ import { FuelCardModule } from './modules/fuel-card/fuel-card.module';
     SheetDiscrepancyCaseModule,
     VanCashLedgerModule,
     FuelCardModule,
+    ProductCostModule,
   ],
   controllers: [AppController],
   providers: [

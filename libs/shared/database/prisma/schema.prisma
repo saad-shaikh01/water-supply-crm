@@ -337,6 +337,9 @@ model Vendor {
   settlements          Settlement[]
   staffAttendances     StaffAttendance[]
 
+  // Historical Product Cost & COGS (docs/features/product-cost-history-and-cogs.md)
+  productCosts ProductCost[]
+
   // Crew Operational Cash Distribution — extension to Payroll (see
   // docs/features/crew-operational-cash-distribution.md)
   crewCashDistributions CrewCashDistribution[]
@@ -432,6 +435,10 @@ model User {
   createdPayrollSnapshots     PayrollSnapshot[]
   payrollEntryAuditLogs       PayrollEntryAuditLog[]
   paidSettlements             Settlement[]
+
+  // Historical Product Cost & COGS (docs/features/product-cost-history-and-cogs.md)
+  createdProductCosts ProductCost[] @relation("ProductCostCreatedBy")
+  voidedProductCosts  ProductCost[] @relation("ProductCostVoidedBy")
 
   // Staff Attendance & Wage Types — Phase 1
   staffAttendances       StaffAttendance[] @relation("StaffAttendanceEmployee")
@@ -559,6 +566,9 @@ model Product {
   warehouseTransactions WarehouseTransaction[]
   repairBatches         RepairBatch[]
   loads                 DailySheetLoad[]       @relation("LoadProduct")
+
+  // Historical Product Cost & COGS (docs/features/product-cost-history-and-cogs.md)
+  costs ProductCost[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2357,6 +2367,47 @@ model SalaryStructure {
   createdAt   DateTime @default(now())
 
   @@index([vendorId, userId, effectiveFrom])
+}
+
+// Versioned, effective-dated plant cost per product
+// (docs/features/product-cost-history-and-cogs.md). Same append-only shape as
+// SalaryStructure above, generalized to also support true backdated inserts
+// (a later row can split/trim an existing range, not just append forward) —
+// see ProductCostService for the algorithm. Feeds COGS at report time only;
+// never stamped onto DailySheetItem/Transaction.
+enum ProductCostSource {
+  MANUAL // the only writer built in this phase; reserved for a future automated writer (e.g. Purchase Orders)
+}
+
+model ProductCost {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id])
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+
+  costPerUnit Float // Float, not Decimal/Int — see design doc §2.1 (D2)
+
+  effectiveFrom DateTime
+  effectiveTo   DateTime? // null = currently open
+
+  note       String? // conditionally mandatory (service-enforced) for a true backdated insert/edit — see design doc §4.1/§4.4
+  invoiceRef String?
+
+  source ProductCostSource @default(MANUAL)
+
+  createdById String
+  createdBy   User     @relation("ProductCostCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  voidedAt    DateTime?
+  voidedById  String?
+  voidedBy    User?     @relation("ProductCostVoidedBy", fields: [voidedById], references: [id])
+  voidReason  String?
+
+  @@unique([vendorId, productId, effectiveFrom])
+  @@index([vendorId, productId, effectiveFrom])
 }
 
 // Append-only staff ledger — every non-salary financial event (advance,

@@ -96,9 +96,18 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // Kept as its own resource rather than folded into `fleet` so Accountant can
 // get `topup`/`view` without inheriting the full Fleet browse surface.
 // Navigable (`/dashboard/fuel-cards`) — +1 page permission, +1 resource too.
-const FROZEN_TOTAL = 186;
+// 189 = 186 + product_costs (view, manage) + analytics:view_margins — Product
+// Cost History & COGS feature (owner-requested 2026-09-15): a new, separate
+// `product_costs` resource (kept apart from `products` the same way `pricing`
+// already is — cost/margin data is more sensitive than catalog metadata) plus
+// one new action on the existing `analytics` resource gating the COGS/
+// Gross-Profit/Net-Profit columns. `product_costs` is non-navigable — a "Cost
+// History" entry point lives on the existing Products page, not a dedicated
+// route — same reasoning as `crew_cash`/`van_cash_ledger`. No new `:page`, so
+// FROZEN_PAGES is unchanged; +1 resource.
+const FROZEN_TOTAL = 189;
 const FROZEN_PAGES = 30;
-const FROZEN_RESOURCES = 32;
+const FROZEN_RESOURCES = 33;
 
 describe('permission catalog (frozen contract)', () => {
   it('has the frozen totals', () => {
@@ -129,15 +138,24 @@ describe('permission catalog (frozen contract)', () => {
     }
   });
 
-  it('no action exists without its resource also having a :page (except whatsapp, crew_cash, van_cash_ledger)', () => {
+  it('no action exists without its resource also having a :page (except whatsapp, crew_cash, van_cash_ledger, product_costs)', () => {
     // payroll now has its own `:page` (Amendment R6) and is no longer exempt.
     // crew_cash: recorded from a card on the existing Daily Sheet detail page,
     // not a dedicated route (Amendment R5) — stays non-navigable.
     // van_cash_ledger: surfaced inside the existing Expense Center page, not a
     // dedicated route — stays non-navigable (owner-requested 2026-09-09).
+    // product_costs: surfaced as a "Cost History" entry point on the existing
+    // Products page, not a dedicated route — stays non-navigable
+    // (owner-requested 2026-09-15).
     for (const resource of RESOURCES) {
       const def = PERMISSION_CATALOG[resource];
-      if (resource === 'whatsapp' || resource === 'crew_cash' || resource === 'van_cash_ledger') continue;
+      if (
+        resource === 'whatsapp' ||
+        resource === 'crew_cash' ||
+        resource === 'van_cash_ledger' ||
+        resource === 'product_costs'
+      )
+        continue;
       expect(def.actions).toContain('page');
     }
   });

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { MoreHorizontal, Pencil, Trash2, ToggleLeft, ToggleRight, Package, DollarSign, Search, X, ArrowUpDown } from 'lucide-react';
+import { MoreHorizontal, Pencil, Trash2, ToggleLeft, ToggleRight, Package, DollarSign, Search, X, ArrowUpDown, History } from 'lucide-react';
 import {
   Button, DropdownMenu, DropdownMenuContent,
   DropdownMenuItem, DropdownMenuTrigger, Badge,
@@ -17,6 +17,7 @@ import { useQueryState, parseAsString } from 'nuqs';
 import { cn } from '@water-supply-crm/ui';
 import { useCan } from '../../authz/hooks/use-can';
 import { SlidersHorizontal } from 'lucide-react';
+import { CostHistoryDialog } from '../../product-costs/components/cost-history-dialog';
 
 interface ProductListProps {
   onEdit: (product: Record<string, unknown>) => void;
@@ -25,10 +26,12 @@ interface ProductListProps {
 export function ProductList({ onEdit }: ProductListProps) {
   const canUpdate = useCan('products:update');
   const canDelete = useCan('products:delete');
+  const canViewCosts = useCan('product_costs:view');
   const { data, isLoading, page, setPage, limit, setLimit } = useProducts();
   const { mutate: deleteProduct, isPending: isDeleting } = useDeleteProduct();
   const { mutate: toggleProduct } = useToggleProduct();
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [costHistoryProduct, setCostHistoryProduct] = useState<{ id: string; name: string } | null>(null);
   const [search, setSearch] = useQueryState('search', parseAsString.withDefault(''));
   const [isActive, setIsActive] = useQueryState('isActive', parseAsString.withDefault(''));
   const [sortDir, setSortDir] = useQueryState('sortDir', parseAsString.withDefault(''));
@@ -221,9 +224,18 @@ export function ProductList({ onEdit }: ProductListProps) {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48 p-1.5 rounded-xl border-border/50 bg-background/95 backdrop-blur-xl">
                   <DropdownMenuItem onClick={() => onEdit(r as Record<string, unknown>)} className="rounded-lg cursor-pointer px-2 py-2">
-                    <Pencil className="mr-2 h-4 w-4 text-orange-500" /> 
+                    <Pencil className="mr-2 h-4 w-4 text-orange-500" />
                     <span className="font-medium text-sm">Edit Product</span>
                   </DropdownMenuItem>
+                  {canViewCosts && (
+                    <DropdownMenuItem
+                      onClick={() => setCostHistoryProduct({ id: r.id, name: r.name })}
+                      className="rounded-lg cursor-pointer px-2 py-2"
+                    >
+                      <History className="mr-2 h-4 w-4 text-indigo-500" />
+                      <span className="font-medium text-sm">Cost History</span>
+                    </DropdownMenuItem>
+                  )}
                   {canUpdate && (
                     <DropdownMenuItem onClick={() => toggleProduct(r.id)} className="rounded-lg cursor-pointer px-2 py-2">
                       {r.isActive
@@ -256,6 +268,10 @@ export function ProductList({ onEdit }: ProductListProps) {
         onConfirm={() => { if (deleteId) deleteProduct(deleteId, { onSuccess: () => setDeleteId(null) }); }}
         isLoading={isDeleting}
         confirmLabel="Remove Product"
+      />
+      <CostHistoryDialog
+        product={costHistoryProduct}
+        onOpenChange={(o) => { if (!o) setCostHistoryProduct(null); }}
       />
     </div>
   );

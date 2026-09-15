@@ -14,6 +14,10 @@ export const queryKeys = {
     all: (params?: object) => ['products', ...(params ? [params] : [])],
     one: (id: string) => ['products', id] as const,
   },
+  // Historical Product Cost & COGS (docs/features/product-cost-history-and-cogs.md).
+  productCosts: {
+    history: (productId: string) => ['product-costs', 'history', productId] as const,
+  },
   routes: {
     all: (params?: object) => ['routes', ...(params ? [params] : [])],
     one: (id: string) => ['routes', id] as const,

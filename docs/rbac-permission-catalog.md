@@ -229,6 +229,7 @@ Each row: permission → the existing feature/endpoint(s) it gates. `page` sorts
 | `analytics:page` | Open `/dashboard/analytics` |
 | `analytics:view` | `GET /analytics/financial`, `deliveries`, `customers`, `staff` |
 | `analytics:export` | CSV / PDF export on analytics tabs |
+| `analytics:view_margins` | COGS / Gross-Profit / Net-Profit columns and section within the Financial analytics view (Product Cost History & COGS, Amendment R18) — plain `analytics:view` is unaffected and continues to show Revenue/Expenses/`profitTotal`/`profitMargin` regardless |
 
 ### 19. Tickets — `tickets` *(navigable)*
 | Permission | Gates |
@@ -362,6 +363,14 @@ Each row: permission → the existing feature/endpoint(s) it gates. `page` sorts
 | `fuel_cards:manage` | `POST /fuel-cards`, `PATCH /fuel-cards/:id/deactivate` |
 | `fuel_cards:topup` | `POST /fuel-cards/:id/top-ups` |
 | `fuel_cards:topup_void` | `PATCH /fuel-cards/top-ups/:id/void` |
+
+### 32. Product Costs — `product_costs` *(NON-navigable — a "Cost History" entry point per product row on the existing Products page, no dedicated route)*
+> **Amendment R18 (Product Cost History & COGS, owner-requested 2026-09-15).** New resource, kept separate from `products` for the same reason `pricing` was already split out — cost/margin data is more sensitive than catalog metadata (a Salesman who can view/create products in the catalog should not automatically see what the business pays the plant). `view` sees a product's cost history timeline; `manage` covers add a new cost row / edit an editable (zero-delivery) row / void the current row as one grant — no separate `create`/`update`/`delete` split, since void is a narrow, safety-railed operation that doesn't warrant its own. Also adds `analytics:view_margins` to the existing `analytics` resource (see §18) gating the COGS/Gross-Profit/Net-Profit columns in Financial analytics. Default holders **Vendor Admin (`*`) + Accountant** for all three (added to the `accountant` preset in `presets.ts` + a `PRESET_DRIFT_BACKFILLS.accountant` catch-up for existing vendors) — Manager is deliberately excluded by default, same confidentiality tier as `payroll:view_all`. No new `:page` — non-navigable, same reasoning as `crew_cash`/`van_cash_ledger`. Frozen total 186 → 189; +1 resource.
+
+| Permission | Gates |
+|---|---|
+| `product_costs:view` | See a product's cost history timeline |
+| `product_costs:manage` | Add a new cost row, edit an editable (zero-delivery) row, void the current row |
 
 ---
 

@@ -11,9 +11,10 @@ import { useTheme } from 'next-themes';
 import { useFinancialAnalytics } from '../hooks/use-analytics';
 import {
   TrendingUp, TrendingDown, DollarSign, Percent, Landmark, Wallet, Clock, Store, ArrowUpRight, ArrowDownRight,
-  Users, ShieldAlert,
+  Users, ShieldAlert, PackageSearch, AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
+import { useCan } from '../../authz/hooks/use-can';
 
 const PIE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
@@ -59,6 +60,12 @@ function StatCard({
 
 export function FinancialTab({ from, to, vanId }: { from: string; to: string; vanId?: string }) {
   const { data, isLoading } = useFinancialAnalytics(from, to, vanId);
+  // Historical Product Cost & COGS (docs/features/product-cost-history-and-cogs.md
+  // §7.6/§8) — gates the new COGS/Gross-Profit section and the new revenue-by-product
+  // cost/margin columns. Plain `analytics:view` (already gating this whole tab) is
+  // unaffected; someone without `view_margins` sees this tab exactly as it looked
+  // before this feature shipped — nothing new rendered, no gap.
+  const canViewMargins = useCan('analytics:view_margins');
   const { theme } = useTheme();
   const isDark = theme === 'dark';
   const gridColor = isDark ? '#333' : '#eee';
@@ -101,6 +108,14 @@ export function FinancialTab({ from, to, vanId }: { from: string; to: string; va
   const discrepancyWriteOff = d.discrepancyWriteOff ?? { total: 0, details: [] };
   const revenueByProduct = d.revenueByProduct ?? [];
 
+  // Historical Product Cost & COGS — additive fields only, §5 of the design doc.
+  // grossProfit/grossProfitMargin are `null` (never a fabricated 0/100%) when there's
+  // no cost data at all for the period; cogs.isPartial is the single flag to key any
+  // caveat UI off (never re-derive it from coverage !== 100 here).
+  const cogs = d.cogs ?? { total: 0, byProduct: [], uncostedBottles: 0, coverage: null, isPartial: false };
+  const grossProfit: number | null = d.grossProfit ?? null;
+  const grossProfitMargin: number | null = d.grossProfitMargin ?? null;
+
   const profitByDay = (d.profit?.byDay ?? []).map((p: any) => ({
     date: p.date.slice(5), // MM-DD
     Revenue: p.revenue,
@@ -129,10 +144,71 @@ export function FinancialTab({ from, to, vanId }: { from: string; to: string; va
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard label="Total Revenue" value={fmt(revenue)} icon={TrendingUp} deltaPct={momGrowth?.revenueChangePct} />
         <StatCard label="Total Expenses" value={fmt(expenses)} icon={TrendingDown} positive={false} />
-        <StatCard label="Gross Profit" value={fmt(profit)} icon={DollarSign} positive={profit >= 0} deltaPct={momGrowth?.profitChangePct} />
-        <StatCard label="Profit Margin" value={`${profitMargin}%`} icon={Percent} positive={profitMargin >= 0} />
+        {/* Legacy pre-COGS figure (`profitTotal` = revenue - expenses, no cost of
+            goods). Relabeled 2026-09-15 polish pass to resolve the duplicate-"Gross
+            Profit" naming confusion flagged in design doc §6/D8: the COGS-aware
+            figure below is now the one titled "Gross Profit" (the accounting-correct
+            meaning of that term), so this legacy figure is named for what it actually
+            is instead of competing for the same label. Backend value unchanged. */}
+        <StatCard label="Profit (Pre-COGS)" value={fmt(profit)} icon={DollarSign} positive={profit >= 0} deltaPct={momGrowth?.profitChangePct} />
+        <StatCard label="Profit Margin (Pre-COGS)" value={`${profitMargin}%`} icon={Percent} positive={profitMargin >= 0} />
         <StatCard label="Collection Rate" value={`${collectionRate}%`} icon={Percent} />
       </div>
+
+      {/* Gross Profit / COGS (docs/features/product-cost-history-and-cogs.md §5-§7.6)
+          — additive waterfall step: Revenue → COGS → Gross Profit, sitting between the
+          top summary row and the Payroll/Net Profit row below. Hidden entirely (not
+          disabled/greyed) for a viewer without `analytics:view_margins`. */}
+      {canViewMargins && (
+        <div className="space-y-4">
+          {cogs.isPartial && (
+            <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-amber-500 mt-0.5 flex-shrink-0" />
+              <div className="flex-1 min-w-[200px] space-y-1">
+                <p className="text-sm font-bold text-amber-700 dark:text-amber-400">Gross Profit May Be Understated</p>
+                <p className="text-xs text-muted-foreground">
+                  {cogs.uncostedBottles.toLocaleString()} bottle{cogs.uncostedBottles === 1 ? '' : 's'} delivered this period had no recorded plant cost on file
+                  {cogs.coverage !== null ? ` (${cogs.coverage}% cost coverage)` : ''}. Add a Cost History entry for the affected product(s) to include them in COGS.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {grossProfit === null ? (
+            <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
+              <CardContent className="pt-6 flex flex-col items-center justify-center gap-2 py-10 text-center">
+                <PackageSearch className="h-8 w-8 text-muted-foreground" />
+                <p className="text-sm font-bold text-muted-foreground">No cost history recorded yet for this period</p>
+                <p className="text-xs text-muted-foreground max-w-sm">
+                  Add a plant cost entry under a product&apos;s Cost History to start tracking Gross Profit and margin.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-3">
+              <StatCard
+                label="COGS (Cost of Goods Sold)"
+                value={fmt(cogs.total)}
+                icon={PackageSearch}
+                positive={false}
+                sublabel={cogs.coverage !== null ? `${cogs.coverage}% of bottles costed` : undefined}
+              />
+              {/* The accounting-correct Gross Profit (Revenue - COGS). Carries the
+                  plain "Gross Profit" label as of the 2026-09-15 polish pass — the
+                  legacy pre-COGS figure in the top summary row was relabeled
+                  "Profit (Pre-COGS)" instead, resolving design doc §6/D8's flagged
+                  naming ambiguity. Backend value unchanged (still `grossProfit`). */}
+              <StatCard label="Gross Profit" value={fmt(grossProfit)} icon={DollarSign} positive={grossProfit >= 0} />
+              <StatCard
+                label="Gross Profit Margin"
+                value={grossProfitMargin === null ? '—' : `${grossProfitMargin}%`}
+                icon={Percent}
+                positive={(grossProfitMargin ?? 0) >= 0}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Net Profit — Gross Profit above is pre-payroll (Total Expenses never
           included staff salaries); this row is the truer bottom line. */}
@@ -240,6 +316,51 @@ export function FinancialTab({ from, to, vanId }: { from: string; to: string; va
                 <Bar dataKey="revenue" fill="#8b5cf6" radius={[0, 4, 4, 0]} barSize={18} name="revenue" />
               </BarChart>
             </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Revenue by product — cost/margin columns (docs/features/product-cost-history-and-cogs.md
+          §6/§7.6). Same `revenueByProduct` data source as the chart above; new table,
+          gated entirely behind `view_margins` since it's new UI surfacing cost data —
+          a viewer without the permission sees the chart above exactly as before, and
+          this table simply doesn't render (no gap, no placeholder). */}
+      {canViewMargins && revenueByProduct.length > 0 && (
+        <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
+          <CardHeader>
+            <CardTitle className="text-sm font-bold uppercase tracking-widest text-muted-foreground">Revenue &amp; Margin by Product</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-muted-foreground uppercase tracking-widest border-b border-border/50">
+                    <th className="pb-3 pr-4">Product</th>
+                    <th className="pb-3 pr-4 text-right">Bottles</th>
+                    <th className="pb-3 pr-4 text-right">Revenue</th>
+                    <th className="pb-3 pr-4 text-right">Cost</th>
+                    <th className="pb-3 pr-4 text-right">Margin</th>
+                    <th className="pb-3 text-right">Margin %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {revenueByProduct.map((p: any) => (
+                    <tr key={p.productId} className="border-b border-border/30 hover:bg-accent/20 transition-colors">
+                      <td className="py-3 pr-4 font-semibold">{p.productName}</td>
+                      <td className="py-3 pr-4 text-right font-mono text-muted-foreground">{(p.bottles ?? 0).toLocaleString()}</td>
+                      <td className="py-3 pr-4 text-right font-mono">{fmt(p.revenue ?? 0)}</td>
+                      <td className="py-3 pr-4 text-right font-mono text-destructive">{fmt(p.cost ?? 0)}</td>
+                      <td className={cn('py-3 pr-4 text-right font-mono', (p.margin ?? 0) >= 0 ? 'text-emerald-500' : 'text-destructive')}>
+                        {fmt(p.margin ?? 0)}
+                      </td>
+                      <td className="py-3 text-right font-mono">
+                        {p.marginPercent === null || p.marginPercent === undefined ? '—' : `${p.marginPercent}%`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </CardContent>
         </Card>
       )}

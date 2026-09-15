@@ -86,6 +86,14 @@ import {
  *     Fuel Card Wallet feature (owner-requested 2026-09-15). Existing vendors'
  *     Manager roles predate it entirely; Accountant gets `page/view/topup`
  *     only (no `manage`/`topup_void`, same split as the fresh preset).
+ *   - product_costs:{view,manage} / analytics:view_margins — new resource +
+ *     new analytics action for the Product Cost History & COGS feature
+ *     (owner-requested 2026-09-15). Per the design doc's §8 preset table,
+ *     these three are granted to Accountant (alongside Vendor Admin's `*`)
+ *     as the trusted-financial-role tier — same confidentiality precedent as
+ *     `payroll:view_all`. Existing vendors' Accountant roles predate this
+ *     resource entirely and need the catch-up grant. Manager is deliberately
+ *     NOT backfilled — the design doc excludes it by default.
  */
 const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
   driver: ['fleet:record_check', 'fleet:record_fuel'],
@@ -150,6 +158,12 @@ const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
     'fuel_cards:page',
     'fuel_cards:view',
     'fuel_cards:topup',
+    // Product Cost History & COGS (owner-requested 2026-09-15). Existing
+    // vendors' Accountant roles predate this resource entirely and need the
+    // catch-up grant — same trusted-financial-role tier as Vendor Admin.
+    'product_costs:view',
+    'product_costs:manage',
+    'analytics:view_margins',
   ],
 };
 

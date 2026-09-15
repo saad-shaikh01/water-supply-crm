@@ -267,7 +267,15 @@ describe('role presets', () => {
         // payroll now has a route (Amendment R6) and is no longer exempt.
         // van_cash_ledger: surfaced inside the existing Expense Center page,
         // no dedicated route (owner-requested 2026-09-09).
-        if (resource === 'whatsapp' || resource === 'crew_cash' || resource === 'van_cash_ledger') continue;
+        // product_costs: surfaced as a "Cost History" entry point on the
+        // existing Products page, no dedicated route (owner-requested 2026-09-15).
+        if (
+          resource === 'whatsapp' ||
+          resource === 'crew_cash' ||
+          resource === 'van_cash_ledger' ||
+          resource === 'product_costs'
+        )
+          continue;
         expect(eff.has(`${resource}:page` as Permission)).toBe(true);
       }
     }
