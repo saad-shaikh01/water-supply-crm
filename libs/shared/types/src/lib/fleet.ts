@@ -34,6 +34,7 @@ export type VehicleServiceType =
   | 'BRAKE_FLUID'
   | 'BRAKE_PADS'
   | 'COOLANT'
+  | 'RADIATOR'
   | 'TRANSMISSION_FLUID'
   | 'TYRE_ROTATION'
   | 'BATTERY'
@@ -92,6 +93,7 @@ export const VEHICLE_SERVICE_TYPE_LABELS: Record<VehicleServiceType, string> = {
   BRAKE_FLUID: 'Brake Fluid',
   BRAKE_PADS: 'Brake Pads',
   COOLANT: 'Coolant',
+  RADIATOR: 'Radiator',
   TRANSMISSION_FLUID: 'Transmission Fluid',
   TYRE_ROTATION: 'Tyre Rotation',
   BATTERY: 'Battery',
@@ -118,13 +120,14 @@ export interface VehicleMaintenanceDefaultInterval {
  * plan doc §1.
  */
 export const VEHICLE_MAINTENANCE_DEFAULT_INTERVALS: Record<VehicleServiceType, VehicleMaintenanceDefaultInterval> = {
-  ENGINE_OIL: { intervalKm: 5000, intervalDays: 180 },
+  ENGINE_OIL: { intervalKm: 2500, intervalDays: 180 },
   OIL_FILTER: { intervalKm: 5000, intervalDays: 180 },
   AIR_FILTER: { intervalKm: 10000, intervalDays: 365 },
   FUEL_FILTER: { intervalKm: 10000, intervalDays: 365 },
   BRAKE_FLUID: { intervalKm: 20000, intervalDays: 365 },
   BRAKE_PADS: { intervalKm: 25000, intervalDays: null },
   COOLANT: { intervalKm: 50000, intervalDays: 365 },
+  RADIATOR: { intervalKm: null, intervalDays: null },
   TRANSMISSION_FLUID: { intervalKm: 50000, intervalDays: 730 },
   TYRE_ROTATION: { intervalKm: 15000, intervalDays: null },
   BATTERY: { intervalKm: null, intervalDays: 730 },
