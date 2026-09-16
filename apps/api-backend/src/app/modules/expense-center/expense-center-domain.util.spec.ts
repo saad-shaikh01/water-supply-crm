@@ -159,6 +159,17 @@ describe('normalizeExpenseRow', () => {
     expect(row.lockedReason).toBe('Daily Sheet closed — read only');
   });
 
+  it('does not lock a fuel-linked row even on a closed sheet — FuelLog editing has no closed-sheet guard', () => {
+    const row = normalizeExpenseRow({
+      ...base,
+      fuelLog: { id: 'fuel-1' },
+      dailySheetId: 'sheet-1',
+      dailySheet: { isClosed: true },
+    });
+    expect(row.locked).toBe(false);
+    expect(row.lockedReason).toBeNull();
+  });
+
   it('locks a discrepancy write-off unconditionally, even on an open (or no) sheet', () => {
     const row = normalizeExpenseRow({
       ...base,

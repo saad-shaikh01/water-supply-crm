@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Button, Card, CardContent, Badge } from '@water-supply-crm/ui';
 import { Trash2, Pencil, Receipt, Fuel, Wrench, Users, AlertTriangle, CreditCard, Snowflake, PackagePlus, Building2, Zap, FileText, Droplet, Package, FlaskConical, Shield, Smartphone, Stamp, Bandage, Handshake, HeartHandshake, KeyRound, type LucideIcon } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
@@ -9,6 +10,9 @@ import { useDeleteSheetExpense } from '../../expenses/hooks/use-expenses';
 import { ExpenseForm } from '../../expenses/components/expense-form';
 import { EditClosedExpenseDialog } from './dialogs/edit-closed-expense-dialog';
 import { VoidClosedExpenseDialog } from './dialogs/void-closed-expense-dialog';
+import { FuelLogFormDialog } from '../../fleet/components/dialogs/fuel-log-form-dialog';
+import { useFuelLog } from '../../fleet/hooks/use-fuel-logs';
+import { queryKeys } from '../../../lib/query-keys';
 import type { SheetExpense } from '@water-supply-crm/types';
 
 // LUNCH_EXPENSE_EMPLOYEE/ADVANCE_SALARY_EMPLOYEE/FUEL_EXPENSE kept here
@@ -74,7 +78,14 @@ export function SheetExpensesSection({
   const [editExpense, setEditExpense] = useState<SheetExpense | null>(null);
   const [closedEditExpense, setClosedEditExpense] = useState<SheetExpense | null>(null);
   const [closedVoidExpense, setClosedVoidExpense] = useState<SheetExpense | null>(null);
+  // Fuel-linked expenses (FuelLogService.create) must edit through the
+  // FuelLog's own form — it's the only place odometerAtFill lives, and
+  // FuelLog editing has no closed-sheet restriction (see fuel-log.service.ts
+  // "no audit ceremony" comment), unlike the generic Expense correction path.
+  const [editFuelLogId, setEditFuelLogId] = useState<string | null>(null);
+  const { data: editFuelLog } = useFuelLog(editFuelLogId ?? undefined);
   const { mutate: deleteExpense, isPending: isDeleting } = useDeleteSheetExpense(sheetId);
+  const queryClient = useQueryClient();
 
   const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
   // Only cash-paid rows are actually deducted from the driver's hand-in
@@ -142,7 +153,13 @@ export function SheetExpensesSection({
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7 text-muted-foreground hover:text-orange-500 shrink-0"
-                      onClick={() => (isClosed ? setClosedEditExpense(expense) : setEditExpense(expense))}
+                      onClick={() =>
+                        expense.fuelLog
+                          ? setEditFuelLogId(expense.fuelLog.id)
+                          : isClosed
+                          ? setClosedEditExpense(expense)
+                          : setEditExpense(expense)
+                      }
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
@@ -201,6 +218,22 @@ export function SheetExpensesSection({
         onOpenChange={(o) => { if (!o) setEditExpense(null); }}
         expense={editExpense as unknown as Record<string, unknown> | null}
         dailySheetId={sheetId}
+      />
+
+      {/* Fuel-linked expenses always edit through the FuelLog form — odometer
+          lives there, and it's freely editable regardless of sheet state. */}
+      <FuelLogFormDialog
+        open={!!editFuelLogId}
+        onOpenChange={(o) => {
+          if (o) return;
+          setEditFuelLogId(null);
+          // useUpdateFuelLog doesn't know this dailySheetId to invalidate on
+          // its own (it's also called from the sheet-agnostic Expense Center
+          // drawer) — refresh this sheet's own cache so an amount/liters
+          // change on the linked Expense shows up without a manual reload.
+          queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
+        }}
+        fuelLog={editFuelLog}
       />
 
       {/* Closed-sheet correction path — dedicated /correct + /void endpoints. */}

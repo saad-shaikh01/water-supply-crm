@@ -403,6 +403,9 @@ export interface SheetExpense {
   createdBy: { id: string; name: string };
   /** Trip this expense was recorded during — null if no trip was active at record time. Auto-set server-side. */
   dailySheetLoadId?: string | null;
+  /** Set when this row was spawned by a FuelLog (FuelLogService.create) — editing must route to
+   *  the FuelLog's own form (odometer lives there, not on Expense), never the generic expense dialogs. */
+  fuelLog?: { id: string } | null;
 }
 
 export type CrewRole = 'DRIVER' | 'SALESMAN' | 'LOADER';

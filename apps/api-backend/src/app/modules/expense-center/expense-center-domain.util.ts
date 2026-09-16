@@ -283,10 +283,19 @@ const SYNCED_CREW_CASH_LOCK_REASON = 'Synced to the Payroll Ledger — manage th
  * discrepancy write-off is never linked to one either, so VEHICLE_SERVICE
  * rows are unlocked in practice — that falls out of this logic rather than
  * being special-cased.
+ *
+ * FuelLog is the one deliberate exception to the closed-sheet lock: per its
+ * own schema comment it "behaves like Expense — freely editable/deletable, no
+ * version/audit ceremony" regardless of sheet state (FuelLogService.update
+ * has no isClosed guard, unlike the generic Expense-correction path). Locking
+ * it here would contradict what its own update endpoint actually allows.
  */
 function lockForExpenseRow(row: NormalizableExpenseRow): { locked: boolean; lockedReason: string | null } {
   if (row.category === ExpenseCategory.DISCREPANCY_WRITE_OFF) {
     return { locked: true, lockedReason: DISCREPANCY_LOCK_REASON };
+  }
+  if (row.fuelLog) {
+    return { locked: false, lockedReason: null };
   }
   if (row.dailySheetId && row.dailySheet?.isClosed) {
     return { locked: true, lockedReason: CLOSED_SHEET_LOCK_REASON };

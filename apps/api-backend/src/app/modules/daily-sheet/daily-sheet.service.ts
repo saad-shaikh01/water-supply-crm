@@ -2470,6 +2470,11 @@ export class DailySheetService implements OnModuleInit {
           include: {
             van: { select: { id: true, plateNumber: true } },
             createdBy: { select: { id: true, name: true } },
+            // Lets the Trip Expenses list route Edit to the FuelLog's own
+            // form (odometer field lives there, not on Expense) instead of
+            // the generic Expense-correction dialog — see
+            // fuel-log.service.ts's "no audit ceremony" edit path.
+            fuelLog: { select: { id: true } },
           },
           orderBy: { date: 'desc' },
         },

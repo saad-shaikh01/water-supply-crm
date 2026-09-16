@@ -82,6 +82,41 @@ export class FuelLogService {
         select: { id: true },
       });
       dailySheetLoadId = activeLoad?.id ?? null;
+
+      // Odometer sanity gate (owner request): a fuel fill logged against a
+      // sheet must not read lower than that sheet's own Start-of-Day Vehicle
+      // Check — the odometer physically cannot have gone backwards since the
+      // trip started. Requires the START check to exist at all (blocking,
+      // not just flagging, per owner decision) since without it there is no
+      // baseline to validate against.
+      const startCheck = await this.prisma.vehicleDailyCheck.findUnique({
+        where: { dailySheetId_checkType: { dailySheetId: dto.dailySheetId, checkType: 'START' } },
+        select: { odometerReading: true },
+      });
+      if (!startCheck) {
+        throw new BadRequestException('Record the Start-of-Day Vehicle Check for this sheet before logging fuel.');
+      }
+      if (dto.odometerAtFill < startCheck.odometerReading) {
+        throw new BadRequestException(
+          `Odometer (${dto.odometerAtFill} km) cannot be less than today's start-of-day reading (${startCheck.odometerReading} km).`,
+        );
+      }
+    } else {
+      // No sheet context (Fleet's own "Log Fuel Fill" on the Vehicle Detail
+      // page) — no Start-of-Day check to anchor against, so fall back to the
+      // vehicle's own last recorded reading across both odometer sources, the
+      // same "can't go backwards" guarantee VehicleDailyCheck itself enforces
+      // (see odometerContinuityFlag comment in schema.prisma).
+      const [lastFuelLog, lastCheck] = await Promise.all([
+        this.prisma.fuelLog.aggregate({ where: { vehicleId: dto.vehicleId }, _max: { odometerAtFill: true } }),
+        this.prisma.vehicleDailyCheck.aggregate({ where: { vehicleId: dto.vehicleId }, _max: { odometerReading: true } }),
+      ]);
+      const lastKnownReading = Math.max(lastFuelLog._max.odometerAtFill ?? 0, lastCheck._max.odometerReading ?? 0);
+      if (dto.odometerAtFill < lastKnownReading) {
+        throw new BadRequestException(
+          `Odometer (${dto.odometerAtFill} km) cannot be less than this vehicle's last recorded reading (${lastKnownReading} km).`,
+        );
+      }
     }
 
     // Most fills come straight out of the driver's collected cash — default
