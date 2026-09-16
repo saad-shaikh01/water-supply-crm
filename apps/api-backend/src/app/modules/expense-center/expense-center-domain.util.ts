@@ -93,6 +93,10 @@ export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
   // Added 2026-09-09 (owner request): renting an additional truck/vehicle —
   // distinct from RENT (OFFICE premises/warehouse rent) above.
   VEHICLE_RENT: 'Vehicle Rent',
+  // Added 2026-09-17 (owner request): split out of BOTTLE_PURCHASED — the
+  // recurring payment made TO THE PLANT to refill bottles with water, distinct
+  // from actually buying new empty bottles. See schema.prisma's enum comment.
+  BOTTLE_REFILL_PAYMENT: 'Bottle Refill (Plant Payment)',
   // Retained-for-history categories (dropped from the add-expense dropdown
   // 2026-08-21 but still present on old rows) — labelled as legacy so a
   // reader can tell them apart from the live ones at a glance.
@@ -143,6 +147,9 @@ export const EXPENSE_CATEGORY_DOMAINS: Record<ExpenseCategory, ExpenseCenterDoma
   // Added 2026-09-09 (owner request): renting an additional truck/vehicle —
   // distinct from RENT (OFFICE premises/warehouse rent) above.
   VEHICLE_RENT: 'VEHICLE',
+  // Added 2026-09-17 (owner request): plant refill payment — same domain as
+  // BOTTLE_PURCHASED, it's still inventory/procurement spend.
+  BOTTLE_REFILL_PAYMENT: 'INVENTORY',
 };
 
 /**

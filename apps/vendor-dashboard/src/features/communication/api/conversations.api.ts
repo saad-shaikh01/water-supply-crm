@@ -36,9 +36,23 @@ export interface InboxResponse {
 // Phase 6 adds getById — the conversationId-direct entry point deferred
 // since Phase 2 (nothing needed it until the Communications page had to
 // preselect a row from a `?conversation=` deep link rather than a click).
+// Extra fields returned only by getOrCreateForCustomer — the item is
+// resolved server-side (customer's most recent DailySheetItem), so the
+// caller (Customer list page, which has no item/sheet context) learns which
+// one to anchor ConversationThread on from the response itself.
+export interface ConversationForCustomer extends ConversationContext {
+  itemId: string;
+  sheetId: string;
+  isSheetClosed: boolean;
+  isItemPending: boolean;
+}
+
 export const conversationsApi = {
   getOrCreateForItem: (itemId: string) =>
     apiClient.put<ConversationContext>(`/conversations/for-item/${itemId}`).then((r) => r.data),
+
+  getOrCreateForCustomer: (customerId: string) =>
+    apiClient.put<ConversationForCustomer>(`/conversations/for-customer/${customerId}`).then((r) => r.data),
 
   findMany: (query: InboxQuery) =>
     apiClient.get<InboxResponse>('/conversations', { params: query }).then((r) => r.data),

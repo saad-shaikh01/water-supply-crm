@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Button,
   Dialog,
@@ -21,14 +21,19 @@ import {
   SelectTrigger,
   SelectValue,
   Textarea,
+  cn,
 } from '@water-supply-crm/ui';
-import { AlertTriangle, CalendarClock, CheckCircle2, Clock3, Loader2, MoreHorizontal, Power, PowerOff, Truck, X } from 'lucide-react';
+import { AlertTriangle, CalendarClock, CheckCircle2, Clock3, Loader2, MessageSquare, MoreHorizontal, Power, PowerOff, StickyNote, Truck, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { DataTable } from '../../../components/shared/data-table';
 import { CustomerLink } from '../../../components/shared/customer-link';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { DateRangePicker } from '../../../components/shared/date-range-picker';
 import { StatusBadge } from '../../../components/shared/status-badge';
+// Reused as-is from the Daily Sheet feature's "Chats" modal — an instruction
+// (requiresAck message) posted here blocks delivery for the same customer via
+// the exact same customer-scoped ack-gate in DailySheetService.submitDelivery.
+import { ConversationThread } from '../../communication/components/conversation-thread';
 import {
   useDeliveryIssues,
   usePlanDeliveryIssue,
@@ -82,6 +87,8 @@ const RESOLUTION_OPTIONS = [
 interface DeliveryIssueRow {
   id: string;
   status: string;
+  messageCount?: number;
+  pendingAckCount?: number;
   nextAction?: string;
   retryAt?: string;
   assignedToUserId?: string;
@@ -129,6 +136,7 @@ const toLocalDateTimeValue = (iso?: string) => {
 };
 
 export function DeliveryIssuesInbox() {
+  const queryClient = useQueryClient();
   const {
     data,
     isLoading,
@@ -193,6 +201,10 @@ export function DeliveryIssuesInbox() {
     resolution: 'DELIVERED',
     notes: '',
   });
+
+  // Communication Center "Chats" modal — same feature as the Daily Sheet
+  // detail page, opened directly from a delivery issue row.
+  const [chatTarget, setChatTarget] = useState<DeliveryIssueRow | null>(null);
 
   // Phase 3/4 — bulk selection, reusing DataTable's existing selectable prop
   // (same pattern as the customer list's Bulk Schedule Update feature).
@@ -470,12 +482,35 @@ export function DeliveryIssuesInbox() {
             key: 'customer',
             essential: true,
             header: 'Customer',
-            cell: (row: DeliveryIssueRow) => (
-              <div>
-                <CustomerLink id={row.dailySheetItem?.customer?.id} name={row.dailySheetItem?.customer?.name} className="text-sm font-bold" />
-                <p className="text-[10px] text-muted-foreground">{row.dailySheetItem?.customer?.customerCode}</p>
-              </div>
-            ),
+            cell: (row: DeliveryIssueRow) => {
+              const messageCount = row.messageCount ?? 0;
+              const pendingAckCount = row.pendingAckCount ?? 0;
+              return (
+                <div>
+                  <CustomerLink id={row.dailySheetItem?.customer?.id} name={row.dailySheetItem?.customer?.name} className="text-sm font-bold" />
+                  <p className="text-[10px] text-muted-foreground">{row.dailySheetItem?.customer?.customerCode}</p>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setChatTarget(row); }}
+                    className={cn(
+                      'mt-1 flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full transition-colors',
+                      pendingAckCount > 0
+                        ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400 hover:bg-amber-500/25'
+                        : messageCount > 0
+                          ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/25'
+                          : 'bg-muted text-muted-foreground hover:bg-accent',
+                    )}
+                  >
+                    <StickyNote className="h-2.5 w-2.5" />
+                    {pendingAckCount > 0
+                      ? `${pendingAckCount} Pending ⚠`
+                      : messageCount > 0
+                        ? `${messageCount} Msg${messageCount > 1 ? 's' : ''} ✓`
+                        : 'Chats'}
+                  </button>
+                </div>
+              );
+            },
           },
           {
             key: 'context',
@@ -651,6 +686,39 @@ export function DeliveryIssuesInbox() {
           },
         ]}
       />
+
+      {chatTarget?.dailySheetItem && (
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open) {
+              setChatTarget(null);
+              // Ack/instruction changes made inside the thread aren't
+              // reflected in this page's own list cache (only queryKeys.sheets
+              // is invalidated by useAcknowledgeMessage) — refetch on close so
+              // the row's Pending/Msgs chip reflects the latest state.
+              queryClient.invalidateQueries({ queryKey: ['delivery-issues'] });
+            }
+          }}
+        >
+          <DialogContent className="rounded-3xl max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="text-lg font-black flex items-center gap-2">
+                <MessageSquare className="h-5 w-5 text-primary" />
+                Chat · {chatTarget.dailySheetItem.customer?.name}
+              </DialogTitle>
+            </DialogHeader>
+            <ConversationThread
+              itemId={chatTarget.dailySheetItem.id}
+              sheetId={chatTarget.dailySheetItem.dailySheet?.id ?? ''}
+              variant="embedded"
+              isDriver={false}
+              itemIsPending={chatTarget.dailySheetItem.status === 'PENDING'}
+              isClosed={chatTarget.status === 'RESOLVED' || chatTarget.status === 'DROPPED'}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
 
       <Dialog open={!!planTarget} onOpenChange={(open) => !open && setPlanTarget(null)}>
         <DialogContent className="sm:max-w-lg">

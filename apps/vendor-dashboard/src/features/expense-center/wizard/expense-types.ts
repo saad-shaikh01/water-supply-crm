@@ -1,6 +1,6 @@
 import {
   Fuel, Wrench, Wallet, Receipt, Snowflake, PackagePlus, Building2, Users,
-  Zap, FileText, Droplet, Package, FlaskConical, Landmark,
+  Zap, FileText, Droplet, Droplets, Package, FlaskConical, Landmark,
   Shield, Smartphone, Stamp, Bandage, Handshake, HeartHandshake, KeyRound,
   type LucideIcon,
 } from 'lucide-react';
@@ -169,6 +169,17 @@ export const EXPENSE_TYPE_REGISTRY: ExpenseTypeEntry[] = [
     icon: Droplet,
     kind: 'EXPENSE',
     presetExpenseCategory: 'BOTTLE_PURCHASED',
+  },
+  // Added 2026-09-17 (owner request) — split out of BOTTLE_PURCHASE above:
+  // money actually paid to the plant to refill bottles with water, distinct
+  // from buying new empty bottles.
+  {
+    key: 'BOTTLE_REFILL',
+    label: 'Bottle Refill (Plant Payment)',
+    domain: 'INVENTORY',
+    icon: Droplets,
+    kind: 'EXPENSE',
+    presetExpenseCategory: 'BOTTLE_REFILL_PAYMENT',
   },
   {
     key: 'CAPS',

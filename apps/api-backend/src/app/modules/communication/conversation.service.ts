@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
@@ -168,6 +169,55 @@ export class ConversationService {
       include: CONVERSATION_INCLUDE,
     });
     return { ...conversation, waitingOn: this.waitingOn(conversation.lastMessageSenderRole) };
+  }
+
+  /**
+   * Customer-list entry point (no delivery/item context available on that
+   * page). ConversationMessage.dailySheetItemId is a hard, non-nullable FK,
+   * so the composer still needs a real item to tag messages with — this
+   * resolves it server-side to the customer's most recent DailySheetItem
+   * (any status; ordered by the sheet's own date, not createdAt, so a
+   * backfilled/corrected item from an older date never wins over today's)
+   * instead of requiring the caller to already know one, the way
+   * getOrCreateForItem does. Same bare-shell upsert as getOrCreateForItem
+   * otherwise.
+   */
+  async getOrCreateForCustomer(user: AuthUser, customerId: string) {
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: customerId, vendorId: user.vendorId },
+      select: { id: true },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const item = await this.prisma.dailySheetItem.findFirst({
+      where: { customerId, dailySheet: { vendorId: user.vendorId } },
+      orderBy: [{ dailySheet: { date: 'desc' } }, { createdAt: 'desc' }],
+      select: { id: true, dailySheetId: true, status: true, dailySheet: { select: { isClosed: true } } },
+    });
+    if (!item) {
+      throw new BadRequestException(
+        'This customer has no deliveries on record yet — a conversation can only be started once a delivery has been scheduled.',
+      );
+    }
+
+    const conversation = await this.prisma.conversation.upsert({
+      where: { vendorId_customerId: { vendorId: user.vendorId, customerId } },
+      update: {},
+      create: {
+        vendorId: user.vendorId,
+        customerId,
+      },
+      include: CONVERSATION_INCLUDE,
+    });
+
+    return {
+      ...conversation,
+      waitingOn: this.waitingOn(conversation.lastMessageSenderRole),
+      itemId: item.id,
+      sheetId: item.dailySheetId,
+      isSheetClosed: item.dailySheet.isClosed,
+      isItemPending: item.status === 'PENDING',
+    };
   }
 
   // ── inbox list ──────────────────────────────────────────────────────────────

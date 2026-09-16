@@ -163,6 +163,15 @@ enum ExpenseCategory {
   // Added 2026-09-09 (owner request): renting an additional truck/vehicle —
   // distinct from RENT (OFFICE premises/warehouse rent) above.
   VEHICLE_RENT
+  // Added 2026-09-17 (owner request): split out of BOTTLE_PURCHASED, which had
+  // been used ambiguously for both "buying new empty bottles" and "paying the
+  // plant to refill bottles with water" — the latter is what AnalyticsService's
+  // Plant Balance (analytics.service.ts, "outstanding" calc, 2026-09-15) reads
+  // as the money actually paid to the plant. BOTTLE_REFILL_PAYMENT is now the
+  // one that calc should use going forward; BOTTLE_PURCHASED stays reserved for
+  // genuine new-bottle purchases. Both are still summed together there for
+  // continuity with pre-2026-09-17 history recorded under BOTTLE_PURCHASED.
+  BOTTLE_REFILL_PAYMENT
 }
 
 enum DamageSeverity {
@@ -3088,6 +3097,14 @@ model FuelCard {
   cardNumber String? // optional last-4 / masked reference, free text
   issuer     String? // e.g. "PSO", "Shell", "Bank Al Habib"
   isActive   Boolean @default(true)
+
+  // One-time carry-forward baseline for a card's real-world balance at the
+  // moment it was registered in this system (e.g. migrating an already-loaded
+  // physical card). Added into computeCardBalance alongside top-ups/fills, but
+  // deliberately NOT a FuelCardTopUp row: it never touches the Office Cash
+  // Ledger, since no cash left the office pool today to create it — it was
+  // already sitting on the card before this feature existed.
+  openingBalance Float @default(0)
 
   createdById String
   createdBy   User   @relation("FuelCardCreatedBy", fields: [createdById], references: [id])

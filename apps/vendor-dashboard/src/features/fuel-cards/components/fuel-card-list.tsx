@@ -1,21 +1,23 @@
 'use client';
 
 import { useState } from 'react';
-import { CreditCard, Fuel, Inbox, Power } from 'lucide-react';
+import { CreditCard, Fuel, Inbox, Pencil, Power } from 'lucide-react';
 import { Badge, Button, Card, CardContent, Skeleton, cn } from '@water-supply-crm/ui';
 import { useCan } from '../../authz/hooks/use-can';
 import { useFuelCards, useUpdateFuelCard } from '../hooks/use-fuel-cards';
 import { FUEL_CARD_PERMISSIONS } from '../constants';
 import { TopUpFuelCardDialog } from './topup-fuel-card-dialog';
+import { EditFuelCardDialog } from './edit-fuel-card-dialog';
 import type { FuelCard as FuelCardRow } from '../api/fuel-card.api';
 
 const money = (n: number) => `₨ ${Number(n ?? 0).toLocaleString()}`;
 
-function FuelCardTile({ card, canManage, canTopUp, onTopUp }: {
+function FuelCardTile({ card, canManage, canTopUp, onTopUp, onEdit }: {
   card: FuelCardRow;
   canManage: boolean;
   canTopUp: boolean;
   onTopUp: () => void;
+  onEdit: () => void;
 }) {
   const updateCard = useUpdateFuelCard();
   const isNegative = card.balance < 0;
@@ -55,15 +57,20 @@ function FuelCardTile({ card, canManage, canTopUp, onTopUp }: {
             </Button>
           )}
           {canManage && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="rounded-full font-bold"
-              disabled={updateCard.isPending}
-              onClick={() => updateCard.mutate({ id: card.id, data: { isActive: !card.isActive } })}
-            >
-              <Power className="h-3.5 w-3.5" />
-            </Button>
+            <>
+              <Button size="sm" variant="outline" className="rounded-full font-bold" onClick={onEdit}>
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-full font-bold"
+                disabled={updateCard.isPending}
+                onClick={() => updateCard.mutate({ id: card.id, data: { isActive: !card.isActive } })}
+              >
+                <Power className="h-3.5 w-3.5" />
+              </Button>
+            </>
           )}
         </div>
       </CardContent>
@@ -76,6 +83,7 @@ export function FuelCardList() {
   const canManage = useCan(FUEL_CARD_PERMISSIONS.manage);
   const canTopUp = useCan(FUEL_CARD_PERMISSIONS.topup);
   const [topUpTarget, setTopUpTarget] = useState<FuelCardRow | null>(null);
+  const [editTarget, setEditTarget] = useState<FuelCardRow | null>(null);
 
   if (isLoading) {
     return (
@@ -110,6 +118,7 @@ export function FuelCardList() {
             canManage={canManage}
             canTopUp={canTopUp}
             onTopUp={() => setTopUpTarget(card)}
+            onEdit={() => setEditTarget(card)}
           />
         ))}
       </div>
@@ -118,6 +127,11 @@ export function FuelCardList() {
         card={topUpTarget}
         open={!!topUpTarget}
         onOpenChange={(o) => { if (!o) setTopUpTarget(null); }}
+      />
+      <EditFuelCardDialog
+        card={editTarget}
+        open={!!editTarget}
+        onOpenChange={(o) => { if (!o) setEditTarget(null); }}
       />
     </>
   );

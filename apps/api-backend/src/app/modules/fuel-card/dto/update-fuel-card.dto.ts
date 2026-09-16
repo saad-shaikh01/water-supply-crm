@@ -1,4 +1,4 @@
-import { IsBoolean, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsNumber, IsOptional, IsString, Min, MaxLength, MinLength } from 'class-validator';
 
 /** Edits a FuelCard's details, or flips isActive to deactivate/reactivate it. */
 export class UpdateFuelCardDto {
@@ -21,4 +21,10 @@ export class UpdateFuelCardDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  /** Carry-forward baseline correction — never touches Office Cash Ledger. */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  openingBalance?: number;
 }

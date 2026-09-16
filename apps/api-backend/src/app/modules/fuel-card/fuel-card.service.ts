@@ -35,9 +35,11 @@ const topUpInclude = {
  * real cost is still, and only, recognized at the FuelLog fill
  * (FuelLogService.create already spawns FUEL_EXPENSE there, unchanged).
  *
- * Each card's balance = Σ(ACTIVE top-ups) − Σ(FuelLog.amountPaid fuelled from
- * that card), computed on read (not cached), same convention
- * VanCashLedgerService uses for `availableBalance`.
+ * Each card's balance = openingBalance + Σ(ACTIVE top-ups) −
+ * Σ(FuelLog.amountPaid fuelled from that card), computed on read (not
+ * cached), same convention VanCashLedgerService uses for `availableBalance`.
+ * openingBalance is a one-time carry-forward baseline (set at/after card
+ * registration) and never touches Office Cash Ledger.
  */
 @Injectable()
 export class FuelCardService {
@@ -55,6 +57,7 @@ export class FuelCardService {
         name: dto.name,
         cardNumber: dto.cardNumber ?? null,
         issuer: dto.issuer ?? null,
+        openingBalance: dto.openingBalance ?? 0,
         createdById: user.userId,
       },
     });
@@ -66,10 +69,12 @@ export class FuelCardService {
       action: 'CREATED',
       entity: 'FuelCard',
       entityId: card.id,
-      changes: { after: { name: card.name, cardNumber: card.cardNumber, issuer: card.issuer } },
+      changes: {
+        after: { name: card.name, cardNumber: card.cardNumber, issuer: card.issuer, openingBalance: card.openingBalance },
+      },
     });
 
-    return { ...card, balance: 0 };
+    return { ...card, balance: round2(card.openingBalance) };
   }
 
   async listCards(vendorId: string) {
@@ -81,7 +86,7 @@ export class FuelCardService {
     return Promise.all(
       cards.map(async (card) => ({
         ...card,
-        balance: await this.computeCardBalance(vendorId, card.id),
+        balance: await this.computeCardBalance(vendorId, card.id, card.openingBalance),
       })),
     );
   }
@@ -97,6 +102,7 @@ export class FuelCardService {
         ...(dto.cardNumber !== undefined && { cardNumber: dto.cardNumber }),
         ...(dto.issuer !== undefined && { issuer: dto.issuer }),
         ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+        ...(dto.openingBalance !== undefined && { openingBalance: dto.openingBalance }),
       },
     });
 
@@ -108,12 +114,24 @@ export class FuelCardService {
       entity: 'FuelCard',
       entityId: updated.id,
       changes: {
-        before: { name: before.name, cardNumber: before.cardNumber, issuer: before.issuer, isActive: before.isActive },
-        after: { name: updated.name, cardNumber: updated.cardNumber, issuer: updated.issuer, isActive: updated.isActive },
+        before: {
+          name: before.name,
+          cardNumber: before.cardNumber,
+          issuer: before.issuer,
+          isActive: before.isActive,
+          openingBalance: before.openingBalance,
+        },
+        after: {
+          name: updated.name,
+          cardNumber: updated.cardNumber,
+          issuer: updated.issuer,
+          isActive: updated.isActive,
+          openingBalance: updated.openingBalance,
+        },
       },
     });
 
-    return { ...updated, balance: await this.computeCardBalance(user.vendorId, updated.id) };
+    return { ...updated, balance: await this.computeCardBalance(user.vendorId, updated.id, updated.openingBalance) };
   }
 
   // ── Top-ups ────────────────────────────────────────────────────────────
@@ -150,7 +168,7 @@ export class FuelCardService {
       },
     });
 
-    return { ...created, cardBalance: await this.computeCardBalance(user.vendorId, fuelCardId) };
+    return { ...created, cardBalance: await this.computeCardBalance(user.vendorId, fuelCardId, card.openingBalance) };
   }
 
   async listTopUps(vendorId: string, query: FuelCardTopUpQueryDto) {
@@ -220,7 +238,14 @@ export class FuelCardService {
       },
     });
 
-    return { ...updated, cardBalance: await this.computeCardBalance(user.vendorId, row.fuelCardId) };
+    const card = await this.prisma.fuelCard.findUnique({
+      where: { id: row.fuelCardId },
+      select: { openingBalance: true },
+    });
+    return {
+      ...updated,
+      cardBalance: await this.computeCardBalance(user.vendorId, row.fuelCardId, card?.openingBalance ?? 0),
+    };
   }
 
   async getTopUpAttachmentKey(vendorId: string, id: string): Promise<string> {
@@ -234,7 +259,7 @@ export class FuelCardService {
 
   // ── Internal ───────────────────────────────────────────────────────────
 
-  private async computeCardBalance(vendorId: string, fuelCardId: string): Promise<number> {
+  private async computeCardBalance(vendorId: string, fuelCardId: string, openingBalance: number): Promise<number> {
     const [topUpAgg, fillAgg] = await Promise.all([
       this.prisma.fuelCardTopUp.aggregate({
         where: { vendorId, fuelCardId, status: FuelCardTopUpStatus.ACTIVE },
@@ -246,6 +271,6 @@ export class FuelCardService {
       }),
     ]);
 
-    return round2((topUpAgg._sum.amount ?? 0) - (fillAgg._sum.amountPaid ?? 0));
+    return round2(openingBalance + (topUpAgg._sum.amount ?? 0) - (fillAgg._sum.amountPaid ?? 0));
   }
 }

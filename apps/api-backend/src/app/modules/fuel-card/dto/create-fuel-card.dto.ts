@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsNumber, IsOptional, IsString, Min, MaxLength, MinLength } from 'class-validator';
 
 /** Registers a new FuelCard for the vendor. A vendor may register any number of cards. */
 export class CreateFuelCardDto {
@@ -16,4 +16,10 @@ export class CreateFuelCardDto {
   @IsString()
   @MaxLength(60)
   issuer?: string;
+
+  /** Carry-forward baseline if the card already had cash loaded before being registered here. */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  openingBalance?: number;
 }

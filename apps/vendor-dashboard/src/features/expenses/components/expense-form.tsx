@@ -41,6 +41,10 @@ function Toggle({ enabled, onToggle, label }: { enabled: boolean; onToggle: () =
 // inventory procurement categories.
 // VEHICLE_RENT added 2026-09-09 (owner request) — renting an additional
 // truck/vehicle, distinct from the OFFICE-domain RENT (premises/warehouse).
+// BOTTLE_REFILL_PAYMENT added 2026-09-17 (owner request) — split out of
+// BOTTLE_PURCHASED, which had been used for both buying new empty bottles and
+// paying the plant to refill bottles with water; the latter is what
+// AnalyticsService's Plant Balance "outstanding" calc reads as plant payments.
 const CATEGORIES = [
   { value: 'VEHICLE_MAINTENANCE', label: 'Vehicle Maintenance' },
   { value: 'VEHICLE_RENT', label: 'Vehicle Rent' },
@@ -50,6 +54,7 @@ const CATEGORIES = [
   { value: 'UTILITIES', label: 'Utilities' },
   { value: 'STATIONARY', label: 'Stationary' },
   { value: 'BOTTLE_PURCHASED', label: 'Bottle Purchase' },
+  { value: 'BOTTLE_REFILL_PAYMENT', label: 'Bottle Refill (Plant Payment)' },
   { value: 'CAPS_PURCHASED', label: 'Caps Purchase' },
   { value: 'CHEMICALS_PURCHASED', label: 'Chemicals Purchase' },
   { value: 'POLICE', label: 'Police' },

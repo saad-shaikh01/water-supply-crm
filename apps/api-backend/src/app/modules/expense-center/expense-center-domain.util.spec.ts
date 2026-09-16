@@ -53,6 +53,11 @@ describe('domain classification', () => {
     expect(domainForExpenseCategory(ExpenseCategory.RENT)).toBe('OFFICE');
   });
 
+  it('routes BOTTLE_REFILL_PAYMENT to INVENTORY, same domain as BOTTLE_PURCHASED', () => {
+    expect(domainForExpenseCategory(ExpenseCategory.BOTTLE_REFILL_PAYMENT)).toBe('INVENTORY');
+    expect(domainForExpenseCategory(ExpenseCategory.BOTTLE_PURCHASED)).toBe('INVENTORY');
+  });
+
   it('has a label for every category in both enums', () => {
     for (const category of Object.values(ExpenseCategory)) {
       expect(EXPENSE_CATEGORY_LABELS[category]).toBeTruthy();

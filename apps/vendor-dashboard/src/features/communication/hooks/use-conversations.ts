@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import type { ConversationContext } from '@water-supply-crm/types';
 import {
   conversationsApi,
+  type ConversationForCustomer,
   type ConversationStatusValue,
   type InboxQuery,
   type InboxResponse,
@@ -52,6 +53,24 @@ export const useConversationForItem = (itemId: string, enabled: boolean) => {
     // this, every collapse/expand of the same delivery card re-hits the
     // API even though the result can never differ.
     staleTime: Infinity,
+  });
+};
+
+/**
+ * Get-or-create from the Customer list page (no delivery/item context there
+ * — the backend resolves the customer's most recent DailySheetItem and
+ * returns it as itemId/sheetId, which the caller then hands to
+ * ConversationThread). Lazy — pass `enabled` so it only fires when the chat
+ * modal is actually open. A customer with zero deliveries ever throws a 400
+ * server-side; surfaced via `isError`/`error`.
+ */
+export const useConversationForCustomer = (customerId: string, enabled: boolean) => {
+  return useQuery({
+    queryKey: queryKeys.communication.forCustomer(customerId),
+    queryFn: (): Promise<ConversationForCustomer> => conversationsApi.getOrCreateForCustomer(customerId),
+    enabled: enabled && !!customerId,
+    staleTime: Infinity,
+    retry: false,
   });
 };
 

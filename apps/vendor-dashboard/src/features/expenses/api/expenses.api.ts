@@ -12,7 +12,10 @@ export type ExpenseCategory =
   | 'POLICE' | 'MOBILE_LOAD' | 'PSQCA'
   | 'BOTTLE_REPAIR' | 'CONTRACTOR_PAYMENT' | 'CHARITY'
   // Added 2026-09-09 — vehicle rental category, distinct from the OFFICE-domain RENT.
-  | 'VEHICLE_RENT';
+  | 'VEHICLE_RENT'
+  // Added 2026-09-17 — split out of BOTTLE_PURCHASED: money actually paid to
+  // the plant to refill bottles with water, distinct from buying new empty bottles.
+  | 'BOTTLE_REFILL_PAYMENT';
 
 export interface ExpenseQuery {
   page?: number;

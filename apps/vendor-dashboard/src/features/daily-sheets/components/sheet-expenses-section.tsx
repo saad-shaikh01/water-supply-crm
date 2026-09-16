@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button, Card, CardContent, Badge } from '@water-supply-crm/ui';
-import { Trash2, Pencil, Receipt, Fuel, Wrench, Users, AlertTriangle, CreditCard, Snowflake, PackagePlus, Building2, Zap, FileText, Droplet, Package, FlaskConical, Shield, Smartphone, Stamp, Bandage, Handshake, HeartHandshake, KeyRound, type LucideIcon } from 'lucide-react';
+import { Trash2, Pencil, Receipt, Fuel, Wrench, Users, AlertTriangle, CreditCard, Snowflake, PackagePlus, Building2, Zap, FileText, Droplet, Droplets, Package, FlaskConical, Shield, Smartphone, Stamp, Bandage, Handshake, HeartHandshake, KeyRound, type LucideIcon } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { useDeleteSheetExpense } from '../../expenses/hooks/use-expenses';
@@ -49,6 +49,9 @@ const CATEGORY_CONFIG: Record<string, { label: string; color: string; icon: Luci
   // distinct from RENT (OFFICE premises rent) above (kept in sync with
   // expenses/components/expense-list.tsx's CATEGORY_CONFIG).
   VEHICLE_RENT:            { label: 'Vehicle Rent',        color: 'bg-sky-500/10 text-sky-500',         icon: KeyRound },
+  // Added 2026-09-17 (owner request) — split out of BOTTLE_PURCHASED (kept in
+  // sync with expenses/components/expense-list.tsx's CATEGORY_CONFIG).
+  BOTTLE_REFILL_PAYMENT:   { label: 'Bottle Refill (Plant Payment)', color: 'bg-teal-600/10 text-teal-700', icon: Droplets },
   OTHER:                   { label: 'Others',              color: 'bg-muted text-muted-foreground',     icon: AlertTriangle },
 };
 

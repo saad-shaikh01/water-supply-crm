@@ -415,34 +415,31 @@ We'll try again on your next scheduled delivery day.
 - **Category:** UTILITY · **Language:** English
 - **Wired:** `transaction.controller.ts` `recordPayment()` (dashboard manual payment record) →
   `notifications.queueWhatsAppTemplate(... CloudTemplateNames.PAYMENT_RECORDED ...)`.
-- **⚠️ Must be submitted + approved on Meta** — new template body, submitted for review 2026-09-15
-  (replaces the old 2-variable body). Until approved, the send fails with Graph API error 132000.
-- **Body (submitted for approval 2026-09-15):**
+- **✅ Approved on Meta** (confirmed 2026-09-17) — **6 variables**, not 7. An earlier 7-variable
+  draft (duplicate balance line) was submitted 2026-09-15 but Meta approved a trimmed 6-variable
+  body instead; the code originally sent 7 params against this 6-variable template, which fails
+  with Graph API error 132000 (param count mismatch) — fixed 2026-09-17.
+- **Body (as actually approved on Meta):**
 ```
-Assalamu Alaikum, {{1}},
+Assalamu Alaikum, *{{1}}*,
 
-Customer Code: {{2}}
+Customer Code: *{{2}}*
 
-We confirm that your partial payment of Rs.{{3}} has been received successfully.
+We are pleased to confirm that your payment of Rs.*{{3}}* has been received successfully.
 
-Invoice Amount: Rs. {{4}}
-Payment Received: Rs. {{5}}
-Invoice Amount Balance: Rs. {{6}}
-Current Balance Rs. {{7}}
+Invoice Amount: Rs. *{{4}}*
+Payment Received: Rs. *{{5}}*
+Current Balance Rs. *{{6}}*
 
-Kindly arrange payment of the remaining outstanding balance at your earliest convenience to keep your account up to date.
+Thank you for your prompt payment and for choosing *Blue Ice*.
 
-Thank you for your prompt cooperation and for choosing Blue Ice.
-
-Blue Ice Purified Drinking Water
+We truly appreciate your continued trust and support.
 ```
 - **Variables:** `{{1}}` = customer name · `{{2}}` = customer code · `{{3}}` = amount just paid ·
   `{{4}}` = balance owed before this payment ("Invoice Amount") · `{{5}}` = amount just paid again
-  (repeated as "Payment Received") · `{{6}}` = balance owed after this payment · `{{7}}` = current
-  account balance (same value as `{{6}}` — this system has no separate per-invoice balance, so both
-  labels resolve to the customer's running `financialBalance` after the payment)
+  (repeated as "Payment Received") · `{{6}}` = balance owed after this payment ("Current Balance")
 - **Sample:** `{{1}}` = `Sharjeel`, `{{2}}` = `H1021`, `{{3}}` = `1000`, `{{4}}` = `2000`, `{{5}}` = `1000`,
-  `{{6}}` = `1000`, `{{7}}` = `1000`
+  `{{6}}` = `1000`
 
 ---
 
@@ -467,7 +464,7 @@ Blue Ice Purified Drinking Water
 | 15 | `delivery_corrected` | ✅ Code wired — submit for Meta approval |
 | 16 | `delivery_completed` | ⚪ Optional |
 | 17 | `delivery_unsuccessful` | ✅ Code wired — submit for Meta approval |
-| 18 | `payment_recorded` | ✅ Code wired — submit for Meta approval |
+| 18 | `payment_recorded` | ✅ Approved on Meta |
 | 19 | `delivery_unsuccessful_photo` | ✅ Code wired — submit for Meta approval |
 
 > **Go-live se pehle #1–#13 approve hone chahiye.** Jab tak approve na ho, un notifications ke messages nahi jaayenge.

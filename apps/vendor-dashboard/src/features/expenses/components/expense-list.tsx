@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQueryState, parseAsString } from 'nuqs';
-import { MoreHorizontal, Pencil, Trash2, Receipt, Fuel, Wrench, Users, AlertTriangle, Snowflake, PackagePlus, Building2, Zap, FileText, Droplet, Package, FlaskConical, Shield, Smartphone, Stamp, Bandage, Handshake, HeartHandshake, KeyRound, type LucideIcon } from 'lucide-react';
+import { MoreHorizontal, Pencil, Trash2, Receipt, Fuel, Wrench, Users, AlertTriangle, Snowflake, PackagePlus, Building2, Zap, FileText, Droplet, Droplets, Package, FlaskConical, Shield, Smartphone, Stamp, Bandage, Handshake, HeartHandshake, KeyRound, type LucideIcon } from 'lucide-react';
 import {
   Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuTrigger, Badge, Card, CardContent,
@@ -50,6 +50,11 @@ const CATEGORY_CONFIG: Record<ExpenseCategory, { label: string; color: string; i
   // same precedent as CHARITY/amber-500 vs OFFICE/amber-700 above — and
   // distinct from every other category color in this map.
   VEHICLE_RENT:            { label: 'Vehicle Rent',        color: 'bg-sky-500/10 text-sky-500',         icon: KeyRound },
+  // Added 2026-09-17 (owner request) — split out of BOTTLE_PURCHASED: money
+  // actually paid to the plant to refill bottles with water, distinct from
+  // buying new empty bottles. Icon differs (Droplets vs Droplet) so the two
+  // are visually distinguishable at a glance.
+  BOTTLE_REFILL_PAYMENT:   { label: 'Bottle Refill (Plant Payment)', color: 'bg-teal-600/10 text-teal-700', icon: Droplets },
   OTHER:                   { label: 'Others',              color: 'bg-muted text-muted-foreground',     icon: AlertTriangle },
 };
 

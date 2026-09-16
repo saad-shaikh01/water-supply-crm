@@ -58,6 +58,7 @@ export const queryKeys = {
   // Customer Communication Center (docs/features/customer-communication-center.md).
   communication: {
     forItem: (itemId: string) => ['conversation', 'for-item', itemId] as const,
+    forCustomer: (customerId: string) => ['conversation', 'for-customer', customerId] as const,
     messages: (conversationId: string) => ['conversation-messages', conversationId] as const,
     inbox: (params: object) => ['conversations', params] as const,
   },

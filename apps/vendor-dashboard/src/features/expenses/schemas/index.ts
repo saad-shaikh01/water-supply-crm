@@ -23,7 +23,7 @@ export const expenseSchema = z.object({
     'BOTTLE_PURCHASED', 'CAPS_PURCHASED', 'CHEMICALS_PURCHASED',
     'POLICE', 'MOBILE_LOAD', 'PSQCA',
     'BOTTLE_REPAIR', 'CONTRACTOR_PAYMENT', 'CHARITY',
-    'VEHICLE_RENT',
+    'VEHICLE_RENT', 'BOTTLE_REFILL_PAYMENT',
   ]),
   description: z.string().optional(),
   date: z.string().min(1, 'Date is required'),

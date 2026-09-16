@@ -3,11 +3,12 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useQueryState, parseAsString, parseAsInteger } from 'nuqs';
-import { MoreHorizontal, Pencil, Trash2, Eye, MapPin, Phone, PowerOff, Power, SlidersHorizontal, X, ChevronUp, ChevronDown, ChevronsUpDown, CalendarClock } from 'lucide-react';
+import { MoreHorizontal, Pencil, Trash2, Eye, MapPin, Phone, PowerOff, Power, SlidersHorizontal, X, ChevronUp, ChevronDown, ChevronsUpDown, CalendarClock, MessageSquare } from 'lucide-react';
 import {
   Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuTrigger, Badge, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
   Sheet, SheetContent, SheetHeader, SheetTitle, Label, Input,
+  Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@water-supply-crm/ui';
 import { DataTable } from '../../../components/shared/data-table';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
@@ -18,6 +19,10 @@ import { toast } from 'sonner';
 import { useCustomers, useDeleteCustomer, useDeactivateCustomer, useReactivateCustomer, useBulkDeactivateCustomers, isDeactivateBlockedError } from '../hooks/use-customers';
 import { CustomerForm } from './customer-form';
 import { BulkScheduleUpdateDialog } from './bulk-schedule-update-dialog';
+// Same Communication Center feature as the Daily Sheet detail / Delivery
+// Issues pages — a customer-list entry point that resolves its own anchor
+// delivery item server-side (see CustomerConversationThread).
+import { CustomerConversationThread } from '../../communication/components/customer-conversation-thread';
 import { cn } from '@water-supply-crm/ui';
 import { useCan } from '../../authz/hooks/use-can';
 
@@ -32,6 +37,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const canForceDeactivateBottles = useCan('customers:force_deactivate_bottles');
   const canRestore = useCan('customers:restore');
   const canDelete = useCan('customers:delete');
+  const canViewChats = useCan('conversations:view');
   const { data, isLoading, page, setPage, limit, setLimit, isActive, setIsActive, hasPortalAccess, setHasPortalAccess, sort, setSort, sortDir, setSortDir } = useCustomers();
   const { mutate: deleteCustomer, isPending: isDeleting } = useDeleteCustomer();
   const { mutate: deactivateCustomer, isPending: isDeactivating } = useDeactivateCustomer();
@@ -46,6 +52,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     { id: string; name: string; balance: number; bottles: Array<{ product: string; balance: number }> } | null
   >(null);
   const [reactivateId, setReactivateId] = useState<string | null>(null);
+  const [chatCustomer, setChatCustomer] = useState<{ id: string; name: string } | null>(null);
   const [editCustomer, setEditCustomer] = useState<Record<string, unknown> | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -659,6 +666,15 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                       <span className="font-medium text-sm">View Profile</span>
                     </Link>
                   </DropdownMenuItem>
+                  {canViewChats && (
+                    <DropdownMenuItem
+                      onClick={() => setChatCustomer({ id: r.id, name: r.name })}
+                      className="rounded-lg cursor-pointer px-2 py-2"
+                    >
+                      <MessageSquare className="mr-2 h-4 w-4 text-primary" />
+                      <span className="font-medium text-sm">Chats</span>
+                    </DropdownMenuItem>
+                  )}
                   {canUpdate && (
                     <DropdownMenuItem onClick={() => setEditCustomer(r as Record<string, unknown>)} className="rounded-lg cursor-pointer px-2 py-2">
                       <Pencil className="mr-2 h-4 w-4 text-orange-500" />
@@ -698,6 +714,20 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
           },
         ]}
       />
+
+      {chatCustomer && (
+        <Dialog open onOpenChange={(o) => !o && setChatCustomer(null)}>
+          <DialogContent className="rounded-3xl max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="text-lg font-black flex items-center gap-2">
+                <MessageSquare className="h-5 w-5 text-primary" />
+                Chat · {chatCustomer.name}
+              </DialogTitle>
+            </DialogHeader>
+            <CustomerConversationThread customerId={chatCustomer.id} />
+          </DialogContent>
+        </Dialog>
+      )}
 
       <ConfirmDialog
         open={!!deleteId}

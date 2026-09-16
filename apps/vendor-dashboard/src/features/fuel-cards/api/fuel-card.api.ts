@@ -16,7 +16,9 @@ export interface FuelCard {
   cardNumber: string | null;
   issuer: string | null;
   isActive: boolean;
-  /** Server-computed, not cached: ACTIVE top-ups minus fuel-card-paid FuelLog fills. */
+  /** One-time carry-forward baseline, e.g. a card that already had cash loaded before being registered here. */
+  openingBalance: number;
+  /** Server-computed, not cached: openingBalance + ACTIVE top-ups minus fuel-card-paid FuelLog fills. */
   balance: number;
   createdAt: string;
 }
@@ -25,6 +27,7 @@ export interface CreateFuelCardPayload {
   name: string;
   cardNumber?: string;
   issuer?: string;
+  openingBalance?: number;
 }
 
 export interface UpdateFuelCardPayload {
@@ -32,6 +35,7 @@ export interface UpdateFuelCardPayload {
   cardNumber?: string;
   issuer?: string;
   isActive?: boolean;
+  openingBalance?: number;
 }
 
 export type FuelCardTopUpStatus = 'ACTIVE' | 'VOIDED';

@@ -11,6 +11,19 @@ export function localDayStart(date: Date): Date {
   return d;
 }
 
+/**
+ * Calendar day of `date` in the vendor's operating timezone (Asia/Karachi),
+ * as YYYY-MM-DD. Use this — never raw Date/setHours() "today" comparisons —
+ * to decide whether a user-submitted date is "today", past, or future:
+ * setHours(0,0,0,0) buckets by the SERVER PROCESS's local timezone, which in
+ * production is UTC (5 hours behind Karachi). Between midnight and 5am PKT
+ * the server's UTC calendar day is still "yesterday", so a user picking
+ * today's date got rejected as a future date (recordPayment / recordWalkInDelivery).
+ */
+export function vendorDateString(date: Date): string {
+  return date.toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+}
+
 export function addDays(date: Date, days: number): Date {
   const d = new Date(date);
   d.setDate(d.getDate() + days);

@@ -48,6 +48,19 @@ export class ConversationController {
     return this.conversationService.getOrCreateForItem(user, itemId);
   }
 
+  /**
+   * PUT /conversations/for-customer/:customerId
+   * Get-or-create from the Customer list page, which has no delivery/item
+   * context — resolves to the customer's most recent DailySheetItem
+   * server-side (see ConversationService.getOrCreateForCustomer).
+   */
+  @Put('for-customer/:customerId')
+  @RequirePermissions('conversations:create')
+  @Throttle({ short: { ttl: 1000, limit: 10 }, medium: { ttl: 60000, limit: 60 } })
+  getOrCreateForCustomer(@CurrentUser() user: AuthUser, @Param('customerId') customerId: string) {
+    return this.conversationService.getOrCreateForCustomer(user, customerId);
+  }
+
   @Get('unread-count')
   @RequirePermissions('conversations:view')
   getUnreadCount(@CurrentUser() user: AuthUser) {

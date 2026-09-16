@@ -26,6 +26,7 @@ const CATEGORIES = [
   { value: 'UTILITIES', label: 'Utilities' },
   { value: 'STATIONARY', label: 'Stationary' },
   { value: 'BOTTLE_PURCHASED', label: 'Bottle Purchase' },
+  { value: 'BOTTLE_REFILL_PAYMENT', label: 'Bottle Refill (Plant Payment)' },
   { value: 'CAPS_PURCHASED', label: 'Caps Purchase' },
   { value: 'CHEMICALS_PURCHASED', label: 'Chemicals Purchase' },
   { value: 'POLICE', label: 'Police' },

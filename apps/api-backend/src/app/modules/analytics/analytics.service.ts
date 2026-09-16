@@ -563,12 +563,19 @@ export class AnalyticsService {
     // figure. Recomputed all-time on every call: `totalCogs` = every
     // delivered bottle ever, costed via the same applicable-historical-cost
     // lookup as the period COGS above, and `totalPaid` = every Expense ever
-    // recorded under the existing BOTTLE_PURCHASED category (cash actually
+    // recorded under BOTTLE_PURCHASED or BOTTLE_REFILL_PAYMENT (cash actually
     // handed to the plant — unchanged, unrelated table, this is the first
-    // time anything reads it FOR this purpose). `outstanding` = the gap: what
-    // the business has consumed but not yet paid for. Can go negative if the
-    // plant has been pre-paid/overpaid (an advance/credit), which is valid,
-    // not an error — the frontend renders that state distinctly.
+    // time anything reads it FOR this purpose). Both categories are summed:
+    // BOTTLE_REFILL_PAYMENT (added 2026-09-17) is the accurately-named
+    // category for plant refill payments going forward, but BOTTLE_PURCHASED
+    // is where the same kind of payment was recorded historically (owner
+    // feedback: the plant is only ever paid to refill bottles, never for
+    // literal new-bottle purchases in practice) — dropping it here would make
+    // `outstanding` jump the moment the split shipped. `outstanding` = the
+    // gap: what the business has consumed but not yet paid for. Can go
+    // negative if the plant has been pre-paid/overpaid (an advance/credit),
+    // which is valid, not an error — the frontend renders that state
+    // distinctly.
     //
     // Scale note: this re-scans the vendor's ENTIRE delivery history every
     // call (bounded only by the 120s cache below), not just the selected
@@ -591,7 +598,10 @@ export class AnalyticsService {
         orderBy: { effectiveFrom: 'asc' },
       }),
       this.prisma.expense.aggregate({
-        where: { vendorId, category: ExpenseCategory.BOTTLE_PURCHASED },
+        where: {
+          vendorId,
+          category: { in: [ExpenseCategory.BOTTLE_PURCHASED, ExpenseCategory.BOTTLE_REFILL_PAYMENT] },
+        },
         _sum: { amount: true },
       }),
     ]);

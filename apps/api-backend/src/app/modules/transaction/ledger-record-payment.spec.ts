@@ -7,6 +7,7 @@ import { TransactionType, PaymentMode } from '@prisma/client';
 import { NotificationService } from '../notifications/notification.service';
 import { AuditService } from '../audit/audit.service';
 import { RecordPaymentDto } from './dto/record-payment.dto';
+import { vendorDateString } from '../../common/helpers/date.util';
 
 // ── Minimal Prisma mock ────────────────────────────────────────────────────────
 function buildMockPrisma() {
@@ -72,7 +73,10 @@ describe('LedgerService.recordPayment — backdating', () => {
   });
 
   it("omits createdAt when the date supplied is today's date", async () => {
-    const today = new Date().toISOString().slice(0, 10);
+    // "Today" is the vendor's Asia/Karachi calendar day, not the test
+    // machine's UTC day — using toISOString() here would flake for ~5
+    // hours a day (UTC 19:00-23:59, when Karachi is already the next day).
+    const today = vendorDateString(new Date());
     await service.recordPayment(VENDOR_ID, baseDto({ date: today }));
 
     const data = mockPrisma.transaction.create.mock.calls[0][0].data;
@@ -91,9 +95,9 @@ describe('LedgerService.recordPayment — backdating', () => {
   });
 
   it('rejects a future date', async () => {
-    const future = new Date();
-    future.setDate(future.getDate() + 1);
-    const futureStr = future.toISOString().slice(0, 10);
+    // +24h always advances the Karachi calendar day by exactly one (no DST),
+    // unlike setDate() + toISOString() which drifts with the test machine's TZ.
+    const futureStr = vendorDateString(new Date(Date.now() + 24 * 60 * 60 * 1000));
 
     await expect(service.recordPayment(VENDOR_ID, baseDto({ date: futureStr }))).rejects.toThrow(
       BadRequestException,

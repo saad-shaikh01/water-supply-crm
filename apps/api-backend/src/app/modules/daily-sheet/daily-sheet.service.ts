@@ -38,6 +38,7 @@ import { MoveDeliveryItemsDto } from './dto/move-delivery-items.dto';
 import { VoidDeliveryDto } from './dto/void-delivery.dto';
 import { CorrectDeliveryDto } from './dto/correct-delivery.dto';
 import { paginate } from '../../common/helpers/paginate';
+import { vendorDateString } from '../../common/helpers/date.util';
 import { validateSupportCrew, validateDriverAssignment } from '../../common/helpers/crew-validation';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
 import type { AuthUser, SheetAuditLogEntry } from '@water-supply-crm/types';
@@ -3328,17 +3329,22 @@ export class DailySheetService implements OnModuleInit {
     const vendorId = user.vendorId;
 
     // ── Date: today or earlier, normalised to local midnight ──
+    // Compare calendar days via vendorDateString() (Asia/Karachi), NOT
+    // setHours(0,0,0,0) on the server's own local clock (UTC in production) —
+    // otherwise a delivery dated "today" submitted between midnight and 5am
+    // PKT is rejected as a future date, since the server's UTC day is still
+    // yesterday.
     const dateOnly = new Date(dto.date);
     if (Number.isNaN(dateOnly.getTime())) {
       throw new BadRequestException('Invalid date');
     }
     dateOnly.setHours(0, 0, 0, 0);
-    const todayOnly = new Date();
-    todayOnly.setHours(0, 0, 0, 0);
-    if (dateOnly.getTime() > todayOnly.getTime()) {
+    const dateStr = vendorDateString(dateOnly);
+    const todayStr = vendorDateString(new Date());
+    if (dateStr > todayStr) {
       throw new BadRequestException('Walk-in delivery date cannot be in the future');
     }
-    const isBackDated = dateOnly.getTime() < todayOnly.getTime();
+    const isBackDated = dateStr < todayStr;
 
     const filledDropped = dto.filledDropped;
     const emptyReceived = dto.emptyReceived;

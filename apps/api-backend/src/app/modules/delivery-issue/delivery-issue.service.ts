@@ -163,19 +163,52 @@ export class DeliveryIssueService {
     const lastDeliveryMap = new Map(lastDeliveries.map((g) => [g.customerId, g._max.deliveredAt]));
     const lastPaymentMap = new Map(lastPayments.map((g) => [g.customerId, g._max.createdAt]));
 
+    // Communication Center summary — same {messageCount, pendingAckCount}
+    // shape the Daily Sheet detail page's findOne() attaches per item (see
+    // DailySheetService.findOne), so the same "Chats" chip can be reused
+    // here. pendingAckCount follows the customer (Conversation is unique per
+    // (vendorId, customerId)), matching the submitDelivery ack-gate exactly.
+    const itemIds = data.map((d) => d.dailySheetItemId);
+    const customerIdsForComms = Array.from(
+      new Set(data.map((d) => d.dailySheetItem?.customer?.id).filter((id): id is string => !!id)),
+    );
+    const itemMessageCounts = itemIds.length
+      ? await this.prisma.conversationMessage.groupBy({
+          by: ['dailySheetItemId'],
+          where: { dailySheetItemId: { in: itemIds }, deletedAt: null },
+          _count: { id: true },
+        })
+      : [];
+    const pendingAckConversations = customerIdsForComms.length
+      ? await this.prisma.conversation.findMany({
+          where: { customerId: { in: customerIdsForComms } },
+          select: {
+            customerId: true,
+            _count: {
+              select: { messages: { where: { requiresAck: true, acknowledgedAt: null, deletedAt: null } } },
+            },
+          },
+        })
+      : [];
+    const messageCountByItemId = new Map(itemMessageCounts.map((c) => [c.dailySheetItemId, c._count.id]));
+    const pendingAckByCustomerId = new Map(pendingAckConversations.map((c) => [c.customerId, c._count.messages]));
+
     const enriched = data.map((issue) => {
       const customer = issue.dailySheetItem?.customer;
-      if (!customer) return issue;
       return {
         ...issue,
-        dailySheetItem: {
-          ...issue.dailySheetItem,
-          customer: {
-            ...customer,
-            lastDeliveryAt: lastDeliveryMap.get(customer.id) ?? null,
-            lastPaymentAt: lastPaymentMap.get(customer.id) ?? null,
-          },
-        },
+        messageCount: messageCountByItemId.get(issue.dailySheetItemId) ?? 0,
+        pendingAckCount: customer ? (pendingAckByCustomerId.get(customer.id) ?? 0) : 0,
+        dailySheetItem: customer
+          ? {
+              ...issue.dailySheetItem,
+              customer: {
+                ...customer,
+                lastDeliveryAt: lastDeliveryMap.get(customer.id) ?? null,
+                lastPaymentAt: lastPaymentMap.get(customer.id) ?? null,
+              },
+            }
+          : issue.dailySheetItem,
       };
     });
 
@@ -188,7 +221,29 @@ export class DeliveryIssueService {
       include: ISSUE_INCLUDE,
     });
     if (!issue) throw new NotFoundException('Delivery issue not found');
-    return issue;
+
+    const customerId = issue.dailySheetItem?.customer?.id;
+    const [messageCount, pendingAckConversation] = await Promise.all([
+      this.prisma.conversationMessage.count({
+        where: { dailySheetItemId: issue.dailySheetItemId, deletedAt: null },
+      }),
+      customerId
+        ? this.prisma.conversation.findUnique({
+            where: { vendorId_customerId: { vendorId, customerId } },
+            select: {
+              _count: {
+                select: { messages: { where: { requiresAck: true, acknowledgedAt: null, deletedAt: null } } },
+              },
+            },
+          })
+        : null,
+    ]);
+
+    return {
+      ...issue,
+      messageCount,
+      pendingAckCount: pendingAckConversation?._count.messages ?? 0,
+    };
   }
 
   /**

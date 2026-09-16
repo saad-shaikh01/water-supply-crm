@@ -7,6 +7,7 @@ import {
   Body,
   Param,
   Query,
+  Logger,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { NotificationType } from '@prisma/client';
@@ -25,6 +26,8 @@ import { CloudTemplateNames } from '../whatsapp/templates/cloud-template-names';
 
 @Controller('transactions')
 export class TransactionController {
+  private readonly logger = new Logger(TransactionController.name);
+
   constructor(
     private readonly ledgerService: LedgerService,
     private readonly notificationService: NotificationService,
@@ -52,10 +55,11 @@ export class TransactionController {
     );
 
     if (transaction.customer?.phoneNumber) {
-      // Meta-approved `payment_recorded` template ({{1}} name · {{2}} customer
-      // code · {{3}} amount paid · {{4}} balance owed before this payment ·
-      // {{5}} amount paid (repeated) · {{6}}/{{7}} balance after this payment).
-      // Must be a template, not free text — see cloud-api-templates.md #18.
+      // Meta-approved `payment_recorded` template — 6 variables ({{1}} name ·
+      // {{2}} customer code · {{3}} amount paid · {{4}} balance owed before
+      // this payment ("Invoice Amount") · {{5}} amount paid (repeated as
+      // "Payment Received") · {{6}} balance owed after this payment ("Current
+      // Balance")). Must be a template, not free text — see cloud-api-templates.md #18.
       const newBalance = transaction.customer.financialBalance;
       const previousBalance = newBalance + dto.amount;
       await this.notificationService
@@ -69,12 +73,13 @@ export class TransactionController {
             previousBalance.toFixed(2),
             String(dto.amount),
             newBalance.toFixed(2),
-            newBalance.toFixed(2),
           ],
           `ntf:payment-recorded:${transaction.id}:wa`,
           { vendorId: user.vendorId, type: NotificationType.PAYMENT_RECEIVED, recipientType: 'CUSTOMER', recipientId: dto.customerId },
         )
-        .catch(() => {});
+        .catch((e: Error) =>
+          this.logger.warn(`payment-recorded WhatsApp failed: ${e.message}`),
+        );
     }
 
     return transaction;

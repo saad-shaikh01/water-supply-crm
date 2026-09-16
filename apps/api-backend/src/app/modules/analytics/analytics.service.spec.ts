@@ -311,4 +311,22 @@ describe('AnalyticsService.getFinancial() — Plant Balance (owner-requested 202
     expect(result.plantBalance.totalCogs).toBe(0);
     expect(result.plantBalance.outstanding).toBe(0);
   });
+
+  it('sums BOTTLE_PURCHASED and BOTTLE_REFILL_PAYMENT together for totalPaid (2026-09-17 category split)', async () => {
+    const { svc, prisma } = makeService({
+      deliveryItems: [],
+      allTimeDeliveryItems: [],
+      allTimeCostRows: [],
+      plantPaidTotal: 500, // combined mock total for both categories
+    });
+
+    await svc.getFinancial(VENDOR_ID, '2026-01-01', '2026-01-31');
+
+    const plantPaidCall = (prisma.expense.aggregate as jest.Mock).mock.calls.find(
+      ([args]) => args?.where?.category?.in,
+    );
+    expect(plantPaidCall?.[0].where.category.in).toEqual(
+      expect.arrayContaining(['BOTTLE_PURCHASED', 'BOTTLE_REFILL_PAYMENT']),
+    );
+  });
 });

@@ -23,6 +23,7 @@ import { VanCashLedgerService } from '../van-cash-ledger/van-cash-ledger.service
 import { StorageService } from '../../common/storage/storage.service';
 import { WarehouseService } from '../warehouse/warehouse.service';
 import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.service';
+import { vendorDateString } from '../../common/helpers/date.util';
 
 /**
  * Unit tests: DailySheetService.recordWalkInDelivery — Walk-in / Self-Pickup
@@ -59,10 +60,10 @@ describe('DailySheetService.recordWalkInDelivery', () => {
     customerId: null,
   };
 
-  const today = () => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  };
+  // "Today" is the vendor's Asia/Karachi calendar day, not the test machine's
+  // local day — using local getFullYear/getMonth/getDate here would flake for
+  // ~5 hours a day (UTC 19:00-23:59, when Karachi is already the next day).
+  const today = () => vendorDateString(new Date());
 
   const baseDto = {
     customerId: CUSTOMER_ID,

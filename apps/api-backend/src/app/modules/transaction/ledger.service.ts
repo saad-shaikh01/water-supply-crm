@@ -23,6 +23,7 @@ import { RecordAdjustmentDto } from './dto/record-adjustment.dto';
 import { TransactionQueryDto } from './dto/transaction-query.dto';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { paginate } from '../../common/helpers/paginate';
+import { vendorDateString } from '../../common/helpers/date.util';
 import { NotificationService } from '../notifications/notification.service';
 import { AuditService } from '../audit/audit.service';
 import { MessageTemplates } from '../whatsapp/templates/message.templates';
@@ -284,6 +285,11 @@ export class LedgerService {
     // Mirrors the walk-in delivery date rule (daily-sheet.service.ts
     // recordWalkInDelivery). Omitted/today's date keeps the live `now()`
     // timestamp (no createdAt override) so intra-day ordering is unaffected.
+    // Compare calendar days via vendorDateString() (Asia/Karachi), NOT
+    // setHours(0,0,0,0) on the server's own local clock (UTC in production) —
+    // otherwise a payment dated "today" submitted between midnight and 5am
+    // PKT is rejected as a future date, since the server's UTC day is still
+    // yesterday.
     let occurredAt: Date | undefined;
     if (dto.date) {
       const dateOnly = new Date(dto.date);
@@ -291,12 +297,12 @@ export class LedgerService {
         throw new BadRequestException('Invalid date');
       }
       dateOnly.setHours(0, 0, 0, 0);
-      const todayOnly = new Date();
-      todayOnly.setHours(0, 0, 0, 0);
-      if (dateOnly.getTime() > todayOnly.getTime()) {
+      const dateStr = vendorDateString(dateOnly);
+      const todayStr = vendorDateString(new Date());
+      if (dateStr > todayStr) {
         throw new BadRequestException('Payment date cannot be in the future');
       }
-      if (dateOnly.getTime() < todayOnly.getTime()) {
+      if (dateStr < todayStr) {
         occurredAt = dateOnly;
       }
     }
