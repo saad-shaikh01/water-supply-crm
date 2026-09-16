@@ -12,7 +12,11 @@ export class UserQueryDto extends PaginationQueryDto {
   @IsEnum(UserRole, { each: true })
   role?: UserRole[];
 
+  // Reads `obj` (the raw query value) rather than `value` — the global ValidationPipe's
+  // `enableImplicitConversion` coerces any non-empty string to `true` via `Boolean(value)`
+  // before a `@Transform` sees it, which made 'false' and 'true' indistinguishable here and
+  // silently dropped the filter (both landed on the `undefined` fallback).
   @IsOptional()
-  @Transform(({ value }) => value === 'true' ? true : value === 'false' ? false : undefined)
+  @Transform(({ obj }) => obj.isActive === 'true' ? true : obj.isActive === 'false' ? false : undefined)
   isActive?: boolean;
 }

@@ -7,8 +7,12 @@ export class ProductQueryDto extends PaginationQueryDto {
   @IsString()
   search?: string;
 
+  // Reads `obj` (the raw query value), not `value` — the global ValidationPipe's
+  // `enableImplicitConversion` runs first for a `boolean`-typed field and coerces ANY
+  // non-empty string (including 'false') to `true` via `Boolean(value)` before this
+  // `@Transform` ran, which made 'false' silently resolve to `true` here.
   @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
+  @Transform(({ obj }) => obj.isActive === 'true' || obj.isActive === true)
   @IsBoolean()
   isActive?: boolean;
 

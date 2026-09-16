@@ -26,7 +26,7 @@ import {
   shortSheetId,
   type ExpenseCenterRow,
 } from '../expense-center/expense-center-domain.util';
-import { SetOpeningBalanceDto } from './dto/set-opening-balance.dto';
+import { AddCashInDto } from './dto/add-cash-in.dto';
 import { ApproveHandoverDto } from './dto/approve-handover.dto';
 import { CreateRemittanceDto } from './dto/create-remittance.dto';
 import { ApproveRemittanceDto } from './dto/approve-remittance.dto';
@@ -156,26 +156,29 @@ export class VanCashLedgerService {
     private readonly permissions: PermissionService,
   ) {}
 
-  // ── Opening balance ───────────────────────────────────────────────────────
+  // ── Manual cash in ───────────────────────────────────────────────────────
 
-  async setOpeningBalance(user: AuthUser, dto: SetOpeningBalanceDto) {
-    const van = await this.prisma.van.findFirst({ where: { id: dto.vanId, vendorId: user.vendorId } });
-    if (!van) throw new NotFoundException('Van not found.');
+  /**
+   * Records a manual cash-in event that didn't come through a driver
+   * handover — repeatable (any number of dated entries), and `vanId` is
+   * optional (null = general/office-wide, only visible in the vendor-wide
+   * timeline/balance). Covers both a one-time historical balance backfill and
+   * any later off-cycle cash injection. No approval step: this is the office
+   * directly recording its own action, not a driver's claim to be verified.
+   */
+  async addManualCashIn(user: AuthUser, dto: AddCashInDto) {
+    if (dto.vanId) {
+      const van = await this.prisma.van.findFirst({ where: { id: dto.vanId, vendorId: user.vendorId } });
+      if (!van) throw new NotFoundException('Van not found.');
+    }
 
-    const before = await this.prisma.vanCashOpeningBalance.findUnique({ where: { vanId: dto.vanId } });
-
-    const upserted = await this.prisma.vanCashOpeningBalance.upsert({
-      where: { vanId: dto.vanId },
-      create: {
+    const created = await this.prisma.vanCashOpeningBalance.create({
+      data: {
         vendorId: user.vendorId,
-        vanId: dto.vanId,
+        vanId: dto.vanId ?? null,
         openingBalance: dto.openingBalance,
         openingDate: new Date(dto.openingDate),
-        setById: user.userId,
-      },
-      update: {
-        openingBalance: dto.openingBalance,
-        openingDate: new Date(dto.openingDate),
+        note: dto.note ?? null,
         setById: user.userId,
       },
     });
@@ -184,16 +187,20 @@ export class VanCashLedgerService {
       vendorId: user.vendorId,
       userId: user.userId,
       userName: user.name,
-      action: before ? 'UPDATED' : 'CREATED',
+      action: 'CREATED',
       entity: 'VanCashOpeningBalance',
-      entityId: upserted.id,
+      entityId: created.id,
       changes: {
-        before: before ? { openingBalance: before.openingBalance, openingDate: before.openingDate } : undefined,
-        after: { openingBalance: upserted.openingBalance, openingDate: upserted.openingDate },
+        after: {
+          vanId: created.vanId,
+          openingBalance: created.openingBalance,
+          openingDate: created.openingDate,
+          note: created.note,
+        },
       },
     });
 
-    return upserted;
+    return created;
   }
 
   // ── Hook #1: sheet close ─────────────────────────────────────────────────
@@ -1180,13 +1187,12 @@ export class VanCashLedgerService {
    */
   private async computeAvailableBalance(vendorId: string, vanId?: string): Promise<number> {
     const [openingTotal, cashInAgg, cashOutTotal, remittedTotal, fuelCardTopUpTotal] = await Promise.all([
-      vanId
-        ? this.prisma.vanCashOpeningBalance
-            .findFirst({ where: { vendorId, vanId } })
-            .then((row) => row?.openingBalance ?? 0)
-        : this.prisma.vanCashOpeningBalance
-            .aggregate({ where: { vendorId }, _sum: { openingBalance: true } })
-            .then((agg) => agg._sum.openingBalance ?? 0),
+      // Manual cash-in is repeatable now (any number of dated entries per
+      // van, or general/office-wide when vanId is null) — sum them all rather
+      // than reading a single row.
+      this.prisma.vanCashOpeningBalance
+        .aggregate({ where: { vendorId, ...(vanId && { vanId }) }, _sum: { openingBalance: true } })
+        .then((agg) => agg._sum.openingBalance ?? 0),
       this.prisma.vanCashHandover.aggregate({
         where: { vendorId, status: VanCashHandoverStatus.APPROVED, ...(vanId && { vanId }) },
         _sum: { amount: true },
@@ -1218,78 +1224,51 @@ export class VanCashLedgerService {
   }
 
   /**
-   * Opening-balance synthetic row(s) for the timeline (see class-level query
-   * doc for the full contract). Per-van: the van's own opening balance row,
-   * included when its `openingDate` falls at-or-before the visible range's
-   * end. Company-wide (no van filter): ALL vans' opening balances summed into
-   * ONE synthetic row labeled "Opening Balance (all vans)", included whenever
-   * at least one van's `openingDate` is at-or-before the range end — dated at
-   * the earliest contributing van's `openingDate` so it sorts first.
+   * Manual cash-in rows for the timeline (see class-level query doc for the
+   * `to`-only filtering rationale). Each entry is its own row now — repeatable,
+   * not one synthetic "opening balance" row per van/vendor — dated at its own
+   * `openingDate` and titled from its `note` when one was given. Per-van view:
+   * only that van's own entries. Vendor-wide view: every entry, van-anchored
+   * or general alike, so a van-scoped balance never counts a general entry
+   * (same treatment OfficeCashRemittance / FuelCardTopUp already get).
    */
   private async buildOpeningBalanceRows(
     vendorId: string,
     vanId: string | undefined,
     to: Date | undefined,
   ): Promise<VanCashLedgerRow[]> {
-    if (vanId) {
-      const row = await this.prisma.vanCashOpeningBalance.findFirst({ where: { vendorId, vanId } });
-      if (!row) return [];
-      if (to && row.openingDate > to) return [];
-      const openingVan = await this.prisma.van.findUnique({ where: { id: vanId }, select: { plateNumber: true } });
-      return [
-        {
-          id: `OPENING_BALANCE:${row.id}`,
-          date: row.openingDate.toISOString(),
-          type: 'OPENING_BALANCE',
-          amount: row.openingBalance,
-          displayAmount: Math.abs(row.openingBalance),
-          runningBalance: 0,
-          title: 'Opening Balance',
-          vanId,
-          vanPlateNumber: openingVan?.plateNumber ?? null,
-          sourceType: 'OPENING_BALANCE',
-          sourceRecordId: row.id,
-          sourceBadge: 'Opening Balance',
-          status: null,
-          dailySheetId: null,
-          submittedByName: null,
-          approvedByName: null,
-          version: null,
-        },
-      ];
-    }
+    const rows = await this.prisma.vanCashOpeningBalance.findMany({
+      where: {
+        vendorId,
+        ...(vanId && { vanId }),
+        ...(to && { openingDate: { lte: to } }),
+      },
+      include: { van: { select: { plateNumber: true } } },
+      orderBy: { openingDate: 'asc' },
+    });
 
-    const rows = await this.prisma.vanCashOpeningBalance.findMany({ where: { vendorId } });
-    const eligible = rows.filter((row) => !to || row.openingDate <= to);
-    if (eligible.length === 0) return [];
-
-    const total = round2(eligible.reduce((sum, row) => sum + row.openingBalance, 0));
-    const earliestDate = eligible.reduce(
-      (min, row) => (row.openingDate < min ? row.openingDate : min),
-      eligible[0].openingDate,
-    );
-
-    return [
-      {
-        id: 'OPENING_BALANCE:ALL',
-        date: earliestDate.toISOString(),
+    return rows.map((row) => {
+      const badge = row.vanId ? 'Opening Balance' : 'Manual Cash In';
+      return {
+        id: `OPENING_BALANCE:${row.id}`,
+        date: row.openingDate.toISOString(),
         type: 'OPENING_BALANCE',
-        amount: total,
-        displayAmount: Math.abs(total),
+        amount: row.openingBalance,
+        displayAmount: Math.abs(row.openingBalance),
         runningBalance: 0,
-        title: 'Opening Balance (all vans)',
-        vanId: null,
-        vanPlateNumber: null,
+        title: row.note?.trim() || badge,
+        vanId: row.vanId,
+        vanPlateNumber: row.van?.plateNumber ?? null,
         sourceType: 'OPENING_BALANCE',
-        sourceRecordId: 'ALL',
-        sourceBadge: 'Opening Balance (all vans)',
+        sourceRecordId: row.id,
+        sourceBadge: badge,
         status: null,
         dailySheetId: null,
         submittedByName: null,
         approvedByName: null,
         version: null,
-      },
-    ];
+      };
+    });
   }
 
   private normalizeCashIn(

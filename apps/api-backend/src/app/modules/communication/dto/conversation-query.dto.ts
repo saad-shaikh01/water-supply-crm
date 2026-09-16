@@ -33,8 +33,10 @@ export class ConversationQueryDto extends PaginationQueryDto {
   @IsString()
   dateTo?: string;
 
+  // Reads `obj`, not `value` — the global ValidationPipe's `enableImplicitConversion`
+  // otherwise coerces any non-empty string to `true` before this `@Transform` runs.
   @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
+  @Transform(({ obj }) => obj.unreadOnly === 'true' || obj.unreadOnly === true)
   unreadOnly?: boolean;
 
   @IsOptional()

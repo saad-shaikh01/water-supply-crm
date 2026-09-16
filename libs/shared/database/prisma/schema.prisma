@@ -744,8 +744,8 @@ model Van {
   vehiclesUsuallyServing Vehicle[]           @relation("VehicleUsualVan")
 
   // Van Cash Ledger (owner-requested 2026-09-09)
-  vanCashOpeningBalance VanCashOpeningBalance?
-  vanCashHandovers      VanCashHandover[]
+  vanCashOpeningBalances VanCashOpeningBalance[]
+  vanCashHandovers       VanCashHandover[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3218,22 +3218,32 @@ enum VanCashHandoverStatus {
   VOIDED
 }
 
-// One row per van — the starting cash balance a van's physical cash-in-hand is
-// assumed to have carried before the Van Cash Ledger started tracking it.
+// A manually-recorded cash-in event that did NOT come through the normal
+// driver-handover flow (VanCashHandover) — repeatable, not one row per van.
+// Covers both the one-time historical balance a vendor already had before the
+// Van Cash Ledger started tracking it (the original, narrower purpose this
+// model shipped for on 2026-09-09), and any later off-cycle cash injection
+// (owner topping up office cash, a refund, etc). `vanId` is optional: set it
+// to anchor the entry to one van's own balance, or leave it null for a
+// general/office-wide entry that only folds into the vendor-wide ("All Vans")
+// view — same treatment OfficeCashRemittance/FuelCardTopUp already get.
 model VanCashOpeningBalance {
   id             String   @id @default(uuid())
   vendorId       String
   vendor         Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  vanId          String   @unique
-  van            Van      @relation(fields: [vanId], references: [id], onDelete: Cascade)
+  vanId          String?
+  van            Van?     @relation(fields: [vanId], references: [id], onDelete: Cascade)
   openingBalance Float
   openingDate    DateTime
+  /** Why this cash-in happened — shown as the timeline row's title. */
+  note           String?
   setById        String
   setBy          User     @relation(fields: [setById], references: [id])
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   @@index([vendorId])
+  @@index([vanId])
 }
 
 // One row per Daily Sheet close — the "driver handed over cash" event. Never

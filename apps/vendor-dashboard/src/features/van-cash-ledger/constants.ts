@@ -24,7 +24,7 @@ export interface CashLedgerRowMeta {
  */
 export const CASH_LEDGER_ROW_CONFIG: Record<CashLedgerRowType, CashLedgerRowMeta> = {
   OPENING_BALANCE: {
-    label: 'Opening Balance',
+    label: 'Manual Cash In',
     color: 'bg-slate-500/10 text-slate-500',
     solid: 'bg-slate-500',
     amountClass: 'text-slate-400',

@@ -27,13 +27,17 @@ export class CustomerQueryDto extends PaginationQueryDto {
   @Max(6)
   dayOfWeek?: number;
 
+  // Reads `obj` (the raw query value), not `value` — the global ValidationPipe's
+  // `enableImplicitConversion` runs first for a `boolean`-typed field and coerces ANY
+  // non-empty string (including 'false') to `true` via `Boolean(value)` before this
+  // `@Transform` ran, which made 'false' silently resolve to `true` here.
   @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
+  @Transform(({ obj }) => obj.isActive === 'true' || obj.isActive === true)
   @IsBoolean()
   isActive?: boolean;
 
   @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
+  @Transform(({ obj }) => obj.hasPortalAccess === 'true' || obj.hasPortalAccess === true)
   @IsBoolean()
   hasPortalAccess?: boolean;
 

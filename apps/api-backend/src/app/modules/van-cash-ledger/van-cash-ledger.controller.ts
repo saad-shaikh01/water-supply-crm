@@ -15,7 +15,7 @@ import { memoryStorage } from 'multer';
 import { extname } from 'path';
 import { Throttle } from '@nestjs/throttler';
 import { VanCashLedgerService } from './van-cash-ledger.service';
-import { SetOpeningBalanceDto } from './dto/set-opening-balance.dto';
+import { AddCashInDto } from './dto/add-cash-in.dto';
 import { ApproveHandoverDto } from './dto/approve-handover.dto';
 import { CreateRemittanceDto } from './dto/create-remittance.dto';
 import { ApproveRemittanceDto } from './dto/approve-remittance.dto';
@@ -35,7 +35,7 @@ const ALLOWED_ATTACHMENT_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.pdf'];
 
 /**
  * Van Cash Ledger — the "cash in" counterpart to the Expense Center.
- *   - opening-balance → van_cash_ledger:manage (VENDOR_ADMIN only by preset).
+ *   - manual-cash-in → van_cash_ledger:manage (VENDOR_ADMIN only by preset).
  *   - timeline/stats/pending-handovers/pending-remittances → van_cash_ledger:view.
  *   - cash-in/:id/approve → van_cash_ledger:approve.
  *   - remittance (office → owner/CEO/bank), owner-requested 2026-09-10:
@@ -55,10 +55,10 @@ export class VanCashLedgerController {
 
   // ── Static routes BEFORE parameterised /:id routes ─────────────────────────
 
-  @Post('opening-balance')
+  @Post('manual-cash-in')
   @RequirePermissions('van_cash_ledger:manage')
-  setOpeningBalance(@CurrentUser() user: AuthUser, @Body() dto: SetOpeningBalanceDto) {
-    return this.vanCashLedger.setOpeningBalance(user, dto);
+  addManualCashIn(@CurrentUser() user: AuthUser, @Body() dto: AddCashInDto) {
+    return this.vanCashLedger.addManualCashIn(user, dto);
   }
 
   @Get('timeline')

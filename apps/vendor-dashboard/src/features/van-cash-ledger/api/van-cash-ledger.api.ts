@@ -168,10 +168,12 @@ export interface CorrectRemittancePayload {
   correctionReason: string;
 }
 
-export interface SetOpeningBalancePayload {
-  vanId: string;
+export interface AddCashInPayload {
+  /** Omit for a general/office-wide entry (only counted in the "All Vans" view). */
+  vanId?: string;
   openingBalance: number;
   openingDate: string;
+  note?: string;
 }
 
 export interface ApproveHandoverPayload {
@@ -181,8 +183,8 @@ export interface ApproveHandoverPayload {
 }
 
 export const vanCashLedgerApi = {
-  setOpeningBalance: (data: SetOpeningBalancePayload) =>
-    apiClient.post('/van-cash-ledger/opening-balance', data),
+  addCashIn: (data: AddCashInPayload) =>
+    apiClient.post('/van-cash-ledger/manual-cash-in', data),
   getTimeline: (params: CashLedgerTimelineQuery) =>
     apiClient.get<CashLedgerTimelineResponse>('/van-cash-ledger/timeline', { params }),
   getStats: (params?: CashLedgerStatsQuery) =>

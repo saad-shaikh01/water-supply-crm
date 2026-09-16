@@ -6,7 +6,7 @@ import {
   type CashLedgerStatsQuery,
   type CashLedgerTimelineQuery,
   type PendingHandoverQuery,
-  type SetOpeningBalancePayload,
+  type AddCashInPayload,
   type ApproveHandoverPayload,
   type CreateRemittancePayload,
   type ApproveRemittancePayload,
@@ -79,16 +79,16 @@ const INVALIDATE_ALL = (queryClient: ReturnType<typeof useQueryClient>) => {
   queryClient.invalidateQueries({ queryKey: [QUERY_KEY] });
 };
 
-export const useSetOpeningBalance = () => {
+export const useAddCashIn = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: SetOpeningBalancePayload) => vanCashLedgerApi.setOpeningBalance(data),
+    mutationFn: (data: AddCashInPayload) => vanCashLedgerApi.addCashIn(data),
     onSuccess: () => {
       INVALIDATE_ALL(queryClient);
-      toast.success('Opening balance set');
+      toast.success('Cash in recorded');
     },
     onError: (e: any) => // eslint-disable-line @typescript-eslint/no-explicit-any
-      toast.error(e?.response?.data?.message ?? 'Failed to set opening balance'),
+      toast.error(e?.response?.data?.message ?? 'Failed to record cash in'),
   });
 };
 
