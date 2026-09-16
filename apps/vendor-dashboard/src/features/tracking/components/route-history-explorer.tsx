@@ -10,11 +10,11 @@ import {
   useMap,
   useMapsLibrary,
 } from '@vis.gl/react-google-maps';
-import { AlertTriangle, Flag, MapPin, Package, Loader2, CalendarDays } from 'lucide-react';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Input, Label, Card } from '@water-supply-crm/ui';
+import { AlertTriangle, Flag, MapPin, Package, Loader2, CalendarDays, User as UserIcon } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Input, Label, Card, Badge } from '@water-supply-crm/ui';
 import { cn } from '@water-supply-crm/ui';
-import { useAllDrivers } from '../../users/hooks/use-users';
-import { useDriverRouteHistory } from '../hooks/use-tracking-history';
+import { useAllVans } from '../../vans/hooks/use-vans';
+import { useDriverRouteHistory, useVanDailySheet } from '../hooks/use-tracking-history';
 import { RouteHistoryTimeline, type TimelineEvent } from './route-history-timeline';
 
 const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
@@ -85,13 +85,22 @@ function MapController({
  * either the map or the timeline focuses the other.
  */
 export function RouteHistoryExplorer() {
-  const [driverId, setDriverId] = useQueryState('driverId', parseAsString.withDefault(''));
+  const [vanId, setVanId] = useQueryState('vanId', parseAsString.withDefault(''));
   const [date, setDate] = useQueryState('date', parseAsString.withDefault(toLocalDateValue(new Date())));
 
-  const { data: driversData } = useAllDrivers();
-  const drivers = (driversData as { data?: { id: string; name: string }[] } | undefined)?.data ?? [];
+  const { data: vansData } = useAllVans();
+  const vans = (vansData as { data?: { id: string; plateNumber: string }[] } | undefined)?.data ?? [];
 
-  const { data, isLoading, isFetching } = useDriverRouteHistory(driverId, date);
+  // GPS breadcrumbs are recorded per-driver, not per-van (a van's driver can
+  // change day-to-day via swap-assignment) — so picking a van resolves to
+  // that day's sheet first, then replays whoever actually drove it.
+  const { data: sheet, isLoading: isSheetLoading, isFetching: isSheetFetching } = useVanDailySheet(vanId, date);
+  const driverId = sheet?.driver?.id ?? '';
+
+  const { data, isLoading: isHistoryLoading, isFetching: isHistoryFetching } = useDriverRouteHistory(driverId, date);
+  const isLoading = isSheetLoading || (!!driverId && isHistoryLoading);
+  const isFetching = isSheetFetching || isHistoryFetching;
+  const noSheetForDate = !!vanId && !isSheetLoading && sheet === null;
 
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [focusTarget, setFocusTarget] = useState<{ lat: number; lng: number } | null>(null);
@@ -135,7 +144,7 @@ export function RouteHistoryExplorer() {
   useEffect(() => {
     setSelectedKey(null);
     setFocusTarget(null);
-  }, [driverId, date]);
+  }, [vanId, date]);
 
   const handleSelect = useCallback((event: TimelineEvent) => {
     setSelectedKey(event.key);
@@ -153,14 +162,14 @@ export function RouteHistoryExplorer() {
       {/* Filters */}
       <Card className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3 bg-card/30 p-4 rounded-2xl border border-border">
         <div className="flex-1 space-y-1.5">
-          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Driver</Label>
-          <Select value={driverId} onValueChange={(v) => setDriverId(v)}>
+          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Van</Label>
+          <Select value={vanId} onValueChange={(v) => setVanId(v)}>
             <SelectTrigger className="h-11 rounded-xl bg-background/50 border-border/50">
-              <SelectValue placeholder="Select a driver" />
+              <SelectValue placeholder="Select a van" />
             </SelectTrigger>
             <SelectContent className="rounded-xl border-border/50 shadow-2xl">
-              {drivers.map((driver) => (
-                <SelectItem key={driver.id} value={driver.id} className="rounded-lg">{driver.name}</SelectItem>
+              {vans.map((van) => (
+                <SelectItem key={van.id} value={van.id} className="rounded-lg">{van.plateNumber}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -177,6 +186,19 @@ export function RouteHistoryExplorer() {
             className="h-11 rounded-xl bg-background/50 border-border/50"
           />
         </div>
+        {sheet?.driver && (
+          <div className="flex-1 space-y-1.5">
+            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+              <UserIcon className="h-3 w-3" /> Driver that day
+            </Label>
+            <div className="h-11 flex items-center gap-1.5 flex-wrap">
+              <Badge variant="outline" className="font-semibold">{sheet.driver.name}</Badge>
+              {sheet.crew.map((c) => (
+                <Badge key={c.user.id} variant="outline" className="text-muted-foreground font-normal">{c.user.name}</Badge>
+              ))}
+            </div>
+          </div>
+        )}
         {isFetching && !isLoading && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground pb-2.5 sm:pb-0 sm:h-11">
             <Loader2 className="h-3.5 w-3.5 animate-spin" /> Refreshing…
@@ -184,12 +206,14 @@ export function RouteHistoryExplorer() {
         )}
       </Card>
 
-      {!driverId ? (
-        <EmptyState icon={MapPin} title="Select a driver" message="Pick a driver and date above to replay their route." />
+      {!vanId ? (
+        <EmptyState icon={MapPin} title="Select a van" message="Pick a van and date above to replay that day's route." />
       ) : isLoading ? (
         <div className="h-[600px] rounded-[2rem] border border-border/50 bg-muted/20 animate-pulse" />
+      ) : noSheetForDate ? (
+        <EmptyState icon={AlertTriangle} title="No sheet for this day" message="No daily sheet was generated for this van on this date, so there's no driver to replay." />
       ) : !hasData ? (
-        <EmptyState icon={AlertTriangle} title="No data for this day" message="No GPS breadcrumbs, stops, or deliveries were recorded for this driver on this date." />
+        <EmptyState icon={AlertTriangle} title="No data for this day" message="No GPS breadcrumbs, stops, or deliveries were recorded for this van's driver on this date." />
       ) : !GOOGLE_MAPS_API_KEY ? (
         <EmptyState icon={AlertTriangle} title="Map not configured" message="Set NEXT_PUBLIC_GOOGLE_MAPS_API_KEY in your environment." />
       ) : (

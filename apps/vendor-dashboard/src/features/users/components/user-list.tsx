@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { MoreHorizontal, Pencil, Trash2, PowerOff, Power } from 'lucide-react';
-import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Badge } from '@water-supply-crm/ui';
+import { MoreHorizontal, Pencil, Trash2, PowerOff, Power, X } from 'lucide-react';
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Badge, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Label } from '@water-supply-crm/ui';
 import { DataTable } from '../../../components/shared/data-table';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { StatusBadge } from '../../../components/shared/status-badge';
@@ -14,7 +14,7 @@ interface UserListProps {
 }
 
 export function UserList({ onEdit }: UserListProps) {
-  const { data, isLoading, page, setPage, limit, setLimit } = useUsers();
+  const { data, isLoading, page, setPage, limit, setLimit, isActive, setIsActive } = useUsers();
   const { mutate: deleteUser, isPending: isDeleting } = useDeleteUser();
   const { mutate: deactivateUser, isPending: isDeactivating } = useDeactivateUser();
   const { mutate: reactivateUser, isPending: isReactivating } = useReactivateUser();
@@ -33,6 +33,31 @@ export function UserList({ onEdit }: UserListProps) {
 
   return (
     <div>
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <div className="flex flex-col gap-1.5">
+          <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Status</Label>
+          <Select value={isActive} onValueChange={(v) => { setPage(1); setIsActive(v); }}>
+            <SelectTrigger className="rounded-xl bg-background/50 border-border h-10 w-40">
+              <SelectValue placeholder="All Status" />
+            </SelectTrigger>
+            <SelectContent className="rounded-xl border-border shadow-2xl">
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="true">Active</SelectItem>
+              <SelectItem value="false">Inactive</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {isActive !== 'true' && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => { setPage(1); setIsActive('true'); }}
+            className="text-xs text-muted-foreground"
+          >
+            <X className="h-3.5 w-3.5 mr-1" /> Reset to Active
+          </Button>
+        )}
+      </div>
       <DataTable
         data={users}
         isLoading={isLoading}

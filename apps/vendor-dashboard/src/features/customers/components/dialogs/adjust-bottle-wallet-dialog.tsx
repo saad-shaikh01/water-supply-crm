@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
   Button, Input, Label, Textarea,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@water-supply-crm/ui';
 import { Droplets, ArrowLeft } from 'lucide-react';
 import { useAdjustBottleWallet } from '../../hooks/use-customers';
@@ -89,16 +90,19 @@ export function AdjustBottleWalletDialog({ open, onClose, customerId, wallets }:
             <div className="space-y-4 py-4">
               <div className="space-y-2">
                 <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground">Product</Label>
-                <select
+                <Select
                   value={form.productId}
-                  onChange={(e) => setForm((p) => ({ ...p, productId: e.target.value }))}
-                  className="w-full h-11 rounded-xl border border-border/50 bg-background px-3 text-sm font-bold focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  onValueChange={(v) => setForm((p) => ({ ...p, productId: v }))}
                 >
-                  <option value="">Select product...</option>
-                  {allProducts.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
+                  <SelectTrigger className="h-11">
+                    <SelectValue placeholder="Select product..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {allProducts.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               {form.productId && (
@@ -110,14 +114,18 @@ export function AdjustBottleWalletDialog({ open, onClose, customerId, wallets }:
 
               <div className="space-y-2">
                 <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground">Adjustment mode</Label>
-                <select
+                <Select
                   value={form.mode}
-                  onChange={(e) => setForm((p) => ({ ...p, mode: e.target.value as Mode, amount: '' }))}
-                  className="w-full h-11 rounded-xl border border-border/50 bg-background px-3 text-sm font-bold focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  onValueChange={(v) => setForm((p) => ({ ...p, mode: v as Mode, amount: '' }))}
                 >
-                  <option value="DELTA">Add / subtract bottles (+/-)</option>
-                  <option value="SET">Set exact balance (advanced)</option>
-                </select>
+                  <SelectTrigger className="h-11">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="DELTA">Add / subtract bottles (+/-)</SelectItem>
+                    <SelectItem value="SET">Set exact balance (advanced)</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-2">

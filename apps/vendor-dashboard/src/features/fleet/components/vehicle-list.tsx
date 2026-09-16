@@ -2,8 +2,8 @@
 
 import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Truck, FileWarning, Plus } from 'lucide-react';
-import { Badge, Button, Input } from '@water-supply-crm/ui';
+import { Truck, FileWarning, Plus, X } from 'lucide-react';
+import { Badge, Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Label } from '@water-supply-crm/ui';
 import { DataTable } from '../../../components/shared/data-table';
 import { useVehicles } from '../hooks/use-fleet';
 import { useAllVans } from '../../vans/hooks/use-vans';
@@ -20,7 +20,7 @@ const STATUS_LABEL: Record<string, { label: string; className: string }> = {
 export function VehicleList() {
   const router = useRouter();
   const canUpdate = useCan('fleet:update');
-  const { data, isLoading, page, setPage, limit, setLimit, search, setSearch } = useVehicles();
+  const { data, isLoading, page, setPage, limit, setLimit, search, setSearch, active, setActive } = useVehicles();
   const { data: vansPage } = useAllVans();
   const [addOpen, setAddOpen] = useState(false);
 
@@ -35,12 +35,37 @@ export function VehicleList() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <Input
-          placeholder="Search by plate number…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value || null)}
-          className="max-w-xs rounded-xl"
-        />
+        <div className="flex items-end gap-3">
+          <Input
+            placeholder="Search by plate number…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value || null)}
+            className="max-w-xs rounded-xl"
+          />
+          <div className="flex flex-col gap-1.5">
+            <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Status</Label>
+            <Select value={active} onValueChange={(v) => { setPage(1); setActive(v); }}>
+              <SelectTrigger className="rounded-xl bg-background/50 border-border h-10 w-40">
+                <SelectValue placeholder="All Status" />
+              </SelectTrigger>
+              <SelectContent className="rounded-xl border-border shadow-2xl">
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="true">Active</SelectItem>
+                <SelectItem value="false">Inactive</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {active !== 'true' && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => { setPage(1); setActive('true'); }}
+              className="text-xs text-muted-foreground"
+            >
+              <X className="h-3.5 w-3.5 mr-1" /> Reset to Active
+            </Button>
+          )}
+        </div>
         {canUpdate && (
           <Button onClick={() => setAddOpen(true)} className="rounded-xl font-bold gap-1.5">
             <Plus className="h-4 w-4" />

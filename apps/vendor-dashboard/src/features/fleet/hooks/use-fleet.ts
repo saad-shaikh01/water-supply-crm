@@ -14,8 +14,15 @@ export const useVehicles = () => {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
   const [search, setSearch] = useQueryState('search', parseAsString.withDefault(''));
+  // Defaults to active-only; explicitly cleared to 'all' to reveal deactivated vehicles too.
+  const [active, setActive] = useQueryState('active', parseAsString.withDefault('true'));
 
-  const params = { page, limit, search: search || undefined };
+  const params = {
+    page,
+    limit,
+    search: search || undefined,
+    active: active === 'true' ? true : active === 'false' ? false : undefined,
+  };
 
   return {
     ...useQuery({
@@ -29,6 +36,8 @@ export const useVehicles = () => {
     setLimit,
     search,
     setSearch,
+    active,
+    setActive,
   };
 };
 

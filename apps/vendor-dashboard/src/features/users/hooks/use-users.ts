@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useQueryState, parseAsInteger } from 'nuqs';
+import { useQueryState, parseAsInteger, parseAsString } from 'nuqs';
 import { toast } from 'sonner';
 import type { PaginatedResponse, DriverSummary } from '@water-supply-crm/types';
 import { usersApi } from '../api/users.api';
@@ -28,8 +28,14 @@ export const useCrewCandidates = () => {
 export const useUsers = () => {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
+  // Defaults to active-only; explicitly cleared to 'all' to reveal deactivated users too.
+  const [isActive, setIsActive] = useQueryState('isActive', parseAsString.withDefault('true'));
 
-  const params = { page, limit };
+  const params = {
+    page,
+    limit,
+    isActive: isActive === 'true' ? true : isActive === 'false' ? false : undefined,
+  };
 
   return {
     ...useQuery({
@@ -40,6 +46,8 @@ export const useUsers = () => {
     setPage,
     limit,
     setLimit,
+    isActive,
+    setIsActive,
   };
 };
 

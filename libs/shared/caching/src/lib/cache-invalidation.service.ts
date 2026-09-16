@@ -37,9 +37,14 @@ export class CacheInvalidationService {
       let cursor = 0;
       const keysToDelete: string[] = [];
       do {
-        const [nextCursor, keys] = await client.scan(cursor, { MATCH: pattern, COUNT: 100 });
-        cursor = Number(nextCursor);
-        keysToDelete.push(...keys);
+        // node-redis v4's scan() returns { cursor, keys } — not the
+        // [cursor, keys] tuple ioredis uses. Destructuring it as an array
+        // threw on every call (silently swallowed below), which meant
+        // paginated/filtered list caches never actually got cleared and
+        // stale rows lingered until the entity's TTL expired.
+        const reply = await client.scan(cursor, { MATCH: pattern, COUNT: 100 });
+        cursor = Number(reply.cursor);
+        keysToDelete.push(...reply.keys);
       } while (cursor !== 0);
 
       if (keysToDelete.length) await client.del(keysToDelete);

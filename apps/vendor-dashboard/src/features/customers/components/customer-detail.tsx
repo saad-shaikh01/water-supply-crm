@@ -973,7 +973,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                           </div>
                           <div className="border border-border/50 rounded-2xl overflow-hidden">
                             <div className="overflow-x-auto">
-                              <table className="w-full text-xs min-w-[640px]">
+                              <table className="w-full text-xs min-w-[720px]">
                                 <thead>
                                   <tr className="bg-muted/30 text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
                                     {canBulkReprice && <th className="px-3 py-2 w-8" />}
@@ -982,6 +982,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                                     <th className="text-right px-3 py-2">Btl Del</th>
                                     <th className="text-right px-3 py-2">Empty</th>
                                     <th className="text-right px-3 py-2">Bal Btl</th>
+                                    <th className="text-right px-3 py-2">Rate</th>
                                     <th className="text-right px-3 py-2">Due</th>
                                     <th className="text-right px-3 py-2">Recv</th>
                                     <th className="text-right px-3 py-2">Balance</th>
@@ -990,7 +991,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                                 <tbody className="divide-y divide-border/40">
                                   {pageSafe === 1 && (
                                     <tr className="bg-muted/10">
-                                      <td className="px-3 py-2 italic text-muted-foreground" colSpan={canBulkReprice ? 6 : 5}>Previous Balance</td>
+                                      <td className="px-3 py-2 italic text-muted-foreground" colSpan={canBulkReprice ? 7 : 6}>Previous Balance</td>
                                       <td className="px-3 py-2 text-right font-mono font-bold">{fmtRs(s.openingBalance)}</td>
                                       <td className="px-3 py-2" />
                                       <td className="px-3 py-2 text-right font-mono font-bold">{fmtRs(s.openingBalance)}</td>
@@ -1022,6 +1023,9 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                                       <td className="px-3 py-2 text-right font-mono">{r.btlDelivered}</td>
                                       <td className="px-3 py-2 text-right font-mono">{r.emptyPickup}</td>
                                       <td className="px-3 py-2 text-right font-mono">{r.bottleBalance ?? '—'}</td>
+                                      <td className="px-3 py-2 text-right font-mono text-muted-foreground">
+                                        {r.pricePerBottle != null ? fmtRs(r.pricePerBottle) : '—'}
+                                      </td>
                                       <td className="px-3 py-2 text-right font-mono font-bold">{fmtRs(r.amountDue)}</td>
                                       <td className="px-3 py-2 text-right font-mono font-bold text-emerald-600">
                                         {r.amountReceived > 0 ? fmtRs(r.amountReceived) : ''}
@@ -1031,7 +1035,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                                   ))}
                                   {s.deliveryRows.length === 0 && (
                                     <tr>
-                                      <td className="px-3 py-6 text-center text-muted-foreground" colSpan={canBulkReprice ? 9 : 8}>
+                                      <td className="px-3 py-6 text-center text-muted-foreground" colSpan={canBulkReprice ? 10 : 9}>
                                         No deliveries recorded for this period.
                                       </td>
                                     </tr>
@@ -1041,6 +1045,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                                       <td className="px-3 py-2" colSpan={canBulkReprice ? 3 : 2}>TOTAL</td>
                                       <td className="px-3 py-2 text-right font-mono">{s.totals.totalBtl}</td>
                                       <td className="px-3 py-2 text-right font-mono">{s.totals.totalEmpty}</td>
+                                      <td className="px-3 py-2" />
                                       <td className="px-3 py-2" />
                                       <td className="px-3 py-2 text-right font-mono">{fmtRs(s.totals.totalDue)}</td>
                                       <td className="px-3 py-2 text-right font-mono">{fmtRs(s.totals.totalRecv)}</td>
