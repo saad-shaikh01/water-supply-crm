@@ -53,6 +53,11 @@ export const useCreateServiceRecord = () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.maintenanceStatus(variables.vehicleId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.maintenanceFleetStatus() });
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.overview() });
+      // The spawned Expense also projects into Expense Center's Timeline and
+      // the Van Cash Ledger's CASH_OUT rows — see use-fuel-logs.ts's
+      // identical note.
+      queryClient.invalidateQueries({ queryKey: ['expense-center'] });
+      queryClient.invalidateQueries({ queryKey: ['van-cash-ledger'] });
       toast.success('Service record added');
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to add service record'),
@@ -77,8 +82,10 @@ export const useUpdateServiceRecord = () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.serviceRecord(id) });
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.maintenanceFleetStatus() });
       // The service record also projects into Expense Center's Timeline/
-      // Summary — see use-expenses.ts's useUpdateExpense identical note.
+      // Summary and the Van Cash Ledger's CASH_OUT rows — see
+      // use-expenses.ts's useUpdateExpense identical note.
       queryClient.invalidateQueries({ queryKey: ['expense-center'] });
+      queryClient.invalidateQueries({ queryKey: ['van-cash-ledger'] });
       toast.success('Service record updated');
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to update service record'),
@@ -93,6 +100,7 @@ export const useDeleteServiceRecord = () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.serviceRecords() });
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.maintenanceFleetStatus() });
       queryClient.invalidateQueries({ queryKey: ['expense-center'] });
+      queryClient.invalidateQueries({ queryKey: ['van-cash-ledger'] });
       toast.success('Service record deleted');
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to delete service record'),

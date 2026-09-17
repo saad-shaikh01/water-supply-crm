@@ -31,6 +31,12 @@ export const useCreateFuelLog = () => {
       if (variables.dailySheetId) {
         queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(variables.dailySheetId) });
       }
+      // The spawned Expense also projects into Expense Center's Timeline and,
+      // when it's a standalone (non-sheet) cash-paid fill, the Van Cash
+      // Ledger's CASH_OUT rows — without these, either page shows stale data
+      // until a manual reload (see useCreateExpense's identical note).
+      queryClient.invalidateQueries({ queryKey: ['expense-center'] });
+      queryClient.invalidateQueries({ queryKey: ['van-cash-ledger'] });
       toast.success('Fuel fill recorded');
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to record fuel fill'),
@@ -44,9 +50,11 @@ export const useUpdateFuelLog = () => {
     onSuccess: (_result, { id }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.fuelLogs() });
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.fuelLog(id) });
-      // The fuel fill also projects into Expense Center's Timeline/Summary —
-      // see useUpdateExpense's identical note.
+      // The fuel fill also projects into Expense Center's Timeline/Summary
+      // and the Van Cash Ledger's CASH_OUT rows — see useUpdateExpense's
+      // identical note.
       queryClient.invalidateQueries({ queryKey: ['expense-center'] });
+      queryClient.invalidateQueries({ queryKey: ['van-cash-ledger'] });
       toast.success('Fuel log updated');
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to update fuel log'),
@@ -60,6 +68,7 @@ export const useRemoveFuelLog = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.fuelLogs() });
       queryClient.invalidateQueries({ queryKey: ['expense-center'] });
+      queryClient.invalidateQueries({ queryKey: ['van-cash-ledger'] });
       toast.success('Fuel log deleted');
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to delete fuel log'),

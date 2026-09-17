@@ -66,11 +66,12 @@ export const useCreateExpense = () => {
     mutationFn: (data: Record<string, unknown>) => expensesApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [QUERY_KEY] });
-      // A standalone (non-sheet) cash-paid expense feeds straight into the
-      // van's running cash-out total (see van-cash-ledger.service.ts
-      // collectCashOutTotal) — without this, the Cash Ledger page's own
-      // "Add Expense" quick action wouldn't reflect the new balance until a
-      // manual reload.
+      // Expense Center's Timeline/Summary AND the Van Cash Ledger's own
+      // CASH_OUT rows (see van-cash-ledger.service.ts's normalizeCashOut) are
+      // both read-projections of this same Expense row — without both, one
+      // of the two pages' "Add Expense" quick action wouldn't reflect the
+      // new entry until a manual reload.
+      queryClient.invalidateQueries({ queryKey: ['expense-center'] });
       queryClient.invalidateQueries({ queryKey: ['van-cash-ledger'] });
       toast.success('Expense recorded');
     },
@@ -89,6 +90,10 @@ export const useUpdateExpense = () => {
       // rows — without this, editing from its detail drawer (Phase 2b) would
       // leave the timeline showing stale data until a manual reload.
       queryClient.invalidateQueries({ queryKey: ['expense-center'] });
+      // Same projection reuse on the Van Cash Ledger's CASH_OUT rows — its
+      // detail drawer reuses this exact mutation for editing a cash-paid
+      // Expense, so it needs the same invalidation.
+      queryClient.invalidateQueries({ queryKey: ['van-cash-ledger'] });
       toast.success('Expense updated');
     },
     onError: () => toast.error('Failed to update expense'),
@@ -102,6 +107,7 @@ export const useDeleteExpense = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [QUERY_KEY] });
       queryClient.invalidateQueries({ queryKey: ['expense-center'] });
+      queryClient.invalidateQueries({ queryKey: ['van-cash-ledger'] });
       toast.success('Expense deleted');
     },
     onError: () => toast.error('Failed to delete expense'),
