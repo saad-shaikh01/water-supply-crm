@@ -12,6 +12,37 @@ import { ApproveHandoverDialog, type HandoverApprovalTarget } from './approve-ha
 import { VoidRemittanceDialog, type RemittanceVoidTarget } from './void-remittance-dialog';
 import { CorrectRemittanceDialog, type RemittanceCorrectTarget } from './correct-remittance-dialog';
 import type { CashLedgerRow } from '../api/van-cash-ledger.api';
+import { ExpenseDetailDrawer } from '../../expense-center/detail/expense-detail-drawer';
+import type { ExpenseCenterRow, ExpenseCenterDomain, ExpenseCenterSourceType } from '../../expense-center/api/expense-center.api';
+
+/**
+ * CASH_OUT rows are the Cash Ledger's own read-projection of the exact same
+ * Expense/FuelLog/VehicleService/StaffLedger records the Expense Center's
+ * Timeline shows (see `normalizeCashOut` server-side) — so rather than build
+ * a second edit surface, this adapts the row back into an `ExpenseCenterRow`
+ * and hands it to the Expense Center's own detail drawer verbatim.
+ */
+function toExpenseCenterRow(row: CashLedgerRow): ExpenseCenterRow {
+  return {
+    id: row.id,
+    date: row.date,
+    domain: (row.domain ?? 'OFFICE') as ExpenseCenterDomain,
+    category: row.category ?? '',
+    categoryLabel: row.categoryLabel ?? row.title,
+    title: row.title,
+    amount: row.displayAmount,
+    costSign: row.costSign ?? 'DEBIT',
+    paidFromCash: row.paidFromCash ?? null,
+    recordedByName: row.submittedByName,
+    sourceType: (row.sourceType ?? 'EXPENSE') as ExpenseCenterSourceType,
+    sourceBadge: row.sourceBadge,
+    vanPlateNumber: row.vanPlateNumber,
+    employeeName: row.employeeName ?? null,
+    sourceRecordId: row.sourceRecordId ?? '',
+    locked: row.locked ?? false,
+    lockedReason: row.lockedReason ?? null,
+  };
+}
 
 const fmtDate = (d: string) =>
   new Date(d).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -26,11 +57,12 @@ interface TimelineRowProps {
   onApprove: () => void;
   onVoidRemittance: () => void;
   onCorrectRemittance: () => void;
+  onOpenDetail: () => void;
 }
 
 function TimelineRow({
   row, canApprove, canRemitApprove, canRemitVoid,
-  onApprove, onVoidRemittance, onCorrectRemittance,
+  onApprove, onVoidRemittance, onCorrectRemittance, onOpenDetail,
 }: TimelineRowProps) {
   const meta = cashLedgerRowMeta(row.type);
   const isPending = row.status === 'PENDING';
@@ -39,6 +71,11 @@ function TimelineRow({
   const canApproveThisRow = isCashInLike && isPending && canApprove && !!row.sourceRecordId;
   // A voided remittance is a terminal audit row — no further actions.
   const canActOnRemittance = isRemittance && !row.isVoided && !!row.sourceRecordId;
+  // CASH_OUT rows are the Cash Ledger's projection of an Expense/FuelLog/
+  // VehicleService/StaffLedger record — clicking one opens the exact same
+  // detail-drawer/edit flow as the Expense Center's own Timeline (see
+  // toExpenseCenterRow above).
+  const isCashOut = row.type === 'CASH_OUT' && !!row.sourceRecordId;
 
   const metadata = [
     row.submittedByName ? `by ${row.submittedByName}` : null,
@@ -47,7 +84,13 @@ function TimelineRow({
   ].filter(Boolean) as string[];
 
   return (
-    <Card className="bg-card/50 border-border/40 rounded-2xl">
+    <Card
+      className={cn('bg-card/50 border-border/40 rounded-2xl', isCashOut && 'cursor-pointer transition-colors hover:bg-card/80')}
+      role={isCashOut ? 'button' : undefined}
+      tabIndex={isCashOut ? 0 : undefined}
+      onClick={isCashOut ? onOpenDetail : undefined}
+      onKeyDown={isCashOut ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenDetail(); } } : undefined}
+    >
       <CardContent className="p-3 flex items-center gap-3">
         <span className={cn('h-2.5 w-2.5 rounded-full shrink-0', meta.solid)} aria-hidden />
 
@@ -131,6 +174,7 @@ export function CashLedgerTimeline() {
   const [approveTarget, setApproveTarget] = useState<HandoverApprovalTarget | null>(null);
   const [voidTarget, setVoidTarget] = useState<RemittanceVoidTarget | null>(null);
   const [correctTarget, setCorrectTarget] = useState<RemittanceCorrectTarget | null>(null);
+  const [detailRow, setDetailRow] = useState<CashLedgerRow | null>(null);
 
   // The API returns the timeline newest-to-oldest (most recent movement first),
   // while each row's `runningBalance` is still the cumulative total up to and
@@ -198,6 +242,7 @@ export function CashLedgerTimeline() {
                 if (!row.sourceRecordId) return;
                 setCorrectTarget(remittanceTarget(row));
               }}
+              onOpenDetail={() => setDetailRow(row)}
             />
           ))}
         </div>
@@ -233,6 +278,11 @@ export function CashLedgerTimeline() {
         target={correctTarget}
         open={!!correctTarget}
         onOpenChange={(o) => { if (!o) setCorrectTarget(null); }}
+      />
+      <ExpenseDetailDrawer
+        row={detailRow ? toExpenseCenterRow(detailRow) : null}
+        open={!!detailRow}
+        onOpenChange={(o) => { if (!o) setDetailRow(null); }}
       />
     </div>
   );

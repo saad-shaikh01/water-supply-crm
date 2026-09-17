@@ -50,6 +50,20 @@ export interface CashLedgerRow {
   voidReason?: string | null;
   /** CASH_REMITTANCE_OUT only — true when this row is a DELTA correction row, not the root of a logical remittance. */
   isCorrection?: boolean;
+  /**
+   * CASH_OUT only — mirrors the Expense Center's own `ExpenseCenterRow` shape
+   * so the Cash Ledger timeline can reuse its detail drawer / edit routing
+   * verbatim (see `expense-center.api.ts`). `undefined` for every other row type.
+   */
+  sourceType?: string;
+  domain?: string;
+  category?: string;
+  categoryLabel?: string;
+  costSign?: 'DEBIT' | 'CREDIT';
+  paidFromCash?: boolean | null;
+  employeeName?: string | null;
+  locked?: boolean;
+  lockedReason?: string | null;
 }
 
 export interface CashLedgerTimelineQuery {

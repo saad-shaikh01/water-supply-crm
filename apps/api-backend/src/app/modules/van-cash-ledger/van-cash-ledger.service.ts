@@ -119,6 +119,21 @@ export interface VanCashLedgerRow {
    * a per-row amount would be mistaken for the chain total.
    */
   isCorrection?: boolean;
+  /**
+   * CASH_OUT only — carried straight through from the underlying
+   * `ExpenseCenterRow` so the Cash Ledger timeline can reuse the Expense
+   * Center's own detail-drawer / edit-routing component verbatim instead of
+   * re-implementing it. `undefined` for every other row type.
+   */
+  domain?: string;
+  category?: string;
+  categoryLabel?: string;
+  costSign?: string;
+  paidFromCash?: boolean | null;
+  employeeName?: string | null;
+  /** `true` when this row can no longer be edited/deleted (see `lockedReason`). */
+  locked?: boolean;
+  lockedReason?: string | null;
 }
 
 export interface VanCashLedgerStats {
@@ -1325,6 +1340,14 @@ export class VanCashLedgerService {
       submittedByName: row.recordedByName,
       approvedByName: null,
       version: null,
+      domain: row.domain,
+      category: row.category,
+      categoryLabel: row.categoryLabel,
+      costSign: row.costSign,
+      paidFromCash: row.paidFromCash,
+      employeeName: row.employeeName,
+      locked: row.locked,
+      lockedReason: row.lockedReason,
     };
   }
 
