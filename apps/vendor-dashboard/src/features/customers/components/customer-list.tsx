@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useQueryState, parseAsString, parseAsInteger } from 'nuqs';
-import { MoreHorizontal, Pencil, Trash2, Eye, MapPin, Phone, PowerOff, Power, SlidersHorizontal, X, ChevronUp, ChevronDown, ChevronsUpDown, CalendarClock, MessageSquare } from 'lucide-react';
+import { MoreHorizontal, Pencil, Trash2, Eye, MapPin, Phone, PowerOff, Power, SlidersHorizontal, X, ChevronUp, ChevronDown, ChevronsUpDown, CalendarClock, MessageSquare, StickyNote } from 'lucide-react';
 import {
   Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuTrigger, Badge, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -451,6 +451,16 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                     )}
                   </div>
                   <span className="text-[14px] font-mono font-semibold text-primary/70 truncate">{r.customerCode}</span>
+                  {canViewChats && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setChatCustomer({ id: r.id, name: r.name }); }}
+                      className="mt-1 flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground hover:bg-accent transition-colors w-fit"
+                    >
+                      <StickyNote className="h-2.5 w-2.5" />
+                      Chats
+                    </button>
+                  )}
                 </div>
               </div>
             )
@@ -666,15 +676,6 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                       <span className="font-medium text-sm">View Profile</span>
                     </Link>
                   </DropdownMenuItem>
-                  {canViewChats && (
-                    <DropdownMenuItem
-                      onClick={() => setChatCustomer({ id: r.id, name: r.name })}
-                      className="rounded-lg cursor-pointer px-2 py-2"
-                    >
-                      <MessageSquare className="mr-2 h-4 w-4 text-primary" />
-                      <span className="font-medium text-sm">Chats</span>
-                    </DropdownMenuItem>
-                  )}
                   {canUpdate && (
                     <DropdownMenuItem onClick={() => setEditCustomer(r as Record<string, unknown>)} className="rounded-lg cursor-pointer px-2 py-2">
                       <Pencil className="mr-2 h-4 w-4 text-orange-500" />

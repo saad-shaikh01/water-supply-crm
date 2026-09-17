@@ -192,7 +192,7 @@ export class ConversationService {
     const item = await this.prisma.dailySheetItem.findFirst({
       where: { customerId, dailySheet: { vendorId: user.vendorId } },
       orderBy: [{ dailySheet: { date: 'desc' } }, { createdAt: 'desc' }],
-      select: { id: true, dailySheetId: true, status: true, dailySheet: { select: { isClosed: true } } },
+      select: { id: true, dailySheetId: true, status: true },
     });
     if (!item) {
       throw new BadRequestException(
@@ -215,7 +215,6 @@ export class ConversationService {
       waitingOn: this.waitingOn(conversation.lastMessageSenderRole),
       itemId: item.id,
       sheetId: item.dailySheetId,
-      isSheetClosed: item.dailySheet.isClosed,
       isItemPending: item.status === 'PENDING',
     };
   }

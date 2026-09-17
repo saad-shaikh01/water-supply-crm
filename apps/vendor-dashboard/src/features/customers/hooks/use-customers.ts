@@ -254,6 +254,8 @@ export interface StatementDeliveryRow {
   trans: string;
   btlDelivered: number;
   emptyPickup: number;
+  /** Already-filled bottles taken back from the customer (account closing / excess stock). */
+  filledPickup: number;
   bottleBalance: number | null;
   amountDue: number;
   amountReceived: number;
@@ -294,6 +296,7 @@ export interface CustomerStatementData {
   totals: {
     totalBtl: number;
     totalEmpty: number;
+    totalFilled: number;
     totalDue: number;
     totalRecv: number;
     finalBalance: number;

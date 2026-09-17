@@ -43,7 +43,6 @@ export interface InboxResponse {
 export interface ConversationForCustomer extends ConversationContext {
   itemId: string;
   sheetId: string;
-  isSheetClosed: boolean;
   isItemPending: boolean;
 }
 

@@ -17,6 +17,8 @@ export interface BulkRepriceRow {
   dailySheetItemId: string;
   date: string;
   btlDelivered: number;
+  /** Already-filled bottles taken back — credited at the same rate, netted out below. */
+  filledPickup: number;
   pricePerBottle: number;
 }
 
@@ -50,8 +52,9 @@ export function BulkRepriceDialog({ open, onClose, customerId, rows }: BulkRepri
   const preview = useMemo(
     () =>
       rows.map((r) => {
-        const oldAmount = r.btlDelivered * r.pricePerBottle;
-        const newAmount = r.btlDelivered * (rateValid ? newRateNum : r.pricePerBottle);
+        const netUnits = r.btlDelivered - r.filledPickup;
+        const oldAmount = netUnits * r.pricePerBottle;
+        const newAmount = netUnits * (rateValid ? newRateNum : r.pricePerBottle);
         return { ...r, oldAmount, newAmount, difference: newAmount - oldAmount };
       }),
     [rows, rateValid, newRateNum],

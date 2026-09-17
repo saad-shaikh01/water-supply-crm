@@ -927,6 +927,10 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                     const pageSafe = Math.min(statementPage, totalPages);
                     const start = (pageSafe - 1) * STATEMENT_PAGE_SIZE;
                     const pageRows = s.deliveryRows.slice(start, start + STATEMENT_PAGE_SIZE);
+                    // Whole-column hide, not per-cell — matches the daily sheet PDF /
+                    // delivery-items-list.tsx's history table: only earns its place
+                    // when at least one row in this statement actually has one.
+                    const showFilled = s.deliveryRows.some((r) => r.filledPickup > 0);
 
                     return (
                       <div className="space-y-6">
@@ -981,6 +985,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                                     <th className="text-left px-3 py-2">Trans#</th>
                                     <th className="text-right px-3 py-2">Btl Del</th>
                                     <th className="text-right px-3 py-2">Empty</th>
+                                    {showFilled && <th className="text-right px-3 py-2">Filled Ret</th>}
                                     <th className="text-right px-3 py-2">Bal Btl</th>
                                     <th className="text-right px-3 py-2">Rate</th>
                                     <th className="text-right px-3 py-2">Due</th>
@@ -991,7 +996,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                                 <tbody className="divide-y divide-border/40">
                                   {pageSafe === 1 && (
                                     <tr className="bg-muted/10">
-                                      <td className="px-3 py-2 italic text-muted-foreground" colSpan={canBulkReprice ? 7 : 6}>Previous Balance</td>
+                                      <td className="px-3 py-2 italic text-muted-foreground" colSpan={(canBulkReprice ? 7 : 6) + (showFilled ? 1 : 0)}>Previous Balance</td>
                                       <td className="px-3 py-2 text-right font-mono font-bold">{fmtRs(s.openingBalance)}</td>
                                       <td className="px-3 py-2" />
                                       <td className="px-3 py-2 text-right font-mono font-bold">{fmtRs(s.openingBalance)}</td>
@@ -1022,6 +1027,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                                       <td className="px-3 py-2 font-mono text-muted-foreground">{r.trans}</td>
                                       <td className="px-3 py-2 text-right font-mono">{r.btlDelivered}</td>
                                       <td className="px-3 py-2 text-right font-mono">{r.emptyPickup}</td>
+                                      {showFilled && <td className="px-3 py-2 text-right font-mono text-cyan-600">{r.filledPickup}</td>}
                                       <td className="px-3 py-2 text-right font-mono">{r.bottleBalance ?? '—'}</td>
                                       <td className="px-3 py-2 text-right font-mono text-muted-foreground">
                                         {r.pricePerBottle != null ? fmtRs(r.pricePerBottle) : '—'}
@@ -1035,7 +1041,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                                   ))}
                                   {s.deliveryRows.length === 0 && (
                                     <tr>
-                                      <td className="px-3 py-6 text-center text-muted-foreground" colSpan={canBulkReprice ? 10 : 9}>
+                                      <td className="px-3 py-6 text-center text-muted-foreground" colSpan={(canBulkReprice ? 10 : 9) + (showFilled ? 1 : 0)}>
                                         No deliveries recorded for this period.
                                       </td>
                                     </tr>
@@ -1045,6 +1051,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                                       <td className="px-3 py-2" colSpan={canBulkReprice ? 3 : 2}>TOTAL</td>
                                       <td className="px-3 py-2 text-right font-mono">{s.totals.totalBtl}</td>
                                       <td className="px-3 py-2 text-right font-mono">{s.totals.totalEmpty}</td>
+                                      {showFilled && <td className="px-3 py-2 text-right font-mono">{s.totals.totalFilled}</td>}
                                       <td className="px-3 py-2" />
                                       <td className="px-3 py-2" />
                                       <td className="px-3 py-2 text-right font-mono">{fmtRs(s.totals.totalDue)}</td>
@@ -1371,6 +1378,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
               dailySheetItemId: r.dailySheetItemId as string,
               date: r.date,
               btlDelivered: r.btlDelivered,
+              filledPickup: r.filledPickup,
               pricePerBottle: r.pricePerBottle as number,
             }))}
         />

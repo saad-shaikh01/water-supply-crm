@@ -71,8 +71,17 @@ const BANNER_H  = 76;
 const FOOTER_H  = 22;
 const FOOTER_Y  = PAGE_H - FOOTER_H;
 
-// ── Delivery table column geometry (sums to 515.28) ─────────────────────────
-const DCOL = {
+// ── Delivery table column geometry (both variants sum to 515.28) ───────────
+// Two layouts: the plain one (unchanged from before), and a wider one that
+// makes room for a "FILL RET" column — only used when at least one row in
+// the statement actually has a filled-return count (whole-column hide, same
+// convention as the daily sheet PDF / delivery-items-list.tsx's history table).
+type DeliveryCol = { x: number; w: number };
+type DeliveryCols = {
+  date: DeliveryCol; trans: DeliveryCol; btl: DeliveryCol; empty: DeliveryCol;
+  fret?: DeliveryCol; bal: DeliveryCol; due: DeliveryCol; recv: DeliveryCol; amt: DeliveryCol;
+};
+const DCOL_BASE: DeliveryCols = {
   date:  { x: MARGIN,       w: 95    },
   trans: { x: MARGIN + 95,  w: 55    },
   btl:   { x: MARGIN + 150, w: 50    },
@@ -80,6 +89,17 @@ const DCOL = {
   bal:   { x: MARGIN + 250, w: 50    },
   due:   { x: MARGIN + 300, w: 70    },
   recv:  { x: MARGIN + 370, w: 75    },
+  amt:   { x: MARGIN + 445, w: 70.28 },
+};
+const DCOL_WITH_FILLED: DeliveryCols = {
+  date:  { x: MARGIN,       w: 85    },
+  trans: { x: MARGIN + 85,  w: 50    },
+  btl:   { x: MARGIN + 135, w: 45    },
+  empty: { x: MARGIN + 180, w: 45    },
+  fret:  { x: MARGIN + 225, w: 40    },
+  bal:   { x: MARGIN + 265, w: 45    },
+  due:   { x: MARGIN + 310, w: 65    },
+  recv:  { x: MARGIN + 375, w: 70    },
   amt:   { x: MARGIN + 445, w: 70.28 },
 };
 
@@ -97,6 +117,10 @@ interface DeliveryRow {
   trans: string;
   btlDelivered: number;
   emptyPickup: number;
+  /** Already-filled bottles taken back from the customer (account closing /
+   * excess stock return) — see daily-sheet.service.ts submitDelivery. Distinct
+   * from emptyPickup; shown in its own column only when at least one row has it. */
+  filledPickup: number;
   bottleBalance: number | null;
   amountDue: number;
   amountReceived: number;
@@ -179,7 +203,8 @@ export class CustomerStatementPdfService {
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(13)
       .text('Delivery History', MARGIN, doc.y, { lineBreak: false });
     doc.y += 20;
-    this.drawDeliveryCard(doc, deliveryRows, openingBalance);
+    const showFilled = deliveryRows.some((r) => r.filledPickup > 0);
+    this.drawDeliveryCard(doc, deliveryRows, openingBalance, showFilled ? DCOL_WITH_FILLED : DCOL_BASE);
 
     if (otherRows.length) {
       doc.y += 18;
@@ -235,6 +260,7 @@ export class CustomerStatementPdfService {
         trans: t.id.slice(-6).toUpperCase(),
         btlDelivered: filledDropped,
         emptyPickup: t.emptyReceived ?? 0,
+        filledPickup: t.filledReceived ?? 0,
         bottleBalance: dsi?.bottleBalanceAfter ?? null,
         amountDue,
         amountReceived: paired ? Math.abs(paired.amount ?? 0) : 0,
@@ -391,7 +417,7 @@ export class CustomerStatementPdfService {
   }
 
   // ── Delivery card (paginates with its own shadow card per page) ────────────
-  private drawDeliveryCard(doc: PDFKit.PDFDocument, rows: DeliveryRow[], openingBalance: number): void {
+  private drawDeliveryCard(doc: PDFKit.PDFDocument, rows: DeliveryRow[], openingBalance: number, cols: DeliveryCols): void {
     const lines: DeliveryLine[] = [{ kind: 'prev', openingBalance }];
     rows.forEach((row, index) => lines.push({ kind: 'row', row, index }));
     lines.push({ kind: 'total', rows, openingBalance });
@@ -400,8 +426,8 @@ export class CustomerStatementPdfService {
       doc,
       lines,
       ROW_H,
-      (x, y, w) => this.drawDeliveryTableHeader(doc, x, y, w),
-      (line, x, y) => this.drawDeliveryLine(doc, line, x, y),
+      (x, y, w) => this.drawDeliveryTableHeader(doc, x, y, w, cols),
+      (line, x, y) => this.drawDeliveryLine(doc, line, x, y, cols),
       { watermark: true },
     );
 
@@ -412,27 +438,30 @@ export class CustomerStatementPdfService {
     }
   }
 
-  private drawDeliveryTableHeader(doc: PDFKit.PDFDocument, x: number, y: number, w: number): void {
+  private drawDeliveryTableHeader(doc: PDFKit.PDFDocument, x: number, y: number, w: number, cols: DeliveryCols): void {
     doc.moveTo(x + 10, y + ROW_H).lineTo(x + w - 10, y + ROW_H).strokeColor(C.border).lineWidth(0.75).stroke();
     doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(6.5);
-    doc.text('DATE',        DCOL.date.x  + 6, y + 7, { width: DCOL.date.w  - 4, lineBreak: false });
-    doc.text('TRANS#',      DCOL.trans.x + 3, y + 7, { width: DCOL.trans.w - 4, lineBreak: false });
-    doc.text('BTL DEL',     DCOL.btl.x   + 3, y + 7, { width: DCOL.btl.w   - 4, align: 'right', lineBreak: false });
-    doc.text('EMPTY PKUP',  DCOL.empty.x + 3, y + 7, { width: DCOL.empty.w - 4, align: 'right', lineBreak: false });
-    doc.text('BAL BTL',     DCOL.bal.x   + 3, y + 7, { width: DCOL.bal.w   - 4, align: 'right', lineBreak: false });
-    doc.text('AMOUNT DUE',  DCOL.due.x   + 3, y + 7, { width: DCOL.due.w   - 6, align: 'right', lineBreak: false });
-    doc.text('AMOUNT RECV', DCOL.recv.x  + 3, y + 7, { width: DCOL.recv.w  - 6, align: 'right', lineBreak: false });
-    doc.text('BALANCE',     DCOL.amt.x   + 3, y + 7, { width: DCOL.amt.w   - 10, align: 'right', lineBreak: false });
+    doc.text('DATE',        cols.date.x  + 6, y + 7, { width: cols.date.w  - 4, lineBreak: false });
+    doc.text('TRANS#',      cols.trans.x + 3, y + 7, { width: cols.trans.w - 4, lineBreak: false });
+    doc.text('BTL DEL',     cols.btl.x   + 3, y + 7, { width: cols.btl.w   - 4, align: 'right', lineBreak: false });
+    doc.text('EMPTY PKUP',  cols.empty.x + 3, y + 7, { width: cols.empty.w - 4, align: 'right', lineBreak: false });
+    if (cols.fret) {
+      doc.text('FILL RET',  cols.fret.x + 3, y + 7, { width: cols.fret.w - 4, align: 'right', lineBreak: false });
+    }
+    doc.text('BAL BTL',     cols.bal.x   + 3, y + 7, { width: cols.bal.w   - 4, align: 'right', lineBreak: false });
+    doc.text('AMOUNT DUE',  cols.due.x   + 3, y + 7, { width: cols.due.w   - 6, align: 'right', lineBreak: false });
+    doc.text('AMOUNT RECV', cols.recv.x  + 3, y + 7, { width: cols.recv.w  - 6, align: 'right', lineBreak: false });
+    doc.text('BALANCE',     cols.amt.x   + 3, y + 7, { width: cols.amt.w   - 10, align: 'right', lineBreak: false });
   }
 
-  private drawDeliveryLine(doc: PDFKit.PDFDocument, line: DeliveryLine, x: number, y: number): void {
+  private drawDeliveryLine(doc: PDFKit.PDFDocument, line: DeliveryLine, x: number, y: number, cols: DeliveryCols): void {
     if (line.kind === 'prev') {
       doc.fillColor(C.textSoft).font('Helvetica-Oblique').fontSize(7.5)
-        .text('Previous Month Balance', DCOL.date.x + 6, y + 7, { width: DCOL.trans.x + DCOL.trans.w - DCOL.date.x - 6, lineBreak: false });
+        .text('Previous Month Balance', cols.date.x + 6, y + 7, { width: cols.trans.x + cols.trans.w - cols.date.x - 6, lineBreak: false });
       doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
-        .text(this.rs(line.openingBalance), DCOL.due.x + 3, y + 7, { width: DCOL.due.w - 6, align: 'right', lineBreak: false });
+        .text(this.rs(line.openingBalance), cols.due.x + 3, y + 7, { width: cols.due.w - 6, align: 'right', lineBreak: false });
       doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
-        .text(this.rs(line.openingBalance), DCOL.amt.x + 3, y + 7, { width: DCOL.amt.w - 10, align: 'right', lineBreak: false });
+        .text(this.rs(line.openingBalance), cols.amt.x + 3, y + 7, { width: cols.amt.w - 10, align: 'right', lineBreak: false });
       doc.moveTo(x + 10, y + ROW_H).lineTo(x + CONTENT_W - 10, y + ROW_H)
         .strokeColor(C.border).lineWidth(0.5).stroke();
       return;
@@ -441,29 +470,33 @@ export class CustomerStatementPdfService {
     if (line.kind === 'row') {
       const { row, index } = line;
       if (index % 2 !== 0) {
-        doc.rect(x + 1, y, (DCOL.amt.x + DCOL.amt.w) - MARGIN - 2, ROW_H).fill(C.surface);
+        doc.rect(x + 1, y, (cols.amt.x + cols.amt.w) - MARGIN - 2, ROW_H).fill(C.surface);
       }
       const ty = y + 7;
       const dateStr = new Date(row.date).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' });
 
       doc.fillColor(C.textSoft).font('Helvetica').fontSize(7.5)
-        .text(dateStr, DCOL.date.x + 6, ty, { width: DCOL.date.w - 4, lineBreak: false });
+        .text(dateStr, cols.date.x + 6, ty, { width: cols.date.w - 4, lineBreak: false });
       doc.fillColor(C.mutedLt).font('Helvetica').fontSize(7.5)
-        .text(row.trans, DCOL.trans.x + 3, ty, { width: DCOL.trans.w - 4, lineBreak: false });
+        .text(row.trans, cols.trans.x + 3, ty, { width: cols.trans.w - 4, lineBreak: false });
       doc.fillColor(C.text).font('Helvetica').fontSize(7.5)
-        .text(`${row.btlDelivered}`, DCOL.btl.x + 3, ty, { width: DCOL.btl.w - 4, align: 'right', lineBreak: false });
+        .text(`${row.btlDelivered}`, cols.btl.x + 3, ty, { width: cols.btl.w - 4, align: 'right', lineBreak: false });
       doc.fillColor(C.text).font('Helvetica').fontSize(7.5)
-        .text(`${row.emptyPickup}`, DCOL.empty.x + 3, ty, { width: DCOL.empty.w - 4, align: 'right', lineBreak: false });
+        .text(`${row.emptyPickup}`, cols.empty.x + 3, ty, { width: cols.empty.w - 4, align: 'right', lineBreak: false });
+      if (cols.fret) {
+        doc.fillColor(C.cyan).font('Helvetica').fontSize(7.5)
+          .text(`${row.filledPickup}`, cols.fret.x + 3, ty, { width: cols.fret.w - 4, align: 'right', lineBreak: false });
+      }
       doc.fillColor(C.text).font('Helvetica').fontSize(7.5)
-        .text(row.bottleBalance != null ? `${row.bottleBalance}` : '—', DCOL.bal.x + 3, ty, { width: DCOL.bal.w - 4, align: 'right', lineBreak: false });
+        .text(row.bottleBalance != null ? `${row.bottleBalance}` : '—', cols.bal.x + 3, ty, { width: cols.bal.w - 4, align: 'right', lineBreak: false });
       doc.fillColor(C.text).font('Helvetica-Bold').fontSize(7.5)
-        .text(this.rs(row.amountDue), DCOL.due.x + 3, ty, { width: DCOL.due.w - 6, align: 'right', lineBreak: false });
+        .text(this.rs(row.amountDue), cols.due.x + 3, ty, { width: cols.due.w - 6, align: 'right', lineBreak: false });
       if (row.amountReceived > 0) {
         doc.fillColor(C.green).font('Helvetica-Bold').fontSize(7.5)
-          .text(this.rs(row.amountReceived), DCOL.recv.x + 3, ty, { width: DCOL.recv.w - 6, align: 'right', lineBreak: false });
+          .text(this.rs(row.amountReceived), cols.recv.x + 3, ty, { width: cols.recv.w - 6, align: 'right', lineBreak: false });
       }
       doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
-        .text(this.rs(row.runningBalance), DCOL.amt.x + 3, ty, { width: DCOL.amt.w - 10, align: 'right', lineBreak: false });
+        .text(this.rs(row.runningBalance), cols.amt.x + 3, ty, { width: cols.amt.w - 10, align: 'right', lineBreak: false });
       return;
     }
 
@@ -473,22 +506,27 @@ export class CustomerStatementPdfService {
     const totalRecv    = rows.reduce((s, r) => s + r.amountReceived, 0);
     const totalBtl     = rows.reduce((s, r) => s + r.btlDelivered, 0);
     const totalEmpty   = rows.reduce((s, r) => s + r.emptyPickup, 0);
+    const totalFilled  = rows.reduce((s, r) => s + r.filledPickup, 0);
     const finalBalance = rows.length ? rows[rows.length - 1].runningBalance : openingBalance;
 
     doc.moveTo(x + 10, y).lineTo(x + CONTENT_W - 10, y).strokeColor(C.navyText).lineWidth(1).stroke();
     const ty = y + 7;
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
-      .text('TOTAL', DCOL.date.x + 6, ty, { width: DCOL.date.w + DCOL.trans.w - 6, lineBreak: false });
+      .text('TOTAL', cols.date.x + 6, ty, { width: cols.date.w + cols.trans.w - 6, lineBreak: false });
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
-      .text(`${totalBtl}`, DCOL.btl.x + 3, ty, { width: DCOL.btl.w - 4, align: 'right', lineBreak: false });
+      .text(`${totalBtl}`, cols.btl.x + 3, ty, { width: cols.btl.w - 4, align: 'right', lineBreak: false });
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
-      .text(`${totalEmpty}`, DCOL.empty.x + 3, ty, { width: DCOL.empty.w - 4, align: 'right', lineBreak: false });
+      .text(`${totalEmpty}`, cols.empty.x + 3, ty, { width: cols.empty.w - 4, align: 'right', lineBreak: false });
+    if (cols.fret) {
+      doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
+        .text(`${totalFilled}`, cols.fret.x + 3, ty, { width: cols.fret.w - 4, align: 'right', lineBreak: false });
+    }
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
-      .text(this.rs(totalDue), DCOL.due.x + 3, ty, { width: DCOL.due.w - 6, align: 'right', lineBreak: false });
+      .text(this.rs(totalDue), cols.due.x + 3, ty, { width: cols.due.w - 6, align: 'right', lineBreak: false });
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
-      .text(this.rs(totalRecv), DCOL.recv.x + 3, ty, { width: DCOL.recv.w - 6, align: 'right', lineBreak: false });
+      .text(this.rs(totalRecv), cols.recv.x + 3, ty, { width: cols.recv.w - 6, align: 'right', lineBreak: false });
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
-      .text(this.rs(finalBalance), DCOL.amt.x + 3, ty, { width: DCOL.amt.w - 10, align: 'right', lineBreak: false });
+      .text(this.rs(finalBalance), cols.amt.x + 3, ty, { width: cols.amt.w - 10, align: 'right', lineBreak: false });
   }
 
   // ── Other transactions card ─────────────────────────────────────────────────

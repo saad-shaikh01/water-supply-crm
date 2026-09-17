@@ -37,7 +37,12 @@ export function CustomerConversationThread({ customerId }: { customerId: string 
       variant="embedded"
       isDriver={false}
       itemIsPending={data.isItemPending}
-      isClosed={data.isSheetClosed}
+      // Customer-wide entry point: the anchor item only exists to satisfy
+      // ConversationMessage's non-nullable dailySheetItemId FK, it isn't the
+      // subject of the conversation. Whether *that* item's sheet happens to
+      // be closed must never lock this customer-level chat — unlike the
+      // sheet-embedded variant, there's no single sheet this thread belongs to.
+      isClosed={false}
     />
   );
 }

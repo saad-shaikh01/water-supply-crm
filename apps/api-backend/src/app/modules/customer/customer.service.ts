@@ -832,6 +832,7 @@ export class CustomerService {
     const totals = {
       totalBtl: deliveryRows.reduce((s, r) => s + r.btlDelivered, 0),
       totalEmpty: deliveryRows.reduce((s, r) => s + r.emptyPickup, 0),
+      totalFilled: deliveryRows.reduce((s, r) => s + r.filledPickup, 0),
       totalDue: data.openingBalance + deliveryRows.reduce((s, r) => s + r.amountDue, 0),
       totalRecv: deliveryRows.reduce((s, r) => s + r.amountReceived, 0),
       finalBalance: deliveryRows.length
