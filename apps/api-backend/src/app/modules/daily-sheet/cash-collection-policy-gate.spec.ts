@@ -273,6 +273,47 @@ describe('DailySheetService.submitDelivery — Cash Collection Policy gate', () 
     );
   });
 
+  // ── Regression: filledReceived (filled bottles returned by the customer) ──
+  // must reach the ledger so it reduces the customer's bottle wallet — this
+  // call previously omitted the field entirely, so a filled return silently
+  // never adjusted the wallet even though the item itself stored the count.
+
+  it('passes filledReceived through to the ledger so the bottle wallet is adjusted', async () => {
+    mockPrisma.dailySheetItem.findUnique.mockResolvedValue(buildBaseItem());
+    wireHappyPathTransaction();
+
+    await service.submitDelivery(STAFF_USER, ITEM_ID, {
+      status: DeliveryStatus.COMPLETED,
+      filledDropped: 3,
+      emptyReceived: 0,
+      filledReceived: 2,
+      cashCollected: 500,
+    } as any);
+
+    expect(mockLedger.recordDelivery).toHaveBeenCalledWith(
+      expect.objectContaining({ filledReceived: 2 }),
+      expect.anything(),
+    );
+  });
+
+  it('nets filledReceived out of the policy chargeAmount — a filled return can zero out the charge and exempt the gate', async () => {
+    mockPrisma.dailySheetItem.findUnique.mockResolvedValue(buildBaseItem());
+    wireHappyPathTransaction();
+
+    // filledDropped=2, filledReceived=3 -> net charge = (2-3)*100 = -100 <= 0.
+    // Under the old (unnetted) formula this would have been treated as a
+    // ₨200 charge and required a minimum collection; no cash is collected here.
+    await service.submitDelivery(STAFF_USER, ITEM_ID, {
+      status: DeliveryStatus.COMPLETED,
+      filledDropped: 2,
+      emptyReceived: 0,
+      filledReceived: 3,
+      cashCollected: 0,
+    } as any);
+
+    expect(mockLedger.recordDelivery).toHaveBeenCalled();
+  });
+
   // ── Exemptions never touch the back-out query and never block ────────────
 
   it('skips the gate entirely (no back-out query) when the cash policy is disabled', async () => {

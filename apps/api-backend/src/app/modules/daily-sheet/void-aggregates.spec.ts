@@ -172,6 +172,7 @@ describe('DailySheetService.findAllPaginated — hybrid cash', () => {
     id: 's1',
     isClosed: true,
     cashCollected: 999, // frozen close-time snapshot
+    cashExpected: 999,
     route: null,
     van: null,
     driver: null,
@@ -181,16 +182,58 @@ describe('DailySheetService.findAllPaginated — hybrid cash', () => {
     ...over,
   });
 
-  it('closed sheet with a voided item → cashCollected = Σ non-voided item cash, postCloseModified true', async () => {
-    mockPrisma.dailySheet.findMany.mockResolvedValue([
-      row({
-        items: [
-          { status: 'COMPLETED', deliveryType: 'SCHEDULED', deliveryIssue: null, cashCollected: 300, voidedAt: null, isCorrection: false, correctionAddedAt: null },
-          { status: 'EMPTY_ONLY', deliveryType: 'SCHEDULED', deliveryIssue: null, cashCollected: 0, voidedAt: null, isCorrection: false, correctionAddedAt: null },
-          { status: 'VOIDED', deliveryType: 'SCHEDULED', deliveryIssue: null, cashCollected: 200, voidedAt: new Date(), isCorrection: false, correctionAddedAt: null },
-        ],
-      }),
-    ]);
+  // Full-reload shape resolveSheetCash/buildReconciliation need
+  // (SHEET_CASH_RELOAD_INCLUDE) — returned by the second, targeted
+  // dailySheet.findMany that only fires for rows flagged postCloseModified.
+  const reloadItem = (over: any) => ({
+    filledDropped: 0,
+    filledReceived: 0,
+    emptyReceived: 0,
+    cashCollected: 0,
+    pricePerBottle: 0,
+    voidedAt: null,
+    isCorrection: false,
+    correctionAddedAt: null,
+    customer: { paymentType: 'CASH', customPrices: [] },
+    product: { basePrice: 0 },
+    ...over,
+  });
+
+  const fullReload = (over: any) => ({
+    id: 's1',
+    isClosed: true,
+    cashCollected: 999,
+    cashExpected: 999,
+    filledOutCount: 0,
+    filledInCount: 0,
+    emptyInCount: 0,
+    expenses: [],
+    crewCashDistributions: [],
+    loads: [],
+    items: [],
+    ...over,
+  });
+
+  it('closed sheet with a voided item → cashCollected = net (Σ non-voided item cash, no expenses here), postCloseModified true', async () => {
+    const listItems = [
+      { status: 'COMPLETED', deliveryType: 'SCHEDULED', deliveryIssue: null, cashCollected: 300, voidedAt: null, isCorrection: false, correctionAddedAt: null },
+      { status: 'EMPTY_ONLY', deliveryType: 'SCHEDULED', deliveryIssue: null, cashCollected: 0, voidedAt: null, isCorrection: false, correctionAddedAt: null },
+      { status: 'VOIDED', deliveryType: 'SCHEDULED', deliveryIssue: null, cashCollected: 200, voidedAt: new Date(), isCorrection: false, correctionAddedAt: null },
+    ];
+    mockPrisma.dailySheet.findMany.mockImplementation((args: any) => {
+      if (args?.where?.id) {
+        return Promise.resolve([
+          fullReload({
+            items: [
+              reloadItem({ status: 'COMPLETED', cashCollected: 300 }),
+              reloadItem({ status: 'EMPTY_ONLY', cashCollected: 0 }),
+              reloadItem({ status: 'VOIDED', cashCollected: 200, voidedAt: new Date() }),
+            ],
+          }),
+        ]);
+      }
+      return Promise.resolve([row({ items: listItems })]);
+    });
 
     const res = await service.findAllPaginated('vendor-1', {} as any);
     const r = res.data[0] as any;
@@ -199,7 +242,7 @@ describe('DailySheetService.findAllPaginated — hybrid cash', () => {
     expect(r.cashCollected).toBe(300); // 300 + 0, voided 200 excluded — NOT the frozen 999
   });
 
-  it('untouched closed sheet → cashCollected stays frozen, postCloseModified false', async () => {
+  it('untouched closed sheet → cashCollected stays frozen, postCloseModified false, no targeted reload', async () => {
     mockPrisma.dailySheet.findMany.mockResolvedValue([
       row({
         items: [
@@ -213,6 +256,30 @@ describe('DailySheetService.findAllPaginated — hybrid cash', () => {
 
     expect(r.postCloseModified).toBe(false);
     expect(r.cashCollected).toBe(999); // frozen, untouched
+    expect(mockPrisma.dailySheet.findMany).toHaveBeenCalledTimes(1); // no targeted reload needed
+  });
+
+  it('modified sheet with a post-close expense → cashCollected is NET of that expense, not gross collected', async () => {
+    const listItems = [
+      { status: 'COMPLETED', deliveryType: 'SCHEDULED', deliveryIssue: null, cashCollected: 300, voidedAt: null, isCorrection: true, correctionAddedAt: new Date() },
+    ];
+    mockPrisma.dailySheet.findMany.mockImplementation((args: any) => {
+      if (args?.where?.id) {
+        return Promise.resolve([
+          fullReload({
+            items: [reloadItem({ status: 'COMPLETED', cashCollected: 300, isCorrection: true, correctionAddedAt: new Date() })],
+            expenses: [{ amount: 50, paidFromCash: true }],
+          }),
+        ]);
+      }
+      return Promise.resolve([row({ items: listItems })]);
+    });
+
+    const res = await service.findAllPaginated('vendor-1', {} as any);
+    const r = res.data[0] as any;
+
+    expect(r.postCloseModified).toBe(true);
+    expect(r.cashCollected).toBe(250); // 300 collected - 50 expense = what the driver actually owes the office
   });
 });
 
@@ -276,6 +343,7 @@ describe('AnalyticsService.getDeliveries — voided items', () => {
     mockPrisma = {
       dailySheetItem: { findMany: jest.fn().mockResolvedValue([]) },
       deliveryIssue: { findMany: jest.fn().mockResolvedValue([]) },
+      bottleWallet: { aggregate: jest.fn().mockResolvedValue({ _sum: { balance: 0 } }) },
     };
     const mockCache = {
       vendorKey: jest.fn().mockReturnValue('k'),
@@ -287,6 +355,7 @@ describe('AnalyticsService.getDeliveries — voided items', () => {
         AnalyticsService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: CacheInvalidationService, useValue: mockCache },
+        { provide: VanCashLedgerService, useValue: {} },
       ],
     }).compile();
     service = module.get<AnalyticsService>(AnalyticsService);

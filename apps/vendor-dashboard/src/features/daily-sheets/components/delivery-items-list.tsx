@@ -150,7 +150,7 @@ function CustomerHistorySection({ customerId }: { customerId: string }) {
                   </thead>
                   <tbody>
                     {data.map((row, i) => {
-                      const amountDue = row.filledDropped * row.pricePerBottle;
+                      const amountDue = (row.filledDropped - row.filledReceived) * row.pricePerBottle;
                       const balDue = row.financialBalanceAfter;
                       // Bottle balance must always show a number — never a
                       // dash — same matchedWallet fallback as the current

@@ -665,7 +665,6 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
     <div className="space-y-8 pb-20">
       <SheetDetailHeader
         date={data!.date}
-        routeName={isWalkIn ? 'Walk-in / Self-pickup' : (data?.route?.name ?? null)}
         vanPlateNumber={isWalkIn ? null : vehiclePlate}
         driverName={data?.driver?.name ?? null}
         crew={data?.crew ?? []}
@@ -1063,8 +1062,10 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
               <User className="h-5 w-5" />
             </div>
             <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase text-muted-foreground">Driver</p>
-              <p className="text-sm font-black truncate">{data?.driver?.name}</p>
+              <p className="text-[10px] font-bold uppercase text-muted-foreground">Salesman</p>
+              <p className="text-sm font-black truncate">
+                {data?.crew?.find((c) => c.role === 'SALESMAN')?.user.name ?? data?.driver?.name}
+              </p>
             </div>
           </CardContent>
         </Card>

@@ -105,9 +105,11 @@ describe('LedgerService.recordDelivery — idempotency', () => {
       );
     });
 
-    it('treats filledReceived like emptyReceived: reduces wallet, no charge, stored on the row', async () => {
+    it('filledReceived reduces the wallet like emptyReceived AND credits the customer at pricePerBottle', async () => {
       // Pure pickup stop — customer returning already-filled bottles (account
-      // closing / excess stock), no new drop.
+      // closing / excess stock), no new drop. They were charged for these
+      // bottles on the original delivery, so taking them back unopened refunds
+      // that charge.
       await service.recordDelivery({
         ...BASE,
         filledDropped: 0,
@@ -120,15 +122,34 @@ describe('LedgerService.recordDelivery — idempotency', () => {
       expect(mockPrisma.bottleWallet.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: { balance: { increment: -5 } } }),
       );
-      // no charge (filledDropped is 0) → financialBalance effect is 0
+      // credit: (0 - 3) * 100 = -300
       expect(mockPrisma.customer.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: { financialBalance: { increment: 0 } } }),
+        expect.objectContaining({ data: { financialBalance: { increment: -300 } } }),
       );
 
       const deliveryData = mockPrisma.transaction.create.mock.calls[0][0].data;
       expect(deliveryData.filledReceived).toBe(3);
       expect(deliveryData.bottleCount).toBe(-5);
-      expect(deliveryData.amount).toBe(0);
+      expect(deliveryData.amount).toBe(-300);
+    });
+
+    it('nets a filled return against a drop in the same visit (charge minus credit)', async () => {
+      // Driver drops 5 fresh bottles and takes back 2 already-filled ones in the
+      // same stop (e.g. swapping stock) — net charge should be for 3, not 5.
+      await service.recordDelivery({
+        ...BASE,
+        filledDropped: 5,
+        emptyReceived: 0,
+        filledReceived: 2,
+        cashCollected: 0,
+      });
+
+      // (5 - 2) * 100 = 300
+      expect(mockPrisma.customer.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { financialBalance: { increment: 300 } } }),
+      );
+      const deliveryData = mockPrisma.transaction.create.mock.calls[0][0].data;
+      expect(deliveryData.amount).toBe(300);
     });
 
     it('defaults filledReceived to 0 for callers that omit it (e.g. bulk-import)', async () => {

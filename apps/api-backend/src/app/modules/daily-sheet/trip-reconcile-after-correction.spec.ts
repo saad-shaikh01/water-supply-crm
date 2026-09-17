@@ -120,7 +120,10 @@ describe('DailySheetService — auto trip reconciliation after closed-sheet deli
         findUnique: jest.fn().mockResolvedValue(load),
         update: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ id: LOAD_ID, ...data })),
       },
-      dailySheet: { update: jest.fn().mockResolvedValue({}) },
+      // Van Cash Ledger hook #2 (syncVanCashLedgerForClosedSheet) reload —
+      // resolves null so it short-circuits without a full SHEET_CASH_RELOAD_INCLUDE
+      // fixture; every item here is on a closed sheet so this is always reached.
+      dailySheet: { update: jest.fn().mockResolvedValue({}), findUnique: jest.fn().mockResolvedValue(null) },
     };
     mockPrisma.$transaction.mockImplementation((fn: any) => fn(tx));
     return tx;
@@ -165,7 +168,13 @@ describe('DailySheetService — auto trip reconciliation after closed-sheet deli
         { provide: StaffAttendanceService, useValue: {} },
         { provide: VehicleCheckService, useValue: {} },
         { provide: SheetDiscrepancyCaseService, useValue: {} },
-        { provide: VanCashLedgerService, useValue: { createHandoverForClosedSheet: jest.fn().mockResolvedValue(null) } },
+        {
+          provide: VanCashLedgerService,
+          useValue: {
+            createHandoverForClosedSheet: jest.fn().mockResolvedValue(null),
+            handlePostCloseCorrection: jest.fn().mockResolvedValue(null),
+          },
+        },
         { provide: StorageService, useValue: {} },
         { provide: WarehouseService, useValue: mockWarehouse },
         { provide: DeliveryReceiptPdfService, useValue: {} },

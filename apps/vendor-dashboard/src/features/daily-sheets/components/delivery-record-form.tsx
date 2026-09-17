@@ -348,8 +348,10 @@ export function DeliveryRecordForm({
     setCashServerViolation(null);
   }, [itemForm.cashCollected, deliveryMode]);
 
-  // Amount owed for this delivery — auto-calculated from drop count and the customer's rate.
-  const amountDue = Math.round((itemForm.filledDropped ?? 0) * effectivePrice);
+  // Amount owed for this delivery — auto-calculated from drop count and the customer's
+  // rate, net of any filled bottles taken back (they were charged for those when
+  // originally delivered, so returning them unopened credits that charge back).
+  const amountDue = Math.round(((itemForm.filledDropped ?? 0) - (itemForm.filledReceived ?? 0)) * effectivePrice);
 
   // Monthly financial snapshot (anchored to the sheet's month) — fetched lazily
   // since this form only mounts when the card is expanded.
@@ -363,7 +365,7 @@ export function DeliveryRecordForm({
   // driver types. A delivery adds a charge (drop × rate) and the cash is a payment.
   // For a re-record we first back out the item's already-saved contribution so the
   // numbers don't double-count.
-  const savedCharge = isFirstRecord ? 0 : item.filledDropped * (item.pricePerBottle ?? effectivePrice);
+  const savedCharge = isFirstRecord ? 0 : (item.filledDropped - item.filledReceived) * (item.pricePerBottle ?? effectivePrice);
   const savedCash = isFirstRecord ? 0 : item.cashCollected;
   const draftCharge = deliveryMode === 'delivered' ? amountDue : 0;
   const draftCash = deliveryMode === 'delivered' ? (itemForm.cashCollected ?? 0) : 0;
@@ -670,7 +672,7 @@ export function DeliveryRecordForm({
                     readOnly={readOnly}
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    Already-filled bottles taken back (account closing / excess stock) — no refill needed.
+                    Already-filled bottles taken back (account closing / excess stock) — no refill needed. Credited to the customer at the rate below.
                   </p>
                   <div className="mt-1.5 flex items-center justify-between rounded-xl bg-primary/10 border border-primary/30 px-3 py-2">
                     <span className="text-[11px] font-bold uppercase tracking-wide text-primary">Bottle Wallet</span>
@@ -697,7 +699,7 @@ export function DeliveryRecordForm({
                   className={cn('font-mono font-bold h-11 bg-muted/50 cursor-not-allowed', readOnly ? 'text-foreground opacity-90' : 'text-muted-foreground')}
                 />
                 <p className="text-[11px] text-muted-foreground flex items-center gap-1 flex-wrap">
-                  Auto · Drop × {effectivePrice > 0 ? `₨${effectivePrice.toLocaleString()}` : 'Rate'}
+                  Auto · {(itemForm.filledReceived ?? 0) > 0 ? '(Drop − Filled Return)' : 'Drop'} × {effectivePrice > 0 ? `₨${effectivePrice.toLocaleString()}` : 'Rate'}
                   {isCustomPrice && (
                     <span className="px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 font-bold text-[10px]">
                       Custom

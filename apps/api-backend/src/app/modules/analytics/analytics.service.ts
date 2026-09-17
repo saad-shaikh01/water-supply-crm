@@ -136,6 +136,7 @@ export class AnalyticsService {
         select: {
           cashCollected: true,
           filledDropped: true,
+          filledReceived: true,
           pricePerBottle: true,
           customer: { select: { paymentType: true } },
           product: { select: { id: true, name: true } },
@@ -438,7 +439,9 @@ export class AnalyticsService {
       const pt = item.customer?.paymentType;
       const bucket = pt === PaymentType.CASH ? cashByPaymentType.CASH : pt === PaymentType.MONTHLY ? cashByPaymentType.MONTHLY : null;
       if (!bucket) continue;
-      bucket.expected += item.filledDropped * item.pricePerBottle;
+      // Net of any filled bottles taken back this delivery — they were credited
+      // back to the customer at the same rate, so the "expected" charge is lower.
+      bucket.expected += (item.filledDropped - (item.filledReceived ?? 0)) * item.pricePerBottle;
       bucket.collected += item.cashCollected;
     }
 
@@ -494,7 +497,8 @@ export class AnalyticsService {
         costTotal: 0,
         bottlesCosted: 0,
       };
-      entry.revenue += item.filledDropped * item.pricePerBottle;
+      // Net of filled-return credits, same as cashByPaymentType's `expected` above.
+      entry.revenue += (item.filledDropped - (item.filledReceived ?? 0)) * item.pricePerBottle;
       entry.bottles += item.filledDropped;
 
       const bucketDate = item.dailySheet?.date ?? null;

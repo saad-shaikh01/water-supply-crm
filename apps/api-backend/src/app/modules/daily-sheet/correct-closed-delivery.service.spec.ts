@@ -106,6 +106,10 @@ describe('DailySheetService.correctClosedDelivery', () => {
       },
       bottleWallet: { findUnique: jest.fn().mockResolvedValue({ balance: 12 }) },
       customer: { findUnique: jest.fn().mockResolvedValue({ financialBalance: 250 }) },
+      // Van Cash Ledger hook #2 (syncVanCashLedgerForClosedSheet) reload —
+      // resolves null so it short-circuits without a full SHEET_CASH_RELOAD_INCLUDE
+      // fixture; correctClosedDelivery only ever runs on a closed sheet.
+      dailySheet: { findUnique: jest.fn().mockResolvedValue(null) },
     };
     mockPrisma.$transaction.mockImplementation((fn: any) => fn(tx));
     return tx;
@@ -141,7 +145,13 @@ describe('DailySheetService.correctClosedDelivery', () => {
         { provide: StaffAttendanceService, useValue: {} },
         { provide: VehicleCheckService, useValue: {} },
         { provide: SheetDiscrepancyCaseService, useValue: {} },
-        { provide: VanCashLedgerService, useValue: { createHandoverForClosedSheet: jest.fn().mockResolvedValue(null) } },
+        {
+          provide: VanCashLedgerService,
+          useValue: {
+            createHandoverForClosedSheet: jest.fn().mockResolvedValue(null),
+            handlePostCloseCorrection: jest.fn().mockResolvedValue(null),
+          },
+        },
         { provide: StorageService, useValue: {} },
         { provide: WarehouseService, useValue: {} },
         { provide: DeliveryReceiptPdfService, useValue: {} },

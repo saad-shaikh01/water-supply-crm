@@ -697,7 +697,9 @@ export class DailySheetService implements OnModuleInit {
       if (cashPolicy.enabled) {
         const isPostingStatus =
           resolvedStatus === DeliveryStatus.COMPLETED || resolvedStatus === DeliveryStatus.EMPTY_ONLY;
-        const chargeAmount = isPostingStatus ? dto.filledDropped * price : 0;
+        // Net of any filled bottles taken back — credited at the same rate, so
+        // the actual charge (and thus required collection) is lower.
+        const chargeAmount = isPostingStatus ? (dto.filledDropped - (dto.filledReceived ?? 0)) * price : 0;
         const priorLedgerEffect = await this.getPriorLedgerEffect(itemId);
         const currentBalance = item.customer.financialBalance - priorLedgerEffect;
 
@@ -845,6 +847,7 @@ export class DailySheetService implements OnModuleInit {
           dailySheetItemId: itemId,
           filledDropped: dto.filledDropped,
           emptyReceived: dto.emptyReceived,
+          filledReceived: dto.filledReceived,
           cashCollected: dto.cashCollected,
           pricePerBottle: price,
           // A correction entry's ledger rows stay dated to the sheet, even when
@@ -1225,6 +1228,13 @@ export class DailySheetService implements OnModuleInit {
         next: { filledDropped: 0, emptyReceived: 0, filledReceived: 0 },
       });
 
+      // Van Cash Ledger hook #2 — only meaningful on a closed sheet (an open
+      // sheet has no handover yet; createHandoverForClosedSheet runs at close
+      // time).
+      if (item.dailySheet.isClosed) {
+        await this.syncVanCashLedgerForClosedSheet(tx, vendorId, item.dailySheetId);
+      }
+
       return tx.dailySheetItem.findUnique({ where: { id: itemId } });
     });
 
@@ -1295,9 +1305,13 @@ export class DailySheetService implements OnModuleInit {
    * is a historical correction, exactly like addCorrectionItem.
    *
    * ACCEPTED DIVERGENCE (same as voidDelivery / correctClosedTrip): does NOT
-   * touch the frozen close-time cashExpected and does NOT re-run
-   * buildReconciliation / createCasesForSheet — any close-time discrepancy
-   * cases stay exactly as they were.
+   * touch the frozen close-time `DailySheet.cashExpected`/`cashCollected` and
+   * does NOT re-run buildReconciliation / createCasesForSheet — any close-time
+   * discrepancy cases stay exactly as they were (the "modified after close"
+   * banner + hybrid list/rollup recompute, see sheet-cash.util.ts, surface the
+   * live figure instead of rewriting that frozen snapshot). The office-facing
+   * Van Cash Ledger handover is a separate figure and IS kept live — see
+   * syncVanCashLedgerForClosedSheet below.
    */
   async correctClosedDelivery(user: AuthUser, itemId: string, dto: CorrectDeliveryDto) {
     const vendorId = user.vendorId;
@@ -1440,6 +1454,11 @@ export class DailySheetService implements OnModuleInit {
           filledReceived: dto.filledReceived,
         },
       });
+
+      // Van Cash Ledger hook #2 — this delivery correction just moved
+      // recordDelivery's cash effect; keep the office's pending/approved
+      // handover in sync with it (see syncVanCashLedgerForClosedSheet).
+      await this.syncVanCashLedgerForClosedSheet(tx, vendorId, item.dailySheetId);
 
       return updatedItem;
     });
@@ -2077,8 +2096,9 @@ export class DailySheetService implements OnModuleInit {
       };
       // Hybrid cash (docs/features/post-close-divergence-banner.md): on a closed
       // sheet edited after close the frozen `cashCollected` column is stale.
-      // The list only surfaces cashCollected, so a light non-voided re-sum is
-      // enough here — no buildReconciliation per list row.
+      // Flagged here cheaply; the actual recompute (needs a full reload —
+      // expenses/crew-cash included) happens in one batched pass below, after
+      // `data` is built, so it only touches the (rare) modified rows on this page.
       const postCloseModified =
         sheet.isClosed &&
         isSheetModifiedAfterClose({
@@ -2087,14 +2107,9 @@ export class DailySheetService implements OnModuleInit {
           postCloseExpenseCorrectionCount: sheet.postCloseExpenseCorrectionCount,
           postCloseCrewCashCorrectionCount: sheet.postCloseCrewCashCorrectionCount,
         });
-      const cashCollected = postCloseModified
-        ? items
-            .filter((i) => i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY')
-            .reduce((s, i) => s + (i.cashCollected ?? 0), 0)
-        : sheet.cashCollected;
       return {
         ...sheet,
-        cashCollected,
+        cashCollected: sheet.cashCollected,
         postCloseModified,
         // Voided items are struck from the operational record — they don't count
         // as "stops" on the sheet.
@@ -2105,6 +2120,28 @@ export class DailySheetService implements OnModuleInit {
         onDemandCount,
       };
     });
+
+    // Modified-after-close sheets: recompute the NET amount owed to office
+    // (`resolveSheetCash(...).cashExpected`) rather than a gross re-sum of
+    // item.cashCollected. The frozen `cashCollected` column this list shows
+    // pre-edit is already NET — closeSheet sets it to the driver's declared
+    // handed-in figure, after expenses/crew cash. A gross re-sum here would
+    // silently switch the list to a different, larger figure (Σ collected
+    // from customers, before expenses) the moment a sheet is edited post-close,
+    // even though nothing about "what the driver owes the office" changed
+    // except the correction itself.
+    const modifiedIds = data.filter((s) => s.postCloseModified).map((s) => s.id);
+    if (modifiedIds.length > 0) {
+      const fullSheets = await this.prisma.dailySheet.findMany({
+        where: { id: { in: modifiedIds }, vendorId },
+        include: SHEET_CASH_RELOAD_INCLUDE as any,
+      });
+      const netById = new Map(fullSheets.map((fs) => [fs.id, resolveSheetCash(fs).cashExpected]));
+      for (const row of data) {
+        const net = netById.get(row.id);
+        if (net !== undefined) row.cashCollected = net;
+      }
+    }
 
     return paginate(data, total, page, limit);
   }
@@ -3204,13 +3241,20 @@ export class DailySheetService implements OnModuleInit {
         select: { financialBalance: true },
       });
 
-      return tx.dailySheetItem.update({
+      const updated = await tx.dailySheetItem.update({
         where: { id: item.id },
         data: {
           bottleBalanceAfter: updatedWallet?.balance ?? null,
           financialBalanceAfter: updatedCustomer?.financialBalance ?? null,
         },
       });
+
+      // Van Cash Ledger hook #2 — this correction entry is always on an
+      // already-closed sheet (asserted above); keep the office handover in
+      // sync with the cash it just added.
+      await this.syncVanCashLedgerForClosedSheet(tx, vendorId, sheetId);
+
+      return updated;
     });
 
     await this.audit.log({
@@ -3484,6 +3528,13 @@ export class DailySheetService implements OnModuleInit {
           financialBalanceAfter: updatedCustomer?.financialBalance ?? null,
         },
       });
+
+      // Van Cash Ledger hook #2 — a walk-in delivery recorded onto an
+      // already-closed walk-in sheet is the same "post-close cash change"
+      // case as correctClosedDelivery/addCorrectionItem on a ROUTE sheet.
+      if (sheet.isClosed) {
+        await this.syncVanCashLedgerForClosedSheet(tx, vendorId, sheet.id);
+      }
 
       return {
         item: saved,
@@ -4348,6 +4399,27 @@ export class DailySheetService implements OnModuleInit {
 
   /** Direct Staff/Admin close — unchanged trigger, skips the request/approve
    * review cycle entirely and lands straight on closureStatus=APPROVED. */
+  /**
+   * Van Cash Ledger hook #2 sync for the closed-sheet DELIVERY retroactive
+   * tools (Void Delivery / Edit Closed-Sheet Delivery / Correction Entry).
+   * Mirrors ExpenseService.syncVanCashLedgerForClosedSheet exactly — reloads
+   * the sheet with SHEET_CASH_RELOAD_INCLUDE inside the caller's own
+   * transaction (so it sees the just-applied ledger/item change) and hands
+   * the freshly recomputed net figure to handlePostCloseCorrection. Without
+   * this, the office's Cash Ledger approval entry stays frozen at whatever
+   * `cashExpected` was at close time, silently diverging from the sheet's
+   * true reconciliation the moment a delivery is corrected/voided/added.
+   */
+  private async syncVanCashLedgerForClosedSheet(tx: Prisma.TransactionClient, vendorId: string, dailySheetId: string) {
+    const sheet = await tx.dailySheet.findUnique({
+      where: { id: dailySheetId },
+      include: SHEET_CASH_RELOAD_INCLUDE,
+    });
+    if (!sheet) return;
+    const resolved = resolveSheetCash(sheet as unknown as Record<string, unknown>);
+    await this.vanCashLedger.handlePostCloseCorrection(tx, vendorId, dailySheetId, resolved.cashExpected);
+  }
+
   async closeSheet(vendorId: string, sheetId: string, actorId: string, actorRole: UserRole, actualCashHandedIn: number) {
     const sheet = await this.assertSheetCloseable(vendorId, sheetId);
     // Cash is no longer accumulated per-trip check-in (see checkinLoad) — it's

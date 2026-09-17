@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Loader2, Pause, Play } from 'lucide-react';
+import { toast } from 'sonner';
 import type { ConversationMessage } from '@water-supply-crm/types';
 import { useMessageAudioUrl } from '../hooks/use-conversations';
 
@@ -27,8 +28,20 @@ export function VoiceMessagePlayer({ message }: { message: ConversationMessage }
     if (!wantUrl || !data?.signedUrl || audioEl) return;
     const el = new Audio(data.signedUrl);
     el.onended = () => setIsPlaying(false);
-    el.play();
-    setIsPlaying(true);
+    // play() rejects when the browser can't decode the source (e.g. an old
+    // webm/ogg message on Safari, which has no WebM/Ogg support at all) or
+    // blocks it under an autoplay policy — without this the button was left
+    // stuck showing "playing" with no sound and no feedback to the user.
+    el.onerror = () => {
+      setIsPlaying(false);
+      toast.error('Could not play this voice message on this device/browser.');
+    };
+    el.play()
+      .then(() => setIsPlaying(true))
+      .catch(() => {
+        setIsPlaying(false);
+        toast.error('Could not play this voice message on this device/browser.');
+      });
     setAudioEl(el);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wantUrl, data?.signedUrl]);

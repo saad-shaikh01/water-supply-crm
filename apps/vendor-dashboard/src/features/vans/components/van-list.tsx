@@ -45,6 +45,7 @@ export function VanList({ onEdit }: VanListProps) {
     isActive?: boolean;
     defaultDriver?: { id: string; name: string };
     routes?: Array<{ id: string; name: string }>;
+    vehiclesUsuallyServing?: Array<{ id: string; plateNumber: string; isActive?: boolean }>;
   }>;
   const total = response?.meta?.total ?? 0;
 
@@ -155,7 +156,7 @@ export function VanList({ onEdit }: VanListProps) {
         tableId="vans-list"
         columns={[
           {
-            key: 'plate', header: 'Plate Number',
+            key: 'plate', header: 'Van',
             essential: true,
             cell: (r) => (
               <div className={cn("flex items-center gap-2 whitespace-nowrap", !r.isActive && "opacity-60")}>
@@ -167,6 +168,35 @@ export function VanList({ onEdit }: VanListProps) {
                 )}
               </div>
             )
+          },
+          {
+            key: 'vehicle',
+            header: 'Vehicle',
+            cell: (r) => {
+              const vehicles = r.vehiclesUsuallyServing ?? [];
+              if (vehicles.length === 0) return <span className="text-xs text-muted-foreground/40">—</span>;
+
+              const visible = vehicles.slice(0, 2);
+              const remaining = vehicles.length - 2;
+
+              return (
+                <div className="flex items-center gap-1 whitespace-nowrap">
+                  {visible.map((v) => (
+                    <Badge key={v.id} variant="secondary" className={cn(
+                      "text-[9px] font-bold px-1.5 py-0 bg-white/5 text-muted-foreground dark:text-white/60 rounded-md border-none",
+                      v.isActive === false && "opacity-50"
+                    )}>
+                      {v.plateNumber}
+                    </Badge>
+                  ))}
+                  {remaining > 0 && (
+                    <Badge variant="outline" className="text-[9px] font-bold px-1 py-0 border-white/10 text-muted-foreground/60 rounded-md">
+                      +{remaining}
+                    </Badge>
+                  )}
+                </div>
+              );
+            }
           },
           {
             key: 'model', header: 'Model',

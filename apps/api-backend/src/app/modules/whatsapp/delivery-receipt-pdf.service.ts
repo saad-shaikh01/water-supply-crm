@@ -83,7 +83,8 @@ export class DeliveryReceiptPdfService {
       this.drawSectionTitle(doc, 'INVOICE');
       doc.y += 8;
 
-      const deliveryAmount = data.filledDropped * data.pricePerBottle;
+      // Net of any filled bottles taken back — credited at the same per-bottle rate.
+      const deliveryAmount = (data.filledDropped - (data.filledReceived ?? 0)) * data.pricePerBottle;
       const rows: DetailRow[] = [
         { label: 'Date / Time',       value: `${data.deliveryDate}  ·  ${data.deliveryTime}` },
         { label: 'Customer',          value: data.customerName },

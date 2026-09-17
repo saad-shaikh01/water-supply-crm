@@ -164,8 +164,11 @@ export class DeliveryRepricingService {
           }
 
           const oldPricePerBottle = item.pricePerBottle;
-          const oldAmount = item.filledDropped * oldPricePerBottle;
-          const newAmount = item.filledDropped * dto.newPricePerBottle;
+          // Net of any filled bottles taken back — matches the actual ledger
+          // charge computed inside recordDelivery below.
+          const netUnits = item.filledDropped - item.filledReceived;
+          const oldAmount = netUnits * oldPricePerBottle;
+          const newAmount = netUnits * dto.newPricePerBottle;
           const difference = newAmount - oldAmount;
 
           try {

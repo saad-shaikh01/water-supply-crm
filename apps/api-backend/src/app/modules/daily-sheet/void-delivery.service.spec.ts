@@ -110,6 +110,10 @@ describe('DailySheetService.voidDelivery', () => {
         count: jest.fn().mockResolvedValue(ledgerRowCount),
         deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
+      // Van Cash Ledger hook #2 (syncVanCashLedgerForClosedSheet) reload —
+      // resolves null so it short-circuits without a full SHEET_CASH_RELOAD_INCLUDE
+      // fixture; only exercised when the item's sheet is closed.
+      dailySheet: { findUnique: jest.fn().mockResolvedValue(null) },
     };
     mockPrisma.$transaction.mockImplementation((fn: any) => fn(tx));
     return tx;
@@ -123,7 +127,10 @@ describe('DailySheetService.voidDelivery', () => {
       invalidateOverview: jest.fn().mockResolvedValue(undefined),
       invalidateAnalytics: jest.fn().mockResolvedValue(undefined),
     };
-    mockVanCashLedger = { createHandoverForClosedSheet: jest.fn().mockResolvedValue(null) };
+    mockVanCashLedger = {
+      createHandoverForClosedSheet: jest.fn().mockResolvedValue(null),
+      handlePostCloseCorrection: jest.fn().mockResolvedValue(null),
+    };
     mockPrisma = {
       dailySheetItem: { findUnique: jest.fn() },
       $transaction: jest.fn(),

@@ -40,6 +40,7 @@ export class VanService {
       include: { user: { select: { id: true, name: true, role: true, isActive: true } } },
       orderBy: { createdAt: 'asc' as const },
     },
+    vehiclesUsuallyServing: { select: { id: true, plateNumber: true, isActive: true } },
   };
 
   async findAllPaginated(vendorId: string, query: any) {

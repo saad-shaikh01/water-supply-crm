@@ -2,12 +2,11 @@
 
 import { Button } from '@water-supply-crm/ui';
 import { StatusBadge } from '../../../components/shared/status-badge';
-import { ArrowLeft, ArrowRightLeft, Download, History, MapPin, Printer, ShieldAlert, ShieldCheck, Truck, User, Users } from 'lucide-react';
+import { ArrowLeft, ArrowRightLeft, Download, History, Printer, ShieldAlert, ShieldCheck, Truck, User, Users } from 'lucide-react';
 import type { SheetCrewMember } from '@water-supply-crm/types';
 
 interface SheetDetailHeaderProps {
   date: string;
-  routeName: string | null;
   vanPlateNumber: string | null;
   driverName: string | null;
   crew: SheetCrewMember[];
@@ -26,7 +25,6 @@ interface SheetDetailHeaderProps {
 
 export function SheetDetailHeader({
   date,
-  routeName,
   vanPlateNumber,
   driverName,
   crew,
@@ -57,21 +55,14 @@ export function SheetDetailHeader({
           </h1>
           <StatusBadge status={currentStatus} />
         </div>
-        <div className="text-muted-foreground text-sm flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 font-medium">
-          <span className="flex items-center gap-1 whitespace-nowrap">
-            <MapPin className="h-3 w-3 shrink-0" />
-            {routeName ?? 'No Route'}
-          </span>
-          {vanPlateNumber && (
-            <>
-              <span className="text-muted-foreground/40">•</span>
-              <span className="flex items-center gap-1 whitespace-nowrap">
-                <Truck className="h-3 w-3 shrink-0" />
-                {vanPlateNumber}
-              </span>
-            </>
-          )}
-        </div>
+        {vanPlateNumber && (
+          <div className="text-muted-foreground text-sm flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 font-medium">
+            <span className="flex items-center gap-1 whitespace-nowrap">
+              <Truck className="h-3 w-3 shrink-0" />
+              {vanPlateNumber}
+            </span>
+          </div>
+        )}
         {/* Crew line */}
         <div className="text-muted-foreground text-xs flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 font-medium">
           <span className="flex items-center gap-1 whitespace-nowrap">

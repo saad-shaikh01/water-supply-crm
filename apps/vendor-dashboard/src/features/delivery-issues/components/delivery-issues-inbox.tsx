@@ -591,7 +591,12 @@ export function DeliveryIssuesInbox() {
             cell: (row: DeliveryIssueRow) => (
               <div>
                 <p className="text-xs font-semibold">{row.dailySheetItem?.failureCategory ?? 'UNSPECIFIED'}</p>
-                <p className="text-[10px] text-muted-foreground truncate max-w-56">{row.dailySheetItem?.reason ?? '-'}</p>
+                <p
+                  className="text-[10px] text-muted-foreground truncate max-w-56"
+                  title={row.dailySheetItem?.reason ?? undefined}
+                >
+                  {row.dailySheetItem?.reason ?? '-'}
+                </p>
               </div>
             ),
           },

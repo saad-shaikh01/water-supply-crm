@@ -66,8 +66,10 @@ export class LedgerService {
       emptyReceived: number;
       /** Already-filled bottles received back from the customer (account closing,
        * excess stock return). Optional for backward compatibility with callers
-       * (e.g. bulk-import) that don't have this concept — defaults to 0. Treated
-       * financially the same as emptyReceived: reduces the bottle wallet, no charge. */
+       * (e.g. bulk-import) that don't have this concept — defaults to 0. Reduces
+       * the bottle wallet same as emptyReceived, AND credits the customer's
+       * account at pricePerBottle — they were charged for this bottle when it
+       * was originally delivered, so returning it unopened refunds that charge. */
       filledReceived?: number;
       cashCollected: number;
       pricePerBottle: number;
@@ -81,7 +83,11 @@ export class LedgerService {
   ) {
     const run = async (tx: Prisma.TransactionClient) => {
       const filledReceived = data.filledReceived ?? 0;
-      const totalAmount = data.filledDropped * data.pricePerBottle;
+      // Net charge for this delivery: what was dropped, less what was returned
+      // filled (a credit at the same per-bottle rate). Stored as-is on the
+      // DELIVERY transaction's `amount` — dashboards/exports that sum it as
+      // revenue see the credit reflected automatically.
+      const totalAmount = (data.filledDropped - filledReceived) * data.pricePerBottle;
       const newBottleChange = data.filledDropped - data.emptyReceived - filledReceived;
       const newFinancialEffect = totalAmount - data.cashCollected;
 

@@ -14,6 +14,20 @@ import { ConversationService } from './conversation.service';
 import { InAppNotificationService } from '../notifications/in-app-notification.service';
 import { NotificationService } from '../notifications/notification.service';
 import type { AuthUser } from '@water-supply-crm/types';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { randomUUID } from 'crypto';
+import { writeFile, readFile, unlink } from 'fs/promises';
+import ffmpeg from 'fluent-ffmpeg';
+import ffmpegPath from 'ffmpeg-static';
+
+// Recording browsers each pick whatever MediaRecorder format they support
+// (webm/opus on Chrome & Android, ogg on some others) — iOS/macOS Safari's
+// WebKit engine can't decode WebM or Ogg containers at all, so a voice
+// message recorded elsewhere was silently unplayable there. Normalizing
+// every upload to MP3 makes it playable on every browser regardless of how
+// it was recorded.
+if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath);
 
 // Same Wasabi prefix as the legacy note system — existing audio keys and new
 // uploads live side by side; no storage migration.
@@ -163,11 +177,12 @@ export class MessageService {
 
   private async uploadVoice(file: Express.Multer.File): Promise<string> {
     try {
+      const mp3Buffer = await this.transcodeToMp3(file.buffer);
       const { key } = await this.storage.upload(
         VOICE_PREFIX,
-        file.buffer,
-        file.originalname,
-        file.mimetype,
+        mp3Buffer,
+        'voice-message.mp3',
+        'audio/mpeg',
       );
       return key;
     } catch (err) {
@@ -176,6 +191,29 @@ export class MessageService {
         (err as Error)?.stack,
       );
       throw new InternalServerErrorException('Failed to upload voice message');
+    }
+  }
+
+  // ffmpeg needs seekable input/output, so the buffer is round-tripped
+  // through temp files rather than piped in-memory.
+  private async transcodeToMp3(buffer: Buffer): Promise<Buffer> {
+    const inputPath = join(tmpdir(), `${randomUUID()}-voice-in`);
+    const outputPath = join(tmpdir(), `${randomUUID()}-voice-out.mp3`);
+    await writeFile(inputPath, buffer);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        ffmpeg(inputPath)
+          .audioCodec('libmp3lame')
+          .audioBitrate('64k')
+          .format('mp3')
+          .on('error', reject)
+          .on('end', () => resolve())
+          .save(outputPath);
+      });
+      return await readFile(outputPath);
+    } finally {
+      await unlink(inputPath).catch(() => undefined);
+      await unlink(outputPath).catch(() => undefined);
     }
   }
 

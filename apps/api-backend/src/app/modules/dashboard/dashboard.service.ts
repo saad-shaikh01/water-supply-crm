@@ -538,8 +538,9 @@ export class DashboardService {
       const emptyReceived = monthItems.reduce((s, i) => s + i.emptyReceived, 0);
       const filledReceived = monthItems.reduce((s, i) => s + i.filledReceived, 0);
       // Actual sales revenue = every delivered bottle priced at the rate it was
-      // sold for (pricePerBottle is persisted per line, 0 for billing-exempt).
-      const revenue = monthItems.reduce((s, i) => s + i.filledDropped * (i.pricePerBottle ?? 0), 0);
+      // sold for (pricePerBottle is persisted per line, 0 for billing-exempt),
+      // net of any filled bottles taken back and credited at the same rate.
+      const revenue = monthItems.reduce((s, i) => s + (i.filledDropped - (i.filledReceived ?? 0)) * (i.pricePerBottle ?? 0), 0);
       // Weighted average selling price per bottle for the month.
       const averageRate = bottlesDelivered > 0 ? Math.round(revenue / bottlesDelivered) : 0;
       const monthCash = monthSheets.map(effCash);
