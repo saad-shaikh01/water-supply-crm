@@ -121,7 +121,7 @@ function CommunicationsContent() {
           own internal scroll areas — the double-scrollbar bug. Using `dvh`
           instead of `vh` avoids the same mismatch against mobile browser
           toolbar chrome. */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[360px_1fr] rounded-2xl border border-border/50 bg-card/30 overflow-hidden h-[calc(100dvh-290px)] md:h-[calc(100dvh-260px)]">
+      <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[360px_1fr] grid-rows-[minmax(0,1fr)] rounded-2xl border border-border/50 bg-card/30 overflow-hidden h-[calc(100dvh-290px)] md:h-[calc(100dvh-260px)]">
         {/* List pane */}
         <div className={cn('flex flex-col border-border/40 md:border-r min-h-0', selected && 'hidden md:flex')}>
           <ConversationFilters
