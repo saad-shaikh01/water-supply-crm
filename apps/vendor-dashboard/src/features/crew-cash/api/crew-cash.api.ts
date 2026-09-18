@@ -17,6 +17,24 @@ export interface CreateStandaloneCrewCashData {
   notes?: string;
 }
 
+/**
+ * Edit a standalone (no-sheet) crew-cash entry in place (P2). Allowed only while
+ * its payroll twin is not rolled into a locked payroll period — otherwise the
+ * server rejects with an explanation ("void and re-record"). `reason` is
+ * mandatory (≥ 5 chars) and kept, with before/after, in the audit trail.
+ */
+export interface UpdateStandaloneCrewCashData {
+  /** Optimistic-concurrency token — the entry's current `version`. */
+  version: number;
+  employeeId?: string;
+  category?: CrewCashCategory;
+  amount?: number;
+  /** YYYY-MM-DD (or ISO). Future dates are rejected. */
+  date?: string;
+  notes?: string;
+  reason: string;
+}
+
 export interface UpdateCrewCashData {
   /** Optimistic-concurrency token — must match the entry's current `version`. */
   version: number;
@@ -50,6 +68,8 @@ export const crewCashApi = {
   remove: (id: string) => apiClient.delete(`/crew-cash/${id}`),
   createStandalone: (data: CreateStandaloneCrewCashData) =>
     apiClient.post<StandaloneCrewCashEntry>('/crew-cash/standalone', data),
+  updateStandalone: (id: string, data: UpdateStandaloneCrewCashData) =>
+    apiClient.patch<StandaloneCrewCashEntry>(`/crew-cash/standalone/${id}`, data),
   voidStandalone: (id: string, reason: string) =>
     apiClient.patch<StandaloneCrewCashEntry>(`/crew-cash/standalone/${id}/void`, { reason }),
 };

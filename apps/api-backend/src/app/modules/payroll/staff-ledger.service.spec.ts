@@ -76,8 +76,10 @@ function makeService(entrySnapshot: any = pendingEntry, userExists = true, canVi
   const approvalGate = { requiresApproval: jest.fn().mockResolvedValue(false) };
   const permissions = { can: jest.fn().mockResolvedValue(canViewAll) };
 
-  const svc = new StaffLedgerService(prisma as any, approvalGate as any, permissions as any);
-  return { svc, prisma, tx, approvalGate, permissions };
+  const periodGuard = { assertWritable: jest.fn().mockResolvedValue(undefined) };
+
+  const svc = new StaffLedgerService(prisma as any, approvalGate as any, permissions as any, periodGuard as any);
+  return { svc, prisma, tx, approvalGate, permissions, periodGuard };
 }
 
 // ─── tests ───────────────────────────────────────────────────────────────────
@@ -200,6 +202,45 @@ describe('StaffLedgerService', () => {
     });
   });
 
+  // ── voidEntryTx: optional skipCreatorCheck (used by StandaloneCrewCashService) ──
+
+  describe('voidEntryTx() skipCreatorCheck', () => {
+    it('WITHOUT the flag still forbids a non-creator lacking payroll:ledger_void', async () => {
+      const { svc, tx } = makeService(pendingEntry, true, false); // permissions.can() → false
+      await expect(
+        svc.voidEntryTx(tx as any, otherStaffUser, ENTRY_ID, { version: 0, reason: 'not mine' }),
+      ).rejects.toThrow(ForbiddenException);
+      expect(tx.staffLedgerEntry.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('WITH the flag a non-creator lacking payroll:ledger_void may void, without consulting permissions', async () => {
+      const { svc, tx, permissions } = makeService(pendingEntry, true, false);
+      const result = await svc.voidEntryTx(
+        tx as any,
+        otherStaffUser,
+        ENTRY_ID,
+        { version: 0, reason: 'owner-authorized void' },
+        { skipCreatorCheck: true },
+      );
+      expect(result.status).toBe(LedgerEntryStatus.VOIDED);
+      expect(permissions.can).not.toHaveBeenCalled();
+    });
+
+    it('the flag does NOT bypass the lock rule — an entry rolled into a locked period is still not voidable', async () => {
+      const { svc, tx } = makeService(postedLockedEntry, true, false);
+      await expect(
+        svc.voidEntryTx(tx as any, otherStaffUser, ENTRY_ID, { version: 2, reason: 'locked' }, { skipCreatorCheck: true }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('the flag does NOT bypass the version CAS', async () => {
+      const { svc, tx } = makeService(pendingEntry, true, false);
+      await expect(
+        svc.voidEntryTx(tx as any, otherStaffUser, ENTRY_ID, { version: 9, reason: 'stale' }, { skipCreatorCheck: true }),
+      ).rejects.toThrow(ConflictException);
+    });
+  });
+
   // ── approve ──────────────────────────────────────────────────────────────
 
   describe('approve()', () => {
@@ -218,6 +259,28 @@ describe('StaffLedgerService', () => {
     it('rejects approving a non-PENDING entry', async () => {
       const { svc } = makeService(postedPreLockEntry);
       await expect(svc.approve(adminUser, ENTRY_ID, { version: 1 })).rejects.toThrow(BadRequestException);
+    });
+
+    it('P4: approving a PENDING ADVANCE goes through the period guard with its effectiveDate', async () => {
+      const advance = { ...pendingEntry, category: StaffLedgerCategory.ADVANCE };
+      const { svc, tx, periodGuard } = makeService(advance);
+      await svc.approve(adminUser, ENTRY_ID, { version: 0 });
+      expect(periodGuard.assertWritable).toHaveBeenCalledWith(VENDOR_ID, [advance.effectiveDate], { userId: adminUser.userId });
+      expect(tx.staffLedgerEntry.updateMany).toHaveBeenCalledTimes(1);
+    });
+
+    it('P4: a rejecting period guard blocks the ADVANCE approval before anything is written', async () => {
+      const advance = { ...pendingEntry, category: StaffLedgerCategory.ADVANCE };
+      const { svc, tx, periodGuard } = makeService(advance);
+      periodGuard.assertWritable.mockRejectedValueOnce(new ForbiddenException('PERIOD_CLOSED'));
+      await expect(svc.approve(adminUser, ENTRY_ID, { version: 0 })).rejects.toThrow(ForbiddenException);
+      expect(tx.staffLedgerEntry.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('P4: approving a non-ADVANCE entry does not consult the period guard', async () => {
+      const { svc, periodGuard } = makeService({ ...pendingEntry, category: StaffLedgerCategory.BONUS });
+      await svc.approve(adminUser, ENTRY_ID, { version: 0 });
+      expect(periodGuard.assertWritable).not.toHaveBeenCalled();
     });
 
     it('throws ConflictException on stale version', async () => {
@@ -406,6 +469,76 @@ describe('StaffLedgerService', () => {
     it('allows viewing another employee\'s ledger with payroll:view_all', async () => {
       const { svc } = makeService(pendingEntry, true, true); // permissions.can() → true
       await expect(svc.findForEmployee(otherStaffUser, EMPLOYEE_ID, {} as any)).resolves.toBeDefined();
+    });
+  });
+
+  // ── P4: cash-ledger accounting-period guard (ADVANCE only) ───────────────
+
+  describe('cash-ledger period guard (P4)', () => {
+    const advanceDto = {
+      userId: EMPLOYEE_ID, category: StaffLedgerCategory.ADVANCE,
+      amount: -5000, effectiveDate: '2026-08-14', description: 'Advance',
+    };
+    const advanceEntry = { ...pendingEntry, category: StaffLedgerCategory.ADVANCE, amount: -5000, effectiveDate: new Date('2026-08-14') };
+
+    it('create(): an ADVANCE asserts the effectiveDate is writable, BEFORE anything is created', async () => {
+      const { svc, tx, periodGuard } = makeService();
+      await svc.create(adminUser, advanceDto);
+      expect(periodGuard.assertWritable).toHaveBeenCalledTimes(1);
+      expect(periodGuard.assertWritable).toHaveBeenCalledWith(VENDOR_ID, ['2026-08-14'], { userId: 'admin-001' });
+      expect(periodGuard.assertWritable.mock.invocationCallOrder[0]).toBeLessThan(
+        tx.staffLedgerEntry.create.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('create(): a closed-period rejection stops the write (nothing created, no audit row)', async () => {
+      const { svc, tx, periodGuard } = makeService();
+      periodGuard.assertWritable.mockRejectedValueOnce(new ForbiddenException('PERIOD_CLOSED'));
+      await expect(svc.create(adminUser, advanceDto)).rejects.toThrow(ForbiddenException);
+      expect(tx.staffLedgerEntry.create).not.toHaveBeenCalled();
+      expect(tx.staffLedgerAuditLog.create).not.toHaveBeenCalled();
+    });
+
+    it('createTx(): the composable variant guards ADVANCE too', async () => {
+      const { svc, tx, periodGuard } = makeService();
+      await svc.createTx(tx as any, adminUser, advanceDto);
+      expect(periodGuard.assertWritable).toHaveBeenCalledWith(VENDOR_ID, ['2026-08-14'], { userId: 'admin-001' });
+    });
+
+    it.each([
+      StaffLedgerCategory.BONUS,
+      StaffLedgerCategory.CREW_CASH,
+      StaffLedgerCategory.REVERSAL,
+      StaffLedgerCategory.CORRECTION,
+    ])('create(): a %s entry (no cash effect / guarded elsewhere) never calls the guard', async (category) => {
+      const { svc, periodGuard } = makeService();
+      await svc.create(adminUser, { ...advanceDto, category, amount: 1000 });
+      expect(periodGuard.assertWritable).not.toHaveBeenCalled();
+    });
+
+    it('voidEntry(): voiding an ADVANCE asserts the ENTRY effectiveDate, before mutating', async () => {
+      const { svc, tx, periodGuard } = makeService({ ...advanceEntry, status: LedgerEntryStatus.POSTED, version: 1 });
+      await svc.voidEntry(adminUser, ENTRY_ID, { version: 1, reason: 'entered twice' } as any);
+      expect(periodGuard.assertWritable).toHaveBeenCalledTimes(1);
+      expect(periodGuard.assertWritable).toHaveBeenCalledWith(VENDOR_ID, [advanceEntry.effectiveDate], { userId: 'admin-001' });
+      expect(periodGuard.assertWritable.mock.invocationCallOrder[0]).toBeLessThan(
+        tx.staffLedgerEntry.updateMany.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('voidEntry(): a closed-period rejection leaves the entry untouched', async () => {
+      const { svc, tx, periodGuard } = makeService({ ...advanceEntry, status: LedgerEntryStatus.POSTED, version: 1 });
+      periodGuard.assertWritable.mockRejectedValueOnce(new ForbiddenException('PERIOD_CLOSED'));
+      await expect(svc.voidEntry(adminUser, ENTRY_ID, { version: 1, reason: 'x' } as any)).rejects.toThrow(ForbiddenException);
+      expect(tx.staffLedgerEntry.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('voidEntry(): a non-ADVANCE entry (BONUS / CREW_CASH) never calls the guard', async () => {
+      for (const category of [StaffLedgerCategory.BONUS, StaffLedgerCategory.CREW_CASH]) {
+        const { svc, periodGuard } = makeService({ ...pendingEntry, category });
+        await svc.voidEntry(adminUser, ENTRY_ID, { version: 0, reason: 'x' } as any);
+        expect(periodGuard.assertWritable).not.toHaveBeenCalled();
+      }
     });
   });
 });

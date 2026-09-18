@@ -679,6 +679,12 @@ export class AnalyticsService {
         available: officeCashStats.availableBalance,
         periodExpense: officeCashStats.totalExpense,
         periodCashIn: officeCashStats.totalCashIn,
+        // Cash Ledger P0 breakdown (periodExpense = office expenses + payroll cash + crew cash;
+        // periodCashIn = sheet cash in + office manual cash in).
+        periodCrewCash: officeCashStats.crewCash,
+        periodPayrollCash: officeCashStats.payrollCash,
+        periodOfficeCashIn: officeCashStats.officeCashIn,
+        periodSheetCashIn: officeCashStats.sheetCashIn,
         periodRemitted: officeCashStats.totalRemitted,
         pendingHandoverCount: officeCashStats.pendingHandoverCount,
         pendingRemittanceCount: officeCashStats.pendingRemittanceCount,

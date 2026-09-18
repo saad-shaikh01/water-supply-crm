@@ -1,8 +1,7 @@
-import { IsEnum, IsInt, Min, IsDateString, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
-import { VehicleServiceType } from '@prisma/client';
+import { IsInt, Min, IsDateString, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class UpdateServiceRecordDto {
-  @IsOptional() @IsEnum(VehicleServiceType) serviceType?: VehicleServiceType;
+  @IsOptional() @IsString() @MaxLength(40) serviceType?: string;
   @IsOptional() @IsInt() @Min(0) performedAtOdometer?: number;
   @IsOptional() @IsDateString() performedAtDate?: string;
   @IsOptional() @IsNumber() @Min(0) cost?: number;

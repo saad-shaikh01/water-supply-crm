@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { StandaloneCrewCashService } from './standalone-crew-cash.service';
 import { CreateStandaloneCrewCashDto } from './dto/create-standalone-crew-cash.dto';
+import { UpdateStandaloneCrewCashDto } from './dto/update-standalone-crew-cash.dto';
 import { VoidStandaloneCrewCashDto } from './dto/void-standalone-crew-cash.dto';
 import { StandaloneCrewCashQueryDto } from './dto/standalone-crew-cash-query.dto';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
@@ -15,6 +16,7 @@ import type { AuthUser } from '@water-supply-crm/types';
  * `CrewCashDistributionController`, just without a sheet in the URL.
  *   - create → crew_cash:create (same cohort as sheet-scoped Crew Cash)
  *   - list   → crew_cash:view_all (this is a vendor-wide, not per-sheet, list)
+ *   - edit   → crew_cash:edit (in place while the payroll twin is unlocked)
  *   - void   → crew_cash:delete (closest existing analog to "undo an entry
  *     you weren't supposed to be able to edit anymore")
  */
@@ -32,6 +34,13 @@ export class StandaloneCrewCashController {
   @RequirePermissions('crew_cash:view_all')
   list(@CurrentUser() user: AuthUser, @Query() query: StandaloneCrewCashQueryDto) {
     return this.standaloneCrewCash.list(user, query);
+  }
+
+  // `:id` and `:id/void` have different segment counts, so they never shadow each other.
+  @Patch(':id')
+  @RequirePermissions('crew_cash:edit')
+  update(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateStandaloneCrewCashDto) {
+    return this.standaloneCrewCash.update(user, id, dto);
   }
 
   @Patch(':id/void')

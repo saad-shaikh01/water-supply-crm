@@ -117,7 +117,15 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // No new resource, no new `:page` — `daily_sheets` was already navigable. No
 // default preset grants it explicitly; reaches vendors via the vendor_admin/
 // super_admin `*` wildcard only, same as `correct`.
-const FROZEN_TOTAL = 191;
+// 193 = 191 + van_cash_ledger:{close_period, override_lock} — Cash Ledger redesign P4
+// (accounting periods, 2026-09-18): close/reopen a PKT calendar month, and write into
+// a closed month with a mandatory audited reason. No new resource, no new `:page`.
+// Vendor-Admin-only — reaches vendors via the vendor_admin/super_admin `*` wildcard
+// only; no preset grants them explicitly.
+// 194 = 193 + van_cash_ledger:export — Cash Ledger redesign P5 (CSV / PDF export,
+// 2026-09-18): financial data export. No new resource, no new `:page`. Vendor Admin
+// via `*`; Manager and Accountant by preset (+ PRESET_DRIFT_BACKFILLS for existing vendors).
+const FROZEN_TOTAL = 194;
 const FROZEN_PAGES = 30;
 const FROZEN_RESOURCES = 33;
 

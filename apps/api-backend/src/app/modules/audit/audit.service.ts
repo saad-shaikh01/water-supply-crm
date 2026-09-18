@@ -10,7 +10,12 @@ export interface AuditLogData {
   action: string;
   entity: string;
   entityId?: string;
-  changes?: { before?: any; after?: any };
+  /**
+   * `reason` (P2 convention) is the mandatory human reason captured for edits /
+   * voids / adjustments; the history view reads it from here first, falling back
+   * to legacy `after.voidReason` / `adjustmentReason` / `correctionReason`.
+   */
+  changes?: { before?: any; after?: any; reason?: string };
 }
 
 @Injectable()

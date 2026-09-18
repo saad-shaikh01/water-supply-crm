@@ -1,101 +1,123 @@
 'use client';
 
-import { useState } from 'react';
-import { Fuel, Landmark, Plus, Receipt } from 'lucide-react';
-import { Button } from '@water-supply-crm/ui';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { PageHeader } from '../../../components/shared/page-header';
-import { DateRangePicker } from '../../../components/shared/date-range-picker';
-import { VanFilter } from '../../../components/shared/filters/van-filter';
-import { useCan } from '../../../features/authz/hooks/use-can';
+import { formatYmdShort } from '../../../lib/date-pkt';
 import { CashLedgerTimeline } from '../../../features/van-cash-ledger/components/cash-ledger-timeline';
-import { CashLedgerStatsBar } from '../../../features/van-cash-ledger/components/cash-ledger-stats-bar';
+import { CashLedgerDayTable } from '../../../features/van-cash-ledger/components/cash-ledger-day-table';
+import { CashLedgerToolbar } from '../../../features/van-cash-ledger/components/cash-ledger-toolbar';
+import { CashLedgerSummary } from '../../../features/van-cash-ledger/components/cash-ledger-summary';
+import { CashLedgerAlertStrip } from '../../../features/van-cash-ledger/components/cash-ledger-alert-strip';
+import { CashLedgerScopeNotice } from '../../../features/van-cash-ledger/components/cash-ledger-scope-notice';
+import { CashLedgerMiniBar } from '../../../features/van-cash-ledger/components/cash-ledger-mini-bar';
+import { CashLedgerLegend } from '../../../features/van-cash-ledger/components/cash-ledger-legend';
+import { CashLedgerPeriodPill } from '../../../features/van-cash-ledger/components/cash-ledger-period-pill';
+import { CashLedgerPeriodBanner } from '../../../features/van-cash-ledger/components/cash-ledger-period-banner';
+import { RecordMenu } from '../../../features/van-cash-ledger/components/record-menu';
+import { PendingApprovalsPanel } from '../../../features/van-cash-ledger/components/pending-approvals-panel';
 import { AddCashInDialog } from '../../../features/van-cash-ledger/components/add-cash-in-dialog';
 import { RecordRemittanceDialog } from '../../../features/van-cash-ledger/components/record-remittance-dialog';
-import { VAN_CASH_LEDGER_PERMISSIONS } from '../../../features/van-cash-ledger/constants';
+import { useCashLedgerSummary } from '../../../features/van-cash-ledger/hooks/use-van-cash-ledger';
+import { useCashLedgerView } from '../../../features/van-cash-ledger/hooks/use-cash-ledger-view';
 import { AddExpenseWizard } from '../../../features/expense-center/wizard/add-expense-wizard';
 import { TopUpFuelCardDialog } from '../../../features/fuel-cards/components/topup-fuel-card-dialog';
-import { FUEL_CARD_PERMISSIONS } from '../../../features/fuel-cards/constants';
+
+/** Fallback height of the sticky toolbar before it has been measured. */
+const STICKY_FALLBACK_PX = 64;
+
+/** "1 Sep → 18 Sep 2026" (year shown once, or on both ends when the range crosses a year). */
+function rangeLabel(from?: string, to?: string): string {
+  if (!from && !to) return 'All dates';
+  const fromYear = from?.slice(0, 4);
+  const toYear = to?.slice(0, 4);
+  if (from && to && from === to) return `${formatYmdShort(from)} ${fromYear}`;
+  const left = from ? `${formatYmdShort(from)}${fromYear !== toYear ? ` ${fromYear}` : ''}` : '…';
+  const right = to ? `${formatYmdShort(to)} ${toYear}` : '…';
+  return `${left} → ${right}`;
+}
 
 export default function CashLedgerPage() {
   const [addCashInOpen, setAddCashInOpen] = useState(false);
   const [remittanceOpen, setRemittanceOpen] = useState(false);
   const [expenseOpen, setExpenseOpen] = useState(false);
   const [fuelTopUpOpen, setFuelTopUpOpen] = useState(false);
-  const canManage = useCan(VAN_CASH_LEDGER_PERMISSIONS.manage);
-  const canRemit = useCan(VAN_CASH_LEDGER_PERMISSIONS.remit);
-  const canCreateExpense = useCan('expenses:create');
-  const canTopUpFuelCard = useCan(FUEL_CARD_PERMISSIONS.topup);
+  const [pendingPanelOpen, setPendingPanelOpen] = useState(false);
+
+  const { vanId, range } = useCashLedgerSummary();
+  const [view] = useCashLedgerView();
+
+  // Sentinel for the mini-bar: it appears once the summary hero scrolls out of view.
+  const heroRef = useRef<HTMLDivElement>(null);
+
+  // `--cl-sticky-top` = measured height of the sticky toolbar, consumed by the timeline's sticky day headers.
+  // The toolbar (view toggle + filters + chips) changes height as chips appear / wrap, hence the ResizeObserver.
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [stickyTop, setStickyTop] = useState(STICKY_FALLBACK_PX);
+  useEffect(() => {
+    const el = toolbarRef.current;
+    if (!el) return;
+    const measure = () => {
+      const h = Math.ceil(el.getBoundingClientRect().height);
+      if (h > 0) setStickyTop(h);
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const menuHandlers = {
+    onAddCashIn: () => setAddCashInOpen(true),
+    onAddExpense: () => setExpenseOpen(true),
+    onOwnerTransfer: () => setRemittanceOpen(true),
+    onFuelTopUp: () => setFuelTopUpOpen(true),
+  };
+  const openPending = () => setPendingPanelOpen(true);
 
   return (
-    <>
+    <div
+      className="pb-24"
+      style={{ '--cl-sticky-top': `${stickyTop}px` } as CSSProperties}
+    >
       <PageHeader
         title="Cash Ledger"
-        description="Every cash handover and cash-paid expense per van, in one running balance"
+        description={`${vanId ? 'Van view' : 'Office cash'} · ${rangeLabel(range.from, range.to)}`}
         action={
-          canManage || canRemit || canCreateExpense || canTopUpFuelCard ? (
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
-              {canCreateExpense && (
-                <Button
-                  variant="outline"
-                  onClick={() => setExpenseOpen(true)}
-                  className="rounded-full px-4 sm:px-5 py-3 sm:py-6 h-auto transition-all hover:scale-105 active:scale-95 flex items-center gap-2 text-sm sm:text-base font-bold w-full sm:w-auto justify-center"
-                >
-                  <Receipt className="h-4 w-4 sm:h-5 sm:w-5" />
-                  Add Expense
-                </Button>
-              )}
-              {canTopUpFuelCard && (
-                <Button
-                  variant="outline"
-                  onClick={() => setFuelTopUpOpen(true)}
-                  className="rounded-full px-4 sm:px-5 py-3 sm:py-6 h-auto transition-all hover:scale-105 active:scale-95 flex items-center gap-2 text-sm sm:text-base font-bold w-full sm:w-auto justify-center"
-                >
-                  <Fuel className="h-4 w-4 sm:h-5 sm:w-5" />
-                  Top Up Fuel Card
-                </Button>
-              )}
-              {canRemit && (
-                <Button
-                  variant="outline"
-                  onClick={() => setRemittanceOpen(true)}
-                  className="rounded-full px-4 sm:px-5 py-3 sm:py-6 h-auto transition-all hover:scale-105 active:scale-95 flex items-center gap-2 text-sm sm:text-base font-bold w-full sm:w-auto justify-center"
-                >
-                  <Landmark className="h-4 w-4 sm:h-5 sm:w-5" />
-                  Record Owner Handover
-                </Button>
-              )}
-              {canManage && (
-                <Button
-                  onClick={() => setAddCashInOpen(true)}
-                  className="rounded-full px-4 sm:px-5 py-3 sm:py-6 h-auto shadow-lg shadow-primary/20 transition-all hover:scale-105 active:scale-95 flex items-center gap-2 text-sm sm:text-base font-bold w-full sm:w-auto justify-center"
-                >
-                  <Plus className="h-4 w-4 sm:h-5 sm:w-5" />
-                  Add Cash In
-                </Button>
-              )}
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <div className="flex-1 sm:flex-none">
+              <RecordMenu variant="header" {...menuHandlers} />
             </div>
-          ) : undefined
+            <CashLedgerPeriodPill />
+            <CashLedgerLegend />
+          </div>
         }
       />
-      <div className="space-y-4 pb-4">
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 bg-card/30 p-3 sm:p-4 rounded-2xl border border-border">
-          <div className="flex-1 min-w-0">
-            <VanFilter />
-          </div>
-          <div className="flex-1 min-w-0">
-            <DateRangePicker className="w-full sm:w-auto sm:min-w-64" />
-          </div>
+
+      <div className="space-y-4">
+        <CashLedgerAlertStrip onReview={openPending} />
+
+        <CashLedgerPeriodBanner />
+
+        <div ref={heroRef}>
+          <CashLedgerSummary />
         </div>
 
-        <CashLedgerTimeline />
+        <CashLedgerToolbar ref={toolbarRef} />
+
+        <CashLedgerScopeNotice />
+
+        {view === 'table' ? <CashLedgerDayTable /> : <CashLedgerTimeline />}
       </div>
 
-      <CashLedgerStatsBar />
+      <CashLedgerMiniBar sentinelRef={heroRef} onOpenPending={openPending} />
+      <RecordMenu variant="fab" {...menuHandlers} />
 
+      <PendingApprovalsPanel open={pendingPanelOpen} onOpenChange={setPendingPanelOpen} />
       <AddCashInDialog open={addCashInOpen} onOpenChange={setAddCashInOpen} />
       <RecordRemittanceDialog open={remittanceOpen} onOpenChange={setRemittanceOpen} />
       <AddExpenseWizard open={expenseOpen} onOpenChange={setExpenseOpen} />
       <TopUpFuelCardDialog open={fuelTopUpOpen} onOpenChange={setFuelTopUpOpen} />
-    </>
+    </div>
   );
 }

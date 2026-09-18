@@ -66,11 +66,8 @@ export const fuelLogSchema = z.object({
 export type FuelLogInput = z.infer<typeof fuelLogSchema>;
 
 export const serviceRecordSchema = z.object({
-  serviceType: z.enum([
-    'ENGINE_OIL', 'OIL_FILTER', 'AIR_FILTER', 'FUEL_FILTER', 'BRAKE_FLUID', 'BRAKE_PADS', 'COOLANT', 'RADIATOR',
-    'TRANSMISSION_FLUID', 'TYRE_ROTATION', 'BATTERY', 'SUSPENSION', 'CLUTCH', 'TIMING_BELT', 'SPARK_PLUGS',
-    'WHEEL_ALIGNMENT', 'AC_SERVICE', 'GENERAL_INSPECTION', 'OTHER',
-  ]),
+  // Catalogue key (per-vendor, user-manageable — see VehicleServiceTypeDef).
+  serviceType: z.string().min(1, 'Select a service type'),
   performedAtOdometer: z.number().int().min(0),
   performedAtDate: z.string().min(1, 'Date is required'),
   cost: z.number().min(0),

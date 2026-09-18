@@ -1,10 +1,19 @@
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { VanCashLedgerService } from './van-cash-ledger.service';
+import { periodLabelOf, redirectDateForToday } from './cash-ledger-period.util';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
+import { EditManualCashInDto } from './dto/edit-manual-cash-in.dto';
+import { VoidManualCashInDto } from './dto/void-manual-cash-in.dto';
+import { AddCashInDto } from './dto/add-cash-in.dto';
+import { vendorDateString } from '../../common/helpers/date.util';
 import {
   DailySheetKind,
   DiscrepancyCaseStatus,
   DiscrepancyType,
   ExpenseCategory,
+  ManualCashInSource,
+  ManualCashInStatus,
   OfficeCashRemittanceDestination,
   OfficeCashRemittanceStatus,
   VanCashHandoverStatus,
@@ -56,6 +65,7 @@ const baseHandover = {
   vanId: VAN_ID,
   dailySheetId: SHEET_ID,
   amount: 500,
+  expectedAmount: 500,
   submittedById: DRIVER_ID,
   date: new Date('2026-09-01'),
   status: VanCashHandoverStatus.PENDING as VanCashHandoverStatus,
@@ -124,7 +134,21 @@ function makeTx(opts: {
   };
 }
 
-function makeService(txOpts: Parameters<typeof makeTx>[0] = {}) {
+/** Period-store stub: `closed` = "YYYY-MM" labels that are CLOSED (default none). */
+function makePeriodStore(closed: string[] = []) {
+  const set = new Set(closed);
+  return {
+    getClosedLabels: jest.fn().mockImplementation(async () => new Set(set)),
+    closedLabelsAmong: jest
+      .fn()
+      .mockImplementation(async (_v: string, dates: Array<Date | string>) =>
+        [...new Set(dates.map((d) => periodLabelOf(d)))].filter((l) => set.has(l)),
+      ),
+    isDateClosed: jest.fn().mockImplementation(async (_v: string, d: Date | string) => set.has(periodLabelOf(d))),
+  };
+}
+
+function makeService(txOpts: Parameters<typeof makeTx>[0] = {}, closedPeriods: string[] = []) {
   const tx = makeTx(txOpts);
   const prisma = {
     $transaction: jest.fn().mockImplementation(async (cb: any) => cb(tx)),
@@ -134,10 +158,16 @@ function makeService(txOpts: Parameters<typeof makeTx>[0] = {}) {
   };
   const audit = { log: jest.fn().mockResolvedValue(undefined) };
   const permissions = { can: jest.fn().mockResolvedValue(true) };
-  const svc = new VanCashLedgerService(prisma as any, audit as any, permissions as any);
-  return { svc, prisma, tx, audit, permissions };
+  const periodStore = makePeriodStore(closedPeriods);
+  const svc = new VanCashLedgerService(
+    prisma as any,
+    audit as any,
+    permissions as any,
+    { assertWritable: jest.fn().mockResolvedValue(undefined) } as any,
+    periodStore as any,
+  );
+  return { svc, prisma, tx, audit, permissions, periodStore };
 }
-
 // ─── Office Cash Remittance fixtures + factory ──────────────────────────────
 
 const REMITTANCE_ID = 'remit-001';
@@ -277,11 +307,12 @@ function makeRemittanceService(opts: {
   const permissions = {
     can: jest.fn().mockImplementation(async (_uid: string, perm: string) => grants.has(perm)),
   };
-  const svc = new VanCashLedgerService(prisma as any, audit as any, permissions as any);
+  const periodGuard = { assertWritable: jest.fn().mockResolvedValue(undefined) };
+  const svc = new VanCashLedgerService(prisma as any, audit as any, permissions as any, periodGuard as any, { getClosedLabels: jest.fn().mockResolvedValue(new Set()), closedLabelsAmong: jest.fn().mockResolvedValue([]), isDateClosed: jest.fn().mockResolvedValue(false) } as any);
   const computeSpy = jest
     .spyOn(svc as any, 'computeAvailableBalance')
     .mockResolvedValue(available);
-  return { svc, prisma, tx, audit, permissions, computeSpy };
+  return { svc, prisma, tx, audit, permissions, computeSpy, periodGuard };
 }
 
 const accountantUser: AuthUser = {
@@ -318,6 +349,7 @@ describe('VanCashLedgerService', () => {
             vanId: VAN_ID,
             dailySheetId: SHEET_ID,
             amount: 750,
+            expectedAmount: 750,
             submittedById: DRIVER_ID,
             status: VanCashHandoverStatus.PENDING,
             approvedAt: null,
@@ -379,7 +411,7 @@ describe('VanCashLedgerService', () => {
       expect(tx.vanCashHandover.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: HANDOVER_ID },
-          data: expect.objectContaining({ amount: 800, version: { increment: 1 } }),
+          data: expect.objectContaining({ amount: 800, expectedAmount: 800, version: { increment: 1 } }),
         }),
       );
       expect(tx.vanCashHandover.create).not.toHaveBeenCalled();
@@ -398,6 +430,7 @@ describe('VanCashLedgerService', () => {
           data: expect.objectContaining({
             dailySheetId: SHEET_ID,
             amount: 300, // delta = 800 - 500
+            expectedAmount: 300,
             correctsEntryId: HANDOVER_ID,
             status: VanCashHandoverStatus.APPROVED,
             approvedById: null,
@@ -436,7 +469,7 @@ describe('VanCashLedgerService', () => {
 
       expect(tx.vanCashHandover.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ amount: 400, status: VanCashHandoverStatus.PENDING, dailySheetId: SHEET_ID }),
+          data: expect.objectContaining({ amount: 400, expectedAmount: 400, status: VanCashHandoverStatus.PENDING, dailySheetId: SHEET_ID }),
         }),
       );
       expect(result?.amount).toBe(400);
@@ -455,6 +488,7 @@ describe('VanCashLedgerService', () => {
         ...baseHandover,
         id: 'correction-001',
         amount: 100,
+        expectedAmount: 100,
         correctsEntryId: HANDOVER_ID,
         status: VanCashHandoverStatus.APPROVED,
       };
@@ -484,6 +518,7 @@ describe('VanCashLedgerService', () => {
             status: VanCashHandoverStatus.APPROVED,
             approvedById: adminUser.userId,
             approvedAmount: 500,
+            amount: 500,
           }),
         }),
       );
@@ -533,7 +568,9 @@ describe('VanCashLedgerService', () => {
         adjustmentReason: 'recount',
       });
       expect(tx.vanCashHandover.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ approvedAmount: 450, adjustmentReason: 'recount' }) }),
+        expect.objectContaining({
+          data: expect.objectContaining({ approvedAmount: 450, amount: 450, adjustmentReason: 'recount' }),
+        }),
       );
       expect(result.approvedAmount).toBe(450);
     });
@@ -541,6 +578,143 @@ describe('VanCashLedgerService', () => {
     it('throws ConflictException on stale version (CAS mismatch)', async () => {
       const { svc } = makeService({ handover: { ...baseHandover, version: 5 } });
       await expect(svc.approveHandover(adminUser, HANDOVER_ID, { version: 1 })).rejects.toThrow(ConflictException);
+    });
+  });
+
+  // ─── R5: final approved amount + Σ expectedAmount reconciliation ───────────
+
+  describe('R5 — final approved amount (no adjustment rows)', () => {
+    it('approve with an adjustment writes the FINAL amount into `amount`, keeps expectedAmount, and audits before/after amount', async () => {
+      const { svc, tx, audit } = makeService({ handover: { ...baseHandover, version: 1 } });
+
+      const result = await svc.approveHandover(adminUser, HANDOVER_ID, {
+        version: 1,
+        approvedAmount: 450,
+        adjustmentReason: 'recount',
+      });
+
+      const data = tx.vanCashHandover.updateMany.mock.calls[0][0].data;
+      expect(data.amount).toBe(450);
+      expect(data.approvedAmount).toBe(450);
+      // The sheet figure is NEVER touched by an approver.
+      expect(data).not.toHaveProperty('expectedAmount');
+      expect(result.amount).toBe(450);
+      expect((result as any).expectedAmount).toBe(500);
+
+      expect(audit.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'APPROVED',
+          entity: 'VanCashHandover',
+          changes: {
+            // P4: the audit trail always records the handover's date + relatesToDate.
+            before: { status: VanCashHandoverStatus.PENDING, amount: 500, date: '2026-09-01T00:00:00.000Z', relatesToDate: null },
+            after: expect.objectContaining({ status: VanCashHandoverStatus.APPROVED, amount: 450, approvedAmount: 450 }),
+          },
+        }),
+      );
+    });
+
+    it('createHandoverForClosedSheet seeds amount AND expectedAmount from the sheet cash figure', async () => {
+      const { svc, tx } = makeService({ sheet: buildClosedSheet({ cashExpected: 640 }) });
+      await svc.createHandoverForClosedSheet(tx as any, VENDOR_ID, SHEET_ID);
+      const data = tx.vanCashHandover.create.mock.calls[0][0].data;
+      expect(data.amount).toBe(640);
+      expect(data.expectedAmount).toBe(640);
+    });
+  });
+
+  describe('I6/I7 — handlePostCloseCorrection reconciles against Σ expectedAmount', () => {
+    const approved = (over: Record<string, unknown> = {}) => ({
+      ...baseHandover,
+      status: VanCashHandoverStatus.APPROVED,
+      approvedAt: new Date(),
+      ...over,
+    });
+
+    it('I6: Σ expectedAmount tracks the sheet cashExpected across successive corrections', async () => {
+      const original = approved();
+      // 500 -> 800: delta 300 (expected chain = 500)
+      const first = makeService({ chain: [original] });
+      await first.svc.handlePostCloseCorrection(first.tx as any, VENDOR_ID, SHEET_ID, 800);
+      const c1 = first.tx.vanCashHandover.create.mock.calls[0][0].data;
+      expect(c1.expectedAmount).toBe(300);
+      expect(original.expectedAmount + c1.expectedAmount).toBe(800);
+
+      // 800 -> 650: delta -150 (expected chain = 500 + 300)
+      const correction1 = approved({ id: 'c1', amount: 300, expectedAmount: 300, correctsEntryId: HANDOVER_ID });
+      const second = makeService({ chain: [original, correction1] });
+      await second.svc.handlePostCloseCorrection(second.tx as any, VENDOR_ID, SHEET_ID, 650);
+      const c2 = second.tx.vanCashHandover.create.mock.calls[0][0].data;
+      expect(c2.expectedAmount).toBe(-150);
+      expect(original.expectedAmount + correction1.expectedAmount + c2.expectedAmount).toBe(650);
+    });
+
+    it('I7: approve-with-adjustment then a post-close correction preserves the approver variance and applies the delta to both fields', async () => {
+      const { svc } = makeService({ handover: { ...baseHandover, version: 1 } });
+      const adjusted = await svc.approveHandover(adminUser, HANDOVER_ID, {
+        version: 1,
+        approvedAmount: 450, // approver counted 50 short of the sheet's 500
+        adjustmentReason: 'recount',
+      });
+      expect(adjusted.amount).toBe(450);
+
+      const post = makeService({ chain: [adjusted as any] });
+      await post.svc.handlePostCloseCorrection(post.tx as any, VENDOR_ID, SHEET_ID, 800);
+
+      // delta is vs Σ expectedAmount (500), NOT Σ amount (450 -> would be 350).
+      const data = post.tx.vanCashHandover.create.mock.calls[0][0].data;
+      expect(data.amount).toBe(300);
+      expect(data.expectedAmount).toBe(300);
+      expect(data.status).toBe(VanCashHandoverStatus.APPROVED);
+
+      const chainAmount = 450 + data.amount;
+      const chainExpected = 500 + data.expectedAmount;
+      expect(chainExpected).toBe(800); // tracks the sheet
+      expect(chainAmount - chainExpected).toBe(-50); // variance survives
+    });
+
+    it('a PENDING single-row chain is rewritten in place — BOTH amount and expectedAmount', async () => {
+      const { svc, tx, audit } = makeService({
+        handover: { ...baseHandover },
+        chain: [baseHandover],
+      });
+      await svc.handlePostCloseCorrection(tx as any, VENDOR_ID, SHEET_ID, 900);
+      expect(tx.vanCashHandover.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ amount: 900, expectedAmount: 900 }) }),
+      );
+      expect(audit.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          changes: {
+            before: { amount: 500, expectedAmount: 500 },
+            after: expect.objectContaining({ amount: 900, expectedAmount: 900 }),
+          },
+        }),
+      );
+    });
+
+    it('VOIDED chain rows do not count toward Σ expectedAmount', async () => {
+      const original = approved();
+      const voided = approved({
+        id: 'c-void',
+        amount: 100,
+        expectedAmount: 100,
+        correctsEntryId: HANDOVER_ID,
+        status: VanCashHandoverStatus.VOIDED,
+      });
+      const { svc, tx } = makeService({ chain: [original, voided] });
+      // Σ non-voided expected = 500 -> delta 200. (Counting the voided row would give 100.)
+      await svc.handlePostCloseCorrection(tx as any, VENDOR_ID, SHEET_ID, 700);
+      const data = tx.vanCashHandover.create.mock.calls[0][0].data;
+      expect(data.expectedAmount).toBe(200);
+      expect(data.amount).toBe(200);
+    });
+
+    it('is a no-op when Σ expectedAmount already equals the sheet figure, even if an approver adjusted `amount`', async () => {
+      const adjusted = approved({ amount: 450, expectedAmount: 500 });
+      const { svc, tx } = makeService({ chain: [adjusted] });
+      const result = await svc.handlePostCloseCorrection(tx as any, VENDOR_ID, SHEET_ID, 500);
+      expect(result).toBeNull();
+      expect(tx.vanCashHandover.create).not.toHaveBeenCalled();
     });
   });
 
@@ -1017,7 +1191,14 @@ describe('VanCashLedgerService', () => {
           aggregate: jest.fn().mockResolvedValue(AGG0),
           findMany: jest.fn().mockResolvedValue([]),
         },
-        staffLedgerEntry: { findMany: jest.fn().mockResolvedValue([]) },
+        staffLedgerEntry: {
+          aggregate: jest.fn().mockResolvedValue(AGG0),
+          findMany: jest.fn().mockResolvedValue([]),
+        },
+        settlement: {
+          aggregate: jest.fn().mockResolvedValue(AGG0),
+          findMany: jest.fn().mockResolvedValue([]),
+        },
         crewCashDistribution: {
           aggregate: jest.fn().mockResolvedValue(AGG0),
           findMany: jest.fn().mockResolvedValue([]),
@@ -1042,7 +1223,7 @@ describe('VanCashLedgerService', () => {
       };
       const audit = { log: jest.fn().mockResolvedValue(undefined) };
       const permissions = { can: jest.fn().mockResolvedValue(true) };
-      const svc = new VanCashLedgerService(prisma, audit as any, permissions as any);
+      const svc = new VanCashLedgerService(prisma, audit as any, permissions as any, { assertWritable: jest.fn().mockResolvedValue(undefined) } as any, { getClosedLabels: jest.fn().mockResolvedValue(new Set()), closedLabelsAmong: jest.fn().mockResolvedValue([]), isDateClosed: jest.fn().mockResolvedValue(false) } as any);
       return { svc, prisma };
     }
 
@@ -1076,6 +1257,7 @@ describe('VanCashLedgerService', () => {
         paidFromCash: true,
         description: 'Stationery',
         date: new Date('2026-09-10'),
+        createdAt: new Date('2026-09-10T06:00:00Z'),
         dailySheetId: null,
         fuelLog: null,
         vehicleServiceRecord: null,
@@ -1095,6 +1277,655 @@ describe('VanCashLedgerService', () => {
       expect(row).toBeDefined();
       expect(row?.amount).toBe(-300);
       expect(row?.runningBalance).toBe(-300); // moved down by 300 exactly once
+    });
+  });
+
+  // ─── Cash Ledger P2 — manual cash-in edit / void, period guard call sites ───
+
+  describe('P2 period-guard call sites (remittances)', () => {
+    it('createRemittance asks the guard about dto.date before creating', async () => {
+      const { svc, prisma, periodGuard } = makeRemittanceService({ available: 100000 });
+      await svc.createRemittance(accountantUser, {
+        amount: 100,
+        date: '2026-09-10',
+        destination: OfficeCashRemittanceDestination.BANK,
+      });
+      expect(periodGuard.assertWritable).toHaveBeenCalledWith(VENDOR_ID, ['2026-09-10'], expect.anything());
+      expect(periodGuard.assertWritable.mock.invocationCallOrder[0]).toBeLessThan(
+        prisma.officeCashRemittance.create.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('approveRemittance asks the guard about row.date; a guard rejection blocks the write', async () => {
+      const { svc, tx, periodGuard } = makeRemittanceService({
+        remittance: { ...baseRemittance, version: 1 },
+        available: 100000,
+      });
+      await svc.approveRemittance(managerUser, REMITTANCE_ID, { version: 1 });
+      expect(periodGuard.assertWritable).toHaveBeenCalledWith(VENDOR_ID, [baseRemittance.date], expect.anything());
+
+      const blocked = makeRemittanceService({ remittance: { ...baseRemittance, version: 1 }, available: 100000 });
+      blocked.periodGuard.assertWritable.mockRejectedValue(new ForbiddenException('period closed'));
+      await expect(blocked.svc.approveRemittance(managerUser, REMITTANCE_ID, { version: 1 })).rejects.toThrow(
+        'period closed',
+      );
+      expect(blocked.tx.officeCashRemittance.updateMany).not.toHaveBeenCalled();
+      expect(tx.officeCashRemittance.updateMany).toHaveBeenCalled();
+    });
+
+    it('voidRemittance and correctRemittance ask the guard about the row date', async () => {
+      const voided = makeRemittanceService({ remittance: { ...baseRemittance, version: 1 } });
+      await voided.svc.voidRemittance(accountantUser, REMITTANCE_ID, { version: 1, voidReason: 'entered by mistake' });
+      expect(voided.periodGuard.assertWritable).toHaveBeenCalledWith(VENDOR_ID, [baseRemittance.date], expect.anything());
+
+      const root = { ...baseRemittance, version: 2, status: OfficeCashRemittanceStatus.PENDING };
+      const corrected = makeRemittanceService({ chain: [root] });
+      await corrected.svc.correctRemittance(accountantUser, REMITTANCE_ID, {
+        version: 2,
+        newAmount: 6500,
+        correctionReason: 'typo in the amount',
+      });
+      expect(corrected.periodGuard.assertWritable).toHaveBeenCalledWith(
+        VENDOR_ID,
+        [baseRemittance.date, baseRemittance.date],
+        expect.anything(),
+      );
+    });
+  });
+
+  describe('P2 manual cash-in — add / edit / void', () => {
+    const MANUAL_ID = 'manual-001';
+    const baseManual = {
+      id: MANUAL_ID,
+      vendorId: VENDOR_ID,
+      vanId: null as string | null,
+      openingBalance: 10000,
+      openingDate: new Date('2026-09-05T00:00:00Z'),
+      note: 'Owner top-up' as string | null,
+      source: null as string | null,
+      setById: 'admin-001',
+      status: ManualCashInStatus.ACTIVE as ManualCashInStatus,
+      version: 1,
+      editCount: 0,
+      lastEditedAt: null as Date | null,
+      updatedById: null as string | null,
+      voidedById: null as string | null,
+      voidedAt: null as Date | null,
+      voidReason: null as string | null,
+      createdAt: new Date('2026-09-05T06:00:00Z'),
+      updatedAt: new Date('2026-09-05T06:00:00Z'),
+    };
+    type ManualRow = typeof baseManual;
+
+    function makeManualService(opts: { row?: ManualRow | null; vans?: Array<{ id: string; vendorId: string }> } = {}) {
+      const { row = { ...baseManual }, vans = [{ id: 'van-001', vendorId: VENDOR_ID }] } = opts;
+      let current: ManualRow | null = row ? { ...row } : null;
+
+      const vanCashOpeningBalance = {
+        findFirst: jest.fn().mockImplementation(async ({ where }: any) =>
+          current && where.id === current.id && where.vendorId === current.vendorId ? { ...current } : null,
+        ),
+        // Applies `data` exactly like Prisma would for the increments the service uses.
+        updateMany: jest.fn().mockImplementation(async ({ where, data }: any) => {
+          if (
+            !current ||
+            where.id !== current.id ||
+            where.vendorId !== current.vendorId ||
+            where.version !== current.version ||
+            (where.status !== undefined && where.status !== current.status)
+          ) {
+            return { count: 0 };
+          }
+          const next: any = { ...current };
+          for (const [k, v] of Object.entries<any>(data)) {
+            next[k] = v && typeof v === 'object' && 'increment' in v ? (current as any)[k] + v.increment : v;
+          }
+          current = next;
+          return { count: 1 };
+        }),
+        findUniqueOrThrow: jest.fn().mockImplementation(async () => ({ ...current })),
+        create: jest.fn().mockImplementation(async ({ data }: any) => ({
+          id: 'manual-new',
+          version: 1,
+          status: ManualCashInStatus.ACTIVE,
+          ...data,
+        })),
+      };
+      const van = {
+        findFirst: jest
+          .fn()
+          .mockImplementation(async ({ where }: any) =>
+            vans.find((v) => v.id === where.id && v.vendorId === where.vendorId) ?? null,
+          ),
+      };
+      const prisma = { vanCashOpeningBalance, van };
+      const audit = { log: jest.fn().mockResolvedValue(undefined) };
+      const permissions = { can: jest.fn().mockResolvedValue(true) };
+      const periodGuard = { assertWritable: jest.fn().mockResolvedValue(undefined) };
+      const svc = new VanCashLedgerService(prisma as any, audit as any, permissions as any, periodGuard as any, { getClosedLabels: jest.fn().mockResolvedValue(new Set()), closedLabelsAmong: jest.fn().mockResolvedValue([]), isDateClosed: jest.fn().mockResolvedValue(false) } as any);
+      return { svc, prisma, audit, periodGuard };
+    }
+
+    const tomorrow = () => vendorDateString(new Date(Date.now() + 2 * 24 * 60 * 60 * 1000));
+
+    describe('addManualCashIn()', () => {
+      it('persists the optional source, audits it, and asks the guard about the date first', async () => {
+        const { svc, prisma, audit, periodGuard } = makeManualService();
+        await svc.addManualCashIn(adminUser, {
+          openingBalance: 500,
+          openingDate: '2026-09-01',
+          note: 'Owner cash',
+          source: ManualCashInSource.OWNER_INJECTION,
+        });
+        expect(periodGuard.assertWritable).toHaveBeenCalledWith(
+          VENDOR_ID,
+          [new Date('2026-09-01')],
+          expect.anything(),
+        );
+        expect(prisma.vanCashOpeningBalance.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({ source: 'OWNER_INJECTION', vendorId: VENDOR_ID, setById: adminUser.userId }),
+        });
+        expect(audit.log).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'CREATED',
+            entity: 'VanCashOpeningBalance',
+            changes: { after: expect.objectContaining({ source: 'OWNER_INJECTION', openingBalance: 500 }) },
+          }),
+        );
+      });
+
+      it('rejects a future date and writes nothing', async () => {
+        const { svc, prisma, periodGuard } = makeManualService();
+        await expect(
+          svc.addManualCashIn(adminUser, { openingBalance: 500, openingDate: tomorrow() }),
+        ).rejects.toThrow(BadRequestException);
+        expect(prisma.vanCashOpeningBalance.create).not.toHaveBeenCalled();
+        expect(periodGuard.assertWritable).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('editManualCashIn()', () => {
+      it('happy path: CAS on {id, vendorId, version, ACTIVE}, bumps version/editCount, audits ONLY the changed fields + reason', async () => {
+        const { svc, prisma, audit, periodGuard } = makeManualService();
+
+        const result = await svc.editManualCashIn(adminUser, MANUAL_ID, {
+          version: 1,
+          amount: 12000,
+          reason: '  Typo in the amount  ',
+        });
+
+        expect(prisma.vanCashOpeningBalance.updateMany).toHaveBeenCalledTimes(1);
+        const call = prisma.vanCashOpeningBalance.updateMany.mock.calls[0][0];
+        expect(call.where).toEqual({
+          id: MANUAL_ID,
+          vendorId: VENDOR_ID,
+          version: 1,
+          status: ManualCashInStatus.ACTIVE,
+        });
+        expect(call.data).toEqual({
+          openingBalance: 12000,
+          version: { increment: 1 },
+          editCount: { increment: 1 },
+          lastEditedAt: expect.any(Date),
+          updatedById: adminUser.userId,
+        });
+        expect(audit.log).toHaveBeenCalledWith({
+          vendorId: VENDOR_ID,
+          userId: adminUser.userId,
+          userName: adminUser.name,
+          action: 'UPDATED',
+          entity: 'VanCashOpeningBalance',
+          entityId: MANUAL_ID,
+          changes: { before: { openingBalance: 10000 }, after: { openingBalance: 12000 }, reason: 'Typo in the amount' },
+        });
+        // The guard saw the (unchanged) old + new date before the write.
+        expect(periodGuard.assertWritable).toHaveBeenCalledWith(
+          VENDOR_ID,
+          [baseManual.openingDate, baseManual.openingDate],
+          expect.anything(),
+        );
+        expect(periodGuard.assertWritable.mock.invocationCallOrder[0]).toBeLessThan(
+          prisma.vanCashOpeningBalance.updateMany.mock.invocationCallOrder[0],
+        );
+        expect(result).toMatchObject({ openingBalance: 12000, version: 2, editCount: 1, updatedById: adminUser.userId });
+      });
+
+      it('moving the date across days calls the guard with BOTH the old and the new date, and audits both', async () => {
+        const { svc, prisma, audit, periodGuard } = makeManualService();
+
+        await svc.editManualCashIn(adminUser, MANUAL_ID, { version: 1, date: '2026-08-31', reason: 'Wrong day' });
+
+        expect(periodGuard.assertWritable).toHaveBeenCalledWith(
+          VENDOR_ID,
+          [baseManual.openingDate, new Date('2026-08-31')],
+          expect.anything(),
+        );
+        const data = prisma.vanCashOpeningBalance.updateMany.mock.calls[0][0].data;
+        expect(data.openingDate).toEqual(new Date('2026-08-31'));
+        expect(audit.log.mock.calls[0][0].changes).toEqual({
+          before: { openingDate: '2026-09-05T00:00:00.000Z' },
+          after: { openingDate: '2026-08-31T00:00:00.000Z' },
+          reason: 'Wrong day',
+        });
+      });
+
+      it('a guard rejection (closed period) blocks the write and the audit', async () => {
+        const { svc, prisma, audit, periodGuard } = makeManualService();
+        periodGuard.assertWritable.mockRejectedValue(new ForbiddenException('period closed'));
+        await expect(
+          svc.editManualCashIn(adminUser, MANUAL_ID, { version: 1, amount: 1, reason: 'Fixing this entry' }),
+        ).rejects.toThrow('period closed');
+        expect(prisma.vanCashOpeningBalance.updateMany).not.toHaveBeenCalled();
+        expect(audit.log).not.toHaveBeenCalled();
+      });
+
+      it('edits van / note / source: detach to office-wide (null), clear the source, set a new note', async () => {
+        const { svc, prisma, audit } = makeManualService({
+          row: { ...baseManual, vanId: 'van-001', source: 'REFUND' },
+        });
+        await svc.editManualCashIn(adminUser, MANUAL_ID, {
+          version: 1,
+          vanId: null,
+          source: null,
+          note: '  New note  ',
+          reason: 'Re-classified entry',
+        });
+        const data = prisma.vanCashOpeningBalance.updateMany.mock.calls[0][0].data;
+        expect(data).toMatchObject({ vanId: null, source: null, note: 'New note' });
+        // Detaching needs no van lookup.
+        expect(prisma.van.findFirst).not.toHaveBeenCalled();
+        expect(audit.log.mock.calls[0][0].changes).toEqual({
+          before: { vanId: 'van-001', note: 'Owner top-up', source: 'REFUND' },
+          after: { vanId: null, note: 'New note', source: null },
+          reason: 'Re-classified entry',
+        });
+      });
+
+      it('no-change edit -> 400 (nothing written, nothing audited, guard untouched)', async () => {
+        const { svc, prisma, audit, periodGuard } = makeManualService();
+        const same = [
+          { version: 1, amount: 10000, reason: 'Same amount again' },
+          // same PKT calendar day expressed as a full timestamp
+          { version: 1, date: '2026-09-05T03:00:00.000Z', reason: 'Same day again' },
+          { version: 1, note: '  Owner top-up ', vanId: null, source: null, reason: 'Same everything' },
+        ];
+        for (const dto of same) {
+          await expect(svc.editManualCashIn(adminUser, MANUAL_ID, dto)).rejects.toThrow(BadRequestException);
+        }
+        expect(prisma.vanCashOpeningBalance.updateMany).not.toHaveBeenCalled();
+        expect(audit.log).not.toHaveBeenCalled();
+        expect(periodGuard.assertWritable).not.toHaveBeenCalled();
+      });
+
+      it('stale version -> 409 (before any write); a lost CAS race -> 409 with no audit', async () => {
+        const stale = makeManualService({ row: { ...baseManual, version: 3 } });
+        await expect(
+          stale.svc.editManualCashIn(adminUser, MANUAL_ID, { version: 1, amount: 1, reason: 'Trying to edit' }),
+        ).rejects.toThrow(ConflictException);
+        expect(stale.prisma.vanCashOpeningBalance.updateMany).not.toHaveBeenCalled();
+
+        const raced = makeManualService();
+        raced.prisma.vanCashOpeningBalance.updateMany.mockResolvedValueOnce({ count: 0 });
+        await expect(
+          raced.svc.editManualCashIn(adminUser, MANUAL_ID, { version: 1, amount: 1, reason: 'Trying to edit' }),
+        ).rejects.toThrow(ConflictException);
+        expect(raced.audit.log).not.toHaveBeenCalled();
+      });
+
+      it('voided entries cannot be edited -> 400', async () => {
+        const { svc, prisma } = makeManualService({ row: { ...baseManual, status: ManualCashInStatus.VOIDED } });
+        await expect(
+          svc.editManualCashIn(adminUser, MANUAL_ID, { version: 1, amount: 1, reason: 'Trying to edit' }),
+        ).rejects.toThrow("Voided entries can't be edited.");
+        expect(prisma.vanCashOpeningBalance.updateMany).not.toHaveBeenCalled();
+      });
+
+      it('a future date -> 400', async () => {
+        const { svc, prisma } = makeManualService();
+        await expect(
+          svc.editManualCashIn(adminUser, MANUAL_ID, { version: 1, date: tomorrow(), reason: 'Trying to edit' }),
+        ).rejects.toThrow(BadRequestException);
+        expect(prisma.vanCashOpeningBalance.updateMany).not.toHaveBeenCalled();
+      });
+
+      it("another vendor's van -> 404; another vendor's entry / unknown id -> 404", async () => {
+        const { svc, prisma, periodGuard } = makeManualService({ vans: [{ id: 'van-foreign', vendorId: 'vendor-999' }] });
+        await expect(
+          svc.editManualCashIn(adminUser, MANUAL_ID, { version: 1, vanId: 'van-foreign', reason: 'Trying to edit' }),
+        ).rejects.toThrow(NotFoundException);
+        expect(prisma.van.findFirst).toHaveBeenCalledWith({ where: { id: 'van-foreign', vendorId: VENDOR_ID } });
+        expect(prisma.vanCashOpeningBalance.updateMany).not.toHaveBeenCalled();
+        expect(periodGuard.assertWritable).not.toHaveBeenCalled();
+
+        const foreign = makeManualService({ row: { ...baseManual, vendorId: 'vendor-999' } });
+        await expect(
+          foreign.svc.editManualCashIn(adminUser, MANUAL_ID, { version: 1, amount: 1, reason: 'Trying to edit' }),
+        ).rejects.toThrow(NotFoundException);
+        const missing = makeManualService({ row: null });
+        await expect(
+          missing.svc.editManualCashIn(adminUser, 'nope', { version: 1, amount: 1, reason: 'Trying to edit' }),
+        ).rejects.toThrow(NotFoundException);
+      });
+    });
+
+    describe('voidManualCashIn()', () => {
+      it('flips status to VOIDED (never a delete), stamps voidedBy/At/Reason, bumps version, audits VOIDED', async () => {
+        const { svc, prisma, audit, periodGuard } = makeManualService();
+        const result = await svc.voidManualCashIn(adminUser, MANUAL_ID, { version: 1, reason: ' Entered twice ' });
+
+        const call = prisma.vanCashOpeningBalance.updateMany.mock.calls[0][0];
+        expect(call.where).toEqual({ id: MANUAL_ID, vendorId: VENDOR_ID, version: 1, status: ManualCashInStatus.ACTIVE });
+        expect(call.data).toEqual({
+          status: ManualCashInStatus.VOIDED,
+          voidedById: adminUser.userId,
+          voidedAt: expect.any(Date),
+          voidReason: 'Entered twice',
+          version: { increment: 1 },
+        });
+        expect(periodGuard.assertWritable).toHaveBeenCalledWith(VENDOR_ID, [baseManual.openingDate], expect.anything());
+        expect(audit.log).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'VOIDED',
+            entity: 'VanCashOpeningBalance',
+            entityId: MANUAL_ID,
+            changes: {
+              before: { status: 'ACTIVE' },
+              after: { status: 'VOIDED', voidReason: 'Entered twice' },
+              reason: 'Entered twice',
+            },
+          }),
+        );
+        expect(result).toMatchObject({ status: ManualCashInStatus.VOIDED, version: 2 });
+      });
+
+      it('already voided -> 400; stale version -> 409; lost race -> 409; unknown -> 404', async () => {
+        const voided = makeManualService({ row: { ...baseManual, status: ManualCashInStatus.VOIDED } });
+        await expect(
+          voided.svc.voidManualCashIn(adminUser, MANUAL_ID, { version: 1, reason: 'Entered twice' }),
+        ).rejects.toThrow(BadRequestException);
+
+        const stale = makeManualService({ row: { ...baseManual, version: 4 } });
+        await expect(
+          stale.svc.voidManualCashIn(adminUser, MANUAL_ID, { version: 1, reason: 'Entered twice' }),
+        ).rejects.toThrow(ConflictException);
+
+        const raced = makeManualService();
+        raced.prisma.vanCashOpeningBalance.updateMany.mockResolvedValueOnce({ count: 0 });
+        await expect(
+          raced.svc.voidManualCashIn(adminUser, MANUAL_ID, { version: 1, reason: 'Entered twice' }),
+        ).rejects.toThrow(ConflictException);
+        expect(raced.audit.log).not.toHaveBeenCalled();
+
+        const missing = makeManualService({ row: null });
+        await expect(
+          missing.svc.voidManualCashIn(adminUser, 'nope', { version: 1, reason: 'Entered twice' }),
+        ).rejects.toThrow(NotFoundException);
+      });
+
+      it('a guard rejection blocks the void', async () => {
+        const { svc, prisma, periodGuard } = makeManualService();
+        periodGuard.assertWritable.mockRejectedValue(new ForbiddenException('period closed'));
+        await expect(
+          svc.voidManualCashIn(adminUser, MANUAL_ID, { version: 1, reason: 'Entered twice' }),
+        ).rejects.toThrow('period closed');
+        expect(prisma.vanCashOpeningBalance.updateMany).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('P2 DTO validation (reason is mandatory)', () => {
+    const errorsFor = async (cls: any, plain: Record<string, unknown>) =>
+      (await validate(plainToInstance(cls, plain))).map((e) => e.property).sort();
+
+    it('EditManualCashInDto: missing / too-short / whitespace-only reason is rejected; a valid edit passes', async () => {
+      expect(await errorsFor(EditManualCashInDto, { version: 1, amount: 5 })).toEqual(['reason']);
+      expect(await errorsFor(EditManualCashInDto, { version: 1, amount: 5, reason: 'abcd' })).toEqual(['reason']);
+      expect(await errorsFor(EditManualCashInDto, { version: 1, amount: 5, reason: '      ' })).toEqual(['reason']);
+      expect(await errorsFor(EditManualCashInDto, { version: 1, amount: 5, reason: 'x'.repeat(501) })).toEqual(['reason']);
+      expect(await errorsFor(EditManualCashInDto, { version: 1, amount: 5, reason: 'abcde' })).toEqual([]);
+      // trimmed BEFORE length validation: 5 real chars padded with spaces is still valid...
+      expect(await errorsFor(EditManualCashInDto, { version: 1, amount: 5, reason: '  abcde  ' })).toEqual([]);
+      // ...but 4 real chars padded to 8 is not.
+      expect(await errorsFor(EditManualCashInDto, { version: 1, amount: 5, reason: '  abcd  ' })).toEqual(['reason']);
+    });
+
+    it('EditManualCashInDto: version required; amount >= 0; date is a date string; vanId uuid or null; source enum or null', async () => {
+      expect(await errorsFor(EditManualCashInDto, { reason: 'valid reason' })).toEqual(['version']);
+      expect(await errorsFor(EditManualCashInDto, { version: 1, amount: -1, reason: 'valid reason' })).toEqual(['amount']);
+      expect(await errorsFor(EditManualCashInDto, { version: 1, amount: 0, reason: 'valid reason' })).toEqual([]);
+      expect(await errorsFor(EditManualCashInDto, { version: 1, date: 'not-a-date', reason: 'valid reason' })).toEqual(['date']);
+      expect(await errorsFor(EditManualCashInDto, { version: 1, date: '2026-09-01', reason: 'valid reason' })).toEqual([]);
+      expect(await errorsFor(EditManualCashInDto, { version: 1, vanId: 'nope', reason: 'valid reason' })).toEqual(['vanId']);
+      expect(await errorsFor(EditManualCashInDto, { version: 1, vanId: null, reason: 'valid reason' })).toEqual([]);
+      expect(await errorsFor(EditManualCashInDto, { version: 1, source: 'BOGUS', reason: 'valid reason' })).toEqual(['source']);
+      expect(await errorsFor(EditManualCashInDto, { version: 1, source: null, reason: 'valid reason' })).toEqual([]);
+    });
+
+    it('VoidManualCashInDto: reason (>= 5 after trim) and version are mandatory', async () => {
+      expect(await errorsFor(VoidManualCashInDto, { version: 1 })).toEqual(['reason']);
+      expect(await errorsFor(VoidManualCashInDto, { version: 1, reason: 'abcd' })).toEqual(['reason']);
+      expect(await errorsFor(VoidManualCashInDto, { reason: 'abcde' })).toEqual(['version']);
+      expect(await errorsFor(VoidManualCashInDto, { version: 1, reason: 'abcde' })).toEqual([]);
+    });
+
+    it('AddCashInDto: source is optional but must be a valid enum value', async () => {
+      const base = { openingBalance: 1, openingDate: '2026-09-01' };
+      expect(await errorsFor(AddCashInDto, base)).toEqual([]);
+      expect(await errorsFor(AddCashInDto, { ...base, source: 'REFUND' })).toEqual([]);
+      expect(await errorsFor(AddCashInDto, { ...base, source: 'BOGUS' })).toEqual(['source']);
+    });
+  });
+
+
+  // ─── P4 — redirect rule (spec R7) ─────────────────────────────────────────
+
+  describe('P4 redirect rule — handlePostCloseCorrection()', () => {
+    const approved = (over: Record<string, unknown> = {}) => ({
+      ...baseHandover,
+      status: VanCashHandoverStatus.APPROVED,
+      approvedAt: new Date(),
+      ...over,
+    });
+
+    it('closed period: the correction is dated TODAY (PKT, UTC-midnight) and relatesToDate keeps the sheet business date; amounts unchanged', async () => {
+      const { svc, tx, audit, periodStore } = makeService({ chain: [approved()] }, ['2026-09']);
+
+      await svc.handlePostCloseCorrection(tx as any, VENDOR_ID, SHEET_ID, 800);
+
+      const data = tx.vanCashHandover.create.mock.calls[0][0].data;
+      expect(data.date).toEqual(redirectDateForToday());
+      expect(data.date.toISOString()).toMatch(/T00:00:00\.000Z$/);
+      expect(data.relatesToDate).toEqual(new Date('2026-09-01'));
+      // I6/I7 semantics untouched: delta vs Σ expectedAmount, auto-approved, chained.
+      expect(data).toMatchObject({
+        amount: 300,
+        expectedAmount: 300,
+        status: VanCashHandoverStatus.APPROVED,
+        correctsEntryId: HANDOVER_ID,
+        dailySheetId: SHEET_ID,
+      });
+      expect(500 + data.expectedAmount).toBe(800);
+      expect(periodStore.isDateClosed).toHaveBeenCalledWith(VENDOR_ID, baseHandover.date);
+      expect(audit.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          changes: {
+            before: { currentTotal: 500 },
+            after: expect.objectContaining({
+              newCashAmount: 800,
+              delta: 300,
+              redirectedFrom: '2026-09-01T00:00:00.000Z',
+              date: redirectDateForToday().toISOString(),
+              relatesToDate: '2026-09-01T00:00:00.000Z',
+            }),
+          },
+        }),
+      );
+    });
+
+    it('open period: exactly as before — dated the chain date, no relatesToDate, no redirect audit keys', async () => {
+      const { svc, tx, audit } = makeService({ chain: [approved()] }, ['2026-08']);
+
+      await svc.handlePostCloseCorrection(tx as any, VENDOR_ID, SHEET_ID, 800);
+
+      const data = tx.vanCashHandover.create.mock.calls[0][0].data;
+      expect(data.date).toEqual(baseHandover.date);
+      expect('relatesToDate' in data).toBe(false);
+      const after = audit.log.mock.calls[0][0].changes.after;
+      expect(after).toEqual({ newCashAmount: 800, delta: 300, correctsEntryId: HANDOVER_ID });
+    });
+
+    it('a chain whose ROOT was already redirected keeps the ROOT business date when redirected again', async () => {
+      // Root handover: business day 5 Aug, approved into 3 Sep (redirected). Now 3 Sep is closed too.
+      const root = approved({ date: new Date('2026-09-03'), relatesToDate: new Date('2026-08-05') });
+      const { svc, tx } = makeService({ chain: [root] }, ['2026-08', '2026-09']);
+
+      await svc.handlePostCloseCorrection(tx as any, VENDOR_ID, SHEET_ID, 700);
+
+      const data = tx.vanCashHandover.create.mock.calls[0][0].data;
+      expect(data.date).toEqual(redirectDateForToday());
+      expect(data.relatesToDate).toEqual(new Date('2026-08-05')); // ROOT's business date, not 3 Sep
+      expect(data.amount).toBe(200);
+    });
+
+    it('the redirect is decided on the MOST RECENT chain row (a later, open month is not redirected)', async () => {
+      const original = approved({ date: new Date('2026-08-05') });
+      const correction = approved({
+        id: 'c-1',
+        date: new Date('2026-09-03'),
+        relatesToDate: new Date('2026-08-05'),
+        amount: 100,
+        expectedAmount: 100,
+        correctsEntryId: HANDOVER_ID,
+      });
+      // Aug is closed but the most recent posting (3 Sep) sits in an OPEN month.
+      const { svc, tx } = makeService({ chain: [original, correction] }, ['2026-08']);
+
+      await svc.handlePostCloseCorrection(tx as any, VENDOR_ID, SHEET_ID, 650);
+
+      const data = tx.vanCashHandover.create.mock.calls[0][0].data;
+      expect(data.date).toEqual(new Date('2026-09-03'));
+      expect('relatesToDate' in data).toBe(false);
+      expect(data).toMatchObject({ amount: 50, correctsEntryId: 'c-1' });
+    });
+
+    it('a PENDING single-row chain is rewritten in place and NEVER redirected (approval redirects instead)', async () => {
+      const { svc, tx, periodStore } = makeService({ handover: { ...baseHandover }, chain: [baseHandover] }, ['2026-09']);
+
+      await svc.handlePostCloseCorrection(tx as any, VENDOR_ID, SHEET_ID, 900);
+
+      const data = tx.vanCashHandover.update.mock.calls[0][0].data;
+      expect(data).toEqual({ amount: 900, expectedAmount: 900, version: { increment: 1 } });
+      expect(periodStore.isDateClosed).not.toHaveBeenCalled();
+    });
+
+    it('the seed row (no handover yet) keeps the sheet date even in a closed period', async () => {
+      const { svc, tx } = makeService({ chain: [], sheet: buildClosedSheet() }, ['2026-09']);
+
+      await svc.handlePostCloseCorrection(tx as any, VENDOR_ID, SHEET_ID, 400);
+
+      const data = tx.vanCashHandover.create.mock.calls[0][0].data;
+      expect(data.date).toEqual(new Date('2026-09-01'));
+      expect('relatesToDate' in data).toBe(false);
+      expect(data.status).toBe(VanCashHandoverStatus.PENDING);
+    });
+
+    it('I6: Σ expectedAmount still tracks the sheet across successive redirected corrections', async () => {
+      const original = approved();
+      const first = makeService({ chain: [original] }, ['2026-09']);
+      await first.svc.handlePostCloseCorrection(first.tx as any, VENDOR_ID, SHEET_ID, 800);
+      const c1 = first.tx.vanCashHandover.create.mock.calls[0][0].data;
+      expect(original.expectedAmount + c1.expectedAmount).toBe(800);
+
+      // The redirected correction lives in the current month; now that month is closed too.
+      const correction1 = approved({
+        id: 'c1',
+        date: c1.date,
+        relatesToDate: c1.relatesToDate,
+        amount: c1.amount,
+        expectedAmount: c1.expectedAmount,
+        correctsEntryId: HANDOVER_ID,
+      });
+      const second = makeService({ chain: [original, correction1] }, ['2026-09', periodLabelOf(redirectDateForToday())]);
+      await second.svc.handlePostCloseCorrection(second.tx as any, VENDOR_ID, SHEET_ID, 650);
+      const c2 = second.tx.vanCashHandover.create.mock.calls[0][0].data;
+      expect(c2.expectedAmount).toBe(-150);
+      expect(original.expectedAmount + correction1.expectedAmount + c2.expectedAmount).toBe(650);
+      expect(c2.relatesToDate).toEqual(new Date('2026-09-01')); // still the ROOT business date
+    });
+  });
+
+  describe('P4 redirect rule — approveHandover()', () => {
+    it('closed period: date -> today and relatesToDate -> original date are written in the SAME CAS updateMany; audit shows both', async () => {
+      const { svc, tx, audit } = makeService({ handover: { ...baseHandover, version: 1 } }, ['2026-09']);
+
+      const result = await svc.approveHandover(adminUser, HANDOVER_ID, { version: 1 });
+
+      expect(tx.vanCashHandover.updateMany).toHaveBeenCalledTimes(1);
+      const call = tx.vanCashHandover.updateMany.mock.calls[0][0];
+      expect(call.where).toEqual({ id: HANDOVER_ID, vendorId: VENDOR_ID, version: 1 });
+      expect(call.data.date).toEqual(redirectDateForToday());
+      expect(call.data.relatesToDate).toEqual(new Date('2026-09-01'));
+      expect(call.data).toMatchObject({ status: VanCashHandoverStatus.APPROVED, amount: 500, approvedAmount: 500 });
+      expect(result.date).toEqual(redirectDateForToday());
+      expect(result.relatesToDate).toEqual(new Date('2026-09-01'));
+
+      const changes = audit.log.mock.calls[0][0].changes;
+      expect(changes.before).toMatchObject({ date: '2026-09-01T00:00:00.000Z', relatesToDate: null });
+      expect(changes.after).toMatchObject({
+        date: redirectDateForToday().toISOString(),
+        relatesToDate: '2026-09-01T00:00:00.000Z',
+      });
+    });
+
+    it('approval needs no override permission (system-of-record action) — permissions are never consulted for the redirect', async () => {
+      const { svc, permissions } = makeService({ handover: { ...baseHandover, version: 1 } }, ['2026-09']);
+      await svc.approveHandover(adminUser, HANDOVER_ID, { version: 1 });
+      expect(permissions.can).not.toHaveBeenCalled();
+    });
+
+    it('open period: NO date / relatesToDate in the CAS data; audit shows the unchanged date', async () => {
+      const { svc, tx, audit } = makeService({ handover: { ...baseHandover, version: 1 } }, ['2026-08']);
+
+      await svc.approveHandover(adminUser, HANDOVER_ID, { version: 1 });
+
+      const data = tx.vanCashHandover.updateMany.mock.calls[0][0].data;
+      expect('date' in data).toBe(false);
+      expect('relatesToDate' in data).toBe(false);
+      const changes = audit.log.mock.calls[0][0].changes;
+      expect(changes.before.date).toBe('2026-09-01T00:00:00.000Z');
+      expect(changes.after.date).toBe('2026-09-01T00:00:00.000Z');
+      expect(changes.after.relatesToDate).toBeNull();
+    });
+
+    it('a handover already carrying relatesToDate (redirected at correction time) keeps that ORIGINAL date when redirected again', async () => {
+      const { svc, tx } = makeService(
+        { handover: { ...baseHandover, date: new Date('2026-09-03'), relatesToDate: new Date('2026-08-05'), version: 1 } as any },
+        ['2026-09'],
+      );
+
+      await svc.approveHandover(adminUser, HANDOVER_ID, { version: 1 });
+
+      const data = tx.vanCashHandover.updateMany.mock.calls[0][0].data;
+      expect(data.relatesToDate).toEqual(new Date('2026-08-05'));
+      expect(data.date).toEqual(redirectDateForToday());
+    });
+
+    it('a stale version still conflicts and a redirect never bypasses the CAS', async () => {
+      const { svc } = makeService({ handover: { ...baseHandover, version: 5 } }, ['2026-09']);
+      await expect(svc.approveHandover(adminUser, HANDOVER_ID, { version: 1 })).rejects.toThrow(ConflictException);
+    });
+
+    it('I7: the approver adjustment still lands in `amount` when the approval is redirected', async () => {
+      const { svc, tx } = makeService({ handover: { ...baseHandover, version: 1 } }, ['2026-09']);
+      const adjusted = await svc.approveHandover(adminUser, HANDOVER_ID, {
+        version: 1,
+        approvedAmount: 450,
+        adjustmentReason: 'recount',
+      });
+      const data = tx.vanCashHandover.updateMany.mock.calls[0][0].data;
+      expect(data).toMatchObject({ amount: 450, approvedAmount: 450, adjustmentReason: 'recount' });
+      expect(adjusted.amount).toBe(450);
+      expect(adjusted.expectedAmount).toBe(500); // sheet figure untouched -> variance -50
     });
   });
 });

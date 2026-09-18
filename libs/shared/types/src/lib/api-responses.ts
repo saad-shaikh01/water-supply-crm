@@ -614,6 +614,19 @@ export interface FuelLogEntry {
   updatedAt: string;
 }
 
+/** One entry of the vendor's service-type catalogue (Record Service dropdown). */
+export interface VehicleServiceTypeEntry {
+  id: string;
+  key: string;
+  label: string;
+  defaultIntervalKm: number | null;
+  defaultIntervalDays: number | null;
+  /** Undeletable fallback ("Other"). */
+  isSystem: boolean;
+  /** Service records that use this type — a type can only be removed at 0. */
+  usageCount: number;
+}
+
 export interface VehicleMaintenanceRuleEntry {
   id: string;
   vehicleId: string;

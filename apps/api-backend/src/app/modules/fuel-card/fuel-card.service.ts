@@ -4,6 +4,7 @@ import { FuelCardTopUpStatus } from '@prisma/client';
 import type { AuthUser } from '@water-supply-crm/types';
 import { paginate } from '../../common/helpers/paginate';
 import { AuditService } from '../audit/audit.service';
+import { CashLedgerPeriodGuard } from '../van-cash-ledger/cash-ledger-period.guard';
 import { CreateFuelCardDto } from './dto/create-fuel-card.dto';
 import { UpdateFuelCardDto } from './dto/update-fuel-card.dto';
 import { CreateFuelCardTopUpDto } from './dto/create-fuel-card-topup.dto';
@@ -46,6 +47,7 @@ export class FuelCardService {
   constructor(
     private prisma: PrismaService,
     private audit: AuditService,
+    private periodGuard: CashLedgerPeriodGuard,
   ) {}
 
   // ── Cards ──────────────────────────────────────────────────────────────
@@ -141,12 +143,16 @@ export class FuelCardService {
     if (!card) throw new NotFoundException('Fuel card not found.');
     if (!card.isActive) throw new BadRequestException('This fuel card is inactive.');
 
+    // Accounting-period guard (pass-through until P4) — BEFORE mutating.
+    const topUpDate = new Date(dto.date);
+    await this.periodGuard.assertWritable(user.vendorId, [topUpDate]);
+
     const created = await this.prisma.fuelCardTopUp.create({
       data: {
         vendorId: user.vendorId,
         fuelCardId,
         amount: dto.amount,
-        date: new Date(dto.date),
+        date: topUpDate,
         reference: dto.reference ?? null,
         attachmentKey: dto.attachmentKey ?? null,
         note: dto.note ?? null,
@@ -206,6 +212,10 @@ export class FuelCardService {
     if (row.status === FuelCardTopUpStatus.VOIDED) {
       throw new BadRequestException('This top-up is already voided.');
     }
+
+    // Accounting-period guard (pass-through until P4) — BEFORE mutating; the
+    // void reverses a movement dated on the row's own business date.
+    await this.periodGuard.assertWritable(user.vendorId, [row.date]);
 
     const claim = await this.prisma.fuelCardTopUp.updateMany({
       where: { id, vendorId: user.vendorId, status: FuelCardTopUpStatus.ACTIVE },

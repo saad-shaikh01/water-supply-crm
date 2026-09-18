@@ -26,26 +26,13 @@ export type VehicleDocumentType =
 
 export type VehicleCheckType = 'START' | 'END';
 
-export type VehicleServiceType =
-  | 'ENGINE_OIL'
-  | 'OIL_FILTER'
-  | 'AIR_FILTER'
-  | 'FUEL_FILTER'
-  | 'BRAKE_FLUID'
-  | 'BRAKE_PADS'
-  | 'COOLANT'
-  | 'RADIATOR'
-  | 'TRANSMISSION_FLUID'
-  | 'TYRE_ROTATION'
-  | 'BATTERY'
-  | 'SUSPENSION'
-  | 'CLUTCH'
-  | 'TIMING_BELT'
-  | 'SPARK_PLUGS'
-  | 'WHEEL_ALIGNMENT'
-  | 'AC_SERVICE'
-  | 'GENERAL_INSPECTION'
-  | 'OTHER';
+/**
+ * A service type is a per-vendor catalogue entry (VehicleServiceTypeDef) — its
+ * `key` is the value stored on rules/records. Built-in keys are listed in
+ * VEHICLE_SERVICE_TYPE_LABELS; vendors can add their own, so this is a plain
+ * string, not a closed union.
+ */
+export type VehicleServiceType = string;
 
 export interface VehicleChecklistItemDef {
   key: string;
@@ -85,7 +72,8 @@ export interface ChecklistItemResult {
   note?: string;
 }
 
-export const VEHICLE_SERVICE_TYPE_LABELS: Record<VehicleServiceType, string> = {
+/** Built-in service types, seeded into every vendor's catalogue (insertion order = dropdown order). */
+export const VEHICLE_SERVICE_TYPE_LABELS: Record<string, string> = {
   ENGINE_OIL: 'Engine Oil',
   OIL_FILTER: 'Oil Filter',
   AIR_FILTER: 'Air Filter',
@@ -119,7 +107,7 @@ export interface VehicleMaintenanceDefaultInterval {
  * enforced constants. Sourced from commercial-van PM interval research in the
  * plan doc §1.
  */
-export const VEHICLE_MAINTENANCE_DEFAULT_INTERVALS: Record<VehicleServiceType, VehicleMaintenanceDefaultInterval> = {
+export const VEHICLE_MAINTENANCE_DEFAULT_INTERVALS: Record<string, VehicleMaintenanceDefaultInterval> = {
   ENGINE_OIL: { intervalKm: 2500, intervalDays: 180 },
   OIL_FILTER: { intervalKm: 5000, intervalDays: 180 },
   AIR_FILTER: { intervalKm: 10000, intervalDays: 365 },

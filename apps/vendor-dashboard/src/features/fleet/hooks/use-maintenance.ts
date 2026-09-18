@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { fleetApi, type CreateServiceRecordData } from '../api/fleet.api';
+import { fleetApi, type CreateServiceRecordData, type CreateServiceTypeData } from '../api/fleet.api';
 import { queryKeys } from '../../../lib/query-keys';
 
 export const useVehicleMaintenanceStatus = (vehicleId: string | undefined) =>
@@ -35,6 +35,61 @@ export const useUpdateMaintenanceRule = () => {
       toast.success('Maintenance interval updated');
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to update maintenance interval'),
+  });
+};
+
+export const useServiceTypes = () =>
+  useQuery({
+    queryKey: queryKeys.fleet.serviceTypes(),
+    queryFn: () => fleetApi.getServiceTypes(),
+    staleTime: 5 * 60 * 1000,
+  });
+
+// A new/removed type changes every vehicle's maintenance list (rules are
+// created lazily per vehicle / deleted with the type), so refresh those too.
+const invalidateAfterServiceTypeChange = (queryClient: ReturnType<typeof useQueryClient>) => {
+  queryClient.invalidateQueries({ queryKey: queryKeys.fleet.serviceTypes() });
+  queryClient.invalidateQueries({ queryKey: queryKeys.fleet.maintenanceFleetStatus() });
+};
+
+export const useCreateServiceType = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: CreateServiceTypeData) => fleetApi.createServiceType(data),
+    onSuccess: (created) => {
+      invalidateAfterServiceTypeChange(queryClient);
+      toast.success(`Service type "${created.label}" added`);
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to add service type'),
+  });
+};
+
+export const useRenameServiceType = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, label }: { id: string; label: string }) => fleetApi.renameServiceType(id, label),
+    onSuccess: () => {
+      invalidateAfterServiceTypeChange(queryClient);
+      // Labels appear on maintenance lists and (via the re-described Expense)
+      // in Expense Center / Van Cash Ledger rows and service-record lists.
+      queryClient.invalidateQueries({ queryKey: queryKeys.fleet.serviceRecords() });
+      queryClient.invalidateQueries({ queryKey: ['expense-center'] });
+      queryClient.invalidateQueries({ queryKey: ['van-cash-ledger'] });
+      toast.success('Service type renamed');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to rename service type'),
+  });
+};
+
+export const useDeleteServiceType = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => fleetApi.removeServiceType(id),
+    onSuccess: () => {
+      invalidateAfterServiceTypeChange(queryClient);
+      toast.success('Service type removed');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to remove service type'),
   });
 };
 

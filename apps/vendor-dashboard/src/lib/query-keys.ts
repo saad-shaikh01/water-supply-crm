@@ -95,5 +95,6 @@ export const queryKeys = {
     maintenanceFleetStatus: () => ['fleet', 'maintenance-status'] as const,
     serviceRecords: (params?: object) => ['fleet', 'service-records', ...(params ? [params] : [])],
     serviceRecord: (id: string) => ['fleet', 'service-records', id] as const,
+    serviceTypes: () => ['fleet', 'service-types'] as const,
   },
 };

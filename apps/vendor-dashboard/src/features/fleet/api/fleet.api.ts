@@ -7,6 +7,7 @@ import type {
   FuelLogEntry,
   VehicleMaintenanceRuleEntry,
   VehicleServiceRecordEntry,
+  VehicleServiceTypeEntry,
   VehicleMaintenanceStatusEntry,
   VehicleFuelType,
   VehicleOwnershipType,
@@ -151,6 +152,12 @@ export interface CreateServiceRecordData {
   notes?: string;
 }
 
+export interface CreateServiceTypeData {
+  label: string;
+  defaultIntervalKm?: number;
+  defaultIntervalDays?: number;
+}
+
 export interface CreateVehicleData {
   plateNumber: string;
   usualVanId?: string;
@@ -250,6 +257,16 @@ export const fleetApi = {
   updateServiceRecord: (id: string, data: Partial<CreateServiceRecordData>) =>
     apiClient.patch<VehicleServiceRecordEntry>(`/fleet/maintenance/service-records/${id}`, data).then((r) => r.data),
   removeServiceRecord: (id: string) => apiClient.delete(`/fleet/maintenance/service-records/${id}`),
+
+  // Per-vendor service-type catalogue (Record Service dropdown). Delete is
+  // rejected (409) while any service record still uses the type.
+  getServiceTypes: () =>
+    apiClient.get<VehicleServiceTypeEntry[]>('/fleet/maintenance/service-types').then((r) => r.data),
+  createServiceType: (data: CreateServiceTypeData) =>
+    apiClient.post<VehicleServiceTypeEntry>('/fleet/maintenance/service-types', data).then((r) => r.data),
+  renameServiceType: (id: string, label: string) =>
+    apiClient.patch<VehicleServiceTypeEntry>(`/fleet/maintenance/service-types/${id}`, { label }).then((r) => r.data),
+  removeServiceType: (id: string) => apiClient.delete(`/fleet/maintenance/service-types/${id}`),
 };
 
 export type { ChecklistItemResult };

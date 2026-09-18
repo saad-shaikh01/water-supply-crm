@@ -200,6 +200,8 @@ const MANAGER_PERMISSIONS: Permission[] = [
   // approve an office -> owner/bank handover. `remit_void` (voiding an
   // already-approved remittance) stays VENDOR_ADMIN-only — NOT granted here.
   'van_cash_ledger:remit', 'van_cash_ledger:remit_approve',
+  // Cash Ledger export (P5, 2026-09-18): Manager may download the ledger as CSV / PDF.
+  'van_cash_ledger:export',
   // Fuel Card Wallet (owner-requested 2026-09-15): Manager gets the full set,
   // including `topup_void` — there's no separate approval tier for this
   // feature (single-step entry), so Manager is the practical "fix a mistake"
@@ -268,6 +270,8 @@ export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
       // RECORD an office -> owner/bank handover but NOT approve it — segregation
       // of duties (the recorder cannot approve their own remittance).
       'van_cash_ledger:remit',
+      // Cash Ledger export (P5, 2026-09-18): Accountant may download the ledger as CSV / PDF.
+      'van_cash_ledger:export',
       // Fuel Card Wallet (owner-requested 2026-09-15): Accountant is the
       // day-to-day person recording fuel card top-ups, and needs to see the
       // resulting card balances — but not `manage` (registering/deactivating

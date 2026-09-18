@@ -18,6 +18,38 @@ import { AuditService } from '../audit/audit.service';
 import { paginate } from '../../common/helpers/paginate';
 import { resolveSheetCash, SHEET_CASH_RELOAD_INCLUDE } from '../daily-sheet/sheet-cash.util';
 import { VanCashLedgerService } from '../van-cash-ledger/van-cash-ledger.service';
+import { CashLedgerPeriodGuard } from '../van-cash-ledger/cash-ledger-period.guard';
+
+/** The user performing a plain (open-sheet) Expense update/remove — recorded in the audit log. */
+export interface ExpenseActor {
+  userId: string;
+  userName: string;
+}
+
+/** Fields diffed/snapshotted by the plain update()/remove() audit trail. */
+const AUDITED_EXPENSE_FIELDS = [
+  'category',
+  'amount',
+  'paidFromCash',
+  'description',
+  'date',
+  'vanId',
+  'dailySheetId',
+] as const;
+
+/**
+ * Only OFFICE-CASH expense movements touch the Cash Ledger: paid from cash and
+ * NOT linked to a sheet (sheet-linked expenses are netted inside the sheet
+ * handover; card-paid ones never move cash). Gates the accounting-period guard.
+ */
+function isOfficeCashExpense(row: { paidFromCash: boolean; dailySheetId: string | null }): boolean {
+  return row.paidFromCash === true && row.dailySheetId == null;
+}
+
+function auditValuesEqual(a: unknown, b: unknown): boolean {
+  if (a instanceof Date && b instanceof Date) return a.getTime() === b.getTime();
+  return a === b;
+}
 
 @Injectable()
 export class ExpenseService {
@@ -26,6 +58,7 @@ export class ExpenseService {
     private audit: AuditService,
     private cache: CacheInvalidationService,
     private vanCashLedger: VanCashLedgerService,
+    private periodGuard: CashLedgerPeriodGuard,
   ) {}
 
   /**
@@ -80,6 +113,12 @@ export class ExpenseService {
         where: { dailySheetId: dto.dailySheetId, endedAt: null },
       });
       dailySheetLoadId = activeLoad?.id ?? null;
+    }
+
+    // Accounting-period guard (pass-through until P4) — BEFORE mutating, only
+    // for office-cash expenses (see isOfficeCashExpense).
+    if (isOfficeCashExpense({ paidFromCash: dto.paidFromCash ?? true, dailySheetId: dto.dailySheetId ?? null })) {
+      await this.periodGuard.assertWritable(vendorId, [new Date(dto.date)]);
     }
 
     return this.prisma.expense.create({
@@ -148,7 +187,7 @@ export class ExpenseService {
     return expense;
   }
 
-  async update(vendorId: string, id: string, dto: UpdateExpenseDto) {
+  async update(vendorId: string, id: string, dto: UpdateExpenseDto, actor: ExpenseActor) {
     const expense = await this.prisma.expense.findFirst({ where: { id, vendorId } });
     if (!expense) throw new NotFoundException('Expense not found');
 
@@ -168,7 +207,20 @@ export class ExpenseService {
       }
     }
 
-    return this.prisma.expense.update({
+    // Accounting-period guard (pass-through until P4) — BEFORE mutating. An
+    // edit is a write into BOTH the old and the new date's period; it matters
+    // when EITHER the existing row OR the resulting row is an office-cash
+    // movement (e.g. flipping paidFromCash or unlinking from a sheet).
+    const resultingRow = {
+      paidFromCash: dto.paidFromCash !== undefined ? dto.paidFromCash : expense.paidFromCash,
+      dailySheetId: dto.dailySheetId !== undefined ? dto.dailySheetId || null : expense.dailySheetId,
+    };
+    if (isOfficeCashExpense(expense) || isOfficeCashExpense(resultingRow)) {
+      const newDate = dto.date !== undefined ? new Date(dto.date as string) : expense.date;
+      await this.periodGuard.assertWritable(vendorId, [expense.date, newDate]);
+    }
+
+    const updated = await this.prisma.expense.update({
       where: { id },
       data: {
         ...(dto.category !== undefined && { category: dto.category }),
@@ -184,9 +236,34 @@ export class ExpenseService {
         createdBy: { select: { id: true, name: true } },
       },
     });
+
+    // Audit ONLY the fields that actually changed (a PATCH that re-sends the
+    // same values is a no-op and writes nothing). AuditService.log swallows
+    // its own errors, so this can never fail the update itself.
+    const before: Record<string, unknown> = {};
+    const after: Record<string, unknown> = {};
+    for (const field of AUDITED_EXPENSE_FIELDS) {
+      if (!auditValuesEqual(expense[field], updated[field])) {
+        before[field] = expense[field];
+        after[field] = updated[field];
+      }
+    }
+    if (Object.keys(after).length > 0) {
+      await this.audit.log({
+        vendorId,
+        userId: actor.userId,
+        userName: actor.userName,
+        action: 'UPDATED',
+        entity: 'Expense',
+        entityId: id,
+        changes: { before, after },
+      });
+    }
+
+    return updated;
   }
 
-  async remove(vendorId: string, id: string) {
+  async remove(vendorId: string, id: string, actor: ExpenseActor) {
     const expense = await this.prisma.expense.findFirst({ where: { id, vendorId } });
     if (!expense) throw new NotFoundException('Expense not found');
 
@@ -204,7 +281,35 @@ export class ExpenseService {
       }
     }
 
+    // Accounting-period guard (pass-through until P4) — BEFORE mutating.
+    if (isOfficeCashExpense(expense)) {
+      await this.periodGuard.assertWritable(vendorId, [expense.date]);
+    }
+
     await this.prisma.expense.delete({ where: { id } });
+
+    // Hard delete — this snapshot is the only surviving record of the row.
+    await this.audit.log({
+      vendorId,
+      userId: actor.userId,
+      userName: actor.userName,
+      action: 'DELETED',
+      entity: 'Expense',
+      entityId: id,
+      changes: {
+        before: {
+          category: expense.category,
+          amount: expense.amount,
+          paidFromCash: expense.paidFromCash,
+          description: expense.description,
+          date: expense.date,
+          vanId: expense.vanId,
+          dailySheetId: expense.dailySheetId,
+          createdById: expense.createdById,
+        },
+      },
+    });
+
     return { deleted: true };
   }
 

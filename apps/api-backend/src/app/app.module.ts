@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
@@ -49,6 +49,7 @@ import { SheetDiscrepancyCaseModule } from './modules/sheet-discrepancy-case/she
 import { VanCashLedgerModule } from './modules/van-cash-ledger/van-cash-ledger.module';
 import { FuelCardModule } from './modules/fuel-card/fuel-card.module';
 import { ProductCostModule } from './modules/product-cost/product-cost.module';
+import { applyLockOverrideMiddleware } from './common/request-context/lock-override.context';
 
 @Module({
   imports: [
@@ -113,4 +114,11 @@ import { ProductCostModule } from './modules/product-cost/product-cost.module';
     { provide: APP_GUARD, useClass: PermissionsGuard },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    // Cash Ledger period lock (P4): capture the X-Lock-Override-Reason header into
+    // an AsyncLocalStorage store so CashLedgerPeriodGuard can read it deep in a
+    // service without any call-site change.
+    applyLockOverrideMiddleware(consumer);
+  }
+}

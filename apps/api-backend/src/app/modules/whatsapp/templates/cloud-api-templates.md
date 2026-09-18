@@ -164,18 +164,27 @@ Thank you for choosing Blue Ice.
   who already received a monthly statement this cycle, still owe ≥ the vendor's `warningMinBalance`,
   and were not warned yet this month. Deliberately factual (UTILITY) wording — a service-continuity
   notice, not a marketing "pay or lose service" message.
-- **Body:**
+- **Body (as actually approved on Meta — confirmed 2026-09-18; 6 params, order matters or Graph error 132000):**
 ```
-Assalamu Alaikum, {{1}}
+Assalamu Alaikum, *{{1}}*
 
-This is a reminder that your account has an outstanding balance of Rs. {{2}} which is still pending.
+Customer Code: *{{2}}*
+
+This is a reminder that your account has an outstanding balance of Rs. *{{3}}* which is still pending.
+
+Invoice Amount: Rs. *{{4}}*
+Payment Received: Rs. *{{5}}*
+Total Current Balance Rs. *{{6}}*
 
 To avoid any interruption to your scheduled deliveries, please clear the outstanding amount at your earliest convenience.
 
-Thank you for choosing Blue Ice.
+Thank you for your prompt attention and continued trust in *Blue Ice*.
 ```
-- **Variables:** `{{1}}` = customer name · `{{2}}` = current outstanding balance
-- **Sample:** `{{1}}` = `Ahmed`, `{{2}}` = `1500.00`
+- **Variables** (computed by `BalanceReminderService.warningFigures()`, all measured from when the statement was issued):
+  `{{1}}` = customer name · `{{2}}` = customer code · `{{3}}` = outstanding = invoice − payments (≥ 0) ·
+  `{{4}}` = invoice amount (balance at statement month end = the statement's "Bill Amount") ·
+  `{{5}}` = payments received since (net PAYMENT/COLLECTION) · `{{6}}` = LIVE total balance
+- **Sample:** `Ahmed`, `L0042`, `1200.00`, `2000.00`, `800.00`, `1500.00`
 
 ---
 

@@ -30,7 +30,8 @@ export class ExpenseCenterTimelineQueryDto extends PaginationQueryDto {
 
   /**
    * Raw ExpenseCategory | StaffLedgerCategory value (StaffLedgerCategory's
-   * CREW_CASH resolves to the CrewCashDistribution source). Kept as a plain
+   * CREW_CASH resolves to the CrewCashDistribution + standalone crew cash
+   * sources). Kept as a plain
    * string rather than one @IsEnum since it spans two Prisma enums.
    */
   @IsOptional()

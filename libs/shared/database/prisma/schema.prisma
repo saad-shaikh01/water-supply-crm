@@ -363,12 +363,14 @@ model Vendor {
   fuelLogs                FuelLog[]
   vehicleMaintenanceRules VehicleMaintenanceRule[]
   vehicleServiceRecords   VehicleServiceRecord[]
+  vehicleServiceTypeDefs  VehicleServiceTypeDef[]
 
   deliveryItemMoveLogs DeliveryItemMoveLog[]
 
   // Van Cash Ledger (owner-requested 2026-09-09)
   vanCashOpeningBalances VanCashOpeningBalance[]
   vanCashHandovers       VanCashHandover[]
+  cashLedgerPeriods      CashLedgerPeriod[]
 
   // Office Cash Remittance (owner-requested 2026-09-10) — office -> owner/bank
   officeCashRemittances OfficeCashRemittance[]
@@ -485,7 +487,12 @@ model User {
   voidedDeliveryItems DailySheetItem[] @relation("DeliveryItemVoidedBy")
 
   // Van Cash Ledger (owner-requested 2026-09-09)
-  vanCashOpeningBalancesSet VanCashOpeningBalance[]
+  vanCashOpeningBalancesSet     VanCashOpeningBalance[] @relation("VanCashOpeningBalanceSetBy")
+  vanCashOpeningBalancesUpdated VanCashOpeningBalance[] @relation("VanCashOpeningBalanceUpdatedBy")
+  cashLedgerPeriodsClosed       CashLedgerPeriod[]      @relation("CashLedgerPeriodClosedBy")
+  cashLedgerPeriodsReopened     CashLedgerPeriod[]      @relation("CashLedgerPeriodReopenedBy")
+  vanCashOpeningBalancesVoided  VanCashOpeningBalance[] @relation("VanCashOpeningBalanceVoidedBy")
+  standaloneCrewCashUpdated     StandaloneCrewCashExpense[] @relation("StandaloneCrewCashUpdatedBy")
   submittedVanCashHandovers VanCashHandover[]       @relation("VanCashHandoverSubmittedBy")
   approvedVanCashHandovers  VanCashHandover[]       @relation("VanCashHandoverApprovedBy")
 
@@ -2567,6 +2574,8 @@ model StaffLedgerEntry {
 
   @@index([vendorId, userId, effectiveDate])
   @@index([payrollEntryId])
+  // Cash Ledger payroll-cash read (ADVANCE entries by effectiveDate).
+  @@index([vendorId, category, effectiveDate])
 }
 
 // Mirrors DamageCaseAuditLog's audit-trail shape, adapted with a typed action
@@ -2750,6 +2759,8 @@ model Settlement {
 
   @@index([payrollEntryId])
   @@index([vendorId])
+  // Cash Ledger payroll-cash read (method = CASH by paidAt).
+  @@index([vendorId, method, paidAt])
 }
 
 // Staff Attendance (docs/features/staff-attendance-and-wage-types.md, Phase 1) —
@@ -2854,28 +2865,6 @@ enum VehicleDocumentType {
 enum VehicleCheckType {
   START
   END
-}
-
-enum VehicleServiceType {
-  ENGINE_OIL
-  OIL_FILTER
-  AIR_FILTER
-  FUEL_FILTER
-  BRAKE_FLUID
-  BRAKE_PADS
-  COOLANT
-  RADIATOR
-  TRANSMISSION_FLUID
-  TYRE_ROTATION
-  BATTERY
-  SUSPENSION
-  CLUTCH
-  TIMING_BELT
-  SPARK_PLUGS
-  WHEEL_ALIGNMENT
-  AC_SERVICE
-  GENERAL_INSPECTION
-  OTHER
 }
 
 // Optional 1:1 enrichment of Vehicle — a Vehicle may exist with no
@@ -3210,7 +3199,7 @@ model StandaloneCrewCashExpense {
   category CrewCashCategory
   amount   Int // whole rupees, positive magnitude — mirrors CrewCashDistribution.amount
   notes    String?
-  date     DateTime // when the cash was actually given; defaults to now() at create, not editable after
+  date     DateTime // when the cash was actually given; defaults to now() at create; editable (P2) while the payroll twin is unlocked
 
   status StandaloneCrewCashStatus @default(ACTIVE)
 
@@ -3225,11 +3214,49 @@ model StandaloneCrewCashExpense {
   voidedAt   DateTime?
   voidReason String?
 
+  // P2 — edit in place: the row is rewritten while its StaffLedgerEntry twin is
+  // voided + re-created in the SAME tx (only while the twin is not rolled into a
+  // locked payroll period). Before/after + reason live in the generic AuditLog.
+  version      Int       @default(1)
+  editCount    Int       @default(0)
+  lastEditedAt DateTime?
+  updatedById  String?
+  updatedBy    User?     @relation("StandaloneCrewCashUpdatedBy", fields: [updatedById], references: [id])
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([vendorId, employeeId, date])
   @@index([vendorId, status])
+}
+
+// Per-vendor catalogue of service types shown in the "Record Service" dropdown.
+// Replaces the old VehicleServiceType enum (2026-09-18) so vendors can add their
+// own types and remove ones they never use. `key` is the stable identifier
+// stored (as a plain string) on VehicleMaintenanceRule / VehicleServiceRecord —
+// built-in keys keep the old enum values (ENGINE_OIL, ...) so history is
+// untouched. No FK on purpose: a type is only deletable while no service record
+// uses it (enforced in VehicleServiceTypeService.remove), and its per-vehicle
+// rules are removed with it. `isSystem` rows (OTHER) are the undeletable
+// fallback. Built-ins are seeded per vendor by the migration and lazily
+// (VehicleServiceTypeService.ensureSeeded) for vendors created afterwards.
+model VehicleServiceTypeDef {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  key                 String
+  label               String
+  // Starting intervals copied onto each vehicle's rule the first time that
+  // vehicle sees this type (editable per vehicle afterwards).
+  defaultIntervalKm   Int?
+  defaultIntervalDays Int?
+  isSystem            Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([vendorId, key])
 }
 
 // Per-vehicle service interval config. Always per-vehicle (vehicleId required,
@@ -3245,10 +3272,10 @@ model VehicleMaintenanceRule {
   vehicleId String
   vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
 
-  serviceType  VehicleServiceType
+  serviceType  String // VehicleServiceTypeDef.key
   intervalKm   Int?
   intervalDays Int?
-  isActive     Boolean            @default(true)
+  isActive     Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3268,7 +3295,7 @@ model VehicleServiceRecord {
   vehicleId String
   vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
 
-  serviceType         VehicleServiceType
+  serviceType         String // VehicleServiceTypeDef.key
   performedAtOdometer Int
   performedAtDate     DateTime
   cost                Float
@@ -3319,18 +3346,51 @@ model VanCashOpeningBalance {
   vendorId       String
   vendor         Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   vanId          String?
-  van            Van?     @relation(fields: [vanId], references: [id], onDelete: Cascade)
+  // Restrict (was Cascade): deleting a van must never silently erase its manual
+  // cash-in entries and shift the ledger balance.
+  van            Van?     @relation(fields: [vanId], references: [id], onDelete: Restrict)
   openingBalance Float
   openingDate    DateTime
   /** Why this cash-in happened — shown as the timeline row's title. */
   note           String?
+  /// Optional categorisation for "Office Cash In by source" reporting.
+  source         ManualCashInSource?
   setById        String
-  setBy          User     @relation(fields: [setById], references: [id])
+  setBy          User     @relation("VanCashOpeningBalanceSetBy", fields: [setById], references: [id])
+
+  // P2 — edit in place (reason + before/after live in the generic AuditLog;
+  // these columns only make the "Edited" badge + optimistic concurrency cheap).
+  status         ManualCashInStatus @default(ACTIVE)
+  version        Int       @default(1)
+  editCount      Int       @default(0)
+  lastEditedAt   DateTime?
+  updatedById    String?
+  updatedBy      User?     @relation("VanCashOpeningBalanceUpdatedBy", fields: [updatedById], references: [id])
+  // Secondary "delete this entry" action — a status flip, never a DELETE.
+  voidedById     String?
+  voidedBy       User?     @relation("VanCashOpeningBalanceVoidedBy", fields: [voidedById], references: [id])
+  voidedAt       DateTime?
+  voidReason     String?
+
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   @@index([vendorId])
   @@index([vanId])
+  @@index([vendorId, openingDate])
+}
+
+enum ManualCashInSource {
+  OWNER_INJECTION
+  OPENING_BALANCE
+  REFUND
+  BANK_WITHDRAWAL
+  OTHER
+}
+
+enum ManualCashInStatus {
+  ACTIVE
+  VOIDED
 }
 
 // One row per Daily Sheet close — the "driver handed over cash" event. Never
@@ -3356,11 +3416,24 @@ model VanCashHandover {
   dailySheetId String
   dailySheet   DailySheet @relation(fields: [dailySheetId], references: [id], onDelete: Restrict)
 
-  amount        Float
-  submittedById String
-  submittedBy   User                  @relation("VanCashHandoverSubmittedBy", fields: [submittedById], references: [id])
-  date          DateTime
-  status        VanCashHandoverStatus @default(PENDING)
+  // The LEDGER figure — always the FINAL APPROVED amount once APPROVED (the
+  // approver's adjustment, when any, is written here; see approveHandover).
+  amount Float
+  // The SHEET-derived figure for this row (resolveSheetCash().cashExpected for
+  // an original; the sheet-side DELTA for a correction row). Never touched by an
+  // approver's adjustment, so handlePostCloseCorrection can reconcile the chain
+  // against the sheet (Σ expectedAmount == sheet cashExpected) without undoing
+  // an approver's decision. variance = amount − expectedAmount.
+  expectedAmount Float @default(0)
+  submittedById  String
+  submittedBy    User                  @relation("VanCashHandoverSubmittedBy", fields: [submittedById], references: [id])
+  date           DateTime
+  // P4 redirect rule: when the handover's own business `date` falls in a CLOSED
+  // accounting period, a system/approval-time posting lands in the CURRENT period
+  // instead — `date` is set to today and `relatesToDate` keeps the original
+  // business date ("for 12 Aug"). Null for every normal row.
+  relatesToDate  DateTime?
+  status         VanCashHandoverStatus @default(PENDING)
 
   approvedById     String?
   approvedBy       User?     @relation("VanCashHandoverApprovedBy", fields: [approvedById], references: [id])
@@ -3454,4 +3527,57 @@ model OfficeCashRemittance {
   @@index([vendorId, date])
   @@index([vendorId, status])
   @@index([correctsEntryId])
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Cash Ledger accounting periods (P4, owner-approved 2026-09-18)
+// Calendar months in Asia/Karachi (label "YYYY-MM"). A row only exists once a
+// period has been CLOSED (a period with no row is OPEN). The ledger balance is
+// always LIVE and single-truth — `closingBalance`/`snapshotJson` are only the
+// "as closed" snapshot used for the drift chip ("As closed ₨X · Now ₨Y").
+// Writes dated inside a CLOSED period are rejected unless the caller holds
+// `van_cash_ledger:override_lock` and supplies a reason (counted in
+// overrideCount, audited as LOCK_OVERRIDE). Only the most recent CLOSED period
+// can be reopened (status -> OPEN, row kept for history).
+// ──────────────────────────────────────────────────────────────────────────────
+
+enum CashLedgerPeriodStatus {
+  OPEN
+  CLOSED
+}
+
+model CashLedgerPeriod {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  periodLabel String // "YYYY-MM"
+  startDate   DateTime // first instant of the month in PKT
+  endDate     DateTime // last millisecond of the month in PKT
+
+  status CashLedgerPeriodStatus @default(CLOSED)
+
+  closedAt    DateTime?
+  closedById  String?
+  closedBy    User?     @relation("CashLedgerPeriodClosedBy", fields: [closedById], references: [id])
+  closeNote   String?
+  /// Office-wide expected closing cash at the moment of close.
+  closingBalance Float?
+  /// The full statement at close (bucket totals, broughtForward, expectedClosing).
+  snapshotJson   Json?
+
+  reopenedAt   DateTime?
+  reopenedById String?
+  reopenedBy   User?     @relation("CashLedgerPeriodReopenedBy", fields: [reopenedById], references: [id])
+  reopenReason String?
+  reopenCount  Int       @default(0)
+
+  overrideCount  Int       @default(0)
+  lastOverrideAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([vendorId, periodLabel])
+  @@index([vendorId, status])
 }

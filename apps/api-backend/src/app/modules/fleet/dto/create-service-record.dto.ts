@@ -1,12 +1,14 @@
-import { IsUUID, IsEnum, IsInt, Min, IsDateString, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
-import { VehicleServiceType } from '@prisma/client';
+import { IsUUID, IsInt, Min, IsDateString, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class CreateServiceRecordDto {
   @IsUUID()
   vehicleId: string;
 
-  @IsEnum(VehicleServiceType)
-  serviceType: VehicleServiceType;
+  // Catalogue key (VehicleServiceTypeDef.key) — checked against the vendor's
+  // catalogue in VehicleMaintenanceService.
+  @IsString()
+  @MaxLength(40)
+  serviceType: string;
 
   @IsInt()
   @Min(0)

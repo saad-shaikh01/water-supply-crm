@@ -249,17 +249,25 @@ Thank you for choosing Blue Ice.
 
 ### `payment_overdue_warning` (Phase 2) — text only, no header
 ```
-Assalamu Alaikum, {{1}}
+Assalamu Alaikum, *{{1}}*
 
-This is a reminder that your account has an outstanding balance of Rs. {{2}} which is still pending.
+Customer Code: *{{2}}*
+
+This is a reminder that your account has an outstanding balance of Rs. *{{3}}* which is still pending.
+
+Invoice Amount: Rs. *{{4}}*
+Payment Received: Rs. *{{5}}*
+Total Current Balance Rs. *{{6}}*
 
 To avoid any interruption to your scheduled deliveries, please clear the outstanding amount at your earliest convenience.
 
-Thank you for choosing Blue Ice.
+Thank you for your prompt attention and continued trust in *Blue Ice*.
 ```
-`{{1}}` = customer name · `{{2}}` = current outstanding balance. Deliberately factual
-(service-continuity notice, not a "pay or lose service" marketing message) to keep it
-UTILITY-classifiable.
+**Approved on Meta 2026-09-18.** `{{1}}` = name · `{{2}}` = customer code · `{{3}}` = outstanding
+(invoice − payments, ≥ 0) · `{{4}}` = invoice amount (balance at statement month end) ·
+`{{5}}` = payments received since the statement · `{{6}}` = live total balance. Figures come from
+`BalanceReminderService.warningFigures()`. Deliberately factual (service-continuity notice, not a
+"pay or lose service" marketing message) to keep it UTILITY-classifiable.
 
 ### Full template → kind map
 | Kind | Balance | Template | Body params | PDF |
@@ -267,7 +275,7 @@ UTILITY-classifiable.
 | `reminder` (`includeStatement=true`) | `> 0` / `< 0` / `= 0` | `monthly_statement` / `monthly_statement_advance` / `monthly_statement_clear` | see templates doc | ✅ |
 | `reminder` (`includeStatement=false`) | `> 0` / `< 0` / `= 0` | `balance_reminder` / `balance_clear_advance` / `balance_clear` | ✅ (params) | — |
 | `statement_only` | any | **`monthly_statement_neutral`** | `[name, monthLabel]` | always |
-| `warning` | any (≥ `warningMinBalance`) | **`payment_overdue_warning`** | `[name, liveBalance]` | — |
+| `warning` | any (≥ `warningMinBalance`) | **`payment_overdue_warning`** | `[name, code, outstanding, invoice, paymentReceived, liveBalance]` | — |
 
 ---
 
@@ -276,9 +284,8 @@ UTILITY-classifiable.
 Nothing in Phases 1–3 has been verified against a live Meta Graph API — every automated test
 stubs `WhatsAppService`. Before go-live:
 
-1. **Submit + get approval** for `monthly_statement_neutral` and `payment_overdue_warning`. If
-   `payment_overdue_warning` is rejected or reclassified MARKETING, soften the wording and
-   resubmit.
+1. **Submit + get approval** for `monthly_statement_neutral` (`payment_overdue_warning` was
+   approved 2026-09-18 in its 6-param form — confirm it is still UTILITY on Meta).
 2. **Apply the 4 migrations** on the target env (`prisma migrate deploy`). Confirm the
    `BalanceReminderConfig` table and both new enum values exist.
 3. **Notification Controls:** confirm "Overdue Balance Warning" appears and defaults on; toggling

@@ -8,6 +8,7 @@ import {
   normalizeCrewCashRow,
   normalizeExpenseRow,
   normalizeStaffLedgerRow,
+  normalizeStandaloneCrewCashRow,
   resolveSourceSelection,
   STAFF_LEDGER_CATEGORY_LABELS,
 } from './expense-center-domain.util';
@@ -285,6 +286,57 @@ describe('normalizeCrewCashRow', () => {
   });
 });
 
+describe('normalizeStandaloneCrewCashRow', () => {
+  const base = {
+    id: 'sc1',
+    category: CrewCashCategory.MEAL,
+    amount: 450,
+    notes: null,
+    date: DATE,
+    employee: { name: 'Usman' },
+    createdBy: { name: 'Admin' },
+  };
+
+  it('is a CREW_CASH / EMPLOYEES DEBIT row shaped like sheet crew cash', () => {
+    const row = normalizeStandaloneCrewCashRow(base);
+    expect(row.id).toBe('STANDALONE_CREW_CASH:sc1');
+    expect(row.domain).toBe('EMPLOYEES');
+    expect(row.category).toBe('CREW_CASH');
+    expect(row.categoryLabel).toBe('Crew Cash');
+    expect(row.costSign).toBe('DEBIT');
+    expect(row.paidFromCash).toBeNull();
+    expect(row.amount).toBe(450);
+    expect(row.date).toBe(DATE.toISOString());
+    expect(row.employeeName).toBe('Usman');
+    expect(row.recordedByName).toBe('Admin');
+    expect(row.vanPlateNumber).toBeNull();
+  });
+
+  it('routes to STANDALONE_CREW_CASH with itself as the source record and a Cash Ledger badge', () => {
+    const row = normalizeStandaloneCrewCashRow(base);
+    expect(row.sourceType).toBe('STANDALONE_CREW_CASH');
+    expect(row.sourceRecordId).toBe('sc1');
+    expect(row.sourceBadge).toBe('via Cash Ledger');
+  });
+
+  it('builds the title from the crew-cash kind and optional notes', () => {
+    expect(normalizeStandaloneCrewCashRow(base).title).toBe('Crew Cash — MEAL');
+    expect(normalizeStandaloneCrewCashRow({ ...base, notes: '  lunch for 3 ' }).title).toBe(
+      'Crew Cash — MEAL: lunch for 3',
+    );
+  });
+
+  it('is always locked — the Expense Center never edits it', () => {
+    const row = normalizeStandaloneCrewCashRow(base);
+    expect(row.locked).toBe(true);
+    expect(row.lockedReason).toBe('Managed in the Cash Ledger — edit or void it there.');
+  });
+
+  it('reports a positive magnitude', () => {
+    expect(normalizeStandaloneCrewCashRow({ ...base, amount: -450 }).amount).toBe(450);
+  });
+});
+
 describe('compareRowsByDateDesc', () => {
   it('sorts newest first', () => {
     const older = normalizeExpenseRow({
@@ -310,11 +362,12 @@ describe('compareRowsByDateDesc', () => {
 });
 
 describe('resolveSourceSelection', () => {
-  it('includes all three sources when unfiltered', () => {
+  it('includes all four sources when unfiltered', () => {
     const selection = resolveSourceSelection({});
     expect(selection.includeExpenses).toBe(true);
     expect(selection.includeStaffLedger).toBe(true);
     expect(selection.includeCrewCash).toBe(true);
+    expect(selection.includeStandaloneCrewCash).toBe(true);
     expect(selection.expenseCategories).toBeNull();
   });
 
@@ -325,6 +378,7 @@ describe('resolveSourceSelection', () => {
     );
     expect(selection.includeStaffLedger).toBe(false);
     expect(selection.includeCrewCash).toBe(false);
+    expect(selection.includeStandaloneCrewCash).toBe(false);
   });
 
   it('keeps every source for the EMPLOYEES domain', () => {
@@ -332,6 +386,7 @@ describe('resolveSourceSelection', () => {
     expect(selection.includeExpenses).toBe(true);
     expect(selection.includeStaffLedger).toBe(true);
     expect(selection.includeCrewCash).toBe(true);
+    expect(selection.includeStandaloneCrewCash).toBe(true);
   });
 
   it('matches nothing for CAPITAL, which has no live source', () => {
@@ -339,13 +394,15 @@ describe('resolveSourceSelection', () => {
     expect(selection.includeExpenses).toBe(false);
     expect(selection.includeStaffLedger).toBe(false);
     expect(selection.includeCrewCash).toBe(false);
+    expect(selection.includeStandaloneCrewCash).toBe(false);
   });
 
-  it('routes a CREW_CASH category filter to the distribution table only', () => {
+  it('routes a CREW_CASH category filter to the two crew-cash tables only', () => {
     const selection = resolveSourceSelection({ category: StaffLedgerCategory.CREW_CASH });
     expect(selection.includeExpenses).toBe(false);
     expect(selection.includeStaffLedger).toBe(false);
     expect(selection.includeCrewCash).toBe(true);
+    expect(selection.includeStandaloneCrewCash).toBe(true);
   });
 
   it('routes an ExpenseCategory filter to Expense only, and a ledger category to the ledger only', () => {
@@ -353,11 +410,13 @@ describe('resolveSourceSelection', () => {
     expect(expenseFilter.expenseCategories).toEqual([ExpenseCategory.FUEL_EXPENSE]);
     expect(expenseFilter.includeStaffLedger).toBe(false);
     expect(expenseFilter.includeCrewCash).toBe(false);
+    expect(expenseFilter.includeStandaloneCrewCash).toBe(false);
 
     const ledgerFilter = resolveSourceSelection({ category: StaffLedgerCategory.BONUS });
     expect(ledgerFilter.staffLedgerCategories).toEqual([StaffLedgerCategory.BONUS]);
     expect(ledgerFilter.includeExpenses).toBe(false);
     expect(ledgerFilter.includeCrewCash).toBe(false);
+    expect(ledgerFilter.includeStandaloneCrewCash).toBe(false);
   });
 
   it('contradictory domain + category matches nothing', () => {
@@ -372,15 +431,21 @@ describe('resolveSourceSelection', () => {
     const card = resolveSourceSelection({ paymentMethod: 'CARD' });
     expect(card.includeStaffLedger).toBe(false);
     expect(card.includeCrewCash).toBe(false);
+    expect(card.includeStandaloneCrewCash).toBe(false);
 
     const cash = resolveSourceSelection({ paymentMethod: 'CASH' });
     expect(cash.includeStaffLedger).toBe(true);
     expect(cash.includeCrewCash).toBe(true);
+    expect(cash.includeStandaloneCrewCash).toBe(true);
   });
 
   it('vanId excludes the ledger (no van relation); employeeId excludes Expense (no employee)', () => {
     expect(resolveSourceSelection({ vanId: 'v1' }).includeStaffLedger).toBe(false);
     expect(resolveSourceSelection({ vanId: 'v1' }).includeCrewCash).toBe(true);
+    // Standalone crew cash has no sheet, so no van — a van filter can never match it.
+    expect(resolveSourceSelection({ vanId: 'v1' }).includeStandaloneCrewCash).toBe(false);
+    // ...but an employee filter keeps it (it is attributed to an employee).
+    expect(resolveSourceSelection({ employeeId: 'u1' }).includeStandaloneCrewCash).toBe(true);
     expect(resolveSourceSelection({ employeeId: 'u1' }).includeExpenses).toBe(false);
   });
 });

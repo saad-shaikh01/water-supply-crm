@@ -36,6 +36,8 @@ describe('ExpenseService — post-close expense correction', () => {
     customerId: null,
   };
 
+  const ACTOR = { userId: USER.userId, userName: USER.name };
+
   function buildExpense(overrides: Record<string, unknown> = {}) {
     return {
       id: EXPENSE_ID,
@@ -102,7 +104,9 @@ describe('ExpenseService — post-close expense correction', () => {
       invalidateAnalytics: jest.fn().mockResolvedValue(undefined),
     };
     mockVanCashLedger = { handlePostCloseCorrection: jest.fn().mockResolvedValue(null) };
-    service = new ExpenseService(mockPrisma, mockAudit, mockCache, mockVanCashLedger);
+    service = new ExpenseService(mockPrisma, mockAudit, mockCache, mockVanCashLedger, {
+      assertWritable: jest.fn().mockResolvedValue(undefined),
+    } as any);
   });
 
   afterEach(() => jest.clearAllMocks());
@@ -248,7 +252,7 @@ describe('ExpenseService — post-close expense correction', () => {
   it('update() → 409 for a closed-sheet expense (must go through /correct)', async () => {
     mockPrisma.expense.findFirst.mockResolvedValue({ id: EXPENSE_ID, dailySheetId: SHEET_ID });
     mockPrisma.dailySheet.findFirst.mockResolvedValue({ isClosed: true });
-    await expect(service.update(VENDOR_ID, EXPENSE_ID, { amount: 999 } as any)).rejects.toBeInstanceOf(
+    await expect(service.update(VENDOR_ID, EXPENSE_ID, { amount: 999 } as any, ACTOR)).rejects.toBeInstanceOf(
       ConflictException,
     );
   });
@@ -256,6 +260,129 @@ describe('ExpenseService — post-close expense correction', () => {
   it('remove() → 409 for a closed-sheet expense (must go through /void)', async () => {
     mockPrisma.expense.findFirst.mockResolvedValue({ id: EXPENSE_ID, dailySheetId: SHEET_ID });
     mockPrisma.dailySheet.findFirst.mockResolvedValue({ isClosed: true });
-    await expect(service.remove(VENDOR_ID, EXPENSE_ID)).rejects.toBeInstanceOf(ConflictException);
+    await expect(service.remove(VENDOR_ID, EXPENSE_ID, ACTOR)).rejects.toBeInstanceOf(ConflictException);
+  });
+  // ── plain update()/remove() audit trail (open-sheet expenses) ─────────────
+  describe('plain update()/remove() audit logging', () => {
+    const OPEN_DATE = new Date('2026-08-17T00:00:00.000Z');
+    function openExpense(overrides: Record<string, unknown> = {}) {
+      return {
+        id: EXPENSE_ID,
+        vendorId: VENDOR_ID,
+        createdById: 'creator-1',
+        category: 'OTHER',
+        amount: 500,
+        paidFromCash: true,
+        description: 'tea',
+        date: OPEN_DATE,
+        vanId: 'van-1',
+        dailySheetId: SHEET_ID,
+        dailySheetLoadId: null,
+        createdAt: OPEN_DATE,
+        ...overrides,
+      };
+    }
+
+    beforeEach(() => {
+      // Open sheet, so the closed-sheet guard lets update/remove through.
+      mockPrisma.dailySheet.findFirst.mockResolvedValue({ isClosed: false });
+      mockPrisma.expense.findFirst.mockResolvedValue(openExpense());
+      // The service writes exactly what the DTO asked for on top of the stored row.
+      mockPrisma.expense.update = jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ ...openExpense(), ...data }));
+      mockPrisma.expense.delete = jest.fn().mockResolvedValue({ id: EXPENSE_ID });
+    });
+
+    it('update() logs UPDATED with ONLY the changed fields in before/after', async () => {
+      await service.update(
+        VENDOR_ID,
+        EXPENSE_ID,
+        { amount: 750, description: 'tea', category: 'FUEL' as any } as any, // description re-sent unchanged
+        ACTOR,
+      );
+
+      expect(mockAudit.log).toHaveBeenCalledTimes(1);
+      expect(mockAudit.log).toHaveBeenCalledWith({
+        vendorId: VENDOR_ID,
+        userId: ACTOR.userId,
+        userName: ACTOR.userName,
+        action: 'UPDATED',
+        entity: 'Expense',
+        entityId: EXPENSE_ID,
+        changes: {
+          before: { category: 'OTHER', amount: 500 },
+          after: { category: 'FUEL', amount: 750 },
+        },
+      });
+    });
+
+    it('update() diffs dates by value, not reference, and records vanId/dailySheetId clears as null', async () => {
+      await service.update(
+        VENDOR_ID,
+        EXPENSE_ID,
+        { date: OPEN_DATE.toISOString(), vanId: '' } as any, // same instant, vanId cleared
+        ACTOR,
+      );
+
+      const changes = mockAudit.log.mock.calls[0][0].changes;
+      expect(changes.before).toEqual({ vanId: 'van-1' });
+      expect(changes.after).toEqual({ vanId: null });
+    });
+
+    it('update() writes NO audit row when nothing actually changed', async () => {
+      await service.update(
+        VENDOR_ID,
+        EXPENSE_ID,
+        { amount: 500, category: 'OTHER' as any, paidFromCash: true, date: OPEN_DATE.toISOString() } as any,
+        ACTOR,
+      );
+      expect(mockPrisma.expense.update).toHaveBeenCalledTimes(1);
+      expect(mockAudit.log).not.toHaveBeenCalled();
+    });
+
+    it('update() writes NO audit row for an empty PATCH body', async () => {
+      await service.update(VENDOR_ID, EXPENSE_ID, {} as any, ACTOR);
+      expect(mockAudit.log).not.toHaveBeenCalled();
+    });
+
+    it('update() returns the updated row and logs once alongside it', async () => {
+      const result = await service.update(VENDOR_ID, EXPENSE_ID, { amount: 600 } as any, ACTOR);
+      expect(result.amount).toBe(600);
+      expect(mockAudit.log).toHaveBeenCalledTimes(1);
+    });
+
+    it('remove() logs DELETED with the full pre-delete snapshot', async () => {
+      const result = await service.remove(VENDOR_ID, EXPENSE_ID, ACTOR);
+
+      expect(result).toEqual({ deleted: true });
+      expect(mockPrisma.expense.delete).toHaveBeenCalledWith({ where: { id: EXPENSE_ID } });
+      expect(mockAudit.log).toHaveBeenCalledTimes(1);
+      expect(mockAudit.log).toHaveBeenCalledWith({
+        vendorId: VENDOR_ID,
+        userId: ACTOR.userId,
+        userName: ACTOR.userName,
+        action: 'DELETED',
+        entity: 'Expense',
+        entityId: EXPENSE_ID,
+        changes: {
+          before: {
+            category: 'OTHER',
+            amount: 500,
+            paidFromCash: true,
+            description: 'tea',
+            date: OPEN_DATE,
+            vanId: 'van-1',
+            dailySheetId: SHEET_ID,
+            createdById: 'creator-1',
+          },
+        },
+      });
+    });
+
+    it('remove() logs nothing when the closed-sheet guard rejects it', async () => {
+      mockPrisma.dailySheet.findFirst.mockResolvedValue({ isClosed: true });
+      await expect(service.remove(VENDOR_ID, EXPENSE_ID, ACTOR)).rejects.toBeInstanceOf(ConflictException);
+      expect(mockPrisma.expense.delete).not.toHaveBeenCalled();
+      expect(mockAudit.log).not.toHaveBeenCalled();
+    });
   });
 });

@@ -7,6 +7,7 @@ import {
   type UpdateCrewCashData,
   type CorrectCrewCashData,
   type CreateStandaloneCrewCashData,
+  type UpdateStandaloneCrewCashData,
 } from '../api/crew-cash.api';
 import { queryKeys } from '../../../lib/query-keys';
 
@@ -109,5 +110,20 @@ export const useVoidStandaloneCrewCash = () => {
       toast.success('Crew cash entry voided');
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to void entry'),
+  });
+};
+
+/** Edit a standalone crew-cash entry in place (P2) — refreshes the whole Cash Ledger namespace. */
+export const useUpdateStandaloneCrewCash = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    retry: 0,
+    mutationFn: ({ id, data }: { id: string; data: UpdateStandaloneCrewCashData }) =>
+      crewCashApi.updateStandalone(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['van-cash-ledger'] });
+      toast.success('Crew cash entry updated');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to update entry'),
   });
 };

@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
-import { ExpenseCategory, LedgerEntryStatus, Prisma, StaffLedgerCategory } from '@prisma/client';
+import {
+  ExpenseCategory,
+  LedgerEntryStatus,
+  Prisma,
+  StandaloneCrewCashStatus,
+  StaffLedgerCategory,
+} from '@prisma/client';
 import { paginate, type PaginatedResult } from '../../common/helpers/paginate';
 import {
   ExpenseCenterSummaryQueryDto,
@@ -16,6 +22,7 @@ import {
   normalizeCrewCashRow,
   normalizeExpenseRow,
   normalizeStaffLedgerRow,
+  normalizeStandaloneCrewCashRow,
   resolveSourceSelection,
   STAFF_LEDGER_CATEGORY_LABELS,
   type ExpenseCenterDomain,
@@ -69,14 +76,15 @@ interface PeriodTotals {
   expenseCard: number;
   staffLedgerByCategory: Map<StaffLedgerCategory, number>;
   staffLedgerTotal: number;
+  /** Sheet-scoped CrewCashDistribution + ACTIVE StandaloneCrewCashExpense — one CREW_CASH bucket. */
   crewCashTotal: number;
   total: number;
 }
 
 /**
- * Expense Center — Phase 1, read-only orchestration over the three sources that
+ * Expense Center — Phase 1, read-only orchestration over the four sources that
  * between them cover every expense-recording surface exactly once (see the
- * header of expense-center-domain.util.ts for why it is three and not five).
+ * header of expense-center-domain.util.ts for why it is four and not five).
  *
  * Nothing here writes. Every existing recording surface keeps its own module;
  * this one only reads and merges.
@@ -108,7 +116,7 @@ export class ExpenseCenterService {
 
     // Cash/card split: only `Expense` carries a paidFromCash flag. ASSUMPTION
     // (documented, not derived from data): every StaffLedgerEntry and every
-    // CrewCashDistribution counts as CASH, because neither model records a
+    // CrewCashDistribution (and standalone crew cash row) counts as CASH, because neither model records a
     // payment instrument at all — crew cash is by definition handed over as
     // physical van cash, and payroll ledger movements settle through the
     // payroll run rather than a card. If a card/bank payroll instrument is
@@ -141,7 +149,7 @@ export class ExpenseCenterService {
    * documented next step if that ever stops being true.
    */
   private async collectPeriodTotals(vendorId: string, start: Date, end: Date): Promise<PeriodTotals> {
-    const [expenseGroups, ledgerRows, crewCashAgg] = await Promise.all([
+    const [expenseGroups, ledgerRows, crewCashAgg, standaloneCrewCashAgg] = await Promise.all([
       this.prisma.expense.groupBy({
         by: ['category', 'paidFromCash'],
         where: { vendorId, date: { gte: start, lte: end } },
@@ -151,8 +159,8 @@ export class ExpenseCenterService {
         where: {
           vendorId,
           // CREW_CASH entries are the synced copies of CrewCashDistribution
-          // rows, which are read directly below — counting both would double
-          // every closed sheet's crew cash.
+          // and StandaloneCrewCashExpense rows, which are read directly below —
+          // counting both would double every crew cash row.
           category: { not: StaffLedgerCategory.CREW_CASH },
           // A VOIDED entry was cancelled and is excluded from the payroll
           // engine's own computation too — it is not money the business spent.
@@ -163,6 +171,13 @@ export class ExpenseCenterService {
       }),
       this.prisma.crewCashDistribution.aggregate({
         where: { vendorId, date: { gte: start, lte: end } },
+        _sum: { amount: true },
+      }),
+      // Crew cash recorded without a Daily Sheet. ACTIVE only — a VOIDED row is
+      // not a cost. Its CREW_CASH StaffLedgerEntry twin is excluded above, so
+      // this is the one place it is counted.
+      this.prisma.standaloneCrewCashExpense.aggregate({
+        where: { vendorId, status: StandaloneCrewCashStatus.ACTIVE, date: { gte: start, lte: end } },
         _sum: { amount: true },
       }),
     ]);
@@ -185,7 +200,7 @@ export class ExpenseCenterService {
       staffLedgerTotal += amount;
     }
 
-    const crewCashTotal = crewCashAgg._sum.amount ?? 0;
+    const crewCashTotal = (crewCashAgg._sum.amount ?? 0) + (standaloneCrewCashAgg._sum.amount ?? 0);
 
     return {
       expenseByCategory,
@@ -205,7 +220,7 @@ export class ExpenseCenterService {
   /**
    * Merged, date-descending, paginated timeline.
    *
-   * SORT-THEN-PAGE STRATEGY: the three sources cannot be joined in SQL, so each
+   * SORT-THEN-PAGE STRATEGY: the four sources cannot be joined in SQL, so each
    * is queried for a BOUNDED window of its own newest `page * limit + limit`
    * rows, the windows are merge-sorted, and the requested page is sliced out.
    * That window is provably sufficient: any row belonging to the global newest
@@ -261,7 +276,25 @@ export class ExpenseCenterService {
       ...(query.vanId && { dailySheet: { vanId: query.vanId } }),
     };
 
-    const [expenseRows, expenseCount, ledgerRows, ledgerCount, crewCashRows, crewCashCount] =
+    // Standalone crew cash: ACTIVE only, no van (the selection already drops it
+    // when a vanId filter is present).
+    const standaloneCrewCashWhere: Prisma.StandaloneCrewCashExpenseWhereInput = {
+      vendorId,
+      status: StandaloneCrewCashStatus.ACTIVE,
+      ...(dateFilter && { date: dateFilter }),
+      ...(query.employeeId && { employeeId: query.employeeId }),
+    };
+
+    const [
+      expenseRows,
+      expenseCount,
+      ledgerRows,
+      ledgerCount,
+      crewCashRows,
+      crewCashCount,
+      standaloneRows,
+      standaloneCount,
+    ] =
       await Promise.all([
         selection.includeExpenses
           ? this.prisma.expense.findMany({
@@ -325,15 +358,35 @@ export class ExpenseCenterService {
             })
           : [],
         selection.includeCrewCash ? this.prisma.crewCashDistribution.count({ where: crewCashWhere }) : 0,
+        selection.includeStandaloneCrewCash
+          ? this.prisma.standaloneCrewCashExpense.findMany({
+              where: standaloneCrewCashWhere,
+              select: {
+                id: true,
+                category: true,
+                amount: true,
+                notes: true,
+                date: true,
+                employee: { select: { name: true } },
+                createdBy: { select: { name: true } },
+              },
+              orderBy: { date: 'desc' },
+              take: windowSize,
+            })
+          : [],
+        selection.includeStandaloneCrewCash
+          ? this.prisma.standaloneCrewCashExpense.count({ where: standaloneCrewCashWhere })
+          : 0,
       ]);
 
     const merged: ExpenseCenterRow[] = [];
     for (const row of expenseRows) merged.push(normalizeExpenseRow(row));
     for (const row of ledgerRows) merged.push(normalizeStaffLedgerRow(row));
     for (const row of crewCashRows) merged.push(normalizeCrewCashRow(row));
+    for (const row of standaloneRows) merged.push(normalizeStandaloneCrewCashRow(row));
     merged.sort(compareRowsByDateDesc);
 
-    const total = expenseCount + ledgerCount + crewCashCount;
+    const total = expenseCount + ledgerCount + crewCashCount + standaloneCount;
     const skip = (page - 1) * limit;
 
     return paginate(merged.slice(skip, skip + limit), total, page, limit);
@@ -364,7 +417,7 @@ function resolvePeriod(from?: string, to?: string): { start: Date; end: Date } {
   return { start, end };
 }
 
-/** Highest-amount single category across the merged set (Expense + ledger + crew cash). */
+/** Highest-amount single category across the merged set (Expense + ledger + sheet & standalone crew cash). */
 function pickTopCategory(totals: PeriodTotals): ExpenseCenterSummary['topCategory'] {
   const candidates: Array<{ category: string; label: string; amount: number }> = [];
 

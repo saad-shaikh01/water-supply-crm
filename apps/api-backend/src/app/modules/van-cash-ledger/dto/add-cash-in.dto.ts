@@ -1,10 +1,12 @@
-import { IsDateString, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import { ManualCashInSource } from '@prisma/client';
+import { IsDateString, IsEnum, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 
 /**
  * A manually-recorded cash-in event outside the normal driver-handover flow —
  * see VanCashLedgerService.addManualCashIn. `vanId` is optional: set it to
  * anchor the entry to one van's balance, or omit it for a general/office-wide
- * entry (only visible in the vendor-wide "All Vans" view).
+ * entry (only visible in the vendor-wide "All Vans" view). `source` is an
+ * optional categorisation for "Office Cash In by source" reporting.
  */
 export class AddCashInDto {
   @IsOptional()
@@ -21,4 +23,8 @@ export class AddCashInDto {
   @IsOptional()
   @IsString()
   note?: string;
+
+  @IsOptional()
+  @IsEnum(ManualCashInSource)
+  source?: ManualCashInSource;
 }

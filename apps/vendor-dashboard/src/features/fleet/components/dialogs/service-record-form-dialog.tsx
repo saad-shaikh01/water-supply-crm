@@ -3,15 +3,20 @@
 import { useEffect, useState } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2, Wrench } from 'lucide-react';
+import { Loader2, Plus, Settings2, Wrench } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-  Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Button, Input, Label, Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue,
 } from '@water-supply-crm/ui';
 import { VEHICLE_SERVICE_TYPE_LABELS, type VehicleServiceRecordEntry } from '@water-supply-crm/types';
 import { serviceRecordSchema, type ServiceRecordInput } from '../../schemas';
-import { useCreateServiceRecord, useUpdateServiceRecord } from '../../hooks/use-maintenance';
+import { useCreateServiceRecord, useServiceTypes, useUpdateServiceRecord } from '../../hooks/use-maintenance';
 import { FleetPhotoUpload } from '../fleet-photo-upload';
+import { ManageServiceTypesDialog } from './manage-service-types-dialog';
+
+// Sentinel <SelectItem> value that opens the "add a service type" dialog
+// instead of selecting anything.
+const ADD_NEW_TYPE = '__add_new_type__';
 
 interface ServiceRecordFormDialogProps {
   vehicleId: string;
@@ -41,11 +46,17 @@ export function ServiceRecordFormDialog({
   const { mutate: createServiceRecord, isPending: isCreating } = useCreateServiceRecord();
   const { mutate: updateServiceRecord, isPending: isUpdating } = useUpdateServiceRecord();
   const isPending = isCreating || isUpdating;
+  const [manageTypesOpen, setManageTypesOpen] = useState(false);
+  const { data: serviceTypes, isLoading: typesLoading } = useServiceTypes();
+  // Until the catalogue loads, show the built-ins so the select isn't blank.
+  const typeOptions = serviceTypes?.length
+    ? serviceTypes.map((t) => ({ key: t.key, label: t.label }))
+    : Object.entries(VEHICLE_SERVICE_TYPE_LABELS).map(([key, label]) => ({ key, label }));
 
-  const { register, handleSubmit, reset, control, formState: { errors } } = useForm<ServiceRecordInput>({
+  const { register, handleSubmit, reset, control, watch, setValue, getValues, formState: { errors } } = useForm<ServiceRecordInput>({
     resolver: zodResolver(serviceRecordSchema),
     defaultValues: {
-      serviceType: (defaultServiceType as ServiceRecordInput['serviceType']) ?? 'ENGINE_OIL',
+      serviceType: defaultServiceType ?? 'ENGINE_OIL',
       performedAtOdometer: currentOdometer ?? 0,
       performedAtDate: new Date().toISOString().slice(0, 10),
       cost: 0,
@@ -69,7 +80,7 @@ export function ServiceRecordFormDialog({
       setInvoicePhotoKey(serviceRecord.invoicePhotoKey ?? undefined);
     } else if (open && !serviceRecord) {
       reset({
-        serviceType: (defaultServiceType as ServiceRecordInput['serviceType']) ?? 'ENGINE_OIL',
+        serviceType: defaultServiceType ?? 'ENGINE_OIL',
         performedAtOdometer: currentOdometer ?? 0,
         performedAtDate: new Date().toISOString().slice(0, 10),
         cost: 0,
@@ -80,6 +91,17 @@ export function ServiceRecordFormDialog({
       setInvoicePhotoKey(undefined);
     }
   }, [open, serviceRecord, defaultServiceType, currentOdometer, reset]);
+
+  // Create mode: if the pre-selected type no longer exists in the vendor's
+  // catalogue (e.g. the default "Engine Oil" was removed), fall back to the
+  // first available one rather than submitting a dead key.
+  const selectedType = watch('serviceType');
+  useEffect(() => {
+    if (!open || isEdit || !serviceTypes?.length) return;
+    if (selectedType && !serviceTypes.some((t) => t.key === selectedType)) {
+      setValue('serviceType', serviceTypes[0].key);
+    }
+  }, [open, isEdit, serviceTypes, selectedType, setValue]);
 
   function onSubmit(values: ServiceRecordInput) {
     if (isEdit) {
@@ -113,21 +135,42 @@ export function ServiceRecordFormDialog({
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label>Service Type</Label>
+            <div className="flex items-center justify-between">
+              <Label>Service Type</Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 gap-1 px-2 text-xs text-muted-foreground"
+                onClick={() => setManageTypesOpen(true)}
+              >
+                <Settings2 className="h-3 w-3" />
+                Manage
+              </Button>
+            </div>
             <Controller
               name="serviceType"
               control={control}
               render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
+                <Select
+                  value={field.value}
+                  onValueChange={(v) => (v === ADD_NEW_TYPE ? setManageTypesOpen(true) : field.onChange(v))}
+                  disabled={typesLoading && !isEdit}
+                >
                   <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {Object.entries(VEHICLE_SERVICE_TYPE_LABELS).map(([value, label]) => (
-                      <SelectItem key={value} value={value}>{label}</SelectItem>
+                    {typeOptions.map(({ key, label }) => (
+                      <SelectItem key={key} value={key}>{label}</SelectItem>
                     ))}
+                    <SelectSeparator />
+                    <SelectItem value={ADD_NEW_TYPE} className="text-primary font-semibold">
+                      <span className="flex items-center gap-1.5"><Plus className="h-3.5 w-3.5" /> Add new service type…</span>
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               )}
             />
+            {errors.serviceType && <p className="text-xs text-destructive">{errors.serviceType.message}</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -176,6 +219,16 @@ export function ServiceRecordFormDialog({
           </DialogFooter>
         </form>
       </DialogContent>
+
+      <ManageServiceTypesDialog
+        open={manageTypesOpen}
+        onOpenChange={setManageTypesOpen}
+        // Newly added type is what the user wanted to record — select it.
+        onCreated={(created) => setValue('serviceType', created.key, { shouldValidate: true })}
+        onDeleted={(removed) => {
+          if (getValues('serviceType') === removed.key) setValue('serviceType', '');
+        }}
+      />
     </Dialog>
   );
 }

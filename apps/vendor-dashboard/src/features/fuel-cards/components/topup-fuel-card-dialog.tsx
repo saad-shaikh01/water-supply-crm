@@ -139,6 +139,24 @@ export function TopUpFuelCardDialog({ card: presetCard, open, onOpenChange }: To
             </div>
           )}
 
+          {card && (
+            <div className="flex items-center justify-between rounded-2xl border border-border bg-muted/40 px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  Current Card Balance
+                </p>
+                <p className="text-xs text-muted-foreground truncate">{card.name}</p>
+              </div>
+              <p
+                className={`text-lg font-black tabular-nums shrink-0 ${
+                  card.balance < 0 ? 'text-destructive' : 'text-foreground'
+                }`}
+              >
+                {money(card.balance)}
+              </p>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
@@ -166,11 +184,6 @@ export function TopUpFuelCardDialog({ card: presetCard, open, onOpenChange }: To
           {stats && (
             <p className="text-[11px] text-muted-foreground">
               Office cash on hand: <span className="font-bold text-foreground">{money(available)}</span>
-              {card && (
-                <>
-                  {' · '}Current card balance: <span className="font-bold text-foreground">{money(card.balance)}</span>
-                </>
-              )}
             </p>
           )}
 

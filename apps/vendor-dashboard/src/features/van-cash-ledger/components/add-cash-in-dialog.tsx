@@ -6,16 +6,15 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
   Button, Input, Label, Textarea, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@water-supply-crm/ui';
+import { pktToday } from '../../../lib/date-pkt';
 import { useAllVans } from '../../vans/hooks/use-vans';
 import { useAddCashIn } from '../hooks/use-van-cash-ledger';
+import type { ManualCashInSource } from '../api/van-cash-ledger.api';
+import { MANUAL_CASH_IN_SOURCES } from '../constants';
 
 interface AddCashInDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-}
-
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
 }
 
 /**
@@ -32,21 +31,25 @@ export function AddCashInDialog({ open, onOpenChange }: AddCashInDialogProps) {
 
   const [vanId, setVanId] = useState('none');
   const [amount, setAmount] = useState('');
-  const [date, setDate] = useState(todayIso());
+  const [date, setDate] = useState(pktToday());
   const [note, setNote] = useState('');
+  const [source, setSource] = useState('none');
 
   useEffect(() => {
     if (open) {
       setVanId('none');
       setAmount('');
-      setDate(todayIso());
+      setDate(pktToday());
       setNote('');
+      setSource('none');
     }
   }, [open]);
 
   const vans = data?.data ?? [];
   const parsedAmount = Number(amount);
-  const canSubmit = amount !== '' && !Number.isNaN(parsedAmount) && !!date && note.trim() !== '';
+  const today = pktToday();
+  const dateInFuture = !!date && date > today;
+  const canSubmit = amount !== '' && !Number.isNaN(parsedAmount) && !!date && !dateInFuture && note.trim() !== '';
 
   const handleSubmit = () => {
     if (!canSubmit) return;
@@ -56,6 +59,7 @@ export function AddCashInDialog({ open, onOpenChange }: AddCashInDialogProps) {
         openingBalance: parsedAmount,
         openingDate: date,
         note: note.trim(),
+        source: source === 'none' ? undefined : (source as ManualCashInSource),
       },
       { onSuccess: () => onOpenChange(false) },
     );
@@ -63,7 +67,7 @@ export function AddCashInDialog({ open, onOpenChange }: AddCashInDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="rounded-3xl max-w-md">
+      <DialogContent className="rounded-3xl max-w-md max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-xl font-black flex items-center gap-2">
             <PiggyBank className="h-5 w-5 text-primary" />
@@ -111,9 +115,30 @@ export function AddCashInDialog({ open, onOpenChange }: AddCashInDialogProps) {
             <Input
               type="date"
               value={date}
+              max={today}
               onChange={(e) => setDate(e.target.value)}
               className="h-10 rounded-xl"
             />
+            {dateInFuture ? (
+              <p className="text-xs text-destructive">Date can&apos;t be in the future.</p>
+            ) : null}
+          </div>
+
+          <div className="space-y-2">
+            <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
+              Source (Optional)
+            </Label>
+            <Select value={source} onValueChange={setSource}>
+              <SelectTrigger className="h-10 rounded-xl">
+                <SelectValue placeholder="Select a source" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">— none —</SelectItem>
+                {MANUAL_CASH_IN_SOURCES.map((s) => (
+                  <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-2">

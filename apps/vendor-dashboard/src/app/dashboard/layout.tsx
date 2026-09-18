@@ -4,6 +4,7 @@ import { Sidebar } from '../../components/layout/sidebar';
 import { Header } from '../../components/layout/header';
 import { DriverMobileNav } from '../../components/layout/driver-mobile-nav';
 import { RouteGuard } from '../../components/authz/route-guard';
+import { LockOverrideProvider } from '../../features/van-cash-ledger/lock-override/lock-override-provider';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -29,6 +30,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <DriverMobileNav />
         </div>
       </div>
+      {/* Accounting-period override: one interceptor + dialog for every dashboard page. */}
+      <LockOverrideProvider />
     </NuqsAdapter>
   );
 }

@@ -217,6 +217,8 @@ function makeService(
   const permissions = { can: jest.fn().mockResolvedValue(canPermission) };
   const staffLedger = makeStaffLedgerMock();
   const crewCashSyncQueue = { upsertJobScheduler: jest.fn().mockResolvedValue(undefined) };
+  // Cash Ledger P0: post-close changes sync into the sheet's VanCashHandover chain.
+  const vanCashLedger = { handlePostCloseCorrection: jest.fn().mockResolvedValue(null) };
 
   const svc = new CrewCashDistributionService(
     prisma as any,
@@ -224,8 +226,9 @@ function makeService(
     permissions as any,
     staffLedger as any,
     crewCashSyncQueue as any,
+    vanCashLedger as any,
   );
-  return { svc, prisma, tx, approvalGate, permissions, staffLedger, crewCashSyncQueue };
+  return { svc, prisma, tx, approvalGate, permissions, staffLedger, crewCashSyncQueue, vanCashLedger };
 }
 
 // ─── tests ──────────────────────────────────────────────────────────────────
@@ -332,6 +335,68 @@ describe('CrewCashDistributionService', () => {
       expect(tx.crewCashDistribution.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: { id: ENTRY_ID, vendorId: VENDOR_ID, version: 0 } }),
       );
+    });
+
+    describe('unsynced row on an already-closed sheet (pending approval at close)', () => {
+      const closedReload = {
+        id: SHEET_ID,
+        isClosed: true,
+        cashCollected: 0,
+        cashExpected: 0,
+        postCloseCrewCashCorrectionCount: 1,
+        items: [],
+        expenses: [],
+        crewCashDistributions: [{ amount: 100 }],
+        loads: [],
+      };
+
+      it('bumps the marker and syncs the Cash Ledger handover when the amount changes', async () => {
+        const { svc, tx, vanCashLedger } = makeService({ entrySnapshot: pendingApprovalEntry });
+        tx.dailySheet.findUnique.mockResolvedValue(closedReload);
+
+        await svc.update(salesmanUser, ENTRY_ID, { version: 1, amount: 100 });
+
+        expect(tx.dailySheet.update).toHaveBeenCalledWith(
+          expect.objectContaining({ where: { id: SHEET_ID }, data: { postCloseCrewCashCorrectionCount: { increment: 1 } } }),
+        );
+        expect(vanCashLedger.handlePostCloseCorrection).toHaveBeenCalledTimes(1);
+        expect(vanCashLedger.handlePostCloseCorrection.mock.calls[0].slice(0, 3)).toEqual([tx, VENDOR_ID, SHEET_ID]);
+      });
+
+      it('does not touch the ledger when only notes change', async () => {
+        const { svc, tx, vanCashLedger } = makeService({ entrySnapshot: pendingApprovalEntry });
+        tx.dailySheet.findUnique.mockResolvedValue(closedReload);
+
+        await svc.update(salesmanUser, ENTRY_ID, { version: 1, notes: 'x' });
+
+        expect(vanCashLedger.handlePostCloseCorrection).not.toHaveBeenCalled();
+        expect(tx.dailySheet.update).not.toHaveBeenCalled();
+      });
+
+      it('does not touch the ledger for an amount change on an OPEN sheet (normal pre-close flow)', async () => {
+        const { svc, vanCashLedger, tx } = makeService();
+        await svc.update(salesmanUser, ENTRY_ID, { version: 0, amount: 100 });
+        expect(vanCashLedger.handlePostCloseCorrection).not.toHaveBeenCalled();
+        expect(tx.dailySheet.update).not.toHaveBeenCalled();
+      });
+
+      it('remove() on a closed sheet bumps the marker and syncs the handover', async () => {
+        const { svc, tx, vanCashLedger } = makeService({ entrySnapshot: pendingApprovalEntry });
+        tx.dailySheet.findUnique.mockResolvedValue({ ...closedReload, crewCashDistributions: [] });
+
+        await svc.remove(salesmanUser, ENTRY_ID, {});
+
+        expect(tx.dailySheet.update).toHaveBeenCalledWith(
+          expect.objectContaining({ data: { postCloseCrewCashCorrectionCount: { increment: 1 } } }),
+        );
+        expect(vanCashLedger.handlePostCloseCorrection).toHaveBeenCalledTimes(1);
+      });
+
+      it('remove() on an open sheet never touches the ledger', async () => {
+        const { svc, vanCashLedger } = makeService();
+        await svc.remove(salesmanUser, ENTRY_ID, {});
+        expect(vanCashLedger.handlePostCloseCorrection).not.toHaveBeenCalled();
+      });
     });
 
     it('rejects editing an entry already synced into the Payroll Ledger', async () => {
@@ -979,6 +1044,105 @@ describe('CrewCashDistributionService', () => {
           data: expect.objectContaining({ syncedLedgerEntryId: 'correction-ledger-1', amount: 300 }),
         }),
       );
+    });
+
+    // ── Cash Ledger P0: handover sync ────────────────────────────────────────
+    describe('Cash Ledger handover sync (handlePostCloseCorrection)', () => {
+      /** A closed-sheet reload as SHEET_CASH_RELOAD_INCLUDE returns it, AFTER the
+       *  correction: marker bumped, the corrected row (Rs.300) is the only crew cash,
+       *  Rs.1000 of delivery cash recorded, no expenses => cashExpected = 1000 - 300. */
+      const closedSheetReload = {
+        id: SHEET_ID,
+        isClosed: true,
+        cashCollected: 700,
+        cashExpected: 950, // frozen close-time figure (stale)
+        postCloseCrewCashCorrectionCount: 1,
+        items: [
+          {
+            status: 'COMPLETED',
+            filledDropped: 2,
+            filledReceived: 0,
+            emptyReceived: 0,
+            cashCollected: 1000,
+            pricePerBottle: 500,
+            productId: 'p1',
+            voidedAt: null,
+            isCorrection: false,
+            correctionAddedAt: null,
+            isRepriced: false,
+            repricedAt: null,
+            customer: { paymentType: 'CASH', customPrices: [] },
+            product: { basePrice: 500 },
+          },
+        ],
+        expenses: [],
+        crewCashDistributions: [{ amount: 300 }],
+        loads: [],
+        filledOutCount: 2,
+        filledInCount: 0,
+        emptyInCount: 0,
+      };
+
+      it('reloads the closed sheet with SHEET_CASH_RELOAD_INCLUDE and calls handlePostCloseCorrection once with the recomputed cashExpected, in the same tx, after the row rewrite + marker bump', async () => {
+        const { svc, tx, vanCashLedger } = makeService({ entrySnapshot: syncedEntry, ledgerEntrySnapshot: lockedLedgerEntry });
+        tx.dailySheet.findUnique.mockResolvedValue(closedSheetReload);
+
+        await svc.correctSyncedEntry(adminUser, ENTRY_ID, correctAmountOnly);
+
+        expect(tx.dailySheet.findUnique).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: SHEET_ID },
+            include: expect.objectContaining({
+              items: expect.anything(),
+              expenses: expect.anything(),
+              crewCashDistributions: { select: { amount: true } },
+            }),
+          }),
+        );
+        expect(vanCashLedger.handlePostCloseCorrection).toHaveBeenCalledTimes(1);
+        expect(vanCashLedger.handlePostCloseCorrection).toHaveBeenCalledWith(tx, VENDOR_ID, SHEET_ID, 700);
+
+        const rowUpdateOrder = tx.crewCashDistribution.update.mock.invocationCallOrder[0];
+        const markerOrder = tx.dailySheet.update.mock.invocationCallOrder[0];
+        const reloadOrder = tx.dailySheet.findUnique.mock.invocationCallOrder[0];
+        const ledgerOrder = vanCashLedger.handlePostCloseCorrection.mock.invocationCallOrder[0];
+        expect(rowUpdateOrder).toBeLessThan(markerOrder);
+        expect(markerOrder).toBeLessThan(reloadOrder);
+        expect(reloadOrder).toBeLessThan(ledgerOrder);
+      });
+
+      it('still calls handlePostCloseCorrection when the amount is unchanged (employee-only correction) — the ledger no-ops on delta 0', async () => {
+        const { svc, tx, vanCashLedger } = makeService({
+          entrySnapshot: syncedEntry,
+          ledgerEntrySnapshot: lockedLedgerEntry,
+          targetEmployeeExists: true,
+        });
+        tx.dailySheet.findUnique.mockResolvedValue({ ...closedSheetReload, crewCashDistributions: [{ amount: 50 }] });
+
+        await svc.correctSyncedEntry(adminUser, ENTRY_ID, correctEmployeeOnly);
+
+        expect(vanCashLedger.handlePostCloseCorrection).toHaveBeenCalledTimes(1);
+        // 1000 recorded - 50 crew cash
+        expect(vanCashLedger.handlePostCloseCorrection).toHaveBeenCalledWith(tx, VENDOR_ID, SHEET_ID, 950);
+      });
+
+      it('skips the ledger sync when the row belongs to an OPEN sheet (early-synced via syncStaleSheets)', async () => {
+        const { svc, tx, vanCashLedger } = makeService({ entrySnapshot: syncedEntry, ledgerEntrySnapshot: lockedLedgerEntry });
+        tx.dailySheet.findUnique.mockResolvedValue({ ...closedSheetReload, isClosed: false });
+
+        await svc.correctSyncedEntry(adminUser, ENTRY_ID, correctAmountOnly);
+
+        expect(vanCashLedger.handlePostCloseCorrection).not.toHaveBeenCalled();
+      });
+
+      it('propagates (rolling back the tx) when the ledger sync throws, so the correction never half-applies', async () => {
+        const { svc, tx, vanCashLedger } = makeService({ entrySnapshot: syncedEntry, ledgerEntrySnapshot: lockedLedgerEntry });
+        tx.dailySheet.findUnique.mockResolvedValue(closedSheetReload);
+        vanCashLedger.handlePostCloseCorrection.mockRejectedValueOnce(new Error('ledger down'));
+
+        await expect(svc.correctSyncedEntry(adminUser, ENTRY_ID, correctAmountOnly)).rejects.toThrow('ledger down');
+        expect(tx.crewCashDistributionAuditLog.create).not.toHaveBeenCalled();
+      });
     });
   });
 

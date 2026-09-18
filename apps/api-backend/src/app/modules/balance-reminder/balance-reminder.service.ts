@@ -1068,7 +1068,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       return this.sendStatementOnly(vendorId, customer, month);
     }
     if (kind === ReminderSendKind.WARNING) {
-      return this.sendWarning(vendorId, customer);
+      return this.sendWarning(vendorId, customer, month);
     }
     const ok = await this.sendReminder(vendorId, customer, customer.monthEndBalance, month, includeStatement);
     return ok ? 'sent' : 'failed';
@@ -1076,23 +1076,71 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Overdue-warning send — the factual `payment_overdue_warning` text template
-   * with the customer's LIVE outstanding balance. No PDF. Gated by its own
-   * vendor master switch (PAYMENT_WARNING) so statements can stay on with
-   * warnings off.
+   * (6 body params, see warningFigures). No PDF. Gated by its own vendor master
+   * switch (PAYMENT_WARNING) so statements can stay on with warnings off.
    */
   private async sendWarning(
     vendorId: string,
-    customer: { name: string; phoneNumber: string; financialBalance: number },
+    customer: { id: string; name: string; customerCode: string; phoneNumber: string; financialBalance: number; lastStatementSentAt?: Date | null },
+    month: string,
   ): Promise<DispatchOutcome> {
     if (!(await this.notifSettings.isEnabled(vendorId, NotificationType.PAYMENT_WARNING, NotificationChannel.WHATSAPP))) {
       return 'failed';
     }
+    const f = await this.warningFigures(vendorId, customer, month);
     const ok = await this.whatsapp.sendTemplate(
       customer.phoneNumber,
       CloudTemplateNames.PAYMENT_OVERDUE_WARNING,
-      [customer.name, customer.financialBalance.toFixed(2)],
+      [
+        customer.name,
+        customer.customerCode,
+        f.outstanding.toFixed(2),
+        f.invoiceAmount.toFixed(2),
+        f.paymentReceived.toFixed(2),
+        f.currentBalance.toFixed(2),
+      ],
     );
     return ok ? 'sent' : 'failed';
+  }
+
+  /**
+   * Figures for the `payment_overdue_warning` body, all measured from the moment
+   * the statement was issued (`since` = the earlier of the statement month's end
+   * and the moment the statement was actually sent — so it also works when the
+   * statement covers the still-running current month):
+   *  - invoiceAmount   = balance at `since` (the statement's "Bill Amount")
+   *  - paymentReceived = net PAYMENT/COLLECTION money received since then
+   *  - outstanding     = the part of the invoice still unpaid (invoice − payments, ≥ 0)
+   *  - currentBalance  = LIVE balance (also includes deliveries made since)
+   */
+  private async warningFigures(
+    vendorId: string,
+    customer: { id: string; financialBalance: number; lastStatementSentAt?: Date | null },
+    month: string,
+  ): Promise<{ invoiceAmount: number; paymentReceived: number; outstanding: number; currentBalance: number }> {
+    const monthEnd = this.monthEndDate(month);
+    const since = customer.lastStatementSentAt && customer.lastStatementSentAt < monthEnd ? customer.lastStatementSentAt : monthEnd;
+
+    const txs = await this.prisma.transaction.findMany({
+      where: { customerId: customer.id, vendorId, createdAt: { gte: since } },
+      select: { type: true, amount: true },
+    });
+    let sinceActivity = 0;
+    let paymentActivity = 0;
+    for (const t of txs) {
+      const amount = t.amount ?? 0;
+      sinceActivity += amount;
+      if (t.type === 'PAYMENT' || t.type === 'COLLECTION') paymentActivity += amount;
+    }
+
+    const invoiceAmount = Math.max(0, customer.financialBalance - sinceActivity);
+    const paymentReceived = Math.max(0, -paymentActivity);
+    return {
+      invoiceAmount,
+      paymentReceived,
+      outstanding: Math.max(0, invoiceAmount - paymentReceived),
+      currentBalance: customer.financialBalance,
+    };
   }
 
   /**

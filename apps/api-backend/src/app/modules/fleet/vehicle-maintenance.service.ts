@@ -1,10 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
-import { ExpenseCategory, VehicleServiceType } from '@prisma/client';
-import { VEHICLE_MAINTENANCE_DEFAULT_INTERVALS, VEHICLE_SERVICE_TYPE_LABELS } from '@water-supply-crm/types';
+import { ExpenseCategory } from '@prisma/client';
 import { paginate } from '../../common/helpers/paginate';
 import type { AuthUser } from '@water-supply-crm/types';
 import { AuditService } from '../audit/audit.service';
+import { VehicleServiceTypeService } from './vehicle-service-type.service';
 import { UpdateMaintenanceRuleDto } from './dto/update-maintenance-rule.dto';
 import { CreateServiceRecordDto } from './dto/create-service-record.dto';
 import { UpdateServiceRecordDto } from './dto/update-service-record.dto';
@@ -26,24 +26,33 @@ export class VehicleMaintenanceService {
   constructor(
     private prisma: PrismaService,
     private audit: AuditService,
+    private serviceTypes: VehicleServiceTypeService,
   ) {}
 
   /**
-   * Seeds VEHICLE_MAINTENANCE_DEFAULT_INTERVALS onto a vehicle the first time
-   * its maintenance list is opened. Always per-vehicle (no separate vendor-wide
-   * default row — see schema comment on VehicleMaintenanceRule).
+   * Makes sure a vehicle has a rule row for every service type in the vendor's
+   * catalogue, seeded from each type's default intervals. Always per-vehicle
+   * (no separate vendor-wide default row — see schema comment on
+   * VehicleMaintenanceRule). Runs on every status read so a type added later
+   * (or a vehicle added after it) picks up its rule without a backfill; rules
+   * a user switched off (isActive=false) still exist, so they are never re-created.
    */
   async ensureDefaultRules(vendorId: string, vehicleId: string): Promise<void> {
-    const existingCount = await this.prisma.vehicleMaintenanceRule.count({ where: { vehicleId } });
-    if (existingCount > 0) return;
+    const [types, existing] = await Promise.all([
+      this.serviceTypes.listDefs(vendorId),
+      this.prisma.vehicleMaintenanceRule.findMany({ where: { vehicleId }, select: { serviceType: true } }),
+    ]);
+    const have = new Set(existing.map((r) => r.serviceType));
+    const missing = types.filter((t) => !have.has(t.key));
+    if (missing.length === 0) return;
 
     await this.prisma.vehicleMaintenanceRule.createMany({
-      data: (Object.keys(VEHICLE_MAINTENANCE_DEFAULT_INTERVALS) as VehicleServiceType[]).map((serviceType) => ({
+      data: missing.map((t) => ({
         vendorId,
         vehicleId,
-        serviceType,
-        intervalKm: VEHICLE_MAINTENANCE_DEFAULT_INTERVALS[serviceType].intervalKm,
-        intervalDays: VEHICLE_MAINTENANCE_DEFAULT_INTERVALS[serviceType].intervalDays,
+        serviceType: t.key,
+        intervalKm: t.defaultIntervalKm,
+        intervalDays: t.defaultIntervalDays,
       })),
       skipDuplicates: true,
     });
@@ -57,6 +66,7 @@ export class VehicleMaintenanceService {
     if (!vehicle) throw new NotFoundException('Vehicle not found');
 
     await this.ensureDefaultRules(vendorId, vehicleId);
+    const labelOf = await this.serviceTypes.getLabelMap(vendorId);
 
     const rules = await this.prisma.vehicleMaintenanceRule.findMany({
       where: { vehicleId, isActive: true },
@@ -88,7 +98,7 @@ export class VehicleMaintenanceService {
         ruleId: rule.id,
         vehicleId,
         serviceType: rule.serviceType,
-        label: VEHICLE_SERVICE_TYPE_LABELS[rule.serviceType],
+        label: labelOf(rule.serviceType),
         intervalKm: rule.intervalKm,
         intervalDays: rule.intervalDays,
         lastServiceOdometer: last?.performedAtOdometer ?? null,
@@ -153,6 +163,7 @@ export class VehicleMaintenanceService {
   async createServiceRecord(user: AuthUser, dto: CreateServiceRecordDto) {
     const vehicle = await this.prisma.vehicle.findFirst({ where: { id: dto.vehicleId, vendorId: user.vendorId } });
     if (!vehicle) throw new NotFoundException('Vehicle not found');
+    const serviceLabel = await this.serviceTypes.assertKeyExists(user.vendorId, dto.serviceType);
 
     const record = await this.prisma.$transaction(async (tx) => {
       const expense = await tx.expense.create({
@@ -160,7 +171,7 @@ export class VehicleMaintenanceService {
           vendorId: user.vendorId,
           category: ExpenseCategory.VEHICLE_MAINTENANCE,
           amount: dto.cost,
-          description: `${VEHICLE_SERVICE_TYPE_LABELS[dto.serviceType]} — ${vehicle.plateNumber}`,
+          description: `${serviceLabel} — ${vehicle.plateNumber}`,
           date: new Date(dto.performedAtDate),
           // Expense stays route-level (§17.2) — this vehicle isn't
           // necessarily tied to a specific van/route at service time, so no
@@ -248,6 +259,8 @@ export class VehicleMaintenanceService {
       include: { vehicle: { select: { id: true, plateNumber: true } } },
     });
     if (!record) throw new NotFoundException('Service record not found');
+    const serviceLabel =
+      dto.serviceType !== undefined ? await this.serviceTypes.assertKeyExists(user.vendorId, dto.serviceType) : null;
 
     const updated = await this.prisma.$transaction(async (tx) => {
       if (
@@ -260,7 +273,7 @@ export class VehicleMaintenanceService {
             ...(dto.cost !== undefined && { amount: dto.cost }),
             ...(dto.performedAtDate !== undefined && { date: new Date(dto.performedAtDate) }),
             ...(dto.serviceType !== undefined && {
-              description: `${VEHICLE_SERVICE_TYPE_LABELS[dto.serviceType]} — ${record.vehicle.plateNumber}`,
+              description: `${serviceLabel} — ${record.vehicle.plateNumber}`,
             }),
           },
         });

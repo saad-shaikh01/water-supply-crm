@@ -347,10 +347,27 @@ export const PERMISSION_CATALOG = {
   //   `remit_void`    void an ALREADY-APPROVED remittance — the tightest tier
   //                   (Vendor Admin only). Voiding a still-PENDING row only
   //                   needs `remit_approve` (checked in the service).
+  //
+  // Accounting periods (Cash Ledger redesign P4, 2026-09-18) — the ledger is
+  // split into PKT calendar-month periods that an admin can lock:
+  //   `close_period`  close / reopen a month and read its close-check
+  //                   (Vendor Admin only by default — NOT in any preset).
+  //   `override_lock` write into an already-CLOSED period anyway, with a
+  //                   mandatory reason (>= 10 chars) that is audit-logged and
+  //                   counted on the period (Vendor Admin only by default —
+  //                   NOT in any preset).
+  //
+  // Cash Ledger CSV / PDF export (Cash Ledger redesign P5, 2026-09-18):
+  //   `export`        download the ledger (timeline / daily summary) as a CSV or
+  //                   PDF report — financial data export. Vendor Admin via `*`;
+  //                   Manager and Accountant by preset.
   van_cash_ledger: {
     label: 'Van Cash Ledger',
     navigable: true,
-    actions: ['page', 'view', 'manage', 'approve', 'remit', 'remit_approve', 'remit_void'],
+    actions: [
+      'page', 'view', 'manage', 'approve', 'remit', 'remit_approve', 'remit_void',
+      'close_period', 'override_lock', 'export',
+    ],
   },
   // Fuel Card Wallet (owner-requested 2026-09-15): fuel card top-ups (office
   // cash -> a specific fuel card) were previously logged as a generic Expense,

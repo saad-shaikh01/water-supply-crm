@@ -16,6 +16,8 @@ import { extname } from 'path';
 import { Throttle } from '@nestjs/throttler';
 import { VanCashLedgerService } from './van-cash-ledger.service';
 import { AddCashInDto } from './dto/add-cash-in.dto';
+import { EditManualCashInDto } from './dto/edit-manual-cash-in.dto';
+import { VoidManualCashInDto } from './dto/void-manual-cash-in.dto';
 import { ApproveHandoverDto } from './dto/approve-handover.dto';
 import { CreateRemittanceDto } from './dto/create-remittance.dto';
 import { ApproveRemittanceDto } from './dto/approve-remittance.dto';
@@ -26,6 +28,11 @@ import {
   VanCashLedgerStatsQueryDto,
   VanCashLedgerTimelineQueryDto,
 } from './dto/van-cash-ledger-query.dto';
+import { CashLedgerDailySummaryQueryDto } from './dto/cash-ledger-daily-summary-query.dto';
+import { ClosePeriodDto } from './dto/close-period.dto';
+import { ReopenPeriodDto } from './dto/reopen-period.dto';
+import { CashLedgerPeriodService } from './cash-ledger-period.service';
+import { isPeriodLabel } from './cash-ledger-period.util';
 import { RequireAnyPermission, RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { StorageService } from '../../common/storage/storage.service';
@@ -33,9 +40,16 @@ import type { AuthUser } from '@water-supply-crm/types';
 
 const ALLOWED_ATTACHMENT_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.pdf'];
 
+/** 400 unless the `:label` route param is a well-formed period label (YYYY-MM). */
+function assertPeriodLabel(label: string): string {
+  if (!isPeriodLabel(label)) throw new BadRequestException('Period label must look like YYYY-MM.');
+  return label;
+}
+
 /**
  * Van Cash Ledger — the "cash in" counterpart to the Expense Center.
- *   - manual-cash-in → van_cash_ledger:manage (VENDOR_ADMIN only by preset).
+ *   - manual-cash-in (create / PATCH edit / PATCH :id/void) → van_cash_ledger:manage (VENDOR_ADMIN only by preset).
+ *   - entries/:sourceType/:sourceRecordId/history → van_cash_ledger:view.
  *   - timeline/stats/pending-handovers/pending-remittances → van_cash_ledger:view.
  *   - cash-in/:id/approve → van_cash_ledger:approve.
  *   - remittance (office → owner/CEO/bank), owner-requested 2026-09-10:
@@ -50,6 +64,7 @@ const ALLOWED_ATTACHMENT_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.pdf'];
 export class VanCashLedgerController {
   constructor(
     private readonly vanCashLedger: VanCashLedgerService,
+    private readonly periods: CashLedgerPeriodService,
     private readonly storage: StorageService,
   ) {}
 
@@ -61,10 +76,84 @@ export class VanCashLedgerController {
     return this.vanCashLedger.addManualCashIn(user, dto);
   }
 
+  /** Edit an ACTIVE manual cash-in in place (the normal correction). Mandatory `reason` + optimistic `version`. */
+  @Patch('manual-cash-in/:id')
+  @RequirePermissions('van_cash_ledger:manage')
+  editManualCashIn(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: EditManualCashInDto) {
+    return this.vanCashLedger.editManualCashIn(user, id, dto);
+  }
+
+  /** Void an ACTIVE manual cash-in (secondary action — status flip, never a DELETE). */
+  @Patch('manual-cash-in/:id/void')
+  @RequirePermissions('van_cash_ledger:manage')
+  voidManualCashIn(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: VoidManualCashInDto) {
+    return this.vanCashLedger.voidManualCashIn(user, id, dto);
+  }
+
+  /** Newest-first change history of one ledger entry (reuses the generic AuditLog). */
+  @Get('entries/:sourceType/:sourceRecordId/history')
+  @RequirePermissions('van_cash_ledger:view')
+  getEntryHistory(
+    @CurrentUser() user: AuthUser,
+    @Param('sourceType') sourceType: string,
+    @Param('sourceRecordId') sourceRecordId: string,
+  ) {
+    return this.vanCashLedger.getEntryHistory(user.vendorId, sourceType, sourceRecordId);
+  }
+
   @Get('timeline')
   @RequirePermissions('van_cash_ledger:view')
   getTimeline(@CurrentUser() user: AuthUser, @Query() query: VanCashLedgerTimelineQueryDto) {
-    return this.vanCashLedger.getTimeline(user.vendorId, query);
+    return this.vanCashLedger.getTimeline(user.vendorId, query, user);
+  }
+
+  /** Reconciliation header (statement + memo + trend) for a van / the whole office over a window. */
+  @Get('summary')
+  @RequirePermissions('van_cash_ledger:view')
+  getSummary(@CurrentUser() user: AuthUser, @Query() query: VanCashLedgerStatsQueryDto) {
+    return this.vanCashLedger.getSummary(user.vendorId, query);
+  }
+
+  /** Table view: one reconciliation row per day / week / month (statements are always the true date + van scope). */
+  @Get('daily-summary')
+  @RequirePermissions('van_cash_ledger:view')
+  getDailySummary(@CurrentUser() user: AuthUser, @Query() query: CashLedgerDailySummaryQueryDto) {
+    return this.vanCashLedger.getDailySummary(user.vendorId, query);
+  }
+
+  // ── Accounting periods (P4) — static routes, before any parameterised ones ──
+
+  /** Month-by-month period list (newest first) with status, as-closed vs live balance and the caller's permissions. */
+  @Get('periods')
+  @RequirePermissions('van_cash_ledger:view')
+  listPeriods(@CurrentUser() user: AuthUser) {
+    return this.periods.list(user);
+  }
+
+  /** Blockers / warnings / statement preview for closing a period. */
+  @Get('periods/:label/close-check')
+  @RequirePermissions('van_cash_ledger:close_period')
+  getPeriodCloseCheck(@CurrentUser() user: AuthUser, @Param('label') label: string) {
+    return this.periods.closeCheck(user.vendorId, assertPeriodLabel(label));
+  }
+
+  @Post('periods/:label/close')
+  @RequirePermissions('van_cash_ledger:close_period')
+  closePeriod(@CurrentUser() user: AuthUser, @Param('label') label: string, @Body() dto: ClosePeriodDto) {
+    return this.periods.close(user, assertPeriodLabel(label), dto);
+  }
+
+  @Post('periods/:label/reopen')
+  @RequirePermissions('van_cash_ledger:close_period')
+  reopenPeriod(@CurrentUser() user: AuthUser, @Param('label') label: string, @Body() dto: ReopenPeriodDto) {
+    return this.periods.reopen(user, assertPeriodLabel(label), dto);
+  }
+
+  /** How one Daily Sheet's handover was derived (collected − expenses − crew cash vs expected / approved). */
+  @Get('sheets/:sheetId/cash-breakdown')
+  @RequirePermissions('van_cash_ledger:view')
+  getSheetCashBreakdown(@CurrentUser() user: AuthUser, @Param('sheetId') sheetId: string) {
+    return this.vanCashLedger.getSheetCashBreakdown(user.vendorId, sheetId);
   }
 
   @Get('stats')

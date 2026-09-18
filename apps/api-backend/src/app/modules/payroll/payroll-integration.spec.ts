@@ -99,7 +99,9 @@ const unusedPermissions = {
 } as any;
 
 const approvalGate = new PayrollApprovalGateService(prisma);
-const staffLedgerService = new StaffLedgerService(prisma, approvalGate, unusedPermissions);
+// Cash-ledger period guard (P4): no accounting period is ever closed in this suite.
+const passThroughPeriodGuard = { assertWritable: async () => undefined } as any;
+const staffLedgerService = new StaffLedgerService(prisma, approvalGate, unusedPermissions, passThroughPeriodGuard);
 const payrollEntryService = new PayrollEntryService(prisma, unusedPermissions);
 const payrollPeriodService = new PayrollPeriodService(prisma, payrollEntryService);
 

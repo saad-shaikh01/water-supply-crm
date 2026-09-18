@@ -7,18 +7,23 @@ import { CrewCashCategory, ExpenseCategory, StaffLedgerCategory } from '@prisma/
  * kept free of Prisma/service dependencies so it is directly unit-testable
  * (same convention as fleet-maintenance.util.ts / fleet-checklist.util.ts).
  *
- * WHY ONLY THREE SOURCES: the vendor dashboard has 5+ expense-recording
- * surfaces, but two of them already spawn a linked row in another table at
+ * WHY ONLY FOUR SOURCES: the vendor dashboard has 5+ expense-recording
+ * surfaces, but three of them already spawn a linked row in another table at
  * creation time —
  *   - `FuelLog.expenseId` / `VehicleServiceRecord.expenseId` -> one `Expense`
  *   - `CrewCashDistribution.syncedLedgerEntryId` -> one `StaffLedgerEntry`
  *     (category CREW_CASH), written at sheet close.
+ *   - `StandaloneCrewCashExpense.staffLedgerEntryId` -> one `StaffLedgerEntry`
+ *     (category CREW_CASH), written at creation (crew cash recorded WITHOUT a
+ *     Daily Sheet).
  * So reading `Expense` + `StaffLedgerEntry` (EXCLUDING category CREW_CASH) +
- * `CrewCashDistribution` covers every surface exactly once. Reading
- * CrewCashDistribution directly (rather than its synced ledger entries) is
- * what makes pre-sync and post-sync rows appear in one place with one shape,
- * and is precisely why CREW_CASH must be filtered out of the ledger read —
- * otherwise every closed sheet's crew cash would be counted twice.
+ * `CrewCashDistribution` + ACTIVE `StandaloneCrewCashExpense` covers every
+ * surface exactly once. Reading the two crew-cash tables directly (rather than
+ * their synced ledger twins) is what makes pre-sync and post-sync rows appear
+ * in one place with one shape, and is precisely why CREW_CASH must be filtered
+ * out of the ledger read — otherwise every crew cash row (sheet-scoped or
+ * standalone) would be counted twice. A VOIDED standalone row is not a cost
+ * and is never read.
  */
 
 export type ExpenseCenterDomain =
@@ -53,7 +58,13 @@ export const EXPENSE_CENTER_DOMAINS: readonly ExpenseCenterDomain[] = [
  * row itself — see FuelLogService.update / VehicleMaintenanceService.
  * updateServiceRecord for the lockstep write side.
  */
-export type ExpenseCenterSourceType = 'EXPENSE' | 'FUEL_LOG' | 'VEHICLE_SERVICE' | 'STAFF_LEDGER' | 'CREW_CASH';
+export type ExpenseCenterSourceType =
+  | 'EXPENSE'
+  | 'FUEL_LOG'
+  | 'VEHICLE_SERVICE'
+  | 'STAFF_LEDGER'
+  | 'CREW_CASH'
+  | 'STANDALONE_CREW_CASH';
 
 /**
  * DEBIT = money leaving the business the normal way.
@@ -274,11 +285,23 @@ export interface NormalizableCrewCashRow {
   dailySheet?: { van?: { plateNumber: string } | null } | null;
 }
 
+/** Structural input for a `StandaloneCrewCashExpense` row (ACTIVE-only — the service filters VOIDED out). */
+export interface NormalizableStandaloneCrewCashRow {
+  id: string;
+  category: CrewCashCategory;
+  amount: number;
+  notes: string | null;
+  date: Date;
+  employee?: { name: string } | null;
+  createdBy?: { name: string } | null;
+}
+
 /** Shared reason text for the two "locked because the sheet/discrepancy is frozen" cases. */
 const CLOSED_SHEET_LOCK_REASON = 'Daily Sheet closed — read only';
 const DISCREPANCY_LOCK_REASON = 'Resolved discrepancy — immutable';
 const PAYROLL_PERIOD_LOCK_REASON = 'Rolled into a locked payroll period — manage this in Payroll.';
 const SYNCED_CREW_CASH_LOCK_REASON = 'Synced to the Payroll Ledger — manage this in Payroll.';
+const STANDALONE_CREW_CASH_LOCK_REASON = 'Managed in the Cash Ledger — edit or void it there.';
 
 /**
  * Lock computation for Expense / FuelLog / VehicleService rows (all three are
@@ -425,6 +448,39 @@ export function normalizeCrewCashRow(row: NormalizableCrewCashRow): ExpenseCente
   };
 }
 
+/**
+ * Crew cash recorded WITHOUT a Daily Sheet. Shaped exactly like a sheet-scoped
+ * crew cash row (same EMPLOYEES domain, same 'CREW_CASH' category + label so the
+ * two roll up together in category breakdowns) — only the provenance differs.
+ * Always `locked`: the Expense Center never edits it; the Cash Ledger owns
+ * edit/void for it.
+ */
+export function normalizeStandaloneCrewCashRow(row: NormalizableStandaloneCrewCashRow): ExpenseCenterRow {
+  const notes = row.notes?.trim();
+
+  return {
+    id: `STANDALONE_CREW_CASH:${row.id}`,
+    date: row.date.toISOString(),
+    domain: domainForPayrollRow(),
+    category: CREW_CASH_CATEGORY,
+    categoryLabel: STAFF_LEDGER_CATEGORY_LABELS.CREW_CASH,
+    title: `Crew Cash — ${row.category}${notes ? `: ${notes}` : ''}`,
+    amount: Math.abs(row.amount),
+    costSign: 'DEBIT',
+    // Unconditionally cash, but null like every payroll-sourced row.
+    paidFromCash: null,
+    recordedByName: row.createdBy?.name ?? null,
+    sourceType: 'STANDALONE_CREW_CASH',
+    sourceRecordId: row.id,
+    sourceBadge: 'via Cash Ledger',
+    // No sheet, no van.
+    vanPlateNumber: null,
+    employeeName: row.employee?.name ?? null,
+    locked: true,
+    lockedReason: STANDALONE_CREW_CASH_LOCK_REASON,
+  };
+}
+
 /** Newest first; ties broken by composite id so pagination is deterministic. */
 export function compareRowsByDateDesc(a: ExpenseCenterRow, b: ExpenseCenterRow): number {
   if (a.date !== b.date) return a.date < b.date ? 1 : -1;
@@ -443,6 +499,8 @@ export interface ExpenseCenterSourceSelection {
   staffLedgerCategories: StaffLedgerCategory[] | null;
   includeStaffLedger: boolean;
   includeCrewCash: boolean;
+  /** Crew cash recorded without a Daily Sheet (ACTIVE `StandaloneCrewCashExpense` rows). */
+  includeStandaloneCrewCash: boolean;
 }
 
 export interface ExpenseCenterFilterInput {
@@ -466,6 +524,7 @@ export function resolveSourceSelection(filter: ExpenseCenterFilterInput): Expens
     staffLedgerCategories: null,
     includeStaffLedger: true,
     includeCrewCash: true,
+    includeStandaloneCrewCash: true,
   };
 
   if (filter.domain) {
@@ -478,6 +537,7 @@ export function resolveSourceSelection(filter: ExpenseCenterFilterInput): Expens
     const payrollMatches = filter.domain === 'EMPLOYEES';
     selection.includeStaffLedger = payrollMatches;
     selection.includeCrewCash = payrollMatches;
+    selection.includeStandaloneCrewCash = payrollMatches;
   }
 
   if (filter.category) {
@@ -495,20 +555,24 @@ export function resolveSourceSelection(filter: ExpenseCenterFilterInput): Expens
       selection.expenseCategories = [asExpense];
       selection.includeStaffLedger = false;
       selection.includeCrewCash = false;
+      selection.includeStandaloneCrewCash = false;
     } else if (asStaffLedger === StaffLedgerCategory.CREW_CASH) {
-      // CREW_CASH resolves to the CrewCashDistribution source, never the
-      // synced ledger copies (which are excluded everywhere, see file header).
+      // CREW_CASH resolves to the two crew-cash tables (sheet-scoped +
+      // standalone), never the synced ledger copies (which are excluded
+      // everywhere, see file header).
       selection.includeExpenses = false;
       selection.includeStaffLedger = false;
     } else if (asStaffLedger) {
       selection.staffLedgerCategories = [asStaffLedger];
       selection.includeExpenses = false;
       selection.includeCrewCash = false;
+      selection.includeStandaloneCrewCash = false;
     } else {
       // Unrecognised category — match nothing rather than silently ignoring it.
       selection.includeExpenses = false;
       selection.includeStaffLedger = false;
       selection.includeCrewCash = false;
+      selection.includeStandaloneCrewCash = false;
     }
   }
 
@@ -517,12 +581,15 @@ export function resolveSourceSelection(filter: ExpenseCenterFilterInput): Expens
     // treated as cash throughout, so a CARD filter excludes it entirely.
     selection.includeStaffLedger = false;
     selection.includeCrewCash = false;
+    selection.includeStandaloneCrewCash = false;
   }
 
   if (filter.vanId) {
-    // StaffLedgerEntry has no van relation; crew cash inherits its van from
-    // the parent daily sheet (handled by the service's where clause).
+    // StaffLedgerEntry has no van relation; sheet crew cash inherits its van
+    // from the parent daily sheet (handled by the service's where clause).
+    // Standalone crew cash has no sheet and therefore no van at all.
     selection.includeStaffLedger = false;
+    selection.includeStandaloneCrewCash = false;
   }
 
   if (filter.employeeId) {

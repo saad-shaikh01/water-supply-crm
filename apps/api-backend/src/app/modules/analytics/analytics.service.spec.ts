@@ -128,10 +128,19 @@ function makeService(opts: {
       totalRemitted: 0,
       pendingHandoverCount: 0,
       pendingRemittanceCount: 0,
+      totalFuelCardTopUps: 0,
+      totalStandaloneCrewCash: 0,
+      sheetCashIn: 0,
+      officeCashIn: 0,
+      officeExpenses: 0,
+      payrollCash: 0,
+      crewCash: 0,
+      broughtForward: 0,
+      expectedClosing: 0,
     }),
   };
   const svc = new AnalyticsService(prisma as any, cache as any, vanCashLedger as any);
-  return { svc, prisma };
+  return { svc, prisma, vanCashLedger };
 }
 
 describe('AnalyticsService.getFinancial() — COGS (Historical Product Cost & COGS)', () => {
@@ -328,5 +337,44 @@ describe('AnalyticsService.getFinancial() — Plant Balance (owner-requested 202
     expect(plantPaidCall?.[0].where.category.in).toEqual(
       expect.arrayContaining(['BOTTLE_PURCHASED', 'BOTTLE_REFILL_PAYMENT']),
     );
+  });
+});
+
+describe('AnalyticsService.getFinancial() — officeCash block (Cash Ledger P0 pass-through)', () => {
+  it('keeps every existing officeCash key and passes through the new breakdown fields', async () => {
+    const { svc, vanCashLedger } = makeService({});
+    vanCashLedger.getStats.mockResolvedValue({
+      availableBalance: 12200,
+      totalExpense: 2600, // office + payroll + crew
+      totalCashIn: 3000, // sheet + office
+      totalRemitted: 1000,
+      pendingHandoverCount: 2,
+      pendingRemittanceCount: 1,
+      totalFuelCardTopUps: 200,
+      totalStandaloneCrewCash: 100,
+      sheetCashIn: 2500,
+      officeCashIn: 500,
+      officeExpenses: 500,
+      payrollCash: 2000,
+      crewCash: 100,
+      broughtForward: 13000,
+      expectedClosing: 12200,
+    });
+
+    const result = await svc.getFinancial(VENDOR_ID, '2026-01-01', '2026-01-31');
+
+    expect(result.officeCash).toEqual({
+      scope: 'OFFICE',
+      available: 12200,
+      periodExpense: 2600,
+      periodCashIn: 3000,
+      periodRemitted: 1000,
+      pendingHandoverCount: 2,
+      pendingRemittanceCount: 1,
+      periodCrewCash: 100,
+      periodPayrollCash: 2000,
+      periodOfficeCashIn: 500,
+      periodSheetCashIn: 2500,
+    });
   });
 });

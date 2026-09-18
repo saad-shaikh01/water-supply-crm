@@ -73,6 +73,9 @@ import {
  *     Remittance feature (owner-requested 2026-09-10). `van_cash_ledger:
  *     remit_void` (voiding an already-approved remittance) is VENDOR_ADMIN-only,
  *     no backfill.
+ *   - van_cash_ledger:export — added to `manager` and `accountant` for the Cash
+ *     Ledger CSV / PDF export (Cash Ledger redesign P5, 2026-09-18). Existing
+ *     vendors' Manager/Accountant roles predate it and need the catch-up grant.
  *   - payroll:attendance_view / payroll:attendance_mark — added to `manager`
  *     for Staff Attendance & Wage Types Phase 1 (owner-approved 2026-09-11,
  *     Amendment R16). Existing vendors' Manager roles predate the new actions
@@ -130,6 +133,9 @@ const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
     // approves; `remit_void` stays VENDOR_ADMIN-only.
     'van_cash_ledger:remit',
     'van_cash_ledger:remit_approve',
+    // Cash Ledger export (P5, 2026-09-18). Existing vendors' Manager roles
+    // predate `export` and need the catch-up grant.
+    'van_cash_ledger:export',
     // Staff Attendance & Wage Types Phase 1 (owner-approved 2026-09-11,
     // Amendment R16). Existing vendors' Manager roles predate these actions.
     'payroll:attendance_view',
@@ -152,6 +158,9 @@ const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
     // Office Cash Remittance (owner-requested 2026-09-10). Accountant may
     // RECORD a remittance only — not approve it (segregation of duties).
     'van_cash_ledger:remit',
+    // Cash Ledger export (P5, 2026-09-18). Existing vendors' Accountant roles
+    // predate `export` and need the catch-up grant.
+    'van_cash_ledger:export',
     // Fuel Card Wallet (owner-requested 2026-09-15). Existing vendors'
     // Accountant roles predate this new resource entirely. `manage`/
     // `topup_void` deliberately excluded, same split as the fresh preset.

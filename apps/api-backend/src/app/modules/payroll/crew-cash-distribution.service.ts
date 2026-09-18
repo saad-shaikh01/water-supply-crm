@@ -25,6 +25,8 @@ import { assertCanViewEmployeeCrewCash } from '../../common/helpers/crew-cash-vi
 import { PermissionService } from '../authz/permission.service';
 import { PayrollApprovalGateService } from './payroll-approval-gate.service';
 import { StaffLedgerService } from './staff-ledger.service';
+import { VanCashLedgerService } from '../van-cash-ledger/van-cash-ledger.service';
+import { resolveSheetCash, SHEET_CASH_RELOAD_INCLUDE } from '../daily-sheet/sheet-cash.util';
 import { CreateCrewCashDistributionDto } from './dto/create-crew-cash-distribution.dto';
 import { UpdateCrewCashDistributionDto } from './dto/update-crew-cash-distribution.dto';
 import { ApproveCrewCashDistributionDto } from './dto/approve-crew-cash-distribution.dto';
@@ -84,6 +86,7 @@ export class CrewCashDistributionService implements OnModuleInit {
     private readonly staffLedger: StaffLedgerService,
     @InjectQueue(QUEUE_NAMES.CREW_CASH_SYNC)
     private readonly crewCashSyncQueue: Queue,
+    private readonly vanCashLedger: VanCashLedgerService,
   ) {}
 
   private static readonly STALE_SYNC_CRON = '30 0 * * *'; // 00:30 AM, after daily-sheet auto-gen (00:05) + fleet sweep (00:15)
@@ -156,6 +159,52 @@ export class CrewCashDistributionService implements OnModuleInit {
     );
 
     return { sheetsSynced, sheetsFailed, rowsSynced };
+  }
+
+  /**
+   * Van Cash Ledger hook #2 for Crew Cash (Cash Ledger P0) — a sheet's Crew
+   * Cash rows feed straight into `resolveSheetCash(...).cashExpected` (the
+   * "cash the driver should hand in" figure: shouldHandIn - expenses - crew
+   * cash), so any post-close change to a row's amount moves it. Mirrors
+   * `ExpenseService.syncVanCashLedgerForClosedSheet`: reloads the sheet INSIDE
+   * the caller's own transaction (so it sees the just-applied row change and
+   * the bumped `postCloseCrewCashCorrectionCount` marker that makes
+   * `resolveSheetCash` recompute live) and hands the fresh figure to
+   * `VanCashLedgerService.handlePostCloseCorrection`, which no-ops on a zero
+   * delta. An OPEN sheet (a row can sync early via `syncStaleSheets`) has no
+   * handover chain and a meaningless frozen `cashExpected`, so it is skipped.
+   */
+  private async syncVanCashLedgerForClosedSheet(tx: Prisma.TransactionClient, vendorId: string, dailySheetId: string) {
+    const sheet = await tx.dailySheet.findUnique({
+      where: { id: dailySheetId },
+      include: SHEET_CASH_RELOAD_INCLUDE,
+    });
+    if (!sheet || !sheet.isClosed) return;
+    const resolved = resolveSheetCash(sheet as unknown as Record<string, unknown>);
+    await this.vanCashLedger.handlePostCloseCorrection(tx, vendorId, dailySheetId, resolved.cashExpected);
+  }
+
+  /**
+   * An UNSYNCED row (still awaiting approval) on an ALREADY-CLOSED sheet can
+   * still be edited/deleted through `update()`/`remove()` — its amount is part
+   * of the sheet's live crew-cash total even though it never synced. When that
+   * happens the frozen close-time cash columns go stale exactly like a
+   * post-close correction, so bump the same marker and sync the Cash Ledger
+   * handover. No-op on an open sheet (the normal, pre-close flow).
+   */
+  private async syncClosedSheetAfterUnsyncedChange(
+    tx: Prisma.TransactionClient,
+    vendorId: string,
+    dailySheetId: string,
+  ) {
+    const sheet = await tx.dailySheet.findUnique({ where: { id: dailySheetId }, select: { isClosed: true } });
+    if (!sheet?.isClosed) return;
+
+    await tx.dailySheet.update({
+      where: { id: dailySheetId },
+      data: { postCloseCrewCashCorrectionCount: { increment: 1 } },
+    });
+    await this.syncVanCashLedgerForClosedSheet(tx, vendorId, dailySheetId);
   }
 
   /**
@@ -336,6 +385,14 @@ export class CrewCashDistributionService implements OnModuleInit {
         },
       });
 
+      // An amount change on a still-unsynced row of an already-closed sheet
+      // (row was pending approval at close) changes the sheet's live cash
+      // figure — keep the Cash Ledger handover in step. Category-only edits
+      // don't move cash.
+      if (amountChanged) {
+        await this.syncClosedSheetAfterUnsyncedChange(tx, user.vendorId, entry.dailySheetId);
+      }
+
       return updated;
     });
   }
@@ -414,6 +471,11 @@ export class CrewCashDistributionService implements OnModuleInit {
           'This entry has already synced into the Payroll Ledger and can no longer be deleted directly.',
         );
       }
+
+      // Deleting an unsynced (pending-approval) row from an already-closed
+      // sheet drops it out of the live crew-cash total — same handover sync
+      // as an amount edit (see `syncClosedSheetAfterUnsyncedChange`).
+      await this.syncClosedSheetAfterUnsyncedChange(tx, user.vendorId, entry.dailySheetId);
 
       return { deleted: true };
     });
@@ -728,6 +790,13 @@ export class CrewCashDistributionService implements OnModuleInit {
         where: { id: row.dailySheetId },
         data: { postCloseCrewCashCorrectionCount: { increment: 1 } },
       });
+
+      // Cash Ledger P0: the sheet's handover chain must follow the corrected
+      // crew-cash total. Runs AFTER the row rewrite + marker bump above so the
+      // in-tx reload sees the new amounts and recomputes live. Always called
+      // (even for an employee/category-only correction) — the ledger no-ops on
+      // a zero delta.
+      await this.syncVanCashLedgerForClosedSheet(tx, user.vendorId, row.dailySheetId);
 
       await tx.crewCashDistributionAuditLog.create({
         data: {

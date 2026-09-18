@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { VanCashLedgerService } from './van-cash-ledger.service';
 import { VanCashLedgerController } from './van-cash-ledger.controller';
+import { CashLedgerPeriodGuard } from './cash-ledger-period.guard';
+import { CashLedgerPeriodStore } from './cash-ledger-period.store';
+import { CashLedgerPeriodService } from './cash-ledger-period.service';
 import { AuditModule } from '../audit/audit.module';
 import { StorageModule } from '../../common/storage/storage.module';
 
@@ -15,7 +18,9 @@ import { StorageModule } from '../../common/storage/storage.module';
 @Module({
   imports: [AuditModule, StorageModule],
   controllers: [VanCashLedgerController],
-  providers: [VanCashLedgerService],
-  exports: [VanCashLedgerService],
+  providers: [VanCashLedgerService, CashLedgerPeriodGuard, CashLedgerPeriodStore, CashLedgerPeriodService],
+  // The guard is exported so FuelCard / Payroll / Expense writers can call it
+  // (pass-through in P2, real in P4).
+  exports: [VanCashLedgerService, CashLedgerPeriodGuard, CashLedgerPeriodStore, CashLedgerPeriodService],
 })
 export class VanCashLedgerModule {}

@@ -799,11 +799,43 @@ describe('BalanceReminderService (Phase 0 pipeline)', () => {
         return service.sendTargeted('v1', { sendKind: 'warning', mode: 'eligible', month: MONTH, ...dto } as any);
       };
 
-      it('sends payment_overdue_warning with the live balance, no PDF', async () => {
+      it('sends payment_overdue_warning with the 6 approved params, no PDF', async () => {
+        // live 1500; since the month ended: a 300 delivery (+300) and a 800 payment (-800)
+        // → invoice (balance at month end) = 1500 − (300 − 800) = 2000
+        prisma.transaction.findMany.mockResolvedValue([
+          { type: 'DELIVERY', amount: 300 },
+          { type: 'PAYMENT', amount: -800 },
+        ]);
         const res: any = await sendWarn([wcust({ financialBalance: 1500 })]);
         expect(res.sent).toBe(1);
-        expect(whatsapp.sendTemplate).toHaveBeenCalledWith(VALID_PHONE, 'payment_overdue_warning', ['Cust 1', '1500.00']);
+        expect(whatsapp.sendTemplate).toHaveBeenCalledWith(
+          VALID_PHONE,
+          'payment_overdue_warning',
+          ['Cust 1', 'L0001', '1200.00', '2000.00', '800.00', '1500.00'],
+        );
         expect(whatsapp.sendTemplate).toHaveBeenCalledTimes(1);
+      });
+
+      it('no activity since the statement → invoice = outstanding = live balance, payment 0', async () => {
+        prisma.transaction.findMany.mockResolvedValue([]);
+        await sendWarn([wcust({ financialBalance: 500 })]);
+        expect(whatsapp.sendTemplate).toHaveBeenCalledWith(
+          VALID_PHONE,
+          'payment_overdue_warning',
+          ['Cust 1', 'L0001', '500.00', '500.00', '0.00', '500.00'],
+        );
+      });
+
+      it('statement for a finished month (sent after it ended) → measured from that month end', async () => {
+        await sendWarn([wcust()], { month: '2026-07' }); // OLD_STATEMENT (Aug 10) is after July ended
+        const since = prisma.transaction.findMany.mock.calls.at(-1)[0].where.createdAt.gte as Date;
+        expect(since).toEqual(new Date(2026, 7, 1));
+      });
+
+      it('statement for the still-running month → measured from when the statement was sent', async () => {
+        await sendWarn([wcust()]); // MONTH 2026-08, statement sent Aug 10 (before the month ended)
+        const since = prisma.transaction.findMany.mock.calls.at(-1)[0].where.createdAt.gte as Date;
+        expect(since).toEqual(OLD_STATEMENT);
       });
 
       it('on success sets BOTH the 23h cooldown key and the warning-month key', async () => {

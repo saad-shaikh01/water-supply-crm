@@ -5,6 +5,7 @@ import type { AuthUser } from '@water-supply-crm/types';
 import { paginate } from '../../common/helpers/paginate';
 import { assertCanViewEmployeePayroll } from '../../common/helpers/payroll-view-scope.util';
 import { PermissionService } from '../authz/permission.service';
+import { CashLedgerPeriodGuard } from '../van-cash-ledger/cash-ledger-period.guard';
 import { PayrollApprovalGateService } from './payroll-approval-gate.service';
 import { CreateStaffLedgerEntryDto } from './dto/create-staff-ledger-entry.dto';
 import { ApproveStaffLedgerEntryDto } from './dto/approve-staff-ledger-entry.dto';
@@ -29,6 +30,7 @@ export class StaffLedgerService {
     private readonly prisma: PrismaService,
     private readonly approvalGate: PayrollApprovalGateService,
     private readonly permissions: PermissionService,
+    private readonly periodGuard: CashLedgerPeriodGuard,
   ) {}
 
   /**
@@ -59,6 +61,13 @@ export class StaffLedgerService {
    * own inside its transaction before calling this).
    */
   async createTx(tx: Prisma.TransactionClient, user: AuthUser, dto: CreateStaffLedgerEntryDto) {
+    // Cash-ledger accounting-period guard (P4). Only an ADVANCE moves cash (R6:
+    // POSTED ADVANCE debits by effectiveDate). CREW_CASH is guarded by its own
+    // service; REVERSAL / CORRECTION / BONUS etc. have no cash effect.
+    if (dto.category === StaffLedgerCategory.ADVANCE) {
+      await this.periodGuard.assertWritable(user.vendorId, [dto.effectiveDate], { userId: user.userId });
+    }
+
     // Gate check lives inside the transaction, alongside every other
     // create/reverse/correct approval-gate check — kept consistent so the
     // decision is always made in the same place relative to the write.
@@ -99,6 +108,15 @@ export class StaffLedgerService {
 
       if (entry.status !== LedgerEntryStatus.PENDING) {
         throw new BadRequestException('Only PENDING entries can be approved.');
+      }
+
+      // Cash Ledger period guard: approving a PENDING advance is the moment it
+      // starts counting as office cash out (POSTED), dated by its own
+      // effectiveDate — if that month has been CLOSED in the meantime the approval
+      // would silently change a closed period, so it needs the same admin override
+      // as any other write into it. (Close-check only WARNS about pending advances.)
+      if (entry.category === StaffLedgerCategory.ADVANCE) {
+        await this.periodGuard.assertWritable(user.vendorId, [entry.effectiveDate], { userId: user.userId });
       }
 
       // Atomic compare-and-swap: the WHERE clause itself enforces the version
@@ -159,12 +177,32 @@ export class StaffLedgerService {
    * itself, and by `CrewCashDistributionService.correctSyncedEntry` for the
    * not-yet-locked branch (void the original, then `createTx` a fresh
    * replacement, atomically).
+   *
+   * `opts.skipCreatorCheck` skips ONLY the "creator OR payroll:ledger_void"
+   * gate above. It exists for callers that own the entry (e.g.
+   * StandaloneCrewCashService, whose payroll twin is SYSTEM-created and whose
+   * own controller permission — `crew_cash:edit`/`crew_cash:delete` — already
+   * authorized the human). The status/lock/version-CAS rules still apply.
+   * Default (omitted) behaviour is unchanged for every other caller, and the
+   * public `voidEntry` route never sets it.
    */
-  async voidEntryTx(tx: Prisma.TransactionClient, user: AuthUser, id: string, dto: VoidStaffLedgerEntryDto) {
+  async voidEntryTx(
+    tx: Prisma.TransactionClient,
+    user: AuthUser,
+    id: string,
+    dto: VoidStaffLedgerEntryDto,
+    opts?: { skipCreatorCheck?: boolean },
+  ) {
     const entry = await tx.staffLedgerEntry.findFirst({ where: { id, vendorId: user.vendorId } });
     if (!entry) throw new NotFoundException('Ledger entry not found.');
 
-    if (entry.createdById !== user.userId) {
+    // Cash-ledger accounting-period guard (P4) — voiding an ADVANCE removes cash
+    // dated at its effectiveDate; must run before anything is mutated.
+    if (entry.category === StaffLedgerCategory.ADVANCE) {
+      await this.periodGuard.assertWritable(user.vendorId, [entry.effectiveDate], { userId: user.userId });
+    }
+
+    if (!opts?.skipCreatorCheck && entry.createdById !== user.userId) {
       const canVoid = await this.permissions.can(user.userId, 'payroll:ledger_void');
       if (!canVoid) {
         throw new ForbiddenException('You may only void a ledger entry you created yourself.');

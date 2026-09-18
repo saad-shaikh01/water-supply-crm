@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { QUEUE_NAMES } from '@water-supply-crm/queue';
 import { AuditModule } from '../audit/audit.module';
+import { VanCashLedgerModule } from '../van-cash-ledger/van-cash-ledger.module';
 import { SalaryStructureService } from './salary-structure.service';
 import { SalaryStructureController } from './salary-structure.controller';
 import { StaffLedgerService } from './staff-ledger.service';
@@ -54,7 +55,11 @@ import { StandaloneCrewCashController } from './standalone-crew-cash.controller'
  * never held hostage by a sheet that never closes.
  */
 @Module({
-  imports: [BullModule.registerQueue({ name: QUEUE_NAMES.CREW_CASH_SYNC }), AuditModule],
+  // VanCashLedgerModule — CrewCashDistributionService.correctSyncedEntry (and
+  // the closed-sheet update/remove path) call VanCashLedgerService.
+  // handlePostCloseCorrection() inside their own transaction (Cash Ledger P0).
+  // VanCashLedgerModule imports only AuditModule + StorageModule, so no cycle.
+  imports: [BullModule.registerQueue({ name: QUEUE_NAMES.CREW_CASH_SYNC }), AuditModule, VanCashLedgerModule],
   controllers: [
     SalaryStructureController,
     StaffLedgerController,

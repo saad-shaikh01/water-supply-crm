@@ -3,7 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '@water-supply-crm/database';
 import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
-import { VEHICLE_SERVICE_TYPE_LABELS, VEHICLE_DOCUMENT_TYPE_LABELS } from '@water-supply-crm/types';
+import { VEHICLE_DOCUMENT_TYPE_LABELS } from '@water-supply-crm/types';
 import { InAppNotificationService } from '../notifications/in-app-notification.service';
 import { NotificationService } from '../notifications/notification.service';
 import { VehicleMaintenanceService } from './vehicle-maintenance.service';
@@ -135,7 +135,7 @@ export class FleetNotificationService implements OnModuleInit {
         );
         if (alreadyNotified) continue;
 
-        const label = VEHICLE_SERVICE_TYPE_LABELS[status.serviceType];
+        const label = status.label;
         const title = `${status.urgency === 'OVERDUE' ? 'Overdue' : 'Due soon'}: ${label} — ${vehicle.plateNumber}`;
         const message =
           status.kmRemaining != null && status.kmRemaining <= 0

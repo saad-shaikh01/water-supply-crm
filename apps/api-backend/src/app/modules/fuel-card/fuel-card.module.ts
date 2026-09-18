@@ -3,6 +3,7 @@ import { FuelCardService } from './fuel-card.service';
 import { FuelCardController } from './fuel-card.controller';
 import { AuditModule } from '../audit/audit.module';
 import { StorageModule } from '../../common/storage/storage.module';
+import { VanCashLedgerModule } from '../van-cash-ledger/van-cash-ledger.module';
 
 /**
  * Fuel Card Wallet (owner-requested 2026-09-15) — see FuelCardService's class
@@ -13,7 +14,9 @@ import { StorageModule } from '../../common/storage/storage.module';
  * than importing this module.
  */
 @Module({
-  imports: [AuditModule, StorageModule],
+  // VanCashLedgerModule provides/exports CashLedgerPeriodGuard (top-up create/void
+  // call it). It imports only AuditModule + StorageModule, so no cycle.
+  imports: [AuditModule, StorageModule, VanCashLedgerModule],
   controllers: [FuelCardController],
   providers: [FuelCardService],
   exports: [FuelCardService],

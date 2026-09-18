@@ -94,13 +94,13 @@ export class ExpenseController {
     @Param('id') id: string,
     @Body() dto: UpdateExpenseDto,
   ) {
-    return this.expenseService.update(user.vendorId, id, dto);
+    return this.expenseService.update(user.vendorId, id, dto, { userId: user.userId, userName: user.name });
   }
 
   @Delete(':id')
   @RequirePermissions('expenses:delete')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.expenseService.remove(user.vendorId, id);
+    return this.expenseService.remove(user.vendorId, id, { userId: user.userId, userName: user.name });
   }
 }

@@ -484,7 +484,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
         </Card>
       </div>
 
-      <Tabs defaultValue="transactions" className="w-full">
+      <Tabs defaultValue="statement" className="w-full">
         <TabsList className="bg-accent/30 p-1 rounded-2xl border border-border/50 flex-wrap h-auto gap-1">
           <TabsTrigger value="transactions" className="rounded-xl font-bold px-5 py-2 transition-all">
             Transactions
