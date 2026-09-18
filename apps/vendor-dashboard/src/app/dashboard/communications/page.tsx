@@ -112,7 +112,16 @@ function CommunicationsContent() {
         description="Delivery conversations between drivers and the office."
       />
 
-      <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[360px_1fr] rounded-2xl border border-border/50 bg-card/30 overflow-hidden h-[calc(100vh-260px)] sm:h-[calc(100vh-240px)]">
+      {/* `main` (dashboard/layout.tsx) drops its padding from p-4/pb-24 (112px
+          vertical) to md:p-8 (64px vertical) at the `md` breakpoint (768px) —
+          not `sm` (640px). The previous `sm:h-[calc(100vh-240px)]` assumed
+          the smaller offset a breakpoint early, so between 640-767px this
+          panel rendered taller than `main` actually had room for, and `main`
+          (overflow-y-auto) scrolled the whole page on top of this panel's
+          own internal scroll areas — the double-scrollbar bug. Using `dvh`
+          instead of `vh` avoids the same mismatch against mobile browser
+          toolbar chrome. */}
+      <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[360px_1fr] rounded-2xl border border-border/50 bg-card/30 overflow-hidden h-[calc(100dvh-290px)] md:h-[calc(100dvh-260px)]">
         {/* List pane */}
         <div className={cn('flex flex-col border-border/40 md:border-r min-h-0', selected && 'hidden md:flex')}>
           <ConversationFilters
@@ -182,7 +191,15 @@ function CommunicationsContent() {
                   variant="inbox"
                   isDriver={isDriver}
                   itemIsPending={selected.item?.status === 'PENDING'}
-                  isClosed={selected.dailySheet?.isClosed ?? false}
+                  // `selected.dailySheet` is only a denormalized "most recently
+                  // discussed delivery" rollup (schema.prisma Conversation model),
+                  // written whenever any message is sent — it isn't the scope of
+                  // the conversation. This is the same per-customer thread as the
+                  // Customer List's "Chats" entry point, so whether that one past
+                  // delivery's sheet has since closed must never lock the whole
+                  // thread (the conversation's own `status === 'CLOSED'` check
+                  // inside ConversationThread already covers a real closure).
+                  isClosed={false}
                 />
               </div>
             </>

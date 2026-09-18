@@ -17,7 +17,8 @@ export type CashLedgerRowType =
   | 'CASH_IN_CORRECTION'
   | 'CASH_OUT'
   | 'CASH_REMITTANCE_OUT'
-  | 'FUEL_CARD_TOPUP_OUT';
+  | 'FUEL_CARD_TOPUP_OUT'
+  | 'STANDALONE_CREW_CASH_OUT';
 
 export type CashLedgerRowStatus = 'PENDING' | 'APPROVED' | null;
 
@@ -44,9 +45,9 @@ export interface CashLedgerRow {
   sourceBadge: string;
   /** Optimistic-concurrency token for the approve action — null where not applicable (opening balance / cash-out rows). */
   version: number | null;
-  /** CASH_REMITTANCE_OUT / FUEL_CARD_TOPUP_OUT only — true when the row has been voided (shown struck-through, folds in as 0). */
+  /** CASH_REMITTANCE_OUT / FUEL_CARD_TOPUP_OUT / STANDALONE_CREW_CASH_OUT only — true when the row has been voided (shown struck-through, folds in as 0). */
   isVoided?: boolean;
-  /** CASH_REMITTANCE_OUT / FUEL_CARD_TOPUP_OUT only — the reason captured when the row was voided. */
+  /** CASH_REMITTANCE_OUT / FUEL_CARD_TOPUP_OUT / STANDALONE_CREW_CASH_OUT only — the reason captured when the row was voided. */
   voidReason?: string | null;
   /** CASH_REMITTANCE_OUT only — true when this row is a DELTA correction row, not the root of a logical remittance. */
   isCorrection?: boolean;
@@ -106,6 +107,8 @@ export interface CashLedgerStats {
   pendingRemittanceCount: number;
   /** Date-range scoped — sum of ACTIVE (non-voided) fuel card top-ups in the window. */
   totalFuelCardTopUps: number;
+  /** Date-range scoped — sum of ACTIVE (non-voided) standalone (no Daily Sheet) crew cash in the window. */
+  totalStandaloneCrewCash: number;
 }
 
 export interface PendingHandoverQuery {

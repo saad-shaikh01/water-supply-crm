@@ -6,6 +6,7 @@ import { FuelLogFormDialog } from '../../fleet/components/dialogs/fuel-log-form-
 import { ServiceRecordFormDialog } from '../../fleet/components/dialogs/service-record-form-dialog';
 import { LogLedgerEntryDialog } from '../../payroll/components/log-ledger-entry-dialog';
 import { CrewCashForm } from '../../crew-cash/components/crew-cash-form';
+import { StandaloneCrewCashForm } from '../../crew-cash/components/standalone-crew-cash-form';
 import { ExpenseTypePicker } from './expense-type-picker';
 import { VehiclePickerDialog } from './vehicle-picker-dialog';
 import { SheetPickerDialog, type SheetPickerSelection } from './sheet-picker-dialog';
@@ -20,6 +21,7 @@ type WizardStage =
   | 'maintenance'
   | 'ledger'
   | 'crew-cash'
+  | 'crew-cash-standalone'
   | 'expense';
 
 interface AddExpenseWizardProps {
@@ -29,17 +31,24 @@ interface AddExpenseWizardProps {
 
 /**
  * Phase 2a "Add Expense" wizard — a state machine that hands off between the
- * four reused domain dialogs (`FuelLogFormDialog`, `ServiceRecordFormDialog`,
- * `LogLedgerEntryDialog`, `CrewCashForm`) plus the plain `ExpenseForm` sheet,
- * without ever nesting one inside another. Only one stage's dialog is ever
- * rendered `open` at a time, so from the user's point of view one dialog
- * closes at the exact instant the next opens.
+ * reused domain dialogs (`FuelLogFormDialog`, `ServiceRecordFormDialog`,
+ * `LogLedgerEntryDialog`, `CrewCashForm`, `StandaloneCrewCashForm`) plus the
+ * plain `ExpenseForm` sheet, without ever nesting one inside another. Only
+ * one stage's dialog is ever rendered `open` at a time, so from the user's
+ * point of view one dialog closes at the exact instant the next opens.
+ *
+ * Crew Cash's sheet-picker step is optional (owner-requested 2026-09-18):
+ * picking a sheet routes to the sheet-scoped `CrewCashForm` as before;
+ * skipping it (or there being no open sheet today) routes to
+ * `StandaloneCrewCashForm` instead — a vendor-wide cash-out entry with no
+ * Daily Sheet, same tier as a Fuel Card top-up (see
+ * `StandaloneCrewCashExpense` in schema.prisma).
  *
  * Whenever the currently-active stage reports `onOpenChange(false)` — for any
  * reason: Cancel, Escape, or (for Fuel/Maintenance/Ledger) a successful
  * submit that closes itself — the whole wizard closes and resets back to the
- * type picker for next time. Crew Cash's own dialog deliberately stays open
- * after a successful add (its documented "quick-repeat" UX) and only signals
+ * type picker for next time. Crew Cash's own dialogs deliberately stay open
+ * after a successful add (documented "quick-repeat" UX) and only signal
  * `onOpenChange(false)` when the user taps Done/Cancel — at which point the
  * wizard closes the same way.
  */
@@ -91,7 +100,14 @@ export function AddExpenseWizard({ open, onOpenChange }: AddExpenseWizardProps) 
 
   const handleSheetSelect = (sheet: SheetPickerSelection | null) => {
     setSheetSelection(sheet);
-    setStage(selectedEntry?.kind === 'CREW_CASH' ? 'crew-cash' : 'expense');
+    if (selectedEntry?.kind === 'CREW_CASH') {
+      // No open sheet chosen (owner-requested 2026-09-18) — Crew Cash given
+      // outside a route now records as a standalone, vendor-wide cash-out
+      // entry instead of requiring a Daily Sheet. See StandaloneCrewCashForm.
+      setStage(sheet ? 'crew-cash' : 'crew-cash-standalone');
+      return;
+    }
+    setStage('expense');
   };
 
   // ExpenseForm's `expense` prop doubles as "initial values" whenever the
@@ -123,7 +139,7 @@ export function AddExpenseWizard({ open, onOpenChange }: AddExpenseWizardProps) 
         open={open && stage === 'sheet-picker'}
         onOpenChange={(o) => { if (!o) closeWizard(); }}
         onSelect={handleSheetSelect}
-        optional={selectedEntry?.kind === 'EXPENSE'}
+        optional={selectedEntry?.kind === 'EXPENSE' || selectedEntry?.kind === 'CREW_CASH'}
       />
 
       {stage === 'fuel' && vehicleId && (
@@ -156,6 +172,13 @@ export function AddExpenseWizard({ open, onOpenChange }: AddExpenseWizardProps) 
           onOpenChange={(o) => { if (!o) closeWizard(); }}
           sheetId={sheetSelection.id}
           employees={sheetSelection.crewMembers}
+        />
+      )}
+
+      {stage === 'crew-cash-standalone' && (
+        <StandaloneCrewCashForm
+          open={open}
+          onOpenChange={(o) => { if (!o) closeWizard(); }}
         />
       )}
 

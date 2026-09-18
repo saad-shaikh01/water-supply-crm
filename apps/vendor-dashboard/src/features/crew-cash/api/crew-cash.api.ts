@@ -1,10 +1,19 @@
 import { apiClient } from '@water-supply-crm/data-access';
-import type { CrewCashCategory, CrewCashEntry } from '@water-supply-crm/types';
+import type { CrewCashCategory, CrewCashEntry, StandaloneCrewCashEntry } from '@water-supply-crm/types';
 
 export interface CreateCrewCashData {
   employeeId: string;
   category: CrewCashCategory;
   amount: number;
+  notes?: string;
+}
+
+/** No `dailySheetId` — see StandaloneCrewCashExpense in schema.prisma. `date` defaults to now when omitted. */
+export interface CreateStandaloneCrewCashData {
+  employeeId: string;
+  category: CrewCashCategory;
+  amount: number;
+  date?: string;
   notes?: string;
 }
 
@@ -39,4 +48,8 @@ export const crewCashApi = {
   correct: (id: string, data: CorrectCrewCashData) =>
     apiClient.post<CrewCashEntry>(`/crew-cash/${id}/correct`, data),
   remove: (id: string) => apiClient.delete(`/crew-cash/${id}`),
+  createStandalone: (data: CreateStandaloneCrewCashData) =>
+    apiClient.post<StandaloneCrewCashEntry>('/crew-cash/standalone', data),
+  voidStandalone: (id: string, reason: string) =>
+    apiClient.patch<StandaloneCrewCashEntry>(`/crew-cash/standalone/${id}/void`, { reason }),
 };

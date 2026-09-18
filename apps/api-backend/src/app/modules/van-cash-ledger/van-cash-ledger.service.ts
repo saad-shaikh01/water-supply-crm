@@ -12,6 +12,8 @@ import {
   OfficeCashRemittanceStatus,
   Prisma,
   StaffLedgerCategory,
+  StandaloneCrewCashExpense,
+  StandaloneCrewCashStatus,
   VanCashHandover,
   VanCashHandoverStatus,
 } from '@prisma/client';
@@ -63,7 +65,8 @@ export type VanCashLedgerRowType =
   | 'CASH_IN_CORRECTION'
   | 'CASH_OUT'
   | 'CASH_REMITTANCE_OUT'
-  | 'FUEL_CARD_TOPUP_OUT';
+  | 'FUEL_CARD_TOPUP_OUT'
+  | 'STANDALONE_CREW_CASH_OUT';
 
 export interface VanCashLedgerRow {
   /** `${type}:${originalId}` — stable and unique across the merged sources. */
@@ -147,6 +150,8 @@ export interface VanCashLedgerStats {
   pendingRemittanceCount: number;
   /** Date-range scoped — sum of ACTIVE (non-voided) fuel card top-ups in the window. */
   totalFuelCardTopUps: number;
+  /** Date-range scoped — sum of ACTIVE (non-voided) standalone (no Daily Sheet) crew cash in the window. */
+  totalStandaloneCrewCash: number;
 }
 
 /**
@@ -912,6 +917,7 @@ export class VanCashLedgerService {
       remittedAgg,
       pendingRemittanceCount,
       fuelCardTopUpAgg,
+      standaloneCrewCashAgg,
     ] = await Promise.all([
         this.prisma.vanCashHandover.aggregate({
           where: {
@@ -954,6 +960,16 @@ export class VanCashLedgerService {
               },
               _sum: { amount: true },
             }),
+        vanId
+          ? Promise.resolve({ _sum: { amount: 0 } } as { _sum: { amount: number | null } })
+          : this.prisma.standaloneCrewCashExpense.aggregate({
+              where: {
+                vendorId,
+                status: StandaloneCrewCashStatus.ACTIVE,
+                ...(dateFilter && { date: dateFilter }),
+              },
+              _sum: { amount: true },
+            }),
       ]);
 
     return {
@@ -964,6 +980,7 @@ export class VanCashLedgerService {
       totalRemitted: round2(remittedAgg._sum.amount ?? 0),
       pendingRemittanceCount,
       totalFuelCardTopUps: round2(fuelCardTopUpAgg._sum.amount ?? 0),
+      totalStandaloneCrewCash: round2(standaloneCrewCashAgg._sum.amount ?? 0),
     };
   }
 
@@ -995,7 +1012,7 @@ export class VanCashLedgerService {
     const to = query.to ? endOfDay(new Date(query.to)) : undefined;
     const dateFilter = buildDateFilter(from, to);
 
-    const [openingRows, cashInRows, expenseRows, ledgerRows, remittanceRows, fuelCardTopUpRows] = await Promise.all([
+    const [openingRows, cashInRows, expenseRows, ledgerRows, remittanceRows, fuelCardTopUpRows, standaloneCrewCashRows] = await Promise.all([
       this.buildOpeningBalanceRows(vendorId, vanId, to),
       this.prisma.vanCashHandover.findMany({
         where: {
@@ -1113,6 +1130,31 @@ export class VanCashLedgerService {
             },
             orderBy: { date: 'asc' },
           }),
+      // Standalone Crew Cash (owner-requested 2026-09-18) is a vendor-wide
+      // cash tier, same as Fuel Card top-ups — excluded from a van-scoped
+      // view. Its own StaffLedgerEntry is category CREW_CASH, which the
+      // ledgerRows query above already excludes wholesale (the same filter
+      // that keeps sheet-synced CrewCashDistribution entries out), so there
+      // is no double-count risk pulling it in here as its own source.
+      vanId
+        ? Promise.resolve([] as Array<
+            StandaloneCrewCashExpense & {
+              employee: { name: string } | null;
+              createdBy: { name: string } | null;
+            }
+          >)
+        : this.prisma.standaloneCrewCashExpense.findMany({
+            where: {
+              vendorId,
+              status: { in: [StandaloneCrewCashStatus.ACTIVE, StandaloneCrewCashStatus.VOIDED] },
+              ...(dateFilter && { date: dateFilter }),
+            },
+            include: {
+              employee: { select: { name: true } },
+              createdBy: { select: { name: true } },
+            },
+            orderBy: { date: 'asc' },
+          }),
     ]);
 
     const merged: VanCashLedgerRow[] = [...openingRows];
@@ -1121,6 +1163,7 @@ export class VanCashLedgerService {
     for (const row of ledgerRows) merged.push(this.normalizeCashOut(normalizeStaffLedgerRow(row)));
     for (const row of remittanceRows) merged.push(this.normalizeRemittanceOut(row));
     for (const row of fuelCardTopUpRows) merged.push(this.normalizeFuelCardTopUpOut(row));
+    for (const row of standaloneCrewCashRows) merged.push(this.normalizeStandaloneCrewCashOut(row));
 
     merged.sort((a, b) => {
       if (a.date !== b.date) return a.date < b.date ? -1 : 1;
@@ -1201,7 +1244,7 @@ export class VanCashLedgerService {
    * count them.
    */
   private async computeAvailableBalance(vendorId: string, vanId?: string): Promise<number> {
-    const [openingTotal, cashInAgg, cashOutTotal, remittedTotal, fuelCardTopUpTotal] = await Promise.all([
+    const [openingTotal, cashInAgg, cashOutTotal, remittedTotal, fuelCardTopUpTotal, standaloneCrewCashTotal] = await Promise.all([
       // Manual cash-in is repeatable now (any number of dated entries per
       // van, or general/office-wide when vanId is null) — sum them all rather
       // than reading a single row.
@@ -1233,9 +1276,27 @@ export class VanCashLedgerService {
               _sum: { amount: true },
             })
             .then((agg) => agg._sum.amount ?? 0),
+      // Standalone Crew Cash is the same vendor-wide office-cash-out tier as
+      // FuelCardTopUp/OfficeCashRemittance — leaves the shared office pool
+      // the instant it's recorded, so a van-scoped balance must not count it.
+      vanId
+        ? Promise.resolve(0)
+        : this.prisma.standaloneCrewCashExpense
+            .aggregate({
+              where: { vendorId, status: StandaloneCrewCashStatus.ACTIVE },
+              _sum: { amount: true },
+            })
+            .then((agg) => agg._sum.amount ?? 0),
     ]);
 
-    return openingTotal + (cashInAgg._sum.amount ?? 0) - cashOutTotal - remittedTotal - fuelCardTopUpTotal;
+    return (
+      openingTotal +
+      (cashInAgg._sum.amount ?? 0) -
+      cashOutTotal -
+      remittedTotal -
+      fuelCardTopUpTotal -
+      standaloneCrewCashTotal
+    );
   }
 
   /**
@@ -1436,6 +1497,41 @@ export class VanCashLedgerService {
       version: null,
       isVoided,
       voidReason: row.voidReason ?? null,
+    };
+  }
+
+  private normalizeStandaloneCrewCashOut(
+    row: StandaloneCrewCashExpense & {
+      employee: { name: string } | null;
+      createdBy: { name: string } | null;
+    },
+  ): VanCashLedgerRow {
+    const isVoided = row.status === StandaloneCrewCashStatus.VOIDED;
+    const employeeName = row.employee?.name ?? 'Employee';
+    return {
+      id: `STANDALONE_CREW_CASH_OUT:${row.id}`,
+      date: row.date.toISOString(),
+      type: 'STANDALONE_CREW_CASH_OUT',
+      // A voided entry is shown for the audit trail but must not move the
+      // running balance — it folds in as 0.
+      amount: isVoided ? 0 : -row.amount,
+      displayAmount: Math.abs(row.amount),
+      runningBalance: 0,
+      title: `Crew Cash — ${employeeName}`,
+      vanId: null,
+      vanPlateNumber: null,
+      sourceType: 'STANDALONE_CREW_CASH',
+      sourceRecordId: row.id,
+      sourceBadge: row.category,
+      status: null,
+      dailySheetId: null,
+      submittedByName: row.createdBy?.name ?? null,
+      approvedByName: null,
+      version: null,
+      isVoided,
+      voidReason: row.voidReason ?? null,
+      category: row.category,
+      employeeName,
     };
   }
 

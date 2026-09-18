@@ -1,5 +1,5 @@
 import {
-  PiggyBank, ArrowDownCircle, PencilLine, ArrowUpCircle, Landmark, Fuel, type LucideIcon,
+  PiggyBank, ArrowDownCircle, PencilLine, ArrowUpCircle, Landmark, Fuel, Wallet, type LucideIcon,
 } from 'lucide-react';
 import type { Permission } from '@water-supply-crm/authz';
 import type { CashLedgerRowType } from './api/van-cash-ledger.api';
@@ -64,6 +64,13 @@ export const CASH_LEDGER_ROW_CONFIG: Record<CashLedgerRowType, CashLedgerRowMeta
     solid: 'bg-orange-500',
     amountClass: 'text-orange-500',
     icon: Fuel,
+  },
+  STANDALONE_CREW_CASH_OUT: {
+    label: 'Crew Cash',
+    color: 'bg-pink-500/10 text-pink-500',
+    solid: 'bg-pink-500',
+    amountClass: 'text-pink-500',
+    icon: Wallet,
   },
 };
 

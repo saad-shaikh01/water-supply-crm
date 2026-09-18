@@ -453,6 +453,32 @@ export interface CrewCashEntry {
   updatedAt: string;
 }
 
+/**
+ * Crew Cash recorded WITHOUT a Daily Sheet (owner-requested 2026-09-18) — see
+ * StandaloneCrewCashExpense in schema.prisma. Vendor-wide cash tier, same
+ * shape as CrewCashEntry but with named relations included (list is
+ * vendor-wide, not resolved against a single sheet's known crew).
+ */
+export interface StandaloneCrewCashEntry {
+  id: string;
+  employeeId: string;
+  employee: { id: string; name: string };
+  category: CrewCashCategory;
+  amount: number;
+  notes: string | null;
+  date: string;
+  status: 'ACTIVE' | 'VOIDED';
+  staffLedgerEntryId: string;
+  createdById: string;
+  createdBy: { id: string; name: string };
+  voidedById: string | null;
+  voidedBy: { id: string; name: string } | null;
+  voidedAt: string | null;
+  voidReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ── Fleet Operations & Vehicle Intelligence (Phase 1) ──────────────────────────
 // docs/features/fleet-operations-vehicle-intelligence.md. Enum unions live in
 // ./fleet.ts alongside the checklist/interval config; response shapes live here

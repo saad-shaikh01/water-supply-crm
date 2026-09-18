@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { QUEUE_NAMES } from '@water-supply-crm/queue';
+import { AuditModule } from '../audit/audit.module';
 import { SalaryStructureService } from './salary-structure.service';
 import { SalaryStructureController } from './salary-structure.controller';
 import { StaffLedgerService } from './staff-ledger.service';
@@ -17,6 +18,8 @@ import { CrewCashDistributionController } from './crew-cash-distribution.control
 import { CrewCashSyncProcessor } from './crew-cash-sync.processor';
 import { StaffAttendanceService } from './staff-attendance.service';
 import { StaffAttendanceController } from './staff-attendance.controller';
+import { StandaloneCrewCashService } from './standalone-crew-cash.service';
+import { StandaloneCrewCashController } from './standalone-crew-cash.controller';
 
 /**
  * Staff Payroll & Financial Management — Phase 1b.
@@ -51,7 +54,7 @@ import { StaffAttendanceController } from './staff-attendance.controller';
  * never held hostage by a sheet that never closes.
  */
 @Module({
-  imports: [BullModule.registerQueue({ name: QUEUE_NAMES.CREW_CASH_SYNC })],
+  imports: [BullModule.registerQueue({ name: QUEUE_NAMES.CREW_CASH_SYNC }), AuditModule],
   controllers: [
     SalaryStructureController,
     StaffLedgerController,
@@ -60,6 +63,7 @@ import { StaffAttendanceController } from './staff-attendance.controller';
     SettlementController,
     CrewCashDistributionController,
     StaffAttendanceController,
+    StandaloneCrewCashController,
   ],
   providers: [
     SalaryStructureService,
@@ -71,6 +75,7 @@ import { StaffAttendanceController } from './staff-attendance.controller';
     CrewCashDistributionService,
     CrewCashSyncProcessor,
     StaffAttendanceService,
+    StandaloneCrewCashService,
   ],
   exports: [
     SalaryStructureService,
@@ -81,6 +86,7 @@ import { StaffAttendanceController } from './staff-attendance.controller';
     SettlementService,
     CrewCashDistributionService,
     StaffAttendanceService,
+    StandaloneCrewCashService,
   ],
 })
 export class PayrollModule {}

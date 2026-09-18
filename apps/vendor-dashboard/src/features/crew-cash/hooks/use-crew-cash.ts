@@ -6,6 +6,7 @@ import {
   type CreateCrewCashData,
   type UpdateCrewCashData,
   type CorrectCrewCashData,
+  type CreateStandaloneCrewCashData,
 } from '../api/crew-cash.api';
 import { queryKeys } from '../../../lib/query-keys';
 
@@ -77,5 +78,36 @@ export const useDeleteCrewCash = (sheetId: string) => {
       toast.success('Crew cash entry deleted');
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to delete entry'),
+  });
+};
+
+/**
+ * Crew Cash recorded WITHOUT a Daily Sheet (owner-requested 2026-09-18) — a
+ * vendor-wide cash-out tier (see StandaloneCrewCashExpense in schema.prisma),
+ * same as a Fuel Card top-up. Invalidates the `van-cash-ledger` namespace
+ * (not `crewCash.forSheet`, since this has no sheet) so the Cash Ledger
+ * page's timeline/balance/stats refresh immediately.
+ */
+export const useCreateStandaloneCrewCash = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: CreateStandaloneCrewCashData) => crewCashApi.createStandalone(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['van-cash-ledger'] });
+      toast.success('Crew cash recorded');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to record crew cash'),
+  });
+};
+
+export const useVoidStandaloneCrewCash = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => crewCashApi.voidStandalone(id, reason),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['van-cash-ledger'] });
+      toast.success('Crew cash entry voided');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to void entry'),
   });
 };

@@ -377,6 +377,10 @@ model Vendor {
   fuelCards        FuelCard[]
   fuelCardTopUps   FuelCardTopUp[]
 
+  // Standalone Crew Cash (owner-requested 2026-09-18) — crew cash given
+  // without a Daily Sheet
+  standaloneCrewCashExpenses StandaloneCrewCashExpense[]
+
   // Bulk Closed Delivery Repricing (owner-requested 2026-09-15) — retroactive
   // rate change on N closed deliveries for one customer, separate from the
   // driver-mistake Correction Entry flow.
@@ -494,6 +498,12 @@ model User {
   fuelCardsCreated      FuelCard[]      @relation("FuelCardCreatedBy")
   fuelCardTopUpsCreated FuelCardTopUp[] @relation("FuelCardTopUpCreatedBy")
   fuelCardTopUpsVoided  FuelCardTopUp[] @relation("FuelCardTopUpVoidedBy")
+
+  // Standalone Crew Cash (owner-requested 2026-09-18) — crew cash given
+  // without a Daily Sheet
+  standaloneCrewCashReceived StandaloneCrewCashExpense[] @relation("StandaloneCrewCashEmployee")
+  standaloneCrewCashCreated  StandaloneCrewCashExpense[] @relation("StandaloneCrewCashCreatedBy")
+  standaloneCrewCashVoided   StandaloneCrewCashExpense[] @relation("StandaloneCrewCashVoidedBy")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2539,6 +2549,10 @@ model StaffLedgerEntry {
   // created by a Crew Cash sync-at-close rather than typed directly.
   crewCashSource CrewCashDistribution?
 
+  // Inverse of StandaloneCrewCashExpense.staffLedgerEntry — set when this
+  // entry was created by a standalone (no Daily Sheet) Crew Cash record.
+  standaloneCrewCashSource StandaloneCrewCashExpense?
+
   // Inverse of SheetDiscrepancyCase.staffLedgerEntry — set when this entry was
   // created by resolving a discrepancy case as CHARGED_TO_DRIVER.
   discrepancyCase SheetDiscrepancyCase?
@@ -3160,6 +3174,61 @@ model FuelCardTopUp {
   updatedAt DateTime @updatedAt
 
   @@index([vendorId, fuelCardId, date])
+  @@index([vendorId, status])
+}
+
+enum StandaloneCrewCashStatus {
+  ACTIVE
+  VOIDED
+}
+
+/// Crew Cash recorded WITHOUT a Daily Sheet (owner-requested 2026-09-18) — for
+/// cash given to an employee (meal/tea/etc, same CrewCashCategory enum as
+/// CrewCashDistribution) outside any route, e.g. no open sheet that day. Same
+/// vendor-wide-cash-tier shape as FuelCardTopUp/OfficeCashRemittance: draws
+/// down the Office Cash Ledger's available balance the instant it's recorded
+/// (no PENDING/APPROVED gate of its own), single-step, full audit trail via
+/// the generic AuditService.
+///
+/// Unlike CrewCashDistribution (Daily-Sheet-scoped, synced into the Payroll
+/// Ledger only at sheet close), this has no "close" boundary to wait for, so
+/// the StaffLedgerEntry (category CREW_CASH, a debit against the employee) is
+/// created in the SAME transaction as this row via StaffLedgerService.createTx
+/// — it still passes through the ledger's own approval-threshold gate like any
+/// other manually-typed entry. Voiding this row (status -> VOIDED, reason
+/// required) voids/reverses the linked StaffLedgerEntry through
+/// StaffLedgerService's own voidEntryTx/reverseTx — never a direct edit,
+/// matching every other tier's "mistake -> void + redo" convention.
+model StandaloneCrewCashExpense {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  employeeId String
+  employee   User   @relation("StandaloneCrewCashEmployee", fields: [employeeId], references: [id])
+
+  category CrewCashCategory
+  amount   Int // whole rupees, positive magnitude — mirrors CrewCashDistribution.amount
+  notes    String?
+  date     DateTime // when the cash was actually given; defaults to now() at create, not editable after
+
+  status StandaloneCrewCashStatus @default(ACTIVE)
+
+  staffLedgerEntryId String           @unique
+  staffLedgerEntry   StaffLedgerEntry @relation(fields: [staffLedgerEntryId], references: [id])
+
+  createdById String
+  createdBy   User   @relation("StandaloneCrewCashCreatedBy", fields: [createdById], references: [id])
+
+  voidedById String?
+  voidedBy   User?     @relation("StandaloneCrewCashVoidedBy", fields: [voidedById], references: [id])
+  voidedAt   DateTime?
+  voidReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vendorId, employeeId, date])
   @@index([vendorId, status])
 }
 
