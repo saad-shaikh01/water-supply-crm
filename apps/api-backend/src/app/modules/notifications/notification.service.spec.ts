@@ -48,7 +48,7 @@ describe('NotificationService', () => {
     });
 
     it('queues a WhatsApp job with jobId when idempotency key is provided', async () => {
-      const key = 'ntf:order.approved:order-123:wa';
+      const key = 'ntf-order.approved-order-123-wa';
       await service.queueWhatsApp('+923001234567', 'Hello', key);
 
       expect(mockQueue.add).toHaveBeenCalledWith(
@@ -59,7 +59,7 @@ describe('NotificationService', () => {
     });
 
     it('uses the same jobId for the same idempotency key (dedupe guarantee)', async () => {
-      const key = 'ntf:order.approved:order-999:wa';
+      const key = 'ntf-order.approved-order-999-wa';
       await service.queueWhatsApp('+923001234567', 'msg1', key);
       await service.queueWhatsApp('+923001234567', 'msg2', key);
 
@@ -76,7 +76,7 @@ describe('NotificationService', () => {
 
   describe('queueSMS', () => {
     it('queues an SMS job with idempotency key as jobId', async () => {
-      const key = 'ntf:payment.approved:req-1:sms';
+      const key = 'ntf-payment.approved-req-1-sms';
       await service.queueSMS('+923001234567', 'Payment confirmed', key);
 
       expect(mockQueue.add).toHaveBeenCalledWith(
@@ -103,7 +103,7 @@ describe('NotificationService', () => {
     });
 
     it('queues an FCM job with jobId and data when all params provided', async () => {
-      const key = 'ntf:order.approved:order-123:fcm';
+      const key = 'ntf-order.approved-order-123-fcm';
       await service.queueFcm(
         'user-1',
         'Order Approved',
@@ -129,19 +129,19 @@ describe('NotificationService', () => {
       await service.queueWhatsApp(
         '+923001234567',
         'msg',
-        `ntf:order.approved:${orderId}:wa`,
+        `ntf-order.approved-${orderId}-wa`,
       );
       await service.queueFcm(
         'user-1',
         'Title',
         'Body',
         undefined,
-        `ntf:order.approved:${orderId}:fcm`,
+        `ntf-order.approved-${orderId}-fcm`,
       );
 
       const [waCall, fcmCall] = mockQueue.add.mock.calls;
-      expect(waCall[2].jobId).toBe(`ntf:order.approved:${orderId}:wa`);
-      expect(fcmCall[2].jobId).toBe(`ntf:order.approved:${orderId}:fcm`);
+      expect(waCall[2].jobId).toBe(`ntf-order.approved-${orderId}-wa`);
+      expect(fcmCall[2].jobId).toBe(`ntf-order.approved-${orderId}-fcm`);
       // Keys must differ so one channel doesn't block the other
       expect(waCall[2].jobId).not.toBe(fcmCall[2].jobId);
     });

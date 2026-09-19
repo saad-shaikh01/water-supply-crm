@@ -468,7 +468,7 @@ export class LedgerService {
             newAmount,
             Math.max(0, updated.customer.financialBalance),
           ),
-          `ntf:payment-correction:${txId}:${updated.lastEditedAt!.getTime()}:wa`,
+          `ntf-payment-correction-${txId}-${updated.lastEditedAt!.getTime()}-wa`,
           {
             vendorId,
             type: NotificationType.PAYMENT_RECEIVED,
@@ -589,7 +589,7 @@ export class LedgerService {
             reversedAmount,
             Math.max(0, cust.financialBalance),
           ),
-          `ntf:payment-reversal:${txId}:wa`,
+          `ntf-payment-reversal-${txId}-wa`,
           {
             vendorId,
             type: NotificationType.PAYMENT_RECEIVED,

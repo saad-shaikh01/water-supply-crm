@@ -149,11 +149,11 @@ export class AutoDispatchProcessor extends WorkerHost {
     if (mode === 'planned' && targetDate) {
       const dateStr = targetDate.toLocaleDateString('en-PK', { weekday: 'long', day: 'numeric', month: 'long' });
       const waMsg = MessageTemplates.orderPlanned(customer.name, productName, qty, dateStr);
-      const waKey = `ntf:${NOTIFICATION_EVENTS.ORDER_PLANNED}:${orderId}:wa`;
+      const waKey = `ntf-${NOTIFICATION_EVENTS.ORDER_PLANNED}-${orderId}-wa`;
       await this.notifications.queueWhatsApp(customer.phoneNumber, waMsg, waKey, { vendorId: order.vendorId, type: NotificationType.ORDER_UPDATE });
 
       if (customer.userId) {
-        const fcmKey = `ntf:${NOTIFICATION_EVENTS.ORDER_PLANNED}:${orderId}:fcm`;
+        const fcmKey = `ntf-${NOTIFICATION_EVENTS.ORDER_PLANNED}-${orderId}-fcm`;
         await this.notifications.queueFcm(
           customer.userId,
           'Delivery Scheduled 📅',
@@ -165,11 +165,11 @@ export class AutoDispatchProcessor extends WorkerHost {
       }
     } else if (mode === 'dispatched') {
       const waMsg = MessageTemplates.orderDispatched(customer.name, productName, qty);
-      const waKey = `ntf:${NOTIFICATION_EVENTS.ORDER_DISPATCHED}:${orderId}:wa`;
+      const waKey = `ntf-${NOTIFICATION_EVENTS.ORDER_DISPATCHED}-${orderId}-wa`;
       await this.notifications.queueWhatsApp(customer.phoneNumber, waMsg, waKey, { vendorId: order.vendorId, type: NotificationType.ORDER_UPDATE });
 
       if (customer.userId) {
-        const fcmKey = `ntf:${NOTIFICATION_EVENTS.ORDER_DISPATCHED}:${orderId}:fcm`;
+        const fcmKey = `ntf-${NOTIFICATION_EVENTS.ORDER_DISPATCHED}-${orderId}-fcm`;
         await this.notifications.queueFcm(
           customer.userId,
           'Order Out for Delivery 🚚',

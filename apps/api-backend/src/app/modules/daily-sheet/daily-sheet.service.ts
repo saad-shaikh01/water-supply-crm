@@ -956,7 +956,7 @@ export class DailySheetService implements OnModuleInit {
                   String(dto.filledDropped ?? 0),
                   String(dto.cashCollected ?? 0),
                 ],
-                `ntf:delivery-corrected:${itemId}:${now.getTime()}:wa`,
+                `ntf-delivery-corrected-${itemId}-${now.getTime()}-wa`,
                 { entityType: 'DELIVERY_ITEM', entityId: itemId, vendorId, type: NotificationType.DELIVERY_RECEIPT, recipientType: 'CUSTOMER', recipientId: item.customerId },
               )
               .catch((e: Error) => this.logger.warn(`WhatsApp delivery-corrected note failed for item ${itemId}: ${e.message}`));

@@ -69,7 +69,7 @@ export class TransactionController {
             String(dto.amount),
             newBalance.toFixed(2),
           ],
-          `ntf:payment-recorded:${transaction.id}:wa`,
+          `ntf-payment-recorded-${transaction.id}-wa`,
           { vendorId: user.vendorId, type: NotificationType.PAYMENT_RECEIVED, recipientType: 'CUSTOMER', recipientId: dto.customerId },
         )
         .catch((e: Error) =>

@@ -113,7 +113,7 @@ describe('OrderService — notification triggers', () => {
       expect(mockNotifications.queueWhatsApp).toHaveBeenCalledWith(
         pendingOrder.customer.phoneNumber,
         expect.any(String),
-        `ntf:${NOTIFICATION_EVENTS.ORDER_APPROVED}:${ORDER_ID}:wa`,
+        `ntf-${NOTIFICATION_EVENTS.ORDER_APPROVED}-${ORDER_ID}-wa`,
         { vendorId: VENDOR_ID, type: 'ORDER_UPDATE' },
       );
 
@@ -122,7 +122,7 @@ describe('OrderService — notification triggers', () => {
         expect.stringContaining('Approved'),
         expect.any(String),
         expect.objectContaining({ type: 'ORDER_APPROVED', orderId: ORDER_ID }),
-        `ntf:${NOTIFICATION_EVENTS.ORDER_APPROVED}:${ORDER_ID}:fcm`,
+        `ntf-${NOTIFICATION_EVENTS.ORDER_APPROVED}-${ORDER_ID}-fcm`,
         { vendorId: VENDOR_ID, type: 'ORDER_UPDATE' },
       );
     });
@@ -191,7 +191,7 @@ describe('OrderService — notification triggers', () => {
       expect(mockNotifications.queueWhatsApp).toHaveBeenCalledWith(
         pendingOrder.customer.phoneNumber,
         expect.stringContaining('Out of stock'),
-        `ntf:${NOTIFICATION_EVENTS.ORDER_REJECTED}:${ORDER_ID}:wa`,
+        `ntf-${NOTIFICATION_EVENTS.ORDER_REJECTED}-${ORDER_ID}-wa`,
         { vendorId: VENDOR_ID, type: 'ORDER_UPDATE' },
       );
 
@@ -200,14 +200,14 @@ describe('OrderService — notification triggers', () => {
         expect.stringContaining('Rejected'),
         expect.any(String),
         expect.objectContaining({ type: 'ORDER_REJECTED', orderId: ORDER_ID }),
-        `ntf:${NOTIFICATION_EVENTS.ORDER_REJECTED}:${ORDER_ID}:fcm`,
+        `ntf-${NOTIFICATION_EVENTS.ORDER_REJECTED}-${ORDER_ID}-fcm`,
         { vendorId: VENDOR_ID, type: 'ORDER_UPDATE' },
       );
     });
 
     it('rejection key is distinct from approval key for same order', async () => {
-      const approvedKey = `ntf:${NOTIFICATION_EVENTS.ORDER_APPROVED}:${ORDER_ID}:wa`;
-      const rejectedKey = `ntf:${NOTIFICATION_EVENTS.ORDER_REJECTED}:${ORDER_ID}:wa`;
+      const approvedKey = `ntf-${NOTIFICATION_EVENTS.ORDER_APPROVED}-${ORDER_ID}-wa`;
+      const rejectedKey = `ntf-${NOTIFICATION_EVENTS.ORDER_REJECTED}-${ORDER_ID}-wa`;
       expect(approvedKey).not.toBe(rejectedKey);
     });
   });

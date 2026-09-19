@@ -218,8 +218,8 @@ export class OrderService {
     });
 
     // Notify customer — WhatsApp + FCM
-    const waKey = `ntf:${NOTIFICATION_EVENTS.ORDER_APPROVED}:${orderId}:wa`;
-    const fcmKey = `ntf:${NOTIFICATION_EVENTS.ORDER_APPROVED}:${orderId}:fcm`;
+    const waKey = `ntf-${NOTIFICATION_EVENTS.ORDER_APPROVED}-${orderId}-wa`;
+    const fcmKey = `ntf-${NOTIFICATION_EVENTS.ORDER_APPROVED}-${orderId}-fcm`;
 
     const waMsg = MessageTemplates.orderApproved(
       order.customer.name,
@@ -275,8 +275,8 @@ export class OrderService {
     });
 
     // Notify customer — WhatsApp + FCM
-    const waKey = `ntf:${NOTIFICATION_EVENTS.ORDER_REJECTED}:${orderId}:wa`;
-    const fcmKey = `ntf:${NOTIFICATION_EVENTS.ORDER_REJECTED}:${orderId}:fcm`;
+    const waKey = `ntf-${NOTIFICATION_EVENTS.ORDER_REJECTED}-${orderId}-wa`;
+    const fcmKey = `ntf-${NOTIFICATION_EVENTS.ORDER_REJECTED}-${orderId}-fcm`;
 
     const waMsg = MessageTemplates.orderRejected(
       order.customer.name,
@@ -405,12 +405,12 @@ export class OrderService {
 
     // Fire-and-forget: notify customers + enqueue auto-dispatch for each
     for (const order of orders) {
-      const waKey = `ntf:${NOTIFICATION_EVENTS.ORDER_APPROVED}:${order.id}:wa`;
+      const waKey = `ntf-${NOTIFICATION_EVENTS.ORDER_APPROVED}-${order.id}-wa`;
       const waMsg = MessageTemplates.orderApproved(order.customer.name, order.product.name, order.quantity);
       this.notifications.queueWhatsApp(order.customer.phoneNumber, waMsg, waKey, { vendorId, type: NotificationType.ORDER_UPDATE }).catch(() => null);
 
       if (order.customer.userId) {
-        const fcmKey = `ntf:${NOTIFICATION_EVENTS.ORDER_APPROVED}:${order.id}:fcm`;
+        const fcmKey = `ntf-${NOTIFICATION_EVENTS.ORDER_APPROVED}-${order.id}-fcm`;
         this.notifications.queueFcm(
           order.customer.userId,
           'Order Approved ✅',
@@ -479,14 +479,14 @@ export class OrderService {
   ) {
     const dateStr = targetDate.toLocaleDateString('en-PK', { weekday: 'long', day: 'numeric', month: 'long' });
     const waMsg = MessageTemplates.orderPlanned(customer.name, productName, qty, dateStr);
-    const waKey = `ntf:${NOTIFICATION_EVENTS.ORDER_PLANNED}:${orderId}:wa`;
+    const waKey = `ntf-${NOTIFICATION_EVENTS.ORDER_PLANNED}-${orderId}-wa`;
 
     this.notifications
       .queueWhatsApp(customer.phoneNumber, waMsg, waKey, { vendorId, type: NotificationType.ORDER_UPDATE })
       .catch((e) => this.logger.warn(`WhatsApp plan-notify failed for order ${orderId}: ${e.message}`));
 
     if (customer.userId) {
-      const fcmKey = `ntf:${NOTIFICATION_EVENTS.ORDER_PLANNED}:${orderId}:fcm`;
+      const fcmKey = `ntf-${NOTIFICATION_EVENTS.ORDER_PLANNED}-${orderId}-fcm`;
       this.notifications
         .queueFcm(
           customer.userId,

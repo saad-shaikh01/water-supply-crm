@@ -227,8 +227,8 @@ export class TicketService {
 
     // Notify customer — WhatsApp + FCM
     const event = isResolving ? NOTIFICATION_EVENTS.TICKET_RESOLVED : NOTIFICATION_EVENTS.TICKET_REPLIED;
-    const waKey = `ntf:${event}:${ticketId}:wa`;
-    const fcmKey = `ntf:${event}:${ticketId}:fcm`;
+    const waKey = `ntf-${event}-${ticketId}-wa`;
+    const fcmKey = `ntf-${event}-${ticketId}-fcm`;
 
     const waMsg = MessageTemplates.ticketReplied(ticket.customer.name, ticket.subject);
     this.notifications

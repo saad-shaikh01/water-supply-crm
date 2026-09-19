@@ -329,7 +329,7 @@ export class PaymentService {
         request.customer.phoneNumber,
         CloudTemplateNames.PAYMENT_RECEIVED,
         [request.customer.name, String(request.amount), Math.max(0, newBalance).toFixed(2)],
-        `ntf:${NOTIFICATION_EVENTS.PAYMENT_APPROVED}:${requestId}:wa`,
+        `ntf-${NOTIFICATION_EVENTS.PAYMENT_APPROVED}-${requestId}-wa`,
         { vendorId, type: NotificationType.PAYMENT_RECEIVED, recipientType: 'CUSTOMER', recipientId: request.customerId },
       )
       .catch((e) =>
@@ -412,7 +412,7 @@ export class PaymentService {
       .queueWhatsApp(
         request.customer.phoneNumber,
         message,
-        `ntf:${NOTIFICATION_EVENTS.PAYMENT_REJECTED}:${requestId}:wa`,
+        `ntf-${NOTIFICATION_EVENTS.PAYMENT_REJECTED}-${requestId}-wa`,
         { vendorId, type: NotificationType.PAYMENT_RECEIVED, recipientType: 'CUSTOMER', recipientId: request.customerId },
       )
       .catch((e) =>
@@ -502,7 +502,7 @@ export class PaymentService {
         request.customer.phoneNumber,
         CloudTemplateNames.PAYMENT_RECEIVED,
         [request.customer.name, String(request.amount), Math.max(0, newBalance).toFixed(2)],
-        `ntf:${NOTIFICATION_EVENTS.PAYMENT_APPROVED}:${request.id}:wa`,
+        `ntf-${NOTIFICATION_EVENTS.PAYMENT_APPROVED}-${request.id}-wa`,
         { vendorId: request.vendorId, type: NotificationType.PAYMENT_RECEIVED, recipientType: 'CUSTOMER', recipientId: request.customerId },
       )
       .catch((e) =>

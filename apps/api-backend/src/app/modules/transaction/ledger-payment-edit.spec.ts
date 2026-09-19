@@ -411,10 +411,10 @@ describe('LedgerService — editPayment / deletePayment', () => {
       const [phone, , idemKey, meta] = mockNotifications.queueWhatsApp.mock.calls[0];
       expect(phone).toBe('923001234567');
       expect(idemKey).toEqual(
-        expect.stringContaining(`ntf:payment-correction:${TX_ID}:`),
+        expect.stringContaining(`ntf-payment-correction-${TX_ID}-`),
       );
       expect(idemKey).toBe(
-        `ntf:payment-correction:${TX_ID}:${LAST_EDITED_AT.getTime()}:wa`,
+        `ntf-payment-correction-${TX_ID}-${LAST_EDITED_AT.getTime()}-wa`,
       );
       expect(meta).toEqual(
         expect.objectContaining({
@@ -658,7 +658,7 @@ describe('LedgerService — editPayment / deletePayment', () => {
       expect(mockNotifications.queueWhatsApp).toHaveBeenCalledTimes(1);
       const [phone, , idemKey, meta] = mockNotifications.queueWhatsApp.mock.calls[0];
       expect(phone).toBe('923001234567');
-      expect(idemKey).toBe(`ntf:payment-reversal:${TX_ID}:wa`);
+      expect(idemKey).toBe(`ntf-payment-reversal-${TX_ID}-wa`);
       expect(meta).toEqual(
         expect.objectContaining({
           type: 'PAYMENT_RECEIVED',
