@@ -55,13 +55,10 @@ export class TransactionController {
     );
 
     if (transaction.customer?.phoneNumber) {
-      // Meta-approved `payment_recorded` template — 6 variables ({{1}} name ·
-      // {{2}} customer code · {{3}} amount paid · {{4}} balance owed before
-      // this payment ("Invoice Amount") · {{5}} amount paid (repeated as
-      // "Payment Received") · {{6}} balance owed after this payment ("Current
-      // Balance")). Must be a template, not free text — see cloud-api-templates.md #18.
+      // Meta-approved `payment_recorded` template — 4 variables ({{1}} name ·
+      // {{2}} customer code · {{3}} amount paid · {{4}} current balance).
+      // Must be a template, not free text — see cloud-api-templates.md #18.
       const newBalance = transaction.customer.financialBalance;
-      const previousBalance = newBalance + dto.amount;
       await this.notificationService
         .queueWhatsAppTemplate(
           transaction.customer.phoneNumber,
@@ -69,8 +66,6 @@ export class TransactionController {
           [
             transaction.customer.name,
             transaction.customer.customerCode,
-            String(dto.amount),
-            previousBalance.toFixed(2),
             String(dto.amount),
             newBalance.toFixed(2),
           ],

@@ -424,10 +424,7 @@ We'll try again on your next scheduled delivery day.
 - **Category:** UTILITY · **Language:** English
 - **Wired:** `transaction.controller.ts` `recordPayment()` (dashboard manual payment record) →
   `notifications.queueWhatsAppTemplate(... CloudTemplateNames.PAYMENT_RECORDED ...)`.
-- **✅ Approved on Meta** (confirmed 2026-09-17) — **6 variables**, not 7. An earlier 7-variable
-  draft (duplicate balance line) was submitted 2026-09-15 but Meta approved a trimmed 6-variable
-  body instead; the code originally sent 7 params against this 6-variable template, which fails
-  with Graph API error 132000 (param count mismatch) — fixed 2026-09-17.
+- **✅ Approved on Meta** (confirmed 2026-09-18) — **4 variables**.
 - **Body (as actually approved on Meta):**
 ```
 Assalamu Alaikum, *{{1}}*,
@@ -436,19 +433,14 @@ Customer Code: *{{2}}*
 
 We are pleased to confirm that your payment of Rs.*{{3}}* has been received successfully.
 
-Invoice Amount: Rs. *{{4}}*
-Payment Received: Rs. *{{5}}*
-Current Balance Rs. *{{6}}*
+Current Balance Rs. *{{4}}*
 
 Thank you for your prompt payment and for choosing *Blue Ice*.
 
 We truly appreciate your continued trust and support.
 ```
-- **Variables:** `{{1}}` = customer name · `{{2}}` = customer code · `{{3}}` = amount just paid ·
-  `{{4}}` = balance owed before this payment ("Invoice Amount") · `{{5}}` = amount just paid again
-  (repeated as "Payment Received") · `{{6}}` = balance owed after this payment ("Current Balance")
-- **Sample:** `{{1}}` = `Sharjeel`, `{{2}}` = `H1021`, `{{3}}` = `1000`, `{{4}}` = `2000`, `{{5}}` = `1000`,
-  `{{6}}` = `1000`
+- **Variables:** `{{1}}` = customer name · `{{2}}` = customer code · `{{3}}` = amount just paid · `{{4}}` = current balance
+- **Sample:** `{{1}}` = `Sharjeel`, `{{2}}` = `H1021`, `{{3}}` = `1000`, `{{4}}` = `1000`
 
 ---
 
