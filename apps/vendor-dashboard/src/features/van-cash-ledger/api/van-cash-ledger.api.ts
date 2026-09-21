@@ -62,6 +62,8 @@ export interface CashLedgerRowV2 {
   reference?: string | null;
   hasAttachment?: boolean;
   employeeId?: string | null;
+  extraLabourId?: string | null;
+  extraLabourName?: string | null;
   /** Handover rows only — the SHEET-derived figure (what the sheet said). `amount` is the final approved figure. */
   expectedAmount?: number | null;
   /** Handover rows only — `amount − expectedAmount` (negative = approved less than the sheet said). 0/null when none. */

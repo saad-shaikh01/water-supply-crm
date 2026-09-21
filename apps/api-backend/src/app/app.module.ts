@@ -50,6 +50,7 @@ import { VanCashLedgerModule } from './modules/van-cash-ledger/van-cash-ledger.m
 import { FuelCardModule } from './modules/fuel-card/fuel-card.module';
 import { ProductCostModule } from './modules/product-cost/product-cost.module';
 import { CustomerFinancialAdjustmentModule } from './modules/customer-financial-adjustment/customer-financial-adjustment.module';
+import { ExtraLabourModule } from './modules/extra-labour/extra-labour.module';
 import { applyLockOverrideMiddleware } from './common/request-context/lock-override.context';
 
 @Module({
@@ -101,6 +102,7 @@ import { applyLockOverrideMiddleware } from './common/request-context/lock-overr
     FuelCardModule,
     ProductCostModule,
     CustomerFinancialAdjustmentModule,
+    ExtraLabourModule,
   ],
   controllers: [AppController],
   providers: [

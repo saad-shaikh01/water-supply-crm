@@ -53,6 +53,10 @@ export class CorrectClosedExpenseDto {
   @IsUUID()
   vanId?: string;
 
+  @IsOptional()
+  @IsUUID()
+  extraLabourId?: string | null;
+
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @MinLength(3)

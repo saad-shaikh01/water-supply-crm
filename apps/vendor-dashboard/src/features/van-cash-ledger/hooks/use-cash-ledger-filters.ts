@@ -148,7 +148,7 @@ export const CASH_LEDGER_CATEGORY_GROUPS: readonly CashLedgerCategoryGroup[] = [
     key: 'EMPLOYEES',
     label: domainMeta('EMPLOYEES').label,
     options: [
-      { value: 'EXTRA_LOADER', label: 'Extra Loader' },
+      { value: 'EXTRA_LABOUR', label: 'Extra Labour' },
       { value: 'CONTRACTOR_PAYMENT', label: 'Contractor Payment' },
       { value: 'LUNCH_EXPENSE_EMPLOYEE', label: 'Lunch (legacy)' },
       { value: 'ADVANCE_SALARY_EMPLOYEE', label: 'Salary Advance (legacy)' },

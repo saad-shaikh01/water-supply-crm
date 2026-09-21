@@ -37,6 +37,8 @@ export interface CashLedgerRowV2 {
   /** Never the attachment key itself — only whether one exists. */
   hasAttachment?: boolean;
   employeeId?: string | null;
+  extraLabourId?: string | null;
+  extraLabourName?: string | null;
   /** Handover rows only — the SHEET-derived figure. `amount` is the final approved figure. */
   expectedAmount?: number | null;
   /** Handover rows only — `amount − expectedAmount`. */

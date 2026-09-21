@@ -25,7 +25,7 @@ const CATEGORY_CONFIG: Record<string, { label: string; color: string; icon: Luci
   VEHICLE_MAINTENANCE:     { label: 'Vehicle Maintenance', color: 'bg-destructive/10 text-destructive', icon: Wrench },
   FUEL_EXPENSE:            { label: 'Fuel Exp',            color: 'bg-orange-500/10 text-orange-500',   icon: Fuel },
   ICE_PURCHASED:           { label: 'Ice Purchased',       color: 'bg-cyan-500/10 text-cyan-600',       icon: Snowflake },
-  EXTRA_LOADER:            { label: 'Extra Loader',        color: 'bg-purple-500/10 text-purple-500',   icon: PackagePlus },
+  EXTRA_LABOUR:            { label: 'Extra Labour',        color: 'bg-purple-500/10 text-purple-500',   icon: PackagePlus },
   // Added 2026-09-07 (owner request) — office overhead + inventory
   // procurement categories. Colors picked distinct from every entry above
   // and from expense-center/constants.ts's DOMAIN_CONFIG palette (sky,

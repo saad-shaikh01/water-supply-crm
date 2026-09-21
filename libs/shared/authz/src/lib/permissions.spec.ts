@@ -127,14 +127,12 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // via `*`; Manager and Accountant by preset (+ PRESET_DRIFT_BACKFILLS for existing vendors).
 // 200 = 194 + customer_financial_adjustments (view, create, create_credit, transfer,
 // create_restricted, void) — new resource for Customer Financial Adjustments (owner-approved
-// 2026-09-21, Amendment R19): manual non-delivery charges / credits / transfers /
-// write-offs / corrections posted to the customer ledger. Non-navigable — a "Charges &
-// Credits" tab on the existing customer detail page, no dedicated route — so no new
-// `:page` (FROZEN_PAGES unchanged), +1 resource. Vendor Admin via `*`; Accountant by preset
-// (+ PRESET_DRIFT_BACKFILLS.accountant); Manager and all field roles get none.
-const FROZEN_TOTAL = 200;
-const FROZEN_PAGES = 30;
-const FROZEN_RESOURCES = 34;
+// 204 = 200 + extra_labour (page, view, create, manage) — new resource for
+// Extra Labour Management (owner-approved 2026-09-22, Amendment R20). Navigable
+// (`/dashboard/extra-labour`) — +1 page permission, +1 resource, +4 total permissions.
+const FROZEN_TOTAL = 204;
+const FROZEN_PAGES = 31;
+const FROZEN_RESOURCES = 35;
 
 describe('permission catalog (frozen contract)', () => {
   it('has the frozen totals', () => {

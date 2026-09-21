@@ -28,7 +28,7 @@ describe('domain classification', () => {
     expect(domainForExpenseCategory(ExpenseCategory.ICE_PURCHASED)).toBe('INVENTORY');
     expect(domainForExpenseCategory(ExpenseCategory.DISCREPANCY_WRITE_OFF)).toBe('DISCREPANCY');
     expect(domainForExpenseCategory(ExpenseCategory.OTHER)).toBe('OFFICE');
-    expect(domainForExpenseCategory(ExpenseCategory.EXTRA_LOADER)).toBe('EMPLOYEES');
+    expect(domainForExpenseCategory(ExpenseCategory.EXTRA_LABOUR)).toBe('EMPLOYEES');
   });
 
   it('routes the new office-overhead categories to OFFICE and procurement categories to INVENTORY', () => {

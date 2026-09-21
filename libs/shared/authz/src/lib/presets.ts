@@ -212,6 +212,8 @@ const MANAGER_PERMISSIONS: Permission[] = [
   // feature (single-step entry), so Manager is the practical "fix a mistake"
   // authority alongside Vendor Admin.
   'fuel_cards:page', 'fuel_cards:view', 'fuel_cards:manage', 'fuel_cards:topup', 'fuel_cards:topup_void',
+  // Extra Labour (owner-approved 2026-09-22, Amendment R20)
+  'extra_labour:page', 'extra_labour:view', 'extra_labour:create', 'extra_labour:manage',
 ];
 
 export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
@@ -306,6 +308,9 @@ export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
       'customer_financial_adjustments:transfer',
       'customer_financial_adjustments:create_restricted',
       'customer_financial_adjustments:void',
+      // Extra Labour (owner-approved 2026-09-22, Amendment R20)
+      'extra_labour:page',
+      'extra_labour:view',
     ],
   },
   support: {
@@ -462,6 +467,8 @@ export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
       // Fleet screen for drivers) or fleet:override_check (Staff/Admin-only).
       'fleet:record_check',
       'fleet:record_fuel',
+      // Extra Labour (owner-approved 2026-09-22, Amendment R20)
+      'extra_labour:create',
     ],
   },
   viewer: {

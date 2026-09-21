@@ -18,7 +18,7 @@ export const expenseSchema = z.object({
   // `ExpenseCategory` type, which is the source of truth for the full set.
   category: z.enum([
     'LUNCH_EXPENSE_EMPLOYEE', 'ADVANCE_SALARY_EMPLOYEE', 'VEHICLE_MAINTENANCE',
-    'FUEL_EXPENSE', 'ICE_PURCHASED', 'EXTRA_LOADER', 'OTHER',
+    'FUEL_EXPENSE', 'ICE_PURCHASED', 'EXTRA_LABOUR', 'OTHER',
     'RENT', 'UTILITIES', 'STATIONARY',
     'BOTTLE_PURCHASED', 'CAPS_PURCHASED', 'CHEMICALS_PURCHASED',
     'POLICE', 'MOBILE_LOAD', 'PSQCA',
@@ -31,6 +31,7 @@ export const expenseSchema = z.object({
   // true = paid from the driver's van cash-in-hand (default — deducted from
   // cash hand-in); false = paid by card/bank/company account (not deducted).
   paidFromCash: z.boolean(),
+  extraLabourId: z.string().optional(),
 });
 
 export type ExpenseInput = z.infer<typeof expenseSchema>;

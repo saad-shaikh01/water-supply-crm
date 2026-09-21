@@ -40,4 +40,8 @@ export class CreateExpenseDto {
   @IsOptional()
   @IsUUID()
   dailySheetId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  extraLabourId?: string;
 }

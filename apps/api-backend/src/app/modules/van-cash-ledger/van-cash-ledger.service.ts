@@ -165,6 +165,8 @@ function rowV2(
     periodLabel: '',
     canOverride: false,
     relatesToDate: null,
+    extraLabourId: null,
+    extraLabourName: null,
     ...overrides,
   };
 }
@@ -1966,6 +1968,8 @@ export class VanCashLedgerService {
           createdById: true,
           createdBy: { select: { name: true } },
           dailySheet: { select: { isClosed: true } },
+          extraLabourId: true,
+          extraLabour: { select: { id: true, name: true } },
         },
         orderBy: { date: 'asc' },
       }),
@@ -2096,6 +2100,8 @@ export class VanCashLedgerService {
           isEdited: edited,
           lastEditedAt: edited ? row.updatedAt.toISOString() : null,
           recordedById: row.createdById ?? null,
+          extraLabourId: row.extraLabourId ?? null,
+          extraLabourName: row.extraLabour?.name ?? null,
         }),
       );
     }

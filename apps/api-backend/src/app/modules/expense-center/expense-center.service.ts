@@ -314,6 +314,8 @@ export class ExpenseCenterService {
                 van: { select: { plateNumber: true } },
                 createdBy: { select: { name: true } },
                 dailySheet: { select: { isClosed: true } },
+                extraLabourId: true,
+                extraLabour: { select: { id: true, name: true } },
               },
               orderBy: { date: 'desc' },
               take: windowSize,

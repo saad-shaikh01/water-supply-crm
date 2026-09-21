@@ -48,6 +48,10 @@ export class AddClosedExpenseDto {
   @IsUUID()
   dailySheetId!: string;
 
+  @IsOptional()
+  @IsUUID()
+  extraLabourId?: string;
+
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @MinLength(3)

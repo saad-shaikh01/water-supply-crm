@@ -41,4 +41,8 @@ export class UpdateExpenseDto {
   @IsOptional()
   @IsUUID()
   dailySheetId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  extraLabourId?: string | null;
 }

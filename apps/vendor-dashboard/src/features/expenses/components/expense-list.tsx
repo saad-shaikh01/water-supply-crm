@@ -24,7 +24,7 @@ const CATEGORY_CONFIG: Record<ExpenseCategory, { label: string; color: string; i
   VEHICLE_MAINTENANCE:     { label: 'Vehicle Maintenance', color: 'bg-destructive/10 text-destructive', icon: Wrench },
   FUEL_EXPENSE:            { label: 'Fuel Exp',            color: 'bg-orange-500/10 text-orange-500',   icon: Fuel },
   ICE_PURCHASED:           { label: 'Ice Purchased',       color: 'bg-cyan-500/10 text-cyan-600',       icon: Snowflake },
-  EXTRA_LOADER:            { label: 'Extra Loader',        color: 'bg-purple-500/10 text-purple-500',   icon: PackagePlus },
+  EXTRA_LABOUR:            { label: 'Extra Labour',        color: 'bg-purple-500/10 text-purple-500',   icon: PackagePlus },
   // Added 2026-09-07 (owner request) — office overhead + inventory
   // procurement categories (same palette as sheet-expenses-section.tsx's
   // CATEGORY_CONFIG, kept in sync for visual consistency).

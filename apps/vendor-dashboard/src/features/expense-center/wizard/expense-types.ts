@@ -80,12 +80,12 @@ export const EXPENSE_TYPE_REGISTRY: ExpenseTypeEntry[] = [
     presetExpenseCategory: 'ICE_PURCHASED',
   },
   {
-    key: 'EXTRA_LOADER',
-    label: 'Extra Loader',
+    key: 'EXTRA_LABOUR',
+    label: 'Extra Labour',
     domain: 'EMPLOYEES',
     icon: PackagePlus,
     kind: 'EXPENSE',
-    presetExpenseCategory: 'EXTRA_LOADER',
+    presetExpenseCategory: 'EXTRA_LABOUR',
   },
   {
     key: 'CONTRACTOR_PAYMENT',

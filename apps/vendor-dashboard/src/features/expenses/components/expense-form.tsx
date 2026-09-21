@@ -10,6 +10,7 @@ import {
 import { expenseSchema, type ExpenseInput } from '../schemas';
 import { useCreateExpense, useCreateSheetExpense, useUpdateExpense, useUpdateSheetExpense } from '../hooks/use-expenses';
 import { useAllVans } from '../../vans/hooks/use-vans';
+import { ExtraLabourPicker } from '../../extra-labour/components/extra-labour-picker';
 
 /** Same visual toggle used across Fleet forms (fuel-log-form-dialog) — kept
  * as a local copy rather than a shared export, matching that file's own note
@@ -33,7 +34,7 @@ function Toggle({ enabled, onToggle, label }: { enabled: boolean; onToggle: () =
 
 // LUNCH_EXPENSE_EMPLOYEE/ADVANCE_SALARY_EMPLOYEE/FUEL_EXPENSE dropped from
 // this selectable list (owner request 2026-08-21) in favor of ICE_PURCHASED/
-// EXTRA_LOADER — the enum values themselves are kept (see schema.prisma)
+// EXTRA_LABOUR — the enum values themselves are kept (see schema.prisma)
 // so existing Expense rows tagged with the old categories still display
 // correctly everywhere else, only new submissions can no longer pick them.
 // RENT/UTILITIES/STATIONARY/BOTTLE_PURCHASED/CAPS_PURCHASED/
@@ -49,7 +50,7 @@ const CATEGORIES = [
   { value: 'VEHICLE_MAINTENANCE', label: 'Vehicle Maintenance' },
   { value: 'VEHICLE_RENT', label: 'Vehicle Rent' },
   { value: 'ICE_PURCHASED', label: 'Ice Purchased' },
-  { value: 'EXTRA_LOADER', label: 'Extra Loader' },
+  { value: 'EXTRA_LABOUR', label: 'Extra Labour' },
   { value: 'RENT', label: 'Rent' },
   { value: 'UTILITIES', label: 'Utilities' },
   { value: 'STATIONARY', label: 'Stationary' },
@@ -123,6 +124,7 @@ export function ExpenseForm({ open, onOpenChange, expense, dailySheetId, default
         // migration backfilled every row to true, so this is always a real
         // boolean, never undefined.
         paidFromCash: expense.paidFromCash !== false,
+        extraLabourId: expense.extraLabourId ? String(expense.extraLabourId) : undefined,
       });
     } else if (open && !expense && defaultVanId) {
       reset({
@@ -130,9 +132,10 @@ export function ExpenseForm({ open, onOpenChange, expense, dailySheetId, default
         date: new Date().toISOString().slice(0, 10),
         vanId: defaultVanId,
         paidFromCash: true,
+        extraLabourId: undefined,
       });
     } else if (!open) {
-      reset({ category: 'OTHER', date: new Date().toISOString().slice(0, 10), paidFromCash: true });
+      reset({ category: 'OTHER', date: new Date().toISOString().slice(0, 10), paidFromCash: true, extraLabourId: undefined });
     }
   }, [open, expense, reset, defaultVanId]);
 
@@ -196,6 +199,13 @@ export function ExpenseForm({ open, onOpenChange, expense, dailySheetId, default
               {errors.date && <p className="text-sm text-destructive">{errors.date.message}</p>}
             </div>
           </div>
+
+          {watch('category') === 'EXTRA_LABOUR' && (
+            <ExtraLabourPicker
+              value={watch('extraLabourId')}
+              onChange={(val) => setValue('extraLabourId', val || undefined)}
+            />
+          )}
 
           <div className="space-y-2">
             <Label>Van (Optional)</Label>

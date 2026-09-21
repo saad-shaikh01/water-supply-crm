@@ -126,7 +126,7 @@ enum ExpenseCategory {
   // LUNCH_EXPENSE_EMPLOYEE, ADVANCE_SALARY_EMPLOYEE and FUEL_EXPENSE are kept
   // (owner-approved 2026-08-21) purely for backward compatibility with
   // existing Expense rows and historical PDF exports — dropped from the
-  // "add expense" dropdown in favor of ICE_PURCHASED/EXTRA_LOADER below.
+  // "add expense" dropdown in favor of ICE_PURCHASED/EXTRA_LABOUR below.
   // FUEL_EXPENSE is additionally still system-created by fuel-log.service.ts
   // (Fleet fuel-fill logging), unrelated to the manual add-expense form.
   LUNCH_EXPENSE_EMPLOYEE
@@ -140,9 +140,9 @@ enum ExpenseCategory {
   OTHER
   // Added 2026-08-21 (owner request): new selectable categories replacing
   // LUNCH_EXPENSE_EMPLOYEE/ADVANCE_SALARY_EMPLOYEE/FUEL_EXPENSE in the
-  // "add expense" dropdown.
+  // "add expense" dropdown. (Renamed EXTRA_LOADER to EXTRA_LABOUR on 2026-09-22).
   ICE_PURCHASED
-  EXTRA_LOADER
+  EXTRA_LABOUR
   // Added 2026-09-07 (owner request): new selectable categories — office
   // overhead + inventory procurement — for the "add expense" dropdown.
   RENT
@@ -392,6 +392,10 @@ model Vendor {
   // non-delivery charges / credits / transfers posted to the customer ledger
   customerFinancialAdjustments      CustomerFinancialAdjustment[]
   customerFinancialAdjustmentGroups CustomerFinancialAdjustmentGroup[]
+
+  // Extra Labour (owner-approved 2026-09-22)
+  extraLabourTypes ExtraLabourType[]
+  extraLabourers   ExtraLabour[]
 }
 
 model User {
@@ -522,6 +526,9 @@ model User {
   customerAdjustmentsVoided  CustomerFinancialAdjustment[]      @relation("CustomerAdjustmentVoidedBy")
   adjustmentGroupsCreated    CustomerFinancialAdjustmentGroup[] @relation("AdjustmentGroupCreatedBy")
   adjustmentGroupsVoided     CustomerFinancialAdjustmentGroup[] @relation("AdjustmentGroupVoidedBy")
+
+  // Extra Labour (owner-approved 2026-09-22)
+  extraLabourersCreated ExtraLabour[] @relation("ExtraLabourCreatedBy")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1513,10 +1520,47 @@ model Expense {
   // resolving a discrepancy case as COMPANY_LOSS (category DISCREPANCY_WRITE_OFF).
   discrepancyCase SheetDiscrepancyCase?
 
+  // Extra Labour link (owner-approved 2026-09-22)
+  extraLabourId String?
+  extraLabour   ExtraLabour? @relation(fields: [extraLabourId], references: [id], onDelete: NoAction)
+
   @@index([vendorId, date])
   @@index([vendorId, category])
   @@index([dailySheetId])
   @@index([dailySheetLoadId])
+  @@index([extraLabourId, date])
+}
+
+model ExtraLabourType {
+  id        String        @id @default(dbgenerated("gen_random_uuid()"))
+  vendorId  String
+  name      String
+  isSystem  Boolean       @default(false)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  vendor    Vendor        @relation(fields: [vendorId], references: [id])
+  labourers ExtraLabour[]
+
+  @@unique([vendorId, name])
+}
+
+model ExtraLabour {
+  id           String          @id @default(dbgenerated("gen_random_uuid()"))
+  vendorId     String
+  name         String
+  phoneNumber  String?
+  labourTypeId String
+  notes        String?
+  isActive     Boolean         @default(true)
+  createdById  String
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  vendor       Vendor          @relation(fields: [vendorId], references: [id])
+  labourType   ExtraLabourType @relation(fields: [labourTypeId], references: [id])
+  createdBy    User            @relation("ExtraLabourCreatedBy", fields: [createdById], references: [id])
+  expenses     Expense[]
+
+  @@index([vendorId, isActive])
 }
 
 // Crew Cash Distribution (docs/features/crew-operational-cash-distribution.md) —
