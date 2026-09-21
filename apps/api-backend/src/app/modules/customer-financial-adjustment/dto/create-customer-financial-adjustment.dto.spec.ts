@@ -22,15 +22,15 @@ describe('CreateCustomerFinancialAdjustmentDto', () => {
     expect((await errorsFor()).fields).toEqual([]);
   });
 
-  it.each(['SERVICE_FEE', 'PENALTY', 'OTHER_CHARGE', 'DISCOUNT', 'GOODWILL_CREDIT', 'OTHER_CREDIT'])(
+  it.each(['SERVICE_FEE', 'PENALTY', 'OTHER_CHARGE', 'DISCOUNT', 'GOODWILL_CREDIT', 'OTHER_CREDIT', 'WRITE_OFF', 'CORRECTION'])(
     'accepts kind %s',
     async (kind) => {
       expect((await errorsFor({ kind })).fields).toEqual([]);
     },
   );
 
-  it.each(['WRITE_OFF', 'CORRECTION', 'TRANSFER_OUT', 'TRANSFER_IN', 'REVERSAL', 'penalty', ''])(
-    'rejects kind %p (not enabled in this slice)',
+  it.each(['TRANSFER_OUT', 'TRANSFER_IN', 'REVERSAL', 'penalty', ''])(
+    'rejects kind %p (not creatable through this endpoint)',
     async (kind) => {
       expect((await errorsFor({ kind })).fields).toEqual(['kind']);
     },
@@ -48,6 +48,18 @@ describe('CreateCustomerFinancialAdjustmentDto', () => {
 
   it('accepts 2-decimal amounts', async () => {
     expect((await errorsFor({ amount: 1234.56 })).fields).toEqual([]);
+  });
+
+  it.each(['CHARGE', 'CREDIT'])('accepts direction %s', async (direction) => {
+    expect((await errorsFor({ kind: 'CORRECTION', direction })).fields).toEqual([]);
+  });
+
+  it.each(['charge', 'SIDEWAYS', '', 42])('rejects direction %p', async (direction) => {
+    expect((await errorsFor({ kind: 'CORRECTION', direction })).fields).toEqual(['direction']);
+  });
+
+  it('direction is optional at the DTO level (the service requires it for CORRECTION only)', async () => {
+    expect((await errorsFor({ kind: 'CORRECTION' })).fields).toEqual([]);
   });
 
   it('requires an idempotency key (8–100 chars)', async () => {

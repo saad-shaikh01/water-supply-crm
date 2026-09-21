@@ -971,16 +971,29 @@ export class AnalyticsService {
     // shaped payloads) gives one consistent source for both. `amount` carries the
     // balance write-off (negative → magnitude taken below); `bottleCount` carries
     // the bottle write-off the same way; a given row is one or the other, never both.
+    //
+    // Two sources, unioned (Customer Financial Adjustments, 2026-09-22):
+    //  1. the legacy force-deactivate rows, found by their "company loss" text. They are
+    //     restricted to `adjustmentId: null` so a staff-typed adjustment TITLE that happens
+    //     to contain "company loss" can never be mistaken for one;
+    //  2. WRITE_OFF adjustments — POSTED only. A voided one drops out, and so does its
+    //     REVERSAL row (kind REVERSAL), so a void nets the loss back to zero. These are
+    //     balance write-offs by definition and their ledger text is the neutral
+    //     "Account adjustment", so they are classified by `adjustmentId`, not by text.
     const writeOffRows = await this.prisma.transaction.findMany({
       where: {
         vendorId,
         type: TransactionType.ADJUSTMENT,
-        description: { contains: 'company loss' },
+        OR: [
+          { description: { contains: 'company loss' }, adjustmentId: null },
+          { adjustment: { is: { kind: 'WRITE_OFF', status: 'POSTED' } } },
+        ],
         ...(dateFilter && { createdAt: dateFilter }),
         ...(vanCustomerIds && { customerId: { in: vanCustomerIds } }),
       },
       select: {
         id: true,
+        adjustmentId: true,
         amount: true,
         bottleCount: true,
         description: true,
@@ -994,7 +1007,8 @@ export class AnalyticsService {
     let balanceWriteOffTotal = 0;
     let bottleWriteOffTotal = 0;
     const writeOffDetails = writeOffRows.map((t) => {
-      const isBalance = (t.description ?? '').startsWith('Bad-debt write-off');
+      // An adjustment-backed row is always a balance write-off (money only, no bottles).
+      const isBalance = t.adjustmentId !== null || (t.description ?? '').startsWith('Bad-debt write-off');
       if (isBalance) balanceWriteOffTotal += Math.abs(t.amount ?? 0);
       else bottleWriteOffTotal += Math.abs(t.bottleCount ?? 0);
       return {

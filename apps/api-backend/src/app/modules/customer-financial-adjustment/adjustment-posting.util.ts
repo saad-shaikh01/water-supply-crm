@@ -18,12 +18,12 @@ import {
  */
 
 /**
- * Kinds the create endpoint accepts in Phase 2A: the charge and credit kinds only.
- * This is a delivery-slice gate, NOT policy — the policy table in
- * libs/shared/types already defines WRITE_OFF / CORRECTION (restricted tier) and the
- * transfer legs; they are switched on by later slices (2B+) by extending this list.
- * Kept explicit rather than derived so enabling a kind is always a reviewed one-line
- * change.
+ * Kinds the create endpoint accepts: the charge and credit kinds (2A) plus the
+ * restricted tier, WRITE_OFF and CORRECTION (2D). This is a delivery gate, NOT policy —
+ * the policy table in libs/shared/types defines every kind; the transfer legs and
+ * REVERSAL are deliberately absent (transfers have their own endpoint later; a
+ * reversal is only ever created by void). Kept explicit rather than derived so
+ * enabling a kind is always a reviewed one-line change.
  */
 export const POSTABLE_ADJUSTMENT_KINDS = [
   'SERVICE_FEE',
@@ -32,6 +32,8 @@ export const POSTABLE_ADJUSTMENT_KINDS = [
   'DISCOUNT',
   'GOODWILL_CREDIT',
   'OTHER_CREDIT',
+  'WRITE_OFF',
+  'CORRECTION',
 ] as const satisfies readonly AdjustmentKind[];
 export type PostableAdjustmentKind = (typeof POSTABLE_ADJUSTMENT_KINDS)[number];
 
@@ -62,6 +64,40 @@ export function normalizeAdjustmentAmount(amount: number): number {
     throw new BadRequestException('Amount must be at least 0.01.');
   }
   return paise / PAISE;
+}
+
+/**
+ * The direction a request resolves to, given the kind's policy and what the caller sent.
+ *  - fixed kind (charges, credits, write-off): the policy direction wins. A caller may
+ *    send the SAME value, but a conflicting one is a 400 — never silently ignored, so a
+ *    "penalty" can never be posted as a balance reduction and an API client can't believe
+ *    it did something it didn't. (The app's global pipe is forbidNonWhitelisted, so the
+ *    field only exists on the DTO for CORRECTION.)
+ *  - 'EITHER' (CORRECTION): the caller MUST say whether it increases (CHARGE) or reduces
+ *    (CREDIT) what the customer owes — there is no safe default for a correction.
+ *  - 'DERIVED' (REVERSAL): never posted by a request.
+ */
+export function resolveAdjustmentDirection(
+  policyDirection: AdjustmentDirection | 'EITHER' | 'DERIVED',
+  supplied?: AdjustmentDirection,
+): AdjustmentDirection {
+  if (policyDirection === 'DERIVED') {
+    throw new BadRequestException('This kind of adjustment cannot be posted directly.');
+  }
+  if (policyDirection === 'EITHER') {
+    if (supplied !== 'CHARGE' && supplied !== 'CREDIT') {
+      throw new BadRequestException(
+        'A correction must say whether it increases (CHARGE) or reduces (CREDIT) what the customer owes.',
+      );
+    }
+    return supplied;
+  }
+  if (supplied !== undefined && supplied !== null && supplied !== policyDirection) {
+    throw new BadRequestException(
+      `The direction of this adjustment is fixed (${policyDirection}); it cannot be ${supplied}.`,
+    );
+  }
+  return policyDirection;
 }
 
 /**
@@ -112,7 +148,7 @@ export function customerFacingAdjustmentText(
  *  - an earlier date is allowed ONLY within the current vendor calendar month
  *    (an older date could rewrite a statement the customer already received —
  *    it would also shift the overdue-warning figures, which are derived from
- *    Transaction dates); it lands at that day's vendor midnight;
+ *    Transaction dates); it lands at that day's vendor NOON (see below);
  *  - a future date is rejected.
  * The returned Date is used both as the document's effectiveDate and the ledger
  * row's createdAt (the ledger's createdAt IS the business date).
@@ -144,5 +180,14 @@ export function resolveAdjustmentEffectiveDate(
       'Effective date must be within the current month. Older dates would change a statement that has already been issued — post it dated today instead.',
     );
   }
-  return vendorDayStart(input);
+  // Vendor-day NOON, deliberately not midnight. Statement month windows are cut at the
+  // SERVER's local midnight (customer.service getMonthlyStatement: `new Date(y, m, 1)`)
+  // and production runs UTC, while the vendor's day starts at 19:00 UTC the day before.
+  // Karachi midnight of the 1st is therefore still "last month" to a UTC statement
+  // window; noon (07:00 UTC) is on the same calendar day, hence the same month, under
+  // BOTH readings. (Live "now" postings keep the existing ledger convention.)
+  return new Date(vendorDayStart(input).getTime() + VENDOR_NOON_OFFSET_MS);
 }
+
+/** 12h after the vendor day's midnight — see resolveAdjustmentEffectiveDate. */
+const VENDOR_NOON_OFFSET_MS = 12 * 60 * 60 * 1000;

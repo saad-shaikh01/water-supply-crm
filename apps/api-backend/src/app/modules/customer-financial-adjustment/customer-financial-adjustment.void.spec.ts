@@ -741,3 +741,108 @@ describe('CustomerFinancialAdjustmentService.voidAdjustment', () => {
     });
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 2D — restricted kinds against the STATEFUL ledger: real round trip + real rollback
+// ══════════════════════════════════════════════════════════════════════════════
+describe('restricted kinds (WRITE_OFF, CORRECTION) — stateful round trip, cap and rollback', () => {
+  const GRANTED = [P('create_restricted'), P('void')];
+  const STAFF_TITLE = 'INTERNAL: staff-only wording';
+  let seq = 0;
+  const post = (t: ReturnType<typeof build>, kind: string, extra: Record<string, unknown> = {}) =>
+    t.service.create(USER, {
+      customerId: CUSTOMER_ID,
+      kind,
+      amount: 400,
+      title: STAFF_TITLE,
+      internalNote: 'Approved by the owner',
+      idempotencyKey: `restricted-${kind}-${++seq}-abcdefgh`,
+      ...extra,
+    } as any);
+
+  beforeEach(() => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'setTimeout'] }).setSystemTime(NOW);
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.clearAllMocks();
+  });
+
+  describe('post via create(), then void: balance restored to the cent, wording stays neutral', () => {
+    it.each([
+      ['WRITE_OFF', {}, 600],
+      ['CORRECTION', { direction: 'CHARGE' }, 1400],
+      ['CORRECTION', { direction: 'CREDIT' }, 600],
+    ])('%s %j → balance %p after posting', async (kind, extra, afterPost) => {
+      const t = build(GRANTED, 1000);
+      const posted = await post(t, kind, extra);
+      expect(t.s.balance).toBe(afterPost);
+
+      const voided = await t.service.voidAdjustment(USER, posted.adjustment.id, voidDto());
+
+      expect(t.s.balance).toBe(1000);
+      expect(voided.reversal.customerVisibility).toBe('SUMMARIZED'); // voiding must not un-hide it
+      expect(voided.reversalTransaction.description).toBe('Account adjustment reversal');
+      expect(voided.reversalTransaction.amount + posted.transaction.amount).toBe(0);
+      expect(t.consistent()).toBe(true);
+
+      // The staff-only wording never reached ANY ledger row (the portal returns raw rows).
+      for (const row of t.s.transactions.values()) {
+        expect(JSON.stringify(row)).not.toContain('INTERNAL');
+        expect(JSON.stringify(row)).not.toContain('Approved by the owner');
+      }
+    });
+  });
+
+  describe('write-off cap: a breach rolls back with REAL state', () => {
+    it('refusing a write-off larger than the balance leaves balance, documents, ledger and audit untouched', async () => {
+      const t = build(GRANTED, 200);
+      const before = t.snapshot();
+
+      await expect(post(t, 'WRITE_OFF', { amount: 500 })).rejects.toThrow(/outstanding: 200\.00/);
+
+      expect(t.snapshot()).toEqual(before);
+      expect(t.s.balance).toBe(200);
+      expect(t.s.adjustments.size).toBe(0);
+      expect(t.s.transactions.size).toBe(0);
+      expect(t.s.audit).toHaveLength(0);
+      expect(t.s.committed).toEqual([]);
+      expect(t.cache.invalidateVendorEntity).not.toHaveBeenCalled();
+      expect(t.consistent()).toBe(true);
+    });
+
+    it('a write-off of exactly the outstanding balance clears it', async () => {
+      const t = build(GRANTED, 500);
+      await post(t, 'WRITE_OFF', { amount: 500 });
+      expect(t.s.balance).toBe(0);
+      expect(t.consistent()).toBe(true);
+    });
+
+    it('two write-offs racing for the same debt: only what is actually owed is written off', async () => {
+      const t = build(GRANTED, 500);
+
+      const results = await Promise.allSettled([
+        post(t, 'WRITE_OFF', { amount: 400, idempotencyKey: 'race-writeoff-one-1234' }),
+        post(t, 'WRITE_OFF', { amount: 400, idempotencyKey: 'race-writeoff-two-5678' }),
+      ]);
+
+      expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+      const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+      expect(rejected).toHaveLength(1);
+      expect(rejected[0].reason).toBeInstanceOf(BadRequestException);
+
+      expect(t.s.balance).toBe(100); // 500 owed − ONE 400 write-off; never negative
+      expect([...t.s.adjustments.values()].filter((d) => d.kind === 'WRITE_OFF')).toHaveLength(1);
+      expect(t.consistent()).toBe(true);
+    });
+
+    it('re-instating the debt by voiding a write-off is allowed and exact', async () => {
+      const t = build(GRANTED, 500);
+      const posted = await post(t, 'WRITE_OFF', { amount: 500 });
+      expect(t.s.balance).toBe(0);
+      await t.service.voidAdjustment(USER, posted.adjustment.id, voidDto('Customer paid after all'));
+      expect(t.s.balance).toBe(500);
+      expect(t.consistent()).toBe(true);
+    });
+  });
+});

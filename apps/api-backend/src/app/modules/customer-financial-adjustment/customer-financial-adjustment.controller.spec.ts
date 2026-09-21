@@ -28,12 +28,15 @@ const P = (a: string) => `customer_financial_adjustments:${a}`;
 const USER = { userId: 'u1', role: 'STAFF', vendorId: 'v1' };
 
 describe('CustomerFinancialAdjustmentController — POST /customer-financial-adjustments', () => {
-  it('is guarded by "any of" the two posting permissions this slice can post', () => {
+  it('is guarded by "any of" the three posting tiers (charges, credits, restricted)', () => {
     const meta = Reflect.getMetadata(PERMISSIONS_KEY, CustomerFinancialAdjustmentController.prototype.create);
-    expect(meta).toEqual({ mode: 'any', permissions: [P('create'), P('create_credit')] });
+    expect(meta).toEqual({
+      mode: 'any',
+      permissions: [P('create'), P('create_credit'), P('create_restricted')],
+    });
   });
 
-  it.each([[P('create')], [P('create_credit')], [P('create'), P('create_credit')]])(
+  it.each([[P('create')], [P('create_credit')], [P('create_restricted')], [P('create'), P('create_credit')]])(
     'lets a holder of %s through the route guard',
     async (...perms) => {
       await expect(guardFor(perms).canActivate(contextFor(USER))).resolves.toBe(true);
@@ -48,7 +51,6 @@ describe('CustomerFinancialAdjustmentController — POST /customer-financial-adj
     [[P('view')]],
     [[P('void')]],
     [[P('transfer')]],
-    [[P('create_restricted')]], // switched on with write-off/correction in a later slice
     [['transactions:adjust']], // the LEGACY manual-adjustment permission grants nothing here
     [['customers:view', 'customers:update']],
     [[]],
@@ -123,5 +125,72 @@ describe('CustomerFinancialAdjustmentController — POST /customer-financial-adj
 
     await expect(controller.voidAdjustment(user, 'adj-1', body)).resolves.toEqual({ ok: true });
     expect(service.voidAdjustment).toHaveBeenCalledWith(user, 'adj-1', body);
+  });
+});
+
+describe('CustomerFinancialAdjustmentController — GET reads (list / get)', () => {
+  const readContext = (handler: unknown, user: unknown) =>
+    ({
+      getHandler: () => handler,
+      getClass: () => CustomerFinancialAdjustmentController,
+      switchToHttp: () => ({ getRequest: () => ({ user }) }),
+    }) as never;
+  const proto = CustomerFinancialAdjustmentController.prototype;
+
+  it.each([
+    ['list', proto.list],
+    ['get', proto.get],
+  ])('%s is guarded by the static `view` permission', (_name, handler) => {
+    expect(Reflect.getMetadata(PERMISSIONS_KEY, handler)).toEqual({ mode: 'all', permissions: [P('view')] });
+  });
+
+  it.each([
+    ['list', proto.list],
+    ['get', proto.get],
+  ])('%s: lets a holder of `view` (or the wildcard) through', async (_name, handler) => {
+    await expect(guardFor([P('view')]).canActivate(readContext(handler, USER))).resolves.toBe(true);
+    await expect(guardFor(['*']).canActivate(readContext(handler, USER))).resolves.toBe(true);
+  });
+
+  it.each([
+    ['list', proto.list],
+    ['get', proto.get],
+  ])('%s: refuses every other adjustment permission, customers:view and the legacy transactions:view', async (_name, handler) => {
+    // A poster / voider / transferrer who is not ALSO granted `view` cannot read the documents.
+    for (const perms of [
+      [P('create')], [P('create_credit')], [P('create_restricted')], [P('transfer')], [P('void')],
+      ['customers:view'], ['transactions:view'], [],
+    ]) {
+      await expect(guardFor(perms).canActivate(readContext(handler, USER))).rejects.toBeInstanceOf(ForbiddenException);
+    }
+  });
+
+  it.each([
+    ['list', proto.list],
+    ['get', proto.get],
+  ])('%s: refuses an unauthenticated request', async (_name, handler) => {
+    await expect(guardFor([P('view')]).canActivate(readContext(handler, undefined))).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('`view` alone does not open any write route', async () => {
+    await expect(guardFor([P('view')]).canActivate(contextFor(USER))).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      guardFor([P('view')]).canActivate(readContext(proto.voidAdjustment, USER)),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('delegates list/get with the CALLER\'S vendor (never a client-supplied one)', async () => {
+    const service = {
+      list: jest.fn().mockResolvedValue({ data: [] }),
+      get: jest.fn().mockResolvedValue({ id: 'adj-1' }),
+    };
+    const controller = new CustomerFinancialAdjustmentController(service as never);
+    const user = { userId: 'u1', vendorId: 'vendor-of-caller' } as AuthUser;
+    const query = { customerId: 'c1', page: 2 } as never;
+
+    await expect(controller.list(user, query)).resolves.toEqual({ data: [] });
+    expect(service.list).toHaveBeenCalledWith('vendor-of-caller', query);
+    await expect(controller.get(user, 'adj-1')).resolves.toEqual({ id: 'adj-1' });
+    expect(service.get).toHaveBeenCalledWith('vendor-of-caller', 'adj-1');
   });
 });

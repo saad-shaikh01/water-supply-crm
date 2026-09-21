@@ -22,6 +22,9 @@ import {
   type AuthUser,
 } from '@water-supply-crm/types';
 import { PermissionService } from '../authz/permission.service';
+import { paginate } from '../../common/helpers/paginate';
+import { vendorDayEnd, vendorDayStart } from '../../common/helpers/date.util';
+import { ListCustomerFinancialAdjustmentsQueryDto } from './dto/list-customer-financial-adjustments-query.dto';
 import { CreateCustomerFinancialAdjustmentDto } from './dto/create-customer-financial-adjustment.dto';
 import {
   VOID_REASON_MIN_LENGTH,
@@ -33,9 +36,27 @@ import {
   customerFacingReversalText,
   normalizeAdjustmentAmount,
   oppositeAdjustmentDirection,
+  resolveAdjustmentDirection,
   resolveAdjustmentEffectiveDate,
   signedAdjustmentAmount,
 } from './adjustment-posting.util';
+
+/**
+ * What the read endpoints return with each adjustment. STAFF-facing (gated by
+ * `customer_financial_adjustments:view`, which Viewer and field roles do not hold), so the
+ * staff-only `internalNote` is included. `reversalOf` / `reversedBy` are the two ends of
+ * the void chain: a REVERSAL carries `reversalOf` (the original it cancels), a voided
+ * original carries `reversedBy` (its reversal). `transaction` is the single ledger row
+ * (signed amount) the adjustment posted.
+ */
+const ADJUSTMENT_READ_INCLUDE = {
+  customer: { select: { id: true, name: true, customerCode: true } },
+  createdBy: { select: { id: true, name: true } },
+  voidedBy: { select: { id: true, name: true } },
+  reversalOf: { select: { id: true, kind: true, title: true, status: true, effectiveDate: true } },
+  reversedBy: { select: { id: true, kind: true, status: true, effectiveDate: true } },
+  transaction: { select: { id: true, amount: true, description: true, createdAt: true } },
+} satisfies Prisma.CustomerFinancialAdjustmentInclude;
 
 /** RBAC permission that authorizes voiding (a static string — checked in the service, see voidAdjustment). */
 const VOID_PERMISSION = 'customer_financial_adjustments:void' as const;
@@ -87,8 +108,8 @@ export interface CreateAdjustmentResult {
  * the commit lands).
  *
  * Slice scope: 2A `create` (charge and credit kinds) + 2B `voidAdjustment`
- * (immutable void by reversal). Transfers, write-off/correction, list/get, statement
- * and analytics arrive in later slices.
+ * (immutable void by reversal) + 2C `list` / `get` (staff reads) + 2D write-off and
+ * correction kinds through the same `create`. Transfers arrive in a later slice.
  */
 @Injectable()
 export class CustomerFinancialAdjustmentService {
@@ -111,16 +132,15 @@ export class CustomerFinancialAdjustmentService {
       throw new BadRequestException(`Adjustment kind ${dto.kind} cannot be posted yet.`);
     }
     const policy = ADJUSTMENT_KIND_POLICY[dto.kind];
-    // Every postable kind has a FIXED direction/visibility; guard + narrow the types.
-    if (
-      policy.direction === 'EITHER' ||
-      policy.direction === 'DERIVED' ||
-      policy.visibility === 'DERIVED'
-    ) {
+    // Visibility is resolved from the kind (never per document). Only REVERSAL derives it,
+    // and a reversal is created by void, never here — this also narrows the type.
+    if (policy.visibility === 'DERIVED') {
       throw new BadRequestException(`Adjustment kind ${dto.kind} cannot be posted yet.`);
     }
-    const direction: AdjustmentDirection = policy.direction;
     const visibility: AdjustmentVisibility = policy.visibility;
+    // Fixed by the kind — except CORRECTION, where the caller must choose (and a
+    // conflicting value on a fixed kind is a 400, never silently ignored).
+    const direction: AdjustmentDirection = resolveAdjustmentDirection(policy.direction, dto.direction);
 
     // ── 2. Per-kind permission (the route guard is only the coarse "any of") ──
     // Checked BEFORE any read so a caller without the right can't probe customers.
@@ -144,7 +164,7 @@ export class CustomerFinancialAdjustmentService {
     const idempotencyKey = (dto.idempotencyKey ?? '').trim();
     if (!idempotencyKey) throw new BadRequestException('An idempotency key is required.');
 
-    const fingerprint = { customerId: dto.customerId, kind: dto.kind, amount, title };
+    const fingerprint = { customerId: dto.customerId, kind: dto.kind, direction, amount, title };
 
     // ── 4. Idempotency: a retry returns the original result ──────────────────
     const prior = await this.findByIdempotencyKey(vendorId, idempotencyKey);
@@ -203,6 +223,19 @@ export class CustomerFinancialAdjustmentService {
           select: { financialBalance: true },
         });
 
+        // A write-off can only write off what is OWED. Checked on the balance the update
+        // just returned (row-locked, so race-safe) and thrown INSIDE the transaction so
+        // the whole post rolls back: writing off more than the customer owes would hand
+        // them free credit while reporting it as a company loss.
+        if (dto.kind === 'WRITE_OFF' && round2(updated.financialBalance) < 0) {
+          const owed = Math.max(0, round2(updated.financialBalance + amount));
+          throw new BadRequestException(
+            owed > 0
+              ? `A write-off cannot exceed what the customer owes (outstanding: ${owed.toFixed(2)}).`
+              : 'This customer owes nothing, so there is nothing to write off.',
+          );
+        }
+
         await tx.auditLog.create({
           data: {
             vendorId,
@@ -245,6 +278,57 @@ export class CustomerFinancialAdjustmentService {
 
     await this.invalidateCaches(vendorId, dto.customerId);
     return { ...created, idempotentReplay: false };
+  }
+
+  /**
+   * Staff read: a page of adjustments, newest business date first. ALWAYS scoped to the
+   * caller's vendor. Permission (`customer_financial_adjustments:view`) is enforced by
+   * the route guard — this is a pure read with no other caller, so unlike `voidAdjustment`
+   * it does not re-check.
+   */
+  async list(vendorId: string, query: ListCustomerFinancialAdjustmentsQueryDto) {
+    const { page = 1, limit = 20, customerId, kind, status, dateFrom, dateTo } = query;
+
+    // Business-date range by the vendor's calendar day (Asia/Karachi), not the server's.
+    const effectiveDate =
+      dateFrom || dateTo
+        ? {
+            ...(dateFrom && { gte: vendorDayStart(dateFrom) }),
+            ...(dateTo && { lte: vendorDayEnd(dateTo) }),
+          }
+        : undefined;
+
+    const where: Prisma.CustomerFinancialAdjustmentWhereInput = {
+      vendorId,
+      ...(customerId && { customerId }),
+      ...(kind && { kind }),
+      ...(status && { status }),
+      ...(effectiveDate && { effectiveDate }),
+    };
+
+    const [data, total] = await Promise.all([
+      this.prisma.customerFinancialAdjustment.findMany({
+        where,
+        include: ADJUSTMENT_READ_INCLUDE,
+        // createdAt breaks ties so same-day entries keep their posting order.
+        orderBy: [{ effectiveDate: 'desc' }, { createdAt: 'desc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.customerFinancialAdjustment.count({ where }),
+    ]);
+
+    return paginate(data, total, page, limit);
+  }
+
+  /** Staff read: one adjustment with its void chain and ledger row. 404 outside the caller's vendor. */
+  async get(vendorId: string, id: string) {
+    const adjustment = await this.prisma.customerFinancialAdjustment.findFirst({
+      where: { id, vendorId },
+      include: ADJUSTMENT_READ_INCLUDE,
+    });
+    if (!adjustment) throw new NotFoundException('Adjustment not found');
+    return adjustment;
   }
 
   /**
@@ -474,11 +558,18 @@ export class CustomerFinancialAdjustmentService {
    */
   private async replay(
     prior: CustomerFinancialAdjustment & { transaction: Transaction | null },
-    fingerprint: { customerId: string; kind: string; amount: number; title: string },
+    fingerprint: {
+      customerId: string;
+      kind: string;
+      direction: AdjustmentDirection;
+      amount: number;
+      title: string;
+    },
   ): Promise<CreateAdjustmentResult> {
     const same =
       prior.customerId === fingerprint.customerId &&
       prior.kind === fingerprint.kind &&
+      prior.direction === fingerprint.direction && // a CORRECTION's direction is caller-chosen
       prior.amount === fingerprint.amount &&
       prior.title === fingerprint.title;
     if (!same) {

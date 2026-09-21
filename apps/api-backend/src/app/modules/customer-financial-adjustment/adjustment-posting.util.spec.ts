@@ -5,6 +5,7 @@ import {
   customerFacingReversalText,
   normalizeAdjustmentAmount,
   oppositeAdjustmentDirection,
+  resolveAdjustmentDirection,
   resolveAdjustmentEffectiveDate,
   signedAdjustmentAmount,
 } from './adjustment-posting.util';
@@ -85,27 +86,62 @@ describe('customerFacingReversalText', () => {
   });
 });
 
-describe('POSTABLE_ADJUSTMENT_KINDS (Phase 2A slice gate)', () => {
-  it('is exactly the six charge/credit kinds', () => {
+describe('POSTABLE_ADJUSTMENT_KINDS (create endpoint gate)', () => {
+  it('is exactly the charge, credit and restricted kinds (2A + 2D)', () => {
     expect([...POSTABLE_ADJUSTMENT_KINDS].sort()).toEqual(
-      ['DISCOUNT', 'GOODWILL_CREDIT', 'OTHER_CHARGE', 'OTHER_CREDIT', 'PENALTY', 'SERVICE_FEE'],
+      ['CORRECTION', 'DISCOUNT', 'GOODWILL_CREDIT', 'OTHER_CHARGE', 'OTHER_CREDIT', 'PENALTY', 'SERVICE_FEE', 'WRITE_OFF'],
     );
   });
 
-  it('every postable kind is standalone with a FIXED direction/visibility and a permission', () => {
+  it('every postable kind is standalone, has a resolvable direction, a visibility and a posting permission', () => {
     for (const k of POSTABLE_ADJUSTMENT_KINDS) {
       const p = ADJUSTMENT_KIND_POLICY[k];
       expect(STANDALONE_ADJUSTMENT_KINDS).toContain(k);
-      expect(['CHARGE', 'CREDIT']).toContain(p.direction);
-      expect(['ITEMIZED', 'SUMMARIZED']).toContain(p.visibility);
-      expect(['create', 'create_credit']).toContain(p.permission);
+      expect(['CHARGE', 'CREDIT', 'EITHER']).toContain(p.direction); // never DERIVED
+      expect(['ITEMIZED', 'SUMMARIZED']).toContain(p.visibility); // never DERIVED
+      expect(['create', 'create_credit', 'create_restricted']).toContain(p.permission);
     }
   });
 
-  it('excludes write-off / correction / transfer legs / reversal until their slice ships', () => {
-    for (const k of ['WRITE_OFF', 'CORRECTION', 'TRANSFER_OUT', 'TRANSFER_IN', 'REVERSAL']) {
+  it('CORRECTION is the ONLY postable kind whose direction the caller chooses', () => {
+    const chosen = POSTABLE_ADJUSTMENT_KINDS.filter((k) => ADJUSTMENT_KIND_POLICY[k].direction === 'EITHER');
+    expect(chosen).toEqual(['CORRECTION']);
+  });
+
+  it('excludes the transfer legs and REVERSAL — they have their own paths', () => {
+    for (const k of ['TRANSFER_OUT', 'TRANSFER_IN', 'REVERSAL']) {
       expect((POSTABLE_ADJUSTMENT_KINDS as readonly string[]).includes(k)).toBe(false);
     }
+  });
+});
+
+describe('resolveAdjustmentDirection', () => {
+  it('fixed kinds: the policy direction wins when nothing is sent', () => {
+    expect(resolveAdjustmentDirection('CHARGE')).toBe('CHARGE');
+    expect(resolveAdjustmentDirection('CREDIT')).toBe('CREDIT');
+  });
+
+  it('fixed kinds: sending the SAME direction is accepted', () => {
+    expect(resolveAdjustmentDirection('CHARGE', 'CHARGE')).toBe('CHARGE');
+    expect(resolveAdjustmentDirection('CREDIT', 'CREDIT')).toBe('CREDIT');
+  });
+
+  it('fixed kinds: a CONFLICTING direction is a 400 — never silently ignored', () => {
+    expect(() => resolveAdjustmentDirection('CHARGE', 'CREDIT')).toThrow(BadRequestException);
+    expect(() => resolveAdjustmentDirection('CHARGE', 'CREDIT')).toThrow(/fixed \(CHARGE\)/);
+    expect(() => resolveAdjustmentDirection('CREDIT', 'CHARGE')).toThrow(/fixed \(CREDIT\)/);
+  });
+
+  it('EITHER (CORRECTION): the caller must choose; there is no default', () => {
+    expect(resolveAdjustmentDirection('EITHER', 'CHARGE')).toBe('CHARGE');
+    expect(resolveAdjustmentDirection('EITHER', 'CREDIT')).toBe('CREDIT');
+    expect(() => resolveAdjustmentDirection('EITHER')).toThrow(/must say whether/);
+    expect(() => resolveAdjustmentDirection('EITHER', 'SIDEWAYS' as any)).toThrow(BadRequestException);
+  });
+
+  it('DERIVED (REVERSAL) can never be posted directly', () => {
+    expect(() => resolveAdjustmentDirection('DERIVED')).toThrow(BadRequestException);
+    expect(() => resolveAdjustmentDirection('DERIVED', 'CHARGE')).toThrow(BadRequestException);
   });
 });
 
@@ -120,13 +156,22 @@ describe('resolveAdjustmentEffectiveDate', () => {
     expect(resolveAdjustmentEffectiveDate('2026-09-20T03:00:00.000Z', NOW)).toBe(NOW);
   });
 
-  it('backdates an earlier day of the current month to that day\'s PKT midnight', () => {
-    // PKT midnight of Sept 5 = Sept 4 19:00 UTC
-    expect(resolveAdjustmentEffectiveDate('2026-09-05', NOW)).toEqual(new Date('2026-09-04T19:00:00.000Z'));
+  it('backdates an earlier day of the current month to that day\'s vendor NOON', () => {
+    // PKT noon of Sept 5 = Sept 5 07:00 UTC
+    expect(resolveAdjustmentEffectiveDate('2026-09-05', NOW)).toEqual(new Date('2026-09-05T07:00:00.000Z'));
+  });
+
+  it('a backdated entry sits on the SAME calendar day under BOTH the vendor (PKT) and a UTC reading', () => {
+    // Statement windows are cut at the server's local midnight (UTC in production), so an
+    // entry must not straddle a day boundary in either timezone. (PKT midnight would have
+    // been the previous UTC day.)
+    const d = resolveAdjustmentEffectiveDate('2026-09-05', NOW);
+    expect(d.toISOString().slice(0, 10)).toBe('2026-09-05'); // UTC day
+    expect(d.toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' })).toBe('2026-09-05'); // PKT day
   });
 
   it('allows the first day of the month (boundary)', () => {
-    expect(resolveAdjustmentEffectiveDate('2026-09-01', NOW)).toEqual(new Date('2026-08-31T19:00:00.000Z'));
+    expect(resolveAdjustmentEffectiveDate('2026-09-01', NOW)).toEqual(new Date('2026-09-01T07:00:00.000Z'));
   });
 
   it('rejects a date in a previous month', () => {
