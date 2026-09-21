@@ -112,7 +112,7 @@ export function ExtraLabourFormDialog({
 
     try {
       if (isEditing && labourer) {
-        const res = await updateMutation.mutateAsync({
+        const response = await updateMutation.mutateAsync({
           id: labourer.id,
           data: {
             name: name.trim(),
@@ -123,17 +123,18 @@ export function ExtraLabourFormDialog({
             isActive,
           },
         });
-        if (res.warnings && res.warnings.length > 0) {
-          setWarnings(res.warnings);
+        const resBody = response.data;
+        if (resBody.warnings && resBody.warnings.length > 0) {
+          setWarnings(resBody.warnings);
         }
-        if (onSuccess && res.data) {
-          onSuccess(res.data);
+        if (onSuccess && resBody.data) {
+          onSuccess(resBody.data);
         }
-        if (!res.warnings || res.warnings.length === 0) {
+        if (!resBody.warnings || resBody.warnings.length === 0) {
           onOpenChange(false);
         }
       } else {
-        const res = await createMutation.mutateAsync({
+        const response = await createMutation.mutateAsync({
           name: name.trim(),
           labourTypeId,
           phone: phone.trim() || null,
@@ -141,13 +142,14 @@ export function ExtraLabourFormDialog({
           notes: notes.trim() || null,
           isActive,
         });
-        if (res.warnings && res.warnings.length > 0) {
-          setWarnings(res.warnings);
+        const resBody = response.data;
+        if (resBody.warnings && resBody.warnings.length > 0) {
+          setWarnings(resBody.warnings);
         }
-        if (onSuccess && res.data) {
-          onSuccess(res.data);
+        if (onSuccess && resBody.data) {
+          onSuccess(resBody.data);
         }
-        if (!res.warnings || res.warnings.length === 0) {
+        if (!resBody.warnings || resBody.warnings.length === 0) {
           onOpenChange(false);
         }
       }
