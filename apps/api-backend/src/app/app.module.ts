@@ -49,6 +49,7 @@ import { SheetDiscrepancyCaseModule } from './modules/sheet-discrepancy-case/she
 import { VanCashLedgerModule } from './modules/van-cash-ledger/van-cash-ledger.module';
 import { FuelCardModule } from './modules/fuel-card/fuel-card.module';
 import { ProductCostModule } from './modules/product-cost/product-cost.module';
+import { CustomerFinancialAdjustmentModule } from './modules/customer-financial-adjustment/customer-financial-adjustment.module';
 import { applyLockOverrideMiddleware } from './common/request-context/lock-override.context';
 
 @Module({
@@ -99,6 +100,7 @@ import { applyLockOverrideMiddleware } from './common/request-context/lock-overr
     VanCashLedgerModule,
     FuelCardModule,
     ProductCostModule,
+    CustomerFinancialAdjustmentModule,
   ],
   controllers: [AppController],
   providers: [
