@@ -17,6 +17,7 @@ import {
 } from '../hooks/use-customers';
 import { customersApi } from '../api/customers.api';
 import { TransactionList } from '../../transactions/components/transaction-list';
+import { CustomerAdjustmentsTab } from '../../customer-adjustments/components/customer-adjustments-tab';
 import { NuqsAdapter } from 'nuqs/adapters/next/app';
 import {
   MapPin, Phone, User, Calendar,
@@ -244,6 +245,9 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
   const [locationOpen, setLocationOpen] = useState(false);
   const [bottleWalletAdjustOpen, setBottleWalletAdjustOpen] = useState(false);
   const canAdjustBottleWallet = useCan('customers:bottle_wallet_adjust');
+  // "Charges & Credits" tab — staff-facing (it shows internal notes), so it is hidden entirely
+  // for roles without the view permission (Manager, field roles, Viewer).
+  const canViewAdjustments = useCan('customer_financial_adjustments:view');
   // Bulk Closed Delivery Repricing — row selection lives on Delivery History
   // (below); cleared whenever the statement period or customer changes.
   const [bulkRepriceOpen, setBulkRepriceOpen] = useState(false);
@@ -504,6 +508,11 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
           <TabsTrigger value="statement" className="rounded-xl font-bold px-5 py-2 transition-all">
             Statement
           </TabsTrigger>
+          {canViewAdjustments && (
+            <TabsTrigger value="adjustments" className="rounded-xl font-bold px-5 py-2 transition-all">
+              Charges &amp; Credits
+            </TabsTrigger>
+          )}
           <TabsTrigger value="info" className="rounded-xl font-bold px-5 py-2 transition-all">
             Full Info
           </TabsTrigger>
@@ -1140,6 +1149,16 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {canViewAdjustments && (
+            <TabsContent value="adjustments">
+              <Card className="rounded-3xl border-border/50 bg-card/30 backdrop-blur-sm overflow-hidden">
+                <CardContent className="p-6">
+                  <CustomerAdjustmentsTab customerId={customerId} />
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
 
           <TabsContent value="info">
             <div className="grid gap-6 md:grid-cols-3">
