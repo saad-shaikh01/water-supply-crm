@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { AlertCircle, Calendar, Inbox, Plus, X } from 'lucide-react';
+import { AlertCircle, Calendar, Inbox, Plus, ArrowRightLeft, X } from 'lucide-react';
 import { Button, Input, Label, cn } from '@water-supply-crm/ui';
 import { ADJUSTMENT_KINDS, ADJUSTMENT_STATUSES, type AdjustmentKind, type AdjustmentStatus } from '@water-supply-crm/types';
 import { DataTable } from '../../../components/shared/data-table';
@@ -11,6 +11,7 @@ import type { CustomerAdjustment } from '../api/customer-adjustments.api';
 import { adjustmentKindLabel, directionSign, fmtAdjustmentAmount, fmtAdjustmentDate } from '../format';
 import { AdjustmentDetailDialog } from './adjustment-detail-dialog';
 import { CreateAdjustmentDialog } from './create-adjustment-dialog';
+import { TransferBalanceDialog } from './transfer-balance-dialog';
 import { useAdjustmentPermissions } from '../permissions';
 
 const STATUS_LABELS: Record<AdjustmentStatus, string> = { POSTED: 'Posted', VOIDED: 'Voided' };
@@ -41,7 +42,8 @@ export function CustomerAdjustmentsTab({ customerId }: CustomerAdjustmentsTabPro
   const [dateTo, setDateTo] = useState('');
   const [selected, setSelected] = useState<CustomerAdjustment | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const { postableKinds, canCreate } = useAdjustmentPermissions();
+  const [transferOpen, setTransferOpen] = useState(false);
+  const { postableKinds, canCreate, canTransfer } = useAdjustmentPermissions();
 
   const { data, isLoading, isError, refetch, isFetching } = useCustomerAdjustments({
     customerId,
@@ -84,6 +86,15 @@ export function CustomerAdjustmentsTab({ customerId }: CustomerAdjustmentsTabPro
         {canCreate && (
           <Button onClick={() => setCreateOpen(true)} className="rounded-xl font-bold gap-2 shrink-0">
             <Plus className="h-4 w-4" /> New adjustment
+          </Button>
+        )}
+        {canTransfer && (
+          <Button
+            onClick={() => setTransferOpen(true)}
+            variant="outline"
+            className="rounded-xl font-bold gap-2 shrink-0"
+          >
+            <ArrowRightLeft className="h-4 w-4" /> Transfer balance
           </Button>
         )}
       </div>
@@ -267,6 +278,10 @@ export function CustomerAdjustmentsTab({ customerId }: CustomerAdjustmentsTabPro
 
       {canCreate && (
         <CreateAdjustmentDialog customerId={customerId} kinds={postableKinds} open={createOpen} onOpenChange={setCreateOpen} />
+      )}
+
+      {canTransfer && (
+        <TransferBalanceDialog fromCustomerId={customerId} open={transferOpen} onOpenChange={setTransferOpen} />
       )}
     </div>
   );

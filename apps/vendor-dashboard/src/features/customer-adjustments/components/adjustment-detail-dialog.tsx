@@ -24,8 +24,9 @@ import {
   fmtAdjustmentDate,
   fmtAdjustmentDateTime,
 } from '../format';
-import { isVoidable, useAdjustmentPermissions } from '../permissions';
+import { isTransferVoidable, isVoidable, useAdjustmentPermissions } from '../permissions';
 import { VoidAdjustmentDialog } from './void-adjustment-dialog';
+import { VoidTransferDialog } from './void-transfer-dialog';
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -70,7 +71,9 @@ export function AdjustmentDetailDialog({ adjustment, onClose }: AdjustmentDetail
 function Body({ a, onClose }: { a: CustomerAdjustment; onClose: () => void }) {
   const { canVoid } = useAdjustmentPermissions();
   const [voidOpen, setVoidOpen] = useState(false);
+  const [voidTransferOpen, setVoidTransferOpen] = useState(false);
   const showVoid = canVoid && isVoidable(a);
+  const showVoidTransfer = canVoid && !!a.groupId && isTransferVoidable(a);
   const isVoided = a.status === 'VOIDED';
   const isCharge = a.direction === 'CHARGE';
   const ledgerDescription = a.transaction?.description;
@@ -169,7 +172,7 @@ function Body({ a, onClose }: { a: CustomerAdjustment; onClose: () => void }) {
 
         {/* A transfer's two legs are voided together as a group, never one by one. */}
         {canVoid && a.status === 'POSTED' && a.groupId && (
-          <p className="text-[11px] text-muted-foreground">A balance transfer is voided as a whole, not leg by leg.</p>
+          <p className="text-[11px] text-muted-foreground">A balance transfer is voided as a whole — both legs reverse together.</p>
         )}
       </div>
 
@@ -186,6 +189,27 @@ function Body({ a, onClose }: { a: CustomerAdjustment; onClose: () => void }) {
             </Button>
           </DialogFooter>
           <VoidAdjustmentDialog adjustment={a} open={voidOpen} onOpenChange={setVoidOpen} onVoided={onClose} />
+        </>
+      )}
+
+      {showVoidTransfer && (
+        <>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setVoidTransferOpen(true)}
+              className="rounded-xl font-bold gap-2 text-destructive border-destructive/40 hover:bg-destructive/10"
+            >
+              <Ban className="h-4 w-4" /> Void transfer
+            </Button>
+          </DialogFooter>
+          <VoidTransferDialog
+            adjustment={{ groupId: a.groupId!, amount: a.amount, counterpartyCustomerId: a.counterpartyCustomerId }}
+            open={voidTransferOpen}
+            onOpenChange={setVoidTransferOpen}
+            onVoided={onClose}
+          />
         </>
       )}
     </>

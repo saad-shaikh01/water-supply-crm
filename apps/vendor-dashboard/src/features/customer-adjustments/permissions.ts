@@ -10,6 +10,9 @@ import type { CustomerAdjustment, PostableAdjustmentKind } from './api/customer-
 /** RBAC action that authorizes voiding (a static permission — unlike posting, it does not depend on the kind). */
 export const VOID_PERMISSION = 'customer_financial_adjustments:void' as const satisfies Permission;
 
+/** RBAC action required to post or void a balance transfer. */
+export const TRANSFER_PERMISSION = 'customer_financial_adjustments:transfer' as const satisfies Permission;
+
 const POSTABLE_KINDS = STANDALONE_ADJUSTMENT_KINDS as readonly PostableAdjustmentKind[];
 
 /**
@@ -38,6 +41,14 @@ export function isVoidable(adjustment: Pick<CustomerAdjustment, 'status' | 'kind
   );
 }
 
+/**
+ * Whether a transfer GROUP can be voided: both legs still POSTED (we check by the adjustment's
+ * groupId being set and status being POSTED). Backend enforces the same rule atomically.
+ */
+export function isTransferVoidable(adjustment: Pick<CustomerAdjustment, 'status' | 'groupId'>): boolean {
+  return adjustment.status === 'POSTED' && !!adjustment.groupId;
+}
+
 /** What the current user may do on the Charges & Credits tab. */
 export function useAdjustmentPermissions() {
   const { can } = usePermissions();
@@ -46,5 +57,6 @@ export function useAdjustmentPermissions() {
     postableKinds,
     canCreate: postableKinds.length > 0,
     canVoid: can(VOID_PERMISSION),
+    canTransfer: can(TRANSFER_PERMISSION),
   };
 }

@@ -7,6 +7,7 @@ import {
   type CustomerAdjustmentQuery,
 } from '../api/customer-adjustments.api';
 import { adjustmentKindLabel, fmtAdjustmentAmount } from '../format';
+import type { CreateBalanceTransferPayload } from '../transfer-balance';
 
 /**
  * Root key for everything in this feature. Posting / voiding invalidates it together with the
@@ -64,5 +65,55 @@ export const useVoidCustomerAdjustment = () => {
       toast.success('Adjustment voided — a reversal was posted');
     },
     onError: (e) => toast.error(apiErrorMessage(e, 'Failed to void the adjustment')),
+  });
+};
+
+// ── Balance transfer hooks ───────────────────────────────────────────────────────────
+
+/**
+ * Calls the preview endpoint to get the source balance, target validation, and blockers.
+ * - Skips the request entirely if `fromCustomerId` is empty.
+ * - Re-fetches whenever `toCustomerId` changes (debounce in the dialog).
+ * - `staleTime: 0` so the data is always fresh when the dialog opens.
+ */
+export const useTransferPreview = (fromCustomerId: string, toCustomerId?: string) =>
+  useQuery({
+    queryKey: [CUSTOMER_ADJUSTMENTS_QUERY_KEY, 'transfer-preview', fromCustomerId, toCustomerId ?? ''],
+    queryFn: () =>
+      customerAdjustmentsApi.transferPreview(fromCustomerId, toCustomerId || undefined).then((r) => r.data),
+    enabled: !!fromCustomerId,
+    staleTime: 0,
+  });
+
+/** Posts BOTH transfer legs in one shot. Invalidates the same caches as a regular adjustment. */
+export const useCreateBalanceTransfer = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: CreateBalanceTransferPayload) =>
+      customerAdjustmentsApi.transfer(payload).then((r) => r.data),
+    onSuccess: (result) => {
+      invalidateAfterMutation(queryClient);
+      const amt = result.sourceLeg.adjustment.amount;
+      toast.success(
+        result.idempotentReplay
+          ? 'This transfer was already posted — nothing was moved twice'
+          : `Balance of ${fmtAdjustmentAmount(amt)} transferred`,
+      );
+    },
+    onError: (e) => toast.error(apiErrorMessage(e, 'Failed to post the transfer')),
+  });
+};
+
+/** Voids BOTH legs of a balance transfer as a group. */
+export const useVoidBalanceTransfer = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ groupId, reason }: { groupId: string; reason: string }) =>
+      customerAdjustmentsApi.voidTransfer(groupId, reason).then((r) => r.data),
+    onSuccess: () => {
+      invalidateAfterMutation(queryClient);
+      toast.success('Transfer voided — both legs reversed');
+    },
+    onError: (e) => toast.error(apiErrorMessage(e, 'Failed to void the transfer')),
   });
 };

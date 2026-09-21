@@ -114,6 +114,36 @@ export const customerAdjustmentsApi = {
   /** Voids by posting a reversal — nothing is edited or deleted. `reason` is mandatory (≥ 5 chars). */
   void: (id: string, reason: string) =>
     apiClient.post<VoidAdjustmentResult>(`/customer-financial-adjustments/${id}/void`, { reason }),
+
+  // ── Balance transfers ─────────────────────────────────────────────────────
+
+  /**
+   * GET /customer-financial-adjustments/transfers/preview
+   * Returns the source's live balance + blockers. Pass `toCustomerId` to also validate the target.
+   */
+  transferPreview: (fromCustomerId: string, toCustomerId?: string) =>
+    apiClient.get<import('../transfer-balance').TransferPreview>(
+      '/customer-financial-adjustments/transfers/preview',
+      { params: { fromCustomerId, ...(toCustomerId ? { toCustomerId } : {}) } },
+    ),
+
+  /** POST /customer-financial-adjustments/transfers — posts BOTH legs atomically. */
+  transfer: (payload: import('../transfer-balance').CreateBalanceTransferPayload) =>
+    apiClient.post<import('../transfer-balance').TransferResult>(
+      '/customer-financial-adjustments/transfers',
+      payload,
+    ),
+
+  /**
+   * POST /customer-financial-adjustments/transfers/:groupId/void
+   * Voids BOTH legs as a group. Requires `void` + `transfer` permissions.
+   * `reason` is mandatory (≥ 5 chars).
+   */
+  voidTransfer: (groupId: string, reason: string) =>
+    apiClient.post<import('../transfer-balance').VoidTransferResult>(
+      `/customer-financial-adjustments/transfers/${groupId}/void`,
+      { reason },
+    ),
 };
 
 /**
