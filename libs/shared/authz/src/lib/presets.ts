@@ -84,6 +84,11 @@ const READ_ONLY_EXCLUDED: Permission[] = [
   // is restricted to Vendor Admin + Accountant (design doc §8) — Viewer's blanket
   // read-only grant must not silently include it just because the action is `view`.
   'product_costs:view',
+  // Customer Financial Adjustments (owner-approved 2026-09-21, Amendment R19): the
+  // documents carry a staff-only internal note (why a customer's balance was written
+  // off / corrected) — the same tier as `customers:view_financial`, which Viewer also
+  // lacks. Would otherwise leak in through the blanket `:view` grant.
+  'customer_financial_adjustments:view',
 ];
 const READ_ONLY_PERMISSIONS: Permission[] = PERMISSIONS.filter((p) => {
   const [, action] = splitPermission(p);
@@ -289,6 +294,18 @@ export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
       'product_costs:view',
       'product_costs:manage',
       'analytics:view_margins',
+      // Customer Financial Adjustments (owner-approved 2026-09-21, Amendment R19):
+      // Accountant already holds `transactions:adjust` (the legacy manual-adjustment
+      // path), so it gets the full set here — Vendor Admin via `*`. Manager
+      // deliberately gets NONE (it does not hold `transactions:adjust` either, and
+      // the enforcement matrix denies it). Existing vendors get these via
+      // PRESET_DRIFT_BACKFILLS.accountant.
+      'customer_financial_adjustments:view',
+      'customer_financial_adjustments:create',
+      'customer_financial_adjustments:create_credit',
+      'customer_financial_adjustments:transfer',
+      'customer_financial_adjustments:create_restricted',
+      'customer_financial_adjustments:void',
     ],
   },
   support: {

@@ -372,6 +372,18 @@ Each row: permission → the existing feature/endpoint(s) it gates. `page` sorts
 | `product_costs:view` | See a product's cost history timeline |
 | `product_costs:manage` | Add a new cost row, edit an editable (zero-delivery) row, void the current row |
 
+### 33. Charges & Credits — `customer_financial_adjustments` *(NON-navigable — a "Charges & Credits" tab on the existing customer detail page, no dedicated route)*
+> **Amendment R19 (Customer Financial Adjustments, owner-approved 2026-09-21).** New resource for manual, non-delivery money events on a customer's account — service fees, penalties, discounts/credits, balance transfers, write-offs and corrections. Each is a `CustomerFinancialAdjustment` document that, once posted, produces exactly one `ADJUSTMENT` ledger `Transaction` and moves `Customer.financialBalance` in the same DB transaction (so the monthly statement stays correct); a mistake is voided by a reversal, never edited or deleted. Which action a given adjustment *kind* needs is fixed in code (`libs/shared/types/src/lib/customer-financial-adjustment.ts`), so an admin can let a role post charges without also letting it reduce what a customer owes: `create` covers charge kinds (service fee, penalty, other charge); `create_credit` covers discount / goodwill credit / other credit; `transfer` covers a balance transfer between two customers (and voiding one); `create_restricted` covers a write-off or a correction (either direction); `void` reverses any posted adjustment (voiding a transfer needs `void` **and** `transfer`). `view` reads the adjustment documents, including their staff-only internal note. Default holders **Vendor Admin (`*`) + Accountant** for all six (Accountant already holds the legacy `transactions:adjust`; added to the `accountant` preset in `presets.ts` + a `PRESET_DRIFT_BACKFILLS.accountant` catch-up for existing vendors). **Manager and every field role get none** — Manager does not hold `transactions:adjust` either. `customer_financial_adjustments:view` is added to `READ_ONLY_EXCLUDED` so Viewer's blanket `:view` grant does not leak the internal notes (same mechanism as `product_costs:view`). No new `:page` — non-navigable, same reasoning as `crew_cash`/`van_cash_ledger`/`product_costs`. Frozen total 194 → 200; +1 resource.
+
+| Permission | Gates (endpoints ship in later phases) |
+|---|---|
+| `customer_financial_adjustments:view` | List / read adjustment documents |
+| `customer_financial_adjustments:create` | Post a charge — service fee, penalty, other charge |
+| `customer_financial_adjustments:create_credit` | Post a credit — discount, goodwill credit, other credit |
+| `customer_financial_adjustments:transfer` | Move an owed balance between two customers; void a transfer (with `void`) |
+| `customer_financial_adjustments:create_restricted` | Post a write-off or a correction |
+| `customer_financial_adjustments:void` | Reverse a posted adjustment |
+
 ---
 
 ## B. Reference lists

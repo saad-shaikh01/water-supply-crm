@@ -97,6 +97,13 @@ import {
  *     `payroll:view_all`. Existing vendors' Accountant roles predate this
  *     resource entirely and need the catch-up grant. Manager is deliberately
  *     NOT backfilled — the design doc excludes it by default.
+ *   - customer_financial_adjustments:{view,create,create_credit,transfer,
+ *     create_restricted,void} — new non-navigable resource for Customer
+ *     Financial Adjustments (owner-approved 2026-09-21, Amendment R19). Accountant
+ *     already holds the legacy `transactions:adjust`, so existing vendors'
+ *     Accountant roles get the full set; Vendor Admin has it via `*`. Manager is
+ *     deliberately NOT backfilled (no `transactions:adjust` either), nor any
+ *     field role.
  */
 const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
   driver: ['fleet:record_check', 'fleet:record_fuel'],
@@ -173,6 +180,14 @@ const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
     'product_costs:view',
     'product_costs:manage',
     'analytics:view_margins',
+    // Customer Financial Adjustments (owner-approved 2026-09-21, Amendment R19).
+    // Existing vendors' Accountant roles predate this resource entirely.
+    'customer_financial_adjustments:view',
+    'customer_financial_adjustments:create',
+    'customer_financial_adjustments:create_credit',
+    'customer_financial_adjustments:transfer',
+    'customer_financial_adjustments:create_restricted',
+    'customer_financial_adjustments:void',
   ],
 };
 

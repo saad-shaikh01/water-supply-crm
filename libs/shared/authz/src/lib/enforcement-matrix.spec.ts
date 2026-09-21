@@ -28,7 +28,7 @@ const MATRIX: Record<RoleKey, Row> = {
     deny: [],
   },
   vendor_admin: {
-    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'daily_sheets:reprice', 'settings:update', 'whatsapp:manage', 'inventory:write_off', 'payroll:period_lock', 'payroll:view_all', 'payroll:attendance_view', 'payroll:attendance_mark', 'crew_cash:approve', 'crew_cash:view_all', 'customers:deactivate', 'customers:force_deactivate', 'customers:force_deactivate_bottles', 'customers:bottle_wallet_adjust'],
+    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'daily_sheets:reprice', 'settings:update', 'whatsapp:manage', 'inventory:write_off', 'payroll:period_lock', 'payroll:view_all', 'payroll:attendance_view', 'payroll:attendance_mark', 'crew_cash:approve', 'crew_cash:view_all', 'customers:deactivate', 'customers:force_deactivate', 'customers:force_deactivate_bottles', 'customers:bottle_wallet_adjust', 'customer_financial_adjustments:create_restricted', 'customer_financial_adjustments:transfer', 'customer_financial_adjustments:void'],
     deny: [],
   },
   manager: {
@@ -68,12 +68,22 @@ const MATRIX: Record<RoleKey, Row> = {
       // by default, same as daily_sheets:correct above — Manager can be granted
       // it explicitly but does not hold it.
       'daily_sheets:reprice',
+      // Customer Financial Adjustments (Amendment R19): Manager holds NONE of the six —
+      // it does not hold `transactions:adjust` either (denied above), so this keeps
+      // parity. Reducing what a customer owes is Vendor Admin + Accountant only.
+      'customer_financial_adjustments:view', 'customer_financial_adjustments:create',
+      'customer_financial_adjustments:create_credit', 'customer_financial_adjustments:transfer',
+      'customer_financial_adjustments:create_restricted', 'customer_financial_adjustments:void',
     ],
   },
   accountant: {
     allow: [
       'dashboard:view', 'payments:approve', 'payments:reject', 'transactions:record_payment', 'transactions:adjust',
       'analytics:view', 'analytics:export', 'balance_reminders:send', 'customers:view', 'customers:view_financial', 'customers:export',
+      // Customer Financial Adjustments (Amendment R19): Accountant holds the full set.
+      'customer_financial_adjustments:view', 'customer_financial_adjustments:create',
+      'customer_financial_adjustments:create_credit', 'customer_financial_adjustments:transfer',
+      'customer_financial_adjustments:create_restricted', 'customer_financial_adjustments:void',
     ],
     deny: ['customers:update', 'customers:delete', 'orders:approve', 'daily_sheets:update', 'users:create', 'roles:update', 'inventory:add_stock', 'payroll:view_all', 'crew_cash:create', 'crew_cash:view_all'],
   },
@@ -83,7 +93,7 @@ const MATRIX: Record<RoleKey, Row> = {
   },
   salesman: {
     allow: ['dashboard:view', 'customers:view', 'customers:create', 'customers:update', 'customers:update_location', 'customers:deactivate', 'customers:restore', 'orders:view', 'daily_sheets:update', 'products:view', 'crew_cash:create'],
-    deny: ['customers:view_financial', 'customers:force_deactivate', 'customers:force_deactivate_bottles', 'customers:bottle_wallet_adjust', 'customers:delete', 'orders:approve', 'payments:approve', 'daily_sheets:confirm_crew', 'inventory:add_stock', 'roles:update', 'payroll:view_all', 'payroll:attendance_mark', 'crew_cash:approve', 'crew_cash:view_all', 'daily_sheets:move_customer', 'daily_sheets:void_delivery', 'daily_sheets:edit_closed_trip', 'daily_sheets:record_walk_in', 'daily_sheets:edit_closed_expense'],
+    deny: ['customers:view_financial', 'customers:force_deactivate', 'customers:force_deactivate_bottles', 'customers:bottle_wallet_adjust', 'customers:delete', 'orders:approve', 'payments:approve', 'daily_sheets:confirm_crew', 'inventory:add_stock', 'roles:update', 'payroll:view_all', 'payroll:attendance_mark', 'crew_cash:approve', 'crew_cash:view_all', 'daily_sheets:move_customer', 'daily_sheets:void_delivery', 'daily_sheets:edit_closed_trip', 'daily_sheets:record_walk_in', 'daily_sheets:edit_closed_expense', 'customer_financial_adjustments:view', 'customer_financial_adjustments:create'],
   },
   loader: {
     allow: ['dashboard:view', 'inventory:view', 'inventory:add_stock', 'daily_sheets:load_out', 'daily_sheets:check_in', 'vans:view'],
@@ -101,6 +111,9 @@ const MATRIX: Record<RoleKey, Row> = {
       'payments:approve', 'damage_cases:review', 'roles:view', 'payroll:view_all', 'payroll:ledger_create',
       'payroll:attendance_mark', 'payroll:period_lock', 'crew_cash:approve', 'crew_cash:view_all', 'daily_sheets:move_customer', 'daily_sheets:void_delivery',
       'daily_sheets:edit_closed_trip', 'daily_sheets:record_walk_in', 'daily_sheets:edit_closed_expense',
+      // Drivers hold customers:view, so this is the guard that keeps them out of the
+      // adjustment documents (Amendment R19).
+      'customer_financial_adjustments:view', 'customer_financial_adjustments:create',
     ],
   },
   viewer: {
@@ -113,6 +126,10 @@ const MATRIX: Record<RoleKey, Row> = {
       // presets.ts keeps this out of Viewer's blanket read-only grant despite its
       // action literally being `view` — regression test for that exclusion.
       'product_costs:view',
+      // Customer Financial Adjustments (Amendment R19): same READ_ONLY_EXCLUDED mechanism —
+      // documents carry a staff-only internal note, so Viewer's blanket `:view` must not
+      // include them.
+      'customer_financial_adjustments:view',
     ],
   },
 };

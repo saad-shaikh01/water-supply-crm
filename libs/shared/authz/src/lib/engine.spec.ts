@@ -269,11 +269,14 @@ describe('role presets', () => {
         // no dedicated route (owner-requested 2026-09-09).
         // product_costs: surfaced as a "Cost History" entry point on the
         // existing Products page, no dedicated route (owner-requested 2026-09-15).
+        // customer_financial_adjustments: a "Charges & Credits" tab on the existing
+        // customer detail page, no dedicated route (owner-approved 2026-09-21).
         if (
           resource === 'whatsapp' ||
           resource === 'crew_cash' ||
           resource === 'van_cash_ledger' ||
-          resource === 'product_costs'
+          resource === 'product_costs' ||
+          resource === 'customer_financial_adjustments'
         )
           continue;
         expect(eff.has(`${resource}:page` as Permission)).toBe(true);

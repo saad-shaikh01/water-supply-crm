@@ -387,6 +387,11 @@ model Vendor {
   // rate change on N closed deliveries for one customer, separate from the
   // driver-mistake Correction Entry flow.
   deliveryRepricingBatches DeliveryRepricingBatch[]
+
+  // Customer Financial Adjustments (owner-approved 2026-09-21) — manual
+  // non-delivery charges / credits / transfers posted to the customer ledger
+  customerFinancialAdjustments      CustomerFinancialAdjustment[]
+  customerFinancialAdjustmentGroups CustomerFinancialAdjustmentGroup[]
 }
 
 model User {
@@ -511,6 +516,12 @@ model User {
   standaloneCrewCashReceived StandaloneCrewCashExpense[] @relation("StandaloneCrewCashEmployee")
   standaloneCrewCashCreated  StandaloneCrewCashExpense[] @relation("StandaloneCrewCashCreatedBy")
   standaloneCrewCashVoided   StandaloneCrewCashExpense[] @relation("StandaloneCrewCashVoidedBy")
+
+  // Customer Financial Adjustments (owner-approved 2026-09-21)
+  customerAdjustmentsCreated CustomerFinancialAdjustment[]      @relation("CustomerAdjustmentCreatedBy")
+  customerAdjustmentsVoided  CustomerFinancialAdjustment[]      @relation("CustomerAdjustmentVoidedBy")
+  adjustmentGroupsCreated    CustomerFinancialAdjustmentGroup[] @relation("AdjustmentGroupCreatedBy")
+  adjustmentGroupsVoided     CustomerFinancialAdjustmentGroup[] @relation("AdjustmentGroupVoidedBy")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -650,6 +661,11 @@ model Customer {
   conversations        Conversation[]
   deliveryItemMoveLogs DeliveryItemMoveLog[]
   deliveryRepricingBatches DeliveryRepricingBatch[]
+
+  // Customer Financial Adjustments (owner-approved 2026-09-21). The second
+  // relation is the OTHER account of a balance transfer (display/audit only).
+  financialAdjustments              CustomerFinancialAdjustment[]
+  financialAdjustmentCounterparties CustomerFinancialAdjustment[] @relation("AdjustmentCounterparty")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1201,6 +1217,13 @@ model Transaction {
 
   paymentRequestId String?
   paymentRequest   PaymentRequest? @relation(fields: [paymentRequestId], references: [id], onDelete: SetNull)
+
+  // Set ONLY on the single ADJUSTMENT row a POSTED CustomerFinancialAdjustment
+  // produces (1:1). Deliberately the ONLY new column on Transaction: the
+  // customer portal returns raw Transaction rows, so staff-only detail (title,
+  // internal note, ...) lives on the adjustment document, never here.
+  adjustmentId String?                      @unique
+  adjustment   CustomerFinancialAdjustment? @relation(fields: [adjustmentId], references: [id], onDelete: Restrict)
 
   bottleCount    Int? // NET change to wallet (filledDropped - emptyReceived - filledReceived)
   filledDropped  Int? // Filled bottles given to customer (consumption indicator)
@@ -3579,5 +3602,151 @@ model CashLedgerPeriod {
   updatedAt DateTime @updatedAt
 
   @@unique([vendorId, periodLabel])
+  @@index([vendorId, status])
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Customer Financial Adjustments (owner-approved 2026-09-21)
+//
+// Manual, non-delivery money events on a customer's account: service fees,
+// penalties, discounts/credits, write-offs, corrections and balance transfers.
+// LEDGER-FIRST: a POSTED adjustment produces exactly ONE `Transaction`
+// (type ADJUSTMENT, linked via Transaction.adjustmentId) and moves
+// Customer.financialBalance in the same DB transaction — the statement's
+// opening/closing balances are back-derived from Transaction sums, so an
+// adjustment must never exist as a side table. Immutable once posted: a mistake
+// is VOIDED by a REVERSAL document + opposite ledger row, never edited/deleted.
+// Per-kind policy (direction, permission, visibility, note-required) lives in
+// code: libs/shared/types/src/lib/customer-financial-adjustment.ts.
+// ──────────────────────────────────────────────────────────────────────────────
+
+enum AdjustmentKind {
+  SERVICE_FEE
+  PENALTY
+  OTHER_CHARGE
+  DISCOUNT
+  GOODWILL_CREDIT
+  OTHER_CREDIT
+  TRANSFER_OUT // credit leg on the SOURCE customer of a balance transfer
+  TRANSFER_IN // charge leg on the TARGET customer of a balance transfer
+  WRITE_OFF
+  CORRECTION
+  REVERSAL // system-only: created by void, mirrors the voided document
+}
+
+enum AdjustmentDirection {
+  CHARGE // customer owes MORE  → ledger amount +
+  CREDIT // customer owes LESS  → ledger amount −
+}
+
+enum AdjustmentStatus {
+  POSTED
+  VOIDED
+}
+
+/// What the CUSTOMER reads on their statement/portal for this row. The amount
+/// is never hidden (the balance moves) — only the wording: ITEMIZED shows the
+/// title, SUMMARIZED shows a neutral "Account adjustment". Resolved once at
+/// post time from the kind's policy and snapshotted here.
+enum AdjustmentVisibility {
+  ITEMIZED
+  SUMMARIZED
+}
+
+enum AdjustmentGroupType {
+  TRANSFER
+}
+
+model CustomerFinancialAdjustment {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  kind          AdjustmentKind
+  direction     AdjustmentDirection
+  /// Always POSITIVE; the ledger sign comes from `direction` (a CHECK constraint
+  /// in the migration enforces amount > 0 — Prisma cannot express it).
+  amount        Float
+  /// Business date (vendor timezone). Becomes the ledger row's createdAt.
+  effectiveDate DateTime
+
+  /// Staff-facing label. Customer-visible only when customerVisibility = ITEMIZED.
+  title              String
+  /// Staff-only. NEVER copied to the ledger row (the portal returns raw Transaction rows).
+  internalNote       String?
+  referenceNo        String?
+  customerVisibility AdjustmentVisibility @default(ITEMIZED)
+
+  status AdjustmentStatus @default(POSTED)
+
+  createdById String
+  createdBy   User   @relation("CustomerAdjustmentCreatedBy", fields: [createdById], references: [id])
+
+  voidedById String?
+  voidedBy   User?     @relation("CustomerAdjustmentVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+  voidedAt   DateTime?
+  voidReason String?
+
+  /// Set on the REVERSAL document a void creates → points at the voided original.
+  /// @unique: an adjustment can be reversed at most once.
+  reversalOfId String?                      @unique
+  reversalOf   CustomerFinancialAdjustment? @relation("AdjustmentReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversedBy   CustomerFinancialAdjustment? @relation("AdjustmentReversal")
+
+  /// Balance transfers: both legs share one group; `counterpartyCustomerId` is
+  /// the other account (display/audit only — never used for balance math).
+  groupId String?
+  group   CustomerFinancialAdjustmentGroup? @relation(fields: [groupId], references: [id], onDelete: Restrict)
+
+  counterpartyCustomerId String?
+  counterpartyCustomer   Customer? @relation("AdjustmentCounterparty", fields: [counterpartyCustomerId], references: [id], onDelete: Restrict)
+
+  /// Client-generated per submit (double-click / retry safe). NULLs are distinct
+  /// in Postgres, so rows without a key never collide.
+  idempotencyKey String?
+
+  /// Inverse of Transaction.adjustmentId — the single ledger row this posted.
+  transaction Transaction?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([vendorId, idempotencyKey])
+  @@index([vendorId, customerId, effectiveDate])
+  @@index([vendorId, status])
+  @@index([groupId])
+}
+
+/// One balance transfer = one group with exactly two documents
+/// (TRANSFER_OUT on the source + TRANSFER_IN on the target), posted and voided
+/// atomically. Only TRANSFER exists in V1; MERGE / IMPORT / RECURRING_RUN are
+/// additive enum values later.
+model CustomerFinancialAdjustmentGroup {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+
+  type   AdjustmentGroupType
+  status AdjustmentStatus    @default(POSTED)
+
+  createdById String
+  createdBy   User   @relation("AdjustmentGroupCreatedBy", fields: [createdById], references: [id])
+
+  voidedById String?
+  voidedBy   User?     @relation("AdjustmentGroupVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+  voidedAt   DateTime?
+  voidReason String?
+
+  idempotencyKey String?
+
+  adjustments CustomerFinancialAdjustment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([vendorId, idempotencyKey])
   @@index([vendorId, status])
 }

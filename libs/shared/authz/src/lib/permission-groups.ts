@@ -95,6 +95,12 @@ export const ACTION_LABELS: Record<string, string> = {
   topup: 'Record fuel card top-up',
   topup_void: 'Void a fuel card top-up',
   view_margins: 'View cost / margin figures',
+  // Customer Financial Adjustments (Amendment R19). `create` reuses the shared 'Create'
+  // label above (post a charge); the group header is "Charges & Credits".
+  create_credit: 'Post credit / discount',
+  transfer: 'Transfer balance between customers',
+  create_restricted: 'Post write-off / correction',
+  void: 'Void',
 };
 
 /** A single permission with display metadata for the role editor. */

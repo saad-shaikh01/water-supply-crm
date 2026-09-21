@@ -390,6 +390,27 @@ export const PERMISSION_CATALOG = {
     navigable: true,
     actions: ['page', 'view', 'manage', 'topup', 'topup_void'],
   },
+  // Customer Financial Adjustments (owner-approved 2026-09-21, Amendment R19): manual,
+  // non-delivery money events on a customer's account — service fees, penalties,
+  // discounts/credits, balance transfers, write-offs, corrections — each posted to the
+  // customer ledger as one ADJUSTMENT Transaction (see schema.prisma
+  // CustomerFinancialAdjustment). Non-navigable: surfaced as a "Charges & Credits" tab
+  // on the existing customer detail page, no dedicated route. Which action a given kind
+  // needs is fixed in code (libs/shared/types customer-financial-adjustment.ts), so an
+  // admin can grant "post charges" without also granting "reduce what a customer owes":
+  //   `view`              list / read adjustment documents (title, internal note).
+  //   `create`            post a CHARGE: service fee, penalty, other charge.
+  //   `create_credit`     post a CREDIT: discount, goodwill credit, other credit.
+  //   `transfer`          move an owed balance between two customers, and void one.
+  //   `create_restricted` post a write-off or a correction (either direction).
+  //   `void`              reverse a POSTED adjustment (voiding a transfer needs `transfer` too).
+  // Everything except `view`/`create` reduces or rewrites what a customer owes without
+  // cash coming in, so those are Vendor Admin (`*`) + Accountant only by default.
+  customer_financial_adjustments: {
+    label: 'Charges & Credits',
+    navigable: false,
+    actions: ['view', 'create', 'create_credit', 'transfer', 'create_restricted', 'void'],
+  },
 } as const satisfies Record<string, ResourceDefinition>;
 
 /** Union of every resource key, e.g. `'customers' | 'orders' | …`. */
