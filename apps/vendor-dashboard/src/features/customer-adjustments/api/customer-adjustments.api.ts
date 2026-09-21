@@ -64,7 +64,64 @@ export interface CustomerAdjustmentPage {
   meta: { total: number; page: number; limit: number; totalPages: number };
 }
 
+/**
+ * Kinds a user can post ALONE through the create endpoint — everything except the two transfer
+ * legs (own endpoint) and REVERSAL (only ever created by a void). Mirrors the backend's
+ * POSTABLE_ADJUSTMENT_KINDS / the policy table's `creation: 'STANDALONE'`.
+ */
+export type PostableAdjustmentKind = Exclude<AdjustmentKind, 'TRANSFER_OUT' | 'TRANSFER_IN' | 'REVERSAL'>;
+
+/**
+ * POST /customer-financial-adjustments. The direction (charge vs credit) is decided by the backend
+ * from `kind`; the ONLY kind where the caller sends one is CORRECTION (required there).
+ */
+export interface CreateAdjustmentPayload {
+  customerId: string;
+  kind: PostableAdjustmentKind;
+  direction?: AdjustmentDirection;
+  /** Positive rupees, at most 2 decimal places. */
+  amount: number;
+  title: string;
+  /** Required for every credit, write-off and correction. Staff-only. */
+  internalNote?: string;
+  referenceNo?: string;
+  /** YYYY-MM-DD. Omit for "now"; earlier only within the current month. */
+  effectiveDate?: string;
+  /** One per submit — a retry or double-click with the same key returns the original result. */
+  idempotencyKey: string;
+}
+
+export interface CreateAdjustmentResult {
+  adjustment: { id: string; kind: AdjustmentKind; direction: AdjustmentDirection; amount: number; title: string };
+  transaction: { id: string; amount: number | null };
+  /** The customer's balance right after posting (the live balance on a replay). */
+  customerBalance: number;
+  /** True when this key was already used with the same request: nothing new was posted. */
+  idempotentReplay: boolean;
+}
+
+export interface VoidAdjustmentResult {
+  adjustment: { id: string; status: AdjustmentStatus };
+  reversal: { id: string };
+  customerBalance: number;
+}
+
 export const customerAdjustmentsApi = {
   list: (params: CustomerAdjustmentQuery) =>
     apiClient.get<CustomerAdjustmentPage>('/customer-financial-adjustments', { params }),
+  create: (payload: CreateAdjustmentPayload) =>
+    apiClient.post<CreateAdjustmentResult>('/customer-financial-adjustments', payload),
+  /** Voids by posting a reversal — nothing is edited or deleted. `reason` is mandatory (≥ 5 chars). */
+  void: (id: string, reason: string) =>
+    apiClient.post<VoidAdjustmentResult>(`/customer-financial-adjustments/${id}/void`, { reason }),
 };
+
+/**
+ * The message a failed request should show. Nest's ValidationPipe answers with an ARRAY of
+ * messages for DTO errors and a plain string for business-rule errors — handle both.
+ */
+export function apiErrorMessage(error: unknown, fallback: string): string {
+  const raw = (error as { response?: { data?: { message?: string | string[] } } } | null)?.response?.data?.message;
+  const message = Array.isArray(raw) ? raw.join(' ') : raw;
+  return message || fallback;
+}

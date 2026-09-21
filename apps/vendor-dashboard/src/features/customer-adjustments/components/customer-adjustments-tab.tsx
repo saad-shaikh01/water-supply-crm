@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { AlertCircle, Calendar, Inbox, X } from 'lucide-react';
+import { AlertCircle, Calendar, Inbox, Plus, X } from 'lucide-react';
 import { Button, Input, Label, cn } from '@water-supply-crm/ui';
 import { ADJUSTMENT_KINDS, ADJUSTMENT_STATUSES, type AdjustmentKind, type AdjustmentStatus } from '@water-supply-crm/types';
 import { DataTable } from '../../../components/shared/data-table';
@@ -10,6 +10,8 @@ import { useCustomerAdjustments } from '../hooks/use-customer-adjustments';
 import type { CustomerAdjustment } from '../api/customer-adjustments.api';
 import { adjustmentKindLabel, directionSign, fmtAdjustmentAmount, fmtAdjustmentDate } from '../format';
 import { AdjustmentDetailDialog } from './adjustment-detail-dialog';
+import { CreateAdjustmentDialog } from './create-adjustment-dialog';
+import { useAdjustmentPermissions } from '../permissions';
 
 const STATUS_LABELS: Record<AdjustmentStatus, string> = { POSTED: 'Posted', VOIDED: 'Voided' };
 
@@ -21,9 +23,11 @@ interface CustomerAdjustmentsTabProps {
 }
 
 /**
- * "Charges & Credits" tab on the customer detail page — READ-ONLY (phase 4A): the customer's
- * manual fees, discounts, write-offs, corrections and balance transfers, newest business date
- * first, with type / status / date filters and a detail dialog. Posting and voiding come later.
+ * "Charges & Credits" tab on the customer detail page: the customer's manual fees, discounts,
+ * write-offs, corrections and balance transfers, newest business date first, with type / status /
+ * date filters and a detail dialog. Users holding a posting permission get "New adjustment" (the
+ * kinds offered follow their permissions); users holding `void` can void from the detail dialog.
+ * Balance transfers have their own flow (later phase).
  *
  * Filters and paging are local state on purpose: the Transactions tab on the same page owns the
  * `page` / `dateFrom` / `dateTo` URL params (nuqs), so binding these to the URL would clash.
@@ -36,6 +40,8 @@ export function CustomerAdjustmentsTab({ customerId }: CustomerAdjustmentsTabPro
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [selected, setSelected] = useState<CustomerAdjustment | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const { postableKinds, canCreate } = useAdjustmentPermissions();
 
   const { data, isLoading, isError, refetch, isFetching } = useCustomerAdjustments({
     customerId,
@@ -67,12 +73,19 @@ export function CustomerAdjustmentsTab({ customerId }: CustomerAdjustmentsTabPro
 
   return (
     <div className="space-y-4">
-      <div>
-        <h3 className="text-base font-bold">Charges &amp; Credits</h3>
-        <p className="text-xs text-muted-foreground">
-          Manual fees, discounts, write-offs, corrections and balance transfers on this account. A charge raises what the
-          customer owes; a credit lowers it.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-base font-bold">Charges &amp; Credits</h3>
+          <p className="text-xs text-muted-foreground">
+            Manual fees, discounts, write-offs, corrections and balance transfers on this account. A charge raises what the
+            customer owes; a credit lowers it.
+          </p>
+        </div>
+        {canCreate && (
+          <Button onClick={() => setCreateOpen(true)} className="rounded-xl font-bold gap-2 shrink-0">
+            <Plus className="h-4 w-4" /> New adjustment
+          </Button>
+        )}
       </div>
 
       <div className="flex flex-wrap items-end gap-3 bg-card/30 p-3 sm:p-4 rounded-2xl border border-border">
@@ -251,6 +264,10 @@ export function CustomerAdjustmentsTab({ customerId }: CustomerAdjustmentsTabPro
       )}
 
       <AdjustmentDetailDialog adjustment={selected} onClose={() => setSelected(null)} />
+
+      {canCreate && (
+        <CreateAdjustmentDialog customerId={customerId} kinds={postableKinds} open={createOpen} onOpenChange={setCreateOpen} />
+      )}
     </div>
   );
 }

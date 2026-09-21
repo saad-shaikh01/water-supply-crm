@@ -1,13 +1,30 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CustomerAdjustmentsTab } from './customer-adjustments-tab';
+import { toast } from 'sonner';
 import { customerAdjustmentsApi, type CustomerAdjustment, type CustomerAdjustmentPage } from '../api/customer-adjustments.api';
 
 jest.mock('../api/customer-adjustments.api', () => ({
-  customerAdjustmentsApi: { list: jest.fn() },
+  ...jest.requireActual('../api/customer-adjustments.api'),
+  customerAdjustmentsApi: { list: jest.fn(), create: jest.fn(), void: jest.fn() },
 }));
+// What the signed-in user may do — set per test via grant().
+const mockGranted = new Set<string>();
+jest.mock('../../authz/hooks/use-permissions', () => ({
+  usePermissions: () => ({ can: (permission: string) => mockGranted.has(permission) }),
+}));
+// The real hooks module pulls in nuqs (ESM, not transformable here); the create dialog only reads
+// the customer's balance and name from it.
+jest.mock('../../customers/hooks/use-customers', () => ({
+  useCustomer: () => ({ data: { name: 'Ahmed Khan', financialBalance: 1000 } }),
+}));
+jest.mock('sonner', () => ({ toast: { success: jest.fn(), error: jest.fn() } }));
 
 const list = customerAdjustmentsApi.list as jest.Mock;
+const createApi = customerAdjustmentsApi.create as jest.Mock;
+const voidApi = customerAdjustmentsApi.void as jest.Mock;
+const grant = (...actions: string[]) =>
+  actions.forEach((a) => mockGranted.add(a.includes(':') ? a : 'customer_financial_adjustments:' + a));
 const CUSTOMER_ID = 'cust-1';
 const CUSTOMER = { id: CUSTOMER_ID, name: 'Ahmed Khan', customerCode: 'C-0001' };
 const STAFF = { id: 'u1', name: 'Bilal Accountant' };
@@ -106,7 +123,14 @@ function renderTab() {
 const lastParams = () => list.mock.calls[list.mock.calls.length - 1][0];
 
 describe('CustomerAdjustmentsTab', () => {
-  beforeEach(() => list.mockReset());
+  beforeEach(() => {
+    list.mockReset();
+    createApi.mockReset();
+    voidApi.mockReset();
+    (toast.success as jest.Mock).mockReset();
+    (toast.error as jest.Mock).mockReset();
+    mockGranted.clear();
+  });
 
   describe('empty state', () => {
     it('shows the empty message — no table, no rows — and asks only for THIS customer, first page', async () => {
@@ -348,6 +372,220 @@ describe('CustomerAdjustmentsTab', () => {
       fireEvent.click(within(alert).getByRole('button', { name: /try again/i }));
       expect(await screen.findByText('Late payment penalty')).toBeTruthy();
       expect(screen.queryByRole('alert')).toBeNull();
+    });
+  });
+
+  // ── Phase 4B: create ─────────────────────────────────────────────────────────
+
+  describe('create action', () => {
+    const newButton = () => screen.queryByRole('button', { name: /new adjustment/i });
+    const posted = {
+      data: {
+        adjustment: { id: 'new-1', kind: 'PENALTY', direction: 'CHARGE', amount: 500, title: 'x' },
+        transaction: { id: 't', amount: 500 },
+        customerBalance: 1500,
+        idempotentReplay: false,
+      },
+    };
+
+    it.each([
+      ['view only', ['view']],
+      ['void only', ['void']],
+      ['transfer only', ['transfer']],
+      ['the legacy money-adjust permission', ['transactions:adjust']],
+    ])('is NOT offered to someone with %s', async (_label, perms) => {
+      list.mockResolvedValue(page(ROWS));
+      grant(...perms);
+      renderTab();
+      await screen.findByText('Late payment penalty');
+      expect(newButton()).toBeNull();
+      expect(screen.queryByText(/new charge or credit/i)).toBeNull();
+    });
+
+    it.each([['create'], ['create_credit'], ['create_restricted']])('is offered to a holder of %s', async (action) => {
+      list.mockResolvedValue(page(ROWS));
+      grant(action);
+      renderTab();
+      await screen.findByText('Late payment penalty');
+      expect(newButton()).not.toBeNull();
+    });
+
+    it('is still offered on an empty account (that is where the first one gets posted)', async () => {
+      list.mockResolvedValue(page([]));
+      grant('create');
+      renderTab();
+      await screen.findByText('No charges or credits on this account yet.');
+      expect(newButton()).not.toBeNull();
+    });
+
+    it.each([
+      [['create'], ['Service fee', 'Penalty', 'Other charge']],
+      [['create_credit'], ['Discount', 'Goodwill credit', 'Other credit']],
+      [['create_restricted'], ['Write-off', 'Correction']],
+      [['create', 'create_credit'], ['Service fee', 'Penalty', 'Other charge', 'Discount', 'Goodwill credit', 'Other credit']],
+      [
+        ['create', 'create_credit', 'create_restricted'],
+        ['Service fee', 'Penalty', 'Other charge', 'Discount', 'Goodwill credit', 'Other credit', 'Write-off', 'Correction'],
+      ],
+    ])('a user holding %p is offered exactly those kinds', async (actions, expected) => {
+      list.mockResolvedValue(page(ROWS));
+      grant(...actions);
+      renderTab();
+      await screen.findByText('Late payment penalty');
+      fireEvent.click(newButton() as HTMLElement);
+
+      const dialog = await screen.findByRole('dialog', { name: /new charge or credit/i });
+      const kinds = within(within(dialog).getByLabelText(/^Type/)).getAllByRole('option').map((o) => o.textContent);
+      expect(kinds).toEqual(expected);
+    });
+
+    it('posts, closes, and refreshes the list', async () => {
+      list.mockResolvedValue(page(ROWS));
+      createApi.mockResolvedValue(posted);
+      grant('create');
+      renderTab();
+      await screen.findByText('Late payment penalty');
+      const listCallsBefore = list.mock.calls.length;
+
+      fireEvent.click(newButton() as HTMLElement);
+      const dialog = await screen.findByRole('dialog', { name: /new charge or credit/i });
+      fireEvent.change(within(dialog).getByLabelText(/^Amount/), { target: { value: '500' } });
+      fireEvent.change(within(dialog).getByLabelText(/^Title/), { target: { value: 'Late payment penalty' } });
+      fireEvent.click(within(dialog).getByRole('button', { name: /post adjustment/i }));
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull()); // closed
+      expect(createApi).toHaveBeenCalledTimes(1);
+      expect(createApi.mock.calls[0][0]).toMatchObject({ customerId: CUSTOMER_ID, kind: 'SERVICE_FEE', amount: 500 });
+      await waitFor(() => expect(list.mock.calls.length).toBeGreaterThan(listCallsBefore)); // list refetched
+      expect((toast.success as jest.Mock).mock.calls[0][0]).toMatch(/posted/);
+    });
+
+    it('a failed post leaves the dialog open with the error and does not refetch the list', async () => {
+      list.mockResolvedValue(page(ROWS));
+      createApi.mockRejectedValue(
+        Object.assign(new Error('x'), { response: { status: 400, data: { message: 'Effective date must be within the current month.' } } }),
+      );
+      grant('create');
+      renderTab();
+      await screen.findByText('Late payment penalty');
+      const listCallsBefore = list.mock.calls.length;
+
+      fireEvent.click(newButton() as HTMLElement);
+      const dialog = await screen.findByRole('dialog', { name: /new charge or credit/i });
+      fireEvent.change(within(dialog).getByLabelText(/^Amount/), { target: { value: '500' } });
+      fireEvent.change(within(dialog).getByLabelText(/^Title/), { target: { value: 'Late' } });
+      fireEvent.click(within(dialog).getByRole('button', { name: /post adjustment/i }));
+
+      expect((await within(dialog).findByRole('alert')).textContent).toMatch(/within the current month/);
+      expect(screen.getByRole('dialog', { name: /new charge or credit/i })).toBeTruthy();
+      expect(list.mock.calls.length).toBe(listCallsBefore);
+    });
+  });
+
+  // ── Phase 4B: void ───────────────────────────────────────────────────────────
+
+  describe('void action', () => {
+    const openRow = async (title: string) => {
+      list.mockResolvedValue(page(ROWS));
+      renderTab();
+      fireEvent.click(await screen.findByText(title));
+      return screen.findByRole('dialog');
+    };
+    const voidButton = (dialog: HTMLElement) => within(dialog).queryByRole('button', { name: /^void$/i });
+
+    it('is offered on a POSTED adjustment to a holder of `void`', async () => {
+      grant('void');
+      const dialog = await openRow('Late payment penalty');
+      expect(voidButton(dialog)).not.toBeNull();
+    });
+
+    it.each([['Late payment penalty'], ['Loyalty discount'], ['Bad debt — closed shop']])(
+      'is offered on a POSTED standalone adjustment: %s',
+      async (title) => {
+        grant('void');
+        const dialog = await openRow(title);
+        expect(voidButton(dialog)).not.toBeNull();
+      },
+    );
+
+    it('is NOT offered without the void permission — even to someone who can post', async () => {
+      grant('create', 'create_credit', 'create_restricted', 'view', 'transfer');
+      const dialog = await openRow('Late payment penalty');
+      expect(voidButton(dialog)).toBeNull();
+    });
+
+    it('is NOT offered on an already-voided adjustment', async () => {
+      grant('void');
+      const dialog = await openRow('Installation fee');
+      expect(within(dialog).getAllByText('Voided').length).toBeGreaterThan(0);
+      expect(voidButton(dialog)).toBeNull();
+    });
+
+    it('is NOT offered on a reversal', async () => {
+      grant('void');
+      const dialog = await openRow('Reversal: Installation fee');
+      expect(voidButton(dialog)).toBeNull();
+    });
+
+    it('is NOT offered on a transfer leg — which explains why', async () => {
+      grant('void');
+      const dialog = await openRow('Balance transferred to C-0002');
+      expect(voidButton(dialog)).toBeNull();
+      expect(within(dialog).getByText(/voided as a whole, not leg by leg/)).toBeTruthy();
+    });
+
+    it('voids with the reason, closes everything, and refreshes the list', async () => {
+      grant('void');
+      voidApi.mockResolvedValue({ data: { adjustment: { id: 'a-penalty', status: 'VOIDED' }, reversal: { id: 'r' }, customerBalance: 500 } });
+      const dialog = await openRow('Late payment penalty');
+      const listCallsBefore = list.mock.calls.length;
+
+      fireEvent.click(voidButton(dialog) as HTMLElement);
+      const voidDialog = await screen.findByRole('dialog', { name: /void adjustment/i });
+      fireEvent.change(within(voidDialog).getByLabelText(/^Reason/), { target: { value: 'Charged the wrong customer' } });
+      fireEvent.click(within(voidDialog).getByRole('button', { name: /^void adjustment$/i }));
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull()); // BOTH dialogs closed
+      expect(voidApi).toHaveBeenCalledTimes(1);
+      expect(voidApi).toHaveBeenCalledWith('a-penalty', 'Charged the wrong customer');
+      await waitFor(() => expect(list.mock.calls.length).toBeGreaterThan(listCallsBefore));
+    });
+
+    it('requires a reason — the void endpoint is not called without one', async () => {
+      grant('void');
+      const dialog = await openRow('Late payment penalty');
+      fireEvent.click(voidButton(dialog) as HTMLElement);
+      const voidDialog = await screen.findByRole('dialog', { name: /void adjustment/i });
+      fireEvent.click(within(voidDialog).getByRole('button', { name: /^void adjustment$/i }));
+      expect(within(voidDialog).getByText(/reason of at least 5 characters is required/i)).toBeTruthy();
+      expect(voidApi).not.toHaveBeenCalled();
+    });
+
+    it('Cancel returns to the detail view (nothing voided)', async () => {
+      grant('void');
+      const dialog = await openRow('Late payment penalty');
+      fireEvent.click(voidButton(dialog) as HTMLElement);
+      const voidDialog = await screen.findByRole('dialog', { name: /void adjustment/i });
+      fireEvent.click(within(voidDialog).getByRole('button', { name: /^cancel$/i }));
+
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: /void adjustment/i })).toBeNull());
+      expect(screen.getByRole('dialog', { name: /Penalty/ })).toBeTruthy(); // the detail is still there
+      expect(voidApi).not.toHaveBeenCalled();
+    });
+
+    it('a failed void keeps both dialogs open and shows the error', async () => {
+      grant('void');
+      voidApi.mockRejectedValue(
+        Object.assign(new Error('x'), { response: { status: 409, data: { message: 'This adjustment has already been voided.' } } }),
+      );
+      const dialog = await openRow('Late payment penalty');
+      fireEvent.click(voidButton(dialog) as HTMLElement);
+      const voidDialog = await screen.findByRole('dialog', { name: /void adjustment/i });
+      fireEvent.change(within(voidDialog).getByLabelText(/^Reason/), { target: { value: 'Entered in error' } });
+      fireEvent.click(within(voidDialog).getByRole('button', { name: /^void adjustment$/i }));
+
+      expect((await within(voidDialog).findByRole('alert')).textContent).toMatch(/already been voided/);
+      expect(screen.getByRole('dialog', { name: /void adjustment/i })).toBeTruthy();
     });
   });
 });

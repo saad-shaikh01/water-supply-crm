@@ -1,13 +1,15 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { ExternalLink } from 'lucide-react';
+import { Ban, ExternalLink } from 'lucide-react';
 import {
   Badge,
+  Button,
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   cn,
@@ -22,6 +24,8 @@ import {
   fmtAdjustmentDate,
   fmtAdjustmentDateTime,
 } from '../format';
+import { isVoidable, useAdjustmentPermissions } from '../permissions';
+import { VoidAdjustmentDialog } from './void-adjustment-dialog';
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -47,22 +51,26 @@ interface AdjustmentDetailDialogProps {
 }
 
 /**
- * Read-only detail for one charge/credit: what it is, what the customer sees on the ledger,
- * the staff-only note, and its void chain / transfer link. Everything comes from the list row
- * (the list endpoint returns the same shape as the single-item endpoint), so opening it costs
- * no request. Void / edit actions arrive in a later phase.
+ * Detail for one charge/credit: what it is, what the customer sees on the ledger, the staff-only
+ * note, and its void chain / transfer link. Everything comes from the list row (the list endpoint
+ * returns the same shape as the single-item endpoint), so opening it costs no request. The one
+ * action is Void — offered only to holders of `void`, and only for an adjustment the backend would
+ * accept voiding (see `isVoidable`). Adjustments are never edited.
  */
 export function AdjustmentDetailDialog({ adjustment, onClose }: AdjustmentDetailDialogProps) {
   return (
     <Dialog open={!!adjustment} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="rounded-3xl max-w-lg max-h-[90vh] overflow-y-auto">
-        {adjustment && <Body a={adjustment} />}
+        {adjustment && <Body a={adjustment} onClose={onClose} />}
       </DialogContent>
     </Dialog>
   );
 }
 
-function Body({ a }: { a: CustomerAdjustment }) {
+function Body({ a, onClose }: { a: CustomerAdjustment; onClose: () => void }) {
+  const { canVoid } = useAdjustmentPermissions();
+  const [voidOpen, setVoidOpen] = useState(false);
+  const showVoid = canVoid && isVoidable(a);
   const isVoided = a.status === 'VOIDED';
   const isCharge = a.direction === 'CHARGE';
   const ledgerDescription = a.transaction?.description;
@@ -158,7 +166,28 @@ function Body({ a }: { a: CustomerAdjustment }) {
             )}
           </Section>
         )}
+
+        {/* A transfer's two legs are voided together as a group, never one by one. */}
+        {canVoid && a.status === 'POSTED' && a.groupId && (
+          <p className="text-[11px] text-muted-foreground">A balance transfer is voided as a whole, not leg by leg.</p>
+        )}
       </div>
+
+      {showVoid && (
+        <>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setVoidOpen(true)}
+              className="rounded-xl font-bold gap-2 text-destructive border-destructive/40 hover:bg-destructive/10"
+            >
+              <Ban className="h-4 w-4" /> Void
+            </Button>
+          </DialogFooter>
+          <VoidAdjustmentDialog adjustment={a} open={voidOpen} onOpenChange={setVoidOpen} onVoided={onClose} />
+        </>
+      )}
     </>
   );
 }
