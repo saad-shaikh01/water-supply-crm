@@ -2,7 +2,9 @@ import { BadRequestException } from '@nestjs/common';
 import {
   POSTABLE_ADJUSTMENT_KINDS,
   customerFacingAdjustmentText,
+  customerFacingReversalText,
   normalizeAdjustmentAmount,
+  oppositeAdjustmentDirection,
   resolveAdjustmentEffectiveDate,
   signedAdjustmentAmount,
 } from './adjustment-posting.util';
@@ -52,6 +54,34 @@ describe('customerFacingAdjustmentText', () => {
   it('ITEMIZED shows the title; SUMMARIZED shows only the neutral label (staff title never leaks)', () => {
     expect(customerFacingAdjustmentText('ITEMIZED', 'Late payment penalty')).toBe('Late payment penalty');
     expect(customerFacingAdjustmentText('SUMMARIZED', 'Duplicate charge fix (internal)')).toBe('Account adjustment');
+  });
+});
+
+describe('oppositeAdjustmentDirection', () => {
+  it('flips CHARGE and CREDIT, and is its own inverse', () => {
+    expect(oppositeAdjustmentDirection('CHARGE')).toBe('CREDIT');
+    expect(oppositeAdjustmentDirection('CREDIT')).toBe('CHARGE');
+    expect(oppositeAdjustmentDirection(oppositeAdjustmentDirection('CHARGE'))).toBe('CHARGE');
+  });
+
+  it('a reversal always nets the original to zero on the ledger', () => {
+    for (const d of ['CHARGE', 'CREDIT'] as const) {
+      const original = signedAdjustmentAmount(d, 123.45);
+      const reversal = signedAdjustmentAmount(oppositeAdjustmentDirection(d), 123.45);
+      expect(original + reversal).toBe(0);
+    }
+  });
+});
+
+describe('customerFacingReversalText', () => {
+  it('ITEMIZED names what was reversed', () => {
+    expect(customerFacingReversalText('ITEMIZED', 'Installation charge')).toBe('Reversal: Installation charge');
+  });
+
+  it('SUMMARIZED stays neutral — voiding must not un-hide it, and the staff title never leaks', () => {
+    const text = customerFacingReversalText('SUMMARIZED', 'INTERNAL: duplicate fix');
+    expect(text).toBe('Account adjustment reversal');
+    expect(text).not.toContain('INTERNAL');
   });
 });
 

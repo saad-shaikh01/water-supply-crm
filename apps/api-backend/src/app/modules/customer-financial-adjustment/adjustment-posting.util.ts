@@ -73,6 +73,26 @@ export function signedAdjustmentAmount(direction: AdjustmentDirection, amount: n
   return direction === 'CHARGE' ? amount : -amount;
 }
 
+/** The direction of the reversal that cancels an adjustment of the given direction. */
+export function oppositeAdjustmentDirection(direction: AdjustmentDirection): AdjustmentDirection {
+  return direction === 'CHARGE' ? 'CREDIT' : 'CHARGE';
+}
+
+/**
+ * What the CUSTOMER reads on a REVERSAL's ledger row. Mirrors the original's
+ * visibility (a SUMMARIZED write-off must not be un-hidden by voiding it): ITEMIZED
+ * names what was reversed, SUMMARIZED stays neutral. Never carries the void reason —
+ * that is staff-only.
+ */
+export function customerFacingReversalText(
+  visibility: AdjustmentVisibility,
+  originalTitle: string,
+): string {
+  return visibility === 'SUMMARIZED'
+    ? `${ADJUSTMENT_SUMMARIZED_LABEL} reversal`
+    : `Reversal: ${originalTitle}`;
+}
+
 /**
  * What the CUSTOMER reads on the ledger row (statement, portal — which returns raw
  * Transaction rows). ITEMIZED shows the title; SUMMARIZED shows a neutral label so a

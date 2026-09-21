@@ -72,3 +72,56 @@ describe('CustomerFinancialAdjustmentController — POST /customer-financial-adj
     expect(service.create).toHaveBeenCalledWith(user, body);
   });
 });
+
+describe('CustomerFinancialAdjustmentController — POST /customer-financial-adjustments/:id/void', () => {
+  const voidContext = (user: unknown) =>
+    ({
+      getHandler: () => CustomerFinancialAdjustmentController.prototype.voidAdjustment,
+      getClass: () => CustomerFinancialAdjustmentController,
+      switchToHttp: () => ({ getRequest: () => ({ user }) }),
+    }) as never;
+
+  it('is guarded by the static `void` permission (ALL-of, one permission)', () => {
+    const meta = Reflect.getMetadata(PERMISSIONS_KEY, CustomerFinancialAdjustmentController.prototype.voidAdjustment);
+    expect(meta).toEqual({ mode: 'all', permissions: [P('void')] });
+  });
+
+  it('lets a holder of `void` (or the wildcard) through', async () => {
+    await expect(guardFor([P('void')]).canActivate(voidContext(USER))).resolves.toBe(true);
+    await expect(guardFor(['*']).canActivate(voidContext(USER))).resolves.toBe(true);
+  });
+
+  it.each([
+    [[P('create')]],
+    [[P('create_credit')]],
+    [[P('transfer')]],
+    [[P('create_restricted')]],
+    [[P('view')]],
+    [['transactions:adjust']], // the legacy permission grants nothing here
+    [[]],
+  ])('refuses a user holding only %p', async (perms) => {
+    await expect(guardFor(perms).canActivate(voidContext(USER))).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('refuses an unauthenticated request', async () => {
+    await expect(guardFor([P('void')]).canActivate(voidContext(undefined))).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+  });
+
+  it('the void route does not open the create route, and vice versa', async () => {
+    // A poster who cannot void, and a voider who cannot post, are both real roles.
+    await expect(guardFor([P('void')]).canActivate(contextFor(USER))).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(guardFor([P('create')]).canActivate(voidContext(USER))).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('delegates to the service with the user, the :id and the body', async () => {
+    const service = { voidAdjustment: jest.fn().mockResolvedValue({ ok: true }) };
+    const controller = new CustomerFinancialAdjustmentController(service as never);
+    const user = { userId: 'u1', vendorId: 'v1' } as AuthUser;
+    const body = { reason: 'Entered against the wrong customer' } as never;
+
+    await expect(controller.voidAdjustment(user, 'adj-1', body)).resolves.toEqual({ ok: true });
+    expect(service.voidAdjustment).toHaveBeenCalledWith(user, 'adj-1', body);
+  });
+});
