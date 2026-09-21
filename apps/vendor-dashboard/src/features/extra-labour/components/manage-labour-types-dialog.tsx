@@ -10,7 +10,6 @@ import {
   Input,
   Label,
   Badge,
-  Switch,
 } from '@water-supply-crm/ui';
 import { Plus, Check, Edit2, Loader2, Tag } from 'lucide-react';
 import {
@@ -19,6 +18,28 @@ import {
   useUpdateLabourType,
 } from '../hooks/use-extra-labour';
 import { ExtraLabourTypeRecord } from '../api/extra-labour.api';
+
+function Toggle({ enabled, onToggle, disabled, label }: { enabled: boolean; onToggle: () => void; disabled?: boolean; label?: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      aria-label={label || 'Toggle switch'}
+      disabled={disabled}
+      onClick={onToggle}
+      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+        disabled ? 'opacity-50 cursor-not-allowed' : ''
+      } ${enabled ? 'bg-emerald-500' : 'bg-input dark:bg-muted'}`}
+    >
+      <span
+        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${
+          enabled ? 'translate-x-5' : 'translate-x-0.5'
+        }`}
+      />
+    </button>
+  );
+}
 
 interface ManageLabourTypesDialogProps {
   open: boolean;
@@ -250,10 +271,11 @@ export function ManageLabourTypesDialog({ open, onOpenChange }: ManageLabourType
                             <Edit2 className="w-3.5 h-3.5" />
                           </Button>
                           <div className="flex items-center gap-1">
-                            <Switch
-                              checked={t.isActive}
-                              onCheckedChange={() => handleToggleActive(t)}
+                            <Toggle
+                              enabled={t.isActive}
+                              onToggle={() => handleToggleActive(t)}
                               disabled={updateMutation.isPending}
+                              label="Active Status"
                             />
                           </div>
                         </div>

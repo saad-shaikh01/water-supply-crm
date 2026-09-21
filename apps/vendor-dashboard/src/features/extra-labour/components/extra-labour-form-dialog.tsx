@@ -10,7 +10,6 @@ import {
   Input,
   Label,
   Textarea,
-  Switch,
   Select,
   SelectContent,
   SelectItem,
@@ -24,6 +23,27 @@ import {
   useUpdateExtraLabour,
 } from '../hooks/use-extra-labour';
 import { ExtraLabourListItem, ExtraLabourProfile } from '../api/extra-labour.api';
+
+function Toggle({ enabled, onToggle, label }: { enabled: boolean; onToggle: () => void; label?: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      aria-label={label || 'Toggle switch'}
+      onClick={onToggle}
+      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+        enabled ? 'bg-emerald-500' : 'bg-input dark:bg-muted'
+      }`}
+    >
+      <span
+        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${
+          enabled ? 'translate-x-5' : 'translate-x-0.5'
+        }`}
+      />
+    </button>
+  );
+}
 
 interface ExtraLabourFormDialogProps {
   open: boolean;
@@ -256,7 +276,7 @@ export function ExtraLabourFormDialog({
                   Inactive workers will be hidden from payout dropdowns
                 </p>
               </div>
-              <Switch id="active-status" checked={isActive} onCheckedChange={setIsActive} />
+              <Toggle enabled={isActive} onToggle={() => setIsActive(!isActive)} label="Active Status" />
             </div>
           </div>
 
