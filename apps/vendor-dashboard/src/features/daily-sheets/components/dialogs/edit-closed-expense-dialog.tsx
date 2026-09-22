@@ -21,7 +21,7 @@ const CATEGORIES = [
   { value: 'VEHICLE_MAINTENANCE', label: 'Vehicle Maintenance' },
   { value: 'VEHICLE_RENT', label: 'Vehicle Rent' },
   { value: 'ICE_PURCHASED', label: 'Ice Purchased' },
-  { value: 'EXTRA_LOADER', label: 'Extra Loader' },
+  { value: 'EXTRA_LABOUR', label: 'Extra Labour' },
   { value: 'RENT', label: 'Rent' },
   { value: 'UTILITIES', label: 'Utilities' },
   { value: 'STATIONARY', label: 'Stationary' },

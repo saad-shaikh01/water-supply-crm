@@ -18,6 +18,7 @@ import { CASH_LEDGER_BUCKET_META } from '../constants';
 import { money } from '../format';
 import { formatYmdShort } from '../../../lib/date-pkt';
 import { usersApi } from '../../users/api/users.api';
+import { extraLabourApi } from '../../extra-labour/api/extra-labour.api';
 import { domainMeta } from '../../expense-center/constants';
 import { CREATABLE_LEDGER_CATEGORIES, LEDGER_CATEGORY_CONFIG } from '../../payroll/constants';
 import { CREW_CASH_CATEGORIES, CREW_CASH_CATEGORY_CONFIG } from '../../crew-cash/constants';
@@ -31,7 +32,7 @@ import { CREW_CASH_CATEGORIES, CREW_CASH_CATEGORY_CONFIG } from '../../crew-cash
  *   recBy / apprBy / emp   user ids                cats     comma list of row categories
  *   min / max amount range                         att / note  `true`
  *   sheet    sheet number prefix                   ref      reference text
- *   dest     OWNER|CEO|BANK|OTHER
+ *   dest     OWNER|CEO|BANK|OTHER                  labour   ExtraLabour id (OFFICE_EXPENSE rows only)
  *
  * They live beside — and never touch — `from, to, vanId, view, entry`. Filters
  * never change running balances or day statements (server folds first, filters
@@ -58,6 +59,7 @@ const FILTER_PARSERS = {
   recBy: parseAsString,
   apprBy: parseAsString,
   emp: parseAsString,
+  labour: parseAsString,
   cats: parseAsArrayOf(parseAsString),
   min: parseAsFloat,
   max: parseAsFloat,
@@ -82,6 +84,7 @@ const KEY_MAP: Record<keyof CashLedgerTimelineFilters, UrlKey> = {
   recordedById: 'recBy',
   approvedById: 'apprBy',
   employeeId: 'emp',
+  extraLabourId: 'labour',
   categories: 'cats',
   minAmount: 'min',
   maxAmount: 'max',
@@ -148,7 +151,7 @@ export const CASH_LEDGER_CATEGORY_GROUPS: readonly CashLedgerCategoryGroup[] = [
     key: 'EMPLOYEES',
     label: domainMeta('EMPLOYEES').label,
     options: [
-      { value: 'EXTRA_LOADER', label: 'Extra Loader' },
+      { value: 'EXTRA_LABOUR', label: 'Extra Labour' },
       { value: 'CONTRACTOR_PAYMENT', label: 'Contractor Payment' },
       { value: 'LUNCH_EXPENSE_EMPLOYEE', label: 'Lunch (legacy)' },
       { value: 'ADVANCE_SALARY_EMPLOYEE', label: 'Salary Advance (legacy)' },
@@ -229,6 +232,7 @@ function stateToFilters(s: FilterState): CashLedgerTimelineFilters {
   const recBy = nonEmpty(s.recBy); if (recBy) f.recordedById = recBy;
   const apprBy = nonEmpty(s.apprBy); if (apprBy) f.approvedById = apprBy;
   const emp = nonEmpty(s.emp); if (emp) f.employeeId = emp;
+  const labour = nonEmpty(s.labour); if (labour) f.extraLabourId = labour;
   if (s.cats?.length) f.categories = [...s.cats];
   if (typeof s.min === 'number' && Number.isFinite(s.min) && s.min >= 0) f.minAmount = s.min;
   if (typeof s.max === 'number' && Number.isFinite(s.max) && s.max >= 0) f.maxAmount = s.max;
@@ -273,6 +277,18 @@ function useUserNames(enabled: boolean): Map<string, string> {
     staleTime: 5 * 60 * 1000,
   });
   return useMemo(() => new Map((data?.data ?? []).map((u) => [u.id, u.name])), [data]);
+}
+
+/** id -> name for the extraLabourId filter's chip. `includeId` guarantees the
+ *  currently-selected (possibly inactive) labourer always resolves. */
+function useLabourNames(enabled: boolean, includeId?: string): Map<string, string> {
+  const { data } = useQuery({
+    queryKey: ['extra-labour', 'options', 'cash-ledger-filter', includeId],
+    queryFn: () => extraLabourApi.getOptions(undefined, undefined, true, includeId).then((r) => r.data),
+    enabled,
+    staleTime: 5 * 60 * 1000,
+  });
+  return useMemo(() => new Map((data ?? []).map((o) => [o.id, o.name])), [data]);
 }
 
 export interface UseCashLedgerFilters {
@@ -338,6 +354,7 @@ export function useCashLedgerFilters(): UseCashLedgerFilters {
     recordedBy: !!filters.recordedById,
     approvedBy: !!filters.approvedById,
     employee: !!filters.employeeId,
+    extraLabour: !!filters.extraLabourId,
     categories: !!filters.categories?.length,
     amount: filters.minAmount !== undefined || filters.maxAmount !== undefined,
     attachment: !!filters.hasAttachment,
@@ -352,6 +369,9 @@ export function useCashLedgerFilters(): UseCashLedgerFilters {
   const needsNames = !!(filters.recordedById || filters.approvedById || filters.employeeId);
   const names = useUserNames(needsNames);
   const personLabel = (id: string) => names.get(id) ?? 'Selected user';
+
+  const labourNames = useLabourNames(!!filters.extraLabourId, filters.extraLabourId);
+  const labourLabel = (id: string) => labourNames.get(id) ?? 'Selected worker';
 
   const chips: CashLedgerFilterChip[] = [];
   const add = (key: string, label: string, clear: CashLedgerTimelineFilters) =>
@@ -376,6 +396,7 @@ export function useCashLedgerFilters(): UseCashLedgerFilters {
   if (filters.recordedById) add('recordedBy', `Recorded by: ${personLabel(filters.recordedById)}`, { recordedById: undefined });
   if (filters.approvedById) add('approvedBy', `Approved by: ${personLabel(filters.approvedById)}`, { approvedById: undefined });
   if (filters.employeeId) add('employee', `Employee: ${personLabel(filters.employeeId)}`, { employeeId: undefined });
+  if (filters.extraLabourId) add('extraLabour', `Extra Labour: ${labourLabel(filters.extraLabourId)}`, { extraLabourId: undefined });
   if (filters.categories?.length) {
     add('categories', `Category: ${joinLabels(filters.categories.map(cashLedgerCategoryLabel))}`, { categories: undefined });
   }

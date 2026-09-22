@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
-import { Prisma, TransactionType } from '@prisma/client';
+import { ExpenseCategory, Prisma, TransactionType } from '@prisma/client';
 import type { AuthUser } from '@water-supply-crm/types';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
@@ -35,7 +35,14 @@ const AUDITED_EXPENSE_FIELDS = [
   'date',
   'vanId',
   'dailySheetId',
+  'extraLabourId',
 ] as const;
+
+const EXPENSE_INCLUDE = {
+  van: { select: { id: true, plateNumber: true } },
+  createdBy: { select: { id: true, name: true } },
+  extraLabour: { select: { id: true, name: true } },
+};
 
 /**
  * Only OFFICE-CASH expense movements touch the Cash Ledger: paid from cash and
@@ -80,6 +87,62 @@ export class ExpenseService {
     await this.vanCashLedger.handlePostCloseCorrection(tx, vendorId, dailySheetId, resolved.cashExpected);
   }
 
+  /** Extra Labour validation & snapshot helper */
+  private async validateAndResolveExtraLabour(
+    vendorId: string,
+    category: ExpenseCategory | undefined,
+    extraLabourId: string | null | undefined,
+    existingExpense?: { category: ExpenseCategory; extraLabourId: string | null },
+    isNew = false,
+  ): Promise<{ extraLabourId: string | null; defaultDescription?: string }> {
+    const finalCategory = category ?? existingExpense?.category;
+
+    // Case 1: Category changed away from EXTRA_LABOUR -> auto-clear link
+    if (finalCategory && finalCategory !== 'EXTRA_LABOUR') {
+      if (extraLabourId !== undefined && extraLabourId !== null) {
+        throw new BadRequestException('extraLabourId can only be provided for EXTRA_LABOUR category');
+      }
+      return { extraLabourId: null };
+    }
+
+    // Case 2: Category is EXTRA_LABOUR
+    if (finalCategory === 'EXTRA_LABOUR') {
+      let targetId: string | null | undefined = extraLabourId;
+      if (targetId === undefined) {
+        targetId = existingExpense?.extraLabourId;
+      }
+
+      // New expense with EXTRA_LABOUR requires a labourer
+      if (isNew && !targetId) {
+        throw new BadRequestException('Extra labourer is required for EXTRA_LABOUR expenses');
+      }
+
+      if (targetId) {
+        const labourer = await this.prisma.extraLabour.findFirst({
+          where: { id: targetId, vendorId },
+          select: { id: true, name: true, isActive: true },
+        });
+
+        if (!labourer) {
+          throw new NotFoundException('Extra labourer not found');
+        }
+
+        // If labourer is new or changed, must be active
+        const isChanging = existingExpense ? existingExpense.extraLabourId !== targetId : true;
+        if (isChanging && !labourer.isActive) {
+          throw new BadRequestException('Selected extra labourer is inactive');
+        }
+
+        return {
+          extraLabourId: labourer.id,
+          defaultDescription: `Extra labour — ${labourer.name}`,
+        };
+      }
+    }
+
+    return { extraLabourId: extraLabourId === null ? null : (existingExpense?.extraLabourId ?? null) };
+  }
+
   async create(vendorId: string, createdById: string, dto: CreateExpenseDto) {
     // Vendor-scoped ownership checks — same pattern as FuelLogService.create,
     // so an unknown/foreign vanId or dailySheetId 404s instead of falling
@@ -88,6 +151,19 @@ export class ExpenseService {
       const van = await this.prisma.van.findFirst({ where: { id: dto.vanId, vendorId } });
       if (!van) throw new NotFoundException('Vehicle not found');
     }
+
+    const labourRes = await this.validateAndResolveExtraLabour(
+      vendorId,
+      dto.category,
+      dto.extraLabourId,
+      undefined,
+      true,
+    );
+
+    const description =
+      dto.description && dto.description.trim().length > 0
+        ? dto.description.trim()
+        : labourRes.defaultDescription || dto.description;
 
     // Trip feature: an expense recorded against a sheet is attributed to
     // whichever trip is currently active on it (null if none active) — not
@@ -128,26 +204,25 @@ export class ExpenseService {
         category: dto.category,
         amount: dto.amount,
         paidFromCash: dto.paidFromCash ?? true,
-        description: dto.description,
+        description,
         date: new Date(dto.date),
         vanId: dto.vanId ?? null,
         dailySheetId: dto.dailySheetId ?? null,
         dailySheetLoadId,
+        extraLabourId: labourRes.extraLabourId,
       },
-      include: {
-        van: { select: { id: true, plateNumber: true } },
-        createdBy: { select: { id: true, name: true } },
-      },
+      include: EXPENSE_INCLUDE,
     });
   }
 
   async findAll(vendorId: string, query: ExpenseQueryDto) {
-    const { page = 1, limit = 20, category, from, to, vanId, dailySheetId } = query;
+    const { page = 1, limit = 20, category, from, to, vanId, dailySheetId, extraLabourId } = query;
 
     const where: any = { vendorId };
     if (category) where.category = category;
     if (vanId) where.vanId = vanId;
     if (dailySheetId) where.dailySheetId = dailySheetId;
+    if (extraLabourId) where.extraLabourId = extraLabourId;
     if (from || to) {
       where.date = {};
       if (from) where.date.gte = new Date(from);
@@ -161,10 +236,7 @@ export class ExpenseService {
     const [data, total] = await Promise.all([
       this.prisma.expense.findMany({
         where,
-        include: {
-          van: { select: { id: true, plateNumber: true } },
-          createdBy: { select: { id: true, name: true } },
-        },
+        include: EXPENSE_INCLUDE,
         orderBy: { date: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
@@ -178,10 +250,7 @@ export class ExpenseService {
   async findOne(vendorId: string, id: string) {
     const expense = await this.prisma.expense.findFirst({
       where: { id, vendorId },
-      include: {
-        van: { select: { id: true, plateNumber: true } },
-        createdBy: { select: { id: true, name: true } },
-      },
+      include: EXPENSE_INCLUDE,
     });
     if (!expense) throw new NotFoundException('Expense not found');
     return expense;
@@ -220,6 +289,14 @@ export class ExpenseService {
       await this.periodGuard.assertWritable(vendorId, [expense.date, newDate]);
     }
 
+    const labourRes = await this.validateAndResolveExtraLabour(
+      vendorId,
+      dto.category,
+      dto.extraLabourId,
+      expense,
+      false,
+    );
+
     const updated = await this.prisma.expense.update({
       where: { id },
       data: {
@@ -230,11 +307,11 @@ export class ExpenseService {
         ...(dto.date !== undefined && { date: new Date(dto.date as string) }),
         ...(dto.vanId !== undefined && { vanId: dto.vanId || null }),
         ...(dto.dailySheetId !== undefined && { dailySheetId: dto.dailySheetId || null }),
+        ...((labourRes.extraLabourId ?? null) !== (expense.extraLabourId ?? null) && {
+          extraLabourId: labourRes.extraLabourId,
+        }),
       },
-      include: {
-        van: { select: { id: true, plateNumber: true } },
-        createdBy: { select: { id: true, name: true } },
-      },
+      include: EXPENSE_INCLUDE,
     });
 
     // Audit ONLY the fields that actually changed (a PATCH that re-sends the
@@ -362,6 +439,14 @@ export class ExpenseService {
       if (!van) throw new NotFoundException('Vehicle not found');
     }
 
+    const labourRes = await this.validateAndResolveExtraLabour(
+      vendorId,
+      dto.category,
+      dto.extraLabourId,
+      expense,
+      false,
+    );
+
     // Only the fields the caller actually sent are applied.
     const appliedFields: Record<string, unknown> = {};
     if (dto.amount !== undefined) appliedFields.amount = dto.amount;
@@ -370,6 +455,9 @@ export class ExpenseService {
     if (dto.date !== undefined) appliedFields.date = new Date(dto.date);
     if (dto.paidFromCash !== undefined) appliedFields.paidFromCash = dto.paidFromCash;
     if (dto.vanId !== undefined) appliedFields.vanId = dto.vanId || null;
+    if ((labourRes.extraLabourId ?? null) !== (expense.extraLabourId ?? null)) {
+      appliedFields.extraLabourId = labourRes.extraLabourId;
+    }
 
     const before = {
       amount: expense.amount,
@@ -379,6 +467,7 @@ export class ExpenseService {
       paidFromCash: expense.paidFromCash,
       vanId: expense.vanId,
       dailySheetId: expense.dailySheetId,
+      extraLabourId: expense.extraLabourId,
     };
 
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -399,10 +488,7 @@ export class ExpenseService {
       const row = await tx.expense.update({
         where: { id },
         data: appliedFields,
-        include: {
-          van: { select: { id: true, plateNumber: true } },
-          createdBy: { select: { id: true, name: true } },
-        },
+        include: EXPENSE_INCLUDE,
       });
 
       await tx.dailySheet.update({
@@ -451,6 +537,7 @@ export class ExpenseService {
       vanId: expense.vanId,
       dailySheetId: expense.dailySheetId,
       dailySheetLoadId: expense.dailySheetLoadId,
+      extraLabourId: expense.extraLabourId,
       createdAt: expense.createdAt,
     };
 
@@ -499,6 +586,19 @@ export class ExpenseService {
       if (!van) throw new NotFoundException('Vehicle not found');
     }
 
+    const labourRes = await this.validateAndResolveExtraLabour(
+      vendorId,
+      dto.category,
+      dto.extraLabourId,
+      undefined,
+      true,
+    );
+
+    const description =
+      dto.description && dto.description.trim().length > 0
+        ? dto.description.trim()
+        : labourRes.defaultDescription || dto.description;
+
     const sheet = await this.prisma.dailySheet.findFirst({
       where: { id: dto.dailySheetId, vendorId },
       select: { id: true, isClosed: true, date: true },
@@ -526,16 +626,14 @@ export class ExpenseService {
           category: dto.category,
           amount: dto.amount,
           paidFromCash: dto.paidFromCash ?? true,
-          description: dto.description,
+          description,
           date: new Date(dto.date),
           vanId: dto.vanId ?? null,
           dailySheetId: dto.dailySheetId,
           dailySheetLoadId,
+          extraLabourId: labourRes.extraLabourId,
         },
-        include: {
-          van: { select: { id: true, plateNumber: true } },
-          createdBy: { select: { id: true, name: true } },
-        },
+        include: EXPENSE_INCLUDE,
       });
 
       await tx.dailySheet.update({

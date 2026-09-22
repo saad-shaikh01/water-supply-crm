@@ -147,7 +147,8 @@ function buildPrisma(store: FakeStore) {
   };
 }
 
-function standaloneRow(over: Partial<FakeStandalone> & { id: string; date: string }): FakeStandalone {
+function standaloneRow(over: Partial<Omit<FakeStandalone, 'date'>> & { id: string; date: string }): FakeStandalone {
+  const { date, ...rest } = over;
   return {
     vendorId: VENDOR,
     employeeId: 'emp-1',
@@ -155,12 +156,13 @@ function standaloneRow(over: Partial<FakeStandalone> & { id: string; date: strin
     amount: 500,
     notes: null,
     status: 'ACTIVE',
-    ...over,
-    date: new Date(over.date),
+    ...rest,
+    date: new Date(date),
   };
 }
 
-function sheetRow(over: Partial<FakeSheetCrewCash> & { id: string; date: string }): FakeSheetCrewCash {
+function sheetRow(over: Partial<Omit<FakeSheetCrewCash, 'date'>> & { id: string; date: string }): FakeSheetCrewCash {
+  const { date, ...rest } = over;
   return {
     vendorId: VENDOR,
     employeeId: 'emp-1',
@@ -168,8 +170,8 @@ function sheetRow(over: Partial<FakeSheetCrewCash> & { id: string; date: string 
     amount: 1000,
     notes: null,
     dailySheetId: 'sheet-abcdef123',
-    ...over,
-    date: new Date(over.date),
+    ...rest,
+    date: new Date(date),
   };
 }
 
@@ -402,6 +404,22 @@ describe('ExpenseCenterService — standalone crew cash', () => {
       expect(prisma.standaloneCrewCashExpense.findMany).not.toHaveBeenCalled();
       expect(prisma.standaloneCrewCashExpense.count).not.toHaveBeenCalled();
       expect(prisma.crewCashDistribution.findMany).toHaveBeenCalled();
+    });
+
+    it('an extraLabourId filter passes through to the Expense where clause and excludes every payroll-sourced table', async () => {
+      await service.getTimeline(VENDOR, {
+        ...CURRENT,
+        extraLabourId: 'labour-1',
+        page: 1,
+        limit: 20,
+      });
+
+      expect(prisma.expense.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ extraLabourId: 'labour-1' }) }),
+      );
+      expect(prisma.staffLedgerEntry.findMany).not.toHaveBeenCalled();
+      expect(prisma.crewCashDistribution.findMany).not.toHaveBeenCalled();
+      expect(prisma.standaloneCrewCashExpense.findMany).not.toHaveBeenCalled();
     });
 
     it('an employee filter narrows standalone rows to that employee', async () => {

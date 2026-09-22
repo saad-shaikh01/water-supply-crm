@@ -111,7 +111,7 @@ import {
  *     balance. Existing vendors' Driver/Salesman roles predate the fix.
  */
 const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
-  driver: ['fleet:record_check', 'fleet:record_fuel', 'fuel_cards:view'],
+  driver: ['fleet:record_check', 'fleet:record_fuel', 'fuel_cards:view', 'extra_labour:create'],
   salesman: [
     'fleet:record_check',
     'fleet:record_fuel',
@@ -161,6 +161,12 @@ const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
     'fuel_cards:manage',
     'fuel_cards:topup',
     'fuel_cards:topup_void',
+    // Extra Labour (owner-approved 2026-09-22, Amendment R20). Existing vendors'
+    // Manager roles predate this new resource entirely.
+    'extra_labour:page',
+    'extra_labour:view',
+    'extra_labour:create',
+    'extra_labour:manage',
   ],
   accountant: [
     // Van Cash Ledger (owner-requested 2026-09-09). Existing vendors'
@@ -195,6 +201,10 @@ const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
     'customer_financial_adjustments:transfer',
     'customer_financial_adjustments:create_restricted',
     'customer_financial_adjustments:void',
+    // Extra Labour (owner-approved 2026-09-22, Amendment R20). Existing vendors'
+    // Accountant roles predate this new resource entirely.
+    'extra_labour:page',
+    'extra_labour:view',
   ],
 };
 

@@ -62,6 +62,8 @@ export interface CashLedgerRowV2 {
   reference?: string | null;
   hasAttachment?: boolean;
   employeeId?: string | null;
+  extraLabourId?: string | null;
+  extraLabourName?: string | null;
   /** Handover rows only — the SHEET-derived figure (what the sheet said). `amount` is the final approved figure. */
   expectedAmount?: number | null;
   /** Handover rows only — `amount − expectedAmount` (negative = approved less than the sheet said). 0/null when none. */
@@ -183,6 +185,8 @@ export interface CashLedgerTimelineFilters {
   approvedById?: string;
   /** Crew-cash / payroll employee OR the handover's submitting driver. */
   employeeId?: string;
+  /** Extra Labour — an ExtraLabour id (distinct from employeeId, a User id). OFFICE_EXPENSE rows only. */
+  extraLabourId?: string;
   /** Row `category` values (ExpenseCategory / StaffLedgerCategory / CrewCashCategory). */
   categories?: string[];
   minAmount?: number;

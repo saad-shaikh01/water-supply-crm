@@ -82,7 +82,7 @@ export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
   FUEL_EXPENSE: 'Fuel',
   VEHICLE_MAINTENANCE: 'Vehicle Maintenance',
   ICE_PURCHASED: 'Ice Purchase',
-  EXTRA_LOADER: 'Extra Loader',
+  EXTRA_LABOUR: 'Extra Labour',
   DISCREPANCY_WRITE_OFF: 'Discrepancy Write-off',
   OTHER: 'Miscellaneous',
   // Added 2026-09-07 (owner request): office overhead + inventory procurement
@@ -135,7 +135,7 @@ export const EXPENSE_CATEGORY_DOMAINS: Record<ExpenseCategory, ExpenseCenterDoma
   FUEL_EXPENSE: 'VEHICLE',
   VEHICLE_MAINTENANCE: 'VEHICLE',
   ICE_PURCHASED: 'INVENTORY',
-  EXTRA_LOADER: 'EMPLOYEES',
+  EXTRA_LABOUR: 'EMPLOYEES',
   LUNCH_EXPENSE_EMPLOYEE: 'EMPLOYEES',
   ADVANCE_SALARY_EMPLOYEE: 'EMPLOYEES',
   DISCREPANCY_WRITE_OFF: 'DISCREPANCY',
@@ -256,6 +256,8 @@ export interface NormalizableExpenseRow {
   van?: { plateNumber: string } | null;
   createdBy?: { name: string } | null;
   dailySheet?: { isClosed: boolean } | null;
+  extraLabourId?: string | null;
+  extraLabour?: { id: string; name: string } | null;
 }
 
 export interface NormalizableStaffLedgerRow {
@@ -355,8 +357,7 @@ export function normalizeExpenseRow(row: NormalizableExpenseRow): ExpenseCenterR
     sourceRecordId,
     sourceBadge: expenseSourceBadge(row),
     vanPlateNumber: row.van?.plateNumber ?? null,
-    // An Expense is not attributed to an employee anywhere in the schema.
-    employeeName: null,
+    employeeName: row.extraLabour?.name ?? null,
     locked,
     lockedReason,
   };
@@ -508,6 +509,8 @@ export interface ExpenseCenterFilterInput {
   category?: string;
   vanId?: string;
   employeeId?: string;
+  /** Extra Labour (an `ExtraLabour` id — distinct from `employeeId`, a `User` id). Expense-only. */
+  extraLabourId?: string;
   paymentMethod?: 'CASH' | 'CARD';
 }
 
@@ -593,8 +596,15 @@ export function resolveSourceSelection(filter: ExpenseCenterFilterInput): Expens
   }
 
   if (filter.employeeId) {
-    // An Expense is never attributed to an employee.
+    // An Expense is never attributed to an employee (User).
     selection.includeExpenses = false;
+  }
+
+  if (filter.extraLabourId) {
+    // Extra Labour is an Expense-only attribution — no other source has it.
+    selection.includeStaffLedger = false;
+    selection.includeCrewCash = false;
+    selection.includeStandaloneCrewCash = false;
   }
 
   return selection;

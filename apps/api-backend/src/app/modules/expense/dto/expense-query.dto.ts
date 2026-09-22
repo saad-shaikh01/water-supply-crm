@@ -22,4 +22,8 @@ export class ExpenseQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsUUID()
   dailySheetId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  extraLabourId?: string;
 }

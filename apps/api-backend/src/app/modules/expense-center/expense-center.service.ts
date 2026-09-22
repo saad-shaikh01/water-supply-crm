@@ -244,6 +244,7 @@ export class ExpenseCenterService {
       category: query.category,
       vanId: query.vanId,
       employeeId: query.employeeId,
+      extraLabourId: query.extraLabourId,
       paymentMethod: query.paymentMethod,
     });
 
@@ -254,6 +255,7 @@ export class ExpenseCenterService {
       ...(dateFilter && { date: dateFilter }),
       ...(selection.expenseCategories && { category: { in: selection.expenseCategories } }),
       ...(query.vanId && { vanId: query.vanId }),
+      ...(query.extraLabourId && { extraLabourId: query.extraLabourId }),
       // card == paidFromCash false; cash == paidFromCash true.
       ...(query.paymentMethod && { paidFromCash: query.paymentMethod === 'CASH' }),
     };
@@ -314,6 +316,8 @@ export class ExpenseCenterService {
                 van: { select: { plateNumber: true } },
                 createdBy: { select: { name: true } },
                 dailySheet: { select: { isClosed: true } },
+                extraLabourId: true,
+                extraLabour: { select: { id: true, name: true } },
               },
               orderBy: { date: 'desc' },
               take: windowSize,

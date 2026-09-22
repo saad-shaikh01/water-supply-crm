@@ -28,7 +28,7 @@ describe('domain classification', () => {
     expect(domainForExpenseCategory(ExpenseCategory.ICE_PURCHASED)).toBe('INVENTORY');
     expect(domainForExpenseCategory(ExpenseCategory.DISCREPANCY_WRITE_OFF)).toBe('DISCREPANCY');
     expect(domainForExpenseCategory(ExpenseCategory.OTHER)).toBe('OFFICE');
-    expect(domainForExpenseCategory(ExpenseCategory.EXTRA_LOADER)).toBe('EMPLOYEES');
+    expect(domainForExpenseCategory(ExpenseCategory.EXTRA_LABOUR)).toBe('EMPLOYEES');
   });
 
   it('routes the new office-overhead categories to OFFICE and procurement categories to INVENTORY', () => {
@@ -447,5 +447,13 @@ describe('resolveSourceSelection', () => {
     // ...but an employee filter keeps it (it is attributed to an employee).
     expect(resolveSourceSelection({ employeeId: 'u1' }).includeStandaloneCrewCash).toBe(true);
     expect(resolveSourceSelection({ employeeId: 'u1' }).includeExpenses).toBe(false);
+  });
+
+  it('extraLabourId keeps Expense but excludes every payroll-sourced table (Expense-only attribution)', () => {
+    const selection = resolveSourceSelection({ extraLabourId: 'labour-1' });
+    expect(selection.includeExpenses).toBe(true);
+    expect(selection.includeStaffLedger).toBe(false);
+    expect(selection.includeCrewCash).toBe(false);
+    expect(selection.includeStandaloneCrewCash).toBe(false);
   });
 });

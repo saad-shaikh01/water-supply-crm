@@ -411,6 +411,14 @@ export const PERMISSION_CATALOG = {
     navigable: false,
     actions: ['view', 'create', 'create_credit', 'transfer', 'create_restricted', 'void'],
   },
+  // Extra Labour (owner-approved 2026-09-22, Amendment R20):
+  // Vendor-wide extra labour staff registry and history.
+  // Navigable: /dashboard/extra-labour page.
+  extra_labour: {
+    label: 'Extra Labour',
+    navigable: true,
+    actions: ['page', 'view', 'create', 'manage'],
+  },
 } as const satisfies Record<string, ResourceDefinition>;
 
 /** Union of every resource key, e.g. `'customers' | 'orders' | …`. */

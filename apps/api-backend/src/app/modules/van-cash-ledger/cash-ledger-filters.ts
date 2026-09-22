@@ -35,6 +35,7 @@ export interface FilterableLedgerRow {
   recordedById?: string | null;
   approvedById?: string | null;
   employeeId?: string | null;
+  extraLabourId?: string | null;
   category?: string;
   hasAttachment?: boolean;
   notes?: string | null;
@@ -146,6 +147,7 @@ export function hasActiveFilters(filters: CashLedgerTimelineFilters | undefined)
     !!filters.recordedById ||
     !!filters.approvedById ||
     !!filters.employeeId ||
+    !!filters.extraLabourId ||
     present(filters.categories) ||
     typeof filters.minAmount === 'number' ||
     typeof filters.maxAmount === 'number' ||
@@ -181,6 +183,9 @@ export function matchesFilters(row: FilterableLedgerRow, filters: CashLedgerTime
     const driver = isHandoverFamily(row) && row.recordedById === filters.employeeId;
     if (!own && !driver) return false;
   }
+  // Extra Labour is an OFFICE_EXPENSE-only attribution — a distinct id space
+  // from `employeeId` (a User), so it is its own independent filter.
+  if (filters.extraLabourId && row.extraLabourId !== filters.extraLabourId) return false;
 
   if (present(filters.categories) && !(row.category !== undefined && filters.categories.includes(row.category))) {
     return false;
@@ -247,6 +252,7 @@ export function resolveTimelineFilters(query: TimelineFilterQuery): CashLedgerTi
     recordedById: query.recordedById,
     approvedById: query.approvedById,
     employeeId: query.employeeId,
+    extraLabourId: query.extraLabourId,
     categories: mergeLists(query.categories, query['categories[]']),
     minAmount: query.minAmount,
     maxAmount: query.maxAmount,

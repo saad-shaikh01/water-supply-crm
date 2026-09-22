@@ -37,6 +37,8 @@ export interface CashLedgerRowV2 {
   /** Never the attachment key itself — only whether one exists. */
   hasAttachment?: boolean;
   employeeId?: string | null;
+  extraLabourId?: string | null;
+  extraLabourName?: string | null;
   /** Handover rows only — the SHEET-derived figure. `amount` is the final approved figure. */
   expectedAmount?: number | null;
   /** Handover rows only — `amount − expectedAmount`. */
@@ -102,6 +104,8 @@ export interface CashLedgerTimelineFilters {
   recordedById?: string;
   approvedById?: string;
   employeeId?: string;
+  /** Extra Labour — an `ExtraLabour` id (distinct from `employeeId`, a `User` id). OFFICE_EXPENSE rows only. */
+  extraLabourId?: string;
   categories?: string[];
   minAmount?: number;
   maxAmount?: number;

@@ -61,6 +61,10 @@ export const SYSTEM_ROLE_KEYS: readonly RoleKey[] = [
  * van's daily check / fuel fill from inside the Daily Sheet they already have
  * access to — deliberately NOT granted fleet:page/fleet:view (no dedicated
  * Fleet screen for them, see the driver/salesman presets' own comments).
+ * `extra_labour:create` (owner-approved 2026-09-22, Amendment R20) is Driver
+ * registering a new worker inline from the Expense Form's "Pay Extra Labour"
+ * picker (ExtraLabourPicker's "+ New Worker") — deliberately NOT granted
+ * extra_labour:page/:view (no dedicated Extra Labour roster screen for them).
  */
 export const NON_NAVIGATIONAL_PERMISSIONS: ReadonlySet<Permission> = new Set<Permission>([
   'tracking:report_location',
@@ -74,6 +78,7 @@ export const NON_NAVIGATIONAL_PERMISSIONS: ReadonlySet<Permission> = new Set<Per
   // fuel_cards:page for the real dashboard page, so the invariant still
   // holds for them independent of this exemption.
   'fuel_cards:view',
+  'extra_labour:create',
 ]);
 
 // ── Computed presets ────────────────────────────────────────────────────────────
@@ -220,6 +225,8 @@ const MANAGER_PERMISSIONS: Permission[] = [
   // feature (single-step entry), so Manager is the practical "fix a mistake"
   // authority alongside Vendor Admin.
   'fuel_cards:page', 'fuel_cards:view', 'fuel_cards:manage', 'fuel_cards:topup', 'fuel_cards:topup_void',
+  // Extra Labour (owner-approved 2026-09-22, Amendment R20)
+  'extra_labour:page', 'extra_labour:view', 'extra_labour:create', 'extra_labour:manage',
 ];
 
 export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
@@ -314,6 +321,9 @@ export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
       'customer_financial_adjustments:transfer',
       'customer_financial_adjustments:create_restricted',
       'customer_financial_adjustments:void',
+      // Extra Labour (owner-approved 2026-09-22, Amendment R20)
+      'extra_labour:page',
+      'extra_labour:view',
     ],
   },
   support: {
@@ -483,6 +493,8 @@ export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
       // dedicated Fuel Cards screen for drivers, same non-grant pattern as
       // fleet:page above.
       'fuel_cards:view',
+      // Extra Labour (owner-approved 2026-09-22, Amendment R20)
+      'extra_labour:create',
     ],
   },
   viewer: {
