@@ -125,10 +125,13 @@ export function ExtraLabourList({ canCreate = true, canManageTypes = true }: Ext
         </div>
 
         <div>
+          {/* Radix's SelectItem forbids value="" (reserved to mean "cleared, show
+              placeholder"), so the "All" option uses a sentinel and is mapped back
+              to '' — the actual filters.labourTypeId representation — at the boundary. */}
           <Select
-            value={filters.labourTypeId}
+            value={filters.labourTypeId || 'all'}
             onValueChange={(val) => {
-              filters.setLabourTypeId(val);
+              filters.setLabourTypeId(val === 'all' ? '' : val);
               filters.setPage(1);
             }}
           >
@@ -136,7 +139,7 @@ export function ExtraLabourList({ canCreate = true, canManageTypes = true }: Ext
               <SelectValue placeholder="All Labour Categories" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All Labour Categories</SelectItem>
+              <SelectItem value="all">All Labour Categories</SelectItem>
               {types.map((t) => (
                 <SelectItem key={t.id} value={t.id}>
                   {t.name}
