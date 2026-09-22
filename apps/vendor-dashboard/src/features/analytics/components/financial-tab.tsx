@@ -116,12 +116,23 @@ export function FinancialTab({ from, to, vanId }: { from: string; to: string; va
   const grossProfit: number | null = d.grossProfit ?? null;
   const grossProfitMargin: number | null = d.grossProfitMargin ?? null;
 
+  // Caps as a separate cost stream (owner request 2026-09-22) — same shape
+  // as `cogs`/`grossProfit` above, purely additive; `grossProfit` above stays
+  // the bottle-only figure it always was, `grossProfitAfterCaps` is the new
+  // one that also deducts cap cost.
+  const capCogs = d.capCogs ?? { total: 0, byProduct: [], uncostedBottles: 0, coverage: null, isPartial: false };
+  const grossProfitAfterCaps: number | null = d.grossProfitAfterCaps ?? null;
+  const grossProfitAfterCapsMargin: number | null = d.grossProfitAfterCapsMargin ?? null;
+
   // Plant Balance (owner-requested 2026-09-15 follow-up) — ALL-TIME, never
   // scoped by the page's from/to filter (mirrors officeCash.available below):
   // this is a running "how much do we still owe the plant" liability, not a
   // period P&L number. `outstanding` can be negative (an advance/credit paid
   // ahead of cost incurred) — that's a valid state, not an error.
   const plantBalance = d.plantBalance ?? { totalCogs: 0, totalPaid: 0, outstanding: 0 };
+  // Cap Balance (owner request 2026-09-22) — same shape, reconciled against
+  // the CAPS_PURCHASED expense category instead.
+  const capBalance = d.capBalance ?? { totalCogs: 0, totalPaid: 0, outstanding: 0 };
 
   const profitByDay = (d.profit?.byDay ?? []).map((p: any) => ({
     date: p.date.slice(5), // MM-DD
@@ -217,6 +228,51 @@ export function FinancialTab({ from, to, vanId }: { from: string; to: string; va
         </div>
       )}
 
+      {/* Cap Cost (owner request 2026-09-22) — caps are purchased separately from
+          the plant, on their own payment, so their cost is tracked and shown as its
+          own line rather than blended into the bottle COGS above. Same gate as
+          Gross Profit/COGS since it's the same class of margin-sensitive data. */}
+      {canViewMargins && grossProfit !== null && (
+        <div className="space-y-4">
+          {capCogs.isPartial && (
+            <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-amber-500 mt-0.5 flex-shrink-0" />
+              <div className="flex-1 min-w-[200px] space-y-1">
+                <p className="text-sm font-bold text-amber-700 dark:text-amber-400">Gross Profit After Caps May Be Understated</p>
+                <p className="text-xs text-muted-foreground">
+                  {capCogs.uncostedBottles.toLocaleString()} bottle{capCogs.uncostedBottles === 1 ? '' : 's'} delivered this
+                  period had no recorded cap cost on file
+                  {capCogs.coverage !== null ? ` (${capCogs.coverage}% cap cost coverage)` : ''}. Add a Cap Cost History
+                  entry for the affected product(s) to include them here.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <div className="grid gap-4 sm:grid-cols-3">
+            <StatCard
+              label="Cap COGS"
+              value={fmt(capCogs.total)}
+              icon={PackageSearch}
+              positive={false}
+              sublabel={capCogs.coverage !== null ? `${capCogs.coverage}% of bottles cap-costed` : 'no cap cost recorded yet'}
+            />
+            <StatCard
+              label="Gross Profit After Caps"
+              value={grossProfitAfterCaps === null ? '—' : fmt(grossProfitAfterCaps)}
+              icon={DollarSign}
+              positive={(grossProfitAfterCaps ?? 0) >= 0}
+            />
+            <StatCard
+              label="Gross Profit After Caps Margin"
+              value={grossProfitAfterCapsMargin === null ? '—' : `${grossProfitAfterCapsMargin}%`}
+              icon={Percent}
+              positive={(grossProfitAfterCapsMargin ?? 0) >= 0}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Plant Balance (owner-requested 2026-09-15 follow-up) — ALL-TIME, not
           scoped by this page's date range (same reasoning as `officeCash`
           below: this is a running liability, not a period figure). Gated by
@@ -243,6 +299,33 @@ export function FinancialTab({ from, to, vanId }: { from: string; to: string; va
             icon={Wallet}
             positive={plantBalance.outstanding <= 0}
             sublabel={plantBalance.outstanding < 0 ? 'paid ahead of cost incurred' : 'not yet paid to the plant'}
+          />
+        </div>
+      )}
+
+      {/* Cap Balance (owner request 2026-09-22) — same shape as Plant Balance
+          above, reconciled against CAPS_PURCHASED expenses instead. */}
+      {canViewMargins && (
+        <div className="grid gap-4 sm:grid-cols-3">
+          <StatCard
+            label="Cap Cost Incurred (All-Time)"
+            value={fmt(capBalance.totalCogs)}
+            icon={PackageSearch}
+            positive={false}
+            sublabel="every delivered bottle, all-time"
+          />
+          <StatCard
+            label="Paid for Caps (All-Time)"
+            value={fmt(capBalance.totalPaid)}
+            icon={Landmark}
+            sublabel="sum of Caps Purchased expenses"
+          />
+          <StatCard
+            label={capBalance.outstanding < 0 ? 'Cap Supplier Credit / Advance' : 'Outstanding to Cap Supplier'}
+            value={fmt(Math.abs(capBalance.outstanding))}
+            icon={Wallet}
+            positive={capBalance.outstanding <= 0}
+            sublabel={capBalance.outstanding < 0 ? 'paid ahead of cost incurred' : 'not yet paid for caps'}
           />
         </div>
       )}

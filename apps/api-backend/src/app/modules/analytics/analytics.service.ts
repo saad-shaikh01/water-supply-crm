@@ -6,7 +6,7 @@ import {
 } from '@water-supply-crm/caching';
 import {
   TransactionType, PaymentType, DailySheetKind, ExpenseCategory,
-  PayrollEntryStatus, DiscrepancyResolutionType,
+  PayrollEntryStatus, DiscrepancyResolutionType, ProductCostKind,
 } from '@prisma/client';
 import {
   resolveSheetCash,
@@ -454,7 +454,7 @@ export class AnalyticsService {
     const costProductIds = Array.from(new Set(deliveryItems.map((i) => i.product.id)));
     const costRows = costProductIds.length
       ? await this.prisma.productCost.findMany({
-          where: { vendorId, productId: { in: costProductIds }, voidedAt: null },
+          where: { vendorId, productId: { in: costProductIds }, kind: ProductCostKind.BOTTLE, voidedAt: null },
           orderBy: { effectiveFrom: 'asc' },
         })
       : [];
@@ -479,15 +479,53 @@ export class AnalyticsService {
       return applicable;
     };
 
+    // ── Cap cost, as a second, independent cost stream (owner request
+    // 2026-09-22) ── Caps are purchased separately from the plant's
+    // bottle-refill cost, on their own payment (Expense category
+    // CAPS_PURCHASED), and management wants that cost tracked per bottle
+    // sold just like the bottle cost above, but never blended into it.
+    // Identical lookup shape to the bottle block above, scoped to
+    // `kind: CAP` instead — deliberately duplicated rather than
+    // parameterized, since the two blocks read from different variables
+    // (`costsByProduct` vs `capCostsByProduct`) that both feed the same
+    // per-item loop below.
+    const capCostRows = costProductIds.length
+      ? await this.prisma.productCost.findMany({
+          where: { vendorId, productId: { in: costProductIds }, kind: ProductCostKind.CAP, voidedAt: null },
+          orderBy: { effectiveFrom: 'asc' },
+        })
+      : [];
+    const capCostsByProduct = new Map<string, typeof capCostRows>();
+    for (const c of capCostRows) {
+      const list = capCostsByProduct.get(c.productId) ?? [];
+      list.push(c);
+      capCostsByProduct.set(c.productId, list);
+    }
+    const findApplicableCapCost = (productId: string, date: Date) => {
+      const list = capCostsByProduct.get(productId);
+      if (!list) return null;
+      let applicable: (typeof list)[number] | null = null;
+      for (const c of list) {
+        if (c.effectiveFrom > date) break;
+        if (c.effectiveTo && c.effectiveTo < date) continue;
+        applicable = c;
+      }
+      return applicable;
+    };
+
     // Revenue by product — same `deliveryItems` already fetched above (no
     // per-product split exists on the DailySheet/Transaction totals). Folds
     // in the per-item cost lookup so this stays a single pass over
     // `deliveryItems` rather than a second separate loop.
     const productMap = new Map<
       string,
-      { productId: string; productName: string; revenue: number; bottles: number; costTotal: number; bottlesCosted: number }
+      {
+        productId: string; productName: string; revenue: number; bottles: number; costTotal: number; bottlesCosted: number;
+        capCostTotal: number; bottlesCapCosted: number;
+      }
     >();
     let uncostedBottles = 0;
+    let uncapCostedBottles = 0;
     for (const item of deliveryItems) {
       const entry = productMap.get(item.product.id) ?? {
         productId: item.product.id,
@@ -496,6 +534,8 @@ export class AnalyticsService {
         bottles: 0,
         costTotal: 0,
         bottlesCosted: 0,
+        capCostTotal: 0,
+        bottlesCapCosted: 0,
       };
       // Net of filled-return credits, same as cashByPaymentType's `expected` above.
       entry.revenue += (item.filledDropped - (item.filledReceived ?? 0)) * item.pricePerBottle;
@@ -508,6 +548,14 @@ export class AnalyticsService {
         entry.bottlesCosted += item.filledDropped;
       } else {
         uncostedBottles += item.filledDropped;
+      }
+
+      const applicableCapCost = bucketDate ? findApplicableCapCost(item.product.id, bucketDate) : null;
+      if (applicableCapCost) {
+        entry.capCostTotal += item.filledDropped * applicableCapCost.costPerUnit;
+        entry.bottlesCapCosted += item.filledDropped;
+      } else {
+        uncapCostedBottles += item.filledDropped;
       }
 
       productMap.set(item.product.id, entry);
@@ -559,6 +607,39 @@ export class AnalyticsService {
     const grossProfitMargin =
       grossProfit === null ? null : totalRevenue > 0 ? Math.round((grossProfit / totalRevenue) * 100) : null;
 
+    // ── Cap COGS (owner request 2026-09-22) — identical shape to `cogs`
+    // above, kept as its own top-level block rather than merged into `cogs`
+    // so every existing consumer of `cogs`/`grossProfit`/`grossProfitMargin`
+    // keeps seeing exactly the same bottle-only numbers it always has
+    // (purely additive, same convention as §5/§6 of the COGS design doc).
+    // Every vendor starts at 0% cap coverage until a Cap Cost History entry
+    // is added — never defaulted to 0/fabricated, same "missing historical
+    // costs" rule as bottles.
+    const totalBottlesCapCosted = Array.from(productMap.values()).reduce((s, p) => s + p.bottlesCapCosted, 0);
+    const capCogsTotal = round2(Array.from(productMap.values()).reduce((s, p) => s + p.capCostTotal, 0));
+    const capCoverage = totalBottlesDelivered > 0 ? Math.round((totalBottlesCapCosted / totalBottlesDelivered) * 100) : null;
+    const capCogs = {
+      total: capCogsTotal,
+      byProduct: Array.from(productMap.values()).map((p) => ({
+        productId: p.productId,
+        productName: p.productName,
+        bottlesDelivered: p.bottles,
+        bottlesCosted: p.bottlesCapCosted,
+        costTotal: round2(p.capCostTotal),
+      })),
+      uncostedBottles: uncapCostedBottles,
+      coverage: capCoverage,
+      isPartial: uncapCostedBottles > 0,
+    };
+    // Combined waterfall step (Revenue → COGS → Cap COGS → Gross Profit After
+    // Caps) — only meaningful once bottle cost data exists at all (mirrors
+    // `grossProfit`'s own null rule); cap cost is folded in whatever amount
+    // is actually on file, same "a partial-but-nonzero figure is still real
+    // and useful" principle as `grossProfit` itself.
+    const grossProfitAfterCaps = grossProfit === null ? null : round2(grossProfit - capCogsTotal);
+    const grossProfitAfterCapsMargin =
+      grossProfitAfterCaps === null ? null : totalRevenue > 0 ? Math.round((grossProfitAfterCaps / totalRevenue) * 100) : null;
+
     // ── Plant Balance — outstanding balance owed to the plant (owner-requested
     // 2026-09-15 follow-up) ──────────────────────────────────────────────────
     // Deliberately NOT scoped by the `from`/`to` filter, exactly like
@@ -588,7 +669,7 @@ export class AnalyticsService {
     // documented next step (mirroring ExpenseCenterService's own precedent
     // for the same trade-off) is a materialized running-balance rollup
     // updated incrementally on each new delivery/payment, not a bigger scan.
-    const [allTimeDeliveryItems, allTimeCostRows, plantPaidAgg] = await Promise.all([
+    const [allTimeDeliveryItems, allTimeCostRows, allTimeCapCostRows, plantPaidAgg, capPaidAgg] = await Promise.all([
       this.prisma.dailySheetItem.findMany({
         where: {
           status: { not: 'VOIDED' },
@@ -597,8 +678,17 @@ export class AnalyticsService {
         },
         select: { productId: true, filledDropped: true, dailySheet: { select: { date: true } } },
       }),
+      // `kind: BOTTLE` explicit (2026-09-22) — without it this would now pull
+      // CAP rows into the same lookup once caps got their own ProductCost
+      // rows, silently corrupting Plant Balance with the wrong per-product
+      // rate on whichever kind happened to sort as "applicable".
       this.prisma.productCost.findMany({
-        where: { vendorId, voidedAt: null },
+        where: { vendorId, kind: ProductCostKind.BOTTLE, voidedAt: null },
+        orderBy: { effectiveFrom: 'asc' },
+      }),
+      // Mirrors the query above, scoped to CAP — feeds `capBalance` below.
+      this.prisma.productCost.findMany({
+        where: { vendorId, kind: ProductCostKind.CAP, voidedAt: null },
         orderBy: { effectiveFrom: 'asc' },
       }),
       this.prisma.expense.aggregate({
@@ -608,36 +698,63 @@ export class AnalyticsService {
         },
         _sum: { amount: true },
       }),
+      // Cap Balance's "paid" side (owner request 2026-09-22) — caps are paid
+      // for separately from the plant, under their own existing expense
+      // category (CAPS_PURCHASED, added 2026-09-07, previously unused by any
+      // reconciliation view).
+      this.prisma.expense.aggregate({
+        where: { vendorId, category: ExpenseCategory.CAPS_PURCHASED },
+        _sum: { amount: true },
+      }),
     ]);
-    const allTimeCostsByProduct = new Map<string, typeof allTimeCostRows>();
-    for (const c of allTimeCostRows) {
-      const list = allTimeCostsByProduct.get(c.productId) ?? [];
-      list.push(c);
-      allTimeCostsByProduct.set(c.productId, list);
-    }
-    const findAllTimeApplicableCost = (productId: string, date: Date) => {
-      const list = allTimeCostsByProduct.get(productId);
-      if (!list) return null;
-      let applicable: (typeof list)[number] | null = null;
-      for (const c of list) {
-        if (c.effectiveFrom > date) break;
-        if (c.effectiveTo && c.effectiveTo < date) continue;
-        applicable = c;
+    const buildCostLookup = (rows: typeof allTimeCostRows) => {
+      const byProduct = new Map<string, typeof rows>();
+      for (const c of rows) {
+        const list = byProduct.get(c.productId) ?? [];
+        list.push(c);
+        byProduct.set(c.productId, list);
       }
-      return applicable;
+      return (productId: string, date: Date) => {
+        const list = byProduct.get(productId);
+        if (!list) return null;
+        let applicable: (typeof rows)[number] | null = null;
+        for (const c of list) {
+          if (c.effectiveFrom > date) break;
+          if (c.effectiveTo && c.effectiveTo < date) continue;
+          applicable = c;
+        }
+        return applicable;
+      };
     };
+    const findAllTimeApplicableCost = buildCostLookup(allTimeCostRows);
+    const findAllTimeApplicableCapCost = buildCostLookup(allTimeCapCostRows);
     let totalCogsAllTime = 0;
+    let totalCapCogsAllTime = 0;
     for (const item of allTimeDeliveryItems) {
       const bucketDate = item.dailySheet?.date ?? null;
       const applicableCost = bucketDate ? findAllTimeApplicableCost(item.productId, bucketDate) : null;
       if (applicableCost) totalCogsAllTime += item.filledDropped * applicableCost.costPerUnit;
+      const applicableCapCost = bucketDate ? findAllTimeApplicableCapCost(item.productId, bucketDate) : null;
+      if (applicableCapCost) totalCapCogsAllTime += item.filledDropped * applicableCapCost.costPerUnit;
     }
     totalCogsAllTime = round2(totalCogsAllTime);
+    totalCapCogsAllTime = round2(totalCapCogsAllTime);
     const totalPaidAllTime = round2(plantPaidAgg._sum.amount ?? 0);
+    const totalCapPaidAllTime = round2(capPaidAgg._sum.amount ?? 0);
     const plantBalance = {
       totalCogs: totalCogsAllTime,
       totalPaid: totalPaidAllTime,
       outstanding: round2(totalCogsAllTime - totalPaidAllTime),
+    };
+    // Cap Balance (owner request 2026-09-22) — same shape/semantics as
+    // `plantBalance` above, reconciled against CAPS_PURCHASED instead of
+    // BOTTLE_PURCHASED/BOTTLE_REFILL_PAYMENT. All-time, not date-scoped, for
+    // the same reason plantBalance isn't ("how much do we currently owe the
+    // cap supplier" is a running liability, not a period figure).
+    const capBalance = {
+      totalCogs: totalCapCogsAllTime,
+      totalPaid: totalCapPaidAllTime,
+      outstanding: round2(totalCapCogsAllTime - totalCapPaidAllTime),
     };
 
     const result = {
@@ -658,8 +775,17 @@ export class AnalyticsService {
       cogs,
       grossProfit,
       grossProfitMargin,
+      // Caps as a separate cost stream (owner request 2026-09-22) — purely
+      // additive, same shape as cogs/grossProfit above but for the cap cost
+      // paid separately from the plant. `grossProfitAfterCaps` is the one
+      // waterfall figure that folds both bottle AND cap cost out of revenue;
+      // `grossProfit` above is left as the bottle-only figure it always was.
+      capCogs,
+      grossProfitAfterCaps,
+      grossProfitAfterCapsMargin,
       // All-time, not date-scoped — see the computation comment above.
       plantBalance,
+      capBalance,
       revenueByProduct,
       revenueByRoute,
       cashByVan,

@@ -1,14 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { History, PlusCircle, Pencil, Ban, Inbox } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
   Button, Badge, Skeleton, cn,
+  Tabs, TabsList, TabsTrigger,
 } from '@water-supply-crm/ui';
 import { useCan } from '../../authz/hooks/use-can';
 import { useProductCostHistory } from '../hooks/use-product-costs';
-import type { ProductCost } from '../api/product-costs.api';
+import type { ProductCost, ProductCostKind } from '../api/product-costs.api';
 import { AddCostForm } from './add-cost-form';
 import { EditCostForm } from './edit-cost-form';
 import { VoidCostDialog } from './void-cost-dialog';
@@ -52,11 +53,21 @@ export function CostHistoryDialog({ product, onOpenChange }: CostHistoryDialogPr
   const canManage = useCan('product_costs:manage');
 
   const open = !!product && canView;
-  const { data: history, isLoading } = useProductCostHistory(product?.id, open);
+
+  // Bottle vs Cap (2026-09-22) — each is a fully independent effective-dated
+  // timeline for the same product, so this tab just re-scopes the same
+  // query/forms by `kind` rather than being two separate dialogs.
+  const [kind, setKind] = useState<ProductCostKind>('BOTTLE');
+  const { data: history, isLoading } = useProductCostHistory(product?.id, kind, open);
 
   const [addOpen, setAddOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<ProductCost | null>(null);
   const [voidTarget, setVoidTarget] = useState<ProductCost | null>(null);
+
+  // Reset back to Bottle whenever a different product's dialog opens.
+  useEffect(() => {
+    if (product) setKind('BOTTLE');
+  }, [product?.id]);
 
   if (!product) return null;
 
@@ -73,15 +84,22 @@ export function CostHistoryDialog({ product, onOpenChange }: CostHistoryDialogPr
               Cost History — {product.name}
             </DialogTitle>
             <DialogDescription>
-              Versioned plant cost per unit over time. Used to compute COGS/margin on Financial Analytics — never
-              affects delivery pricing.
+              Versioned {kind === 'CAP' ? 'cap' : 'plant bottle'} cost per unit over time. Used to compute COGS/margin
+              on Financial Analytics — never affects delivery pricing.
             </DialogDescription>
           </DialogHeader>
+
+          <Tabs value={kind} onValueChange={(v) => setKind(v as ProductCostKind)}>
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="BOTTLE">Bottle Cost</TabsTrigger>
+              <TabsTrigger value="CAP">Cap Cost</TabsTrigger>
+            </TabsList>
+          </Tabs>
 
           {canManage && (
             <div className="flex justify-end">
               <Button size="sm" className="rounded-xl font-bold gap-1.5" onClick={() => setAddOpen(true)}>
-                <PlusCircle className="h-4 w-4" /> Add Cost
+                <PlusCircle className="h-4 w-4" /> Add {kind === 'CAP' ? 'Cap' : 'Bottle'} Cost
               </Button>
             </div>
           )}
@@ -96,7 +114,8 @@ export function CostHistoryDialog({ product, onOpenChange }: CostHistoryDialogPr
                 <Inbox className="h-8 w-8 text-muted-foreground/40" />
               </div>
               <p className="text-sm font-bold text-muted-foreground/40 text-center">
-                No cost history yet — add your first rate to start tracking margin for this product.
+                No {kind === 'CAP' ? 'cap' : 'bottle'} cost history yet — add your first rate to start tracking margin
+                for this product.
               </p>
             </div>
           ) : (
@@ -196,6 +215,7 @@ export function CostHistoryDialog({ product, onOpenChange }: CostHistoryDialogPr
             onOpenChange={setAddOpen}
             productId={product.id}
             productName={product.name}
+            kind={kind}
             history={rows}
           />
           <EditCostForm row={editTarget} productId={product.id} onOpenChange={(o) => { if (!o) setEditTarget(null); }} />

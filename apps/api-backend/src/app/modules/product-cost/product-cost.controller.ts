@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ProductCostService } from './product-cost.service';
 import { CreateProductCostDto } from './dto/create-product-cost.dto';
 import { EditProductCostDto } from './dto/edit-product-cost.dto';
@@ -6,6 +6,7 @@ import { VoidProductCostDto } from './dto/void-product-cost.dto';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
+import { ProductCostKind } from '@prisma/client';
 
 /**
  * Historical Product Cost & COGS (docs/features/product-cost-history-and-cogs.md
@@ -24,11 +25,17 @@ export class ProductCostController {
     return this.productCosts.create(user, dto);
   }
 
-  /** GET /product-costs/product/:productId — full history, most recent first. */
+  /** GET /product-costs/product/:productId?kind=BOTTLE|CAP — full history for
+   *  that one cost stream, most recent first. Defaults to BOTTLE (the
+   *  original/only kind before caps-as-a-separate-cost, 2026-09-22). */
   @Get('product/:productId')
   @RequirePermissions('product_costs:view')
-  listHistory(@CurrentUser() user: AuthUser, @Param('productId') productId: string) {
-    return this.productCosts.listHistory(user, productId);
+  listHistory(
+    @CurrentUser() user: AuthUser,
+    @Param('productId') productId: string,
+    @Query('kind') kind?: ProductCostKind,
+  ) {
+    return this.productCosts.listHistory(user, productId, kind ?? ProductCostKind.BOTTLE);
   }
 
   /** PATCH /product-costs/:id — Controlled Edit, `costPerUnit` only (design doc §4.4). */

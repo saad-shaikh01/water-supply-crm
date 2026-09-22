@@ -1,4 +1,5 @@
-import { IsDateString, IsNumber, IsOptional, IsString, IsUUID, Min, MaxLength } from 'class-validator';
+import { IsDateString, IsEnum, IsNumber, IsOptional, IsString, IsUUID, Min, MaxLength } from 'class-validator';
+import { ProductCostKind } from '@prisma/client';
 
 /**
  * Add / backdated-insert a ProductCost row (design doc §4.1). `note` is
@@ -9,6 +10,13 @@ import { IsDateString, IsNumber, IsOptional, IsString, IsUUID, Min, MaxLength } 
 export class CreateProductCostDto {
   @IsUUID()
   productId: string;
+
+  /** Which cost stream this row belongs to (2026-09-22, caps as a separate
+   *  cost). Optional — omitted defaults to `BOTTLE` (the original/only kind)
+   *  so any caller not yet aware of `kind` keeps working unchanged. */
+  @IsOptional()
+  @IsEnum(ProductCostKind)
+  kind?: ProductCostKind;
 
   @IsNumber()
   @Min(0.01)

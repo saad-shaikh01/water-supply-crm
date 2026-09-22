@@ -40,7 +40,7 @@ export function EditCostForm({ row, productId, onOpenChange }: EditCostFormProps
 
   const onSubmit = (data: EditCostInput) => {
     edit(
-      { id: row.id, productId, data: { costPerUnit: data.costPerUnit, note: data.note } },
+      { id: row.id, productId, kind: row.kind, data: { costPerUnit: data.costPerUnit, note: data.note } },
       { onSuccess: () => onOpenChange(false) },
     );
   };

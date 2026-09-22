@@ -1,10 +1,50 @@
-# Historical Product Cost & COGS — Feature Design (Planning Only)
+# Historical Product Cost & COGS — Feature Design
 
-**Status: DESIGN DOCUMENT ONLY. No schema, migration, backend, or frontend change has
-been made.** This document is the single source of truth for the feature until an
-implementation phase is explicitly approved. Decisions marked **D1–D9** below are the
-load-bearing calls this design makes; changing one after implementation starts requires
-a revision to this doc, not a silent code change.
+**Status: IMPLEMENTED** (schema, backend, frontend all shipped; the design below is now
+historical record of the decisions made, not a plan). Decisions marked **D1–D9** below
+were the load-bearing calls this design made.
+
+## Revision 2 — Caps as a separate cost stream (2026-09-22, owner request)
+
+Caps are purchased separately from the plant's bottle-refill cost, on their own payment
+(`Expense.category: CAPS_PURCHASED`, already existed, previously unused by any
+reconciliation view), and the business wants that cost calculated per bottle sold, same
+as the bottle cost above, but reported apart — never blended into one number.
+
+**Implementation:** `ProductCost` gained a `kind ProductCostKind @default(BOTTLE)` column
+(migration `20260922010000_add_product_cost_kind`) instead of a new table — every
+mutation path (Add/§4.1, Void/§4.3, Controlled Edit/§4.4) is reused unchanged for both
+streams; each `(vendor, product, kind)` now has its own independent effective-dated
+timeline (unique constraint extended to `[vendorId, productId, kind, effectiveFrom]`).
+`kind` defaults to `BOTTLE`, so every pre-existing row is reinterpreted as exactly what
+it already was — zero data migration, zero meaning change for existing rows.
+
+- **API:** `POST /product-costs` takes an optional `kind` (`BOTTLE` | `CAP`, defaults
+  `BOTTLE`); `GET /product-costs/product/:productId?kind=...` scopes history to one
+  stream at a time (defaults `BOTTLE`).
+- **RBAC:** no new permission — `product_costs:view`/`manage` gate both kinds.
+- **COGS (`AnalyticsService.getFinancial()`):** a fully parallel `capCogs` block
+  (identical shape to `cogs`) was added, purely additive — `cogs`/`grossProfit`/
+  `grossProfitMargin` are byte-identical to before this revision (bottle-only, unchanged).
+  A new `grossProfitAfterCaps`/`grossProfitAfterCapsMargin` pair is the one figure that
+  nets out both bottle AND cap cost. A parallel `capBalance` (same shape as
+  `plantBalance`) reconciles all-time cap cost incurred against `CAPS_PURCHASED` expense
+  payments.
+- **Bug caught during this revision:** the pre-existing Plant Balance all-time query
+  (`this.prisma.productCost.findMany({ where: { vendorId, voidedAt: null } })`) had no
+  `kind` filter — harmless before this revision (only `BOTTLE` rows existed), but would
+  have silently mixed `BOTTLE` and `CAP` rows into the same per-product cost lookup the
+  moment caps got their own rows. Fixed by adding `kind: BOTTLE` explicitly, alongside
+  the new parallel `kind: CAP` query for `capBalance`.
+- **Frontend:** the per-product Cost History dialog gained a Bottle/Cap tab (each tab is
+  the same Add/Edit/Void UI, re-scoped by `kind`); Financial Analytics gained Cap
+  COGS / Gross Profit After Caps / Cap Balance sections, gated by the same
+  `analytics:view_margins` permission as the existing bottle-cost sections.
+
+---
+
+The rest of this document (§0–§11 below) is the original design, describing the
+bottle-only `ProductCost` feature before the caps revision above.
 
 Facts about the current codebase referenced below were verified against
 `libs/shared/database/prisma/schema.prisma`, `apps/api-backend/src/app/modules/analytics/`,

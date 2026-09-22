@@ -10,7 +10,7 @@ import {
 import { PlusCircle, AlertTriangle, History } from 'lucide-react';
 import { addCostSchema, type AddCostInput } from '../schemas';
 import { useCreateProductCost } from '../hooks/use-product-costs';
-import type { ProductCost } from '../api/product-costs.api';
+import type { ProductCost, ProductCostKind } from '../api/product-costs.api';
 
 /**
  * Add a cost row (design doc §4.1/§7.3). `effectiveFrom` is deliberately NOT
@@ -52,12 +52,16 @@ interface AddCostFormProps {
   onOpenChange: (open: boolean) => void;
   productId: string;
   productName?: string;
+  /** Which cost stream this Add targets (2026-09-22) — BOTTLE or CAP; each has its own
+   *  independent effective-dated timeline, so the "covering row" check below only
+   *  ever considers `history` for this one kind (the parent dialog already scopes it). */
+  kind: ProductCostKind;
   /** The product's already-loaded history (from the parent Cost History dialog) — used
    *  to determine client-side whether this insert would backdate into an existing range. */
   history: ProductCost[];
 }
 
-export function AddCostForm({ open, onOpenChange, productId, productName, history }: AddCostFormProps) {
+export function AddCostForm({ open, onOpenChange, productId, productName, kind, history }: AddCostFormProps) {
   const { mutate: create, isPending } = useCreateProductCost();
 
   const { register, handleSubmit, reset, watch, setError, clearErrors, formState: { errors } } = useForm<AddCostInput>({
@@ -93,6 +97,7 @@ export function AddCostForm({ open, onOpenChange, productId, productName, histor
     create(
       {
         productId,
+        kind,
         costPerUnit: data.costPerUnit,
         effectiveFrom: data.effectiveFrom,
         note: note || undefined,
@@ -108,9 +113,13 @@ export function AddCostForm({ open, onOpenChange, productId, productName, histor
         <DialogHeader>
           <DialogTitle className="text-xl font-black flex items-center gap-2">
             <PlusCircle className="h-5 w-5 text-primary" />
-            Add Cost
+            Add {kind === 'CAP' ? 'Cap' : 'Bottle'} Cost
           </DialogTitle>
-          <DialogDescription>{productName ? `New plant cost rate for ${productName}.` : 'New plant cost rate.'}</DialogDescription>
+          <DialogDescription>
+            {productName
+              ? `New ${kind === 'CAP' ? 'cap' : 'plant bottle'} cost rate for ${productName}.`
+              : `New ${kind === 'CAP' ? 'cap' : 'plant bottle'} cost rate.`}
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 py-2">

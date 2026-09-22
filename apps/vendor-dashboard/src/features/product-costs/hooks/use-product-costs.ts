@@ -4,16 +4,18 @@ import { queryKeys } from '../../../lib/query-keys';
 import {
   productCostsApi,
   type ProductCost,
+  type ProductCostKind,
   type CreateProductCostPayload,
   type EditProductCostPayload,
   type VoidProductCostPayload,
 } from '../api/product-costs.api';
 
-/** GET /product-costs/product/:productId — full history, most-recent-first (incl. voided rows). */
-export const useProductCostHistory = (productId: string | null | undefined, enabled = true) =>
+/** GET /product-costs/product/:productId?kind=... — full history for one cost
+ *  stream, most-recent-first (incl. voided rows). Defaults to BOTTLE. */
+export const useProductCostHistory = (productId: string | null | undefined, kind: ProductCostKind = 'BOTTLE', enabled = true) =>
   useQuery({
-    queryKey: queryKeys.productCosts.history(productId ?? ''),
-    queryFn: (): Promise<ProductCost[]> => productCostsApi.listHistory(productId as string).then((r) => r.data),
+    queryKey: queryKeys.productCosts.history(productId ?? '', kind),
+    queryFn: (): Promise<ProductCost[]> => productCostsApi.listHistory(productId as string, kind).then((r) => r.data),
     enabled: !!productId && enabled,
   });
 
@@ -23,7 +25,7 @@ export const useCreateProductCost = () => {
   return useMutation({
     mutationFn: (data: CreateProductCostPayload) => productCostsApi.create(data).then((r) => r.data),
     onSuccess: (_result, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.productCosts.history(variables.productId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.productCosts.history(variables.productId, variables.kind ?? 'BOTTLE') });
       toast.success('Cost recorded');
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -35,10 +37,10 @@ export const useCreateProductCost = () => {
 export const useEditProductCost = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, productId, data }: { id: string; productId: string; data: EditProductCostPayload }) =>
+    mutationFn: ({ id, productId, kind, data }: { id: string; productId: string; kind: ProductCostKind; data: EditProductCostPayload }) =>
       productCostsApi.edit(id, data).then((r) => r.data),
     onSuccess: (_result, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.productCosts.history(variables.productId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.productCosts.history(variables.productId, variables.kind) });
       toast.success('Cost updated');
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -51,10 +53,10 @@ export const useVoidProductCost = () => {
   const queryClient = useQueryClient();
   return useMutation({
     retry: 0,
-    mutationFn: ({ id, productId, data }: { id: string; productId: string; data: VoidProductCostPayload }) =>
+    mutationFn: ({ id, productId, kind, data }: { id: string; productId: string; kind: ProductCostKind; data: VoidProductCostPayload }) =>
       productCostsApi.voidRow(id, data).then((r) => r.data),
     onSuccess: (_result, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.productCosts.history(variables.productId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.productCosts.history(variables.productId, variables.kind) });
       toast.success('Cost row voided');
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

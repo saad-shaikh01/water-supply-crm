@@ -8,10 +8,16 @@ import { apiClient } from '@water-supply-crm/data-access';
 
 export type ProductCostSource = 'MANUAL';
 
+/** Which cost stream a row belongs to (2026-09-22) — BOTTLE is the plant's
+ *  refill rate (the original/only kind); CAP is bottle caps, bought
+ *  separately from the plant on their own payment. */
+export type ProductCostKind = 'BOTTLE' | 'CAP';
+
 export interface ProductCost {
   id: string;
   vendorId: string;
   productId: string;
+  kind: ProductCostKind;
   costPerUnit: number;
   effectiveFrom: string;
   effectiveTo: string | null;
@@ -35,6 +41,8 @@ export interface ProductCost {
 
 export interface CreateProductCostPayload {
   productId: string;
+  /** Omitted defaults to `BOTTLE` server-side. */
+  kind?: ProductCostKind;
   costPerUnit: number;
   /** ISO date string, e.g. `2026-01-15`. */
   effectiveFrom: string;
@@ -55,7 +63,8 @@ export interface VoidProductCostPayload {
 }
 
 export const productCostsApi = {
-  listHistory: (productId: string) => apiClient.get<ProductCost[]>(`/product-costs/product/${productId}`),
+  listHistory: (productId: string, kind: ProductCostKind = 'BOTTLE') =>
+    apiClient.get<ProductCost[]>(`/product-costs/product/${productId}`, { params: { kind } }),
   create: (data: CreateProductCostPayload) => apiClient.post<ProductCost>('/product-costs', data),
   edit: (id: string, data: EditProductCostPayload) => apiClient.patch<ProductCost>(`/product-costs/${id}`, data),
   voidRow: (id: string, data: VoidProductCostPayload) => apiClient.post<ProductCost>(`/product-costs/${id}/void`, data),

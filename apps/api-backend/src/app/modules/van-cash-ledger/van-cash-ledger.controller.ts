@@ -15,6 +15,7 @@ import { memoryStorage } from 'multer';
 import { extname } from 'path';
 import { Throttle } from '@nestjs/throttler';
 import { VanCashLedgerService } from './van-cash-ledger.service';
+import { SupplierBillService } from './supplier-bill.service';
 import { AddCashInDto } from './dto/add-cash-in.dto';
 import { EditManualCashInDto } from './dto/edit-manual-cash-in.dto';
 import { VoidManualCashInDto } from './dto/void-manual-cash-in.dto';
@@ -65,6 +66,7 @@ export class VanCashLedgerController {
   constructor(
     private readonly vanCashLedger: VanCashLedgerService,
     private readonly periods: CashLedgerPeriodService,
+    private readonly supplierBills: SupplierBillService,
     private readonly storage: StorageService,
   ) {}
 
@@ -160,6 +162,15 @@ export class VanCashLedgerController {
   @RequirePermissions('van_cash_ledger:view')
   getStats(@CurrentUser() user: AuthUser, @Query() query: VanCashLedgerStatsQueryDto) {
     return this.vanCashLedger.getStats(user.vendorId, query);
+  }
+
+  /** Month-wise Plant/Caps bill status (owner request 2026-09-22) — prev-months
+   *  pending vs. this month's bill for each, so the office can pay the oldest
+   *  amount owed first. See SupplierBillService's class doc for the formula. */
+  @Get('supplier-bills')
+  @RequirePermissions('van_cash_ledger:view')
+  getSupplierBills(@CurrentUser() user: AuthUser) {
+    return this.supplierBills.getSupplierBillStatus(user.vendorId);
   }
 
   @Get('pending-handovers')

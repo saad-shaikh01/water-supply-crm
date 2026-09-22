@@ -84,6 +84,15 @@ export const useCashLedgerStats = () => {
   });
 };
 
+/** Month-wise Plant/Caps bill status (owner request 2026-09-22) — always "this
+ *  PKT month", not affected by the page's date-range filter (a running
+ *  payable, same reasoning as the office cash balance being live-not-ranged). */
+export const useSupplierBills = () =>
+  useQuery({
+    queryKey: [QUERY_KEY, 'supplier-bills'],
+    queryFn: () => vanCashLedgerApi.getSupplierBills().then((r) => r.data),
+  });
+
 /** Reconciliation statement + memo for the selected range/van (P1 summary strip and mini-bar). */
 export const useCashLedgerSummary = () => {
   const [vanId] = useQueryState('vanId', parseAsString.withDefault(''));

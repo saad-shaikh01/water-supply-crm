@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import type { AuthUser } from '@water-supply-crm/types';
-import { Prisma, ProductCostSource } from '@prisma/client';
+import { Prisma, ProductCostKind, ProductCostSource } from '@prisma/client';
 import { CreateProductCostDto } from './dto/create-product-cost.dto';
 import { EditProductCostDto } from './dto/edit-product-cost.dto';
 import { VoidProductCostDto } from './dto/void-product-cost.dto';
@@ -28,6 +28,12 @@ export class ProductCostService {
   async create(user: AuthUser, dto: CreateProductCostDto) {
     await this.assertProductInVendor(user.vendorId, dto.productId);
 
+    // Each (vendor, product, kind) has its own independent effective-dated
+    // timeline (2026-09-22, caps as a separate cost stream) — every lookup
+    // below that used to be scoped by just (vendorId, productId) now also
+    // scopes by `kind`, so a BOTTLE insert can never trim/see a CAP row and
+    // vice versa. Omitted defaults to BOTTLE (the original/only kind).
+    const kind = dto.kind ?? ProductCostKind.BOTTLE;
     const effectiveFrom = new Date(dto.effectiveFrom);
     const note = dto.note?.trim() || undefined;
 
@@ -37,6 +43,7 @@ export class ProductCostService {
         where: {
           vendorId: user.vendorId,
           productId: dto.productId,
+          kind,
           voidedAt: null,
           effectiveFrom: { lte: effectiveFrom },
           OR: [{ effectiveTo: null }, { effectiveTo: { gte: effectiveFrom } }],
@@ -111,7 +118,7 @@ export class ProductCostService {
         // backdate. New row ends the day before the earliest existing row
         // (if any), or stays open (null) if the product has no history yet.
         const earliest = await tx.productCost.findFirst({
-          where: { vendorId: user.vendorId, productId: dto.productId, voidedAt: null },
+          where: { vendorId: user.vendorId, productId: dto.productId, kind, voidedAt: null },
           orderBy: { effectiveFrom: 'asc' },
         });
 
@@ -128,6 +135,7 @@ export class ProductCostService {
         data: {
           vendorId: user.vendorId,
           productId: dto.productId,
+          kind,
           costPerUnit: dto.costPerUnit,
           effectiveFrom,
           effectiveTo: newEffectiveTo,
@@ -179,11 +187,11 @@ export class ProductCostService {
    * `editCostPerUnit`'s own check — a row can genuinely flip editable again
    * if the deliveries that once disqualified it are later voided.
    */
-  async listHistory(user: AuthUser, productId: string) {
+  async listHistory(user: AuthUser, productId: string, kind: ProductCostKind = ProductCostKind.BOTTLE) {
     await this.assertProductInVendor(user.vendorId, productId);
 
     const rows = await this.prisma.productCost.findMany({
-      where: { vendorId: user.vendorId, productId },
+      where: { vendorId: user.vendorId, productId, kind },
       orderBy: { effectiveFrom: 'desc' },
     });
 
@@ -302,6 +310,7 @@ export class ProductCostService {
         where: {
           vendorId: user.vendorId,
           productId: row.productId,
+          kind: row.kind,
           voidedAt: null,
           effectiveFrom: { gt: row.effectiveFrom },
         },
@@ -314,6 +323,7 @@ export class ProductCostService {
         where: {
           vendorId: user.vendorId,
           productId: row.productId,
+          kind: row.kind,
           voidedAt: null,
           effectiveFrom: { lt: row.effectiveFrom },
         },

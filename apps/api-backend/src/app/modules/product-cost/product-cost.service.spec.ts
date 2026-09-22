@@ -13,6 +13,7 @@ function row(overrides: Partial<Record<string, any>> = {}) {
     id: 'cost-001',
     vendorId: VENDOR_ID,
     productId: PRODUCT_ID,
+    kind: 'BOTTLE',
     costPerUnit: 100,
     effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
     effectiveTo: null,
@@ -190,6 +191,46 @@ describe('ProductCostService', () => {
         svc.create(adminUser, { productId: 'other', costPerUnit: 100, effectiveFrom: '2026-01-01' } as any),
       ).rejects.toThrow(NotFoundException);
     });
+
+    // 2026-09-22 (caps as a separate cost stream) — each (product, kind) has
+    // its own independent timeline; a BOTTLE insert must never see/trim a
+    // CAP row for the same product, and vice versa.
+    it('defaults kind to BOTTLE and scopes the covering-row lookup by kind', async () => {
+      const { svc, tx } = makeService();
+      tx.productCost.findFirst.mockResolvedValue(null);
+
+      await svc.create(adminUser, { productId: PRODUCT_ID, costPerUnit: 100, effectiveFrom: '2026-01-01' } as any);
+
+      expect(tx.productCost.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ kind: 'BOTTLE' }) }),
+      );
+      expect(tx.productCost.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ kind: 'BOTTLE' }) }),
+      );
+    });
+
+    it('a CAP insert only sees CAP rows as "covering" — a same-date BOTTLE row is not a duplicate conflict', async () => {
+      const { svc, tx } = makeService();
+      // The mocked findFirst doesn't itself filter by kind (that's the
+      // service's job, asserted via the where-clause check below) — return
+      // null here to simulate "no CAP row covers this date", proving the
+      // BOTTLE row at the same effectiveFrom does not block a CAP insert.
+      tx.productCost.findFirst.mockResolvedValue(null);
+
+      await svc.create(adminUser, {
+        productId: PRODUCT_ID,
+        kind: 'CAP',
+        costPerUnit: 5,
+        effectiveFrom: '2026-01-01',
+      } as any);
+
+      expect(tx.productCost.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ kind: 'CAP' }) }),
+      );
+      expect(tx.productCost.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ kind: 'CAP' }) }),
+      );
+    });
   });
 
   // ── listHistory() / isEditable ────────────────────────────────────────────
@@ -285,6 +326,29 @@ describe('ProductCostService', () => {
         svc.voidCurrentRow(adminUser, 'cost-001', { voidReason: 'Typo entry' } as any),
       ).rejects.toThrow(BadRequestException);
       expect(tx.productCost.update).not.toHaveBeenCalled();
+    });
+
+    it('scopes the laterRow/predecessor lookups by the row\'s own kind (2026-09-22)', async () => {
+      const { svc, tx } = makeService();
+      const current = row({ id: 'cap-002', kind: 'CAP', effectiveFrom: new Date('2026-01-15'), effectiveTo: null });
+
+      tx.productCost.findFirst
+        .mockResolvedValueOnce(current)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null);
+
+      await svc.voidCurrentRow(adminUser, 'cap-002', { voidReason: 'Typo entry' } as any);
+
+      // laterRow check
+      expect(tx.productCost.findFirst).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ where: expect.objectContaining({ kind: 'CAP' }) }),
+      );
+      // predecessor lookup
+      expect(tx.productCost.findFirst).toHaveBeenNthCalledWith(
+        3,
+        expect.objectContaining({ where: expect.objectContaining({ kind: 'CAP' }) }),
+      );
     });
   });
 

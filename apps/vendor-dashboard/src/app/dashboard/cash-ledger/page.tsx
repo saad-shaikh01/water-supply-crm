@@ -13,6 +13,7 @@ import { CashLedgerMiniBar } from '../../../features/van-cash-ledger/components/
 import { CashLedgerLegend } from '../../../features/van-cash-ledger/components/cash-ledger-legend';
 import { CashLedgerPeriodPill } from '../../../features/van-cash-ledger/components/cash-ledger-period-pill';
 import { CashLedgerPeriodBanner } from '../../../features/van-cash-ledger/components/cash-ledger-period-banner';
+import { SupplierBillCards } from '../../../features/van-cash-ledger/components/supplier-bill-cards';
 import { RecordMenu } from '../../../features/van-cash-ledger/components/record-menu';
 import { PendingApprovalsPanel } from '../../../features/van-cash-ledger/components/pending-approvals-panel';
 import { AddCashInDialog } from '../../../features/van-cash-ledger/components/add-cash-in-dialog';
@@ -102,6 +103,8 @@ export default function CashLedgerPage() {
         <div ref={heroRef}>
           <CashLedgerSummary />
         </div>
+
+        <SupplierBillCards />
 
         <CashLedgerToolbar ref={toolbarRef} />
 

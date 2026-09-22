@@ -36,7 +36,7 @@ export function VoidCostDialog({ row, productId, onOpenChange }: VoidCostDialogP
   const handleVoid = () => {
     if (!canSubmit) return;
     voidCost.mutate(
-      { id: row.id, productId, data: { voidReason: reason.trim() } },
+      { id: row.id, productId, kind: row.kind, data: { voidReason: reason.trim() } },
       { onSuccess: () => onOpenChange(false) },
     );
   };

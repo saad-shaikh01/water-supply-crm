@@ -546,6 +546,24 @@ export interface CashLedgerStatsQuery {
   to?: string;
 }
 
+/**
+ * Month-wise Plant/Caps bill status (owner request 2026-09-22) — mirrors
+ * SupplierBillService's `SupplierBillBucket`/`SupplierBillStatus` on the
+ * backend exactly.
+ */
+export interface SupplierBillBucket {
+  prevMonthPending: number;
+  currentMonthBill: number;
+  currentMonthPending: number;
+  totalPending: number;
+}
+
+export interface SupplierBillStatus {
+  periodLabel: string;
+  plant: SupplierBillBucket;
+  caps: SupplierBillBucket;
+}
+
 export interface CashLedgerStats {
   /** Date-range scoped — office expenses + payroll cash + crew cash. */
   totalExpense: number;
@@ -762,6 +780,8 @@ export const vanCashLedgerApi = {
     apiClient.get<SheetCashBreakdown>(`/van-cash-ledger/sheets/${dailySheetId}/cash-breakdown`),
   getStats: (params?: CashLedgerStatsQuery) =>
     apiClient.get<CashLedgerStats>('/van-cash-ledger/stats', { params }),
+  getSupplierBills: () =>
+    apiClient.get<SupplierBillStatus>('/van-cash-ledger/supplier-bills'),
   getPendingHandovers: (params?: PendingHandoverQuery) =>
     apiClient.get<PendingHandover[]>('/van-cash-ledger/pending-handovers', { params }),
   approveHandover: (id: string, data: ApproveHandoverPayload) =>

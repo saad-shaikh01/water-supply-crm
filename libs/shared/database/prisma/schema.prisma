@@ -2552,6 +2552,17 @@ enum ProductCostSource {
   MANUAL // the only writer built in this phase; reserved for a future automated writer (e.g. Purchase Orders)
 }
 
+// Added 2026-09-22 (owner request): caps are purchased separately from the
+// plant's bottle-refill cost, on their own payment, and need their own
+// versioned cost history so COGS can report bottle cost and cap cost apart
+// instead of one blended number. `BOTTLE` is the default so every existing
+// ProductCost row (all of which predate this field) is reinterpreted as
+// exactly what it already was — no data migration, no meaning change.
+enum ProductCostKind {
+  BOTTLE
+  CAP
+}
+
 model ProductCost {
   id       String @id @default(uuid())
   vendorId String
@@ -2559,6 +2570,12 @@ model ProductCost {
 
   productId String
   product   Product @relation(fields: [productId], references: [id])
+
+  // Which cost stream this row belongs to (2026-09-22) — BOTTLE (the plant's
+  // refill rate, the original/only kind before this field existed) or CAP
+  // (bottle caps, bought separately). Each product has two fully independent
+  // effective-dated timelines, one per kind — see the unique constraint below.
+  kind ProductCostKind @default(BOTTLE)
 
   costPerUnit Float // Float, not Decimal/Int — see design doc §2.1 (D2)
 
@@ -2579,8 +2596,8 @@ model ProductCost {
   voidedBy    User?     @relation("ProductCostVoidedBy", fields: [voidedById], references: [id])
   voidReason  String?
 
-  @@unique([vendorId, productId, effectiveFrom])
-  @@index([vendorId, productId, effectiveFrom])
+  @@unique([vendorId, productId, kind, effectiveFrom])
+  @@index([vendorId, productId, kind, effectiveFrom])
 }
 
 // Append-only staff ledger — every non-salary financial event (advance,
