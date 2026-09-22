@@ -2,9 +2,10 @@
 
 import { useState } from 'react';
 import { PageHeader } from '../../../components/shared/page-header';
-import { DateRangePicker } from '../../../components/shared/date-range-picker';
 import { ExpenseKpiStrip } from '../../../features/expense-center/components/expense-kpi-strip';
 import { ExpenseDomainBreakdown } from '../../../features/expense-center/components/expense-domain-breakdown';
+import { ExpenseSourceBreakdown } from '../../../features/expense-center/components/expense-source-breakdown';
+import { ExpenseFilterToolbar } from '../../../features/expense-center/components/expense-filter-toolbar';
 import { ExpenseTimeline } from '../../../features/expense-center/components/expense-timeline';
 import { AddExpenseWizard } from '../../../features/expense-center/wizard/add-expense-wizard';
 import { TopUpFuelCardDialog } from '../../../features/fuel-cards/components/topup-fuel-card-dialog';
@@ -53,13 +54,11 @@ export default function ExpensesPage() {
       />
       <div className="space-y-4">
         <ExpenseKpiStrip />
-        <ExpenseDomainBreakdown />
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 bg-card/30 p-3 sm:p-4 rounded-2xl border border-border">
-          <div className="flex-1 min-w-0">
-            <DateRangePicker className="w-full sm:w-auto sm:min-w-64" />
-          </div>
-          <div className="sm:hidden text-[10px] font-bold text-muted-foreground uppercase tracking-widest ml-1">Expense History</div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <ExpenseDomainBreakdown />
+          <ExpenseSourceBreakdown />
         </div>
+        <ExpenseFilterToolbar />
         {/* Phase 1 replaces the Expenses-only <ExpenseList /> with the unified,
             cross-source timeline. ExpenseList/ExpenseForm stay in the tree for
             the Phase 2 (§07) row-click edit-routing work (ExpenseForm is also

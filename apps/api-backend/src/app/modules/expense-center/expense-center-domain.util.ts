@@ -78,6 +78,43 @@ export type ExpenseCenterCostSign = 'DEBIT' | 'CREDIT';
 /** Pseudo-category exposed for CrewCashDistribution rows (it has no matching ExpenseCategory). */
 export const CREW_CASH_CATEGORY = 'CREW_CASH' as const;
 
+/**
+ * Which recording surface a row came through — a coarser grouping than
+ * `sourceBadge`/`sourceType` (both of which are per-row strings), exposed as a
+ * filterable/aggregatable bucket so an admin can answer "how much of our
+ * spend came in through Daily Sheets vs. the Cash Ledger vs. everywhere
+ * else?" Buckets exactly mirror `expenseSourceBadge`'s priority order
+ * (dailySheetId wins over a fleet link, which wins over a plain manual row) —
+ * see that function's header.
+ */
+export type ExpenseCenterSourceBucket = 'DAILY_SHEET' | 'CASH_LEDGER' | 'FLEET' | 'PAYROLL' | 'EXPENSES';
+
+export const EXPENSE_CENTER_SOURCE_BUCKETS: readonly ExpenseCenterSourceBucket[] = [
+  'DAILY_SHEET',
+  'CASH_LEDGER',
+  'FLEET',
+  'PAYROLL',
+  'EXPENSES',
+];
+
+export const EXPENSE_CENTER_SOURCE_BUCKET_LABELS: Record<ExpenseCenterSourceBucket, string> = {
+  DAILY_SHEET: 'Daily Sheet',
+  CASH_LEDGER: 'Cash Ledger',
+  FLEET: 'Fleet',
+  PAYROLL: 'Payroll',
+  EXPENSES: 'Direct Expense',
+};
+
+/**
+ * Which slice of the `Expense` table a source-bucket filter restricts to.
+ * `Expense` is the one source that can fall into three different buckets
+ * (DAILY_SHEET / FLEET / EXPENSES) depending on its own linkage, so this is
+ * resolved separately from the per-source include flags below — the service
+ * turns it into the matching `dailySheetId`/`fuelLog`/`vehicleServiceRecord`
+ * where-clause.
+ */
+export type ExpenseProvenanceScope = 'ANY' | 'SHEET' | 'FLEET_STANDALONE' | 'MANUAL';
+
 export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
   FUEL_EXPENSE: 'Fuel',
   VEHICLE_MAINTENANCE: 'Vehicle Maintenance',
@@ -502,6 +539,8 @@ export interface ExpenseCenterSourceSelection {
   includeCrewCash: boolean;
   /** Crew cash recorded without a Daily Sheet (ACTIVE `StandaloneCrewCashExpense` rows). */
   includeStandaloneCrewCash: boolean;
+  /** Restricts the `Expense` read to one provenance slice; 'ANY' (default) applies no restriction. */
+  expenseProvenance: ExpenseProvenanceScope;
 }
 
 export interface ExpenseCenterFilterInput {
@@ -512,6 +551,8 @@ export interface ExpenseCenterFilterInput {
   /** Extra Labour (an `ExtraLabour` id — distinct from `employeeId`, a `User` id). Expense-only. */
   extraLabourId?: string;
   paymentMethod?: 'CASH' | 'CARD';
+  /** Which recording surface to restrict to — see `ExpenseCenterSourceBucket`. */
+  source?: ExpenseCenterSourceBucket;
 }
 
 /**
@@ -528,6 +569,7 @@ export function resolveSourceSelection(filter: ExpenseCenterFilterInput): Expens
     includeStaffLedger: true,
     includeCrewCash: true,
     includeStandaloneCrewCash: true,
+    expenseProvenance: 'ANY',
   };
 
   if (filter.domain) {
@@ -605,6 +647,43 @@ export function resolveSourceSelection(filter: ExpenseCenterFilterInput): Expens
     selection.includeStaffLedger = false;
     selection.includeCrewCash = false;
     selection.includeStandaloneCrewCash = false;
+  }
+
+  // Source-bucket narrowing runs last and only ever turns flags OFF (never
+  // back on), so it composes safely with every filter resolved above —
+  // e.g. domain=EMPLOYEES + source=PAYROLL still excludes crew cash.
+  if (filter.source) {
+    switch (filter.source) {
+      case 'DAILY_SHEET':
+        // CrewCashDistribution is always sheet-scoped, so it stays included
+        // (subject to whatever the flags above already decided).
+        selection.expenseProvenance = 'SHEET';
+        selection.includeStaffLedger = false;
+        selection.includeStandaloneCrewCash = false;
+        break;
+      case 'CASH_LEDGER':
+        selection.includeExpenses = false;
+        selection.includeStaffLedger = false;
+        selection.includeCrewCash = false;
+        break;
+      case 'FLEET':
+        selection.expenseProvenance = 'FLEET_STANDALONE';
+        selection.includeStaffLedger = false;
+        selection.includeCrewCash = false;
+        selection.includeStandaloneCrewCash = false;
+        break;
+      case 'PAYROLL':
+        selection.includeExpenses = false;
+        selection.includeCrewCash = false;
+        selection.includeStandaloneCrewCash = false;
+        break;
+      case 'EXPENSES':
+        selection.expenseProvenance = 'MANUAL';
+        selection.includeStaffLedger = false;
+        selection.includeCrewCash = false;
+        selection.includeStandaloneCrewCash = false;
+        break;
+    }
   }
 
   return selection;

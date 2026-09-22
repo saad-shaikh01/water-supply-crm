@@ -97,6 +97,9 @@ function buildPrisma(store: FakeStore) {
       groupBy: jest.fn().mockResolvedValue([]),
       findMany: jest.fn().mockResolvedValue([]),
       count: jest.fn().mockResolvedValue(0),
+      // This spec's fake store has no Expense rows at all — every source-bucket
+      // aggregate (sheet/fleet/manual) is legitimately empty.
+      aggregate: jest.fn().mockResolvedValue({ _sum: { amount: null } }),
     },
     staffLedgerEntry: {
       findMany: jest.fn(async ({ where, take }: any) =>

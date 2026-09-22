@@ -456,4 +456,68 @@ describe('resolveSourceSelection', () => {
     expect(selection.includeCrewCash).toBe(false);
     expect(selection.includeStandaloneCrewCash).toBe(false);
   });
+
+  describe('source bucket', () => {
+    it('is ANY (no restriction) when unfiltered', () => {
+      expect(resolveSourceSelection({}).expenseProvenance).toBe('ANY');
+    });
+
+    it('DAILY_SHEET restricts Expense to sheet-linked rows, keeps sheet crew cash, drops payroll and standalone crew cash', () => {
+      const selection = resolveSourceSelection({ source: 'DAILY_SHEET' });
+      expect(selection.expenseProvenance).toBe('SHEET');
+      expect(selection.includeExpenses).toBe(true);
+      expect(selection.includeCrewCash).toBe(true);
+      expect(selection.includeStaffLedger).toBe(false);
+      expect(selection.includeStandaloneCrewCash).toBe(false);
+    });
+
+    it('CASH_LEDGER keeps only standalone crew cash', () => {
+      const selection = resolveSourceSelection({ source: 'CASH_LEDGER' });
+      expect(selection.includeExpenses).toBe(false);
+      expect(selection.includeStaffLedger).toBe(false);
+      expect(selection.includeCrewCash).toBe(false);
+      expect(selection.includeStandaloneCrewCash).toBe(true);
+    });
+
+    it('FLEET restricts Expense to standalone fleet-linked rows and drops every payroll-sourced table', () => {
+      const selection = resolveSourceSelection({ source: 'FLEET' });
+      expect(selection.expenseProvenance).toBe('FLEET_STANDALONE');
+      expect(selection.includeExpenses).toBe(true);
+      expect(selection.includeStaffLedger).toBe(false);
+      expect(selection.includeCrewCash).toBe(false);
+      expect(selection.includeStandaloneCrewCash).toBe(false);
+    });
+
+    it('PAYROLL keeps only the staff ledger', () => {
+      const selection = resolveSourceSelection({ source: 'PAYROLL' });
+      expect(selection.includeExpenses).toBe(false);
+      expect(selection.includeStaffLedger).toBe(true);
+      expect(selection.includeCrewCash).toBe(false);
+      expect(selection.includeStandaloneCrewCash).toBe(false);
+    });
+
+    it('EXPENSES restricts Expense to plain manual rows and drops every payroll-sourced table', () => {
+      const selection = resolveSourceSelection({ source: 'EXPENSES' });
+      expect(selection.expenseProvenance).toBe('MANUAL');
+      expect(selection.includeExpenses).toBe(true);
+      expect(selection.includeStaffLedger).toBe(false);
+      expect(selection.includeCrewCash).toBe(false);
+      expect(selection.includeStandaloneCrewCash).toBe(false);
+    });
+
+    it('composes with domain: EMPLOYEES + PAYROLL keeps only the staff ledger, VEHICLE + DAILY_SHEET keeps sheet-linked Expense only', () => {
+      const empPayroll = resolveSourceSelection({ domain: 'EMPLOYEES', source: 'PAYROLL' });
+      expect(empPayroll.includeExpenses).toBe(false);
+      expect(empPayroll.includeStaffLedger).toBe(true);
+      expect(empPayroll.includeCrewCash).toBe(false);
+      expect(empPayroll.includeStandaloneCrewCash).toBe(false);
+
+      const vehicleSheet = resolveSourceSelection({ domain: 'VEHICLE', source: 'DAILY_SHEET' });
+      expect(vehicleSheet.expenseProvenance).toBe('SHEET');
+      expect(vehicleSheet.includeExpenses).toBe(true);
+      expect(vehicleSheet.includeStaffLedger).toBe(false);
+      expect(vehicleSheet.includeCrewCash).toBe(false);
+      expect(vehicleSheet.includeStandaloneCrewCash).toBe(false);
+    });
+  });
 });
