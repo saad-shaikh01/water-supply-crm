@@ -36,13 +36,16 @@ import { ManageLabourTypesDialog } from './manage-labour-types-dialog';
 import { ExtraLabourProfileDrawer } from './extra-labour-profile-drawer';
 
 interface ExtraLabourListProps {
+  /** Gates POST /extra-labour ("Add Extra Labourer"). */
   canCreate?: boolean;
+  /** Gates PATCH /extra-labour/:id and the Labour Types CRUD (both require `extra_labour:manage`). */
+  canManageTypes?: boolean;
 }
 
-export function ExtraLabourList({ canCreate = true }: ExtraLabourListProps) {
+export function ExtraLabourList({ canCreate = true, canManageTypes = true }: ExtraLabourListProps) {
   const { data: listData, isLoading, filters } = useExtraLabourList();
   const { data: summary, isLoading: loadingSummary } = useExtraLabourSummary();
-  const { data: types = [] } = useExtraLabourTypes(true);
+  const { data: types = [] } = useExtraLabourTypes();
 
   const [formOpen, setFormOpen] = useState(false);
   const [typesOpen, setTypesOpen] = useState(false);
@@ -86,7 +89,7 @@ export function ExtraLabourList({ canCreate = true }: ExtraLabourListProps) {
         </div>
 
         <div className="flex items-center gap-2">
-          {canCreate && (
+          {canManageTypes && (
             <Button
               type="button"
               variant="outline"
@@ -265,7 +268,7 @@ export function ExtraLabourList({ canCreate = true }: ExtraLabourListProps) {
                         >
                           <Eye className="w-3.5 h-3.5 mr-1" /> History
                         </Button>
-                        {canCreate && (
+                        {canManageTypes && (
                           <Button
                             type="button"
                             variant="ghost"
@@ -349,7 +352,7 @@ export function ExtraLabourList({ canCreate = true }: ExtraLabourListProps) {
                   >
                     <Eye className="w-3.5 h-3.5 mr-1" /> View History
                   </Button>
-                  {canCreate && (
+                  {canManageTypes && (
                     <Button
                       type="button"
                       variant="ghost"
@@ -403,12 +406,12 @@ export function ExtraLabourList({ canCreate = true }: ExtraLabourListProps) {
           open={formOpen}
           onOpenChange={setFormOpen}
           labourer={editingLabourer}
-          onManageTypesClick={() => setTypesOpen(true)}
+          onManageTypesClick={canManageTypes ? () => setTypesOpen(true) : undefined}
         />
       )}
 
       {/* Manage Types Dialog */}
-      {typesOpen && (
+      {typesOpen && canManageTypes && (
         <ManageLabourTypesDialog open={typesOpen} onOpenChange={setTypesOpen} />
       )}
 
@@ -417,10 +420,14 @@ export function ExtraLabourList({ canCreate = true }: ExtraLabourListProps) {
         <ExtraLabourProfileDrawer
           labourerId={activeProfileId}
           onClose={() => setActiveProfileId(null)}
-          onEditClick={(labourer) => {
-            setActiveProfileId(null);
-            handleEditClick(labourer);
-          }}
+          onEditClick={
+            canManageTypes
+              ? (labourer) => {
+                  setActiveProfileId(null);
+                  handleEditClick(labourer);
+                }
+              : undefined
+          }
         />
       )}
     </div>

@@ -406,6 +406,22 @@ describe('ExpenseCenterService — standalone crew cash', () => {
       expect(prisma.crewCashDistribution.findMany).toHaveBeenCalled();
     });
 
+    it('an extraLabourId filter passes through to the Expense where clause and excludes every payroll-sourced table', async () => {
+      await service.getTimeline(VENDOR, {
+        ...CURRENT,
+        extraLabourId: 'labour-1',
+        page: 1,
+        limit: 20,
+      });
+
+      expect(prisma.expense.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ extraLabourId: 'labour-1' }) }),
+      );
+      expect(prisma.staffLedgerEntry.findMany).not.toHaveBeenCalled();
+      expect(prisma.crewCashDistribution.findMany).not.toHaveBeenCalled();
+      expect(prisma.standaloneCrewCashExpense.findMany).not.toHaveBeenCalled();
+    });
+
     it('an employee filter narrows standalone rows to that employee', async () => {
       store.standalone.push(
         standaloneRow({ id: 's-other', date: '2026-09-03T08:00:00Z', amount: 111, employeeId: 'emp-2' }),

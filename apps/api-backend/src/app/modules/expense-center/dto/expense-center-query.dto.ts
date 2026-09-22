@@ -46,6 +46,11 @@ export class ExpenseCenterTimelineQueryDto extends PaginationQueryDto {
   @IsUUID()
   employeeId?: string;
 
+  /** Extra Labour — an `ExtraLabour` id (distinct from `employeeId`, a `User` id). Expense-only. */
+  @IsOptional()
+  @IsUUID()
+  extraLabourId?: string;
+
   /** Only narrows `Expense` rows — payroll-sourced rows are cash-only, so CARD excludes them. */
   @IsOptional()
   @IsIn(['CASH', 'CARD'])

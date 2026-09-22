@@ -50,6 +50,7 @@ describe('cash-ledger-filters (pure)', () => {
       expect(hasActiveFilters({ maxAmount: 10 })).toBe(true);
       expect(hasActiveFilters({ sheet: 'A1' })).toBe(true);
       expect(hasActiveFilters({ destination: 'BANK' })).toBe(true);
+      expect(hasActiveFilters({ extraLabourId: 'labour-1' })).toBe(true);
     });
   });
 
@@ -122,6 +123,15 @@ describe('cash-ledger-filters (pure)', () => {
       const expense = row({ recordedById: 'emp' });
       const other = row({ employeeId: 'someone' });
       expect(pick([crew, handover, correction, expense, other], { employeeId: 'emp' })).toEqual([crew, handover, correction]);
+    });
+
+    it('extraLabourId is a plain equality filter, independent of employeeId', () => {
+      const paid = row({ bucket: 'OFFICE_EXPENSE', extraLabourId: 'labour-1' });
+      const other = row({ bucket: 'OFFICE_EXPENSE', extraLabourId: 'labour-2' });
+      const unset = row({ bucket: 'OFFICE_EXPENSE' });
+      // A row sharing the same id in the (distinct) employeeId space never matches.
+      const sameIdWrongField = row({ bucket: 'CREW_CASH', employeeId: 'labour-1' });
+      expect(pick([paid, other, unset, sameIdWrongField], { extraLabourId: 'labour-1' })).toEqual([paid]);
     });
 
     it('categories: row.category in the list', () => {

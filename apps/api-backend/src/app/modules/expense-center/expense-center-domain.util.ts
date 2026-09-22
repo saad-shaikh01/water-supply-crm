@@ -509,6 +509,8 @@ export interface ExpenseCenterFilterInput {
   category?: string;
   vanId?: string;
   employeeId?: string;
+  /** Extra Labour (an `ExtraLabour` id — distinct from `employeeId`, a `User` id). Expense-only. */
+  extraLabourId?: string;
   paymentMethod?: 'CASH' | 'CARD';
 }
 
@@ -594,8 +596,15 @@ export function resolveSourceSelection(filter: ExpenseCenterFilterInput): Expens
   }
 
   if (filter.employeeId) {
-    // An Expense is never attributed to an employee.
+    // An Expense is never attributed to an employee (User).
     selection.includeExpenses = false;
+  }
+
+  if (filter.extraLabourId) {
+    // Extra Labour is an Expense-only attribution — no other source has it.
+    selection.includeStaffLedger = false;
+    selection.includeCrewCash = false;
+    selection.includeStandaloneCrewCash = false;
   }
 
   return selection;

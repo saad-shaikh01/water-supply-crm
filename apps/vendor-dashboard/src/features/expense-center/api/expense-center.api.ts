@@ -97,6 +97,8 @@ export interface ExpenseCenterTimelineQuery extends ExpenseCenterSummaryQuery {
   category?: string;
   vanId?: string;
   employeeId?: string;
+  /** Extra Labour — an ExtraLabour id (distinct from employeeId, a User id). Expense-only. */
+  extraLabourId?: string;
   paymentMethod?: string;
 }
 

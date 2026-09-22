@@ -61,7 +61,7 @@ export function ExtraLabourFormDialog({
   onManageTypesClick,
 }: ExtraLabourFormDialogProps) {
   const isEditing = !!labourer;
-  const { data: types = [], isLoading: loadingTypes } = useExtraLabourTypes(true);
+  const { data: types = [], isLoading: loadingTypes } = useExtraLabourTypes();
   const createMutation = useCreateExtraLabour();
   const updateMutation = useUpdateExtraLabour();
 
@@ -95,11 +95,10 @@ export function ExtraLabourFormDialog({
     setErrorMsg(null);
   }, [labourer, open]);
 
-  // Default selection to first active type if none selected
+  // Default selection to the first available type if none selected
   useEffect(() => {
     if (!labourTypeId && types.length > 0) {
-      const activeFirst = types.find((t) => t.isActive) || types[0];
-      if (activeFirst) setLabourTypeId(activeFirst.id);
+      setLabourTypeId(types[0].id);
     }
   }, [types, labourTypeId]);
 
@@ -228,8 +227,8 @@ export function ExtraLabourFormDialog({
                 </SelectTrigger>
                 <SelectContent>
                   {types.map((t) => (
-                    <SelectItem key={t.id} value={t.id} disabled={!t.isActive && t.id !== labourTypeId}>
-                      {t.name} {!t.isActive ? '(Inactive)' : ''}
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
                     </SelectItem>
                   ))}
                 </SelectContent>

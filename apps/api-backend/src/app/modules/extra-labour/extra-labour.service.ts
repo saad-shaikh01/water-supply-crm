@@ -3,23 +3,24 @@ import { PrismaService } from '@water-supply-crm/database';
 import type { AuthUser } from '@water-supply-crm/types';
 import { AuditService } from '../audit/audit.service';
 import { normalizePhone } from '../whatsapp/phone.util';
+import { vendorDateString, vendorDayStart } from '../../common/helpers/date.util';
 import { CreateExtraLabourDto } from './dto/create-extra-labour.dto';
 import { UpdateExtraLabourDto } from './dto/update-extra-labour.dto';
 import { ExtraLabourQueryDto } from './dto/extra-labour-query.dto';
 import { ExtraLabourPaymentsQueryDto } from './dto/extra-labour-payments-query.dto';
 
-function getPktMonthRange(): { start: Date; end: Date } {
-  const now = new Date();
-  // Adjust to PKT (UTC+5)
-  const pktMs = now.getTime() + 5 * 3600 * 1000;
-  const pktDate = new Date(pktMs);
-
-  const year = pktDate.getUTCFullYear();
-  const month = pktDate.getUTCMonth();
-
-  const start = new Date(Date.UTC(year, month, 1, -5, 0, 0, 0));
-  const end = new Date(Date.UTC(year, month + 1, 1, -5, 0, 0, -1));
-
+/**
+ * PKT calendar-month bounds for "this month" figures (summary / profile KPIs).
+ * Composed from the shared vendor-timezone helpers (never a hand-rolled UTC+5
+ * offset — see date.util.ts's own note on why setHours()/raw offsets drift
+ * from production, which runs in UTC).
+ */
+function getPktMonthRange(now: Date = new Date()): { start: Date; end: Date } {
+  const [year, month] = vendorDateString(now).split('-').map(Number);
+  const start = vendorDayStart(`${year}-${String(month).padStart(2, '0')}-01`);
+  const nextYear = month === 12 ? year + 1 : year;
+  const nextMonth = month === 12 ? 1 : month + 1;
+  const end = new Date(vendorDayStart(`${nextYear}-${String(nextMonth).padStart(2, '0')}-01`).getTime() - 1);
   return { start, end };
 }
 
@@ -30,17 +31,28 @@ export class ExtraLabourService {
     private audit: AuditService,
   ) {}
 
-  async getOptions(vendorId: string, search?: string, includeId?: string) {
+  /**
+   * Picker options (Expense Form "Pay Extra Labour"). Active-only by default
+   * (`onlyActive`), but `includeId` always resolves one specific row even
+   * when it's since been deactivated — so editing an existing payment whose
+   * labourer was deactivated afterwards still shows a real name in the
+   * dropdown instead of going blank.
+   */
+  async getOptions(
+    vendorId: string,
+    search?: string,
+    includeId?: string,
+    labourTypeId?: string,
+    onlyActive = true,
+  ) {
     const digitsSearch = search ? search.replace(/\D/g, '') : '';
     const textSearch = search?.trim();
 
-    const where: any = {
-      vendorId,
-      OR: [
-        { isActive: true },
-        ...(includeId ? [{ id: includeId }] : []),
-      ],
-    };
+    const where: any = { vendorId };
+    if (onlyActive) {
+      where.OR = [{ isActive: true }, ...(includeId ? [{ id: includeId }] : [])];
+    }
+    if (labourTypeId) where.labourTypeId = labourTypeId;
 
     if (textSearch) {
       where.AND = [
@@ -59,10 +71,10 @@ export class ExtraLabourService {
       select: {
         id: true,
         name: true,
+        phoneNumber: true,
         isActive: true,
-        labourType: {
-          select: { name: true },
-        },
+        labourTypeId: true,
+        labourType: { select: { name: true } },
       },
       orderBy: { name: 'asc' },
       take: 50,
@@ -71,8 +83,10 @@ export class ExtraLabourService {
     return items.map((item) => ({
       id: item.id,
       name: item.name,
+      phone: item.phoneNumber,
       isActive: item.isActive,
-      typeName: item.labourType.name,
+      labourTypeId: item.labourTypeId,
+      labourTypeName: item.labourType.name,
     }));
   }
 
@@ -122,6 +136,8 @@ export class ExtraLabourService {
     } else if (query.status === 'INACTIVE') {
       where.isActive = false;
     }
+
+    if (query.labourTypeId) where.labourTypeId = query.labourTypeId;
 
     const textSearch = query.search?.trim();
     const digitsSearch = query.search ? query.search.replace(/\D/g, '') : '';
@@ -184,13 +200,15 @@ export class ExtraLabourService {
       return {
         id: item.id,
         name: item.name,
-        phoneNumber: item.phoneNumber,
+        phone: item.phoneNumber,
+        cnic: item.cnic,
+        labourTypeId: item.labourTypeId,
+        labourTypeName: item.labourType.name,
         notes: item.notes,
         isActive: item.isActive,
-        type: item.labourType,
         createdBy: item.createdBy,
         totalPaid: itemStats.totalPaid,
-        paymentCount: itemStats.paymentCount,
+        paymentsCount: itemStats.paymentCount,
         lastPaidAt: itemStats.lastPaidAt,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
@@ -220,26 +238,28 @@ export class ExtraLabourService {
     const rawPhone = dto.phone ?? dto.phoneNumber;
     const formattedPhone = rawPhone ? normalizePhone(rawPhone) : null;
     const isActive = dto.isActive !== undefined ? dto.isActive : true;
+    const trimmedName = dto.name.trim();
 
-    let hasDuplicatePhone = false;
-    if (formattedPhone) {
-      const existing = await this.prisma.extraLabour.findFirst({
-        where: {
-          vendorId: user.vendorId,
-          phoneNumber: formattedPhone,
-          isActive: true,
-        },
-      });
-      if (existing) {
-        hasDuplicatePhone = true;
-      }
-    }
+    // Duplicates are never blocked (owner decision — multiple labourers may
+    // legitimately share a phone, or none at all) — only surfaced as a
+    // non-blocking warning so the recorder can double-check before saving.
+    const [duplicatePhone, duplicateName] = await Promise.all([
+      formattedPhone
+        ? this.prisma.extraLabour.findFirst({
+            where: { vendorId: user.vendorId, phoneNumber: formattedPhone, isActive: true },
+          })
+        : null,
+      this.prisma.extraLabour.findFirst({
+        where: { vendorId: user.vendorId, name: { equals: trimmedName, mode: 'insensitive' }, isActive: true },
+      }),
+    ]);
 
     const item = await this.prisma.extraLabour.create({
       data: {
         vendorId: user.vendorId,
-        name: dto.name.trim(),
+        name: trimmedName,
         phoneNumber: formattedPhone,
+        cnic: dto.cnic?.trim() || null,
         labourTypeId: dto.labourTypeId,
         notes: dto.notes?.trim() ?? null,
         isActive,
@@ -260,9 +280,40 @@ export class ExtraLabourService {
       changes: { after: item },
     });
 
+    const warnings: string[] = [];
+    if (duplicatePhone) warnings.push('A labourer with this phone number already exists.');
+    if (duplicateName) warnings.push(`A labourer named "${trimmedName}" already exists.`);
+
     return {
-      ...item,
-      duplicatePhoneWarning: hasDuplicatePhone,
+      data: this.toLabourerRecord(item),
+      warnings,
+    };
+  }
+
+  /** Shared flatten: DB row (+ its `labourType` relation) -> the wire shape every FE screen reads. */
+  private toLabourerRecord(item: {
+    id: string;
+    name: string;
+    phoneNumber: string | null;
+    cnic: string | null;
+    labourTypeId: string;
+    labourType: { id: string; name: string };
+    notes: string | null;
+    isActive: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+  }) {
+    return {
+      id: item.id,
+      name: item.name,
+      phone: item.phoneNumber,
+      cnic: item.cnic,
+      labourTypeId: item.labourTypeId,
+      labourTypeName: item.labourType.name,
+      notes: item.notes,
+      isActive: item.isActive,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
     };
   }
 
@@ -287,7 +338,7 @@ export class ExtraLabourService {
         _sum: { amount: true },
         _count: { _all: true },
         _min: { date: true },
-        _max: { date: true },
+        _max: { date: true, amount: true },
         _avg: { amount: true },
       }),
       this.prisma.expense.aggregate({
@@ -301,19 +352,17 @@ export class ExtraLabourService {
       }),
     ]);
 
-    const totalPaid = overallAgg._sum.amount ?? 0;
-    const paymentCount = overallAgg._count._all;
-
     return {
-      ...item,
-      stats: {
-        totalPaid,
-        paymentCount,
-        minDate: overallAgg._min.date,
-        maxDate: overallAgg._max.date,
-        avgAmount: overallAgg._avg.amount ?? 0,
+      ...this.toLabourerRecord(item),
+      summary: {
+        totalPaid: overallAgg._sum.amount ?? 0,
+        paymentsCount: overallAgg._count._all,
+        firstPaidAt: overallAgg._min.date,
+        lastPaidAt: overallAgg._max.date,
+        largestPayment: overallAgg._max.amount ?? 0,
+        avgPayment: overallAgg._avg.amount ?? 0,
         paidThisMonth: monthAgg._sum.amount ?? 0,
-        monthPaymentCount: monthAgg._count._all,
+        monthPaymentsCount: monthAgg._count._all,
       },
     };
   }
@@ -339,9 +388,18 @@ export class ExtraLabourService {
     const data: any = {};
     if (dto.name !== undefined) data.name = dto.name.trim();
     const rawPhone = dto.phone !== undefined ? dto.phone : dto.phoneNumber;
+    let hasDuplicatePhone = false;
     if (rawPhone !== undefined) {
-      data.phoneNumber = rawPhone ? normalizePhone(rawPhone) : null;
+      const formattedPhone = rawPhone ? normalizePhone(rawPhone) : null;
+      data.phoneNumber = formattedPhone;
+      if (formattedPhone && formattedPhone !== existing.phoneNumber) {
+        const dup = await this.prisma.extraLabour.findFirst({
+          where: { vendorId: user.vendorId, phoneNumber: formattedPhone, isActive: true, id: { not: id } },
+        });
+        if (dup) hasDuplicatePhone = true;
+      }
     }
+    if (dto.cnic !== undefined) data.cnic = dto.cnic ? dto.cnic.trim() : null;
     if (dto.labourTypeId !== undefined) data.labourTypeId = dto.labourTypeId;
     if (dto.notes !== undefined) data.notes = dto.notes ? dto.notes.trim() : null;
     if (dto.isActive !== undefined) data.isActive = dto.isActive;
@@ -369,7 +427,10 @@ export class ExtraLabourService {
       changes: { before: existing, after: updated },
     });
 
-    return updated;
+    return {
+      data: this.toLabourerRecord(updated),
+      warnings: hasDuplicatePhone ? ['A labourer with this phone number already exists.'] : [],
+    };
   }
 
   async getLabourerPayments(vendorId: string, id: string, query: ExtraLabourPaymentsQueryDto) {
@@ -415,8 +476,20 @@ export class ExtraLabourService {
       }),
     ]);
 
+    const data = items.map((exp) => ({
+      id: exp.id,
+      expenseId: exp.id,
+      amount: exp.amount,
+      date: exp.date,
+      description: exp.description,
+      paidFromCash: exp.paidFromCash,
+      vanPlateNumber: exp.van?.plateNumber ?? null,
+      recordedByName: exp.createdBy?.name ?? null,
+      dailySheetId: exp.dailySheetId,
+    }));
+
     return {
-      data: items,
+      data,
       rangeSubtotal: aggregate._sum.amount ?? 0,
       meta: {
         total,

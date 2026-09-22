@@ -49,7 +49,11 @@ describe('ExtraLabourService', () => {
   describe('createLabourer', () => {
     it('creates labourer and returns duplicatePhoneWarning if phone exists', async () => {
       prisma.extraLabourType.findFirst.mockResolvedValue({ id: 'type-1', name: 'Loader' });
-      prisma.extraLabour.findFirst.mockResolvedValue({ id: 'other-1', phoneNumber: '923001234567' });
+      // Two independent duplicate checks now run (phone + name) — only the
+      // phone query should resolve truthy here.
+      prisma.extraLabour.findFirst.mockImplementation(({ where }: any) =>
+        where.phoneNumber ? Promise.resolve({ id: 'other-1', phoneNumber: '923001234567' }) : Promise.resolve(null),
+      );
       prisma.extraLabour.create.mockResolvedValue({
         id: 'labour-1',
         name: 'Ali',
@@ -64,7 +68,8 @@ describe('ExtraLabourService', () => {
         labourTypeId: 'type-1',
       });
 
-      expect(res.duplicatePhoneWarning).toBe(true);
+      expect(res.warnings).toEqual(['A labourer with this phone number already exists.']);
+      expect(res.data.id).toBe('labour-1');
       expect(prisma.extraLabour.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           vendorId: VENDOR_ID,
@@ -81,6 +86,28 @@ describe('ExtraLabourService', () => {
           entityId: 'labour-1',
         }),
       );
+    });
+
+    it('warns (but does not block) on a duplicate active name, with no phone provided', async () => {
+      prisma.extraLabourType.findFirst.mockResolvedValue({ id: 'type-1', name: 'Loader' });
+      prisma.extraLabour.findFirst.mockImplementation(({ where }: any) =>
+        where.name ? Promise.resolve({ id: 'other-1', name: 'Ali' }) : Promise.resolve(null),
+      );
+      prisma.extraLabour.create.mockResolvedValue({
+        id: 'labour-2',
+        name: 'Ali',
+        phoneNumber: null,
+        cnic: null,
+        labourTypeId: 'type-1',
+        labourType: { id: 'type-1', name: 'Loader' },
+      });
+
+      const res = await service.createLabourer(USER, { name: 'Ali', labourTypeId: 'type-1' });
+
+      expect(res.warnings).toEqual(['A labourer named "Ali" already exists.']);
+      expect(res.data.id).toBe('labour-2');
+      // Not blocked — create() is still called despite the duplicate name.
+      expect(prisma.extraLabour.create).toHaveBeenCalled();
     });
 
     it('supports phone alias property from frontend payload', async () => {
@@ -119,13 +146,159 @@ describe('ExtraLabourService', () => {
         }),
       ).rejects.toThrow(NotFoundException);
     });
+
+    it('persists cnic', async () => {
+      prisma.extraLabourType.findFirst.mockResolvedValue({ id: 'type-1', name: 'Loader' });
+      prisma.extraLabour.findFirst.mockResolvedValue(null);
+      prisma.extraLabour.create.mockResolvedValue({
+        id: 'labour-3',
+        name: 'Ali',
+        phoneNumber: null,
+        cnic: '35201-1234567-1',
+        labourTypeId: 'type-1',
+        labourType: { id: 'type-1', name: 'Loader' },
+      });
+
+      const res = await service.createLabourer(USER, {
+        name: 'Ali',
+        labourTypeId: 'type-1',
+        cnic: '35201-1234567-1',
+      });
+
+      expect(prisma.extraLabour.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ cnic: '35201-1234567-1' }) }),
+      );
+      expect(res.data.cnic).toBe('35201-1234567-1');
+    });
+  });
+
+  describe('listLabourers', () => {
+    it('filters by labourTypeId and flattens the wire shape', async () => {
+      prisma.extraLabour.count.mockResolvedValue(1);
+      prisma.extraLabour.findMany.mockResolvedValue([
+        {
+          id: 'labour-1',
+          name: 'Ali',
+          phoneNumber: '923001234567',
+          cnic: null,
+          labourTypeId: 'type-1',
+          labourType: { id: 'type-1', name: 'Loader' },
+          notes: null,
+          isActive: true,
+          createdBy: { id: 'user-1', name: 'Test Admin' },
+          createdAt: new Date('2026-09-01'),
+          updatedAt: new Date('2026-09-01'),
+        },
+      ]);
+      prisma.expense.groupBy.mockResolvedValue([
+        { extraLabourId: 'labour-1', _sum: { amount: 5000 }, _count: { _all: 3 }, _max: { date: new Date('2026-09-20') } },
+      ]);
+
+      const res = await service.listLabourers(VENDOR_ID, { labourTypeId: 'type-1' } as any);
+
+      expect(prisma.extraLabour.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ labourTypeId: 'type-1' }) }),
+      );
+      expect(res.data[0]).toEqual(
+        expect.objectContaining({
+          id: 'labour-1',
+          phone: '923001234567',
+          labourTypeId: 'type-1',
+          labourTypeName: 'Loader',
+          totalPaid: 5000,
+          paymentsCount: 3,
+        }),
+      );
+    });
+  });
+
+  describe('getLabourerProfile', () => {
+    it('flattens into {..., summary} with firstPaidAt/largestPayment/avgPayment', async () => {
+      prisma.extraLabour.findFirst.mockResolvedValue({
+        id: 'labour-1',
+        name: 'Ali',
+        phoneNumber: '923001234567',
+        cnic: null,
+        labourTypeId: 'type-1',
+        labourType: { id: 'type-1', name: 'Loader' },
+        notes: null,
+        isActive: true,
+        createdAt: new Date('2026-09-01'),
+        updatedAt: new Date('2026-09-01'),
+      });
+      prisma.expense.aggregate
+        .mockResolvedValueOnce({
+          _sum: { amount: 9000 },
+          _count: { _all: 3 },
+          _min: { date: new Date('2026-09-05') },
+          _max: { date: new Date('2026-09-20'), amount: 4000 },
+          _avg: { amount: 3000 },
+        })
+        .mockResolvedValueOnce({ _sum: { amount: 1500 }, _count: { _all: 1 } });
+
+      const res = await service.getLabourerProfile(VENDOR_ID, 'labour-1');
+
+      expect(res.labourTypeName).toBe('Loader');
+      expect(res.summary).toEqual(
+        expect.objectContaining({
+          totalPaid: 9000,
+          paymentsCount: 3,
+          firstPaidAt: new Date('2026-09-05'),
+          lastPaidAt: new Date('2026-09-20'),
+          largestPayment: 4000,
+          avgPayment: 3000,
+        }),
+      );
+    });
+  });
+
+  describe('getLabourerPayments', () => {
+    it('flattens Expense rows into {expenseId, vanPlateNumber, recordedByName}', async () => {
+      prisma.extraLabour.findFirst.mockResolvedValue({ id: 'labour-1', vendorId: VENDOR_ID });
+      prisma.expense.count.mockResolvedValue(1);
+      prisma.expense.aggregate.mockResolvedValue({ _sum: { amount: 2500 } });
+      prisma.expense.findMany.mockResolvedValue([
+        {
+          id: 'exp-1',
+          amount: 2500,
+          date: new Date('2026-09-10'),
+          description: 'Extra labour — Ali',
+          paidFromCash: true,
+          dailySheetId: null,
+          van: { id: 'van-1', plateNumber: 'ABC-123' },
+          createdBy: { id: 'user-1', name: 'Test Admin' },
+        },
+      ]);
+
+      const res = await service.getLabourerPayments(VENDOR_ID, 'labour-1', {} as any);
+
+      expect(res.data[0]).toEqual(
+        expect.objectContaining({
+          id: 'exp-1',
+          expenseId: 'exp-1',
+          vanPlateNumber: 'ABC-123',
+          recordedByName: 'Test Admin',
+        }),
+      );
+      expect(res.rangeSubtotal).toBe(2500);
+    });
   });
 
   describe('updateLabourer', () => {
     it('updates status to deactivated and logs DEACTIVATED audit event', async () => {
-      const existing = { id: 'labour-1', vendorId: VENDOR_ID, isActive: true };
+      const existing = {
+        id: 'labour-1',
+        vendorId: VENDOR_ID,
+        isActive: true,
+        phoneNumber: null,
+        labourTypeId: 'type-1',
+      };
       prisma.extraLabour.findFirst.mockResolvedValue(existing);
-      prisma.extraLabour.update.mockResolvedValue({ ...existing, isActive: false });
+      prisma.extraLabour.update.mockResolvedValue({
+        ...existing,
+        isActive: false,
+        labourType: { id: 'type-1', name: 'Loader' },
+      });
 
       const res = await service.updateLabourer(USER, 'labour-1', { isActive: false });
 
@@ -136,7 +309,7 @@ describe('ExtraLabourService', () => {
           entityId: 'labour-1',
         }),
       );
-      expect(res.isActive).toBe(false);
+      expect(res.data.isActive).toBe(false);
     });
   });
 

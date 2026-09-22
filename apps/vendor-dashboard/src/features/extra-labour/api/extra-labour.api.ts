@@ -1,11 +1,14 @@
 import { apiClient } from '@water-supply-crm/data-access';
 
+// Extra Labour Types are a lightweight master list (same pattern as Vehicle
+// Maintenance Types): name only, add / rename / delete-if-unused. No
+// description and no active/inactive concept — `isSystem` marks the one
+// undeletable fallback row ("Other").
 export interface ExtraLabourTypeRecord {
   id: string;
   name: string;
-  description?: string | null;
-  isActive: boolean;
-  labourCount?: number;
+  isSystem: boolean;
+  inUseCount: number;
 }
 
 export interface ExtraLabourOption {
@@ -44,7 +47,9 @@ export interface ExtraLabourProfile {
   summary: {
     totalPaid: number;
     paymentsCount: number;
+    firstPaidAt: string | null;
     lastPaidAt: string | null;
+    largestPayment: number;
     avgPayment: number;
   };
 }
@@ -61,16 +66,13 @@ export interface ExtraLabourPayment {
   dailySheetId: string | null;
 }
 
+// The 4 KPI cards, exactly as locked: Active Labour / Inactive Labour /
+// Paid This Month / Total Paid — nothing more (GET /extra-labour/summary).
 export interface ExtraLabourSummary {
-  activeLabourersCount: number;
-  totalPaidRange: number;
-  paymentsCountRange: number;
-  byType: Array<{
-    labourTypeId: string;
-    labourTypeName: string;
-    count: number;
-    totalPaid: number;
-  }>;
+  activeCount: number;
+  inactiveCount: number;
+  paidThisMonth: number;
+  totalPaid: number;
 }
 
 export interface ExtraLabourQuery {
@@ -78,7 +80,7 @@ export interface ExtraLabourQuery {
   limit?: number;
   search?: string;
   labourTypeId?: string;
-  isActive?: boolean;
+  status?: 'ALL' | 'ACTIVE' | 'INACTIVE';
 }
 
 export interface ExtraLabourPaymentsQuery {
@@ -106,24 +108,22 @@ export interface UpdateExtraLabourDto {
   isActive?: boolean;
 }
 
+// Types are rename-only — no description, no active/inactive (see
+// ExtraLabourTypeRecord's note above).
 export interface CreateLabourTypeDto {
   name: string;
-  description?: string | null;
 }
 
 export interface UpdateLabourTypeDto {
-  name?: string;
-  description?: string | null;
-  isActive?: boolean;
+  name: string;
 }
 
 export const extraLabourApi = {
-  getSummary: (from?: string, to?: string) =>
-    apiClient.get<ExtraLabourSummary>('/extra-labour/summary', { params: { from, to } }),
+  getSummary: () => apiClient.get<ExtraLabourSummary>('/extra-labour/summary'),
 
-  getOptions: (search?: string, labourTypeId?: string, isActive?: boolean) =>
+  getOptions: (search?: string, labourTypeId?: string, isActive = true, includeId?: string) =>
     apiClient.get<ExtraLabourOption[]>('/extra-labour/options', {
-      params: { search, labourTypeId, isActive: isActive ?? true },
+      params: { search, labourTypeId, isActive, includeId },
     }),
 
   getList: (params: ExtraLabourQuery) =>
@@ -147,14 +147,13 @@ export const extraLabourApi = {
   update: (id: string, data: UpdateExtraLabourDto) =>
     apiClient.patch<{ data: ExtraLabourProfile; warnings?: string[] }>(`/extra-labour/${id}`, data),
 
-  getLabourTypes: (includeInactive = false) =>
-    apiClient.get<ExtraLabourTypeRecord[]>('/extra-labour/types', {
-      params: { includeInactive },
-    }),
+  getLabourTypes: () => apiClient.get<ExtraLabourTypeRecord[]>('/extra-labour/types'),
 
   createLabourType: (data: CreateLabourTypeDto) =>
     apiClient.post<ExtraLabourTypeRecord>('/extra-labour/types', data),
 
   updateLabourType: (id: string, data: UpdateLabourTypeDto) =>
     apiClient.patch<ExtraLabourTypeRecord>(`/extra-labour/types/${id}`, data),
+
+  deleteLabourType: (id: string) => apiClient.delete<{ success: true }>(`/extra-labour/types/${id}`),
 };

@@ -151,6 +151,11 @@ export class VanCashLedgerTimelineQueryDto extends PaginationQueryDto {
   @IsUUID()
   employeeId?: string;
 
+  /** Extra Labour — an `ExtraLabour` id (distinct from `employeeId`, a `User` id). OFFICE_EXPENSE rows only. */
+  @IsOptional()
+  @IsUUID()
+  extraLabourId?: string;
+
   @IsOptional()
   @Transform(({ value }) => toStringArray(value))
   @IsArray()

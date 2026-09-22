@@ -16,6 +16,7 @@ CREATE TABLE "ExtraLabour" (
     "vendorId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "phoneNumber" TEXT,
+    "cnic" TEXT,
     "labourTypeId" TEXT NOT NULL,
     "notes" TEXT,
     "isActive" BOOLEAN NOT NULL DEFAULT true,

@@ -38,8 +38,16 @@ export class ExtraLabourController {
     @CurrentUser() user: AuthUser,
     @Query('search') search?: string,
     @Query('includeId') includeId?: string,
+    @Query('labourTypeId') labourTypeId?: string,
+    @Query('isActive') isActive?: string,
   ) {
-    return this.extraLabour.getOptions(user.vendorId, search, includeId);
+    return this.extraLabour.getOptions(
+      user.vendorId,
+      search,
+      includeId,
+      labourTypeId,
+      isActive === undefined ? true : isActive !== 'false',
+    );
   }
 
   @Get('summary')

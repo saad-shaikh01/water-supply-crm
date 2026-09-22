@@ -61,11 +61,16 @@ export const SYSTEM_ROLE_KEYS: readonly RoleKey[] = [
  * van's daily check / fuel fill from inside the Daily Sheet they already have
  * access to — deliberately NOT granted fleet:page/fleet:view (no dedicated
  * Fleet screen for them, see the driver/salesman presets' own comments).
+ * `extra_labour:create` (owner-approved 2026-09-22, Amendment R20) is Driver
+ * registering a new worker inline from the Expense Form's "Pay Extra Labour"
+ * picker (ExtraLabourPicker's "+ New Worker") — deliberately NOT granted
+ * extra_labour:page/:view (no dedicated Extra Labour roster screen for them).
  */
 export const NON_NAVIGATIONAL_PERMISSIONS: ReadonlySet<Permission> = new Set<Permission>([
   'tracking:report_location',
   'fleet:record_check',
   'fleet:record_fuel',
+  'extra_labour:create',
 ]);
 
 // ── Computed presets ────────────────────────────────────────────────────────────

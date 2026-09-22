@@ -86,7 +86,6 @@ const EXPENSE_META: Record<string, { label: string; bg: string; text: string }> 
   FUEL_EXPENSE: { label: 'FUEL EXP', bg: '#ffedd5', text: '#c2410c' },
   ICE_PURCHASED: { label: 'ICE PURCHASED', bg: '#cffafe', text: '#0e7490' },
   EXTRA_LABOUR: { label: 'EXTRA LABOUR', bg: '#ede9fe', text: '#6d28d9' },
-  EXTRA_LOADER: { label: 'EXTRA LABOUR', bg: '#ede9fe', text: '#6d28d9' },
   OTHER: { label: 'OTHER', bg: '#f1f5f9', text: '#475569' },
 };
 

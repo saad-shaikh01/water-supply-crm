@@ -31,6 +31,7 @@ export const useExpenseCenterTimeline = () => {
   const [category, setCategory] = useQueryState('category', parseAsString.withDefault(''));
   const [vanId] = useQueryState('vanId', parseAsString.withDefault(''));
   const [employeeId] = useQueryState('employeeId', parseAsString.withDefault(''));
+  const [extraLabourId] = useQueryState('extraLabourId', parseAsString.withDefault(''));
   const [paymentMethod] = useQueryState('paymentMethod', parseAsString.withDefault(''));
   const [from] = useQueryState('from', parseAsString.withDefault(''));
   const [to] = useQueryState('to', parseAsString.withDefault(''));
@@ -42,6 +43,7 @@ export const useExpenseCenterTimeline = () => {
     category: category || undefined,
     vanId: vanId || undefined,
     employeeId: employeeId || undefined,
+    extraLabourId: extraLabourId || undefined,
     paymentMethod: paymentMethod || undefined,
     from: from || undefined,
     to: to || undefined,

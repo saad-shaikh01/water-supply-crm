@@ -448,4 +448,12 @@ describe('resolveSourceSelection', () => {
     expect(resolveSourceSelection({ employeeId: 'u1' }).includeStandaloneCrewCash).toBe(true);
     expect(resolveSourceSelection({ employeeId: 'u1' }).includeExpenses).toBe(false);
   });
+
+  it('extraLabourId keeps Expense but excludes every payroll-sourced table (Expense-only attribution)', () => {
+    const selection = resolveSourceSelection({ extraLabourId: 'labour-1' });
+    expect(selection.includeExpenses).toBe(true);
+    expect(selection.includeStaffLedger).toBe(false);
+    expect(selection.includeCrewCash).toBe(false);
+    expect(selection.includeStandaloneCrewCash).toBe(false);
+  });
 });

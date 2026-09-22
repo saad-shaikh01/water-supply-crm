@@ -1549,6 +1549,7 @@ model ExtraLabour {
   vendorId     String
   name         String
   phoneNumber  String?
+  cnic         String?
   labourTypeId String
   notes        String?
   isActive     Boolean         @default(true)

@@ -185,6 +185,8 @@ export interface CashLedgerTimelineFilters {
   approvedById?: string;
   /** Crew-cash / payroll employee OR the handover's submitting driver. */
   employeeId?: string;
+  /** Extra Labour — an ExtraLabour id (distinct from employeeId, a User id). OFFICE_EXPENSE rows only. */
+  extraLabourId?: string;
   /** Row `category` values (ExpenseCategory / StaffLedgerCategory / CrewCashCategory). */
   categories?: string[];
   minAmount?: number;

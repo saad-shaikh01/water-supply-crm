@@ -11,64 +11,46 @@ import {
   Label,
   Badge,
 } from '@water-supply-crm/ui';
-import { Plus, Check, Edit2, Loader2, Tag } from 'lucide-react';
+import { Plus, Check, Edit2, Loader2, Tag, Trash2 } from 'lucide-react';
 import {
   useCreateLabourType,
+  useDeleteLabourType,
   useExtraLabourTypes,
   useUpdateLabourType,
 } from '../hooks/use-extra-labour';
 import { ExtraLabourTypeRecord } from '../api/extra-labour.api';
-
-function Toggle({ enabled, onToggle, disabled, label }: { enabled: boolean; onToggle: () => void; disabled?: boolean; label?: string }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={enabled}
-      aria-label={label || 'Toggle switch'}
-      disabled={disabled}
-      onClick={onToggle}
-      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
-        disabled ? 'opacity-50 cursor-not-allowed' : ''
-      } ${enabled ? 'bg-emerald-500' : 'bg-input dark:bg-muted'}`}
-    >
-      <span
-        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${
-          enabled ? 'translate-x-5' : 'translate-x-0.5'
-        }`}
-      />
-    </button>
-  );
-}
 
 interface ManageLabourTypesDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
+/**
+ * A lightweight master list, same shape as Vehicle Maintenance Types: add /
+ * rename / delete-if-unused. No description, no active/inactive concept — a
+ * type is either in use (can't be deleted) or it isn't (can). The one
+ * `isSystem` row ("Other") is the undeletable fallback and can only be
+ * renamed.
+ */
 export function ManageLabourTypesDialog({ open, onOpenChange }: ManageLabourTypesDialogProps) {
-  const { data: types = [], isLoading } = useExtraLabourTypes(true);
+  const { data: types = [], isLoading } = useExtraLabourTypes();
   const createMutation = useCreateLabourType();
   const updateMutation = useUpdateLabourType();
+  const deleteMutation = useDeleteLabourType();
 
   const [isAdding, setIsAdding] = useState(false);
   const [newName, setNewName] = useState('');
-  const [newDesc, setNewDesc] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
-  const [editDesc, setEditDesc] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
     setErrorMsg(null);
     try {
-      await createMutation.mutateAsync({
-        name: newName.trim(),
-        description: newDesc.trim() || undefined,
-      });
+      await createMutation.mutateAsync({ name: newName.trim() });
       setNewName('');
-      setNewDesc('');
       setIsAdding(false);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -79,20 +61,13 @@ export function ManageLabourTypesDialog({ open, onOpenChange }: ManageLabourType
   const handleStartEdit = (t: ExtraLabourTypeRecord) => {
     setEditingId(t.id);
     setEditName(t.name);
-    setEditDesc(t.description || '');
   };
 
   const handleSaveEdit = async (id: string) => {
     if (!editName.trim()) return;
     setErrorMsg(null);
     try {
-      await updateMutation.mutateAsync({
-        id,
-        data: {
-          name: editName.trim(),
-          description: editDesc.trim() || null,
-        },
-      });
+      await updateMutation.mutateAsync({ id, data: { name: editName.trim() } });
       setEditingId(null);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -100,16 +75,16 @@ export function ManageLabourTypesDialog({ open, onOpenChange }: ManageLabourType
     }
   };
 
-  const handleToggleActive = async (t: ExtraLabourTypeRecord) => {
+  const handleDelete = async (t: ExtraLabourTypeRecord) => {
     setErrorMsg(null);
+    setDeletingId(t.id);
     try {
-      await updateMutation.mutateAsync({
-        id: t.id,
-        data: { isActive: !t.isActive },
-      });
+      await deleteMutation.mutateAsync(t.id);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      setErrorMsg(msg || 'Failed to toggle status');
+      setErrorMsg(msg || 'Failed to delete labour type');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -157,15 +132,6 @@ export function ManageLabourTypesDialog({ open, onOpenChange }: ManageLabourType
                   onChange={(e) => setNewName(e.target.value)}
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="type-desc">Description (Optional)</Label>
-                <Input
-                  id="type-desc"
-                  placeholder="Brief role notes..."
-                  value={newDesc}
-                  onChange={(e) => setNewDesc(e.target.value)}
-                />
-              </div>
               <div className="flex justify-end gap-2 pt-1">
                 <Button
                   type="button"
@@ -174,7 +140,6 @@ export function ManageLabourTypesDialog({ open, onOpenChange }: ManageLabourType
                   onClick={() => {
                     setIsAdding(false);
                     setNewName('');
-                    setNewDesc('');
                   }}
                 >
                   Cancel
@@ -214,12 +179,6 @@ export function ManageLabourTypesDialog({ open, onOpenChange }: ManageLabourType
                           onChange={(e) => setEditName(e.target.value)}
                           placeholder="Category name"
                         />
-                        <Input
-                          size={32}
-                          value={editDesc}
-                          onChange={(e) => setEditDesc(e.target.value)}
-                          placeholder="Description"
-                        />
                         <div className="flex justify-end gap-2 pt-1">
                           <Button
                             type="button"
@@ -244,23 +203,20 @@ export function ManageLabourTypesDialog({ open, onOpenChange }: ManageLabourType
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <span className="font-medium text-sm text-foreground">{t.name}</span>
-                            {!t.isActive && (
+                            {t.isSystem && (
                               <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                                Inactive
+                                Default
                               </Badge>
                             )}
-                            {t.labourCount !== undefined && t.labourCount > 0 && (
+                            {t.inUseCount > 0 && (
                               <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground">
-                                {t.labourCount} {t.labourCount === 1 ? 'person' : 'people'}
+                                {t.inUseCount} {t.inUseCount === 1 ? 'worker' : 'workers'}
                               </Badge>
                             )}
                           </div>
-                          {t.description && (
-                            <p className="text-xs text-muted-foreground truncate">{t.description}</p>
-                          )}
                         </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex items-center gap-1 shrink-0">
                           <Button
                             type="button"
                             variant="ghost"
@@ -270,14 +226,27 @@ export function ManageLabourTypesDialog({ open, onOpenChange }: ManageLabourType
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </Button>
-                          <div className="flex items-center gap-1">
-                            <Toggle
-                              enabled={t.isActive}
-                              onToggle={() => handleToggleActive(t)}
-                              disabled={updateMutation.isPending}
-                              label="Active Status"
-                            />
-                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive disabled:opacity-40"
+                            disabled={t.isSystem || t.inUseCount > 0 || deletingId === t.id}
+                            title={
+                              t.isSystem
+                                ? 'The default fallback category cannot be deleted'
+                                : t.inUseCount > 0
+                                ? 'Still assigned to labourers — cannot be deleted'
+                                : 'Delete category'
+                            }
+                            onClick={() => handleDelete(t)}
+                          >
+                            {deletingId === t.id ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-3.5 h-3.5" />
+                            )}
+                          </Button>
                         </div>
                       </>
                     )}

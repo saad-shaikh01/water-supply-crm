@@ -105,6 +105,7 @@ import {
  *     deliberately NOT backfilled (no `transactions:adjust` either), nor any
  *     field role.
  */
+const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
   driver: ['fleet:record_check', 'fleet:record_fuel', 'extra_labour:create'],
   salesman: [
     'fleet:record_check',

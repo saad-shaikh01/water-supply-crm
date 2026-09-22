@@ -8,6 +8,7 @@ import { useCan } from '../../../features/authz/hooks/use-can';
 function ExtraLabourContent() {
   const canPage = useCan('extra_labour:page');
   const canCreate = useCan('extra_labour:create');
+  const canManageTypes = useCan('extra_labour:manage');
 
   if (!canPage) {
     return (
@@ -24,7 +25,7 @@ function ExtraLabourContent() {
         description="Manage temporary workers, loaders, helpers, and track wage payouts."
       />
 
-      <ExtraLabourList canCreate={canCreate} />
+      <ExtraLabourList canCreate={canCreate} canManageTypes={canManageTypes} />
     </div>
   );
 }

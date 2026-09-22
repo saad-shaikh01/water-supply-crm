@@ -13,6 +13,7 @@ import { UserPlus, Users } from 'lucide-react';
 import { useExtraLabourOptions } from '../hooks/use-extra-labour';
 import { ExtraLabourFormDialog } from './extra-labour-form-dialog';
 import { ExtraLabourProfile } from '../api/extra-labour.api';
+import { useCan } from '../../authz/hooks/use-can';
 
 interface ExtraLabourPickerProps {
   value?: string | null;
@@ -32,10 +33,15 @@ export function ExtraLabourPicker({
   className,
 }: ExtraLabourPickerProps) {
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const canCreateLabourer = useCan('extra_labour:create');
+  // includeId: the currently-selected labourer always resolves, even if
+  // they've since been deactivated (e.g. editing an older payment) — without
+  // this the Select would show a blank placeholder for a valid selection.
   const { data: options = [], isLoading } = useExtraLabourOptions(
     undefined,
     labourTypeId,
     true,
+    value ?? undefined,
     true,
   );
 
@@ -51,14 +57,16 @@ export function ExtraLabourPicker({
         <Label htmlFor="extra-labour-picker" className="text-xs font-medium text-foreground">
           Assigned Extra Labourer {required && <span className="text-destructive">*</span>}
         </Label>
-        <button
-          type="button"
-          onClick={() => setIsFormOpen(true)}
-          disabled={disabled}
-          className="text-xs text-primary hover:underline font-medium flex items-center gap-1"
-        >
-          <UserPlus className="w-3 h-3" /> New Worker
-        </button>
+        {canCreateLabourer && (
+          <button
+            type="button"
+            onClick={() => setIsFormOpen(true)}
+            disabled={disabled}
+            className="text-xs text-primary hover:underline font-medium flex items-center gap-1"
+          >
+            <UserPlus className="w-3 h-3" /> New Worker
+          </button>
+        )}
       </div>
 
       <Select

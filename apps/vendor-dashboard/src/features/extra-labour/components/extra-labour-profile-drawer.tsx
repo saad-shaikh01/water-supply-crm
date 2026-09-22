@@ -169,7 +169,7 @@ export function ExtraLabourProfileDrawer({
               <div className="grid grid-cols-2 gap-3">
                 <Card className="bg-muted/30 border-border">
                   <CardContent className="p-3.5 space-y-1">
-                    <p className="text-[11px] font-medium text-muted-foreground">Total Earnings Paid</p>
+                    <p className="text-[11px] font-medium text-muted-foreground">Total Paid</p>
                     <p className="text-lg font-bold text-foreground">
                       {formatPKR(profile.summary.totalPaid)}
                     </p>
@@ -178,10 +178,58 @@ export function ExtraLabourProfileDrawer({
 
                 <Card className="bg-muted/30 border-border">
                   <CardContent className="p-3.5 space-y-1">
-                    <p className="text-[11px] font-medium text-muted-foreground">Payout Count</p>
+                    <p className="text-[11px] font-medium text-muted-foreground">Total Transactions</p>
                     <p className="text-lg font-bold text-foreground">
                       {profile.summary.paymentsCount}{' '}
                       <span className="text-xs font-normal text-muted-foreground">payments</span>
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-muted/30 border-border">
+                  <CardContent className="p-3.5 space-y-1">
+                    <p className="text-[11px] font-medium text-muted-foreground">First Payment</p>
+                    <p className="text-sm font-bold text-foreground">
+                      {profile.summary.firstPaidAt
+                        ? new Date(profile.summary.firstPaidAt).toLocaleDateString('en-PK', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric',
+                          })
+                        : '—'}
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-muted/30 border-border">
+                  <CardContent className="p-3.5 space-y-1">
+                    <p className="text-[11px] font-medium text-muted-foreground">Last Payment</p>
+                    <p className="text-sm font-bold text-foreground">
+                      {profile.summary.lastPaidAt
+                        ? new Date(profile.summary.lastPaidAt).toLocaleDateString('en-PK', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric',
+                          })
+                        : '—'}
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-muted/30 border-border">
+                  <CardContent className="p-3.5 space-y-1">
+                    <p className="text-[11px] font-medium text-muted-foreground">Largest Payment</p>
+                    <p className="text-lg font-bold text-foreground">
+                      {formatPKR(profile.summary.largestPayment)}
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-muted/30 border-border">
+                  <CardContent className="p-3.5 space-y-1">
+                    <p className="text-[11px] font-medium text-muted-foreground">Average Payment</p>
+                    <p className="text-lg font-bold text-foreground">
+                      {formatPKR(profile.summary.avgPayment)}
                     </p>
                   </CardContent>
                 </Card>

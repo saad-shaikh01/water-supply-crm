@@ -104,6 +104,8 @@ export interface CashLedgerTimelineFilters {
   recordedById?: string;
   approvedById?: string;
   employeeId?: string;
+  /** Extra Labour — an `ExtraLabour` id (distinct from `employeeId`, a `User` id). OFFICE_EXPENSE rows only. */
+  extraLabourId?: string;
   categories?: string[];
   minAmount?: number;
   maxAmount?: number;

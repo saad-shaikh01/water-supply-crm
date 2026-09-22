@@ -24,6 +24,7 @@ import { VanFilter } from '../../../components/shared/filters/van-filter';
 import { pktToday } from '../../../lib/date-pkt';
 import { useCrewCandidates } from '../../users/hooks/use-users';
 import { useEligibleEmployees } from '../../payroll/hooks/use-eligible-employees';
+import { useExtraLabourOptions } from '../../extra-labour/hooks/use-extra-labour';
 import type {
   CashLedgerStatusFilter,
   CashLedgerTimelineFilters,
@@ -48,6 +49,7 @@ interface Draft {
   recordedById: string;
   approvedById: string;
   employeeId: string;
+  extraLabourId: string;
   categories: string[];
   minAmount: string;
   maxAmount: string;
@@ -60,7 +62,7 @@ interface Draft {
 
 const EMPTY_DRAFT: Draft = {
   status: [], recordedFrom: '', recordedTo: '', backdatedOnly: false, editedOnly: false,
-  recordedById: '', approvedById: '', employeeId: '', categories: [], minAmount: '', maxAmount: '',
+  recordedById: '', approvedById: '', employeeId: '', extraLabourId: '', categories: [], minAmount: '', maxAmount: '',
   hasAttachment: false, hasNote: false, sheet: '', reference: '', destination: '',
 };
 
@@ -73,6 +75,7 @@ const draftFrom = (f: CashLedgerTimelineFilters): Draft => ({
   recordedById: f.recordedById ?? '',
   approvedById: f.approvedById ?? '',
   employeeId: f.employeeId ?? '',
+  extraLabourId: f.extraLabourId ?? '',
   categories: f.categories ? [...f.categories] : [],
   minAmount: f.minAmount !== undefined ? String(f.minAmount) : '',
   maxAmount: f.maxAmount !== undefined ? String(f.maxAmount) : '',
@@ -99,6 +102,7 @@ const draftToPatch = (d: Draft): CashLedgerTimelineFilters => ({
   recordedById: d.recordedById || undefined,
   approvedById: d.approvedById || undefined,
   employeeId: d.employeeId || undefined,
+  extraLabourId: d.extraLabourId || undefined,
   categories: d.categories.length ? d.categories : undefined,
   minAmount: parseAmount(d.minAmount),
   maxAmount: parseAmount(d.maxAmount),
@@ -163,17 +167,19 @@ function CheckRow({
 const ANY = '__any__';
 
 function PickerSelect({
-  label, value, onChange, options, placeholder,
+  label, value, onChange, options, placeholder, unresolvedLabel = 'Selected user',
 }: {
   label: string;
   value: string;
   onChange: (next: string) => void;
   options: ReadonlyArray<{ value: string; label: string }>;
   placeholder: string;
+  /** Fallback row label when `value` isn't in `options` (e.g. a since-deactivated record). */
+  unresolvedLabel?: string;
 }) {
-  // A selected id that is not in the (active-users) list — e.g. a since-deactivated user — stays selectable/visible.
+  // A selected id that is not in the (active) list — e.g. a since-deactivated record — stays selectable/visible.
   const list = value && !options.some((o) => o.value === value)
-    ? [{ value, label: 'Selected user' }, ...options]
+    ? [{ value, label: unresolvedLabel }, ...options]
     : options;
   return (
     <div className="space-y-1.5">
@@ -249,6 +255,13 @@ function DrawerBody({ onClose }: { onClose: () => void }) {
   const employeeOptions = useMemo(
     () => [...(employees ?? [])].sort((a, b) => a.name.localeCompare(b.name)).map((u) => ({ value: u.id, label: u.name })),
     [employees],
+  );
+  // isActive=false -> every labourer, active or not (a filter should still find an
+  // inactive worker's past payments, unlike the payment-recording picker).
+  const extraLabourers = useExtraLabourOptions(undefined, undefined, false).data;
+  const extraLabourOptions = useMemo(
+    () => (extraLabourers ?? []).map((l) => ({ value: l.id, label: l.name })),
+    [extraLabourers],
   );
 
   const today = pktToday();
@@ -349,6 +362,17 @@ function DrawerBody({ onClose }: { onClose: () => void }) {
             onChange={(v) => patch('employeeId', v)}
             options={employeeOptions}
             placeholder="Anyone"
+          />
+        </Section>
+
+        <Section title="Extra Labour" hint="Only matches Office Expense rows paid to a specific extra labourer.">
+          <PickerSelect
+            label="Extra Labourer"
+            value={draft.extraLabourId}
+            onChange={(v) => patch('extraLabourId', v)}
+            options={extraLabourOptions}
+            placeholder="Anyone"
+            unresolvedLabel="Selected worker"
           />
         </Section>
 

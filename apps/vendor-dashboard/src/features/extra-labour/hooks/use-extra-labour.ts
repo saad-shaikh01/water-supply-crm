@@ -11,10 +11,10 @@ import {
 export const EXTRA_LABOUR_QUERY_KEYS = {
   all: ['extra-labour'] as const,
   list: (params: Record<string, unknown>) => ['extra-labour', 'list', params] as const,
-  summary: (from?: string, to?: string) => ['extra-labour', 'summary', { from, to }] as const,
-  types: (includeInactive: boolean) => ['extra-labour', 'types', { includeInactive }] as const,
-  options: (search?: string, labourTypeId?: string, isActive?: boolean) =>
-    ['extra-labour', 'options', { search, labourTypeId, isActive }] as const,
+  summary: () => ['extra-labour', 'summary'] as const,
+  types: () => ['extra-labour', 'types'] as const,
+  options: (search?: string, labourTypeId?: string, isActive?: boolean, includeId?: string) =>
+    ['extra-labour', 'options', { search, labourTypeId, isActive, includeId }] as const,
   profile: (id: string) => ['extra-labour', 'profile', id] as const,
   payments: (id: string, params: Record<string, unknown>) =>
     ['extra-labour', 'payments', id, params] as const,
@@ -49,15 +49,15 @@ export function useExtraLabourFilters() {
 
 export function useExtraLabourList() {
   const filters = useExtraLabourFilters();
-  const activeBool =
-    filters.isActive === 'true' ? true : filters.isActive === 'false' ? false : undefined;
+  const status: 'ACTIVE' | 'INACTIVE' | undefined =
+    filters.isActive === 'true' ? 'ACTIVE' : filters.isActive === 'false' ? 'INACTIVE' : undefined;
 
   const queryParams = {
     page: filters.page,
     limit: filters.limit,
     search: filters.search || undefined,
     labourTypeId: filters.labourTypeId || undefined,
-    isActive: activeBool,
+    status,
   };
 
   const query = useQuery({
@@ -74,36 +74,42 @@ export function useExtraLabourList() {
   };
 }
 
-export function useExtraLabourSummary(from?: string, to?: string) {
+export function useExtraLabourSummary() {
   return useQuery({
-    queryKey: EXTRA_LABOUR_QUERY_KEYS.summary(from, to),
+    queryKey: EXTRA_LABOUR_QUERY_KEYS.summary(),
     queryFn: async () => {
-      const res = await extraLabourApi.getSummary(from, to);
+      const res = await extraLabourApi.getSummary();
       return res.data;
     },
   });
 }
 
-export function useExtraLabourTypes(includeInactive = false) {
+export function useExtraLabourTypes() {
   return useQuery({
-    queryKey: EXTRA_LABOUR_QUERY_KEYS.types(includeInactive),
+    queryKey: EXTRA_LABOUR_QUERY_KEYS.types(),
     queryFn: async () => {
-      const res = await extraLabourApi.getLabourTypes(includeInactive);
+      const res = await extraLabourApi.getLabourTypes();
       return res.data;
     },
   });
 }
 
+/**
+ * `includeId` always resolves one specific labourer even if they've since
+ * been deactivated — pass the field's current value so an in-progress edit
+ * never silently loses its selection out of the dropdown.
+ */
 export function useExtraLabourOptions(
   search?: string,
   labourTypeId?: string,
   isActive = true,
+  includeId?: string,
   enabled = true,
 ) {
   return useQuery({
-    queryKey: EXTRA_LABOUR_QUERY_KEYS.options(search, labourTypeId, isActive),
+    queryKey: EXTRA_LABOUR_QUERY_KEYS.options(search, labourTypeId, isActive, includeId),
     queryFn: async () => {
-      const res = await extraLabourApi.getOptions(search, labourTypeId, isActive);
+      const res = await extraLabourApi.getOptions(search, labourTypeId, isActive, includeId);
       return res.data;
     },
     enabled,
@@ -174,6 +180,16 @@ export function useUpdateLabourType() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateLabourTypeDto }) =>
       extraLabourApi.updateLabourType(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: EXTRA_LABOUR_QUERY_KEYS.all });
+    },
+  });
+}
+
+export function useDeleteLabourType() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => extraLabourApi.deleteLabourType(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: EXTRA_LABOUR_QUERY_KEYS.all });
     },
