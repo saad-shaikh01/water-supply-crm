@@ -1,10 +1,11 @@
 'use client';
 
+import { Suspense } from 'react';
 import { PageHeader } from '../../../components/shared/page-header';
 import { ExtraLabourList } from '../../../features/extra-labour/components/extra-labour-list';
 import { useCan } from '../../../features/authz/hooks/use-can';
 
-export default function ExtraLabourPage() {
+function ExtraLabourContent() {
   const canPage = useCan('extra_labour:page');
   const canCreate = useCan('extra_labour:create');
 
@@ -25,5 +26,13 @@ export default function ExtraLabourPage() {
 
       <ExtraLabourList canCreate={canCreate} />
     </div>
+  );
+}
+
+export default function ExtraLabourPage() {
+  return (
+    <Suspense fallback={<div className="h-64 rounded-2xl bg-accent/30 animate-pulse" />}>
+      <ExtraLabourContent />
+    </Suspense>
   );
 }
