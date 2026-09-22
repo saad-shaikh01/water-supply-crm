@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class CreateExtraLabourDto {
   @IsNotEmpty()
@@ -6,15 +6,27 @@ export class CreateExtraLabourDto {
   @MaxLength(100)
   name!: string;
 
-  @IsOptional()
-  @IsString()
-  phoneNumber?: string;
-
   @IsNotEmpty()
   @IsString()
   labourTypeId!: string;
 
   @IsOptional()
   @IsString()
-  notes?: string;
+  phone?: string | null;
+
+  @IsOptional()
+  @IsString()
+  phoneNumber?: string | null;
+
+  @IsOptional()
+  @IsString()
+  cnic?: string | null;
+
+  @IsOptional()
+  @IsString()
+  notes?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 }

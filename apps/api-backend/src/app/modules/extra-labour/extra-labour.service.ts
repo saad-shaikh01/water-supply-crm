@@ -217,7 +217,9 @@ export class ExtraLabourService {
       throw new NotFoundException('Extra labour type not found');
     }
 
-    const formattedPhone = dto.phoneNumber ? normalizePhone(dto.phoneNumber) : null;
+    const rawPhone = dto.phone ?? dto.phoneNumber;
+    const formattedPhone = rawPhone ? normalizePhone(rawPhone) : null;
+    const isActive = dto.isActive !== undefined ? dto.isActive : true;
 
     let hasDuplicatePhone = false;
     if (formattedPhone) {
@@ -240,6 +242,7 @@ export class ExtraLabourService {
         phoneNumber: formattedPhone,
         labourTypeId: dto.labourTypeId,
         notes: dto.notes?.trim() ?? null,
+        isActive,
         createdById: user.userId,
       },
       include: {
@@ -335,8 +338,9 @@ export class ExtraLabourService {
 
     const data: any = {};
     if (dto.name !== undefined) data.name = dto.name.trim();
-    if (dto.phoneNumber !== undefined) {
-      data.phoneNumber = dto.phoneNumber ? normalizePhone(dto.phoneNumber) : null;
+    const rawPhone = dto.phone !== undefined ? dto.phone : dto.phoneNumber;
+    if (rawPhone !== undefined) {
+      data.phoneNumber = rawPhone ? normalizePhone(rawPhone) : null;
     }
     if (dto.labourTypeId !== undefined) data.labourTypeId = dto.labourTypeId;
     if (dto.notes !== undefined) data.notes = dto.notes ? dto.notes.trim() : null;

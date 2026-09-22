@@ -83,6 +83,32 @@ describe('ExtraLabourService', () => {
       );
     });
 
+    it('supports phone alias property from frontend payload', async () => {
+      prisma.extraLabourType.findFirst.mockResolvedValue({ id: 'type-1', name: 'Loader' });
+      prisma.extraLabour.findFirst.mockResolvedValue(null);
+      prisma.extraLabour.create.mockResolvedValue({
+        id: 'labour-1',
+        name: 'Ali',
+        phoneNumber: '923001234567',
+        labourTypeId: 'type-1',
+        labourType: { id: 'type-1', name: 'Loader' },
+      });
+
+      await service.createLabourer(USER, {
+        name: 'Ali',
+        phone: '03001234567',
+        labourTypeId: 'type-1',
+      });
+
+      expect(prisma.extraLabour.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            phoneNumber: '923001234567',
+          }),
+        }),
+      );
+    });
+
     it('throws NotFoundException if labour type does not exist', async () => {
       prisma.extraLabourType.findFirst.mockResolvedValue(null);
 

@@ -8,11 +8,19 @@ export class UpdateExtraLabourDto {
 
   @IsOptional()
   @IsString()
+  labourTypeId?: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string | null;
+
+  @IsOptional()
+  @IsString()
   phoneNumber?: string | null;
 
   @IsOptional()
   @IsString()
-  labourTypeId?: string;
+  cnic?: string | null;
 
   @IsOptional()
   @IsString()
