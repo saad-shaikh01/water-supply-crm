@@ -68,7 +68,7 @@ export function FuelLogFormDialog({ vehicleId, dailySheetId, open, onOpenChange,
   const { data: checks } = useVehicleDailyChecks(vehicleId || isEdit ? undefined : dailySheetId);
   const resolvedVehicleId = fuelLog?.vehicleId ?? vehicleId ?? checks?.find((c) => c.checkType === 'START')?.vehicleId ?? undefined;
 
-  const { register, handleSubmit, reset, control, watch, formState: { errors } } = useForm<FuelLogInput>({
+  const { register, handleSubmit, reset, control, watch, setValue, formState: { errors } } = useForm<FuelLogInput>({
     resolver: zodResolver(fuelLogSchema),
     defaultValues: {
       date: new Date().toISOString().slice(0, 10),
@@ -86,8 +86,22 @@ export function FuelLogFormDialog({ vehicleId, dailySheetId, open, onOpenChange,
   });
   const isFullTank = watch('isFullTank');
   const paidFromCash = watch('paidFromCash');
+  const fuelCardId = watch('fuelCardId');
   const { data: fuelCards } = useFuelCards();
   const activeFuelCards = (fuelCards ?? []).filter((c) => c.isActive);
+
+  // Most vendors run exactly one fuel card, and the "Bank / other" option
+  // sitting first in the dropdown meant a card-paid fill silently never got
+  // a fuelCardId unless the driver remembered to tap the picker — the card's
+  // balance then never drew down even though the fill was genuinely
+  // card-paid. When there's only one active card, default to it as soon as
+  // "paid from van cash" is off (create mode only — editing an existing log
+  // must never override what was actually picked at the time).
+  useEffect(() => {
+    if (!isEdit && !paidFromCash && activeFuelCards.length === 1 && !fuelCardId) {
+      setValue('fuelCardId', activeFuelCards[0].id);
+    }
+  }, [isEdit, paidFromCash, activeFuelCards, fuelCardId, setValue]);
 
   useEffect(() => {
     if (open && fuelLog) {

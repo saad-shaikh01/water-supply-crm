@@ -104,9 +104,14 @@ import {
  *     Accountant roles get the full set; Vendor Admin has it via `*`. Manager is
  *     deliberately NOT backfilled (no `transactions:adjust` either), nor any
  *     field role.
+ *   - fuel_cards:view — added to `driver` and `salesman` (bugfix 2026-09-22):
+ *     the Daily Sheet's "Log Fuel Fill" dialog needs it to populate the "pay
+ *     from this card" picker; without it the dropdown rendered empty, so
+ *     card-paid fills never got a fuelCardId and never drew down the card's
+ *     balance. Existing vendors' Driver/Salesman roles predate the fix.
  */
 const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
-  driver: ['fleet:record_check', 'fleet:record_fuel'],
+  driver: ['fleet:record_check', 'fleet:record_fuel', 'fuel_cards:view'],
   salesman: [
     'fleet:record_check',
     'fleet:record_fuel',
@@ -120,6 +125,8 @@ const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
     'conversations:create',
     'conversations:send',
     'conversations:acknowledge',
+    // Fuel Card Wallet (bugfix 2026-09-22). See driver entry above.
+    'fuel_cards:view',
   ],
   manager: [
     'daily_sheets:void_delivery',
