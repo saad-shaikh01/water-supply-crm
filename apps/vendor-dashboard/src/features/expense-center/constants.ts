@@ -1,7 +1,7 @@
 import {
-  Truck, Users, Building2, Package, Landmark, AlertTriangle, type LucideIcon,
+  Truck, Users, Building2, Package, Landmark, AlertTriangle, ClipboardList, Wallet, Wrench, Banknote, FileEdit, type LucideIcon,
 } from 'lucide-react';
-import type { ExpenseCenterDomain } from './api/expense-center.api';
+import type { ExpenseCenterDomain, ExpenseCenterSourceBucket } from './api/expense-center.api';
 
 export interface DomainMeta {
   label: string;
@@ -36,6 +36,31 @@ export const EXPENSE_CENTER_DOMAINS = Object.keys(DOMAIN_CONFIG) as ExpenseCente
 export const domainMeta = (domain: ExpenseCenterDomain | string): DomainMeta =>
   DOMAIN_CONFIG[domain as ExpenseCenterDomain] ?? {
     label: String(domain),
+    color: 'bg-muted text-muted-foreground',
+    solid: 'bg-muted-foreground',
+    icon: AlertTriangle,
+  };
+
+/**
+ * Recording-surface palette — which flow the row was captured through, not
+ * what it was spent on (that's `DOMAIN_CONFIG`). Colours deliberately reuse
+ * none of the domain hues so the two badges never get visually confused
+ * sitting side by side on a timeline row.
+ */
+export const SOURCE_BUCKET_CONFIG: Record<ExpenseCenterSourceBucket, DomainMeta> = {
+  DAILY_SHEET: { label: 'Daily Sheet',    color: 'bg-indigo-500/10 text-indigo-500', solid: 'bg-indigo-500', icon: ClipboardList },
+  CASH_LEDGER: { label: 'Cash Ledger',    color: 'bg-teal-500/10 text-teal-500',     solid: 'bg-teal-500',   icon: Wallet },
+  FLEET:       { label: 'Fleet',          color: 'bg-orange-500/10 text-orange-500', solid: 'bg-orange-500', icon: Wrench },
+  PAYROLL:     { label: 'Payroll',        color: 'bg-fuchsia-500/10 text-fuchsia-500', solid: 'bg-fuchsia-500', icon: Banknote },
+  EXPENSES:    { label: 'Direct Expense', color: 'bg-slate-400/10 text-slate-400',   solid: 'bg-slate-400',  icon: FileEdit },
+};
+
+export const EXPENSE_CENTER_SOURCE_BUCKETS = Object.keys(SOURCE_BUCKET_CONFIG) as ExpenseCenterSourceBucket[];
+
+/** Safe lookup — the backend may add a bucket before this map catches up. */
+export const sourceBucketMeta = (source: ExpenseCenterSourceBucket | string): DomainMeta =>
+  SOURCE_BUCKET_CONFIG[source as ExpenseCenterSourceBucket] ?? {
+    label: String(source),
     color: 'bg-muted text-muted-foreground',
     solid: 'bg-muted-foreground',
     icon: AlertTriangle,

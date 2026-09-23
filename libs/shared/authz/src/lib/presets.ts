@@ -70,6 +70,14 @@ export const NON_NAVIGATIONAL_PERMISSIONS: ReadonlySet<Permission> = new Set<Per
   'tracking:report_location',
   'fleet:record_check',
   'fleet:record_fuel',
+  // Fuel Card Wallet (bugfix 2026-09-22): Driver/Salesman hold this ONLY to
+  // populate the card picker inside the Daily Sheet's "Log Fuel Fill"
+  // dialog — same non-navigational shape as fleet:record_fuel above, no
+  // dedicated Fuel Cards screen for them (fuel_cards:page not granted).
+  // Manager/Accountant also hold this permission but pair it with
+  // fuel_cards:page for the real dashboard page, so the invariant still
+  // holds for them independent of this exemption.
+  'fuel_cards:view',
   'extra_labour:create',
 ]);
 
@@ -398,6 +406,10 @@ export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
       'conversations:create',
       'conversations:send',
       'conversations:acknowledge',
+      // Fuel Card Wallet (bugfix 2026-09-22): same rationale as Driver above —
+      // Salesman logs fuel fills from the same Daily Sheet dialog and needs
+      // `view` for the card picker to populate.
+      'fuel_cards:view',
     ],
   },
   loader: {
@@ -472,6 +484,15 @@ export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
       // Fleet screen for drivers) or fleet:override_check (Staff/Admin-only).
       'fleet:record_check',
       'fleet:record_fuel',
+      // Fuel Card Wallet (bugfix 2026-09-22): driver logs fuel fills straight
+      // from the Daily Sheet's "Log Fuel Fill" dialog, which needs `view` to
+      // fetch the card list for its "pay from this card" picker. Without it
+      // the dropdown silently renders empty, the fill never gets a
+      // fuelCardId, and the card's own balance never draws down even though
+      // the driver marked it as card-paid. NOT `fuel_cards:page` — no
+      // dedicated Fuel Cards screen for drivers, same non-grant pattern as
+      // fleet:page above.
+      'fuel_cards:view',
       // Extra Labour (owner-approved 2026-09-22, Amendment R20)
       'extra_labour:create',
     ],

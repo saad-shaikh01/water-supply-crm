@@ -15,6 +15,8 @@ import {
 import {
   CREW_CASH_CATEGORY,
   EXPENSE_CENTER_DOMAINS,
+  EXPENSE_CENTER_SOURCE_BUCKETS,
+  EXPENSE_CENTER_SOURCE_BUCKET_LABELS,
   compareRowsByDateDesc,
   domainForExpenseCategory,
   labelForExpenseCategory,
@@ -27,6 +29,8 @@ import {
   STAFF_LEDGER_CATEGORY_LABELS,
   type ExpenseCenterDomain,
   type ExpenseCenterRow,
+  type ExpenseCenterSourceBucket,
+  type ExpenseProvenanceScope,
 } from './expense-center-domain.util';
 
 export interface ExpenseCenterSummary {
@@ -39,6 +43,8 @@ export interface ExpenseCenterSummary {
   /** vs the immediately preceding period of equal length; null when that period had zero spend. */
   momDeltaPercent: number | null;
   byDomain: Array<{ domain: ExpenseCenterDomain; amount: number; percent: number }>;
+  /** Which recording surface the spend came through — Daily Sheet / Cash Ledger / Fleet / Payroll / Direct Expense. */
+  bySource: Array<{ source: ExpenseCenterSourceBucket; label: string; amount: number; percent: number }>;
 }
 
 /** Money is reported to 2dp — float sums otherwise leak 0.30000000000000004-style noise. */
@@ -78,6 +84,16 @@ interface PeriodTotals {
   staffLedgerTotal: number;
   /** Sheet-scoped CrewCashDistribution + ACTIVE StandaloneCrewCashExpense — one CREW_CASH bucket. */
   crewCashTotal: number;
+  /** `Expense` rows with a `dailySheetId` — the DAILY_SHEET source bucket's Expense-table slice. */
+  sheetExpenseTotal: number;
+  /** `Expense` rows with no sheet but a linked FuelLog/VehicleServiceRecord — the FLEET source bucket. */
+  fleetExpenseTotal: number;
+  /** `Expense` rows with no sheet and no fleet link — the EXPENSES (direct entry) source bucket. */
+  manualExpenseTotal: number;
+  /** CrewCashDistribution only (always sheet-scoped) — the DAILY_SHEET bucket's crew-cash slice. */
+  sheetCrewCashTotal: number;
+  /** ACTIVE StandaloneCrewCashExpense only — the CASH_LEDGER source bucket. */
+  standaloneCrewCashTotal: number;
   total: number;
 }
 
@@ -134,6 +150,7 @@ export class ExpenseCenterService {
       momDeltaPercent:
         previous.total > 0 ? round1(((current.total - previous.total) / previous.total) * 100) : null,
       byDomain: buildDomainBreakdown(current, totalSpend),
+      bySource: buildSourceBreakdown(current, totalSpend),
     };
   }
 
@@ -149,7 +166,16 @@ export class ExpenseCenterService {
    * documented next step if that ever stops being true.
    */
   private async collectPeriodTotals(vendorId: string, start: Date, end: Date): Promise<PeriodTotals> {
-    const [expenseGroups, ledgerRows, crewCashAgg, standaloneCrewCashAgg] = await Promise.all([
+    const dateFilter = { gte: start, lte: end };
+    const [
+      expenseGroups,
+      ledgerRows,
+      crewCashAgg,
+      standaloneCrewCashAgg,
+      sheetExpenseAgg,
+      fleetExpenseAgg,
+      manualExpenseAgg,
+    ] = await Promise.all([
       this.prisma.expense.groupBy({
         by: ['category', 'paidFromCash'],
         where: { vendorId, date: { gte: start, lte: end } },
@@ -180,6 +206,25 @@ export class ExpenseCenterService {
         where: { vendorId, status: StandaloneCrewCashStatus.ACTIVE, date: { gte: start, lte: end } },
         _sum: { amount: true },
       }),
+      // Source-bucket split of the Expense table — mirrors the badge priority
+      // in expenseSourceBadge (sheet wins over fleet, fleet over manual).
+      this.prisma.expense.aggregate({
+        where: { vendorId, date: dateFilter, dailySheetId: { not: null } },
+        _sum: { amount: true },
+      }),
+      this.prisma.expense.aggregate({
+        where: {
+          vendorId,
+          date: dateFilter,
+          dailySheetId: null,
+          OR: [{ fuelLog: { isNot: null } }, { vehicleServiceRecord: { isNot: null } }],
+        },
+        _sum: { amount: true },
+      }),
+      this.prisma.expense.aggregate({
+        where: { vendorId, date: dateFilter, dailySheetId: null, fuelLog: null, vehicleServiceRecord: null },
+        _sum: { amount: true },
+      }),
     ]);
 
     const expenseByCategory = new Map<ExpenseCategory, number>();
@@ -200,7 +245,9 @@ export class ExpenseCenterService {
       staffLedgerTotal += amount;
     }
 
-    const crewCashTotal = (crewCashAgg._sum.amount ?? 0) + (standaloneCrewCashAgg._sum.amount ?? 0);
+    const sheetCrewCashTotal = crewCashAgg._sum.amount ?? 0;
+    const standaloneCrewCashTotal = standaloneCrewCashAgg._sum.amount ?? 0;
+    const crewCashTotal = sheetCrewCashTotal + standaloneCrewCashTotal;
 
     return {
       expenseByCategory,
@@ -209,6 +256,11 @@ export class ExpenseCenterService {
       staffLedgerByCategory,
       staffLedgerTotal,
       crewCashTotal,
+      sheetExpenseTotal: sheetExpenseAgg._sum.amount ?? 0,
+      fleetExpenseTotal: fleetExpenseAgg._sum.amount ?? 0,
+      manualExpenseTotal: manualExpenseAgg._sum.amount ?? 0,
+      sheetCrewCashTotal,
+      standaloneCrewCashTotal,
       total: expenseCash + expenseCard + staffLedgerTotal + crewCashTotal,
     };
   }
@@ -246,6 +298,7 @@ export class ExpenseCenterService {
       employeeId: query.employeeId,
       extraLabourId: query.extraLabourId,
       paymentMethod: query.paymentMethod,
+      source: query.source,
     });
 
     const windowSize = page * limit + limit;
@@ -258,6 +311,7 @@ export class ExpenseCenterService {
       ...(query.extraLabourId && { extraLabourId: query.extraLabourId }),
       // card == paidFromCash false; cash == paidFromCash true.
       ...(query.paymentMethod && { paidFromCash: query.paymentMethod === 'CASH' }),
+      ...expenseProvenanceWhere(selection.expenseProvenance),
     };
 
     const ledgerWhere: Prisma.StaffLedgerEntryWhereInput = {
@@ -469,4 +523,42 @@ function buildDomainBreakdown(
     const amount = round2(byDomain.get(domain) ?? 0);
     return { domain, amount, percent: percentOf(amount, totalSpend) };
   });
+}
+
+/** All five source buckets always emitted, so the legend stays stable across date ranges. */
+function buildSourceBreakdown(
+  totals: PeriodTotals,
+  totalSpend: number,
+): ExpenseCenterSummary['bySource'] {
+  const bySource: Record<ExpenseCenterSourceBucket, number> = {
+    DAILY_SHEET: totals.sheetExpenseTotal + totals.sheetCrewCashTotal,
+    CASH_LEDGER: totals.standaloneCrewCashTotal,
+    FLEET: totals.fleetExpenseTotal,
+    PAYROLL: totals.staffLedgerTotal,
+    EXPENSES: totals.manualExpenseTotal,
+  };
+
+  return EXPENSE_CENTER_SOURCE_BUCKETS.map((source) => {
+    const amount = round2(bySource[source]);
+    return { source, label: EXPENSE_CENTER_SOURCE_BUCKET_LABELS[source], amount, percent: percentOf(amount, totalSpend) };
+  });
+}
+
+/**
+ * Turns a resolved `expenseProvenance` scope into the `Expense`-table where
+ * fragment that restricts a read to that slice — see `ExpenseProvenanceScope`
+ * for what each value means. 'ANY' contributes no restriction.
+ */
+function expenseProvenanceWhere(scope: ExpenseProvenanceScope): Prisma.ExpenseWhereInput {
+  switch (scope) {
+    case 'SHEET':
+      return { dailySheetId: { not: null } };
+    case 'FLEET_STANDALONE':
+      return { dailySheetId: null, OR: [{ fuelLog: { isNot: null } }, { vehicleServiceRecord: { isNot: null } }] };
+    case 'MANUAL':
+      return { dailySheetId: null, fuelLog: null, vehicleServiceRecord: null };
+    case 'ANY':
+    default:
+      return {};
+  }
 }

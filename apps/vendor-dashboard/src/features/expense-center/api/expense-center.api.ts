@@ -36,6 +36,14 @@ export type ExpenseCenterCostSign = 'DEBIT' | 'CREDIT';
  */
 export type ExpenseCenterSourceType = 'EXPENSE' | 'FUEL_LOG' | 'VEHICLE_SERVICE' | 'STAFF_LEDGER' | 'CREW_CASH';
 
+/**
+ * Which recording surface a row came through — a coarser grouping than
+ * `sourceType`/`sourceBadge`, exposed so an admin can filter/total spend by
+ * "did this come in through a Daily Sheet, the Cash Ledger, or somewhere
+ * else?". Mirrors the backend's `ExpenseCenterSourceBucket`.
+ */
+export type ExpenseCenterSourceBucket = 'DAILY_SHEET' | 'CASH_LEDGER' | 'FLEET' | 'PAYROLL' | 'EXPENSES';
+
 export interface ExpenseCenterTopCategory {
   category: string;
   label: string;
@@ -58,6 +66,14 @@ export interface ExpenseCenterSummary {
   /** `null` when there is no comparable previous period to measure against. */
   momDeltaPercent: number | null;
   byDomain: ExpenseCenterDomainSlice[];
+  bySource: ExpenseCenterSourceSlice[];
+}
+
+export interface ExpenseCenterSourceSlice {
+  source: ExpenseCenterSourceBucket;
+  label: string;
+  amount: number;
+  percent: number;
 }
 
 export interface ExpenseCenterRow {
@@ -100,6 +116,8 @@ export interface ExpenseCenterTimelineQuery extends ExpenseCenterSummaryQuery {
   /** Extra Labour — an ExtraLabour id (distinct from employeeId, a User id). Expense-only. */
   extraLabourId?: string;
   paymentMethod?: string;
+  /** Which recording surface to restrict to — Daily Sheet / Cash Ledger / Fleet / Payroll / Direct Expense. */
+  source?: ExpenseCenterSourceBucket;
 }
 
 export interface ExpenseCenterTimelineMeta {
