@@ -13,7 +13,11 @@ import { CreateVanDto } from './dto/create-van.dto';
 import { UpdateVanDto } from './dto/update-van.dto';
 import { UpdateDefaultCrewDto } from './dto/update-default-crew.dto';
 import { paginate } from '../../common/helpers/paginate';
-import { validateSupportCrew, validateDriverAssignment } from '../../common/helpers/crew-validation';
+import {
+  validateSupportCrew,
+  validateDriverAssignment,
+  validateSalesmanAssignment,
+} from '../../common/helpers/crew-validation';
 
 @Injectable()
 export class VanService {
@@ -26,6 +30,9 @@ export class VanService {
     if (dto.defaultDriverId) {
       await validateDriverAssignment(this.prisma, vendorId, dto.defaultDriverId);
     }
+    if (dto.defaultSalesmanId) {
+      await validateSalesmanAssignment(this.prisma, vendorId, dto.defaultSalesmanId);
+    }
     const van = await this.prisma.van.create({
       data: { ...dto, vendorId },
     });
@@ -35,6 +42,7 @@ export class VanService {
 
   private vanInclude = {
     defaultDriver: { select: { id: true, name: true, email: true } },
+    defaultSalesman: { select: { id: true, name: true, email: true } },
     routes: { select: { id: true, name: true } },
     defaultCrew: {
       include: { user: { select: { id: true, name: true, role: true, isActive: true } } },
@@ -128,6 +136,9 @@ export class VanService {
     if (dto.defaultDriverId) {
       await validateDriverAssignment(this.prisma, vendorId, dto.defaultDriverId);
     }
+    if (dto.defaultSalesmanId) {
+      await validateSalesmanAssignment(this.prisma, vendorId, dto.defaultSalesmanId);
+    }
 
     const updated = await this.prisma.van.update({
       where: { id },
@@ -143,7 +154,7 @@ export class VanService {
     const van = await this.prisma.van.findFirst({ where: { id, vendorId } });
     if (!van) throw new NotFoundException('Van not found');
 
-    await validateSupportCrew(this.prisma, vendorId, dto.crew, van.defaultDriverId);
+    await validateSupportCrew(this.prisma, vendorId, dto.crew, [van.defaultDriverId, van.defaultSalesmanId]);
 
     const updated = await this.prisma.$transaction(async (tx) => {
       await tx.vanDefaultCrew.deleteMany({ where: { vanId: id } });

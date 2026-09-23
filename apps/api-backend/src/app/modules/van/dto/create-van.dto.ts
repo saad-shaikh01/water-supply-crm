@@ -7,4 +7,8 @@ export class CreateVanDto {
   @IsOptional()
   @IsUUID()
   defaultDriverId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  defaultSalesmanId?: string;
 }

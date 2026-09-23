@@ -59,6 +59,13 @@ export interface AttendanceRecord extends StaffAttendance {
   leaveLedgerEntry: { id: string; category: string; amount: number; status: string } | null;
 }
 
+/** Response of `POST /payroll/attendance/period/:periodId/backfill`. */
+export interface AttendanceBackfillResult {
+  sheetsScanned: number;
+  sheetsTouched: number;
+  created: number;
+}
+
 export const payrollApi = {
   // Salary structures
   getSalaryHistory: (userId: string) => apiClient.get(`/payroll/salary-structures/employee/${userId}`),
@@ -94,4 +101,6 @@ export const payrollApi = {
   getAttendanceForPeriod: (periodId: string) => apiClient.get(`/payroll/attendance/period/${periodId}`),
   getAttendanceForEmployee: (userId: string) => apiClient.get(`/payroll/attendance/employee/${userId}`),
   markAttendance: (data: MarkAttendanceData) => apiClient.post('/payroll/attendance/mark', data),
+  backfillAttendance: (periodId: string) =>
+    apiClient.post<AttendanceBackfillResult>(`/payroll/attendance/period/${periodId}/backfill`, {}),
 };

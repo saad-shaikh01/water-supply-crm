@@ -8,4 +8,8 @@ export class UpdateVanDto {
   @IsOptional()
   @IsUUID()
   defaultDriverId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  defaultSalesmanId?: string;
 }

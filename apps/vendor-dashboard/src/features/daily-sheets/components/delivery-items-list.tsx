@@ -1278,8 +1278,15 @@ export function DeliveryItemsList({
           item={chatItem}
           sheetId={sheetId}
           isDriver={isDriver}
-          // A voided stop takes no new notes — thread stays readable but locked.
-          isClosed={isClosed || chatItem.status === 'VOIDED'}
+          // This is the same per-customer thread as the Communication Center
+          // and the Customer List's "Chats" entry point (see
+          // communications/page.tsx and customer-conversation-thread.tsx) —
+          // whether *this* sheet has since closed must never lock the whole
+          // thread; ConversationThread's own `conversation.status === 'CLOSED'`
+          // check already covers a real closure. A voided stop is the one
+          // per-item exception: it takes no new notes, so the thread stays
+          // readable but locked.
+          isClosed={chatItem.status === 'VOIDED'}
           onClose={() => setChatItem(null)}
         />
       )}

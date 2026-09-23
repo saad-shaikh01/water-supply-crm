@@ -4,6 +4,7 @@ import { Job } from 'bullmq';
 import { PrismaService } from '@water-supply-crm/database';
 import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
 import { DailySheetService } from './daily-sheet.service';
+import { resolveEffectiveDriverId } from '../../common/helpers/crew-validation';
 
 interface GenerateSheetsJobData {
   vendorId: string;
@@ -157,9 +158,13 @@ export class DailySheetProcessor extends WorkerHost {
       const schedules = van.deliverySchedules;
       if (schedules.length === 0) continue;
 
-      if (!van.defaultDriverId) {
-        this.logger.warn(`Van ${van.plateNumber} skipped — no default driver`);
-        skippedVans.push({ id: van.id, plateNumber: van.plateNumber, reason: 'No default driver assigned' });
+      if (!resolveEffectiveDriverId(van)) {
+        this.logger.warn(`Van ${van.plateNumber} skipped — no default salesman or driver`);
+        skippedVans.push({
+          id: van.id,
+          plateNumber: van.plateNumber,
+          reason: 'No default salesman or default driver assigned',
+        });
         processed++;
         continue;
       }

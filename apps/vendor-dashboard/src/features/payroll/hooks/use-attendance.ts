@@ -42,3 +42,24 @@ export const useMarkAttendance = () => {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to record attendance'),
   });
 };
+
+/**
+ * Refresh button: re-captures attendance for already-confirmed sheets that
+ * never got their rows written (see `StaffAttendanceService.backfillForPeriod`).
+ */
+export const useBackfillAttendance = (periodId: string | undefined) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => payrollApi.backfillAttendance(periodId as string),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.payroll.attendanceByPeriod(periodId ?? '') });
+      const { created, sheetsTouched } = res.data;
+      toast.success(
+        created > 0
+          ? `Refreshed — ${created} attendance row${created === 1 ? '' : 's'} added from ${sheetsTouched} sheet${sheetsTouched === 1 ? '' : 's'}.`
+          : 'Refreshed — already up to date.',
+      );
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to refresh attendance'),
+  });
+};

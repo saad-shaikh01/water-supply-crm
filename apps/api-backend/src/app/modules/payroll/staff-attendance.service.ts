@@ -336,6 +336,110 @@ export class StaffAttendanceService {
   }
 
   /**
+   * Gap-fill sweep for the Attendance grid's "Refresh" action: for every
+   * already-`crewConfirmed` sheet in this period, creates a PRESENT row for
+   * any roster member (driver/crew) who has NO attendance row yet for that
+   * day. Exists because attendance capture only ever fires from inside the
+   * `POST /confirm-crew` transaction — a sheet that reached crewConfirmed=true
+   * some other way (pre-feature data, a migration grandfather, a direct DB
+   * fix) has no UI path left to re-trigger it, so it stays permanently
+   * attendance-less (see backfill-attendance-current-month.mjs, which this
+   * replaces as an on-demand button rather than an ad-hoc script).
+   *
+   * Deliberately NOT `captureForConfirmedCrew` (which also updates/reconciles
+   * an existing row — right for the live confirm-crew path, where a roster
+   * change or absent-toggle is a real edit to reflect) — this sweep only
+   * ever fills a blank cell. Any (userId, date) that already has a row, of
+   * ANY status/source (PRESENT, ABSENT, MANUAL, a different sheet), is left
+   * completely untouched: never overwritten, never re-pointed, never
+   * deleted. A roster member with no row for a day simply stays blank —
+   * this never creates ABSENT.
+   */
+  async backfillForPeriod(user: AuthUser, periodId: string) {
+    const period = await this.prisma.payrollPeriod.findFirst({
+      where: { id: periodId, vendorId: user.vendorId },
+    });
+    if (!period) throw new NotFoundException('Payroll period not found.');
+
+    const sheets = await this.prisma.dailySheet.findMany({
+      where: {
+        vendorId: user.vendorId,
+        kind: { not: DailySheetKind.WALK_IN },
+        crewConfirmed: true,
+        date: { gte: period.startDate, lte: period.endDate },
+      },
+      select: {
+        id: true,
+        date: true,
+        driverId: true,
+        crewConfirmedById: true,
+        crew: { select: { userId: true } },
+      },
+      orderBy: { date: 'asc' },
+    });
+
+    let sheetsTouched = 0;
+    let created = 0;
+
+    for (const sheet of sheets) {
+      const day = startOfUtcDay(sheet.date);
+      const actorId = sheet.crewConfirmedById ?? sheet.driverId;
+      const rosterIds = [sheet.driverId, ...sheet.crew.map((c) => c.userId)];
+
+      const users = await this.prisma.user.findMany({
+        where: { id: { in: rosterIds }, vendorId: user.vendorId },
+        select: { id: true, isSystem: true },
+      });
+      const validIds = new Set(users.filter((u) => !u.isSystem).map((u) => u.id));
+
+      let touchedThisSheet = false;
+
+      for (const userId of rosterIds) {
+        if (!validIds.has(userId)) continue;
+
+        const wasCreated = await this.prisma.$transaction(async (tx) => {
+          // Any existing row — regardless of status/source — is left alone;
+          // this sweep only ever fills a genuinely blank (userId, date).
+          const existing = await tx.staffAttendance.findUnique({
+            where: { userId_date: { userId, date: day } },
+          });
+          if (existing) return false;
+
+          if (await this.isDateInLockedPeriod(tx, user.vendorId, userId, day)) return false;
+
+          try {
+            await tx.staffAttendance.create({
+              data: {
+                vendorId: user.vendorId,
+                userId,
+                date: day,
+                status: AttendanceStatus.PRESENT,
+                source: AttendanceSource.CREW_CONFIRM,
+                dailySheetId: sheet.id,
+                markedById: actorId,
+              },
+            });
+            return true;
+          } catch (err) {
+            // A concurrent fill raced us to the same (userId, date) row — harmless.
+            if ((err as Prisma.PrismaClientKnownRequestError)?.code === 'P2002') return false;
+            throw err;
+          }
+        });
+
+        if (wasCreated) {
+          created++;
+          touchedThisSheet = true;
+        }
+      }
+
+      if (touchedThisSheet) sheetsTouched++;
+    }
+
+    return { sheetsScanned: sheets.length, sheetsTouched, created };
+  }
+
+  /**
    * One employee's attendance history, most recent first. Self-view for any
    * role; another employee's requires `payroll:attendance_view`.
    */

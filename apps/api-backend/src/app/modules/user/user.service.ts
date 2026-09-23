@@ -298,10 +298,14 @@ export class UserService {
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.USERS);
     await this.permissions.invalidateUser(id); // clear cached effective permissions
 
-    // Clear this driver from any van that still references them
+    // Clear this driver/salesman from any van that still references them
     await this.prisma.van.updateMany({
       where: { defaultDriverId: id, vendorId },
       data: { defaultDriverId: null },
+    });
+    await this.prisma.van.updateMany({
+      where: { defaultSalesmanId: id, vendorId },
+      data: { defaultSalesmanId: null },
     });
 
     // Remove from any van's default crew template (past sheet crew snapshots stay)
@@ -366,18 +370,27 @@ export class UserService {
       throw new NotFoundException('User not found');
     }
 
-    const [vanAssignment, activeDamages] = await Promise.all([
+    const [vanDriverAssignment, vanSalesmanAssignment, activeDamages] = await Promise.all([
       this.prisma.van.findFirst({
         where: { defaultDriverId: id, vendorId },
+        select: { plateNumber: true },
+      }),
+      this.prisma.van.findFirst({
+        where: { defaultSalesmanId: id, vendorId },
         select: { plateNumber: true },
       }),
       this.prisma.damageCase.count({
         where: { driverId: id, status: { in: ['REPORTED', 'UNDER_REVIEW'] } },
       }),
     ]);
-    if (vanAssignment) {
+    if (vanDriverAssignment) {
       throw new BadRequestException(
-        `Driver is the default driver of van "${vanAssignment.plateNumber}". Reassign the van first.`
+        `Driver is the default driver of van "${vanDriverAssignment.plateNumber}". Reassign the van first.`
+      );
+    }
+    if (vanSalesmanAssignment) {
+      throw new BadRequestException(
+        `Driver is the default salesman of van "${vanSalesmanAssignment.plateNumber}". Reassign the van first.`
       );
     }
     if (activeDamages > 0) {

@@ -55,8 +55,9 @@ const ADD = '__add__';
 interface CrewEditorProps {
   value: CrewSelection;
   onChange: (value: CrewSelection) => void;
-  /** The assigned driver — excluded from every crew slot. */
-  excludeUserId?: string | null;
+  /** The assigned driver(s) for the day (e.g. a van's default driver AND
+   * default salesman) — excluded from every crew slot. */
+  excludeUserId?: string | (string | null | undefined)[] | null;
 }
 
 export function CrewEditor({ value, onChange, excludeUserId }: CrewEditorProps) {
@@ -64,6 +65,11 @@ export function CrewEditor({ value, onChange, excludeUserId }: CrewEditorProps) 
   const users = (data?.data ?? []) as Array<{ id: string; name: string; role: string }>;
   const usersById = new Map(users.map((u) => [u.id, u]));
   const picked = new Set([...value.salesmanIds, ...value.loaderIds]);
+  const excludeIds = new Set(
+    (Array.isArray(excludeUserId) ? excludeUserId : [excludeUserId]).filter(
+      (id): id is string => !!id,
+    ),
+  );
 
   const group = (
     label: string,
@@ -75,7 +81,7 @@ export function CrewEditor({ value, onChange, excludeUserId }: CrewEditorProps) 
   ) => {
     const ids = value[key];
     const options = users.filter(
-      (u) => eligibleRoles.includes(u.role) && u.id !== excludeUserId && !picked.has(u.id),
+      (u) => eligibleRoles.includes(u.role) && !excludeIds.has(u.id) && !picked.has(u.id),
     );
     const add = (userId: string) => onChange({ ...value, [key]: [...ids, userId] });
     const remove = (userId: string) => onChange({ ...value, [key]: ids.filter((id) => id !== userId) });

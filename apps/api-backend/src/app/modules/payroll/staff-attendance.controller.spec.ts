@@ -9,6 +9,7 @@ function makeController() {
   const service = {
     markStatus: jest.fn().mockResolvedValue({ id: 'att-001' }),
     listByPeriod: jest.fn().mockResolvedValue([]),
+    backfillForPeriod: jest.fn().mockResolvedValue({ sheetsScanned: 0, sheetsTouched: 0, created: 0, reconciled: 0 }),
     listByEmployee: jest.fn().mockResolvedValue([]),
     listBySheet: jest.fn().mockResolvedValue([]),
   };
@@ -22,6 +23,7 @@ describe('StaffAttendanceController — authorization metadata', () => {
   const permissionByMethod: Record<string, string> = {
     mark: 'payroll:attendance_mark',
     listByPeriod: 'payroll:attendance_view',
+    backfill: 'payroll:attendance_mark',
   };
 
   it.each(Object.entries(permissionByMethod))('%s requires exactly %s', (methodName, permission) => {
@@ -59,6 +61,12 @@ describe('StaffAttendanceController — pass-through', () => {
     const { controller, service } = makeController();
     await controller.listByPeriod(user, 'period-001');
     expect(service.listByPeriod).toHaveBeenCalledWith(user, 'period-001');
+  });
+
+  it('backfill() forwards user + periodId', async () => {
+    const { controller, service } = makeController();
+    await controller.backfill(user, 'period-001');
+    expect(service.backfillForPeriod).toHaveBeenCalledWith(user, 'period-001');
   });
 
   it('listByEmployee() forwards user + userId', async () => {

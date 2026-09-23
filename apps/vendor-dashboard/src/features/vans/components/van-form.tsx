@@ -32,28 +32,37 @@ export function VanForm({ open, onOpenChange, van }: VanFormProps) {
 
   const [crew, setCrew] = useState<CrewSelection>(emptyCrewSelection);
 
-  // Driver picker draws from the same field-staff pool as the crew slots
-  // below (DRIVER/SALESMAN/LOADER are interchangeable day to day) — filtered
-  // out of the crew arrays too, so nobody is pickable as both driver and
-  // supporting crew at once (backend also rejects that combo on save).
-  const picked = new Set([...crew.salesmanIds, ...crew.loaderIds]);
-  const drivers = ((candidatesResponse as { data?: Array<{ id: string; name: string; role: string }> } | undefined)?.data ?? [])
-    .filter((u) => CREW_ROLE_ELIGIBLE.DRIVER.includes(u.role) && !picked.has(u.id));
-
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<VanInput>({
     resolver: zodResolver(vanSchema),
-    defaultValues: { plateNumber: '', defaultDriverId: null },
+    defaultValues: { plateNumber: '', defaultDriverId: null, defaultSalesmanId: null },
   });
+
+  const watchedDriverId = watch('defaultDriverId');
+  const watchedSalesmanId = watch('defaultSalesmanId');
+
+  // Both pickers draw from the same field-staff pool as the crew slots below
+  // (DRIVER/SALESMAN/LOADER are interchangeable day to day) — filtered out of
+  // the crew arrays and out of each other, so nobody is pickable in two slots
+  // at once (backend also rejects that combo on save).
+  const picked = new Set([...crew.salesmanIds, ...crew.loaderIds]);
+  const candidates = (candidatesResponse as { data?: Array<{ id: string; name: string; role: string }> } | undefined)?.data ?? [];
+  const drivers = candidates.filter(
+    (u) => CREW_ROLE_ELIGIBLE.DRIVER.includes(u.role) && !picked.has(u.id) && u.id !== watchedSalesmanId,
+  );
+  const salesmen = candidates.filter(
+    (u) => CREW_ROLE_ELIGIBLE.SALESMAN.includes(u.role) && !picked.has(u.id) && u.id !== watchedDriverId,
+  );
 
   useEffect(() => {
     if (open && van) {
       reset({
         plateNumber: String(van.plateNumber ?? ''),
-        defaultDriverId: van.defaultDriverId ? String(van.defaultDriverId) : null
+        defaultDriverId: van.defaultDriverId ? String(van.defaultDriverId) : null,
+        defaultSalesmanId: van.defaultSalesmanId ? String(van.defaultSalesmanId) : null,
       });
       setCrew(crewArrayToSelection(van.defaultCrew as Array<{ userId: string; role: string }> | undefined));
     } else if (!open) {
-      reset({ plateNumber: '', defaultDriverId: null });
+      reset({ plateNumber: '', defaultDriverId: null, defaultSalesmanId: null });
       setCrew(emptyCrewSelection);
     }
   }, [open, van, reset]);
@@ -61,10 +70,13 @@ export function VanForm({ open, onOpenChange, van }: VanFormProps) {
   const onSubmit = (data: VanInput) => {
     const payload = {
       ...data,
-      // Send explicit null when clearing driver on edit; undefined for create
+      // Send explicit null when clearing on edit; undefined for create
       defaultDriverId: isEdit
         ? (data.defaultDriverId || null)
         : (data.defaultDriverId || undefined),
+      defaultSalesmanId: isEdit
+        ? (data.defaultSalesmanId || null)
+        : (data.defaultSalesmanId || undefined),
     };
 
     const saveCrew = (vanId: string) =>
@@ -106,9 +118,38 @@ export function VanForm({ open, onOpenChange, van }: VanFormProps) {
             </div>
 
             <div className="space-y-2">
+              <Label className="text-sm font-semibold">Default Salesman</Label>
+              <Select
+                value={watchedSalesmanId || 'none'}
+                onValueChange={(v) => setValue('defaultSalesmanId', v === 'none' ? null : v)}
+              >
+                <SelectTrigger className="bg-accent/30 border-border/50 h-11 focus:border-primary/50 transition-all">
+                  <SelectValue placeholder="Assign a default salesman" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No default salesman</SelectItem>
+                  {salesmen.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      <div className="flex items-center gap-2">
+                        <User className="h-3 w-3" />
+                        {s.name}
+                        {s.role !== 'SALESMAN' && (
+                          <span className="text-xs text-muted-foreground">({s.role.toLowerCase()})</span>
+                        )}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Takes priority over the default driver — if set, this person becomes the driver on new daily sheets.
+              </p>
+            </div>
+
+            <div className="space-y-2">
               <Label className="text-sm font-semibold">Default Driver</Label>
               <Select
-                value={watch('defaultDriverId') || 'none'}
+                value={watchedDriverId || 'none'}
                 onValueChange={(v) => setValue('defaultDriverId', v === 'none' ? null : v)}
               >
                 <SelectTrigger className="bg-accent/30 border-border/50 h-11 focus:border-primary/50 transition-all">
@@ -130,7 +171,7 @@ export function VanForm({ open, onOpenChange, van }: VanFormProps) {
                 </SelectContent>
               </Select>
               <p className="text-[11px] text-muted-foreground mt-1">
-                The assigned driver will be automatically selected for new daily sheets.
+                Used for new daily sheets only when no default salesman is assigned above.
               </p>
             </div>
 
@@ -138,7 +179,7 @@ export function VanForm({ open, onOpenChange, van }: VanFormProps) {
               <CrewEditor
                 value={crew}
                 onChange={setCrew}
-                excludeUserId={watch('defaultDriverId')}
+                excludeUserId={[watchedDriverId, watchedSalesmanId]}
               />
               <p className="text-[11px] text-muted-foreground mt-1">
                 The default crew is copied onto each generated daily sheet and confirmed there each morning.

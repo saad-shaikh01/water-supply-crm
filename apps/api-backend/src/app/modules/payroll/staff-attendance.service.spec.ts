@@ -77,9 +77,17 @@ function makeService(
       findFirst: jest.fn().mockResolvedValue(
         opts.employeeExists === false ? null : { id: DRIVER_ID, role: opts.employeeRole ?? UserRole.DRIVER },
       ),
+      findMany: jest.fn().mockResolvedValue([
+        { id: DRIVER_ID, isSystem: false },
+        { id: LOADER_ID, isSystem: false },
+        { id: SALESMAN_ID, isSystem: false },
+      ]),
     },
     payrollPeriod: { findFirst: jest.fn().mockResolvedValue({ id: 'period-001', startDate: DAY, endDate: DAY }) },
-    dailySheet: { findFirst: jest.fn().mockResolvedValue({ id: SHEET_ID }) },
+    dailySheet: {
+      findFirst: jest.fn().mockResolvedValue({ id: SHEET_ID }),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     staffAttendance: { findMany: jest.fn().mockResolvedValue([]) },
   };
   const permissions = { can: jest.fn().mockResolvedValue(opts.canViewAll ?? false) };
@@ -562,6 +570,84 @@ describe('StaffAttendanceService', () => {
         }),
       ).rejects.toThrow('gate failure');
       expect(tx.staffAttendance.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('backfillForPeriod()', () => {
+    it('throws NotFound for an unknown period', async () => {
+      const { svc, prisma } = makeService();
+      prisma.payrollPeriod.findFirst.mockResolvedValueOnce(null);
+      await expect(svc.backfillForPeriod(managerUser, 'nope')).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('re-captures a crewConfirmed sheet with no attendance rows yet — all PRESENT, none ABSENT', async () => {
+      const { svc, prisma, tx } = makeService();
+      prisma.dailySheet.findMany.mockResolvedValue([
+        {
+          id: SHEET_ID,
+          kind: DailySheetKind.ROUTE,
+          date: SHEET_DATE,
+          driverId: DRIVER_ID,
+          crewConfirmedById: managerUser.userId,
+          crew: [
+            { userId: LOADER_ID, role: CrewRole.LOADER },
+            { userId: SALESMAN_ID, role: CrewRole.SALESMAN },
+          ],
+        },
+      ]);
+
+      const result = await svc.backfillForPeriod(managerUser, 'period-001');
+
+      expect(result).toEqual({ sheetsScanned: 1, sheetsTouched: 1, created: 3 });
+      expect(tx.staffAttendance.create).toHaveBeenCalledTimes(3);
+      for (const call of tx.staffAttendance.create.mock.calls) {
+        expect(call[0].data).toEqual(
+          expect.objectContaining({ status: AttendanceStatus.PRESENT, markedById: managerUser.userId }),
+        );
+      }
+    });
+
+    it('leaves an existing row completely untouched — never updates, never overwrites its status', async () => {
+      // ABSENT/MANUAL on purpose: this is exactly the row a naive "reconcile"
+      // sweep would be tempted to flip back to PRESENT. The gap-fill sweep
+      // must not even inspect its status/source — existence alone skips it.
+      const tx = makeTx({
+        staffAttendance: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'existing',
+            source: AttendanceSource.MANUAL,
+            leaveLedgerEntryId: 'ledger-001',
+            dailySheetId: 'some-other-sheet',
+            status: AttendanceStatus.ABSENT,
+          }),
+        },
+      });
+      const { svc, prisma } = makeService({ tx });
+      prisma.dailySheet.findMany.mockResolvedValue([routeSheet]);
+
+      const result = await svc.backfillForPeriod(managerUser, 'period-001');
+
+      expect(result).toEqual({ sheetsScanned: 1, sheetsTouched: 0, created: 0 });
+      expect(tx.staffAttendance.create).not.toHaveBeenCalled();
+      expect(tx.staffAttendance.update).not.toHaveBeenCalled();
+      expect(tx.staffAttendance.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('scans only crewConfirmed, non-WALK_IN sheets within the period', async () => {
+      const { svc, prisma } = makeService();
+      prisma.dailySheet.findMany.mockResolvedValue([]);
+
+      await svc.backfillForPeriod(managerUser, 'period-001');
+
+      expect(prisma.dailySheet.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            vendorId: VENDOR_ID,
+            kind: { not: DailySheetKind.WALK_IN },
+            crewConfirmed: true,
+          }),
+        }),
+      );
     });
   });
 

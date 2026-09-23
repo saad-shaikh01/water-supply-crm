@@ -43,6 +43,18 @@ export class StaffAttendanceController {
     return this.attendance.listByPeriod(user, periodId);
   }
 
+  /**
+   * POST /payroll/attendance/period/:periodId/backfill — the grid's "Refresh"
+   * action: re-captures attendance for any already-crewConfirmed sheet in
+   * this period that never got its rows (see the service doc comment). Same
+   * permission tier as a manual mark, since it writes attendance rows.
+   */
+  @Post('payroll/attendance/period/:periodId/backfill')
+  @RequirePermissions('payroll:attendance_mark')
+  backfill(@CurrentUser() user: AuthUser, @Param('periodId') periodId: string) {
+    return this.attendance.backfillForPeriod(user, periodId);
+  }
+
   /** GET /payroll/attendance/employee/:userId — one employee's full history. */
   @Get('payroll/attendance/employee/:userId')
   @AuthenticatedOnly()

@@ -44,6 +44,7 @@ export function VanList({ onEdit }: VanListProps) {
     capacity?: number;
     isActive?: boolean;
     defaultDriver?: { id: string; name: string };
+    defaultSalesman?: { id: string; name: string };
     routes?: Array<{ id: string; name: string }>;
     vehiclesUsuallyServing?: Array<{ id: string; plateNumber: string; isActive?: boolean }>;
   }>;
@@ -202,6 +203,13 @@ export function VanList({ onEdit }: VanListProps) {
             key: 'model', header: 'Model',
             defaultVisible: false,
             cell: (r) => <span className="text-xs font-medium text-muted-foreground/80 truncate max-w-[120px] block">{r.model ?? '—'}</span>
+          },
+          {
+            key: 'salesman',
+            header: 'Default Salesman',
+            cell: (r) => r.defaultSalesman
+              ? <span className="text-xs font-semibold text-foreground dark:text-white/80 truncate max-w-[120px] block">{r.defaultSalesman.name}</span>
+              : <span className="text-xs text-muted-foreground/40">—</span>
           },
           {
             key: 'driver',

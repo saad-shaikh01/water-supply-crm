@@ -10,15 +10,16 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Button,
 } from '@water-supply-crm/ui';
 import { cn } from '@water-supply-crm/ui';
-import { AlertCircle, Inbox } from 'lucide-react';
+import { AlertCircle, Inbox, RefreshCw } from 'lucide-react';
 import type { AttendanceStatus } from '@water-supply-crm/types';
 import { usePermissions } from '../../authz/hooks/use-permissions';
 import { useOpenPayrollPeriod } from '../hooks/use-payroll-dashboard';
 import { usePayrollPeriods } from '../hooks/use-payroll-history';
 import { useEligibleEmployees } from '../hooks/use-eligible-employees';
-import { useAttendanceByPeriod } from '../hooks/use-attendance';
+import { useAttendanceByPeriod, useBackfillAttendance } from '../hooks/use-attendance';
 import type { AttendanceRecord } from '../api/payroll.api';
 import { MarkAttendanceDialog, type MarkAttendanceTarget } from './mark-attendance-dialog';
 
@@ -103,6 +104,7 @@ export function AttendanceGrid() {
     isLoading: recLoading,
     isError: recError,
   } = useAttendanceByPeriod(activePeriodId, canView);
+  const { mutate: backfill, isPending: backfillPending } = useBackfillAttendance(activePeriodId);
 
   const byKey = useMemo(() => {
     const map = new Map<string, AttendanceRecord>();
@@ -138,19 +140,35 @@ export function AttendanceGrid() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Select value={activePeriodId} onValueChange={(v) => setSelectedPeriodId(v)}>
-          <SelectTrigger className="h-10 w-56">
-            <SelectValue placeholder="Select period" />
-          </SelectTrigger>
-          <SelectContent>
-            {periodOptions.map((p) => (
-              <SelectItem key={p.id} value={p.id}>
-                {p.periodLabel}
-                {p.id === openPeriod?.id ? ' (current)' : ''}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          <Select value={activePeriodId} onValueChange={(v) => setSelectedPeriodId(v)}>
+            <SelectTrigger className="h-10 w-56">
+              <SelectValue placeholder="Select period" />
+            </SelectTrigger>
+            <SelectContent>
+              {periodOptions.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.periodLabel}
+                  {p.id === openPeriod?.id ? ' (current)' : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {canMark && activePeriodId && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-10 gap-1.5"
+              disabled={backfillPending}
+              onClick={() => backfill()}
+              title="Re-check confirmed daily sheets in this period and fill in any missing Present marks"
+            >
+              <RefreshCw className={cn('h-3.5 w-3.5', backfillPending && 'animate-spin')} />
+              Refresh
+            </Button>
+          )}
+        </div>
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
           {STATUS_ORDER.map((s) => (

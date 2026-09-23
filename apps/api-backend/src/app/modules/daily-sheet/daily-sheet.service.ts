@@ -39,7 +39,11 @@ import { VoidDeliveryDto } from './dto/void-delivery.dto';
 import { CorrectDeliveryDto } from './dto/correct-delivery.dto';
 import { paginate } from '../../common/helpers/paginate';
 import { vendorDateString } from '../../common/helpers/date.util';
-import { validateSupportCrew, validateDriverAssignment } from '../../common/helpers/crew-validation';
+import {
+  validateSupportCrew,
+  validateDriverAssignment,
+  resolveEffectiveDriverId,
+} from '../../common/helpers/crew-validation';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
 import type { AuthUser, SheetAuditLogEntry } from '@water-supply-crm/types';
 import {
@@ -228,8 +232,10 @@ export class DailySheetService implements OnModuleInit {
     if (!van) {
       throw new NotFoundException('Van not found');
     }
-    if (!van.defaultDriverId) {
-      throw new ConflictException('Destination van has no default driver assigned — cannot create a sheet');
+    if (!resolveEffectiveDriverId(van)) {
+      throw new ConflictException(
+        'Destination van has no default salesman or default driver assigned — cannot create a sheet',
+      );
     }
 
     const defaultProduct = await db.product.findFirst({ where: { vendorId, isActive: true } });
@@ -344,6 +350,7 @@ export class DailySheetService implements OnModuleInit {
     van: {
       id: string;
       defaultDriverId: string | null;
+      defaultSalesmanId?: string | null;
       routes: { id: string }[];
       defaultCrew: { userId: string; role: CrewRole }[];
       deliverySchedules: { customerId: string; routeSequence: number | null }[];
@@ -459,16 +466,22 @@ export class DailySheetService implements OnModuleInit {
       })),
     ];
 
+    // Who drives today: the van's default salesman takes priority over its
+    // default driver (owner decision — see resolveEffectiveDriverId). The
+    // caller (processor / ensureSheetForVanDate) already guarantees one of
+    // the two is set before calling createSheetForVan.
+    const driverId = resolveEffectiveDriverId(van) as string;
+
     // Snapshot the van's default supporting crew onto the sheet. The crew
     // must be explicitly confirmed (crewConfirmed=false) before trips start.
-    const crewSnapshot = van.defaultCrew.filter((c) => c.userId !== van.defaultDriverId);
+    const crewSnapshot = van.defaultCrew.filter((c) => c.userId !== driverId);
 
     const sheet = await db.dailySheet.create({
       data: {
         vendorId,
         routeId,
         vanId: van.id,
-        driverId: van.defaultDriverId as string,
+        driverId,
         date: targetDate,
         items: { create: allItems },
         crew: {
@@ -4695,9 +4708,11 @@ export class DailySheetService implements OnModuleInit {
       if (!van) throw new NotFoundException('Van not found');
       updateData.vanId = dto.vanId;
 
-      // If only van is changing (no explicit driver given), auto-assign van's default driver
-      if (!dto.driverId && van.defaultDriverId) {
-        updateData.driverId = van.defaultDriverId;
+      // If only van is changing (no explicit driver given), auto-assign the
+      // van's day driver (default salesman takes priority over default driver)
+      if (!dto.driverId) {
+        const effectiveDriverId = resolveEffectiveDriverId(van);
+        if (effectiveDriverId) updateData.driverId = effectiveDriverId;
       }
     }
 

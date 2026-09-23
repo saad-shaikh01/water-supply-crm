@@ -422,6 +422,7 @@ model User {
 
   // Relations for specific roles
   assignedVan              Van?                     @relation("VanDriver")
+  assignedVanAsSalesman    Van?                     @relation("VanSalesman")
   dailySheets              DailySheet[]             @relation("DriverSheets")
   customer                 Customer? // One-to-one link for Customer Portal
   expenses                 Expense[]
@@ -771,6 +772,13 @@ model Van {
   isSystem        Boolean @default(false)
   defaultDriverId String? @unique
   defaultDriver   User?   @relation("VanDriver", fields: [defaultDriverId], references: [id])
+  // Priority slot for "who becomes the sheet's driver today" — checked
+  // BEFORE defaultDriverId during sheet generation (owner decision: a van's
+  // salesman should take priority over its driver when both/either are set).
+  // defaultDriverId is kept as the fallback when no default salesman is
+  // assigned, so existing vans/data are unaffected.
+  defaultSalesmanId String? @unique
+  defaultSalesman   User?   @relation("VanSalesman", fields: [defaultSalesmanId], references: [id])
 
   routes            Route[]                    @relation("RouteDefaultVan")
   dailySheets       DailySheet[]
@@ -831,8 +839,9 @@ model Vehicle {
 }
 
 // Template crew for a van — copied onto each generated DailySheet.
-// The default DRIVER stays on Van.defaultDriverId (workflow-critical);
-// this table holds the supporting crew (salesman, loaders, future roles).
+// The day's driver comes from Van.defaultSalesmanId (priority) or
+// Van.defaultDriverId (fallback), both workflow-critical; this table holds
+// the remaining supporting crew (loaders, future roles).
 model VanDefaultCrew {
   id     String   @id @default(uuid())
   vanId  String
