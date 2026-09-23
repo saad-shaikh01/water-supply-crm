@@ -2596,7 +2596,13 @@ model ProductCost {
   voidedBy    User?     @relation("ProductCostVoidedBy", fields: [voidedById], references: [id])
   voidReason  String?
 
-  @@unique([vendorId, productId, kind, effectiveFrom])
+  // Only ONE active (non-voided) row may exist per (vendor, product, kind,
+  // effectiveFrom) — enforced by a partial unique index created in migration
+  // SQL (`WHERE "voidedAt" IS NULL`), since Prisma's schema DSL can't express
+  // a partial index via `@@unique`. Voided rows are exempt on purpose: the
+  // documented recovery flow is "void the current row, then re-add at the
+  // same effective date" (see ProductCostService.create's ConflictException
+  // message), which would otherwise collide with the voided row it replaces.
   @@index([vendorId, productId, kind, effectiveFrom])
 }
 
