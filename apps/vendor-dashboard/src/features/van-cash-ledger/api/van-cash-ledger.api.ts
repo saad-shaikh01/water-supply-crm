@@ -556,6 +556,10 @@ export interface SupplierBillBucket {
   currentMonthBill: number;
   currentMonthPending: number;
   totalPending: number;
+  /** Bottles that actually contributed to `prevMonthPending`'s originating bill (owner request 2026-09-23). */
+  prevMonthBottles: number;
+  /** Bottles that actually contributed to `currentMonthBill`. */
+  currentMonthBottles: number;
 }
 
 export interface SupplierBillStatus {

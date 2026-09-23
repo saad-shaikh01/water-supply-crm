@@ -23,6 +23,13 @@ export interface SupplierBillBucket {
   /** `prevMonthPending + currentMonthPending` — the amount a "Pay" action
    *  should default to if the office wants to fully settle both. */
   totalPending: number;
+  /** Bottles delivered before this month that had a covering cost row (i.e.
+   *  actually counted into `prevMonthPending`'s originating bill) — owner
+   *  request 2026-09-23, so the pending amount is never just a bare number. */
+  prevMonthBottles: number;
+  /** Bottles delivered this month that had a covering cost row (i.e. actually
+   *  counted into `currentMonthBill`). */
+  currentMonthBottles: number;
 }
 
 export interface SupplierBillStatus {
@@ -130,25 +137,40 @@ export class SupplierBillService {
 
     let bottleCogsBefore = 0;
     let bottleCogsThisMonth = 0;
+    let bottleQtyBefore = 0;
+    let bottleQtyThisMonth = 0;
     let capCogsBefore = 0;
     let capCogsThisMonth = 0;
+    let capQtyBefore = 0;
+    let capQtyThisMonth = 0;
     for (const item of deliveryItems) {
       const date = item.dailySheet?.date ?? null;
       if (!date) continue;
       const isThisMonth = date.getTime() >= curMonthStart.getTime();
 
       const bottleCost = findBottleCost(item.productId, date);
-      const bottleAmount = bottleCost ? item.filledDropped * bottleCost.costPerUnit : 0;
-      if (isThisMonth) bottleCogsThisMonth += bottleAmount;
-      else bottleCogsBefore += bottleAmount;
+      if (bottleCost) {
+        const bottleAmount = item.filledDropped * bottleCost.costPerUnit;
+        if (isThisMonth) { bottleCogsThisMonth += bottleAmount; bottleQtyThisMonth += item.filledDropped; }
+        else { bottleCogsBefore += bottleAmount; bottleQtyBefore += item.filledDropped; }
+      }
 
       const capCost = findCapCost(item.productId, date);
-      const capAmount = capCost ? item.filledDropped * capCost.costPerUnit : 0;
-      if (isThisMonth) capCogsThisMonth += capAmount;
-      else capCogsBefore += capAmount;
+      if (capCost) {
+        const capAmount = item.filledDropped * capCost.costPerUnit;
+        if (isThisMonth) { capCogsThisMonth += capAmount; capQtyThisMonth += item.filledDropped; }
+        else { capCogsBefore += capAmount; capQtyBefore += item.filledDropped; }
+      }
     }
 
-    const computeBucket = (cogsBefore: number, cogsThisMonth: number, paidBefore: number, paidThisMonth: number): SupplierBillBucket => {
+    const computeBucket = (
+      cogsBefore: number,
+      cogsThisMonth: number,
+      paidBefore: number,
+      paidThisMonth: number,
+      qtyBefore: number,
+      qtyThisMonth: number,
+    ): SupplierBillBucket => {
       // Signed throughout (never floored mid-calculation) so an overpayment
       // that clears everything owed before this month correctly rolls the
       // leftover forward as a credit against THIS month's bill, rather than
@@ -168,6 +190,8 @@ export class SupplierBillService {
         currentMonthBill: round2(cogsThisMonth),
         currentMonthPending,
         totalPending: round2(prevMonthPending + currentMonthPending),
+        prevMonthBottles: qtyBefore,
+        currentMonthBottles: qtyThisMonth,
       };
     };
 
@@ -178,12 +202,16 @@ export class SupplierBillService {
         bottleCogsThisMonth,
         bottlePaidBeforeAgg._sum.amount ?? 0,
         bottlePaidThisMonthAgg._sum.amount ?? 0,
+        bottleQtyBefore,
+        bottleQtyThisMonth,
       ),
       caps: computeBucket(
         capCogsBefore,
         capCogsThisMonth,
         capPaidBeforeAgg._sum.amount ?? 0,
         capPaidThisMonthAgg._sum.amount ?? 0,
+        capQtyBefore,
+        capQtyThisMonth,
       ),
     };
   }

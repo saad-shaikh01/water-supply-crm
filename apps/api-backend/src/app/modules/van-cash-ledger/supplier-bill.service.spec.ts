@@ -81,6 +81,8 @@ describe('SupplierBillService', () => {
       currentMonthBill: 200,
       currentMonthPending: 100,
       totalPending: 100,
+      prevMonthBottles: 100,
+      currentMonthBottles: 20,
     });
   });
 
@@ -101,6 +103,8 @@ describe('SupplierBillService', () => {
       currentMonthBill: 200,
       currentMonthPending: 200,
       totalPending: 700,
+      prevMonthBottles: 100,
+      currentMonthBottles: 20,
     });
   });
 
@@ -133,6 +137,8 @@ describe('SupplierBillService', () => {
       currentMonthBill: 200,
       currentMonthPending: 50,
       totalPending: 50,
+      prevMonthBottles: 0,
+      currentMonthBottles: 20,
     });
   });
 
@@ -161,5 +167,24 @@ describe('SupplierBillService', () => {
 
     expect(result.plant.prevMonthPending).toBe(0);
     expect(result.plant.totalPending).toBe(0);
+    expect(result.plant.prevMonthBottles).toBe(0); // uncosted delivery never counted, same as its ₨0 cost
+  });
+
+  it('bottle count (owner request 2026-09-23) tracks each bucket\'s own kind independently — a costed bottle count is not shared with an uncosted cap count', async () => {
+    const svc = makeService({
+      deliveryItems: [
+        deliveryItem({ filledDropped: 30, dailySheet: { date: beforeThisMonth } }),
+        deliveryItem({ filledDropped: 15, dailySheet: { date: withinThisMonth } }),
+      ],
+      bottleCostRows: [costRow({ costPerUnit: 10 })], // bottle cost exists
+      capCostRows: [], // cap cost history not entered yet
+    });
+
+    const result = await svc.getSupplierBillStatus(VENDOR_ID);
+
+    expect(result.plant.prevMonthBottles).toBe(30);
+    expect(result.plant.currentMonthBottles).toBe(15);
+    expect(result.caps.prevMonthBottles).toBe(0);
+    expect(result.caps.currentMonthBottles).toBe(0);
   });
 });
