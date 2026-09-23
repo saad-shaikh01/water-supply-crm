@@ -112,16 +112,17 @@ function CommunicationsContent() {
         description="Delivery conversations between drivers and the office."
       />
 
-      {/* `main` (dashboard/layout.tsx) drops its padding from p-4/pb-24 (112px
-          vertical) to md:p-8 (64px vertical) at the `md` breakpoint (768px) —
-          not `sm` (640px). The previous `sm:h-[calc(100vh-240px)]` assumed
-          the smaller offset a breakpoint early, so between 640-767px this
-          panel rendered taller than `main` actually had room for, and `main`
-          (overflow-y-auto) scrolled the whole page on top of this panel's
-          own internal scroll areas — the double-scrollbar bug. Using `dvh`
-          instead of `vh` avoids the same mismatch against mobile browser
-          toolbar chrome. */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[360px_1fr] grid-rows-[minmax(0,1fr)] rounded-2xl border border-border/50 bg-card/30 overflow-hidden h-[calc(100dvh-290px)] md:h-[calc(100dvh-260px)]">
+      {/* This panel used to force its own height with a hardcoded
+          `vh/dvh - Npx` guess, which drifted out of sync with the real
+          combined height of the header, page padding and PageHeader
+          whenever any of those changed (e.g. the description wrapping to a
+          second line) — causing `main` (overflow-y-auto) to scroll the
+          whole page on top of this panel's own internal scroll areas, i.e.
+          the double-scrollbar bug. `main`'s content wrapper (dashboard
+          layout.tsx) now has a real `h-full`, so `flex-1 min-h-0` here
+          fills exactly whatever space is left after PageHeader — no
+          pixel-offset guessing needed. */}
+      <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[360px_1fr] grid-rows-[minmax(0,1fr)] rounded-2xl border border-border/50 bg-card/30 overflow-hidden">
         {/* List pane */}
         <div className={cn('flex flex-col border-border/40 md:border-r min-h-0', selected && 'hidden md:flex')}>
           <ConversationFilters
