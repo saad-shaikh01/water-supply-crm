@@ -144,6 +144,62 @@ describe('DailySheetService.createSheetForVan (extracted from processor)', () =>
     expect(result.alreadyInsertedOnDemandOrderIds).toEqual([]);
   });
 
+  it('prioritizes defaultSalesmanId over defaultDriverId as the sheet driver', async () => {
+    mockPrisma.dailySheetItem.findMany.mockResolvedValue([]);
+    mockPrisma.dailySheetItem.updateMany.mockResolvedValue({ count: 0 });
+    mockPrisma.dailySheet.create.mockResolvedValue({ id: 'sheet-new' });
+
+    const vanWithSalesman = {
+      ...VAN,
+      defaultSalesmanId: 'salesman-1',
+      defaultCrew: [{ userId: 'loader-1', role: 'LOADER' as const }],
+    };
+
+    await service.createSheetForVan(
+      mockPrisma as any,
+      VENDOR_ID,
+      vanWithSalesman,
+      TARGET_DATE,
+      TARGET_DATE.getDay(),
+      DEFAULT_PRODUCT,
+      [],
+    );
+
+    const createArgs = mockPrisma.dailySheet.create.mock.calls[0][0];
+    expect(createArgs.data.driverId).toBe('salesman-1');
+    // supporting crew is untouched — the salesman isn't in it, only the loader is
+    expect(createArgs.data.crew.create).toEqual([{ userId: 'loader-1', role: 'LOADER' }]);
+  });
+
+  it('excludes the default salesman from the crew snapshot when they also appear in defaultCrew', async () => {
+    mockPrisma.dailySheetItem.findMany.mockResolvedValue([]);
+    mockPrisma.dailySheetItem.updateMany.mockResolvedValue({ count: 0 });
+    mockPrisma.dailySheet.create.mockResolvedValue({ id: 'sheet-new' });
+
+    const vanWithSalesman = {
+      ...VAN,
+      defaultSalesmanId: 'salesman-1',
+      defaultCrew: [
+        { userId: 'salesman-1', role: 'SALESMAN' as const },
+        { userId: 'loader-1', role: 'LOADER' as const },
+      ],
+    };
+
+    await service.createSheetForVan(
+      mockPrisma as any,
+      VENDOR_ID,
+      vanWithSalesman,
+      TARGET_DATE,
+      TARGET_DATE.getDay(),
+      DEFAULT_PRODUCT,
+      [],
+    );
+
+    const createArgs = mockPrisma.dailySheet.create.mock.calls[0][0];
+    expect(createArgs.data.driverId).toBe('salesman-1');
+    expect(createArgs.data.crew.create).toEqual([{ userId: 'loader-1', role: 'LOADER' }]);
+  });
+
   it('reorders the regular schedule to the order the driver actually followed on the van\'s last same-weekday sheet', async () => {
     // The van has a prior sheet on the same weekday as TARGET_DATE.
     mockPrisma.dailySheet.findMany.mockResolvedValue([{ id: 'prev-sheet', date: TARGET_DATE }]);
@@ -313,6 +369,22 @@ describe('DailySheetService.ensureSheetForVanDate', () => {
     await expect(
       service.ensureSheetForVanDate(mockPrisma as any, VENDOR_ID, 'van-1', '2026-07-10'),
     ).rejects.toThrow(ConflictException);
+  });
+
+  it('falls back to defaultSalesmanId when the destination van has no default driver', async () => {
+    mockPrisma.dailySheet.findFirst.mockResolvedValue(null);
+    mockPrisma.van.findFirst.mockResolvedValue({ ...VAN, defaultDriverId: null, defaultSalesmanId: 'salesman-1' });
+    mockPrisma.product.findFirst.mockResolvedValue(DEFAULT_PRODUCT);
+    mockPrisma.customerOrder.findMany.mockResolvedValue([]);
+    mockPrisma.dailySheetItem.findMany.mockResolvedValue([]);
+    mockPrisma.dailySheetItem.updateMany.mockResolvedValue({ count: 0 });
+    mockPrisma.dailySheet.create.mockResolvedValue({ id: 'sheet-new' });
+
+    const result = await service.ensureSheetForVanDate(mockPrisma as any, VENDOR_ID, 'van-1', '2026-07-10');
+
+    expect(result).toEqual({ sheet: { id: 'sheet-new' }, createdNewSheet: true });
+    const createArgs = mockPrisma.dailySheet.create.mock.calls[0][0];
+    expect(createArgs.data.driverId).toBe('salesman-1');
   });
 
   it('throws if the van does not exist for this vendor', async () => {
