@@ -238,6 +238,7 @@ export function EntryDetailDrawer({
           )}
           {row.sourceBadge && <Badge variant="secondary" className="text-[10px] font-medium">{row.sourceBadge}</Badge>}
           {row.vanPlateNumber && <Badge variant="secondary" className="font-mono text-[10px]">{row.vanPlateNumber}</Badge>}
+          {row.vehiclePlateNumber && <Badge variant="secondary" className="font-mono text-[10px]">{row.vehiclePlateNumber}</Badge>}
         </div>
         <SheetTitle className={cn('break-words text-base font-bold leading-snug', row.isVoided && 'text-muted-foreground line-through')}>
           {row.title}

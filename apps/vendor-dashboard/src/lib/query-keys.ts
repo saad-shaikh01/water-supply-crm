@@ -77,6 +77,8 @@ export const queryKeys = {
     entrySettlements: (entryId: string) => ['payroll', 'entry-settlements', entryId] as const,
     attendanceByPeriod: (periodId: string) => ['payroll', 'attendance-period', periodId] as const,
     attendanceByEmployee: (userId: string) => ['payroll', 'attendance-employee', userId] as const,
+    attendanceCategories: () => ['payroll', 'attendance-categories'] as const,
+    advancePlansByEmployee: (userId: string) => ['payroll', 'advance-plans-employee', userId] as const,
   },
   // Fleet Operations & Vehicle Intelligence (docs/features/fleet-operations-vehicle-intelligence.md).
   fleet: {

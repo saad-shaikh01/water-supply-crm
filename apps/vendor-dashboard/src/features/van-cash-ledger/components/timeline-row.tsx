@@ -234,6 +234,9 @@ export function TimelineRow({ row, flags, handlers }: TimelineRowProps) {
               {row.vanPlateNumber && (
                 <Badge variant="secondary" className="text-[10px] font-mono">{row.vanPlateNumber}</Badge>
               )}
+              {row.vehiclePlateNumber && (
+                <Badge variant="secondary" className="text-[10px] font-mono">{row.vehiclePlateNumber}</Badge>
+              )}
               <p
                 className={cn(
                   'w-full sm:w-auto sm:flex-1 min-w-0 truncate text-xs font-semibold',

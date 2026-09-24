@@ -130,7 +130,11 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // 204 = 200 + extra_labour (page, view, create, manage) — new resource for
 // Extra Labour Management (owner-approved 2026-09-22, Amendment R20). Navigable
 // (`/dashboard/extra-labour`) — +1 page permission, +1 resource, +4 total permissions.
-const FROZEN_TOTAL = 204;
+// 205 = 204 + payroll:advance_plan_manage — Advance Installments (owner-requested
+// 2026-09-24, Amendment R21): create/update a StaffAdvancePlan, collect/skip a
+// period's installment. No new resource, no new `:page` — added to the existing
+// `payroll` resource.
+const FROZEN_TOTAL = 205;
 const FROZEN_PAGES = 31;
 const FROZEN_RESOURCES = 35;
 

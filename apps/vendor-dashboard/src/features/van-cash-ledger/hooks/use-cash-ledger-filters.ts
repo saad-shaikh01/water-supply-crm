@@ -19,6 +19,7 @@ import { money } from '../format';
 import { formatYmdShort } from '../../../lib/date-pkt';
 import { usersApi } from '../../users/api/users.api';
 import { extraLabourApi } from '../../extra-labour/api/extra-labour.api';
+import { fleetApi } from '../../fleet/api/fleet.api';
 import { domainMeta } from '../../expense-center/constants';
 import { CREATABLE_LEDGER_CATEGORIES, LEDGER_CATEGORY_CONFIG } from '../../payroll/constants';
 import { CREW_CASH_CATEGORIES, CREW_CASH_CATEGORY_CONFIG } from '../../crew-cash/constants';
@@ -60,6 +61,7 @@ const FILTER_PARSERS = {
   apprBy: parseAsString,
   emp: parseAsString,
   labour: parseAsString,
+  veh: parseAsString,
   cats: parseAsArrayOf(parseAsString),
   min: parseAsFloat,
   max: parseAsFloat,
@@ -85,6 +87,7 @@ const KEY_MAP: Record<keyof CashLedgerTimelineFilters, UrlKey> = {
   approvedById: 'apprBy',
   employeeId: 'emp',
   extraLabourId: 'labour',
+  vehicleId: 'veh',
   categories: 'cats',
   minAmount: 'min',
   maxAmount: 'max',
@@ -233,6 +236,7 @@ function stateToFilters(s: FilterState): CashLedgerTimelineFilters {
   const apprBy = nonEmpty(s.apprBy); if (apprBy) f.approvedById = apprBy;
   const emp = nonEmpty(s.emp); if (emp) f.employeeId = emp;
   const labour = nonEmpty(s.labour); if (labour) f.extraLabourId = labour;
+  const veh = nonEmpty(s.veh); if (veh) f.vehicleId = veh;
   if (s.cats?.length) f.categories = [...s.cats];
   if (typeof s.min === 'number' && Number.isFinite(s.min) && s.min >= 0) f.minAmount = s.min;
   if (typeof s.max === 'number' && Number.isFinite(s.max) && s.max >= 0) f.maxAmount = s.max;
@@ -289,6 +293,17 @@ function useLabourNames(enabled: boolean, includeId?: string): Map<string, strin
     staleTime: 5 * 60 * 1000,
   });
   return useMemo(() => new Map((data ?? []).map((o) => [o.id, o.name])), [data]);
+}
+
+/** id -> plate number for the vehicleId filter's chip (active Fleet vehicles). */
+function useVehicleNames(enabled: boolean): Map<string, string> {
+  const { data } = useQuery({
+    queryKey: ['fleet', 'vehicles', { active: true, limit: 100 }],
+    queryFn: () => fleetApi.getVehicles({ active: true, limit: 100 }),
+    enabled,
+    staleTime: 5 * 60 * 1000,
+  });
+  return useMemo(() => new Map((data?.data ?? []).map((v) => [v.id, v.plateNumber])), [data]);
 }
 
 export interface UseCashLedgerFilters {
@@ -355,6 +370,7 @@ export function useCashLedgerFilters(): UseCashLedgerFilters {
     approvedBy: !!filters.approvedById,
     employee: !!filters.employeeId,
     extraLabour: !!filters.extraLabourId,
+    vehicle: !!filters.vehicleId,
     categories: !!filters.categories?.length,
     amount: filters.minAmount !== undefined || filters.maxAmount !== undefined,
     attachment: !!filters.hasAttachment,
@@ -372,6 +388,9 @@ export function useCashLedgerFilters(): UseCashLedgerFilters {
 
   const labourNames = useLabourNames(!!filters.extraLabourId, filters.extraLabourId);
   const labourLabel = (id: string) => labourNames.get(id) ?? 'Selected worker';
+
+  const vehicleNames = useVehicleNames(!!filters.vehicleId);
+  const vehicleLabel = (id: string) => vehicleNames.get(id) ?? 'Selected vehicle';
 
   const chips: CashLedgerFilterChip[] = [];
   const add = (key: string, label: string, clear: CashLedgerTimelineFilters) =>
@@ -397,6 +416,7 @@ export function useCashLedgerFilters(): UseCashLedgerFilters {
   if (filters.approvedById) add('approvedBy', `Approved by: ${personLabel(filters.approvedById)}`, { approvedById: undefined });
   if (filters.employeeId) add('employee', `Employee: ${personLabel(filters.employeeId)}`, { employeeId: undefined });
   if (filters.extraLabourId) add('extraLabour', `Extra Labour: ${labourLabel(filters.extraLabourId)}`, { extraLabourId: undefined });
+  if (filters.vehicleId) add('vehicle', `Vehicle: ${vehicleLabel(filters.vehicleId)}`, { vehicleId: undefined });
   if (filters.categories?.length) {
     add('categories', `Category: ${joinLabels(filters.categories.map(cashLedgerCategoryLabel))}`, { categories: undefined });
   }

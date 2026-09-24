@@ -23,6 +23,8 @@ export const MANUAL_CASH_IN_SOURCE_LABELS: Record<ManualCashInSource, string> = 
   REFUND: 'Refund',
   BANK_WITHDRAWAL: 'Bank withdrawal',
   OTHER: 'Other',
+  VEHICLE_RENTED_OUT: 'Vehicle rented out',
+  LABOUR_LENT_OUT: 'Labour lent out',
 };
 
 export function manualCashInSourceLabel(source: string | null | undefined): string | null {
@@ -89,6 +91,7 @@ const FIELD_META: Record<string, FieldMeta> = {
   status: { label: 'Status', kind: 'status' },
   vanId: text('Van'),
   employeeId: text('Employee'),
+  vehicleId: text('Vehicle'),
   category: text('Category'),
   source: text('Source'),
   paidFromCash: { label: 'Paid from cash', kind: 'boolean' },
@@ -161,20 +164,23 @@ export function extractHistoryReason(changes: unknown): string | null {
 export interface HistoryResolvers {
   vans: ReadonlyMap<string, string>;
   users: ReadonlyMap<string, string>;
+  vehicles: ReadonlyMap<string, string>;
 }
 
-export const EMPTY_RESOLVERS: HistoryResolvers = { vans: new Map(), users: new Map() };
+export const EMPTY_RESOLVERS: HistoryResolvers = { vans: new Map(), users: new Map(), vehicles: new Map() };
 
-/** The van / user ids referenced by an audit `changes` blob — for the batched name lookup. */
-export function collectReferencedIds(changes: unknown): { vanIds: string[]; userIds: string[] } {
+/** The van / user / vehicle ids referenced by an audit `changes` blob — for the batched name lookup. */
+export function collectReferencedIds(changes: unknown): { vanIds: string[]; userIds: string[]; vehicleIds: string[] } {
   const c = asObject(changes);
   const vanIds: string[] = [];
   const userIds: string[] = [];
+  const vehicleIds: string[] = [];
   for (const side of [asObject(c.before), asObject(c.after)]) {
     if (typeof side.vanId === 'string' && side.vanId) vanIds.push(side.vanId);
     if (typeof side.employeeId === 'string' && side.employeeId) userIds.push(side.employeeId);
+    if (typeof side.vehicleId === 'string' && side.vehicleId) vehicleIds.push(side.vehicleId);
   }
-  return { vanIds, userIds };
+  return { vanIds, userIds, vehicleIds };
 }
 
 /** Old writers stored the pre/post chain TOTAL under different keys — fold them into one `total` pair. */
@@ -218,6 +224,7 @@ function normalizeValue(
   if (isTwinKey(key) || key === 'correctsEntryId') return shortId(value);
   if (key === 'vanId') return resolvers.vans.get(String(value)) ?? String(value);
   if (key === 'employeeId') return resolvers.users.get(String(value)) ?? String(value);
+  if (key === 'vehicleId') return resolvers.vehicles.get(String(value)) ?? String(value);
   if (key === 'source') return manualCashInSourceLabel(String(value)) ?? String(value);
 
   switch (kind) {

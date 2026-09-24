@@ -861,7 +861,20 @@ export type CreatableStaffLedgerCategory =
   | 'LEAVE_PAID'
   | 'ADJUSTMENT';
 
-export type StaffLedgerCategory = CreatableStaffLedgerCategory | 'REVERSAL' | 'CORRECTION' | 'CREW_CASH';
+/**
+ * ADVANCE_DISBURSEMENT/ADVANCE_RECOVERY (Advance Installments, 2026-09-24) are
+ * system-generated only too — produced exclusively by the advance-plan
+ * endpoints (create/collect), never chosen through the Log Ledger Entry
+ * dialog — but they DO appear as raw rows in the read-only Financial Timeline,
+ * so the full union needs them.
+ */
+export type StaffLedgerCategory =
+  | CreatableStaffLedgerCategory
+  | 'REVERSAL'
+  | 'CORRECTION'
+  | 'CREW_CASH'
+  | 'ADVANCE_DISBURSEMENT'
+  | 'ADVANCE_RECOVERY';
 
 export type LedgerEntryStatus = 'PENDING' | 'POSTED' | 'VOIDED';
 
@@ -912,11 +925,29 @@ export interface StaffAttendance {
   source: AttendanceSource;
   dailySheetId: string | null;
   note: string | null;
+  /** Required on a MANUAL PRESENT marking; null otherwise. See `AttendanceCategory`. */
+  categoryId: string | null;
   markedById: string;
   leaveLedgerEntryId: string | null;
   version: number;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * Per-vendor, admin-managed reason catalogue for a manual PRESENT marking
+ * that isn't regular crew duty (e.g. "Office — other business") — see the
+ * schema comment on `StaffAttendance.categoryId`. No built-ins; vendors
+ * create their own from the Mark Attendance dialog.
+ */
+export interface AttendanceCategory {
+  id: string;
+  vendorId: string;
+  name: string;
+  isActive: boolean;
+  createdAt: string;
+  /** Number of StaffAttendance rows referencing this category — blocks delete when > 0. */
+  usageCount: number;
 }
 
 /** Mirrors the raw `SalaryStructure` row. */
@@ -991,4 +1022,52 @@ export interface Settlement {
   paidById: string;
   paidAt: string;
   createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Advance Installments (owner-requested 2026-09-24) — a StaffAdvancePlan turns
+// a cash advance into a real loan: the full principal is disbursed once, then
+// recovered over however many periods it actually takes via
+// StaffAdvanceInstallment rows an admin Collects or Skips each period.
+// ---------------------------------------------------------------------------
+
+export type AdvancePlanStatus = 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
+export type AdvanceInstallmentStatus = 'PENDING' | 'COLLECTED' | 'SKIPPED';
+
+/** Mirrors the raw `StaffAdvancePlan` row, with `remainingBalance` computed server-side (never stored). */
+export interface StaffAdvancePlan {
+  id: string;
+  vendorId: string;
+  userId: string;
+  principalAmount: number;
+  defaultInstallmentAmount: number;
+  disbursedAt: string;
+  disbursementLedgerEntryId: string;
+  status: AdvancePlanStatus;
+  note: string | null;
+  createdById: string;
+  createdAt: string;
+  updatedAt: string;
+  /** principalAmount − Σ(COLLECTED installments' actualAmount) — always derived, never stored. */
+  remainingBalance: number;
+}
+
+/** Mirrors the raw `StaffAdvanceInstallment` row. */
+export interface StaffAdvanceInstallment {
+  id: string;
+  vendorId: string;
+  planId: string;
+  periodId: string;
+  scheduledAmount: number;
+  actualAmount: number | null;
+  status: AdvanceInstallmentStatus;
+  ledgerEntryId: string | null;
+  decidedById: string | null;
+  decidedAt: string | null;
+  createdAt: string;
+}
+
+/** `StaffAdvancePlan` scoped to one payroll period — this period's installment (if generated yet), for the draft-click breakdown dialog. */
+export interface StaffAdvancePlanWithPeriodInstallment extends StaffAdvancePlan {
+  installment: StaffAdvanceInstallment | null;
 }

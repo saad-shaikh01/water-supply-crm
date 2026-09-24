@@ -24,9 +24,36 @@ describe('classifyStaffLedgerEntry() — R6', () => {
     expect(classifyStaffLedgerEntry({ category: StaffLedgerCategory.ADVANCE, status: posted, amount: 0 })).toBeNull();
   });
 
+  // Advance Installments (2026-09-24) — ADVANCE_DISBURSEMENT is the other
+  // category that actually moves cash (the full-principal, one-time payout of
+  // a StaffAdvancePlan); its later ADVANCE_RECOVERY installments do not (that
+  // cash already left at disbursement).
+  it('classifies a POSTED ADVANCE_DISBURSEMENT debit as payroll cash too', () => {
+    expect(
+      classifyStaffLedgerEntry({ category: StaffLedgerCategory.ADVANCE_DISBURSEMENT, status: posted, amount: -50000 }),
+    ).toBe('PAYROLL_CASH');
+  });
+
+  it('excludes a PENDING/VOIDED or positive ADVANCE_DISBURSEMENT, same rules as ADVANCE', () => {
+    expect(
+      classifyStaffLedgerEntry({ category: StaffLedgerCategory.ADVANCE_DISBURSEMENT, status: LedgerEntryStatus.PENDING, amount: -50000 }),
+    ).toBeNull();
+    expect(
+      classifyStaffLedgerEntry({ category: StaffLedgerCategory.ADVANCE_DISBURSEMENT, status: posted, amount: 50000 }),
+    ).toBeNull();
+  });
+
+  it('excludes ADVANCE_RECOVERY — an installment collection is a payroll deduction, not a new cash movement', () => {
+    expect(
+      classifyStaffLedgerEntry({ category: StaffLedgerCategory.ADVANCE_RECOVERY, status: posted, amount: -10000 }),
+    ).toBeNull();
+  });
+
   it.each(
-    Object.values(StaffLedgerCategory).filter((c) => c !== StaffLedgerCategory.ADVANCE),
-  )('excludes every non-ADVANCE category (%s), debit or credit', (category) => {
+    Object.values(StaffLedgerCategory).filter(
+      (c) => c !== StaffLedgerCategory.ADVANCE && c !== StaffLedgerCategory.ADVANCE_DISBURSEMENT,
+    ),
+  )('excludes every non-cash-moving category (%s), debit or credit', (category) => {
     expect(classifyStaffLedgerEntry({ category, status: posted, amount: -1000 })).toBeNull();
     expect(classifyStaffLedgerEntry({ category, status: posted, amount: 1000 })).toBeNull();
   });

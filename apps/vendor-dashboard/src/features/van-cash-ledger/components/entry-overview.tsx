@@ -163,6 +163,7 @@ export function EntryOverview({ row, entry, entryLoading }: EntryOverviewProps) 
           <Field label="Status">{row.status === 'PENDING' ? 'Pending approval' : 'Approved'}</Field>
         )}
         {van && <Field label="Van">{van}</Field>}
+        {row.vehiclePlateNumber && <Field label="Vehicle">{row.vehiclePlateNumber}</Field>}
         {row.employeeName && <Field label="Employee">{row.employeeName}</Field>}
         {sourceText && <Field label="Source">{sourceText}</Field>}
         {row.reference && (

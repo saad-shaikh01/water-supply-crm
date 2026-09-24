@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, Button,
 } from '@water-supply-crm/ui';
@@ -43,8 +43,12 @@ export function CrewConfirmDialog({
   const { mutate: confirmCrew, isPending } = useConfirmCrew(sheetId);
 
   const [absentUserIds, setAbsentUserIds] = useState<string[]>([]);
+  const [noLoaderAck, setNoLoaderAck] = useState(false);
   useEffect(() => {
-    if (open) setAbsentUserIds([]);
+    if (open) {
+      setAbsentUserIds([]);
+      setNoLoaderAck(false);
+    }
   }, [open]);
 
   const toggleAbsent = (userId: string) =>
@@ -64,7 +68,7 @@ export function CrewConfirmDialog({
         : [];
   const loaderLines: RosterLine[] = loaders.map((l) => ({ key: l.userId, name: l.user.name, userId: l.userId }));
 
-  const row = (label: string, lines: RosterLine[], missingLabel: string) => (
+  const row = (label: string, lines: RosterLine[], missingLabel: string, emptyContent?: ReactNode) => (
     <div className="flex items-start justify-between gap-3 px-4 py-3">
       <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mt-1">
         {label}
@@ -97,13 +101,14 @@ export function CrewConfirmDialog({
             );
           })
         ) : (
-          <p className="text-right text-sm text-muted-foreground italic">{missingLabel}</p>
+          emptyContent ?? <p className="text-right text-sm text-muted-foreground italic">{missingLabel}</p>
         )}
       </div>
     </div>
   );
 
   const absentCount = absentUserIds.length;
+  const loaderAckRequired = loaderLines.length === 0 && !noLoaderAck;
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
@@ -124,7 +129,27 @@ export function CrewConfirmDialog({
           <div className="rounded-2xl border border-border/50 bg-accent/20 divide-y divide-border/40">
             {row('Driver', driverLines, 'No driver')}
             {row(salesmen.length > 1 ? 'Salesmen' : 'Salesman', salesmanLines, 'No salesman')}
-            {row(loaders.length > 1 ? 'Loaders' : 'Loader', loaderLines, 'No loaders')}
+            {row(
+              loaders.length > 1 ? 'Loaders' : 'Loader',
+              loaderLines,
+              'No loaders',
+              <div className="flex items-center justify-end gap-2">
+                <span className="text-sm text-muted-foreground italic">No loaders</span>
+                <button
+                  type="button"
+                  onClick={() => setNoLoaderAck((v) => !v)}
+                  disabled={isPending}
+                  className={cn(
+                    'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide transition',
+                    noLoaderAck
+                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                      : 'bg-amber-500/15 text-amber-600 dark:text-amber-400 hover:bg-amber-500/25',
+                  )}
+                >
+                  {noLoaderAck ? 'Confirmed' : 'Confirm No Loader'}
+                </button>
+              </div>,
+            )}
           </div>
 
           {crew.length === 0 && (
@@ -142,7 +167,7 @@ export function CrewConfirmDialog({
             onClick={() =>
               confirmCrew(absentCount > 0 ? { absentUserIds } : undefined, { onSuccess: onClose })
             }
-            disabled={isPending}
+            disabled={isPending || loaderAckRequired}
             className="w-full rounded-xl font-bold gap-2"
           >
             {isPending
@@ -150,6 +175,11 @@ export function CrewConfirmDialog({
               : <CheckCircle2 className="h-4 w-4" />}
             Confirm Crew{absentCount > 0 ? ` (${absentCount} absent)` : ''}
           </Button>
+          {loaderAckRequired && (
+            <p className="text-[11px] text-center text-amber-600 dark:text-amber-400">
+              Select a loader via &quot;Edit Crew&quot;, or tap &quot;Confirm No Loader&quot; above.
+            </p>
+          )}
           <Button
             variant="outline"
             onClick={onEditCrew}

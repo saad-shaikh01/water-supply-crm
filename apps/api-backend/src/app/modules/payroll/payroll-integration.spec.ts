@@ -15,6 +15,7 @@ import { PayrollApprovalGateService } from './payroll-approval-gate.service';
 import { StaffLedgerService } from './staff-ledger.service';
 import { PayrollEntryService } from './payroll-entry.service';
 import { PayrollPeriodService } from './payroll-period.service';
+import { StaffAdvancePlanService } from './staff-advance-plan.service';
 import type { CreateStaffLedgerEntryDto } from './dto/create-staff-ledger-entry.dto';
 
 /**
@@ -102,8 +103,14 @@ const approvalGate = new PayrollApprovalGateService(prisma);
 // Cash-ledger period guard (P4): no accounting period is ever closed in this suite.
 const passThroughPeriodGuard = { assertWritable: async () => undefined } as any;
 const staffLedgerService = new StaffLedgerService(prisma, approvalGate, unusedPermissions, passThroughPeriodGuard);
-const payrollEntryService = new PayrollEntryService(prisma, unusedPermissions);
-const payrollPeriodService = new PayrollPeriodService(prisma, payrollEntryService);
+// Advance Installments (2026-09-24): not exercised by this suite (no test here
+// creates a StaffAdvancePlan), but generateDraft()/lockPeriod() call into it
+// unconditionally (ensureInstallmentsForPeriod/autoSkipPendingForPeriod), so a
+// real instance — not a stub — is wired through, same as every other service
+// in this pipeline.
+const advancePlanService = new StaffAdvancePlanService(prisma, staffLedgerService, unusedPermissions);
+const payrollEntryService = new PayrollEntryService(prisma, unusedPermissions, advancePlanService);
+const payrollPeriodService = new PayrollPeriodService(prisma, payrollEntryService, advancePlanService);
 
 let vendorId: string;
 let adminUserId: string;

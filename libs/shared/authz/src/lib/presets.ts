@@ -187,6 +187,10 @@ const MANAGER_PERMISSIONS: Permission[] = [
   'payroll:page',
   'payroll:ledger_create', 'payroll:salary_structure_manage', 'payroll:period_generate',
   'payroll:settlement_record',
+  // Advance Installments (Amendment R21, owner-requested 2026-09-24): same flat
+  // VENDOR_ADMIN + STAFF default tier as the four actions above. Existing vendors
+  // get it via PRESET_DRIFT_BACKFILLS.manager.
+  'payroll:advance_plan_manage',
   // Staff Attendance & Wage Types Phase 1 (Amendment R16,
   // docs/features/staff-attendance-and-wage-types.md §3 D6): Manager records
   // and reviews attendance. Existing vendors get these via

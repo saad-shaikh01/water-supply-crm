@@ -94,8 +94,9 @@ function makeService(txOverrides: any = {}, computeEntryBreakdownImpl?: (...args
         }),
     ),
   };
-  const svc = new PayrollPeriodService(prisma as any, payrollEntries as any);
-  return { svc, prisma, tx, payrollEntries };
+  const advancePlans = { autoSkipPendingForPeriod: jest.fn().mockResolvedValue(undefined) };
+  const svc = new PayrollPeriodService(prisma as any, payrollEntries as any, advancePlans as any);
+  return { svc, prisma, tx, payrollEntries, advancePlans };
 }
 
 // ─── tests ───────────────────────────────────────────────────────────────────
@@ -133,6 +134,12 @@ describe('PayrollPeriodService', () => {
       expect(tx.payrollEntry.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: expect.objectContaining({ periodId: PERIOD_ID, vendorId: VENDOR_ID }) }),
       );
+    });
+
+    it('auto-skips any still-PENDING advance installment for this period as part of locking it', async () => {
+      const { svc, advancePlans } = makeService();
+      await svc.lockPeriod(adminUser, PERIOD_ID);
+      expect(advancePlans.autoSkipPendingForPeriod).toHaveBeenCalledWith(expect.anything(), VENDOR_ID, PERIOD_ID, adminUser.userId);
     });
 
     it('creates one PayrollSnapshot per entry, using the recomputed breakdown for both the snapshot and the ledger claim', async () => {
@@ -317,7 +324,7 @@ describe('PayrollPeriodService', () => {
       ];
       const findMany = jest.fn().mockResolvedValue(periods);
       const prisma = { payrollPeriod: { findMany } };
-      const svc = new PayrollPeriodService(prisma as any, {} as any);
+      const svc = new PayrollPeriodService(prisma as any, {} as any, {} as any);
 
       const result = await svc.listPeriods(adminUser);
 
@@ -339,7 +346,7 @@ describe('PayrollPeriodService', () => {
         },
         payrollVendorConfig: { findUnique: jest.fn().mockResolvedValue(null) },
       };
-      const svc = new PayrollPeriodService(prisma as any, {} as any);
+      const svc = new PayrollPeriodService(prisma as any, {} as any, {} as any);
       const result = await svc.getOrCreateOpenPeriod(adminUser);
 
       expect(result).toBe(basePeriod);
@@ -355,7 +362,7 @@ describe('PayrollPeriodService', () => {
         },
         payrollVendorConfig: { findUnique: jest.fn().mockResolvedValue(null) },
       };
-      const svc = new PayrollPeriodService(prisma as any, {} as any);
+      const svc = new PayrollPeriodService(prisma as any, {} as any, {} as any);
       const result = await svc.getOrCreateOpenPeriod(adminUser);
 
       expect(prisma.payrollPeriod.create).toHaveBeenCalledTimes(1);
@@ -373,7 +380,7 @@ describe('PayrollPeriodService', () => {
         },
         payrollVendorConfig: { findUnique: jest.fn().mockResolvedValue(null) },
       };
-      const svc = new PayrollPeriodService(prisma as any, {} as any);
+      const svc = new PayrollPeriodService(prisma as any, {} as any, {} as any);
       const result = await svc.getOrCreateOpenPeriod(adminUser);
 
       expect(result).toBe(existingByLabel);

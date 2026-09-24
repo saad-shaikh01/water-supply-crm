@@ -4,10 +4,21 @@ import { StaffLedgerCategory } from '@prisma/client';
 /**
  * REVERSAL and CORRECTION are system-generated categories only — produced by
  * `StaffLedgerService.reverse()`/`correct()`, never directly creatable
- * through this DTO.
+ * through this DTO. ADVANCE_DISBURSEMENT/ADVANCE_RECOVERY are likewise
+ * system-generated only — produced exclusively by `StaffAdvancePlanService`
+ * (plan creation / installment collection) so a plan's principal and its
+ * remaining balance can never drift from what was actually posted through
+ * this generic endpoint.
  */
+const SYSTEM_ONLY_LEDGER_CATEGORIES: StaffLedgerCategory[] = [
+  StaffLedgerCategory.REVERSAL,
+  StaffLedgerCategory.CORRECTION,
+  StaffLedgerCategory.ADVANCE_DISBURSEMENT,
+  StaffLedgerCategory.ADVANCE_RECOVERY,
+];
+
 export const CREATABLE_LEDGER_CATEGORIES = Object.values(StaffLedgerCategory).filter(
-  (category) => category !== StaffLedgerCategory.REVERSAL && category !== StaffLedgerCategory.CORRECTION,
+  (category) => !SYSTEM_ONLY_LEDGER_CATEGORIES.includes(category),
 );
 
 export class CreateStaffLedgerEntryDto {

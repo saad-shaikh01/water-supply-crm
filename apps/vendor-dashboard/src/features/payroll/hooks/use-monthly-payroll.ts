@@ -1,6 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import type { PayrollEntry, PayrollPeriod, StaffLedgerEntry } from '@water-supply-crm/types';
+import type {
+  PayrollEntry,
+  PayrollPeriod,
+  StaffLedgerEntry,
+  AttendanceStatus,
+  StaffAdvancePlanWithPeriodInstallment,
+} from '@water-supply-crm/types';
 import { payrollApi } from '../api/payroll.api';
 import { queryKeys } from '../../../lib/query-keys';
 
@@ -15,10 +21,41 @@ export interface PayrollEntryBucketTotals {
   otherDeductions: number;
 }
 
-/** `GET /payroll/entries/:id/breakdown` — the full entry plus its bucket-grouped ledger entries. */
+/** One day of `PayrollEntryBreakdown.attendance.days` — feeds the Attendance tab's day list. */
+export interface AttendanceBreakdownDay {
+  date: string;
+  status: AttendanceStatus;
+  note: string | null;
+  categoryName: string | null;
+  /** True if this day already spawned a LEAVE_UNPAID ledger entry — re-marking it requires voiding that entry first. */
+  hasDeduction: boolean;
+}
+
+/** `PayrollEntryBreakdown.attendance` — one employee's attendance summary for this entry's period. */
+export interface AttendanceBreakdownSummary {
+  presentDays: number;
+  absentDays: number;
+  halfDays: number;
+  leaveDays: number;
+  weeklyOffDays: number;
+  periodDayCount: number;
+  unmarkedDays: number;
+  days: AttendanceBreakdownDay[];
+}
+
+/**
+ * `GET /payroll/entries/:id/breakdown` — the full entry plus its bucket-grouped
+ * ledger entries, this employee's attendance for the period (Attendance tab), a
+ * suggested per-day deduction for a MONTHLY employee (never forced), and this
+ * employee's active advance plans scoped to this period (Advances tab).
+ */
 export interface PayrollEntryBreakdown {
   entry: PayrollEntry & { period: PayrollPeriod };
   ledgerEntriesByBucket: Record<keyof PayrollEntryBucketTotals, StaffLedgerEntry[]>;
+  attendance: AttendanceBreakdownSummary;
+  /** `baseAmount ÷ period day count`, rounded — only present for a MONTHLY employee. */
+  suggestedMonthlyDailyRate: number | null;
+  advancePlans: StaffAdvancePlanWithPeriodInstallment[];
 }
 
 /**

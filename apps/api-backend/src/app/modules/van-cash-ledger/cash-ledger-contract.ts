@@ -12,7 +12,14 @@ import type { CashLedgerBucket } from './cash-ledger-buckets';
 export type CashLedgerDirection = 'IN' | 'OUT' | 'TRANSFER';
 
 /** Optional categorisation of a manual cash-in (P2). Mirrors the Prisma `ManualCashInSource` enum. */
-export type ManualCashInSource = 'OWNER_INJECTION' | 'OPENING_BALANCE' | 'REFUND' | 'BANK_WITHDRAWAL' | 'OTHER';
+export type ManualCashInSource =
+  | 'OWNER_INJECTION'
+  | 'OPENING_BALANCE'
+  | 'REFUND'
+  | 'BANK_WITHDRAWAL'
+  | 'OTHER'
+  | 'VEHICLE_RENTED_OUT'
+  | 'LABOUR_LENT_OUT';
 
 /**
  * Row v2 fields. Optional on the wire type (like the frontend mirror) so an
@@ -106,6 +113,8 @@ export interface CashLedgerTimelineFilters {
   employeeId?: string;
   /** Extra Labour — an `ExtraLabour` id (distinct from `employeeId`, a `User` id). OFFICE_EXPENSE rows only. */
   extraLabourId?: string;
+  /** A `Vehicle` (Fleet) id — OFFICE_CASH_IN rows with source VEHICLE_RENTED_OUT only. */
+  vehicleId?: string;
   categories?: string[];
   minAmount?: number;
   maxAmount?: number;

@@ -11,6 +11,10 @@ import { useAllVans } from '../../vans/hooks/use-vans';
 import { useAddCashIn } from '../hooks/use-van-cash-ledger';
 import type { ManualCashInSource } from '../api/van-cash-ledger.api';
 import { MANUAL_CASH_IN_SOURCES } from '../constants';
+import { useActiveVehiclesForPicker } from '../../fleet/hooks/use-fleet';
+import { useCrewCandidates } from '../../users/hooks/use-users';
+
+const LABOUR_ROLES = new Set(['DRIVER', 'SALESMAN', 'LOADER']);
 
 interface AddCashInDialogProps {
   open: boolean;
@@ -28,12 +32,16 @@ interface AddCashInDialogProps {
 export function AddCashInDialog({ open, onOpenChange }: AddCashInDialogProps) {
   const { data, isLoading } = useAllVans();
   const addCashIn = useAddCashIn();
+  const { data: vehiclesData, isLoading: vehiclesLoading } = useActiveVehiclesForPicker();
+  const { data: candidatesData, isLoading: employeesLoading } = useCrewCandidates();
 
   const [vanId, setVanId] = useState('none');
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(pktToday());
   const [note, setNote] = useState('');
   const [source, setSource] = useState('none');
+  const [vehicleId, setVehicleId] = useState('');
+  const [employeeId, setEmployeeId] = useState('');
 
   useEffect(() => {
     if (open) {
@@ -42,14 +50,27 @@ export function AddCashInDialog({ open, onOpenChange }: AddCashInDialogProps) {
       setDate(pktToday());
       setNote('');
       setSource('none');
+      setVehicleId('');
+      setEmployeeId('');
     }
   }, [open]);
 
   const vans = data?.data ?? [];
+  const vehicles = vehiclesData?.data ?? [];
+  const employees = (candidatesData?.data ?? []).filter((u) => LABOUR_ROLES.has(u.role));
+  const isVehicleRent = source === 'VEHICLE_RENTED_OUT';
+  const isLabourLent = source === 'LABOUR_LENT_OUT';
   const parsedAmount = Number(amount);
   const today = pktToday();
   const dateInFuture = !!date && date > today;
-  const canSubmit = amount !== '' && !Number.isNaN(parsedAmount) && !!date && !dateInFuture && note.trim() !== '';
+  const canSubmit =
+    amount !== '' &&
+    !Number.isNaN(parsedAmount) &&
+    !!date &&
+    !dateInFuture &&
+    note.trim() !== '' &&
+    (!isVehicleRent || !!vehicleId) &&
+    (!isLabourLent || !!employeeId);
 
   const handleSubmit = () => {
     if (!canSubmit) return;
@@ -60,6 +81,8 @@ export function AddCashInDialog({ open, onOpenChange }: AddCashInDialogProps) {
         openingDate: date,
         note: note.trim(),
         source: source === 'none' ? undefined : (source as ManualCashInSource),
+        relatedVehicleId: isVehicleRent ? vehicleId : undefined,
+        relatedEmployeeId: isLabourLent ? employeeId : undefined,
       },
       { onSuccess: () => onOpenChange(false) },
     );
@@ -128,7 +151,14 @@ export function AddCashInDialog({ open, onOpenChange }: AddCashInDialogProps) {
             <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
               Source (Optional)
             </Label>
-            <Select value={source} onValueChange={setSource}>
+            <Select
+              value={source}
+              onValueChange={(v) => {
+                setSource(v);
+                setVehicleId('');
+                setEmployeeId('');
+              }}
+            >
               <SelectTrigger className="h-10 rounded-xl">
                 <SelectValue placeholder="Select a source" />
               </SelectTrigger>
@@ -140,6 +170,42 @@ export function AddCashInDialog({ open, onOpenChange }: AddCashInDialogProps) {
               </SelectContent>
             </Select>
           </div>
+
+          {isVehicleRent && (
+            <div className="space-y-2">
+              <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
+                Vehicle <span className="text-destructive">*</span>
+              </Label>
+              <Select value={vehicleId} onValueChange={setVehicleId} disabled={vehiclesLoading}>
+                <SelectTrigger className="h-10 rounded-xl">
+                  <SelectValue placeholder={vehiclesLoading ? 'Loading vehicles…' : 'Which vehicle earned this rent?'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {vehicles.map((v) => (
+                    <SelectItem key={v.id} value={v.id}>{v.plateNumber}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {isLabourLent && (
+            <div className="space-y-2">
+              <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
+                Employee <span className="text-destructive">*</span>
+              </Label>
+              <Select value={employeeId} onValueChange={setEmployeeId} disabled={employeesLoading}>
+                <SelectTrigger className="h-10 rounded-xl">
+                  <SelectValue placeholder={employeesLoading ? 'Loading employees…' : 'Who was lent out?'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {employees.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">

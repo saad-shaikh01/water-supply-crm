@@ -43,6 +43,9 @@ const MATRIX: Record<RoleKey, Row> = {
       // Staff Attendance & Wage Types Phase 1 (Amendment R16) — Manager records
       // and reviews attendance, flat default alongside the four payroll actions above.
       'payroll:attendance_view', 'payroll:attendance_mark',
+      // Advance Installments (Amendment R21) — flat default alongside the four
+      // payroll actions above.
+      'payroll:advance_plan_manage',
       // crew_cash:view_all IS a flat STAFF default here — unlike payroll:view_all
       // below, this resource's §11 table has no distinctly-worded override-only
       // phrasing for view_all (Amendment R5).

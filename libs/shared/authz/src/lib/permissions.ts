@@ -277,6 +277,15 @@ export const PERMISSION_CATALOG = {
       'settlement_record',
       'attendance_view',
       'attendance_mark',
+      // Amendment R21 (Advance Installments, owner-requested 2026-09-24): create/
+      // update a StaffAdvancePlan (which posts the full-principal disbursement) and
+      // collect/skip a period's StaffAdvanceInstallment. Kept as one action, not
+      // folded into `ledger_create`, since it's a distinct, bigger-commitment
+      // capability (a multi-period repayment schedule, not a single ledger row) —
+      // same reasoning as `settlement_record`/`entry_approve` each being their own
+      // action rather than reusing an existing one. Default holder: Manager (+ `*`
+      // roles) — same tier as ledger_create/salary_structure_manage/period_generate.
+      'advance_plan_manage',
     ],
   },
   // Amendment R5 (Crew Cash Phase 3, owner-approved 2026-08-07): new resource — see

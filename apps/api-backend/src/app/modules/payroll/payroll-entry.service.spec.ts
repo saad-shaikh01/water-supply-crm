@@ -101,7 +101,15 @@ function makeTx(overrides: any = {}) {
   };
 }
 
-function makeService(opts: { period?: any; eligibleEmployees?: any[]; txOverrides?: any } = {}) {
+function makeAdvancePlansMock(overrides: any = {}) {
+  return {
+    ensureInstallmentsForPeriod: jest.fn().mockResolvedValue(undefined),
+    listForEmployeePeriod: jest.fn().mockResolvedValue([]),
+    ...overrides,
+  };
+}
+
+function makeService(opts: { period?: any; eligibleEmployees?: any[]; txOverrides?: any; advancePlansOverrides?: any } = {}) {
   const tx = makeTx(opts.txOverrides);
   const periodForLookup = 'period' in opts ? opts.period : openPeriod;
   const prisma = {
@@ -112,9 +120,10 @@ function makeService(opts: { period?: any; eligibleEmployees?: any[]; txOverride
     staffLedgerEntry: { findMany: jest.fn() },
   };
   const permissions = { can: jest.fn().mockResolvedValue(true) };
+  const advancePlans = makeAdvancePlansMock(opts.advancePlansOverrides);
 
-  const svc = new PayrollEntryService(prisma as any, permissions as any);
-  return { svc, prisma, tx, permissions };
+  const svc = new PayrollEntryService(prisma as any, permissions as any, advancePlans as any);
+  return { svc, prisma, tx, permissions, advancePlans };
 }
 
 // ─── tests ───────────────────────────────────────────────────────────────────
@@ -179,6 +188,76 @@ describe('PayrollEntryService', () => {
       const created = tx.payrollEntry.create.mock.calls[0][0].data;
       expect(created.otherDeductions).toBe(-150);
       expect(created.finalPayable).toBe(30000 - 150);
+    });
+
+    it('an ADVANCE_RECOVERY installment folds into the advances bucket, same column as a plain ADVANCE', async () => {
+      const { svc, tx } = makeService({
+        txOverrides: {
+          staffLedgerEntry: {
+            findMany: jest.fn().mockResolvedValue([
+              { id: 'le-1', category: StaffLedgerCategory.ADVANCE_RECOVERY, amount: -10000 },
+            ]),
+          },
+        },
+      });
+      await svc.generateDraft(adminUser, PERIOD_ID);
+      const created = tx.payrollEntry.create.mock.calls[0][0].data;
+      expect(created.advances).toBe(-10000);
+      expect(created.finalPayable).toBe(30000 - 10000);
+    });
+
+    it('never fetches ADVANCE_DISBURSEMENT rows into the bucket computation at all', async () => {
+      // computeLedgerContribution excludes the category outright — a loan
+      // disbursement is not itself a payroll deduction. Asserting the query
+      // filter (rather than feeding a disbursement row through the mock,
+      // which would just reflect whatever the mock returns) is what actually
+      // proves the exclusion, since the real findMany is what enforces it.
+      const { svc, tx } = makeService();
+      await svc.generateDraft(adminUser, PERIOD_ID);
+      expect(tx.staffLedgerEntry.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            category: { not: StaffLedgerCategory.ADVANCE_DISBURSEMENT },
+          }),
+        }),
+      );
+    });
+  });
+
+  describe('generateDraft() — Advance Installments auto-generation', () => {
+    it('calls ensureInstallmentsForPeriod once per generated employee, inside the same transaction', async () => {
+      const { svc, tx, advancePlans } = makeService();
+      await svc.generateDraft(adminUser, PERIOD_ID);
+      expect(advancePlans.ensureInstallmentsForPeriod).toHaveBeenCalledTimes(1);
+      expect(advancePlans.ensureInstallmentsForPeriod).toHaveBeenCalledWith(tx, VENDOR_ID, EMPLOYEE_ID, PERIOD_ID);
+    });
+
+    it('still runs for a regenerated (still-DRAFT) entry', async () => {
+      const { svc, advancePlans, tx } = makeService({
+        txOverrides: {
+          payrollEntry: {
+            findUnique: jest.fn().mockResolvedValue({
+              id: 'existing-001',
+              status: PayrollEntryStatus.DRAFT,
+              baseSalary: 30000,
+              finalPayable: 30000,
+            }),
+            update: jest.fn().mockImplementation(async ({ where, data }: any) => ({ id: where.id, ...data })),
+          },
+        },
+      });
+      await svc.generateDraft(adminUser, PERIOD_ID);
+      expect(tx.payrollEntry.update).toHaveBeenCalledTimes(1);
+      expect(advancePlans.ensureInstallmentsForPeriod).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT run for an employee skipped for missing a SalaryStructure', async () => {
+      const { svc, advancePlans } = makeService({
+        txOverrides: { salaryStructure: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null) } },
+      });
+      const result = await svc.generateDraft(adminUser, PERIOD_ID);
+      expect(result.skippedMissingSalaryStructure).toHaveLength(1);
+      expect(advancePlans.ensureInstallmentsForPeriod).not.toHaveBeenCalled();
     });
   });
 
@@ -600,13 +679,14 @@ describe('PayrollEntryService', () => {
   });
 
   describe('getBreakdown()', () => {
-    function makeBreakdownService(canViewAll = true, entryOverrides: any = {}) {
+    function makeBreakdownService(canViewAll = true, entryOverrides: any = {}, advancePlansOverrides: any = {}) {
       const prisma = {
         payrollEntry: {
           findFirst: jest.fn().mockResolvedValue({
             id: 'entry-001',
             vendorId: VENDOR_ID,
             userId: EMPLOYEE_ID,
+            periodId: PERIOD_ID,
             period: openPeriod,
             ...entryOverrides,
           }),
@@ -617,10 +697,13 @@ describe('PayrollEntryService', () => {
             { id: 'le-2', category: StaffLedgerCategory.ADVANCE, amount: -500, effectiveDate: new Date() },
           ]),
         },
+        staffAttendance: { findMany: jest.fn().mockResolvedValue([]) },
+        salaryStructure: { findFirst: jest.fn().mockResolvedValue(null) },
       };
       const permissions = { can: jest.fn().mockResolvedValue(canViewAll) };
-      const svc = new PayrollEntryService(prisma as any, permissions as any);
-      return { svc, prisma, permissions };
+      const advancePlans = makeAdvancePlansMock(advancePlansOverrides);
+      const svc = new PayrollEntryService(prisma as any, permissions as any, advancePlans as any);
+      return { svc, prisma, permissions, advancePlans };
     }
 
     it('buckets ledger entries by category and returns the entry', async () => {
@@ -643,6 +726,64 @@ describe('PayrollEntryService', () => {
       const { svc, prisma } = makeBreakdownService();
       prisma.payrollEntry.findFirst.mockResolvedValue(null);
       await expect(svc.getBreakdown(adminUser, 'entry-001')).rejects.toThrow(NotFoundException);
+    });
+
+    // ── Advance Installments additions (2026-09-24) ─────────────────────────
+
+    it('excludes an ADVANCE_DISBURSEMENT row from ledgerEntriesByBucket (fetched for display only, never bucketed)', async () => {
+      const { svc, prisma } = makeBreakdownService(true, {}, {});
+      prisma.staffLedgerEntry.findMany.mockResolvedValue([
+        { id: 'le-1', category: StaffLedgerCategory.BONUS, amount: 1000, effectiveDate: new Date() },
+        { id: 'le-2', category: StaffLedgerCategory.ADVANCE_DISBURSEMENT, amount: -50000, effectiveDate: new Date() },
+      ]);
+      const result = await svc.getBreakdown(adminUser, 'entry-001');
+      expect(result.ledgerEntriesByBucket.bonuses).toHaveLength(1);
+      expect(result.ledgerEntriesByBucket.advances).toHaveLength(0);
+    });
+
+    it('summarizes attendance counts for the entry\'s employee and period, plus unmarked days', async () => {
+      const { svc, prisma } = makeBreakdownService();
+      prisma.staffAttendance.findMany.mockResolvedValue([
+        { date: new Date('2026-08-01'), status: AttendanceStatus.PRESENT, note: null, leaveLedgerEntryId: null, category: null },
+        { date: new Date('2026-08-02'), status: AttendanceStatus.ABSENT, note: null, leaveLedgerEntryId: 'le-9', category: null },
+        { date: new Date('2026-08-03'), status: AttendanceStatus.HALF_DAY, note: null, leaveLedgerEntryId: null, category: null },
+        { date: new Date('2026-08-04'), status: AttendanceStatus.LEAVE, note: null, leaveLedgerEntryId: null, category: null },
+        { date: new Date('2026-08-05'), status: AttendanceStatus.WEEKLY_OFF, note: null, leaveLedgerEntryId: null, category: null },
+      ]);
+      const result = await svc.getBreakdown(adminUser, 'entry-001');
+      expect(result.attendance.presentDays).toBe(1);
+      expect(result.attendance.absentDays).toBe(1);
+      expect(result.attendance.halfDays).toBe(1);
+      expect(result.attendance.leaveDays).toBe(1);
+      expect(result.attendance.weeklyOffDays).toBe(1);
+      // openPeriod spans 2026-08-01..2026-08-31 = 31 days; 5 marked, 26 unmarked.
+      expect(result.attendance.periodDayCount).toBe(31);
+      expect(result.attendance.unmarkedDays).toBe(26);
+      expect(result.attendance.days[1].hasDeduction).toBe(true);
+      expect(result.attendance.days[0].hasDeduction).toBe(false);
+    });
+
+    it('returns suggestedMonthlyDailyRate = baseAmount / periodDayCount for a MONTHLY employee, rounded', async () => {
+      const { svc, prisma } = makeBreakdownService();
+      prisma.salaryStructure.findFirst.mockResolvedValue({ ...salaryStructure, payFrequency: PayFrequency.MONTHLY, baseAmount: 31000 });
+      const result = await svc.getBreakdown(adminUser, 'entry-001');
+      // 31000 / 31 = 1000 exactly.
+      expect(result.suggestedMonthlyDailyRate).toBe(1000);
+    });
+
+    it('returns suggestedMonthlyDailyRate = null for a non-MONTHLY employee', async () => {
+      const { svc, prisma } = makeBreakdownService();
+      prisma.salaryStructure.findFirst.mockResolvedValue({ ...salaryStructure, payFrequency: PayFrequency.DAILY, baseAmount: 1000 });
+      const result = await svc.getBreakdown(adminUser, 'entry-001');
+      expect(result.suggestedMonthlyDailyRate).toBeNull();
+    });
+
+    it('delegates advancePlans to StaffAdvancePlanService.listForEmployeePeriod, scoped to this entry\'s vendor/employee/period', async () => {
+      const stubPlans = [{ id: 'plan-1', remainingBalance: 40000, installment: null }];
+      const { svc, advancePlans } = makeBreakdownService(true, {}, { listForEmployeePeriod: jest.fn().mockResolvedValue(stubPlans) });
+      const result = await svc.getBreakdown(adminUser, 'entry-001');
+      expect(result.advancePlans).toBe(stubPlans);
+      expect(advancePlans.listForEmployeePeriod).toHaveBeenCalledWith(VENDOR_ID, EMPLOYEE_ID, PERIOD_ID);
     });
 
     // ── self-view-only scoping (payroll:view_all) ───────────────────────────

@@ -50,6 +50,16 @@ export class EditManualCashInDto {
   @IsEnum(ManualCashInSource)
   source?: ManualCashInSource | null;
 
+  /** `null` detaches the vehicle attribution. Omit = unchanged. */
+  @IsOptional()
+  @IsUUID()
+  relatedVehicleId?: string | null;
+
+  /** `null` detaches the employee attribution. Omit = unchanged. */
+  @IsOptional()
+  @IsUUID()
+  relatedEmployeeId?: string | null;
+
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @MinLength(5)

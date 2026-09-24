@@ -13,6 +13,10 @@ import type { CashLedgerRow, EditManualCashInPayload, ManualCashInSource } from 
 import { MANUAL_CASH_IN_SOURCES, manualCashInSourceLabel } from '../constants';
 import { fmtDate, money, pktDayKey } from '../format';
 import { DialogDiffPreview, type DiffPreviewItem } from './dialog-diff-preview';
+import { useActiveVehiclesForPicker } from '../../fleet/hooks/use-fleet';
+import { useCrewCandidates } from '../../users/hooks/use-users';
+
+const LABOUR_ROLES = new Set(['DRIVER', 'SALESMAN', 'LOADER']);
 
 interface EditManualCashInDialogProps {
   row: CashLedgerRow | null;
@@ -35,12 +39,16 @@ export function EditManualCashInDialog({ row, open, onOpenChange }: EditManualCa
   const { data, isLoading: vansLoading } = useAllVans();
   const editCashIn = useEditManualCashIn();
   const reasonHelpId = useId();
+  const { data: vehiclesData, isLoading: vehiclesLoading } = useActiveVehiclesForPicker();
+  const { data: candidatesData, isLoading: employeesLoading } = useCrewCandidates();
 
   const [vanId, setVanId] = useState(NO_VAN);
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState('');
   const [note, setNote] = useState('');
   const [source, setSource] = useState<string>(NO_SOURCE);
+  const [vehicleId, setVehicleId] = useState('');
+  const [employeeId, setEmployeeId] = useState('');
   const [reason, setReason] = useState('');
 
   useEffect(() => {
@@ -50,6 +58,8 @@ export function EditManualCashInDialog({ row, open, onOpenChange }: EditManualCa
       setDate(pktDayKey(row.date));
       setNote(row.notes ?? '');
       setSource(row.source ?? NO_SOURCE);
+      setVehicleId(row.vehicleId ?? '');
+      setEmployeeId(row.employeeId ?? '');
       setReason('');
     }
   }, [open, row]);
@@ -57,6 +67,10 @@ export function EditManualCashInDialog({ row, open, onOpenChange }: EditManualCa
   if (!row) return null;
 
   const vans = data?.data ?? [];
+  const vehicles = vehiclesData?.data ?? [];
+  const employees = (candidatesData?.data ?? []).filter((u) => LABOUR_ROLES.has(u.role));
+  const isVehicleRent = source === 'VEHICLE_RENTED_OUT';
+  const isLabourLent = source === 'LABOUR_LENT_OUT';
   const plateOf = (id: string | null): string => {
     if (!id) return 'No van (office-wide)';
     return vans.find((v) => v.id === id)?.plateNumber ?? (id === row.vanId ? row.vanPlateNumber : null) ?? 'Unknown van';
@@ -68,6 +82,8 @@ export function EditManualCashInDialog({ row, open, onOpenChange }: EditManualCa
   const origVan = row.vanId ?? NO_VAN;
   const origNote = row.notes ?? '';
   const origSource = row.source ?? NO_SOURCE;
+  const origVehicleId = row.vehicleId ?? '';
+  const origEmployeeId = row.employeeId ?? '';
 
   const parsedAmount = Number(amount);
   const amountValid = amount !== '' && Number.isFinite(parsedAmount) && parsedAmount >= 0;
@@ -82,19 +98,29 @@ export function EditManualCashInDialog({ row, open, onOpenChange }: EditManualCa
   const dateChanged = dateValid && date !== origDate;
   const vanChanged = vanId !== origVan;
   const sourceChanged = source !== origSource;
+  const vehicleChanged = vehicleId !== origVehicleId;
+  const employeeChanged = employeeId !== origEmployeeId;
 
-  const anyChanged = amountChanged || dateChanged || vanChanged || noteChanged || sourceChanged;
+  const anyChanged =
+    amountChanged || dateChanged || vanChanged || noteChanged || sourceChanged || vehicleChanged || employeeChanged;
   const reasonValid = reason.trim().length >= MIN_REASON;
-  const formValid = amountValid && dateValid && noteValid;
+  const attributionValid = (!isVehicleRent || !!vehicleId) && (!isLabourLent || !!employeeId);
+  const formValid = amountValid && dateValid && noteValid && attributionValid;
   const canSubmit = formValid && anyChanged && reasonValid && !editCashIn.isPending;
 
   const sourceName = (s: string) => (s === NO_SOURCE ? '—' : manualCashInSourceLabel(s as ManualCashInSource) ?? s);
+  const vehiclePlateOf = (id: string): string =>
+    vehicles.find((v) => v.id === id)?.plateNumber ?? (id === origVehicleId ? (row.vehiclePlateNumber ?? id) : id);
+  const employeeNameOf = (id: string): string =>
+    employees.find((u) => u.id === id)?.name ?? (id === origEmployeeId ? (row.employeeName ?? id) : id);
 
   const diff: DiffPreviewItem[] = [
     { label: 'Amount', before: money(origAmount), after: amountValid ? money(parsedAmount) : money(origAmount) },
     { label: 'Date', before: fmtDate(origDate), after: dateValid ? fmtDate(date) : fmtDate(origDate) },
     { label: 'Van', before: plateOf(row.vanId), after: plateOf(vanId === NO_VAN ? null : vanId) },
     { label: 'Source', before: sourceName(origSource), after: sourceName(source) },
+    ...(vehicleChanged ? [{ label: 'Vehicle', before: origVehicleId ? vehiclePlateOf(origVehicleId) : '—', after: vehicleId ? vehiclePlateOf(vehicleId) : '—' }] : []),
+    ...(employeeChanged ? [{ label: 'Employee', before: origEmployeeId ? employeeNameOf(origEmployeeId) : '—', after: employeeId ? employeeNameOf(employeeId) : '—' }] : []),
     { label: 'Note', before: origNote.trim() || '—', after: noteValid ? trimmedNote || '—' : origNote.trim() || '—' },
   ];
 
@@ -106,6 +132,8 @@ export function EditManualCashInDialog({ row, open, onOpenChange }: EditManualCa
     if (vanChanged) payload.vanId = vanId === NO_VAN ? null : vanId;
     if (noteChanged) payload.note = trimmedNote;
     if (sourceChanged) payload.source = source === NO_SOURCE ? null : (source as ManualCashInSource);
+    if (vehicleChanged) payload.relatedVehicleId = vehicleId || null;
+    if (employeeChanged) payload.relatedEmployeeId = employeeId || null;
 
     editCashIn.mutate(
       { id: row.sourceRecordId, data: payload },
@@ -198,7 +226,14 @@ export function EditManualCashInDialog({ row, open, onOpenChange }: EditManualCa
                 <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
                   Source (Optional)
                 </Label>
-                <Select value={source} onValueChange={setSource}>
+                <Select
+                  value={source}
+                  onValueChange={(v) => {
+                    setSource(v);
+                    if (v !== 'VEHICLE_RENTED_OUT') setVehicleId('');
+                    if (v !== 'LABOUR_LENT_OUT') setEmployeeId('');
+                  }}
+                >
                   <SelectTrigger className="h-11 rounded-xl">
                     <SelectValue placeholder="Select a source" />
                   </SelectTrigger>
@@ -210,6 +245,48 @@ export function EditManualCashInDialog({ row, open, onOpenChange }: EditManualCa
                   </SelectContent>
                 </Select>
               </div>
+
+              {isVehicleRent && (
+                <div className="space-y-2">
+                  <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
+                    Vehicle <span className="text-destructive">*</span>
+                  </Label>
+                  <Select value={vehicleId} onValueChange={setVehicleId} disabled={vehiclesLoading}>
+                    <SelectTrigger className="h-11 rounded-xl">
+                      <SelectValue placeholder={vehiclesLoading ? 'Loading vehicles…' : 'Which vehicle earned this rent?'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {origVehicleId && !vehicles.some((v) => v.id === origVehicleId) ? (
+                        <SelectItem value={origVehicleId}>{row.vehiclePlateNumber ?? 'Current vehicle'}</SelectItem>
+                      ) : null}
+                      {vehicles.map((v) => (
+                        <SelectItem key={v.id} value={v.id}>{v.plateNumber}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {isLabourLent && (
+                <div className="space-y-2">
+                  <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
+                    Employee <span className="text-destructive">*</span>
+                  </Label>
+                  <Select value={employeeId} onValueChange={setEmployeeId} disabled={employeesLoading}>
+                    <SelectTrigger className="h-11 rounded-xl">
+                      <SelectValue placeholder={employeesLoading ? 'Loading employees…' : 'Who was lent out?'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {origEmployeeId && !employees.some((u) => u.id === origEmployeeId) ? (
+                        <SelectItem value={origEmployeeId}>{row.employeeName ?? 'Current employee'}</SelectItem>
+                      ) : null}
+                      {employees.map((u) => (
+                        <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="edit-cash-in-note" className="font-bold text-xs uppercase tracking-widest text-muted-foreground">

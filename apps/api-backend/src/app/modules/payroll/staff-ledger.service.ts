@@ -61,10 +61,14 @@ export class StaffLedgerService {
    * own inside its transaction before calling this).
    */
   async createTx(tx: Prisma.TransactionClient, user: AuthUser, dto: CreateStaffLedgerEntryDto) {
-    // Cash-ledger accounting-period guard (P4). Only an ADVANCE moves cash (R6:
-    // POSTED ADVANCE debits by effectiveDate). CREW_CASH is guarded by its own
-    // service; REVERSAL / CORRECTION / BONUS etc. have no cash effect.
-    if (dto.category === StaffLedgerCategory.ADVANCE) {
+    // Cash-ledger accounting-period guard (P4). ADVANCE and ADVANCE_DISBURSEMENT
+    // are the two categories that move cash (R6: POSTED debits by effectiveDate;
+    // cash-ledger-buckets.ts classifies both as PAYROLL_CASH). ADVANCE_RECOVERY
+    // does NOT move cash — the principal already left when the plan's
+    // ADVANCE_DISBURSEMENT posted, so an installment collection is a payroll
+    // bookkeeping entry only. CREW_CASH is guarded by its own service; REVERSAL /
+    // CORRECTION / BONUS etc. have no cash effect.
+    if (dto.category === StaffLedgerCategory.ADVANCE || dto.category === StaffLedgerCategory.ADVANCE_DISBURSEMENT) {
       await this.periodGuard.assertWritable(user.vendorId, [dto.effectiveDate], { userId: user.userId });
     }
 
