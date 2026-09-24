@@ -16,6 +16,7 @@ import type { AuthUser } from '@water-supply-crm/types';
 import { assertCanViewEmployeePayroll } from '../../common/helpers/payroll-view-scope.util';
 import { roundToNearestRupee } from '../../common/helpers/payroll-rounding.util';
 import { PermissionService } from '../authz/permission.service';
+import { StaffAdvancePlanService } from './staff-advance-plan.service';
 
 function versionMismatch(expected: number, received: number): ConflictException {
   return new ConflictException(`Version mismatch: expected ${expected}, received ${received}. Reload and retry.`);
@@ -84,6 +85,20 @@ function bucketKeyForCategory(category: StaffLedgerCategory): keyof BucketTotals
     // catch-all bucket as DEDUCTION/ADJUSTMENT rather than a dedicated column.
     case StaffLedgerCategory.CREW_CASH:
       return 'otherDeductions';
+    // Advance Installments (2026-09-24) — ADVANCE_RECOVERY is one period's
+    // collected installment against a StaffAdvancePlan; same economic meaning
+    // as a plain ADVANCE (money owed back), so it folds into the same column.
+    case StaffLedgerCategory.ADVANCE_RECOVERY:
+      return 'advances';
+    // ADVANCE_DISBURSEMENT must never reach here — computeLedgerContribution's
+    // query filter excludes it entirely (a loan disbursement is not itself a
+    // payroll deduction; only its ADVANCE_RECOVERY installments are). This
+    // throw only catches a future regression where that filter is removed
+    // without updating this function too.
+    case StaffLedgerCategory.ADVANCE_DISBURSEMENT:
+      throw new Error(
+        'ADVANCE_DISBURSEMENT must never reach bucketKeyForCategory — check computeLedgerContribution\'s query filter.',
+      );
   }
 }
 
@@ -133,6 +148,7 @@ export class PayrollEntryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly permissions: PermissionService,
+    private readonly advancePlans: StaffAdvancePlanService,
   ) {}
 
   /**
@@ -288,6 +304,11 @@ export class PayrollEntryService {
           });
           generated.push(employee.id);
         }
+
+        // Advance Installments — auto-generate this period's PENDING
+        // installment (if any ACTIVE plan is due) alongside the entry itself.
+        // Idempotent: a no-op on regeneration once the row already exists.
+        await this.advancePlans.ensureInstallmentsForPeriod(tx, user.vendorId, employee.id, periodId);
       }
     });
 
@@ -369,10 +390,108 @@ export class PayrollEntryService {
       otherDeductions: [],
     };
     for (const ledgerEntry of ledgerEntries) {
+      // ADVANCE_DISBURSEMENT never claims a bucket (see bucketKeyForCategory) —
+      // but it IS fetched here (this query has no category filter, unlike
+      // computeLedgerContribution) purely for display in the Advances tab via
+      // `advancePlans` below, not grouped into `ledgerEntriesByBucket`.
+      if (ledgerEntry.category === StaffLedgerCategory.ADVANCE_DISBURSEMENT) continue;
       byBucket[bucketKeyForCategory(ledgerEntry.category)].push(ledgerEntry);
     }
 
-    return { entry, ledgerEntriesByBucket: byBucket };
+    const attendance = await this.summarizeAttendance(entry.userId, entry.period);
+    const structure = await this.prisma.salaryStructure.findFirst({
+      where: {
+        vendorId: user.vendorId,
+        userId: entry.userId,
+        effectiveFrom: { lte: entry.period.endDate },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: entry.period.endDate } }],
+      },
+    });
+    const suggestedMonthlyDailyRate =
+      structure?.payFrequency === PayFrequency.MONTHLY
+        ? this.suggestedMonthlyDailyRate(structure.baseAmount, entry.period)
+        : null;
+    const advancePlans = await this.advancePlans.listForEmployeePeriod(user.vendorId, entry.userId, entry.periodId);
+
+    return { entry, ledgerEntriesByBucket: byBucket, attendance, suggestedMonthlyDailyRate, advancePlans };
+  }
+
+  /**
+   * Present/Absent/Half-day/Leave/Weekly-off counts + the raw day list for one
+   * employee's period — feeds the Attendance tab on the draft-click breakdown
+   * dialog (owner-requested 2026-09-24). Reuses the same date-range shape as
+   * `StaffAttendanceService.listByPeriod`, just employee- instead of
+   * vendor-scoped, and includes days with NO attendance row at all
+   * (`unmarkedDays`) since those are exactly the ones an admin may still want
+   * to act on from that screen.
+   */
+  private async summarizeAttendance(userId: string, period: PayrollPeriod) {
+    const rows = await this.prisma.staffAttendance.findMany({
+      where: { userId, date: { gte: period.startDate, lte: period.endDate } },
+      orderBy: { date: 'asc' },
+      include: { category: { select: { id: true, name: true } } },
+    });
+
+    const counts = { presentDays: 0, absentDays: 0, halfDays: 0, leaveDays: 0, weeklyOffDays: 0 };
+    for (const row of rows) {
+      switch (row.status) {
+        case AttendanceStatus.PRESENT:
+          counts.presentDays++;
+          break;
+        case AttendanceStatus.ABSENT:
+          counts.absentDays++;
+          break;
+        case AttendanceStatus.HALF_DAY:
+          counts.halfDays++;
+          break;
+        case AttendanceStatus.LEAVE:
+          counts.leaveDays++;
+          break;
+        case AttendanceStatus.WEEKLY_OFF:
+          counts.weeklyOffDays++;
+          break;
+      }
+    }
+
+    const periodDayCount = this.periodDayCount(period);
+    const unmarkedDays = Math.max(0, periodDayCount - rows.length);
+
+    return {
+      ...counts,
+      periodDayCount,
+      unmarkedDays,
+      days: rows.map((row) => ({
+        date: row.date,
+        status: row.status,
+        note: row.note,
+        categoryName: row.category?.name ?? null,
+        hasDeduction: row.leaveLedgerEntryId != null,
+      })),
+    };
+  }
+
+  /**
+   * `endDate` is stored at 23:59:59.999 of the last day (see
+   * `PayrollPeriodService`'s period-creation helper), not midnight — so the
+   * raw ms difference is always just under N whole days, never exactly N.
+   * `Math.floor` (not `round`) is required here: rounding a value like
+   * 30.999999988 up to 31 before the `+1` would silently overcount by one day.
+   */
+  private periodDayCount(period: PayrollPeriod): number {
+    return Math.floor((period.endDate.getTime() - period.startDate.getTime()) / 86_400_000) + 1;
+  }
+
+  /**
+   * Suggested (never forced) per-day deduction for a MONTHLY employee's
+   * ABSENT/HALF_DAY marking — `base salary ÷ actual period length`. Uses the
+   * period's real day count (already vendor-derived from
+   * PayrollVendorConfig.cutoffDay, not a fixed calendar month), not a
+   * hardcoded 26/30/31 divisor — same reasoning already used to justify
+   * WEEKLY's ÷7 in `resolvePeriodBase` above. The admin can accept, edit, or
+   * clear this suggestion; it never posts anything on its own.
+   */
+  private suggestedMonthlyDailyRate(baseAmount: number, period: PayrollPeriod): number {
+    return roundToNearestRupee(baseAmount / this.periodDayCount(period));
   }
 
   /** One row per employee for a period — table view. */
@@ -443,6 +562,10 @@ export class PayrollEntryService {
         status: LedgerEntryStatus.POSTED,
         payrollEntryId: null,
         effectiveDate: { gte: period.startDate, lte: period.endDate },
+        // Advance Installments — a plan's ADVANCE_DISBURSEMENT never enters any
+        // PayrollEntry bucket (see bucketKeyForCategory); only its
+        // ADVANCE_RECOVERY installments do, each in the period it's collected.
+        category: { not: StaffLedgerCategory.ADVANCE_DISBURSEMENT },
       },
       select: { id: true, category: true, amount: true },
     });

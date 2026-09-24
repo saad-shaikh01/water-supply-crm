@@ -154,6 +154,9 @@ const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
     // Amendment R16). Existing vendors' Manager roles predate these actions.
     'payroll:attendance_view',
     'payroll:attendance_mark',
+    // Advance Installments (owner-requested 2026-09-24). Existing vendors'
+    // Manager roles predate this action.
+    'payroll:advance_plan_manage',
     // Fuel Card Wallet (owner-requested 2026-09-15). Existing vendors'
     // Manager roles predate this new resource entirely.
     'fuel_cards:page',

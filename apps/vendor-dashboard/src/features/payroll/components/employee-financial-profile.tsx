@@ -8,7 +8,7 @@ import {
 import { cn } from '@water-supply-crm/ui';
 import {
   ArrowLeft, Wallet, HandCoins, Receipt, Gift, TriangleAlert,
-  TrendingUp, TrendingDown, History, FileClock, Info, Landmark, Pencil,
+  TrendingUp, TrendingDown, History, FileClock, Info, Landmark, Pencil, Plus,
 } from 'lucide-react';
 import type { StaffLedgerEntry, SalaryStructure } from '@water-supply-crm/types';
 import { StatusBadge } from '../../../components/shared/status-badge';
@@ -18,9 +18,11 @@ import { useEmployee } from '../hooks/use-employee';
 import {
   useEffectiveSalaryStructure, useSalaryHistory, useUnsettledLedgerSummary, useLedgerTimeline,
 } from '../hooks/use-employee-profile';
-import { LEDGER_CATEGORY_CONFIG } from '../constants';
+import { useAdvancePlansForEmployee } from '../hooks/use-advance-plans';
+import { ledgerCategoryLabel } from '../constants';
 import { LogLedgerEntryDialog } from './log-ledger-entry-dialog';
 import { SalaryStructureDialog } from './salary-structure-dialog';
+import { NewAdvancePlanDialog } from './new-advance-plan-dialog';
 import type { CreatableStaffLedgerCategory } from '@water-supply-crm/types';
 
 interface EmployeeFinancialProfileProps {
@@ -104,6 +106,7 @@ export function EmployeeFinancialProfile({ employeeId }: EmployeeFinancialProfil
   const { data: balanceSummary, isLoading: balanceLoading, isError: balanceError } = useUnsettledLedgerSummary(employeeId);
   const { data: effectiveSalary, isLoading: salaryLoading } = useEffectiveSalaryStructure(employeeId);
   const { data: salaryHistory, isLoading: historyLoading } = useSalaryHistory(employeeId);
+  const { data: advancePlans, isLoading: advancePlansLoading, isError: advancePlansError } = useAdvancePlansForEmployee(employeeId);
 
   const [timelinePage, setTimelinePage] = useState(1);
   const [timelineLimit, setTimelineLimit] = useState(20);
@@ -113,8 +116,9 @@ export function EmployeeFinancialProfile({ employeeId }: EmployeeFinancialProfil
   });
 
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [dialogCategory, setDialogCategory] = useState<CreatableStaffLedgerCategory>('ADVANCE');
+  const [dialogCategory, setDialogCategory] = useState<CreatableStaffLedgerCategory>('EXPENSE_REIMBURSEMENT');
   const [salaryDialogOpen, setSalaryDialogOpen] = useState(false);
+  const [advancePlanDialogOpen, setAdvancePlanDialogOpen] = useState(false);
 
   const openQuickAction = (category: CreatableStaffLedgerCategory) => {
     setDialogCategory(category);
@@ -169,8 +173,8 @@ export function EmployeeFinancialProfile({ employeeId }: EmployeeFinancialProfil
       {/* Quick actions (§8 item 8) */}
       {canLogEntry && (
         <div className="flex flex-wrap gap-3">
-          <Button variant="outline" className="rounded-xl font-bold gap-2" onClick={() => openQuickAction('ADVANCE')}>
-            <HandCoins className="h-4 w-4" /> Log Advance
+          <Button variant="outline" className="rounded-xl font-bold gap-2" onClick={() => setAdvancePlanDialogOpen(true)}>
+            <HandCoins className="h-4 w-4" /> New Advance Plan
           </Button>
           <Button variant="outline" className="rounded-xl font-bold gap-2" onClick={() => openQuickAction('EXPENSE_REIMBURSEMENT')}>
             <Receipt className="h-4 w-4" /> Log Expense / Reimbursement
@@ -212,34 +216,49 @@ export function EmployeeFinancialProfile({ employeeId }: EmployeeFinancialProfil
         </Card>
 
         <Card className="bg-card/50 backdrop-blur-sm border-border/50">
-          <CardHeader className="pb-2">
+          <CardHeader className="pb-2 flex-row items-center justify-between space-y-0">
             <CardTitle className="text-xs font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-              <HandCoins className="h-3 w-3" /> Outstanding Advances
+              <HandCoins className="h-3 w-3" /> Advance Plans
             </CardTitle>
+            {canLogEntry && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 rounded-full"
+                onClick={() => setAdvancePlanDialogOpen(true)}
+                title="New Advance Plan"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </Button>
+            )}
           </CardHeader>
           <CardContent>
-            {balanceLoading ? (
+            {advancePlansLoading ? (
               <Skeleton className="h-8 w-32" />
-            ) : balanceError ? (
+            ) : advancePlansError ? (
               <p className="text-sm text-destructive">Failed to load.</p>
-            ) : (
+            ) : !advancePlans || advancePlans.length === 0 ? (
               <>
-                <div className="text-2xl font-black font-mono text-amber-500">
-                  ₨ {(balanceSummary?.outstandingAdvancesTotal ?? 0).toLocaleString()}
-                </div>
-                {balanceSummary && balanceSummary.outstandingAdvances.length > 0 ? (
-                  <div className="mt-2 space-y-1">
-                    {balanceSummary.outstandingAdvances.slice(0, 5).map((a) => (
-                      <div key={a.id} className="flex items-center justify-between text-[11px] text-muted-foreground">
-                        <span>{formatDate(a.effectiveDate)}</span>
-                        <span className="font-mono font-semibold">₨ {Math.abs(a.amount).toLocaleString()}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-[10px] text-muted-foreground mt-1 font-medium">No outstanding advances</p>
-                )}
+                <div className="text-2xl font-black font-mono text-muted-foreground">₨ 0</div>
+                <p className="text-[10px] text-muted-foreground mt-1 font-medium">No advance plans</p>
               </>
+            ) : (
+              <div className="space-y-2">
+                {advancePlans.map((plan) => (
+                  <div key={plan.id} className="flex items-center justify-between gap-2 text-[11px]">
+                    <div className="min-w-0">
+                      <span className="font-semibold text-foreground">₨ {plan.principalAmount.toLocaleString()}</span>
+                      <span className="text-muted-foreground"> · {formatDate(plan.disbursedAt)}</span>
+                      {plan.status !== 'ACTIVE' && (
+                        <Badge variant="outline" className="ml-1.5 text-[9px] px-1 py-0">{plan.status}</Badge>
+                      )}
+                    </div>
+                    <span className={cn('font-mono font-semibold shrink-0', plan.remainingBalance > 0 ? 'text-amber-500' : 'text-muted-foreground')}>
+                      ₨ {plan.remainingBalance.toLocaleString()} left
+                    </span>
+                  </div>
+                ))}
+              </div>
             )}
           </CardContent>
         </Card>
@@ -351,9 +370,7 @@ export function EmployeeFinancialProfile({ employeeId }: EmployeeFinancialProfil
               {
                 key: 'category', header: 'Category', essential: true,
                 cell: (r) => (
-                  <span className="font-semibold">
-                    {LEDGER_CATEGORY_CONFIG[r.category as CreatableStaffLedgerCategory]?.label ?? r.category}
-                  </span>
+                  <span className="font-semibold">{ledgerCategoryLabel(r.category)}</span>
                 ),
               },
               {
@@ -382,6 +399,11 @@ export function EmployeeFinancialProfile({ employeeId }: EmployeeFinancialProfil
       <SalaryStructureDialog
         employee={salaryDialogOpen ? { id: employee.id, name: employee.name } : null}
         onOpenChange={setSalaryDialogOpen}
+      />
+
+      <NewAdvancePlanDialog
+        employee={advancePlanDialogOpen ? { id: employee.id, name: employee.name } : null}
+        onOpenChange={setAdvancePlanDialogOpen}
       />
     </div>
   );

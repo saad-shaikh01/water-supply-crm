@@ -44,20 +44,29 @@ export const EXPENSE_BUCKETS: readonly CashLedgerBucket[] = ['OFFICE_EXPENSE', '
 export const TRANSFER_BUCKETS: readonly CashLedgerBucket[] = ['OWNER_TRANSFER', 'FUEL_CARD'];
 
 /**
- * R6 — of every StaffLedgerEntry, ONLY a POSTED ADVANCE debit (amount < 0)
- * actually moved cash out of the office. Everything else is a payroll-accounting
- * entry with no cash movement of its own (PENALTY, DEDUCTION, LEAVE_*,
- * ADJUSTMENT, REVERSAL, CORRECTION, BONUS, INCENTIVE, OVERTIME,
- * EXPENSE_REIMBURSEMENT) or is its own cash source that must never be read
- * twice (CREW_CASH). PENDING / VOIDED never moved cash. A positive ADVANCE is a
- * data anomaly (an advance is always a debit) and is excluded.
+ * R6 — of every StaffLedgerEntry, ONLY a POSTED ADVANCE or ADVANCE_DISBURSEMENT
+ * debit (amount < 0) actually moved cash out of the office. ADVANCE is a plain
+ * one-off advance (netted against payable in full, same period); ADVANCE_DISBURSEMENT
+ * is the full-principal cash-out for an installment-recovered StaffAdvancePlan
+ * (Advance Installments, 2026-09-24) — the cash leaves once, in full, on
+ * disbursement day, same as any other advance. Its later recovery installments
+ * (ADVANCE_RECOVERY) do NOT move cash again — that cash already left at
+ * disbursement; a recovery entry is a payroll bookkeeping deduction only.
+ * Everything else is a payroll-accounting entry with no cash movement of its own
+ * (PENALTY, DEDUCTION, LEAVE_*, ADJUSTMENT, REVERSAL, CORRECTION, BONUS,
+ * INCENTIVE, OVERTIME, EXPENSE_REIMBURSEMENT) or is its own cash source that
+ * must never be read twice (CREW_CASH). PENDING / VOIDED never moved cash. A
+ * positive amount on either category is a data anomaly (always a debit) and is
+ * excluded.
  */
 export function classifyStaffLedgerEntry(entry: {
   category: StaffLedgerCategory | string;
   status: LedgerEntryStatus | string;
   amount: number;
 }): 'PAYROLL_CASH' | null {
-  if (entry.category !== StaffLedgerCategory.ADVANCE) return null;
+  if (entry.category !== StaffLedgerCategory.ADVANCE && entry.category !== StaffLedgerCategory.ADVANCE_DISBURSEMENT) {
+    return null;
+  }
   if (entry.status !== LedgerEntryStatus.POSTED) return null;
   if (!(entry.amount < 0)) return null;
   return 'PAYROLL_CASH';

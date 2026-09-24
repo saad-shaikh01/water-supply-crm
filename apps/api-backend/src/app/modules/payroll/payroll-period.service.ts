@@ -3,6 +3,7 @@ import { PrismaService } from '@water-supply-crm/database';
 import { PayrollAuditAction, PayrollEntryStatus, PayrollPeriodStatus, Prisma } from '@prisma/client';
 import type { AuthUser } from '@water-supply-crm/types';
 import { PayrollEntryService } from './payroll-entry.service';
+import { StaffAdvancePlanService } from './staff-advance-plan.service';
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
@@ -18,6 +19,7 @@ export class PayrollPeriodService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly payrollEntries: PayrollEntryService,
+    private readonly advancePlans: StaffAdvancePlanService,
   ) {}
 
   /** All periods for the vendor, newest first — Payroll History (§12). */
@@ -165,6 +167,12 @@ export class PayrollPeriodService {
           },
         });
       }
+
+      // Advance Installments — finalize any installment an admin never
+      // actioned this period, same "finalize open decisions at lock time"
+      // spirit as everything else above. Auto-skipped, not silently dropped —
+      // the balance rolls into next period exactly as a manual Skip would.
+      await this.advancePlans.autoSkipPendingForPeriod(tx, user.vendorId, periodId, user.userId);
 
       const updatedPeriod = await tx.payrollPeriod.update({
         where: { id: periodId },

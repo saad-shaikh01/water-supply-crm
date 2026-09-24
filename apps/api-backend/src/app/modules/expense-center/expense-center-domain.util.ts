@@ -166,6 +166,8 @@ export const STAFF_LEDGER_CATEGORY_LABELS: Record<StaffLedgerCategory, string> =
   REVERSAL: 'Reversal',
   CORRECTION: 'Correction',
   CREW_CASH: 'Crew Cash',
+  ADVANCE_DISBURSEMENT: 'Advance Disbursed',
+  ADVANCE_RECOVERY: 'Advance Installment',
 };
 
 export const EXPENSE_CATEGORY_DOMAINS: Record<ExpenseCategory, ExpenseCenterDomain> = {

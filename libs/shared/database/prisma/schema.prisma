@@ -346,6 +346,8 @@ model Vendor {
   settlements          Settlement[]
   staffAttendances     StaffAttendance[]
   attendanceCategories AttendanceCategory[]
+  advancePlans         StaffAdvancePlan[]
+  advanceInstallments  StaffAdvanceInstallment[]
 
   // Historical Product Cost & COGS (docs/features/product-cost-history-and-cogs.md)
   productCosts ProductCost[]
@@ -474,6 +476,11 @@ model User {
   // Staff Attendance & Wage Types — Phase 1
   staffAttendances       StaffAttendance[] @relation("StaffAttendanceEmployee")
   markedStaffAttendances StaffAttendance[] @relation("StaffAttendanceMarkedBy")
+
+  // Advance Installments
+  advancePlans               StaffAdvancePlan[]        @relation("StaffAdvancePlanEmployee")
+  createdAdvancePlans        StaffAdvancePlan[]        @relation("StaffAdvancePlanCreatedBy")
+  decidedAdvanceInstallments StaffAdvanceInstallment[] @relation("StaffAdvanceInstallmentDecidedBy")
 
   // Crew Operational Cash Distribution
   distributedCrewCash CrewCashDistribution[]         @relation("CrewCashDistributedBy")
@@ -2434,6 +2441,17 @@ enum StaffLedgerCategory {
   // want it broken out separately" reasoning — maps into the PayrollEntry's
   // otherDeductions bucket, same as DEDUCTION/ADJUSTMENT (no engine change).
   CREW_CASH
+  // Advance Installments (owner request 2026-09-24) — system-generated only,
+  // never user-creatable via the generic Log Ledger Entry dialog (excluded from
+  // CreatableStaffLedgerCategory). ADVANCE_DISBURSEMENT is the one-time full-principal
+  // cash-out when a StaffAdvancePlan is created — it moves real cash (classified as
+  // PAYROLL_CASH in cash-ledger-buckets.ts, same as ADVANCE) but is deliberately
+  // EXCLUDED from PayrollEntryService.computeLedgerContribution's bucket sum, since a
+  // loan disbursement is not itself a payroll deduction. ADVANCE_RECOVERY is one entry
+  // per period an installment is actually collected — it DOES fold into the `advances`
+  // bucket (same column as ad-hoc ADVANCE, same economic meaning: money owed back).
+  ADVANCE_DISBURSEMENT
+  ADVANCE_RECOVERY
 }
 
 enum LedgerEntryStatus {
@@ -2518,6 +2536,29 @@ enum SettlementMethod {
   CASH
   BANK_TRANSFER
   CHEQUE
+}
+
+// Advance Installments (owner request 2026-09-24) — a StaffAdvancePlan is a loan:
+// full principal disbursed once, recovered over N periods via
+// StaffAdvanceInstallment rows an admin actions each period (Collect/Skip).
+// COMPLETED = remaining balance reached 0 via COLLECTED installments.
+// CANCELLED is reserved for a future write-off flow — not set by any code path yet.
+enum AdvancePlanStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+// PENDING = auto-generated at draft-generation time, this period's installment is
+// due but not yet actioned. COLLECTED = an ADVANCE_RECOVERY ledger entry was posted
+// for it. SKIPPED = explicitly skipped by an admin, OR auto-skipped when its period
+// is locked while still PENDING — either way, the balance is untouched and simply
+// rolls into the next period's auto-generated installment (this is the entire
+// mechanism behind "a 5-month plan becomes 6 months if one month is skipped").
+enum AdvanceInstallmentStatus {
+  PENDING
+  COLLECTED
+  SKIPPED
 }
 
 // Versioned recurring baseline salary per employee. A rate change is a new
@@ -2659,6 +2700,13 @@ model StaffLedgerEntry {
   // entry was spawned by an ABSENT / HALF_DAY attendance marking (Phase 1).
   attendanceLeaveSource StaffAttendance? @relation("StaffAttendanceLeaveEntry")
 
+  // Advance Installments — inverse of StaffAdvancePlan.disbursementLedgerEntry
+  // (set when this ADVANCE_DISBURSEMENT entry funded a plan) and of
+  // StaffAdvanceInstallment.ledgerEntry (set when this ADVANCE_RECOVERY entry
+  // collected one period's installment against a plan).
+  advancePlanDisbursementSource StaffAdvancePlan?        @relation("StaffAdvancePlanDisbursement")
+  advanceInstallmentSource      StaffAdvanceInstallment? @relation("StaffAdvanceInstallmentLedgerEntry")
+
   version   Int      @default(1)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2688,6 +2736,78 @@ model StaffLedgerAuditLog {
 
   @@index([ledgerEntryId])
   @@index([ledgerEntryId, createdAt])
+}
+
+// Advance Installments (owner request 2026-09-24, docs/features/staff-payroll-financial-management.md
+// §11's previously-unbuilt "Installment-advance helper") — a real loan on top of the
+// plain ADVANCE ledger category, which remains untouched for genuinely one-off,
+// no-repayment-schedule advances. One StaffAdvancePlan = one disbursement
+// (ADVANCE_DISBURSEMENT, full principal, posted once) recovered over however many
+// periods it actually takes via StaffAdvanceInstallment rows.
+//
+// `remainingBalance` is deliberately NOT a stored column — always computed as
+// principalAmount − Σ(installments where status=COLLECTED, actualAmount), the same
+// "derive, don't cache" approach PayrollEntryService.computeCarryForwardIn already
+// uses, so it can never drift from the ledger it's derived from.
+model StaffAdvancePlan {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id])
+  userId   String
+  user     User   @relation("StaffAdvancePlanEmployee", fields: [userId], references: [id])
+
+  principalAmount          Int // whole rupees, full amount disbursed
+  defaultInstallmentAmount Int // sizes the NEXT auto-generated PENDING installment; PATCHable going forward, never rewrites past rows
+  disbursedAt               DateTime
+
+  disbursementLedgerEntryId String           @unique
+  disbursementLedgerEntry   StaffLedgerEntry @relation("StaffAdvancePlanDisbursement", fields: [disbursementLedgerEntryId], references: [id])
+
+  status AdvancePlanStatus @default(ACTIVE)
+  note   String?
+
+  createdById String
+  createdBy   User     @relation("StaffAdvancePlanCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  installments StaffAdvanceInstallment[]
+
+  @@index([vendorId, userId, status])
+}
+
+// One row per period a plan is (or was) due. Auto-created PENDING by
+// PayrollEntryService.generateDraft() the first time a period sees a plan with
+// remaining balance > 0 and no row yet for that period — never pre-scheduled to a
+// fixed N periods upfront, which is what makes the skip → roll-forward behavior
+// automatic rather than a separate recompute step.
+model StaffAdvanceInstallment {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id])
+
+  planId String
+  plan   StaffAdvancePlan @relation(fields: [planId], references: [id])
+
+  periodId String
+  period   PayrollPeriod @relation(fields: [periodId], references: [id])
+
+  scheduledAmount Int // = plan.defaultInstallmentAmount (capped to remaining balance) at generation time
+  actualAmount    Int? // set once COLLECTED; may differ from scheduledAmount (admin override, up or down)
+
+  status AdvanceInstallmentStatus @default(PENDING)
+
+  ledgerEntryId String?           @unique
+  ledgerEntry   StaffLedgerEntry? @relation("StaffAdvanceInstallmentLedgerEntry", fields: [ledgerEntryId], references: [id])
+
+  decidedById String?
+  decidedBy   User?     @relation("StaffAdvanceInstallmentDecidedBy", fields: [decidedById], references: [id])
+  decidedAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@unique([planId, periodId])
+  @@index([vendorId, periodId])
 }
 
 // Data-driven approval gate per vendor. categoryKey is a free-form key this
@@ -2741,7 +2861,8 @@ model PayrollPeriod {
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt // last status transition (OPEN/REVIEW/LOCKED/PAID), independent of the dedicated lockedAt/paidAt timestamps
 
-  entries PayrollEntry[]
+  entries             PayrollEntry[]
+  advanceInstallments StaffAdvanceInstallment[]
 
   @@unique([vendorId, periodLabel])
   @@index([vendorId])

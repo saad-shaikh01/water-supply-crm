@@ -46,6 +46,13 @@ export interface MarkAttendanceTarget {
   currentStatus?: AttendanceStatus;
   /** Current category id, if the existing row is a categorized PRESENT marking. */
   currentCategoryId?: string;
+  /**
+   * `baseAmount ÷ period day count` for a MONTHLY employee — prefills (never
+   * forces) the deduction amount for an ABSENT/HALF_DAY marking, so a manager
+   * doesn't have to guess a number by hand. Still fully editable/clearable —
+   * leaving it blank still means no deduction, exactly as before.
+   */
+  suggestedAmount?: number | null;
 }
 
 interface MarkAttendanceDialogProps {
@@ -67,7 +74,7 @@ export function MarkAttendanceDialog({ target, onOpenChange }: MarkAttendanceDia
   useEffect(() => {
     if (!target) return;
     setStatus(target.currentStatus);
-    setAmount(undefined);
+    setAmount(target.suggestedAmount ?? undefined);
     setNote('');
     setCategoryId(target.currentCategoryId);
     // Re-sync only when a different cell opens, not on every keystroke.
@@ -195,6 +202,9 @@ export function MarkAttendanceDialog({ target, onOpenChange }: MarkAttendanceDia
                 className="h-12 text-xl font-black font-mono"
               />
               <p className="text-[11px] text-muted-foreground">
+                {target?.suggestedAmount
+                  ? `Suggested: base salary ÷ days in period = ₨${target.suggestedAmount.toLocaleString()} — edit or clear it. `
+                  : ''}
                 Only if you want to post a LEAVE_UNPAID entry to this employee&apos;s payroll ledger right now.
                 Otherwise this day is just recorded — the admin decides deductions when payroll is built.
               </p>

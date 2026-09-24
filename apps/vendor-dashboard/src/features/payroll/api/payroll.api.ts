@@ -60,6 +60,26 @@ export interface CreateAttendanceCategoryData {
   name: string;
 }
 
+// Advance Installments (owner-requested 2026-09-24)
+
+export interface CreateAdvancePlanData {
+  userId: string;
+  principalAmount: number;
+  defaultInstallmentAmount: number;
+  disbursedAt: string;
+  note?: string;
+}
+
+export interface UpdateAdvancePlanData {
+  defaultInstallmentAmount?: number;
+  note?: string;
+}
+
+export interface CollectAdvanceInstallmentData {
+  /** Overrides the auto-generated scheduled amount, either direction, capped at the plan's remaining balance. */
+  amount?: number;
+}
+
 /** A `StaffAttendance` row as returned by the attendance list endpoints (employee relation included). */
 export interface AttendanceRecord extends StaffAttendance {
   user: { id: string; name: string; role: string };
@@ -109,4 +129,12 @@ export const payrollApi = {
   createAttendanceCategory: (data: CreateAttendanceCategoryData) =>
     apiClient.post<AttendanceCategory>('/payroll/attendance-categories', data),
   deleteAttendanceCategory: (id: string) => apiClient.delete(`/payroll/attendance-categories/${id}`),
+
+  // Advance Installments (owner-requested 2026-09-24)
+  createAdvancePlan: (data: CreateAdvancePlanData) => apiClient.post('/payroll/advance-plans', data),
+  updateAdvancePlan: (id: string, data: UpdateAdvancePlanData) => apiClient.patch(`/payroll/advance-plans/${id}`, data),
+  getAdvancePlansForEmployee: (userId: string) => apiClient.get(`/payroll/advance-plans/employee/${userId}`),
+  collectAdvanceInstallment: (id: string, data: CollectAdvanceInstallmentData) =>
+    apiClient.post(`/payroll/advance-installments/${id}/collect`, data),
+  skipAdvanceInstallment: (id: string) => apiClient.post(`/payroll/advance-installments/${id}/skip`),
 };

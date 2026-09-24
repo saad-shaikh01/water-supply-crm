@@ -54,5 +54,29 @@ export const LEDGER_CATEGORY_CONFIG: Record<CreatableStaffLedgerCategory, Ledger
 
 export const CREATABLE_LEDGER_CATEGORIES = Object.keys(LEDGER_CATEGORY_CONFIG) as CreatableStaffLedgerCategory[];
 
+/**
+ * Advance Installments (2026-09-24) — ADVANCE_DISBURSEMENT/ADVANCE_RECOVERY are
+ * system-generated only (never in `LEDGER_CATEGORY_CONFIG`/`CreatableStaffLedgerCategory` —
+ * they're never picked from the Log Ledger Entry dialog), but they DO appear as raw
+ * `StaffLedgerEntry` rows in the read-only Financial Timeline / breakdown ledger lists,
+ * so those need a friendly label too instead of falling back to the bare enum string.
+ */
+const SYSTEM_ONLY_LEDGER_CATEGORY_LABELS: Record<string, string> = {
+  ADVANCE_DISBURSEMENT: 'Advance Disbursed',
+  ADVANCE_RECOVERY: 'Advance Installment',
+  REVERSAL: 'Reversal',
+  CORRECTION: 'Correction',
+  CREW_CASH: 'Crew Cash',
+};
+
+/** Friendly label for ANY `StaffLedgerEntry.category` — creatable or system-generated — for read-only display. */
+export function ledgerCategoryLabel(category: string): string {
+  return (
+    LEDGER_CATEGORY_CONFIG[category as CreatableStaffLedgerCategory]?.label ??
+    SYSTEM_ONLY_LEDGER_CATEGORY_LABELS[category] ??
+    category
+  );
+}
+
 /** Payroll-eligible roles — mirrors `PAYROLL_ELIGIBLE_ROLES` in `payroll-entry.service.ts`. */
 export const PAYROLL_ELIGIBLE_ROLES = ['STAFF', 'DRIVER', 'SALESMAN', 'LOADER'] as const;
