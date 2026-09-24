@@ -156,6 +156,11 @@ export class VanCashLedgerTimelineQueryDto extends PaginationQueryDto {
   @IsUUID()
   extraLabourId?: string;
 
+  /** A `Vehicle` (Fleet) id — OFFICE_CASH_IN rows with source VEHICLE_RENTED_OUT only. */
+  @IsOptional()
+  @IsUUID()
+  vehicleId?: string;
+
   @IsOptional()
   @Transform(({ value }) => toStringArray(value))
   @IsArray()

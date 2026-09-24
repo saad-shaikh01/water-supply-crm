@@ -105,7 +105,14 @@ export interface CashLedgerRowV2 {
   relatesToDate?: string | null;
 }
 
-export type ManualCashInSource = 'OWNER_INJECTION' | 'OPENING_BALANCE' | 'REFUND' | 'BANK_WITHDRAWAL' | 'OTHER';
+export type ManualCashInSource =
+  | 'OWNER_INJECTION'
+  | 'OPENING_BALANCE'
+  | 'REFUND'
+  | 'BANK_WITHDRAWAL'
+  | 'OTHER'
+  | 'VEHICLE_RENTED_OUT'
+  | 'LABOUR_LENT_OUT';
 
 export interface CashLedgerRow extends CashLedgerRowV2 {
   id: string;
@@ -113,6 +120,9 @@ export interface CashLedgerRow extends CashLedgerRowV2 {
   type: CashLedgerRowType;
   vanId: string | null;
   vanPlateNumber: string | null;
+  /** OPENING_BALANCE (source VEHICLE_RENTED_OUT) only — the Fleet vehicle this rent income is attributed to. */
+  vehicleId?: string | null;
+  vehiclePlateNumber?: string | null;
   title: string;
   /** Signed — positive for IN/opening, negative for OUT. A voided remittance row is 0 here (see `displayAmount`). */
   amount: number;
@@ -187,6 +197,8 @@ export interface CashLedgerTimelineFilters {
   employeeId?: string;
   /** Extra Labour — an ExtraLabour id (distinct from employeeId, a User id). OFFICE_EXPENSE rows only. */
   extraLabourId?: string;
+  /** A Fleet Vehicle id — OFFICE_CASH_IN rows with source VEHICLE_RENTED_OUT only. */
+  vehicleId?: string;
   /** Row `category` values (ExpenseCategory / StaffLedgerCategory / CrewCashCategory). */
   categories?: string[];
   minAmount?: number;
@@ -354,6 +366,10 @@ export interface EditManualCashInPayload {
   vanId?: string | null;
   note?: string;
   source?: ManualCashInSource | null;
+  /** `null` detaches the vehicle attribution. Omit = unchanged. */
+  relatedVehicleId?: string | null;
+  /** `null` detaches the employee attribution. Omit = unchanged. */
+  relatedEmployeeId?: string | null;
   /** Mandatory (≥ 5 chars) — kept in the audit trail. */
   reason: string;
 }
@@ -682,6 +698,10 @@ export interface AddCashInPayload {
   note?: string;
   /** Optional categorisation (P2) for "Office Cash In by source" reporting. */
   source?: ManualCashInSource;
+  /** Required when source is VEHICLE_RENTED_OUT — the vehicle that earned the rent. */
+  relatedVehicleId?: string;
+  /** Required when source is LABOUR_LENT_OUT — the employee who was lent out. */
+  relatedEmployeeId?: string;
 }
 
 export interface ApproveHandoverPayload {

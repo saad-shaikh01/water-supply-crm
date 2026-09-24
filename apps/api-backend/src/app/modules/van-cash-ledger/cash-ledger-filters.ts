@@ -36,6 +36,7 @@ export interface FilterableLedgerRow {
   approvedById?: string | null;
   employeeId?: string | null;
   extraLabourId?: string | null;
+  vehicleId?: string | null;
   category?: string;
   hasAttachment?: boolean;
   notes?: string | null;
@@ -45,6 +46,7 @@ export interface FilterableLedgerRow {
   title?: string;
   employeeName?: string | null;
   vanPlateNumber?: string | null;
+  vehiclePlateNumber?: string | null;
   categoryLabel?: string;
   sourceBadge?: string;
   recordedByName?: string | null;
@@ -112,6 +114,7 @@ function searchHaystack(row: FilterableLedgerRow): string {
     row.reference,
     row.employeeName,
     row.vanPlateNumber,
+    row.vehiclePlateNumber,
     row.categoryLabel,
     row.sourceBadge,
     row.recordedByName,
@@ -148,6 +151,7 @@ export function hasActiveFilters(filters: CashLedgerTimelineFilters | undefined)
     !!filters.approvedById ||
     !!filters.employeeId ||
     !!filters.extraLabourId ||
+    !!filters.vehicleId ||
     present(filters.categories) ||
     typeof filters.minAmount === 'number' ||
     typeof filters.maxAmount === 'number' ||
@@ -186,6 +190,8 @@ export function matchesFilters(row: FilterableLedgerRow, filters: CashLedgerTime
   // Extra Labour is an OFFICE_EXPENSE-only attribution — a distinct id space
   // from `employeeId` (a User), so it is its own independent filter.
   if (filters.extraLabourId && row.extraLabourId !== filters.extraLabourId) return false;
+  // Vehicle (Fleet) — an OFFICE_CASH_IN (VEHICLE_RENTED_OUT) attribution, its own independent filter.
+  if (filters.vehicleId && row.vehicleId !== filters.vehicleId) return false;
 
   if (present(filters.categories) && !(row.category !== undefined && filters.categories.includes(row.category))) {
     return false;
@@ -253,6 +259,7 @@ export function resolveTimelineFilters(query: TimelineFilterQuery): CashLedgerTi
     approvedById: query.approvedById,
     employeeId: query.employeeId,
     extraLabourId: query.extraLabourId,
+    vehicleId: query.vehicleId,
     categories: mergeLists(query.categories, query['categories[]']),
     minAmount: query.minAmount,
     maxAmount: query.maxAmount,

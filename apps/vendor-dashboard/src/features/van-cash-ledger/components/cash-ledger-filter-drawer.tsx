@@ -25,6 +25,7 @@ import { pktToday } from '../../../lib/date-pkt';
 import { useCrewCandidates } from '../../users/hooks/use-users';
 import { useEligibleEmployees } from '../../payroll/hooks/use-eligible-employees';
 import { useExtraLabourOptions } from '../../extra-labour/hooks/use-extra-labour';
+import { useActiveVehiclesForPicker } from '../../fleet/hooks/use-fleet';
 import type {
   CashLedgerStatusFilter,
   CashLedgerTimelineFilters,
@@ -50,6 +51,7 @@ interface Draft {
   approvedById: string;
   employeeId: string;
   extraLabourId: string;
+  vehicleId: string;
   categories: string[];
   minAmount: string;
   maxAmount: string;
@@ -62,7 +64,7 @@ interface Draft {
 
 const EMPTY_DRAFT: Draft = {
   status: [], recordedFrom: '', recordedTo: '', backdatedOnly: false, editedOnly: false,
-  recordedById: '', approvedById: '', employeeId: '', extraLabourId: '', categories: [], minAmount: '', maxAmount: '',
+  recordedById: '', approvedById: '', employeeId: '', extraLabourId: '', vehicleId: '', categories: [], minAmount: '', maxAmount: '',
   hasAttachment: false, hasNote: false, sheet: '', reference: '', destination: '',
 };
 
@@ -76,6 +78,7 @@ const draftFrom = (f: CashLedgerTimelineFilters): Draft => ({
   approvedById: f.approvedById ?? '',
   employeeId: f.employeeId ?? '',
   extraLabourId: f.extraLabourId ?? '',
+  vehicleId: f.vehicleId ?? '',
   categories: f.categories ? [...f.categories] : [],
   minAmount: f.minAmount !== undefined ? String(f.minAmount) : '',
   maxAmount: f.maxAmount !== undefined ? String(f.maxAmount) : '',
@@ -103,6 +106,7 @@ const draftToPatch = (d: Draft): CashLedgerTimelineFilters => ({
   approvedById: d.approvedById || undefined,
   employeeId: d.employeeId || undefined,
   extraLabourId: d.extraLabourId || undefined,
+  vehicleId: d.vehicleId || undefined,
   categories: d.categories.length ? d.categories : undefined,
   minAmount: parseAmount(d.minAmount),
   maxAmount: parseAmount(d.maxAmount),
@@ -263,6 +267,11 @@ function DrawerBody({ onClose }: { onClose: () => void }) {
     () => (extraLabourers ?? []).map((l) => ({ value: l.id, label: l.name })),
     [extraLabourers],
   );
+  const vehicles = useActiveVehiclesForPicker().data?.data;
+  const vehicleOptions = useMemo(
+    () => [...(vehicles ?? [])].sort((a, b) => a.plateNumber.localeCompare(b.plateNumber)).map((v) => ({ value: v.id, label: v.plateNumber })),
+    [vehicles],
+  );
 
   const today = pktToday();
   const errors = validate(draft);
@@ -373,6 +382,17 @@ function DrawerBody({ onClose }: { onClose: () => void }) {
             options={extraLabourOptions}
             placeholder="Anyone"
             unresolvedLabel="Selected worker"
+          />
+        </Section>
+
+        <Section title="Vehicle" hint="Only matches Office Cash In rows recorded as rent income for a specific vehicle.">
+          <PickerSelect
+            label="Vehicle"
+            value={draft.vehicleId}
+            onChange={(v) => patch('vehicleId', v)}
+            options={vehicleOptions}
+            placeholder="Any vehicle"
+            unresolvedLabel="Selected vehicle"
           />
         </Section>
 

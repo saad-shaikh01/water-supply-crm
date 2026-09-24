@@ -502,6 +502,8 @@ model User {
   cashLedgerPeriodsReopened     CashLedgerPeriod[]      @relation("CashLedgerPeriodReopenedBy")
   vanCashOpeningBalancesVoided  VanCashOpeningBalance[] @relation("VanCashOpeningBalanceVoidedBy")
   standaloneCrewCashUpdated     StandaloneCrewCashExpense[] @relation("StandaloneCrewCashUpdatedBy")
+  // The employee a LABOUR_LENT_OUT manual cash-in is attributed to (2026-09-24, owner request).
+  vanCashOpeningBalancesAsEmployee VanCashOpeningBalance[] @relation("VanCashOpeningBalanceRelatedEmployee")
   submittedVanCashHandovers VanCashHandover[]       @relation("VanCashHandoverSubmittedBy")
   approvedVanCashHandovers  VanCashHandover[]       @relation("VanCashHandoverApprovedBy")
 
@@ -822,6 +824,9 @@ model Vehicle {
   fuelLogs           FuelLog[]
   maintenanceRules   VehicleMaintenanceRule[]
   serviceRecords     VehicleServiceRecord[]
+  // Manual Cash In (2026-09-24, owner request) — the specific truck a
+  // VEHICLE_RENTED_OUT income entry is attributed to. See VanCashOpeningBalance.
+  manualCashIns      VanCashOpeningBalance[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3440,6 +3445,16 @@ model VanCashOpeningBalance {
   note           String?
   /// Optional categorisation for "Office Cash In by source" reporting.
   source         ManualCashInSource?
+  // Which physical vehicle earned this income — mandatory (and exclusive with
+  // relatedEmployeeId) when source = VEHICLE_RENTED_OUT, so future reporting
+  // can filter "rent income by vehicle" (owner request 2026-09-24). Restrict:
+  // a vehicle with income history attached to it can't be silently deleted.
+  relatedVehicleId String?
+  relatedVehicle   Vehicle? @relation(fields: [relatedVehicleId], references: [id], onDelete: Restrict)
+  // Which employee (driver/salesman/loader) was lent out to earn this income —
+  // mandatory (and exclusive with relatedVehicleId) when source = LABOUR_LENT_OUT.
+  relatedEmployeeId String?
+  relatedEmployee   User?   @relation("VanCashOpeningBalanceRelatedEmployee", fields: [relatedEmployeeId], references: [id], onDelete: Restrict)
   setById        String
   setBy          User     @relation("VanCashOpeningBalanceSetBy", fields: [setById], references: [id])
 
@@ -3463,6 +3478,8 @@ model VanCashOpeningBalance {
   @@index([vendorId])
   @@index([vanId])
   @@index([vendorId, openingDate])
+  @@index([vendorId, relatedVehicleId])
+  @@index([vendorId, relatedEmployeeId])
 }
 
 enum ManualCashInSource {
@@ -3471,6 +3488,12 @@ enum ManualCashInSource {
   REFUND
   BANK_WITHDRAWAL
   OTHER
+  // Added 2026-09-24 (owner request): the reverse of the VEHICLE_RENT /
+  // EXTRA_LABOUR expense categories — cash the business COLLECTED for renting
+  // out one of its own vehicles, or lending out its own staff, to another
+  // business. See VanCashOpeningBalance.relatedVehicleId/relatedEmployeeId.
+  VEHICLE_RENTED_OUT
+  LABOUR_LENT_OUT
 }
 
 enum ManualCashInStatus {

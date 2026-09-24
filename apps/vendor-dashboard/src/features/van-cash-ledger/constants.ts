@@ -183,6 +183,8 @@ export const MANUAL_CASH_IN_SOURCES: ReadonlyArray<{ value: ManualCashInSource; 
   { value: 'OPENING_BALANCE', label: 'Opening balance' },
   { value: 'REFUND', label: 'Refund' },
   { value: 'BANK_WITHDRAWAL', label: 'Bank withdrawal' },
+  { value: 'VEHICLE_RENTED_OUT', label: 'Vehicle rented out' },
+  { value: 'LABOUR_LENT_OUT', label: 'Labour lent out' },
   { value: 'OTHER', label: 'Other' },
 ];
 

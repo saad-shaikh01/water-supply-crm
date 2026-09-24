@@ -70,7 +70,7 @@ describe('cash-ledger-history (pure helpers)', () => {
       const mk = (id: string, rawAction: string, at: string) =>
         buildHistoryEvent(
           { id, rawAction, at: new Date(at), actorName: null, changes: {}, source: 'AUDIT_LOG' },
-          { vans: new Map(), users: new Map() },
+          { vans: new Map(), users: new Map(), vehicles: new Map() },
         );
       const sorted = sortHistoryEvents([
         mk('created', 'CREATED', '2026-09-10T06:00:00Z'),

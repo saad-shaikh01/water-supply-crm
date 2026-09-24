@@ -322,6 +322,9 @@ export interface VanCashLedgerRow extends Required<CashLedgerRowV2> {
   title: string;
   vanId: string | null;
   vanPlateNumber: string | null;
+  /** OPENING_BALANCE (source VEHICLE_RENTED_OUT) only — the Fleet vehicle this rent income is attributed to. */
+  vehicleId?: string | null;
+  vehiclePlateNumber?: string | null;
   sourceType: string;
   sourceRecordId: string;
   sourceBadge: string;
@@ -464,6 +467,12 @@ export class VanCashLedgerService {
       if (!van) throw new NotFoundException('Van not found.');
     }
 
+    const { relatedVehicleId, relatedEmployeeId } = await this.resolveCashInAttribution(user.vendorId, {
+      source: dto.source ?? null,
+      relatedVehicleId: dto.relatedVehicleId,
+      relatedEmployeeId: dto.relatedEmployeeId,
+    });
+
     const openingDate = new Date(dto.openingDate);
     await this.periodGuard.assertWritable(user.vendorId, [openingDate], { userId: user.userId });
 
@@ -475,6 +484,8 @@ export class VanCashLedgerService {
         openingDate,
         note: dto.note ?? null,
         source: dto.source ?? null,
+        relatedVehicleId,
+        relatedEmployeeId,
         setById: user.userId,
       },
     });
@@ -493,11 +504,61 @@ export class VanCashLedgerService {
           openingDate: created.openingDate,
           note: created.note,
           source: created.source ?? null,
+          vehicleId: created.relatedVehicleId,
+          employeeId: created.relatedEmployeeId,
         },
       },
     });
 
     return created;
+  }
+
+  /**
+   * Validates + resolves the vehicle/employee attribution for a manual
+   * cash-in: VEHICLE_RENTED_OUT requires a `relatedVehicleId` (and forbids an
+   * employee); LABOUR_LENT_OUT requires a `relatedEmployeeId` — a
+   * DRIVER/SALESMAN/LOADER of this vendor — (and forbids a vehicle); every
+   * other source carries neither. Shared by add + edit so the two flows can
+   * never disagree on what's allowed.
+   */
+  private async resolveCashInAttribution(
+    vendorId: string,
+    input: { source: ManualCashInSource | null; relatedVehicleId?: string | null; relatedEmployeeId?: string | null },
+  ): Promise<{ relatedVehicleId: string | null; relatedEmployeeId: string | null }> {
+    const { source } = input;
+
+    if (source === 'VEHICLE_RENTED_OUT') {
+      if (!input.relatedVehicleId) {
+        throw new BadRequestException('relatedVehicleId is required when source is VEHICLE_RENTED_OUT.');
+      }
+      if (input.relatedEmployeeId) {
+        throw new BadRequestException('relatedEmployeeId cannot be set when source is VEHICLE_RENTED_OUT.');
+      }
+      const vehicle = await this.prisma.vehicle.findFirst({ where: { id: input.relatedVehicleId, vendorId } });
+      if (!vehicle) throw new NotFoundException('Vehicle not found.');
+      return { relatedVehicleId: vehicle.id, relatedEmployeeId: null };
+    }
+
+    if (source === 'LABOUR_LENT_OUT') {
+      if (!input.relatedEmployeeId) {
+        throw new BadRequestException('relatedEmployeeId is required when source is LABOUR_LENT_OUT.');
+      }
+      if (input.relatedVehicleId) {
+        throw new BadRequestException('relatedVehicleId cannot be set when source is LABOUR_LENT_OUT.');
+      }
+      const employee = await this.prisma.user.findFirst({
+        where: { id: input.relatedEmployeeId, vendorId, role: { in: ['DRIVER', 'SALESMAN', 'LOADER'] } },
+      });
+      if (!employee) throw new NotFoundException('Employee not found (must be a Driver, Salesman or Loader).');
+      return { relatedVehicleId: null, relatedEmployeeId: employee.id };
+    }
+
+    if (input.relatedVehicleId || input.relatedEmployeeId) {
+      throw new BadRequestException(
+        'relatedVehicleId / relatedEmployeeId can only be set when source is VEHICLE_RENTED_OUT or LABOUR_LENT_OUT.',
+      );
+    }
+    return { relatedVehicleId: null, relatedEmployeeId: null };
   }
 
   /**
@@ -569,6 +630,47 @@ export class VanCashLedgerService {
       data.source = dto.source;
       before.source = row.source ?? null;
       after.source = dto.source;
+    }
+
+    // Re-validate the vehicle/employee attribution whenever the source or
+    // either attribution field is touched — the three must always agree (see
+    // resolveCashInAttribution). Untouched fields fall back to the row's
+    // current value, EXCEPT when the source is moving away from the one that
+    // required them: then they're implicitly cleared rather than tripping the
+    // "can't be set" guard on a caller who only meant to change the source.
+    if (dto.source !== undefined || dto.relatedVehicleId !== undefined || dto.relatedEmployeeId !== undefined) {
+      const currentVehicleId = row.relatedVehicleId ?? null;
+      const currentEmployeeId = row.relatedEmployeeId ?? null;
+      const nextSource = dto.source !== undefined ? dto.source : (row.source ?? null);
+      const nextRelatedVehicleId =
+        dto.relatedVehicleId !== undefined
+          ? dto.relatedVehicleId
+          : nextSource === 'VEHICLE_RENTED_OUT'
+            ? currentVehicleId
+            : null;
+      const nextRelatedEmployeeId =
+        dto.relatedEmployeeId !== undefined
+          ? dto.relatedEmployeeId
+          : nextSource === 'LABOUR_LENT_OUT'
+            ? currentEmployeeId
+            : null;
+
+      const resolved = await this.resolveCashInAttribution(user.vendorId, {
+        source: nextSource,
+        relatedVehicleId: nextRelatedVehicleId,
+        relatedEmployeeId: nextRelatedEmployeeId,
+      });
+
+      if (resolved.relatedVehicleId !== currentVehicleId) {
+        data.relatedVehicleId = resolved.relatedVehicleId;
+        before.vehicleId = currentVehicleId;
+        after.vehicleId = resolved.relatedVehicleId;
+      }
+      if (resolved.relatedEmployeeId !== currentEmployeeId) {
+        data.relatedEmployeeId = resolved.relatedEmployeeId;
+        before.employeeId = currentEmployeeId;
+        after.employeeId = resolved.relatedEmployeeId;
+      }
     }
 
     if (Object.keys(after).length === 0) {
@@ -2238,19 +2340,21 @@ export class VanCashLedgerService {
       reason: row.reason ?? undefined,
     });
 
-    // One batched lookup each for the vans / people referenced by the diffs (and the actors with no stored name).
+    // One batched lookup each for the vans / people / vehicles referenced by the diffs (and the actors with no stored name).
     const vanIds = new Set<string>();
     const userIds = new Set<string>();
+    const vehicleIds = new Set<string>();
     const changeBlobs = [...auditRows.map((row) => row.changes), ...staffAuditRows.map(staffChanges)];
     for (const blob of changeBlobs) {
       const ids = collectReferencedIds(blob);
       ids.vanIds.forEach((id) => vanIds.add(id));
       ids.userIds.forEach((id) => userIds.add(id));
+      ids.vehicleIds.forEach((id) => vehicleIds.add(id));
     }
     for (const row of auditRows) {
       if (!row.userName && row.userId) userIds.add(row.userId);
     }
-    const [vans, users] = await Promise.all([
+    const [vans, users, vehicles] = await Promise.all([
       vanIds.size
         ? this.prisma.van.findMany({
             where: { id: { in: [...vanIds] }, vendorId },
@@ -2263,10 +2367,17 @@ export class VanCashLedgerService {
             select: { id: true, name: true },
           })
         : Promise.resolve([] as Array<{ id: string; name: string }>),
+      vehicleIds.size
+        ? this.prisma.vehicle.findMany({
+            where: { id: { in: [...vehicleIds] }, vendorId },
+            select: { id: true, plateNumber: true },
+          })
+        : Promise.resolve([] as Array<{ id: string; plateNumber: string }>),
     ]);
     const resolvers: HistoryResolvers = {
       vans: new Map(vans.map((van) => [van.id, van.plateNumber])),
       users: new Map(users.map((user) => [user.id, user.name])),
+      vehicles: new Map(vehicles.map((vehicle) => [vehicle.id, vehicle.plateNumber])),
     };
 
     const events: CashLedgerHistoryEvent[] = [
@@ -2690,6 +2801,8 @@ export class VanCashLedgerService {
         van: { select: { plateNumber: true } },
         setBy: { select: { name: true } },
         voidedBy: { select: { name: true } },
+        relatedVehicle: { select: { plateNumber: true } },
+        relatedEmployee: { select: { name: true } },
       },
       orderBy: { openingDate: 'asc' },
     });
@@ -2698,6 +2811,14 @@ export class VanCashLedgerService {
       const badge = row.vanId ? 'Opening Balance' : 'Manual Cash In';
       const date = row.openingDate.toISOString();
       const isVoided = row.status === ManualCashInStatus.VOIDED;
+      // No note was given — fall back to a title that still names WHAT this
+      // income is for, so the timeline stays legible without opening the drawer.
+      const fallbackTitle =
+        row.source === 'VEHICLE_RENTED_OUT' && row.relatedVehicle
+          ? `Vehicle rented out — ${row.relatedVehicle.plateNumber}`
+          : row.source === 'LABOUR_LENT_OUT' && row.relatedEmployee
+            ? `Labour lent out — ${row.relatedEmployee.name}`
+            : badge;
       return {
         ...rowV2('OFFICE_CASH_IN', row.createdAt, date, {
           recordedByName: row.setBy?.name ?? null,
@@ -2708,6 +2829,7 @@ export class VanCashLedgerService {
           voidedAt: isVoided ? (row.voidedAt?.toISOString() ?? null) : null,
           voidedByName: isVoided ? (row.voidedBy?.name ?? null) : null,
           source: (row.source as ManualCashInSource | null) ?? null,
+          employeeId: row.relatedEmployeeId ?? null,
         }),
         id: `OPENING_BALANCE:${row.id}`,
         date,
@@ -2719,9 +2841,12 @@ export class VanCashLedgerService {
         amount: isVoided ? 0 : row.openingBalance,
         displayAmount: Math.abs(row.openingBalance),
         runningBalance: 0,
-        title: row.note?.trim() || badge,
+        title: row.note?.trim() || fallbackTitle,
         vanId: row.vanId,
         vanPlateNumber: row.van?.plateNumber ?? null,
+        vehicleId: row.relatedVehicleId ?? null,
+        vehiclePlateNumber: row.relatedVehicle?.plateNumber ?? null,
+        employeeName: row.relatedEmployee?.name ?? null,
         sourceType: 'OPENING_BALANCE',
         sourceRecordId: row.id,
         sourceBadge: manualCashInSourceLabel(row.source) ?? badge,

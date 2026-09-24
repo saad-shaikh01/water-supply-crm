@@ -1343,6 +1343,8 @@ describe('VanCashLedgerService', () => {
       openingDate: new Date('2026-09-05T00:00:00Z'),
       note: 'Owner top-up' as string | null,
       source: null as string | null,
+      relatedVehicleId: null as string | null,
+      relatedEmployeeId: null as string | null,
       setById: 'admin-001',
       status: ManualCashInStatus.ACTIVE as ManualCashInStatus,
       version: 1,
@@ -1357,8 +1359,18 @@ describe('VanCashLedgerService', () => {
     };
     type ManualRow = typeof baseManual;
 
-    function makeManualService(opts: { row?: ManualRow | null; vans?: Array<{ id: string; vendorId: string }> } = {}) {
-      const { row = { ...baseManual }, vans = [{ id: 'van-001', vendorId: VENDOR_ID }] } = opts;
+    function makeManualService(opts: {
+      row?: ManualRow | null;
+      vans?: Array<{ id: string; vendorId: string }>;
+      vehicles?: Array<{ id: string; vendorId: string }>;
+      employees?: Array<{ id: string; vendorId: string; role: string }>;
+    } = {}) {
+      const {
+        row = { ...baseManual },
+        vans = [{ id: 'van-001', vendorId: VENDOR_ID }],
+        vehicles = [{ id: 'vehicle-001', vendorId: VENDOR_ID }],
+        employees = [{ id: 'driver-001', vendorId: VENDOR_ID, role: 'DRIVER' }],
+      } = opts;
       let current: ManualRow | null = row ? { ...row } : null;
 
       const vanCashOpeningBalance = {
@@ -1398,7 +1410,24 @@ describe('VanCashLedgerService', () => {
             vans.find((v) => v.id === where.id && v.vendorId === where.vendorId) ?? null,
           ),
       };
-      const prisma = { vanCashOpeningBalance, van };
+      const vehicle = {
+        findFirst: jest
+          .fn()
+          .mockImplementation(async ({ where }: any) =>
+            vehicles.find((v) => v.id === where.id && v.vendorId === where.vendorId) ?? null,
+          ),
+      };
+      const user = {
+        findFirst: jest.fn().mockImplementation(async ({ where }: any) =>
+          employees.find(
+            (e) =>
+              e.id === where.id &&
+              e.vendorId === where.vendorId &&
+              (!where.role?.in || where.role.in.includes(e.role)),
+          ) ?? null,
+        ),
+      };
+      const prisma = { vanCashOpeningBalance, van, vehicle, user };
       const audit = { log: jest.fn().mockResolvedValue(undefined) };
       const permissions = { can: jest.fn().mockResolvedValue(true) };
       const periodGuard = { assertWritable: jest.fn().mockResolvedValue(undefined) };
@@ -1441,6 +1470,102 @@ describe('VanCashLedgerService', () => {
         ).rejects.toThrow(BadRequestException);
         expect(prisma.vanCashOpeningBalance.create).not.toHaveBeenCalled();
         expect(periodGuard.assertWritable).not.toHaveBeenCalled();
+      });
+
+      it('VEHICLE_RENTED_OUT: requires relatedVehicleId, rejects a co-supplied relatedEmployeeId, and persists the resolved vehicle', async () => {
+        const { svc, prisma } = makeManualService();
+
+        await expect(
+          svc.addManualCashIn(adminUser, {
+            openingBalance: 3000,
+            openingDate: '2026-09-01',
+            note: 'Rented the pickup to City Water for 2 days',
+            source: ManualCashInSource.VEHICLE_RENTED_OUT,
+          }),
+        ).rejects.toThrow(BadRequestException);
+
+        await expect(
+          svc.addManualCashIn(adminUser, {
+            openingBalance: 3000,
+            openingDate: '2026-09-01',
+            note: 'Rented the pickup to City Water for 2 days',
+            source: ManualCashInSource.VEHICLE_RENTED_OUT,
+            relatedVehicleId: 'vehicle-001',
+            relatedEmployeeId: 'driver-001',
+          }),
+        ).rejects.toThrow(BadRequestException);
+
+        await svc.addManualCashIn(adminUser, {
+          openingBalance: 3000,
+          openingDate: '2026-09-01',
+          note: 'Rented the pickup to City Water for 2 days',
+          source: ManualCashInSource.VEHICLE_RENTED_OUT,
+          relatedVehicleId: 'vehicle-001',
+        });
+        expect(prisma.vanCashOpeningBalance.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            source: 'VEHICLE_RENTED_OUT',
+            relatedVehicleId: 'vehicle-001',
+            relatedEmployeeId: null,
+          }),
+        });
+      });
+
+      it('LABOUR_LENT_OUT: requires a relatedEmployeeId who is a Driver/Salesman/Loader of this vendor', async () => {
+        const { svc, prisma } = makeManualService({
+          employees: [
+            { id: 'driver-001', vendorId: VENDOR_ID, role: 'DRIVER' },
+            { id: 'accountant-001', vendorId: VENDOR_ID, role: 'ACCOUNTANT' },
+          ],
+        });
+
+        await expect(
+          svc.addManualCashIn(adminUser, {
+            openingBalance: 1500,
+            openingDate: '2026-09-01',
+            note: 'Lent our loader to a neighbouring plant for the day',
+            source: ManualCashInSource.LABOUR_LENT_OUT,
+          }),
+        ).rejects.toThrow(BadRequestException);
+
+        // Not a Driver/Salesman/Loader -> rejected even though the user exists.
+        await expect(
+          svc.addManualCashIn(adminUser, {
+            openingBalance: 1500,
+            openingDate: '2026-09-01',
+            note: 'Lent our loader to a neighbouring plant for the day',
+            source: ManualCashInSource.LABOUR_LENT_OUT,
+            relatedEmployeeId: 'accountant-001',
+          }),
+        ).rejects.toThrow(NotFoundException);
+
+        await svc.addManualCashIn(adminUser, {
+          openingBalance: 1500,
+          openingDate: '2026-09-01',
+          note: 'Lent our loader to a neighbouring plant for the day',
+          source: ManualCashInSource.LABOUR_LENT_OUT,
+          relatedEmployeeId: 'driver-001',
+        });
+        expect(prisma.vanCashOpeningBalance.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            source: 'LABOUR_LENT_OUT',
+            relatedVehicleId: null,
+            relatedEmployeeId: 'driver-001',
+          }),
+        });
+      });
+
+      it('rejects relatedVehicleId / relatedEmployeeId when the source is neither VEHICLE_RENTED_OUT nor LABOUR_LENT_OUT', async () => {
+        const { svc } = makeManualService();
+        await expect(
+          svc.addManualCashIn(adminUser, {
+            openingBalance: 500,
+            openingDate: '2026-09-01',
+            note: 'Owner cash',
+            source: ManualCashInSource.OWNER_INJECTION,
+            relatedVehicleId: 'vehicle-001',
+          }),
+        ).rejects.toThrow(BadRequestException);
       });
     });
 
