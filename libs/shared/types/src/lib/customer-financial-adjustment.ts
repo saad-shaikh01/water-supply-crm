@@ -27,6 +27,7 @@ export const ADJUSTMENT_KINDS = [
   'WRITE_OFF',
   'CORRECTION',
   'REVERSAL',
+  'STAFF_FAULT_CREDIT',
 ] as const;
 export type AdjustmentKind = (typeof ADJUSTMENT_KINDS)[number];
 
@@ -190,6 +191,18 @@ export const ADJUSTMENT_KIND_POLICY: Readonly<Record<AdjustmentKind, AdjustmentK
     visibility: 'DERIVED',
     requiresInternalNote: false,
     creation: 'SYSTEM',
+  },
+  // Linked Penalty (owner-approved 2026-09-25) — the customer-side credit half
+  // of a staff penalty for an unrecorded/undeposited customer payment
+  // (LinkedPenaltyService). Also postable standalone for a plain manual
+  // correction of the same shape, not only via the linked flow.
+  STAFF_FAULT_CREDIT: {
+    label: 'Staff-fault credit',
+    direction: 'CREDIT',
+    permission: 'create_credit',
+    visibility: 'ITEMIZED',
+    requiresInternalNote: true,
+    creation: 'STANDALONE',
   },
 };
 

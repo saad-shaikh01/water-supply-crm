@@ -3,10 +3,12 @@ import { BullModule } from '@nestjs/bullmq';
 import { QUEUE_NAMES } from '@water-supply-crm/queue';
 import { AuditModule } from '../audit/audit.module';
 import { VanCashLedgerModule } from '../van-cash-ledger/van-cash-ledger.module';
+import { CustomerFinancialAdjustmentModule } from '../customer-financial-adjustment/customer-financial-adjustment.module';
 import { SalaryStructureService } from './salary-structure.service';
 import { SalaryStructureController } from './salary-structure.controller';
 import { StaffLedgerService } from './staff-ledger.service';
 import { StaffLedgerController } from './staff-ledger.controller';
+import { LinkedPenaltyService } from './linked-penalty.service';
 import { PayrollApprovalGateService } from './payroll-approval-gate.service';
 import { PayrollPeriodService } from './payroll-period.service';
 import { PayrollPeriodController } from './payroll-period.controller';
@@ -63,7 +65,15 @@ import { StaffAdvancePlanController } from './staff-advance-plan.controller';
   // the closed-sheet update/remove path) call VanCashLedgerService.
   // handlePostCloseCorrection() inside their own transaction (Cash Ledger P0).
   // VanCashLedgerModule imports only AuditModule + StorageModule, so no cycle.
-  imports: [BullModule.registerQueue({ name: QUEUE_NAMES.CREW_CASH_SYNC }), AuditModule, VanCashLedgerModule],
+  // CustomerFinancialAdjustmentModule — LinkedPenaltyService (owner-approved
+  // 2026-09-25) composes StaffLedgerService + CustomerFinancialAdjustmentService;
+  // that module imports nothing back from Payroll, so no cycle.
+  imports: [
+    BullModule.registerQueue({ name: QUEUE_NAMES.CREW_CASH_SYNC }),
+    AuditModule,
+    VanCashLedgerModule,
+    CustomerFinancialAdjustmentModule,
+  ],
   controllers: [
     SalaryStructureController,
     StaffLedgerController,
@@ -79,6 +89,7 @@ import { StaffAdvancePlanController } from './staff-advance-plan.controller';
   providers: [
     SalaryStructureService,
     StaffLedgerService,
+    LinkedPenaltyService,
     PayrollApprovalGateService,
     PayrollPeriodService,
     PayrollEntryService,

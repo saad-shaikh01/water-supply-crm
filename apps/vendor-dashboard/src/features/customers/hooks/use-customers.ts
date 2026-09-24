@@ -85,11 +85,16 @@ export const useAllCustomers = () => {
       // paginate() nests pagination info under `meta` — totalPages is NOT top-level
       const totalPages: number = (first as any).meta?.totalPages ?? (first as any).totalPages ?? 1;
       if (totalPages <= 1) return first;
-      const rest = await Promise.all(
-        Array.from({ length: totalPages - 1 }, (_, i) =>
-          customersApi.getAll({ limit: 100, page: i + 2 }).then((r) => (r.data as any).data)
-        )
-      );
+      // Sequential, not Promise.all — firing every remaining page at once used to
+      // burst past the API's per-second rate limit on vendors with a large
+      // customer list (each burst also eats into the shared limit other users'
+      // requests draw from). One page in flight at a time keeps the same total
+      // requests/result but paces them out.
+      const rest: any[] = [];
+      for (let page = 2; page <= totalPages; page++) {
+        const pageData = await customersApi.getAll({ limit: 100, page }).then((r) => (r.data as any).data);
+        rest.push(pageData);
+      }
       return { ...(first as any), data: [...(first as any).data, ...rest.flat()] };
     },
   });

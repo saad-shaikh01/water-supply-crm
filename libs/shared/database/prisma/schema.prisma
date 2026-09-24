@@ -688,6 +688,11 @@ model Customer {
   financialAdjustments              CustomerFinancialAdjustment[]
   financialAdjustmentCounterparties CustomerFinancialAdjustment[] @relation("AdjustmentCounterparty")
 
+  // Linked Penalty (owner-approved 2026-09-25) — inverse of
+  // StaffLedgerEntry.linkedCustomerId, the denormalized "which customer is
+  // this staff penalty about" pointer used for display/filtering.
+  linkedPenaltyEntries StaffLedgerEntry[] @relation("StaffLedgerEntryLinkedCustomer")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -2766,6 +2771,21 @@ model StaffLedgerEntry {
   advancePlanDisbursementSource StaffAdvancePlan?        @relation("StaffAdvancePlanDisbursement")
   advanceInstallmentSource      StaffAdvanceInstallment? @relation("StaffAdvanceInstallmentLedgerEntry")
 
+  // Linked Penalty (owner-approved 2026-09-25, LinkedPenaltyService) — set ONLY
+  // by the linked-penalty create path, together, never edited after. A PENALTY/
+  // DEDUCTION entry created this way also posted a STAFF_FAULT_CREDIT
+  // CustomerFinancialAdjustment crediting the named customer for the same
+  // amount (e.g. an undeposited/unrecorded cash collection) in the SAME DB
+  // transaction. `linkedCustomerId` is denormalized (cheap list display);
+  // `causedCustomerAdjustmentId` is the actual linked document. Voiding either
+  // side must cascade to the other (LinkedPenaltyService.voidLinkedPenalty) —
+  // the plain void paths refuse to touch a linked row on their own.
+  linkedCustomerId String?
+  linkedCustomer   Customer? @relation("StaffLedgerEntryLinkedCustomer", fields: [linkedCustomerId], references: [id])
+
+  causedCustomerAdjustmentId String?                      @unique
+  causedCustomerAdjustment   CustomerFinancialAdjustment? @relation(fields: [causedCustomerAdjustmentId], references: [id], onDelete: Restrict)
+
   version   Int      @default(1)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2774,6 +2794,7 @@ model StaffLedgerEntry {
   @@index([payrollEntryId])
   // Cash Ledger payroll-cash read (ADVANCE entries by effectiveDate).
   @@index([vendorId, category, effectiveDate])
+  @@index([linkedCustomerId])
 }
 
 // Mirrors DamageCaseAuditLog's audit-trail shape, adapted with a typed action
@@ -3939,6 +3960,14 @@ enum AdjustmentKind {
   WRITE_OFF
   CORRECTION
   REVERSAL // system-only: created by void, mirrors the voided document
+  // Linked Penalty (owner-approved 2026-09-25) — the customer-side credit half
+  // of LinkedPenaltyService.createLinkedPenalty: a staff member (usually a
+  // driver) failed to record/deposit money the customer actually paid, so the
+  // customer is credited here while the same amount is docked from the staff
+  // member's pay (see StaffLedgerEntry.causedCustomerAdjustmentId). Also
+  // postable standalone (not only via the linked flow) for a plain manual
+  // correction of the same shape.
+  STAFF_FAULT_CREDIT
 }
 
 enum AdjustmentDirection {
@@ -4017,6 +4046,11 @@ model CustomerFinancialAdjustment {
 
   /// Inverse of Transaction.adjustmentId — the single ledger row this posted.
   transaction Transaction?
+
+  /// Inverse of StaffLedgerEntry.causedCustomerAdjustmentId — set when this
+  /// (always STAFF_FAULT_CREDIT) adjustment was posted by LinkedPenaltyService
+  /// alongside a staff penalty, never when posted standalone.
+  causedByStaffLedgerEntry StaffLedgerEntry?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

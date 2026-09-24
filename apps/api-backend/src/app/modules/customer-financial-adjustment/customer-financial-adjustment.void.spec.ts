@@ -63,11 +63,16 @@ function buildWorld(base = 1000) {
     const wrote = (op: string) => (writes ? writes.push(op) : s.outside.push(op));
     const matches = (d: any, where: Record<string, unknown>) =>
       Object.entries(where).every(([k, v]) => d[k] === v);
-    const withTxn = (d: any, include?: { transaction?: boolean }) => {
+    const withTxn = (d: any, include?: { transaction?: boolean; causedByStaffLedgerEntry?: unknown }) => {
       const out = structuredClone(d);
       if (include?.transaction) {
         const t = [...s.transactions.values()].find((x) => x.adjustmentId === d.id);
         out.transaction = t ? structuredClone(t) : null;
+      }
+      if (include?.causedByStaffLedgerEntry) {
+        out.causedByStaffLedgerEntry = d.linkedFromStaffLedgerEntryId
+          ? { id: d.linkedFromStaffLedgerEntryId }
+          : null;
       }
       return out;
     };
@@ -200,6 +205,7 @@ function buildWorld(base = 1000) {
     status?: string;
     reversalOfId?: string | null;
     ledger?: 'ok' | 'none' | number;
+    linkedFromStaffLedgerEntryId?: string | null;
   } = {}) => {
     const direction = o.direction ?? 'CHARGE';
     const amount = o.amount ?? 500;
@@ -223,6 +229,7 @@ function buildWorld(base = 1000) {
       voidedAt: null,
       voidReason: null,
       createdById: 'someone',
+      linkedFromStaffLedgerEntryId: o.linkedFromStaffLedgerEntryId ?? null,
     });
     const ledger = o.ledger ?? 'ok';
     if (ledger !== 'none') {
@@ -702,21 +709,25 @@ describe('CustomerFinancialAdjustmentService.voidAdjustment', () => {
       expect(t.consistent()).toBe(true);
     });
 
-    it('the claim happens BEFORE any other write: a lost race creates no reversal, ledger row or audit', async () => {
+    it('a lost race creates no reversal, ledger row or audit either way it is caught', async () => {
       const t = build();
       const id = t.seed({ amount: 500 });
-      const stale = structuredClone(await t.db.customerFinancialAdjustment.findFirst({ where: { id, vendorId: VENDOR_ID }, include: { transaction: true } }));
-      // Someone else voids it first...
+      // Someone else voids it first (committed, real state)...
       t.s.adjustments.get(id).status = 'VOIDED';
-      // ...but this request still holds the stale POSTED read.
-      t.db.customerFinancialAdjustment.findFirst = async () => structuredClone(stale);
       const before = t.snapshot();
 
       await expect(t.service.voidAdjustment(USER, id, voidDto())).rejects.toBeInstanceOf(ConflictException);
 
       expect(t.snapshot()).toEqual(before);
       const writes = t.s.calls.map((c) => c.op).filter((op) => /create|update/.test(op));
-      expect(writes).toEqual(['adjustment.updateMany']); // it never got past the claim
+      // The load now happens INSIDE the transaction (voidAdjustmentTx, composable
+      // for LinkedPenaltyService) via the SAME tx client the claim would use, so a
+      // request that's already stale-to-the-point-of-committed-VOIDED is caught by
+      // the "already voided" guard before ever attempting the claim — no wasted
+      // write. A genuine race (both sides reading POSTED before either commits)
+      // still resolves correctly via the updateMany claim under real Postgres row
+      // locking — see the "two voids racing" test above.
+      expect(writes).toEqual([]);
     });
   });
 

@@ -19,8 +19,12 @@ function makeController() {
     reverse: jest.fn().mockResolvedValue({ original: {}, reversal: {} }),
     correct: jest.fn().mockResolvedValue({ original: {}, reversal: {}, correction: {} }),
   };
-  const controller = new StaffLedgerController(service as any);
-  return { controller, service };
+  const linkedPenalty = {
+    createLinkedPenalty: jest.fn().mockResolvedValue({ penaltyEntry: {}, customerAdjustment: {}, customerBalance: 700 }),
+    voidLinkedPenalty: jest.fn().mockResolvedValue({ penaltyEntry: {}, customerAdjustment: {}, customerBalance: 1000 }),
+  };
+  const controller = new StaffLedgerController(service as any, linkedPenalty as any);
+  return { controller, service, linkedPenalty };
 }
 
 // ─── authorization metadata ────────────────────────────────────────────────────
@@ -35,18 +39,20 @@ function makeController() {
 describe('StaffLedgerController — authorization metadata', () => {
   const proto = StaffLedgerController.prototype as any;
 
-  const permissionByMethod: Record<string, string> = {
-    create: 'payroll:ledger_create',
-    approve: 'payroll:ledger_approve',
-    reverse: 'payroll:ledger_reverse',
-    correct: 'payroll:ledger_correct',
+  const permissionByMethod: Record<string, string[]> = {
+    create: ['payroll:ledger_create'],
+    approve: ['payroll:ledger_approve'],
+    reverse: ['payroll:ledger_reverse'],
+    correct: ['payroll:ledger_correct'],
+    createLinkedPenalty: ['payroll:ledger_create', 'customer_financial_adjustments:create_credit'],
+    voidLinkedPenalty: ['payroll:ledger_void', 'customer_financial_adjustments:void'],
   };
 
   it.each(Object.entries(permissionByMethod))(
     '%s requires exactly %s',
-    (methodName, permission) => {
+    (methodName, permissions) => {
       const meta = Reflect.getMetadata(PERMISSIONS_KEY, proto[methodName]) as RequiredPermissionsMeta;
-      expect(meta).toEqual({ mode: 'all', permissions: [permission] });
+      expect(meta).toEqual({ mode: 'all', permissions });
     },
   );
 
@@ -117,5 +123,27 @@ describe('StaffLedgerController — pass-through', () => {
     const dto = { version: 2, reason: 'wrong amount', correctedAmount: 750 };
     await controller.correct(user, 'entry-001', dto);
     expect(service.correct).toHaveBeenCalledWith(user, 'entry-001', dto);
+  });
+
+  it('createLinkedPenalty() forwards user and body to LinkedPenaltyService', async () => {
+    const { controller, linkedPenalty } = makeController();
+    const dto = {
+      userId: 'employee-001',
+      category: 'PENALTY',
+      amount: -300,
+      effectiveDate: '2026-09-25',
+      customerId: 'customer-001',
+      customerCreditTitle: 'Cash payment recorded late',
+    } as any;
+    const result = await controller.createLinkedPenalty(user, dto);
+    expect(linkedPenalty.createLinkedPenalty).toHaveBeenCalledWith(user, dto);
+    expect(result).toEqual({ penaltyEntry: {}, customerAdjustment: {}, customerBalance: 700 });
+  });
+
+  it('voidLinkedPenalty() forwards user, id param, and body to LinkedPenaltyService', async () => {
+    const { controller, linkedPenalty } = makeController();
+    const dto = { version: 0, reason: 'wrong accusation' };
+    await controller.voidLinkedPenalty(user, 'entry-001', dto);
+    expect(linkedPenalty.voidLinkedPenalty).toHaveBeenCalledWith(user, 'entry-001', dto);
   });
 });

@@ -64,7 +64,21 @@ export function DamageReportForm({ dailySheetItemId, prefillCustomerId, prefillP
   const { data: customersData } = useAllCustomers();
   const { data: productsData } = useQuery({
     queryKey: ['products', 'all-active'],
-    queryFn: () => productsApi.getAll({ limit: 500, isActive: true }).then((r) => r.data),
+    // API caps `limit` at 100 (was requesting 500 → 400 Bad Request), so page
+    // through sequentially the same way useAllCustomers does — vendors rarely
+    // have more than one page of active products, so this is a single request
+    // in practice and never more than a few, spaced out.
+    queryFn: async () => {
+      const first = await productsApi.getAll({ limit: 100, page: 1, isActive: true }).then((r) => r.data);
+      const totalPages: number = (first as any).meta?.totalPages ?? (first as any).totalPages ?? 1;
+      if (totalPages <= 1) return first;
+      const rest: any[] = [];
+      for (let page = 2; page <= totalPages; page++) {
+        const pageData = await productsApi.getAll({ limit: 100, page, isActive: true }).then((r) => (r.data as any).data);
+        rest.push(pageData);
+      }
+      return { ...(first as any), data: [...(first as any).data, ...rest.flat()] };
+    },
     staleTime: 5 * 60 * 1000,
   });
 

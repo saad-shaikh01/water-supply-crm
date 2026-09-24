@@ -1,10 +1,12 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { StaffLedgerService } from './staff-ledger.service';
+import { LinkedPenaltyService } from './linked-penalty.service';
 import { CreateStaffLedgerEntryDto } from './dto/create-staff-ledger-entry.dto';
 import { ApproveStaffLedgerEntryDto } from './dto/approve-staff-ledger-entry.dto';
 import { VoidStaffLedgerEntryDto } from './dto/void-staff-ledger-entry.dto';
 import { ReverseStaffLedgerEntryDto } from './dto/reverse-staff-ledger-entry.dto';
 import { CorrectStaffLedgerEntryDto } from './dto/correct-staff-ledger-entry.dto';
+import { CreateLinkedPenaltyDto } from './dto/create-linked-penalty.dto';
 import { LedgerEntryQueryDto } from './dto/ledger-entry-query.dto';
 import { AuthenticatedOnly } from '../../common/decorators/authz-markers.decorator';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
@@ -49,13 +51,31 @@ import type { AuthUser } from '@water-supply-crm/types';
  */
 @Controller('payroll/ledger-entries')
 export class StaffLedgerController {
-  constructor(private readonly staffLedger: StaffLedgerService) {}
+  constructor(
+    private readonly staffLedger: StaffLedgerService,
+    private readonly linkedPenalty: LinkedPenaltyService,
+  ) {}
 
   /** POST /payroll/ledger-entries — create (PENDING or POSTED per approval gate). */
   @Post()
   @RequirePermissions('payroll:ledger_create')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateStaffLedgerEntryDto) {
     return this.staffLedger.create(user, dto);
+  }
+
+  /**
+   * POST /payroll/ledger-entries/linked-penalty — Linked Penalty (owner-approved
+   * 2026-09-25): atomically posts a PENALTY/DEDUCTION against `userId` AND a
+   * matching customer credit against `customerId` for the same amount (e.g. a
+   * driver never recorded a customer's cash payment). Requires BOTH
+   * permissions (`RequirePermissions`' default mode is `'all'`) — a caller
+   * without `customer_financial_adjustments:create_credit` never sees this
+   * option and keeps using the plain (unlinked) penalty flow.
+   */
+  @Post('linked-penalty')
+  @RequirePermissions('payroll:ledger_create', 'customer_financial_adjustments:create_credit')
+  createLinkedPenalty(@CurrentUser() user: AuthUser, @Body() dto: CreateLinkedPenaltyDto) {
+    return this.linkedPenalty.createLinkedPenalty(user, dto);
   }
 
   /** GET /payroll/ledger-entries/employee/:userId — financial timeline. */
@@ -85,6 +105,19 @@ export class StaffLedgerController {
   @AuthenticatedOnly()
   voidEntry(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: VoidStaffLedgerEntryDto) {
     return this.staffLedger.voidEntry(user, id, dto);
+  }
+
+  /**
+   * PATCH /payroll/ledger-entries/:id/void-linked — Linked Penalty (owner-approved
+   * 2026-09-25): voids a linked PENALTY/DEDUCTION entry AND its paired customer
+   * credit together, atomically. Requires BOTH void permissions — the plain
+   * `:id/void` route refuses a linked entry outright (see
+   * `StaffLedgerService.voidEntryTx`'s link guard) and points here instead.
+   */
+  @Patch(':id/void-linked')
+  @RequirePermissions('payroll:ledger_void', 'customer_financial_adjustments:void')
+  voidLinkedPenalty(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: VoidStaffLedgerEntryDto) {
+    return this.linkedPenalty.voidLinkedPenalty(user, id, dto);
   }
 
   /** POST /payroll/ledger-entries/:id/reverse — post-lock POSTED -> new opposite-sign REVERSAL entry. */

@@ -87,9 +87,19 @@ describe('customerFacingReversalText', () => {
 });
 
 describe('POSTABLE_ADJUSTMENT_KINDS (create endpoint gate)', () => {
-  it('is exactly the charge, credit and restricted kinds (2A + 2D)', () => {
+  it('is exactly the charge, credit and restricted kinds (2A + 2D) plus STAFF_FAULT_CREDIT (Linked Penalty)', () => {
     expect([...POSTABLE_ADJUSTMENT_KINDS].sort()).toEqual(
-      ['CORRECTION', 'DISCOUNT', 'GOODWILL_CREDIT', 'OTHER_CHARGE', 'OTHER_CREDIT', 'PENALTY', 'SERVICE_FEE', 'WRITE_OFF'],
+      [
+        'CORRECTION',
+        'DISCOUNT',
+        'GOODWILL_CREDIT',
+        'OTHER_CHARGE',
+        'OTHER_CREDIT',
+        'PENALTY',
+        'SERVICE_FEE',
+        'STAFF_FAULT_CREDIT',
+        'WRITE_OFF',
+      ],
     );
   });
 

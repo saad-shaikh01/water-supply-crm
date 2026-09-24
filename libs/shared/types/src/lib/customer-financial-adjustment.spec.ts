@@ -60,7 +60,12 @@ describe('kind policy table', () => {
     const byPerm = (action: string) =>
       ADJUSTMENT_KINDS.filter((k) => ADJUSTMENT_KIND_POLICY[k].permission === action);
     expect(sorted(byPerm('create'))).toEqual(['OTHER_CHARGE', 'PENALTY', 'SERVICE_FEE']);
-    expect(sorted(byPerm('create_credit'))).toEqual(['DISCOUNT', 'GOODWILL_CREDIT', 'OTHER_CREDIT']);
+    expect(sorted(byPerm('create_credit'))).toEqual([
+      'DISCOUNT',
+      'GOODWILL_CREDIT',
+      'OTHER_CREDIT',
+      'STAFF_FAULT_CREDIT',
+    ]);
     expect(sorted(byPerm('transfer'))).toEqual(['TRANSFER_IN', 'TRANSFER_OUT']);
     expect(sorted(byPerm('create_restricted'))).toEqual(['CORRECTION', 'WRITE_OFF']);
   });
@@ -68,7 +73,14 @@ describe('kind policy table', () => {
   it('fixes direction per kind; CORRECTION is chosen by staff, REVERSAL mirrors the original', () => {
     const dir = (k: AdjustmentKind) => ADJUSTMENT_KIND_POLICY[k].direction;
     for (const k of ['SERVICE_FEE', 'PENALTY', 'OTHER_CHARGE', 'TRANSFER_IN'] as const) expect(dir(k)).toBe('CHARGE');
-    for (const k of ['DISCOUNT', 'GOODWILL_CREDIT', 'OTHER_CREDIT', 'TRANSFER_OUT', 'WRITE_OFF'] as const)
+    for (const k of [
+      'DISCOUNT',
+      'GOODWILL_CREDIT',
+      'OTHER_CREDIT',
+      'TRANSFER_OUT',
+      'WRITE_OFF',
+      'STAFF_FAULT_CREDIT',
+    ] as const)
       expect(dir(k)).toBe('CREDIT');
     expect(dir('CORRECTION')).toBe('EITHER');
     expect(dir('REVERSAL')).toBe('DERIVED');
@@ -92,13 +104,23 @@ describe('kind policy table', () => {
   it('requires an internal note for every credit, write-off and correction — but not charges, transfer legs or reversals', () => {
     const noteRequired = ADJUSTMENT_KINDS.filter((k) => ADJUSTMENT_KIND_POLICY[k].requiresInternalNote);
     expect(sorted(noteRequired)).toEqual(
-      ['CORRECTION', 'DISCOUNT', 'GOODWILL_CREDIT', 'OTHER_CREDIT', 'WRITE_OFF'],
+      ['CORRECTION', 'DISCOUNT', 'GOODWILL_CREDIT', 'OTHER_CREDIT', 'STAFF_FAULT_CREDIT', 'WRITE_OFF'],
     );
   });
 
-  it('creation paths: 8 standalone kinds, the two transfer legs, and system-only REVERSAL', () => {
+  it('creation paths: 9 standalone kinds, the two transfer legs, and system-only REVERSAL', () => {
     expect(sorted(STANDALONE_ADJUSTMENT_KINDS)).toEqual(
-      ['CORRECTION', 'DISCOUNT', 'GOODWILL_CREDIT', 'OTHER_CHARGE', 'OTHER_CREDIT', 'PENALTY', 'SERVICE_FEE', 'WRITE_OFF'],
+      [
+        'CORRECTION',
+        'DISCOUNT',
+        'GOODWILL_CREDIT',
+        'OTHER_CHARGE',
+        'OTHER_CREDIT',
+        'PENALTY',
+        'SERVICE_FEE',
+        'STAFF_FAULT_CREDIT',
+        'WRITE_OFF',
+      ],
     );
     const via = (path: string) => ADJUSTMENT_KINDS.filter((k) => ADJUSTMENT_KIND_POLICY[k].creation === path);
     expect(sorted(via('TRANSFER'))).toEqual(['TRANSFER_IN', 'TRANSFER_OUT']);

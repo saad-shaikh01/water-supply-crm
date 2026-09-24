@@ -39,6 +39,7 @@ import {
   resolveAdjustmentDirection,
   resolveAdjustmentEffectiveDate,
   signedAdjustmentAmount,
+  type PostableAdjustmentKind,
 } from './adjustment-posting.util';
 
 /**
@@ -177,95 +178,23 @@ export class CustomerFinancialAdjustmentService {
     });
     if (!customer) throw new NotFoundException('Customer not found');
 
-    const signed = signedAdjustmentAmount(direction, amount);
-    const ledgerText = customerFacingAdjustmentText(visibility, title);
-
     // ── 6. The atomic unit ───────────────────────────────────────────────────
     let created: Omit<CreateAdjustmentResult, 'idempotentReplay'>;
     try {
-      created = await this.prisma.$transaction(async (tx) => {
-        const adjustment = await tx.customerFinancialAdjustment.create({
-          data: {
-            vendorId,
-            customerId: dto.customerId,
-            kind: dto.kind,
-            direction,
-            amount,
-            effectiveDate,
-            title,
-            internalNote,
-            referenceNo,
-            customerVisibility: visibility,
-            createdById: user.userId,
-            idempotencyKey,
-          },
-        });
-
-        // The ledger row: signed, customer-safe text ONLY (the portal returns raw
-        // Transaction rows — title/internalNote never go here unless ITEMIZED),
-        // createdAt = business date (the ledger's createdAt IS the business date).
-        // No productId / bottleCount: money-only, so bottle-wallet math is untouched.
-        const transaction = await tx.transaction.create({
-          data: {
-            type: TransactionType.ADJUSTMENT,
-            vendorId,
-            customerId: dto.customerId,
-            adjustmentId: adjustment.id,
-            amount: signed,
-            description: ledgerText,
-            createdAt: effectiveDate,
-          },
-        });
-
-        const updated = await tx.customer.update({
-          where: { id: dto.customerId },
-          data: { financialBalance: { increment: signed } },
-          select: { financialBalance: true },
-        });
-
-        // A write-off can only write off what is OWED. Checked on the balance the update
-        // just returned (row-locked, so race-safe) and thrown INSIDE the transaction so
-        // the whole post rolls back: writing off more than the customer owes would hand
-        // them free credit while reporting it as a company loss.
-        if (dto.kind === 'WRITE_OFF' && round2(updated.financialBalance) < 0) {
-          const owed = Math.max(0, round2(updated.financialBalance + amount));
-          throw new BadRequestException(
-            owed > 0
-              ? `A write-off cannot exceed what the customer owes (outstanding: ${owed.toFixed(2)}).`
-              : 'This customer owes nothing, so there is nothing to write off.',
-          );
-        }
-
-        await tx.auditLog.create({
-          data: {
-            vendorId,
-            userId: user.userId,
-            userName: user.name,
-            action: 'CREATE',
-            entity: 'CustomerFinancialAdjustment',
-            entityId: adjustment.id,
-            changes: {
-              before: { financialBalance: round2(updated.financialBalance - signed) },
-              after: {
-                customerId: dto.customerId,
-                kind: dto.kind,
-                direction,
-                amount,
-                signedAmount: signed,
-                effectiveDate: effectiveDate.toISOString(),
-                title,
-                referenceNo: referenceNo ?? null,
-                customerVisibility: visibility,
-                transactionId: transaction.id,
-                financialBalance: updated.financialBalance,
-              },
-              ...(internalNote ? { reason: internalNote } : {}),
-            } as Prisma.InputJsonValue,
-          },
-        });
-
-        return { adjustment, transaction, customerBalance: updated.financialBalance };
-      });
+      created = await this.prisma.$transaction((tx) =>
+        this.createTx(tx, user, {
+          customerId: dto.customerId,
+          kind: dto.kind,
+          direction,
+          amount,
+          effectiveDate,
+          title,
+          internalNote,
+          referenceNo,
+          visibility,
+          idempotencyKey,
+        }),
+      );
     } catch (err) {
       // Two identical submits racing: both passed the lookup above, one's insert hit
       // the unique (vendorId, idempotencyKey). The loser replays the winner.
@@ -278,6 +207,128 @@ export class CustomerFinancialAdjustmentService {
 
     await this.invalidateCaches(vendorId, dto.customerId);
     return { ...created, idempotentReplay: false };
+  }
+
+  /**
+   * Core of `create`, composable into an externally-managed transaction — same
+   * tx-parameterized pattern `StaffLedgerService.createTx` already uses (see
+   * its doc comment). Used by `create` itself, and by `LinkedPenaltyService`
+   * (owner-approved 2026-09-25), which needs the STAFF_FAULT_CREDIT half of a
+   * linked penalty posted atomically alongside the `StaffLedgerEntry` it pairs
+   * with — two separate top-level `$transaction` calls would each commit
+   * independently, leaving a real partial-application window (customer
+   * credited but driver never docked, or vice versa).
+   *
+   * Every field here is ALREADY RESOLVED (kind policy applied, permission
+   * checked, amount/title/note validated, customer tenancy confirmed,
+   * idempotency looked up) — the caller (`create`, or `LinkedPenaltyService`)
+   * owns all of that outside the transaction. `idempotencyKey` is optional:
+   * `LinkedPenaltyService` posts without one (StaffLedgerEntry's own plain
+   * create endpoint has no idempotency protection either, so this keeps the
+   * two halves of a linked penalty at parity) — the column is nullable and
+   * NULLs are distinct under the `(vendorId, idempotencyKey)` unique index.
+   */
+  async createTx(
+    tx: Prisma.TransactionClient,
+    user: AuthUser,
+    input: {
+      customerId: string;
+      kind: PostableAdjustmentKind;
+      direction: AdjustmentDirection;
+      amount: number;
+      effectiveDate: Date;
+      title: string;
+      internalNote?: string;
+      referenceNo?: string;
+      visibility: AdjustmentVisibility;
+      idempotencyKey?: string;
+    },
+  ): Promise<Omit<CreateAdjustmentResult, 'idempotentReplay'>> {
+    const { vendorId } = user;
+    const signed = signedAdjustmentAmount(input.direction, input.amount);
+    const ledgerText = customerFacingAdjustmentText(input.visibility, input.title);
+
+    const adjustment = await tx.customerFinancialAdjustment.create({
+      data: {
+        vendorId,
+        customerId: input.customerId,
+        kind: input.kind,
+        direction: input.direction,
+        amount: input.amount,
+        effectiveDate: input.effectiveDate,
+        title: input.title,
+        internalNote: input.internalNote,
+        referenceNo: input.referenceNo,
+        customerVisibility: input.visibility,
+        createdById: user.userId,
+        idempotencyKey: input.idempotencyKey ?? null,
+      },
+    });
+
+    // The ledger row: signed, customer-safe text ONLY (the portal returns raw
+    // Transaction rows — title/internalNote never go here unless ITEMIZED),
+    // createdAt = business date (the ledger's createdAt IS the business date).
+    // No productId / bottleCount: money-only, so bottle-wallet math is untouched.
+    const transaction = await tx.transaction.create({
+      data: {
+        type: TransactionType.ADJUSTMENT,
+        vendorId,
+        customerId: input.customerId,
+        adjustmentId: adjustment.id,
+        amount: signed,
+        description: ledgerText,
+        createdAt: input.effectiveDate,
+      },
+    });
+
+    const updated = await tx.customer.update({
+      where: { id: input.customerId },
+      data: { financialBalance: { increment: signed } },
+      select: { financialBalance: true },
+    });
+
+    // A write-off can only write off what is OWED. Checked on the balance the update
+    // just returned (row-locked, so race-safe) and thrown INSIDE the transaction so
+    // the whole post rolls back: writing off more than the customer owes would hand
+    // them free credit while reporting it as a company loss.
+    if (input.kind === 'WRITE_OFF' && round2(updated.financialBalance) < 0) {
+      const owed = Math.max(0, round2(updated.financialBalance + input.amount));
+      throw new BadRequestException(
+        owed > 0
+          ? `A write-off cannot exceed what the customer owes (outstanding: ${owed.toFixed(2)}).`
+          : 'This customer owes nothing, so there is nothing to write off.',
+      );
+    }
+
+    await tx.auditLog.create({
+      data: {
+        vendorId,
+        userId: user.userId,
+        userName: user.name,
+        action: 'CREATE',
+        entity: 'CustomerFinancialAdjustment',
+        entityId: adjustment.id,
+        changes: {
+          before: { financialBalance: round2(updated.financialBalance - signed) },
+          after: {
+            customerId: input.customerId,
+            kind: input.kind,
+            direction: input.direction,
+            amount: input.amount,
+            signedAmount: signed,
+            effectiveDate: input.effectiveDate.toISOString(),
+            title: input.title,
+            referenceNo: input.referenceNo ?? null,
+            customerVisibility: input.visibility,
+            transactionId: transaction.id,
+            financialBalance: updated.financialBalance,
+          },
+          ...(input.internalNote ? { reason: input.internalNote } : {}),
+        } as Prisma.InputJsonValue,
+      },
+    });
+
+    return { adjustment, transaction, customerBalance: updated.financialBalance };
   }
 
   /**
@@ -382,10 +433,49 @@ export class CustomerFinancialAdjustmentService {
       );
     }
 
-    // ── 3. Load (vendor-scoped) + guards ─────────────────────────────────────
-    const original = await this.prisma.customerFinancialAdjustment.findFirst({
+    let done: VoidAdjustmentResult;
+    try {
+      done = await this.prisma.$transaction((tx) => this.voidAdjustmentTx(tx, user, adjustmentId, reason));
+    } catch (err) {
+      // The unique reversalOfId is the database-level "reversed at most once" guard.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new ConflictException('This adjustment has already been voided.');
+      }
+      throw err;
+    }
+
+    await this.invalidateCaches(vendorId, done.adjustment.customerId);
+    return done;
+  }
+
+  /**
+   * Core of `voidAdjustment`, composable into an externally-managed
+   * transaction — same tx-parameterized pattern as `createTx` (see its doc
+   * comment). Used by `voidAdjustment` itself, and by
+   * `LinkedPenaltyService.voidLinkedPenalty` (owner-approved 2026-09-25),
+   * which reverses this adjustment atomically alongside voiding the
+   * `StaffLedgerEntry` it was paired with.
+   *
+   * `opts.skipLinkGuard` skips ONLY the "this adjustment is linked to a staff
+   * penalty — void it from there instead" refusal below. It exists for
+   * `LinkedPenaltyService`, the one caller allowed to void a linked
+   * adjustment (because it voids both halves together in the same
+   * transaction). The public `voidAdjustment` never sets it, so a standalone
+   * void of a linked adjustment always stays refused.
+   */
+  async voidAdjustmentTx(
+    tx: Prisma.TransactionClient,
+    user: AuthUser,
+    adjustmentId: string,
+    reason: string,
+    opts?: { skipLinkGuard?: boolean },
+  ): Promise<VoidAdjustmentResult> {
+    const { vendorId } = user;
+
+    // ── Load (vendor-scoped) + guards ─────────────────────────────────────
+    const original = await tx.customerFinancialAdjustment.findFirst({
       where: { id: adjustmentId, vendorId },
-      include: { transaction: true },
+      include: { transaction: true, causedByStaffLedgerEntry: { select: { id: true } } },
     });
     if (!original) throw new NotFoundException('Adjustment not found');
 
@@ -402,6 +492,11 @@ export class CustomerFinancialAdjustmentService {
         'This adjustment is one leg of a balance transfer and cannot be voided on its own.',
       );
     }
+    if (!opts?.skipLinkGuard && original.causedByStaffLedgerEntry) {
+      throw new BadRequestException(
+        'This credit is linked to a staff penalty — void the penalty entry instead; the linked credit is reversed with it.',
+      );
+    }
     const ledger = original.transaction;
     if (!ledger || ledger.amount === null) {
       // A POSTED adjustment always has its ledger row (same DB transaction as its
@@ -416,130 +511,116 @@ export class CustomerFinancialAdjustmentService {
       );
     }
 
-    // ── 4. What the reversal looks like ──────────────────────────────────────
+    // ── What the reversal looks like ──────────────────────────────────────
     const voidedAt = new Date(); // the ACTUAL void moment — the reversal's business date
     const reversalLedgerAmount = -ledger.amount; // exact negation, never recomputed
     const reversalDirection = oppositeAdjustmentDirection(original.direction);
     const visibility = original.customerVisibility;
     const ledgerText = customerFacingReversalText(visibility, original.title);
 
-    // ── 5. The atomic unit ───────────────────────────────────────────────────
-    let done: VoidAdjustmentResult;
-    try {
-      done = await this.prisma.$transaction(async (tx) => {
-        // (1) Claim the original FIRST — see the class doc.
-        const claimed = await tx.customerFinancialAdjustment.updateMany({
-          where: { id: original.id, vendorId, status: 'POSTED' },
-          data: { status: 'VOIDED', voidedById: user.userId, voidedAt, voidReason: reason },
-        });
-        if (claimed.count === 0) {
-          throw new ConflictException('This adjustment has already been voided.');
-        }
+    // ── The atomic unit ───────────────────────────────────────────────────
+    // (1) Claim the original FIRST — see the class doc.
+    const claimed = await tx.customerFinancialAdjustment.updateMany({
+      where: { id: original.id, vendorId, status: 'POSTED' },
+      data: { status: 'VOIDED', voidedById: user.userId, voidedAt, voidReason: reason },
+    });
+    if (claimed.count === 0) {
+      throw new ConflictException('This adjustment has already been voided.');
+    }
 
-        // (2) The reversal document. Visibility is copied from the original.
-        const reversal = await tx.customerFinancialAdjustment.create({
-          data: {
-            vendorId,
-            customerId: original.customerId,
+    // (2) The reversal document. Visibility is copied from the original.
+    const reversal = await tx.customerFinancialAdjustment.create({
+      data: {
+        vendorId,
+        customerId: original.customerId,
+        kind: 'REVERSAL',
+        direction: reversalDirection,
+        amount: original.amount,
+        effectiveDate: voidedAt,
+        title: `Reversal: ${original.title}`,
+        internalNote: reason,
+        customerVisibility: visibility,
+        createdById: user.userId,
+        reversalOfId: original.id,
+      },
+    });
+
+    // (3) The reversal's ledger row. Customer-safe text only; money-only.
+    const reversalTransaction = await tx.transaction.create({
+      data: {
+        type: TransactionType.ADJUSTMENT,
+        vendorId,
+        customerId: original.customerId,
+        adjustmentId: reversal.id,
+        amount: reversalLedgerAmount,
+        description: ledgerText,
+        createdAt: voidedAt,
+      },
+    });
+
+    // (4) Balance.
+    const updated = await tx.customer.update({
+      where: { id: original.customerId },
+      data: { financialBalance: { increment: reversalLedgerAmount } },
+      select: { financialBalance: true },
+    });
+    const balanceBefore = round2(updated.financialBalance - reversalLedgerAmount);
+
+    // (5) Audit — both ends of the chain.
+    await tx.auditLog.create({
+      data: {
+        vendorId,
+        userId: user.userId,
+        userName: user.name,
+        action: 'VOID',
+        entity: 'CustomerFinancialAdjustment',
+        entityId: original.id,
+        changes: {
+          before: { status: 'POSTED', financialBalance: balanceBefore },
+          after: {
+            status: 'VOIDED',
+            voidedAt: voidedAt.toISOString(),
+            reversalId: reversal.id,
+            reversalTransactionId: reversalTransaction.id,
+            reversalSignedAmount: reversalLedgerAmount,
+            financialBalance: updated.financialBalance,
+          },
+          reason,
+        } as Prisma.InputJsonValue,
+      },
+    });
+    await tx.auditLog.create({
+      data: {
+        vendorId,
+        userId: user.userId,
+        userName: user.name,
+        action: 'CREATE',
+        entity: 'CustomerFinancialAdjustment',
+        entityId: reversal.id,
+        changes: {
+          after: {
             kind: 'REVERSAL',
             direction: reversalDirection,
             amount: original.amount,
-            effectiveDate: voidedAt,
-            title: `Reversal: ${original.title}`,
-            internalNote: reason,
-            customerVisibility: visibility,
-            createdById: user.userId,
+            signedAmount: reversalLedgerAmount,
             reversalOfId: original.id,
+            effectiveDate: voidedAt.toISOString(),
+            transactionId: reversalTransaction.id,
           },
-        });
+          reason,
+        } as Prisma.InputJsonValue,
+      },
+    });
 
-        // (3) The reversal's ledger row. Customer-safe text only; money-only.
-        const reversalTransaction = await tx.transaction.create({
-          data: {
-            type: TransactionType.ADJUSTMENT,
-            vendorId,
-            customerId: original.customerId,
-            adjustmentId: reversal.id,
-            amount: reversalLedgerAmount,
-            description: ledgerText,
-            createdAt: voidedAt,
-          },
-        });
-
-        // (4) Balance.
-        const updated = await tx.customer.update({
-          where: { id: original.customerId },
-          data: { financialBalance: { increment: reversalLedgerAmount } },
-          select: { financialBalance: true },
-        });
-        const balanceBefore = round2(updated.financialBalance - reversalLedgerAmount);
-
-        // (5) Audit — both ends of the chain.
-        await tx.auditLog.create({
-          data: {
-            vendorId,
-            userId: user.userId,
-            userName: user.name,
-            action: 'VOID',
-            entity: 'CustomerFinancialAdjustment',
-            entityId: original.id,
-            changes: {
-              before: { status: 'POSTED', financialBalance: balanceBefore },
-              after: {
-                status: 'VOIDED',
-                voidedAt: voidedAt.toISOString(),
-                reversalId: reversal.id,
-                reversalTransactionId: reversalTransaction.id,
-                reversalSignedAmount: reversalLedgerAmount,
-                financialBalance: updated.financialBalance,
-              },
-              reason,
-            } as Prisma.InputJsonValue,
-          },
-        });
-        await tx.auditLog.create({
-          data: {
-            vendorId,
-            userId: user.userId,
-            userName: user.name,
-            action: 'CREATE',
-            entity: 'CustomerFinancialAdjustment',
-            entityId: reversal.id,
-            changes: {
-              after: {
-                kind: 'REVERSAL',
-                direction: reversalDirection,
-                amount: original.amount,
-                signedAmount: reversalLedgerAmount,
-                reversalOfId: original.id,
-                effectiveDate: voidedAt.toISOString(),
-                transactionId: reversalTransaction.id,
-              },
-              reason,
-            } as Prisma.InputJsonValue,
-          },
-        });
-
-        const voided = await tx.customerFinancialAdjustment.findUniqueOrThrow({
-          where: { id: original.id },
-        });
-        return {
-          adjustment: voided,
-          reversal,
-          reversalTransaction,
-          customerBalance: updated.financialBalance,
-        };
-      });
-    } catch (err) {
-      // The unique reversalOfId is the database-level "reversed at most once" guard.
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-        throw new ConflictException('This adjustment has already been voided.');
-      }
-      throw err;
-    }
-
-    await this.invalidateCaches(vendorId, original.customerId);
-    return done;
+    const voided = await tx.customerFinancialAdjustment.findUniqueOrThrow({
+      where: { id: original.id },
+    });
+    return {
+      adjustment: voided,
+      reversal,
+      reversalTransaction,
+      customerBalance: updated.financialBalance,
+    };
   }
 
   // ── helpers ────────────────────────────────────────────────────────────────

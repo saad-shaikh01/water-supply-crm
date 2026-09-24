@@ -34,6 +34,7 @@ export const POSTABLE_ADJUSTMENT_KINDS = [
   'OTHER_CREDIT',
   'WRITE_OFF',
   'CORRECTION',
+  'STAFF_FAULT_CREDIT',
 ] as const satisfies readonly AdjustmentKind[];
 export type PostableAdjustmentKind = (typeof POSTABLE_ADJUSTMENT_KINDS)[number];
 

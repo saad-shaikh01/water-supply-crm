@@ -51,16 +51,28 @@ export class StaffLedgerService {
   /**
    * Core of `create`, composable into an externally-managed transaction —
    * same tx-parameterized pattern `CrewCashDistributionService.syncOneRow`
-   * already uses for `syncSheetToLedger`. Used by `create` itself, and by
+   * already uses for `syncSheetToLedger`. Used by `create` itself, by
    * `CrewCashDistributionService.correctSyncedEntry` (Phase 3-4), which needs
    * a fresh replacement entry created atomically alongside a void/reverse of
-   * the original — two separate top-level `$transaction` calls would each
-   * commit independently, leaving a real partial-application window. Caller
-   * is responsible for any employee-existence/tenancy check (`create` does
-   * its own above, outside the transaction; `correctSyncedEntry` does its
-   * own inside its transaction before calling this).
+   * the original, and by `LinkedPenaltyService.createLinkedPenalty` (owner-
+   * approved 2026-09-25), which passes `linkedCustomerId`/
+   * `causedCustomerAdjustmentId` — two separate top-level `$transaction`
+   * calls would each commit independently, leaving a real partial-application
+   * window. Caller is responsible for any employee-existence/tenancy check
+   * (`create` does its own above, outside the transaction; `correctSyncedEntry`
+   * and `LinkedPenaltyService` do their own inside their transaction before
+   * calling this).
+   *
+   * `linkedCustomerId`/`causedCustomerAdjustmentId` are NOT part of
+   * `CreateStaffLedgerEntryDto` (they must never be settable through the
+   * plain HTTP create endpoint) — accepted here as an extra intersection so
+   * only a direct, in-process caller like `LinkedPenaltyService` can set them.
    */
-  async createTx(tx: Prisma.TransactionClient, user: AuthUser, dto: CreateStaffLedgerEntryDto) {
+  async createTx(
+    tx: Prisma.TransactionClient,
+    user: AuthUser,
+    dto: CreateStaffLedgerEntryDto & { linkedCustomerId?: string; causedCustomerAdjustmentId?: string },
+  ) {
     // Cash-ledger accounting-period guard (P4). ADVANCE and ADVANCE_DISBURSEMENT
     // are the two categories that move cash (R6: POSTED debits by effectiveDate;
     // cash-ledger-buckets.ts classifies both as PAYROLL_CASH). ADVANCE_RECOVERY
@@ -88,6 +100,12 @@ export class StaffLedgerService {
         description: dto.description ?? null,
         status,
         createdById: user.userId,
+        // Linked Penalty (owner-approved 2026-09-25) — set ONLY by
+        // LinkedPenaltyService.createLinkedPenalty, together, never by the
+        // plain `create`/`CreateStaffLedgerEntryDto` path (which carries
+        // neither field). See StaffLedgerEntry's schema doc comment.
+        linkedCustomerId: dto.linkedCustomerId ?? null,
+        causedCustomerAdjustmentId: dto.causedCustomerAdjustmentId ?? null,
       },
     });
 
@@ -189,16 +207,29 @@ export class StaffLedgerService {
    * authorized the human). The status/lock/version-CAS rules still apply.
    * Default (omitted) behaviour is unchanged for every other caller, and the
    * public `voidEntry` route never sets it.
+   *
+   * `opts.skipLinkGuard` skips ONLY the "this entry is linked to a customer
+   * credit — void it from the linked-penalty endpoint instead" refusal below
+   * (Linked Penalty, owner-approved 2026-09-25). It exists for
+   * `LinkedPenaltyService.voidLinkedPenalty`, the one caller allowed to void a
+   * linked entry (because it voids both halves together in the same
+   * transaction). The public `voidEntry` route never sets it.
    */
   async voidEntryTx(
     tx: Prisma.TransactionClient,
     user: AuthUser,
     id: string,
     dto: VoidStaffLedgerEntryDto,
-    opts?: { skipCreatorCheck?: boolean },
+    opts?: { skipCreatorCheck?: boolean; skipLinkGuard?: boolean },
   ) {
     const entry = await tx.staffLedgerEntry.findFirst({ where: { id, vendorId: user.vendorId } });
     if (!entry) throw new NotFoundException('Ledger entry not found.');
+
+    if (!opts?.skipLinkGuard && entry.causedCustomerAdjustmentId) {
+      throw new BadRequestException(
+        'This penalty is linked to a customer credit — use the linked void action instead; the linked credit is reversed with it.',
+      );
+    }
 
     // Cash-ledger accounting-period guard (P4) — voiding an ADVANCE removes cash
     // dated at its effectiveDate; must run before anything is mutated.

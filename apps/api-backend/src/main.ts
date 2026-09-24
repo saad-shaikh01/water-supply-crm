@@ -11,6 +11,10 @@ async function bootstrap() {
     bufferLogs: true,
   });
   app.useLogger(app.get(Logger));
+  // Behind nginx (VPS deploy) — without this, req.ip resolves to the proxy's
+  // address for every request, so the global ThrottlerGuard's per-IP bucket
+  // (short: 10 req/s) ends up shared across ALL users instead of per-client.
+  app.set('trust proxy', 1);
   app.use(compression());
   const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean);
   app.enableCors({

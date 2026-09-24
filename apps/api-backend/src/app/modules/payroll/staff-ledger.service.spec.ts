@@ -241,6 +241,38 @@ describe('StaffLedgerService', () => {
     });
   });
 
+  // ── voidEntryTx: Linked Penalty guard (owner-approved 2026-09-25) ──────────
+
+  describe('voidEntryTx() link guard', () => {
+    const linkedEntry = { ...pendingEntry, causedCustomerAdjustmentId: 'adjustment-001', linkedCustomerId: 'customer-001' };
+
+    it('refuses to void a linked entry through the plain path', async () => {
+      const { svc, tx } = makeService(linkedEntry);
+      await expect(
+        svc.voidEntry(adminUser, ENTRY_ID, { version: 0, reason: 'entered by mistake' }),
+      ).rejects.toThrow(BadRequestException);
+      expect(tx.staffLedgerEntry.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('skipLinkGuard lets an orchestrator (LinkedPenaltyService) void a linked entry', async () => {
+      const { svc, tx } = makeService(linkedEntry);
+      const result = await svc.voidEntryTx(
+        tx as any,
+        adminUser,
+        ENTRY_ID,
+        { version: 0, reason: 'wrong accusation' },
+        { skipLinkGuard: true },
+      );
+      expect(result.status).toBe(LedgerEntryStatus.VOIDED);
+    });
+
+    it('an UNLINKED entry is unaffected by the guard either way', async () => {
+      const { svc } = makeService(pendingEntry);
+      const result = await svc.voidEntry(adminUser, ENTRY_ID, { version: 0, reason: 'plain penalty, no link' });
+      expect(result.status).toBe(LedgerEntryStatus.VOIDED);
+    });
+  });
+
   // ── approve ──────────────────────────────────────────────────────────────
 
   describe('approve()', () => {
