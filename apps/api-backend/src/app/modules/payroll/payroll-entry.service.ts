@@ -188,6 +188,7 @@ export class PayrollEntryService {
           where: {
             vendorId: user.vendorId,
             userId: employee.id,
+            voidedAt: null,
             effectiveFrom: { lte: period.endDate },
             OR: [{ effectiveTo: null }, { effectiveTo: { gte: period.endDate } }],
           },
@@ -225,6 +226,7 @@ export class PayrollEntryService {
               vendorId: user.vendorId,
               userId: employee.id,
               id: { not: structures[0].id },
+              voidedAt: null,
               effectiveTo: { gte: period.startDate },
             },
             select: { id: true, payFrequency: true, effectiveTo: true },
@@ -403,6 +405,7 @@ export class PayrollEntryService {
       where: {
         vendorId: user.vendorId,
         userId: entry.userId,
+        voidedAt: null,
         effectiveFrom: { lte: entry.period.endDate },
         OR: [{ effectiveTo: null }, { effectiveTo: { gte: entry.period.endDate } }],
       },
@@ -464,6 +467,7 @@ export class PayrollEntryService {
         date: row.date,
         status: row.status,
         note: row.note,
+        categoryId: row.categoryId,
         categoryName: row.category?.name ?? null,
         hasDeduction: row.leaveLedgerEntryId != null,
       })),

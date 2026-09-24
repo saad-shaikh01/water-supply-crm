@@ -4,17 +4,24 @@ import { useState } from 'react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, Skeleton,
   Tabs, TabsList, TabsTrigger, TabsContent,
-  Badge, Button, Input,
+  Button, Input,
 } from '@water-supply-crm/ui';
 import { cn } from '@water-supply-crm/ui';
-import { Receipt, CalendarDays, HandCoins, CheckCircle2, XCircle, Plus } from 'lucide-react';
+import { Receipt, HandCoins, CheckCircle2, XCircle, Plus, Ban } from 'lucide-react';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import { ledgerCategoryLabel } from '../constants';
 import { useEntryBreakdown, type PayrollEntryBucketTotals, type AttendanceBreakdownDay } from '../hooks/use-monthly-payroll';
 import { useCollectAdvanceInstallment, useSkipAdvanceInstallment } from '../hooks/use-advance-plans';
+import { useAttendanceCategories } from '../hooks/use-attendance';
 import { usePermissions } from '../../authz/hooks/use-permissions';
 import { MarkAttendanceDialog, type MarkAttendanceTarget } from './mark-attendance-dialog';
+import { STATUS_META } from './attendance-grid';
 import { NewAdvancePlanDialog } from './new-advance-plan-dialog';
+import { WriteOffAdvancePlanDialog } from './write-off-advance-plan-dialog';
+import type { StaffAdvancePlanWithPeriodInstallment, AttendanceStatus } from '@water-supply-crm/types';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@water-supply-crm/ui';
 
 interface EntryBreakdownDialogProps {
   entryId: string | null;
@@ -28,6 +35,35 @@ function formatDate(d: string) {
 function ymd(d: string) {
   return d.slice(0, 10);
 }
+
+/** Inclusive list of YYYY-MM-DD strings between two ISO datetimes, UTC-day stepped — mirrors `attendance-grid.tsx`'s own helper. */
+function eachUtcDay(startIso: string, endIso: string): string[] {
+  const start = new Date(startIso);
+  const end = new Date(endIso);
+  let cur = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate());
+  const last = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate());
+  const days: string[] = [];
+  while (cur <= last && days.length < 400) {
+    days.push(new Date(cur).toISOString().slice(0, 10));
+    cur += 86_400_000;
+  }
+  return days;
+}
+
+/** Sunday-first weeks, leading/trailing cells padded with `null` so the grid stays a clean 7-column shape. */
+function buildCalendarWeeks(days: string[]): Array<string | null>[] {
+  if (days.length === 0) return [];
+  const firstWeekday = new Date(`${days[0]}T00:00:00Z`).getUTCDay();
+  const cells: Array<string | null> = [...Array(firstWeekday).fill(null), ...days];
+  while (cells.length % 7 !== 0) cells.push(null);
+  const weeks: Array<string | null>[] = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+  return weeks;
+}
+
+const WEEKDAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+const STATUS_FILTER_ALL = '__all__';
+const CATEGORY_FILTER_ALL = '__all__';
 
 const BUCKET_ORDER: Array<{ key: keyof PayrollEntryBucketTotals; label: string }> = [
   { key: 'bonuses', label: 'Bonuses' },
@@ -71,7 +107,12 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
   const [markTarget, setMarkTarget] = useState<MarkAttendanceTarget | null>(null);
   const [newPlanOpen, setNewPlanOpen] = useState(false);
   const [collectingId, setCollectingId] = useState<string | null>(null);
+  const [writeOffPlanTarget, setWriteOffPlanTarget] = useState<StaffAdvancePlanWithPeriodInstallment | null>(null);
   const [collectAmount, setCollectAmount] = useState<number | undefined>(undefined);
+  const [statusFilter, setStatusFilter] = useState<string>(STATUS_FILTER_ALL);
+  const [categoryFilter, setCategoryFilter] = useState<string>(CATEGORY_FILTER_ALL);
+
+  const { data: categories } = useAttendanceCategories(tab === 'attendance');
 
   const collect = useCollectAdvanceInstallment(entryId ?? '', data?.entry.userId ?? '');
   const skip = useSkipAdvanceInstallment(entryId ?? '', data?.entry.userId ?? '');
@@ -236,44 +277,100 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
                   </p>
                 )}
 
-                {data.attendance.days.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No attendance recorded for this period yet.</p>
-                ) : (
-                  <div className="rounded-xl border border-border/40 divide-y divide-border/40 overflow-hidden">
-                    {data.attendance.days.map((day) => {
-                      const deductible = DEDUCTIBLE_STATUSES.has(day.status);
-                      return (
-                        <div key={day.date} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                            <span className="font-semibold">{formatDate(day.date)}</span>
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                              {ATTENDANCE_STATUS_LABEL[day.status] ?? day.status}
-                            </Badge>
-                            {day.categoryName && <span className="text-xs text-muted-foreground truncate">{day.categoryName}</span>}
-                          </div>
-                          {deductible && (
-                            day.hasDeduction ? (
-                              <span className="flex items-center gap-1 text-xs font-semibold text-emerald-500 shrink-0">
-                                <CheckCircle2 className="h-3.5 w-3.5" /> Deducted
-                              </span>
-                            ) : canMarkAttendance && periodWritable ? (
-                              <Button
-                                size="sm" variant="outline"
-                                className="h-7 rounded-lg text-xs font-bold shrink-0"
-                                onClick={() => openDeduct(day)}
-                              >
-                                Deduct
-                              </Button>
-                            ) : (
-                              <span className="text-xs text-muted-foreground shrink-0">Not deducted</span>
-                            )
-                          )}
-                        </div>
-                      );
-                    })}
+                {/* Filters — status narrows which days are highlighted; category narrows PRESENT days by reason. */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-wrap gap-1.5">
+                    <Button
+                      size="sm"
+                      variant={statusFilter === STATUS_FILTER_ALL ? 'default' : 'outline'}
+                      className="h-7 rounded-lg text-xs font-bold px-2.5"
+                      onClick={() => setStatusFilter(STATUS_FILTER_ALL)}
+                    >
+                      All
+                    </Button>
+                    {(Object.keys(STATUS_META) as AttendanceStatus[]).map((s) => (
+                      <Button
+                        key={s}
+                        size="sm"
+                        variant={statusFilter === s ? 'default' : 'outline'}
+                        className="h-7 rounded-lg text-xs font-bold px-2.5"
+                        onClick={() => setStatusFilter(s)}
+                      >
+                        {STATUS_META[s].label}
+                      </Button>
+                    ))}
                   </div>
-                )}
+                  <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                    <SelectTrigger className="h-7 w-40 text-xs ml-auto">
+                      <SelectValue placeholder="Any category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={CATEGORY_FILTER_ALL}>Any category</SelectItem>
+                      {(categories ?? []).map((c) => (
+                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Calendar */}
+                {(() => {
+                  const daysByDate = new Map(data.attendance.days.map((d) => [ymd(d.date), d]));
+                  const allPeriodDays = eachUtcDay(data.entry.period.startDate, data.entry.period.endDate);
+                  const weeks = buildCalendarWeeks(allPeriodDays);
+                  return (
+                    <div className="space-y-1">
+                      <div className="grid grid-cols-7 gap-1">
+                        {WEEKDAY_LABELS.map((w) => (
+                          <div key={w} className="text-center text-[10px] font-bold text-muted-foreground">{w}</div>
+                        ))}
+                      </div>
+                      {weeks.map((week, wi) => (
+                        <div key={wi} className="grid grid-cols-7 gap-1">
+                          {week.map((date, di) => {
+                            if (!date) return <div key={di} />;
+                            const day = daysByDate.get(date);
+                            const meta = day ? STATUS_META[day.status] : null;
+                            const matchesStatus = statusFilter === STATUS_FILTER_ALL || day?.status === statusFilter;
+                            const matchesCategory = categoryFilter === CATEGORY_FILTER_ALL || day?.categoryId === categoryFilter;
+                            const dimmed = !matchesStatus || !matchesCategory;
+                            const deductible = !!day && DEDUCTIBLE_STATUSES.has(day.status);
+                            const canDeduct = deductible && !day?.hasDeduction && canMarkAttendance && periodWritable;
+                            return (
+                              <button
+                                key={date}
+                                type="button"
+                                disabled={!canDeduct}
+                                onClick={() => day && canDeduct && openDeduct(day)}
+                                title={
+                                  day
+                                    ? `${formatDate(date)} — ${ATTENDANCE_STATUS_LABEL[day.status] ?? day.status}${day.categoryName ? ` (${day.categoryName})` : ''}`
+                                    : `${formatDate(date)} — no record`
+                                }
+                                className={cn(
+                                  'relative rounded-lg h-11 flex items-center justify-center text-[11px] font-bold transition-opacity',
+                                  meta ? meta.className : 'bg-muted/20 text-muted-foreground',
+                                  dimmed && 'opacity-25',
+                                  canDeduct && 'cursor-pointer hover:ring-2 hover:ring-primary/40',
+                                  !canDeduct && 'cursor-default',
+                                )}
+                              >
+                                {Number(date.slice(8, 10))}
+                                {day?.hasDeduction && (
+                                  <CheckCircle2 className="h-3 w-3 absolute bottom-0.5 right-0.5 text-emerald-600" />
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+
+                <p className="text-[10px] text-muted-foreground">
+                  Click an Absent/Half Day cell to deduct — a green check means it already has a deduction.
+                </p>
               </TabsContent>
 
               {/* ── Advances ──────────────────────────────────────────────── */}
@@ -301,9 +398,21 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
                               Disbursed {formatDate(plan.disbursedAt)} · ₨ {plan.defaultInstallmentAmount.toLocaleString()}/period default
                             </p>
                           </div>
-                          <div className="text-right shrink-0">
-                            <p className="font-mono font-black text-amber-500">₨ {plan.remainingBalance.toLocaleString()}</p>
-                            <p className="text-[10px] text-muted-foreground">remaining</p>
+                          <div className="text-right shrink-0 flex items-start gap-1.5">
+                            <div>
+                              <p className="font-mono font-black text-amber-500">₨ {plan.remainingBalance.toLocaleString()}</p>
+                              <p className="text-[10px] text-muted-foreground">remaining</p>
+                            </div>
+                            {canManageAdvancePlans && plan.remainingBalance > 0 && (
+                              <Button
+                                variant="ghost" size="icon"
+                                className="h-6 w-6 text-destructive hover:text-destructive"
+                                title="Write off remaining balance"
+                                onClick={() => setWriteOffPlanTarget(plan)}
+                              >
+                                <Ban className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
                           </div>
                         </div>
 
@@ -386,6 +495,12 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
         employee={newPlanOpen && data ? { id: data.entry.userId, name: data.entry.user.name } : null}
         onOpenChange={setNewPlanOpen}
         entryId={entryId ?? undefined}
+      />
+      <WriteOffAdvancePlanDialog
+        plan={writeOffPlanTarget}
+        employeeId={data?.entry.userId ?? ''}
+        entryId={entryId ?? undefined}
+        onOpenChange={(o) => !o && setWriteOffPlanTarget(null)}
       />
     </Dialog>
   );

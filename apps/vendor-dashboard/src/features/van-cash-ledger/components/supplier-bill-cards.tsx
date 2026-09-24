@@ -2,11 +2,12 @@
 
 import { useState } from 'react';
 import { Card, CardContent, Button, Skeleton, cn } from '@water-supply-crm/ui';
-import { Droplets, PackageOpen, Banknote, ChevronDown, ChevronRight } from 'lucide-react';
+import { Droplets, PackageOpen, Banknote, ChevronDown, ChevronRight, History } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSupplierBills } from '../hooks/use-van-cash-ledger';
 import { useCan } from '../../authz/hooks/use-can';
 import { ExpenseForm } from '../../expenses/components/expense-form';
+import { SupplierBillOpeningBalanceDialog } from './supplier-bill-opening-balance-dialog';
 import type { SupplierBillBucket } from '../api/van-cash-ledger.api';
 
 function fmt(n: number) {
@@ -66,6 +67,9 @@ function BillCard({ title, icon: Icon, bucket, canPay, onPay }: BillCardProps) {
                 {fmt(bucket.prevMonthPending)}
               </p>
               <p className="text-[10px] text-muted-foreground mt-0.5">{bottleLabel(bucket.prevMonthBottles)} sold</p>
+              {bucket.openingBalance > 0 && (
+                <p className="text-[10px] text-muted-foreground mt-0.5">incl. {fmt(bucket.openingBalance)} opening balance</p>
+              )}
             </div>
             <div>
               <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">This Month Pending</p>
@@ -110,10 +114,12 @@ function BillCard({ title, icon: Icon, bucket, canPay, onPay }: BillCardProps) {
 export function SupplierBillCards() {
   const canView = useCan('van_cash_ledger:view');
   const canPay = useCan('expenses:create');
+  const canManageOpeningBalance = useCan('van_cash_ledger:manage');
   const { data, isLoading } = useSupplierBills();
   const queryClient = useQueryClient();
 
   const [payTarget, setPayTarget] = useState<{ category: 'BOTTLE_REFILL_PAYMENT' | 'CAPS_PURCHASED'; amount: number; label: string } | null>(null);
+  const [openingBalanceOpen, setOpeningBalanceOpen] = useState(false);
 
   if (!canView) return null;
 
@@ -130,6 +136,19 @@ export function SupplierBillCards() {
 
   return (
     <>
+      {canManageOpeningBalance && (
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="rounded-xl font-bold gap-1.5 text-muted-foreground"
+            onClick={() => setOpeningBalanceOpen(true)}
+          >
+            <History className="h-3.5 w-3.5" /> Opening Balance
+          </Button>
+        </div>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2">
         <BillCard
           title="Plant Bill (Bottle Refill)"
@@ -156,6 +175,10 @@ export function SupplierBillCards() {
           expense={{ category: payTarget.category, amount: payTarget.amount, description: payTarget.label }}
           onAfterSuccess={invalidate}
         />
+      )}
+
+      {canManageOpeningBalance && (
+        <SupplierBillOpeningBalanceDialog open={openingBalanceOpen} onOpenChange={setOpeningBalanceOpen} />
       )}
     </>
   );

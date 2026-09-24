@@ -9,7 +9,7 @@ const EMPLOYEE_ID = 'employee-001';
 const PLAN_ID = 'plan-001';
 const PERIOD_ID = 'period-001';
 
-const adminUser = { userId: 'admin-001', vendorId: VENDOR_ID, role: 'VENDOR_ADMIN' } as any;
+const adminUser = { userId: 'admin-001', vendorId: VENDOR_ID, role: 'VENDOR_ADMIN', name: 'Admin One' } as any;
 
 const employee = { id: EMPLOYEE_ID, role: 'DRIVER', isActive: true };
 
@@ -39,6 +39,7 @@ function makeService(opts: { txOverrides?: any; prismaOverrides?: any } = {}) {
       create: jest.fn().mockImplementation(async ({ data }: any) => ({ id: PLAN_ID, ...data })),
       update: jest.fn().mockImplementation(async ({ where, data }: any) => ({ id: where.id, ...data })),
       findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn().mockResolvedValue(makePlan()),
     },
     staffAdvanceInstallment: {
       findFirst: jest.fn(),
@@ -47,13 +48,16 @@ function makeService(opts: { txOverrides?: any; prismaOverrides?: any } = {}) {
       update: jest.fn().mockImplementation(async ({ where, data }: any) => ({ id: where.id, ...data })),
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       aggregate: jest.fn().mockResolvedValue({ _sum: { actualAmount: null } }),
+      count: jest.fn().mockResolvedValue(0),
     },
+    auditLog: { create: jest.fn().mockResolvedValue({ id: 'audit-001' }) },
     ...opts.txOverrides,
   };
   const prisma = {
     $transaction: jest.fn().mockImplementation(async (cb: any) => cb(tx)),
     user: { findFirst: jest.fn().mockResolvedValue(employee) },
     staffAdvancePlan: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
+    staffAdvanceInstallment: { count: jest.fn().mockResolvedValue(0) },
     ...opts.prismaOverrides,
   };
   const staffLedger = makeStaffLedgerMock();
@@ -301,6 +305,119 @@ describe('StaffAdvancePlanService', () => {
       expect(tx.staffAdvanceInstallment.updateMany).toHaveBeenCalledWith({
         where: { vendorId: VENDOR_ID, periodId: PERIOD_ID, status: AdvanceInstallmentStatus.PENDING },
         data: { status: AdvanceInstallmentStatus.SKIPPED, actualAmount: 0, decidedById: adminUser.userId, decidedAt: expect.any(Date) },
+      });
+    });
+  });
+
+  describe('writeOff()', () => {
+    const writeOffDto = { reason: 'Employee resigned — remaining balance is unrecoverable.' };
+
+    it('cancels the plan, auto-skips its PENDING installments, and writes an audit log — no ledger entry posted', async () => {
+      const { svc, tx, staffLedger } = makeService({
+        txOverrides: {
+          staffAdvancePlan: {
+            findFirst: jest.fn().mockResolvedValue(makePlan()),
+            update: jest.fn().mockImplementation(async ({ where, data }: any) => ({ id: where.id, ...data })),
+          },
+          staffAdvanceInstallment: { updateMany: jest.fn().mockResolvedValue({ count: 2 }), aggregate: jest.fn().mockResolvedValue({ _sum: { actualAmount: 10000 } }) }, // remaining = 40000
+        },
+      });
+
+      const result = await svc.writeOff(adminUser, PLAN_ID, writeOffDto as any);
+
+      expect(tx.staffAdvanceInstallment.updateMany).toHaveBeenCalledWith({
+        where: { planId: PLAN_ID, status: AdvanceInstallmentStatus.PENDING },
+        data: { status: AdvanceInstallmentStatus.SKIPPED, actualAmount: 0, decidedById: adminUser.userId, decidedAt: expect.any(Date) },
+      });
+      expect(tx.staffAdvancePlan.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: PLAN_ID },
+          data: expect.objectContaining({ status: AdvancePlanStatus.CANCELLED, cancelReason: writeOffDto.reason }),
+        }),
+      );
+      expect(tx.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ entity: 'StaffAdvancePlan', entityId: PLAN_ID, action: 'WRITE_OFF' }) }),
+      );
+      expect(staffLedger.createTx).not.toHaveBeenCalled();
+      expect(result.status).toBe(AdvancePlanStatus.CANCELLED);
+    });
+
+    it('rejects writing off a non-ACTIVE plan', async () => {
+      const { svc, tx } = makeService({
+        txOverrides: {
+          staffAdvancePlan: {
+            findFirst: jest.fn().mockResolvedValue(makePlan({ status: AdvancePlanStatus.COMPLETED })),
+            update: jest.fn(),
+          },
+        },
+      });
+      await expect(svc.writeOff(adminUser, PLAN_ID, writeOffDto as any)).rejects.toThrow(BadRequestException);
+      expect(tx.staffAdvancePlan.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects writing off a plan with no remaining balance', async () => {
+      const { svc, tx } = makeService({
+        txOverrides: {
+          staffAdvancePlan: { findFirst: jest.fn().mockResolvedValue(makePlan()), update: jest.fn() },
+          staffAdvanceInstallment: { aggregate: jest.fn().mockResolvedValue({ _sum: { actualAmount: 50000 } }) }, // remaining = 0
+        },
+      });
+      await expect(svc.writeOff(adminUser, PLAN_ID, writeOffDto as any)).rejects.toThrow(BadRequestException);
+      expect(tx.staffAdvancePlan.update).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException for a plan outside this vendor', async () => {
+      const { svc } = makeService({ txOverrides: { staffAdvancePlan: { findFirst: jest.fn().mockResolvedValue(null) } } });
+      await expect(svc.writeOff(adminUser, 'nope', writeOffDto as any)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('getVendorSummary()', () => {
+    it('sums remaining balance across every ACTIVE plan for the vendor', async () => {
+      const { svc, prisma } = makeService({
+        prismaOverrides: {
+          staffAdvancePlan: {
+            findMany: jest.fn().mockResolvedValue([
+              { id: 'plan-a', principalAmount: 50000 },
+              { id: 'plan-b', principalAmount: 20000 },
+            ]),
+          },
+          staffAdvanceInstallment: {
+            count: jest.fn().mockResolvedValue(0),
+            aggregate: jest.fn().mockImplementation(async ({ where }: any) =>
+              where.planId === 'plan-a' ? { _sum: { actualAmount: 10000 } } : { _sum: { actualAmount: null } },
+            ),
+          },
+        },
+      });
+
+      const result = await svc.getVendorSummary(adminUser);
+
+      expect(prisma.staffAdvancePlan.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { vendorId: VENDOR_ID, status: AdvancePlanStatus.ACTIVE } }),
+      );
+      // plan-a: 50000 - 10000 = 40000; plan-b: 20000 - 0 = 20000; total = 60000.
+      expect(result).toEqual({ activePlanCount: 2, totalRemainingBalance: 60000 });
+    });
+
+    it('returns zero for a vendor with no active plans', async () => {
+      const { svc } = makeService({
+        prismaOverrides: { staffAdvancePlan: { findMany: jest.fn().mockResolvedValue([]) } },
+      });
+      const result = await svc.getVendorSummary(adminUser);
+      expect(result).toEqual({ activePlanCount: 0, totalRemainingBalance: 0 });
+    });
+  });
+
+  describe('countPendingForPeriod()', () => {
+    it('counts PENDING installments scoped to this vendor and period', async () => {
+      const { svc, prisma } = makeService({
+        prismaOverrides: { staffAdvanceInstallment: { count: jest.fn().mockResolvedValue(3) } },
+      });
+      const result = await svc.countPendingForPeriod(adminUser, PERIOD_ID);
+      expect(result).toBe(3);
+      expect(prisma.staffAdvanceInstallment.count).toHaveBeenCalledWith({
+        where: { vendorId: VENDOR_ID, periodId: PERIOD_ID, status: AdvanceInstallmentStatus.PENDING },
       });
     });
   });

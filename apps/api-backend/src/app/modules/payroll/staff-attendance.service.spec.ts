@@ -757,4 +757,89 @@ describe('StaffAttendanceService', () => {
       await expect(svc.listBySheet(managerUser, 'nope')).rejects.toBeInstanceOf(NotFoundException);
     });
   });
+
+  describe('search()', () => {
+    const row = (overrides: any = {}) => ({
+      id: 'att-1',
+      date: new Date('2026-08-05T00:00:00.000Z'),
+      status: AttendanceStatus.PRESENT,
+      note: null,
+      userId: DRIVER_ID,
+      user: { id: DRIVER_ID, name: 'Driver One' },
+      categoryId: CATEGORY_ID,
+      category: { id: CATEGORY_ID, name: 'Office — other business' },
+      ...overrides,
+    });
+
+    it('filters by vendor, category, employee, status and date range, and shapes rows + summary', async () => {
+      const { svc, prisma } = makeService();
+      prisma.staffAttendance.findMany.mockResolvedValueOnce([
+        row(),
+        row({ id: 'att-2', userId: LOADER_ID, user: { id: LOADER_ID, name: 'Loader One' } }),
+        row({ id: 'att-3' }), // second row for DRIVER_ID
+      ]);
+
+      const result = await svc.search(managerUser, {
+        dateFrom: '2026-08-01',
+        dateTo: '2026-08-31',
+        categoryId: CATEGORY_ID,
+        userId: DRIVER_ID,
+        status: AttendanceStatus.PRESENT,
+      });
+
+      expect(prisma.staffAttendance.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            vendorId: VENDOR_ID,
+            date: { gte: new Date('2026-08-01T00:00:00.000Z'), lte: new Date('2026-08-31T00:00:00.000Z') },
+            categoryId: CATEGORY_ID,
+            userId: DRIVER_ID,
+            status: AttendanceStatus.PRESENT,
+          }),
+        }),
+      );
+      expect(result.rows).toHaveLength(3);
+      expect(result.rows[0]).toMatchObject({
+        userId: DRIVER_ID,
+        userName: 'Driver One',
+        categoryId: CATEGORY_ID,
+        categoryName: 'Office — other business',
+      });
+      expect(result.summary.totalRows).toBe(3);
+      expect(result.summary.distinctEmployees).toBe(2);
+      expect(result.summary.byEmployee).toEqual([
+        { userId: DRIVER_ID, userName: 'Driver One', count: 2 },
+        { userId: LOADER_ID, userName: 'Loader One', count: 1 },
+      ]);
+    });
+
+    it('omits optional filters from the where clause when not given', async () => {
+      const { svc, prisma } = makeService();
+      await svc.search(managerUser, { dateFrom: '2026-08-01', dateTo: '2026-08-31' });
+      const where = prisma.staffAttendance.findMany.mock.calls[0][0].where;
+      expect(where).not.toHaveProperty('categoryId');
+      expect(where).not.toHaveProperty('userId');
+      expect(where).not.toHaveProperty('status');
+    });
+
+    it('rejects a dateFrom after dateTo', async () => {
+      const { svc } = makeService();
+      await expect(
+        svc.search(managerUser, { dateFrom: '2026-08-31', dateTo: '2026-08-01' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects a range wider than the max', async () => {
+      const { svc } = makeService();
+      await expect(
+        svc.search(managerUser, { dateFrom: '2025-01-01', dateTo: '2026-12-31' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('returns an empty summary for no matches', async () => {
+      const { svc } = makeService();
+      const result = await svc.search(managerUser, { dateFrom: '2026-08-01', dateTo: '2026-08-31' });
+      expect(result).toEqual({ rows: [], summary: { totalRows: 0, distinctEmployees: 0, byEmployee: [] } });
+    });
+  });
 });

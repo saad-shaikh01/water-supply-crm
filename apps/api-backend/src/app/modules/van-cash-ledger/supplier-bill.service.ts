@@ -2,6 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import { ExpenseCategory, ProductCostKind } from '@prisma/client';
 import { currentPeriodLabel, periodBounds } from './cash-ledger-period.util';
+import { AuditService } from '../audit/audit.service';
+import { SetSupplierBillOpeningBalanceDto } from './dto/set-supplier-bill-opening-balance.dto';
+import type { AuthUser } from '@water-supply-crm/types';
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -30,12 +33,23 @@ export interface SupplierBillBucket {
   /** Bottles delivered this month that had a covering cost row (i.e. actually
    *  counted into `currentMonthBill`). */
   currentMonthBottles: number;
+  /** The bucket's manually-seeded pre-tracking debt (owner request 2026-09-25),
+   *  already folded into `prevMonthPending` above — surfaced separately so the
+   *  breakdown is never a bare unexplained number. 0 when never set. */
+  openingBalance: number;
 }
 
 export interface SupplierBillStatus {
   periodLabel: string;
   plant: SupplierBillBucket;
   caps: SupplierBillBucket;
+}
+
+export interface SupplierBillOpeningBalance {
+  plantAmount: number;
+  capsAmount: number;
+  note: string | null;
+  updatedAt: string | null;
 }
 
 type CostRow = { productId: string; costPerUnit: number; effectiveFrom: Date; effectiveTo: Date | null };
@@ -57,10 +71,77 @@ type CostRow = { productId: string; costPerUnit: number; effectiveFrom: Date; ef
  * (never floored mid-calculation) so an overpayment/advance correctly rolls
  * forward as a credit against the current month instead of being discarded —
  * see the worked comment on `computeBucket` below.
+ *
+ * Opening balance (owner request 2026-09-25): a vendor who starts using the
+ * software mid-way through their real business has no in-system delivery
+ * history for whatever they already owed the supplier before tracking began —
+ * `cogsBefore` computes to 0 for that debt, so a payment recorded to settle it
+ * would otherwise be wrongly netted against the system-calculated CURRENT
+ * month's bill. `SupplierBillOpeningBalance` (one editable row per vendor, via
+ * `setOpeningBalance`) seeds that pre-tracking debt; it's added straight into
+ * `cogsBefore` ahead of the waterfall so it's cleared first, exactly like any
+ * other backlog, and — because `paidBefore` keeps accumulating every actual
+ * month that passes — it drains down and stays cleared on its own with no
+ * separate "remaining balance" bookkeeping needed.
  */
 @Injectable()
 export class SupplierBillService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
+
+  async getOpeningBalance(vendorId: string): Promise<SupplierBillOpeningBalance> {
+    const row = await this.prisma.supplierBillOpeningBalance.findUnique({ where: { vendorId } });
+    return {
+      plantAmount: row?.plantAmount ?? 0,
+      capsAmount: row?.capsAmount ?? 0,
+      note: row?.note ?? null,
+      updatedAt: row?.updatedAt?.toISOString() ?? null,
+    };
+  }
+
+  async setOpeningBalance(
+    user: AuthUser,
+    dto: SetSupplierBillOpeningBalanceDto,
+  ): Promise<SupplierBillOpeningBalance> {
+    const before = await this.prisma.supplierBillOpeningBalance.findUnique({ where: { vendorId: user.vendorId } });
+
+    const row = await this.prisma.supplierBillOpeningBalance.upsert({
+      where: { vendorId: user.vendorId },
+      create: {
+        vendorId: user.vendorId,
+        plantAmount: dto.plantAmount,
+        capsAmount: dto.capsAmount,
+        note: dto.note ?? null,
+      },
+      update: {
+        plantAmount: dto.plantAmount,
+        capsAmount: dto.capsAmount,
+        note: dto.note ?? null,
+      },
+    });
+
+    await this.audit.log({
+      vendorId: user.vendorId,
+      userId: user.userId,
+      userName: user.name,
+      action: before ? 'UPDATED' : 'CREATED',
+      entity: 'SupplierBillOpeningBalance',
+      entityId: row.id,
+      changes: {
+        before: before ? { plantAmount: before.plantAmount, capsAmount: before.capsAmount, note: before.note } : null,
+        after: { plantAmount: row.plantAmount, capsAmount: row.capsAmount, note: row.note },
+      },
+    });
+
+    return {
+      plantAmount: row.plantAmount,
+      capsAmount: row.capsAmount,
+      note: row.note,
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }
 
   async getSupplierBillStatus(vendorId: string): Promise<SupplierBillStatus> {
     const periodLabel = currentPeriodLabel();
@@ -74,6 +155,7 @@ export class SupplierBillService {
       bottlePaidThisMonthAgg,
       capPaidBeforeAgg,
       capPaidThisMonthAgg,
+      openingBalance,
     ] = await Promise.all([
       this.prisma.dailySheetItem.findMany({
         where: { status: { not: 'VOIDED' }, filledDropped: { gt: 0 }, dailySheet: { vendorId } },
@@ -111,6 +193,7 @@ export class SupplierBillService {
         where: { vendorId, category: ExpenseCategory.CAPS_PURCHASED, date: { gte: curMonthStart } },
         _sum: { amount: true },
       }),
+      this.prisma.supplierBillOpeningBalance.findUnique({ where: { vendorId } }),
     ]);
 
     const buildLookup = (rows: CostRow[]) => {
@@ -170,6 +253,7 @@ export class SupplierBillService {
       paidThisMonth: number,
       qtyBefore: number,
       qtyThisMonth: number,
+      openingBalance: number,
     ): SupplierBillBucket => {
       // Signed throughout (never floored mid-calculation) so an overpayment
       // that clears everything owed before this month correctly rolls the
@@ -179,7 +263,11 @@ export class SupplierBillService {
       // openingSigned=1000, remainingPrevSigned=1000-1100=-100 →
       // prevMonthPending=0, leftoverCredit=100, currentMonthPendingSigned=
       // 200-100=100 → currentMonthPending=100. Matches exactly.
-      const openingSigned = cogsBefore - paidBefore;
+      //
+      // `openingBalance` (the manually-seeded pre-tracking debt) is folded
+      // into `cogsBefore` here, ahead of everything else, so it's the FIRST
+      // thing any payment clears — same waterfall, nothing bucket-specific.
+      const openingSigned = cogsBefore + openingBalance - paidBefore;
       const remainingPrevSigned = openingSigned - paidThisMonth;
       const prevMonthPending = round2(Math.max(remainingPrevSigned, 0));
       const leftoverCredit = Math.max(-remainingPrevSigned, 0);
@@ -192,6 +280,7 @@ export class SupplierBillService {
         totalPending: round2(prevMonthPending + currentMonthPending),
         prevMonthBottles: qtyBefore,
         currentMonthBottles: qtyThisMonth,
+        openingBalance: round2(openingBalance),
       };
     };
 
@@ -204,6 +293,7 @@ export class SupplierBillService {
         bottlePaidThisMonthAgg._sum.amount ?? 0,
         bottleQtyBefore,
         bottleQtyThisMonth,
+        openingBalance?.plantAmount ?? 0,
       ),
       caps: computeBucket(
         capCogsBefore,
@@ -212,6 +302,7 @@ export class SupplierBillService {
         capPaidThisMonthAgg._sum.amount ?? 0,
         capQtyBefore,
         capQtyThisMonth,
+        openingBalance?.capsAmount ?? 0,
       ),
     };
   }

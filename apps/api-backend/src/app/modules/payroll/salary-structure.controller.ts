@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { SalaryStructureService } from './salary-structure.service';
 import { CreateSalaryStructureDto } from './dto/create-salary-structure.dto';
+import { VoidSalaryStructureDto } from './dto/void-salary-structure.dto';
 import { EffectiveSalaryStructureQueryDto } from './dto/effective-salary-structure-query.dto';
 import { AuthenticatedOnly } from '../../common/decorators/authz-markers.decorator';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
@@ -28,6 +29,13 @@ export class SalaryStructureController {
   @RequirePermissions('payroll:salary_structure_manage')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateSalaryStructureDto) {
     return this.salaryStructures.create(user, dto);
+  }
+
+  /** POST /payroll/salary-structures/:id/void — fix a wrong amount/date mistake without editing a row in place. */
+  @Post(':id/void')
+  @RequirePermissions('payroll:salary_structure_manage')
+  voidRow(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: VoidSalaryStructureDto) {
+    return this.salaryStructures.voidCurrentRow(user, id, dto);
   }
 
   /** GET /payroll/salary-structures/employee/:userId — full version history. */

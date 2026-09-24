@@ -333,6 +333,7 @@ model Vendor {
   roles                      Role[]
   collectionPolicyConfig     CollectionPolicyConfig?
   cashCollectionPolicyConfig CashCollectionPolicyConfig?
+  supplierBillOpeningBalance SupplierBillOpeningBalance?
   warehouseAutoRefillConfig  WarehouseAutoRefillConfig?
   balanceReminderConfig      BalanceReminderConfig?
 
@@ -457,6 +458,7 @@ model User {
   // Staff Payroll & Financial Management — Phase 1 (Foundation)
   salaryStructures            SalaryStructure[]      @relation("SalaryStructureEmployee")
   createdSalaryStructures     SalaryStructure[]      @relation("SalaryStructureCreatedBy")
+  voidedSalaryStructures      SalaryStructure[]      @relation("SalaryStructureVoidedBy")
   staffLedgerEntries          StaffLedgerEntry[]     @relation("StaffLedgerEntryEmployee")
   createdStaffLedgerEntries   StaffLedgerEntry[]     @relation("StaffLedgerEntryCreatedBy")
   approvedStaffLedgerEntries  StaffLedgerEntry[]     @relation("StaffLedgerEntryApprovedBy")
@@ -481,6 +483,7 @@ model User {
   // Advance Installments
   advancePlans               StaffAdvancePlan[]        @relation("StaffAdvancePlanEmployee")
   createdAdvancePlans        StaffAdvancePlan[]        @relation("StaffAdvancePlanCreatedBy")
+  cancelledAdvancePlans      StaffAdvancePlan[]        @relation("StaffAdvancePlanCancelledBy")
   decidedAdvanceInstallments StaffAdvanceInstallment[] @relation("StaffAdvanceInstallmentDecidedBy")
 
   // Crew Operational Cash Distribution
@@ -2595,6 +2598,19 @@ model SalaryStructure {
   createdBy   User     @relation("SalaryStructureCreatedBy", fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
 
+  // Void (owner-requested 2026-09-25, mirrors ProductCost's void pattern) —
+  // only the current/latest, non-voided row for an employee may be voided
+  // (fixes a wrong amount/date data-entry mistake without ever editing a row
+  // in place). Voiding reopens whichever row it had trimmed, if any. A
+  // voided row is never deleted — it stays visible in listHistory for the
+  // audit trail, just excluded from every "current"/"effective on date"
+  // lookup (create's previous-row check, getEffectiveOn, generateDraft's
+  // structure resolution).
+  voidedAt   DateTime?
+  voidedById String?
+  voidedBy   User?     @relation("SalaryStructureVoidedBy", fields: [voidedById], references: [id])
+  voidReason String?
+
   @@index([vendorId, userId, effectiveFrom])
 }
 
@@ -2660,6 +2676,34 @@ model ProductCost {
   // same effective date" (see ProductCostService.create's ConflictException
   // message), which would otherwise collide with the voided row it replaces.
   @@index([vendorId, productId, kind, effectiveFrom])
+}
+
+// Owner request 2026-09-25: when a vendor starts using the software mid-way
+// through their real business (e.g. onboards in September but already owed
+// the plant/caps supplier money from August), SupplierBillService's
+// `prevMonthPending` computes to 0 for any month with no in-system delivery
+// history — there's nothing here to compute it FROM. A payment recorded that
+// month to settle that pre-tracking debt would otherwise be wrongly netted
+// against the system-calculated CURRENT month's bill instead. This is a
+// one-time (editable) seed amount per bucket, added into `cogsBefore` ahead
+// of whatever the system has actually computed, so the existing
+// payment-waterfall clears it first exactly like any other backlog. Singleton
+// per vendor (same convention as CashCollectionPolicyConfig) — set/edited via
+// `van_cash_ledger:manage` (Vendor Admin only by preset), change history kept
+// in the generic AuditLog rather than on this row.
+model SupplierBillOpeningBalance {
+  id       String @id @default(uuid())
+  vendorId String @unique
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  plantAmount Float @default(0)
+  capsAmount  Float @default(0)
+  note        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vendorId])
 }
 
 // Append-only staff ledger — every non-salary financial event (advance,
@@ -2785,6 +2829,19 @@ model StaffAdvancePlan {
   createdBy   User     @relation("StaffAdvancePlanCreatedBy", fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  // Write-off / forgive (owner-requested 2026-09-25) — the company forgives
+  // whatever remains uncollected (e.g. the employee resigned and the rest is
+  // unrecoverable). Only an ACTIVE plan with remaining balance > 0 may be
+  // written off; any still-PENDING installment for it is auto-skipped in the
+  // same transaction so it can never be collected afterward. The written-off
+  // amount is never posted as a ledger entry — the principal already left as
+  // ADVANCE_DISBURSEMENT (real cash, unaffected), and forgiving a debt is not
+  // itself a payroll transaction for the employee.
+  cancelledAt     DateTime?
+  cancelledById   String?
+  cancelledBy     User?     @relation("StaffAdvancePlanCancelledBy", fields: [cancelledById], references: [id])
+  cancelReason    String?
 
   installments StaffAdvanceInstallment[]
 

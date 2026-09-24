@@ -26,6 +26,7 @@ export interface AttendanceBreakdownDay {
   date: string;
   status: AttendanceStatus;
   note: string | null;
+  categoryId: string | null;
   categoryName: string | null;
   /** True if this day already spawned a LEAVE_UNPAID ledger entry — re-marking it requires voiding that entry first. */
   hasDeduction: boolean;

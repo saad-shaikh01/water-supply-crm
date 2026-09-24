@@ -41,6 +41,7 @@ function makeService(opts: {
   bottlePaidThisMonth?: number;
   capPaidBefore?: number;
   capPaidThisMonth?: number;
+  openingBalance?: { plantAmount?: number; capsAmount?: number; note?: string | null } | null;
 }) {
   const prisma = {
     dailySheetItem: { findMany: jest.fn().mockResolvedValue(opts.deliveryItems ?? []) },
@@ -59,8 +60,27 @@ function makeService(opts: {
         return Promise.resolve({ _sum: { amount } });
       }),
     },
+    supplierBillOpeningBalance: {
+      findUnique: jest.fn().mockResolvedValue(
+        opts.openingBalance === undefined
+          ? null
+          : opts.openingBalance === null
+            ? null
+            : {
+                id: 'opening-balance-001',
+                vendorId: VENDOR_ID,
+                plantAmount: opts.openingBalance.plantAmount ?? 0,
+                capsAmount: opts.openingBalance.capsAmount ?? 0,
+                note: opts.openingBalance.note ?? null,
+                createdAt: new Date('2026-09-01'),
+                updatedAt: new Date('2026-09-01'),
+              },
+      ),
+      upsert: jest.fn(),
+    },
   };
-  return new SupplierBillService(prisma as any);
+  const audit = { log: jest.fn().mockResolvedValue(undefined) };
+  return new SupplierBillService(prisma as any, audit as any);
 }
 
 describe('SupplierBillService', () => {
@@ -83,6 +103,7 @@ describe('SupplierBillService', () => {
       totalPending: 100,
       prevMonthBottles: 100,
       currentMonthBottles: 20,
+      openingBalance: 0,
     });
   });
 
@@ -105,6 +126,7 @@ describe('SupplierBillService', () => {
       totalPending: 700,
       prevMonthBottles: 100,
       currentMonthBottles: 20,
+      openingBalance: 0,
     });
   });
 
@@ -139,6 +161,7 @@ describe('SupplierBillService', () => {
       totalPending: 50,
       prevMonthBottles: 0,
       currentMonthBottles: 20,
+      openingBalance: 0,
     });
   });
 
@@ -186,5 +209,112 @@ describe('SupplierBillService', () => {
     expect(result.plant.currentMonthBottles).toBe(15);
     expect(result.caps.prevMonthBottles).toBe(0);
     expect(result.caps.currentMonthBottles).toBe(0);
+  });
+
+  describe('opening balance (owner request 2026-09-25)', () => {
+    it('the exact bug reported: a fresh vendor with no in-system history before this month sets a 10,000 opening balance for a pre-tracking debt, then pays 10,000 this month → it clears the OPENING balance, not this month\'s own bill', async () => {
+      const svc = makeService({
+        deliveryItems: [deliveryItem({ filledDropped: 19, dailySheet: { date: withinThisMonth } })], // 19 * 100 = 1900, this month only
+        bottleCostRows: [costRow({ costPerUnit: 100 })],
+        bottlePaidThisMonth: 10000, // meant to settle the pre-tracking (e.g. August) debt
+        openingBalance: { plantAmount: 10000 },
+      });
+
+      const result = await svc.getSupplierBillStatus(VENDOR_ID);
+
+      expect(result.plant).toEqual({
+        prevMonthPending: 0, // the 10,000 opening balance is fully cleared
+        currentMonthBill: 1900,
+        currentMonthPending: 1900, // untouched — none of the payment leaks onto it
+        totalPending: 1900,
+        prevMonthBottles: 0,
+        currentMonthBottles: 19,
+        openingBalance: 10000,
+      });
+    });
+
+    it('a partial payment against the opening balance leaves the remainder pending, still without touching the current month\'s bill', async () => {
+      const svc = makeService({
+        deliveryItems: [deliveryItem({ filledDropped: 19, dailySheet: { date: withinThisMonth } })],
+        bottleCostRows: [costRow({ costPerUnit: 100 })],
+        bottlePaidThisMonth: 6000,
+        openingBalance: { plantAmount: 10000 },
+      });
+
+      const result = await svc.getSupplierBillStatus(VENDOR_ID);
+
+      expect(result.plant.prevMonthPending).toBe(4000); // 10,000 - 6,000
+      expect(result.plant.currentMonthPending).toBe(1900);
+      expect(result.plant.totalPending).toBe(5900);
+    });
+
+    it('caps opening balance is independent of plant\'s', async () => {
+      const svc = makeService({
+        deliveryItems: [],
+        openingBalance: { plantAmount: 500, capsAmount: 300 },
+      });
+
+      const result = await svc.getSupplierBillStatus(VENDOR_ID);
+
+      expect(result.plant.openingBalance).toBe(500);
+      expect(result.plant.prevMonthPending).toBe(500);
+      expect(result.caps.openingBalance).toBe(300);
+      expect(result.caps.prevMonthPending).toBe(300);
+    });
+
+    it('no opening balance ever set (the default, existing vendors) behaves exactly as before — 0, no change', async () => {
+      const svc = makeService({
+        deliveryItems: [deliveryItem({ filledDropped: 100, dailySheet: { date: beforeThisMonth } })],
+        bottleCostRows: [costRow()],
+        openingBalance: null,
+      });
+
+      const result = await svc.getSupplierBillStatus(VENDOR_ID);
+
+      expect(result.plant.openingBalance).toBe(0);
+      expect(result.plant.prevMonthPending).toBe(1000);
+    });
+
+    describe('setOpeningBalance / getOpeningBalance', () => {
+      it('getOpeningBalance defaults to zero amounts when no row exists yet', async () => {
+        const svc = makeService({ openingBalance: null });
+        const result = await svc.getOpeningBalance(VENDOR_ID);
+        expect(result).toEqual({ plantAmount: 0, capsAmount: 0, note: null, updatedAt: null });
+      });
+
+      it('setOpeningBalance upserts the row and writes an audit log entry', async () => {
+        const svc: any = makeService({ openingBalance: null });
+        const upserted = {
+          id: 'ob-1',
+          plantAmount: 10000,
+          capsAmount: 500,
+          note: 'Carried over from before software',
+          updatedAt: new Date('2026-09-25'),
+        };
+        svc.prisma.supplierBillOpeningBalance.upsert.mockResolvedValue(upserted);
+
+        const user = { vendorId: VENDOR_ID, userId: 'user-1', name: 'Admin' };
+        const result = await svc.setOpeningBalance(user, {
+          plantAmount: 10000,
+          capsAmount: 500,
+          note: 'Carried over from before software',
+        });
+
+        expect(svc.prisma.supplierBillOpeningBalance.upsert).toHaveBeenCalledWith({
+          where: { vendorId: VENDOR_ID },
+          create: { vendorId: VENDOR_ID, plantAmount: 10000, capsAmount: 500, note: 'Carried over from before software' },
+          update: { plantAmount: 10000, capsAmount: 500, note: 'Carried over from before software' },
+        });
+        expect(svc.audit.log).toHaveBeenCalledWith(
+          expect.objectContaining({ vendorId: VENDOR_ID, action: 'CREATED', entity: 'SupplierBillOpeningBalance' }),
+        );
+        expect(result).toEqual({
+          plantAmount: 10000,
+          capsAmount: 500,
+          note: 'Carried over from before software',
+          updatedAt: '2026-09-25T00:00:00.000Z',
+        });
+      });
+    });
   });
 });

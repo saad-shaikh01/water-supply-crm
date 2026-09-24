@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import type { SalaryStructure } from '@water-supply-crm/types';
-import { payrollApi, type CreateSalaryStructureData } from '../api/payroll.api';
+import { payrollApi, type CreateSalaryStructureData, type VoidSalaryStructureData } from '../api/payroll.api';
 import { queryKeys } from '../../../lib/query-keys';
 
 /**
@@ -21,5 +21,26 @@ export const useCreateSalaryStructure = () => {
       toast.success('Salary structure recorded');
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to record salary structure'),
+  });
+};
+
+/**
+ * `POST /payroll/salary-structures/:id/void` — fixes a wrong amount/date
+ * data-entry mistake without ever editing a row in place (owner-requested
+ * 2026-09-25). Only the current/latest row is eligible; the backend reopens
+ * whichever row it had trimmed. Mirrors `useVoidProductCost`.
+ */
+export const useVoidSalaryStructure = (employeeId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    retry: 0,
+    mutationFn: ({ id, data }: { id: string; data: VoidSalaryStructureData }): Promise<SalaryStructure> =>
+      payrollApi.voidSalaryStructure(id, data).then((r) => r.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.payroll.salaryHistory(employeeId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.payroll.effectiveSalary(employeeId) });
+      toast.success('Salary structure row voided');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to void salary structure row'),
   });
 };

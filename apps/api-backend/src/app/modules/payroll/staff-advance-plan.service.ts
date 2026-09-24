@@ -16,6 +16,7 @@ import { computeRemainingBalance } from './advance-plan.util';
 import { CreateAdvancePlanDto } from './dto/create-advance-plan.dto';
 import { UpdateAdvancePlanDto } from './dto/update-advance-plan.dto';
 import { CollectAdvanceInstallmentDto } from './dto/collect-advance-installment.dto';
+import { WriteOffAdvancePlanDto } from './dto/write-off-advance-plan.dto';
 
 /**
  * Advance Installments (owner-requested 2026-09-24,
@@ -192,6 +193,64 @@ export class StaffAdvancePlanService {
     });
   }
 
+  /**
+   * Write-off / forgive (owner-requested 2026-09-25) — the company forgives
+   * whatever remains uncollected (e.g. the employee resigned and the rest is
+   * unrecoverable). Only an ACTIVE plan with remaining balance > 0 is
+   * eligible. Never posts a ledger entry: the principal already left as
+   * `ADVANCE_DISBURSEMENT` (real cash, unaffected by this), and forgiving a
+   * debt is not itself a payroll transaction for the employee — it just
+   * means no further installments are ever generated for this plan. Any
+   * still-PENDING installment for it is auto-skipped in the same
+   * transaction so it can never be collected after the write-off.
+   */
+  async writeOff(user: AuthUser, planId: string, dto: WriteOffAdvancePlanDto) {
+    return this.prisma.$transaction(async (tx) => {
+      const plan = await tx.staffAdvancePlan.findFirst({ where: { id: planId, vendorId: user.vendorId } });
+      if (!plan) throw new NotFoundException('Advance plan not found.');
+      if (plan.status !== AdvancePlanStatus.ACTIVE) {
+        throw new BadRequestException(`Only an ACTIVE plan can be written off (current status: ${plan.status}).`);
+      }
+
+      const remaining = await computeRemainingBalance(tx, plan.id, plan.principalAmount);
+      if (remaining <= 0) {
+        throw new BadRequestException('This plan has no remaining balance to write off.');
+      }
+
+      await tx.staffAdvanceInstallment.updateMany({
+        where: { planId: plan.id, status: AdvanceInstallmentStatus.PENDING },
+        data: { status: AdvanceInstallmentStatus.SKIPPED, actualAmount: 0, decidedById: user.userId, decidedAt: new Date() },
+      });
+
+      const updated = await tx.staffAdvancePlan.update({
+        where: { id: plan.id },
+        data: {
+          status: AdvancePlanStatus.CANCELLED,
+          cancelledAt: new Date(),
+          cancelledById: user.userId,
+          cancelReason: dto.reason,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          vendorId: user.vendorId,
+          userId: user.userId,
+          userName: user.name,
+          entity: 'StaffAdvancePlan',
+          entityId: plan.id,
+          action: 'WRITE_OFF',
+          changes: {
+            before: { status: AdvancePlanStatus.ACTIVE, remainingBalance: remaining },
+            after: { status: AdvancePlanStatus.CANCELLED, cancelReason: dto.reason },
+          } as Prisma.InputJsonValue,
+        },
+      });
+
+      return updated;
+    });
+  }
+
   private assertPeriodActionable(status: PayrollPeriodStatus) {
     if (status === PayrollPeriodStatus.LOCKED || status === PayrollPeriodStatus.PAID) {
       throw new BadRequestException('This installment belongs to a period that is already locked — it can no longer be actioned here.');
@@ -217,6 +276,43 @@ export class StaffAdvancePlanService {
         remainingBalance: await computeRemainingBalance(this.prisma as unknown as Prisma.TransactionClient, plan.id, plan.principalAmount),
       })),
     );
+  }
+
+  /**
+   * Vendor-wide total remaining balance across every ACTIVE plan — feeds the
+   * Payroll Dashboard's "Outstanding Advances" card (owner-requested
+   * 2026-09-25). One query, summed in memory rather than N per-employee
+   * calls — the "known N+1 compromise" `usePendingLedgerCount` already
+   * documents on the frontend was deliberately not repeated here.
+   */
+  async getVendorSummary(user: AuthUser) {
+    const plans = await this.prisma.staffAdvancePlan.findMany({
+      where: { vendorId: user.vendorId, status: AdvancePlanStatus.ACTIVE },
+      select: { id: true, principalAmount: true },
+    });
+
+    const remainingBalances = await Promise.all(
+      plans.map((plan) =>
+        computeRemainingBalance(this.prisma as unknown as Prisma.TransactionClient, plan.id, plan.principalAmount),
+      ),
+    );
+
+    return {
+      activePlanCount: plans.length,
+      totalRemainingBalance: remainingBalances.reduce((sum, r) => sum + r, 0),
+    };
+  }
+
+  /**
+   * How many installments are still PENDING for a period — feeds the Lock
+   * Period confirmation's warning (owner-requested 2026-09-25): "N advance
+   * installments are still PENDING and will be auto-skipped if you lock
+   * now." A plain read, not part of the lock transaction itself.
+   */
+  async countPendingForPeriod(user: AuthUser, periodId: string): Promise<number> {
+    return this.prisma.staffAdvanceInstallment.count({
+      where: { vendorId: user.vendorId, periodId, status: AdvanceInstallmentStatus.PENDING },
+    });
   }
 
   /**

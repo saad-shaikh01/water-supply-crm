@@ -14,6 +14,7 @@ import {
   type CorrectRemittancePayload,
   type EditManualCashInPayload,
   type VoidManualCashInPayload,
+  type SetSupplierBillOpeningBalancePayload,
 } from '../api/van-cash-ledger.api';
 import { rangeThisMonth } from '../../../lib/date-pkt';
 import { useCashLedgerFilters } from './use-cash-ledger-filters';
@@ -92,6 +93,28 @@ export const useSupplierBills = () =>
     queryKey: [QUERY_KEY, 'supplier-bills'],
     queryFn: () => vanCashLedgerApi.getSupplierBills().then((r) => r.data),
   });
+
+/** Pre-tracking Plant/Caps debt (owner request 2026-09-25) — lazy, only the
+ *  opening-balance dialog needs it. */
+export const useSupplierBillOpeningBalance = (enabled = true) =>
+  useQuery({
+    queryKey: [QUERY_KEY, 'supplier-bills', 'opening-balance'],
+    queryFn: () => vanCashLedgerApi.getSupplierBillOpeningBalance().then((r) => r.data),
+    enabled,
+  });
+
+export const useSetSupplierBillOpeningBalance = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: SetSupplierBillOpeningBalancePayload) => vanCashLedgerApi.setSupplierBillOpeningBalance(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [QUERY_KEY, 'supplier-bills'] });
+      toast.success('Opening balance saved');
+    },
+    onError: (e: any) => // eslint-disable-line @typescript-eslint/no-explicit-any
+      toast.error(e?.response?.data?.message ?? 'Failed to save opening balance'),
+  });
+};
 
 /** Reconciliation statement + memo for the selected range/van (P1 summary strip and mini-bar). */
 export const useCashLedgerSummary = () => {

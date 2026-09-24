@@ -37,6 +37,10 @@ export interface LedgerEntryQuery {
   dateTo?: string;
 }
 
+export interface VoidSalaryStructureData {
+  voidReason: string;
+}
+
 export interface RecordSettlementData {
   amount: number;
   method: SettlementMethod;
@@ -80,6 +84,15 @@ export interface CollectAdvanceInstallmentData {
   amount?: number;
 }
 
+export interface WriteOffAdvancePlanData {
+  reason: string;
+}
+
+export interface AdvanceVendorSummary {
+  activePlanCount: number;
+  totalRemainingBalance: number;
+}
+
 /** A `StaffAttendance` row as returned by the attendance list endpoints (employee relation included). */
 export interface AttendanceRecord extends StaffAttendance {
   user: { id: string; name: string; role: string };
@@ -94,12 +107,43 @@ export interface AttendanceBackfillResult {
   created: number;
 }
 
+/** Query for `GET /payroll/attendance/search` — `dateFrom`/`dateTo` are required (a bounded report, not a full dump). */
+export interface AttendanceSearchQuery {
+  dateFrom: string;
+  dateTo: string;
+  categoryId?: string;
+  userId?: string;
+  status?: AttendanceStatus;
+}
+
+export interface AttendanceSearchRow {
+  id: string;
+  date: string;
+  status: AttendanceStatus;
+  note: string | null;
+  userId: string;
+  userName: string;
+  categoryId: string | null;
+  categoryName: string | null;
+}
+
+export interface AttendanceSearchResult {
+  rows: AttendanceSearchRow[];
+  summary: {
+    totalRows: number;
+    distinctEmployees: number;
+    byEmployee: Array<{ userId: string; userName: string; count: number }>;
+  };
+}
+
 export const payrollApi = {
   // Salary structures
   getSalaryHistory: (userId: string) => apiClient.get(`/payroll/salary-structures/employee/${userId}`),
   getEffectiveSalary: (userId: string, date?: string) =>
     apiClient.get(`/payroll/salary-structures/employee/${userId}/effective`, { params: date ? { date } : undefined }),
   createSalaryStructure: (data: CreateSalaryStructureData) => apiClient.post('/payroll/salary-structures', data),
+  voidSalaryStructure: (id: string, data: VoidSalaryStructureData) =>
+    apiClient.post(`/payroll/salary-structures/${id}/void`, data),
 
   // Ledger entries
   getLedgerForEmployee: (userId: string, params?: LedgerEntryQuery) =>
@@ -131,6 +175,8 @@ export const payrollApi = {
   markAttendance: (data: MarkAttendanceData) => apiClient.post('/payroll/attendance/mark', data),
   backfillAttendance: (periodId: string) =>
     apiClient.post<AttendanceBackfillResult>(`/payroll/attendance/period/${periodId}/backfill`, {}),
+  searchAttendance: (params: AttendanceSearchQuery) =>
+    apiClient.get<AttendanceSearchResult>('/payroll/attendance/search', { params }),
 
   // Attendance categories — the required reason field on a manual PRESENT
   // marking (e.g. "office — other business"). Vendor-managed, no built-ins.
@@ -146,4 +192,9 @@ export const payrollApi = {
   collectAdvanceInstallment: (id: string, data: CollectAdvanceInstallmentData) =>
     apiClient.post(`/payroll/advance-installments/${id}/collect`, data),
   skipAdvanceInstallment: (id: string) => apiClient.post(`/payroll/advance-installments/${id}/skip`),
+  writeOffAdvancePlan: (id: string, data: WriteOffAdvancePlanData) =>
+    apiClient.post(`/payroll/advance-plans/${id}/write-off`, data),
+  getAdvanceVendorSummary: () => apiClient.get<AdvanceVendorSummary>('/payroll/advance-plans/vendor-summary'),
+  getPendingInstallmentCount: (periodId: string) =>
+    apiClient.get<number>(`/payroll/advance-installments/period/${periodId}/pending-count`),
 };

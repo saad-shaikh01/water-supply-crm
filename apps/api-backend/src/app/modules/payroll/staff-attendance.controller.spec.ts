@@ -12,6 +12,7 @@ function makeController() {
     backfillForPeriod: jest.fn().mockResolvedValue({ sheetsScanned: 0, sheetsTouched: 0, created: 0, reconciled: 0 }),
     listByEmployee: jest.fn().mockResolvedValue([]),
     listBySheet: jest.fn().mockResolvedValue([]),
+    search: jest.fn().mockResolvedValue({ rows: [], summary: { totalRows: 0, distinctEmployees: 0, byEmployee: [] } }),
   };
   const controller = new StaffAttendanceController(service as any);
   return { controller, service };
@@ -24,6 +25,7 @@ describe('StaffAttendanceController — authorization metadata', () => {
     mark: 'payroll:attendance_mark',
     listByPeriod: 'payroll:attendance_view',
     backfill: 'payroll:attendance_mark',
+    search: 'payroll:attendance_view',
   };
 
   it.each(Object.entries(permissionByMethod))('%s requires exactly %s', (methodName, permission) => {
@@ -79,5 +81,12 @@ describe('StaffAttendanceController — pass-through', () => {
     const { controller, service } = makeController();
     await controller.listBySheet(user, 'sheet-001');
     expect(service.listBySheet).toHaveBeenCalledWith(user, 'sheet-001');
+  });
+
+  it('search() forwards user + query', async () => {
+    const { controller, service } = makeController();
+    const query = { dateFrom: '2026-08-01', dateTo: '2026-08-31', categoryId: 'cat-001' } as any;
+    await controller.search(user, query);
+    expect(service.search).toHaveBeenCalledWith(user, query);
   });
 });

@@ -3,6 +3,8 @@ import { toast } from 'sonner';
 import {
   payrollApi,
   type AttendanceRecord,
+  type AttendanceSearchQuery,
+  type AttendanceSearchResult,
   type CreateAttendanceCategoryData,
   type MarkAttendanceData,
 } from '../api/payroll.api';
@@ -70,26 +72,50 @@ export const useBackfillAttendance = (periodId: string | undefined) => {
   });
 };
 
-/** Bounded-concurrency runner — avoids firing 50+ simultaneous requests for a large grid. */
-async function runWithConcurrency<T>(
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Retries a single call when the API's global per-IP rate limit (the "short"
+ * throttler bucket — 10 requests/second, see `libs/shared/rate-limiting`)
+ * rejects it with 429. Without this, a bulk action that fires more than ~10
+ * calls in under a second has most of them bounce, and the grid's "Marked X
+ * of Y — Z failed" toast just tells the admin to click the button again and
+ * again until the remainder trickles through. Non-429 errors (real
+ * validation failures) are never retried.
+ */
+async function callWithRetry(worker: () => Promise<unknown>, maxRetries = 4): Promise<unknown> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await worker();
+    } catch (err: any) {
+      if (err?.response?.status !== 429 || attempt >= maxRetries) throw err;
+      const retryAfterSec = Number(err?.response?.headers?.['retry-after']);
+      await sleep(Number.isFinite(retryAfterSec) && retryAfterSec > 0 ? retryAfterSec * 1000 : 1200 * (attempt + 1));
+    }
+  }
+}
+
+/**
+ * Runs `worker` over `items` in fixed-size batches with a pause between each
+ * batch, instead of an always-full concurrency pool — the pool refills a
+ * finished slot immediately, which for a large batch of fast local calls can
+ * burst well past the 10-req/second short throttler bucket. A paced batch of
+ * `batchSize` stays under that bucket by construction; `callWithRetry` is
+ * still the backstop for whatever slips through.
+ */
+async function runInPacedBatches<T>(
   items: T[],
-  limit: number,
+  batchSize: number,
+  delayMs: number,
   worker: (item: T) => Promise<unknown>,
 ): Promise<PromiseSettledResult<unknown>[]> {
-  const results: PromiseSettledResult<unknown>[] = new Array(items.length);
-  let cursor = 0;
-  async function runNext(): Promise<void> {
-    const current = cursor++;
-    if (current >= items.length) return;
-    try {
-      const value = await worker(items[current]);
-      results[current] = { status: 'fulfilled', value };
-    } catch (reason) {
-      results[current] = { status: 'rejected', reason };
-    }
-    return runNext();
+  const results: PromiseSettledResult<unknown>[] = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    const settled = await Promise.allSettled(batch.map((item) => callWithRetry(() => worker(item))));
+    results.push(...settled);
+    if (i + batchSize < items.length) await sleep(delayMs);
   }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, runNext));
   return results;
 }
 
@@ -110,7 +136,7 @@ export const useBulkMarkAttendance = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (items: MarkAttendanceData[]): Promise<BulkMarkResult> => {
-      const results = await runWithConcurrency(items, 8, (data) => payrollApi.markAttendance(data));
+      const results = await runInPacedBatches(items, 8, 1100, (data) => payrollApi.markAttendance(data));
       const failed = results.filter((r) => r.status === 'rejected').length;
       return { total: items.length, succeeded: items.length - failed, failed };
     },
@@ -152,6 +178,20 @@ export const useCreateAttendanceCategory = () => {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to add category'),
   });
 };
+
+/**
+ * Vendor-wide, cross-period attendance filter (category / employee / status
+ * within a date range) — the "which employees were in category X on which
+ * dates" report, independent of the payroll-period grid. `enabled` should
+ * gate on the caller having picked a date range (and, ideally, on an
+ * explicit "Search" click rather than re-querying on every keystroke).
+ */
+export const useAttendanceSearch = (params: AttendanceSearchQuery | undefined, enabled: boolean) =>
+  useQuery({
+    queryKey: queryKeys.payroll.attendanceSearch(params ?? {}),
+    queryFn: (): Promise<AttendanceSearchResult> => payrollApi.searchAttendance(params as AttendanceSearchQuery).then((r) => r.data),
+    enabled: enabled && !!params,
+  });
 
 export const useDeleteAttendanceCategory = () => {
   const queryClient = useQueryClient();

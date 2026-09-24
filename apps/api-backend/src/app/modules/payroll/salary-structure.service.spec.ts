@@ -7,7 +7,7 @@ import { PayFrequency } from '@prisma/client';
 const VENDOR_ID = 'vendor-001';
 const EMPLOYEE_ID = 'employee-001';
 
-const adminUser = { userId: 'admin-001', vendorId: VENDOR_ID, role: 'VENDOR_ADMIN' } as any;
+const adminUser = { userId: 'admin-001', vendorId: VENDOR_ID, role: 'VENDOR_ADMIN', name: 'Admin One' } as any;
 const otherStaffUser = { userId: 'staff-002', vendorId: VENDOR_ID, role: 'STAFF' } as any;
 
 const currentStructure = {
@@ -18,15 +18,17 @@ const currentStructure = {
   payFrequency: PayFrequency.MONTHLY,
   effectiveFrom: new Date('2026-01-01'),
   effectiveTo: null,
+  voidedAt: null,
 };
 
 function makeService(userExists = true, canViewAll = true) {
   const tx = {
     salaryStructure: {
       findFirst: jest.fn().mockResolvedValue(null), // no previous structure by default
-      update: jest.fn(),
+      update: jest.fn().mockImplementation(async ({ where, data }: any) => ({ id: where.id, ...data })),
       create: jest.fn().mockImplementation(async ({ data }: any) => ({ id: 'new-structure-001', ...data })),
     },
+    auditLog: { create: jest.fn().mockResolvedValue({ id: 'audit-001' }) },
   };
   const prisma = {
     $transaction: jest.fn().mockImplementation(async (cb: any) => cb(tx)),
@@ -114,6 +116,80 @@ describe('SalaryStructureService', () => {
     it('allows viewing another employee\'s effective structure with payroll:view_all', async () => {
       const { svc } = makeService(true, true);
       await expect(svc.getEffectiveOn(otherStaffUser, EMPLOYEE_ID)).resolves.toBeDefined();
+    });
+  });
+
+  describe('voidCurrentRow()', () => {
+    const voidDto = { voidReason: 'Wrong amount entered — should have been 50000 effective 2026-09-01.' };
+    const rowToVoid = { ...currentStructure, id: 'structure-002', effectiveFrom: new Date('2026-09-14'), effectiveTo: null };
+    const predecessor = { ...currentStructure, id: 'structure-001', effectiveFrom: new Date('2026-01-01'), effectiveTo: new Date('2026-09-13') };
+
+    it('voids the current row and reopens the predecessor it had trimmed', async () => {
+      const { svc, tx } = makeService();
+      tx.salaryStructure.findFirst
+        .mockResolvedValueOnce(rowToVoid) // the row itself
+        .mockResolvedValueOnce(null) // no later row
+        .mockResolvedValueOnce(predecessor); // predecessor to reopen
+
+      const result = await svc.voidCurrentRow(adminUser, rowToVoid.id, voidDto as any);
+
+      expect(tx.salaryStructure.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: predecessor.id }, data: { effectiveTo: null } }),
+      );
+      expect(tx.salaryStructure.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: rowToVoid.id },
+          data: expect.objectContaining({ voidedById: adminUser.userId, voidReason: voidDto.voidReason }),
+        }),
+      );
+      expect(tx.salaryStructure.update).toHaveBeenCalledTimes(2);
+      expect(tx.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ entity: 'SalaryStructure', entityId: rowToVoid.id, action: 'VOID' }),
+        }),
+      );
+      expect(result.voidReason).toBe(voidDto.voidReason);
+    });
+
+    it('voids the first-ever row for an employee with no predecessor to reopen', async () => {
+      const { svc, tx } = makeService();
+      tx.salaryStructure.findFirst
+        .mockResolvedValueOnce(rowToVoid)
+        .mockResolvedValueOnce(null) // no later row
+        .mockResolvedValueOnce(null); // no predecessor
+
+      await svc.voidCurrentRow(adminUser, rowToVoid.id, voidDto as any);
+
+      // Only the target row itself is updated — never a phantom predecessor reopen.
+      expect(tx.salaryStructure.update).toHaveBeenCalledTimes(1);
+      expect(tx.salaryStructure.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: rowToVoid.id } }),
+      );
+    });
+
+    it('rejects voiding a row that is not the current (latest, open-ended) one', async () => {
+      const { svc, tx } = makeService();
+      tx.salaryStructure.findFirst.mockResolvedValueOnce({ ...rowToVoid, effectiveTo: new Date('2026-09-13') });
+
+      await expect(svc.voidCurrentRow(adminUser, rowToVoid.id, voidDto as any)).rejects.toThrow(BadRequestException);
+      expect(tx.salaryStructure.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects when a later non-voided row exists (belt-and-suspenders)', async () => {
+      const { svc, tx } = makeService();
+      const laterRow = { ...rowToVoid, id: 'structure-003', effectiveFrom: new Date('2026-10-01') };
+      tx.salaryStructure.findFirst
+        .mockResolvedValueOnce(rowToVoid)
+        .mockResolvedValueOnce(laterRow);
+
+      await expect(svc.voidCurrentRow(adminUser, rowToVoid.id, voidDto as any)).rejects.toThrow(BadRequestException);
+      expect(tx.salaryStructure.update).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException for a row outside this vendor, or already voided', async () => {
+      const { svc, tx } = makeService();
+      tx.salaryStructure.findFirst.mockResolvedValueOnce(null);
+      await expect(svc.voidCurrentRow(adminUser, 'nope', voidDto as any)).rejects.toThrow(NotFoundException);
     });
   });
 });

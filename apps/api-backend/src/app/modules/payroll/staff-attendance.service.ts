@@ -16,6 +16,10 @@ import { StaffLedgerService } from './staff-ledger.service';
 import { PAYROLL_ELIGIBLE_ROLES } from './payroll-entry.service';
 import { AttendanceCategoryService } from './attendance-category.service';
 import { CATEGORIZED_ATTENDANCE_STATUSES, MarkAttendanceDto, UNPAID_ATTENDANCE_STATUSES } from './dto/mark-attendance.dto';
+import { AttendanceSearchQueryDto } from './dto/attendance-search-query.dto';
+
+/** `search()`'s hard ceiling on `dateFrom`..`dateTo` — a reporting filter, not an unbounded history dump. */
+const MAX_SEARCH_RANGE_DAYS = 366;
 
 /** Midnight UTC of the given day — the canonical bucket for a (userId, date) row. */
 function startOfUtcDay(d: Date): Date {
@@ -499,5 +503,62 @@ export class StaffAttendanceService {
       orderBy: { userId: 'asc' },
       include: { user: { select: { id: true, name: true, role: true } } },
     });
+  }
+
+  /**
+   * Vendor-wide, cross-period attendance filter — the "which employees were
+   * in category X on which dates" report. Independent of any PayrollPeriod
+   * boundary (unlike `listByPeriod`), so an admin can ask about a date range
+   * spanning several months in one call. Bounded to `MAX_SEARCH_RANGE_DAYS`
+   * so an accidental "all time" range can't dump the whole table.
+   */
+  async search(user: AuthUser, query: AttendanceSearchQueryDto) {
+    const from = startOfUtcDay(new Date(query.dateFrom));
+    const to = startOfUtcDay(new Date(query.dateTo));
+    if (from > to) throw new BadRequestException('`dateFrom` must not be after `dateTo`.');
+    const rangeDays = Math.round((to.getTime() - from.getTime()) / 86_400_000) + 1;
+    if (rangeDays > MAX_SEARCH_RANGE_DAYS) {
+      throw new BadRequestException(`Date range is too wide — max ${MAX_SEARCH_RANGE_DAYS} days.`);
+    }
+
+    const rows = await this.prisma.staffAttendance.findMany({
+      where: {
+        vendorId: user.vendorId,
+        date: { gte: from, lte: to },
+        ...(query.categoryId ? { categoryId: query.categoryId } : {}),
+        ...(query.userId ? { userId: query.userId } : {}),
+        ...(query.status ? { status: query.status } : {}),
+      },
+      orderBy: [{ date: 'asc' }, { userId: 'asc' }],
+      include: {
+        user: { select: { id: true, name: true } },
+        category: { select: { id: true, name: true } },
+      },
+    });
+
+    const byEmployee = new Map<string, { userId: string; userName: string; count: number }>();
+    for (const r of rows) {
+      const existing = byEmployee.get(r.userId);
+      if (existing) existing.count++;
+      else byEmployee.set(r.userId, { userId: r.userId, userName: r.user.name, count: 1 });
+    }
+
+    return {
+      rows: rows.map((r) => ({
+        id: r.id,
+        date: r.date.toISOString(),
+        status: r.status,
+        note: r.note,
+        userId: r.userId,
+        userName: r.user.name,
+        categoryId: r.categoryId,
+        categoryName: r.category?.name ?? null,
+      })),
+      summary: {
+        totalRows: rows.length,
+        distinctEmployees: byEmployee.size,
+        byEmployee: [...byEmployee.values()].sort((a, b) => b.count - a.count || a.userName.localeCompare(b.userName)),
+      },
+    };
   }
 }

@@ -962,6 +962,10 @@ export interface SalaryStructure {
   recurringLineItems: Array<Record<string, unknown>> | null;
   createdById: string;
   createdAt: string;
+  /** Void (owner-requested 2026-09-25) — null unless this row was voided (a wrong amount/date correction). Never deleted, stays visible for audit. */
+  voidedAt: string | null;
+  voidedById: string | null;
+  voidReason: string | null;
 }
 
 export type PayrollPeriodStatus = 'OPEN' | 'REVIEW' | 'LOCKED' | 'PAID';
@@ -1048,6 +1052,10 @@ export interface StaffAdvancePlan {
   createdById: string;
   createdAt: string;
   updatedAt: string;
+  /** Write-off / forgive (owner-requested 2026-09-25) — set only when status is CANCELLED. */
+  cancelledAt: string | null;
+  cancelledById: string | null;
+  cancelReason: string | null;
   /** principalAmount − Σ(COLLECTED installments' actualAmount) — always derived, never stored. */
   remainingBalance: number;
 }

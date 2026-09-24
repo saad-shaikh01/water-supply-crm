@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { StaffAttendanceService } from './staff-attendance.service';
 import { MarkAttendanceDto } from './dto/mark-attendance.dto';
+import { AttendanceSearchQueryDto } from './dto/attendance-search-query.dto';
 import { AuthenticatedOnly } from '../../common/decorators/authz-markers.decorator';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -34,6 +35,20 @@ export class StaffAttendanceController {
   @RequirePermissions('payroll:attendance_mark')
   mark(@CurrentUser() user: AuthUser, @Body() dto: MarkAttendanceDto) {
     return this.attendance.markStatus(user, dto);
+  }
+
+  /**
+   * GET /payroll/attendance/search — vendor-wide, cross-period filter by
+   * category / employee / status within a date range (the "which employees
+   * were in category X on which dates" report). Static route, registered
+   * before the `:periodId`/`:userId` ones below — no literal-segment clash
+   * here either way (search/period/employee are distinct), but kept
+   * consistent with this codebase's "static before dynamic" convention.
+   */
+  @Get('payroll/attendance/search')
+  @RequirePermissions('payroll:attendance_view')
+  search(@CurrentUser() user: AuthUser, @Query() query: AttendanceSearchQueryDto) {
+    return this.attendance.search(user, query);
   }
 
   /** GET /payroll/attendance/period/:periodId — one row per employee-day in the period. */

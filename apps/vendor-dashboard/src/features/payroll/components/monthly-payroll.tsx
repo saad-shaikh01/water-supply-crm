@@ -11,6 +11,7 @@ import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { usePermissions } from '../../authz/hooks/use-permissions';
 import { useOpenPayrollPeriod, usePeriodEntries } from '../hooks/use-payroll-dashboard';
 import { useGenerateDraft, useApproveEntry, useLockPeriod, type GenerateDraftResult } from '../hooks/use-monthly-payroll';
+import { usePendingInstallmentCount } from '../hooks/use-advance-plans';
 import { useHistoricalPeriod } from '../hooks/use-payroll-history';
 import { EntryBreakdownDialog } from './entry-breakdown-dialog';
 import { UnlockPeriodDialog } from './unlock-period-dialog';
@@ -79,6 +80,9 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
   const [breakdownEntryId, setBreakdownEntryId] = useState<string | null>(null);
   const [settlementEntryId, setSettlementEntryId] = useState<string | null>(null);
   const [lockConfirmOpen, setLockConfirmOpen] = useState(false);
+  // Only fetched once the Lock confirmation is actually open — no point paying for
+  // this read on every page load just to gate a button that isn't clicked yet.
+  const { data: pendingInstallmentCount } = usePendingInstallmentCount(period?.id, lockConfirmOpen);
   const [unlockDialogOpen, setUnlockDialogOpen] = useState(false);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   // Populated from the last Generate Draft response (doc §5 edge case) — not persisted,
@@ -317,7 +321,13 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
         open={lockConfirmOpen}
         onOpenChange={setLockConfirmOpen}
         title="Lock Payroll Period"
-        description={`Locking "${period.periodLabel}" is a one-way gate into Settlement. Every entry must already be APPROVED — this cannot be undone from here (only a separately audited Unlock, for genuine mistakes, can reopen it). Continue?`}
+        description={
+          `Locking "${period.periodLabel}" is a one-way gate into Settlement. Every entry must already be APPROVED — this cannot be undone from here (only a separately audited Unlock, for genuine mistakes, can reopen it).` +
+          (pendingInstallmentCount != null && pendingInstallmentCount > 0
+            ? ` ${pendingInstallmentCount} advance installment${pendingInstallmentCount === 1 ? ' is' : 's are'} still PENDING and will be auto-skipped on lock — the balance rolls into next period.`
+            : '') +
+          ' Continue?'
+        }
         onConfirm={() => lockPeriod(period.id, { onSuccess: () => setLockConfirmOpen(false) })}
         isLoading={isLocking}
         confirmLabel="Lock Period"

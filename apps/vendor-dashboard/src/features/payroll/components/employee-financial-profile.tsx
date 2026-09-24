@@ -8,9 +8,9 @@ import {
 import { cn } from '@water-supply-crm/ui';
 import {
   ArrowLeft, Wallet, HandCoins, Receipt, Gift, TriangleAlert,
-  TrendingUp, TrendingDown, History, FileClock, Info, Landmark, Pencil, Plus,
+  TrendingUp, TrendingDown, History, FileClock, Info, Landmark, Pencil, Plus, Ban,
 } from 'lucide-react';
-import type { StaffLedgerEntry, SalaryStructure } from '@water-supply-crm/types';
+import type { StaffLedgerEntry, SalaryStructure, StaffAdvancePlan } from '@water-supply-crm/types';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import { DataTable } from '../../../components/shared/data-table';
 import { usePermissions } from '../../authz/hooks/use-permissions';
@@ -23,6 +23,8 @@ import { ledgerCategoryLabel } from '../constants';
 import { LogLedgerEntryDialog } from './log-ledger-entry-dialog';
 import { SalaryStructureDialog } from './salary-structure-dialog';
 import { NewAdvancePlanDialog } from './new-advance-plan-dialog';
+import { WriteOffAdvancePlanDialog } from './write-off-advance-plan-dialog';
+import { VoidSalaryStructureDialog } from './void-salary-structure-dialog';
 import type { CreatableStaffLedgerCategory } from '@water-supply-crm/types';
 
 interface EmployeeFinancialProfileProps {
@@ -34,13 +36,24 @@ function formatDate(d: string) {
 }
 
 /**
- * §8 item 6, read-only — every version of this employee's Salary Structure, newest
+ * §8 item 6 — every version of this employee's Salary Structure, newest
  * first (matches `useSalaryHistory`'s own `orderBy: effectiveFrom desc`), rendered as
  * a vertical timeline rather than a table so the raise/cut between consecutive
- * versions is legible at a glance. Never editable here — a new version only ever
- * comes from `SalaryStructureDialog`, which is why this component takes no callbacks.
+ * versions is legible at a glance. A new version only ever comes from
+ * `SalaryStructureDialog` — the one exception is voiding the current row (a
+ * data-entry mistake fix, owner-requested 2026-09-25), never an in-place edit.
+ * A voided row is shown struck-through with its reason, and — since it can
+ * share `effectiveTo: null` with the predecessor it reopened — `isCurrent`
+ * explicitly excludes voided rows so only one row is ever marked Current.
  */
-function SalaryHistoryTimeline({ history, isLoading }: { history: SalaryStructure[] | undefined; isLoading: boolean }) {
+function SalaryHistoryTimeline({
+  history, isLoading, canVoid, onVoid,
+}: {
+  history: SalaryStructure[] | undefined;
+  isLoading: boolean;
+  canVoid: boolean;
+  onVoid: (row: SalaryStructure) => void;
+}) {
   if (isLoading) {
     return (
       <div className="space-y-3">
@@ -58,14 +71,15 @@ function SalaryHistoryTimeline({ history, isLoading }: { history: SalaryStructur
     <div className="relative space-y-5 pl-6">
       <div className="absolute left-[7px] top-2 bottom-2 w-px bg-border" />
       {history.map((s, i) => {
-        const isCurrent = !s.effectiveTo;
+        const isVoided = !!s.voidedAt;
+        const isCurrent = !s.effectiveTo && !isVoided;
         // `history` is newest-first; the entry right after this one (index i+1) is the
         // older version this one superseded, so the delta is this minus that.
         const previous = history[i + 1];
         const delta = previous ? s.baseAmount - previous.baseAmount : null;
 
         return (
-          <div key={s.id} className="relative">
+          <div key={s.id} className={cn('relative', isVoided && 'opacity-60')}>
             <div
               className={cn(
                 'absolute -left-6 top-1 h-3.5 w-3.5 rounded-full border-2',
@@ -73,22 +87,41 @@ function SalaryHistoryTimeline({ history, isLoading }: { history: SalaryStructur
               )}
             />
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-mono font-black text-base">₨ {s.baseAmount.toLocaleString()}</span>
+              <span className={cn('font-mono font-black text-base', isVoided && 'line-through')}>
+                ₨ {s.baseAmount.toLocaleString()}
+              </span>
               {isCurrent && (
                 <Badge className="text-[10px] font-bold px-2 py-0.5 rounded-full border-none bg-primary/10 text-primary">
                   Current
                 </Badge>
               )}
-              {delta != null && delta !== 0 && (
+              {isVoided && (
+                <Badge variant="outline" className="text-[10px] px-2 py-0.5 rounded-full text-destructive border-destructive/30">
+                  Voided
+                </Badge>
+              )}
+              {!isVoided && delta != null && delta !== 0 && (
                 <span className={cn('font-mono text-xs font-bold', delta > 0 ? 'text-emerald-500' : 'text-destructive')}>
                   {delta > 0 ? '+' : '−'}₨ {Math.abs(delta).toLocaleString()} from previous
                 </span>
               )}
               {!previous && <span className="text-xs text-muted-foreground">Initial</span>}
+              {isCurrent && canVoid && (
+                <Button
+                  variant="ghost" size="sm"
+                  className="h-6 gap-1 px-2 text-xs text-destructive hover:text-destructive"
+                  onClick={() => onVoid(s)}
+                >
+                  <Ban className="h-3 w-3" /> Void
+                </Button>
+              )}
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
+            <p className={cn('text-xs text-muted-foreground mt-0.5', isVoided && 'line-through')}>
               {formatDate(s.effectiveFrom)} — {s.effectiveTo ? formatDate(s.effectiveTo) : 'Present'}
             </p>
+            {isVoided && s.voidReason && (
+              <p className="text-xs text-destructive mt-0.5">Voided: {s.voidReason}</p>
+            )}
           </div>
         );
       })}
@@ -101,6 +134,7 @@ export function EmployeeFinancialProfile({ employeeId }: EmployeeFinancialProfil
   const { can } = usePermissions();
   const canLogEntry = can('payroll:ledger_create');
   const canManageSalary = can('payroll:salary_structure_manage');
+  const canManageAdvancePlans = can('payroll:advance_plan_manage');
 
   const { data: employee, isLoading: employeeLoading, isError: employeeError } = useEmployee(employeeId);
   const { data: balanceSummary, isLoading: balanceLoading, isError: balanceError } = useUnsettledLedgerSummary(employeeId);
@@ -119,6 +153,8 @@ export function EmployeeFinancialProfile({ employeeId }: EmployeeFinancialProfil
   const [dialogCategory, setDialogCategory] = useState<CreatableStaffLedgerCategory>('EXPENSE_REIMBURSEMENT');
   const [salaryDialogOpen, setSalaryDialogOpen] = useState(false);
   const [advancePlanDialogOpen, setAdvancePlanDialogOpen] = useState(false);
+  const [voidStructureTarget, setVoidStructureTarget] = useState<SalaryStructure | null>(null);
+  const [writeOffPlanTarget, setWriteOffPlanTarget] = useState<StaffAdvancePlan | null>(null);
 
   const openQuickAction = (category: CreatableStaffLedgerCategory) => {
     setDialogCategory(category);
@@ -171,20 +207,26 @@ export function EmployeeFinancialProfile({ employeeId }: EmployeeFinancialProfil
       </div>
 
       {/* Quick actions (§8 item 8) */}
-      {canLogEntry && (
+      {(canLogEntry || canManageAdvancePlans) && (
         <div className="flex flex-wrap gap-3">
-          <Button variant="outline" className="rounded-xl font-bold gap-2" onClick={() => setAdvancePlanDialogOpen(true)}>
-            <HandCoins className="h-4 w-4" /> New Advance Plan
-          </Button>
-          <Button variant="outline" className="rounded-xl font-bold gap-2" onClick={() => openQuickAction('EXPENSE_REIMBURSEMENT')}>
-            <Receipt className="h-4 w-4" /> Log Expense / Reimbursement
-          </Button>
-          <Button variant="outline" className="rounded-xl font-bold gap-2" onClick={() => openQuickAction('BONUS')}>
-            <Gift className="h-4 w-4" /> Add Bonus
-          </Button>
-          <Button variant="outline" className="rounded-xl font-bold gap-2" onClick={() => openQuickAction('PENALTY')}>
-            <TriangleAlert className="h-4 w-4" /> Add Penalty / Deduction
-          </Button>
+          {canManageAdvancePlans && (
+            <Button variant="outline" className="rounded-xl font-bold gap-2" onClick={() => setAdvancePlanDialogOpen(true)}>
+              <HandCoins className="h-4 w-4" /> New Advance Plan
+            </Button>
+          )}
+          {canLogEntry && (
+            <>
+              <Button variant="outline" className="rounded-xl font-bold gap-2" onClick={() => openQuickAction('EXPENSE_REIMBURSEMENT')}>
+                <Receipt className="h-4 w-4" /> Log Expense / Reimbursement
+              </Button>
+              <Button variant="outline" className="rounded-xl font-bold gap-2" onClick={() => openQuickAction('BONUS')}>
+                <Gift className="h-4 w-4" /> Add Bonus
+              </Button>
+              <Button variant="outline" className="rounded-xl font-bold gap-2" onClick={() => openQuickAction('PENALTY')}>
+                <TriangleAlert className="h-4 w-4" /> Add Penalty / Deduction
+              </Button>
+            </>
+          )}
         </div>
       )}
 
@@ -220,7 +262,7 @@ export function EmployeeFinancialProfile({ employeeId }: EmployeeFinancialProfil
             <CardTitle className="text-xs font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
               <HandCoins className="h-3 w-3" /> Advance Plans
             </CardTitle>
-            {canLogEntry && (
+            {canManageAdvancePlans && (
               <Button
                 variant="ghost"
                 size="icon"
@@ -250,12 +292,29 @@ export function EmployeeFinancialProfile({ employeeId }: EmployeeFinancialProfil
                       <span className="font-semibold text-foreground">₨ {plan.principalAmount.toLocaleString()}</span>
                       <span className="text-muted-foreground"> · {formatDate(plan.disbursedAt)}</span>
                       {plan.status !== 'ACTIVE' && (
-                        <Badge variant="outline" className="ml-1.5 text-[9px] px-1 py-0">{plan.status}</Badge>
+                        <Badge variant="outline" className="ml-1.5 text-[9px] px-1 py-0">
+                          {plan.status === 'CANCELLED' ? 'Written Off' : plan.status}
+                        </Badge>
+                      )}
+                      {plan.status === 'CANCELLED' && plan.cancelReason && (
+                        <p className="text-[10px] text-muted-foreground mt-0.5">{plan.cancelReason}</p>
                       )}
                     </div>
-                    <span className={cn('font-mono font-semibold shrink-0', plan.remainingBalance > 0 ? 'text-amber-500' : 'text-muted-foreground')}>
-                      ₨ {plan.remainingBalance.toLocaleString()} left
-                    </span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className={cn('font-mono font-semibold', plan.remainingBalance > 0 ? 'text-amber-500' : 'text-muted-foreground')}>
+                        ₨ {plan.remainingBalance.toLocaleString()} left
+                      </span>
+                      {plan.status === 'ACTIVE' && plan.remainingBalance > 0 && canManageAdvancePlans && (
+                        <Button
+                          variant="ghost" size="icon"
+                          className="h-5 w-5 text-destructive hover:text-destructive"
+                          title="Write off remaining balance"
+                          onClick={() => setWriteOffPlanTarget(plan)}
+                        >
+                          <Ban className="h-3 w-3" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -326,7 +385,12 @@ export function EmployeeFinancialProfile({ employeeId }: EmployeeFinancialProfil
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <SalaryHistoryTimeline history={salaryHistory} isLoading={historyLoading} />
+          <SalaryHistoryTimeline
+            history={salaryHistory}
+            isLoading={historyLoading}
+            canVoid={canManageSalary}
+            onVoid={setVoidStructureTarget}
+          />
         </CardContent>
       </Card>
 
@@ -401,9 +465,21 @@ export function EmployeeFinancialProfile({ employeeId }: EmployeeFinancialProfil
         onOpenChange={setSalaryDialogOpen}
       />
 
+      <VoidSalaryStructureDialog
+        row={voidStructureTarget}
+        employeeId={employee.id}
+        onOpenChange={(o) => !o && setVoidStructureTarget(null)}
+      />
+
       <NewAdvancePlanDialog
         employee={advancePlanDialogOpen ? { id: employee.id, name: employee.name } : null}
         onOpenChange={setAdvancePlanDialogOpen}
+      />
+
+      <WriteOffAdvancePlanDialog
+        plan={writeOffPlanTarget}
+        employeeId={employee.id}
+        onOpenChange={(o) => !o && setWriteOffPlanTarget(null)}
       />
     </div>
   );

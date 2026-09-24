@@ -13,7 +13,7 @@ import {
   Button,
 } from '@water-supply-crm/ui';
 import { cn } from '@water-supply-crm/ui';
-import { AlertCircle, CalendarOff, Inbox, RefreshCw, UserX } from 'lucide-react';
+import { AlertCircle, CalendarOff, Filter, Inbox, RefreshCw, UserX } from 'lucide-react';
 import type { AttendanceStatus } from '@water-supply-crm/types';
 import { usePermissions } from '../../authz/hooks/use-permissions';
 import { useOpenPayrollPeriod } from '../hooks/use-payroll-dashboard';
@@ -23,9 +23,10 @@ import { useAttendanceByPeriod, useBackfillAttendance, useBulkMarkAttendance } f
 import type { AttendanceRecord, MarkAttendanceData } from '../api/payroll.api';
 import { MarkAttendanceDialog, type MarkAttendanceTarget } from './mark-attendance-dialog';
 import { MarkDayOffDialog } from './mark-day-off-dialog';
+import { AttendanceFilters } from './attendance-filters';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 
-const STATUS_META: Record<AttendanceStatus, { code: string; label: string; className: string }> = {
+export const STATUS_META: Record<AttendanceStatus, { code: string; label: string; className: string }> = {
   PRESENT: { code: 'P', label: 'Present', className: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' },
   ABSENT: { code: 'A', label: 'Absent', className: 'bg-red-500/15 text-red-600 dark:text-red-400' },
   HALF_DAY: { code: 'H', label: 'Half day', className: 'bg-amber-500/15 text-amber-600 dark:text-amber-400' },
@@ -33,7 +34,7 @@ const STATUS_META: Record<AttendanceStatus, { code: string; label: string; class
   WEEKLY_OFF: { code: 'O', label: 'Weekly off', className: 'bg-muted text-muted-foreground' },
 };
 
-const STATUS_ORDER = Object.keys(STATUS_META) as AttendanceStatus[];
+export const STATUS_ORDER = Object.keys(STATUS_META) as AttendanceStatus[];
 
 /** Inclusive list of YYYY-MM-DD strings between two ISO datetimes, UTC-day stepped. */
 function eachUtcDay(startIso: string, endIso: string): string[] {
@@ -87,6 +88,8 @@ export function AttendanceGrid() {
   const [markTarget, setMarkTarget] = useState<MarkAttendanceTarget | null>(null);
   const [absentConfirmOpen, setAbsentConfirmOpen] = useState(false);
   const [dayOffOpen, setDayOffOpen] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [highlightKeys, setHighlightKeys] = useState<Set<string> | null>(null);
 
   const {
     data: openPeriod,
@@ -193,6 +196,16 @@ export function AttendanceGrid() {
               Refresh
             </Button>
           )}
+
+          <Button
+            variant={showFilters ? 'default' : 'outline'}
+            size="sm"
+            className="h-10 gap-1.5"
+            onClick={() => setShowFilters((v) => !v)}
+          >
+            <Filter className="h-3.5 w-3.5" />
+            Filters
+          </Button>
         </div>
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -211,6 +224,15 @@ export function AttendanceGrid() {
           ))}
         </div>
       </div>
+
+      {showFilters && (
+        <AttendanceFilters
+          employees={employees ?? []}
+          defaultDateFrom={days[0]}
+          defaultDateTo={days[days.length - 1]}
+          onMatchingKeysChange={setHighlightKeys}
+        />
+      )}
 
       {canMark && (
         <div className="flex flex-wrap items-center gap-2">
@@ -276,6 +298,8 @@ export function AttendanceGrid() {
                   {days.map((d) => {
                     const rec = byKey.get(`${emp.id}|${d}`);
                     const meta = rec ? STATUS_META[rec.status] : null;
+                    const isMatch = highlightKeys?.has(`${emp.id}|${d}`) ?? false;
+                    const isDimmed = highlightKeys !== null && !isMatch;
                     return (
                       <td key={d} className="px-1 py-1 text-center">
                         <button
@@ -302,6 +326,8 @@ export function AttendanceGrid() {
                             'inline-flex h-7 w-7 items-center justify-center rounded text-xs font-bold transition',
                             meta ? meta.className : 'text-muted-foreground/30',
                             canMark ? 'cursor-pointer hover:ring-2 hover:ring-primary/40' : 'cursor-default',
+                            isMatch && 'ring-2 ring-primary',
+                            isDimmed && 'opacity-25',
                           )}
                         >
                           {meta ? meta.code : '·'}

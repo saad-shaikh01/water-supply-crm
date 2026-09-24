@@ -576,12 +576,29 @@ export interface SupplierBillBucket {
   prevMonthBottles: number;
   /** Bottles that actually contributed to `currentMonthBill`. */
   currentMonthBottles: number;
+  /** The bucket's manually-seeded pre-tracking debt (owner request 2026-09-25),
+   *  already folded into `prevMonthPending` above. 0 when never set. */
+  openingBalance: number;
 }
 
 export interface SupplierBillStatus {
   periodLabel: string;
   plant: SupplierBillBucket;
   caps: SupplierBillBucket;
+}
+
+/** GET/PATCH /van-cash-ledger/supplier-bills/opening-balance — Vendor Admin only. */
+export interface SupplierBillOpeningBalance {
+  plantAmount: number;
+  capsAmount: number;
+  note: string | null;
+  updatedAt: string | null;
+}
+
+export interface SetSupplierBillOpeningBalancePayload {
+  plantAmount: number;
+  capsAmount: number;
+  note?: string;
 }
 
 export interface CashLedgerStats {
@@ -806,6 +823,10 @@ export const vanCashLedgerApi = {
     apiClient.get<CashLedgerStats>('/van-cash-ledger/stats', { params }),
   getSupplierBills: () =>
     apiClient.get<SupplierBillStatus>('/van-cash-ledger/supplier-bills'),
+  getSupplierBillOpeningBalance: () =>
+    apiClient.get<SupplierBillOpeningBalance>('/van-cash-ledger/supplier-bills/opening-balance'),
+  setSupplierBillOpeningBalance: (data: SetSupplierBillOpeningBalancePayload) =>
+    apiClient.patch<SupplierBillOpeningBalance>('/van-cash-ledger/supplier-bills/opening-balance', data),
   getPendingHandovers: (params?: PendingHandoverQuery) =>
     apiClient.get<PendingHandover[]>('/van-cash-ledger/pending-handovers', { params }),
   approveHandover: (id: string, data: ApproveHandoverPayload) =>

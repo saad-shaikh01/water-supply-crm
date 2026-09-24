@@ -30,6 +30,7 @@ import {
   VanCashLedgerTimelineQueryDto,
 } from './dto/van-cash-ledger-query.dto';
 import { CashLedgerDailySummaryQueryDto } from './dto/cash-ledger-daily-summary-query.dto';
+import { SetSupplierBillOpeningBalanceDto } from './dto/set-supplier-bill-opening-balance.dto';
 import { ClosePeriodDto } from './dto/close-period.dto';
 import { ReopenPeriodDto } from './dto/reopen-period.dto';
 import { CashLedgerPeriodService } from './cash-ledger-period.service';
@@ -171,6 +172,20 @@ export class VanCashLedgerController {
   @RequirePermissions('van_cash_ledger:view')
   getSupplierBills(@CurrentUser() user: AuthUser) {
     return this.supplierBills.getSupplierBillStatus(user.vendorId);
+  }
+
+  /** Pre-tracking Plant/Caps debt (owner request 2026-09-25) — set once at
+   *  onboarding, editable after. Vendor Admin only, same tier as manual-cash-in. */
+  @Get('supplier-bills/opening-balance')
+  @RequirePermissions('van_cash_ledger:manage')
+  getSupplierBillOpeningBalance(@CurrentUser() user: AuthUser) {
+    return this.supplierBills.getOpeningBalance(user.vendorId);
+  }
+
+  @Patch('supplier-bills/opening-balance')
+  @RequirePermissions('van_cash_ledger:manage')
+  setSupplierBillOpeningBalance(@CurrentUser() user: AuthUser, @Body() dto: SetSupplierBillOpeningBalanceDto) {
+    return this.supplierBills.setOpeningBalance(user, dto);
   }
 
   @Get('pending-handovers')

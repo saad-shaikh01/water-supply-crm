@@ -6,6 +6,8 @@ import {
   type CreateAdvancePlanData,
   type UpdateAdvancePlanData,
   type CollectAdvanceInstallmentData,
+  type WriteOffAdvancePlanData,
+  type AdvanceVendorSummary,
 } from '../api/payroll.api';
 import { queryKeys } from '../../../lib/query-keys';
 import { useInvalidateEmployeeLedger } from './use-employee-profile';
@@ -89,5 +91,43 @@ export const useSkipAdvanceInstallment = (entryId: string, userId: string) => {
       toast.success('Installment skipped — the balance rolls into next period');
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to skip installment'),
+  });
+};
+
+/**
+ * Write-off / forgive (owner-requested 2026-09-25) — the company forgives
+ * whatever remains uncollected (e.g. the employee resigned). No ledger entry
+ * is posted; the plan just stops generating future installments.
+ */
+export const useWriteOffAdvancePlan = (userId: string, entryId?: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: WriteOffAdvancePlanData }) =>
+      payrollApi.writeOffAdvancePlan(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.payroll.advancePlansByEmployee(userId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.payroll.advanceVendorSummary() });
+      if (entryId) queryClient.invalidateQueries({ queryKey: queryKeys.payroll.entryBreakdown(entryId) });
+      toast.success('Advance plan written off');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to write off advance plan'),
+  });
+};
+
+/** Payroll Dashboard's "Outstanding Advances" card (owner-requested 2026-09-25). */
+export const useAdvanceVendorSummary = (enabled = true) => {
+  return useQuery({
+    queryKey: queryKeys.payroll.advanceVendorSummary(),
+    queryFn: (): Promise<AdvanceVendorSummary> => payrollApi.getAdvanceVendorSummary().then((r) => r.data),
+    enabled,
+  });
+};
+
+/** Lock Period confirmation's "N installments still PENDING" warning (owner-requested 2026-09-25). */
+export const usePendingInstallmentCount = (periodId: string | undefined, enabled: boolean) => {
+  return useQuery({
+    queryKey: queryKeys.payroll.advancePendingCount(periodId ?? ''),
+    queryFn: (): Promise<number> => payrollApi.getPendingInstallmentCount(periodId as string).then((r) => r.data),
+    enabled: enabled && !!periodId,
   });
 };

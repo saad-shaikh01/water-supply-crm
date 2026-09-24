@@ -7,6 +7,7 @@ import { CalendarClock, Wallet, ClipboardList, HandCoins, Receipt, AlertCircle }
 import { StatusBadge } from '../../../components/shared/status-badge';
 import { usePermissions } from '../../authz/hooks/use-permissions';
 import { useOpenPayrollPeriod, usePeriodEntries, usePendingLedgerCount } from '../hooks/use-payroll-dashboard';
+import { useAdvanceVendorSummary } from '../hooks/use-advance-plans';
 import { LogLedgerEntryDialog } from './log-ledger-entry-dialog';
 
 export function PayrollDashboard() {
@@ -18,6 +19,7 @@ export function PayrollDashboard() {
   const { data: period, isLoading: periodLoading, isError: periodError } = useOpenPayrollPeriod(canGeneratePeriod);
   const { data: entries, isLoading: entriesLoading, isError: entriesError } = usePeriodEntries(period?.id, canViewAll);
   const { data: pendingCount, isLoading: pendingLoading, isError: pendingError } = usePendingLedgerCount(canViewAll);
+  const { data: advanceSummary, isLoading: advanceLoading, isError: advanceError } = useAdvanceVendorSummary(canViewAll);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogCategory, setDialogCategory] = useState<'ADVANCE' | 'EXPENSE_REIMBURSEMENT'>('ADVANCE');
@@ -63,7 +65,7 @@ export function PayrollDashboard() {
       )}
 
       {/* Stat cards */}
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-3">
         <Card className="bg-card/50 backdrop-blur-sm border-border/50">
           <CardHeader className="pb-2">
             <CardTitle className="text-xs font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
@@ -107,6 +109,32 @@ export function PayrollDashboard() {
                   {pendingCount ?? 0}
                 </div>
                 <p className="text-[10px] text-muted-foreground mt-1 font-medium">Ledger entries awaiting approval</p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="bg-card/50 backdrop-blur-sm border-border/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+              <HandCoins className="h-3 w-3" /> Outstanding Advances
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {!canViewAll ? (
+              <p className="text-sm text-muted-foreground">Requires additional payroll permissions.</p>
+            ) : advanceLoading ? (
+              <Skeleton className="h-8 w-32" />
+            ) : advanceError ? (
+              <p className="text-sm text-destructive">Failed to load.</p>
+            ) : (
+              <>
+                <div className={cn('text-2xl font-black font-mono', (advanceSummary?.totalRemainingBalance ?? 0) > 0 ? 'text-amber-500' : 'text-emerald-500')}>
+                  ₨ {(advanceSummary?.totalRemainingBalance ?? 0).toLocaleString()}
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-1 font-medium">
+                  Across {advanceSummary?.activePlanCount ?? 0} active advance {(advanceSummary?.activePlanCount ?? 0) === 1 ? 'plan' : 'plans'}
+                </p>
               </>
             )}
           </CardContent>
