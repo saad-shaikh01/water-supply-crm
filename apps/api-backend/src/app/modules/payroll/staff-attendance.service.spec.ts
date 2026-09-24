@@ -20,6 +20,8 @@ const SHEET_ID = 'sheet-001';
 const SHEET_DATE = new Date('2026-08-05T09:30:00.000Z');
 const DAY = new Date('2026-08-05T00:00:00.000Z');
 
+const CATEGORY_ID = 'category-001';
+
 const managerUser = { userId: 'manager-001', vendorId: VENDOR_ID, role: 'STAFF' } as any;
 
 const routeSheet: any = {
@@ -68,7 +70,13 @@ function makeTx(overrides: any = {}) {
 }
 
 function makeService(
-  opts: { tx?: any; canViewAll?: boolean; employeeExists?: boolean; employeeRole?: UserRole } = {},
+  opts: {
+    tx?: any;
+    canViewAll?: boolean;
+    employeeExists?: boolean;
+    employeeRole?: UserRole;
+    categoryExists?: boolean;
+  } = {},
 ) {
   const tx = opts.tx ?? makeTx();
   const prisma = {
@@ -86,8 +94,14 @@ function makeService(
   const staffLedger = {
     createTx: jest.fn().mockResolvedValue({ id: 'ledger-entry-001', status: 'POSTED' }),
   };
-  const svc = new StaffAttendanceService(prisma as any, permissions as any, staffLedger as any);
-  return { svc, prisma, tx, permissions, staffLedger };
+  const categories = {
+    assertExists:
+      opts.categoryExists === false
+        ? jest.fn().mockRejectedValue(new BadRequestException('Unknown attendance category'))
+        : jest.fn().mockResolvedValue(undefined),
+  };
+  const svc = new StaffAttendanceService(prisma as any, permissions as any, staffLedger as any, categories as any);
+  return { svc, prisma, tx, permissions, staffLedger, categories };
 }
 
 // ─── tests ───────────────────────────────────────────────────────────────────
@@ -416,7 +430,12 @@ describe('StaffAttendanceService', () => {
   describe('markStatus()', () => {
     it('marks PRESENT without creating any ledger entry', async () => {
       const { svc, tx, staffLedger } = makeService();
-      await svc.markStatus(managerUser, { userId: DRIVER_ID, date: '2026-08-05', status: AttendanceStatus.PRESENT });
+      await svc.markStatus(managerUser, {
+        userId: DRIVER_ID,
+        date: '2026-08-05',
+        status: AttendanceStatus.PRESENT,
+        categoryId: CATEGORY_ID,
+      });
 
       expect(staffLedger.createTx).not.toHaveBeenCalled();
       expect(tx.staffAttendance.create).toHaveBeenCalledWith(
@@ -425,8 +444,48 @@ describe('StaffAttendanceService', () => {
             status: AttendanceStatus.PRESENT,
             source: AttendanceSource.MANUAL,
             leaveLedgerEntryId: null,
+            categoryId: CATEGORY_ID,
           }),
         }),
+      );
+    });
+
+    it('rejects a PRESENT marking with no categoryId', async () => {
+      const { svc } = makeService();
+      await expect(
+        svc.markStatus(managerUser, { userId: DRIVER_ID, date: '2026-08-05', status: AttendanceStatus.PRESENT }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects a categoryId on a non-PRESENT status', async () => {
+      const { svc } = makeService();
+      await expect(
+        svc.markStatus(managerUser, {
+          userId: DRIVER_ID,
+          date: '2026-08-05',
+          status: AttendanceStatus.LEAVE,
+          categoryId: CATEGORY_ID,
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects a PRESENT marking whose categoryId does not resolve to this vendor', async () => {
+      const { svc } = makeService({ categoryExists: false });
+      await expect(
+        svc.markStatus(managerUser, {
+          userId: DRIVER_ID,
+          date: '2026-08-05',
+          status: AttendanceStatus.PRESENT,
+          categoryId: 'not-a-real-category',
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('a manual ABSENT/LEAVE/HALF_DAY/WEEKLY_OFF marking never carries a category', async () => {
+      const { svc, tx } = makeService();
+      await svc.markStatus(managerUser, { userId: DRIVER_ID, date: '2026-08-05', status: AttendanceStatus.WEEKLY_OFF });
+      expect(tx.staffAttendance.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ categoryId: null }) }),
       );
     });
 
@@ -510,6 +569,7 @@ describe('StaffAttendanceService', () => {
           userId: DRIVER_ID,
           date: '2026-08-05',
           status: AttendanceStatus.PRESENT,
+          categoryId: CATEGORY_ID,
         }),
       ).rejects.toBeInstanceOf(ConflictException);
     });
@@ -517,14 +577,24 @@ describe('StaffAttendanceService', () => {
     it('throws NotFound when the employee is not in the vendor', async () => {
       const { svc } = makeService({ employeeExists: false });
       await expect(
-        svc.markStatus(managerUser, { userId: 'ghost', date: '2026-08-05', status: AttendanceStatus.PRESENT }),
+        svc.markStatus(managerUser, {
+          userId: 'ghost',
+          date: '2026-08-05',
+          status: AttendanceStatus.PRESENT,
+          categoryId: CATEGORY_ID,
+        }),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
 
     it('rejects marking attendance for a non-payroll-eligible role (merge-review finding N1)', async () => {
       const { svc, tx, prisma } = makeService({ employeeRole: UserRole.CUSTOMER });
       await expect(
-        svc.markStatus(managerUser, { userId: 'a-customer-001', date: '2026-08-05', status: AttendanceStatus.PRESENT }),
+        svc.markStatus(managerUser, {
+          userId: 'a-customer-001',
+          date: '2026-08-05',
+          status: AttendanceStatus.PRESENT,
+          categoryId: CATEGORY_ID,
+        }),
       ).rejects.toBeInstanceOf(BadRequestException);
       expect(prisma.$transaction).not.toHaveBeenCalled();
       expect(tx.staffAttendance.create).not.toHaveBeenCalled();
@@ -535,7 +605,12 @@ describe('StaffAttendanceService', () => {
       async (role) => {
         const { svc } = makeService({ employeeRole: role });
         await expect(
-          svc.markStatus(managerUser, { userId: DRIVER_ID, date: '2026-08-05', status: AttendanceStatus.PRESENT }),
+          svc.markStatus(managerUser, {
+            userId: DRIVER_ID,
+            date: '2026-08-05',
+            status: AttendanceStatus.PRESENT,
+            categoryId: CATEGORY_ID,
+          }),
         ).resolves.toBeDefined();
       },
     );

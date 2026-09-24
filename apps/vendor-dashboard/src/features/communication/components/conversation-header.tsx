@@ -42,7 +42,12 @@ export function ConversationHeader({ conversation }: ConversationHeaderProps) {
     <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-border/40">
       <div className="min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-black truncate">{conversation.customer.name}</span>
+          <Link
+            href={`/dashboard/customers/${conversation.customer.id}`}
+            className="text-sm font-black truncate hover:text-primary hover:underline transition-colors"
+          >
+            {conversation.customer.name}
+          </Link>
           <Badge variant="outline" className="text-[9px] font-mono px-1.5">{conversation.customer.customerCode}</Badge>
           <Badge className={cn('text-[9px] px-1.5 border-0', CONVERSATION_STATUS_STYLES[conversation.status])}>
             {conversation.status}

@@ -10,17 +10,20 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Button,
 } from '@water-supply-crm/ui';
 import { cn } from '@water-supply-crm/ui';
-import { AlertCircle, Inbox } from 'lucide-react';
+import { AlertCircle, CalendarOff, Inbox, UserX } from 'lucide-react';
 import type { AttendanceStatus } from '@water-supply-crm/types';
 import { usePermissions } from '../../authz/hooks/use-permissions';
 import { useOpenPayrollPeriod } from '../hooks/use-payroll-dashboard';
 import { usePayrollPeriods } from '../hooks/use-payroll-history';
 import { useEligibleEmployees } from '../hooks/use-eligible-employees';
-import { useAttendanceByPeriod } from '../hooks/use-attendance';
-import type { AttendanceRecord } from '../api/payroll.api';
+import { useAttendanceByPeriod, useBulkMarkAttendance } from '../hooks/use-attendance';
+import type { AttendanceRecord, MarkAttendanceData } from '../api/payroll.api';
 import { MarkAttendanceDialog, type MarkAttendanceTarget } from './mark-attendance-dialog';
+import { MarkDayOffDialog } from './mark-day-off-dialog';
+import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 
 const STATUS_META: Record<AttendanceStatus, { code: string; label: string; className: string }> = {
   PRESENT: { code: 'P', label: 'Present', className: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' },
@@ -82,6 +85,8 @@ export function AttendanceGrid() {
 
   const [selectedPeriodId, setSelectedPeriodId] = useState<string | undefined>(undefined);
   const [markTarget, setMarkTarget] = useState<MarkAttendanceTarget | null>(null);
+  const [absentConfirmOpen, setAbsentConfirmOpen] = useState(false);
+  const [dayOffOpen, setDayOffOpen] = useState(false);
 
   const {
     data: openPeriod,
@@ -110,6 +115,28 @@ export function AttendanceGrid() {
     return map;
   }, [records]);
 
+  // Computed unconditionally (Rules of Hooks) even though `period`/`employees`
+  // may still be undefined ahead of the loading/error guards below.
+  const days = useMemo(() => (period ? eachUtcDay(period.startDate, period.endDate) : []), [period]);
+
+  const todayYmd = new Date().toISOString().slice(0, 10);
+  const emptyAbsentTargets = useMemo(() => {
+    if (!employees) return [];
+    const targets: MarkAttendanceData[] = [];
+    for (const emp of employees) {
+      for (const d of days) {
+        if (d > todayYmd) continue; // never bulk-mark a day that hasn't happened yet
+        if (!byKey.has(`${emp.id}|${d}`)) {
+          targets.push({ userId: emp.id, date: d, status: 'ABSENT', note: 'Bulk marked absent' });
+        }
+      }
+    }
+    return targets;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employees, days, byKey]);
+
+  const { mutate: bulkMark, isPending: bulkMarkPending } = useBulkMarkAttendance();
+
   if (!canView) {
     return permissionCard('Attendance requires additional payroll permissions.');
   }
@@ -132,7 +159,6 @@ export function AttendanceGrid() {
     return errorCard('No payroll period is available yet.');
   }
 
-  const days = eachUtcDay(period.startDate, period.endDate);
   const periodOptions = periods && periods.length > 0 ? periods : openPeriod ? [openPeriod] : [];
 
   return (
@@ -168,6 +194,33 @@ export function AttendanceGrid() {
           ))}
         </div>
       </div>
+
+      {canMark && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-1.5 rounded-xl"
+            disabled={emptyAbsentTargets.length === 0}
+            onClick={() => setAbsentConfirmOpen(true)}
+          >
+            <UserX className="h-3.5 w-3.5" />
+            Mark Empty as Absent
+            {emptyAbsentTargets.length > 0 ? ` (${emptyAbsentTargets.length})` : ''}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-1.5 rounded-xl"
+            onClick={() => setDayOffOpen(true)}
+          >
+            <CalendarOff className="h-3.5 w-3.5" />
+            Mark Day Off
+          </Button>
+        </div>
+      )}
 
       {empError || recError ? (
         errorCard('Failed to load attendance.')
@@ -213,11 +266,17 @@ export function AttendanceGrid() {
                           disabled={!canMark}
                           onClick={() =>
                             canMark &&
-                            setMarkTarget({ userId: emp.id, name: emp.name, date: d, currentStatus: rec?.status })
+                            setMarkTarget({
+                              userId: emp.id,
+                              name: emp.name,
+                              date: d,
+                              currentStatus: rec?.status,
+                              currentCategoryId: rec?.category?.id,
+                            })
                           }
                           title={
                             rec
-                              ? `${meta?.label}${rec.note ? ` — ${rec.note}` : ''}`
+                              ? `${meta?.label}${rec.category ? ` — ${rec.category.name}` : ''}${rec.note ? ` — ${rec.note}` : ''}`
                               : canMark
                                 ? 'Mark attendance'
                                 : ''
@@ -241,7 +300,30 @@ export function AttendanceGrid() {
       )}
 
       {canMark && (
-        <MarkAttendanceDialog target={markTarget} onOpenChange={(o) => !o && setMarkTarget(null)} />
+        <>
+          <MarkAttendanceDialog target={markTarget} onOpenChange={(o) => !o && setMarkTarget(null)} />
+
+          <ConfirmDialog
+            open={absentConfirmOpen}
+            onOpenChange={setAbsentConfirmOpen}
+            title="Mark Empty Cells Absent"
+            description={`This will mark ${emptyAbsentTargets.length} empty cell${emptyAbsentTargets.length === 1 ? '' : 's'} (through ${todayYmd}) as Absent. Cells that already have an entry are left untouched. This cannot be undone in bulk.`}
+            confirmLabel="Mark Absent"
+            variant="destructive"
+            isLoading={bulkMarkPending}
+            onConfirm={() =>
+              bulkMark(emptyAbsentTargets, { onSuccess: () => setAbsentConfirmOpen(false) })
+            }
+          />
+
+          <MarkDayOffDialog
+            open={dayOffOpen}
+            onOpenChange={setDayOffOpen}
+            days={days}
+            employees={employees ?? []}
+            byKey={byKey}
+          />
+        </>
       )}
     </div>
   );

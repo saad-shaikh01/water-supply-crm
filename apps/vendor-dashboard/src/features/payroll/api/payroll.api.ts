@@ -1,5 +1,6 @@
 import { apiClient } from '@water-supply-crm/data-access';
 import type {
+  AttendanceCategory,
   AttendanceStatus,
   CreatableStaffLedgerCategory,
   PayFrequency,
@@ -51,12 +52,19 @@ export interface MarkAttendanceData {
   note?: string;
   /** Whole positive rupees; the server applies the debit sign. */
   amount?: number;
+  /** Required when `status` is PRESENT; rejected for every other status. */
+  categoryId?: string;
+}
+
+export interface CreateAttendanceCategoryData {
+  name: string;
 }
 
 /** A `StaffAttendance` row as returned by the attendance list endpoints (employee relation included). */
 export interface AttendanceRecord extends StaffAttendance {
   user: { id: string; name: string; role: string };
   leaveLedgerEntry: { id: string; category: string; amount: number; status: string } | null;
+  category: { id: string; name: string } | null;
 }
 
 export const payrollApi = {
@@ -94,4 +102,11 @@ export const payrollApi = {
   getAttendanceForPeriod: (periodId: string) => apiClient.get(`/payroll/attendance/period/${periodId}`),
   getAttendanceForEmployee: (userId: string) => apiClient.get(`/payroll/attendance/employee/${userId}`),
   markAttendance: (data: MarkAttendanceData) => apiClient.post('/payroll/attendance/mark', data),
+
+  // Attendance categories — the required reason field on a manual PRESENT
+  // marking (e.g. "office — other business"). Vendor-managed, no built-ins.
+  getAttendanceCategories: () => apiClient.get<AttendanceCategory[]>('/payroll/attendance-categories'),
+  createAttendanceCategory: (data: CreateAttendanceCategoryData) =>
+    apiClient.post<AttendanceCategory>('/payroll/attendance-categories', data),
+  deleteAttendanceCategory: (id: string) => apiClient.delete(`/payroll/attendance-categories/${id}`),
 };

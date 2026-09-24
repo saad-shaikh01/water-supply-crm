@@ -14,7 +14,8 @@ import { assertCanViewEmployeeAttendance } from '../../common/helpers/attendance
 import { PermissionService } from '../authz/permission.service';
 import { StaffLedgerService } from './staff-ledger.service';
 import { PAYROLL_ELIGIBLE_ROLES } from './payroll-entry.service';
-import { MarkAttendanceDto, UNPAID_ATTENDANCE_STATUSES } from './dto/mark-attendance.dto';
+import { AttendanceCategoryService } from './attendance-category.service';
+import { CATEGORIZED_ATTENDANCE_STATUSES, MarkAttendanceDto, UNPAID_ATTENDANCE_STATUSES } from './dto/mark-attendance.dto';
 
 /** Midnight UTC of the given day — the canonical bucket for a (userId, date) row. */
 function startOfUtcDay(d: Date): Date {
@@ -61,6 +62,7 @@ export class StaffAttendanceService {
     private readonly prisma: PrismaService,
     private readonly permissions: PermissionService,
     private readonly staffLedger: StaffLedgerService,
+    private readonly categories: AttendanceCategoryService,
   ) {}
 
   /**
@@ -250,6 +252,18 @@ export class StaffAttendanceService {
     }
     const hasAmount = isUnpaid && dto.amount != null;
 
+    // A manual PRESENT marking is the exception path — the employee wasn't on
+    // their usual route/crew that day, so admins must say why (office — other
+    // business, etc.) to be able to filter for it later. No other status
+    // accepts a category.
+    const isCategorized = CATEGORIZED_ATTENDANCE_STATUSES.includes(dto.status);
+    if (isCategorized && !dto.categoryId) {
+      throw new BadRequestException('`categoryId` is required for a PRESENT marking.');
+    }
+    if (!isCategorized && dto.categoryId) {
+      throw new BadRequestException('`categoryId` is only accepted for a PRESENT marking.');
+    }
+
     const employee = await this.prisma.user.findFirst({
       where: { id: dto.userId, vendorId: user.vendorId },
       select: { id: true, role: true },
@@ -267,6 +281,10 @@ export class StaffAttendanceService {
     const day = startOfUtcDay(new Date(dto.date));
 
     return this.prisma.$transaction(async (tx) => {
+      if (dto.categoryId) {
+        await this.categories.assertExists(user.vendorId, dto.categoryId, tx);
+      }
+
       const existing = await tx.staffAttendance.findUnique({
         where: { userId_date: { userId: dto.userId, date: day } },
       });
@@ -300,6 +318,7 @@ export class StaffAttendanceService {
         note: dto.note ?? null,
         markedById: user.userId,
         leaveLedgerEntryId,
+        categoryId: dto.categoryId ?? null,
       };
 
       return existing
@@ -331,6 +350,7 @@ export class StaffAttendanceService {
       include: {
         user: { select: { id: true, name: true, role: true } },
         leaveLedgerEntry: { select: { id: true, category: true, amount: true, status: true } },
+        category: { select: { id: true, name: true } },
       },
     });
   }
@@ -351,7 +371,10 @@ export class StaffAttendanceService {
     return this.prisma.staffAttendance.findMany({
       where: { vendorId: user.vendorId, userId },
       orderBy: { date: 'desc' },
-      include: { leaveLedgerEntry: { select: { id: true, category: true, amount: true, status: true } } },
+      include: {
+        leaveLedgerEntry: { select: { id: true, category: true, amount: true, status: true } },
+        category: { select: { id: true, name: true } },
+      },
     });
   }
 

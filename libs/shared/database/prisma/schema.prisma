@@ -345,6 +345,7 @@ model Vendor {
   payrollEntries       PayrollEntry[]
   settlements          Settlement[]
   staffAttendances     StaffAttendance[]
+  attendanceCategories AttendanceCategory[]
 
   // Historical Product Cost & COGS (docs/features/product-cost-history-and-cogs.md)
   productCosts ProductCost[]
@@ -2881,6 +2882,14 @@ model StaffAttendance {
 
   note String?
 
+  // Required whenever a MANUAL marking sets status PRESENT — the business
+  // case is an employee who wasn't on their usual route/crew that day but
+  // was present doing some other office task, and admins want to filter
+  // later by what that was. Never set by CREW_CONFIRM (regular-duty present
+  // needs no explanation) and never required for any other status.
+  categoryId String?
+  category   AttendanceCategory? @relation(fields: [categoryId], references: [id])
+
   // Who created / last set this row: the confirming user for CREW_CONFIRM
   // capture, the marker for MANUAL.
   markedById String
@@ -2901,6 +2910,26 @@ model StaffAttendance {
   @@unique([userId, date])
   @@index([vendorId, date])
   @@index([dailySheetId])
+}
+
+// Per-vendor, admin-managed reasons for a manual PRESENT marking that isn't
+// regular crew duty (e.g. "Office — other business"). Vendors create their
+// own; there are no built-ins. A category can only be deleted while no
+// StaffAttendance row references it.
+model AttendanceCategory {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id])
+
+  name     String
+  isActive Boolean @default(true)
+
+  attendances StaffAttendance[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([vendorId, name])
+  @@index([vendorId])
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

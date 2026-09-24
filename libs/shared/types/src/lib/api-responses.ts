@@ -912,11 +912,29 @@ export interface StaffAttendance {
   source: AttendanceSource;
   dailySheetId: string | null;
   note: string | null;
+  /** Required on a MANUAL PRESENT marking; null otherwise. See `AttendanceCategory`. */
+  categoryId: string | null;
   markedById: string;
   leaveLedgerEntryId: string | null;
   version: number;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * Per-vendor, admin-managed reason catalogue for a manual PRESENT marking
+ * that isn't regular crew duty (e.g. "Office — other business") — see the
+ * schema comment on `StaffAttendance.categoryId`. No built-ins; vendors
+ * create their own from the Mark Attendance dialog.
+ */
+export interface AttendanceCategory {
+  id: string;
+  vendorId: string;
+  name: string;
+  isActive: boolean;
+  createdAt: string;
+  /** Number of StaffAttendance rows referencing this category — blocks delete when > 0. */
+  usageCount: number;
 }
 
 /** Mirrors the raw `SalaryStructure` row. */

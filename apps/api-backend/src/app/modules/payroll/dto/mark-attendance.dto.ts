@@ -1,6 +1,9 @@
 import { IsDateString, IsEnum, IsInt, IsOptional, IsPositive, IsString, IsUUID, MaxLength } from 'class-validator';
 import { AttendanceStatus } from '@prisma/client';
 
+/** `dto.status` values for which `categoryId` is accepted (and required). */
+export const CATEGORIZED_ATTENDANCE_STATUSES: AttendanceStatus[] = [AttendanceStatus.PRESENT];
+
 /**
  * Attendance statuses that mean "unpaid time" and therefore bridge to a
  * LEAVE_UNPAID StaffLedgerEntry. A paid LEAVE day is recorded as status LEAVE
@@ -44,4 +47,14 @@ export class MarkAttendanceDto {
   @IsInt()
   @IsPositive()
   amount?: number;
+
+  /**
+   * Required when `status` is PRESENT — an `AttendanceCategory` id explaining
+   * why this was a manual present marking rather than regular crew duty (e.g.
+   * "office — other business"). Rejected for every other status. See the
+   * schema comment on `StaffAttendance.categoryId`.
+   */
+  @IsOptional()
+  @IsUUID()
+  categoryId?: string;
 }

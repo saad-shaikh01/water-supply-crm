@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { Avatar, AvatarFallback, Badge, Skeleton, cn } from '@water-supply-crm/ui';
 import { Mic, Truck, User } from 'lucide-react';
 import type { ConversationContext } from '@water-supply-crm/types';
@@ -62,12 +63,19 @@ export function ConversationList({ conversations, selectedId, onSelect, isLoadin
         const isVoicePreview = c.lastMessagePreview === '🎤 Voice message';
         const hasUnread = c.unreadCount > 0;
         return (
-          <button
+          <div
             key={c.id}
-            type="button"
+            role="button"
+            tabIndex={0}
             onClick={() => onSelect(c)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onSelect(c);
+              }
+            }}
             className={cn(
-              'w-full flex items-start gap-3 px-4 py-3 text-left transition-colors',
+              'w-full flex items-start gap-3 px-4 py-3 text-left transition-colors cursor-pointer',
               isSelected ? 'bg-primary/10' : 'hover:bg-accent/40',
             )}
           >
@@ -85,9 +93,16 @@ export function ConversationList({ conversations, selectedId, onSelect, isLoadin
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between gap-2">
                 <span className="flex items-baseline gap-1 min-w-0 flex-1">
-                  <span className={cn('text-sm truncate', hasUnread ? 'font-black' : 'font-bold')}>
+                  <Link
+                    href={`/dashboard/customers/${c.customer.id}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className={cn(
+                      'text-sm truncate hover:text-primary hover:underline transition-colors',
+                      hasUnread ? 'font-black' : 'font-bold',
+                    )}
+                  >
                     {c.customer.name}
-                  </span>
+                  </Link>
                   <span className="text-[10px] text-muted-foreground font-mono shrink-0">
                     ({c.customer.customerCode})
                   </span>
@@ -141,7 +156,7 @@ export function ConversationList({ conversations, selectedId, onSelect, isLoadin
                 )}
               </div>
             </div>
-          </button>
+          </div>
         );
       })}
     </div>
