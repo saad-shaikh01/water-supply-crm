@@ -152,6 +152,8 @@ export interface AttendanceBackfillResult {
   sheetsScanned: number;
   sheetsTouched: number;
   created: number;
+  /** Sunday AUTO_WEEKLY_OFF rows filled in — see `backfillForPeriod`. */
+  weeklyOffCreated: number;
 }
 
 /** Query for `GET /payroll/attendance/search` — `dateFrom`/`dateTo` are required (a bounded report, not a full dump). */

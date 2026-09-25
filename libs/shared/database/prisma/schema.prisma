@@ -2512,6 +2512,7 @@ enum AttendanceStatus {
 enum AttendanceSource {
   CREW_CONFIRM // auto-captured when a DailySheet's crew is confirmed
   MANUAL // set by a user through the attendance-marking endpoint
+  AUTO_WEEKLY_OFF // auto-captured for a Sunday with no crew/manual row (see backfillForPeriod)
 }
 
 enum CrewCashCategory {

@@ -360,15 +360,17 @@ export class StaffAttendanceService {
   }
 
   /**
-   * Gap-fill sweep for the Attendance grid's "Refresh" action: for every
-   * already-`crewConfirmed` sheet in this period, creates a PRESENT row for
-   * any roster member (driver/crew) who has NO attendance row yet for that
-   * day. Exists because attendance capture only ever fires from inside the
-   * `POST /confirm-crew` transaction — a sheet that reached crewConfirmed=true
-   * some other way (pre-feature data, a migration grandfather, a direct DB
-   * fix) has no UI path left to re-trigger it, so it stays permanently
-   * attendance-less (see backfill-attendance-current-month.mjs, which this
-   * replaces as an on-demand button rather than an ad-hoc script).
+   * Gap-fill sweep for the Attendance grid's "Refresh" action (and the
+   * silent auto-refresh the grid fires on load, see the frontend
+   * `useAutoBackfillAttendance` hook): for every already-`crewConfirmed`
+   * sheet in this period, creates a PRESENT row for any roster member
+   * (driver/crew) who has NO attendance row yet for that day. Exists because
+   * attendance capture only ever fires from inside the `POST /confirm-crew`
+   * transaction — a sheet that reached crewConfirmed=true some other way
+   * (pre-feature data, a migration grandfather, a direct DB fix) has no UI
+   * path left to re-trigger it, so it stays permanently attendance-less (see
+   * backfill-attendance-current-month.mjs, which this replaces as an
+   * on-demand button rather than an ad-hoc script).
    *
    * Deliberately NOT `captureForConfirmedCrew` (which also updates/reconciles
    * an existing row — right for the live confirm-crew path, where a roster
@@ -378,6 +380,16 @@ export class StaffAttendanceService {
    * completely untouched: never overwritten, never re-pointed, never
    * deleted. A roster member with no row for a day simply stays blank —
    * this never creates ABSENT.
+   *
+   * Also fills every Sunday in the period with an AUTO_WEEKLY_OFF row for
+   * every active payroll-eligible employee still missing one — independent
+   * of daily sheets, since most vendors run no routes (so no confirmed
+   * sheet, ever) on a Sunday. This is the ONLY thing standing between those
+   * days and staying permanently blank — and a blank Sunday is exactly what
+   * used to get scooped up by "Mark Empty as Absent". Same untouched-if-
+   * present rule as above: an employee who already has ANY row for that
+   * Sunday (PRESENT because they did work, a manual mark, a prior bulk
+   * absent, etc.) is left alone.
    */
   async backfillForPeriod(user: AuthUser, periodId: string) {
     const period = await this.prisma.payrollPeriod.findFirst({
@@ -460,7 +472,66 @@ export class StaffAttendanceService {
       if (touchedThisSheet) sheetsTouched++;
     }
 
-    return { sheetsScanned: sheets.length, sheetsTouched, created };
+    const weeklyOffCreated = await this.backfillSundayWeeklyOff(user, period.startDate, period.endDate);
+
+    return { sheetsScanned: sheets.length, sheetsTouched, created, weeklyOffCreated };
+  }
+
+  /**
+   * Sunday half of `backfillForPeriod` — see that method's doc comment for
+   * why this exists. One `$transaction` per (employee, Sunday) cell, mirroring
+   * the per-roster-member pattern above: cheap at this app's staff scale, and
+   * it keeps every write behind the same existence-check + H2 locked-period
+   * guard as everywhere else that touches `StaffAttendance`.
+   */
+  private async backfillSundayWeeklyOff(user: AuthUser, periodStart: Date, periodEnd: Date): Promise<number> {
+    const employees = await this.prisma.user.findMany({
+      where: { vendorId: user.vendorId, isActive: true, role: { in: PAYROLL_ELIGIBLE_ROLES } },
+      select: { id: true },
+    });
+    if (employees.length === 0) return 0;
+
+    const sundays: Date[] = [];
+    for (let d = startOfUtcDay(periodStart); d <= periodEnd; d = new Date(d.getTime() + 86_400_000)) {
+      if (d.getUTCDay() === 0) sundays.push(d);
+    }
+    if (sundays.length === 0) return 0;
+
+    let weeklyOffCreated = 0;
+    for (const day of sundays) {
+      for (const emp of employees) {
+        const wasCreated = await this.prisma.$transaction(async (tx) => {
+          const existing = await tx.staffAttendance.findUnique({
+            where: { userId_date: { userId: emp.id, date: day } },
+          });
+          if (existing) return false;
+
+          if (await this.isDateInLockedPeriod(tx, user.vendorId, emp.id, day)) return false;
+
+          try {
+            await tx.staffAttendance.create({
+              data: {
+                vendorId: user.vendorId,
+                userId: emp.id,
+                date: day,
+                status: AttendanceStatus.WEEKLY_OFF,
+                source: AttendanceSource.AUTO_WEEKLY_OFF,
+                markedById: user.userId,
+              },
+            });
+            return true;
+          } catch (err) {
+            // A concurrent sweep/confirm raced us to the same (userId, date) row — harmless.
+            if ((err as Prisma.PrismaClientKnownRequestError)?.code === 'P2002') return false;
+            throw err;
+          }
+        });
+
+        if (wasCreated) weeklyOffCreated++;
+      }
+    }
+
+    return weeklyOffCreated;
   }
 
   /**

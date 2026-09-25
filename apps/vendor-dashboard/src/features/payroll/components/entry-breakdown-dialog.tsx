@@ -7,7 +7,7 @@ import {
   Button, Input,
 } from '@water-supply-crm/ui';
 import { cn } from '@water-supply-crm/ui';
-import { Receipt, HandCoins, CheckCircle2, XCircle, Plus, Ban } from 'lucide-react';
+import { Receipt, HandCoins, CheckCircle2, XCircle, Plus, Ban, AlertTriangle } from 'lucide-react';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import { ledgerCategoryLabel } from '../constants';
 import { useEntryBreakdown, type PayrollEntryBucketTotals, type AttendanceBreakdownDay } from '../hooks/use-monthly-payroll';
@@ -18,6 +18,7 @@ import { MarkAttendanceDialog, type MarkAttendanceTarget } from './mark-attendan
 import { STATUS_META } from './attendance-grid';
 import { NewAdvancePlanDialog } from './new-advance-plan-dialog';
 import { WriteOffAdvancePlanDialog } from './write-off-advance-plan-dialog';
+import { LogLedgerEntryDialog } from './log-ledger-entry-dialog';
 import type { StaffAdvancePlanWithPeriodInstallment, AttendanceStatus } from '@water-supply-crm/types';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -98,14 +99,16 @@ const DEDUCTIBLE_STATUSES = new Set(['ABSENT', 'HALF_DAY']);
  * period's due installment, Collect/Skip right here).
  */
 export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDialogProps) {
-  const { data, isLoading, isError } = useEntryBreakdown(entryId ?? undefined);
+  const { data, isLoading, isError, refetch } = useEntryBreakdown(entryId ?? undefined);
   const { can } = usePermissions();
   const canMarkAttendance = can('payroll:attendance_mark');
   const canManageAdvancePlans = can('payroll:advance_plan_manage');
+  const canLogEntry = can('payroll:ledger_create');
 
   const [tab, setTab] = useState('breakdown');
   const [markTarget, setMarkTarget] = useState<MarkAttendanceTarget | null>(null);
   const [newPlanOpen, setNewPlanOpen] = useState(false);
+  const [addAdjustmentOpen, setAddAdjustmentOpen] = useState(false);
   const [collectingId, setCollectingId] = useState<string | null>(null);
   const [writeOffPlanTarget, setWriteOffPlanTarget] = useState<StaffAdvancePlanWithPeriodInstallment | null>(null);
   const [collectAmount, setCollectAmount] = useState<number | undefined>(undefined);
@@ -118,6 +121,16 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
   const skip = useSkipAdvanceInstallment(entryId ?? '', data?.entry.userId ?? '');
 
   const periodWritable = data ? !['LOCKED', 'PAID'].includes(data.entry.period.status) : false;
+
+  // Honest freshness check, no new endpoint: `entry[key]` is the STORED bucket total
+  // (last set by Generate Draft or Lock); `ledgerEntriesByBucket[key]` is a LIVE query
+  // the same `getBreakdown` call already returns. If they disagree, something posted
+  // after the entry was last computed — the total above is not yet current.
+  const hasUnreflectedLedgerChanges =
+    !!data &&
+    BUCKET_ORDER.some(
+      ({ key }) => data.ledgerEntriesByBucket[key].reduce((sum, e) => sum + e.amount, 0) !== data.entry[key],
+    );
 
   const handleClose = (open: boolean) => {
     if (open) return;
@@ -223,9 +236,31 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
                 </div>
 
                 <div className="space-y-4">
-                  <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                    Ledger Entries by Bucket
-                  </h3>
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                      Ledger Entries by Bucket
+                    </h3>
+                    {canLogEntry && periodWritable && (
+                      <Button
+                        size="sm" variant="outline"
+                        className="rounded-lg h-7 text-xs font-bold gap-1.5"
+                        onClick={() => setAddAdjustmentOpen(true)}
+                      >
+                        <Plus className="h-3.5 w-3.5" /> Add Adjustment
+                      </Button>
+                    )}
+                  </div>
+                  {hasUnreflectedLedgerChanges && (
+                    <p className="text-xs text-amber-600 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 flex items-start gap-2">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                      <span>
+                        The totals above don't yet include a recent change.{' '}
+                        {data.entry.status === 'DRAFT'
+                          ? 'Regenerate the draft from Monthly Payroll to include it.'
+                          : 'It will be included automatically when this period is locked.'}
+                      </span>
+                    </p>
+                  )}
                   {data.cashWindow && (
                     <p className="text-xs text-muted-foreground bg-accent/30 border border-border/40 rounded-lg px-3 py-2">
                       {data.cashWindow.categories.map((c) => ledgerCategoryLabel(c)).join(', ')} use a separate
@@ -508,6 +543,12 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
         employeeId={data?.entry.userId ?? ''}
         entryId={entryId ?? undefined}
         onOpenChange={(o) => !o && setWriteOffPlanTarget(null)}
+      />
+      <LogLedgerEntryDialog
+        open={addAdjustmentOpen}
+        onOpenChange={setAddAdjustmentOpen}
+        employee={data ? { id: data.entry.userId, name: data.entry.user.name } : null}
+        onSuccess={() => refetch()}
       />
     </Dialog>
   );

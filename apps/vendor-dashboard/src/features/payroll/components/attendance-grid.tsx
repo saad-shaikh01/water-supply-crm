@@ -19,7 +19,12 @@ import { usePermissions } from '../../authz/hooks/use-permissions';
 import { useOpenPayrollPeriod } from '../hooks/use-payroll-dashboard';
 import { usePayrollPeriods } from '../hooks/use-payroll-history';
 import { useEligibleEmployees } from '../hooks/use-eligible-employees';
-import { useAttendanceByPeriod, useBackfillAttendance, useBulkMarkAttendance } from '../hooks/use-attendance';
+import {
+  useAttendanceByPeriod,
+  useAutoBackfillAttendance,
+  useBackfillAttendance,
+  useBulkMarkAttendance,
+} from '../hooks/use-attendance';
 import type { AttendanceRecord, MarkAttendanceData } from '../api/payroll.api';
 import { MarkAttendanceDialog, type MarkAttendanceTarget } from './mark-attendance-dialog';
 import { MarkDayOffDialog } from './mark-day-off-dialog';
@@ -53,6 +58,10 @@ function eachUtcDay(startIso: string, endIso: string): string[] {
 
 function weekdayLabel(ymd: string): string {
   return new Date(`${ymd}T00:00:00Z`).toLocaleDateString(undefined, { weekday: 'short', timeZone: 'UTC' });
+}
+
+function isSunday(ymd: string): boolean {
+  return new Date(`${ymd}T00:00:00Z`).getUTCDay() === 0;
 }
 
 function permissionCard(message: string) {
@@ -112,6 +121,10 @@ export function AttendanceGrid() {
     isError: recError,
   } = useAttendanceByPeriod(activePeriodId, canView);
   const { mutate: backfill, isPending: backfillPending } = useBackfillAttendance(activePeriodId);
+  // Zero-click: fills Sunday WEEKLY_OFF (and any missed crew-confirm PRESENT)
+  // rows the moment a period is open, so an admin never has to remember to
+  // hit Refresh just to keep Sundays from sitting blank.
+  useAutoBackfillAttendance(activePeriodId, canMark);
 
   const byKey = useMemo(() => {
     const map = new Map<string, AttendanceRecord>();
@@ -130,6 +143,7 @@ export function AttendanceGrid() {
     for (const emp of employees) {
       for (const d of days) {
         if (d > todayYmd) continue; // never bulk-mark a day that hasn't happened yet
+        if (isSunday(d)) continue; // Sundays auto-fill WEEKLY_OFF (useAutoBackfillAttendance) — never "empty absent"
         if (!byKey.has(`${emp.id}|${d}`)) {
           targets.push({ userId: emp.id, date: d, status: 'ABSENT', note: 'Bulk marked absent' });
         }

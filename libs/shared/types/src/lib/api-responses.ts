@@ -923,7 +923,7 @@ export interface StaffLedgerEntry {
 export type PayFrequency = 'MONTHLY' | 'WEEKLY' | 'DAILY';
 
 export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'HALF_DAY' | 'LEAVE' | 'WEEKLY_OFF';
-export type AttendanceSource = 'CREW_CONFIRM' | 'MANUAL';
+export type AttendanceSource = 'CREW_CONFIRM' | 'MANUAL' | 'AUTO_WEEKLY_OFF';
 
 /**
  * Mirrors the raw `StaffAttendance` row (Staff Attendance & Wage Types Phase 1).

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -61,15 +62,42 @@ export const useBackfillAttendance = (periodId: string | undefined) => {
     mutationFn: () => payrollApi.backfillAttendance(periodId as string),
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.payroll.attendanceByPeriod(periodId ?? '') });
-      const { created, sheetsTouched } = res.data;
-      toast.success(
-        created > 0
-          ? `Refreshed — ${created} attendance row${created === 1 ? '' : 's'} added from ${sheetsTouched} sheet${sheetsTouched === 1 ? '' : 's'}.`
-          : 'Refreshed — already up to date.',
-      );
+      const { created, sheetsTouched, weeklyOffCreated } = res.data;
+      const parts: string[] = [];
+      if (created > 0) parts.push(`${created} attendance row${created === 1 ? '' : 's'} added from ${sheetsTouched} sheet${sheetsTouched === 1 ? '' : 's'}`);
+      if (weeklyOffCreated > 0) parts.push(`${weeklyOffCreated} Sunday weekly-off row${weeklyOffCreated === 1 ? '' : 's'} filled`);
+      toast.success(parts.length > 0 ? `Refreshed — ${parts.join('; ')}.` : 'Refreshed — already up to date.');
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to refresh attendance'),
   });
+};
+
+/**
+ * Fires the same gap-fill sweep as the "Refresh" button automatically, once
+ * per period, the moment the grid loads — so Sunday WEEKLY_OFF rows (and any
+ * missed crew-confirm PRESENT rows) never depend on an admin remembering to
+ * click Refresh. Deliberately silent (no toast) so it doesn't nag on every
+ * page load; a failure still surfaces, since silently swallowing it would
+ * look identical to "Sundays are just blank forever" — the exact bug this
+ * exists to prevent.
+ */
+export const useAutoBackfillAttendance = (periodId: string | undefined, enabled: boolean) => {
+  const queryClient = useQueryClient();
+  const firedForRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!enabled || !periodId || firedForRef.current === periodId) return;
+    firedForRef.current = periodId;
+
+    payrollApi
+      .backfillAttendance(periodId)
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: queryKeys.payroll.attendanceByPeriod(periodId) });
+      })
+      .catch(() => {
+        toast.error('Auto-refresh of Sunday weekly-off attendance failed — use the Refresh button to retry.');
+      });
+  }, [periodId, enabled, queryClient]);
 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

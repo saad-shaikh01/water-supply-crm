@@ -673,7 +673,7 @@ describe('StaffAttendanceService', () => {
 
       const result = await svc.backfillForPeriod(managerUser, 'period-001');
 
-      expect(result).toEqual({ sheetsScanned: 1, sheetsTouched: 1, created: 3 });
+      expect(result).toEqual({ sheetsScanned: 1, sheetsTouched: 1, created: 3, weeklyOffCreated: 0 });
       expect(tx.staffAttendance.create).toHaveBeenCalledTimes(3);
       for (const call of tx.staffAttendance.create.mock.calls) {
         expect(call[0].data).toEqual(
@@ -702,7 +702,7 @@ describe('StaffAttendanceService', () => {
 
       const result = await svc.backfillForPeriod(managerUser, 'period-001');
 
-      expect(result).toEqual({ sheetsScanned: 1, sheetsTouched: 0, created: 0 });
+      expect(result).toEqual({ sheetsScanned: 1, sheetsTouched: 0, created: 0, weeklyOffCreated: 0 });
       expect(tx.staffAttendance.create).not.toHaveBeenCalled();
       expect(tx.staffAttendance.update).not.toHaveBeenCalled();
       expect(tx.staffAttendance.deleteMany).not.toHaveBeenCalled();
@@ -723,6 +723,45 @@ describe('StaffAttendanceService', () => {
           }),
         }),
       );
+    });
+
+    it('auto-fills Sunday WEEKLY_OFF rows for every eligible employee, independent of daily sheets', async () => {
+      const SUNDAY = new Date('2026-08-02T00:00:00.000Z'); // a Sunday
+      const { svc, prisma, tx } = makeService();
+      prisma.payrollPeriod.findFirst.mockResolvedValue({ id: 'period-001', startDate: SUNDAY, endDate: SUNDAY });
+      prisma.dailySheet.findMany.mockResolvedValue([]);
+
+      const result = await svc.backfillForPeriod(managerUser, 'period-001');
+
+      expect(result).toEqual({ sheetsScanned: 0, sheetsTouched: 0, created: 0, weeklyOffCreated: 3 });
+      expect(tx.staffAttendance.create).toHaveBeenCalledTimes(3);
+      for (const call of tx.staffAttendance.create.mock.calls) {
+        expect(call[0].data).toEqual(
+          expect.objectContaining({
+            status: AttendanceStatus.WEEKLY_OFF,
+            source: AttendanceSource.AUTO_WEEKLY_OFF,
+            date: SUNDAY,
+            markedById: managerUser.userId,
+          }),
+        );
+      }
+    });
+
+    it('never touches a Sunday that already has any attendance row', async () => {
+      const SUNDAY = new Date('2026-08-02T00:00:00.000Z'); // a Sunday
+      const tx = makeTx({
+        staffAttendance: {
+          findUnique: jest.fn().mockResolvedValue({ id: 'existing', status: AttendanceStatus.ABSENT }),
+        },
+      });
+      const { svc, prisma } = makeService({ tx });
+      prisma.payrollPeriod.findFirst.mockResolvedValue({ id: 'period-001', startDate: SUNDAY, endDate: SUNDAY });
+      prisma.dailySheet.findMany.mockResolvedValue([]);
+
+      const result = await svc.backfillForPeriod(managerUser, 'period-001');
+
+      expect(result.weeklyOffCreated).toBe(0);
+      expect(tx.staffAttendance.create).not.toHaveBeenCalled();
     });
   });
 

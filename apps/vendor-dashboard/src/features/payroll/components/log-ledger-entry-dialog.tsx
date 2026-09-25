@@ -28,6 +28,8 @@ export interface LogLedgerEntryDialogProps {
   employee?: { id: string; name: string } | null;
   /** Pre-selected starting category for the quick-action button that opened this dialog (still editable). */
   defaultCategory?: CreatableStaffLedgerCategory;
+  /** Fires after a successful create/linked-create, alongside the dialog's own close. */
+  onSuccess?: () => void;
 }
 
 /**
@@ -36,7 +38,7 @@ export interface LogLedgerEntryDialogProps {
  * one row shape, category determines the rest, per the planning doc's "nine
  * categories, one row shape" philosophy.
  */
-export function LogLedgerEntryDialog({ open, onOpenChange, employee, defaultCategory }: LogLedgerEntryDialogProps) {
+export function LogLedgerEntryDialog({ open, onOpenChange, employee, defaultCategory, onSuccess }: LogLedgerEntryDialogProps) {
   const { mutate: create, isPending: isCreatingPlain } = useCreateLedgerEntry();
   const { mutate: createLinked, isPending: isCreatingLinked } = useCreateLinkedPenalty();
   const { data: employees, isLoading: employeesLoading } = useEligibleEmployees();
@@ -102,7 +104,12 @@ export function LogLedgerEntryDialog({ open, onOpenChange, employee, defaultCate
           customerId,
           customerCreditTitle: customerCreditTitle.trim(),
         },
-        { onSuccess: () => onOpenChange(false) },
+        {
+          onSuccess: () => {
+            onOpenChange(false);
+            onSuccess?.();
+          },
+        },
       );
       return;
     }
@@ -115,7 +122,12 @@ export function LogLedgerEntryDialog({ open, onOpenChange, employee, defaultCate
         effectiveDate,
         description: description.trim() || undefined,
       },
-      { onSuccess: () => onOpenChange(false) },
+      {
+        onSuccess: () => {
+          onOpenChange(false);
+          onSuccess?.();
+        },
+      },
     );
   };
 

@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from '@water-supply-crm/ui';
 import { CalendarOff, Loader2 } from 'lucide-react';
-import type { MarkAttendanceData } from '../api/payroll.api';
+import type { AttendanceRecord, MarkAttendanceData } from '../api/payroll.api';
 import { useBulkMarkAttendance } from '../hooks/use-attendance';
 
 type OffReason = 'WEEKLY_OFF' | 'OTHER';
@@ -28,16 +28,22 @@ interface MarkDayOffDialogProps {
   /** YYYY-MM-DD options — the days of the currently viewed payroll period. */
   days: string[];
   employees: Array<{ id: string; name: string }>;
-  /** Existing records, keyed `${userId}|${date}` — cells already recorded are left untouched. */
-  byKey: Map<string, unknown>;
+  /** Existing records, keyed `${userId}|${date}`. */
+  byKey: Map<string, AttendanceRecord>;
+}
+
+/** A cell is fair game for a bulk day-off marking unless it's a real Present. */
+function isEligibleForDayOff(rec: AttendanceRecord | undefined): boolean {
+  return !rec || rec.status === 'ABSENT';
 }
 
 /**
  * Marks a whole day off (weekly off / holiday) for every employee whose cell
- * on that day is still empty — a manually-marked or auto-captured (crew
- * confirm) cell is never overwritten. There's no dedicated bulk endpoint, so
- * this just fans one `mark` call per empty cell out through
- * `useBulkMarkAttendance`.
+ * on that day is still empty OR was bulk-marked Absent by mistake (e.g. "Mark
+ * Empty as Absent" run on a day that should've been off) — a manually-marked
+ * Present, Half day, or Leave cell is never overwritten. There's no dedicated
+ * bulk endpoint, so this just fans one `mark` call per eligible cell out
+ * through `useBulkMarkAttendance`.
  */
 export function MarkDayOffDialog({ open, onOpenChange, days, employees, byKey }: MarkDayOffDialogProps) {
   const { mutate: bulkMark, isPending } = useBulkMarkAttendance();
@@ -46,9 +52,9 @@ export function MarkDayOffDialog({ open, onOpenChange, days, employees, byKey }:
   const [reason, setReason] = useState<OffReason>('WEEKLY_OFF');
   const [note, setNote] = useState('');
 
-  const emptyCount = useMemo(() => {
+  const eligibleCount = useMemo(() => {
     if (!date) return 0;
-    return employees.filter((e) => !byKey.has(`${e.id}|${date}`)).length;
+    return employees.filter((e) => isEligibleForDayOff(byKey.get(`${e.id}|${date}`))).length;
   }, [date, employees, byKey]);
 
   const reset = () => {
@@ -64,12 +70,12 @@ export function MarkDayOffDialog({ open, onOpenChange, days, employees, byKey }:
     }
   };
 
-  const isValid = !!date && emptyCount > 0 && (reason === 'WEEKLY_OFF' || note.trim().length > 0);
+  const isValid = !!date && eligibleCount > 0 && (reason === 'WEEKLY_OFF' || note.trim().length > 0);
 
   const handleSubmit = () => {
     if (!isValid || !date) return;
     const targets: MarkAttendanceData[] = employees
-      .filter((e) => !byKey.has(`${e.id}|${date}`))
+      .filter((e) => isEligibleForDayOff(byKey.get(`${e.id}|${date}`)))
       .map((e) => ({
         userId: e.id,
         date,
@@ -132,9 +138,9 @@ export function MarkDayOffDialog({ open, onOpenChange, days, employees, byKey }:
 
           {date && (
             <p className="text-[11px] text-muted-foreground">
-              {emptyCount > 0
-                ? `This will mark ${emptyCount} employee${emptyCount === 1 ? '' : 's'} off for ${date}. Employees who already have an attendance entry for this day are left untouched.`
-                : 'Every employee already has an attendance entry for this day — nothing to mark.'}
+              {eligibleCount > 0
+                ? `This will mark ${eligibleCount} employee${eligibleCount === 1 ? '' : 's'} off for ${date} — covering empty cells and any already marked Absent. Employees marked Present, Half day, or Leave are left untouched.`
+                : 'Every employee is already marked Present, Half day, or Leave for this day — nothing to mark.'}
             </p>
           )}
         </div>
