@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import {
+  AdvanceInstallmentStatus,
   AttendanceStatus,
   LedgerEntryStatus,
   PayFrequency,
@@ -501,15 +502,67 @@ export class PayrollEntryService {
     return roundToNearestRupee(baseAmount / this.periodDayCount(period));
   }
 
-  /** One row per employee for a period — table view. */
+  /**
+   * One row per employee for a period — table view, enriched with lightweight
+   * review signals (Monthly Payroll row-level triage, owner-requested) so an
+   * admin can tell which rows need a closer look before opening any of them.
+   * Every signal is an existence/count check reusing a definition already
+   * used elsewhere in this module (`periodDayCount`, the attendance-period
+   * window) — none of them re-derive bucket totals or duplicate
+   * `computeEntryBreakdown`'s math. All three extra queries are batched
+   * across the whole period in one round trip each, not per employee.
+   */
   async listForPeriod(user: AuthUser, periodId: string) {
     const period = await this.prisma.payrollPeriod.findFirst({ where: { id: periodId, vendorId: user.vendorId } });
     if (!period) throw new NotFoundException('Payroll period not found.');
 
-    return this.prisma.payrollEntry.findMany({
+    const entries = await this.prisma.payrollEntry.findMany({
       where: { periodId, vendorId: user.vendorId },
       include: { user: { select: { id: true, name: true, role: true } } },
       orderBy: { user: { name: 'asc' } },
+    });
+    if (entries.length === 0) return entries;
+
+    const userIds = entries.map((e) => e.userId);
+    const periodDayCount = this.periodDayCount(period);
+
+    const [attendanceCounts, pendingInstallments, latestLedgerActivity] = await Promise.all([
+      this.prisma.staffAttendance.groupBy({
+        by: ['userId'],
+        where: { userId: { in: userIds }, date: { gte: period.startDate, lte: period.endDate } },
+        _count: { _all: true },
+      }),
+      this.prisma.staffAdvanceInstallment.findMany({
+        where: { periodId, status: AdvanceInstallmentStatus.PENDING, plan: { userId: { in: userIds } } },
+        select: { plan: { select: { userId: true } } },
+      }),
+      // Existence-only signal, deliberately simplified vs `resolveCashWindow`'s per-category
+      // split: "did anything POSTED for this employee in the attendance period after this
+      // entry was last computed" is a nudge to go look, not a source of truth for any amount.
+      this.prisma.staffLedgerEntry.groupBy({
+        by: ['userId'],
+        where: {
+          vendorId: user.vendorId,
+          userId: { in: userIds },
+          status: LedgerEntryStatus.POSTED,
+          effectiveDate: { gte: period.startDate, lte: period.endDate },
+        },
+        _max: { createdAt: true },
+      }),
+    ]);
+
+    const markedDaysByUser = new Map(attendanceCounts.map((r) => [r.userId, r._count._all]));
+    const pendingInstallmentUserIds = new Set(pendingInstallments.map((r) => r.plan.userId));
+    const latestLedgerActivityByUser = new Map(latestLedgerActivity.map((r) => [r.userId, r._max.createdAt]));
+
+    return entries.map((entry) => {
+      const latestActivity = latestLedgerActivityByUser.get(entry.userId);
+      return {
+        ...entry,
+        unmarkedAttendanceDays: Math.max(0, periodDayCount - (markedDaysByUser.get(entry.userId) ?? 0)),
+        hasPendingInstallment: pendingInstallmentUserIds.has(entry.userId),
+        hasUnreflectedChanges: !!latestActivity && latestActivity > entry.updatedAt,
+      };
     });
   }
 

@@ -3,7 +3,10 @@
 import { useState } from 'react';
 import { Card, CardContent, Skeleton, Button } from '@water-supply-crm/ui';
 import { cn } from '@water-supply-crm/ui';
-import { CalendarClock, Loader2, RefreshCw, Lock, LockOpen, AlertCircle, Landmark, X } from 'lucide-react';
+import {
+  CalendarClock, Loader2, RefreshCw, Lock, LockOpen, AlertCircle, Landmark, X,
+  Clock, HandCoins, RefreshCcw, ArrowRightLeft, CheckCircle2, Eye,
+} from 'lucide-react';
 import type { PayrollEntry } from '@water-supply-crm/types';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import { DataTable } from '../../../components/shared/data-table';
@@ -17,6 +20,47 @@ import { EntryBreakdownDialog } from './entry-breakdown-dialog';
 import { UnlockPeriodDialog } from './unlock-period-dialog';
 import { SettlementDialog } from './settlement-dialog';
 import { SalaryStructureDialog } from './salary-structure-dialog';
+
+/**
+ * Row-level review signals (Monthly Payroll triage, owner-requested) — every
+ * value here is already on the row from `listForPeriod`'s batched aggregates,
+ * no per-row fetch. `actionable` signals gate direct-from-row Approve (see
+ * the Actions column below); Carry Forward is informational only, never
+ * gates anything, since a carried balance isn't itself a problem.
+ */
+interface ReviewSignal {
+  key: string;
+  label: string;
+  icon: typeof Clock;
+  actionable: boolean;
+}
+
+function reviewSignals(r: PayrollEntry): ReviewSignal[] {
+  const signals: ReviewSignal[] = [];
+  if ((r.unmarkedAttendanceDays ?? 0) > 0) {
+    signals.push({
+      key: 'unmarked',
+      label: `${r.unmarkedAttendanceDays} unmarked day${r.unmarkedAttendanceDays === 1 ? '' : 's'}`,
+      icon: Clock,
+      actionable: true,
+    });
+  }
+  if (r.hasPendingInstallment) {
+    signals.push({ key: 'installment', label: 'Installment due', icon: HandCoins, actionable: true });
+  }
+  if (r.hasUnreflectedChanges) {
+    signals.push({ key: 'stale', label: 'Recent changes', icon: RefreshCcw, actionable: true });
+  }
+  if (r.carryForwardIn !== 0) {
+    signals.push({
+      key: 'carry',
+      label: `Carry ${r.carryForwardIn > 0 ? '+' : '−'}₨${Math.abs(r.carryForwardIn).toLocaleString()}`,
+      icon: ArrowRightLeft,
+      actionable: false,
+    });
+  }
+  return signals;
+}
 
 function amountCell(value: number) {
   if (value === 0) return <span className="font-mono text-muted-foreground">₨ 0</span>;
@@ -245,6 +289,38 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
           tableId="payroll-monthly"
           columns={[
             { key: 'employee', essential: true, header: 'Employee', cell: (r) => <span className="font-bold">{r.user.name}</span> },
+            {
+              key: 'review',
+              essential: true,
+              header: 'Review',
+              cell: (r) => {
+                const signals = reviewSignals(r);
+                if (signals.length === 0) {
+                  return (
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> Clean
+                    </span>
+                  );
+                }
+                return (
+                  <div className="flex flex-wrap items-center gap-1.5 max-w-[220px]">
+                    {signals.map(({ key, label, icon: Icon, actionable }) => (
+                      <span
+                        key={key}
+                        className={cn(
+                          'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold',
+                          actionable
+                            ? 'bg-amber-500/10 border-amber-500/30 text-amber-600'
+                            : 'bg-muted/40 border-border/50 text-muted-foreground',
+                        )}
+                      >
+                        <Icon className="h-3 w-3" /> {label}
+                      </span>
+                    ))}
+                  </div>
+                );
+              },
+            },
             { key: 'baseSalary', header: 'Base', cell: (r) => <span className="font-mono">₨ {r.baseSalary.toLocaleString()}</span> },
             { key: 'bonuses', header: 'Bonuses', cell: (r) => amountCell(r.bonuses) },
             { key: 'overtime', header: 'Overtime', defaultVisible: false, cell: (r) => amountCell(r.overtime) },
@@ -271,12 +347,27 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
               cell: (r) => {
                 const showApprove = canApprove && r.status === 'DRAFT';
                 const showSettle = canSettle && (r.status === 'LOCKED' || r.status === 'SETTLED');
+                const needsReview = reviewSignals(r).some((s) => s.actionable);
                 if (!showApprove && !showSettle) {
                   return <span className="text-xs text-muted-foreground">—</span>;
                 }
                 return (
                   <div className="flex items-center gap-2">
-                    {showApprove && (
+                    {showApprove && needsReview && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-lg h-7 text-xs font-bold gap-1.5 border-amber-500/40 text-amber-600 hover:bg-amber-500/5"
+                        title="This entry needs review before approval."
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setBreakdownEntryId(r.id);
+                        }}
+                      >
+                        <Eye className="h-3 w-3" /> Needs Review
+                      </Button>
+                    )}
+                    {showApprove && !needsReview && (
                       <Button
                         size="sm"
                         variant="outline"

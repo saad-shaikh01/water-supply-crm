@@ -7,10 +7,10 @@ import {
   Button, Input,
 } from '@water-supply-crm/ui';
 import { cn } from '@water-supply-crm/ui';
-import { Receipt, HandCoins, CheckCircle2, XCircle, Plus, Ban, AlertTriangle } from 'lucide-react';
+import { Receipt, HandCoins, CheckCircle2, XCircle, Plus, Ban, AlertTriangle, Loader2 } from 'lucide-react';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import { ledgerCategoryLabel } from '../constants';
-import { useEntryBreakdown, type PayrollEntryBucketTotals, type AttendanceBreakdownDay } from '../hooks/use-monthly-payroll';
+import { useEntryBreakdown, useApproveEntry, type PayrollEntryBucketTotals, type AttendanceBreakdownDay } from '../hooks/use-monthly-payroll';
 import { useCollectAdvanceInstallment, useSkipAdvanceInstallment } from '../hooks/use-advance-plans';
 import { useAttendanceCategories } from '../hooks/use-attendance';
 import { usePermissions } from '../../authz/hooks/use-permissions';
@@ -104,6 +104,8 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
   const canMarkAttendance = can('payroll:attendance_mark');
   const canManageAdvancePlans = can('payroll:advance_plan_manage');
   const canLogEntry = can('payroll:ledger_create');
+  const canApprove = can('payroll:entry_approve');
+  const { mutate: approveEntry, isPending: isApproving } = useApproveEntry(data?.entry.periodId);
 
   const [tab, setTab] = useState('breakdown');
   const [markTarget, setMarkTarget] = useState<MarkAttendanceTarget | null>(null);
@@ -181,7 +183,22 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
                 <p className="text-lg font-bold">{data.entry.user.name}</p>
                 <p className="text-xs text-muted-foreground">{data.entry.period.periodLabel}</p>
               </div>
-              <StatusBadge status={data.entry.status} />
+              <div className="flex items-center gap-2">
+                <StatusBadge status={data.entry.status} />
+                {canApprove && data.entry.status === 'DRAFT' && (
+                  <Button
+                    size="sm"
+                    className="rounded-lg h-7 text-xs font-bold"
+                    disabled={isApproving}
+                    onClick={() =>
+                      approveEntry({ id: data.entry.id, version: data.entry.version }, { onSuccess: () => refetch() })
+                    }
+                  >
+                    {isApproving ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" /> : null}
+                    Approve
+                  </Button>
+                )}
+              </div>
             </div>
 
             <Tabs value={tab} onValueChange={setTab}>

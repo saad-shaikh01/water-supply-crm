@@ -1026,6 +1026,15 @@ export interface PayrollEntry {
   createdAt: string;
   updatedAt: string;
   user: { id: string; name: string; role: string };
+  /**
+   * Monthly Payroll row-level review signals — present only on `GET
+   * /payroll/periods/:periodId/entries` (the table view), absent on other
+   * reads (e.g. `getEntryBreakdown`'s embedded `entry`). All three are
+   * existence/count checks, not derived amounts.
+   */
+  unmarkedAttendanceDays?: number;
+  hasPendingInstallment?: boolean;
+  hasUnreflectedChanges?: boolean;
 }
 
 export type SettlementMethod = 'CASH' | 'BANK_TRANSFER' | 'CHEQUE';
