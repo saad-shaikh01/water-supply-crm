@@ -57,6 +57,10 @@ const ADJUSTMENT_READ_INCLUDE = {
   reversalOf: { select: { id: true, kind: true, title: true, status: true, effectiveDate: true } },
   reversedBy: { select: { id: true, kind: true, status: true, effectiveDate: true } },
   transaction: { select: { id: true, amount: true, description: true, createdAt: true } },
+  // Linked Penalty (owner-approved 2026-09-25) — set only on a STAFF_FAULT_CREDIT
+  // posted by LinkedPenaltyService; surfaces which staff member/entry this
+  // credit is paired with, for display on the Charges & Credits tab.
+  causedByStaffLedgerEntry: { select: { id: true, user: { select: { id: true, name: true } } } },
 } satisfies Prisma.CustomerFinancialAdjustmentInclude;
 
 /** RBAC permission that authorizes voiding (a static string — checked in the service, see voidAdjustment). */

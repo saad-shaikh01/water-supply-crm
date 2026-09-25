@@ -35,6 +35,7 @@ const adjustment = (o: Partial<CustomerAdjustment> = {}): CustomerAdjustment => 
   reversalOf: null,
   reversedBy: null,
   transaction: null,
+  causedByStaffLedgerEntry: null,
   ...o,
 });
 

@@ -98,7 +98,7 @@ describe('CustomerFinancialAdjustmentService.list', () => {
       await service.list(VENDOR_ID, {} as any);
       const { include, select } = findManyArgs(prisma);
       expect(Object.keys(include).sort()).toEqual(
-        ['createdBy', 'customer', 'reversalOf', 'reversedBy', 'transaction', 'voidedBy'],
+        ['causedByStaffLedgerEntry', 'createdBy', 'customer', 'reversalOf', 'reversedBy', 'transaction', 'voidedBy'],
       );
       // `include` (not a root `select`) means EVERY scalar is returned — including the
       // staff-only internalNote this endpoint is permission-gated to show.
@@ -134,7 +134,7 @@ describe('CustomerFinancialAdjustmentService.get', () => {
     await expect(service.get(VENDOR_ID, 'adj-1')).resolves.toBe(row);
     const args = prisma.customerFinancialAdjustment.findFirst.mock.calls[0][0];
     expect(Object.keys(args.include).sort()).toEqual(
-      ['createdBy', 'customer', 'reversalOf', 'reversedBy', 'transaction', 'voidedBy'],
+      ['causedByStaffLedgerEntry', 'createdBy', 'customer', 'reversalOf', 'reversedBy', 'transaction', 'voidedBy'],
     );
   });
 

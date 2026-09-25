@@ -14,17 +14,19 @@ describe('postableKindsFor — kinds offered follow the user’s permissions', (
     expect(postableKindsFor(canWith(P('create')) as never)).toEqual(['SERVICE_FEE', 'PENALTY', 'OTHER_CHARGE']);
   });
 
-  it('`create_credit` alone → only the three credit kinds', () => {
-    expect(postableKindsFor(canWith(P('create_credit')) as never)).toEqual(['DISCOUNT', 'GOODWILL_CREDIT', 'OTHER_CREDIT']);
+  it('`create_credit` alone → only the four credit kinds', () => {
+    expect(postableKindsFor(canWith(P('create_credit')) as never)).toEqual([
+      'DISCOUNT', 'GOODWILL_CREDIT', 'OTHER_CREDIT', 'STAFF_FAULT_CREDIT',
+    ]);
   });
 
   it('`create_restricted` alone → only write-off and correction', () => {
     expect(postableKindsFor(canWith(P('create_restricted')) as never)).toEqual(['WRITE_OFF', 'CORRECTION']);
   });
 
-  it('all three → all 8 standalone kinds, in the policy’s order', () => {
+  it('all three → all 9 standalone kinds, in the policy’s order', () => {
     const all = postableKindsFor(canWith(P('create'), P('create_credit'), P('create_restricted')) as never);
-    expect(all).toHaveLength(8);
+    expect(all).toHaveLength(9);
     expect(all).toEqual(ADJUSTMENT_KINDS.filter((k) => ADJUSTMENT_KIND_POLICY[k].creation === 'STANDALONE'));
   });
 

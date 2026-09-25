@@ -6,11 +6,16 @@ import {
   Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@water-supply-crm/ui';
 import { cn } from '@water-supply-crm/ui';
-import { Loader2, Wallet } from 'lucide-react';
+import { Loader2, Wallet, Link2 } from 'lucide-react';
 import type { CreatableStaffLedgerCategory } from '@water-supply-crm/types';
 import { CREATABLE_LEDGER_CATEGORIES, LEDGER_CATEGORY_CONFIG, LEDGER_CATEGORY_SIGN } from '../constants';
-import { useCreateLedgerEntry } from '../hooks/use-ledger-entry';
+import { useCreateLedgerEntry, useCreateLinkedPenalty } from '../hooks/use-ledger-entry';
 import { useEligibleEmployees } from '../hooks/use-eligible-employees';
+import { usePermissions } from '../../authz/hooks/use-permissions';
+import { CustomerCombobox } from '../../customer-adjustments/components/customer-combobox';
+
+/** Categories a customer link makes sense for — a bonus/advance/reimbursement etc. never has this shape. */
+const LINKABLE_CATEGORIES: CreatableStaffLedgerCategory[] = ['PENALTY', 'DEDUCTION'];
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -32,8 +37,11 @@ export interface LogLedgerEntryDialogProps {
  * categories, one row shape" philosophy.
  */
 export function LogLedgerEntryDialog({ open, onOpenChange, employee, defaultCategory }: LogLedgerEntryDialogProps) {
-  const { mutate: create, isPending } = useCreateLedgerEntry();
+  const { mutate: create, isPending: isCreatingPlain } = useCreateLedgerEntry();
+  const { mutate: createLinked, isPending: isCreatingLinked } = useCreateLinkedPenalty();
   const { data: employees, isLoading: employeesLoading } = useEligibleEmployees();
+  const { can } = usePermissions();
+  const canLinkCustomer = can('customer_financial_adjustments:create_credit');
 
   const [employeeId, setEmployeeId] = useState('');
   const [category, setCategory] = useState<CreatableStaffLedgerCategory | undefined>(defaultCategory);
@@ -41,6 +49,12 @@ export function LogLedgerEntryDialog({ open, onOpenChange, employee, defaultCate
   const [sign, setSign] = useState<'credit' | 'debit' | undefined>(undefined);
   const [effectiveDate, setEffectiveDate] = useState(todayIso());
   const [description, setDescription] = useState('');
+
+  // Linked Penalty (owner-approved 2026-09-25) — optional, only offered for
+  // PENALTY/DEDUCTION and only to staff who can also post a customer credit.
+  const [linkToCustomer, setLinkToCustomer] = useState(false);
+  const [customerId, setCustomerId] = useState('');
+  const [customerCreditTitle, setCustomerCreditTitle] = useState('');
 
   useEffect(() => {
     if (!open) return;
@@ -50,30 +64,54 @@ export function LogLedgerEntryDialog({ open, onOpenChange, employee, defaultCate
     setSign(undefined);
     setEffectiveDate(todayIso());
     setDescription('');
+    setLinkToCustomer(false);
+    setCustomerId('');
+    setCustomerCreditTitle('');
     // Only re-sync when the dialog transitions open — not on every keystroke.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const categoryMeta = category ? LEDGER_CATEGORY_CONFIG[category] : undefined;
   const isVariableSign = categoryMeta?.sign === 'variable';
+  const canOfferLink = canLinkCustomer && !!category && LINKABLE_CATEGORIES.includes(category);
+  const isLinked = canOfferLink && linkToCustomer;
+  const isPending = isCreatingPlain || isCreatingLinked;
 
   const isValid =
     !!employeeId &&
     !!category &&
     !!amount &&
     amount > 0 &&
-    (!isVariableSign || !!sign);
+    (!isVariableSign || !!sign) &&
+    (!isLinked || (!!customerId && !!customerCreditTitle.trim()));
 
   const handleSubmit = () => {
     if (!isValid || !category || !amount) return;
 
     const resolvedSign = isVariableSign ? (sign === 'credit' ? 1 : -1) : (LEDGER_CATEGORY_SIGN as Record<string, 1 | -1>)[category];
+    const signedAmount = amount * resolvedSign;
+
+    if (isLinked) {
+      createLinked(
+        {
+          userId: employeeId,
+          category: category as 'PENALTY' | 'DEDUCTION',
+          amount: signedAmount,
+          effectiveDate,
+          description: description.trim() || undefined,
+          customerId,
+          customerCreditTitle: customerCreditTitle.trim(),
+        },
+        { onSuccess: () => onOpenChange(false) },
+      );
+      return;
+    }
 
     create(
       {
         userId: employeeId,
         category,
-        amount: amount * resolvedSign,
+        amount: signedAmount,
         effectiveDate,
         description: description.trim() || undefined,
       },
@@ -210,6 +248,53 @@ export function LogLedgerEntryDialog({ open, onOpenChange, employee, defaultCate
               onChange={(e) => setDescription(e.target.value)}
             />
           </div>
+
+          {canOfferLink && (
+            <div className="space-y-3 rounded-xl border border-border/50 p-3">
+              <button
+                type="button"
+                onClick={() => setLinkToCustomer((v) => !v)}
+                className="flex items-center gap-2 text-xs font-bold"
+              >
+                <span
+                  className={cn(
+                    'flex h-4 w-4 items-center justify-center rounded border transition-colors',
+                    linkToCustomer ? 'bg-primary border-primary' : 'border-border/60',
+                  )}
+                >
+                  {linkToCustomer && <Link2 className="h-2.5 w-2.5 text-primary-foreground" />}
+                </span>
+                Link to a customer (optional)
+              </button>
+              <p className="text-[11px] text-muted-foreground -mt-1">
+                Use this when the reason is a customer's payment that was never recorded — the customer's
+                balance is credited the same amount, atomically.
+              </p>
+
+              {linkToCustomer && (
+                <div className="space-y-3 pt-1">
+                  <div className="space-y-2">
+                    <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
+                      Customer <span className="text-destructive">*</span>
+                    </Label>
+                    <CustomerCombobox id="linked-penalty-customer" value={customerId} onChange={(id) => setCustomerId(id)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
+                      Customer credit reason <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      placeholder="e.g. Cash payment recorded late"
+                      value={customerCreditTitle}
+                      onChange={(e) => setCustomerCreditTitle(e.target.value)}
+                      maxLength={120}
+                    />
+                    <p className="text-[11px] text-muted-foreground">Shown on the customer's statement.</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <DialogFooter>

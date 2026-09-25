@@ -29,7 +29,8 @@ export const useCustomerAdjustments = (params: CustomerAdjustmentQuery, options?
  * this feature's list, the customer (detail + lists + statement), the Transactions ledger, and the
  * analytics / dashboard figures — the same set the payment mutations refresh.
  */
-const invalidateAfterMutation = (queryClient: ReturnType<typeof useQueryClient>) => {
+/** Exported for LinkedPenaltyService's frontend mutations (use-ledger-entry.ts), which touch this same data. */
+export const invalidateAfterMutation = (queryClient: ReturnType<typeof useQueryClient>) => {
   queryClient.invalidateQueries({ queryKey: [CUSTOMER_ADJUSTMENTS_QUERY_KEY] });
   queryClient.invalidateQueries({ queryKey: ['customers'] });
   queryClient.invalidateQueries({ queryKey: ['customer'] });

@@ -285,6 +285,17 @@ export interface DeliveryItem {
     movedBy: { id: string; name: string };
     movedAt: string;
   };
+  /** Bottle Problem reports (damage/lost) filed against this delivery — shown
+   *  read-only on the sheet-detail card regardless of open/closed state. */
+  damageCases?: {
+    id: string;
+    caseType: 'DAMAGE' | 'LOST';
+    status: 'REPORTED' | 'UNDER_REVIEW' | 'CHARGED' | 'WAIVED' | 'REVERSED';
+    bottleCount: number;
+    description?: string | null;
+    lossReason?: 'CUSTOMER_NOT_RETURNED' | 'CUSTOMER_SAID_LOST' | 'WRONG_ADDRESS' | 'OTHER' | null;
+    createdAt: string;
+  }[];
 }
 
 export interface CustomerFinancialSummary {
@@ -895,6 +906,10 @@ export interface StaffLedgerEntry {
   /** Set once this entry is rolled into a locked payroll period; null while still "open". */
   payrollEntryId: string | null;
   reversedEntryId: string | null;
+  /** Linked Penalty (owner-approved 2026-09-25) — set together, only by the linked-penalty create path. */
+  linkedCustomerId: string | null;
+  linkedCustomer?: { id: string; name: string; customerCode: string } | null;
+  causedCustomerAdjustmentId: string | null;
   version: number;
   createdAt: string;
   updatedAt: string;

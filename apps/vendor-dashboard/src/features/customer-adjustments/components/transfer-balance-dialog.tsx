@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ArrowRight, ArrowRightLeft, CheckCircle2, Loader2, TriangleAlert, X } from 'lucide-react';
+import { ArrowRight, ArrowRightLeft, CheckCircle2, Loader2, TriangleAlert } from 'lucide-react';
 import {
   Button,
   Dialog,
@@ -15,10 +15,11 @@ import {
   Textarea,
   cn,
 } from '@water-supply-crm/ui';
-import { useCustomer, useCustomerSearch } from '../../customers/hooks/use-customers';
+import { useCustomer } from '../../customers/hooks/use-customers';
 import { apiErrorMessage } from '../api/customer-adjustments.api';
 import { useCreateBalanceTransfer, useTransferPreview } from '../hooks/use-customer-adjustments';
 import { fmtAdjustmentAmount } from '../format';
+import { CustomerCombobox } from './customer-combobox';
 import {
   NOTE_MAX,
   REFERENCE_MAX,
@@ -74,115 +75,6 @@ function BalancePill({ balance, label }: { balance: number; label: string }) {
         {owed ? '+' : '−'} {fmtAdjustmentAmount(Math.abs(balance))}
       </p>
       <p className="text-[10px] text-muted-foreground">{owed ? 'owed' : balance < 0 ? 'credit' : 'settled'}</p>
-    </div>
-  );
-}
-
-// ── Customer search combobox ─────────────────────────────────────────────────
-
-interface CustomerComboboxProps {
-  id: string;
-  value: string; // selected customerId
-  onChange: (id: string, name: string) => void;
-  excludeId?: string; // the source customer — exclude from results
-  error?: string;
-}
-
-function CustomerCombobox({ id, value, onChange, excludeId, error }: CustomerComboboxProps) {
-  const [query, setQuery] = useState('');
-  const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [open, setOpen] = useState(false);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const { data: results, isFetching } = useCustomerSearch(debouncedQuery, open || debouncedQuery.length > 0);
-
-  const customers = (results as any)?.data ?? [];
-  const filtered = customers.filter((c: { id: string }) => c.id !== excludeId);
-
-  const handleInput = (raw: string) => {
-    setQuery(raw);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => setDebouncedQuery(raw), 300);
-    if (!open) setOpen(true);
-  };
-
-  const select = (customer: { id: string; name: string; customerCode: string }) => {
-    onChange(customer.id, customer.name);
-    setQuery(`${customer.name} (${customer.customerCode})`);
-    setOpen(false);
-  };
-
-  const clear = () => {
-    onChange('', '');
-    setQuery('');
-    setDebouncedQuery('');
-    setOpen(false);
-  };
-
-  return (
-    <div className="relative">
-      <div className="relative flex items-center">
-        <Input
-          id={id}
-          value={query}
-          onChange={(e) => handleInput(e.target.value)}
-          onFocus={() => setOpen(true)}
-          placeholder="Search by name or customer code…"
-          className={cn('h-10 rounded-xl pr-8', error && 'border-destructive')}
-          autoComplete="off"
-        />
-        {(value || query) && (
-          <button
-            type="button"
-            onClick={clear}
-            className="absolute right-2.5 text-muted-foreground hover:text-foreground transition-colors"
-            aria-label="Clear"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </div>
-
-      {open && (query.length > 0 || debouncedQuery.length > 0) && (
-        <div className="absolute z-50 mt-1 w-full rounded-xl border border-border bg-popover shadow-xl overflow-hidden">
-          {isFetching ? (
-            <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Searching…
-            </div>
-          ) : filtered.length === 0 ? (
-            <p className="px-4 py-3 text-xs text-muted-foreground">No customers found.</p>
-          ) : (
-            <ul className="max-h-52 overflow-y-auto">
-              {filtered.map((c: { id: string; name: string; customerCode: string; financialBalance: number }) => (
-                <li key={c.id}>
-                  <button
-                    type="button"
-                    onClick={() => select(c)}
-                    className={cn(
-                      'w-full flex items-center justify-between gap-3 px-4 py-2.5 text-xs text-left hover:bg-accent/60 transition-colors',
-                      value === c.id && 'bg-primary/10',
-                    )}
-                  >
-                    <span>
-                      <span className="font-semibold">{c.name}</span>
-                      <span className="ml-2 font-mono text-muted-foreground">{c.customerCode}</span>
-                    </span>
-                    <span
-                      className={cn(
-                        'font-mono font-bold shrink-0',
-                        Number(c.financialBalance) > 0 ? 'text-rose-400' : 'text-emerald-400',
-                      )}
-                    >
-                      {Number(c.financialBalance) > 0 ? '+' : '−'}{' '}
-                      {fmtAdjustmentAmount(Math.abs(Number(c.financialBalance)))}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
     </div>
   );
 }

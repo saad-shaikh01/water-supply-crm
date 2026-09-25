@@ -13,6 +13,7 @@ import { JwtStrategy } from '../auth/jwt.strategy';
 import { PermissionService } from '../authz/permission.service';
 import { StaffLedgerController } from './staff-ledger.controller';
 import { StaffLedgerService } from './staff-ledger.service';
+import { LinkedPenaltyService } from './linked-penalty.service';
 import { PayrollPeriodController } from './payroll-period.controller';
 import { PayrollPeriodService } from './payroll-period.service';
 import { PayrollEntryController } from './payroll-entry.controller';
@@ -84,6 +85,7 @@ describe('Payroll routes — real APP_GUARD pipeline (JwtAuthGuard + Permissions
   let adminToken: string;
   let driverToken: string;
   let staffLedgerService: { create: jest.Mock };
+  let linkedPenaltyService: { createLinkedPenalty: jest.Mock; voidLinkedPenalty: jest.Mock };
   let payrollPeriodService: { lockPeriod: jest.Mock };
   let payrollEntryService: { listForPeriod: jest.Mock };
   let settlementService: { record: jest.Mock };
@@ -93,6 +95,10 @@ describe('Payroll routes — real APP_GUARD pipeline (JwtAuthGuard + Permissions
     process.env.JWT_SECRET = JWT_SECRET_FOR_TEST;
 
     staffLedgerService = { create: jest.fn().mockResolvedValue({ id: 'entry-001', status: 'POSTED' }) };
+    linkedPenaltyService = {
+      createLinkedPenalty: jest.fn().mockResolvedValue({ penaltyEntry: {}, customerAdjustment: {}, customerBalance: 700 }),
+      voidLinkedPenalty: jest.fn().mockResolvedValue({ penaltyEntry: {}, customerAdjustment: {}, customerBalance: 1000 }),
+    };
     payrollPeriodService = {
       lockPeriod: jest.fn().mockResolvedValue({ period: { id: 'period-001' }, lockedEntryCount: 0 }),
     };
@@ -119,6 +125,7 @@ describe('Payroll routes — real APP_GUARD pipeline (JwtAuthGuard + Permissions
         { provide: PrismaService, useValue: makeFakePrisma() },
         { provide: CacheInvalidationService, useValue: makeFakeCache() },
         { provide: StaffLedgerService, useValue: staffLedgerService },
+        { provide: LinkedPenaltyService, useValue: linkedPenaltyService },
         { provide: PayrollPeriodService, useValue: payrollPeriodService },
         { provide: PayrollEntryService, useValue: payrollEntryService },
         { provide: SettlementService, useValue: settlementService },

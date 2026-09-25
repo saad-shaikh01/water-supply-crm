@@ -2,13 +2,14 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import {
   Card, CardContent, CardHeader, CardTitle, Skeleton, Button, Badge,
 } from '@water-supply-crm/ui';
 import { cn } from '@water-supply-crm/ui';
 import {
   ArrowLeft, Wallet, HandCoins, Receipt, Gift, TriangleAlert,
-  TrendingUp, TrendingDown, History, FileClock, Info, Landmark, Pencil, Plus, Ban,
+  TrendingUp, TrendingDown, History, FileClock, Info, Landmark, Pencil, Plus, Ban, Link2, ExternalLink,
 } from 'lucide-react';
 import type { StaffLedgerEntry, SalaryStructure, StaffAdvancePlan } from '@water-supply-crm/types';
 import { StatusBadge } from '../../../components/shared/status-badge';
@@ -434,7 +435,19 @@ export function EmployeeFinancialProfile({ employeeId }: EmployeeFinancialProfil
               {
                 key: 'category', header: 'Category', essential: true,
                 cell: (r) => (
-                  <span className="font-semibold">{ledgerCategoryLabel(r.category)}</span>
+                  <div className="flex flex-col gap-1">
+                    <span className="font-semibold">{ledgerCategoryLabel(r.category)}</span>
+                    {r.linkedCustomer && (
+                      <Link
+                        href={`/dashboard/customers/${r.linkedCustomer.id}`}
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline w-fit"
+                      >
+                        <Link2 className="h-3 w-3" />
+                        {r.linkedCustomer.name} ({r.linkedCustomer.customerCode})
+                        <ExternalLink className="h-2.5 w-2.5" />
+                      </Link>
+                    )}
+                  </div>
                 ),
               },
               {

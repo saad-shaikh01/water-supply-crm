@@ -28,6 +28,33 @@ export interface CreateLedgerEntryData {
   description?: string;
 }
 
+/**
+ * Linked Penalty (owner-approved 2026-09-25) — `POST /payroll/ledger-entries/linked-penalty`.
+ * Atomically debits `userId` AND credits `customerId` the same amount (e.g. a driver
+ * never recorded a customer's cash payment). `amount` is negative, mirroring the plain
+ * PENALTY/DEDUCTION sign convention.
+ */
+export interface CreateLinkedPenaltyData {
+  userId: string;
+  category: 'PENALTY' | 'DEDUCTION';
+  amount: number;
+  effectiveDate: string;
+  description?: string;
+  customerId: string;
+  customerCreditTitle: string;
+}
+
+export interface LinkedPenaltyResult {
+  penaltyEntry: { id: string };
+  customerAdjustment: { id: string };
+  customerBalance: number;
+}
+
+export interface VoidLinkedPenaltyData {
+  version: number;
+  reason: string;
+}
+
 export interface LedgerEntryQuery {
   page?: number;
   limit?: number;
@@ -149,6 +176,12 @@ export const payrollApi = {
   getLedgerForEmployee: (userId: string, params?: LedgerEntryQuery) =>
     apiClient.get(`/payroll/ledger-entries/employee/${userId}`, { params }),
   createLedgerEntry: (data: CreateLedgerEntryData) => apiClient.post('/payroll/ledger-entries', data),
+
+  // Linked Penalty (owner-approved 2026-09-25)
+  createLinkedPenalty: (data: CreateLinkedPenaltyData) =>
+    apiClient.post<LinkedPenaltyResult>('/payroll/ledger-entries/linked-penalty', data),
+  voidLinkedPenalty: (id: string, data: VoidLinkedPenaltyData) =>
+    apiClient.patch<LinkedPenaltyResult>(`/payroll/ledger-entries/${id}/void-linked`, data),
 
   // Periods / entries
   listPeriods: () => apiClient.get('/payroll/periods'),

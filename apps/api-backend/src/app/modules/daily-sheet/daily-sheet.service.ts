@@ -957,7 +957,8 @@ export class DailySheetService implements OnModuleInit {
           };
           // On a correction, lead with an apology note so the customer understands
           // why a second receipt is arriving. Meta-approved `delivery_corrected`
-          // template: {{1}} name · {{2}} product · {{3}} qty · {{4}} cash collected.
+          // template: {{1}} name · {{2}} delivered qty · {{3}} cash collected ·
+          // {{4}} empty received · {{5}} customer code · {{6}} delivery date.
           if (isCorrection) {
             this.notifications
               .queueWhatsAppTemplate(
@@ -965,9 +966,11 @@ export class DailySheetService implements OnModuleInit {
                 CloudTemplateNames.DELIVERY_CORRECTED,
                 [
                   item.customer.name,
-                  item.product.name,
                   String(dto.filledDropped ?? 0),
                   String(dto.cashCollected ?? 0),
+                  String(dto.emptyReceived ?? 0),
+                  item.customer.customerCode,
+                  receiptData.deliveryDate,
                 ],
                 `ntf-delivery-corrected-${itemId}-${now.getTime()}-wa`,
                 { entityType: 'DELIVERY_ITEM', entityId: itemId, vendorId, type: NotificationType.DELIVERY_RECEIPT, recipientType: 'CUSTOMER', recipientId: item.customerId },
@@ -2494,6 +2497,23 @@ export class DailySheetService implements OnModuleInit {
             // sheet-detail row show a "Voided by X" badge without an audit-log
             // round-trip, mirroring crewConfirmedBy/closureRequestedBy above.
             voidedBy: { select: { id: true, name: true } },
+            // Bottle Problem reports (damage/lost) filed against this delivery —
+            // surfaced read-only on the sheet-detail card regardless of open/
+            // closed state, so a closed sheet still shows what was reported.
+            // Full case workflow (review/charge/waive) stays on the dedicated
+            // Damage Reports page; this is just the summary.
+            damageCases: {
+              select: {
+                id: true,
+                caseType: true,
+                status: true,
+                bottleCount: true,
+                description: true,
+                lossReason: true,
+                createdAt: true,
+              },
+              orderBy: { createdAt: 'desc' },
+            },
           },
           // Reflects the ACTUAL order deliveries were recorded in, not the
           // static planned route sequence — mirrors the frontend's

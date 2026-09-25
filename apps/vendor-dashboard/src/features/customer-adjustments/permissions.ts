@@ -29,14 +29,19 @@ export function postableKindsFor(can: (permission: Permission) => boolean): Post
 
 /**
  * Whether an adjustment is eligible to be voided (the backend's rules, mirrored so the button is
- * never offered for something that would be refused): still POSTED, not itself a REVERSAL, and not
- * one leg of a balance transfer (a transfer is voided as a whole group, a different endpoint).
+ * never offered for something that would be refused): still POSTED, not itself a REVERSAL, not
+ * one leg of a balance transfer (a transfer is voided as a whole group, a different endpoint), and
+ * not linked to a staff penalty (Linked Penalty, owner-approved 2026-09-25) — that one is voided
+ * from the payroll side, which reverses both halves together.
  */
-export function isVoidable(adjustment: Pick<CustomerAdjustment, 'status' | 'kind' | 'groupId'>): boolean {
+export function isVoidable(
+  adjustment: Pick<CustomerAdjustment, 'status' | 'kind' | 'groupId' | 'causedByStaffLedgerEntry'>,
+): boolean {
   return (
     adjustment.status === 'POSTED' &&
     adjustment.kind !== 'REVERSAL' &&
     !adjustment.groupId &&
+    !adjustment.causedByStaffLedgerEntry &&
     ADJUSTMENT_KIND_POLICY[adjustment.kind].creation === 'STANDALONE'
   );
 }

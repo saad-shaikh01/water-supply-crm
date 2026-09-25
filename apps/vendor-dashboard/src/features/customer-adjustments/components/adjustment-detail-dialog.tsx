@@ -174,6 +174,20 @@ function Body({ a, onClose }: { a: CustomerAdjustment; onClose: () => void }) {
         {canVoid && a.status === 'POSTED' && a.groupId && (
           <p className="text-[11px] text-muted-foreground">A balance transfer is voided as a whole — both legs reverse together.</p>
         )}
+
+        {/* Linked Penalty (owner-approved 2026-09-25) — voided from the staff member's ledger, which reverses both halves together. */}
+        {canVoid && a.status === 'POSTED' && a.causedByStaffLedgerEntry && (
+          <p className="text-[11px] text-muted-foreground">
+            This credit is linked to a staff penalty — void it from{' '}
+            <Link
+              href={`/dashboard/payroll/employees/${a.causedByStaffLedgerEntry.user.id}`}
+              className="text-primary hover:underline"
+            >
+              {a.causedByStaffLedgerEntry.user.name}'s ledger
+            </Link>{' '}
+            instead; the linked credit reverses with it.
+          </p>
+        )}
       </div>
 
       {showVoid && (

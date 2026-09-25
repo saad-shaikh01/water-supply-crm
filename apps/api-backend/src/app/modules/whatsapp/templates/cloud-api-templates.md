@@ -46,20 +46,21 @@ Blue Ice Purified Drinking Water
 ### 2. `monthly_statement`  — Statement / invoice, balance DUE (PDF ke saath)
 - **Category:** UTILITY · **Language:** English · **Header:** Document (PDF)
 - **Replaces:** `balanceReminderWithAttachedStatement`
-- **Body:**
+- **Body (as updated on Meta — confirmed 2026-09-25; 3 params):**
 ```
-Assalamu Alaikum, {{1}}
+Assalamu Alaikum, *{{1}}*,
 
-Please find your invoice attached.
+Your monthly invoice is attached for your review.
 
-Kindly review the invoice for your account details and current balance Rs. {{2}}.
+Customer Code: *{{2}}*
+Outstanding Balance: Rs. *{{3}}*
 
-We would appreciate your prompt payment.
+Kindly arrange payment at your earliest convenience.
 
-Thank you for choosing Blue Ice.
+Thank you for your continued trust in *Blue Ice*.
 ```
-- **Variables:** `{{1}}` = customer name · `{{2}}` = balance amount
-- **Sample:** `{{1}}` = `Ahmed`, `{{2}}` = `1500.00`
+- **Variables:** `{{1}}` = customer name · `{{2}}` = customer code · `{{3}}` = outstanding balance
+- **Sample:** `{{1}}` = `Ahmed`, `{{2}}` = `L0042`, `{{3}}` = `1500.00`
 
 ---
 
@@ -335,22 +336,29 @@ Driver aapke ghar aayega. Shukriya!
 - **Category:** UTILITY · **Language:** English
 - **Replaces:** `deliveryCorrected`
 - **Wired:** `daily-sheet.service.ts` `submitDelivery()` COMPLETED branch, **correction only** (`isCorrection = !!item.whatsappSentAt`) → `notifications.queueWhatsAppTemplate(... CloudTemplateNames.DELIVERY_CORRECTED ...)` → job `SEND_WHATSAPP_TEMPLATE`. Sent right before the re-sent PDF receipt so the customer knows why a second receipt is arriving. Gated by `NotificationType.DELIVERY_RECEIPT`.
-- **⚠️ Must be submitted + approved on Meta** — body below is the intended text (from the old free-text helper), not yet confirmed-approved. Until approved, the send fails with Graph API error 132000 and the correction still delivers the PDF receipt.
-- **Body:**
+- **Body (as updated on Meta — confirmed 2026-09-25; 6 params, order matters):**
 ```
-Assalam o Alaikum {{1}},
+Assalamu Alaikum, *{{1}}*,
 
-⚠️ Maafi chahte hain — aapki aaj ki delivery mein ek ghalti hui thi jo hum ne correct kar di hai.
+Your previous delivery entry has been updated following a correction to the original record.
 
-✅ Corrected Details:
-🔵 Product: {{2}}
-🫙 Quantity: {{3}} bottles
-💰 Cash Collected: Rs. {{4}}
+Please refer to the attached receipt as the latest and accurate version and disregard the previous one.
 
-Is ghalti ke liye muafi chahte hain. Shukriya!
+✅ *Corrected Details*:
+🫙 Delivered: {{2}} bottles
+🫙 Empty :  {{4}} bottles
+💰 Cash Collected: Rs. {{3}}
+
+Customer Code: *{{5}}*
+Delivery Date: *{{6}}*
+Status: Revised Delivery Record
+
+We apologize for the oversight and appreciate your understanding.
+
+Thank you for choosing Blue Ice. We value your business!
 ```
-- **Variables:** `{{1}}` = name · `{{2}}` = product · `{{3}}` = quantity · `{{4}}` = cash collected
-- **Sample:** `Ahmed`, `19L Bottle`, `2`, `500`
+- **Variables:** `{{1}}` = customer name · `{{2}}` = delivered qty · `{{3}}` = cash collected · `{{4}}` = empty received qty · `{{5}}` = customer code · `{{6}}` = delivery date
+- **Sample:** `{{1}}` = `Ahmed`, `{{2}}` = `2`, `{{3}}` = `500`, `{{4}}` = `2`, `{{5}}` = `L0042`, `{{6}}` = `31 July 2026`
 
 ---
 
@@ -462,7 +470,7 @@ We truly appreciate your continued trust and support.
 | 12 | `order_dispatched` | ✅ |
 | 13 | `ticket_replied` | ✅ |
 | 14 | `delivery_scheduled` | ⚪ Optional |
-| 15 | `delivery_corrected` | ✅ Code wired — submit for Meta approval |
+| 15 | `delivery_corrected` | ✅ Approved on Meta |
 | 16 | `delivery_completed` | ⚪ Optional |
 | 17 | `delivery_unsuccessful` | ✅ Code wired — submit for Meta approval |
 | 18 | `payment_recorded` | ✅ Approved on Meta |

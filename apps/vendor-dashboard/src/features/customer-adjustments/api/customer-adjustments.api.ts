@@ -46,6 +46,12 @@ export interface CustomerAdjustment {
   reversedBy: { id: string; kind: AdjustmentKind; status: AdjustmentStatus; effectiveDate: string } | null;
   /** The single ledger row this posted (signed amount) — exactly what the customer's statement shows. */
   transaction: { id: string; amount: number | null; description: string | null; createdAt: string } | null;
+  /**
+   * Linked Penalty (owner-approved 2026-09-25) — set only on a STAFF_FAULT_CREDIT
+   * posted by LinkedPenaltyService alongside a staff penalty. Null when posted
+   * standalone. Voidable only from the payroll side (see `isVoidable`).
+   */
+  causedByStaffLedgerEntry: { id: string; user: { id: string; name: string } } | null;
 }
 
 export interface CustomerAdjustmentQuery {

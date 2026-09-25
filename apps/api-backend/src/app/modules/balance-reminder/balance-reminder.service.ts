@@ -1178,7 +1178,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
    */
   private async sendReminder(
     vendorId: string,
-    customer: { id: string; name: string; phoneNumber: string },
+    customer: { id: string; name: string; customerCode: string; phoneNumber: string },
     balance: number,
     month: string,
     includeStatement: boolean,
@@ -1200,7 +1200,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
           return this.whatsapp.sendTemplate(
             customer.phoneNumber,
             CloudTemplateNames.MONTHLY_STATEMENT,
-            [customer.name, balance.toFixed(2)],
+            [customer.name, customer.customerCode, balance.toFixed(2)],
             document,
           );
         }

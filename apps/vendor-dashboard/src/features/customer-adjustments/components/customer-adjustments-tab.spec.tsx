@@ -52,6 +52,7 @@ const row = (o: Partial<CustomerAdjustment> & { id: string }): CustomerAdjustmen
   reversalOf: null,
   reversedBy: null,
   transaction: { id: 't1', amount: 500, description: 'Late payment penalty', createdAt: '2026-09-05T07:00:00.000Z' },
+  causedByStaffLedgerEntry: null,
   ...o,
 });
 
@@ -261,6 +262,7 @@ describe('CustomerAdjustmentsTab', () => {
         'Write-off',
         'Correction',
         'Reversal',
+        'Staff-fault credit',
       ]);
       expect(within(screen.getByLabelText('Status')).getAllByRole('option').map((o) => o.textContent)).toEqual([
         'All statuses',
@@ -420,12 +422,18 @@ describe('CustomerAdjustmentsTab', () => {
 
     it.each([
       [['create'], ['Service fee', 'Penalty', 'Other charge']],
-      [['create_credit'], ['Discount', 'Goodwill credit', 'Other credit']],
+      [['create_credit'], ['Discount', 'Goodwill credit', 'Other credit', 'Staff-fault credit']],
       [['create_restricted'], ['Write-off', 'Correction']],
-      [['create', 'create_credit'], ['Service fee', 'Penalty', 'Other charge', 'Discount', 'Goodwill credit', 'Other credit']],
+      [
+        ['create', 'create_credit'],
+        ['Service fee', 'Penalty', 'Other charge', 'Discount', 'Goodwill credit', 'Other credit', 'Staff-fault credit'],
+      ],
       [
         ['create', 'create_credit', 'create_restricted'],
-        ['Service fee', 'Penalty', 'Other charge', 'Discount', 'Goodwill credit', 'Other credit', 'Write-off', 'Correction'],
+        [
+          'Service fee', 'Penalty', 'Other charge', 'Discount', 'Goodwill credit', 'Other credit', 'Staff-fault credit',
+          'Write-off', 'Correction',
+        ],
       ],
     ])('a user holding %p is offered exactly those kinds', async (actions, expected) => {
       list.mockResolvedValue(page(ROWS));
@@ -531,7 +539,7 @@ describe('CustomerAdjustmentsTab', () => {
       grant('void');
       const dialog = await openRow('Balance transferred to C-0002');
       expect(voidButton(dialog)).toBeNull();
-      expect(within(dialog).getByText(/voided as a whole, not leg by leg/)).toBeTruthy();
+      expect(within(dialog).getByText(/voided as a whole.*both legs reverse together/)).toBeTruthy();
     });
 
     it('voids with the reason, closes everything, and refreshes the list', async () => {

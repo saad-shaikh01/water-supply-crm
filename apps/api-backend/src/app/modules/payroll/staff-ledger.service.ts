@@ -517,6 +517,10 @@ export class StaffLedgerService {
     const [data, total] = await Promise.all([
       this.prisma.staffLedgerEntry.findMany({
         where,
+        // Linked Penalty (owner-approved 2026-09-25) — surfaces which customer
+        // (if any) this entry is linked to, for display on the employee's
+        // financial profile.
+        include: { linkedCustomer: { select: { id: true, name: true, customerCode: true } } },
         orderBy: { effectiveDate: 'desc' },
         skip: (page - 1) * limit,
         take: limit,

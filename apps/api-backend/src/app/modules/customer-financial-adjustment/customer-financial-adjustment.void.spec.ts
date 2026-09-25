@@ -551,6 +551,25 @@ describe('CustomerFinancialAdjustmentService.voidAdjustment', () => {
       expectUntouched(t, before);
     });
 
+    it('blocks voiding a credit that is linked to a staff penalty (Linked Penalty, owner-approved 2026-09-25)', async () => {
+      const t = build();
+      const id = t.seed({ kind: 'STAFF_FAULT_CREDIT', direction: 'CREDIT', linkedFromStaffLedgerEntryId: 'entry-001' });
+      const before = t.snapshot();
+      await expect(t.service.voidAdjustment(USER, id, voidDto())).rejects.toThrow(/linked to a staff penalty/i);
+      expectUntouched(t, before);
+    });
+
+    it('skipLinkGuard lets an orchestrator (LinkedPenaltyService) void a linked credit via voidAdjustmentTx', async () => {
+      const t = build();
+      const id = t.seed({ kind: 'STAFF_FAULT_CREDIT', direction: 'CREDIT', linkedFromStaffLedgerEntryId: 'entry-001' });
+
+      const result = await t.db.$transaction((tx: any) =>
+        t.service.voidAdjustmentTx(tx, USER, id, REASON, { skipLinkGuard: true }),
+      );
+
+      expect(result.adjustment.status).toBe('VOIDED');
+    });
+
     it('404s for an unknown id', async () => {
       const t = build();
       const before = t.snapshot();

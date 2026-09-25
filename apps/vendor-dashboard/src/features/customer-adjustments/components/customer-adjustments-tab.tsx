@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { AlertCircle, Calendar, Inbox, Plus, ArrowRightLeft, X } from 'lucide-react';
+import Link from 'next/link';
+import { AlertCircle, Calendar, Inbox, Plus, ArrowRightLeft, X, Link2 } from 'lucide-react';
 import { Button, Input, Label, cn } from '@water-supply-crm/ui';
 import { ADJUSTMENT_KINDS, ADJUSTMENT_STATUSES, type AdjustmentKind, type AdjustmentStatus } from '@water-supply-crm/types';
 import { DataTable } from '../../../components/shared/data-table';
@@ -235,6 +236,15 @@ export function CustomerAdjustmentsTab({ customerId }: CustomerAdjustmentsTabPro
                     {r.title}
                   </p>
                   {r.referenceNo && <p className="text-[10px] font-mono text-muted-foreground truncate">Ref {r.referenceNo}</p>}
+                  {r.causedByStaffLedgerEntry && (
+                    <Link
+                      href={`/dashboard/payroll/employees/${r.causedByStaffLedgerEntry.user.id}`}
+                      className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary hover:underline w-fit"
+                    >
+                      <Link2 className="h-2.5 w-2.5" />
+                      Linked to staff penalty — {r.causedByStaffLedgerEntry.user.name}
+                    </Link>
+                  )}
                 </div>
               ),
             },

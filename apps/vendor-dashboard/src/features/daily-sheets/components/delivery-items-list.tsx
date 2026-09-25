@@ -9,7 +9,7 @@ import {
 import { StatusBadge } from '../../../components/shared/status-badge';
 import {
   AlertCircle, ArrowRightLeft, Ban, CalendarClock, Camera, Check, CheckSquare, ChevronDown, ChevronUp, ClipboardList, Download,
-  Droplet, History, LocateFixed, Lock, Loader2, MapPin, MessageCircle, MessageSquare, Navigation, Pencil, Phone, Send, StickyNote, Truck, Unlock, X,
+  Droplet, History, LocateFixed, Lock, Loader2, MapPin, MessageCircle, MessageSquare, Navigation, Pencil, Phone, Send, ShieldAlert, StickyNote, Truck, Unlock, X,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -41,6 +41,22 @@ const CATEGORY_LABELS: Record<string, string> = {
   OTHER: 'Other',
 };
 const formatCategory = (cat: string) => CATEGORY_LABELS[cat] ?? cat;
+
+const LOSS_REASON_LABELS: Record<string, string> = {
+  CUSTOMER_NOT_RETURNED: "Customer didn't have it",
+  CUSTOMER_SAID_LOST: 'Customer said it got lost',
+  WRONG_ADDRESS: 'Left at wrong address',
+  OTHER: 'Other reason',
+};
+const formatLossReason = (r?: string | null) => (r ? LOSS_REASON_LABELS[r] ?? r : null);
+
+const DAMAGE_CASE_STATUS_LABELS: Record<string, string> = {
+  REPORTED: 'Reported',
+  UNDER_REVIEW: 'Under Review',
+  CHARGED: 'Charged',
+  WAIVED: 'Waived',
+  REVERSED: 'Reversed',
+};
 
 const VOID_REASON_LABELS: Record<string, string> = {
   DUPLICATE: 'Duplicate entry',
@@ -1113,6 +1129,32 @@ export function DeliveryItemsList({
                                   View Photo
                                 </button>
                               )}
+                            </div>
+                          )}
+                          {!!item.damageCases?.length && (
+                            <div className="space-y-1.5">
+                              {item.damageCases.map((dc) => (
+                                <div
+                                  key={dc.id}
+                                  className="flex items-start justify-between gap-2 text-xs bg-amber-500/5 rounded-xl px-3 py-2 border border-amber-500/20"
+                                >
+                                  <div className="flex items-start gap-2">
+                                    <ShieldAlert className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+                                    <div>
+                                      <span className="font-bold text-amber-700 dark:text-amber-400">
+                                        {dc.caseType === 'DAMAGE' ? 'Bottle Damaged' : 'Bottle Not Given'} · {dc.bottleCount} btl
+                                      </span>
+                                      {dc.description && <span className="text-muted-foreground"> · {dc.description}</span>}
+                                      {formatLossReason(dc.lossReason) && (
+                                        <span className="text-muted-foreground"> · {formatLossReason(dc.lossReason)}</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <span className="shrink-0 text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400">
+                                    {DAMAGE_CASE_STATUS_LABELS[dc.status] ?? dc.status}
+                                  </span>
+                                </div>
+                              ))}
                             </div>
                           )}
                           {!item.failureCategory && item.reason && (

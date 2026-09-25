@@ -1,5 +1,7 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { StaffLedgerCategory } from '@prisma/client';
 import { LinkedPenaltyService } from './linked-penalty.service';
+import type { CreateLinkedPenaltyDto } from './dto/create-linked-penalty.dto';
 
 // ─── fixtures ─────────────────────────────────────────────────────────────────
 
@@ -11,10 +13,10 @@ const ADJUSTMENT_ID = 'adjustment-001';
 
 const user = { userId: 'admin-001', vendorId: VENDOR_ID, role: 'VENDOR_ADMIN', name: 'Admin' } as any;
 
-function makeCreateDto(overrides: Partial<any> = {}) {
+function makeCreateDto(overrides: Partial<CreateLinkedPenaltyDto> = {}): CreateLinkedPenaltyDto {
   return {
     userId: EMPLOYEE_ID,
-    category: 'PENALTY',
+    category: StaffLedgerCategory.PENALTY,
     amount: -300,
     effectiveDate: '2026-09-25',
     description: 'Driver never recorded a cash payment',
@@ -160,6 +162,8 @@ describe('LinkedPenaltyService', () => {
         vendorId: VENDOR_ID,
         causedCustomerAdjustmentId: ADJUSTMENT_ID,
       });
+      // The credit is being reversed, so the customer's live balance goes back up.
+      prisma.customer.findUniqueOrThrow.mockResolvedValue({ financialBalance: 1000 });
 
       const dto = { version: 1, reason: 'Driver actually recorded it correctly' };
       const result = await svc.voidLinkedPenalty(user, ENTRY_ID, dto);
