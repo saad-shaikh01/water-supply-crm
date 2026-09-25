@@ -286,6 +286,16 @@ export const PERMISSION_CATALOG = {
       // action rather than reusing an existing one. Default holder: Manager (+ `*`
       // roles) — same tier as ledger_create/salary_structure_manage/period_generate.
       'advance_plan_manage',
+      // Amendment R22 (Dual-Cutoff Payroll Flexibility, owner-requested
+      // 2026-09-25): manage `PayrollVendorConfig` — the attendance-period
+      // `cutoffDay` and the optional, separately-anchored cash-deduction
+      // window (`cashCutoffDay`/`cashWindowCategories`, see the schema
+      // comment). Changing the vendor's pay-cycle definition is
+      // VENDOR_ADMIN-only by default (NOT granted to the Manager preset) —
+      // same sensitivity tier as `period_unlock`/`view_all`, since it
+      // reshapes every future period's computation rather than one ledger
+      // row.
+      'config_manage',
     ],
   },
   // Amendment R5 (Crew Cash Phase 3, owner-approved 2026-08-07): new resource — see

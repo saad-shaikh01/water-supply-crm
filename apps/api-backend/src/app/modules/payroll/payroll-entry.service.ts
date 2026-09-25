@@ -17,6 +17,7 @@ import { assertCanViewEmployeePayroll } from '../../common/helpers/payroll-view-
 import { roundToNearestRupee } from '../../common/helpers/payroll-rounding.util';
 import { PermissionService } from '../authz/permission.service';
 import { StaffAdvancePlanService } from './staff-advance-plan.service';
+import { computeCycleForCutoff } from './payroll-cycle.util';
 
 function versionMismatch(expected: number, received: number): ConflictException {
   return new ConflictException(`Version mismatch: expected ${expected}, received ${received}. Reload and retry.`);
@@ -372,12 +373,14 @@ export class PayrollEntryService {
 
     await assertCanViewEmployeePayroll(this.permissions, user, entry.userId);
 
+    const cashWindow = await this.resolveCashWindow(this.prisma, user.vendorId, entry.period);
+
     const ledgerEntries = await this.prisma.staffLedgerEntry.findMany({
       where: {
         vendorId: user.vendorId,
         userId: entry.userId,
         status: LedgerEntryStatus.POSTED,
-        effectiveDate: { gte: entry.period.startDate, lte: entry.period.endDate },
+        ...this.ledgerWindowFilter(entry.period, cashWindow),
       },
       orderBy: { effectiveDate: 'asc' },
     });
@@ -416,7 +419,7 @@ export class PayrollEntryService {
         : null;
     const advancePlans = await this.advancePlans.listForEmployeePeriod(user.vendorId, entry.userId, entry.periodId);
 
-    return { entry, ledgerEntriesByBucket: byBucket, attendance, suggestedMonthlyDailyRate, advancePlans };
+    return { entry, ledgerEntriesByBucket: byBucket, attendance, suggestedMonthlyDailyRate, advancePlans, cashWindow };
   }
 
   /**
@@ -559,17 +562,19 @@ export class PayrollEntryService {
     userId: string,
     period: PayrollPeriod,
   ): Promise<{ buckets: BucketTotals; ledgerEntryIds: string[] }> {
+    const cashWindow = await this.resolveCashWindow(tx, vendorId, period);
+
     const ledgerEntries = await tx.staffLedgerEntry.findMany({
       where: {
         vendorId,
         userId,
         status: LedgerEntryStatus.POSTED,
         payrollEntryId: null,
-        effectiveDate: { gte: period.startDate, lte: period.endDate },
         // Advance Installments — a plan's ADVANCE_DISBURSEMENT never enters any
         // PayrollEntry bucket (see bucketKeyForCategory); only its
-        // ADVANCE_RECOVERY installments do, each in the period it's collected.
+        // ADVANCE_RECOVERY installments do, each in the window it's collected.
         category: { not: StaffLedgerCategory.ADVANCE_DISBURSEMENT },
+        ...this.ledgerWindowFilter(period, cashWindow),
       },
       select: { id: true, category: true, amount: true },
     });
@@ -581,6 +586,55 @@ export class PayrollEntryService {
       ledgerEntryIds.push(ledgerEntry.id);
     }
     return { buckets, ledgerEntryIds };
+  }
+
+  /**
+   * The vendor's optional cash-deduction window (`PayrollVendorConfig.
+   * cashCutoffDay`/`cashWindowCategories` — see the schema comment). Returns
+   * `null` when disabled (no `cashCutoffDay` set, or no category opted in)
+   * so every caller falls back to the single attendance-period query,
+   * byte-identical to before this feature existed. When enabled, the
+   * window's cycle is `computeCycleForCutoff()` anchored on `cashCutoffDay`,
+   * for the cycle containing the ATTENDANCE period's own `endDate` — i.e.
+   * "whichever cashCutoffDay-cycle this payroll run's payout falls in".
+   * Accepts either a live transaction client or the plain `PrismaService`
+   * (structurally compatible with `Prisma.TransactionClient`) since
+   * `getBreakdown` — a read-only, non-transactional call — needs the same
+   * resolution outside of `generateDraft`/`lockPeriod`'s transaction.
+   */
+  private async resolveCashWindow(
+    prismaOrTx: Prisma.TransactionClient | PrismaService,
+    vendorId: string,
+    period: PayrollPeriod,
+  ): Promise<{ startDate: Date; endDate: Date; categories: StaffLedgerCategory[] } | null> {
+    const config = await prismaOrTx.payrollVendorConfig.findUnique({ where: { vendorId } });
+    if (!config?.cashCutoffDay || config.cashWindowCategories.length === 0) return null;
+
+    const { startDate, endDate } = computeCycleForCutoff(config.cashCutoffDay, period.endDate);
+    return { startDate, endDate, categories: config.cashWindowCategories };
+  }
+
+  /**
+   * The `effectiveDate` (+ category split, when a cash window is active)
+   * clause shared by `computeLedgerContribution` and `getBreakdown` — the
+   * ONE place either query decides which window a category's rows come
+   * from, so the numbers actually summed and the rows displayed as "why"
+   * can never disagree. `cashWindow == null` (the default for every vendor
+   * that hasn't opted in) reduces to the original single-window filter.
+   */
+  private ledgerWindowFilter(
+    period: PayrollPeriod,
+    cashWindow: { startDate: Date; endDate: Date; categories: StaffLedgerCategory[] } | null,
+  ): Prisma.StaffLedgerEntryWhereInput {
+    if (!cashWindow) {
+      return { effectiveDate: { gte: period.startDate, lte: period.endDate } };
+    }
+    return {
+      OR: [
+        { category: { in: cashWindow.categories }, effectiveDate: { gte: cashWindow.startDate, lte: cashWindow.endDate } },
+        { category: { notIn: cashWindow.categories }, effectiveDate: { gte: period.startDate, lte: period.endDate } },
+      ],
+    };
   }
 
   /**

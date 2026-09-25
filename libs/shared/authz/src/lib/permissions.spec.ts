@@ -134,7 +134,12 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // 2026-09-24, Amendment R21): create/update a StaffAdvancePlan, collect/skip a
 // period's installment. No new resource, no new `:page` — added to the existing
 // `payroll` resource.
-const FROZEN_TOTAL = 205;
+// 206 = 205 + payroll:config_manage — Dual-Cutoff Payroll Flexibility
+// (owner-requested 2026-09-25, Amendment R22): manage PayrollVendorConfig's
+// cutoffDay/cashCutoffDay/cashWindowCategories. No new resource, no new
+// `:page` — added to the existing `payroll` resource, VENDOR_ADMIN-only by
+// default (reaches vendors via the `*` wildcard only, no preset grants it).
+const FROZEN_TOTAL = 206;
 const FROZEN_PAGES = 31;
 const FROZEN_RESOURCES = 35;
 

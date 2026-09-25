@@ -82,6 +82,7 @@ export const queryKeys = {
     advancePlansByEmployee: (userId: string) => ['payroll', 'advance-plans-employee', userId] as const,
     advanceVendorSummary: () => ['payroll', 'advance-vendor-summary'] as const,
     advancePendingCount: (periodId: string) => ['payroll', 'advance-pending-count', periodId] as const,
+    vendorConfig: () => ['payroll', 'vendor-config'] as const,
   },
   // Fleet Operations & Vehicle Intelligence (docs/features/fleet-operations-vehicle-intelligence.md).
   fleet: {

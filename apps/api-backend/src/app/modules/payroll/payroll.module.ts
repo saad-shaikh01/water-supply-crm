@@ -27,6 +27,8 @@ import { StandaloneCrewCashService } from './standalone-crew-cash.service';
 import { StandaloneCrewCashController } from './standalone-crew-cash.controller';
 import { StaffAdvancePlanService } from './staff-advance-plan.service';
 import { StaffAdvancePlanController } from './staff-advance-plan.controller';
+import { PayrollVendorConfigService } from './payroll-vendor-config.service';
+import { PayrollVendorConfigController } from './payroll-vendor-config.controller';
 
 /**
  * Staff Payroll & Financial Management — Phase 1b.
@@ -85,6 +87,7 @@ import { StaffAdvancePlanController } from './staff-advance-plan.controller';
     StandaloneCrewCashController,
     AttendanceCategoryController,
     StaffAdvancePlanController,
+    PayrollVendorConfigController,
   ],
   providers: [
     SalaryStructureService,
@@ -100,6 +103,7 @@ import { StaffAdvancePlanController } from './staff-advance-plan.controller';
     StandaloneCrewCashService,
     AttendanceCategoryService,
     StaffAdvancePlanService,
+    PayrollVendorConfigService,
   ],
   exports: [
     SalaryStructureService,

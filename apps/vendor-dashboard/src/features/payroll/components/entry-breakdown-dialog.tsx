@@ -226,6 +226,13 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
                   <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
                     Ledger Entries by Bucket
                   </h3>
+                  {data.cashWindow && (
+                    <p className="text-xs text-muted-foreground bg-accent/30 border border-border/40 rounded-lg px-3 py-2">
+                      {data.cashWindow.categories.map((c) => ledgerCategoryLabel(c)).join(', ')} use a separate
+                      cash-deduction window: {formatDate(data.cashWindow.startDate)} – {formatDate(data.cashWindow.endDate)}.
+                      Every other category uses the attendance period above.
+                    </p>
+                  )}
                   {BUCKET_ORDER.every(({ key }) => data.ledgerEntriesByBucket[key].length === 0) ? (
                     <p className="text-sm text-muted-foreground">No ledger entries fed this breakdown.</p>
                   ) : (

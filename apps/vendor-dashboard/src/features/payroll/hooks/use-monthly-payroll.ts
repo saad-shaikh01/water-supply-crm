@@ -57,6 +57,14 @@ export interface PayrollEntryBreakdown {
   /** `baseAmount ÷ period day count`, rounded — only present for a MONTHLY employee. */
   suggestedMonthlyDailyRate: number | null;
   advancePlans: StaffAdvancePlanWithPeriodInstallment[];
+  /**
+   * Dual-Cutoff Payroll Flexibility (owner-requested 2026-09-25) — non-null
+   * only when the vendor has an active cash-deduction window configured
+   * (Payroll Settings). `categories` are pulled from `[startDate, endDate]`
+   * here instead of the attendance period above; every other category still
+   * uses `entry.period`.
+   */
+  cashWindow: { startDate: string; endDate: string; categories: string[] } | null;
 }
 
 /**

@@ -2924,16 +2924,35 @@ model PayrollApprovalRule {
 }
 
 // Per-vendor payroll singleton (mirrors CollectionPolicyConfig's convention).
+//
+// Dual-cutoff support (owner-requested 2026-09-25): a vendor like the "pays
+// on the 10th but attendance is calendar-month" case needs the wage/
+// attendance period (cutoffDay, unchanged — drives PayrollPeriod.startDate/
+// endDate and the attendance grid) to run on a DIFFERENT cycle than the
+// cash-movement categories it settles (advances, crew cash/meal, etc.),
+// which that vendor cuts off on the 10th regardless of the attendance
+// month. `cashCutoffDay` is nullable and OFF by default (null = every
+// category stays on the single `cutoffDay` window exactly as before —
+// byte-identical for every existing vendor). When set, only the categories
+// listed in `cashWindowCategories` are pulled from the separate cash-cutoff
+// cycle (computed by the same computeCycleForCutoff() anchored on
+// `cashCutoffDay`, for the cycle containing the period's endDate — see
+// payroll-cycle.util.ts); every other category still uses the attendance
+// period. Empty `cashWindowCategories` with a non-null `cashCutoffDay` is a
+// harmless no-op (no category is redirected), left to the vendor to opt
+// categories in one at a time rather than validated as a pair.
 model PayrollVendorConfig {
-  id              String   @id @default(uuid())
-  vendorId        String   @unique
-  vendor          Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  cutoffDay       Int      @default(1) // day of month the pay period starts/ends — vendor-configurable, not hardcoded to calendar month
-  autoLockEnabled Boolean  @default(false)
-  updatedById     String
-  updatedBy       User     @relation(fields: [updatedById], references: [id])
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                    String                @id @default(uuid())
+  vendorId              String                @unique
+  vendor                Vendor                @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  cutoffDay             Int                    @default(1) // day of month the pay period starts/ends — vendor-configurable, not hardcoded to calendar month
+  cashCutoffDay         Int? // day of month the SEPARATE cash-deduction cycle starts/ends; null = disabled, cashWindowCategories are ignored
+  cashWindowCategories  StaffLedgerCategory[]  @default([]) // which ledger categories are pulled from the cashCutoffDay cycle instead of the attendance period; ignored while cashCutoffDay is null
+  autoLockEnabled       Boolean                @default(false)
+  updatedById           String
+  updatedBy             User                   @relation(fields: [updatedById], references: [id])
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
 
   @@index([vendorId])
 }

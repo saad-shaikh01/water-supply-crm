@@ -6,7 +6,27 @@ import type {
   PayFrequency,
   SettlementMethod,
   StaffAttendance,
+  StaffLedgerCategory,
 } from '@water-supply-crm/types';
+
+/**
+ * Dual-Cutoff Payroll Flexibility (owner-requested 2026-09-25) —
+ * `PayrollVendorConfig`'s attendance cutoff + the optional, separately-
+ * anchored cash-deduction window (see the schema comment on
+ * `PayrollVendorConfig`). Every field is eligible for `cashWindowCategories`
+ * except ADVANCE_DISBURSEMENT, which never enters a PayrollEntry bucket at
+ * all (mirrors `CASH_WINDOW_ELIGIBLE_CATEGORIES` in the backend DTO).
+ */
+export interface PayrollVendorConfigData {
+  cutoffDay: number;
+  cashCutoffDay: number | null;
+  cashWindowCategories: StaffLedgerCategory[];
+  autoLockEnabled: boolean;
+}
+
+export type UpdatePayrollVendorConfigData = Omit<PayrollVendorConfigData, 'autoLockEnabled'> & {
+  autoLockEnabled?: boolean;
+};
 
 export interface CreateSalaryStructureData {
   userId: string;
@@ -230,4 +250,9 @@ export const payrollApi = {
   getAdvanceVendorSummary: () => apiClient.get<AdvanceVendorSummary>('/payroll/advance-plans/vendor-summary'),
   getPendingInstallmentCount: (periodId: string) =>
     apiClient.get<number>(`/payroll/advance-installments/period/${periodId}/pending-count`),
+
+  // Vendor config (Dual-Cutoff Payroll Flexibility, owner-requested 2026-09-25)
+  getVendorConfig: () => apiClient.get<PayrollVendorConfigData>('/payroll/config'),
+  updateVendorConfig: (data: UpdatePayrollVendorConfigData) =>
+    apiClient.put<PayrollVendorConfigData>('/payroll/config', data),
 };

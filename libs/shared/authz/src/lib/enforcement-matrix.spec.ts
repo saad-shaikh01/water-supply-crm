@@ -28,7 +28,7 @@ const MATRIX: Record<RoleKey, Row> = {
     deny: [],
   },
   vendor_admin: {
-    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'daily_sheets:reprice', 'settings:update', 'whatsapp:manage', 'inventory:write_off', 'payroll:period_lock', 'payroll:view_all', 'payroll:attendance_view', 'payroll:attendance_mark', 'crew_cash:approve', 'crew_cash:view_all', 'customers:deactivate', 'customers:force_deactivate', 'customers:force_deactivate_bottles', 'customers:bottle_wallet_adjust', 'customer_financial_adjustments:create_restricted', 'customer_financial_adjustments:transfer', 'customer_financial_adjustments:void'],
+    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'daily_sheets:reprice', 'settings:update', 'whatsapp:manage', 'inventory:write_off', 'payroll:period_lock', 'payroll:view_all', 'payroll:attendance_view', 'payroll:attendance_mark', 'payroll:config_manage', 'crew_cash:approve', 'crew_cash:view_all', 'customers:deactivate', 'customers:force_deactivate', 'customers:force_deactivate_bottles', 'customers:bottle_wallet_adjust', 'customer_financial_adjustments:create_restricted', 'customer_financial_adjustments:transfer', 'customer_financial_adjustments:void'],
     deny: [],
   },
   manager: {
@@ -60,6 +60,9 @@ const MATRIX: Record<RoleKey, Row> = {
       // view_all is override-only (Amendment R3) — MANAGER does not get it by default,
       // unlike ledger_create/salary_structure_manage/period_generate above.
       'payroll:view_all',
+      // config_manage (Amendment R22, Dual-Cutoff Payroll Flexibility) is
+      // VENDOR_ADMIN-only by default, same tier as period_unlock/view_all above.
+      'payroll:config_manage',
       // Customer Force Deactivate (owner-requested 2026-09-09) is VENDOR_ADMIN-only
       // by default — Manager can be granted it explicitly but does not hold it.
       'customers:force_deactivate',

@@ -7,7 +7,7 @@ import {
   ClipboardList, CreditCard, UserCog, Droplets, Banknote, Navigation,
   Receipt, Bell, BellRing, ScrollText, BarChart2, Home, History, ShoppingCart,
   MessageSquare, AlertTriangle, Tag, ShieldAlert, Warehouse, Wrench, ChevronDown, KeyRound,
-  Inbox, Percent, Wallet, Landmark, Gauge, AlertOctagon, PiggyBank, CalendarCheck, Fuel, UserCheck,
+  Inbox, Percent, Wallet, Landmark, Gauge, AlertOctagon, PiggyBank, CalendarCheck, Fuel, UserCheck, Settings,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { pagePermissionForPath } from '@water-supply-crm/authz';
@@ -104,6 +104,7 @@ const navItems: NavItem[] = [
   { label: 'Attendance', href: '/dashboard/payroll/attendance', icon: CalendarCheck, group: 'Payroll' },
   { label: 'Monthly Payroll', href: '/dashboard/payroll/monthly', icon: ClipboardList, group: 'Payroll' },
   { label: 'History', href: '/dashboard/payroll/history', icon: Landmark, group: 'Payroll' },
+  { label: 'Settings', href: '/dashboard/payroll/settings', icon: Settings, group: 'Payroll' },
 
   // Finance
   { label: 'Transactions', href: '/dashboard/transactions', icon: CreditCard, group: 'Finance' },

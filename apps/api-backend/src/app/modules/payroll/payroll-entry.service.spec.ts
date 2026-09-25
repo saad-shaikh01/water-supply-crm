@@ -97,6 +97,12 @@ function makeTx(overrides: any = {}) {
     staffAttendance: {
       groupBy: jest.fn().mockResolvedValue([]),
     },
+    // Dual-Cutoff Payroll Flexibility (2026-09-25): a missing/null config row
+    // means the cash-deduction window is disabled — every existing test (no
+    // vendor has opted in) exercises the single-window fallback unaffected.
+    payrollVendorConfig: {
+      findUnique: jest.fn().mockResolvedValue(null),
+    },
     ...overrides,
   };
 }
@@ -221,6 +227,95 @@ describe('PayrollEntryService', () => {
           }),
         }),
       );
+    });
+  });
+
+  describe('generateDraft() — Dual-Cutoff cash-deduction window (owner-requested 2026-09-25)', () => {
+    it('stays on the single attendance-period window when the vendor has no PayrollVendorConfig row (the default for every existing vendor)', async () => {
+      const { svc, tx } = makeService();
+      await svc.generateDraft(adminUser, PERIOD_ID);
+      expect(tx.staffLedgerEntry.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            effectiveDate: { gte: openPeriod.startDate, lte: openPeriod.endDate },
+          }),
+        }),
+      );
+      // No OR-split clause at all when the feature is off.
+      const where = tx.staffLedgerEntry.findMany.mock.calls[0][0].where;
+      expect(where.OR).toBeUndefined();
+    });
+
+    it('stays on the single window when cashCutoffDay is set but no category has opted in (empty cashWindowCategories)', async () => {
+      const { svc, tx } = makeService({
+        txOverrides: {
+          payrollVendorConfig: {
+            findUnique: jest.fn().mockResolvedValue({ cashCutoffDay: 10, cashWindowCategories: [] }),
+          },
+        },
+      });
+      await svc.generateDraft(adminUser, PERIOD_ID);
+      const where = tx.staffLedgerEntry.findMany.mock.calls[0][0].where;
+      expect(where.OR).toBeUndefined();
+      expect(where.effectiveDate).toEqual({ gte: openPeriod.startDate, lte: openPeriod.endDate });
+    });
+
+    it('splits the ledger query by category when cashCutoffDay + cashWindowCategories are both configured', async () => {
+      const { svc, tx } = makeService({
+        txOverrides: {
+          payrollVendorConfig: {
+            findUnique: jest.fn().mockResolvedValue({
+              cashCutoffDay: 10,
+              cashWindowCategories: [StaffLedgerCategory.ADVANCE, StaffLedgerCategory.CREW_CASH],
+            }),
+          },
+        },
+      });
+      await svc.generateDraft(adminUser, PERIOD_ID);
+      const where = tx.staffLedgerEntry.findMany.mock.calls[0][0].where;
+
+      // openPeriod.endDate is 2026-08-31 (attendance period is calendar-month
+      // August); the cash cutoff (10th) cycle containing that date runs
+      // 2026-08-10 -> 2026-09-09 — the exact "advances/crew cash cut off
+      // around the 10th, ahead of a 10th-of-next-month release" scenario.
+      expect(where.OR).toEqual([
+        {
+          category: { in: [StaffLedgerCategory.ADVANCE, StaffLedgerCategory.CREW_CASH] },
+          effectiveDate: {
+            gte: new Date('2026-08-10T00:00:00.000Z'),
+            lte: new Date('2026-09-09T23:59:59.999Z'),
+          },
+        },
+        {
+          category: { notIn: [StaffLedgerCategory.ADVANCE, StaffLedgerCategory.CREW_CASH] },
+          effectiveDate: { gte: openPeriod.startDate, lte: openPeriod.endDate },
+        },
+      ]);
+      // ADVANCE_DISBURSEMENT stays hard-excluded regardless of the window split.
+      expect(where.category).toEqual({ not: StaffLedgerCategory.ADVANCE_DISBURSEMENT });
+    });
+
+    it('still sums whatever the (now window-split) query returns into the correct buckets', async () => {
+      const { svc, tx } = makeService({
+        txOverrides: {
+          payrollVendorConfig: {
+            findUnique: jest
+              .fn()
+              .mockResolvedValue({ cashCutoffDay: 10, cashWindowCategories: [StaffLedgerCategory.ADVANCE] }),
+          },
+          staffLedgerEntry: {
+            findMany: jest.fn().mockResolvedValue([
+              { id: 'le-1', category: StaffLedgerCategory.ADVANCE, amount: -8000 },
+              { id: 'le-2', category: StaffLedgerCategory.BONUS, amount: 1500 },
+            ]),
+          },
+        },
+      });
+      await svc.generateDraft(adminUser, PERIOD_ID);
+      const created = tx.payrollEntry.create.mock.calls[0][0].data;
+      expect(created.advances).toBe(-8000);
+      expect(created.bonuses).toBe(1500);
+      expect(created.finalPayable).toBe(30000 - 8000 + 1500);
     });
   });
 
@@ -699,6 +794,7 @@ describe('PayrollEntryService', () => {
         },
         staffAttendance: { findMany: jest.fn().mockResolvedValue([]) },
         salaryStructure: { findFirst: jest.fn().mockResolvedValue(null) },
+        payrollVendorConfig: { findUnique: jest.fn().mockResolvedValue(null) },
       };
       const permissions = { can: jest.fn().mockResolvedValue(canViewAll) };
       const advancePlans = makeAdvancePlansMock(advancePlansOverrides);
