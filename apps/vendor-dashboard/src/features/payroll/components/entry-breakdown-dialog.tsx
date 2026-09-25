@@ -566,6 +566,7 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
         onOpenChange={setAddAdjustmentOpen}
         employee={data ? { id: data.entry.userId, name: data.entry.user.name } : null}
         onSuccess={() => refetch()}
+        disableCustomerLink
       />
     </Dialog>
   );

@@ -315,21 +315,29 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
                     </span>
                   );
                 }
+                const needsReview = signals.some((s) => s.actionable);
                 return (
-                  <div className="flex flex-wrap items-center gap-1.5 max-w-[220px]">
-                    {signals.map(({ key, label, icon: Icon, actionable }) => (
-                      <span
-                        key={key}
-                        className={cn(
-                          'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold',
-                          actionable
-                            ? 'bg-amber-500/10 border-amber-500/30 text-amber-600'
-                            : 'bg-muted/40 border-border/50 text-muted-foreground',
-                        )}
-                      >
-                        <Icon className="h-3 w-3" /> {label}
-                      </span>
-                    ))}
+                  <div className="max-w-[220px] space-y-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {signals.map(({ key, label, icon: Icon, actionable }) => (
+                        <span
+                          key={key}
+                          className={cn(
+                            'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold',
+                            actionable
+                              ? 'bg-amber-500/10 border-amber-500/30 text-amber-600'
+                              : 'bg-muted/40 border-border/50 text-muted-foreground',
+                          )}
+                        >
+                          <Icon className="h-3 w-3" /> {label}
+                        </span>
+                      ))}
+                    </div>
+                    {/* Persistently visible, not just a hover title on the Actions button — a
+                        scanning admin should see "needs review" without hovering anything. */}
+                    {needsReview && (
+                      <p className="text-[10px] font-semibold text-amber-600">Needs review before approval</p>
+                    )}
                   </div>
                 );
               },

@@ -529,7 +529,18 @@ export class PayrollEntryService {
 
     const userIds = entries.map((e) => e.userId);
     const entryIds = entries.map((e) => e.id);
-    const periodDayCount = this.periodDayCount(period);
+    // Days that should already HAVE an attendance row — the period's day count
+    // capped at "today" (inclusive), never its full length. Without this cap, an
+    // in-progress period's future dates (which can have no row yet by definition)
+    // would count as "unmarked" and mark every row as needing review until the
+    // period actually ends. Same all-UTC convention as `periodDayCount`/
+    // `computeCycleForCutoff` — no per-vendor timezone handling here either.
+    const now = new Date();
+    const elapsedEnd = period.endDate.getTime() < now.getTime() ? period.endDate : now;
+    const elapsedDayCount = Math.max(
+      0,
+      Math.floor((elapsedEnd.getTime() - period.startDate.getTime()) / 86_400_000) + 1,
+    );
 
     const [attendanceCounts, pendingInstallments, latestLedgerActivity, settledAmounts] = await Promise.all([
       this.prisma.staffAttendance.groupBy({
@@ -544,12 +555,16 @@ export class PayrollEntryService {
       // Existence-only signal, deliberately simplified vs `resolveCashWindow`'s per-category
       // split: "did anything POSTED for this employee in the attendance period after this
       // entry was last computed" is a nudge to go look, not a source of truth for any amount.
+      // Excludes ADVANCE_DISBURSEMENT the same way `computeLedgerContribution` does (see
+      // `bucketKeyForCategory` — it's the one category that never claims a bucket), so a
+      // disbursement with zero effect on this entry's total can't flag it as needing review.
       this.prisma.staffLedgerEntry.groupBy({
         by: ['userId'],
         where: {
           vendorId: user.vendorId,
           userId: { in: userIds },
           status: LedgerEntryStatus.POSTED,
+          category: { not: StaffLedgerCategory.ADVANCE_DISBURSEMENT },
           effectiveDate: { gte: period.startDate, lte: period.endDate },
         },
         _max: { createdAt: true },
@@ -570,7 +585,7 @@ export class PayrollEntryService {
       const latestActivity = latestLedgerActivityByUser.get(entry.userId);
       return {
         ...entry,
-        unmarkedAttendanceDays: Math.max(0, periodDayCount - (markedDaysByUser.get(entry.userId) ?? 0)),
+        unmarkedAttendanceDays: Math.max(0, elapsedDayCount - (markedDaysByUser.get(entry.userId) ?? 0)),
         hasPendingInstallment: pendingInstallmentUserIds.has(entry.userId),
         settledAmount: settledAmountByEntry.get(entry.id) ?? 0,
         hasUnreflectedChanges: !!latestActivity && latestActivity > entry.updatedAt,

@@ -30,6 +30,13 @@ export interface LogLedgerEntryDialogProps {
   defaultCategory?: CreatableStaffLedgerCategory;
   /** Fires after a successful create/linked-create, alongside the dialog's own close. */
   onSuccess?: () => void;
+  /**
+   * Suppresses the "Link to a customer" sub-flow regardless of permission — a linked
+   * penalty is discovered via a different workflow (a customer complaint or cash
+   * reconciliation) and stays an Employee Profile / customer-flow action, never a
+   * Monthly Payroll one. Defaults to false (existing behavior) everywhere else.
+   */
+  disableCustomerLink?: boolean;
 }
 
 /**
@@ -38,7 +45,9 @@ export interface LogLedgerEntryDialogProps {
  * one row shape, category determines the rest, per the planning doc's "nine
  * categories, one row shape" philosophy.
  */
-export function LogLedgerEntryDialog({ open, onOpenChange, employee, defaultCategory, onSuccess }: LogLedgerEntryDialogProps) {
+export function LogLedgerEntryDialog({
+  open, onOpenChange, employee, defaultCategory, onSuccess, disableCustomerLink,
+}: LogLedgerEntryDialogProps) {
   const { mutate: create, isPending: isCreatingPlain } = useCreateLedgerEntry();
   const { mutate: createLinked, isPending: isCreatingLinked } = useCreateLinkedPenalty();
   const { data: employees, isLoading: employeesLoading } = useEligibleEmployees();
@@ -75,7 +84,7 @@ export function LogLedgerEntryDialog({ open, onOpenChange, employee, defaultCate
 
   const categoryMeta = category ? LEDGER_CATEGORY_CONFIG[category] : undefined;
   const isVariableSign = categoryMeta?.sign === 'variable';
-  const canOfferLink = canLinkCustomer && !!category && LINKABLE_CATEGORIES.includes(category);
+  const canOfferLink = !disableCustomerLink && canLinkCustomer && !!category && LINKABLE_CATEGORIES.includes(category);
   const isLinked = canOfferLink && linkToCustomer;
   const isPending = isCreatingPlain || isCreatingLinked;
 
