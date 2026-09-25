@@ -62,6 +62,19 @@ function reviewSignals(r: PayrollEntry): ReviewSignal[] {
   return signals;
 }
 
+/**
+ * Settlement progress, LOCKED/SETTLED entries only (Monthly Payroll Settlement
+ * phase, owner-requested) — derived entirely from `settledAmount` (already on
+ * the row from `listForPeriod`'s aggregate) vs the entry's own `status`/
+ * `finalPayable`. A SETTLED entry is trusted as settled outright — this never
+ * recomputes `SettlementService.record`'s own "reached finalPayable" rule.
+ */
+function settlementState(r: PayrollEntry): 'NOT_PAID' | 'PARTIALLY_PAID' | null {
+  if (r.status === 'SETTLED') return null; // StatusBadge already says "Settled"
+  if (r.status !== 'LOCKED') return null; // not applicable pre-lock
+  return (r.settledAmount ?? 0) > 0 ? 'PARTIALLY_PAID' : 'NOT_PAID';
+}
+
 function amountCell(value: number) {
   if (value === 0) return <span className="font-mono text-muted-foreground">₨ 0</span>;
   return (
@@ -339,7 +352,28 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
                 </span>
               ),
             },
-            { key: 'status', header: 'Status', cell: (r) => <StatusBadge status={r.status} /> },
+            {
+              key: 'status',
+              header: 'Status',
+              cell: (r) => {
+                const settlement = settlementState(r);
+                return (
+                  <div className="flex items-center gap-1.5">
+                    <StatusBadge status={r.status} />
+                    {settlement === 'NOT_PAID' && (
+                      <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-bold text-amber-600">
+                        Not Paid
+                      </span>
+                    )}
+                    {settlement === 'PARTIALLY_PAID' && (
+                      <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-bold text-amber-600">
+                        Partially Paid
+                      </span>
+                    )}
+                  </div>
+                );
+              },
+            },
             {
               key: 'actions',
               essential: true,
@@ -413,11 +447,11 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
         onOpenChange={setLockConfirmOpen}
         title="Lock Payroll Period"
         description={
-          `Locking "${period.periodLabel}" is a one-way gate into Settlement. Every entry must already be APPROVED — this cannot be undone from here (only a separately audited Unlock, for genuine mistakes, can reopen it).` +
+          `Locking "${period.periodLabel}" freezes every entry's numbers and permanently claims their ledger entries — attendance, advance, and ledger changes for this period will no longer be editable normally, and settlement can begin.` +
           (pendingInstallmentCount != null && pendingInstallmentCount > 0
             ? ` ${pendingInstallmentCount} advance installment${pendingInstallmentCount === 1 ? ' is' : 's are'} still PENDING and will be auto-skipped on lock — the balance rolls into next period.`
             : '') +
-          ' Continue?'
+          ' Any further change to this period requires a separately audited Unlock, for genuine mistakes only. Continue?'
         }
         onConfirm={() => lockPeriod(period.id, { onSuccess: () => setLockConfirmOpen(false) })}
         isLoading={isLocking}

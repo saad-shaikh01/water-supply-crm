@@ -509,8 +509,12 @@ export class PayrollEntryService {
    * Every signal is an existence/count check reusing a definition already
    * used elsewhere in this module (`periodDayCount`, the attendance-period
    * window) — none of them re-derive bucket totals or duplicate
-   * `computeEntryBreakdown`'s math. All three extra queries are batched
-   * across the whole period in one round trip each, not per employee.
+   * `computeEntryBreakdown`'s math. Also attaches each entry's settled amount
+   * (`SettlementService.record`'s own summation, reused verbatim — a plain
+   * `groupBy` sum, not a new settlement rule) so Monthly Payroll can show
+   * Not Paid / Partially Paid without opening `SettlementDialog`. All four
+   * extra queries are batched across the whole period in one round trip
+   * each, not per employee.
    */
   async listForPeriod(user: AuthUser, periodId: string) {
     const period = await this.prisma.payrollPeriod.findFirst({ where: { id: periodId, vendorId: user.vendorId } });
@@ -524,9 +528,10 @@ export class PayrollEntryService {
     if (entries.length === 0) return entries;
 
     const userIds = entries.map((e) => e.userId);
+    const entryIds = entries.map((e) => e.id);
     const periodDayCount = this.periodDayCount(period);
 
-    const [attendanceCounts, pendingInstallments, latestLedgerActivity] = await Promise.all([
+    const [attendanceCounts, pendingInstallments, latestLedgerActivity, settledAmounts] = await Promise.all([
       this.prisma.staffAttendance.groupBy({
         by: ['userId'],
         where: { userId: { in: userIds }, date: { gte: period.startDate, lte: period.endDate } },
@@ -549,11 +554,17 @@ export class PayrollEntryService {
         },
         _max: { createdAt: true },
       }),
+      this.prisma.settlement.groupBy({
+        by: ['payrollEntryId'],
+        where: { payrollEntryId: { in: entryIds } },
+        _sum: { amount: true },
+      }),
     ]);
 
     const markedDaysByUser = new Map(attendanceCounts.map((r) => [r.userId, r._count._all]));
     const pendingInstallmentUserIds = new Set(pendingInstallments.map((r) => r.plan.userId));
     const latestLedgerActivityByUser = new Map(latestLedgerActivity.map((r) => [r.userId, r._max.createdAt]));
+    const settledAmountByEntry = new Map(settledAmounts.map((r) => [r.payrollEntryId, r._sum.amount ?? 0]));
 
     return entries.map((entry) => {
       const latestActivity = latestLedgerActivityByUser.get(entry.userId);
@@ -561,6 +572,7 @@ export class PayrollEntryService {
         ...entry,
         unmarkedAttendanceDays: Math.max(0, periodDayCount - (markedDaysByUser.get(entry.userId) ?? 0)),
         hasPendingInstallment: pendingInstallmentUserIds.has(entry.userId),
+        settledAmount: settledAmountByEntry.get(entry.id) ?? 0,
         hasUnreflectedChanges: !!latestActivity && latestActivity > entry.updatedAt,
       };
     });

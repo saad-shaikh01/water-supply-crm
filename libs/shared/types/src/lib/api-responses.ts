@@ -1035,6 +1035,8 @@ export interface PayrollEntry {
   unmarkedAttendanceDays?: number;
   hasPendingInstallment?: boolean;
   hasUnreflectedChanges?: boolean;
+  /** Sum of `Settlement` rows against this entry — present only on the same table-view read as above. */
+  settledAmount?: number;
 }
 
 export type SettlementMethod = 'CASH' | 'BANK_TRANSFER' | 'CHEQUE';
