@@ -84,6 +84,12 @@ export const useEntryBreakdown = (entryId: string | undefined) => {
 function invalidatePeriod(queryClient: ReturnType<typeof useQueryClient>, periodId: string) {
   queryClient.invalidateQueries({ queryKey: queryKeys.payroll.periodEntries(periodId) });
   queryClient.invalidateQueries({ queryKey: queryKeys.payroll.openPeriod() });
+  // Regenerating/approving/locking/unlocking recomputes or transitions entries this
+  // period owns — any `EntryBreakdownDialog` already open for one of them is reading
+  // a cached snapshot from before the change (default 5-minute staleTime) unless this
+  // is also invalidated, which is exactly the "Generate Draft ran but the dialog still
+  // shows the old total" symptom.
+  queryClient.invalidateQueries({ queryKey: ['payroll', 'entry-breakdown'] });
 }
 
 /** `POST /payroll/periods/:periodId/entries/generate`'s response shape (doc §5 edge case: employees

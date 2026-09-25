@@ -46,6 +46,11 @@ export const useMarkAttendance = () => {
       // Prefix-invalidate every cached period grid (periodId isn't in `variables`).
       queryClient.invalidateQueries({ queryKey: ['payroll', 'attendance-period'] });
       queryClient.invalidateQueries({ queryKey: queryKeys.payroll.attendanceByEmployee(variables.userId) });
+      // Also invalidate every cached entry breakdown — this can be called from inside
+      // `EntryBreakdownDialog`'s Attendance tab, whose own `useEntryBreakdown` query
+      // otherwise keeps serving the pre-mark snapshot for the default 5-minute
+      // staleTime, hiding both the new deduction checkmark and the updated total.
+      queryClient.invalidateQueries({ queryKey: ['payroll', 'entry-breakdown'] });
       toast.success('Attendance recorded');
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to record attendance'),
@@ -170,6 +175,7 @@ export const useBulkMarkAttendance = () => {
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['payroll', 'attendance-period'] });
+      queryClient.invalidateQueries({ queryKey: ['payroll', 'entry-breakdown'] });
       if (result.total === 0) return;
       if (result.failed === 0) {
         toast.success(`Marked ${result.succeeded} day${result.succeeded === 1 ? '' : 's'}`);
