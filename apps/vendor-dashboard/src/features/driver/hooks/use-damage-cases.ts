@@ -34,6 +34,8 @@ export const useReportDamage = () => {
     mutationFn: damageCaseApi.reportDamage,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['damage-cases', 'my-cases'] });
+      // Daily-sheet items embed their damage cases — refresh so the new report shows on the row.
+      queryClient.invalidateQueries({ queryKey: ['sheets'] });
       toast.success('Damage case reported successfully');
     },
     // Note: 409 handling is done in the component to access existingCaseId from response

@@ -59,8 +59,13 @@ export const damageCaseApi = {
       .then((r) => r.data);
   },
 
-  reportDamage: (dto: ReportDamageCaseDto): Promise<DamageCase> =>
-    apiClient.post<DamageCase>('/damage-cases', dto).then((r) => r.data),
+  // The API's ReportDamageCaseDto names the field `photoKeys` (required array) and the global
+  // ValidationPipe uses forbidNonWhitelisted — sending the UI-side `photoPaths` name gets the
+  // whole request rejected with 400. Map it here so every caller stays unchanged.
+  reportDamage: ({ photoPaths, ...rest }: ReportDamageCaseDto): Promise<DamageCase> =>
+    apiClient
+      .post<DamageCase>('/damage-cases', { ...rest, photoKeys: photoPaths ?? [] })
+      .then((r) => r.data),
 
   getMyDamageCases: (params?: {
     page?: number;

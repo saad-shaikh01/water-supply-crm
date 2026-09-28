@@ -10,7 +10,9 @@ import type {
   DeliveryItem, CollectionPolicy, CollectionPolicyResult, CashCollectionPolicy, CashCollectionPolicyResult, PaymentTypeValue,
 } from '@water-supply-crm/types';
 import { useUpdateDeliveryItem, useCustomerFinancialSummary } from '../hooks/use-daily-sheets';
+import { toast } from 'sonner';
 import { useReportDamage } from '../../driver/hooks/use-damage-cases';
+import { usePermissions } from '../../authz/hooks/use-permissions';
 import { DamagePhotoUpload } from '../../driver/components/damage-photo-upload';
 import { DeliveryFailurePhotoCapture } from './delivery-failure-photo-capture';
 
@@ -258,6 +260,11 @@ export function DeliveryRecordForm({
 }: DeliveryRecordFormProps) {
   const { mutate: updateItem, isPending } = useUpdateDeliveryItem(sheetId);
   const { mutateAsync: reportDamage } = useReportDamage();
+  const { can } = usePermissions();
+  // Standalone report path for the read-only (closed-sheet / audit) view: there is no
+  // "Save Record" there, so the damage report submits itself via its own button.
+  const canReportStandalone = readOnly && can('damage_cases:create');
+  const [submittingDamage, setSubmittingDamage] = useState(false);
 
   const [deliveryMode, setDeliveryMode] = useState<'delivered' | 'unable'>('delivered');
   const [failureCategory, setFailureCategory] = useState('CUSTOMER_NOT_HOME');
@@ -544,6 +551,30 @@ export function DeliveryRecordForm({
     );
   };
 
+  const submitStandaloneDamage = async () => {
+    setSubmittingDamage(true);
+    try {
+      await reportDamage({
+        customerId: item.customerId,
+        productId: item.productId,
+        dailySheetItemId: item.id,
+        caseType: damageForm.caseType,
+        severity: damageForm.caseType === 'DAMAGE' ? 'MODERATE' : undefined,
+        bottleCount: damageForm.bottleCount,
+        photoPaths: damageForm.caseType === 'DAMAGE' ? damageForm.photoKeys : [],
+        description: damageForm.description || undefined,
+        lossReason: damageForm.caseType === 'LOST' ? damageForm.lossReason : undefined,
+      });
+      setShowDamage(false);
+      setDamageForm(DEFAULT_DAMAGE_FORM);
+    } catch (error: unknown) {
+      const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(message ?? 'Failed to report bottle problem');
+    } finally {
+      setSubmittingDamage(false);
+    }
+  };
+
   return (
     <div className={cn('rounded-2xl border bg-background/70 p-4 space-y-5', readOnly ? 'border-border/50' : 'border-primary/30')}>
       <div className="flex items-center justify-between">
@@ -787,8 +818,9 @@ export function DeliveryRecordForm({
             )}
           </div>
 
-          {/* Bottle problem section — only relevant when actively recording */}
-          {!readOnly && <div className="rounded-2xl border border-border/40 overflow-hidden">
+          {/* Bottle problem section — shown while recording, and in the read-only (closed
+              sheet) view for users who may file damage cases (own submit button below). */}
+          {(!readOnly || canReportStandalone) && <div className="rounded-2xl border border-border/40 overflow-hidden">
             <button
               type="button"
               onClick={() => {
@@ -912,11 +944,22 @@ export function DeliveryRecordForm({
                   </div>
                 )}
 
-                <p className="text-[11px] text-muted-foreground bg-amber-500/5 border border-amber-500/20 rounded-xl px-3 py-2">
-                  {damageForm.caseType === 'DAMAGE'
-                    ? 'Damage report will be submitted automatically when you save this delivery.'
-                    : 'Lost bottle report will be submitted automatically when you save this delivery.'}
-                </p>
+                {canReportStandalone ? (
+                  <Button
+                    onClick={submitStandaloneDamage}
+                    disabled={submittingDamage}
+                    className="w-full rounded-xl font-bold"
+                  >
+                    {submittingDamage ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                    {damageForm.caseType === 'DAMAGE' ? 'Submit Damage Report' : 'Submit Lost Bottle Report'}
+                  </Button>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground bg-amber-500/5 border border-amber-500/20 rounded-xl px-3 py-2">
+                    {damageForm.caseType === 'DAMAGE'
+                      ? 'Damage report will be submitted automatically when you save this delivery.'
+                      : 'Lost bottle report will be submitted automatically when you save this delivery.'}
+                  </p>
+                )}
               </div>
             )}
           </div>}
