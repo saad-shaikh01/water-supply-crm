@@ -633,10 +633,16 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       paymentType: isEligible ? dto.paymentType : undefined,
       vanId: isEligible ? dto.vanId : undefined,
       dayOfWeek: isEligible ? dto.dayOfWeek : undefined,
-      resolveCooldown: true,
+      // A warning send always passes force=true (see sendWarnings), so cooldown never
+      // actually blocks it — don't resolve it here either, or preview would show a
+      // "skipped-cooldown" row for a customer who will, in fact, receive the warning.
+      resolveCooldown: false,
     });
 
-    type PreviewEntry = { customerId: string; name: string; customerCode: string; balance: number; phone: string; paymentType: string; reason: string };
+    type PreviewEntry = {
+      customerId: string; name: string; customerCode: string; balance: number;
+      currentBalance: number; phone: string; paymentType: string; reason: string;
+    };
     const wouldSend: PreviewEntry[] = [];
     const skipped: PreviewEntry[] = [];
 
@@ -650,7 +656,11 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
         customerId: c.id, name: c.name, customerCode: c.customerCode,
         // Same balance classify() just judged — prev-month-outstanding for MONTHLY,
         // live balance for CASH — so the preview list matches the actual decision.
-        balance: c.monthEndBalance, phone: c.phoneNumber, paymentType: (c.paymentType as string) ?? '',
+        balance: c.monthEndBalance,
+        // Live total balance, shown alongside `balance` for MONTHLY (== `balance` for
+        // CASH, since CASH has no prev-month/current-month split — just the one figure).
+        currentBalance: c.financialBalance,
+        phone: c.phoneNumber, paymentType: (c.paymentType as string) ?? '',
         reason: verdict,
       };
       (verdict === 'would-send' ? wouldSend : skipped).push(entry);
@@ -817,7 +827,9 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     if (c.monthEndBalance < ctx.minBalance) return 'skipped-paid';
     if (c.hasPendingPaymentRequest) return 'skipped-payment-pending';
     if (c.alreadyWarned) return 'skipped-already-warned';
-    if (ctx.phase === 'preview' && c.onCooldown) return 'skipped-cooldown';
+    // No cooldown rung here (unlike classify()'s REMINDER/STATEMENT_ONLY ladder) — a
+    // warning send always passes force=true, so the 23h cooldown never actually blocks
+    // it; showing "skipped-cooldown" in preview would just be inaccurate.
     return 'would-send';
   }
 

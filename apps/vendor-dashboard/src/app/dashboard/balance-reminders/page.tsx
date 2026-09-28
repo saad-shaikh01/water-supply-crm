@@ -1143,7 +1143,16 @@ export default function BalanceRemindersPage() {
                             {e.customerCode && <span className="ml-1.5 font-mono text-[10px] text-muted-foreground">({e.customerCode})</span>}
                           </p>
                           <p className="text-[10px] text-muted-foreground">
-                            ₨{Number(e.balance ?? 0).toLocaleString()}
+                            {/* Overdue Warning judges MONTHLY customers on last month's carried-forward
+                                balance only (e.balance) — show the live current-month balance alongside
+                                it too, since that's what they actually owe right now. CASH has no
+                                prev/current split (e.balance already IS the overall live balance), and
+                                Reminder/Statement never send currentBalance, so this stays a no-op there. */}
+                            {isWarning && e.paymentType === 'MONTHLY' && typeof e.currentBalance === 'number' ? (
+                              <>Prev ₨{Number(e.balance ?? 0).toLocaleString()} · Current ₨{Number(e.currentBalance).toLocaleString()}</>
+                            ) : (
+                              <>₨{Number(e.balance ?? 0).toLocaleString()}</>
+                            )}
                             {' · '}{e.phone || <span className="text-destructive">no phone</span>}
                             {' · '}{e.paymentType === 'MONTHLY' ? 'Monthly' : 'Cash'}
                           </p>
