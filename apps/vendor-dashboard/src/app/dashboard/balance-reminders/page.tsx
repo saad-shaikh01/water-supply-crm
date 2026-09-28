@@ -206,7 +206,10 @@ export default function BalanceRemindersPage() {
   const isStatementOnly = sendType === 'statement_only';
   const isWarning = sendType === 'warning';
   const effectiveIncludeStatement = isStatementOnly ? true : isWarning ? false : includeStatement;
-  const effectiveForce = isStatementOnly || isWarning ? false : forceOverride;
+  // Overdue-warning has no cooldown-bypass toggle in its UI — the 23h send cooldown is
+  // bypassed by default for it instead (a warning already has its own once-per-month
+  // "already warned" gate, so the extra 23h lock only got in the way here).
+  const effectiveForce = isStatementOnly ? false : isWarning ? true : forceOverride;
 
   const buildSendPayload = (dryRun = false) => {
     const base = { sendKind: sendType, mode: sendMode, month, includeStatement: effectiveIncludeStatement, dryRun, force: effectiveForce, paymentType: resolvedPaymentType };

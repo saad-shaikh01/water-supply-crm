@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import Redis from 'ioredis';
 import { PrismaService } from '@water-supply-crm/database';
-import { NotificationType, NotificationChannel, ReminderSendKind, PaymentRequestStatus } from '@prisma/client';
+import { NotificationType, NotificationChannel, ReminderSendKind, PaymentRequestStatus, TransactionType } from '@prisma/client';
 import { CloudTemplateNames } from '../whatsapp/templates/cloud-template-names';
 import { isSendablePhone } from '../whatsapp/phone.util';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
@@ -47,7 +47,6 @@ type SendVerdict =
   | 'skipped-cooldown'
   | 'skipped-excluded'
   // WARNING-only reasons
-  | 'skipped-no-statement'
   | 'skipped-too-soon'
   | 'skipped-paid'
   | 'skipped-payment-pending'
@@ -503,10 +502,12 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
    * Fetch + enrich the overdue-warning audience — fetching / enrichment ONLY,
    * every decision is classifyWarning()'s. Steps:
    *  1. this month's *statement* sends (STATEMENT_ONLY, or REMINDER+includeStatement),
-   *     dryRun=false → per-customer earliest 'sent' timestamp.
+   *     dryRun=false → per-customer earliest 'sent' timestamp (still recorded, only used
+   *     for the warningCutoff "too soon after statement" rung — no longer required for
+   *     a customer to be a candidate at all).
    *  2. this month's WARNING sends (dryRun=false) → per-customer "already warned" set.
-   *  3. load those customers (active, phoned, NOT billing-exempt) + live balance +
-   *     any pending PaymentRequest.
+   *  3. load ALL vendor customers (active, phoned, NOT billing-exempt) + live balance +
+   *     any pending PaymentRequest — a warning no longer requires a prior statement send.
    *  4. redis-batch the "already warned this month" marker (belt-and-braces vs the log).
    */
   private async resolveWarningAudience(opts: {
@@ -547,13 +548,6 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    let statementCustomerIds = [...sentStatementAt.keys()];
-    if (opts.customerIds) {
-      const wanted = new Set(opts.customerIds);
-      statementCustomerIds = statementCustomerIds.filter((id) => wanted.has(id));
-    }
-    if (statementCustomerIds.length === 0) return [];
-
     const warnLogs = await this.prisma.reminderSendLog.findMany({
       where: { vendorId, month, kind: ReminderSendKind.WARNING, dryRun: false },
       select: { details: true },
@@ -568,11 +562,11 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
 
     const rows = await this.prisma.customer.findMany({
       where: {
-        id: { in: statementCustomerIds },
         vendorId,
         isActive: true,
         isBillingExempt: false,
         phoneNumber: { not: '' },
+        ...(opts.customerIds ? { id: { in: opts.customerIds } } : {}),
         ...(opts.paymentType ? { paymentType: opts.paymentType } : {}),
         ...this.scheduleFilter(opts.vanId, opts.dayOfWeek),
       },
@@ -599,13 +593,23 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       onCooldownSet = new Set<string>(rows.filter((_, i) => (res?.[i]?.[1] as number) === 1).map((c) => c.id));
     }
 
+    // MONTHLY customers are only "overdue" on last month's carried-forward balance —
+    // this month's own not-yet-due deliveries must never count. CASH customers have no
+    // billing-cycle concept, so their plain live balance is what's actually owed.
+    const prevMonthOutstandingMap = await this.getPrevMonthOutstandingMap(
+      vendorId,
+      rows.filter((c) => c.paymentType === 'MONTHLY').map((c) => ({ id: c.id, financialBalance: c.financialBalance })),
+    );
+
     return rows.map((c) => ({
       id: c.id,
       name: c.name,
       customerCode: c.customerCode,
       phoneNumber: c.phoneNumber,
       financialBalance: c.financialBalance,
-      monthEndBalance: c.financialBalance, // WARNING judges the LIVE balance
+      monthEndBalance: c.paymentType === 'MONTHLY'
+        ? (prevMonthOutstandingMap.get(c.id) ?? 0)
+        : c.financialBalance,
       isActive: true,
       paymentType: c.paymentType,
       createdAt: c.createdAt,
@@ -644,7 +648,9 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       });
       const entry: PreviewEntry = {
         customerId: c.id, name: c.name, customerCode: c.customerCode,
-        balance: c.financialBalance, phone: c.phoneNumber, paymentType: (c.paymentType as string) ?? '',
+        // Same balance classify() just judged — prev-month-outstanding for MONTHLY,
+        // live balance for CASH — so the preview list matches the actual decision.
+        balance: c.monthEndBalance, phone: c.phoneNumber, paymentType: (c.paymentType as string) ?? '',
         reason: verdict,
       };
       (verdict === 'would-send' ? wouldSend : skipped).push(entry);
@@ -736,8 +742,8 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
    * the balance). Every other rung is unchanged.
    *
    * WARNING uses its own ladder (classifyWarning) — its audience is already
-   * DB-filtered to active / phoned / non-exempt statement recipients, so the
-   * remaining rungs are all warning-specific.
+   * DB-filtered to active / phoned / non-exempt customers (a prior statement send is
+   * NOT required), so the remaining rungs are all warning-specific.
    */
   private classify(
     c: Pick<
@@ -785,15 +791,16 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Overdue-warning ladder. `ctx.minBalance` here is the vendor's
-   * `warningMinBalance` and the balance checked is the LIVE `financialBalance`
-   * (the point is "did they pay since the statement"). Cooldown is only a
-   * preview-phase rung — the send loop applies it positionally.
+   * Overdue-warning ladder. `ctx.minBalance` here is the vendor's `warningMinBalance`
+   * and the balance checked is `c.monthEndBalance` — for MONTHLY customers that's last
+   * month's carried-forward balance still unpaid (this month's own deliveries are never
+   * "overdue" yet); for CASH it's the plain live balance (see resolveWarningAudience).
+   * Cooldown is only a preview-phase rung — the send loop applies it positionally.
    */
   private classifyWarning(
     c: Pick<
       AudienceCandidate,
-      'id' | 'phoneNumber' | 'financialBalance' | 'createdAt'
+      'id' | 'phoneNumber' | 'monthEndBalance' | 'createdAt'
       | 'lastStatementSentAt' | 'hasPendingPaymentRequest' | 'alreadyWarned' | 'onCooldown'
     >,
     ctx: { phase: 'preview' | 'send'; minBalance: number; endDate: Date; excludeIds: Set<string>; warningCutoff?: Date },
@@ -801,9 +808,13 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     if (c.createdAt && c.createdAt >= ctx.endDate) return 'skipped-new-customer';
     if (ctx.excludeIds.has(c.id)) return 'skipped-excluded';
     if (!this.isValidPhone(c.phoneNumber)) return 'skipped-invalid-phone';
-    if (!c.lastStatementSentAt) return 'skipped-no-statement';
-    if (ctx.warningCutoff && c.lastStatementSentAt >= ctx.warningCutoff) return 'skipped-too-soon';
-    if (c.financialBalance < ctx.minBalance) return 'skipped-paid';
+    // A prior statement send is no longer required to receive an overdue warning — the
+    // "too soon" cutoff below only fires when one happened to exist within the window.
+    if (ctx.warningCutoff && c.lastStatementSentAt && c.lastStatementSentAt >= ctx.warningCutoff) return 'skipped-too-soon';
+    // monthEndBalance carries the balance actually being judged for a WARNING: last
+    // month's still-unpaid carry-forward for MONTHLY, plain live balance for CASH —
+    // see resolveWarningAudience. Not the raw live financialBalance.
+    if (c.monthEndBalance < ctx.minBalance) return 'skipped-paid';
     if (c.hasPendingPaymentRequest) return 'skipped-payment-pending';
     if (c.alreadyWarned) return 'skipped-already-warned';
     if (ctx.phase === 'preview' && c.onCooldown) return 'skipped-cooldown';
@@ -1042,6 +1053,53 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     const result = new Map<string, number>();
     for (const c of customers) {
       result.set(c.id, c.financialBalance - (laterByCustomer.get(c.id) ?? 0));
+    }
+    return result;
+  }
+
+  /**
+   * Batch version of LedgerService.getCustomerPrevMonthOutstanding — for each MONTHLY
+   * customer, how much of the balance carried INTO the current calendar month is still
+   * unpaid, after this month's payments are applied against it first (the same
+   * payment-waterfall formula the customer detail page's "Prev Month Outstanding" tile
+   * uses). This month's own new deliveries are never included — they aren't due yet.
+   * Formula: max(0, (financialBalance − thisMonthNetActivity) − thisMonthPaymentsReceived)
+   * Two batched groupBy queries — O(1) round-trips regardless of list size.
+   */
+  private async getPrevMonthOutstandingMap(
+    vendorId: string,
+    customers: Array<{ id: string; financialBalance: number }>,
+  ): Promise<Map<string, number>> {
+    if (customers.length === 0) return new Map();
+
+    const now = new Date();
+    const curMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const ids = customers.map((c) => c.id);
+
+    const [paymentRows, activityRows] = await Promise.all([
+      this.prisma.transaction.groupBy({
+        by: ['customerId'],
+        where: { customerId: { in: ids }, vendorId, type: TransactionType.PAYMENT, createdAt: { gte: curMonthStart } },
+        _sum: { amount: true },
+      }),
+      this.prisma.transaction.groupBy({
+        by: ['customerId'],
+        where: { customerId: { in: ids }, vendorId, createdAt: { gte: curMonthStart } },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    // PAYMENT amounts are stored negative — take the absolute value received.
+    const paidThisMonth = new Map<string, number>();
+    for (const r of paymentRows) paidThisMonth.set(r.customerId, Math.abs(r._sum.amount ?? 0));
+    const activityThisMonth = new Map<string, number>();
+    for (const r of activityRows) activityThisMonth.set(r.customerId, r._sum.amount ?? 0);
+
+    const result = new Map<string, number>();
+    for (const c of customers) {
+      const prevMonthOutstanding = c.financialBalance - (activityThisMonth.get(c.id) ?? 0);
+      const currentMonthPaid = paidThisMonth.get(c.id) ?? 0;
+      result.set(c.id, Math.max(prevMonthOutstanding - currentMonthPaid, 0));
     }
     return result;
   }

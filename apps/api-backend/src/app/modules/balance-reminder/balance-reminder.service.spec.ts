@@ -52,7 +52,7 @@ describe('BalanceReminderService (Phase 0 pipeline)', () => {
   let service: BalanceReminderService;
   let prisma: {
     customer: { findMany: jest.Mock; findFirst: jest.Mock };
-    transaction: { findMany: jest.Mock };
+    transaction: { findMany: jest.Mock; groupBy: jest.Mock };
     reminderSendLog: { create: jest.Mock; findMany: jest.Mock; count: jest.Mock };
     balanceReminderConfig: { findUnique: jest.Mock; upsert: jest.Mock };
   };
@@ -64,7 +64,7 @@ describe('BalanceReminderService (Phase 0 pipeline)', () => {
   beforeEach(async () => {
     prisma = {
       customer: { findMany: jest.fn(), findFirst: jest.fn() },
-      transaction: { findMany: jest.fn().mockResolvedValue([]) },
+      transaction: { findMany: jest.fn().mockResolvedValue([]), groupBy: jest.fn().mockResolvedValue([]) },
       reminderSendLog: {
         create: jest.fn().mockResolvedValue({}),
         findMany: jest.fn().mockResolvedValue([]),
@@ -703,9 +703,10 @@ describe('BalanceReminderService (Phase 0 pipeline)', () => {
         expect(res.wouldSend[0].balance).toBe(500);
       });
 
-      it('no statement this cycle → not in the audience at all', async () => {
+      it('no statement this cycle → still eligible (a prior statement is no longer required)', async () => {
         const res: any = await preview([wcust()], []); // empty statement logs
-        expect(res.totalWouldSend + res.totalSkipped).toBe(0);
+        expect(res.totalWouldSend).toBe(1);
+        expect(res.wouldSend[0].reason).toBe('would-send');
       });
 
       it('skipped-too-soon when the statement is newer than the cutoff', async () => {
