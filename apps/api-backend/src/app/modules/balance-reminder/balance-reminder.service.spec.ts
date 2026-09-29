@@ -794,13 +794,19 @@ describe('BalanceReminderService (Phase 0 pipeline)', () => {
     // ── send ────────────────────────────────────────────────────────────────
 
     describe('send', () => {
+      // the approved Meta template has a DOCUMENT header → statement PDF must generate
+      beforeEach(() => {
+        prisma.customer.findFirst.mockResolvedValue({ id: 'c1', name: 'Cust 1', customerCode: 'L0001', financialBalance: 500 });
+        statementPdf.generate.mockResolvedValue(Buffer.from('%PDF-1.4 fake'));
+      });
+
       const sendWarn = (customers: WCustomer[], dto: any = {}) => {
         setLogs([statementLog(customers.map((c) => c.id))]);
         prisma.customer.findMany.mockResolvedValue(customers);
         return service.sendTargeted('v1', { sendKind: 'warning', mode: 'eligible', month: MONTH, ...dto } as any);
       };
 
-      it('sends payment_overdue_warning with the 6 approved params, no PDF', async () => {
+      it('sends payment_overdue_warning with the 6 approved params + statement PDF header', async () => {
         // live 1500; since the month ended: a 300 delivery (+300) and a 800 payment (-800)
         // → invoice (balance at month end) = 1500 − (300 − 800) = 2000
         prisma.transaction.findMany.mockResolvedValue([
@@ -813,8 +819,16 @@ describe('BalanceReminderService (Phase 0 pipeline)', () => {
           VALID_PHONE,
           'payment_overdue_warning',
           ['Cust 1', 'L0001', '1200.00', '2000.00', '800.00', '1500.00'],
+          { buffer: expect.any(Buffer), filename: expect.stringContaining('.pdf') },
         );
         expect(whatsapp.sendTemplate).toHaveBeenCalledTimes(1);
+      });
+
+      it('statement PDF cannot be generated → skipped, template never sent', async () => {
+        prisma.customer.findFirst.mockResolvedValue(undefined); // generateStatementPdf → null
+        const res: any = await sendWarn([wcust()]);
+        expect(res.customers[0].status).toBe('skipped-pdf-failed');
+        expect(whatsapp.sendTemplate).not.toHaveBeenCalled();
       });
 
       it('no activity since the statement → invoice = outstanding = live balance, payment 0', async () => {
@@ -824,6 +838,7 @@ describe('BalanceReminderService (Phase 0 pipeline)', () => {
           VALID_PHONE,
           'payment_overdue_warning',
           ['Cust 1', 'L0001', '500.00', '500.00', '0.00', '500.00'],
+          expect.anything(),
         );
       });
 

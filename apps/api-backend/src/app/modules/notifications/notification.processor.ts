@@ -85,10 +85,12 @@ export class NotificationProcessor extends WorkerHost {
           month: 'long',
           year: 'numeric',
         });
+        // Corrections use `delivery_corrected` (also a DOCUMENT-header template) instead.
+        const override = job.data['template'] as { name: string; bodyParams: string[] } | undefined;
         const sent = await this.whatsapp.sendTemplate(
           phoneNumber,
-          CloudTemplateNames.DELIVERY_RECEIPT,
-          [receiptData['customerName'] as string, receiptData['customerCode'] as string, formattedDeliveryDate],
+          override?.name ?? CloudTemplateNames.DELIVERY_RECEIPT,
+          override?.bodyParams ?? [receiptData['customerName'] as string, receiptData['customerCode'] as string, formattedDeliveryDate],
           { buffer: pdfBuffer, filename },
         );
         if (sent) {

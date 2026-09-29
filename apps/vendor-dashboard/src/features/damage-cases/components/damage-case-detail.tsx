@@ -128,7 +128,7 @@ export function DamageCaseDetail({ caseId }: DamageCaseDetailProps) {
     );
   }
 
-  const hasPhotos = (damageCase.signedPhotoUrls?.length ?? 0) > 0;
+  const hasPhotos = (damageCase.photoUrls?.length ?? 0) > 0;
 
   return (
     <div className="space-y-8">
@@ -211,7 +211,7 @@ export function DamageCaseDetail({ caseId }: DamageCaseDetailProps) {
         <h3 className="text-sm font-bold uppercase tracking-widest text-muted-foreground">Photos</h3>
         <DamagePhotoLightbox
           photoKeys={damageCase.photoKeys}
-          signedPhotoUrls={damageCase.signedPhotoUrls}
+          signedPhotoUrls={damageCase.photoUrls}
         />
       </div>
 

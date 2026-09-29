@@ -77,6 +77,8 @@ export class NotificationService {
     phoneNumber: string,
     receiptData: Record<string, unknown>,
     meta?: { entityType?: string; entityId?: string; vendorId?: string; type?: NotificationType; recipientType?: string; recipientId?: string },
+    /** Send the PDF under this template (with a DOCUMENT header) instead of `delivery_receipt`. */
+    template?: { name: string; bodyParams: string[] },
   ) {
     if (!(await this.allowed(meta, NotificationChannel.WHATSAPP))) {
       await this.logs.logSkipped({ channel: 'WHATSAPP', recipientAddress: phoneNumber, eventType: meta?.type, ...meta });
@@ -85,7 +87,7 @@ export class NotificationService {
 
     return this.notificationQueue.add(
       JOB_NAMES.SEND_WHATSAPP_PDF,
-      { phoneNumber, receiptData, ...meta },
+      { phoneNumber, receiptData, ...meta, ...(template ? { template } : {}) },
     );
   }
 

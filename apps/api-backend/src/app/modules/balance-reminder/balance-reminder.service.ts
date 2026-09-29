@@ -1157,6 +1157,11 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     if (!(await this.notifSettings.isEnabled(vendorId, NotificationType.PAYMENT_WARNING, NotificationChannel.WHATSAPP))) {
       return 'failed';
     }
+    // The approved Meta template carries a DOCUMENT header — sending without one
+    // is rejected (#132012 "header: expected DOCUMENT, received UNKNOWN"). Attach
+    // the statement PDF; no plain fallback, so skip if it can't be generated.
+    const pdf = await this.generateStatementPdf(vendorId, customer.id, month);
+    if (!pdf) return 'skipped-pdf-failed';
     const f = await this.warningFigures(vendorId, customer, month);
     const ok = await this.whatsapp.sendTemplate(
       customer.phoneNumber,
@@ -1169,6 +1174,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
         f.paymentReceived.toFixed(2),
         f.currentBalance.toFixed(2),
       ],
+      { buffer: pdf.buffer, filename: pdf.filename },
     );
     return ok ? 'sent' : 'failed';
   }

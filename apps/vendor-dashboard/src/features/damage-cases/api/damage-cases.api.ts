@@ -14,7 +14,7 @@ export interface DamageCase {
   status: DamageCaseStatus;
   bottleCount: number;
   photoKeys: string[];
-  signedPhotoUrls?: string[];
+  photoUrls?: string[];
   reviewNote?: string | null;
   chargeAmount?: number | null;
   writeOffCategory?: WriteOffCategory | null;

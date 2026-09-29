@@ -982,32 +982,27 @@ export class DailySheetService implements OnModuleInit {
             vendorName: item.dailySheet.vendor?.name ?? 'Water Supply',
             previousMonthOutstanding,
           };
-          // On a correction, lead with an apology note so the customer understands
-          // why a second receipt is arriving. Meta-approved `delivery_corrected`
-          // template: {{1}} name · {{2}} delivered qty · {{3}} cash collected ·
-          // {{4}} empty received · {{5}} customer code · {{6}} delivery date.
-          if (isCorrection) {
-            this.notifications
-              .queueWhatsAppTemplate(
-                item.customer.phoneNumber,
-                CloudTemplateNames.DELIVERY_CORRECTED,
-                [
-                  item.customer.name,
-                  String(dto.filledDropped ?? 0),
-                  String(dto.cashCollected ?? 0),
-                  String(dto.emptyReceived ?? 0),
-                  item.customer.customerCode,
-                  receiptData.deliveryDate,
-                ],
-                `ntf-delivery-corrected-${itemId}-${now.getTime()}-wa`,
-                { entityType: 'DELIVERY_ITEM', entityId: itemId, vendorId, type: NotificationType.DELIVERY_RECEIPT, recipientType: 'CUSTOMER', recipientId: item.customerId },
-              )
-              .catch((e: Error) => this.logger.warn(`WhatsApp delivery-corrected note failed for item ${itemId}: ${e.message}`));
-          }
+          // On a correction, the Meta-approved `delivery_corrected` template (DOCUMENT
+          // header) carries the corrected receipt PDF itself — one message instead of
+          // the normal `delivery_receipt`. {{1}} name · {{2}} delivered qty ·
+          // {{3}} cash collected · {{4}} empty received · {{5}} customer code · {{6}} date.
           this.notifications.queueWhatsAppPdf(
             item.customer.phoneNumber,
             receiptData,
             { entityType: 'DELIVERY_ITEM', entityId: itemId, vendorId, type: NotificationType.DELIVERY_RECEIPT, recipientType: 'CUSTOMER', recipientId: item.customerId },
+            isCorrection
+              ? {
+                  name: CloudTemplateNames.DELIVERY_CORRECTED,
+                  bodyParams: [
+                    item.customer.name,
+                    String(dto.filledDropped ?? 0),
+                    String(dto.cashCollected ?? 0),
+                    String(dto.emptyReceived ?? 0),
+                    item.customer.customerCode,
+                    receiptData.deliveryDate,
+                  ],
+                }
+              : undefined,
           ).catch((e: Error) => this.logger.warn(`WhatsApp PDF delivery-${isCorrection ? 'correction' : 'complete'} failed for item ${itemId}: ${e.message}`));
         }
       }
