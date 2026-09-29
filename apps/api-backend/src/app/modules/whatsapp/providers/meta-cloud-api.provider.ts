@@ -185,7 +185,8 @@ export class MetaCloudApiProvider implements IWhatsAppProvider, OnModuleInit {
         const graphError = errorBody?.error;
         this.logger.error(
           `WhatsApp Graph API error (${context}): status=${res.status} code=${graphError?.code} ` +
-            `subcode=${graphError?.error_subcode} message="${graphError?.message}" fbtrace_id=${graphError?.fbtrace_id}`,
+            `subcode=${graphError?.error_subcode} message="${graphError?.message}" ` +
+            `details="${graphError?.error_data?.details}" fbtrace_id=${graphError?.fbtrace_id}`,
         );
 
         const retriable = res.status === 429 || res.status >= 500;
