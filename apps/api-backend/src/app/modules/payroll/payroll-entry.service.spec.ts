@@ -860,8 +860,8 @@ describe('PayrollEntryService', () => {
         },
         staffLedgerEntry: {
           findMany: jest.fn().mockResolvedValue([
-            { id: 'le-1', category: StaffLedgerCategory.BONUS, amount: 1000, effectiveDate: new Date() },
-            { id: 'le-2', category: StaffLedgerCategory.ADVANCE, amount: -500, effectiveDate: new Date() },
+            { id: 'le-1', category: StaffLedgerCategory.BONUS, amount: 1000, effectiveDate: new Date(), reversalEntries: [] },
+            { id: 'le-2', category: StaffLedgerCategory.ADVANCE, amount: -500, effectiveDate: new Date(), reversalEntries: [] },
           ]),
         },
         staffAttendance: { findMany: jest.fn().mockResolvedValue([]) },
@@ -901,8 +901,8 @@ describe('PayrollEntryService', () => {
     it('excludes an ADVANCE_DISBURSEMENT row from ledgerEntriesByBucket (fetched for display only, never bucketed)', async () => {
       const { svc, prisma } = makeBreakdownService(true, {}, {});
       prisma.staffLedgerEntry.findMany.mockResolvedValue([
-        { id: 'le-1', category: StaffLedgerCategory.BONUS, amount: 1000, effectiveDate: new Date() },
-        { id: 'le-2', category: StaffLedgerCategory.ADVANCE_DISBURSEMENT, amount: -50000, effectiveDate: new Date() },
+        { id: 'le-1', category: StaffLedgerCategory.BONUS, amount: 1000, effectiveDate: new Date(), reversalEntries: [] },
+        { id: 'le-2', category: StaffLedgerCategory.ADVANCE_DISBURSEMENT, amount: -50000, effectiveDate: new Date(), reversalEntries: [] },
       ]);
       const result = await svc.getBreakdown(adminUser, 'entry-001');
       expect(result.ledgerEntriesByBucket.bonuses).toHaveLength(1);

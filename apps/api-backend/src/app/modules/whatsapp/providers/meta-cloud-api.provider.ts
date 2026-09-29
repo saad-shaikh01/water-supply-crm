@@ -106,7 +106,12 @@ export class MetaCloudApiProvider implements IWhatsAppProvider, OnModuleInit {
     }
 
     // Meta rejects empty-string template variables outright — coerce falsy values.
-    const safeParams = bodyParams.map((p) => (p && String(p).trim() ? String(p) : '-'));
+    // It also rejects (#132012) variables containing newlines, tabs or 4+ consecutive
+    // spaces, so collapse all whitespace runs (customer names are free-text).
+    const safeParams = bodyParams.map((p) => {
+      const clean = p ? String(p).replace(/\s+/g, ' ').trim() : '';
+      return clean || '-';
+    });
     components.push({
       type: 'body',
       parameters: safeParams.map((text) => ({ type: 'text', text })),

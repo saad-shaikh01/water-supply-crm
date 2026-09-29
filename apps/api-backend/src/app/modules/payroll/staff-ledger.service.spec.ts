@@ -48,6 +48,7 @@ function makeTx(entrySnapshot: any = pendingEntry) {
 
   return {
     staffLedgerEntry: {
+      count: jest.fn().mockResolvedValue(0),
       findFirst: jest.fn().mockResolvedValue({ ...entrySnapshot }),
       findUniqueOrThrow: jest.fn().mockImplementation(async () => current),
       create: jest.fn().mockImplementation(async ({ data }) => ({
@@ -333,6 +334,16 @@ describe('StaffLedgerService', () => {
   // ── reverse: opposite-sign entry + linkage ──────────────────────────────
 
   describe('reverse()', () => {
+    it('refuses to reverse or correct an entry that already has a live reversal (no double-reversal)', async () => {
+      const { svc, tx } = makeService(postedLockedEntry);
+      tx.staffLedgerEntry.count.mockResolvedValue(1);
+      await expect(svc.reverse(adminUser, ENTRY_ID, { version: 2, reason: 'again' })).rejects.toThrow(BadRequestException);
+      await expect(
+        svc.correct(adminUser, ENTRY_ID, { version: 2, reason: 'again', correctedAmount: 100 }),
+      ).rejects.toThrow(BadRequestException);
+      expect(tx.staffLedgerEntry.create).not.toHaveBeenCalled();
+    });
+
     it('creates an opposite-sign REVERSAL entry linked to the original', async () => {
       const { svc, tx } = makeService(postedLockedEntry);
       const result = await svc.reverse(adminUser, ENTRY_ID, { version: 2, reason: 'driver double-counted' });
