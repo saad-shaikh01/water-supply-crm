@@ -103,6 +103,16 @@ export const ACTION_LABELS: Record<string, string> = {
   transfer: 'Transfer balance between customers',
   create_restricted: 'Post write-off / correction',
   void: 'Void',
+  // Customer Flags (Amendment R23).
+  manage_categories: 'Manage flag categories',
+  apply: 'Apply / resolve customer flag',
+  // Fleet Alert Recipients (Amendment R24).
+  manage_alerts: 'Manage WhatsApp alert recipients',
+  // Customer Deposits (Amendment R25). `view`/`write_off`/`void` reuse the
+  // shared labels above.
+  collect: 'Collect deposit',
+  refund: 'Refund deposit',
+  manage_config: 'Enable / disable deposits for this vendor',
 };
 
 /** A single permission with display metadata for the role editor. */

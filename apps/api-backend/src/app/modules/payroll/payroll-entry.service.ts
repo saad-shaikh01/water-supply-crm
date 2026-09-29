@@ -360,6 +360,67 @@ export class PayrollEntryService {
   }
 
   /**
+   * Refreshes an already-APPROVED/UNDER_REVIEW entry's stored buckets, carry-
+   * forward and finalPayable from the live ledger — the same math
+   * `computeEntryBreakdown` runs at lock time — WITHOUT locking the period or
+   * claiming any ledger entry. Exists because `lockPeriod` requires every
+   * entry in the period to be APPROVED first (see payroll-period.service.ts),
+   * so a ledger entry posted for one employee after their approval can't
+   * otherwise reach that employee's Final Payable until the whole period is
+   * ready to lock. Status and approval metadata are left untouched — this
+   * only refreshes numbers, it does not re-approve.
+   */
+  async recalculateEntry(user: AuthUser, entryId: string, version: number) {
+    return this.prisma.$transaction(async (tx) => {
+      const entry = await tx.payrollEntry.findFirst({
+        where: { id: entryId, vendorId: user.vendorId },
+        include: { period: true },
+      });
+      if (!entry) throw new NotFoundException('Payroll entry not found.');
+
+      const recalculableStatuses: PayrollEntryStatus[] = [PayrollEntryStatus.APPROVED, PayrollEntryStatus.UNDER_REVIEW];
+      if (!recalculableStatuses.includes(entry.status)) {
+        throw new BadRequestException(
+          `Only APPROVED or UNDER_REVIEW entries can be recalculated (current status: ${entry.status}). ` +
+            'A DRAFT entry is refreshed by regenerating the draft; a LOCKED/SETTLED entry is frozen.',
+        );
+      }
+
+      const before = { finalPayable: entry.finalPayable };
+      const { buckets, carryForwardIn, finalPayable } = await this.computeEntryBreakdown(
+        tx,
+        user.vendorId,
+        entry.userId,
+        entry.period,
+        entry.baseSalary,
+      );
+
+      const claim = await tx.payrollEntry.updateMany({
+        where: { id: entryId, vendorId: user.vendorId, version },
+        data: { ...buckets, carryForwardIn, finalPayable, version: { increment: 1 } },
+      });
+      if (claim.count === 0) {
+        throw versionMismatch(entry.version, version);
+      }
+
+      const updated = await tx.payrollEntry.findUniqueOrThrow({ where: { id: entryId } });
+
+      await tx.payrollEntryAuditLog.create({
+        data: {
+          payrollEntryId: entryId,
+          actorId: user.userId,
+          actorRole: user.role,
+          action: PayrollAuditAction.REGENERATED,
+          beforeJson: before,
+          afterJson: { finalPayable: updated.finalPayable },
+        },
+      });
+
+      return updated;
+    });
+  }
+
+  /**
    * Full itemized breakdown for one entry — every bucket plus the ledger
    * entries that fed it. Self-view-only unless the requester holds
    * `payroll:view_all` — checked AFTER the fetch, since the entry (looked up

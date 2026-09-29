@@ -326,10 +326,23 @@ export const PERMISSION_CATALOG = {
   // already has access to (daily_sheets:*), not a dedicated Fleet screen (plan doc §4,
   // "integrate not isolate"). `override_check` is the Staff/Admin-only acknowledgment
   // of a critical checklist failure (plan doc §6/§10 Rule 6) — never granted to drivers.
+  // `manage_alerts` (owner-requested 2026-09-29): manage the vendor's
+  // FleetAlertRecipient list — the WhatsApp numbers (e.g. owner/manager) the
+  // nightly document-expiry / maintenance-due sweep also notifies, alongside
+  // the existing in-app/FCM alert to VENDOR_ADMIN/STAFF.
   fleet: {
     label: 'Fleet',
     navigable: true,
-    actions: ['page', 'view', 'update', 'record_check', 'record_fuel', 'manage_maintenance', 'override_check'],
+    actions: [
+      'page',
+      'view',
+      'update',
+      'record_check',
+      'record_fuel',
+      'manage_maintenance',
+      'override_check',
+      'manage_alerts',
+    ],
   },
   // Amendment R8 (Sheet Discrepancy Case, owner-approved 2026-08-18): new
   // resource — see docs/rbac-permission-catalog.md §29. Navigable:
@@ -437,6 +450,51 @@ export const PERMISSION_CATALOG = {
     label: 'Extra Labour',
     navigable: true,
     actions: ['page', 'view', 'create', 'manage'],
+  },
+  // Customer Flags (owner-requested 2026-09-29): highlight a customer with an
+  // admin-defined category (e.g. "To Be Closed", "Payment Overdue") so the
+  // reason surfaces wherever that customer is displayed. Non-navigable —
+  // reached from the existing Customers screens, same reasoning as
+  // `crew_cash`/`van_cash_ledger`/`product_costs`. Reading a flag rides along
+  // with the existing `customers:view` grant (flags are returned as part of
+  // the customer payload); no separate `view` action needed here.
+  // manage_categories: define/edit/deactivate the category catalogue (name,
+  //   color, default message) — VENDOR_ADMIN only by default (wildcard).
+  // apply: apply a flag to a customer OR resolve/remove one — one action
+  //   covers both directions, same single-permission shape as
+  //   AttendanceCategory's create/remove. Default holders: Manager, Accountant.
+  customer_flags: {
+    label: 'Customer Flags',
+    navigable: false,
+    actions: ['manage_categories', 'apply'],
+  },
+  // Customer Deposits (owner-requested 2026-09-29): optional per-customer
+  // refundable security deposit — CASH (a Rs. amount held) or BOTTLE (extra
+  // bottles held as collateral, count-only, no cash value), gated vendor-wide
+  // by Vendor.depositsEnabled. Non-navigable — surfaced as a "Deposits" tab on
+  // the existing customer detail page, same reasoning as
+  // `customer_financial_adjustments`. Deliberately separate from that
+  // resource: a deposit is a liability/collateral, never a charge or credit
+  // against what the customer owes.
+  //   `view`      list a customer's deposit balances + entry history.
+  //   `collect`   record a deposit collected (office manual entry; driver
+  //               collection during delivery rides on the existing
+  //               `daily_sheets` submit-delivery permission, not this one).
+  //   `refund`    refund a CASH deposit (moves real cash out).
+  //   `write_off` close out a deposit without a cash refund (e.g. customer
+  //               left without returning deposit bottles).
+  //   `void`      reverse a POSTED entry (reversal-entry pattern).
+  //   `manage_config` turn the whole feature on/off for the vendor
+  //               (Vendor.depositsEnabled). Vendor-Admin-only by default —
+  //               reaches vendors via the `*` wildcard only, no preset grants
+  //               it explicitly, same tier as `payroll:config_manage`.
+  // `refund`/`write_off`/`void` rewrite or extinguish a held liability, so
+  // those are Vendor Admin (`*`) + Accountant only by default, same tier as
+  // customer_financial_adjustments' restricted actions.
+  customer_deposits: {
+    label: 'Deposits',
+    navigable: false,
+    actions: ['view', 'collect', 'refund', 'write_off', 'void', 'manage_config'],
   },
 } as const satisfies Record<string, ResourceDefinition>;
 

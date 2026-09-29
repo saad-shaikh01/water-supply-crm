@@ -66,6 +66,7 @@ import { StaffAttendanceService } from '../payroll/staff-attendance.service';
 import { VehicleCheckService } from '../fleet/vehicle-check.service';
 import { SheetDiscrepancyCaseService } from '../sheet-discrepancy-case/sheet-discrepancy-case.service';
 import { VanCashLedgerService } from '../van-cash-ledger/van-cash-ledger.service';
+import { CustomerDepositsService } from '../customer-deposits/customer-deposits.service';
 import {
   buildReconciliation as buildReconciliationPure,
   isSheetModifiedAfterClose,
@@ -114,6 +115,7 @@ export class DailySheetService implements OnModuleInit {
     private vehicleCheck: VehicleCheckService,
     private discrepancyCases: SheetDiscrepancyCaseService,
     private vanCashLedger: VanCashLedgerService,
+    private customerDeposits: CustomerDepositsService,
     @InjectQueue(QUEUE_NAMES.DAILY_SHEET_GENERATION)
     private sheetQueue: Queue,
   ) {}
@@ -520,7 +522,7 @@ export class DailySheetService implements OnModuleInit {
       include: {
         customer: { select: { name: true, customerCode: true, phoneNumber: true, paymentType: true, isBillingExempt: true, financialBalance: true, customPrices: { select: { productId: true, customPrice: true } } } },
         product: { select: { name: true, basePrice: true } },
-        dailySheet: { select: { vendorId: true, date: true, isClosed: true, vendor: { select: { name: true } }, van: { select: { plateNumber: true } } } },
+        dailySheet: { select: { vendorId: true, date: true, isClosed: true, vendor: { select: { name: true, depositsEnabled: true } }, van: { select: { plateNumber: true } } } },
       },
     });
 
@@ -783,6 +785,10 @@ export class DailySheetService implements OnModuleInit {
           failureCategory: dto.failureCategory,
           photoKey: dto.photoKey,
           pricePerBottle: price,
+          depositCashCollected: dto.depositCashCollected ?? 0,
+          depositBottlesCollected: dto.depositBottlesCollected ?? 0,
+          depositBottlesReturned: dto.depositBottlesReturned ?? 0,
+          depositProductId: dto.depositProductId ?? null,
           ...(resolvedStatus === DeliveryStatus.COMPLETED || resolvedStatus === DeliveryStatus.EMPTY_ONLY
             ? { deliveredAt: new Date() }
             : { deliveredAt: null }),
@@ -892,6 +898,27 @@ export class DailySheetService implements OnModuleInit {
             bottleBalanceAfter: updatedWallet?.balance ?? null,
             financialBalanceAfter: updatedCustomer?.financialBalance ?? null,
           },
+        });
+      }
+
+      // Customer Deposits (owner-requested 2026-09-29) — sync this item's up-to-3
+      // deposit slots to the current dto, entirely separate from the
+      // financialBalance/BottleWallet math above. Gated on the vendor's
+      // depositsEnabled flag (read alongside `item` at the top, zero extra
+      // queries) so vendors who don't use deposits pay no cost on this hot path.
+      // Unconditional on resolvedStatus, unlike the ledger block above — a
+      // resubmit that leaves COMPLETED/EMPTY_ONLY must still zero out (not
+      // orphan) any deposit collected under the earlier submission, and a
+      // deposit can legitimately be collected even on a failed-delivery stop.
+      if (item.dailySheet.vendor.depositsEnabled) {
+        await this.customerDeposits.syncDeliveryEntriesTx(tx, user, {
+          customerId: item.customerId,
+          dailySheetItemId: itemId,
+          effectiveDate: new Date(),
+          cashCollected: dto.depositCashCollected ?? 0,
+          bottlesCollected: dto.depositBottlesCollected ?? 0,
+          bottlesReturned: dto.depositBottlesReturned ?? 0,
+          bottleProductId: dto.depositProductId,
         });
       }
 
@@ -1102,7 +1129,7 @@ export class DailySheetService implements OnModuleInit {
     const item = await this.prisma.dailySheetItem.findUnique({
       where: { id: itemId },
       include: {
-        dailySheet: { select: { vendorId: true, isClosed: true, date: true } },
+        dailySheet: { select: { vendorId: true, isClosed: true, date: true, vendor: { select: { depositsEnabled: true } } } },
         customer: { select: { id: true } },
         product: { select: { id: true } },
       },
@@ -1225,6 +1252,21 @@ export class DailySheetService implements OnModuleInit {
 
       // Void fields were already written by the atomic claim above; just return
       // the current row (this method returned a bare item with no includes).
+
+      // Customer Deposits (owner-requested 2026-09-29) — a voided stop "never
+      // happened", so any deposit collected/returned on it is cleaned up too
+      // (all-zero sync = remove whatever entries this item posted). Same gate
+      // and no-op-if-nothing-to-do behavior as submitDelivery's own sync call.
+      if (item.dailySheet.vendor.depositsEnabled) {
+        await this.customerDeposits.syncDeliveryEntriesTx(tx, user, {
+          customerId: item.customerId,
+          dailySheetItemId: itemId,
+          effectiveDate: voidedAt,
+          cashCollected: 0,
+          bottlesCollected: 0,
+          bottlesReturned: 0,
+        });
+      }
 
       // Auto-reconcile the affected trip's physical counts — a voided delivery's
       // figures go to zero, so shift the trip counts by the offsetting delta
@@ -2467,6 +2509,13 @@ export class DailySheetService implements OnModuleInit {
     },
     customPrices: {
       select: { productId: true, customPrice: true },
+    },
+    // Customer Flags (owner-requested 2026-09-29): so delivery item rows show
+    // the same highlight badge as the customer list / Communication Center.
+    flags: {
+      where: { status: 'OPEN' as const },
+      select: { id: true, message: true, category: { select: { id: true, name: true, color: true } } },
+      orderBy: { createdAt: 'asc' as const },
     },
   } as const;
 

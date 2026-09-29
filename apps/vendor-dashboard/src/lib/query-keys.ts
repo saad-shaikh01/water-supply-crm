@@ -10,6 +10,11 @@ export const queryKeys = {
     all: (params: object) => ['customers', params] as const,
     one: (id: string) => ['customers', id] as const,
   },
+  // Customer Flags (owner-requested 2026-09-29).
+  customerFlags: {
+    categories: () => ['customer-flag-categories'] as const,
+    history: (customerId: string) => ['customers', customerId, 'flags'] as const,
+  },
   products: {
     all: (params?: object) => ['products', ...(params ? [params] : [])],
     one: (id: string) => ['products', id] as const,
@@ -102,5 +107,7 @@ export const queryKeys = {
     serviceRecords: (params?: object) => ['fleet', 'service-records', ...(params ? [params] : [])],
     serviceRecord: (id: string) => ['fleet', 'service-records', id] as const,
     serviceTypes: () => ['fleet', 'service-types'] as const,
+    // Fleet Alert Recipients (owner-requested 2026-09-29) — vendor-wide, not per-vehicle.
+    alertRecipients: () => ['fleet', 'alert-recipients'] as const,
   },
 };

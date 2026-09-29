@@ -78,6 +78,29 @@ export class CustomerQueryDto extends PaginationQueryDto {
   @Max(3650)
   notPaidInDays?: number;
 
+  /**
+   * Outstanding-balance filters (OR'd together when both are set): MONTHLY
+   * customers whose previous-month figure is still unpaid, and/or CASH
+   * customers whose live balance isn't clear. `minPendingAmount` raises the
+   * bar from "any amount owed" to a specific threshold, applied uniformly to
+   * whichever type-specific pending figure is in play.
+   */
+  @IsOptional()
+  @Transform(({ obj }) => obj.outstandingMonthly === 'true' || obj.outstandingMonthly === true)
+  @IsBoolean()
+  outstandingMonthly?: boolean;
+
+  @IsOptional()
+  @Transform(({ obj }) => obj.outstandingCash === 'true' || obj.outstandingCash === true)
+  @IsBoolean()
+  outstandingCash?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => parseFloat(value))
+  @IsNumber()
+  @Min(0.01)
+  minPendingAmount?: number;
+
   @IsOptional()
   @IsIn(['name', 'customerCode', 'createdAt', 'financialBalance', 'bottleBalance', 'pendingAmount'])
   sort?: string = 'name';

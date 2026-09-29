@@ -76,7 +76,19 @@ export function buildReconciliation(sheet: any) {
   const totalCashRecorded = (sheet.items as any[])
     .filter((i) => i.status !== DeliveryStatus.VOIDED)
     .reduce((s, i) => s + i.cashCollected, 0);
-  const driverDiscrepancy = totalCashRecorded - sheet.cashCollected;
+
+  // Customer Deposits (owner-requested 2026-09-29) — a driver-collected
+  // deposit is real cash in the driver's pocket, so it's folded into the same
+  // hand-in total below, but summed and reported separately (`deposits`
+  // block) so it's never mistaken for revenue. `depositCashCollected`
+  // defaults to 0 on every pre-existing row, so this is purely additive —
+  // historical sheets recompute byte-identical.
+  const totalDepositCashRecorded = (sheet.items as any[])
+    .filter((i) => i.status !== DeliveryStatus.VOIDED)
+    .reduce((s, i) => s + (i.depositCashCollected ?? 0), 0);
+
+  const totalCashRecordedWithDeposits = totalCashRecorded + totalDepositCashRecorded;
+  const driverDiscrepancy = totalCashRecordedWithDeposits - sheet.cashCollected;
 
   // Only expenses actually paid out of the driver's van cash-in-hand
   // (paidFromCash, default true) reduce the cash hand-in — a fuel fill or
@@ -143,11 +155,16 @@ export function buildReconciliation(sheet: any) {
     crewCash: {
       total: totalCrewCash,
     },
+    // Customer Deposits (owner-requested 2026-09-29) — reported separately from
+    // cashCustomers/monthlyCustomers above; never folded into `billed`/`addedToBalance`.
+    deposits: {
+      collected: totalDepositCashRecorded,
+    },
     driver: {
-      shouldHandIn: totalCashRecorded,
+      shouldHandIn: totalCashRecordedWithDeposits,
       expensePaidFromCash: totalExpenses,
       crewCashPaidFromCash: totalCrewCash,
-      netToHandIn: Math.max(0, totalCashRecorded - totalExpenses - totalCrewCash),
+      netToHandIn: Math.max(0, totalCashRecordedWithDeposits - totalExpenses - totalCrewCash),
       handedIn: sheet.cashCollected,
       discrepancy: driverDiscrepancy,
       unexplainedDiscrepancy: driverDiscrepancy - totalExpenses - totalCrewCash,
@@ -212,6 +229,7 @@ export const SHEET_CASH_RELOAD_INCLUDE = {
       filledReceived: true,
       emptyReceived: true,
       cashCollected: true,
+      depositCashCollected: true,
       pricePerBottle: true,
       productId: true,
       voidedAt: true,

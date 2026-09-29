@@ -16,6 +16,7 @@ import { StaffAttendanceService } from '../payroll/staff-attendance.service';
 import { VehicleCheckService } from '../fleet/vehicle-check.service';
 import { SheetDiscrepancyCaseService } from '../sheet-discrepancy-case/sheet-discrepancy-case.service';
 import { VanCashLedgerService } from '../van-cash-ledger/van-cash-ledger.service';
+import { CustomerDepositsService } from '../customer-deposits/customer-deposits.service';
 import { StorageService } from '../../common/storage/storage.service';
 import { WarehouseService } from '../warehouse/warehouse.service';
 import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.service';
@@ -120,6 +121,7 @@ describe('DailySheetService.closeSheet — Discrepancy Case creation', () => {
           provide: VanCashLedgerService,
           useValue: { createHandoverForClosedSheet: jest.fn().mockResolvedValue(null) },
         },
+        { provide: CustomerDepositsService, useValue: { syncDeliveryEntriesTx: jest.fn().mockResolvedValue(undefined) } },
         { provide: getQueueToken(QUEUE_NAMES.DAILY_SHEET_GENERATION), useValue: { add: jest.fn(), getRepeatableJobs: jest.fn().mockResolvedValue([]), upsertJobScheduler: jest.fn().mockResolvedValue(null) } },
       ],
     }).compile();

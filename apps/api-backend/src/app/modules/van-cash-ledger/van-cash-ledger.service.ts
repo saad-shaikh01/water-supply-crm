@@ -121,11 +121,13 @@ const TWIN_LOCKED_ROWS = new WeakSet<object>();
 const DIRECTION_BY_BUCKET: Record<CashLedgerBucket, CashLedgerDirection> = {
   SHEET_CASH_IN: 'IN',
   OFFICE_CASH_IN: 'IN',
+  DEPOSIT_CASH_IN: 'IN',
   OFFICE_EXPENSE: 'OUT',
   PAYROLL_CASH: 'OUT',
   CREW_CASH: 'OUT',
   OWNER_TRANSFER: 'TRANSFER',
   FUEL_CARD: 'TRANSFER',
+  DEPOSIT_REFUND_OUT: 'TRANSFER',
 };
 
 /**
@@ -283,6 +285,27 @@ const sourceWhere = {
     status: { in: statuses },
     ...(range && { date: range }),
   }),
+  /**
+   * DEPOSIT_CASH_IN / DEPOSIT_REFUND_OUT — OFFICE-source CASH-type
+   * CustomerDepositEntry rows only. A driver's in-delivery collection
+   * (source=DELIVERY) is already folded into that sheet's SHEET_CASH_IN hand-in
+   * total (sheet-cash.util.ts), so it's excluded here to avoid double-counting.
+   * BOTTLE-type entries never touch the Cash Ledger (no cash value). Vendor-wide
+   * — excluded from a van-scoped view, same as remittances/fuel cards/crew cash.
+   */
+  depositEntry: (
+    vendorId: string,
+    direction: 'COLLECT' | 'REFUND',
+    statuses: ('POSTED' | 'VOIDED')[],
+    range?: DateRange,
+  ): Prisma.CustomerDepositEntryWhereInput => ({
+    vendorId,
+    source: 'OFFICE',
+    direction,
+    status: { in: statuses },
+    deposit: { type: 'CASH' },
+    ...(range && { effectiveDate: range }),
+  }),
 };
 
 export type VanCashLedgerRowType =
@@ -293,7 +316,9 @@ export type VanCashLedgerRowType =
   | 'CASH_REMITTANCE_OUT'
   | 'FUEL_CARD_TOPUP_OUT'
   | 'STANDALONE_CREW_CASH_OUT'
-  | 'PAYROLL_SETTLEMENT_OUT';
+  | 'PAYROLL_SETTLEMENT_OUT'
+  | 'DEPOSIT_CASH_IN'
+  | 'DEPOSIT_REFUND_OUT';
 
 export interface VanCashLedgerRow extends Required<CashLedgerRowV2> {
   /** `${type}:${originalId}` — stable and unique across the merged sources. */
@@ -1672,6 +1697,7 @@ export class VanCashLedgerService {
         broughtForward: statement.broughtForward,
         sheetCashIn: statement.sheetCashIn,
         officeCashIn: statement.officeCashIn,
+        depositCashIn: statement.depositCashIn,
         totalCashIn: statement.totalCashIn,
         officeExpenses: statement.officeExpenses,
         payrollCash: statement.payrollCash,
@@ -1679,6 +1705,7 @@ export class VanCashLedgerService {
         totalExpenses: statement.totalExpenses,
         ownerTransfer: statement.ownerTransfer,
         fuelCard: statement.fuelCard,
+        depositRefundOut: statement.depositRefundOut,
         net: statement.net,
         expectedClosing: statement.expectedClosing,
       },
@@ -2040,6 +2067,7 @@ export class VanCashLedgerService {
       remittanceRows,
       fuelCardTopUpRows,
       standaloneCrewCashRows,
+      depositEntryRows,
     ] = await Promise.all([
       from ? this.computeBroughtForward(vendorId, vanId, from) : Promise.resolve(0),
       this.buildOpeningBalanceRows(vendorId, vanId, dateFilter),
@@ -2189,6 +2217,28 @@ export class VanCashLedgerService {
             },
             orderBy: { date: 'asc' },
           }),
+      // Customer Deposits — vendor-wide, same treatment as remittances/fuel
+      // cards/crew cash above. Both directions in one query (distinguished by
+      // `direction` when building rows); VOIDED rows are still fetched for the
+      // audit trail (fold in as amount 0).
+      vanId
+        ? Promise.resolve([])
+        : this.prisma.customerDepositEntry.findMany({
+            where: {
+              vendorId,
+              source: 'OFFICE',
+              direction: { in: ['COLLECT', 'REFUND'] },
+              status: { in: ['POSTED', 'VOIDED'] },
+              deposit: { type: 'CASH' },
+              ...(dateFilter && { effectiveDate: dateFilter }),
+            },
+            include: {
+              deposit: { select: { customerId: true, customer: { select: { name: true } } } },
+              createdBy: { select: { name: true } },
+              voidedBy: { select: { name: true } },
+            },
+            orderBy: { effectiveDate: 'asc' },
+          }),
     ]);
 
     const merged: VanCashLedgerRow[] = [...openingRows];
@@ -2225,6 +2275,7 @@ export class VanCashLedgerService {
     for (const row of remittanceRows) merged.push(this.normalizeRemittanceOut(row));
     for (const row of fuelCardTopUpRows) merged.push(this.normalizeFuelCardTopUpOut(row));
     for (const row of standaloneCrewCashRows) merged.push(this.normalizeStandaloneCrewCashOut(row));
+    for (const row of depositEntryRows) merged.push(this.normalizeDepositRow(row));
 
     merged.sort(compareLedgerRows);
 
@@ -2696,6 +2747,8 @@ export class VanCashLedgerService {
       remittanceAgg,
       fuelCardAgg,
       crewCashAgg,
+      depositCollectAgg,
+      depositRefundAgg,
     ] = await Promise.all([
       this.prisma.vanCashHandover.aggregate({
         where: sourceWhere.handover(vendorId, vanId, range),
@@ -2739,6 +2792,18 @@ export class VanCashLedgerService {
             where: sourceWhere.standaloneCrewCash(vendorId, [StandaloneCrewCashStatus.ACTIVE], range),
             _sum: { amount: true },
           }),
+      vanId
+        ? null
+        : this.prisma.customerDepositEntry.aggregate({
+            where: sourceWhere.depositEntry(vendorId, 'COLLECT', ['POSTED'], range),
+            _sum: { amount: true },
+          }),
+      vanId
+        ? null
+        : this.prisma.customerDepositEntry.aggregate({
+            where: sourceWhere.depositEntry(vendorId, 'REFUND', ['POSTED'], range),
+            _sum: { amount: true },
+          }),
     ]);
 
     const totals = emptyBucketTotals();
@@ -2751,6 +2816,8 @@ export class VanCashLedgerService {
     totals.ownerTransfer = remittanceAgg?._sum.amount ?? 0;
     totals.fuelCard = fuelCardAgg?._sum.amount ?? 0;
     totals.crewCash = crewCashAgg?._sum.amount ?? 0;
+    totals.depositCashIn = depositCollectAgg?._sum.amount ?? 0;
+    totals.depositRefundOut = depositRefundAgg?._sum.amount ?? 0;
     return totals;
   }
 
@@ -3161,6 +3228,71 @@ export class VanCashLedgerService {
     };
     if (!isVoided && isStandaloneCrewCashTwinLocked(row.staffLedgerEntry)) TWIN_LOCKED_ROWS.add(built);
     return built;
+  }
+
+  /**
+   * Customer Deposits (owner-requested 2026-09-29) — an OFFICE-source CASH
+   * COLLECT or REFUND entry. Append-only (office entries are never edited in
+   * place, only voided-by-reversal), so `isEdited` is always false. A voided
+   * entry is shown for the audit trail but folds in as amount 0, same
+   * treatment as remittances/fuel-card top-ups/crew cash.
+   */
+  private normalizeDepositRow(
+    row: {
+      id: string;
+      direction: 'COLLECT' | 'REFUND' | 'WRITE_OFF';
+      amount: number;
+      status: 'POSTED' | 'VOIDED';
+      effectiveDate: Date;
+      createdAt: Date;
+      createdById: string;
+      note: string | null;
+      referenceNo: string | null;
+      voidedAt: Date | null;
+      voidReason: string | null;
+      deposit: { customerId: string; customer: { name: string } };
+      createdBy: { name: string } | null;
+      voidedBy: { name: string } | null;
+    },
+  ): VanCashLedgerRow {
+    const isVoided = row.status === 'VOIDED';
+    const isRefund = row.direction === 'REFUND';
+    const bucket: CashLedgerBucket = isRefund ? 'DEPOSIT_REFUND_OUT' : 'DEPOSIT_CASH_IN';
+    const type: VanCashLedgerRowType = isRefund ? 'DEPOSIT_REFUND_OUT' : 'DEPOSIT_CASH_IN';
+    const customerName = row.deposit.customer.name;
+    const date = row.effectiveDate.toISOString();
+    return {
+      ...rowV2(bucket, row.createdAt, date, {
+        recordedByName: row.createdBy?.name ?? null,
+        recordedById: row.createdById ?? null,
+        notes: row.note ?? null,
+        reference: row.referenceNo ?? null,
+        voidedAt: isVoided ? (row.voidedAt?.toISOString() ?? null) : null,
+        voidedByName: isVoided ? (row.voidedBy?.name ?? null) : null,
+      }),
+      id: `${type}:${row.id}`,
+      date,
+      createdAt: row.createdAt.toISOString(),
+      bucket,
+      type,
+      // A voided entry must not move the running balance — it folds in as 0.
+      amount: isVoided ? 0 : isRefund ? -row.amount : row.amount,
+      displayAmount: row.amount,
+      runningBalance: 0,
+      title: isRefund ? `Deposit Refund — ${customerName}` : `Customer Deposit — ${customerName}`,
+      vanId: null,
+      vanPlateNumber: null,
+      sourceType: 'CUSTOMER_DEPOSIT_ENTRY',
+      sourceRecordId: row.id,
+      sourceBadge: 'Deposit',
+      status: null,
+      dailySheetId: null,
+      submittedByName: row.createdBy?.name ?? null,
+      approvedByName: null,
+      version: null,
+      isVoided,
+      voidReason: row.voidReason ?? null,
+    };
   }
 
   /**

@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useQueryState, parseAsInteger, parseAsString, parseAsFloat } from 'nuqs';
+import { useQueryState, parseAsInteger, parseAsString, parseAsFloat, parseAsBoolean } from 'nuqs';
 import { toast } from 'sonner';
 import type {
   CustomerDetail,
@@ -25,6 +25,9 @@ export const useCustomers = () => {
   const [balanceMax] = useQueryState('balanceMax', parseAsFloat.withDefault(NaN));
   const [notDeliveredInDays] = useQueryState('notDeliveredInDays', parseAsInteger.withDefault(0));
   const [notPaidInDays] = useQueryState('notPaidInDays', parseAsInteger.withDefault(0));
+  const [outstandingMonthly, setOutstandingMonthly] = useQueryState('outstandingMonthly', parseAsBoolean.withDefault(false));
+  const [outstandingCash, setOutstandingCash] = useQueryState('outstandingCash', parseAsBoolean.withDefault(false));
+  const [minPendingAmount, setMinPendingAmount] = useQueryState('minPendingAmount', parseAsFloat.withDefault(NaN));
   const [sort, setSort] = useQueryState('sort', parseAsString.withDefault(''));
   const [sortDir, setSortDir] = useQueryState('sortDir', parseAsString.withDefault(''));
 
@@ -44,6 +47,9 @@ export const useCustomers = () => {
     balanceMax: !isNaN(balanceMax) ? balanceMax : undefined,
     notDeliveredInDays: notDeliveredInDays > 0 ? notDeliveredInDays : undefined,
     notPaidInDays: notPaidInDays > 0 ? notPaidInDays : undefined,
+    outstandingMonthly: outstandingMonthly || undefined,
+    outstandingCash: outstandingCash || undefined,
+    minPendingAmount: !isNaN(minPendingAmount) && minPendingAmount > 0 ? minPendingAmount : undefined,
     sort: sort || undefined,
     sortDir: (sortDir as 'asc' | 'desc') || undefined,
   };
@@ -70,6 +76,12 @@ export const useCustomers = () => {
     balanceMax,
     notDeliveredInDays,
     notPaidInDays,
+    outstandingMonthly,
+    setOutstandingMonthly,
+    outstandingCash,
+    setOutstandingCash,
+    minPendingAmount,
+    setMinPendingAmount,
     sort,
     setSort,
     sortDir,
@@ -296,6 +308,10 @@ export interface CustomerStatementData {
   openingBalance: number;
   closingBalance: number;
   ratePerBottle: number;
+  /** When true, deliveryRows/totals reflect this period's own activity only
+   * (no carried-forward opening balance). openingBalance/closingBalance above
+   * are always the true historical figures regardless. */
+  periodOnly: boolean;
   deliveryRows: StatementDeliveryRow[];
   otherRows: StatementOtherRow[];
   totals: {
@@ -308,14 +324,15 @@ export interface CustomerStatementData {
   };
 }
 
-export const useCustomerStatement = (id: string, params: { month: string; toMonth?: string }) =>
+export const useCustomerStatement = (id: string, params: { month: string; toMonth?: string; periodOnly?: boolean }) =>
   useQuery({
-    queryKey: ['customers', id, 'statement-data', params.month, params.toMonth ?? params.month],
+    queryKey: ['customers', id, 'statement-data', params.month, params.toMonth ?? params.month, !!params.periodOnly],
     queryFn: (): Promise<CustomerStatementData> =>
       customersApi
         .getStatementData(id, {
           month: params.month,
           ...(params.toMonth && params.toMonth !== params.month ? { toMonth: params.toMonth } : {}),
+          ...(params.periodOnly ? { periodOnly: true } : {}),
         })
         .then((r) => r.data),
     enabled: !!id && !!params.month,

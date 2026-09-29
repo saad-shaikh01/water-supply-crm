@@ -271,12 +271,18 @@ describe('role presets', () => {
         // existing Products page, no dedicated route (owner-requested 2026-09-15).
         // customer_financial_adjustments: a "Charges & Credits" tab on the existing
         // customer detail page, no dedicated route (owner-approved 2026-09-21).
+        // customer_flags: reached from the existing Customers screens (badge +
+        // flag/resolve dialog), no dedicated route (owner-requested 2026-09-29).
+        // customer_deposits: a "Deposits" tab on the existing customer detail
+        // page, no dedicated route (owner-requested 2026-09-29).
         if (
           resource === 'whatsapp' ||
           resource === 'crew_cash' ||
           resource === 'van_cash_ledger' ||
           resource === 'product_costs' ||
-          resource === 'customer_financial_adjustments'
+          resource === 'customer_financial_adjustments' ||
+          resource === 'customer_flags' ||
+          resource === 'customer_deposits'
         )
           continue;
         expect(eff.has(`${resource}:page` as Permission)).toBe(true);

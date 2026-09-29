@@ -208,6 +208,10 @@ const MANAGER_PERMISSIONS: Permission[] = [
   // everything except being outright excluded, same tier as vans:* above.
   'fleet:page', 'fleet:view', 'fleet:update', 'fleet:record_check', 'fleet:record_fuel',
   'fleet:manage_maintenance', 'fleet:override_check',
+  // Fleet Alert Recipients (owner-requested 2026-09-29): Manager configures the
+  // WhatsApp numbers the nightly sweep alerts, same tier as manage_maintenance
+  // above. Existing vendors get this via PRESET_DRIFT_BACKFILLS.manager.
+  'fleet:manage_alerts',
   // Sheet Discrepancy Case (Amendment R8): flat STAFF/VENDOR_ADMIN default —
   // the user's explicit requirement was STAFF + VENDOR_ADMIN resolution
   // authority, no override-only tier the way payroll:view_all has.
@@ -231,6 +235,19 @@ const MANAGER_PERMISSIONS: Permission[] = [
   'fuel_cards:page', 'fuel_cards:view', 'fuel_cards:manage', 'fuel_cards:topup', 'fuel_cards:topup_void',
   // Extra Labour (owner-approved 2026-09-22, Amendment R20)
   'extra_labour:page', 'extra_labour:view', 'extra_labour:create', 'extra_labour:manage',
+  // Customer Flags (owner-requested 2026-09-29, Amendment R23): Manager may
+  // flag/resolve a customer (highlight for closing, payment collection,
+  // etc.) — `manage_categories` (defining the catalogue) stays VENDOR_ADMIN-
+  // only, reached via the `*` wildcard only. Existing vendors get this via
+  // PRESET_DRIFT_BACKFILLS.manager.
+  'customer_flags:apply',
+  // Customer Deposits (owner-requested 2026-09-29, Amendment R25): Manager may
+  // view balances and record a collection, but NOT refund/write_off/void — those
+  // rewrite or extinguish a held liability and stay Accountant/Vendor-Admin-only
+  // (mirrors the Customer Financial Adjustments tier split above). Existing
+  // vendors get this via PRESET_DRIFT_BACKFILLS.manager.
+  'customer_deposits:view',
+  'customer_deposits:collect',
 ];
 
 export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
@@ -328,6 +345,20 @@ export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
       // Extra Labour (owner-approved 2026-09-22, Amendment R20)
       'extra_labour:page',
       'extra_labour:view',
+      // Customer Flags (owner-requested 2026-09-29, Amendment R23): Accountant
+      // is the natural owner of "Payment Overdue" flags. Existing vendors get
+      // this via PRESET_DRIFT_BACKFILLS.accountant.
+      'customer_flags:apply',
+      // Customer Deposits (owner-requested 2026-09-29, Amendment R25): same
+      // trusted-financial tier as Customer Financial Adjustments above —
+      // Accountant gets the full set (collect/refund/write_off/void), Manager
+      // gets view+collect only (below). Existing vendors get these via
+      // PRESET_DRIFT_BACKFILLS.accountant.
+      'customer_deposits:view',
+      'customer_deposits:collect',
+      'customer_deposits:refund',
+      'customer_deposits:write_off',
+      'customer_deposits:void',
     ],
   },
   support: {

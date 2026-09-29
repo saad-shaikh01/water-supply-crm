@@ -139,9 +139,25 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // cutoffDay/cashCutoffDay/cashWindowCategories. No new resource, no new
 // `:page` — added to the existing `payroll` resource, VENDOR_ADMIN-only by
 // default (reaches vendors via the `*` wildcard only, no preset grants it).
-const FROZEN_TOTAL = 206;
+// 208 = 206 + customer_flags (manage_categories, apply) — new resource for
+// Customer Flags (owner-requested 2026-09-29, Amendment R23): highlight a
+// customer with an admin-defined category (e.g. "To Be Closed", "Payment
+// Overdue") so the reason surfaces wherever that customer is shown. Non-
+// navigable — reached from the existing Customers screens, same reasoning as
+// `crew_cash`/`van_cash_ledger`/`product_costs`. No new `:page`; +1 resource.
+// 209 = 208 + fleet:manage_alerts — Fleet Alert Recipients (owner-requested
+// 2026-09-29): manage the WhatsApp numbers the nightly document-expiry /
+// maintenance-due sweep also notifies. No new resource, no new `:page` —
+// added to the existing `fleet` resource.
+// 215 = 209 + customer_deposits (view, collect, refund, write_off, void,
+// manage_config) — new resource for Customer Deposits (owner-requested
+// 2026-09-29): optional refundable CASH/BOTTLE security deposit per customer,
+// kept separate from customer_financial_adjustments since a deposit is a
+// liability, not a charge/credit. Non-navigable (Deposits tab on customer
+// detail); +1 resource, +6 total permissions.
+const FROZEN_TOTAL = 215;
 const FROZEN_PAGES = 31;
-const FROZEN_RESOURCES = 35;
+const FROZEN_RESOURCES = 37;
 
 describe('permission catalog (frozen contract)', () => {
   it('has the frozen totals', () => {
@@ -183,6 +199,10 @@ describe('permission catalog (frozen contract)', () => {
     // (owner-requested 2026-09-15).
     // customer_financial_adjustments: a "Charges & Credits" tab on the existing
     // customer detail page, not a dedicated route (owner-approved 2026-09-21).
+    // customer_flags: reached from the existing Customers screens (badge +
+    // flag/resolve dialog), not a dedicated route (owner-requested 2026-09-29).
+    // customer_deposits: a "Deposits" tab on the existing customer detail page,
+    // not a dedicated route (owner-requested 2026-09-29).
     for (const resource of RESOURCES) {
       const def = PERMISSION_CATALOG[resource];
       if (
@@ -190,7 +210,9 @@ describe('permission catalog (frozen contract)', () => {
         resource === 'crew_cash' ||
         resource === 'van_cash_ledger' ||
         resource === 'product_costs' ||
-        resource === 'customer_financial_adjustments'
+        resource === 'customer_financial_adjustments' ||
+        resource === 'customer_flags' ||
+        resource === 'customer_deposits'
       )
         continue;
       expect(def.actions).toContain('page');

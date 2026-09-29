@@ -10,7 +10,7 @@ import { cn } from '@water-supply-crm/ui';
 import { Receipt, HandCoins, CheckCircle2, XCircle, Plus, Ban, AlertTriangle, Loader2 } from 'lucide-react';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import { ledgerCategoryLabel } from '../constants';
-import { useEntryBreakdown, useApproveEntry, type PayrollEntryBucketTotals, type AttendanceBreakdownDay } from '../hooks/use-monthly-payroll';
+import { useEntryBreakdown, useApproveEntry, useRecalculateEntry, type PayrollEntryBucketTotals, type AttendanceBreakdownDay } from '../hooks/use-monthly-payroll';
 import { useCollectAdvanceInstallment, useSkipAdvanceInstallment } from '../hooks/use-advance-plans';
 import { useAttendanceCategories } from '../hooks/use-attendance';
 import { usePermissions } from '../../authz/hooks/use-permissions';
@@ -106,6 +106,7 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
   const canLogEntry = can('payroll:ledger_create');
   const canApprove = can('payroll:entry_approve');
   const { mutate: approveEntry, isPending: isApproving } = useApproveEntry(data?.entry.periodId);
+  const { mutate: recalculateEntry, isPending: isRecalculating } = useRecalculateEntry(data?.entry.periodId);
 
   const [tab, setTab] = useState('breakdown');
   const [markTarget, setMarkTarget] = useState<MarkAttendanceTarget | null>(null);
@@ -268,15 +269,37 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
                     )}
                   </div>
                   {hasUnreflectedLedgerChanges && (
-                    <p className="text-xs text-amber-600 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 flex items-start gap-2">
+                    <div className="text-xs text-amber-600 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 flex items-start gap-2">
                       <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                      <span>
-                        The totals above don't yet include a recent change.{' '}
-                        {data.entry.status === 'DRAFT'
-                          ? 'Regenerate the draft from Monthly Payroll to include it.'
-                          : 'It will be included automatically when this period is locked.'}
-                      </span>
-                    </p>
+                      <div className="flex-1 space-y-2">
+                        <span>
+                          This entry is <strong>{data.entry.status}</strong> — a ledger entry was posted after that,
+                          so the totals above don't include it yet.{' '}
+                          {data.entry.status === 'DRAFT' &&
+                            'Regenerate the draft from Monthly Payroll to include it.'}
+                          {(data.entry.status === 'APPROVED' || data.entry.status === 'UNDER_REVIEW') &&
+                            !canApprove &&
+                            'It will be included automatically when this period is locked, or ask someone who can approve entries to recalculate it now.'}
+                        </span>
+                        {(data.entry.status === 'APPROVED' || data.entry.status === 'UNDER_REVIEW') && canApprove && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="rounded-lg h-7 text-xs font-bold gap-1.5 border-amber-500/40 text-amber-700 hover:text-amber-800"
+                            disabled={isRecalculating}
+                            onClick={() =>
+                              recalculateEntry(
+                                { id: data.entry.id, version: data.entry.version },
+                                { onSuccess: () => refetch() },
+                              )
+                            }
+                          >
+                            {isRecalculating ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                            Recalculate Now
+                          </Button>
+                        )}
+                      </div>
+                    </div>
                   )}
                   {data.cashWindow && (
                     <p className="text-xs text-muted-foreground bg-accent/30 border border-border/40 rounded-lg px-3 py-2">

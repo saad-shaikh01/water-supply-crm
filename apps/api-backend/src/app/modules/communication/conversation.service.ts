@@ -20,7 +20,21 @@ import type { AuthUser } from '@water-supply-crm/types';
 const FIELD_DRIVER_ROLES: UserRole[] = [UserRole.DRIVER, UserRole.SALESMAN];
 // Context block returned with every conversation (inbox rows + detail).
 const CONVERSATION_INCLUDE = {
-  customer: { select: { id: true, name: true, customerCode: true, phoneNumber: true } },
+  customer: {
+    select: {
+      id: true,
+      name: true,
+      customerCode: true,
+      phoneNumber: true,
+      // Customer Flags (owner-requested 2026-09-29): so the inbox and thread
+      // header show the same highlight badge as the customer list.
+      flags: {
+        where: { status: 'OPEN' },
+        select: { id: true, message: true, category: { select: { id: true, name: true, color: true } } },
+        orderBy: { createdAt: 'asc' },
+      },
+    },
+  },
   dailySheet: { select: { id: true, date: true, isClosed: true } },
   van: { select: { id: true, plateNumber: true } },
   driver: { select: { id: true, name: true } },

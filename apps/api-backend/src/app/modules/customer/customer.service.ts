@@ -69,6 +69,49 @@ export class CustomerService {
     return {};
   }
 
+  /**
+   * MONTHLY customers' previous-month outstanding = opening balance of the
+   * current month (live balance minus everything booked this month), netted
+   * against this month's payments. Single source of truth for the three call
+   * sites that need this figure (list sort, outstanding-balance filter, and
+   * the "Pending Amount" column data).
+   */
+  private async computePrevMonthOutstanding(
+    vendorId: string,
+    customers: Array<{ id: string; financialBalance: number | null }>,
+  ): Promise<Map<string, number>> {
+    const ids = customers.map((c) => c.id);
+    if (ids.length === 0) return new Map();
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const [txns, payments] = await Promise.all([
+      this.prisma.transaction.groupBy({
+        by: ['customerId'],
+        where: { customerId: { in: ids }, vendorId, createdAt: { gte: monthStart } },
+        _sum: { amount: true },
+      }),
+      this.prisma.transaction.groupBy({
+        by: ['customerId'],
+        where: {
+          customerId: { in: ids },
+          vendorId,
+          type: TransactionType.PAYMENT,
+          createdAt: { gte: monthStart, lt: nextMonthStart },
+        },
+        _sum: { amount: true },
+      }),
+    ]);
+    const txnMap = new Map(txns.map((t) => [t.customerId, t._sum.amount ?? 0]));
+    const paidMap = new Map(payments.map((t) => [t.customerId, Math.abs(t._sum.amount ?? 0)]));
+    return new Map(
+      customers.map((c) => {
+        const opening = (c.financialBalance ?? 0) - (txnMap.get(c.id) ?? 0);
+        return [c.id, Math.max(0, opening - (paidMap.get(c.id) ?? 0))];
+      }),
+    );
+  }
+
   private async generateCustomerCode(vendorId: string, tx: Prisma.TransactionClient): Promise<string> {
     // Use raw SQL to get the max numeric value from L#### codes — avoids string sort issues
     const result = await tx.$queryRaw<{ maxnum: number | null }[]>`
@@ -160,7 +203,7 @@ export class CustomerService {
   }
 
   async findAllPaginated(vendorId: string, query: CustomerQueryDto) {
-    const { page = 1, limit = 20, search, routeId, paymentType, vanId, dayOfWeek, isActive, hasPortalAccess, balanceMin, balanceMax, notDeliveredInDays, notPaidInDays, sort = 'name', sortDir = 'asc' } = query;
+    const { page = 1, limit = 20, search, routeId, paymentType, vanId, dayOfWeek, isActive, hasPortalAccess, balanceMin, balanceMax, notDeliveredInDays, notPaidInDays, outstandingMonthly, outstandingCash, minPendingAmount, sort = 'name', sortDir = 'asc' } = query;
 
     // Filter by status only when explicitly requested. When no isActive param is
     // sent (the "All Status" option in the UI), return both active and inactive
@@ -237,12 +280,59 @@ export class CustomerService {
       };
     }
 
+    // Outstanding-balance filter (the two checkboxes in the customer list
+    // "Filters" panel) — MONTHLY customers whose previous-month figure is
+    // still unpaid and/or CASH customers whose live balance isn't clear,
+    // OR'd together when both are checked. `minPendingAmount` raises the bar
+    // from "any amount owed" (default) to a specific threshold, applied to
+    // whichever type-specific pending figure is in play.
+    if (outstandingMonthly || outstandingCash) {
+      const threshold = minPendingAmount && minPendingAmount > 0 ? minPendingAmount : 0.01;
+      const idSets: string[][] = [];
+
+      if (outstandingCash) {
+        const cashRows = await this.prisma.customer.findMany({
+          where: {
+            ...where,
+            paymentType: 'CASH',
+            financialBalance: { ...(where.financialBalance ?? {}), gte: threshold },
+          },
+          select: { id: true },
+        });
+        idSets.push(cashRows.map((c) => c.id));
+      }
+
+      if (outstandingMonthly) {
+        const monthlyRows = await this.prisma.customer.findMany({
+          where: { ...where, paymentType: 'MONTHLY' },
+          select: { id: true, financialBalance: true },
+        });
+        const prevOutstandingMap = await this.computePrevMonthOutstanding(vendorId, monthlyRows);
+        idSets.push(
+          monthlyRows
+            .filter((c) => (prevOutstandingMap.get(c.id) ?? 0) >= threshold)
+            .map((c) => c.id),
+        );
+      }
+
+      where.id = { in: [...new Set(idSets.flat())] };
+    }
+
     const listInclude = {
       route: { select: { id: true, name: true } },
       wallets: { include: { product: { select: { id: true, name: true } } } },
       deliverySchedules: {
         include: { van: { select: { id: true, plateNumber: true } } },
         orderBy: { dayOfWeek: 'asc' as const },
+      },
+      // Customer Flags (owner-requested 2026-09-29): only OPEN flags ride
+      // along with every customer fetch so the badge can render wherever the
+      // customer is displayed — resolved history is fetched separately via
+      // GET /customers/:id/flags.
+      flags: {
+        where: { status: 'OPEN' as const },
+        include: { category: true },
+        orderBy: { createdAt: 'asc' as const },
       },
     };
 
@@ -263,38 +353,13 @@ export class CustomerService {
         }),
         this.prisma.customer.count({ where }),
       ]);
-      const monthlyIds = allRows.filter((c) => c.paymentType === 'MONTHLY').map((c) => c.id);
-      const sortNow = new Date();
-      const sortMonthStart = new Date(sortNow.getFullYear(), sortNow.getMonth(), 1);
-      const sortNextMonthStart = new Date(sortNow.getFullYear(), sortNow.getMonth() + 1, 1);
-      const [mTxns, mPayments] = await Promise.all([
-        this.prisma.transaction.groupBy({
-          by: ['customerId'],
-          where: { customerId: { in: monthlyIds }, vendorId, createdAt: { gte: sortMonthStart } },
-          _sum: { amount: true },
-        }),
-        this.prisma.transaction.groupBy({
-          by: ['customerId'],
-          where: {
-            customerId: { in: monthlyIds },
-            vendorId,
-            type: TransactionType.PAYMENT,
-            createdAt: { gte: sortMonthStart, lt: sortNextMonthStart },
-          },
-          _sum: { amount: true },
-        }),
-      ]);
-      const mTxnMap = new Map(mTxns.map((t) => [t.customerId, t._sum.amount ?? 0]));
-      const mPaidMap = new Map(mPayments.map((t) => [t.customerId, Math.abs(t._sum.amount ?? 0)]));
+      const monthlyRows = allRows.filter((c) => c.paymentType === 'MONTHLY');
+      const prevOutstandingMap = await this.computePrevMonthOutstanding(vendorId, monthlyRows);
       const pendingByCustomer = new Map(
-        allRows.map((c) => {
-          const bal = c.financialBalance ?? 0;
-          const pending =
-            c.paymentType === 'MONTHLY'
-              ? Math.max(0, bal - (mTxnMap.get(c.id) ?? 0) - (mPaidMap.get(c.id) ?? 0))
-              : bal;
-          return [c.id, pending];
-        }),
+        allRows.map((c) => [
+          c.id,
+          c.paymentType === 'MONTHLY' ? (prevOutstandingMap.get(c.id) ?? 0) : (c.financialBalance ?? 0),
+        ]),
       );
       const ids = allRows.map((c) => c.id);
       const dir = sortDir === 'desc' ? -1 : 1;
@@ -355,16 +420,11 @@ export class CustomerService {
     const customerIds = data.map((c) => c.id);
     // MONTHLY customers on this page — the only ones that need the prev-month
     // outstanding netting; CASH customers show their live financialBalance as-is.
-    const monthlyCustomerIds = data
-      .filter((c) => c.paymentType === 'MONTHLY')
-      .map((c) => c.id);
-    const now = new Date();
-    const curMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const monthlyRowsOnPage = data.filter((c) => c.paymentType === 'MONTHLY');
 
     // Prisma handles an empty `in: []` gracefully (matches nothing), so these can
     // run unconditionally even when the page has no rows / no MONTHLY customers.
-    const [lastDeliveries, lastPayments, curMonthTxns, curMonthPayments] = await Promise.all([
+    const [lastDeliveries, lastPayments, prevOutstandingMap] = await Promise.all([
       this.prisma.dailySheetItem.groupBy({
         by: ['customerId'],
         where: {
@@ -382,28 +442,7 @@ export class CustomerService {
         where: { customerId: { in: customerIds }, vendorId, type: TransactionType.PAYMENT },
         _max: { createdAt: true },
       }),
-      // Prev-month outstanding for MONTHLY customers = opening balance of the
-      // current month (live balance minus everything booked this month), then
-      // net out this month's payments. Mirrors DailySheetService.
-      this.prisma.transaction.groupBy({
-        by: ['customerId'],
-        where: {
-          customerId: { in: monthlyCustomerIds },
-          vendorId,
-          createdAt: { gte: curMonthStart },
-        },
-        _sum: { amount: true },
-      }),
-      this.prisma.transaction.groupBy({
-        by: ['customerId'],
-        where: {
-          customerId: { in: monthlyCustomerIds },
-          vendorId,
-          type: TransactionType.PAYMENT,
-          createdAt: { gte: curMonthStart, lt: nextMonthStart },
-        },
-        _sum: { amount: true },
-      }),
+      this.computePrevMonthOutstanding(vendorId, monthlyRowsOnPage),
     ]);
 
     const lastDeliveryMap = new Map(
@@ -412,17 +451,10 @@ export class CustomerService {
     const lastPaymentMap = new Map(
       lastPayments.map((g) => [g.customerId, g._max.createdAt]),
     );
-    const curMonthTxnMap = new Map(curMonthTxns.map((t) => [t.customerId, t._sum.amount ?? 0]));
-    const curMonthPaidMap = new Map(
-      curMonthPayments.map((t) => [t.customerId, Math.abs(t._sum.amount ?? 0)]),
-    );
 
     const dataWithLastDelivery = data.map((c) => {
       const isMonthly = c.paymentType === 'MONTHLY';
-      const opening = (c.financialBalance ?? 0) - (curMonthTxnMap.get(c.id) ?? 0);
-      const previousMonthOutstanding = isMonthly
-        ? Math.max(0, opening - (curMonthPaidMap.get(c.id) ?? 0))
-        : null;
+      const previousMonthOutstanding = isMonthly ? (prevOutstandingMap.get(c.id) ?? 0) : null;
       return {
         ...c,
         lastDeliveryAt: lastDeliveryMap.get(c.id) ?? null,
@@ -458,6 +490,11 @@ export class CustomerService {
         deliverySchedules: {
           include: { van: { select: { id: true, plateNumber: true } } },
           orderBy: { dayOfWeek: 'asc' },
+        },
+        flags: {
+          where: { status: 'OPEN' },
+          include: { category: true },
+          orderBy: { createdAt: 'asc' },
         },
       },
     });
@@ -815,29 +852,48 @@ export class CustomerService {
     };
   }
 
-  async getMonthlyStatementPdf(vendorId: string, customerId: string, month?: string, toMonth?: string): Promise<Buffer> {
+  async getMonthlyStatementPdf(
+    vendorId: string,
+    customerId: string,
+    month?: string,
+    toMonth?: string,
+    periodOnly?: boolean,
+  ): Promise<Buffer> {
     const data = await this.getMonthlyStatement(vendorId, customerId, month, toMonth);
-    return this.statementPdf.generate(data);
+    return this.statementPdf.generate({ ...data, periodOnly });
   }
 
   /**
    * Same statement, shaped for on-screen rendering (no PDF): the grouped
    * delivery / other-transaction rows with running balances the PDF draws,
    * plus period + opening/closing figures and the totals row.
+   *
+   * `periodOnly` strips the carried-forward opening balance out of the
+   * delivery rows/totals (no "Previous Balance" row, running balance is this
+   * period's own activity only) — `openingBalance`/`closingBalance` in the
+   * response are always the true historical figures regardless, so the
+   * Balance Due tile stays correct even when the table is period-only.
    */
-  async getMonthlyStatementData(vendorId: string, customerId: string, month?: string, toMonth?: string) {
+  async getMonthlyStatementData(
+    vendorId: string,
+    customerId: string,
+    month?: string,
+    toMonth?: string,
+    periodOnly = false,
+  ) {
     const data = await this.getMonthlyStatement(vendorId, customerId, month, toMonth);
-    const { deliveryRows, otherRows } = this.statementPdf.buildRows(data.transactions, data.openingBalance);
+    const rowsOpeningBalance = periodOnly ? 0 : data.openingBalance;
+    const { deliveryRows, otherRows } = this.statementPdf.buildRows(data.transactions, rowsOpeningBalance);
 
     const totals = {
       totalBtl: deliveryRows.reduce((s, r) => s + r.btlDelivered, 0),
       totalEmpty: deliveryRows.reduce((s, r) => s + r.emptyPickup, 0),
       totalFilled: deliveryRows.reduce((s, r) => s + r.filledPickup, 0),
-      totalDue: data.openingBalance + deliveryRows.reduce((s, r) => s + r.amountDue, 0),
+      totalDue: rowsOpeningBalance + deliveryRows.reduce((s, r) => s + r.amountDue, 0),
       totalRecv: deliveryRows.reduce((s, r) => s + r.amountReceived, 0),
       finalBalance: deliveryRows.length
         ? deliveryRows[deliveryRows.length - 1].runningBalance
-        : data.openingBalance,
+        : rowsOpeningBalance,
     };
 
     return {
@@ -855,6 +911,7 @@ export class CustomerService {
       openingBalance: data.openingBalance,
       closingBalance: data.closingBalance,
       ratePerBottle: data.ratePerBottle,
+      periodOnly,
       deliveryRows,
       otherRows,
       totals,

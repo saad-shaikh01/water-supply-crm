@@ -7,7 +7,8 @@ export type NotificationType =
   | 'ORDER_UPDATE'
   | 'TICKET_REPLY'
   | 'DELIVERY_FAILED'
-  | 'PAYMENT_WARNING';
+  | 'PAYMENT_WARNING'
+  | 'FLEET_ALERT';
 
 export type NotificationChannel = 'WHATSAPP' | 'PUSH';
 

@@ -27,7 +27,7 @@ import {
   Lock as LockIcon,
   TrendingUp, TrendingDown, FileText, ChevronDown, Download,
   CalendarRange, ChevronLeft, ChevronRight,
-  ExternalLink, Navigation, Building2, Landmark,
+  ExternalLink, Navigation, Building2, Landmark, Flag,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -38,6 +38,8 @@ import { EditLocationDialog } from './dialogs/edit-location-dialog';
 import { CustomPriceDialog } from './dialogs/custom-price-dialog';
 import { AdjustBottleWalletDialog } from './dialogs/adjust-bottle-wallet-dialog';
 import { BulkRepriceDialog } from './dialogs/bulk-reprice-dialog';
+import { CustomerFlagBadges } from './customer-flag-badge';
+import { CustomerFlagsDialog } from './customer-flags-dialog';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { useCan } from '../../authz/hooks/use-can';
 
@@ -241,6 +243,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
   const { mutate: removeAccount, isPending: isRemovingAccount } = useRemovePortalAccount();
 
   const [editOpen, setEditOpen] = useState(false);
+  const [flagsOpen, setFlagsOpen] = useState(false);
   const [customPriceOpen, setCustomPriceOpen] = useState(false);
   const [locationOpen, setLocationOpen] = useState(false);
   const [bottleWalletAdjustOpen, setBottleWalletAdjustOpen] = useState(false);
@@ -277,13 +280,18 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
   const [statementTo, setStatementTo] = useState<string>(statementFrom);
   const [isPickingRange, setIsPickingRange] = useState(false);
   const [isDownloadingStatement, setIsDownloadingStatement] = useState(false);
+  // "Period Only" — strips the carried-forward opening balance out of the
+  // delivery table (no "Previous Balance" row, running balance is just this
+  // period's own activity). Balance Due always stays the true as-of-period-end
+  // figure regardless of this toggle.
+  const [statementPeriodOnly, setStatementPeriodOnly] = useState(false);
 
   // Inline statement view — rendered right on the page so a file download isn't
   // required just to read a statement. Delivery rows are paginated client-side.
   const STATEMENT_PAGE_SIZE = 12;
   const [statementPage, setStatementPage] = useState(1);
   const { data: statementData, isLoading: isLoadingStatement, isError: isStatementError } =
-    useCustomerStatement(customerId, { month: statementFrom, toMonth: statementTo });
+    useCustomerStatement(customerId, { month: statementFrom, toMonth: statementTo, periodOnly: statementPeriodOnly });
 
   // Bulk Closed Delivery Repricing — selection is period-scoped; a new
   // period/customer means different rows, so drop any stale selection.
@@ -291,10 +299,10 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
     setSelectedRepriceIds(new Set());
   }, [customerId, statementFrom, statementTo]);
 
-  // Any change to the selected month/range resets to the first page of rows.
+  // Any change to the selected month/range/mode resets to the first page of rows.
   useEffect(() => {
     setStatementPage(1);
-  }, [statementFrom, statementTo]);
+  }, [statementFrom, statementTo, statementPeriodOnly]);
 
   const handleStatementMonthClick = (value: string) => {
     if (isPickingRange) {
@@ -331,12 +339,13 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
       const res = await customersApi.getStatement(customerId, {
         month: statementFrom,
         ...(isRange ? { toMonth: statementTo } : {}),
+        ...(statementPeriodOnly ? { periodOnly: true } : {}),
       });
       const blob = res.data as Blob;
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `statement-${customerId}-${statementFrom}${isRange ? `_to_${statementTo}` : ''}.pdf`;
+      a.download = `statement-${customerId}-${statementFrom}${isRange ? `_to_${statementTo}` : ''}${statementPeriodOnly ? '-period-only' : ''}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     } catch {
@@ -400,12 +409,21 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                 Free
               </Badge>
             )}
+            <CustomerFlagBadges flags={customer.flags} />
           </div>
           <p className="text-muted-foreground flex items-center gap-2 mt-1">
             <Phone className="h-3 w-3" /> {customer.phoneNumber}
           </p>
         </div>
-        <Button 
+        <Button
+          variant="outline"
+          onClick={() => setFlagsOpen(true)}
+          className="rounded-full flex items-center gap-2 font-bold"
+        >
+          <Flag className="h-4 w-4" />
+          Flags{customer.flags?.length ? ` (${customer.flags.length})` : ''}
+        </Button>
+        <Button
           onClick={() => setEditOpen(true)}
           className="rounded-full flex items-center gap-2 font-bold shadow-lg shadow-primary/20"
         >
@@ -413,6 +431,15 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
           Edit Profile
         </Button>
       </div>
+
+      {flagsOpen && (
+        <CustomerFlagsDialog
+          open={flagsOpen}
+          onOpenChange={setFlagsOpen}
+          customerId={customer.id}
+          customerName={customer.name}
+        />
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card className="bg-card/50 backdrop-blur-sm border-border/50 hover:border-primary/20 transition-all">
@@ -919,6 +946,47 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                   </div>
                 </div>
 
+                {/* Statement mode — Full carries forward prior balance into the
+                    delivery table (unchanged, default); Period Only strips that
+                    out so the table shows just the selected period's own numbers.
+                    Balance Due above always reflects the true as-of-period-end
+                    outstanding either way. Applies to both the inline view and
+                    the downloaded PDF. */}
+                <div className="flex items-center gap-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">View</p>
+                  <div className="inline-flex rounded-xl border border-border/50 bg-card/40 p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setStatementPeriodOnly(false)}
+                      className={cn(
+                        'px-3 py-1 text-[11px] font-bold rounded-lg transition-all',
+                        !statementPeriodOnly
+                          ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/20'
+                          : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      Full Statement
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStatementPeriodOnly(true)}
+                      className={cn(
+                        'px-3 py-1 text-[11px] font-bold rounded-lg transition-all',
+                        statementPeriodOnly
+                          ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/20'
+                          : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      Period Only
+                    </button>
+                  </div>
+                  {statementPeriodOnly && (
+                    <p className="text-[10px] text-muted-foreground font-medium">
+                      Delivery history shows only this period&apos;s activity — no prior balance carried in.
+                    </p>
+                  )}
+                </div>
+
                 {/* ── Inline statement — no download needed to read it ───────── */}
                 <div className="pt-2">
                   {isLoadingStatement ? (
@@ -941,20 +1009,26 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                     // when at least one row in this statement actually has one.
                     const showFilled = s.deliveryRows.some((r) => r.filledPickup > 0);
 
+                    // Opening Balance / the table's "Previous Balance" row both
+                    // represent carried-forward balance from before the period —
+                    // hidden in Period Only mode. Balance Due stays put either
+                    // way: it's always the true as-of-period-end outstanding.
+                    const summaryTiles = [
+                      ...(s.periodOnly ? [] : [{ label: 'Opening Balance', value: fmtRs(s.openingBalance) }]),
+                      { label: 'Period Deliveries', value: `${s.deliveryRows.length}` },
+                      { label: 'Rate / Bottle', value: s.ratePerBottle > 0 ? fmtRs(s.ratePerBottle) : '—' },
+                      {
+                        label: isCredit ? 'Credit Balance' : 'Balance Due',
+                        value: fmtRs(Math.abs(s.closingBalance)),
+                        accent: isCredit ? 'text-emerald-500' : 'text-rose-500',
+                      },
+                    ];
+
                     return (
                       <div className="space-y-6">
                         {/* Summary figures */}
                         <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
-                          {[
-                            { label: 'Opening Balance', value: fmtRs(s.openingBalance) },
-                            { label: 'Period Deliveries', value: `${s.deliveryRows.length}` },
-                            { label: 'Rate / Bottle', value: s.ratePerBottle > 0 ? fmtRs(s.ratePerBottle) : '—' },
-                            {
-                              label: isCredit ? 'Credit Balance' : 'Balance Due',
-                              value: fmtRs(Math.abs(s.closingBalance)),
-                              accent: isCredit ? 'text-emerald-500' : 'text-rose-500',
-                            },
-                          ].map((c) => (
+                          {summaryTiles.map((c) => (
                             <div key={c.label} className="rounded-2xl bg-muted/30 p-4">
                               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{c.label}</p>
                               <p className={cn('text-lg font-black font-mono mt-1', c.accent)}>{c.value}</p>
@@ -1003,7 +1077,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                                   </tr>
                                 </thead>
                                 <tbody className="divide-y divide-border/40">
-                                  {pageSafe === 1 && (
+                                  {pageSafe === 1 && !s.periodOnly && (
                                     <tr className="bg-muted/10">
                                       <td className="px-3 py-2 italic text-muted-foreground" colSpan={(canBulkReprice ? 7 : 6) + (showFilled ? 1 : 0)}>Previous Balance</td>
                                       <td className="px-3 py-2 text-right font-mono font-bold">{fmtRs(s.openingBalance)}</td>

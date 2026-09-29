@@ -66,6 +66,31 @@ export interface DeliverySchedule {
   van: { id: string; plateNumber: string };
 }
 
+// Customer Flags (owner-requested 2026-09-29) — see CustomerFlagCategory/
+// CustomerFlag models. `category` is included on every flag row the API
+// returns; `activeFlagCount` is only present on CustomerFlagCategory list
+// rows (the manage-categories dialog), not on flags embedded elsewhere.
+export interface CustomerFlagCategory {
+  id: string;
+  name: string;
+  color: string;
+  defaultMessage: string | null;
+  isActive: boolean;
+  activeFlagCount?: number;
+}
+
+export interface CustomerFlag {
+  id: string;
+  message: string;
+  status: 'OPEN' | 'RESOLVED';
+  category: CustomerFlagCategory;
+  createdByName: string;
+  createdAt: string;
+  resolvedByName?: string | null;
+  resolvedAt?: string | null;
+  resolvedReason?: string | null;
+}
+
 export interface CustomerDetail {
   id: string;
   name: string;
@@ -90,6 +115,7 @@ export interface CustomerDetail {
   customPrices: CustomPrice[];
   deliverySchedules: DeliverySchedule[];
   user: { id: string; email: string } | null;
+  flags: CustomerFlag[];
 }
 
 export interface ConsumptionPeriod {
@@ -188,7 +214,14 @@ export interface ConversationContext {
   messageCount: number;
   lastMessageAt: string | null;
   lastMessagePreview: string | null;
-  customer: { id: string; name: string; customerCode: string; phoneNumber: string | null };
+  customer: {
+    id: string;
+    name: string;
+    customerCode: string;
+    phoneNumber: string | null;
+    // Customer Flags (owner-requested 2026-09-29) — OPEN flags only.
+    flags?: { id: string; message: string; category: { id: string; name: string; color: string } }[];
+  };
   // Nullable: a freshly-created, unmessaged conversation (get-or-create with
   // zero sends) has none of this yet — it's the "most recently discussed
   // delivery" rollup, written only when a real message is sent.
@@ -226,6 +259,10 @@ export interface DeliveryItem {
     consumptionSampleSize?: number;
     wallets?: CustomerWalletSummary[];
     customPrices?: { productId: string; customPrice: number }[];
+    // Customer Flags (owner-requested 2026-09-29) — OPEN flags only, same
+    // trimmed shape the daily-sheet/conversation `select`s return (not the
+    // full CustomerFlag — no status/createdByName here, it's implicitly OPEN).
+    flags?: { id: string; message: string; category: { id: string; name: string; color: string } }[];
   };
   productId: string;
   product?: { name: string; basePrice?: number };
@@ -636,6 +673,16 @@ export interface VehicleServiceTypeEntry {
   isSystem: boolean;
   /** Service records that use this type — a type can only be removed at 0. */
   usageCount: number;
+}
+
+/** One WhatsApp recipient on the vendor's Fleet alert list (document expiry / maintenance due sweep). */
+export interface FleetAlertRecipientEntry {
+  id: string;
+  name: string;
+  phone: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface VehicleMaintenanceRuleEntry {

@@ -18,6 +18,7 @@ describe('buildStatement()', () => {
       broughtForward: 1000,
       sheetCashIn: 9500,
       officeCashIn: 2000,
+      depositCashIn: 0,
       totalCashIn: 11500,
       officeExpenses: 1500,
       payrollCash: 3000,
@@ -25,6 +26,7 @@ describe('buildStatement()', () => {
       totalExpenses: 4900,
       ownerTransfer: 2500,
       fuelCard: 600,
+      depositRefundOut: 0,
       net: 3500, // 11500 - 4900 - 2500 - 600
       expectedClosing: 4500,
     });

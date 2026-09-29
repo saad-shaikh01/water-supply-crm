@@ -428,6 +428,40 @@ We'll try again on your next scheduled delivery day.
 
 ---
 
+### 20. `fleet_document_expiry`  — Vehicle document expiring/expired (text only, internal recipients)
+- **Category:** UTILITY · **Language:** English
+- **Wired:** `FleetNotificationService.sweepDocumentExpiries()` (existing nightly 00:15 sweep, plan doc §7.10/§13) — sent to the vendor's `FleetAlertRecipient` list (owner-requested 2026-09-29), alongside the in-app/FCM alert already sent to `VENDOR_ADMIN`/`STAFF`. Same 7-day re-notify cadence as the in-app alert (`DOCUMENT_RENOTIFY_DAYS`).
+- **Body:**
+```
+Assalamu Alaikum,
+
+⚠️ Vehicle *{{1}}* ka *{{2}}* {{3}}.
+
+Expiry Date: *{{4}}*
+
+Waqt par renew karwa lein taake koi rukawat na aaye.
+```
+- **Variables:** `{{1}}` = vehicle plate number · `{{2}}` = document type label (e.g. Fitness Certificate, Route Permit) · `{{3}}` = status phrase, computed server-side (`documentExpiryPhrase()`): `"X din mein expire ho raha hai"` or `"X din pehle expire ho chuka hai"` · `{{4}}` = expiry date (e.g. `31 Dec 2026`)
+- **Sample:** `{{1}}` = `KY-1874`, `{{2}}` = `Fitness Certificate`, `{{3}}` = `5 din mein expire ho raha hai`, `{{4}}` = `31 Dec 2026`
+
+---
+
+### 21. `fleet_maintenance_due`  — Vehicle maintenance due/overdue (text only, internal recipients)
+- **Category:** UTILITY · **Language:** English
+- **Wired:** `FleetNotificationService.sweepMaintenanceDue()` (existing nightly 00:15 sweep) — sent to the vendor's `FleetAlertRecipient` list (owner-requested 2026-09-29), alongside the in-app/FCM alert already sent to `VENDOR_ADMIN`/`STAFF`. Same 3-day re-notify cadence as the in-app alert (`MAINTENANCE_RENOTIFY_DAYS`).
+- **Body:**
+```
+Assalamu Alaikum,
+
+🔧 Vehicle *{{1}}* ka *{{2}}* service {{3}}.
+
+Kindly jald workshop schedule karwa lein.
+```
+- **Variables:** `{{1}}` = vehicle plate number · `{{2}}` = maintenance category label (e.g. Engine Oil, Brake Pads) · `{{3}}` = status phrase, computed server-side (`maintenanceDuePhrase()`): `"X km mein due hai"` / `"X km se overdue hai"` / `"X din mein due hai"` / `"X din se overdue hai"`
+- **Sample:** `{{1}}` = `KY-1874`, `{{2}}` = `Engine Oil`, `{{3}}` = `120 km se overdue hai`
+
+---
+
 ### 18. `payment_recorded`  — Manual payment record confirmation (text only)
 - **Category:** UTILITY · **Language:** English
 - **Wired:** `transaction.controller.ts` `recordPayment()` (dashboard manual payment record) →
@@ -475,6 +509,8 @@ We truly appreciate your continued trust and support.
 | 17 | `delivery_unsuccessful` | ✅ Code wired — submit for Meta approval |
 | 18 | `payment_recorded` | ✅ Approved on Meta |
 | 19 | `delivery_unsuccessful_photo` | ✅ Code wired — submit for Meta approval |
+| 20 | `fleet_document_expiry` | ✅ Code wired — submit for Meta approval |
+| 21 | `fleet_maintenance_due` | ✅ Code wired — submit for Meta approval |
 
 > **Go-live se pehle #1–#13 approve hone chahiye.** Jab tak approve na ho, un notifications ke messages nahi jaayenge.
 > `delivery_unsuccessful` (#17) aur `delivery_unsuccessful_photo` (#19) dono submit kar dena — backend code

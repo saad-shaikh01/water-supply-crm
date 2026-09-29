@@ -773,6 +773,78 @@ describe('PayrollEntryService', () => {
     });
   });
 
+  describe('recalculateEntry()', () => {
+    const approvedEntry = {
+      id: 'entry-001',
+      vendorId: VENDOR_ID,
+      userId: EMPLOYEE_ID,
+      status: PayrollEntryStatus.APPROVED,
+      version: 1,
+      baseSalary: 30000,
+      finalPayable: 28400,
+      period: openPeriod,
+    };
+
+    it('refreshes an APPROVED entry from the live ledger via atomic CAS, leaving status untouched', async () => {
+      const { svc, tx } = makeService();
+      tx.payrollEntry.findFirst.mockResolvedValue(approvedEntry);
+      tx.payrollEntry.updateMany.mockResolvedValue({ count: 1 });
+      // mixedLedgerEntries (makeTx default) sums to the same 28400 exercised in the
+      // sign-convention test above — a NEW advance ledger row landing after approval
+      // is exactly the real-world case this recompute exists to pick up.
+      tx.payrollEntry.findUniqueOrThrow.mockResolvedValue({ ...approvedEntry, finalPayable: 28400, version: 2 });
+
+      const result = await svc.recalculateEntry(adminUser, 'entry-001', 1);
+
+      expect(result.status).toBe(PayrollEntryStatus.APPROVED);
+      expect(tx.payrollEntry.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'entry-001', vendorId: VENDOR_ID, version: 1 },
+          data: expect.objectContaining({
+            advances: -5000,
+            finalPayable: 28400,
+            version: { increment: 1 },
+          }),
+        }),
+      );
+      expect(tx.payrollEntryAuditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            action: PayrollAuditAction.REGENERATED,
+            beforeJson: { finalPayable: 28400 },
+          }),
+        }),
+      );
+    });
+
+    it('also allows recalculating an UNDER_REVIEW entry', async () => {
+      const { svc, tx } = makeService();
+      const underReview = { ...approvedEntry, status: PayrollEntryStatus.UNDER_REVIEW };
+      tx.payrollEntry.findFirst.mockResolvedValue(underReview);
+      tx.payrollEntry.updateMany.mockResolvedValue({ count: 1 });
+      tx.payrollEntry.findUniqueOrThrow.mockResolvedValue({ ...underReview, version: 2 });
+
+      await expect(svc.recalculateEntry(adminUser, 'entry-001', 1)).resolves.toBeDefined();
+    });
+
+    it('throws ConflictException on stale version', async () => {
+      const { svc, tx } = makeService();
+      tx.payrollEntry.findFirst.mockResolvedValue(approvedEntry);
+      tx.payrollEntry.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(svc.recalculateEntry(adminUser, 'entry-001', 99)).rejects.toThrow(ConflictException);
+    });
+
+    it.each([PayrollEntryStatus.DRAFT, PayrollEntryStatus.LOCKED, PayrollEntryStatus.SETTLED])(
+      'rejects recalculating a %s entry',
+      async (status) => {
+        const { svc, tx } = makeService();
+        tx.payrollEntry.findFirst.mockResolvedValue({ ...approvedEntry, status });
+        await expect(svc.recalculateEntry(adminUser, 'entry-001', 1)).rejects.toThrow(BadRequestException);
+      },
+    );
+  });
+
   describe('getBreakdown()', () => {
     function makeBreakdownService(canViewAll = true, entryOverrides: any = {}, advancePlansOverrides: any = {}) {
       const prisma = {

@@ -5,6 +5,7 @@ import { Avatar, AvatarFallback, Badge, Skeleton, cn } from '@water-supply-crm/u
 import { Mic, Truck, User } from 'lucide-react';
 import type { ConversationContext } from '@water-supply-crm/types';
 import type { ConversationListItem } from '../api/conversations.api';
+import { CustomerFlagBadges } from '../../customers/components/customer-flag-badge';
 
 const STATUS_STYLES: Record<ConversationContext['status'], string> = {
   OPEN: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
@@ -131,6 +132,7 @@ export function ConversationList({ conversations, selectedId, onSelect, isLoadin
 
               <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                 <Badge className={cn('text-[9px] px-1.5 border-0', STATUS_STYLES[c.status])}>{c.status}</Badge>
+                <CustomerFlagBadges flags={c.customer.flags} />
                 {c.waitingOn && (
                   <Badge variant="outline" className="text-[9px] px-1.5 font-medium">
                     {c.waitingOn === 'DRIVER' ? 'Waiting: Driver' : 'Waiting: Office'}

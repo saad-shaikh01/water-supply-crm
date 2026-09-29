@@ -142,6 +142,23 @@ export const useApproveEntry = (periodId: string | undefined) => {
 };
 
 /**
+ * Refreshes an APPROVED/UNDER_REVIEW entry's buckets + finalPayable from the
+ * live ledger without locking the period — the fix for a ledger entry posted
+ * after approval otherwise sitting unreflected until the whole period locks.
+ */
+export const useRecalculateEntry = (periodId: string | undefined) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, version }: { id: string; version: number }) => payrollApi.recalculateEntry(id, version),
+    onSuccess: () => {
+      if (periodId) invalidatePeriod(queryClient, periodId);
+      toast.success('Payroll entry recalculated');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to recalculate payroll entry'),
+  });
+};
+
+/**
  * Period-wide, one-way gate into Settlement (§9 step 9) — rejects with the names of
  * any not-yet-APPROVED entries; that message is surfaced to the caller as-is rather
  * than re-derived client-side.

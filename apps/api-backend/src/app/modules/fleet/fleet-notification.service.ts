@@ -4,9 +4,14 @@ import { Queue } from 'bullmq';
 import { PrismaService } from '@water-supply-crm/database';
 import { QUEUE_NAMES, JOB_NAMES } from '@water-supply-crm/queue';
 import { VEHICLE_DOCUMENT_TYPE_LABELS } from '@water-supply-crm/types';
+import { NotificationType, NotificationChannel } from '@prisma/client';
 import { InAppNotificationService } from '../notifications/in-app-notification.service';
 import { NotificationService } from '../notifications/notification.service';
+import { NotificationSettingsService } from '../notifications/notification-settings.service';
 import { VehicleMaintenanceService } from './vehicle-maintenance.service';
+import { FleetAlertRecipientService } from './fleet-alert-recipient.service';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { CloudTemplateNames } from '../whatsapp/templates/cloud-template-names';
 
 const DOCUMENT_EXPIRY_TYPE = 'VEHICLE_DOCUMENT_EXPIRY';
 const MAINTENANCE_DUE_TYPE = 'VEHICLE_MAINTENANCE_DUE';
@@ -14,6 +19,12 @@ const MAINTENANCE_DUE_TYPE = 'VEHICLE_MAINTENANCE_DUE';
 // alert, but shouldn't spam every single night either (plan doc §13).
 const DOCUMENT_RENOTIFY_DAYS = 7;
 const MAINTENANCE_RENOTIFY_DAYS = 3;
+
+// Pause between consecutive WhatsApp sends to Fleet Alert Recipients — avoids
+// the burst pattern that trips Meta anti-spam (same reasoning/values as
+// BalanceReminderService.sendDelay(); a fixed interval is itself a bot signature).
+const WHATSAPP_SEND_DELAY_MIN_MS = 5000;
+const WHATSAPP_SEND_DELAY_MAX_MS = 12000;
 
 const SWEEP_CRON = '15 0 * * *'; // 00:15 AM, right after daily-sheet auto-generation
 const SWEEP_TZ = 'Asia/Karachi';
@@ -38,6 +49,9 @@ export class FleetNotificationService implements OnModuleInit {
     private inAppNotifications: InAppNotificationService,
     private notifications: NotificationService,
     private maintenance: VehicleMaintenanceService,
+    private alertRecipients: FleetAlertRecipientService,
+    private settings: NotificationSettingsService,
+    private whatsapp: WhatsAppService,
     @InjectQueue(QUEUE_NAMES.FLEET_NOTIFICATIONS)
     private fleetQueue: Queue,
   ) {}
@@ -75,14 +89,23 @@ export class FleetNotificationService implements OnModuleInit {
   }
 
   async sweepVendor(vendorId: string): Promise<{ documentAlerts: number; maintenanceAlerts: number }> {
+    // Fetched once per vendor (not per item) — an empty/all-inactive list, or
+    // the vendor having turned FLEET_ALERT off on WHATSAPP (Notification
+    // Controls page), means every WhatsApp send below is a cheap no-op check.
+    const whatsappEnabled = await this.settings.isEnabled(vendorId, NotificationType.FLEET_ALERT, NotificationChannel.WHATSAPP);
+    const whatsappRecipients = whatsappEnabled ? await this.alertRecipients.listActivePhones(vendorId) : [];
+
     const [documentAlerts, maintenanceAlerts] = await Promise.all([
-      this.sweepDocumentExpiries(vendorId),
-      this.sweepMaintenanceDue(vendorId),
+      this.sweepDocumentExpiries(vendorId, whatsappRecipients),
+      this.sweepMaintenanceDue(vendorId, whatsappRecipients),
     ]);
     return { documentAlerts, maintenanceAlerts };
   }
 
-  private async sweepDocumentExpiries(vendorId: string): Promise<number> {
+  private async sweepDocumentExpiries(
+    vendorId: string,
+    whatsappRecipients: { name: string; phone: string }[],
+  ): Promise<number> {
     const documents = await this.prisma.vehicleDocument.findMany({
       where: { vendorId, isActive: true, expiryDate: { not: null } },
       include: { vehicle: { select: { id: true, plateNumber: true } } },
@@ -109,12 +132,31 @@ export class FleetNotificationService implements OnModuleInit {
           : `${label} for ${doc.vehicle.plateNumber} expires in ${daysUntilExpiry} day(s).`;
 
       await this.notifyAdmins(vendorId, DOCUMENT_EXPIRY_TYPE, doc.id, title, message);
+
+      if (whatsappRecipients.length) {
+        const expiryDateStr = doc.expiryDate.toLocaleDateString('en-PK', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+          timeZone: 'Asia/Karachi',
+        });
+        await this.sendWhatsAppAlerts(whatsappRecipients, CloudTemplateNames.FLEET_DOCUMENT_EXPIRY, [
+          doc.vehicle.plateNumber,
+          label,
+          documentExpiryPhrase(daysUntilExpiry),
+          expiryDateStr,
+        ]);
+      }
+
       sent++;
     }
     return sent;
   }
 
-  private async sweepMaintenanceDue(vendorId: string): Promise<number> {
+  private async sweepMaintenanceDue(
+    vendorId: string,
+    whatsappRecipients: { name: string; phone: string }[],
+  ): Promise<number> {
     const vehicles = await this.prisma.vehicle.findMany({
       where: { vendorId, isActive: true },
       select: { id: true, plateNumber: true },
@@ -145,10 +187,44 @@ export class FleetNotificationService implements OnModuleInit {
               : `${label} for ${vehicle.plateNumber} is coming up soon.`;
 
         await this.notifyAdmins(vendorId, MAINTENANCE_DUE_TYPE, entityId, title, message);
+
+        if (whatsappRecipients.length) {
+          await this.sendWhatsAppAlerts(whatsappRecipients, CloudTemplateNames.FLEET_MAINTENANCE_DUE, [
+            vehicle.plateNumber,
+            label,
+            maintenanceDuePhrase(status.kmRemaining, status.daysRemaining),
+          ]);
+        }
+
         sent++;
       }
     }
     return sent;
+  }
+
+  /** Sends one WhatsApp template to every active Fleet Alert Recipient, paced like a bulk send. */
+  private async sendWhatsAppAlerts(
+    recipients: { name: string; phone: string }[],
+    templateName: string,
+    bodyParams: string[],
+  ): Promise<void> {
+    for (const recipient of recipients) {
+      try {
+        await this.whatsapp.sendTemplate(recipient.phone, templateName, bodyParams);
+      } catch (err) {
+        this.logger.error(
+          `Failed to send ${templateName} to fleet alert recipient ${recipient.name}`,
+          (err as Error)?.stack,
+        );
+      }
+      await this.sleep(
+        WHATSAPP_SEND_DELAY_MIN_MS + Math.floor(Math.random() * (WHATSAPP_SEND_DELAY_MAX_MS - WHATSAPP_SEND_DELAY_MIN_MS)),
+      );
+    }
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   private async recentlyNotified(
@@ -174,8 +250,27 @@ export class FleetNotificationService implements OnModuleInit {
     await Promise.all(
       adminUsers.map(async (admin) => {
         await this.inAppNotifications.create({ userId: admin.id, vendorId, type, title, message, entityId });
-        await this.notifications.queueFcm(admin.id, title, message, { type, entityId });
+        await this.notifications.queueFcm(admin.id, title, message, { type, entityId }, undefined, {
+          vendorId,
+          type: NotificationType.FLEET_ALERT,
+        });
       }),
     );
   }
+}
+
+/** WhatsApp status phrase for `fleet_document_expiry`'s `{{3}}` — the template text is fixed post-approval. */
+export function documentExpiryPhrase(daysUntilExpiry: number): string {
+  if (daysUntilExpiry < 0) return `${Math.abs(daysUntilExpiry)} din pehle expire ho chuka hai`;
+  if (daysUntilExpiry === 0) return 'aaj expire ho raha hai';
+  return `${daysUntilExpiry} din mein expire ho raha hai`;
+}
+
+/** WhatsApp status phrase for `fleet_maintenance_due`'s `{{3}}` — mirrors the in-app message's km-vs-days priority. */
+export function maintenanceDuePhrase(kmRemaining: number | null, daysRemaining: number | null): string {
+  if (kmRemaining != null && kmRemaining <= 0) return `${Math.abs(kmRemaining)} km se overdue hai`;
+  if (daysRemaining != null && daysRemaining <= 0) return `${Math.abs(daysRemaining)} din se overdue hai`;
+  if (kmRemaining != null) return `${kmRemaining} km mein due hai`;
+  if (daysRemaining != null) return `${daysRemaining} din mein due hai`;
+  return 'due hai';
 }

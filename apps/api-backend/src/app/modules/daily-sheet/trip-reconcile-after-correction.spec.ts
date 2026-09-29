@@ -19,6 +19,7 @@ import { StaffAttendanceService } from '../payroll/staff-attendance.service';
 import { VehicleCheckService } from '../fleet/vehicle-check.service';
 import { SheetDiscrepancyCaseService } from '../sheet-discrepancy-case/sheet-discrepancy-case.service';
 import { VanCashLedgerService } from '../van-cash-ledger/van-cash-ledger.service';
+import { CustomerDepositsService } from '../customer-deposits/customer-deposits.service';
 import { StorageService } from '../../common/storage/storage.service';
 import { WarehouseService } from '../warehouse/warehouse.service';
 import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.service';
@@ -80,7 +81,7 @@ describe('DailySheetService — auto trip reconciliation after closed-sheet deli
       filledReceived: 0,
       cashCollected: 300,
       pricePerBottle: 100,
-      dailySheet: { vendorId: VENDOR_ID, isClosed: true, date: SHEET_DATE },
+      dailySheet: { vendorId: VENDOR_ID, isClosed: true, date: SHEET_DATE, vendor: { depositsEnabled: false } },
       customer: { id: CUSTOMER_ID, isBillingExempt: false },
       product: { id: PRODUCT_ID },
       ...overrides,
@@ -175,6 +176,7 @@ describe('DailySheetService — auto trip reconciliation after closed-sheet deli
             handlePostCloseCorrection: jest.fn().mockResolvedValue(null),
           },
         },
+        { provide: CustomerDepositsService, useValue: { syncDeliveryEntriesTx: jest.fn().mockResolvedValue(undefined) } },
         { provide: StorageService, useValue: {} },
         { provide: WarehouseService, useValue: mockWarehouse },
         { provide: DeliveryReceiptPdfService, useValue: {} },

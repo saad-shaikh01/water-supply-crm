@@ -21,6 +21,7 @@ import { reverseGeocode } from '../../../lib/geocoding';
 import { DeliveryRecordForm } from './delivery-record-form';
 import { ConversationThread } from '../../communication/components/conversation-thread';
 import { DeliveryItemHistoryDialog } from './delivery-item-history-dialog';
+import { CustomerFlagBadges } from '../../customers/components/customer-flag-badge';
 
 // 'moved_out' is not a status filter — its rows come from an entirely
 // separate source (sheet-detail.tsx's movedOutItems), passed in as
@@ -648,6 +649,7 @@ export function DeliveryItemsList({
                                 {customer.paymentType === 'MONTHLY' ? 'Monthly' : 'Cash'}
                               </Badge>
                             )}
+                            <CustomerFlagBadges flags={customer?.flags} />
                           </div>
                           <p className="text-xs text-muted-foreground truncate flex items-center gap-1 mt-0.5">
                             <MapPin className="h-2.5 w-2.5 shrink-0" />

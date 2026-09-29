@@ -58,4 +58,16 @@ export class PayrollEntryController {
   approveEntry(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ApprovePayrollEntryDto) {
     return this.payrollEntries.approveEntry(user, id, dto.version);
   }
+
+  /**
+   * PATCH /payroll/entries/:id/recalculate — refreshes an APPROVED/UNDER_REVIEW
+   * entry's buckets and finalPayable from the live ledger, without locking the
+   * period. Same permission as approve — recalculating a reviewed entry's
+   * numbers is the same tier of action as approving it.
+   */
+  @Patch('entries/:id/recalculate')
+  @RequirePermissions('payroll:entry_approve')
+  recalculateEntry(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ApprovePayrollEntryDto) {
+    return this.payrollEntries.recalculateEntry(user, id, dto.version);
+  }
 }

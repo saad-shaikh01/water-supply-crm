@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import { Loader2, X } from 'lucide-react';
 import { Input, cn } from '@water-supply-crm/ui';
 import { useCustomerSearch } from '../../customers/hooks/use-customers';
+import { CustomerFlagBadges } from '../../customers/components/customer-flag-badge';
 import { fmtAdjustmentAmount } from '../format';
 
 /**
@@ -93,7 +94,7 @@ export function CustomerCombobox({
             <p className="px-4 py-3 text-xs text-muted-foreground">No customers found.</p>
           ) : (
             <ul className="max-h-52 overflow-y-auto">
-              {filtered.map((c: { id: string; name: string; customerCode: string; financialBalance: number }) => (
+              {filtered.map((c: { id: string; name: string; customerCode: string; financialBalance: number; flags?: { id: string; message: string; category: { name: string; color: string } }[] }) => (
                 <li key={c.id}>
                   <button
                     type="button"
@@ -106,6 +107,7 @@ export function CustomerCombobox({
                     <span>
                       <span className="font-semibold">{c.name}</span>
                       <span className="ml-2 font-mono text-muted-foreground">{c.customerCode}</span>
+                      <CustomerFlagBadges flags={c.flags} className="mt-0.5" />
                     </span>
                     <span
                       className={cn(

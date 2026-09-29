@@ -9,18 +9,22 @@ import type { CashLedgerBucket } from './cash-ledger-buckets';
 export interface BucketTotals {
   sheetCashIn: number;
   officeCashIn: number;
+  /** Customer Deposits (owner-requested 2026-09-29) — OFFICE-source CASH collections. */
+  depositCashIn: number;
   officeExpenses: number;
   payrollCash: number;
   crewCash: number;
   ownerTransfer: number;
   fuelCard: number;
+  /** Customer Deposits — OFFICE-source CASH refunds (NOT an expense, mirrors ownerTransfer/fuelCard). */
+  depositRefundOut: number;
 }
 
 export interface CashLedgerStatement extends BucketTotals {
   broughtForward: number;
   totalCashIn: number;
   totalExpenses: number;
-  /** totalCashIn − totalExpenses − ownerTransfer − fuelCard (the period's net movement). */
+  /** totalCashIn − totalExpenses − ownerTransfer − fuelCard − depositRefundOut (the period's net movement). */
   net: number;
   /** broughtForward + net. */
   expectedClosing: number;
@@ -35,11 +39,13 @@ export function emptyBucketTotals(): BucketTotals {
   return {
     sheetCashIn: 0,
     officeCashIn: 0,
+    depositCashIn: 0,
     officeExpenses: 0,
     payrollCash: 0,
     crewCash: 0,
     ownerTransfer: 0,
     fuelCard: 0,
+    depositRefundOut: 0,
   };
 }
 
@@ -49,16 +55,17 @@ export function emptyBucketTotals(): BucketTotals {
  * (stats / availableBalance / brought-forward) go through it, so they cannot
  * disagree.
  *   Total Expenses = officeExpenses + payrollCash + crewCash
- *   (owner transfers and fuel-card top-ups are NOT expenses.)
+ *   (owner transfers, fuel-card top-ups and deposit refunds are NOT expenses.)
  */
 export function summarizeTotals(totals: BucketTotals, broughtForward: number): CashLedgerStatement {
-  const totalCashIn = totals.sheetCashIn + totals.officeCashIn;
+  const totalCashIn = totals.sheetCashIn + totals.officeCashIn + totals.depositCashIn;
   const totalExpenses = totals.officeExpenses + totals.payrollCash + totals.crewCash;
-  const net = totalCashIn - totalExpenses - totals.ownerTransfer - totals.fuelCard;
+  const net = totalCashIn - totalExpenses - totals.ownerTransfer - totals.fuelCard - totals.depositRefundOut;
   return {
     broughtForward: round2(broughtForward),
     sheetCashIn: round2(totals.sheetCashIn),
     officeCashIn: round2(totals.officeCashIn),
+    depositCashIn: round2(totals.depositCashIn),
     totalCashIn: round2(totalCashIn),
     officeExpenses: round2(totals.officeExpenses),
     payrollCash: round2(totals.payrollCash),
@@ -66,6 +73,7 @@ export function summarizeTotals(totals: BucketTotals, broughtForward: number): C
     totalExpenses: round2(totalExpenses),
     ownerTransfer: round2(totals.ownerTransfer),
     fuelCard: round2(totals.fuelCard),
+    depositRefundOut: round2(totals.depositRefundOut),
     net: round2(net),
     expectedClosing: round2(broughtForward + net),
   };
@@ -91,6 +99,9 @@ export function buildStatement(
       case 'OFFICE_CASH_IN':
         totals.officeCashIn += row.amount;
         break;
+      case 'DEPOSIT_CASH_IN':
+        totals.depositCashIn += row.amount;
+        break;
       case 'OFFICE_EXPENSE':
         totals.officeExpenses -= row.amount;
         break;
@@ -105,6 +116,9 @@ export function buildStatement(
         break;
       case 'FUEL_CARD':
         totals.fuelCard -= row.amount;
+        break;
+      case 'DEPOSIT_REFUND_OUT':
+        totals.depositRefundOut -= row.amount;
         break;
     }
   }

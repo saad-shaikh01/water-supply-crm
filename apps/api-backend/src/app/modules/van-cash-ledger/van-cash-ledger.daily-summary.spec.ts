@@ -92,6 +92,7 @@ function makeService(data: Data = {}) {
     officeCashRemittance: model(data.remittances ?? []),
     fuelCardTopUp: model(data.fuel ?? []),
     standaloneCrewCashExpense: model(data.crew ?? []),
+    customerDepositEntry: model([]),
     dailySheet: model([]),
     crewCashDistribution: model([]),
     auditLog: model([]),

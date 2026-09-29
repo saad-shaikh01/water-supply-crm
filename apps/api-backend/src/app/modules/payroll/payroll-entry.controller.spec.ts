@@ -16,6 +16,7 @@ function makeController() {
     listForPeriod: jest.fn().mockResolvedValue([]),
     getBreakdown: jest.fn().mockResolvedValue({ entry: {}, ledgerEntriesByBucket: {} }),
     approveEntry: jest.fn().mockResolvedValue({ id: 'entry-001' }),
+    recalculateEntry: jest.fn().mockResolvedValue({ id: 'entry-001' }),
   };
   const controller = new PayrollEntryController(service as any);
   return { controller, service };
@@ -30,6 +31,7 @@ describe('PayrollEntryController — authorization metadata', () => {
     generateDraft: 'payroll:period_generate',
     listForPeriod: 'payroll:view_all',
     approveEntry: 'payroll:entry_approve',
+    recalculateEntry: 'payroll:entry_approve',
   };
 
   it.each(Object.entries(permissionByMethod))('%s requires exactly %s', (methodName, permission) => {
@@ -81,5 +83,12 @@ describe('PayrollEntryController — pass-through', () => {
     const dto = { version: 1 };
     await controller.approveEntry(user, 'entry-001', dto);
     expect(service.approveEntry).toHaveBeenCalledWith(user, 'entry-001', dto.version);
+  });
+
+  it('recalculateEntry() forwards user, id param, and version to the service', async () => {
+    const { controller, service } = makeController();
+    const dto = { version: 1 };
+    await controller.recalculateEntry(user, 'entry-001', dto);
+    expect(service.recalculateEntry).toHaveBeenCalledWith(user, 'entry-001', dto.version);
   });
 });

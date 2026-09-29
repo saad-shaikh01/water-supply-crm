@@ -17,6 +17,7 @@ import { PayrollModule } from '../payroll/payroll.module';
 import { FleetModule } from '../fleet/fleet.module';
 import { SheetDiscrepancyCaseModule } from '../sheet-discrepancy-case/sheet-discrepancy-case.module';
 import { VanCashLedgerModule } from '../van-cash-ledger/van-cash-ledger.module';
+import { CustomerDepositsModule } from '../customer-deposits/customer-deposits.module';
 
 @Module({
   imports: [
@@ -38,6 +39,10 @@ import { VanCashLedgerModule } from '../van-cash-ledger/van-cash-ledger.module';
     // VanCashLedgerService.createHandoverForClosedSheet() in the same
     // transaction as CrewCashDistributionService.syncSheetToLedger().
     VanCashLedgerModule,
+    // Customer Deposits — submitDelivery() syncs a driver's in-delivery
+    // deposit collection/return alongside (never mixed into) the normal
+    // financialBalance/BottleWallet ledger math.
+    CustomerDepositsModule,
   ],
   controllers: [DailySheetController],
   providers: [DailySheetService, DailySheetProcessor, DailySheetPdfService, BulkImportService, DeliveryRepricingService],

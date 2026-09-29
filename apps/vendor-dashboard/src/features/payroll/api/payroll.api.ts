@@ -213,6 +213,8 @@ export const payrollApi = {
   getEntryBreakdown: (entryId: string) => apiClient.get(`/payroll/entries/${entryId}/breakdown`),
   approveEntry: (entryId: string, version: number) =>
     apiClient.patch(`/payroll/entries/${entryId}/approve`, { version }),
+  recalculateEntry: (entryId: string, version: number) =>
+    apiClient.patch(`/payroll/entries/${entryId}/recalculate`, { version }),
   lockPeriod: (periodId: string) => apiClient.patch(`/payroll/periods/${periodId}/lock`),
   unlockPeriod: (periodId: string, reason: string) =>
     apiClient.patch(`/payroll/periods/${periodId}/unlock`, { reason }),

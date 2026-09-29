@@ -28,7 +28,7 @@ const MATRIX: Record<RoleKey, Row> = {
     deny: [],
   },
   vendor_admin: {
-    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'daily_sheets:reprice', 'settings:update', 'whatsapp:manage', 'inventory:write_off', 'payroll:period_lock', 'payroll:view_all', 'payroll:attendance_view', 'payroll:attendance_mark', 'payroll:config_manage', 'crew_cash:approve', 'crew_cash:view_all', 'customers:deactivate', 'customers:force_deactivate', 'customers:force_deactivate_bottles', 'customers:bottle_wallet_adjust', 'customer_financial_adjustments:create_restricted', 'customer_financial_adjustments:transfer', 'customer_financial_adjustments:void'],
+    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'daily_sheets:reprice', 'settings:update', 'whatsapp:manage', 'inventory:write_off', 'payroll:period_lock', 'payroll:view_all', 'payroll:attendance_view', 'payroll:attendance_mark', 'payroll:config_manage', 'crew_cash:approve', 'crew_cash:view_all', 'customers:deactivate', 'customers:force_deactivate', 'customers:force_deactivate_bottles', 'customers:bottle_wallet_adjust', 'customer_financial_adjustments:create_restricted', 'customer_financial_adjustments:transfer', 'customer_financial_adjustments:void', 'customer_deposits:refund', 'customer_deposits:write_off', 'customer_deposits:void', 'customer_deposits:manage_config'],
     deny: [],
   },
   manager: {
@@ -50,6 +50,8 @@ const MATRIX: Record<RoleKey, Row> = {
       // below, this resource's §11 table has no distinctly-worded override-only
       // phrasing for view_all (Amendment R5).
       'crew_cash:create', 'crew_cash:edit', 'crew_cash:delete', 'crew_cash:approve', 'crew_cash:view_all',
+      // Customer Deposits (Amendment R25): Manager may view + collect, not refund/write_off/void.
+      'customer_deposits:view', 'customer_deposits:collect',
     ],
     deny: [
       'users:create', 'users:delete', 'customers:delete', 'payments:approve', 'transactions:adjust',
@@ -63,6 +65,9 @@ const MATRIX: Record<RoleKey, Row> = {
       // config_manage (Amendment R22, Dual-Cutoff Payroll Flexibility) is
       // VENDOR_ADMIN-only by default, same tier as period_unlock/view_all above.
       'payroll:config_manage',
+      // Customer Deposits manage_config (Amendment R25) is VENDOR_ADMIN-only by
+      // default, same tier as payroll:config_manage above.
+      'customer_deposits:manage_config',
       // Customer Force Deactivate (owner-requested 2026-09-09) is VENDOR_ADMIN-only
       // by default — Manager can be granted it explicitly but does not hold it.
       'customers:force_deactivate',
@@ -90,6 +95,9 @@ const MATRIX: Record<RoleKey, Row> = {
       'customer_financial_adjustments:view', 'customer_financial_adjustments:create',
       'customer_financial_adjustments:create_credit', 'customer_financial_adjustments:transfer',
       'customer_financial_adjustments:create_restricted', 'customer_financial_adjustments:void',
+      // Customer Deposits (Amendment R25): Accountant holds the full set.
+      'customer_deposits:view', 'customer_deposits:collect', 'customer_deposits:refund',
+      'customer_deposits:write_off', 'customer_deposits:void',
     ],
     deny: ['customers:update', 'customers:delete', 'orders:approve', 'daily_sheets:update', 'users:create', 'roles:update', 'inventory:add_stock', 'payroll:view_all', 'crew_cash:create', 'crew_cash:view_all'],
   },
@@ -120,10 +128,14 @@ const MATRIX: Record<RoleKey, Row> = {
       // Drivers hold customers:view, so this is the guard that keeps them out of the
       // adjustment documents (Amendment R19).
       'customer_financial_adjustments:view', 'customer_financial_adjustments:create',
+      // Customer Deposits (Amendment R25): a driver's in-delivery deposit
+      // collection rides on daily_sheets:update (SubmitDeliveryDto), not this
+      // resource — driver holds none of it directly.
+      'customer_deposits:view', 'customer_deposits:collect',
     ],
   },
   viewer: {
-    allow: ['dashboard:view', 'customers:view', 'orders:view', 'analytics:view', 'audit_logs:view', 'roles:view', 'tracking:view', 'inventory:view'],
+    allow: ['dashboard:view', 'customers:view', 'orders:view', 'analytics:view', 'audit_logs:view', 'roles:view', 'tracking:view', 'inventory:view', 'customer_deposits:view'],
     deny: [
       'customers:view_financial', 'customers:create', 'customers:update', 'customers:delete', 'customers:export',
       'orders:approve', 'roles:update', 'payments:approve', 'daily_sheets:update', 'inventory:add_stock', 'users:create',

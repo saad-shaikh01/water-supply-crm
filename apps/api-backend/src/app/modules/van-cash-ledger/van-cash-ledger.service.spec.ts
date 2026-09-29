@@ -1218,6 +1218,11 @@ describe('VanCashLedgerService', () => {
           count: jest.fn().mockResolvedValue(0),
           findMany: jest.fn().mockResolvedValue([]),
         },
+        customerDepositEntry: {
+          aggregate: jest.fn().mockResolvedValue(AGG0),
+          count: jest.fn().mockResolvedValue(0),
+          findMany: jest.fn().mockResolvedValue([]),
+        },
         van: { findUnique: jest.fn().mockResolvedValue(null) },
         ...overrides,
       };

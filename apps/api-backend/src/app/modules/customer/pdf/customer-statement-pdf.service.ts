@@ -161,6 +161,10 @@ export class CustomerStatementPdfService {
     toMonth?: string;
     /** Customer's actual assigned rate (custom price if set, else product base price). */
     ratePerBottle?: number;
+    /** Strip the carried-forward opening balance out of the delivery table (no
+     * "Previous Balance" row, running balance is this period's own activity
+     * only). The BALANCE DUE chip is unaffected — it always uses `closingBalance`. */
+    periodOnly?: boolean;
   }): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({
@@ -188,8 +192,9 @@ export class CustomerStatementPdfService {
 
   // ── Document flow ──────────────────────────────────────────────────────────
   private drawContent(doc: PDFKit.PDFDocument, data: any): void {
-    const { customer, transactions, openingBalance, closingBalance, month, toMonth } = data;
-    const { deliveryRows, otherRows, ratePerBottle: computedRatePerBottle } = this.buildRows(transactions, openingBalance);
+    const { customer, transactions, openingBalance, closingBalance, month, toMonth, periodOnly } = data;
+    const rowsOpeningBalance = periodOnly ? 0 : openingBalance;
+    const { deliveryRows, otherRows, ratePerBottle: computedRatePerBottle } = this.buildRows(transactions, rowsOpeningBalance);
     const ratePerBottle = data.ratePerBottle ?? computedRatePerBottle;
     const isRange = !!toMonth && toMonth !== month;
 
@@ -197,14 +202,22 @@ export class CustomerStatementPdfService {
     doc.y += 18;
     this.drawSectionTitle(doc, isRange ? 'STATEMENT' : 'MONTHLY STATEMENT');
     doc.y += 12;
+    // closingBalance (true, historical, as of end of period) always drives the
+    // BALANCE DUE chip — unaffected by periodOnly, which only reshapes the
+    // delivery table below.
     this.drawInfoCards(doc, customer, month, toMonth, closingBalance, ratePerBottle);
 
     doc.y += 18;
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(13)
       .text('Delivery History', MARGIN, doc.y, { lineBreak: false });
+    if (periodOnly) {
+      doc.y += 13;
+      doc.fillColor(C.muted).font('Helvetica-Oblique').fontSize(7.5)
+        .text("Shows this period's activity only — see Balance Due above for total outstanding.", MARGIN, doc.y, { width: CONTENT_W, lineBreak: false });
+    }
     doc.y += 20;
     const showFilled = deliveryRows.some((r) => r.filledPickup > 0);
-    this.drawDeliveryCard(doc, deliveryRows, openingBalance, showFilled ? DCOL_WITH_FILLED : DCOL_BASE);
+    this.drawDeliveryCard(doc, deliveryRows, rowsOpeningBalance, showFilled ? DCOL_WITH_FILLED : DCOL_BASE, !!periodOnly);
 
     if (otherRows.length) {
       doc.y += 18;
@@ -417,8 +430,9 @@ export class CustomerStatementPdfService {
   }
 
   // ── Delivery card (paginates with its own shadow card per page) ────────────
-  private drawDeliveryCard(doc: PDFKit.PDFDocument, rows: DeliveryRow[], openingBalance: number, cols: DeliveryCols): void {
-    const lines: DeliveryLine[] = [{ kind: 'prev', openingBalance }];
+  private drawDeliveryCard(doc: PDFKit.PDFDocument, rows: DeliveryRow[], openingBalance: number, cols: DeliveryCols, periodOnly = false): void {
+    const lines: DeliveryLine[] = [];
+    if (!periodOnly) lines.push({ kind: 'prev', openingBalance });
     rows.forEach((row, index) => lines.push({ kind: 'row', row, index }));
     lines.push({ kind: 'total', rows, openingBalance });
 

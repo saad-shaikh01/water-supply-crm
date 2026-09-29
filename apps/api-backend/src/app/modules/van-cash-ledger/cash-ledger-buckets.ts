@@ -1,28 +1,40 @@
 import { LedgerEntryStatus, SettlementMethod, StaffLedgerCategory } from '@prisma/client';
 
 /**
- * The seven cash-ledger buckets every ledger movement is classified into
- * (Cash Ledger redesign, Phase P0).
+ * The nine cash-ledger buckets every ledger movement is classified into
+ * (Cash Ledger redesign, Phase P0; DEPOSIT_CASH_IN/DEPOSIT_REFUND_OUT added
+ * for Customer Deposits, owner-requested 2026-09-29).
  *
- *   Cash IN   : SHEET_CASH_IN   — APPROVED VanCashHandover (final amount)
- *               OFFICE_CASH_IN  — VanCashOpeningBalance manual entries
- *   Expenses  : OFFICE_EXPENSE  — direct cash Expense (dailySheetId null, paidFromCash)
- *               PAYROLL_CASH    — ADVANCE debits that moved cash + CASH settlements
- *               CREW_CASH       — StandaloneCrewCashExpense (ACTIVE)
- *   Transfers : OWNER_TRANSFER  — OfficeCashRemittance (NOT an expense)
- *               FUEL_CARD       — FuelCardTopUp        (NOT an expense)
+ *   Cash IN   : SHEET_CASH_IN     — APPROVED VanCashHandover (final amount)
+ *               OFFICE_CASH_IN    — VanCashOpeningBalance manual entries
+ *               DEPOSIT_CASH_IN   — CustomerDepositEntry COLLECT, source=OFFICE, type=CASH
+ *   Expenses  : OFFICE_EXPENSE    — direct cash Expense (dailySheetId null, paidFromCash)
+ *               PAYROLL_CASH      — ADVANCE debits that moved cash + CASH settlements
+ *               CREW_CASH         — StandaloneCrewCashExpense (ACTIVE)
+ *   Transfers : OWNER_TRANSFER    — OfficeCashRemittance (NOT an expense)
+ *               FUEL_CARD         — FuelCardTopUp        (NOT an expense)
+ *               DEPOSIT_REFUND_OUT — CustomerDepositEntry REFUND, source=OFFICE, type=CASH
+ *                                    (NOT an expense — returns a held liability, not a cost)
  *
- * Total Expenses = OFFICE_EXPENSE + PAYROLL_CASH + CREW_CASH. The two transfer
+ * Total Expenses = OFFICE_EXPENSE + PAYROLL_CASH + CREW_CASH. The transfer
  * buckets leave the office cash pool but are not costs.
+ *
+ * A driver's in-delivery deposit collection (source=DELIVERY) is deliberately
+ * NOT its own bucket row here — it's folded into that sheet's SHEET_CASH_IN
+ * hand-in total (see sheet-cash.util.ts's buildReconciliation), reported as a
+ * separate breakdown line there rather than double-counted as a second ledger
+ * row. BOTTLE-type deposits never touch the Cash Ledger (no cash value).
  */
 export type CashLedgerBucket =
   | 'SHEET_CASH_IN'
   | 'OFFICE_CASH_IN'
+  | 'DEPOSIT_CASH_IN'
   | 'OFFICE_EXPENSE'
   | 'PAYROLL_CASH'
   | 'CREW_CASH'
   | 'OWNER_TRANSFER'
-  | 'FUEL_CARD';
+  | 'FUEL_CARD'
+  | 'DEPOSIT_REFUND_OUT';
 
 /**
  * Tie-break rank for same-day/same-createdAt rows: every cash-in bucket sorts
@@ -32,16 +44,18 @@ export type CashLedgerBucket =
 export const BUCKET_RANK: Record<CashLedgerBucket, number> = {
   SHEET_CASH_IN: 0,
   OFFICE_CASH_IN: 1,
-  OFFICE_EXPENSE: 2,
-  PAYROLL_CASH: 3,
-  CREW_CASH: 4,
-  OWNER_TRANSFER: 5,
-  FUEL_CARD: 6,
+  DEPOSIT_CASH_IN: 2,
+  OFFICE_EXPENSE: 3,
+  PAYROLL_CASH: 4,
+  CREW_CASH: 5,
+  OWNER_TRANSFER: 6,
+  FUEL_CARD: 7,
+  DEPOSIT_REFUND_OUT: 8,
 };
 
-export const CASH_IN_BUCKETS: readonly CashLedgerBucket[] = ['SHEET_CASH_IN', 'OFFICE_CASH_IN'];
+export const CASH_IN_BUCKETS: readonly CashLedgerBucket[] = ['SHEET_CASH_IN', 'OFFICE_CASH_IN', 'DEPOSIT_CASH_IN'];
 export const EXPENSE_BUCKETS: readonly CashLedgerBucket[] = ['OFFICE_EXPENSE', 'PAYROLL_CASH', 'CREW_CASH'];
-export const TRANSFER_BUCKETS: readonly CashLedgerBucket[] = ['OWNER_TRANSFER', 'FUEL_CARD'];
+export const TRANSFER_BUCKETS: readonly CashLedgerBucket[] = ['OWNER_TRANSFER', 'FUEL_CARD', 'DEPOSIT_REFUND_OUT'];
 
 /**
  * R6 — of every StaffLedgerEntry, ONLY a POSTED ADVANCE or ADVANCE_DISBURSEMENT

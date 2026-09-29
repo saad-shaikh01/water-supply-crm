@@ -187,6 +187,7 @@ export class CustomerController {
       id,
       query.month,
       query.toMonth,
+      query.periodOnly,
     );
   }
 
@@ -203,9 +204,12 @@ export class CustomerController {
       id,
       query.month,
       query.toMonth,
+      query.periodOnly,
     );
     const month = query.month ?? new Date().toISOString().slice(0, 7);
-    const filenameSuffix = query.toMonth && query.toMonth !== month ? `${month}_to_${query.toMonth}` : month;
+    const filenameSuffix =
+      (query.toMonth && query.toMonth !== month ? `${month}_to_${query.toMonth}` : month) +
+      (query.periodOnly ? '-period-only' : '');
     res.set({
       'Content-Type': 'application/pdf',
       'Content-Disposition': `attachment; filename="statement-${filenameSuffix}.pdf"`,

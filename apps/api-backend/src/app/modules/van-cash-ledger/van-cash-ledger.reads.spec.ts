@@ -82,6 +82,8 @@ interface Data {
   remittances?: any[];
   fuel?: any[];
   crew?: any[];
+  /** CustomerDepositEntry rows (OFFICE-source CASH collect/refund) — Customer Deposits. */
+  depositEntries?: any[];
   /** DailySheet rows (id, vendorId, date, cashCollected) — read by the sheet breakdown. */
   sheets?: any[];
   /** CrewCashDistribution rows (dailySheetId, amount) — read by the sheet breakdown. */
@@ -112,6 +114,7 @@ function makeReadService(
     officeCashRemittance: model(data.remittances ?? []),
     fuelCardTopUp: model(data.fuel ?? []),
     standaloneCrewCashExpense: model(data.crew ?? []),
+    customerDepositEntry: model(data.depositEntries ?? []),
     dailySheet: model(data.sheets ?? []),
     crewCashDistribution: model(data.crewDist ?? []),
     auditLog: model(data.audit ?? []),
@@ -1008,6 +1011,7 @@ describe('VanCashLedgerService — Cash Ledger P0 reads', () => {
         opening: 700,
         sheetCashIn: 0,
         officeCashIn: 500,
+        depositCashIn: 0,
         totalCashIn: 500,
         officeExpenses: 0,
         payrollCash: 0,
@@ -1015,6 +1019,7 @@ describe('VanCashLedgerService — Cash Ledger P0 reads', () => {
         totalExpenses: 0,
         ownerTransfer: 200,
         fuelCard: 0,
+        depositRefundOut: 0,
         net: 300,
         closing: 1000,
         entryCount: 2,

@@ -109,6 +109,11 @@ import {
  *     from this card" picker; without it the dropdown rendered empty, so
  *     card-paid fills never got a fuelCardId and never drew down the card's
  *     balance. Existing vendors' Driver/Salesman roles predate the fix.
+ *   - customer_deposits:{view,collect,refund,write_off,void} — new non-
+ *     navigable resource for Customer Deposits (owner-requested 2026-09-29,
+ *     Amendment R25). Same tier split as customer_financial_adjustments:
+ *     Accountant gets the full set, Manager gets view+collect only. Existing
+ *     vendors' Manager/Accountant roles predate this resource entirely.
  */
 const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
   driver: ['fleet:record_check', 'fleet:record_fuel', 'fuel_cards:view', 'extra_labour:create'],
@@ -170,6 +175,17 @@ const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
     'extra_labour:view',
     'extra_labour:create',
     'extra_labour:manage',
+    // Customer Flags (owner-requested 2026-09-29, Amendment R23). Existing
+    // vendors' Manager roles predate this new resource entirely.
+    'customer_flags:apply',
+    // Fleet Alert Recipients (owner-requested 2026-09-29, Amendment R24).
+    // Existing vendors' Manager roles predate this action.
+    'fleet:manage_alerts',
+    // Customer Deposits (owner-requested 2026-09-29, Amendment R25). Existing
+    // vendors' Manager roles predate this new resource entirely. view+collect
+    // only — refund/write_off/void stay Accountant/Vendor-Admin-only.
+    'customer_deposits:view',
+    'customer_deposits:collect',
   ],
   accountant: [
     // Van Cash Ledger (owner-requested 2026-09-09). Existing vendors'
@@ -208,6 +224,16 @@ const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]>> = {
     // Accountant roles predate this new resource entirely.
     'extra_labour:page',
     'extra_labour:view',
+    // Customer Flags (owner-requested 2026-09-29, Amendment R23). Existing
+    // vendors' Accountant roles predate this new resource entirely.
+    'customer_flags:apply',
+    // Customer Deposits (owner-requested 2026-09-29, Amendment R25). Existing
+    // vendors' Accountant roles predate this new resource entirely — full set.
+    'customer_deposits:view',
+    'customer_deposits:collect',
+    'customer_deposits:refund',
+    'customer_deposits:write_off',
+    'customer_deposits:void',
   ],
 };
 

@@ -77,6 +77,6 @@ describe('BUCKET_RANK', () => {
   it('gives every bucket a distinct rank', () => {
     const ranks = Object.values(BUCKET_RANK);
     expect(new Set(ranks).size).toBe(ranks.length);
-    expect(ranks).toHaveLength(7);
+    expect(ranks).toHaveLength(9);
   });
 });

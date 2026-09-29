@@ -16,6 +16,7 @@ import type {
   VehicleCheckType,
   VehicleServiceType,
   ChecklistItemResult,
+  FleetAlertRecipientEntry,
 } from '@water-supply-crm/types';
 
 // The shared `PaginatedResponse<T>` type in @water-supply-crm/types is flat
@@ -158,6 +159,17 @@ export interface CreateServiceTypeData {
   defaultIntervalDays?: number;
 }
 
+export interface CreateFleetAlertRecipientData {
+  name: string;
+  phone: string;
+}
+
+export interface UpdateFleetAlertRecipientData {
+  name?: string;
+  phone?: string;
+  isActive?: boolean;
+}
+
 export interface CreateVehicleData {
   plateNumber: string;
   usualVanId?: string;
@@ -267,6 +279,17 @@ export const fleetApi = {
   renameServiceType: (id: string, label: string) =>
     apiClient.patch<VehicleServiceTypeEntry>(`/fleet/maintenance/service-types/${id}`, { label }).then((r) => r.data),
   removeServiceType: (id: string) => apiClient.delete(`/fleet/maintenance/service-types/${id}`),
+
+  // Fleet Alert Recipients (owner-requested 2026-09-29) — the WhatsApp numbers
+  // (e.g. owner/manager) the nightly document-expiry / maintenance-due sweep
+  // also notifies, vendor-wide (not per-vehicle).
+  getAlertRecipients: () =>
+    apiClient.get<FleetAlertRecipientEntry[]>('/fleet/alert-recipients').then((r) => r.data),
+  createAlertRecipient: (data: CreateFleetAlertRecipientData) =>
+    apiClient.post<FleetAlertRecipientEntry>('/fleet/alert-recipients', data).then((r) => r.data),
+  updateAlertRecipient: (id: string, data: UpdateFleetAlertRecipientData) =>
+    apiClient.patch<FleetAlertRecipientEntry>(`/fleet/alert-recipients/${id}`, data).then((r) => r.data),
+  removeAlertRecipient: (id: string) => apiClient.delete(`/fleet/alert-recipients/${id}`),
 };
 
 export type { ChecklistItemResult };

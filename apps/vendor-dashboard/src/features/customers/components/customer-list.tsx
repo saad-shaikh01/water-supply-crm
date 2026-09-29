@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useQueryState, parseAsString, parseAsInteger } from 'nuqs';
-import { MoreHorizontal, Pencil, Trash2, Eye, MapPin, Phone, PowerOff, Power, SlidersHorizontal, X, ChevronUp, ChevronDown, ChevronsUpDown, CalendarClock, MessageSquare, StickyNote } from 'lucide-react';
+import { MoreHorizontal, Pencil, Trash2, Eye, MapPin, Phone, PowerOff, Power, SlidersHorizontal, X, ChevronUp, ChevronDown, ChevronsUpDown, CalendarClock, MessageSquare, StickyNote, Flag } from 'lucide-react';
 import {
   Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuTrigger, Badge, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -23,6 +23,9 @@ import { BulkScheduleUpdateDialog } from './bulk-schedule-update-dialog';
 // Issues pages — a customer-list entry point that resolves its own anchor
 // delivery item server-side (see CustomerConversationThread).
 import { CustomerConversationThread } from '../../communication/components/customer-conversation-thread';
+import { CustomerFlagBadges } from './customer-flag-badge';
+import { CustomerFlagsDialog } from './customer-flags-dialog';
+import { ManageCustomerFlagCategoriesDialog } from './manage-customer-flag-categories-dialog';
 import { cn } from '@water-supply-crm/ui';
 import { useCan } from '../../authz/hooks/use-can';
 
@@ -38,7 +41,12 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const canRestore = useCan('customers:restore');
   const canDelete = useCan('customers:delete');
   const canViewChats = useCan('conversations:view');
-  const { data, isLoading, page, setPage, limit, setLimit, isActive, setIsActive, hasPortalAccess, setHasPortalAccess, sort, setSort, sortDir, setSortDir } = useCustomers();
+  const canManageFlagCategories = useCan('customer_flags:manage_categories');
+  const {
+    data, isLoading, page, setPage, limit, setLimit, isActive, setIsActive, hasPortalAccess, setHasPortalAccess,
+    outstandingMonthly, setOutstandingMonthly, outstandingCash, setOutstandingCash, minPendingAmount, setMinPendingAmount,
+    sort, setSort, sortDir, setSortDir,
+  } = useCustomers();
   const { mutate: deleteCustomer, isPending: isDeleting } = useDeleteCustomer();
   const { mutate: deactivateCustomer, isPending: isDeactivating } = useDeactivateCustomer();
   const { mutate: reactivateCustomer, isPending: isReactivating } = useReactivateCustomer();
@@ -53,6 +61,8 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   >(null);
   const [reactivateId, setReactivateId] = useState<string | null>(null);
   const [chatCustomer, setChatCustomer] = useState<{ id: string; name: string } | null>(null);
+  const [flagCustomer, setFlagCustomer] = useState<{ id: string; name: string } | null>(null);
+  const [manageFlagCategoriesOpen, setManageFlagCategoriesOpen] = useState(false);
   const [editCustomer, setEditCustomer] = useState<Record<string, unknown> | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -71,6 +81,9 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const [notDeliveredInput, setNotDeliveredInput] = useState<string>(notDeliveredInDays > 0 ? String(notDeliveredInDays) : '');
   const [notPaidInDays, setNotPaidInDays] = useQueryState('notPaidInDays', parseAsInteger.withDefault(0));
   const [notPaidInput, setNotPaidInput] = useState<string>(notPaidInDays > 0 ? String(notPaidInDays) : '');
+  const [minPendingInput, setMinPendingInput] = useState<string>(
+    !isNaN(minPendingAmount) && minPendingAmount > 0 ? String(minPendingAmount) : '',
+  );
 
   const DAY_NAMES: Record<number, string> = { 1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday', 6: 'Saturday' };
 
@@ -98,6 +111,18 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     vanId ? { label: 'Van filter', clear: () => { resetPage(); setVanId(null); } } : null,
     notDeliveredInDays > 0 ? { label: `No delivery in ${notDeliveredInDays}d`, clear: () => { resetPage(); setNotDeliveredInDays(null); setNotDeliveredInput(''); } } : null,
     notPaidInDays > 0 ? { label: `No payment in ${notPaidInDays}d`, clear: () => { resetPage(); setNotPaidInDays(null); setNotPaidInput(''); } } : null,
+    outstandingMonthly
+      ? {
+          label: !isNaN(minPendingAmount) && minPendingAmount > 0 ? `Monthly Pending ≥ ₨${minPendingAmount}` : 'Monthly: Prev Month Unpaid',
+          clear: () => { resetPage(); setOutstandingMonthly(false); },
+        }
+      : null,
+    outstandingCash
+      ? {
+          label: !isNaN(minPendingAmount) && minPendingAmount > 0 ? `Cash Pending ≥ ₨${minPendingAmount}` : 'Cash: Balance Not Clear',
+          clear: () => { resetPage(); setOutstandingCash(false); },
+        }
+      : null,
   ].filter(Boolean) as Array<{ label: string; clear: () => void }>;
 
   const clearAllFilters = () => {
@@ -111,6 +136,10 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     setNotDeliveredInput('');
     setNotPaidInDays(null);
     setNotPaidInput('');
+    setOutstandingMonthly(false);
+    setOutstandingCash(false);
+    setMinPendingAmount(null);
+    setMinPendingInput('');
   };
 
   // Commit the free-text days input to the query param (empty / 0 clears it)
@@ -125,6 +154,14 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     const n = parseInt(notPaidInput, 10);
     resetPage();
     setNotPaidInDays(Number.isFinite(n) && n > 0 ? n : null);
+  };
+
+  // Commit the free-text minimum-amount input (empty / 0 clears it, leaving
+  // the checked box(es) matching "any amount owed")
+  const applyMinPendingAmount = () => {
+    const n = parseFloat(minPendingInput);
+    resetPage();
+    setMinPendingAmount(Number.isFinite(n) && n > 0 ? n : null);
   };
 
   const customers = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
@@ -145,6 +182,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     lastDeliveryAt?: string | null;
     lastPaymentAt?: string | null;
     previousMonthOutstanding?: number | null;
+    flags?: Array<{ id: string; message: string; category: { name: string; color: string } }>;
   }>;
   const total = customers?.meta?.total ?? 0;
 
@@ -192,6 +230,17 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             </Badge>
           )}
         </Button>
+        {canManageFlagCategories && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setManageFlagCategoriesOpen(true)}
+            className="rounded-xl h-9 sm:h-10 px-3 sm:px-4 gap-2 font-semibold shrink-0 w-full sm:w-auto"
+          >
+            <Flag className="h-4 w-4" />
+            Flag Categories
+          </Button>
+        )}
       </div>
 
       {/* Active filter chips */}
@@ -343,6 +392,55 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                 Shows customers with no payment received in the last N days — whether collected during delivery or via Record Payment (includes customers who never paid).
               </p>
             </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Outstanding Balance</Label>
+              <div className="space-y-1.5">
+                <label className="flex items-start gap-3 min-h-11 sm:min-h-9 cursor-pointer rounded-lg border border-border/50 px-2.5 py-2 hover:bg-accent/30 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={outstandingMonthly}
+                    onChange={(e) => { resetPage(); setOutstandingMonthly(e.target.checked); }}
+                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-primary"
+                  />
+                  <span className="text-sm font-semibold">Monthly — Prev Month Not Cleared</span>
+                </label>
+                <label className="flex items-start gap-3 min-h-11 sm:min-h-9 cursor-pointer rounded-lg border border-border/50 px-2.5 py-2 hover:bg-accent/30 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={outstandingCash}
+                    onChange={(e) => { resetPage(); setOutstandingCash(e.target.checked); }}
+                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-primary"
+                  />
+                  <span className="text-sm font-semibold">Cash — Balance Not Cleared</span>
+                </label>
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <Input
+                  type="number"
+                  min={1}
+                  inputMode="numeric"
+                  placeholder="Minimum amount (optional)"
+                  value={minPendingInput}
+                  disabled={!outstandingMonthly && !outstandingCash}
+                  onChange={(e) => setMinPendingInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') applyMinPendingAmount(); }}
+                  onBlur={applyMinPendingAmount}
+                  className="rounded-xl bg-background/50 border-border h-10 disabled:opacity-50"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="rounded-xl h-10 shrink-0"
+                  disabled={!outstandingMonthly && !outstandingCash}
+                  onClick={applyMinPendingAmount}
+                >
+                  Apply
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground/70">
+                Select Monthly and/or Cash to filter by an unpaid balance. Leave the amount blank to match any amount owed, or set a minimum (e.g. 100) to only show customers owing that much or more.
+              </p>
+            </div>
           </div>
           {activeFilters.length > 0 && (
             <div className="border-t pt-4">
@@ -451,6 +549,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                     )}
                   </div>
                   <span className="text-[14px] font-mono font-semibold text-primary/70 truncate">{r.customerCode}</span>
+                  <CustomerFlagBadges flags={r.flags} className="mt-1" />
                   {canViewChats && (
                     <button
                       type="button"
@@ -682,6 +781,10 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                       <span className="font-medium text-sm">Edit Details</span>
                     </DropdownMenuItem>
                   )}
+                  <DropdownMenuItem onClick={() => setFlagCustomer({ id: r.id, name: r.name })} className="rounded-lg cursor-pointer px-2 py-2">
+                    <Flag className="mr-2 h-4 w-4 text-rose-500" />
+                    <span className="font-medium text-sm">Flags{r.flags?.length ? ` (${r.flags.length})` : ''}</span>
+                  </DropdownMenuItem>
                   {(canDeactivate || canRestore || canDelete) && <div className="h-[1px] bg-border/50 my-1" />}
                   {r.isActive !== false ? (canDeactivate && (
                     <DropdownMenuItem
@@ -729,6 +832,17 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
           </DialogContent>
         </Dialog>
       )}
+
+      {flagCustomer && (
+        <CustomerFlagsDialog
+          open
+          onOpenChange={(o) => !o && setFlagCustomer(null)}
+          customerId={flagCustomer.id}
+          customerName={flagCustomer.name}
+        />
+      )}
+
+      <ManageCustomerFlagCategoriesDialog open={manageFlagCategoriesOpen} onOpenChange={setManageFlagCategoriesOpen} />
 
       <ConfirmDialog
         open={!!deleteId}

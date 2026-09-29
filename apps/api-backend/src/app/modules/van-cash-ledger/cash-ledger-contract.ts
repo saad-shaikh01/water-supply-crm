@@ -137,6 +137,8 @@ export interface CashLedgerFilteredMeta {
 export interface CashLedgerStatementTotals {
   sheetCashIn: number;
   officeCashIn: number;
+  /** Customer Deposits (owner-requested 2026-09-29) — OFFICE-source CASH collections. */
+  depositCashIn: number;
   totalCashIn: number;
   officeExpenses: number;
   payrollCash: number;
@@ -145,6 +147,8 @@ export interface CashLedgerStatementTotals {
   totalExpenses: number;
   ownerTransfer: number;
   fuelCard: number;
+  /** Customer Deposits — OFFICE-source CASH refunds (NOT an expense). */
+  depositRefundOut: number;
   net: number;
 }
 

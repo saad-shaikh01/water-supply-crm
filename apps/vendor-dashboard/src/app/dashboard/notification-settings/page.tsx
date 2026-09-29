@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  MessageCircle, Bell, Package, FileText, Wallet, ShoppingCart, LifeBuoy, Loader2, PackageX, AlertTriangle,
+  MessageCircle, Bell, Package, FileText, Wallet, ShoppingCart, LifeBuoy, Loader2, PackageX, AlertTriangle, Truck,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, cn } from '@water-supply-crm/ui';
 import { PageHeader } from '../../../components/shared/page-header';
@@ -61,6 +61,12 @@ const FLOWS: Record<
     icon: AlertTriangle,
     channels: ['WHATSAPP'],
   },
+  FLEET_ALERT: {
+    label: 'Fleet Alerts',
+    description: 'Vehicle document expiry and maintenance due/overdue — WhatsApp goes to your configured Fleet alert recipients, push goes to Admin/Staff logins. The in-app notification list is never turned off.',
+    icon: Truck,
+    channels: ['WHATSAPP', 'PUSH'],
+  },
 };
 
 const FLOW_ORDER: NotificationType[] = [
@@ -71,6 +77,7 @@ const FLOW_ORDER: NotificationType[] = [
   'PAYMENT_RECEIVED',
   'ORDER_UPDATE',
   'TICKET_REPLY',
+  'FLEET_ALERT',
 ];
 
 function Toggle({

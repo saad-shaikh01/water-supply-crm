@@ -14,6 +14,9 @@ export interface CustomerQuery {
   balanceMax?: number;
   notDeliveredInDays?: number;
   notPaidInDays?: number;
+  outstandingMonthly?: boolean;
+  outstandingCash?: boolean;
+  minPendingAmount?: number;
   sort?: string;
   sortDir?: 'asc' | 'desc';
 }

@@ -22,6 +22,7 @@ import { StaffAttendanceService } from '../payroll/staff-attendance.service';
 import { VehicleCheckService } from '../fleet/vehicle-check.service';
 import { SheetDiscrepancyCaseService } from '../sheet-discrepancy-case/sheet-discrepancy-case.service';
 import { VanCashLedgerService } from '../van-cash-ledger/van-cash-ledger.service';
+import { CustomerDepositsService } from '../customer-deposits/customer-deposits.service';
 import type { AuthUser } from '@water-supply-crm/types';
 import type { MoveDeliveryItemsDto } from './dto/move-delivery-items.dto';
 
@@ -103,6 +104,7 @@ async function buildService(mockAudit: ReturnType<typeof buildMockAudit>) {
       },
       { provide: SheetDiscrepancyCaseService, useValue: {} },
       { provide: VanCashLedgerService, useValue: { createHandoverForClosedSheet: jest.fn().mockResolvedValue(null) } },
+        { provide: CustomerDepositsService, useValue: { syncDeliveryEntriesTx: jest.fn().mockResolvedValue(undefined) } },
       {
         provide: getQueueToken(QUEUE_NAMES.DAILY_SHEET_GENERATION),
         useValue: { add: jest.fn(), getJob: jest.fn(), getRepeatableJobs: jest.fn().mockResolvedValue([]), upsertJobScheduler: jest.fn() },

@@ -86,6 +86,7 @@ function makeService(data: Data, can: (userId: string, permission: string) => bo
     officeCashRemittance: model(data.remittances ?? []),
     fuelCardTopUp: model(data.fuel ?? []),
     standaloneCrewCashExpense: model(data.crew ?? []),
+    customerDepositEntry: model([]),
   };
   const permissions = { can: jest.fn().mockImplementation(async (userId: string, permission: string) => can(userId, permission)) };
   const svc = new VanCashLedgerService(

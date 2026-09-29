@@ -25,6 +25,7 @@ import { StaffAttendanceService } from '../payroll/staff-attendance.service';
 import { VehicleCheckService } from '../fleet/vehicle-check.service';
 import { SheetDiscrepancyCaseService } from '../sheet-discrepancy-case/sheet-discrepancy-case.service';
 import { VanCashLedgerService } from '../van-cash-ledger/van-cash-ledger.service';
+import { CustomerDepositsService } from '../customer-deposits/customer-deposits.service';
 import { StorageService } from '../../common/storage/storage.service';
 import { WarehouseService } from '../warehouse/warehouse.service';
 import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.service';
@@ -79,7 +80,7 @@ describe('DailySheetService.voidDelivery', () => {
       filledReceived: 0,
       cashCollected: 150,
       pricePerBottle: 100,
-      dailySheet: { vendorId: VENDOR_ID, isClosed: false, date: SHEET_DATE },
+      dailySheet: { vendorId: VENDOR_ID, isClosed: false, date: SHEET_DATE, vendor: { depositsEnabled: false } },
       customer: { id: CUSTOMER_ID },
       product: { id: PRODUCT_ID },
       ...overrides,
@@ -154,6 +155,7 @@ describe('DailySheetService.voidDelivery', () => {
         { provide: VehicleCheckService, useValue: {} },
         { provide: SheetDiscrepancyCaseService, useValue: {} },
         { provide: VanCashLedgerService, useValue: mockVanCashLedger },
+        { provide: CustomerDepositsService, useValue: { syncDeliveryEntriesTx: jest.fn().mockResolvedValue(undefined) } },
         { provide: StorageService, useValue: {} },
         { provide: WarehouseService, useValue: {} },
         { provide: DeliveryReceiptPdfService, useValue: {} },
@@ -343,7 +345,7 @@ describe('DailySheetService.voidDelivery', () => {
 
   it('wrong-tenant item → NotFoundException', async () => {
     mockPrisma.dailySheetItem.findUnique.mockResolvedValue(
-      buildItem({ dailySheet: { vendorId: OTHER_VENDOR, isClosed: false, date: SHEET_DATE } }),
+      buildItem({ dailySheet: { vendorId: OTHER_VENDOR, isClosed: false, date: SHEET_DATE, vendor: { depositsEnabled: false } } }),
     );
     await expect(service.voidDelivery(ADMIN_USER, ITEM_ID, dto)).rejects.toBeInstanceOf(
       NotFoundException,
@@ -360,7 +362,7 @@ describe('DailySheetService.voidDelivery', () => {
   // ── occurredAt backdating ───────────────────────────────────────────────
   it('closed sheet → reversal dated to sheet.date, and the void still succeeds', async () => {
     mockPrisma.dailySheetItem.findUnique.mockResolvedValue(
-      buildItem({ dailySheet: { vendorId: VENDOR_ID, isClosed: true, date: SHEET_DATE } }),
+      buildItem({ dailySheet: { vendorId: VENDOR_ID, isClosed: true, date: SHEET_DATE, vendor: { depositsEnabled: false } } }),
     );
     wireTx();
 
@@ -371,7 +373,7 @@ describe('DailySheetService.voidDelivery', () => {
 
   it('isCorrection item on an OPEN sheet → reversal dated to sheet.date', async () => {
     mockPrisma.dailySheetItem.findUnique.mockResolvedValue(
-      buildItem({ isCorrection: true, dailySheet: { vendorId: VENDOR_ID, isClosed: false, date: SHEET_DATE } }),
+      buildItem({ isCorrection: true, dailySheet: { vendorId: VENDOR_ID, isClosed: false, date: SHEET_DATE, vendor: { depositsEnabled: false } } }),
     );
     wireTx();
 

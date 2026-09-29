@@ -15,6 +15,8 @@ import { VehicleServiceTypeService } from './vehicle-service-type.service';
 import { FleetDashboardController } from './fleet-dashboard.controller';
 import { FleetDashboardService } from './fleet-dashboard.service';
 import { FleetNotificationService } from './fleet-notification.service';
+import { FleetAlertRecipientController } from './fleet-alert-recipient.controller';
+import { FleetAlertRecipientService } from './fleet-alert-recipient.service';
 import { FleetProcessor } from './fleet.processor';
 import { AuditModule } from '../audit/audit.module';
 import { NotificationsModule } from '../notifications/notifications.module';
@@ -34,6 +36,7 @@ import { StorageModule } from '../../common/storage/storage.module';
     FuelLogController,
     VehicleMaintenanceController,
     FleetDashboardController,
+    FleetAlertRecipientController,
   ],
   providers: [
     VehicleService,
@@ -44,6 +47,7 @@ import { StorageModule } from '../../common/storage/storage.module';
     VehicleServiceTypeService,
     FleetDashboardService,
     FleetNotificationService,
+    FleetAlertRecipientService,
     FleetProcessor,
   ],
   // VehicleCheckService is consumed by DailySheetModule for the trip-start gate

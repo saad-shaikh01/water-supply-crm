@@ -279,6 +279,11 @@ enum NotificationType {
   TICKET_REPLY
   DELIVERY_FAILED
   PAYMENT_WARNING // overdue-balance warning after a monthly statement
+  // Fleet Alerts (owner-requested 2026-09-29) — vehicle document expiry /
+  // maintenance due-overdue. WHATSAPP gates FleetAlertRecipient sends; PUSH
+  // gates the FCM push to VENDOR_ADMIN/STAFF (the in-app bell notification
+  // itself is never gated, same as every other internal ops alert in the app).
+  FLEET_ALERT
 }
 
 enum NotificationChannel {
@@ -367,6 +372,7 @@ model Vendor {
   fuelLogs                FuelLog[]
   vehicleMaintenanceRules VehicleMaintenanceRule[]
   vehicleServiceRecords   VehicleServiceRecord[]
+  fleetAlertRecipients    FleetAlertRecipient[]
   vehicleServiceTypeDefs  VehicleServiceTypeDef[]
 
   deliveryItemMoveLogs DeliveryItemMoveLog[]
@@ -380,8 +386,8 @@ model Vendor {
   officeCashRemittances OfficeCashRemittance[]
 
   // Fuel Card Wallet (owner-requested 2026-09-15) — office -> fuel card top-ups
-  fuelCards        FuelCard[]
-  fuelCardTopUps   FuelCardTopUp[]
+  fuelCards      FuelCard[]
+  fuelCardTopUps FuelCardTopUp[]
 
   // Standalone Crew Cash (owner-requested 2026-09-18) — crew cash given
   // without a Daily Sheet
@@ -400,6 +406,18 @@ model Vendor {
   // Extra Labour (owner-approved 2026-09-22)
   extraLabourTypes ExtraLabourType[]
   extraLabourers   ExtraLabour[]
+
+  // Customer Flags (owner-requested 2026-09-29)
+  customerFlagCategories CustomerFlagCategory[]
+  customerFlags          CustomerFlag[]
+
+  // Customer Deposits (owner-requested 2026-09-29) — opt-in per-vendor toggle;
+  // false by default so vendors who never collect a security deposit see no
+  // trace of this feature (Deposits tab, driver delivery-form section, Cash
+  // Ledger deposit rows all gate on this).
+  depositsEnabled        Boolean                @default(false)
+  customerDeposits       CustomerDeposit[]
+  customerDepositEntries CustomerDepositEntry[]
 }
 
 model User {
@@ -425,35 +443,35 @@ model User {
   permissionOverrides UserPermissionOverride[]
 
   // Relations for specific roles
-  assignedVan              Van?                     @relation("VanDriver")
-  assignedVanAsSalesman    Van?                     @relation("VanSalesman")
-  dailySheets              DailySheet[]             @relation("DriverSheets")
-  customer                 Customer? // One-to-one link for Customer Portal
-  expenses                 Expense[]
-  fcmTokens                FcmToken[]
-  inAppNotifications       InAppNotification[]
-  notificationPrefs        NotificationPreference[]
-  driverLastLocation       DriverLastLocation?
-  driverLocationHistory    DriverLocationHistory[]  @relation("DriverLocationHistoryDriver")
-  driverStops              DriverStop[]             @relation("DriverStopDriver")
-  driverRouteSummaries     DriverRouteSummary[]     @relation("DriverRouteSummaryDriver")
-  driverDamageCases        DamageCase[]             @relation("DriverDamageCases")
-  reviewedDamageCases      DamageCase[]             @relation("DamageCaseReviewer")
-  driverDiscrepancyCases   SheetDiscrepancyCase[]   @relation("DriverDiscrepancyCases")
-  resolvedDiscrepancyCases SheetDiscrepancyCase[]   @relation("DiscrepancyCaseResolver")
-  sentMessages             ConversationMessage[]    @relation("MessageSender")
-  conversationsAsDriver    Conversation[]           @relation("ConversationDriver")
-  conversationReads        ConversationRead[]       @relation("ConversationReader")
-  createdWarehouseTx       WarehouseTransaction[]   @relation("WarehouseTxCreatedBy")
-  createdRepairBatches     RepairBatch[]            @relation("RepairBatchCreatedBy")
+  assignedVan                     Van?                     @relation("VanDriver")
+  assignedVanAsSalesman           Van?                     @relation("VanSalesman")
+  dailySheets                     DailySheet[]             @relation("DriverSheets")
+  customer                        Customer? // One-to-one link for Customer Portal
+  expenses                        Expense[]
+  fcmTokens                       FcmToken[]
+  inAppNotifications              InAppNotification[]
+  notificationPrefs               NotificationPreference[]
+  driverLastLocation              DriverLastLocation?
+  driverLocationHistory           DriverLocationHistory[]  @relation("DriverLocationHistoryDriver")
+  driverStops                     DriverStop[]             @relation("DriverStopDriver")
+  driverRouteSummaries            DriverRouteSummary[]     @relation("DriverRouteSummaryDriver")
+  driverDamageCases               DamageCase[]             @relation("DriverDamageCases")
+  reviewedDamageCases             DamageCase[]             @relation("DamageCaseReviewer")
+  driverDiscrepancyCases          SheetDiscrepancyCase[]   @relation("DriverDiscrepancyCases")
+  resolvedDiscrepancyCases        SheetDiscrepancyCase[]   @relation("DiscrepancyCaseResolver")
+  sentMessages                    ConversationMessage[]    @relation("MessageSender")
+  conversationsAsDriver           Conversation[]           @relation("ConversationDriver")
+  conversationReads               ConversationRead[]       @relation("ConversationReader")
+  createdWarehouseTx              WarehouseTransaction[]   @relation("WarehouseTxCreatedBy")
+  createdRepairBatches            RepairBatch[]            @relation("RepairBatchCreatedBy")
   createdDeliveryRepricingBatches DeliveryRepricingBatch[] @relation("DeliveryRepricingBatchCreatedBy")
-  crewAssignments          DailySheetCrew[]         @relation("CrewMember")
-  vanDefaultCrew           VanDefaultCrew[]         @relation("VanDefaultCrewMember")
-  confirmedCrewSheets      DailySheet[]             @relation("CrewConfirmedBy")
+  crewAssignments                 DailySheetCrew[]         @relation("CrewMember")
+  vanDefaultCrew                  VanDefaultCrew[]         @relation("VanDefaultCrewMember")
+  confirmedCrewSheets             DailySheet[]             @relation("CrewConfirmedBy")
   // Soft Close (Amendment R9)
-  closureRequestedSheets   DailySheet[]             @relation("ClosureRequestedBy")
-  closureApprovedSheets    DailySheet[]             @relation("ClosureApprovedBy")
-  closureRejectedSheets    DailySheet[]             @relation("ClosureRejectedBy")
+  closureRequestedSheets          DailySheet[]             @relation("ClosureRequestedBy")
+  closureApprovedSheets           DailySheet[]             @relation("ClosureApprovedBy")
+  closureRejectedSheets           DailySheet[]             @relation("ClosureRejectedBy")
 
   // Staff Payroll & Financial Management — Phase 1 (Foundation)
   salaryStructures            SalaryStructure[]      @relation("SalaryStructureEmployee")
@@ -495,6 +513,7 @@ model User {
 
   // Fleet Operations & Vehicle Intelligence — Phase 1
   vehicleDocumentsCreated          VehicleDocument[]      @relation("VehicleDocumentCreatedBy")
+  fleetAlertRecipientsCreated      FleetAlertRecipient[]  @relation("FleetAlertRecipientCreatedBy")
   vehicleDailyChecksRecorded       VehicleDailyCheck[]    @relation("VehicleDailyCheckRecordedBy")
   vehicleCheckCriticalOverrides    VehicleDailyCheck[]    @relation("VehicleCheckCriticalOverrideBy")
   // Odometer Correction (2026-08-23) — see comment on VehicleDailyCheck below.
@@ -508,16 +527,16 @@ model User {
   voidedDeliveryItems DailySheetItem[] @relation("DeliveryItemVoidedBy")
 
   // Van Cash Ledger (owner-requested 2026-09-09)
-  vanCashOpeningBalancesSet     VanCashOpeningBalance[] @relation("VanCashOpeningBalanceSetBy")
-  vanCashOpeningBalancesUpdated VanCashOpeningBalance[] @relation("VanCashOpeningBalanceUpdatedBy")
-  cashLedgerPeriodsClosed       CashLedgerPeriod[]      @relation("CashLedgerPeriodClosedBy")
-  cashLedgerPeriodsReopened     CashLedgerPeriod[]      @relation("CashLedgerPeriodReopenedBy")
-  vanCashOpeningBalancesVoided  VanCashOpeningBalance[] @relation("VanCashOpeningBalanceVoidedBy")
-  standaloneCrewCashUpdated     StandaloneCrewCashExpense[] @relation("StandaloneCrewCashUpdatedBy")
+  vanCashOpeningBalancesSet        VanCashOpeningBalance[]     @relation("VanCashOpeningBalanceSetBy")
+  vanCashOpeningBalancesUpdated    VanCashOpeningBalance[]     @relation("VanCashOpeningBalanceUpdatedBy")
+  cashLedgerPeriodsClosed          CashLedgerPeriod[]          @relation("CashLedgerPeriodClosedBy")
+  cashLedgerPeriodsReopened        CashLedgerPeriod[]          @relation("CashLedgerPeriodReopenedBy")
+  vanCashOpeningBalancesVoided     VanCashOpeningBalance[]     @relation("VanCashOpeningBalanceVoidedBy")
+  standaloneCrewCashUpdated        StandaloneCrewCashExpense[] @relation("StandaloneCrewCashUpdatedBy")
   // The employee a LABOUR_LENT_OUT manual cash-in is attributed to (2026-09-24, owner request).
-  vanCashOpeningBalancesAsEmployee VanCashOpeningBalance[] @relation("VanCashOpeningBalanceRelatedEmployee")
-  submittedVanCashHandovers VanCashHandover[]       @relation("VanCashHandoverSubmittedBy")
-  approvedVanCashHandovers  VanCashHandover[]       @relation("VanCashHandoverApprovedBy")
+  vanCashOpeningBalancesAsEmployee VanCashOpeningBalance[]     @relation("VanCashOpeningBalanceRelatedEmployee")
+  submittedVanCashHandovers        VanCashHandover[]           @relation("VanCashHandoverSubmittedBy")
+  approvedVanCashHandovers         VanCashHandover[]           @relation("VanCashHandoverApprovedBy")
 
   // Office Cash Remittance (owner-requested 2026-09-10)
   officeCashRemittancesSubmitted OfficeCashRemittance[] @relation("OfficeCashRemittanceSubmittedBy")
@@ -543,6 +562,10 @@ model User {
 
   // Extra Labour (owner-approved 2026-09-22)
   extraLabourersCreated ExtraLabour[] @relation("ExtraLabourCreatedBy")
+
+  // Customer Deposits (owner-requested 2026-09-29)
+  customerDepositEntriesCreated CustomerDepositEntry[] @relation("CustomerDepositEntryCreatedBy")
+  customerDepositEntriesVoided  CustomerDepositEntry[] @relation("CustomerDepositEntryVoidedBy")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -634,6 +657,12 @@ model Product {
   // Historical Product Cost & COGS (docs/features/product-cost-history-and-cogs.md)
   costs ProductCost[]
 
+  // Customer Deposits (owner-requested 2026-09-29) — which bottle product a
+  // BOTTLE-type deposit secures, and (separately) which product a delivery's
+  // deposit bottle movement was recorded against.
+  customerDeposits             CustomerDeposit[]
+  dailySheetItemDepositProduct DailySheetItem[]  @relation("DailySheetItemDepositProduct")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -670,17 +699,17 @@ model Customer {
   isBillingExempt  Boolean     @default(false)
   financialBalance Float       @default(0) // Current outstanding amount (running balance)
 
-  wallets              BottleWallet[]
-  customPrices         CustomerProductPrice[]
-  sheetItems           DailySheetItem[]
-  transactions         Transaction[]
-  paymentRequests      PaymentRequest[]
-  deliverySchedules    CustomerDeliverySchedule[]
-  orders               CustomerOrder[]
-  tickets              CustomerTicket[]
-  damageCases          DamageCase[]
-  conversations        Conversation[]
-  deliveryItemMoveLogs DeliveryItemMoveLog[]
+  wallets                  BottleWallet[]
+  customPrices             CustomerProductPrice[]
+  sheetItems               DailySheetItem[]
+  transactions             Transaction[]
+  paymentRequests          PaymentRequest[]
+  deliverySchedules        CustomerDeliverySchedule[]
+  orders                   CustomerOrder[]
+  tickets                  CustomerTicket[]
+  damageCases              DamageCase[]
+  conversations            Conversation[]
+  deliveryItemMoveLogs     DeliveryItemMoveLog[]
   deliveryRepricingBatches DeliveryRepricingBatch[]
 
   // Customer Financial Adjustments (owner-approved 2026-09-21). The second
@@ -692,6 +721,15 @@ model Customer {
   // StaffLedgerEntry.linkedCustomerId, the denormalized "which customer is
   // this staff penalty about" pointer used for display/filtering.
   linkedPenaltyEntries StaffLedgerEntry[] @relation("StaffLedgerEntryLinkedCustomer")
+
+  // Customer Flags (owner-requested 2026-09-29) — admin-categorized
+  // highlights (e.g. "To Be Closed", "Payment Overdue") shown wherever this
+  // customer is displayed. See CustomerFlag below.
+  flags CustomerFlag[]
+
+  // Customer Deposits (owner-requested 2026-09-29) — optional refundable
+  // CASH/BOTTLE security deposit, kept separate from financialBalance/BottleWallet.
+  deposits CustomerDeposit[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -783,13 +821,13 @@ model Van {
   // Retiring Van.plateNumber from the rest of the app is a follow-up task.
   plateNumber String @unique
 
-  isActive        Boolean @default(true)
+  isActive          Boolean @default(true)
   // Walk-in / Self-Pickup Delivery — a per-vendor sentinel van that owns the
   // synthetic WALK_IN daily sheets. Excluded from auto-generation, fleet/route
   // pickers, van-cash reconciliation and per-van analytics.
-  isSystem        Boolean @default(false)
-  defaultDriverId String? @unique
-  defaultDriver   User?   @relation("VanDriver", fields: [defaultDriverId], references: [id])
+  isSystem          Boolean @default(false)
+  defaultDriverId   String? @unique
+  defaultDriver     User?   @relation("VanDriver", fields: [defaultDriverId], references: [id])
   // Priority slot for "who becomes the sheet's driver today" — checked
   // BEFORE defaultDriverId during sheet generation (owner decision: a van's
   // salesman should take priority over its driver when both/either are set).
@@ -1086,6 +1124,19 @@ model DailySheetItem {
   bottleBalanceAfter    Int?
   financialBalanceAfter Float?
 
+  // Customer Deposits (owner-requested 2026-09-29) — a driver collecting/
+  // returning a security deposit at this stop, kept fully separate from the
+  // cashCollected/bottleBalanceAfter math above (posted to CustomerDeposit via
+  // its own CustomerDepositEntry, never touching financialBalance/BottleWallet).
+  // depositCashCollected IS folded into the sheet's cash hand-in total in
+  // sheet-cash.util.ts (it's real cash in the driver's pocket) but reported as
+  // its own breakdown line so it's never mistaken for revenue.
+  depositCashCollected    Float    @default(0)
+  depositBottlesCollected Int      @default(0)
+  depositBottlesReturned  Int      @default(0)
+  depositProductId        String?
+  depositProduct          Product? @relation("DailySheetItemDepositProduct", fields: [depositProductId], references: [id])
+
   reason              String? // Free text notes for unable-to-deliver
   failureCategory     String? // CUSTOMER_NOT_HOME | CUSTOMER_NOT_ANSWERING | CUSTOMER_SELF_PICKUP | VAN_BREAKDOWN | ACCESS_ISSUE | CUSTOMER_REFUSED | WEATHER | OTHER
   photoKey            String? // Optional photo evidence (Wasabi object key)
@@ -1157,6 +1208,9 @@ model DailySheetItem {
   // this item was included in (normally at most one, but not enforced globally
   // in case a later batch legitimately re-adjusts an earlier reprice).
   repricingItems             DeliveryRepricingItem[]
+  // Customer Deposits (owner-requested 2026-09-29) — deposit entries this stop
+  // collected/returned (normally at most one, occasionally cash + bottle both).
+  depositEntries             CustomerDepositEntry[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2379,7 +2433,7 @@ model DeliveryRepricingBatch {
   totalDifference   Float // Σ (newAmount - oldAmount) across all items in the batch
 
   createdById   String?
-  createdBy     User?    @relation("DeliveryRepricingBatchCreatedBy", fields: [createdById], references: [id])
+  createdBy     User?   @relation("DeliveryRepricingBatchCreatedBy", fields: [createdById], references: [id])
   createdByName String? // snapshot, like AuditLog.userName — survives the user being renamed/removed
 
   createdAt DateTime @default(now())
@@ -2669,10 +2723,10 @@ model ProductCost {
   createdBy   User     @relation("ProductCostCreatedBy", fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
 
-  voidedAt    DateTime?
-  voidedById  String?
-  voidedBy    User?     @relation("ProductCostVoidedBy", fields: [voidedById], references: [id])
-  voidReason  String?
+  voidedAt   DateTime?
+  voidedById String?
+  voidedBy   User?     @relation("ProductCostVoidedBy", fields: [voidedById], references: [id])
+  voidReason String?
 
   // Only ONE active (non-voided) row may exist per (vendor, product, kind,
   // effectiveFrom) — enforced by a partial unique index created in migration
@@ -2702,8 +2756,8 @@ model SupplierBillOpeningBalance {
   vendorId String @unique
   vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 
-  plantAmount Float @default(0)
-  capsAmount  Float @default(0)
+  plantAmount Float   @default(0)
+  capsAmount  Float   @default(0)
   note        String?
 
   createdAt DateTime @default(now())
@@ -2839,7 +2893,7 @@ model StaffAdvancePlan {
 
   principalAmount          Int // whole rupees, full amount disbursed
   defaultInstallmentAmount Int // sizes the NEXT auto-generated PENDING installment; PATCHable going forward, never rewrites past rows
-  disbursedAt               DateTime
+  disbursedAt              DateTime
 
   disbursementLedgerEntryId String           @unique
   disbursementLedgerEntry   StaffLedgerEntry @relation("StaffAdvancePlanDisbursement", fields: [disbursementLedgerEntryId], references: [id])
@@ -2860,10 +2914,10 @@ model StaffAdvancePlan {
   // amount is never posted as a ledger entry — the principal already left as
   // ADVANCE_DISBURSEMENT (real cash, unaffected), and forgiving a debt is not
   // itself a payroll transaction for the employee.
-  cancelledAt     DateTime?
-  cancelledById   String?
-  cancelledBy     User?     @relation("StaffAdvancePlanCancelledBy", fields: [cancelledById], references: [id])
-  cancelReason    String?
+  cancelledAt   DateTime?
+  cancelledById String?
+  cancelledBy   User?     @relation("StaffAdvancePlanCancelledBy", fields: [cancelledById], references: [id])
+  cancelReason  String?
 
   installments StaffAdvanceInstallment[]
 
@@ -2943,17 +2997,17 @@ model PayrollApprovalRule {
 // harmless no-op (no category is redirected), left to the vendor to opt
 // categories in one at a time rather than validated as a pair.
 model PayrollVendorConfig {
-  id                    String                @id @default(uuid())
-  vendorId              String                @unique
-  vendor                Vendor                @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  cutoffDay             Int                    @default(1) // day of month the pay period starts/ends — vendor-configurable, not hardcoded to calendar month
-  cashCutoffDay         Int? // day of month the SEPARATE cash-deduction cycle starts/ends; null = disabled, cashWindowCategories are ignored
-  cashWindowCategories  StaffLedgerCategory[]  @default([]) // which ledger categories are pulled from the cashCutoffDay cycle instead of the attendance period; ignored while cashCutoffDay is null
-  autoLockEnabled       Boolean                @default(false)
-  updatedById           String
-  updatedBy             User                   @relation(fields: [updatedById], references: [id])
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime               @updatedAt
+  id                   String                @id @default(uuid())
+  vendorId             String                @unique
+  vendor               Vendor                @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  cutoffDay            Int                   @default(1) // day of month the pay period starts/ends — vendor-configurable, not hardcoded to calendar month
+  cashCutoffDay        Int? // day of month the SEPARATE cash-deduction cycle starts/ends; null = disabled, cashWindowCategories are ignored
+  cashWindowCategories StaffLedgerCategory[] @default([]) // which ledger categories are pulled from the cashCutoffDay cycle instead of the attendance period; ignored while cashCutoffDay is null
+  autoLockEnabled      Boolean               @default(false)
+  updatedById          String
+  updatedBy            User                  @relation(fields: [updatedById], references: [id])
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
 
   @@index([vendorId])
 }
@@ -3106,7 +3160,7 @@ model StaffAttendance {
   // Date-only semantics — always stored as midnight UTC of the attended day.
   date   DateTime
   status AttendanceStatus @default(PRESENT)
-  source AttendanceSource  @default(CREW_CONFIRM)
+  source AttendanceSource @default(CREW_CONFIRM)
 
   // Set when the row was auto-captured from a crew confirmation; null for a
   // manually-marked row with no sheet context. SET NULL on sheet delete —
@@ -3164,6 +3218,64 @@ model AttendanceCategory {
 
   @@unique([vendorId, name])
   @@index([vendorId])
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Customer Flags (owner-requested 2026-09-29) — highlight a customer with an
+// admin-defined category (e.g. "To Be Closed", "Payment Overdue") so staff see
+// why wherever that customer is displayed (list, daily-sheet delivery rows,
+// Communication Center). Two-tier, mirroring AttendanceCategory's shape:
+// CustomerFlagCategory is the admin-managed catalogue (color + default
+// message); CustomerFlag is one applied instance on a customer, resolved
+// (never deleted) when the issue is cleared — full history stays queryable.
+model CustomerFlagCategory {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id])
+
+  name           String
+  color          String // hex, e.g. "#ef4444" — swatch shown on every badge using this category
+  defaultMessage String? // pre-filled into the "reason" field when staff apply this category
+  isActive       Boolean @default(true) // inactive categories stay on historical flags but can't be applied to new ones
+
+  flags CustomerFlag[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([vendorId, name])
+  @@index([vendorId])
+}
+
+model CustomerFlag {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id])
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  categoryId String
+  category   CustomerFlagCategory @relation(fields: [categoryId], references: [id])
+
+  message String // why this customer is flagged, shown to staff wherever the badge appears
+  status  CustomerFlagStatus @default(OPEN)
+
+  createdById   String
+  createdByName String
+  createdAt     DateTime @default(now())
+
+  resolvedById   String?
+  resolvedByName String?
+  resolvedAt     DateTime?
+  resolvedReason String?
+
+  @@index([vendorId, customerId, status])
+  @@index([vendorId, categoryId])
+}
+
+enum CustomerFlagStatus {
+  OPEN
+  RESOLVED
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -3464,7 +3576,7 @@ model FuelCard {
   openingBalance Float @default(0)
 
   createdById String
-  createdBy   User   @relation("FuelCardCreatedBy", fields: [createdById], references: [id])
+  createdBy   User     @relation("FuelCardCreatedBy", fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -3669,6 +3781,32 @@ model VehicleServiceRecord {
   @@index([vendorId, performedAtDate])
 }
 
+// Vendor-wide WhatsApp recipient list for Fleet's nightly alert sweep (owner
+// request 2026-09-29) — document expiry (VehicleDocument.reminderDaysBefore)
+// and maintenance due/overdue already notify in-app + FCM to VENDOR_ADMIN/
+// STAFF (see FleetNotificationService); this is a second, WhatsApp channel
+// aimed at a small, explicitly-configured set of numbers (e.g. owner/manager)
+// rather than every admin login. Deliberately NOT tied to an existing User —
+// the intended recipient (e.g. the owner) often has no login at all. Empty/
+// all-inactive list = no WhatsApp send, same semantics as before this existed.
+model FleetAlertRecipient {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  name  String
+  phone String // normalized digits + country code, see whatsapp/phone.util.ts
+
+  isActive Boolean @default(true)
+
+  createdById String
+  createdBy   User     @relation("FleetAlertRecipientCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([vendorId, isActive])
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Van Cash Ledger (owner-requested 2026-09-09)
 // Mirrors CrewCashDistribution's architecture (source record -> pending ->
@@ -3695,48 +3833,50 @@ enum VanCashHandoverStatus {
 // general/office-wide entry that only folds into the vendor-wide ("All Vans")
 // view — same treatment OfficeCashRemittance/FuelCardTopUp already get.
 model VanCashOpeningBalance {
-  id             String   @id @default(uuid())
-  vendorId       String
-  vendor         Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  vanId          String?
+  id                String              @id @default(uuid())
+  vendorId          String
+  vendor            Vendor              @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vanId             String?
   // Restrict (was Cascade): deleting a van must never silently erase its manual
   // cash-in entries and shift the ledger balance.
-  van            Van?     @relation(fields: [vanId], references: [id], onDelete: Restrict)
-  openingBalance Float
-  openingDate    DateTime
-  /** Why this cash-in happened — shown as the timeline row's title. */
-  note           String?
+  van               Van?                @relation(fields: [vanId], references: [id], onDelete: Restrict)
+  openingBalance    Float
+  openingDate       DateTime
+  /**
+   * Why this cash-in happened — shown as the timeline row's title.
+   */
+  note              String?
   /// Optional categorisation for "Office Cash In by source" reporting.
-  source         ManualCashInSource?
+  source            ManualCashInSource?
   // Which physical vehicle earned this income — mandatory (and exclusive with
   // relatedEmployeeId) when source = VEHICLE_RENTED_OUT, so future reporting
   // can filter "rent income by vehicle" (owner request 2026-09-24). Restrict:
   // a vehicle with income history attached to it can't be silently deleted.
-  relatedVehicleId String?
-  relatedVehicle   Vehicle? @relation(fields: [relatedVehicleId], references: [id], onDelete: Restrict)
+  relatedVehicleId  String?
+  relatedVehicle    Vehicle?            @relation(fields: [relatedVehicleId], references: [id], onDelete: Restrict)
   // Which employee (driver/salesman/loader) was lent out to earn this income —
   // mandatory (and exclusive with relatedVehicleId) when source = LABOUR_LENT_OUT.
   relatedEmployeeId String?
-  relatedEmployee   User?   @relation("VanCashOpeningBalanceRelatedEmployee", fields: [relatedEmployeeId], references: [id], onDelete: Restrict)
-  setById        String
-  setBy          User     @relation("VanCashOpeningBalanceSetBy", fields: [setById], references: [id])
+  relatedEmployee   User?               @relation("VanCashOpeningBalanceRelatedEmployee", fields: [relatedEmployeeId], references: [id], onDelete: Restrict)
+  setById           String
+  setBy             User                @relation("VanCashOpeningBalanceSetBy", fields: [setById], references: [id])
 
   // P2 — edit in place (reason + before/after live in the generic AuditLog;
   // these columns only make the "Edited" badge + optimistic concurrency cheap).
-  status         ManualCashInStatus @default(ACTIVE)
-  version        Int       @default(1)
-  editCount      Int       @default(0)
-  lastEditedAt   DateTime?
-  updatedById    String?
-  updatedBy      User?     @relation("VanCashOpeningBalanceUpdatedBy", fields: [updatedById], references: [id])
+  status       ManualCashInStatus @default(ACTIVE)
+  version      Int                @default(1)
+  editCount    Int                @default(0)
+  lastEditedAt DateTime?
+  updatedById  String?
+  updatedBy    User?              @relation("VanCashOpeningBalanceUpdatedBy", fields: [updatedById], references: [id])
   // Secondary "delete this entry" action — a status flip, never a DELETE.
-  voidedById     String?
-  voidedBy       User?     @relation("VanCashOpeningBalanceVoidedBy", fields: [voidedById], references: [id])
-  voidedAt       DateTime?
-  voidReason     String?
+  voidedById   String?
+  voidedBy     User?              @relation("VanCashOpeningBalanceVoidedBy", fields: [voidedById], references: [id])
+  voidedAt     DateTime?
+  voidReason   String?
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([vendorId])
   @@index([vanId])
@@ -3789,13 +3929,13 @@ model VanCashHandover {
 
   // The LEDGER figure — always the FINAL APPROVED amount once APPROVED (the
   // approver's adjustment, when any, is written here; see approveHandover).
-  amount Float
+  amount         Float
   // The SHEET-derived figure for this row (resolveSheetCash().cashExpected for
   // an original; the sheet-side DELTA for a correction row). Never touched by an
   // approver's adjustment, so handlePostCloseCorrection can reconcile the chain
   // against the sheet (Σ expectedAmount == sheet cashExpected) without undoing
   // an approver's decision. variance = amount − expectedAmount.
-  expectedAmount Float @default(0)
+  expectedAmount Float                 @default(0)
   submittedById  String
   submittedBy    User                  @relation("VanCashHandoverSubmittedBy", fields: [submittedById], references: [id])
   date           DateTime
@@ -3928,10 +4068,10 @@ model CashLedgerPeriod {
 
   status CashLedgerPeriodStatus @default(CLOSED)
 
-  closedAt    DateTime?
-  closedById  String?
-  closedBy    User?     @relation("CashLedgerPeriodClosedBy", fields: [closedById], references: [id])
-  closeNote   String?
+  closedAt       DateTime?
+  closedById     String?
+  closedBy       User?     @relation("CashLedgerPeriodClosedBy", fields: [closedById], references: [id])
+  closeNote      String?
   /// Office-wide expected closing cash at the moment of close.
   closingBalance Float?
   /// The full statement at close (bucket totals, broughtForward, expectedClosing).
@@ -4110,4 +4250,108 @@ model CustomerFinancialAdjustmentGroup {
 
   @@unique([vendorId, idempotencyKey])
   @@index([vendorId, status])
+}
+
+// Customer Deposits (owner-requested 2026-09-29) — an optional, per-customer
+// refundable security deposit, deliberately kept separate from
+// CustomerFinancialAdjustment/Customer.financialBalance: a deposit is a held
+// liability/collateral, never a charge or credit against what the customer
+// owes for goods/services. Two kinds:
+//   CASH   — a Rs. amount held, refundable in cash.
+//   BOTTLE — extra bottles held as collateral, count-only, no cash value
+//            (per-product, mirrors BottleWallet).
+// Gated vendor-wide by Vendor.depositsEnabled so vendors who never use
+// deposits see no trace of this feature.
+enum DepositType {
+  CASH
+  BOTTLE
+}
+
+enum DepositEntryDirection {
+  COLLECT // deposit taken from the customer (cash in / bottles out to customer)
+  REFUND // deposit given back to the customer (cash out / bottles back to stock)
+  WRITE_OFF // balance closed out without a matching cash/bottle movement
+  // (e.g. customer left without returning deposit bottles)
+}
+
+enum DepositEntrySource {
+  OFFICE // manual entry by staff
+  DELIVERY // collected/returned by the driver during a delivery stop
+}
+
+enum DepositEntryStatus {
+  POSTED
+  VOIDED
+}
+
+model CustomerDeposit {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  type      DepositType
+  /// Prisma can't express "required iff type = BOTTLE" — enforced in the service layer.
+  productId String?
+  product   Product?    @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  /// Denormalized running balance — Rs. for CASH, bottle-count for BOTTLE.
+  /// Recomputed transactionally alongside every entry post/void, same pattern
+  /// as Customer.financialBalance / BottleWallet.balance.
+  balance Float @default(0)
+
+  entries CustomerDepositEntry[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([customerId, type, productId])
+  @@index([vendorId])
+}
+
+model CustomerDepositEntry {
+  id        String          @id @default(uuid())
+  vendorId  String
+  vendor    Vendor          @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  depositId String
+  deposit   CustomerDeposit @relation(fields: [depositId], references: [id], onDelete: Restrict)
+
+  direction DepositEntryDirection
+  /// Always positive; Rs. for CASH deposits, bottle-count for BOTTLE deposits.
+  amount    Float
+  source    DepositEntrySource
+  status    DepositEntryStatus    @default(POSTED)
+
+  /// Business date (vendor timezone).
+  effectiveDate DateTime
+  note          String?
+  referenceNo   String?
+
+  /// Set only when source = DELIVERY — traceability back to the stop that
+  /// collected/returned it. Restrict: a delivery item with a deposit entry
+  /// attached can't be silently deleted.
+  dailySheetItemId String?
+  dailySheetItem   DailySheetItem? @relation(fields: [dailySheetItemId], references: [id], onDelete: Restrict)
+
+  createdById String
+  createdBy   User   @relation("CustomerDepositEntryCreatedBy", fields: [createdById], references: [id])
+
+  voidedById String?
+  voidedBy   User?     @relation("CustomerDepositEntryVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+  voidedAt   DateTime?
+  voidReason String?
+
+  /// Set on the REVERSAL entry a void creates → points at the voided original.
+  /// @unique: an entry can be reversed at most once.
+  reversalOfId String?               @unique
+  reversalOf   CustomerDepositEntry? @relation("DepositEntryReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversedBy   CustomerDepositEntry? @relation("DepositEntryReversal")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vendorId, depositId])
+  @@index([dailySheetItemId])
 }
