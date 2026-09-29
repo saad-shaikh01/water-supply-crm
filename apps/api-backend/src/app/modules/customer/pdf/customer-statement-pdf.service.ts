@@ -202,10 +202,12 @@ export class CustomerStatementPdfService {
     doc.y += 18;
     this.drawSectionTitle(doc, isRange ? 'STATEMENT' : 'MONTHLY STATEMENT');
     doc.y += 12;
-    // closingBalance (true, historical, as of end of period) always drives the
-    // BALANCE DUE chip — unaffected by periodOnly, which only reshapes the
-    // delivery table below.
-    this.drawInfoCards(doc, customer, month, toMonth, closingBalance, ratePerBottle);
+    // Period Only's BALANCE DUE chip is this period's own net movement
+    // (closing − opening), not the customer's true all-time outstanding —
+    // otherwise the table reads "just this period" while the chip reads
+    // "everything", which is exactly the confusion this mode exists to avoid.
+    const chipBalance = periodOnly ? closingBalance - openingBalance : closingBalance;
+    this.drawInfoCards(doc, customer, month, toMonth, chipBalance, ratePerBottle);
 
     doc.y += 18;
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(13)

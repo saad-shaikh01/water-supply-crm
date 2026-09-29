@@ -44,6 +44,9 @@ export interface AttendanceBreakdownSummary {
   days: AttendanceBreakdownDay[];
 }
 
+/** A breakdown ledger row plus which other feature owns it (null = typed by hand, safe to void here). */
+export type BreakdownLedgerEntry = StaffLedgerEntry & { managedElsewhere: string | null; alreadyReversed: boolean };
+
 /**
  * `GET /payroll/entries/:id/breakdown` — the full entry plus its bucket-grouped
  * ledger entries, this employee's attendance for the period (Attendance tab), a
@@ -52,7 +55,7 @@ export interface AttendanceBreakdownSummary {
  */
 export interface PayrollEntryBreakdown {
   entry: PayrollEntry & { period: PayrollPeriod };
-  ledgerEntriesByBucket: Record<keyof PayrollEntryBucketTotals, StaffLedgerEntry[]>;
+  ledgerEntriesByBucket: Record<keyof PayrollEntryBucketTotals, BreakdownLedgerEntry[]>;
   attendance: AttendanceBreakdownSummary;
   /** `baseAmount ÷ period day count`, rounded — only present for a MONTHLY employee. */
   suggestedMonthlyDailyRate: number | null;

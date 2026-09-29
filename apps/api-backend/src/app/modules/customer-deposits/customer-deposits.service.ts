@@ -18,10 +18,12 @@ import { PrismaService } from '@water-supply-crm/database';
 import { CacheInvalidationService, CACHE_KEYS } from '@water-supply-crm/caching';
 import type { AuthUser } from '@water-supply-crm/types';
 import { PermissionService } from '../authz/permission.service';
+import { CustomerFinancialAdjustmentService } from '../customer-financial-adjustment/customer-financial-adjustment.service';
 import { CollectDepositDto } from './dto/collect-deposit.dto';
 import { RefundDepositDto } from './dto/refund-deposit.dto';
 import { WRITE_OFF_NOTE_MIN_LENGTH, WriteOffDepositDto } from './dto/write-off-deposit.dto';
 import { VOID_REASON_MIN_LENGTH, VoidDepositEntryDto } from './dto/void-deposit-entry.dto';
+import { ApplyDepositToBalanceDto } from './dto/apply-deposit-to-balance.dto';
 import {
   normalizeDepositAmount,
   oppositeDepositDirection,
@@ -82,6 +84,7 @@ export class CustomerDepositsService {
     private readonly prisma: PrismaService,
     private readonly cache: CacheInvalidationService,
     private readonly permissions: PermissionService,
+    private readonly adjustments: CustomerFinancialAdjustmentService,
   ) {}
 
   /** Staff read: every deposit (CASH + one per BOTTLE product) this customer has, with entry history. */
@@ -432,6 +435,114 @@ export class CustomerDepositsService {
     return result;
   }
 
+  /**
+   * Closure Settlement (owner-requested 2026-09-29) — CASH deposits only.
+   * Returns part or all of the held deposit to the customer as a CREDIT
+   * against `Customer.financialBalance` instead of physical cash: one
+   * transaction posts (1) a CustomerDepositEntry (direction=APPLIED_TO_BALANCE,
+   * reduces the deposit balance, no Cash Ledger movement — nothing physically
+   * left the office) and (2) an OTHER_CREDIT CustomerFinancialAdjustment for
+   * the same amount, via CustomerFinancialAdjustmentService.createTx (the same
+   * tx-composable primitive LinkedPenaltyService already uses to cross-post
+   * atomically into that ledger). Gated on `customer_deposits:refund` — same
+   * tier as a cash refund, since this is a deposit-side action; every role
+   * that holds it already holds `customer_financial_adjustments:create_credit`
+   * too (Accountant / Vendor Admin), so there is no practical permission gap.
+   */
+  async applyToBalance(
+    user: AuthUser,
+    depositId: string,
+    dto: ApplyDepositToBalanceDto,
+  ): Promise<CollectDepositResult & { adjustmentId: string }> {
+    const { vendorId } = user;
+
+    if (!(await this.permissions.can(user.userId, 'customer_deposits:refund'))) {
+      throw new ForbiddenException('You do not have permission to refund a deposit.');
+    }
+    await this.assertDepositsEnabled(vendorId);
+
+    const deposit = await this.prisma.customerDeposit.findFirst({ where: { id: depositId, vendorId } });
+    if (!deposit) throw new NotFoundException('Deposit not found');
+    if (deposit.type !== DepositType.CASH) {
+      throw new BadRequestException('Only a CASH deposit can be applied to the customer’s balance.');
+    }
+
+    const amount = normalizeDepositAmount(deposit.type, dto.amount);
+    if (round2(amount) > round2(deposit.balance)) {
+      throw new BadRequestException(
+        `Cannot apply more than the held deposit (current: ${deposit.balance}).`,
+      );
+    }
+    const effectiveDate = resolveDepositEffectiveDate(dto.effectiveDate);
+    const note = dto.note?.trim() || undefined;
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const entry = await tx.customerDepositEntry.create({
+        data: {
+          vendorId,
+          depositId: deposit.id,
+          direction: DepositEntryDirection.APPLIED_TO_BALANCE,
+          amount,
+          source: DepositEntrySource.OFFICE,
+          effectiveDate,
+          note,
+          createdById: user.userId,
+        },
+      });
+
+      const updatedDeposit = await tx.customerDeposit.update({
+        where: { id: deposit.id },
+        data: { balance: { decrement: amount } },
+      });
+      if (round2(updatedDeposit.balance) < 0) {
+        throw new BadRequestException('This deposit does not hold enough balance for this amount.');
+      }
+
+      const { adjustment } = await this.adjustments.createTx(tx, user, {
+        customerId: deposit.customerId,
+        kind: 'OTHER_CREDIT',
+        direction: 'CREDIT',
+        amount,
+        effectiveDate,
+        title: 'Deposit applied to balance',
+        internalNote: note ?? `Applied from a customer deposit (entry ${entry.id}).`,
+        referenceNo: entry.id,
+        visibility: 'ITEMIZED',
+      });
+
+      await tx.customerDepositEntry.update({
+        where: { id: entry.id },
+        data: { referenceNo: adjustment.id },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          vendorId,
+          userId: user.userId,
+          userName: user.name,
+          action: 'APPLY_TO_BALANCE',
+          entity: 'CustomerDepositEntry',
+          entityId: entry.id,
+          changes: {
+            before: { balance: round2(updatedDeposit.balance + amount) },
+            after: {
+              customerId: deposit.customerId,
+              amount,
+              balance: updatedDeposit.balance,
+              adjustmentId: adjustment.id,
+            },
+            ...(note ? { reason: note } : {}),
+          } as Prisma.InputJsonValue,
+        },
+      });
+
+      return { deposit: updatedDeposit, entry, adjustmentId: adjustment.id };
+    });
+
+    await this.invalidateCaches(vendorId, deposit.customerId);
+    return result;
+  }
+
   async writeOff(user: AuthUser, depositId: string, dto: WriteOffDepositDto): Promise<CollectDepositResult> {
     const { vendorId } = user;
 
@@ -471,10 +582,32 @@ export class CustomerDepositsService {
     return result;
   }
 
+  /**
+   * Closure Settlement (owner-requested 2026-09-29) — tx-composable, for
+   * CustomerService.deactivate()'s force path: writes off WHATEVER remains on
+   * an active deposit (mirrors force_deactivate/force_deactivate_bottles
+   * writing off financialBalance/BottleWallet), so a force-deactivated
+   * customer's deposit is never silently orphaned. Caller owns the
+   * `customer_deposits:write_off` permission check.
+   */
+  async writeOffTx(
+    tx: Prisma.TransactionClient,
+    user: AuthUser,
+    deposit: Pick<CustomerDeposit, 'id' | 'customerId' | 'type' | 'productId' | 'balance'>,
+    note: string,
+  ): Promise<CollectDepositResult> {
+    return this.closeOutTx(tx, user, deposit, {
+      direction: DepositEntryDirection.WRITE_OFF,
+      amount: deposit.balance,
+      effectiveDate: new Date(),
+      note,
+    });
+  }
+
   private async closeOutTx(
     tx: Prisma.TransactionClient,
     user: AuthUser,
-    deposit: CustomerDeposit,
+    deposit: Pick<CustomerDeposit, 'id' | 'customerId' | 'type' | 'productId' | 'balance'>,
     input: {
       direction: Extract<DepositEntryDirection, 'REFUND' | 'WRITE_OFF'>;
       amount: number;

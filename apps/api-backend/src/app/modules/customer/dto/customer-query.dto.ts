@@ -101,6 +101,33 @@ export class CustomerQueryDto extends PaginationQueryDto {
   @Min(0.01)
   minPendingAmount?: number;
 
+  /**
+   * Bottle-rate filter — the price this product resolves to for a customer
+   * (their CustomerProductPrice override, or the product's basePrice)
+   * compared against `rateAmount`. `rateAbove`/`rateBelow` are mutually
+   * exclusive on the frontend (checking one unchecks the other); both are
+   * accepted here defensively and OR'd if somehow both arrive true.
+   */
+  @IsOptional()
+  @IsUUID()
+  rateProductId?: string;
+
+  @IsOptional()
+  @Transform(({ obj }) => obj.rateAbove === 'true' || obj.rateAbove === true)
+  @IsBoolean()
+  rateAbove?: boolean;
+
+  @IsOptional()
+  @Transform(({ obj }) => obj.rateBelow === 'true' || obj.rateBelow === true)
+  @IsBoolean()
+  rateBelow?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => parseFloat(value))
+  @IsNumber()
+  @Min(0)
+  rateAmount?: number;
+
   @IsOptional()
   @IsIn(['name', 'customerCode', 'createdAt', 'financialBalance', 'bottleBalance', 'pendingAmount'])
   sort?: string = 'name';

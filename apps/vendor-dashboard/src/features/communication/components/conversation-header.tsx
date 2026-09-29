@@ -1,12 +1,15 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { Badge, Button, cn } from '@water-supply-crm/ui';
-import { Calendar, CheckCircle2, ExternalLink, Loader2, Package, RotateCcw, Truck, User, XCircle } from 'lucide-react';
+import { Calendar, CheckCircle2, ExternalLink, Flag, Loader2, Package, RotateCcw, Truck, User, XCircle } from 'lucide-react';
 import type { ConversationContext } from '@water-supply-crm/types';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import { useSetStatus } from '../hooks/use-conversations';
 import { useCan } from '../../authz/hooks/use-can';
+import { CustomerFlagIcons } from '../../customers/components/customer-flag-badge';
+import { CustomerFlagsDialog } from '../../customers/components/customer-flags-dialog';
 
 const CONVERSATION_STATUS_STYLES: Record<ConversationContext['status'], string> = {
   OPEN: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
@@ -37,6 +40,7 @@ interface ConversationHeaderProps {
 export function ConversationHeader({ conversation }: ConversationHeaderProps) {
   const setStatus = useSetStatus(conversation.id, conversation.item?.id);
   const canManageStatus = useCan('conversations:manage_status');
+  const [flagsOpen, setFlagsOpen] = useState(false);
 
   return (
     <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-border/40">
@@ -52,6 +56,7 @@ export function ConversationHeader({ conversation }: ConversationHeaderProps) {
           <Badge className={cn('text-[9px] px-1.5 border-0', CONVERSATION_STATUS_STYLES[conversation.status])}>
             {conversation.status}
           </Badge>
+          <CustomerFlagIcons flags={conversation.customer.flags} />
           {conversation.waitingOn && (
             <Badge variant="outline" className="text-[9px] px-1.5 font-medium">
               {WAITING_ON_LABEL[conversation.waitingOn]}
@@ -84,6 +89,15 @@ export function ConversationHeader({ conversation }: ConversationHeaderProps) {
       </div>
 
       <div className="flex flex-col items-end gap-2 shrink-0">
+        <Button
+          size="sm"
+          variant="outline"
+          className="rounded-full font-bold text-[11px] h-7 px-2.5 gap-1"
+          onClick={() => setFlagsOpen(true)}
+        >
+          <Flag className="h-3 w-3" />
+          Flags{conversation.customer.flags?.length ? ` (${conversation.customer.flags.length})` : ''}
+        </Button>
         {conversation.dailySheet && conversation.item && (
           <Link
             href={`/dashboard/daily-sheets/${conversation.dailySheet.id}?item=${conversation.item.id}`}
@@ -160,6 +174,13 @@ export function ConversationHeader({ conversation }: ConversationHeaderProps) {
           </div>
         )}
       </div>
+
+      <CustomerFlagsDialog
+        open={flagsOpen}
+        onOpenChange={setFlagsOpen}
+        customerId={conversation.customer.id}
+        customerName={conversation.customer.name}
+      />
     </div>
   );
 }

@@ -445,9 +445,34 @@ export class PayrollEntryService {
         ...this.ledgerWindowFilter(entry.period, cashWindow),
       },
       orderBy: { effectiveDate: 'asc' },
+      // Only ids — used to tell "typed by hand" entries from ones another feature
+      // owns (crew cash, attendance, advance plans, discrepancy), which must be
+      // undone from their own screen, not by voiding the ledger row directly.
+      include: {
+        crewCashSource: { select: { id: true } },
+        standaloneCrewCashSource: { select: { id: true } },
+        discrepancyCase: { select: { id: true } },
+        attendanceLeaveSource: { select: { id: true } },
+        advancePlanDisbursementSource: { select: { id: true } },
+        advanceInstallmentSource: { select: { id: true } },
+        reversalEntries: { where: { status: { not: LedgerEntryStatus.VOIDED } }, select: { id: true } },
+      },
     });
 
-    const byBucket: Record<keyof BucketTotals, typeof ledgerEntries> = {
+    const managedElsewhere = (e: (typeof ledgerEntries)[number]) =>
+      e.crewCashSource
+        ? 'Crew Cash'
+        : e.standaloneCrewCashSource
+          ? 'Crew Cash'
+          : e.discrepancyCase
+            ? 'Discrepancy case'
+            : e.attendanceLeaveSource
+              ? 'Attendance'
+              : e.advancePlanDisbursementSource || e.advanceInstallmentSource
+                ? 'Advance plan'
+                : null;
+
+    const byBucket: Record<keyof BucketTotals, Array<Record<string, unknown>>> = {
       bonuses: [],
       overtime: [],
       incentives: [],
@@ -462,7 +487,15 @@ export class PayrollEntryService {
       // computeLedgerContribution) purely for display in the Advances tab via
       // `advancePlans` below, not grouped into `ledgerEntriesByBucket`.
       if (ledgerEntry.category === StaffLedgerCategory.ADVANCE_DISBURSEMENT) continue;
-      byBucket[bucketKeyForCategory(ledgerEntry.category)].push(ledgerEntry);
+      const {
+        crewCashSource, standaloneCrewCashSource, discrepancyCase, attendanceLeaveSource,
+        advancePlanDisbursementSource, advanceInstallmentSource, reversalEntries, ...row
+      } = ledgerEntry;
+      byBucket[bucketKeyForCategory(ledgerEntry.category)].push({
+        ...row,
+        managedElsewhere: managedElsewhere(ledgerEntry),
+        alreadyReversed: reversalEntries.length > 0,
+      });
     }
 
     const attendance = await this.summarizeAttendance(entry.userId, entry.period);

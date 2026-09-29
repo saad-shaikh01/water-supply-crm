@@ -17,6 +17,10 @@ export interface CustomerQuery {
   outstandingMonthly?: boolean;
   outstandingCash?: boolean;
   minPendingAmount?: number;
+  rateProductId?: string;
+  rateAbove?: boolean;
+  rateBelow?: boolean;
+  rateAmount?: number;
   sort?: string;
   sortDir?: 'asc' | 'desc';
 }

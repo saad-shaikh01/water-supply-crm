@@ -48,6 +48,7 @@ function makeService(opts: {
     bottleWallet: {
       findMany: jest.fn().mockImplementation(async ({ where }: any) => WALLETS[where.customerId] ?? []),
     },
+    customerDeposit: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn().mockImplementation(async (cb: any) => cb(tx)),
   };
 
@@ -64,9 +65,11 @@ function makeService(opts: {
     can: jest.fn().mockImplementation(async (_userId: string, perm: string) => {
       if (perm === 'customers:force_deactivate') return opts.perms?.balance ?? false;
       if (perm === 'customers:force_deactivate_bottles') return opts.perms?.bottles ?? false;
+      if (perm === 'customer_deposits:write_off') return true;
       return false;
     }),
   };
+  const customerDeposits = { writeOffTx: jest.fn().mockResolvedValue(undefined) };
   const bulkPriceQueue = {};
 
   const svc = new CustomerService(
@@ -75,9 +78,10 @@ function makeService(opts: {
     statementPdf as any,
     audit as any,
     permissions as any,
+    customerDeposits as any,
     bulkPriceQueue as any,
   );
-  return { svc, prisma, tx, cache, audit, permissions };
+  return { svc, prisma, tx, cache, audit, permissions, customerDeposits };
 }
 
 // ─── tests ───────────────────────────────────────────────────────────────────

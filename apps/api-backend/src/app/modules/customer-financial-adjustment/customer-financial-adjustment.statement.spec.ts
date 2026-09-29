@@ -124,6 +124,7 @@ function buildService() {
     {} as any,
     {} as any,
     {} as any,
+    {} as any,
   );
   return { service, prisma };
 }

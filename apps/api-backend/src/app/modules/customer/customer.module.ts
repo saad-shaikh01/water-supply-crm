@@ -10,10 +10,12 @@ import { CustomerFlagCategoryController } from './customer-flag-category.control
 import { CustomerFlagService } from './customer-flag.service';
 import { CustomerFlagController } from './customer-flag.controller';
 import { AuditModule } from '../audit/audit.module';
+import { CustomerDepositsModule } from '../customer-deposits/customer-deposits.module';
 
 @Module({
   imports: [
     AuditModule,
+    CustomerDepositsModule,
     BullModule.registerQueue({ name: QUEUE_NAMES.BULK_PRICE_UPDATE }),
   ],
   controllers: [CustomerController, CustomerFlagCategoryController, CustomerFlagController],

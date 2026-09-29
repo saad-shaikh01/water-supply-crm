@@ -32,6 +32,7 @@ import { CustomerStatementPdfService } from './pdf/customer-statement-pdf.servic
 import { AuditService } from '../audit/audit.service';
 import { PermissionService } from '../authz/permission.service';
 import { ConsumptionQueryDto } from './dto/consumption-query.dto';
+import { CustomerDepositsService } from '../customer-deposits/customer-deposits.service';
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -43,6 +44,7 @@ export class CustomerService {
     private statementPdf: CustomerStatementPdfService,
     private audit: AuditService,
     private permissions: PermissionService,
+    private customerDeposits: CustomerDepositsService,
     @InjectQueue(QUEUE_NAMES.BULK_PRICE_UPDATE)
     private bulkPriceQueue: Queue,
   ) {}
@@ -110,6 +112,21 @@ export class CustomerService {
         return [c.id, Math.max(0, opening - (paidMap.get(c.id) ?? 0))];
       }),
     );
+  }
+
+  /**
+   * AND a new id-restriction into a `where` clause that may already carry one
+   * from an earlier in-memory-computed filter (e.g. outstanding-balance,
+   * bottle-rate) — intersects rather than overwrites so multiple such filters
+   * combine correctly instead of the later one clobbering the earlier one.
+   */
+  private intersectWhereIds(where: { id?: { in: string[] } }, ids: string[]): void {
+    if (where.id?.in) {
+      const existing = new Set(where.id.in);
+      where.id = { in: ids.filter((id) => existing.has(id)) };
+    } else {
+      where.id = { in: ids };
+    }
   }
 
   private async generateCustomerCode(vendorId: string, tx: Prisma.TransactionClient): Promise<string> {
@@ -203,7 +220,7 @@ export class CustomerService {
   }
 
   async findAllPaginated(vendorId: string, query: CustomerQueryDto) {
-    const { page = 1, limit = 20, search, routeId, paymentType, vanId, dayOfWeek, isActive, hasPortalAccess, balanceMin, balanceMax, notDeliveredInDays, notPaidInDays, outstandingMonthly, outstandingCash, minPendingAmount, sort = 'name', sortDir = 'asc' } = query;
+    const { page = 1, limit = 20, search, routeId, paymentType, vanId, dayOfWeek, isActive, hasPortalAccess, balanceMin, balanceMax, notDeliveredInDays, notPaidInDays, outstandingMonthly, outstandingCash, minPendingAmount, rateProductId, rateAbove, rateBelow, rateAmount, sort = 'name', sortDir = 'asc' } = query;
 
     // Filter by status only when explicitly requested. When no isActive param is
     // sent (the "All Status" option in the UI), return both active and inactive
@@ -315,7 +332,37 @@ export class CustomerService {
         );
       }
 
-      where.id = { in: [...new Set(idSets.flat())] };
+      this.intersectWhereIds(where, [...new Set(idSets.flat())]);
+    }
+
+    // Bottle-rate filter (the Above/Below checkboxes in the customer list
+    // "Filters" panel) — the given product's resolved price for each customer
+    // (their CustomerProductPrice override, or the product's basePrice)
+    // compared against rateAmount. Above = strictly greater, Below = strictly
+    // less (an exact match at the typed amount matches neither).
+    if ((rateAbove || rateBelow) && rateProductId && rateAmount !== undefined) {
+      const rateProduct = await this.prisma.product.findFirst({
+        where: { id: rateProductId, vendorId },
+        select: { basePrice: true },
+      });
+      if (!rateProduct) {
+        this.intersectWhereIds(where, []);
+      } else {
+        const candidates = await this.prisma.customer.findMany({
+          where,
+          select: {
+            id: true,
+            customPrices: { where: { productId: rateProductId }, select: { productId: true, customPrice: true } },
+          },
+        });
+        const matchIds = candidates
+          .filter((c) => {
+            const rate = this.resolveCustomerPrice(c, rateProductId, rateProduct.basePrice);
+            return (rateAbove && rate > rateAmount) || (rateBelow && rate < rateAmount);
+          })
+          .map((c) => c.id);
+        this.intersectWhereIds(where, matchIds);
+      }
     }
 
     const listInclude = {
@@ -424,7 +471,20 @@ export class CustomerService {
 
     // Prisma handles an empty `in: []` gracefully (matches nothing), so these can
     // run unconditionally even when the page has no rows / no MONTHLY customers.
-    const [lastDeliveries, lastPayments, prevOutstandingMap] = await Promise.all([
+    // Bottles sold (filled bottles dropped on DELIVERY transactions) for the
+    // current and previous calendar month — same source as the statement's
+    // consumption figure, one grouped query per month for the whole page.
+    const nowForSold = new Date();
+    const thisMonthStart = new Date(nowForSold.getFullYear(), nowForSold.getMonth(), 1);
+    const prevMonthStart = new Date(nowForSold.getFullYear(), nowForSold.getMonth() - 1, 1);
+    const soldWhere = (gte: Date, lt?: Date) => ({
+      customerId: { in: customerIds },
+      vendorId,
+      type: TransactionType.DELIVERY,
+      createdAt: lt ? { gte, lt } : { gte },
+    });
+
+    const [lastDeliveries, lastPayments, prevOutstandingMap, soldThisMonth, soldPrevMonth] = await Promise.all([
       this.prisma.dailySheetItem.groupBy({
         by: ['customerId'],
         where: {
@@ -443,7 +503,20 @@ export class CustomerService {
         _max: { createdAt: true },
       }),
       this.computePrevMonthOutstanding(vendorId, monthlyRowsOnPage),
+      this.prisma.transaction.groupBy({
+        by: ['customerId'],
+        where: soldWhere(thisMonthStart),
+        _sum: { filledDropped: true },
+      }),
+      this.prisma.transaction.groupBy({
+        by: ['customerId'],
+        where: soldWhere(prevMonthStart, thisMonthStart),
+        _sum: { filledDropped: true },
+      }),
     ]);
+
+    const soldThisMonthMap = new Map(soldThisMonth.map((g) => [g.customerId, g._sum.filledDropped ?? 0]));
+    const soldPrevMonthMap = new Map(soldPrevMonth.map((g) => [g.customerId, g._sum.filledDropped ?? 0]));
 
     const lastDeliveryMap = new Map(
       lastDeliveries.map((g) => [g.customerId, g._max.deliveredAt]),
@@ -460,6 +533,8 @@ export class CustomerService {
         lastDeliveryAt: lastDeliveryMap.get(c.id) ?? null,
         lastPaymentAt: lastPaymentMap.get(c.id) ?? null,
         previousMonthOutstanding,
+        soldThisMonth: soldThisMonthMap.get(c.id) ?? 0,
+        soldPrevMonth: soldPrevMonthMap.get(c.id) ?? 0,
       };
     });
 
@@ -952,9 +1027,18 @@ export class CustomerService {
       where: { customerId: id, balance: { not: 0 } },
       select: { balance: true, productId: true, product: { select: { name: true } } },
     });
+    // Customer Deposits — Closure Settlement (owner-requested 2026-09-29): a
+    // third blocker, same treatment as balance/bottles. `not: 0` covers a
+    // (should-never-happen) negative deposit balance too, same defensiveness
+    // as the bottle-wallet query above.
+    const activeDeposits = await this.prisma.customerDeposit.findMany({
+      where: { customerId: id, vendorId, balance: { not: 0 } },
+      select: { id: true, customerId: true, type: true, productId: true, balance: true, product: { select: { name: true } } },
+    });
     const owed = Number(customer.financialBalance ?? 0);
     const hasBottles = outstandingWallets.length > 0;
     const hasBalance = owed > 0;
+    const hasDeposits = activeDeposits.length > 0;
     const bottleSummary = outstandingWallets
       .map((w) => `${w.product.name}: ${w.balance}`)
       .join(', ');
@@ -962,21 +1046,36 @@ export class CustomerService {
       product: w.product.name,
       balance: w.balance,
     }));
+    const depositSummary = activeDeposits
+      .map((d) => `${d.type === 'CASH' ? 'Cash deposit' : `${d.product?.name ?? 'Bottle'} deposit`}: ${d.balance}`)
+      .join(', ');
+    const depositsWrittenOff = activeDeposits.map((d) => ({
+      id: d.id,
+      type: d.type,
+      productId: d.productId,
+      productName: d.product?.name ?? null,
+      balance: d.balance,
+    }));
 
     // Blocked unless forced. One structured 409 carries every blocker so the
     // client can offer the right escalation in a single step.
-    if ((hasBalance || hasBottles) && !opts.force) {
+    if ((hasBalance || hasBottles || hasDeposits) && !opts.force) {
       const parts: string[] = [];
       if (hasBalance) parts.push(`owes ₨${owed.toLocaleString()}`);
       if (hasBottles) parts.push(`is holding company bottles (${bottleSummary})`);
+      if (hasDeposits) parts.push(`is still holding a security deposit (${depositSummary})`);
       throw new ConflictException({
         code: 'DEACTIVATE_BLOCKED',
         message:
-          `${customer.name} ${parts.join(' and ')}. Collect / recover first, or Force Deactivate to ` +
-          `write ${hasBalance && hasBottles ? 'them' : 'it'} off as a company loss.`,
+          `${customer.name} ${parts.join(' and ')}. Collect / recover / settle first, or Force Deactivate to ` +
+          `write ${[hasBalance, hasBottles, hasDeposits].filter(Boolean).length > 1 ? 'them' : 'it'} off as a company loss.`,
         customerName: customer.name,
         financialBalance: hasBalance ? owed : 0,
         outstandingBottles: bottlesWrittenOff,
+        // Customer Deposits — Closure Settlement (2026-09-29). Settle via
+        // POST /customer-deposits/:id/{refund,apply-to-balance,write-off}
+        // (Deposits tab) before retrying, or Force Deactivate to write it off.
+        outstandingDeposits: depositsWrittenOff,
       });
     }
 
@@ -989,7 +1088,7 @@ export class CustomerService {
       dailySheet: { isClosed: false },
     };
 
-    if (opts.force && (hasBalance || hasBottles)) {
+    if (opts.force && (hasBalance || hasBottles || hasDeposits)) {
       if (!actor) {
         throw new ForbiddenException('Force deactivate requires an authenticated actor.');
       }
@@ -1006,10 +1105,20 @@ export class CustomerService {
           'You do not have permission to force-deactivate a customer still holding company bottles.',
         );
       }
+      // Customer Deposits — Closure Settlement (owner-requested 2026-09-29):
+      // gated on the deposit resource's own write_off permission (same
+      // Accountant/Vendor-Admin tier as a manual write-off) rather than a new
+      // customers:force_deactivate_deposits permission.
+      if (hasDeposits && !(await this.permissions.can(actor.userId, 'customer_deposits:write_off'))) {
+        throw new ForbiddenException(
+          'You do not have permission to force-deactivate a customer still holding a security deposit.',
+        );
+      }
 
       const by = actor.name ?? actor.userId;
       const balanceNote = `Bad-debt write-off on account closure — company loss (force deactivate by ${by})`;
       const bottleNote = `Bottle write-off on account closure — company loss (force deactivate by ${by})`;
+      const depositNote = `Deposit write-off on account closure — company loss (force deactivate by ${by})`;
 
       const updated = await this.prisma.$transaction(async (tx) => {
         const { count: cancelledDeliveries } = await tx.dailySheetItem.updateMany({
@@ -1051,6 +1160,10 @@ export class CustomerService {
           });
         }
 
+        for (const d of activeDeposits) {
+          await this.customerDeposits.writeOffTx(tx, actor, d, depositNote);
+        }
+
         const c = await tx.customer.update({
           where: { id },
           data: { isActive: false },
@@ -1074,17 +1187,23 @@ export class CustomerService {
         entity: 'Customer',
         entityId: id,
         changes: {
-          before: { financialBalance: owed, bottleBalances: bottlesWrittenOff, isActive: true },
+          before: {
+            financialBalance: owed,
+            bottleBalances: bottlesWrittenOff,
+            depositBalances: depositsWrittenOff,
+            isActive: true,
+          },
           after: {
             financialBalance: hasBalance ? 0 : owed,
             isActive: false,
             writtenOff: hasBalance ? owed : 0,
             bottlesWrittenOff,
+            depositsWrittenOff,
             cancelledDeliveries: updated.cancelledDeliveries,
           },
         },
       });
-      return { ...updated, writtenOff: hasBalance ? owed : 0, bottlesWrittenOff };
+      return { ...updated, writtenOff: hasBalance ? owed : 0, bottlesWrittenOff, depositsWrittenOff };
     }
 
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -1769,13 +1888,15 @@ export class CustomerService {
 
     let canForceBalance = false;
     let canForceBottles = false;
+    let canForceDeposits = false;
     if (force) {
       if (!actor) {
         throw new ForbiddenException('Force deactivate requires an authenticated actor.');
       }
-      [canForceBalance, canForceBottles] = await Promise.all([
+      [canForceBalance, canForceBottles, canForceDeposits] = await Promise.all([
         this.permissions.can(actor.userId, 'customers:force_deactivate'),
         this.permissions.can(actor.userId, 'customers:force_deactivate_bottles'),
+        this.permissions.can(actor.userId, 'customer_deposits:write_off'),
       ]);
     }
 
@@ -1785,6 +1906,7 @@ export class CustomerService {
       id: string;
       owed: number;
       wallets: Array<{ productId: string; balance: number; name: string }>;
+      deposits: Array<{ id: string; customerId: string; type: 'CASH' | 'BOTTLE'; productId: string | null; balance: number }>;
     }> = [];
 
     for (const customer of customers) {
@@ -1792,18 +1914,26 @@ export class CustomerService {
         where: { customerId: customer.id, balance: { not: 0 } },
         select: { balance: true, productId: true, product: { select: { name: true } } },
       });
+      // Customer Deposits — Closure Settlement (owner-requested 2026-09-29):
+      // same third blocker as the single-customer deactivate() above.
+      const activeDeposits = await this.prisma.customerDeposit.findMany({
+        where: { customerId: customer.id, vendorId, balance: { not: 0 } },
+        select: { id: true, customerId: true, type: true, productId: true, balance: true, product: { select: { name: true } } },
+      });
       const owed = Number(customer.financialBalance ?? 0);
       const hasBottles = outstandingWallets.length > 0;
       const hasBalance = owed > 0;
+      const hasDeposits = activeDeposits.length > 0;
 
-      if (!hasBottles && !hasBalance) {
+      if (!hasBottles && !hasBalance && !hasDeposits) {
         toDeactivate.push(customer.id);
         continue;
       }
 
       const balanceCovered = !hasBalance || canForceBalance;
       const bottlesCovered = !hasBottles || canForceBottles;
-      if (force && balanceCovered && bottlesCovered) {
+      const depositsCovered = !hasDeposits || canForceDeposits;
+      if (force && balanceCovered && bottlesCovered && depositsCovered) {
         toForceDeactivate.push({
           id: customer.id,
           owed: hasBalance ? owed : 0,
@@ -1811,6 +1941,13 @@ export class CustomerService {
             productId: w.productId,
             balance: w.balance,
             name: w.product.name,
+          })),
+          deposits: activeDeposits.map((d) => ({
+            id: d.id,
+            customerId: d.customerId,
+            type: d.type,
+            productId: d.productId,
+            balance: d.balance,
           })),
         });
         continue;
@@ -1830,6 +1967,15 @@ export class CustomerService {
             (force && !canForceBottles ? ' (missing customers:force_deactivate_bottles)' : ''),
         );
       }
+      if (hasDeposits) {
+        const summary = activeDeposits
+          .map((d) => `${d.type === 'CASH' ? 'Cash deposit' : `${d.product?.name ?? 'Bottle'} deposit`}: ${d.balance}`)
+          .join(', ');
+        reasons.push(
+          `Outstanding deposit (${summary})` +
+            (force && !canForceDeposits ? ' (missing customer_deposits:write_off)' : ''),
+        );
+      }
       skipped.push({
         customerId: customer.id,
         name: customer.name,
@@ -1843,6 +1989,7 @@ export class CustomerService {
     let cancelledDeliveries = 0;
     let writtenOff = 0;
     let bottlesWrittenOff = 0;
+    let depositsWrittenOff = 0;
 
     if (allIds.length > 0) {
       await this.prisma.$transaction(async (tx) => {
@@ -1899,6 +2046,15 @@ export class CustomerService {
             });
             bottlesWrittenOff += 1;
           }
+          for (const d of c.deposits) {
+            await this.customerDeposits.writeOffTx(
+              tx,
+              actor as AuthUser,
+              d,
+              `Deposit write-off on account closure — company loss (bulk force deactivate by ${by})`,
+            );
+            depositsWrittenOff += 1;
+          }
           await tx.customer.update({ where: { id: c.id }, data: { isActive: false } });
         }
       });
@@ -1928,6 +2084,7 @@ export class CustomerService {
             forceDeactivatedCount: toForceDeactivate.length,
             writtenOff,
             bottlesWrittenOff,
+            depositsWrittenOff,
           },
         },
       });
@@ -1939,6 +2096,7 @@ export class CustomerService {
       forceDeactivatedCount: toForceDeactivate.length,
       writtenOff,
       bottlesWrittenOff,
+      depositsWrittenOff,
       cancelledDeliveries,
       skippedCount: skipped.length,
       skipped,

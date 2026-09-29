@@ -164,11 +164,14 @@ export class VehicleServiceTypeService {
   }
 
   /**
-   * Renames a type. The `key` is untouched, so every rule/record keeps
-   * pointing at it. Expenses that VehicleMaintenanceService auto-described as
-   * "<old label> — <plate>" are re-described with the new label in the same
-   * transaction (descriptions someone edited by hand no longer start with the
-   * old label and are left alone).
+   * Renames a type and/or edits its default km/days interval. The `key` is
+   * untouched, so every rule/record keeps pointing at it. Expenses that
+   * VehicleMaintenanceService auto-described as "<old label> — <plate>" are
+   * re-described with the new label in the same transaction (descriptions
+   * someone edited by hand no longer start with the old label and are left
+   * alone). The interval fields only reach vehicles that haven't seen this
+   * type yet (see VehicleServiceTypeDef's schema comment) — a vehicle with an
+   * existing VehicleMaintenanceRule row for this type is unaffected.
    */
   async rename(user: AuthUser, id: string, dto: UpdateServiceTypeDto): Promise<VehicleServiceTypeEntry> {
     const label = dto.label.replace(/\s+/g, ' ').trim();
@@ -176,15 +179,32 @@ export class VehicleServiceTypeService {
 
     const def = await this.prisma.vehicleServiceTypeDef.findFirst({ where: { id, vendorId: user.vendorId } });
     if (!def) throw new NotFoundException('Service type not found');
-    if (def.label === label) return this.toEntry(def, await this.usageCount(user.vendorId, def.key));
 
-    const duplicate = await this.prisma.vehicleServiceTypeDef.findFirst({
-      where: { vendorId: user.vendorId, label: { equals: label, mode: 'insensitive' }, NOT: { id } },
-    });
-    if (duplicate) throw new ConflictException(`A service type named "${duplicate.label}" already exists`);
+    const labelChanged = def.label !== label;
+    const kmChanged = dto.defaultIntervalKm !== undefined && dto.defaultIntervalKm !== def.defaultIntervalKm;
+    const daysChanged = dto.defaultIntervalDays !== undefined && dto.defaultIntervalDays !== def.defaultIntervalDays;
+    if (!labelChanged && !kmChanged && !daysChanged) {
+      return this.toEntry(def, await this.usageCount(user.vendorId, def.key));
+    }
+
+    if (labelChanged) {
+      const duplicate = await this.prisma.vehicleServiceTypeDef.findFirst({
+        where: { vendorId: user.vendorId, label: { equals: label, mode: 'insensitive' }, NOT: { id } },
+      });
+      if (duplicate) throw new ConflictException(`A service type named "${duplicate.label}" already exists`);
+    }
 
     const updated = await this.prisma.$transaction(async (tx) => {
-      const next = await tx.vehicleServiceTypeDef.update({ where: { id }, data: { label } });
+      const next = await tx.vehicleServiceTypeDef.update({
+        where: { id },
+        data: {
+          label,
+          ...(dto.defaultIntervalKm !== undefined && { defaultIntervalKm: dto.defaultIntervalKm }),
+          ...(dto.defaultIntervalDays !== undefined && { defaultIntervalDays: dto.defaultIntervalDays }),
+        },
+      });
+
+      if (!labelChanged) return next;
 
       const records = await tx.vehicleServiceRecord.findMany({
         where: { vendorId: user.vendorId, serviceType: def.key, expenseId: { not: null } },

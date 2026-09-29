@@ -7,10 +7,13 @@ import {
   Button, Input,
 } from '@water-supply-crm/ui';
 import { cn } from '@water-supply-crm/ui';
-import { Receipt, HandCoins, CheckCircle2, XCircle, Plus, Ban, AlertTriangle, Loader2 } from 'lucide-react';
+import { Receipt, HandCoins, CheckCircle2, XCircle, Plus, Ban, AlertTriangle, Loader2, Trash2, Undo2 } from 'lucide-react';
+import { AdjustLockedEntryDialog } from './adjust-locked-entry-dialog';
+import { useAuthStore } from '../../../store/auth.store';
+import { VoidLedgerEntryDialog } from './void-ledger-entry-dialog';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import { ledgerCategoryLabel } from '../constants';
-import { useEntryBreakdown, useApproveEntry, useRecalculateEntry, type PayrollEntryBucketTotals, type AttendanceBreakdownDay } from '../hooks/use-monthly-payroll';
+import { useEntryBreakdown, useApproveEntry, useRecalculateEntry, type PayrollEntryBucketTotals, type AttendanceBreakdownDay, type BreakdownLedgerEntry } from '../hooks/use-monthly-payroll';
 import { useCollectAdvanceInstallment, useSkipAdvanceInstallment } from '../hooks/use-advance-plans';
 import { useAttendanceCategories } from '../hooks/use-attendance';
 import { usePermissions } from '../../authz/hooks/use-permissions';
@@ -124,6 +127,27 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
   const skip = useSkipAdvanceInstallment(entryId ?? '', data?.entry.userId ?? '');
 
   const periodWritable = data ? !['LOCKED', 'PAID'].includes(data.entry.period.status) : false;
+
+  // Mirrors StaffLedgerService.voidEntryTx: permission holder OR the creator, and only
+  // while the row isn't rolled into a locked period. The server re-checks all of it.
+  const currentUserId = useAuthStore((s) => s.user?.id);
+  const [voidTarget, setVoidTarget] = useState<BreakdownLedgerEntry | null>(null);
+  // Locked-period rows can't be voided — reverse/correct posts a new entry in the open period.
+  // Linked penalties and system-owned rows are excluded (their other half would desync);
+  // REVERSAL/CORRECTION rows are themselves the fix, not something to fix again.
+  const canReverse = can('payroll:ledger_reverse');
+  const canCorrect = can('payroll:ledger_correct');
+  const [fixTarget, setFixTarget] = useState<BreakdownLedgerEntry | null>(null);
+  const canFixLocked = (e: BreakdownLedgerEntry) =>
+    e.payrollEntryId !== null &&
+    !e.alreadyReversed &&
+    !e.managedElsewhere &&
+    !e.causedCustomerAdjustmentId &&
+    e.category !== 'REVERSAL' &&
+    e.category !== 'CORRECTION' &&
+    (canReverse || canCorrect);
+  const canVoidEntry = (e: BreakdownLedgerEntry) =>
+    periodWritable && e.payrollEntryId === null && (can('payroll:ledger_void') || e.createdById === currentUserId);
 
   // Honest freshness check, no new endpoint: `entry[key]` is the STORED bucket total
   // (last set by Generate Draft or Lock); `ledgerEntriesByBucket[key]` is a LIVE query
@@ -324,9 +348,39 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
                                   <p className="text-xs text-muted-foreground truncate">{entry.description}</p>
                                 )}
                               </div>
-                              <span className={cn('font-mono font-bold shrink-0', entry.amount >= 0 ? 'text-emerald-500' : 'text-destructive')}>
-                                {entry.amount >= 0 ? '+' : '−'}₨ {Math.abs(entry.amount).toLocaleString()}
-                              </span>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <span className={cn('font-mono font-bold', entry.amount >= 0 ? 'text-emerald-500' : 'text-destructive')}>
+                                  {entry.amount >= 0 ? '+' : '−'}₨ {Math.abs(entry.amount).toLocaleString()}
+                                </span>
+                                {entry.managedElsewhere ? (
+                                  <span
+                                    className="text-[10px] text-muted-foreground"
+                                    title={`Created by ${entry.managedElsewhere} — undo it from there`}
+                                  >
+                                    via {entry.managedElsewhere}
+                                  </span>
+                                ) : canVoidEntry(entry) ? (
+                                  <Button
+                                    variant="ghost" size="icon"
+                                    className="h-6 w-6 text-destructive hover:text-destructive"
+                                    title="Void this entry"
+                                    onClick={() => setVoidTarget(entry)}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                ) : entry.alreadyReversed ? (
+                                  <span className="text-[10px] text-muted-foreground">reversed</span>
+                                ) : canFixLocked(entry) ? (
+                                  <Button
+                                    variant="ghost" size="icon"
+                                    className="h-6 w-6 text-primary hover:text-primary"
+                                    title="Reverse or correct (locked period)"
+                                    onClick={() => setFixTarget(entry)}
+                                  >
+                                    <Undo2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                ) : null}
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -583,6 +637,13 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
         employeeId={data?.entry.userId ?? ''}
         entryId={entryId ?? undefined}
         onOpenChange={(o) => !o && setWriteOffPlanTarget(null)}
+      />
+      <VoidLedgerEntryDialog entry={voidTarget} onOpenChange={(o) => !o && setVoidTarget(null)} />
+      <AdjustLockedEntryDialog
+        entry={fixTarget}
+        onOpenChange={(o) => !o && setFixTarget(null)}
+        canReverse={canReverse}
+        canCorrect={canCorrect}
       />
       <LogLedgerEntryDialog
         open={addAdjustmentOpen}

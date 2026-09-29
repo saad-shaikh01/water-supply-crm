@@ -213,6 +213,60 @@ describe('VehicleServiceTypeService', () => {
         NotFoundException,
       );
     });
+
+    it('updates the default interval without touching the label or its history', async () => {
+      const { service, tx } = makeService({
+        defs: [def('COOLANT', 'Coolant', { defaultIntervalKm: 5000, defaultIntervalDays: null })],
+      });
+      const result = await service.rename(USER, 'id-COOLANT', {
+        label: 'Coolant',
+        defaultIntervalKm: 10000,
+        defaultIntervalDays: 180,
+      });
+
+      expect(tx.vehicleServiceTypeDef.update).toHaveBeenCalledWith({
+        where: { id: 'id-COOLANT' },
+        data: { label: 'Coolant', defaultIntervalKm: 10000, defaultIntervalDays: 180 },
+      });
+      expect(tx.expense.updateMany).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ defaultIntervalKm: 10000, defaultIntervalDays: 180 });
+    });
+
+    it('clears an interval when explicitly passed null', async () => {
+      const { service, tx } = makeService({
+        defs: [def('COOLANT', 'Coolant', { defaultIntervalKm: 5000 })],
+      });
+      await service.rename(USER, 'id-COOLANT', { label: 'Coolant', defaultIntervalKm: null });
+
+      expect(tx.vehicleServiceTypeDef.update).toHaveBeenCalledWith({
+        where: { id: 'id-COOLANT' },
+        data: { label: 'Coolant', defaultIntervalKm: null },
+      });
+    });
+
+    it('leaves the interval untouched when omitted from the dto', async () => {
+      const { service, tx } = makeService({
+        defs: [def('COOLANT', 'Coolant', { defaultIntervalKm: 5000 })],
+      });
+      await service.rename(USER, 'id-COOLANT', { label: 'Coolant Flush' });
+
+      expect(tx.vehicleServiceTypeDef.update).toHaveBeenCalledWith({
+        where: { id: 'id-COOLANT' },
+        data: { label: 'Coolant Flush' },
+      });
+    });
+
+    it('is a no-op when neither the label nor the interval changed', async () => {
+      const { service, tx } = makeService({
+        defs: [def('COOLANT', 'Coolant', { defaultIntervalKm: 5000, defaultIntervalDays: 180 })],
+      });
+      await service.rename(USER, 'id-COOLANT', {
+        label: 'Coolant',
+        defaultIntervalKm: 5000,
+        defaultIntervalDays: 180,
+      });
+      expect(tx.vehicleServiceTypeDef.update).not.toHaveBeenCalled();
+    });
   });
 
   describe('remove', () => {

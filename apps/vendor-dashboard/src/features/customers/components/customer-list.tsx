@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
 import { useQueryState, parseAsString, parseAsInteger } from 'nuqs';
 import { MoreHorizontal, Pencil, Trash2, Eye, MapPin, Phone, PowerOff, Power, SlidersHorizontal, X, ChevronUp, ChevronDown, ChevronsUpDown, CalendarClock, MessageSquare, StickyNote, Flag } from 'lucide-react';
 import {
@@ -17,13 +18,14 @@ import { RouteFilter } from '../../../components/shared/filters/route-filter';
 import { VanFilter } from '../../../components/shared/filters/van-filter';
 import { toast } from 'sonner';
 import { useCustomers, useDeleteCustomer, useDeactivateCustomer, useReactivateCustomer, useBulkDeactivateCustomers, isDeactivateBlockedError } from '../hooks/use-customers';
+import { productsApi } from '../../products/api/products.api';
 import { CustomerForm } from './customer-form';
 import { BulkScheduleUpdateDialog } from './bulk-schedule-update-dialog';
 // Same Communication Center feature as the Daily Sheet detail / Delivery
 // Issues pages — a customer-list entry point that resolves its own anchor
 // delivery item server-side (see CustomerConversationThread).
 import { CustomerConversationThread } from '../../communication/components/customer-conversation-thread';
-import { CustomerFlagBadges } from './customer-flag-badge';
+import { CustomerFlagIcons, flagRingStyle, flagRowStripeStyle } from './customer-flag-badge';
 import { CustomerFlagsDialog } from './customer-flags-dialog';
 import { ManageCustomerFlagCategoriesDialog } from './manage-customer-flag-categories-dialog';
 import { cn } from '@water-supply-crm/ui';
@@ -45,6 +47,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const {
     data, isLoading, page, setPage, limit, setLimit, isActive, setIsActive, hasPortalAccess, setHasPortalAccess,
     outstandingMonthly, setOutstandingMonthly, outstandingCash, setOutstandingCash, minPendingAmount, setMinPendingAmount,
+    rateProductId, setRateProductId, rateAbove, setRateAbove, rateBelow, setRateBelow, rateAmount, setRateAmount,
     sort, setSort, sortDir, setSortDir,
   } = useCustomers();
   const { mutate: deleteCustomer, isPending: isDeleting } = useDeleteCustomer();
@@ -84,6 +87,24 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const [minPendingInput, setMinPendingInput] = useState<string>(
     !isNaN(minPendingAmount) && minPendingAmount > 0 ? String(minPendingAmount) : '',
   );
+  const [rateAmountInput, setRateAmountInput] = useState<string>(
+    !isNaN(rateAmount) && rateAmount > 0 ? String(rateAmount) : '',
+  );
+
+  const { data: productsData } = useQuery({
+    queryKey: ['products', 'all-active'],
+    queryFn: () => productsApi.getAll({ limit: 100, isActive: true }).then((r) => r.data),
+  });
+  const products = ((productsData as { data?: unknown[] } | undefined)?.data ?? []) as Array<{ id: string; name: string }>;
+
+  // Most vendors run a single bottle product — auto-select it so the rate
+  // filter works without an extra dropdown; multi-product vendors still pick
+  // explicitly via the Select shown below.
+  useEffect(() => {
+    if (products.length === 1 && !rateProductId) {
+      setRateProductId(products[0].id);
+    }
+  }, [products, rateProductId, setRateProductId]);
 
   const DAY_NAMES: Record<number, string> = { 1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday', 6: 'Saturday' };
 
@@ -102,6 +123,8 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
       setSortDir(null);
     }
   };
+
+  const rateProductName = products.find((p) => p.id === rateProductId)?.name;
 
   const activeFilters = [
     paymentType ? { label: `Type: ${paymentType}`, clear: () => { resetPage(); setPaymentType(null); } } : null,
@@ -123,6 +146,12 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
           clear: () => { resetPage(); setOutstandingCash(false); },
         }
       : null,
+    (rateAbove || rateBelow) && !isNaN(rateAmount) && rateAmount > 0
+      ? {
+          label: `Rate ${rateAbove ? '>' : '<'} ₨${rateAmount}${rateProductName ? ` (${rateProductName})` : ''}`,
+          clear: () => { resetPage(); setRateAbove(false); setRateBelow(false); },
+        }
+      : null,
   ].filter(Boolean) as Array<{ label: string; clear: () => void }>;
 
   const clearAllFilters = () => {
@@ -140,6 +169,10 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     setOutstandingCash(false);
     setMinPendingAmount(null);
     setMinPendingInput('');
+    setRateAbove(false);
+    setRateBelow(false);
+    setRateAmount(null);
+    setRateAmountInput('');
   };
 
   // Commit the free-text days input to the query param (empty / 0 clears it)
@@ -164,6 +197,26 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     setMinPendingAmount(Number.isFinite(n) && n > 0 ? n : null);
   };
 
+  // Commit the free-text rate-amount input (empty / 0 clears it)
+  const applyRateAmount = () => {
+    const n = parseFloat(rateAmountInput);
+    resetPage();
+    setRateAmount(Number.isFinite(n) && n > 0 ? n : null);
+  };
+
+  // Above/Below are mutually exclusive — a rate can't be filtered both ways
+  // at once, so checking one clears the other (checkbox look, radio behavior).
+  const toggleRateAbove = (checked: boolean) => {
+    resetPage();
+    setRateAbove(checked);
+    if (checked) setRateBelow(false);
+  };
+  const toggleRateBelow = (checked: boolean) => {
+    resetPage();
+    setRateBelow(checked);
+    if (checked) setRateAbove(false);
+  };
+
   const customers = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
   const rows = (customers?.data ?? []) as Array<{
     id: string;
@@ -182,6 +235,8 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     lastDeliveryAt?: string | null;
     lastPaymentAt?: string | null;
     previousMonthOutstanding?: number | null;
+    soldThisMonth?: number;
+    soldPrevMonth?: number;
     flags?: Array<{ id: string; message: string; category: { name: string; color: string } }>;
   }>;
   const total = customers?.meta?.total ?? 0;
@@ -441,6 +496,67 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                 Select Monthly and/or Cash to filter by an unpaid balance. Leave the amount blank to match any amount owed, or set a minimum (e.g. 100) to only show customers owing that much or more.
               </p>
             </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Bottle Rate</Label>
+              {products.length > 1 && (
+                <Select value={rateProductId || undefined} onValueChange={(v) => { resetPage(); setRateProductId(v); }}>
+                  <SelectTrigger className="rounded-xl bg-background/50 border-border h-10">
+                    <SelectValue placeholder="Select product" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl border-border shadow-2xl">
+                    {products.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <div className="flex items-center gap-4 px-1">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={rateAbove}
+                    onChange={(e) => toggleRateAbove(e.target.checked)}
+                    className="h-4 w-4 shrink-0 rounded border-border accent-primary"
+                  />
+                  <span className="text-sm font-semibold">Above</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={rateBelow}
+                    onChange={(e) => toggleRateBelow(e.target.checked)}
+                    className="h-4 w-4 shrink-0 rounded border-border accent-primary"
+                  />
+                  <span className="text-sm font-semibold">Below</span>
+                </label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={1}
+                  inputMode="numeric"
+                  placeholder="e.g. 160"
+                  value={rateAmountInput}
+                  disabled={(!rateAbove && !rateBelow) || !rateProductId}
+                  onChange={(e) => setRateAmountInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') applyRateAmount(); }}
+                  onBlur={applyRateAmount}
+                  className="rounded-xl bg-background/50 border-border h-10 disabled:opacity-50"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="rounded-xl h-10 shrink-0"
+                  disabled={(!rateAbove && !rateBelow) || !rateProductId}
+                  onClick={applyRateAmount}
+                >
+                  Apply
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground/70">
+                Check Above or Below, then enter an amount — e.g. Above + 160 shows customers whose bottle rate is more than ₨160; Below + 160 shows customers under ₨160. Uses each customer's own price if set, otherwise the product's default price.
+              </p>
+            </div>
           </div>
           {activeFilters.length > 0 && (
             <div className="border-t pt-4">
@@ -499,6 +615,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
         selectedIds={selectedIds}
         onToggleRow={toggleRow}
         onToggleAll={toggleAllOnPage}
+        rowStyle={(r) => flagRowStripeStyle(r.flags)}
         tableId="customers-list"
         columns={[
           {
@@ -536,20 +653,23 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             ),
             cell: (r) => (
               <div className={cn("flex items-center gap-3 max-w-[220px]", !r.isActive && "opacity-60")}>
-                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold shrink-0 text-xs">
+                <div
+                  className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold shrink-0 text-xs"
+                  style={flagRingStyle(r.flags)}
+                >
                   {r.name.charAt(0)}
                 </div>
                 <div className="flex flex-col min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
                     <Link href={`/dashboard/customers/${r.id}`} className="font-bold truncate text-sm text-foreground dark:text-white hover:text-primary hover:underline transition-colors">{r.name}</Link>
                     {!r.isActive && (
                       <Badge variant="outline" className="text-[8px] px-1 py-0 h-3.5 text-muted-foreground border-muted-foreground/20 shrink-0">
                         OFF
                       </Badge>
                     )}
+                    <CustomerFlagIcons flags={r.flags} />
                   </div>
                   <span className="text-[14px] font-mono font-semibold text-primary/70 truncate">{r.customerCode}</span>
-                  <CustomerFlagBadges flags={r.flags} className="mt-1" />
                   {canViewChats && (
                     <button
                       type="button"
@@ -616,6 +736,20 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                 </div>
               );
             }
+          },
+          {
+            key: 'soldBottles',
+            header: 'Sold Bottles',
+            cell: (r) => (
+              <div className="flex flex-col gap-0.5 whitespace-nowrap">
+                <span className="text-xs font-mono font-bold text-foreground dark:text-white">
+                  {Number(r.soldThisMonth ?? 0)} <span className="text-[9px] font-medium text-muted-foreground/70">this month</span>
+                </span>
+                <span className="text-[10px] font-mono text-muted-foreground">
+                  {Number(r.soldPrevMonth ?? 0)} <span className="text-[9px] text-muted-foreground/60">last month</span>
+                </span>
+              </div>
+            )
           },
           {
             key: 'pendingAmount',

@@ -38,6 +38,13 @@ const ISSUE_INCLUDE = {
           // issue without leaving this page.
           financialBalance: true,
           wallets: { select: { balance: true } },
+          // Customer Flags (owner-requested 2026-09-29): so ops can see/act on
+          // the same highlight shown on the Customers list and Daily Sheet.
+          flags: {
+            where: { status: 'OPEN' as const },
+            select: { id: true, message: true, category: { select: { id: true, name: true, color: true } } },
+            orderBy: { createdAt: 'asc' as const },
+          },
         },
       },
       product: { select: { id: true, name: true } },

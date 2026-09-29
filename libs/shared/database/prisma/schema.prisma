@@ -4271,7 +4271,13 @@ enum DepositEntryDirection {
   COLLECT // deposit taken from the customer (cash in / bottles out to customer)
   REFUND // deposit given back to the customer (cash out / bottles back to stock)
   WRITE_OFF // balance closed out without a matching cash/bottle movement
-  // (e.g. customer left without returning deposit bottles)
+  // (e.g. customer left without returning deposit bottles) — a COMPANY loss.
+  // Customer Deposits — Closure Settlement (owner-requested 2026-09-29): CASH only.
+  // The held deposit is returned to the customer as a CREDIT against what they
+  // owe (Customer.financialBalance), not as physical cash — no Cash Ledger
+  // movement (see CustomerDepositsService.applyToBalance). Distinct from
+  // WRITE_OFF: the customer benefits here; WRITE_OFF is a company loss.
+  APPLIED_TO_BALANCE
 }
 
 enum DepositEntrySource {

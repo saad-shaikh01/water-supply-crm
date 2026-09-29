@@ -276,8 +276,10 @@ export const fleetApi = {
     apiClient.get<VehicleServiceTypeEntry[]>('/fleet/maintenance/service-types').then((r) => r.data),
   createServiceType: (data: CreateServiceTypeData) =>
     apiClient.post<VehicleServiceTypeEntry>('/fleet/maintenance/service-types', data).then((r) => r.data),
-  renameServiceType: (id: string, label: string) =>
-    apiClient.patch<VehicleServiceTypeEntry>(`/fleet/maintenance/service-types/${id}`, { label }).then((r) => r.data),
+  renameServiceType: (
+    id: string,
+    data: { label: string; defaultIntervalKm?: number | null; defaultIntervalDays?: number | null },
+  ) => apiClient.patch<VehicleServiceTypeEntry>(`/fleet/maintenance/service-types/${id}`, data).then((r) => r.data),
   removeServiceType: (id: string) => apiClient.delete(`/fleet/maintenance/service-types/${id}`),
 
   // Fleet Alert Recipients (owner-requested 2026-09-29) — the WhatsApp numbers

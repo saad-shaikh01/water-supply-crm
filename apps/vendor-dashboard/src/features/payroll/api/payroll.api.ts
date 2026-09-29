@@ -199,6 +199,15 @@ export const payrollApi = {
     apiClient.get(`/payroll/ledger-entries/employee/${userId}`, { params }),
   createLedgerEntry: (data: CreateLedgerEntryData) => apiClient.post('/payroll/ledger-entries', data),
 
+  voidLedgerEntry: (id: string, data: VoidLinkedPenaltyData) =>
+    apiClient.patch(`/payroll/ledger-entries/${id}/void`, data),
+
+  // Post-lock fixes — new opposite-sign entries in the open period; the locked row is never touched.
+  reverseLedgerEntry: (id: string, data: VoidLinkedPenaltyData) =>
+    apiClient.post(`/payroll/ledger-entries/${id}/reverse`, data),
+  correctLedgerEntry: (id: string, data: VoidLinkedPenaltyData & { correctedAmount: number }) =>
+    apiClient.post(`/payroll/ledger-entries/${id}/correct`, data),
+
   // Linked Penalty (owner-approved 2026-09-25)
   createLinkedPenalty: (data: CreateLinkedPenaltyData) =>
     apiClient.post<LinkedPenaltyResult>('/payroll/ledger-entries/linked-penalty', data),

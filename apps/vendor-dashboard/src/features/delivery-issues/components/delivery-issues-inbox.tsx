@@ -23,7 +23,7 @@ import {
   Textarea,
   cn,
 } from '@water-supply-crm/ui';
-import { AlertTriangle, CalendarClock, CheckCircle2, Clock3, Loader2, MessageSquare, MoreHorizontal, Power, PowerOff, StickyNote, Truck, X } from 'lucide-react';
+import { AlertTriangle, CalendarClock, CheckCircle2, Clock3, Flag, Loader2, MessageSquare, MoreHorizontal, Power, PowerOff, StickyNote, Truck, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { DataTable } from '../../../components/shared/data-table';
 import { CustomerLink } from '../../../components/shared/customer-link';
@@ -57,6 +57,8 @@ import {
   useBulkDeactivateCustomers,
   isDeactivateBlockedError,
 } from '../../customers/hooks/use-customers';
+import { CustomerFlagIcons, flagRowStripeStyle } from '../../customers/components/customer-flag-badge';
+import { CustomerFlagsDialog } from '../../customers/components/customer-flags-dialog';
 import { useCan } from '../../authz/hooks/use-can';
 
 const STATUS_OPTIONS = [
@@ -116,6 +118,7 @@ interface DeliveryIssueRow {
       wallets?: Array<{ balance?: number }>;
       lastDeliveryAt?: string | null;
       lastPaymentAt?: string | null;
+      flags?: Array<{ id: string; message: string; category: { name: string; color: string } }>;
     };
     product?: { id: string; name: string };
     dailySheet?: {
@@ -220,6 +223,7 @@ export function DeliveryIssuesInbox() {
     { id: string; name: string; balance: number; bottles: Array<{ product: string; balance: number }> } | null
   >(null);
   const [reactivateTarget, setReactivateTarget] = useState<{ id: string; name: string } | null>(null);
+  const [flagTarget, setFlagTarget] = useState<{ id: string; name: string } | null>(null);
   const [bulkDeactivateOpen, setBulkDeactivateOpen] = useState(false);
   const [bulkForceTarget, setBulkForceTarget] = useState<
     { ids: string[]; skipped: Array<{ customerId: string; name: string; reason: string }> } | null
@@ -466,6 +470,7 @@ export function DeliveryIssuesInbox() {
         selectedIds={selectedIds}
         onToggleRow={toggleRow}
         onToggleAll={toggleAllOnPage}
+        rowStyle={(row: DeliveryIssueRow) => flagRowStripeStyle(row.dailySheetItem?.customer?.flags)}
         tableId="delivery-issues-inbox"
         columns={[
           {
@@ -487,7 +492,10 @@ export function DeliveryIssuesInbox() {
               const pendingAckCount = row.pendingAckCount ?? 0;
               return (
                 <div>
-                  <CustomerLink id={row.dailySheetItem?.customer?.id} name={row.dailySheetItem?.customer?.name} className="text-sm font-bold" />
+                  <div className="flex items-center gap-1.5">
+                    <CustomerLink id={row.dailySheetItem?.customer?.id} name={row.dailySheetItem?.customer?.name} className="text-sm font-bold" />
+                    <CustomerFlagIcons flags={row.dailySheetItem?.customer?.flags} />
+                  </div>
                   <p className="text-[10px] text-muted-foreground">{row.dailySheetItem?.customer?.customerCode}</p>
                   <button
                     type="button"
@@ -653,7 +661,7 @@ export function DeliveryIssuesInbox() {
                     <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
                     Resolve
                   </Button>
-                  {customer && (canDeactivateCustomer || canRestoreCustomer) && (
+                  {customer && (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button size="icon" variant="ghost" className="h-8 w-8 rounded-xl shrink-0">
@@ -661,6 +669,16 @@ export function DeliveryIssuesInbox() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-52 p-1.5 rounded-xl border-border/50 bg-background/95 backdrop-blur-xl">
+                        <DropdownMenuItem
+                          onClick={() => setFlagTarget({ id: customer.id, name: customer.name })}
+                          className="rounded-lg cursor-pointer px-2 py-2"
+                        >
+                          <Flag className="mr-2 h-4 w-4 text-rose-500" />
+                          <span className="font-medium text-sm">
+                            Flags{customer.flags?.length ? ` (${customer.flags.length})` : ''}
+                          </span>
+                        </DropdownMenuItem>
+                        {(canDeactivateCustomer || canRestoreCustomer) && <div className="h-[1px] bg-border/50 my-1" />}
                         {customer.isActive !== false ? (
                           canDeactivateCustomer && (
                             <DropdownMenuItem
@@ -691,6 +709,15 @@ export function DeliveryIssuesInbox() {
           },
         ]}
       />
+
+      {flagTarget && (
+        <CustomerFlagsDialog
+          open
+          onOpenChange={(o) => !o && setFlagTarget(null)}
+          customerId={flagTarget.id}
+          customerName={flagTarget.name}
+        />
+      )}
 
       {chatTarget?.dailySheetItem && (
         <Dialog

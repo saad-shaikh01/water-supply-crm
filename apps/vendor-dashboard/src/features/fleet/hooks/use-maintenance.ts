@@ -67,7 +67,17 @@ export const useCreateServiceType = () => {
 export const useRenameServiceType = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, label }: { id: string; label: string }) => fleetApi.renameServiceType(id, label),
+    mutationFn: ({
+      id,
+      label,
+      defaultIntervalKm,
+      defaultIntervalDays,
+    }: {
+      id: string;
+      label: string;
+      defaultIntervalKm?: number | null;
+      defaultIntervalDays?: number | null;
+    }) => fleetApi.renameServiceType(id, { label, defaultIntervalKm, defaultIntervalDays }),
     onSuccess: () => {
       invalidateAfterServiceTypeChange(queryClient);
       // Labels appear on maintenance lists and (via the re-described Expense)
@@ -75,9 +85,9 @@ export const useRenameServiceType = () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.serviceRecords() });
       queryClient.invalidateQueries({ queryKey: ['expense-center'] });
       queryClient.invalidateQueries({ queryKey: ['van-cash-ledger'] });
-      toast.success('Service type renamed');
+      toast.success('Service type updated');
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to rename service type'),
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to update service type'),
   });
 };
 

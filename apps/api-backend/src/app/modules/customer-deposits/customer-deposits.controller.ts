@@ -7,6 +7,7 @@ import { RefundDepositDto } from './dto/refund-deposit.dto';
 import { WriteOffDepositDto } from './dto/write-off-deposit.dto';
 import { VoidDepositEntryDto } from './dto/void-deposit-entry.dto';
 import { UpdateDepositConfigDto } from './dto/update-deposit-config.dto';
+import { ApplyDepositToBalanceDto } from './dto/apply-deposit-to-balance.dto';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
@@ -17,6 +18,8 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
  *   - GET   /customers/:customerId/deposits        → a customer's deposit balances + entry history (`view`).
  *   - POST  /customers/:customerId/deposits/collect → record a deposit collected (`collect`).
  *   - POST  /customer-deposits/:depositId/refund    → refund part/all of a held CASH/BOTTLE deposit (`refund`).
+ *   - POST  /customer-deposits/:depositId/apply-to-balance → CASH only: return part/all as a credit
+ *     against what the customer owes, instead of physical cash (`refund`, Closure Settlement).
  *   - POST  /customer-deposits/:depositId/write-off → close out a deposit without a cash/bottle movement (`write_off`).
  *   - POST  /customer-deposit-entries/:entryId/void → reverse a POSTED entry (`void`).
  * Static routes (`config`) are declared before any dynamic `:id` route — the
@@ -64,6 +67,17 @@ export class CustomerDepositsController {
     @Body() dto: RefundDepositDto,
   ) {
     return this.deposits.refund(user, depositId, dto);
+  }
+
+  @Post('customer-deposits/:depositId/apply-to-balance')
+  @RequirePermissions('customer_deposits:refund')
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
+  applyToBalance(
+    @CurrentUser() user: AuthUser,
+    @Param('depositId') depositId: string,
+    @Body() dto: ApplyDepositToBalanceDto,
+  ) {
+    return this.deposits.applyToBalance(user, depositId, dto);
   }
 
   @Post('customer-deposits/:depositId/write-off')

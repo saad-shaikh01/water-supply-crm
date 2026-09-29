@@ -5,7 +5,7 @@ import { Avatar, AvatarFallback, Badge, Skeleton, cn } from '@water-supply-crm/u
 import { Mic, Truck, User } from 'lucide-react';
 import type { ConversationContext } from '@water-supply-crm/types';
 import type { ConversationListItem } from '../api/conversations.api';
-import { CustomerFlagBadges } from '../../customers/components/customer-flag-badge';
+import { CustomerFlagIcons, flagRingStyle, flagRowStripeStyle } from '../../customers/components/customer-flag-badge';
 
 const STATUS_STYLES: Record<ConversationContext['status'], string> = {
   OPEN: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
@@ -79,9 +79,10 @@ export function ConversationList({ conversations, selectedId, onSelect, isLoadin
               'w-full flex items-start gap-3 px-4 py-3 text-left transition-colors cursor-pointer',
               isSelected ? 'bg-primary/10' : 'hover:bg-accent/40',
             )}
+            style={flagRowStripeStyle(c.customer.flags)}
           >
             <div className="relative shrink-0">
-              <Avatar className="h-10 w-10">
+              <Avatar className="h-10 w-10" style={flagRingStyle(c.customer.flags)}>
                 <AvatarFallback className="text-xs font-black bg-primary/15 text-primary">
                   {initials(c.customer.name)}
                 </AvatarFallback>
@@ -132,7 +133,7 @@ export function ConversationList({ conversations, selectedId, onSelect, isLoadin
 
               <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                 <Badge className={cn('text-[9px] px-1.5 border-0', STATUS_STYLES[c.status])}>{c.status}</Badge>
-                <CustomerFlagBadges flags={c.customer.flags} />
+                <CustomerFlagIcons flags={c.customer.flags} />
                 {c.waitingOn && (
                   <Badge variant="outline" className="text-[9px] px-1.5 font-medium">
                     {c.waitingOn === 'DRIVER' ? 'Waiting: Driver' : 'Waiting: Office'}

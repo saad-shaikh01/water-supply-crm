@@ -1,6 +1,6 @@
 'use client';
 
-import { ReactNode, useEffect, useMemo, useState } from 'react';
+import { ReactNode, CSSProperties, useEffect, useMemo, useState } from 'react';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
   Button, Skeleton, DataTablePagination,
@@ -45,6 +45,8 @@ interface DataTableProps<T> {
   onToggleRow?: (id: string) => void;
   /** Toggles selection for every row currently rendered on this page. */
   onToggleAll?: () => void;
+  /** Optional per-row inline style (e.g. a colored left-edge stripe for a flagged customer). */
+  rowStyle?: (row: T) => CSSProperties | undefined;
   /**
    * Stable identifier for this table (e.g. "customers-list"). When set alongside at least
    * one non-essential column, renders a "Columns" toggle and persists the user's show/hide
@@ -91,6 +93,7 @@ export function DataTable<T extends { id: string }>({
   selectedIds,
   onToggleRow,
   onToggleAll,
+  rowStyle,
   tableId,
 }: DataTableProps<T>) {
   const allOnPageSelected = selectable && !!data?.length && data.every((row) => selectedIds?.has(row.id));
@@ -253,6 +256,7 @@ export function DataTable<T extends { id: string }>({
                     "group/row transition-colors border-b border-border/50 last:border-0 hover:bg-white/[0.04]",
                     onRowClick && "cursor-pointer active:bg-white/[0.06]"
                   )}
+                  style={rowStyle?.(row)}
                   onClick={onRowClick ? () => onRowClick(row) : undefined}
                 >
                   {selectable && (

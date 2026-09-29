@@ -80,6 +80,11 @@ function buildHarness(opts: { depositsEnabled?: boolean } = {}) {
         Object.assign(row, args.data);
         return { count: 1 };
       }),
+      update: jest.fn().mockImplementation(async (args: any) => {
+        const row = entries.get(args.where.id);
+        Object.assign(row, args.data);
+        return { ...row };
+      }),
     },
     auditLog: { create: jest.fn().mockResolvedValue({ id: 'audit-1' }) },
   };
@@ -96,8 +101,16 @@ function buildService(granted: string[], harness = buildHarness()) {
   const permissions = {
     can: jest.fn().mockImplementation(async (_userId: string, perm: string) => granted.includes(perm)),
   };
-  const service = new CustomerDepositsService(harness.db, cache as any, permissions as any);
-  return { service, cache, permissions, ...harness };
+  let adjSeq = 0;
+  const adjustments = {
+    createTx: jest.fn().mockImplementation(async (_tx: any, _user: any, input: any) => ({
+      adjustment: { id: `adj-${++adjSeq}`, ...input },
+      transaction: { id: `adj-txn-${adjSeq}` },
+      customerBalance: 0,
+    })),
+  };
+  const service = new CustomerDepositsService(harness.db, cache as any, permissions as any, adjustments as any);
+  return { service, cache, permissions, adjustments, ...harness };
 }
 
 beforeEach(() => {
@@ -235,6 +248,68 @@ describe('CustomerDepositsService.writeOff', () => {
       amount: 3,
       note: 'Customer left without returning bottles',
     } as any);
+
+    expect(result.deposit.balance).toBe(0);
+    expect(result.entry.direction).toBe('WRITE_OFF');
+  });
+});
+
+describe('CustomerDepositsService.applyToBalance', () => {
+  it('decrements the deposit and cross-posts an OTHER_CREDIT adjustment, no Cash Ledger movement', async () => {
+    const harness = buildHarness();
+    const { service, adjustments } = buildService([P('collect'), P('refund')], harness);
+    const { deposit } = await service.collect(USER, CUSTOMER_ID, { type: 'CASH', amount: 1000 } as any);
+
+    const result = await service.applyToBalance(USER, deposit.id, { amount: 600 } as any);
+
+    expect(result.deposit.balance).toBe(400);
+    expect(result.entry.direction).toBe('APPLIED_TO_BALANCE');
+    expect(adjustments.createTx).toHaveBeenCalledWith(
+      harness.db,
+      USER,
+      expect.objectContaining({ kind: 'OTHER_CREDIT', direction: 'CREDIT', amount: 600, customerId: CUSTOMER_ID }),
+    );
+    expect(result.adjustmentId).toBe('adj-1');
+  });
+
+  it('rejects a BOTTLE deposit — cash-equivalent settlement is a separate, ad-hoc flow', async () => {
+    const harness = buildHarness();
+    const { service } = buildService([P('collect'), P('refund')], harness);
+    const { deposit } = await service.collect(USER, CUSTOMER_ID, {
+      type: 'BOTTLE',
+      amount: 5,
+      productId: PRODUCT_ID,
+    } as any);
+
+    await expect(service.applyToBalance(USER, deposit.id, { amount: 5 } as any)).rejects.toThrow(BadRequestException);
+  });
+
+  it('cannot apply more than the held balance', async () => {
+    const harness = buildHarness();
+    const { service } = buildService([P('collect'), P('refund')], harness);
+    const { deposit } = await service.collect(USER, CUSTOMER_ID, { type: 'CASH', amount: 300 } as any);
+
+    await expect(service.applyToBalance(USER, deposit.id, { amount: 500 } as any)).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects when the caller lacks customer_deposits:refund', async () => {
+    const harness = buildHarness();
+    const { service } = buildService([P('collect')], harness);
+    const { deposit } = await service.collect(USER, CUSTOMER_ID, { type: 'CASH', amount: 300 } as any);
+
+    await expect(service.applyToBalance(USER, deposit.id, { amount: 100 } as any)).rejects.toThrow(ForbiddenException);
+  });
+});
+
+describe('CustomerDepositsService.writeOffTx (Closure Settlement)', () => {
+  it('writes off whatever remains, tx-composable for a caller-managed transaction', async () => {
+    const harness = buildHarness();
+    const { service } = buildService([P('collect')], harness);
+    const { deposit } = await service.collect(USER, CUSTOMER_ID, { type: 'CASH', amount: 750 } as any);
+
+    const result = await harness.db.$transaction((tx: any) =>
+      service.writeOffTx(tx, USER, deposit, 'Deposit write-off on account closure'),
+    );
 
     expect(result.deposit.balance).toBe(0);
     expect(result.entry.direction).toBe('WRITE_OFF');

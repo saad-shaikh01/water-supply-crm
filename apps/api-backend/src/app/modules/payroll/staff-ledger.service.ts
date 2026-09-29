@@ -281,6 +281,17 @@ export class StaffLedgerService {
   }
 
   /**
+   * reverse/correct leave the original POSTED, so without this a second call (with
+   * the fresh version) would reverse the same entry twice and double-credit the employee.
+   */
+  private async assertNotAlreadyReversed(tx: Prisma.TransactionClient, vendorId: string, originalId: string) {
+    const existing = await tx.staffLedgerEntry.count({
+      where: { reversedEntryId: originalId, vendorId, status: { not: LedgerEntryStatus.VOIDED } },
+    });
+    if (existing > 0) throw new BadRequestException('This entry has already been reversed or corrected.');
+  }
+
+  /**
    * Reverses a POSTED entry already rolled into a locked payroll period.
    * The original row is immutable history at that point — instead this
    * creates a NEW entry with the opposite sign (category=REVERSAL,
@@ -309,6 +320,7 @@ export class StaffLedgerService {
         'Only POSTED entries already rolled into a locked payroll period can be reversed. Use void for entries not yet locked.',
       );
     }
+    await this.assertNotAlreadyReversed(tx, user.vendorId, original.id);
 
     // Atomic compare-and-swap, claimed BEFORE creating the reversal row so
     // a stale/concurrent request fails fast without leaving an orphan
@@ -400,6 +412,7 @@ export class StaffLedgerService {
         'Only POSTED entries already rolled into a locked payroll period can be corrected. Use void for entries not yet locked.',
       );
     }
+    await this.assertNotAlreadyReversed(tx, user.vendorId, original.id);
 
     // Atomic compare-and-swap, claimed BEFORE creating the reversal/
     // correction rows so a stale/concurrent request fails fast without

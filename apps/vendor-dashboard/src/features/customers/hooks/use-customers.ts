@@ -28,6 +28,10 @@ export const useCustomers = () => {
   const [outstandingMonthly, setOutstandingMonthly] = useQueryState('outstandingMonthly', parseAsBoolean.withDefault(false));
   const [outstandingCash, setOutstandingCash] = useQueryState('outstandingCash', parseAsBoolean.withDefault(false));
   const [minPendingAmount, setMinPendingAmount] = useQueryState('minPendingAmount', parseAsFloat.withDefault(NaN));
+  const [rateProductId, setRateProductId] = useQueryState('rateProductId', parseAsString.withDefault(''));
+  const [rateAbove, setRateAbove] = useQueryState('rateAbove', parseAsBoolean.withDefault(false));
+  const [rateBelow, setRateBelow] = useQueryState('rateBelow', parseAsBoolean.withDefault(false));
+  const [rateAmount, setRateAmount] = useQueryState('rateAmount', parseAsFloat.withDefault(NaN));
   const [sort, setSort] = useQueryState('sort', parseAsString.withDefault(''));
   const [sortDir, setSortDir] = useQueryState('sortDir', parseAsString.withDefault(''));
 
@@ -50,6 +54,10 @@ export const useCustomers = () => {
     outstandingMonthly: outstandingMonthly || undefined,
     outstandingCash: outstandingCash || undefined,
     minPendingAmount: !isNaN(minPendingAmount) && minPendingAmount > 0 ? minPendingAmount : undefined,
+    rateProductId: rateProductId || undefined,
+    rateAbove: rateAbove || undefined,
+    rateBelow: rateBelow || undefined,
+    rateAmount: !isNaN(rateAmount) && rateAmount > 0 ? rateAmount : undefined,
     sort: sort || undefined,
     sortDir: (sortDir as 'asc' | 'desc') || undefined,
   };
@@ -82,6 +90,14 @@ export const useCustomers = () => {
     setOutstandingCash,
     minPendingAmount,
     setMinPendingAmount,
+    rateProductId,
+    setRateProductId,
+    rateAbove,
+    setRateAbove,
+    rateBelow,
+    setRateBelow,
+    rateAmount,
+    setRateAmount,
     sort,
     setSort,
     sortDir,

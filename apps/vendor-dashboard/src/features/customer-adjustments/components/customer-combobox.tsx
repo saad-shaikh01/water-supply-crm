@@ -4,7 +4,7 @@ import { useRef, useState } from 'react';
 import { Loader2, X } from 'lucide-react';
 import { Input, cn } from '@water-supply-crm/ui';
 import { useCustomerSearch } from '../../customers/hooks/use-customers';
-import { CustomerFlagBadges } from '../../customers/components/customer-flag-badge';
+import { CustomerFlagIcons } from '../../customers/components/customer-flag-badge';
 import { fmtAdjustmentAmount } from '../format';
 
 /**
@@ -107,7 +107,7 @@ export function CustomerCombobox({
                     <span>
                       <span className="font-semibold">{c.name}</span>
                       <span className="ml-2 font-mono text-muted-foreground">{c.customerCode}</span>
-                      <CustomerFlagBadges flags={c.flags} className="mt-0.5" />
+                      <CustomerFlagIcons flags={c.flags} className="mt-0.5" />
                     </span>
                     <span
                       className={cn(

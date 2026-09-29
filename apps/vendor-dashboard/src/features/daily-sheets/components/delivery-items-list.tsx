@@ -9,7 +9,7 @@ import {
 import { StatusBadge } from '../../../components/shared/status-badge';
 import {
   AlertCircle, ArrowRightLeft, Ban, CalendarClock, Camera, Check, CheckSquare, ChevronDown, ChevronUp, ClipboardList, Download,
-  Droplet, History, LocateFixed, Lock, Loader2, MapPin, MessageCircle, MessageSquare, Navigation, Pencil, Phone, Send, ShieldAlert, StickyNote, Truck, Unlock, X,
+  Droplet, Flag, History, LocateFixed, Lock, Loader2, MapPin, MessageCircle, MessageSquare, Navigation, Pencil, Phone, Send, ShieldAlert, StickyNote, Truck, Unlock, X,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -21,7 +21,8 @@ import { reverseGeocode } from '../../../lib/geocoding';
 import { DeliveryRecordForm } from './delivery-record-form';
 import { ConversationThread } from '../../communication/components/conversation-thread';
 import { DeliveryItemHistoryDialog } from './delivery-item-history-dialog';
-import { CustomerFlagBadges } from '../../customers/components/customer-flag-badge';
+import { CustomerFlagIcons, flagRowStripeStyle } from '../../customers/components/customer-flag-badge';
+import { CustomerFlagsDialog } from '../../customers/components/customer-flags-dialog';
 
 // 'moved_out' is not a status filter — its rows come from an entirely
 // separate source (sheet-detail.tsx's movedOutItems), passed in as
@@ -316,6 +317,7 @@ export function DeliveryItemsList({
   const [resendingReceiptId, setResendingReceiptId] = useState<string | null>(null);
   const [chatItem, setChatItem] = useState<DeliveryItem | null>(null);
   const [historyItem, setHistoryItem] = useState<DeliveryItem | null>(null);
+  const [flagItem, setFlagItem] = useState<DeliveryItem | null>(null);
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // Deep-link scroll + highlight (Phase 6). The row container is mounted for
@@ -600,15 +602,18 @@ export function DeliveryItemsList({
                 transition={{ delay: idx * 0.03 }}
                 className="min-w-0 w-full"
               >
-                <Card className={cn(
-                  'overflow-hidden border-border/50 transition-all',
-                  item.status !== 'PENDING' ? 'bg-muted/30' : 'bg-card/50',
-                  isVoided && 'opacity-60',
-                  isExpanded ? 'border-primary/30 shadow-sm' : 'hover:border-primary/20',
-                  selectMode && !isEligibleForMove && 'opacity-40',
-                  selectMode && isEligibleForMove && isSelected && 'border-primary/50 ring-1 ring-primary/40',
-                  isDeepLinkTarget && 'ring-2 ring-primary ring-offset-2 ring-offset-background animate-pulse',
-                )}>
+                <Card
+                  className={cn(
+                    'overflow-hidden border-border/50 transition-all',
+                    item.status !== 'PENDING' ? 'bg-muted/30' : 'bg-card/50',
+                    isVoided && 'opacity-60',
+                    isExpanded ? 'border-primary/30 shadow-sm' : 'hover:border-primary/20',
+                    selectMode && !isEligibleForMove && 'opacity-40',
+                    selectMode && isEligibleForMove && isSelected && 'border-primary/50 ring-1 ring-primary/40',
+                    isDeepLinkTarget && 'ring-2 ring-primary ring-offset-2 ring-offset-background animate-pulse',
+                  )}
+                  style={flagRowStripeStyle(customer?.flags)}
+                >
                   <CardContent
                     className={cn('p-4 sm:p-5', (!selectMode || isEligibleForMove) && 'cursor-pointer')}
                     onClick={() => {
@@ -649,7 +654,7 @@ export function DeliveryItemsList({
                                 {customer.paymentType === 'MONTHLY' ? 'Monthly' : 'Cash'}
                               </Badge>
                             )}
-                            <CustomerFlagBadges flags={customer?.flags} />
+                            <CustomerFlagIcons flags={customer?.flags} />
                           </div>
                           <p className="text-xs text-muted-foreground truncate flex items-center gap-1 mt-0.5">
                             <MapPin className="h-2.5 w-2.5 shrink-0" />
@@ -752,6 +757,14 @@ export function DeliveryItemsList({
                       </div>
 
                       <div className={cn('flex items-center gap-2 flex-wrap w-full sm:w-auto sm:shrink-0', selectMode && 'hidden')}>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setFlagItem(item); }}
+                          className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground hover:bg-accent transition-colors"
+                        >
+                          <Flag className="h-2.5 w-2.5" />
+                          Flags{customer?.flags?.length ? ` (${customer.flags.length})` : ''}
+                        </button>
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); setChatItem(item); }}
@@ -1341,6 +1354,15 @@ export function DeliveryItemsList({
         itemId={historyItem?.id ?? null}
         customerName={historyItem?.customer?.name}
       />
+
+      {flagItem?.customer && (
+        <CustomerFlagsDialog
+          open
+          onOpenChange={(o) => !o && setFlagItem(null)}
+          customerId={flagItem.customerId}
+          customerName={flagItem.customer.name}
+        />
+      )}
     </div>
   );
 }

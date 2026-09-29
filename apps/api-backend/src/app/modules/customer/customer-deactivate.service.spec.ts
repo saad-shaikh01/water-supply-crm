@@ -29,8 +29,10 @@ function makeService(opts: {
   /** rows the PENDING→CANCELLED updateMany reports as affected */
   pendingCancelled?: number;
   outstandingWallets?: Array<{ balance: number; productId: string; product: { name: string } }>;
+  /** CustomerDeposit rows with an active (non-zero) balance — Closure Settlement. */
+  activeDeposits?: Array<{ id: string; customerId: string; type: 'CASH' | 'BOTTLE'; productId: string | null; balance: number; product?: { name: string } | null }>;
   /** which force permissions the actor holds */
-  perms?: { balance?: boolean; bottles?: boolean };
+  perms?: { balance?: boolean; bottles?: boolean; deposits?: boolean };
 } = {}) {
   const customer = { ...baseCustomer, ...opts.customer };
 
@@ -53,6 +55,7 @@ function makeService(opts: {
       update: jest.fn().mockResolvedValue({ id: CUSTOMER_ID, isActive: false }),
     },
     bottleWallet: { findMany: jest.fn().mockResolvedValue(opts.outstandingWallets ?? []) },
+    customerDeposit: { findMany: jest.fn().mockResolvedValue(opts.activeDeposits ?? []) },
     $transaction: jest.fn().mockImplementation(async (cb: any) => cb(tx)),
   };
 
@@ -69,9 +72,11 @@ function makeService(opts: {
     can: jest.fn().mockImplementation(async (_userId: string, perm: string) => {
       if (perm === 'customers:force_deactivate') return opts.perms?.balance ?? false;
       if (perm === 'customers:force_deactivate_bottles') return opts.perms?.bottles ?? false;
+      if (perm === 'customer_deposits:write_off') return opts.perms?.deposits ?? false;
       return false;
     }),
   };
+  const customerDeposits = { writeOffTx: jest.fn().mockResolvedValue(undefined) };
   const bulkPriceQueue = {};
 
   const svc = new CustomerService(
@@ -80,9 +85,10 @@ function makeService(opts: {
     statementPdf as any,
     audit as any,
     permissions as any,
+    customerDeposits as any,
     bulkPriceQueue as any,
   );
-  return { svc, prisma, tx, cache, audit, permissions };
+  return { svc, prisma, tx, cache, audit, permissions, customerDeposits };
 }
 
 // ─── tests ───────────────────────────────────────────────────────────────────
@@ -266,6 +272,51 @@ describe('CustomerService.deactivate — blockers, force write-off (balance + bo
     expect(tx.transaction.create).toHaveBeenCalledTimes(1);
     expect(tx.transaction.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ bottleCount: -3 }) }),
+    );
+  });
+
+  // ─── Customer Deposits — Closure Settlement (owner-requested 2026-09-29) ──
+
+  const cashDeposit = { id: 'dep-cash-1', customerId: CUSTOMER_ID, type: 'CASH' as const, productId: null, balance: 1000, product: null };
+
+  it('blocks a non-force deactivate when the customer still holds a deposit, carrying it in the 409', async () => {
+    const { svc } = makeService({ activeDeposits: [cashDeposit] });
+    expect.assertions(2);
+    try {
+      await svc.deactivate(VENDOR_ID, CUSTOMER_ID, {}, adminUser);
+    } catch (e) {
+      const body = (e as ConflictException).getResponse() as any;
+      expect(body.code).toBe('DEACTIVATE_BLOCKED');
+      expect(body.outstandingDeposits).toEqual([
+        expect.objectContaining({ id: 'dep-cash-1', type: 'CASH', balance: 1000 }),
+      ]);
+    }
+  });
+
+  it('force without customer_deposits:write_off still 403s when a deposit remains', async () => {
+    const { svc, customerDeposits } = makeService({ activeDeposits: [cashDeposit], perms: { deposits: false } });
+    await expect(
+      svc.deactivate(VENDOR_ID, CUSTOMER_ID, { force: true }, adminUser),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(customerDeposits.writeOffTx).not.toHaveBeenCalled();
+  });
+
+  it('force with customer_deposits:write_off writes off the remaining deposit via writeOffTx', async () => {
+    const { svc, tx, customerDeposits } = makeService({
+      customer: { financialBalance: 0 },
+      activeDeposits: [cashDeposit],
+      perms: { deposits: true },
+    });
+    const res = await svc.deactivate(VENDOR_ID, CUSTOMER_ID, { force: true }, adminUser);
+    expect(res.isActive).toBe(false);
+    expect((res as any).depositsWrittenOff).toEqual([
+      expect.objectContaining({ id: 'dep-cash-1', type: 'CASH', balance: 1000 }),
+    ]);
+    expect(customerDeposits.writeOffTx).toHaveBeenCalledWith(
+      tx,
+      adminUser,
+      cashDeposit,
+      expect.stringContaining('Deposit write-off'),
     );
   });
 });

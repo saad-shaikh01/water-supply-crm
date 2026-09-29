@@ -38,7 +38,7 @@ import { EditLocationDialog } from './dialogs/edit-location-dialog';
 import { CustomPriceDialog } from './dialogs/custom-price-dialog';
 import { AdjustBottleWalletDialog } from './dialogs/adjust-bottle-wallet-dialog';
 import { BulkRepriceDialog } from './dialogs/bulk-reprice-dialog';
-import { CustomerFlagBadges } from './customer-flag-badge';
+import { CustomerFlagIcons } from './customer-flag-badge';
 import { CustomerFlagsDialog } from './customer-flags-dialog';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { useCan } from '../../authz/hooks/use-can';
@@ -409,7 +409,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                 Free
               </Badge>
             )}
-            <CustomerFlagBadges flags={customer.flags} />
+            <CustomerFlagIcons flags={customer.flags} variant="label" />
           </div>
           <p className="text-muted-foreground flex items-center gap-2 mt-1">
             <Phone className="h-3 w-3" /> {customer.phoneNumber}
@@ -947,11 +947,12 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                 </div>
 
                 {/* Statement mode — Full carries forward prior balance into the
-                    delivery table (unchanged, default); Period Only strips that
-                    out so the table shows just the selected period's own numbers.
-                    Balance Due above always reflects the true as-of-period-end
-                    outstanding either way. Applies to both the inline view and
-                    the downloaded PDF. */}
+                    delivery table AND the Balance Due tile (unchanged, default).
+                    Period Only strips that out everywhere: no "Previous Balance"
+                    row, no Opening Balance tile, and Balance Due becomes this
+                    period's own net (closing − opening) instead of the
+                    customer's true all-time outstanding. Applies to both the
+                    inline view and the downloaded PDF. */}
                 <div className="flex items-center gap-2">
                   <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">View</p>
                   <div className="inline-flex rounded-xl border border-border/50 bg-card/40 p-0.5">
@@ -982,7 +983,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                   </div>
                   {statementPeriodOnly && (
                     <p className="text-[10px] text-muted-foreground font-medium">
-                      Delivery history shows only this period&apos;s activity — no prior balance carried in.
+                      Shows only this period&apos;s own activity — Balance Due reflects just this period, not overall outstanding.
                     </p>
                   )}
                 </div>
@@ -999,7 +1000,12 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                     </p>
                   ) : !statementData ? null : (() => {
                     const s = statementData;
-                    const isCredit = s.closingBalance < 0;
+                    // Period Only's headline balance is this period's own net
+                    // movement (closing − opening), not the customer's true
+                    // all-time outstanding — otherwise the table reads
+                    // "just this month" while the summary reads "everything".
+                    const balanceDue = s.periodOnly ? s.closingBalance - s.openingBalance : s.closingBalance;
+                    const isCredit = balanceDue < 0;
                     const totalPages = Math.max(1, Math.ceil(s.deliveryRows.length / STATEMENT_PAGE_SIZE));
                     const pageSafe = Math.min(statementPage, totalPages);
                     const start = (pageSafe - 1) * STATEMENT_PAGE_SIZE;
@@ -1019,7 +1025,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                       { label: 'Rate / Bottle', value: s.ratePerBottle > 0 ? fmtRs(s.ratePerBottle) : '—' },
                       {
                         label: isCredit ? 'Credit Balance' : 'Balance Due',
-                        value: fmtRs(Math.abs(s.closingBalance)),
+                        value: fmtRs(Math.abs(balanceDue)),
                         accent: isCredit ? 'text-emerald-500' : 'text-rose-500',
                       },
                     ];
