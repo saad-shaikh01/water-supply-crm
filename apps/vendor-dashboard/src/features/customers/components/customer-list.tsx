@@ -40,6 +40,10 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const canDeactivate = useCan('customers:deactivate');
   const canForceDeactivate = useCan('customers:force_deactivate');
   const canForceDeactivateBottles = useCan('customers:force_deactivate_bottles');
+  // Customer Deposits — Closure Settlement (owner-requested 2026-09-29): force
+  // write-off of a remaining deposit is gated on the deposit resource's own
+  // permission, same as force_deactivate/force_deactivate_bottles above.
+  const canForceDeactivateDeposits = useCan('customer_deposits:write_off');
   const canRestore = useCan('customers:restore');
   const canDelete = useCan('customers:delete');
   const canViewChats = useCan('conversations:view');
@@ -60,7 +64,13 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   // the current user holds the force permission(s) for every blocker — drives
   // the write-off escalation dialog.
   const [forceTarget, setForceTarget] = useState<
-    { id: string; name: string; balance: number; bottles: Array<{ product: string; balance: number }> } | null
+    {
+      id: string;
+      name: string;
+      balance: number;
+      bottles: Array<{ product: string; balance: number }>;
+      deposits: Array<{ type: 'CASH' | 'BOTTLE'; productName: string | null; balance: number }>;
+    } | null
   >(null);
   const [reactivateId, setReactivateId] = useState<string | null>(null);
   const [chatCustomer, setChatCustomer] = useState<{ id: string; name: string } | null>(null);
@@ -1006,15 +1016,22 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                 setDeactivateId(null);
                 const needBalancePerm = blocked.financialBalance > 0;
                 const needBottlesPerm = (blocked.outstandingBottles ?? []).length > 0;
+                const needDepositsPerm = (blocked.outstandingDeposits ?? []).length > 0;
                 const covered =
                   (!needBalancePerm || canForceDeactivate) &&
-                  (!needBottlesPerm || canForceDeactivateBottles);
+                  (!needBottlesPerm || canForceDeactivateBottles) &&
+                  (!needDepositsPerm || canForceDeactivateDeposits);
                 if (covered) {
                   setForceTarget({
                     id,
                     name: blocked.customerName,
                     balance: blocked.financialBalance,
                     bottles: blocked.outstandingBottles ?? [],
+                    deposits: (blocked.outstandingDeposits ?? []).map((d) => ({
+                      type: d.type,
+                      productName: d.productName,
+                      balance: d.balance,
+                    })),
                   });
                 } else {
                   toast.error(blocked.message);
@@ -1039,6 +1056,12 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             const btl = forceTarget.bottles.map((b) => `${b.product}: ${b.balance}`).join(', ');
             parts.push(`company bottles (${btl})`);
           }
+          if (forceTarget.deposits.length > 0) {
+            const dep = forceTarget.deposits
+              .map((d) => `${d.type === 'CASH' ? 'Cash deposit' : `${d.productName ?? 'Bottle'} deposit`}: ${d.balance}`)
+              .join(', ');
+            parts.push(`a security deposit (${dep})`);
+          }
           return `${forceTarget.name} has ${parts.join(' and ')}. Force deactivating will write ${parts.length > 1 ? 'these' : 'this'} off as a company loss and cannot be reversed. Any still-pending deliveries on open sheets will also be cancelled.`;
         })()}
         onConfirm={() => {
@@ -1055,6 +1078,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
           if (forceTarget.balance > 0) bits.push(`₨${forceTarget.balance.toLocaleString()}`);
           const btlTotal = forceTarget.bottles.reduce((s, b) => s + b.balance, 0);
           if (btlTotal !== 0) bits.push(`${btlTotal} bottle${btlTotal === 1 ? '' : 's'}`);
+          if (forceTarget.deposits.length > 0) bits.push(`${forceTarget.deposits.length} deposit${forceTarget.deposits.length === 1 ? '' : 's'}`);
           return bits.length ? `Force Deactivate & Write Off ${bits.join(' + ')}` : 'Force Deactivate';
         })()}
       />
@@ -1094,7 +1118,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
               onSuccess: (result) => {
                 setBulkDeactivateOpen(false);
                 setSelectedIds(new Set());
-                if (result.skippedCount > 0 && (canForceDeactivate || canForceDeactivateBottles)) {
+                if (result.skippedCount > 0 && (canForceDeactivate || canForceDeactivateBottles || canForceDeactivateDeposits)) {
                   setBulkForceTarget({ ids: result.skipped.map((s) => s.customerId), skipped: result.skipped });
                 }
               },

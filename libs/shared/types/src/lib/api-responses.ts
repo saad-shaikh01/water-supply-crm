@@ -272,6 +272,14 @@ export interface DeliveryItem {
   /** Already-filled bottles received back from the customer (account closing, excess stock return). */
   filledReceived: number;
   cashCollected: number;
+  // Customer Deposits (owner-requested 2026-09-29) — a driver collecting/
+  // returning a security deposit at this stop. Entirely separate from
+  // cashCollected/filledDropped above (posted to CustomerDeposit, never
+  // touching financialBalance/BottleWallet). All optional/default 0.
+  depositCashCollected?: number;
+  depositBottlesCollected?: number;
+  depositBottlesReturned?: number;
+  depositProductId?: string | null;
   reason?: string | null;
   failureCategory?: string | null;
   photoKey?: string | null;
