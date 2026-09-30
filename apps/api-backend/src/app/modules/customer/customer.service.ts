@@ -1118,7 +1118,15 @@ export class CustomerService {
       const by = actor.name ?? actor.userId;
       const balanceNote = `Bad-debt write-off on account closure — company loss (force deactivate by ${by})`;
       const bottleNote = `Bottle write-off on account closure — company loss (force deactivate by ${by})`;
-      const depositNote = `Deposit write-off on account closure — company loss (force deactivate by ${by})`;
+      // A deposit write-off is NEVER a company loss, for CASH or BOTTLE alike —
+      // in both cases the CUSTOMER handed something of value to the company as
+      // security, so writing it off means the company simply keeps what it was
+      // already holding. The customer forfeits it. This is the opposite
+      // direction from `bottleNote` above, which writes off the company's OWN
+      // circulating BottleWallet stock the customer never returned — that one
+      // genuinely is a company loss.
+      const depositNote = (type: 'CASH' | 'BOTTLE') =>
+        `${type === 'CASH' ? 'Cash' : 'Bottle'} deposit forfeited on account closure — kept by the company, not refunded (force deactivate by ${by})`;
 
       const updated = await this.prisma.$transaction(async (tx) => {
         const { count: cancelledDeliveries } = await tx.dailySheetItem.updateMany({
@@ -1161,7 +1169,7 @@ export class CustomerService {
         }
 
         for (const d of activeDeposits) {
-          await this.customerDeposits.writeOffTx(tx, actor, d, depositNote);
+          await this.customerDeposits.writeOffTx(tx, actor, d, depositNote(d.type));
         }
 
         const c = await tx.customer.update({
@@ -2047,12 +2055,12 @@ export class CustomerService {
             bottlesWrittenOff += 1;
           }
           for (const d of c.deposits) {
-            await this.customerDeposits.writeOffTx(
-              tx,
-              actor as AuthUser,
-              d,
-              `Deposit write-off on account closure — company loss (bulk force deactivate by ${by})`,
-            );
+            // Never a company loss, for CASH or BOTTLE alike — same reasoning
+            // as the single-customer deactivate() above: the customer handed
+            // something of value to the company as security, so writing it
+            // off just means the company keeps what it already held.
+            const note = `${d.type === 'CASH' ? 'Cash' : 'Bottle'} deposit forfeited on account closure — kept by the company, not refunded (bulk force deactivate by ${by})`;
+            await this.customerDeposits.writeOffTx(tx, actor as AuthUser, d, note);
             depositsWrittenOff += 1;
           }
           await tx.customer.update({ where: { id: c.id }, data: { isActive: false } });

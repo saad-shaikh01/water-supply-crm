@@ -229,9 +229,9 @@ export const useDeactivateCustomer = () => {
         const btlTotal = btl.reduce((s, b) => s + Number(b.balance ?? 0), 0);
         if (btlTotal !== 0) wrote.push(`${btlTotal} bottle${btlTotal === 1 ? '' : 's'}`);
         if (deposits.length > 0) wrote.push(`${deposits.length} deposit${deposits.length === 1 ? '' : 's'}`);
-        base = wrote.length
-          ? `Customer force-deactivated — ${wrote.join(' + ')} written off as company loss`
-          : 'Customer force-deactivated';
+        // Not always a "company loss" — a CASH deposit write-off is the
+        // company keeping the customer's money, the opposite direction.
+        base = wrote.length ? `Customer force-deactivated — ${wrote.join(' + ')} written off` : 'Customer force-deactivated';
       }
       toast.success(cancelled > 0 ? `${base}. ${cancelled} pending deliver${cancelled === 1 ? 'y' : 'ies'} cancelled` : base);
     },
@@ -445,8 +445,10 @@ export const useBulkDeactivateCustomers = () => {
       if (result.writtenOff > 0) writeOffBits.push(`₨${result.writtenOff.toLocaleString()}`);
       if (result.bottlesWrittenOff > 0) writeOffBits.push(`${result.bottlesWrittenOff} bottle line${result.bottlesWrittenOff === 1 ? '' : 's'}`);
       if (result.depositsWrittenOff > 0) writeOffBits.push(`${result.depositsWrittenOff} deposit${result.depositsWrittenOff === 1 ? '' : 's'}`);
+      // Not always a "company loss" — a CASH deposit write-off is the
+      // company keeping the customer's money, the opposite direction.
       const writeOffSuffix = writeOffBits.length
-        ? ` · ${writeOffBits.join(' + ')} written off as company loss (${result.forceDeactivatedCount} force-deactivated)`
+        ? ` · ${writeOffBits.join(' + ')} written off (${result.forceDeactivatedCount} force-deactivated)`
         : '';
       if (result.deactivatedCount === 0) {
         toast.error(`No customers deactivated — all ${result.skippedCount} skipped (outstanding bottles or balance)`);

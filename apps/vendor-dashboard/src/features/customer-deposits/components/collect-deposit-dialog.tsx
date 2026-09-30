@@ -31,11 +31,11 @@ interface CollectDepositDialogProps {
 }
 
 /**
- * Records a deposit collected from the customer at the office — CASH (a Rs.
- * amount) or BOTTLE (extra bottles held as collateral, count-only, no cash
- * value, per-product). Reused whether this is the customer's first deposit or
- * an additional collection on top of an existing one (the backend finds or
- * creates the underlying CustomerDeposit row).
+ * Records a deposit collected FROM the customer at the office — CASH (a Rs.
+ * amount) or BOTTLE (bottles the customer owns, handed over as security,
+ * count-only, no cash value, per-product). Reused whether this is the
+ * customer's first deposit or an additional collection on top of an existing
+ * one (the backend finds or creates the underlying CustomerDeposit row).
  */
 export function CollectDepositDialog({ customerId, open, onOpenChange }: CollectDepositDialogProps) {
   const collect = useCollectDeposit(customerId);

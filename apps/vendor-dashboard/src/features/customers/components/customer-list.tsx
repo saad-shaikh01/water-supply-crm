@@ -1062,7 +1062,21 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
               .join(', ');
             parts.push(`a security deposit (${dep})`);
           }
-          return `${forceTarget.name} has ${parts.join(' and ')}. Force deactivating will write ${parts.length > 1 ? 'these' : 'this'} off as a company loss and cannot be reversed. Any still-pending deliveries on open sheets will also be cancelled.`;
+          // A deposit write-off (CASH or BOTTLE) is never a company loss — the
+          // customer handed something of value to the company as security, so
+          // closing it out without a refund just means the company keeps what
+          // it already held (the customer forfeits it). Only the balance and
+          // the company's OWN circulating bottles (the unrelated BottleWallet
+          // blocker, `forceTarget.bottles`) are genuine company losses.
+          const hasDeposits = forceTarget.deposits.length > 0;
+          const hasLossBlocker = forceTarget.balance > 0 || forceTarget.bottles.length > 0;
+          const closeOutClause = hasLossBlocker
+            ? `write ${parts.length > 1 ? 'these' : 'this'} off as a company loss`
+            : `close ${parts.length > 1 ? 'these' : 'this'} out`;
+          const depositNote = hasDeposits
+            ? ` The deposit is kept by the company (the customer forfeits it), not a company loss.`
+            : '';
+          return `${forceTarget.name} has ${parts.join(' and ')}. Force deactivating will ${closeOutClause} and cannot be reversed.${depositNote} Any still-pending deliveries on open sheets will also be cancelled.`;
         })()}
         onConfirm={() => {
           if (!forceTarget) return;
@@ -1136,7 +1150,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
         title="Force Deactivate — Write Off Remaining"
         description={
           bulkForceTarget
-            ? `${bulkForceTarget.ids.length} customer${bulkForceTarget.ids.length !== 1 ? 's' : ''} were skipped for an outstanding balance and/or bottles: ${bulkForceTarget.skipped.slice(0, 5).map((s) => s.name).join(', ')}${bulkForceTarget.skipped.length > 5 ? `, +${bulkForceTarget.skipped.length - 5} more` : ''}. Force deactivating will write off their balances/bottles as a company loss and cannot be reversed. Anyone whose blocker you don't have permission to force will be skipped again.`
+            ? `${bulkForceTarget.ids.length} customer${bulkForceTarget.ids.length !== 1 ? 's' : ''} were skipped for an outstanding balance, bottles and/or a deposit: ${bulkForceTarget.skipped.slice(0, 5).map((s) => s.name).join(', ')}${bulkForceTarget.skipped.length > 5 ? `, +${bulkForceTarget.skipped.length - 5} more` : ''}. Force deactivating will write these off and cannot be reversed — a deposit (cash or bottle) is kept by the company (the customer forfeits it, not a loss); an outstanding balance or the company's own unreturned bottles is a company loss. Anyone whose blocker you don't have permission to force will be skipped again.`
             : ''
         }
         onConfirm={() => {

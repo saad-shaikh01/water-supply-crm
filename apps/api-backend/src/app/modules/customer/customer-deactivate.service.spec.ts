@@ -278,6 +278,7 @@ describe('CustomerService.deactivate — blockers, force write-off (balance + bo
   // ─── Customer Deposits — Closure Settlement (owner-requested 2026-09-29) ──
 
   const cashDeposit = { id: 'dep-cash-1', customerId: CUSTOMER_ID, type: 'CASH' as const, productId: null, balance: 1000, product: null };
+  const bottleDeposit = { id: 'dep-bottle-1', customerId: CUSTOMER_ID, type: 'BOTTLE' as const, productId: PRODUCT_ID, balance: 3, product: { name: '19L' } };
 
   it('blocks a non-force deactivate when the customer still holds a deposit, carrying it in the 409', async () => {
     const { svc } = makeService({ activeDeposits: [cashDeposit] });
@@ -312,11 +313,36 @@ describe('CustomerService.deactivate — blockers, force write-off (balance + bo
     expect((res as any).depositsWrittenOff).toEqual([
       expect.objectContaining({ id: 'dep-cash-1', type: 'CASH', balance: 1000 }),
     ]);
+    // A deposit write-off is the company KEEPING what the customer handed
+    // over as security (their forfeiture) — never a "company loss" (that
+    // phrasing is reserved for the balance and the company's own unreturned
+    // BottleWallet stock, a completely different, unrelated blocker).
     expect(customerDeposits.writeOffTx).toHaveBeenCalledWith(
       tx,
       adminUser,
       cashDeposit,
-      expect.stringContaining('Deposit write-off'),
+      expect.stringContaining('forfeited'),
     );
+  });
+
+  it('a BOTTLE deposit write-off uses the SAME forfeiture wording as CASH, never "company loss"', async () => {
+    // The customer handed their OWN bottles to the company as security —
+    // opposite direction from BottleWallet (the company's own circulating
+    // stock) — so writing it off is symmetric with a CASH deposit: the
+    // company keeps what it was already holding, the customer forfeits it.
+    const { svc, tx, customerDeposits } = makeService({
+      customer: { financialBalance: 0 },
+      activeDeposits: [bottleDeposit],
+      perms: { deposits: true },
+    });
+    await svc.deactivate(VENDOR_ID, CUSTOMER_ID, { force: true }, adminUser);
+    expect(customerDeposits.writeOffTx).toHaveBeenCalledWith(
+      tx,
+      adminUser,
+      bottleDeposit,
+      expect.stringContaining('forfeited'),
+    );
+    const note = customerDeposits.writeOffTx.mock.calls[0][3] as string;
+    expect(note).not.toMatch(/company loss/i);
   });
 });

@@ -30,9 +30,13 @@ interface WriteOffDepositDialogProps {
 
 /**
  * Closes out part or all of a deposit WITHOUT a matching cash/bottle
- * movement — a company loss (e.g. the customer left without returning
- * deposit bottles, or the vendor is forgoing a refund). A note is mandatory
- * and permanent, since nothing else records why.
+ * movement. Same direction for both types — the customer handed something of
+ * value (cash or their own bottles) TO the company as security, so closing it
+ * out without a refund means the company KEEPS what it was already holding
+ * and the customer forfeits it. Never a company loss (that would require the
+ * company to give away something of its own, which a deposit never does — see
+ * schema.prisma's DepositEntryDirection.WRITE_OFF). A note is mandatory and
+ * permanent, since nothing else records why.
  */
 export function WriteOffDepositDialog({ deposit, open, onOpenChange }: WriteOffDepositDialogProps) {
   const writeOff = useWriteOffDeposit(deposit.id);
@@ -80,8 +84,9 @@ export function WriteOffDepositDialog({ deposit, open, onOpenChange }: WriteOffD
             <Ban className="h-5 w-5 text-destructive" /> Write off {depositTitle(deposit)}
           </DialogTitle>
           <DialogDescription>
-            Held: {fmtDepositAmount(deposit.type, deposit.balance)} — closed out as a company loss, no cash or
-            bottles move.
+            Held: {fmtDepositAmount(deposit.type, deposit.balance)} — closed out with no refund. The customer
+            forfeits {deposit.type === 'CASH' ? 'this amount' : 'these bottles'} — it stays with the company, not a
+            loss.
           </DialogDescription>
         </DialogHeader>
 

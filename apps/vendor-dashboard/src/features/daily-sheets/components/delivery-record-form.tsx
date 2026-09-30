@@ -1061,7 +1061,7 @@ export function DeliveryRecordForm({
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2">
                       <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                        Bottles taken as deposit
+                        Bottles received from customer (deposit)
                       </Label>
                       <Input
                         type="number"
@@ -1074,7 +1074,7 @@ export function DeliveryRecordForm({
                     </div>
                     <div className="space-y-2">
                       <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                        Deposit bottles returned
+                        Deposit bottles given back
                       </Label>
                       <Input
                         type="number"
@@ -1087,8 +1087,9 @@ export function DeliveryRecordForm({
                     </div>
                   </div>
                   <p className="text-[11px] text-muted-foreground">
-                    A refundable security deposit — kept separate from today&apos;s bill. Bottle deposit is count-only
-                    (no cash value) for the {item.product?.name ?? 'product'} being delivered here.
+                    A refundable security deposit — kept separate from today&apos;s bill. Bottles here are the
+                    customer&apos;s own, held by the company as security (count-only, no cash value), recorded
+                    against the {item.product?.name ?? 'product'} being delivered here.
                   </p>
                 </div>
               )}
