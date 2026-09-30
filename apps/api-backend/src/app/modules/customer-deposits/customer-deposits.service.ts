@@ -832,10 +832,21 @@ export class CustomerDepositsService {
     return vendor;
   }
 
+  /**
+   * Same full set CustomerFinancialAdjustmentService invalidates, not just
+   * the customer/wallet caches: `applyToBalance` moves `Customer.
+   * financialBalance` via an OTHER_CREDIT adjustment, which feeds Dashboard
+   * Overview's "Pending Balance" and Analytics' revenue figures — missing
+   * `invalidateOverview`/`invalidateAnalytics` here left those pages showing
+   * stale cached numbers after a deposit was applied to a customer's balance
+   * until the cache's own TTL happened to expire.
+   */
   private async invalidateCaches(vendorId: string, customerId: string): Promise<void> {
     try {
       await Promise.all([
         this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS),
+        this.cache.invalidateOverview(vendorId),
+        this.cache.invalidateAnalytics(vendorId),
         this.cache.invalidateCustomerWallets(vendorId, customerId),
       ]);
     } catch (e) {

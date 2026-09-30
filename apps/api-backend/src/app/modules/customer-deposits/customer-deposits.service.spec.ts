@@ -96,6 +96,8 @@ function buildHarness(opts: { depositsEnabled?: boolean } = {}) {
 function buildService(granted: string[], harness = buildHarness()) {
   const cache = {
     invalidateVendorEntity: jest.fn().mockResolvedValue(undefined),
+    invalidateOverview: jest.fn().mockResolvedValue(undefined),
+    invalidateAnalytics: jest.fn().mockResolvedValue(undefined),
     invalidateCustomerWallets: jest.fn().mockResolvedValue(undefined),
   };
   const permissions = {
