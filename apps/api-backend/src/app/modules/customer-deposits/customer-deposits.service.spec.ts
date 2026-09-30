@@ -38,11 +38,16 @@ function buildHarness(opts: { depositsEnabled?: boolean } = {}) {
       findFirst: jest.fn().mockResolvedValue({ id: PRODUCT_ID }),
     },
     customerDeposit: {
-      findUnique: jest.fn().mockImplementation(async (args: any) => {
-        const key = `${args.where.customerId_type_productId.customerId}:${args.where.customerId_type_productId.type}:${args.where.customerId_type_productId.productId ?? 'null'}`;
+      // Two call shapes hit this mock: by id (refund/writeOff/applyToBalance —
+      // `{ where: { id, vendorId } }`) and the find-or-create lookup in
+      // getOrCreateDepositTx (`{ where: { customerId, type, productId } }`,
+      // productId possibly null — deliberately `findFirst`, not `findUnique`,
+      // see that method's doc comment for why).
+      findFirst: jest.fn().mockImplementation(async (args: any) => {
+        if (args.where.id) return deposits.get(args.where.id) ?? null;
+        const key = `${args.where.customerId}:${args.where.type}:${args.where.productId ?? 'null'}`;
         return deposits.get(key) ?? null;
       }),
-      findFirst: jest.fn().mockImplementation(async (args: any) => deposits.get(args.where.id) ?? null),
       create: jest.fn().mockImplementation(async (args: any) => {
         const id = `dep-${deposits.size + 1}`;
         const row = { id, balance: 0, ...args.data };
