@@ -39,6 +39,11 @@ const ADVANCE_CATEGORIES: StaffLedgerCategory[] = [
 interface MonthFigures {
   sales: SalesFigures;
   categories: Map<ProfitLossSourceKey, CategoryTotal>;
+  /** Customer payments split by how they reached us — the proof behind `amountReceived`. */
+  received: {
+    onSheets: { amount: number; count: number };
+    recorded: Array<{ mode: string; amount: number; count: number }>;
+  };
   /** Independent, ungrouped `Expense` table total — used only for the reconciliation check. */
   rawExpenseTableTotal: number;
 }
@@ -109,6 +114,8 @@ export class ProfitLossService {
     const result = {
       month,
       summary: buildSummary(current.sales, totalExpenses),
+      receivedBreakdown: current.received,
+      handoverReconciliation: await this.collectHandover(vendorId, month),
       domains,
       reconciliation: {
         expenseTableTotal: round2(current.rawExpenseTableTotal),
@@ -346,6 +353,116 @@ export class ProfitLossService {
   // internals
   // ────────────────────────────────────────────────────────────────────────
 
+  /**
+   * Proof that ties the gross customer receipts on delivery sheets to what the
+   * drivers actually handed in (the figure the dashboard's sheet cash is built
+   * from), using the SAME arithmetic as buildReconciliation in sheet-cash.util:
+   *   expected hand-in = delivery cash recorded − cash expenses paid from the van − crew cash
+   *   difference       = expected hand-in − actual hand-in (driver shortfall / post-close changes)
+   * Everything is selected by the sheet's business date.
+   */
+  private async collectHandover(vendorId: string, month: string) {
+    const { start, end } = monthRange(month);
+    const sheetDate = { dailySheet: { date: { gte: start, lte: end } } };
+    const [itemCash, vanExpenses, crewCash, handedIn] = await Promise.all([
+      this.prisma.dailySheetItem.aggregate({
+        where: { status: { not: 'VOIDED' }, dailySheet: { vendorId, date: { gte: start, lte: end } } },
+        _sum: { cashCollected: true },
+      }),
+      this.prisma.expense.aggregate({
+        where: { vendorId, paidFromCash: true, ...sheetDate },
+        _sum: { amount: true },
+      }),
+      this.prisma.crewCashDistribution.aggregate({
+        where: { vendorId, ...sheetDate },
+        _sum: { amount: true },
+      }),
+      this.prisma.dailySheet.aggregate({
+        where: { vendorId, date: { gte: start, lte: end } },
+        _sum: { cashCollected: true },
+        _count: { _all: true },
+      }),
+    ]);
+    const deliveryCashRecorded = itemCash._sum.cashCollected ?? 0;
+    const vanCashExpenses = vanExpenses._sum.amount ?? 0;
+    const crewCashPaid = crewCash._sum.amount ?? 0;
+    const expectedHandIn = Math.max(0, deliveryCashRecorded - vanCashExpenses - crewCashPaid);
+    const actualHandedIn = handedIn._sum.cashCollected ?? 0;
+    return {
+      sheetCount: handedIn._count._all,
+      deliveryCashRecorded: round2(deliveryCashRecorded),
+      vanCashExpenses: round2(vanCashExpenses),
+      crewCashPaid: round2(crewCashPaid),
+      expectedHandIn: round2(expectedHandIn),
+      actualHandedIn: round2(actualHandedIn),
+      difference: round2(expectedHandIn - actualHandedIn),
+    };
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  // GET /analytics/profit-loss/payments?month=&kind=&page=&limit=
+  // The proof behind "Amount Received": every payment, one row each.
+  // kind: ALL | SHEET (collected on a delivery) | CASH | BANK_TRANSFER | CHEQUE (recorded payments)
+  // ────────────────────────────────────────────────────────────────────────
+
+  async getPayments(vendorId: string, monthInput: string | undefined, kind = 'ALL', page = 1, limit = DEFAULT_DETAIL_LIMIT) {
+    const month = this.resolveMonth(monthInput);
+    const { start, end } = monthRange(month);
+    const safePage = Math.max(1, page);
+    const safeLimit = Math.min(100, Math.max(1, limit));
+
+    const where: Prisma.TransactionWhereInput = {
+      vendorId,
+      type: TransactionType.PAYMENT,
+      createdAt: { gte: start, lte: end },
+    };
+    if (kind === 'SHEET') where.dailySheetItemId = { not: null };
+    else if (kind === 'CASH' || kind === 'BANK_TRANSFER' || kind === 'CHEQUE') {
+      where.dailySheetItemId = null;
+      where.paymentMode = kind;
+    } else if (kind !== 'ALL') {
+      throw new BadRequestException(`Unknown payment kind: ${kind}`);
+    }
+
+    const [list, agg] = await Promise.all([
+      this.prisma.transaction.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: (safePage - 1) * safeLimit,
+        take: safeLimit,
+        select: {
+          id: true,
+          amount: true,
+          createdAt: true,
+          paymentMode: true,
+          description: true,
+          dailySheetId: true,
+          dailySheetItemId: true,
+          customer: { select: { name: true, customerCode: true } },
+        },
+      }),
+      this.prisma.transaction.aggregate({ where, _sum: { amount: true }, _count: { _all: true } }),
+    ]);
+
+    const count = agg._count._all;
+    return {
+      month,
+      kind,
+      total: round2(-(agg._sum.amount ?? 0)),
+      meta: { total: count, page: safePage, limit: safeLimit, totalPages: Math.max(1, Math.ceil(count / safeLimit)) },
+      rows: list.map((t) => ({
+        id: t.id,
+        date: t.createdAt.toISOString(),
+        amount: round2(Math.abs(t.amount ?? 0)),
+        customerName: t.customer?.name ?? null,
+        customerCode: t.customer?.customerCode ?? null,
+        mode: t.dailySheetItemId ? 'Collected on delivery' : (t.paymentMode ?? 'UNSPECIFIED'),
+        description: t.description ?? null,
+        dailySheetId: t.dailySheetId,
+      })),
+    };
+  }
+
   private resolveMonth(input?: string): string {
     if (!input) return vendorDateString(new Date()).slice(0, 7);
     if (!isValidMonth(input)) throw new BadRequestException('month must be in YYYY-MM format');
@@ -370,6 +487,8 @@ export class ProfitLossService {
     const [
       saleAgg,
       paymentAgg,
+      sheetPaymentAgg,
+      recordedByMode,
       expenseGroups,
       rawExpenseAgg,
       settlementAgg,
@@ -391,6 +510,19 @@ export class ProfitLossService {
       this.prisma.transaction.aggregate({
         where: { vendorId, type: TransactionType.PAYMENT, createdAt: range },
         _sum: { amount: true },
+      }),
+      this.prisma.transaction.aggregate({
+        where: { vendorId, type: TransactionType.PAYMENT, createdAt: range, dailySheetItemId: { not: null } },
+        _sum: { amount: true },
+        _count: { _all: true },
+      }),
+      // Payments NOT tied to a delivery line (dashboard Record Payment, portal/online),
+      // split by payment mode.
+      this.prisma.transaction.groupBy({
+        by: ['paymentMode'],
+        where: { vendorId, type: TransactionType.PAYMENT, createdAt: range, dailySheetItemId: null },
+        _sum: { amount: true },
+        _count: { _all: true },
       }),
       this.prisma.expense.groupBy({
         by: ['category'],
@@ -434,11 +566,23 @@ export class ProfitLossService {
 
     return {
       sales: {
+        bottlesDelivered: saleAgg._sum.filledDropped ?? 0,
+        filledReturned: saleAgg._sum.filledReceived ?? 0,
+        receivedOnSheets: -(sheetPaymentAgg._sum.amount ?? 0),
+        receivedRecorded: -((paymentAgg._sum.amount ?? 0) - (sheetPaymentAgg._sum.amount ?? 0)),
         bottlesSold: (saleAgg._sum.filledDropped ?? 0) - (saleAgg._sum.filledReceived ?? 0),
         saleAmount: saleAgg._sum.amount ?? 0,
         amountReceived: -(paymentAgg._sum.amount ?? 0),
       },
       categories,
+      received: {
+        onSheets: { amount: -(sheetPaymentAgg._sum.amount ?? 0), count: sheetPaymentAgg._count._all },
+        recorded: recordedByMode.map((g) => ({
+          mode: g.paymentMode ?? 'UNSPECIFIED',
+          amount: -(g._sum.amount ?? 0),
+          count: g._count._all,
+        })),
+      },
       rawExpenseTableTotal: rawExpenseAgg._sum.amount ?? 0,
     };
   }

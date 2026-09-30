@@ -51,6 +51,10 @@ export interface ProfitLossDomain {
 }
 
 export interface ProfitLossSummary {
+  bottlesDelivered: number;
+  filledReturned: number;
+  receivedOnSheets: number;
+  receivedRecorded: number;
   bottlesSold: number;
   saleAmount: number;
   amountReceived: number;
@@ -65,6 +69,19 @@ export interface ProfitLossSummary {
 export interface ProfitLossData {
   month: string;
   summary: ProfitLossSummary;
+  receivedBreakdown: {
+    onSheets: { amount: number; count: number };
+    recorded: Array<{ mode: string; amount: number; count: number }>;
+  };
+  handoverReconciliation: {
+    sheetCount: number;
+    deliveryCashRecorded: number;
+    vanCashExpenses: number;
+    crewCashPaid: number;
+    expectedHandIn: number;
+    actualHandedIn: number;
+    difference: number;
+  };
   domains: ProfitLossDomain[];
   reconciliation: { expenseTableTotal: number; groupedExpenseTableTotal: number; difference: number; ok: boolean };
   trend: Array<ProfitLossSummary & { month: string; byDomain: Record<string, number> }>;
@@ -104,4 +121,30 @@ export const useProfitLossDetails = (month: string, category: string | null, pag
     queryKey: ['analytics', 'profit-loss', 'details', month, category, page],
     queryFn: () => profitLossApi.getDetails(month, category as string, page).then((r) => r.data),
     enabled: !!category,
+  });
+
+export interface ProfitLossPaymentRow {
+  id: string;
+  date: string;
+  amount: number;
+  customerName: string | null;
+  customerCode: string | null;
+  mode: string;
+  description: string | null;
+  dailySheetId: string | null;
+}
+
+export interface ProfitLossPayments {
+  month: string;
+  kind: string;
+  total: number;
+  meta: { total: number; page: number; limit: number; totalPages: number };
+  rows: ProfitLossPaymentRow[];
+}
+
+export const useProfitLossPayments = (month: string, kind: string | null, page: number) =>
+  useQuery<ProfitLossPayments>({
+    queryKey: ['analytics', 'profit-loss', 'payments', month, kind, page],
+    queryFn: () => profitLossApi.getPayments(month, kind as string, page).then((r) => r.data),
+    enabled: !!kind,
   });

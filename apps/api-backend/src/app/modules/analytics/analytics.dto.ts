@@ -1,4 +1,4 @@
-import { IsOptional, IsDateString, IsUUID, IsString, Matches, IsInt, Min, Max } from 'class-validator';
+import { IsOptional, IsDateString, IsUUID, IsString, Matches, IsInt, Min, Max, IsIn } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class DateRangeDto {
@@ -28,6 +28,25 @@ export class ProfitLossQueryDto {
 export class ProfitLossDetailsQueryDto extends ProfitLossQueryDto {
   @IsString()
   category!: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+}
+
+export class ProfitLossPaymentsQueryDto extends ProfitLossQueryDto {
+  @IsOptional()
+  @IsIn(['ALL', 'SHEET', 'CASH', 'BANK_TRANSFER', 'CHEQUE'])
+  kind?: string;
 
   @IsOptional()
   @Type(() => Number)

@@ -9,7 +9,8 @@ import {
 } from '@water-supply-crm/ui';
 import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
-  useProfitLoss, useProfitLossDetails,
+  useProfitLoss, useProfitLossDetails, useProfitLossPayments,
+  type ProfitLossData,
   type ProfitLossDomain, type ProfitLossSummary,
 } from '../hooks/use-analytics';
 
@@ -203,10 +204,147 @@ function DetailsSheet({ month, category, onClose }: { month: string; category: s
   );
 }
 
+const MODE_LABELS: Record<string, string> = {
+  CASH: 'Cash',
+  BANK_TRANSFER: 'Bank transfer',
+  CHEQUE: 'Cheque',
+  UNSPECIFIED: 'Other',
+};
+
+function ReceivedProof({ data, onOpen }: { data: ProfitLossData; onOpen: (kind: string) => void }) {
+  const { receivedBreakdown: rb, handoverReconciliation: h, summary } = data;
+  const recordedTotal = rb.recorded.reduce((s, r) => s + r.amount, 0);
+  const recordedCount = rb.recorded.reduce((s, r) => s + r.count, 0);
+  const sum = rb.onSheets.amount + recordedTotal;
+  const matches = Math.abs(sum - summary.amountReceived) < 0.01;
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
+        <CardHeader>
+          <CardTitle className="text-base font-bold">Amount Received — where it came from</CardTitle>
+          <p className="text-xs text-muted-foreground">Every customer payment recorded in {monthLabel(data.month)}. Click a row to see each payment.</p>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Source</TableHead>
+                <TableHead className="text-right">Payments</TableHead>
+                <TableHead className="text-right">Amount</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow className="cursor-pointer hover:bg-muted/40" onClick={() => onOpen('SHEET')}>
+                <TableCell>Collected on delivery sheets</TableCell>
+                <TableCell className="text-right">{rb.onSheets.count}</TableCell>
+                <TableCell className="text-right">{rs(rb.onSheets.amount)}</TableCell>
+              </TableRow>
+              {rb.recorded.map((r) => (
+                <TableRow key={r.mode} className="cursor-pointer hover:bg-muted/40" onClick={() => onOpen(r.mode)}>
+                  <TableCell>Recorded payment — {MODE_LABELS[r.mode] ?? r.mode}</TableCell>
+                  <TableCell className="text-right">{r.count}</TableCell>
+                  <TableCell className="text-right">{rs(r.amount)}</TableCell>
+                </TableRow>
+              ))}
+              <TableRow className="font-black border-t-2 cursor-pointer hover:bg-muted/40" onClick={() => onOpen('ALL')}>
+                <TableCell>Total Amount Received</TableCell>
+                <TableCell className="text-right">{rb.onSheets.count + recordedCount}</TableCell>
+                <TableCell className="text-right">{rs(summary.amountReceived)}</TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+          {!matches && (
+            <p className="mt-2 text-xs text-destructive">Breakdown ({rs(sum)}) does not add up to the total — please report this.</p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
+        <CardHeader>
+          <CardTitle className="text-base font-bold">Delivery cash → Driver hand-in</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Why the dashboard&apos;s &quot;Cash Collected&quot; is lower: drivers hand in cash after van expenses and crew cash. {h.sheetCount} sheets.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <div className="flex justify-between"><span>Cash recorded on deliveries</span><span className="font-bold">{rs(h.deliveryCashRecorded)}</span></div>
+          <div className="flex justify-between text-muted-foreground"><span>− Paid from the van (sheet expenses)</span><span>{rs(h.vanCashExpenses)}</span></div>
+          <div className="flex justify-between text-muted-foreground"><span>− Crew cash given</span><span>{rs(h.crewCashPaid)}</span></div>
+          <div className="flex justify-between border-t pt-2"><span>Expected hand-in</span><span className="font-bold">{rs(h.expectedHandIn)}</span></div>
+          <div className="flex justify-between"><span>Actually handed in (at sheet close)</span><span className="font-bold">{rs(h.actualHandedIn)}</span></div>
+          <div className="flex justify-between border-t pt-2">
+            <span>Difference (shortfall / changes after close)</span>
+            <span className={cn('font-black', h.difference > 0 ? 'text-destructive' : '')}>{rs(h.difference)}</span>
+          </div>
+          <p className="text-xs text-muted-foreground pt-2">
+            Dashboard Cash Collected = hand-in + recorded payments, recalculated for sheets edited after close. Amount Received here is the
+            gross of what customers paid, so it is not reduced by van expenses or shortfalls (those are counted in Expenses).
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function PaymentsSheet({ month, kind, onClose }: { month: string; kind: string | null; onClose: () => void }) {
+  const [page, setPage] = useState(1);
+  const { data, isLoading, isFetching } = useProfitLossPayments(month, kind, page);
+  const title =
+    kind === 'SHEET' ? 'Collected on delivery sheets' : kind === 'ALL' ? 'All payments' : `Recorded payments — ${MODE_LABELS[kind ?? ''] ?? kind}`;
+
+  return (
+    <Sheet open={!!kind} onOpenChange={(o) => { if (!o) { setPage(1); onClose(); } }}>
+      <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto bg-background/95 backdrop-blur-xl">
+        <SheetHeader className="pb-4 border-b">
+          <SheetTitle>{title} — {monthLabel(month)}</SheetTitle>
+          {data && (
+            <p className="text-sm text-muted-foreground">
+              {data.meta.total} payments · Total <span className="font-bold text-foreground">{rs(data.total)}</span>
+            </p>
+          )}
+        </SheetHeader>
+        <div className="pt-4 space-y-2">
+          {isLoading && Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-xl" />)}
+          {data?.rows.length === 0 && <p className="text-center text-muted-foreground py-8">No payments</p>}
+          {data?.rows.map((r) => (
+            <div key={r.id} className="rounded-xl border border-border p-3 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold truncate">
+                  {r.customerName ?? 'Unknown customer'}
+                  {r.customerCode && <span className="ml-2 text-xs font-normal text-muted-foreground">{r.customerCode}</span>}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {new Date(r.date).toLocaleDateString('en-GB', { timeZone: 'Asia/Karachi' })}
+                  {' · '}{MODE_LABELS[r.mode] ?? r.mode}
+                  {r.description && ` · ${r.description}`}
+                </p>
+              </div>
+              <p className="font-bold whitespace-nowrap">{rs(r.amount)}</p>
+            </div>
+          ))}
+        </div>
+        {data && data.meta.totalPages > 1 && (
+          <div className="flex items-center justify-between pt-4">
+            <Button variant="outline" size="sm" disabled={page <= 1 || isFetching} onClick={() => setPage((p) => p - 1)}>
+              <ChevronLeft className="h-4 w-4 mr-1" /> Prev
+            </Button>
+            <span className="text-xs text-muted-foreground">Page {page} of {data.meta.totalPages}</span>
+            <Button variant="outline" size="sm" disabled={page >= data.meta.totalPages || isFetching} onClick={() => setPage((p) => p + 1)}>
+              Next <ChevronRight className="h-4 w-4 ml-1" />
+            </Button>
+          </div>
+        )}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
 export function ProfitLossTab() {
   const thisMonth = currentMonth();
   const [month, setMonth] = useState(thisMonth);
   const [detailCategory, setDetailCategory] = useState<string | null>(null);
+  const [paymentsKind, setPaymentsKind] = useState<string | null>(null);
   const { data, isLoading, isError } = useProfitLoss(month);
 
   return (
@@ -249,11 +387,17 @@ export function ProfitLossTab() {
           )}
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <Stat label="Bottles Sold" value={data.summary.bottlesSold.toLocaleString('en')} />
+            <Stat
+              label="Bottles Sold (net)"
+              value={data.summary.bottlesSold.toLocaleString('en')}
+              hint={`${data.summary.bottlesDelivered.toLocaleString('en')} delivered − ${data.summary.filledReturned.toLocaleString('en')} filled taken back`}
+            />
             <Stat label="Sale" value={rs(data.summary.saleAmount)} />
-            <Stat label="Amount Received" value={rs(data.summary.amountReceived)} hint="All payments recorded this month" />
+            <Stat label="Amount Received" value={rs(data.summary.amountReceived)} hint={`${rs(data.summary.receivedOnSheets)} on delivery sheets + ${rs(data.summary.receivedRecorded)} recorded payments`} />
             <Stat label="Total Expenses" value={rs(data.summary.totalExpenses)} />
           </div>
+
+          <ReceivedProof data={data} onOpen={setPaymentsKind} />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
@@ -315,6 +459,7 @@ export function ProfitLossTab() {
         </>
       )}
 
+      <PaymentsSheet key={`${month}:pay:${paymentsKind ?? ''}`} month={month} kind={paymentsKind} onClose={() => setPaymentsKind(null)} />
       <DetailsSheet key={`${month}:${detailCategory ?? ''}`} month={month} category={detailCategory} onClose={() => setDetailCategory(null)} />
     </div>
   );

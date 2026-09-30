@@ -181,14 +181,27 @@ export function buildDomainTree(
 }
 
 export interface SalesFigures {
+  /** Net bottles: delivered minus filled bottles taken back (matches the net Sale amount). */
   bottlesSold: number;
   saleAmount: number;
   amountReceived: number;
+  /** Gross filled bottles dropped — the figure the Deliveries tab / dashboard call "delivered". */
+  bottlesDelivered?: number;
+  /** Filled bottles taken back from customers (credited at the same rate, so they reduce the sale). */
+  filledReturned?: number;
+  /** Payments collected against a delivery (cash handed to the driver on the sheet). */
+  receivedOnSheets?: number;
+  /** Payments recorded outside a delivery (dashboard Record Payment, portal, walk-in top-ups). */
+  receivedRecorded?: number;
 }
 
 export function buildSummary(sales: SalesFigures, totalExpenses: number) {
   const { bottlesSold, saleAmount, amountReceived } = sales;
   return {
+    bottlesDelivered: sales.bottlesDelivered ?? bottlesSold,
+    filledReturned: sales.filledReturned ?? 0,
+    receivedOnSheets: round2(sales.receivedOnSheets ?? amountReceived),
+    receivedRecorded: round2(sales.receivedRecorded ?? 0),
     bottlesSold,
     saleAmount: round2(saleAmount),
     amountReceived: round2(amountReceived),

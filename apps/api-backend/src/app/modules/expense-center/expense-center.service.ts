@@ -26,6 +26,7 @@ import {
   normalizeStaffLedgerRow,
   normalizeStandaloneCrewCashRow,
   resolveSourceSelection,
+  staffLedgerCostCategoryFilter,
   STAFF_LEDGER_CATEGORY_LABELS,
   type ExpenseCenterDomain,
   type ExpenseCenterRow,
@@ -192,7 +193,7 @@ export class ExpenseCenterService {
           // CREW_CASH entries are the synced copies of CrewCashDistribution
           // and StandaloneCrewCashExpense rows, which are read directly below —
           // counting both would double every crew cash row.
-          category: { not: StaffLedgerCategory.CREW_CASH },
+          category: staffLedgerCostCategoryFilter(),
           // A VOIDED entry was cancelled and is excluded from the payroll
           // engine's own computation too — it is not money the business spent.
           status: { not: LedgerEntryStatus.VOIDED },
@@ -552,9 +553,9 @@ function buildSourceWheres(
 
   const ledgerWhere: Prisma.StaffLedgerEntryWhereInput = {
     vendorId,
-    category: selection.staffLedgerCategories
-      ? { in: selection.staffLedgerCategories }
-      : { not: StaffLedgerCategory.CREW_CASH },
+    // CREW_CASH is read from its own tables; PENALTY/DEDUCTION/LEAVE_UNPAID/
+    // ADVANCE_RECOVERY are not money the business spent (see the util's header).
+    category: staffLedgerCostCategoryFilter(selection.staffLedgerCategories),
     status: { not: LedgerEntryStatus.VOIDED },
     ...(dateFilter && { effectiveDate: dateFilter }),
     ...(query.employeeId && { userId: query.employeeId }),

@@ -80,6 +80,7 @@ function buildPrisma(store: FakeStore) {
       if (r.vendorId !== where.vendorId) return false;
       if (where.category?.not && r.category === where.category.not) return false;
       if (where.category?.in && !where.category.in.includes(r.category)) return false;
+      if (where.category?.notIn && where.category.notIn.includes(r.category)) return false;
       if (where.status?.not && r.status === where.status.not) return false;
       if (where.userId && r.userId !== where.userId) return false;
       return inRange(r.effectiveDate, where.effectiveDate);
@@ -268,7 +269,9 @@ describe('ExpenseCenterService — standalone crew cash', () => {
       expect(summary.topCategory).toEqual({ category: 'CREW_CASH', label: 'Crew Cash', amount: 1500 });
       expect(prisma.staffLedgerEntry.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({ category: { not: StaffLedgerCategory.CREW_CASH } }),
+          where: expect.objectContaining({
+            category: { notIn: expect.arrayContaining([StaffLedgerCategory.CREW_CASH, StaffLedgerCategory.PENALTY]) },
+          }),
         }),
       );
     });

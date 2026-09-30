@@ -10,6 +10,7 @@ import {
   normalizeStaffLedgerRow,
   normalizeStandaloneCrewCashRow,
   resolveSourceSelection,
+  staffLedgerCostCategoryFilter,
   STAFF_LEDGER_CATEGORY_LABELS,
 } from './expense-center-domain.util';
 
@@ -519,5 +520,28 @@ describe('resolveSourceSelection', () => {
       expect(vehicleSheet.includeCrewCash).toBe(false);
       expect(vehicleSheet.includeStandaloneCrewCash).toBe(false);
     });
+  });
+});
+
+describe('staffLedgerCostCategoryFilter', () => {
+  it('never treats a penalty / deduction / unpaid leave / advance recovery as a cost', () => {
+    const filter = staffLedgerCostCategoryFilter() as { notIn: StaffLedgerCategory[] };
+    for (const c of [
+      StaffLedgerCategory.CREW_CASH,
+      StaffLedgerCategory.PENALTY,
+      StaffLedgerCategory.DEDUCTION,
+      StaffLedgerCategory.LEAVE_UNPAID,
+      StaffLedgerCategory.ADVANCE_RECOVERY,
+    ]) {
+      expect(filter.notIn).toContain(c);
+    }
+    // A real cash-out stays in.
+    expect(filter.notIn).not.toContain(StaffLedgerCategory.ADVANCE);
+  });
+
+  it('intersects an explicit category selection with the exclusions', () => {
+    expect(
+      staffLedgerCostCategoryFilter([StaffLedgerCategory.BONUS, StaffLedgerCategory.PENALTY]),
+    ).toEqual({ in: [StaffLedgerCategory.BONUS] });
   });
 });

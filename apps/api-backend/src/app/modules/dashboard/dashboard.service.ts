@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { monthRange } from '../analytics/profit-loss.util';
 import { PrismaService } from '@water-supply-crm/database';
 import {
   CacheInvalidationService,
@@ -463,19 +464,22 @@ export class DashboardService {
         where: { vendorId, date: { gte: rangeStart } },
         select: { id: true, date: true, cashExpected: true, cashCollected: true },
       }),
-      // Payments recorded via "Record Payment" (and approved online payments) —
-      // standalone PAYMENT transactions not tied to any delivery line, so the
-      // sheet reconciliation columns above never see them. Delivery-collected
-      // cash always carries a dailySheetId, so `dailySheetId: null` keeps this
-      // from double-counting it. Bucketed by entry date (createdAt).
+      // ALL customer PAYMENT transactions in range: delivery-collected cash
+      // (carries a dailySheetId) AND payments recorded via "Record Payment" /
+      // approved online payments (dailySheetId null, never seen by the sheet
+      // reconciliation columns above). `manualCollected` below keeps the old
+      // `dailySheetId: null` subset so `cashCollected` is byte-identical;
+      // `amountReceived` uses every row. Bucketed by entry date (createdAt). The
+      // lower bound is widened by a day because `amountReceived` buckets on PKT
+      // calendar months (same as the Profit & Loss tab), which can start a few
+      // hours before the server-local `rangeStart`.
       this.prisma.transaction.findMany({
         where: {
           vendorId,
           type: TransactionType.PAYMENT,
-          dailySheetId: null,
-          createdAt: { gte: rangeStart },
+          createdAt: { gte: new Date(rangeStart.getTime() - 24 * 60 * 60 * 1000) },
         },
-        select: { amount: true, createdAt: true },
+        select: { amount: true, createdAt: true, dailySheetId: true },
       }),
     ]);
 
@@ -565,9 +569,17 @@ export class DashboardService {
       // collection rate (vs the reconciliation target `cashExpected`).
       const sheetCashCollected = monthCash.reduce((s, c) => s + c.cashCollected, 0);
       const manualCollected = standalonePayments
-        .filter((p) => p.createdAt >= monthStart && p.createdAt <= monthEnd)
+        .filter((p) => !p.dailySheetId && p.createdAt >= monthStart && p.createdAt <= monthEnd)
         .reduce((s, p) => s + Math.abs(p.amount ?? 0), 0);
       const cashCollected = sheetCashCollected + manualCollected;
+      // Everything customers paid in the month (vendor/PKT calendar), gross — NOT
+      // reduced by van expenses / crew cash / driver shortfall the way the sheet
+      // hand-in (`sheetCashCollected`) is. Same definition and month window as
+      // the Analytics > Profit & Loss tab's "Amount Received".
+      const pktMonth = monthRange(`${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, '0')}`);
+      const amountReceived = standalonePayments
+        .filter((p) => p.createdAt >= pktMonth.start && p.createdAt <= pktMonth.end)
+        .reduce((s, p) => s + Math.abs(p.amount ?? 0), 0);
       const hasModifiedClosedSheets = monthCash.some((c) => c.postCloseModified);
 
       return {
@@ -579,6 +591,7 @@ export class DashboardService {
         averageRate,
         cashExpected,
         cashCollected,
+        amountReceived,
         collectionRate: cashExpected > 0 ? Math.round((sheetCashCollected / cashExpected) * 100) : 0,
         hasModifiedClosedSheets,
       };

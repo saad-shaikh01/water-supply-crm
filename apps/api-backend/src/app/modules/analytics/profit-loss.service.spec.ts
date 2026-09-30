@@ -7,11 +7,21 @@ const agg = (sum: Record<string, number | null>, count = 0) => Promise.resolve({
 function makePrisma() {
   return {
     transaction: {
-      aggregate: jest.fn().mockImplementation((args: any) =>
-        args.where.type === 'DELIVERY'
-          ? agg({ amount: 1853490, filledDropped: 10000, filledReceived: 35 })
-          : agg({ amount: -1758760 }),
-      ),
+      aggregate: jest.fn().mockImplementation((args: any) => {
+        if (args.where.type === 'DELIVERY') return agg({ amount: 1853490, filledDropped: 10000, filledReceived: 35 });
+        // PAYMENT: the "on a delivery sheet" query carries dailySheetItemId: { not: null }
+        if (args.where.dailySheetItemId) return agg({ amount: -1006910 }, 731);
+        return agg({ amount: -1758760 }, 1041);
+      }),
+      groupBy: jest.fn().mockResolvedValue([
+        { paymentMode: 'CASH', _sum: { amount: -81370 }, _count: { _all: 7 } },
+        { paymentMode: 'BANK_TRANSFER', _sum: { amount: -670480 }, _count: { _all: 303 } },
+      ]),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    dailySheetItem: { aggregate: jest.fn().mockImplementation(() => agg({ cashCollected: 1006910 })) },
+    dailySheet: {
+      aggregate: jest.fn().mockImplementation(() => Promise.resolve({ _sum: { cashCollected: 904710 }, _count: { _all: 86 } })),
     },
     expense: {
       groupBy: jest.fn().mockResolvedValue([
@@ -69,6 +79,64 @@ describe('ProfitLossService', () => {
     expect(r.reconciliation.ok).toBe(true);
     expect(r.trend).toHaveLength(6);
     expect(r.trend[5].month).toBe('2025-08');
+  });
+
+  it('proves Amount Received: delivery-sheet payments + recorded payments by mode add up to the total', async () => {
+    const { service } = makeService(makePrisma());
+    const r = await service.getProfitLoss('v1', '2025-08');
+    const recorded = r.receivedBreakdown.recorded.reduce((s: number, x: any) => s + x.amount, 0);
+    expect(r.receivedBreakdown.onSheets).toEqual({ amount: 1006910, count: 731 });
+    expect(r.receivedBreakdown.recorded).toEqual([
+      { mode: 'CASH', amount: 81370, count: 7 },
+      { mode: 'BANK_TRANSFER', amount: 670480, count: 303 },
+    ]);
+    expect(r.receivedBreakdown.onSheets.amount + recorded).toBe(r.summary.amountReceived - (1758760 - 1006910 - recorded));
+    expect(r.summary.receivedOnSheets).toBe(1006910);
+    expect(r.summary.receivedRecorded).toBe(1758760 - 1006910);
+  });
+
+  it('ties delivery cash to the drivers hand-in using the same arithmetic as the sheet reconciliation', async () => {
+    const prisma = makePrisma();
+    prisma.expense.aggregate.mockResolvedValue({ _sum: { amount: 24925 } });
+    prisma.crewCashDistribution.aggregate.mockImplementation(() => agg({ amount: 35325 }, 6));
+    const { service } = makeService(prisma);
+    const r = await service.getProfitLoss('v1', '2026-09');
+    expect(r.handoverReconciliation).toMatchObject({
+      sheetCount: 86,
+      deliveryCashRecorded: 1006910,
+      vanCashExpenses: 24925,
+      crewCashPaid: 35325,
+      expectedHandIn: 946660,
+      actualHandedIn: 904710,
+      difference: 41950,
+    });
+    // Only van-paid (paidFromCash) expenses on sheets reduce the hand-in.
+    const expWhere = prisma.expense.aggregate.mock.calls.find((c: any[]) => c[0].where.paidFromCash === true)?.[0].where;
+    expect(expWhere.dailySheet.date.gte).toBeInstanceOf(Date);
+  });
+
+  it('lists every payment of a kind with the same month window and sign handling', async () => {
+    const prisma = makePrisma();
+    prisma.transaction.aggregate.mockImplementation(() => agg({ amount: -81370 }, 1));
+    prisma.transaction.findMany.mockResolvedValue([
+      {
+        id: 't1',
+        amount: -81370,
+        createdAt: new Date('2026-09-10T08:00:00Z'),
+        paymentMode: 'CASH',
+        description: 'Payment received',
+        dailySheetId: null,
+        dailySheetItemId: null,
+        customer: { name: 'Ali', customerCode: 'C-1' },
+      },
+    ]);
+    const { service } = makeService(prisma);
+    const r = await service.getPayments('v1', '2026-09', 'CASH');
+    expect(r.total).toBe(81370);
+    expect(r.rows[0]).toMatchObject({ amount: 81370, customerName: 'Ali', mode: 'CASH' });
+    const where = prisma.transaction.findMany.mock.calls[0][0].where;
+    expect(where).toMatchObject({ vendorId: 'v1', type: 'PAYMENT', dailySheetItemId: null, paymentMode: 'CASH' });
+    await expect(service.getPayments('v1', '2026-09', 'NOPE')).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('flags a reconciliation gap when the raw Expense total disagrees with the grouped rows', async () => {

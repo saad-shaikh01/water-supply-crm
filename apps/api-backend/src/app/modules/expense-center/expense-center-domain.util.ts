@@ -690,3 +690,35 @@ export function resolveSourceSelection(filter: ExpenseCenterFilterInput): Expens
 
   return selection;
 }
+
+/**
+ * Payroll-ledger categories that are NOT money the business spent, so they must
+ * never count as an expense:
+ *   - PENALTY / DEDUCTION / LEAVE_UNPAID reduce what the employee is paid (the
+ *     company pays LESS — a penalty is never a cost to it).
+ *   - ADVANCE_RECOVERY is an installment of an advance coming back; the cash went
+ *     out once, at disbursement (counted there), so counting it again would
+ *     double the advance.
+ * Everything else (ADVANCE, BONUS, INCENTIVE, OVERTIME, reimbursements, paid
+ * leave, adjustments/reversals/corrections) keeps its existing treatment.
+ */
+export const NON_COST_STAFF_LEDGER_CATEGORIES: readonly StaffLedgerCategory[] = [
+  StaffLedgerCategory.PENALTY,
+  StaffLedgerCategory.DEDUCTION,
+  StaffLedgerCategory.LEAVE_UNPAID,
+  StaffLedgerCategory.ADVANCE_RECOVERY,
+];
+
+/**
+ * The `category` filter for every StaffLedgerEntry read in the Expense Center:
+ * CREW_CASH is always excluded (read from its own tables) plus every non-cost
+ * category above. When a caller narrowed to specific categories, those are
+ * intersected with the same exclusions.
+ */
+export function staffLedgerCostCategoryFilter(
+  selected?: readonly StaffLedgerCategory[],
+): { in: StaffLedgerCategory[] } | { notIn: StaffLedgerCategory[] } {
+  const excluded = new Set<StaffLedgerCategory>([StaffLedgerCategory.CREW_CASH, ...NON_COST_STAFF_LEDGER_CATEGORIES]);
+  if (selected) return { in: selected.filter((c) => !excluded.has(c)) };
+  return { notIn: Array.from(excluded) };
+}

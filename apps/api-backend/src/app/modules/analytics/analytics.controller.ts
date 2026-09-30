@@ -1,6 +1,6 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { AnalyticsService } from './analytics.service';
-import { DateRangeDto, ProfitLossDetailsQueryDto, ProfitLossQueryDto } from './analytics.dto';
+import { DateRangeDto, ProfitLossDetailsQueryDto, ProfitLossPaymentsQueryDto, ProfitLossQueryDto } from './analytics.dto';
 import { ProfitLossService } from './profit-loss.service';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -18,6 +18,11 @@ export class AnalyticsController {
   @Get('profit-loss/details')
   getProfitLossDetails(@CurrentUser() user: AuthUser, @Query() dto: ProfitLossDetailsQueryDto) {
     return this.profitLossService.getDetails(user.vendorId, dto.month, dto.category, dto.page, dto.limit);
+  }
+
+  @Get('profit-loss/payments')
+  getProfitLossPayments(@CurrentUser() user: AuthUser, @Query() dto: ProfitLossPaymentsQueryDto) {
+    return this.profitLossService.getPayments(user.vendorId, dto.month, dto.kind, dto.page, dto.limit);
   }
 
   @Get('profit-loss')
