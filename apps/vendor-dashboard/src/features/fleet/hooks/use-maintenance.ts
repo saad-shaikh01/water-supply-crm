@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { fleetApi, type CreateServiceRecordData, type CreateServiceTypeData } from '../api/fleet.api';
 import { queryKeys } from '../../../lib/query-keys';
+import { invalidateFleetStats } from './invalidate-fleet-stats';
 
 export const useVehicleMaintenanceStatus = (vehicleId: string | undefined) =>
   useQuery({
@@ -83,6 +84,7 @@ export const useRenameServiceType = () => {
       // Labels appear on maintenance lists and (via the re-described Expense)
       // in Expense Center / Van Cash Ledger rows and service-record lists.
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.serviceRecords() });
+      invalidateFleetStats(queryClient);
       queryClient.invalidateQueries({ queryKey: ['expense-center'] });
       queryClient.invalidateQueries({ queryKey: ['van-cash-ledger'] });
       toast.success('Service type updated');
@@ -103,10 +105,17 @@ export const useDeleteServiceType = () => {
   });
 };
 
-export const useServiceRecords = (params?: { page?: number; limit?: number; vehicleId?: string }) =>
+export const useServiceRecords = (params?: {
+  page?: number;
+  limit?: number;
+  vehicleId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}) =>
   useQuery({
     queryKey: queryKeys.fleet.serviceRecords(params),
     queryFn: () => fleetApi.getServiceRecords(params),
+    placeholderData: (prev) => prev,
   });
 
 export const useCreateServiceRecord = () => {
@@ -115,6 +124,7 @@ export const useCreateServiceRecord = () => {
     mutationFn: (data: CreateServiceRecordData) => fleetApi.createServiceRecord(data),
     onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.serviceRecords() });
+      invalidateFleetStats(queryClient);
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.maintenanceStatus(variables.vehicleId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.maintenanceFleetStatus() });
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.overview() });
@@ -144,6 +154,7 @@ export const useUpdateServiceRecord = () => {
     mutationFn: ({ id, data }: { id: string; data: Partial<CreateServiceRecordData> }) => fleetApi.updateServiceRecord(id, data),
     onSuccess: (_result, { id }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.serviceRecords() });
+      invalidateFleetStats(queryClient);
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.serviceRecord(id) });
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.maintenanceFleetStatus() });
       // The service record also projects into Expense Center's Timeline/
@@ -163,6 +174,7 @@ export const useDeleteServiceRecord = () => {
     mutationFn: (id: string) => fleetApi.removeServiceRecord(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.serviceRecords() });
+      invalidateFleetStats(queryClient);
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.maintenanceFleetStatus() });
       queryClient.invalidateQueries({ queryKey: ['expense-center'] });
       queryClient.invalidateQueries({ queryKey: ['van-cash-ledger'] });

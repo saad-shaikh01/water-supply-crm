@@ -33,6 +33,71 @@ export interface FleetPaginatedResult<T> {
 // `vehicleId` (the physical vehicle) now, not `vanId` (the route/slot) — see
 // docs/features/fleet-operations-vehicle-intelligence.md §17. `usualVanId`
 // is shown for route context only (a default, not a constraint).
+/** Cost/km/efficiency for one vehicle over a period (a month on the list, any range on the detail page). */
+export interface VehiclePeriodStats {
+  fuelCost: number;
+  fuelLiters: number;
+  fuelFills: number;
+  maintenanceCost: number;
+  serviceCount: number;
+  otherCost: number;
+  totalCost: number;
+  kmDriven: number;
+  daysUsed: number;
+  costPerKm: number | null;
+  avgKmPerLiter: number | null;
+  avgPricePerLiter: number | null;
+  lastFuelAt: string | null;
+}
+
+export interface VehicleMonthlyRow extends VehiclePeriodStats {
+  month: string; // YYYY-MM
+}
+
+export interface VehicleListTotals {
+  fuelCost: number;
+  fuelLiters: number;
+  maintenanceCost: number;
+  otherCost: number;
+  totalCost: number;
+  kmDriven: number;
+  costPerKm: number | null;
+}
+
+export type VehicleSortField = 'plateNumber' | 'totalCost' | 'fuelCost' | 'kmDriven' | 'costPerKm';
+
+export interface FuelLogSummary {
+  fills: number;
+  totalCost: number;
+  totalLiters: number;
+  avgPricePerLiter: number | null;
+  avgKmPerLiter: number | null;
+}
+
+export interface FuelLogFilters {
+  page?: number;
+  limit?: number;
+  vehicleId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  recordedById?: string;
+  fuelCardId?: string;
+  payment?: 'cash' | 'other';
+  tank?: 'full' | 'partial';
+  station?: string;
+}
+
+export interface VehicleOtherExpenseEntry {
+  id: string;
+  category: string;
+  amount: number;
+  description: string;
+  date: string;
+  paidFromCash: boolean;
+  createdBy: { id: string; name: string };
+  dailySheet: { id: string; date: string; van: { id: string; plateNumber: string } } | null;
+}
+
 export interface VehicleListEntry {
   id: string;
   plateNumber: string;
@@ -42,6 +107,8 @@ export interface VehicleListEntry {
   profile: VehicleProfileEntry | null;
   expiringDocumentCount: number;
   costThisMonth: number;
+  /** Present only when the list was requested with `month`. */
+  period?: VehiclePeriodStats;
 }
 
 export interface VehicleDetail {
@@ -190,8 +257,19 @@ export const fleetApi = {
   },
 
   // Vehicles (base CRUD) & documents
-  getVehicles: (params?: { page?: number; limit?: number; search?: string; operationalStatus?: VehicleOperationalStatus; active?: boolean }) =>
-    apiClient.get<FleetPaginatedResult<VehicleListEntry>>('/fleet/vehicles', { params }).then((r) => r.data),
+  getVehicles: (params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    operationalStatus?: VehicleOperationalStatus;
+    active?: boolean;
+    month?: string;
+    sortBy?: VehicleSortField;
+    sortDir?: 'asc' | 'desc';
+  }) =>
+    apiClient
+      .get<FleetPaginatedResult<VehicleListEntry> & { meta: { month?: string; totals?: VehicleListTotals } }>('/fleet/vehicles', { params })
+      .then((r) => r.data),
   getVehicle: (vehicleId: string) => apiClient.get<VehicleDetail>(`/fleet/vehicles/${vehicleId}`).then((r) => r.data),
   createVehicle: (data: CreateVehicleData) => apiClient.post<VehicleDetail>('/fleet/vehicles', data).then((r) => r.data),
   updateVehicleBasic: (vehicleId: string, data: UpdateVehicleData) =>
@@ -214,6 +292,18 @@ export const fleetApi = {
   getCostSummary: (vehicleId: string) =>
     apiClient.get<VehicleCostSummary>(`/fleet/vehicles/${vehicleId}/cost-summary`).then((r) => r.data),
 
+  getPeriodSummary: (vehicleId: string, params?: { dateFrom?: string; dateTo?: string }) =>
+    apiClient.get<VehiclePeriodStats>(`/fleet/vehicles/${vehicleId}/period-summary`, { params }).then((r) => r.data),
+  getMonthlyReport: (vehicleId: string, params?: { months?: number; endMonth?: string }) =>
+    apiClient.get<VehicleMonthlyRow[]>(`/fleet/vehicles/${vehicleId}/monthly-report`, { params }).then((r) => r.data),
+  getOtherExpenses: (vehicleId: string, params?: { dateFrom?: string; dateTo?: string; page?: number; limit?: number }) =>
+    apiClient
+      .get<FleetPaginatedResult<VehicleOtherExpenseEntry> & { summary: { totalAmount: number } }>(
+        `/fleet/vehicles/${vehicleId}/other-expenses`,
+        { params },
+      )
+      .then((r) => r.data),
+
   // Daily checks
   createDailyCheck: (data: CreateVehicleDailyCheckData) =>
     apiClient.post<VehicleDailyCheckEntry>('/fleet/daily-checks', data).then((r) => r.data),
@@ -233,8 +323,10 @@ export const fleetApi = {
 
   // Fuel logs
   createFuelLog: (data: CreateFuelLogData) => apiClient.post<FuelLogEntry>('/fleet/fuel-logs', data).then((r) => r.data),
-  getFuelLogs: (params?: { page?: number; limit?: number; vehicleId?: string; dateFrom?: string; dateTo?: string }) =>
-    apiClient.get<FleetPaginatedResult<FuelLogEntry>>('/fleet/fuel-logs', { params }).then((r) => r.data),
+  getFuelLogs: (params?: FuelLogFilters) =>
+    apiClient
+      .get<FleetPaginatedResult<FuelLogEntry> & { summary: FuelLogSummary }>('/fleet/fuel-logs', { params })
+      .then((r) => r.data),
   // Single-record fetch — used by the Expense Center detail drawer (Phase
   // 2b) to pre-fill FuelLogFormDialog's edit mode by `sourceRecordId`.
   getFuelLog: (id: string) => apiClient.get<FuelLogEntry>(`/fleet/fuel-logs/${id}`).then((r) => r.data),
@@ -255,9 +347,9 @@ export const fleetApi = {
     apiClient.patch<VehicleMaintenanceRuleEntry>(`/fleet/maintenance/rules/${id}`, data).then((r) => r.data),
   createServiceRecord: (data: CreateServiceRecordData) =>
     apiClient.post<VehicleServiceRecordEntry>('/fleet/maintenance/service-records', data).then((r) => r.data),
-  getServiceRecords: (params?: { page?: number; limit?: number; vehicleId?: string; serviceType?: VehicleServiceType }) =>
+  getServiceRecords: (params?: { page?: number; limit?: number; vehicleId?: string; serviceType?: VehicleServiceType; dateFrom?: string; dateTo?: string }) =>
     apiClient
-      .get<FleetPaginatedResult<VehicleServiceRecordEntry>>('/fleet/maintenance/service-records', { params })
+      .get<FleetPaginatedResult<VehicleServiceRecordEntry> & { summary: { count: number; totalCost: number } }>('/fleet/maintenance/service-records', { params })
       .then((r) => r.data),
   // Single-record fetch — used by the Expense Center detail drawer (Phase
   // 2b) to pre-fill ServiceRecordFormDialog's edit mode by `sourceRecordId`.

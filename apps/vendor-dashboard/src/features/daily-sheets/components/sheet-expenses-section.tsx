@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button, Card, CardContent, Badge } from '@water-supply-crm/ui';
+import Link from 'next/link';
 import { Trash2, Pencil, Receipt, Fuel, Wrench, Users, AlertTriangle, CreditCard, Snowflake, PackagePlus, Building2, Zap, FileText, Droplet, Droplets, Package, FlaskConical, Shield, Smartphone, Stamp, Bandage, Handshake, HeartHandshake, KeyRound, type LucideIcon } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
@@ -142,6 +143,21 @@ export function SheetExpensesSection({
                     {expense.description && (
                       <p className="text-xs text-muted-foreground truncate mt-0.5">{expense.description}</p>
                     )}
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      {expense.fuelLog?.vehicle && (
+                        <>
+                          <Link
+                            href={`/dashboard/fleet/${expense.fuelLog.vehicle.id}`}
+                            className="font-medium text-foreground hover:underline"
+                          >
+                            {expense.fuelLog.vehicle.plateNumber}
+                          </Link>
+                          {expense.fuelLog.odometerAtFill != null && ` · ${expense.fuelLog.odometerAtFill.toLocaleString()} km`}
+                          {' · '}
+                        </>
+                      )}
+                      Recorded by <span className="font-medium text-foreground">{expense.createdBy?.name ?? '—'}</span>
+                    </p>
                   </div>
                   <div className="text-right shrink-0">
                     <p className="font-mono font-black text-sm text-destructive">

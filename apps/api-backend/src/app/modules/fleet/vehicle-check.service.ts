@@ -10,6 +10,7 @@ import { OverrideCriticalCheckDto } from './dto/override-critical-check.dto';
 import { UpdateVehicleDailyCheckDto } from './dto/update-vehicle-daily-check.dto';
 import { VehicleCheckHistoryQueryDto } from './dto/vehicle-check-history-query.dto';
 import { normalizeChecklistResults, hasCriticalFailure } from './fleet-checklist.util';
+import { dayRange } from './fleet-period.util';
 import { paginate } from '../../common/helpers/paginate';
 
 @Injectable()
@@ -186,15 +187,10 @@ export class VehicleCheckService {
       vendorId: user.vendorId,
       vehicleDailyChecks: { some: { vehicleId } },
     };
-    if (dateFrom || dateTo) {
-      where.date = {};
-      if (dateFrom) where.date.gte = new Date(dateFrom);
-      if (dateTo) {
-        const end = new Date(dateTo);
-        end.setHours(23, 59, 59, 999);
-        where.date.lte = end;
-      }
-    }
+    // Karachi-midnight day bounds — same convention as the cost/km figures, so the
+    // meter-reading list and its summary strip always cover the same sheets.
+    const range = dayRange(dateFrom, dateTo);
+    if (range) where.date = { gte: range.from, lt: range.to };
 
     const [sheets, total] = await Promise.all([
       this.prisma.dailySheet.findMany({

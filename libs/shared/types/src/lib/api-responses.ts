@@ -453,7 +453,13 @@ export interface SheetExpense {
   dailySheetLoadId?: string | null;
   /** Set when this row was spawned by a FuelLog (FuelLogService.create) — editing must route to
    *  the FuelLog's own form (odometer lives there, not on Expense), never the generic expense dialogs. */
-  fuelLog?: { id: string } | null;
+  fuelLog?: {
+    id: string;
+    litersFilled?: number;
+    odometerAtFill?: number;
+    fuelStation?: string | null;
+    vehicle?: { id: string; plateNumber: string };
+  } | null;
 }
 
 export type CrewRole = 'DRIVER' | 'SALESMAN' | 'LOADER';
@@ -652,6 +658,11 @@ export interface FuelLogEntry {
   // paid from a specific registered FuelCard.
   fuelCardId: string | null;
   fuelCard: { id: string; name: string } | null;
+  // Sheet the fill was logged on (null for Fleet-page fills) + list-only derived figures.
+  dailySheet?: { id: string; date: string; van: { id: string; plateNumber: string } } | null;
+  pricePerLiter?: number | null;
+  kmSinceLastFill?: number | null;
+  kmPerLiter?: number | null;
   isFullTank: boolean;
   fuelStation: string | null;
   receiptPhotoKey: string | null;

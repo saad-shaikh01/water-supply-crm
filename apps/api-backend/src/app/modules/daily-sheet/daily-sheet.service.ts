@@ -2589,7 +2589,15 @@ export class DailySheetService implements OnModuleInit {
             // form (odometer field lives there, not on Expense) instead of
             // the generic Expense-correction dialog — see
             // fuel-log.service.ts's "no audit ceremony" edit path.
-            fuelLog: { select: { id: true } },
+            fuelLog: {
+              select: {
+                id: true,
+                litersFilled: true,
+                odometerAtFill: true,
+                fuelStation: true,
+                vehicle: { select: { id: true, plateNumber: true } },
+              },
+            },
           },
           orderBy: { date: 'desc' },
         },

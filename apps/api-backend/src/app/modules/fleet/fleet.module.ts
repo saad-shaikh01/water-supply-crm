@@ -12,6 +12,7 @@ import { FuelLogService } from './fuel-log.service';
 import { VehicleMaintenanceController } from './vehicle-maintenance.controller';
 import { VehicleMaintenanceService } from './vehicle-maintenance.service';
 import { VehicleServiceTypeService } from './vehicle-service-type.service';
+import { VehicleCostService } from './vehicle-cost.service';
 import { FleetDashboardController } from './fleet-dashboard.controller';
 import { FleetDashboardService } from './fleet-dashboard.service';
 import { FleetNotificationService } from './fleet-notification.service';
@@ -46,6 +47,7 @@ import { StorageModule } from '../../common/storage/storage.module';
     VehicleMaintenanceService,
     VehicleServiceTypeService,
     FleetDashboardService,
+    VehicleCostService,
     FleetNotificationService,
     FleetAlertRecipientService,
     FleetProcessor,

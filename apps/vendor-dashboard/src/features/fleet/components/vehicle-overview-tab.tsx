@@ -14,6 +14,8 @@ import { useUpdateVehicleProfile, useDeactivateVehicle, useReactivateVehicle } f
 import { useAllVans } from '../../vans/hooks/use-vans';
 import { useCan } from '../../authz/hooks/use-can';
 import { VehicleFormDialog } from './dialogs/vehicle-form-dialog';
+import { VehicleStatsSection } from './vehicle-stats-section';
+import type { FleetPeriod } from './fleet-period-picker';
 
 const FUEL_TYPES = ['PETROL', 'DIESEL', 'CNG', 'HYBRID', 'ELECTRIC'] as const;
 const OWNERSHIP_TYPES = ['OWNED', 'LEASED', 'RENTED', 'FINANCED'] as const;
@@ -22,9 +24,11 @@ const OPERATIONAL_STATUSES = ['ACTIVE', 'IN_MAINTENANCE', 'RETIRED'] as const;
 interface VehicleOverviewTabProps {
   vehicle: VehicleDetail;
   costSummary?: VehicleCostSummary;
+  period: FleetPeriod;
+  onSelectMonth: (dateFrom: string, dateTo: string) => void;
 }
 
-export function VehicleOverviewTab({ vehicle, costSummary }: VehicleOverviewTabProps) {
+export function VehicleOverviewTab({ vehicle, costSummary, period, onSelectMonth }: VehicleOverviewTabProps) {
   const canUpdate = useCan('fleet:update');
   const profile = vehicle.vehicleProfile;
   const { mutate: updateProfile, isPending } = useUpdateVehicleProfile();
@@ -155,7 +159,7 @@ export function VehicleOverviewTab({ vehicle, costSummary }: VehicleOverviewTabP
           <CardContent className="p-5 flex items-center gap-3">
             <Wallet className="h-6 w-6 text-primary" />
             <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold">Total Cost</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold">Lifetime Cost</p>
               <p className="text-xl font-black">₨{(costSummary?.totalCost ?? 0).toLocaleString()}</p>
             </div>
           </CardContent>
@@ -164,7 +168,7 @@ export function VehicleOverviewTab({ vehicle, costSummary }: VehicleOverviewTabP
           <CardContent className="p-5 flex items-center gap-3">
             <Fuel className="h-6 w-6 text-primary" />
             <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold">Fuel Average</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold">Lifetime Fuel Avg</p>
               <p className="text-xl font-black">
                 {costSummary?.fuelAvgKmPerLiter != null
                   ? `${costSummary.fuelAvgKmPerLiter.toFixed(1)} km/L`
@@ -174,6 +178,8 @@ export function VehicleOverviewTab({ vehicle, costSummary }: VehicleOverviewTabP
           </CardContent>
         </Card>
       </div>
+
+      <VehicleStatsSection vehicleId={vehicle.id} period={period} onSelectMonth={onSelectMonth} />
 
       <Card className="rounded-2xl">
         <CardHeader>

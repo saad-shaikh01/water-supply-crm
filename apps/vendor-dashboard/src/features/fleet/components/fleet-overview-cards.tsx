@@ -3,11 +3,17 @@
 import Link from 'next/link';
 import { AlertTriangle, Clock, FileWarning, Wallet } from 'lucide-react';
 import { Card, CardContent } from '@water-supply-crm/ui';
-import { useFleetOverview } from '../hooks/use-fleet';
+import { useQueryState, parseAsString } from 'nuqs';
+import { useFleetOverview, useFleetMonthTotals } from '../hooks/use-fleet';
+import { currentMonth, fmtMoney, monthLabel } from '../lib/fleet-format';
 
 /** The four headline numbers from the plan doc §14 — cost/km context lives on each vehicle's own page. */
 export function FleetOverviewCards() {
-  const { data, isLoading } = useFleetOverview();
+  const { data, isLoading: overviewLoading } = useFleetOverview();
+  // Same source as the list's totals strip, so the two numbers can never disagree.
+  const [month] = useQueryState('month', parseAsString.withDefault(currentMonth()));
+  const { data: totals, isLoading: totalsLoading } = useFleetMonthTotals(month);
+  const isLoading = overviewLoading || totalsLoading;
 
   const cards = [
     {
@@ -32,8 +38,8 @@ export function FleetOverviewCards() {
       href: '/dashboard/fleet?filter=documents',
     },
     {
-      label: 'Fleet Cost This Month',
-      value: `₨${(data?.costThisMonth ?? 0).toLocaleString()}`,
+      label: `Fleet Cost · ${monthLabel(month, 'short')}`,
+      value: fmtMoney(totals?.totalCost),
       icon: Wallet,
       tone: 'text-foreground',
       href: undefined,

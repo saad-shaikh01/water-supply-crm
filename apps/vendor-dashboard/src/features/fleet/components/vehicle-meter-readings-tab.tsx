@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   Gauge,
@@ -15,9 +15,13 @@ import {
 import { Card, CardContent, Badge, Button, Skeleton } from '@water-supply-crm/ui';
 import type { VehicleCheckHistoryEntry, VehicleDailyCheckEntry } from '@water-supply-crm/types';
 import { useVehicleCheckHistory } from '../hooks/use-vehicle-checks';
+import { useVehiclePeriodSummary } from '../hooks/use-fleet';
+import { fmtKm, fmtNum } from '../lib/fleet-format';
+import type { FleetPeriod } from './fleet-period-picker';
 
 interface VehicleMeterReadingsTabProps {
   vehicleId: string;
+  period: FleetPeriod;
 }
 
 const PAGE_SIZE = 20;
@@ -153,9 +157,16 @@ function DayCard({ entry }: { entry: VehicleCheckHistoryEntry }) {
   );
 }
 
-export function VehicleMeterReadingsTab({ vehicleId }: VehicleMeterReadingsTabProps) {
+export function VehicleMeterReadingsTab({ vehicleId, period }: VehicleMeterReadingsTabProps) {
   const [page, setPage] = useState(1);
-  const { data, isLoading, isFetching } = useVehicleCheckHistory(vehicleId, { page, limit: PAGE_SIZE });
+  useEffect(() => setPage(1), [period.dateFrom, period.dateTo]);
+  const { data, isLoading, isFetching } = useVehicleCheckHistory(vehicleId, {
+    page,
+    limit: PAGE_SIZE,
+    dateFrom: period.dateFrom,
+    dateTo: period.dateTo,
+  });
+  const { data: stats } = useVehiclePeriodSummary(vehicleId, { dateFrom: period.dateFrom, dateTo: period.dateTo });
 
   if (isLoading) {
     return (
@@ -183,6 +194,20 @@ export function VehicleMeterReadingsTab({ vehicleId }: VehicleMeterReadingsTabPr
 
   return (
     <div className="space-y-4">
+      {stats && (
+        <div className="grid grid-cols-3 gap-3 rounded-2xl border border-border/60 bg-card p-4">
+          {[
+            ['Total km', fmtKm(stats.kmDriven)],
+            ['Days on road', fmtNum(stats.daysUsed)],
+            ['Avg km / day', stats.daysUsed ? fmtKm(stats.kmDriven / stats.daysUsed) : '—'],
+          ].map(([label, value]) => (
+            <div key={label}>
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">{label}</p>
+              <p className="text-base font-bold tabular-nums">{value}</p>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="space-y-2">
         {rows.map((entry) => (
           <DayCard key={entry.dailySheetId} entry={entry} />

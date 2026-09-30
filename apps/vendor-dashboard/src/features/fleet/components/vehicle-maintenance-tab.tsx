@@ -6,6 +6,8 @@ import { Card, CardContent, Button, Badge, Skeleton, Input, Label } from '@water
 import type { VehicleMaintenanceStatusEntry } from '@water-supply-crm/types';
 import { useVehicleMaintenanceStatus, useUpdateMaintenanceRule } from '../hooks/use-maintenance';
 import { ServiceRecordFormDialog } from './dialogs/service-record-form-dialog';
+import { VehicleServiceHistory } from './vehicle-service-history';
+import type { FleetPeriod } from './fleet-period-picker';
 
 const toPositiveIntOrNull = (raw: string): number | null => {
   const n = Number.parseInt(raw, 10);
@@ -22,9 +24,10 @@ const URGENCY_STYLE: Record<string, { label: string; className: string }> = {
 interface VehicleMaintenanceTabProps {
   vehicleId: string;
   currentOdometer: number;
+  period: FleetPeriod;
 }
 
-export function VehicleMaintenanceTab({ vehicleId, currentOdometer }: VehicleMaintenanceTabProps) {
+export function VehicleMaintenanceTab({ vehicleId, currentOdometer, period }: VehicleMaintenanceTabProps) {
   const { data: statuses, isLoading } = useVehicleMaintenanceStatus(vehicleId);
   const [recordFormOpen, setRecordFormOpen] = useState(false);
   const [defaultServiceType, setDefaultServiceType] = useState<string | undefined>(undefined);
@@ -62,6 +65,8 @@ export function VehicleMaintenanceTab({ vehicleId, currentOdometer }: VehicleMai
           }} />
         ))}
       </div>
+
+      <VehicleServiceHistory vehicleId={vehicleId} period={period} />
 
       <ServiceRecordFormDialog
         vehicleId={vehicleId}

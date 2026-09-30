@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Param,
+  Query,
   BadRequestException,
   UploadedFile,
   UseInterceptors,
@@ -12,6 +13,9 @@ import { memoryStorage } from 'multer';
 import { extname } from 'path';
 import { Throttle } from '@nestjs/throttler';
 import { FleetDashboardService } from './fleet-dashboard.service';
+import { VehicleCostService } from './vehicle-cost.service';
+import { VehiclePeriodQueryDto, VehicleMonthlyReportQueryDto, VehicleOtherExpensesQueryDto } from './dto/vehicle-period-query.dto';
+import { dayRange } from './fleet-period.util';
 import { StorageService } from '../../common/storage/storage.service';
 import { RequirePermissions, RequireAnyPermission } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -23,6 +27,7 @@ const ALLOWED_PHOTO_EXTS = ['.jpg', '.jpeg', '.png', '.webp'];
 export class FleetDashboardController {
   constructor(
     private readonly dashboardService: FleetDashboardService,
+    private readonly costService: VehicleCostService,
     private readonly storage: StorageService,
   ) {}
 
@@ -66,5 +71,40 @@ export class FleetDashboardController {
   @RequirePermissions('fleet:view')
   getVehicleCostSummary(@CurrentUser() user: AuthUser, @Param('vehicleId') vehicleId: string) {
     return this.dashboardService.getVehicleCostSummary(user.vendorId, vehicleId);
+  }
+
+  /** Cost/km/efficiency for a custom date range (whole history when no range is given). */
+  @Get('vehicles/:vehicleId/period-summary')
+  @RequirePermissions('fleet:view')
+  getVehiclePeriodSummary(
+    @CurrentUser() user: AuthUser,
+    @Param('vehicleId') vehicleId: string,
+    @Query() query: VehiclePeriodQueryDto,
+  ) {
+    const range = dayRange(query.dateFrom, query.dateTo) ?? { from: new Date(0), to: new Date('9999-01-01T00:00:00Z') };
+    return this.costService.getPeriodSummary(user.vendorId, vehicleId, range);
+  }
+
+  /** One row per month (oldest first) — chart + month-wise table on the vehicle page. */
+  @Get('vehicles/:vehicleId/monthly-report')
+  @RequirePermissions('fleet:view')
+  getVehicleMonthlyReport(
+    @CurrentUser() user: AuthUser,
+    @Param('vehicleId') vehicleId: string,
+    @Query() query: VehicleMonthlyReportQueryDto,
+  ) {
+    return this.costService.getMonthlyReport(user.vendorId, vehicleId, query.months ?? 12, query.endMonth);
+  }
+
+  /** The attributed non-fuel/non-maintenance expenses behind a vehicle's Other Cost. */
+  @Get('vehicles/:vehicleId/other-expenses')
+  @RequirePermissions('fleet:view')
+  listVehicleOtherExpenses(
+    @CurrentUser() user: AuthUser,
+    @Param('vehicleId') vehicleId: string,
+    @Query() query: VehicleOtherExpensesQueryDto,
+  ) {
+    const range = dayRange(query.dateFrom, query.dateTo) ?? { from: new Date(0), to: new Date('9999-01-01T00:00:00Z') };
+    return this.costService.listOtherExpenses(user.vendorId, vehicleId, range, query.page, query.limit);
   }
 }

@@ -9,6 +9,7 @@ import { UpdateMaintenanceRuleDto } from './dto/update-maintenance-rule.dto';
 import { CreateServiceRecordDto } from './dto/create-service-record.dto';
 import { UpdateServiceRecordDto } from './dto/update-service-record.dto';
 import { ServiceRecordQueryDto } from './dto/service-record-query.dto';
+import { dayRange } from './fleet-period.util';
 import { computeMaintenanceStatus } from './fleet-maintenance.util';
 
 const serviceRecordInclude = {
@@ -225,12 +226,14 @@ export class VehicleMaintenanceService {
   }
 
   async listServiceRecords(vendorId: string, query: ServiceRecordQueryDto) {
-    const { page = 1, limit = 20, vehicleId, serviceType } = query;
+    const { page = 1, limit = 20, vehicleId, serviceType, dateFrom, dateTo } = query;
     const where: any = { vendorId };
     if (vehicleId) where.vehicleId = vehicleId;
     if (serviceType) where.serviceType = serviceType;
+    const range = dayRange(dateFrom, dateTo);
+    if (range) where.performedAtDate = { gte: range.from, lt: range.to };
 
-    const [data, total] = await Promise.all([
+    const [data, total, agg] = await Promise.all([
       this.prisma.vehicleServiceRecord.findMany({
         where,
         include: serviceRecordInclude,
@@ -239,9 +242,10 @@ export class VehicleMaintenanceService {
         take: limit,
       }),
       this.prisma.vehicleServiceRecord.count({ where }),
+      this.prisma.vehicleServiceRecord.aggregate({ where, _sum: { cost: true } }),
     ]);
 
-    return paginate(data, total, page, limit);
+    return { ...paginate(data, total, page, limit), summary: { count: total, totalCost: agg._sum.cost ?? 0 } };
   }
 
   async getServiceRecord(vendorId: string, id: string) {

@@ -1,12 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { fleetApi, type CreateFuelLogData } from '../api/fleet.api';
+import { fleetApi, type CreateFuelLogData, type FuelLogFilters } from '../api/fleet.api';
 import { queryKeys } from '../../../lib/query-keys';
+import { invalidateFleetStats } from './invalidate-fleet-stats';
 
-export const useFuelLogs = (params?: { page?: number; limit?: number; vehicleId?: string; dateFrom?: string; dateTo?: string }) =>
+export const useFuelLogs = (params?: FuelLogFilters) =>
   useQuery({
     queryKey: queryKeys.fleet.fuelLogs(params),
     queryFn: () => fleetApi.getFuelLogs(params),
+    placeholderData: (prev) => prev,
   });
 
 // Single-record fetch — used by the Expense Center detail drawer (Phase 2b)
@@ -24,6 +26,7 @@ export const useCreateFuelLog = () => {
     mutationFn: (data: CreateFuelLogData) => fleetApi.createFuelLog(data),
     onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.fuelLogs() });
+      invalidateFleetStats(queryClient);
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.overview() });
       // A fuel fill logged from a Daily Sheet also spawns a linked Expense on
       // that sheet — invalidate the sheet's own query too (same pattern as
@@ -49,6 +52,7 @@ export const useUpdateFuelLog = () => {
     mutationFn: ({ id, data }: { id: string; data: Partial<CreateFuelLogData> }) => fleetApi.updateFuelLog(id, data),
     onSuccess: (_result, { id }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.fuelLogs() });
+      invalidateFleetStats(queryClient);
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.fuelLog(id) });
       // The fuel fill also projects into Expense Center's Timeline/Summary
       // and the Van Cash Ledger's CASH_OUT rows — see useUpdateExpense's
@@ -67,6 +71,7 @@ export const useRemoveFuelLog = () => {
     mutationFn: (id: string) => fleetApi.removeFuelLog(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.fleet.fuelLogs() });
+      invalidateFleetStats(queryClient);
       queryClient.invalidateQueries({ queryKey: ['expense-center'] });
       queryClient.invalidateQueries({ queryKey: ['van-cash-ledger'] });
       toast.success('Fuel log deleted');

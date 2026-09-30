@@ -7,12 +7,15 @@ import { UpdateVehicleProfileDto } from './dto/update-vehicle-profile.dto';
 import { CreateVehicleDocumentDto } from './dto/create-vehicle-document.dto';
 import { UpdateVehicleDocumentDto } from './dto/update-vehicle-document.dto';
 import { VehicleQueryDto } from './dto/vehicle-query.dto';
+import { VehicleCostService, type VehiclePeriodStats } from './vehicle-cost.service';
+import { currentMonthKey } from './fleet-period.util';
 
 @Injectable()
 export class VehicleProfileService {
   constructor(
     private prisma: PrismaService,
     private audit: AuditService,
+    private cost: VehicleCostService,
   ) {}
 
   /**
@@ -28,6 +31,8 @@ export class VehicleProfileService {
     if (search) vehicleWhere.plateNumber = { contains: search, mode: 'insensitive' };
     if (operationalStatus) vehicleWhere.vehicleProfile = { operationalStatus };
     if (active !== undefined) vehicleWhere.isActive = active === 'true' || (active as unknown) === true;
+
+    if (query.month) return this.findAllWithPeriod(vendorId, query, vehicleWhere);
 
     const [vehicles, total] = await Promise.all([
       this.prisma.vehicle.findMany({
@@ -89,6 +94,89 @@ export class VehicleProfileService {
     }));
 
     return paginate(data, total, page, limit);
+  }
+
+  /**
+   * Fleet list page path (`?month=YYYY-MM`): the fleet is small (tens of
+   * vehicles), so stats are computed for every matching vehicle first so the
+   * page can sort by a computed column (cost, cost/km, km) server-side, then
+   * the requested page is sliced. `meta.totals` covers the whole filtered set.
+   */
+  private async findAllWithPeriod(vendorId: string, query: VehicleQueryDto, vehicleWhere: any) {
+    const { page = 1, limit = 20, month = currentMonthKey(), sortBy = 'plateNumber', sortDir } = query;
+
+    const vehicles = await this.prisma.vehicle.findMany({
+      where: vehicleWhere,
+      include: {
+        usualVan: { select: { id: true, defaultDriver: { select: { id: true, name: true } } } },
+        vehicleProfile: true,
+      },
+      orderBy: { plateNumber: 'asc' },
+    });
+    const vehicleIds = vehicles.map((v) => v.id);
+    const [stats, expiringDocs] = await Promise.all([
+      this.cost.getStatsForMonth(vendorId, vehicleIds, month),
+      this.prisma.vehicleDocument.groupBy({
+        by: ['vehicleId'],
+        where: {
+          vendorId,
+          vehicleId: { in: vehicleIds },
+          isActive: true,
+          expiryDate: { not: null, lte: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) },
+        },
+        _count: { id: true },
+      }),
+    ]);
+    const expiringByVehicle = new Map(expiringDocs.map((d) => [d.vehicleId, d._count.id]));
+
+    const rows = vehicles.map((vehicle) => {
+      const period = stats.get(vehicle.id) as VehiclePeriodStats;
+      return {
+        id: vehicle.id,
+        plateNumber: vehicle.plateNumber,
+        isActive: vehicle.isActive,
+        usualVanId: vehicle.usualVanId,
+        usualVanDefaultDriver: vehicle.usualVan?.defaultDriver ?? null,
+        profile: vehicle.vehicleProfile,
+        expiringDocumentCount: expiringByVehicle.get(vehicle.id) ?? 0,
+        costThisMonth: period.totalCost,
+        period,
+      };
+    });
+
+    const dir = (sortDir ?? (sortBy === 'plateNumber' ? 'asc' : 'desc')) === 'asc' ? 1 : -1;
+    const sortValue = (r: (typeof rows)[number]): string | number | null =>
+      sortBy === 'plateNumber' ? r.plateNumber : r.period[sortBy];
+    rows.sort((a, b) => {
+      const av = sortValue(a);
+      const bv = sortValue(b);
+      // Nulls (e.g. no km => no cost/km) always sink to the bottom.
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      return (av < bv ? -1 : av > bv ? 1 : 0) * dir;
+    });
+
+    const sum = (pick: (p: VehiclePeriodStats) => number) => rows.reduce((t, r) => t + pick(r.period), 0);
+    const totalKm = sum((p) => p.kmDriven);
+    const totalCost = sum((p) => p.totalCost);
+    const result = paginate(rows.slice((page - 1) * limit, page * limit), rows.length, page, limit);
+    return {
+      ...result,
+      meta: {
+        ...result.meta,
+        month,
+        totals: {
+          fuelCost: sum((p) => p.fuelCost),
+          fuelLiters: sum((p) => p.fuelLiters),
+          maintenanceCost: sum((p) => p.maintenanceCost),
+          otherCost: sum((p) => p.otherCost),
+          totalCost,
+          kmDriven: totalKm,
+          costPerKm: totalKm > 0 ? totalCost / totalKm : null,
+        },
+      },
+    };
   }
 
   async findOne(vendorId: string, vehicleId: string) {

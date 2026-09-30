@@ -6,11 +6,14 @@ import type { AuthUser } from '@water-supply-crm/types';
 import { CreateFuelLogDto } from './dto/create-fuel-log.dto';
 import { UpdateFuelLogDto } from './dto/update-fuel-log.dto';
 import { FuelLogQueryDto } from './dto/fuel-log-query.dto';
+import { computeFuelAvgKmPerLiter, dayRange } from './fleet-period.util';
 
 const fuelLogInclude = {
   recordedBy: { select: { id: true, name: true } },
   vehicle: { select: { id: true, plateNumber: true } },
   fuelCard: { select: { id: true, name: true } },
+  // Which trip/route sheet this fill was logged on (null for Fleet-page fills).
+  dailySheet: { select: { id: true, date: true, van: { select: { id: true, plateNumber: true } } } },
 };
 
 /**
@@ -167,31 +170,92 @@ export class FuelLogService {
   }
 
   async findAll(vendorId: string, query: FuelLogQueryDto) {
-    const { page = 1, limit = 20, vehicleId, dateFrom, dateTo } = query;
+    const { page = 1, limit = 20, vehicleId, dateFrom, dateTo, recordedById, fuelCardId, payment, tank, station } = query;
     const where: any = { vendorId };
     if (vehicleId) where.vehicleId = vehicleId;
-    if (dateFrom || dateTo) {
-      where.date = {};
-      if (dateFrom) where.date.gte = new Date(dateFrom);
-      if (dateTo) {
-        const end = new Date(dateTo);
-        end.setHours(23, 59, 59, 999);
-        where.date.lte = end;
-      }
-    }
+    if (recordedById) where.recordedById = recordedById;
+    if (fuelCardId) where.fuelCardId = fuelCardId;
+    if (payment) where.paidFromCash = payment === 'cash';
+    if (tank) where.isFullTank = tank === 'full';
+    if (station) where.fuelStation = { contains: station, mode: 'insensitive' };
+    const range = dayRange(dateFrom, dateTo);
+    if (range) where.date = { gte: range.from, lt: range.to };
 
-    const [data, total] = await Promise.all([
+    const [data, total, agg] = await Promise.all([
       this.prisma.fuelLog.findMany({
         where,
         include: fuelLogInclude,
-        orderBy: { date: 'desc' },
+        orderBy: [{ date: 'desc' }, { odometerAtFill: 'desc' }],
         skip: (page - 1) * limit,
         take: limit,
       }),
       this.prisma.fuelLog.count({ where }),
+      this.prisma.fuelLog.aggregate({ where, _sum: { amountPaid: true, litersFilled: true } }),
     ]);
 
-    return paginate(data, total, page, limit);
+    const totalCost = agg._sum.amountPaid ?? 0;
+    const totalLiters = agg._sum.litersFilled ?? 0;
+
+    // Whole-history fills (any filter dropped) for the vehicles on this page —
+    // efficiency needs the fill BEFORE the first row shown, which a filtered or
+    // paginated query would cut off. Small: one vehicle's fills are hundreds.
+    const vehicleIds = [...new Set(data.map((l) => l.vehicleId))];
+    const history = vehicleIds.length
+      ? await this.prisma.fuelLog.findMany({
+          where: { vendorId, vehicleId: { in: vehicleIds } },
+          select: { id: true, vehicleId: true, odometerAtFill: true, litersFilled: true, isFullTank: true },
+          orderBy: { odometerAtFill: 'asc' },
+        })
+      : [];
+    const byVehicle = new Map<string, typeof history>();
+    for (const h of history) byVehicle.set(h.vehicleId, [...(byVehicle.get(h.vehicleId) ?? []), h]);
+
+    const enriched = data.map((log) => {
+      const seq = byVehicle.get(log.vehicleId) ?? [];
+      const idx = seq.findIndex((h) => h.id === log.id);
+      const prev = idx > 0 ? seq[idx - 1] : null;
+      let kmPerLiter: number | null = null;
+      if (log.isFullTank && idx > 0) {
+        // Full-to-full: litres burned since the previous FULL fill = every fill after it, up to this one.
+        let prevFullIdx = -1;
+        for (let i = idx - 1; i >= 0; i--) {
+          if (seq[i].isFullTank) { prevFullIdx = i; break; }
+        }
+        if (prevFullIdx >= 0) {
+          const km = log.odometerAtFill - seq[prevFullIdx].odometerAtFill;
+          const liters = seq.slice(prevFullIdx + 1, idx + 1).reduce((t, h) => t + h.litersFilled, 0);
+          if (km > 0 && liters > 0) kmPerLiter = km / liters;
+        }
+      }
+      return {
+        ...log,
+        pricePerLiter: log.litersFilled > 0 ? log.amountPaid / log.litersFilled : null,
+        kmSinceLastFill: prev ? log.odometerAtFill - prev.odometerAtFill : null,
+        kmPerLiter,
+      };
+    });
+
+    // Period km/L only makes sense for a single vehicle's fills.
+    let avgKmPerLiter: number | null = null;
+    if (vehicleId) {
+      const logs = await this.prisma.fuelLog.findMany({
+        where,
+        select: { odometerAtFill: true, litersFilled: true, isFullTank: true },
+        orderBy: { odometerAtFill: 'asc' },
+      });
+      avgKmPerLiter = computeFuelAvgKmPerLiter(logs);
+    }
+
+    return {
+      ...paginate(enriched, total, page, limit),
+      summary: {
+        fills: total,
+        totalCost,
+        totalLiters,
+        avgPricePerLiter: totalLiters > 0 ? totalCost / totalLiters : null,
+        avgKmPerLiter,
+      },
+    };
   }
 
   async findOne(vendorId: string, id: string) {

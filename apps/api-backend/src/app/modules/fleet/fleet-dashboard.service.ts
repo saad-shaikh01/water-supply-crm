@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import { VehicleMaintenanceService } from './vehicle-maintenance.service';
+import { computeFuelAvgKmPerLiter } from './fleet-period.util';
 
 /**
  * §17 Amendment (2026-08-21): vehicle-specific rollups (odometer, fuel
@@ -103,45 +104,7 @@ export class FleetDashboardService {
       maintenanceServiceCount: serviceAgg._count.id,
       currentOdometer,
       costPerKm: currentOdometer > 0 ? totalCost / currentOdometer : null,
-      fuelAvgKmPerLiter: this.computeFuelAvgKmPerLiter(fuelLogs),
+      fuelAvgKmPerLiter: computeFuelAvgKmPerLiter(fuelLogs),
     };
-  }
-
-  /**
-   * Real-world fuel efficiency in km per litre, computed by the
-   * "full-to-full" method: distance between the first and last full-tank
-   * fill, divided by every litre put in *after* that first full tank (those
-   * litres are exactly what was burned to cover that distance).
-   *
-   * Falls back to a first-fill-to-last-fill estimate (total litres minus the
-   * first fill) when there are fewer than two full-tank fills but at least
-   * two fills overall. Returns null when there isn't enough data or the
-   * numbers don't make sense (odometer went backwards, zero litres).
-   */
-  private computeFuelAvgKmPerLiter(
-    logs: { odometerAtFill: number; litersFilled: number; isFullTank: boolean }[],
-  ): number | null {
-    if (logs.length < 2) return null;
-
-    const fullIdx = logs.reduce<number[]>((acc, l, i) => (l.isFullTank ? [...acc, i] : acc), []);
-
-    let startIdx: number;
-    let endIdx: number;
-    let liters: number;
-
-    if (fullIdx.length >= 2) {
-      startIdx = fullIdx[0];
-      endIdx = fullIdx[fullIdx.length - 1];
-      liters = logs.slice(startIdx + 1, endIdx + 1).reduce((s, l) => s + l.litersFilled, 0);
-    } else {
-      startIdx = 0;
-      endIdx = logs.length - 1;
-      liters = logs.slice(1).reduce((s, l) => s + l.litersFilled, 0);
-    }
-
-    const distance = logs[endIdx].odometerAtFill - logs[startIdx].odometerAtFill;
-    if (distance <= 0 || liters <= 0) return null;
-
-    return distance / liters;
   }
 }

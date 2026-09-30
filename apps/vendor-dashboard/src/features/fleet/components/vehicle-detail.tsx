@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { Loader2, Truck } from 'lucide-react';
 import { Badge, Tabs, TabsContent, TabsList, TabsTrigger } from '@water-supply-crm/ui';
 import { useVehicle, useVehicleCostSummary } from '../hooks/use-fleet';
@@ -8,6 +9,8 @@ import { VehicleDocumentsTab } from './vehicle-documents-tab';
 import { VehicleMaintenanceTab } from './vehicle-maintenance-tab';
 import { VehicleFuelTab } from './vehicle-fuel-tab';
 import { VehicleMeterReadingsTab } from './vehicle-meter-readings-tab';
+import { VehicleOtherCostsTab } from './vehicle-other-costs-tab';
+import { FleetPeriodPicker, periodFromPreset, type FleetPeriod } from './fleet-period-picker';
 
 interface VehicleDetailProps {
   // §17 Amendment (2026-08-21): Fleet's detail page is keyed by the physical
@@ -21,6 +24,8 @@ interface VehicleDetailProps {
 export function VehicleDetail({ vehicleId }: VehicleDetailProps) {
   const { data: vehicle, isLoading } = useVehicle(vehicleId);
   const { data: costSummary } = useVehicleCostSummary(vehicleId);
+  // One period drives the stats, fuel, maintenance, other-cost and meter tabs together.
+  const [period, setPeriod] = useState<FleetPeriod>(() => periodFromPreset('this-month'));
 
   if (isLoading || !vehicle) {
     return (
@@ -33,6 +38,7 @@ export function VehicleDetail({ vehicleId }: VehicleDetailProps) {
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
       <div className="flex items-center gap-3">
         <div className="h-12 w-12 rounded-2xl bg-primary/10 flex items-center justify-center">
           <Truck className="h-6 w-6 text-primary" />
@@ -47,6 +53,8 @@ export function VehicleDetail({ vehicleId }: VehicleDetailProps) {
           </p>
         </div>
       </div>
+      <FleetPeriodPicker value={period} onChange={setPeriod} />
+      </div>
 
       <Tabs defaultValue="overview" className="w-full">
         <TabsList className="rounded-xl">
@@ -54,23 +62,32 @@ export function VehicleDetail({ vehicleId }: VehicleDetailProps) {
           <TabsTrigger value="documents">Documents</TabsTrigger>
           <TabsTrigger value="maintenance">Maintenance</TabsTrigger>
           <TabsTrigger value="fuel">Fuel</TabsTrigger>
+          <TabsTrigger value="other-costs">Other Costs</TabsTrigger>
           <TabsTrigger value="meter-readings">Meter Readings</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-4">
-          <VehicleOverviewTab vehicle={vehicle} costSummary={costSummary} />
+          <VehicleOverviewTab
+            vehicle={vehicle}
+            costSummary={costSummary}
+            period={period}
+            onSelectMonth={(dateFrom, dateTo) => setPeriod({ preset: 'custom', dateFrom, dateTo })}
+          />
         </TabsContent>
         <TabsContent value="documents" className="mt-4">
           <VehicleDocumentsTab vehicleId={vehicleId} documents={vehicle.vehicleDocuments} />
         </TabsContent>
         <TabsContent value="maintenance" className="mt-4">
-          <VehicleMaintenanceTab vehicleId={vehicleId} currentOdometer={vehicle.vehicleProfile?.currentOdometer ?? 0} />
+          <VehicleMaintenanceTab vehicleId={vehicleId} currentOdometer={vehicle.vehicleProfile?.currentOdometer ?? 0} period={period} />
         </TabsContent>
         <TabsContent value="fuel" className="mt-4">
-          <VehicleFuelTab vehicleId={vehicleId} />
+          <VehicleFuelTab vehicleId={vehicleId} period={period} />
+        </TabsContent>
+        <TabsContent value="other-costs" className="mt-4">
+          <VehicleOtherCostsTab vehicleId={vehicleId} period={period} />
         </TabsContent>
         <TabsContent value="meter-readings" className="mt-4">
-          <VehicleMeterReadingsTab vehicleId={vehicleId} />
+          <VehicleMeterReadingsTab vehicleId={vehicleId} period={period} />
         </TabsContent>
       </Tabs>
     </div>
