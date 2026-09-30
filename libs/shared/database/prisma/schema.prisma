@@ -1849,6 +1849,11 @@ model NotificationLog {
   queuedAt         DateTime
   sentAt           DateTime?
   failedAt         DateTime?
+  // Retry support: the queue job that produced this row (name + data), captured
+  // for FAILED WhatsApp sends so they can be re-queued. Null on older rows.
+  jobName          String?
+  payload          Json?
+  retriedAt        DateTime?
   createdAt        DateTime  @default(now())
 
   @@index([channel, status])

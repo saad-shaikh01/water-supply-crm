@@ -9,7 +9,7 @@ import {
 import type { CrewCashCategory } from '@water-supply-crm/types';
 import { pktToday } from '../../../lib/date-pkt';
 import { useEligibleEmployees } from '../../payroll/hooks/use-eligible-employees';
-import { CREW_CASH_CATEGORIES, CREW_CASH_CATEGORY_CONFIG } from '../../crew-cash/constants';
+import { CREW_CASH_CATEGORIES, CREW_CASH_CATEGORY_CONFIG, selectableCrewCashCategories } from '../../crew-cash/constants';
 import { useUpdateStandaloneCrewCash } from '../../crew-cash/hooks/use-crew-cash';
 import type { UpdateStandaloneCrewCashData } from '../../crew-cash/api/crew-cash.api';
 import type { CashLedgerRow } from '../api/van-cash-ledger.api';
@@ -203,7 +203,7 @@ export function EditStandaloneCrewCashDialog({
                 <SelectValue placeholder="Select category" />
               </SelectTrigger>
               <SelectContent>
-                {CREW_CASH_CATEGORIES.map((cat) => (
+                {selectableCrewCashCategories(row.category).map((cat) => (
                   <SelectItem key={cat} value={cat}>{CREW_CASH_CATEGORY_CONFIG[cat].label}</SelectItem>
                 ))}
               </SelectContent>

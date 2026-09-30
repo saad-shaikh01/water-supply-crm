@@ -193,6 +193,10 @@ export class NotificationProcessor extends WorkerHost {
           queuedAt,
           sentAt: status === 'SENT' ? now : null,
           failedAt: status === 'FAILED' ? now : null,
+          // Kept only for failed WhatsApp sends so they can be retried from the log page.
+          ...(status === 'FAILED' && channel === 'WHATSAPP'
+            ? { jobName: job.name, payload: job.data ?? undefined }
+            : {}),
         },
       })
       .catch((e) =>

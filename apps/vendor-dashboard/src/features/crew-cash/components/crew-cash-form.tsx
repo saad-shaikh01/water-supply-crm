@@ -8,7 +8,7 @@ import {
 import { cn } from '@water-supply-crm/ui';
 import { Loader2, Wallet } from 'lucide-react';
 import type { CrewCashEntry } from '@water-supply-crm/types';
-import { CREW_CASH_CATEGORIES, CREW_CASH_CATEGORY_CONFIG } from '../constants';
+import { CREW_CASH_CATEGORY_CONFIG, selectableCrewCashCategories } from '../constants';
 import { useCreateCrewCash, useUpdateCrewCash } from '../hooks/use-crew-cash';
 
 export interface CrewCashEmployeeOption {
@@ -150,7 +150,7 @@ export function CrewCashForm({ open, onOpenChange, sheetId, employees, entry }: 
               Category <span className="text-destructive">*</span>
             </Label>
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-              {CREW_CASH_CATEGORIES.map((cat) => {
+              {selectableCrewCashCategories(entry?.category).map((cat) => {
                 const cfg = CREW_CASH_CATEGORY_CONFIG[cat];
                 const Icon = cfg.icon;
                 const selected = form.category === cat;

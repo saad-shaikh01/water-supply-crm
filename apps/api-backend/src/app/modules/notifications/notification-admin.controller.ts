@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { NotificationLogService } from './notification-log.service';
 import { NotificationLogQueryDto } from './dto/notification-log-query.dto';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
@@ -17,6 +17,26 @@ export class NotificationAdminController {
   @Get('logs')
   findLogs(@CurrentUser() user: AuthUser, @Query() query: NotificationLogQueryDto) {
     return this.logService.findLogs(user.vendorId, query);
+  }
+
+  /**
+   * GET /notifications/logs/summary
+   * Sent/Failed/Skipped + type + error-category counts for the same filters.
+   * Declared before `logs/:id` so it is not shadowed.
+   */
+  @Get('logs/summary')
+  summary(@CurrentUser() user: AuthUser, @Query() query: NotificationLogQueryDto) {
+    return this.logService.summary(user.vendorId, query);
+  }
+
+  /**
+   * POST /notifications/logs/:id/retry
+   * Re-queue a failed WhatsApp send.
+   */
+  @Post('logs/:id/retry')
+  @RequirePermissions('notifications:configure')
+  retry(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.logService.retry(user.vendorId, id);
   }
 
   /**

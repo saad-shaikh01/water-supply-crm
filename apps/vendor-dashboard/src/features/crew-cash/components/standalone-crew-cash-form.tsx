@@ -9,7 +9,7 @@ import { cn } from '@water-supply-crm/ui';
 import { Loader2, Wallet } from 'lucide-react';
 import type { CrewCashCategory } from '@water-supply-crm/types';
 import { useEligibleEmployees } from '../../payroll/hooks/use-eligible-employees';
-import { CREW_CASH_CATEGORIES, CREW_CASH_CATEGORY_CONFIG } from '../constants';
+import { CREW_CASH_SELECTABLE_CATEGORIES, CREW_CASH_CATEGORY_CONFIG } from '../constants';
 import { useCreateStandaloneCrewCash } from '../hooks/use-crew-cash';
 
 function todayIso() {
@@ -111,7 +111,7 @@ export function StandaloneCrewCashForm({ open, onOpenChange }: StandaloneCrewCas
               Category <span className="text-destructive">*</span>
             </Label>
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-              {CREW_CASH_CATEGORIES.map((cat) => {
+              {CREW_CASH_SELECTABLE_CATEGORIES.map((cat) => {
                 const cfg = CREW_CASH_CATEGORY_CONFIG[cat];
                 const Icon = cfg.icon;
                 const selected = form.category === cat;
