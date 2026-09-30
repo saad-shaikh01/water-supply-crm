@@ -202,6 +202,8 @@ export interface DeactivateBlockedError {
   financialBalance: number;
   /** non-empty when a bottle write-off is one of the blockers. */
   outstandingBottles: Array<{ product: string; balance: number }>;
+  /** Customer Deposits — Closure Settlement (owner-requested 2026-09-29): non-empty when a held deposit is one of the blockers. */
+  outstandingDeposits: Array<{ id: string; type: 'CASH' | 'BOTTLE'; productId: string | null; productName: string | null; balance: number }>;
 }
 
 export const isDeactivateBlockedError = (e: unknown): DeactivateBlockedError | null => {
@@ -222,12 +224,14 @@ export const useDeactivateCustomer = () => {
         const wrote: string[] = [];
         const off = Number(res?.data?.writtenOff ?? 0);
         const btl = (res?.data?.bottlesWrittenOff ?? []) as Array<{ balance: number }>;
+        const deposits = (res?.data?.depositsWrittenOff ?? []) as Array<{ balance: number }>;
         if (off > 0) wrote.push(`₨${off.toLocaleString()}`);
         const btlTotal = btl.reduce((s, b) => s + Number(b.balance ?? 0), 0);
         if (btlTotal !== 0) wrote.push(`${btlTotal} bottle${btlTotal === 1 ? '' : 's'}`);
-        base = wrote.length
-          ? `Customer force-deactivated — ${wrote.join(' + ')} written off as company loss`
-          : 'Customer force-deactivated';
+        if (deposits.length > 0) wrote.push(`${deposits.length} deposit${deposits.length === 1 ? '' : 's'}`);
+        // Not always a "company loss" — a CASH deposit write-off is the
+        // company keeping the customer's money, the opposite direction.
+        base = wrote.length ? `Customer force-deactivated — ${wrote.join(' + ')} written off` : 'Customer force-deactivated';
       }
       toast.success(cancelled > 0 ? `${base}. ${cancelled} pending deliver${cancelled === 1 ? 'y' : 'ies'} cancelled` : base);
     },
@@ -421,6 +425,7 @@ export interface BulkDeactivateResult {
   forceDeactivatedCount: number;
   writtenOff: number;
   bottlesWrittenOff: number;
+  depositsWrittenOff: number;
   cancelledDeliveries: number;
   skippedCount: number;
   skipped: Array<{ customerId: string; name: string; reason: string }>;
@@ -439,8 +444,11 @@ export const useBulkDeactivateCustomers = () => {
       const writeOffBits: string[] = [];
       if (result.writtenOff > 0) writeOffBits.push(`₨${result.writtenOff.toLocaleString()}`);
       if (result.bottlesWrittenOff > 0) writeOffBits.push(`${result.bottlesWrittenOff} bottle line${result.bottlesWrittenOff === 1 ? '' : 's'}`);
+      if (result.depositsWrittenOff > 0) writeOffBits.push(`${result.depositsWrittenOff} deposit${result.depositsWrittenOff === 1 ? '' : 's'}`);
+      // Not always a "company loss" — a CASH deposit write-off is the
+      // company keeping the customer's money, the opposite direction.
       const writeOffSuffix = writeOffBits.length
-        ? ` · ${writeOffBits.join(' + ')} written off as company loss (${result.forceDeactivatedCount} force-deactivated)`
+        ? ` · ${writeOffBits.join(' + ')} written off (${result.forceDeactivatedCount} force-deactivated)`
         : '';
       if (result.deactivatedCount === 0) {
         toast.error(`No customers deactivated — all ${result.skippedCount} skipped (outstanding bottles or balance)`);

@@ -4260,11 +4260,16 @@ model CustomerFinancialAdjustmentGroup {
 // Customer Deposits (owner-requested 2026-09-29) — an optional, per-customer
 // refundable security deposit, deliberately kept separate from
 // CustomerFinancialAdjustment/Customer.financialBalance: a deposit is a held
-// liability/collateral, never a charge or credit against what the customer
-// owes for goods/services. Two kinds:
-//   CASH   — a Rs. amount held, refundable in cash.
-//   BOTTLE — extra bottles held as collateral, count-only, no cash value
-//            (per-product, mirrors BottleWallet).
+// liability, never a charge or credit against what the customer owes for
+// goods/services. SAME direction for both kinds — the CUSTOMER hands
+// something of value TO THE COMPANY as security, and the company owes it
+// back:
+//   CASH   — a Rs. amount the company holds, refundable in cash.
+//   BOTTLE — bottles the CUSTOMER OWNS, handed to the company as security
+//            (count-only, no cash value; per-product — which size/type was
+//            deposited). This is the opposite direction from BottleWallet
+//            (the company's OWN circulating stock sitting at the customer's
+//            premises) — never touches it.
 // Gated vendor-wide by Vendor.depositsEnabled so vendors who never use
 // deposits see no trace of this feature.
 enum DepositType {
@@ -4273,15 +4278,20 @@ enum DepositType {
 }
 
 enum DepositEntryDirection {
-  COLLECT // deposit taken from the customer (cash in / bottles out to customer)
-  REFUND // deposit given back to the customer (cash out / bottles back to stock)
-  WRITE_OFF // balance closed out without a matching cash/bottle movement
-  // (e.g. customer left without returning deposit bottles) — a COMPANY loss.
+  COLLECT // deposit taken FROM the customer (cash in / their bottles in) — the company now holds it
+  REFUND // deposit given back TO the customer (cash out / their bottles back)
+  WRITE_OFF // balance closed out without a matching cash/bottle movement — the
+  // company KEEPS what was deposited (e.g. customer left without claiming a
+  // refund). Same direction for CASH and BOTTLE: the CUSTOMER forfeits it: the
+  // company already held it, so nothing leaves the company — never a company
+  // loss (that would require the company to have given something of its own
+  // away, which a deposit never does).
   // Customer Deposits — Closure Settlement (owner-requested 2026-09-29): CASH only.
   // The held deposit is returned to the customer as a CREDIT against what they
   // owe (Customer.financialBalance), not as physical cash — no Cash Ledger
   // movement (see CustomerDepositsService.applyToBalance). Distinct from
-  // WRITE_OFF: the customer benefits here; WRITE_OFF is a company loss.
+  // WRITE_OFF: the customer still benefits here (their bill drops); WRITE_OFF
+  // is a pure forfeiture with no benefit to the customer at all.
   APPLIED_TO_BALANCE
 }
 

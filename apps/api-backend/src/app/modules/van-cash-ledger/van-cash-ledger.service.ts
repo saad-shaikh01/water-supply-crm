@@ -286,24 +286,34 @@ const sourceWhere = {
     ...(range && { date: range }),
   }),
   /**
-   * DEPOSIT_CASH_IN / DEPOSIT_REFUND_OUT — OFFICE-source CASH-type
-   * CustomerDepositEntry rows only. A driver's in-delivery collection
-   * (source=DELIVERY) is already folded into that sheet's SHEET_CASH_IN hand-in
-   * total (sheet-cash.util.ts), so it's excluded here to avoid double-counting.
-   * BOTTLE-type entries never touch the Cash Ledger (no cash value). Vendor-wide
-   * — excluded from a van-scoped view, same as remittances/fuel cards/crew cash.
+   * DEPOSIT_CASH_IN / DEPOSIT_REFUND_OUT — CASH-type CustomerDepositEntry
+   * rows, both sources. Deliberately NOT folded into SHEET_CASH_IN (see
+   * cash-ledger-buckets.ts's class doc) — a deposit is a liability, not
+   * revenue, and SHEET_CASH_IN/DailySheet.cashExpected also feed Analytics'
+   * "Collected Cash". BOTTLE-type entries never touch the Cash Ledger (no
+   * cash value).
+   *
+   * Van-scoping differs by source: an OFFICE entry is vendor-wide (no van
+   * attribution, like a manual cash-in), so a van-scoped view excludes it
+   * entirely — same treatment as remittances/fuel cards/crew cash. A DELIVERY
+   * entry IS attributable to the van whose driver collected it (via
+   * dailySheetItem -> dailySheet.vanId), so a van-scoped view includes ONLY
+   * those, scoped to that van; the vendor-wide view includes both sources.
    */
   depositEntry: (
     vendorId: string,
+    vanId: string | undefined,
     direction: 'COLLECT' | 'REFUND',
     statuses: ('POSTED' | 'VOIDED')[],
     range?: DateRange,
   ): Prisma.CustomerDepositEntryWhereInput => ({
     vendorId,
-    source: 'OFFICE',
     direction,
     status: { in: statuses },
     deposit: { type: 'CASH' },
+    ...(vanId
+      ? { source: 'DELIVERY' as const, dailySheetItem: { dailySheet: { vanId } } }
+      : {}),
     ...(range && { effectiveDate: range }),
   }),
 };
@@ -2217,28 +2227,31 @@ export class VanCashLedgerService {
             },
             orderBy: { date: 'asc' },
           }),
-      // Customer Deposits — vendor-wide, same treatment as remittances/fuel
-      // cards/crew cash above. Both directions in one query (distinguished by
-      // `direction` when building rows); VOIDED rows are still fetched for the
-      // audit trail (fold in as amount 0).
-      vanId
-        ? Promise.resolve([])
-        : this.prisma.customerDepositEntry.findMany({
-            where: {
-              vendorId,
-              source: 'OFFICE',
-              direction: { in: ['COLLECT', 'REFUND'] },
-              status: { in: ['POSTED', 'VOIDED'] },
-              deposit: { type: 'CASH' },
-              ...(dateFilter && { effectiveDate: dateFilter }),
-            },
-            include: {
-              deposit: { select: { customerId: true, customer: { select: { name: true } } } },
-              createdBy: { select: { name: true } },
-              voidedBy: { select: { name: true } },
-            },
-            orderBy: { effectiveDate: 'asc' },
-          }),
+      // Customer Deposits — runs for BOTH scopes (unlike the vendor-wide-only
+      // sources above): a DELIVERY-source entry IS van-attributable (see
+      // sourceWhere.depositEntry's doc comment), so a van-scoped view gets its
+      // own van-filtered query rather than skipping entirely. Both directions
+      // in one query (distinguished by `direction` when building rows);
+      // VOIDED rows are still fetched for the audit trail (fold in as amount 0).
+      this.prisma.customerDepositEntry.findMany({
+        where: {
+          vendorId,
+          direction: { in: ['COLLECT', 'REFUND'] },
+          status: { in: ['POSTED', 'VOIDED'] },
+          deposit: { type: 'CASH' },
+          ...(vanId ? { source: 'DELIVERY' as const, dailySheetItem: { dailySheet: { vanId } } } : {}),
+          ...(dateFilter && { effectiveDate: dateFilter }),
+        },
+        include: {
+          deposit: { select: { customerId: true, customer: { select: { name: true } } } },
+          createdBy: { select: { name: true } },
+          voidedBy: { select: { name: true } },
+          // DELIVERY-source rows only — which van the collecting driver was
+          // on, so the timeline can show/scope it like any other van row.
+          dailySheetItem: { select: { dailySheet: { select: { vanId: true, van: { select: { plateNumber: true } } } } } },
+        },
+        orderBy: { effectiveDate: 'asc' },
+      }),
     ]);
 
     const merged: VanCashLedgerRow[] = [...openingRows];
@@ -2792,18 +2805,18 @@ export class VanCashLedgerService {
             where: sourceWhere.standaloneCrewCash(vendorId, [StandaloneCrewCashStatus.ACTIVE], range),
             _sum: { amount: true },
           }),
-      vanId
-        ? null
-        : this.prisma.customerDepositEntry.aggregate({
-            where: sourceWhere.depositEntry(vendorId, 'COLLECT', ['POSTED'], range),
-            _sum: { amount: true },
-          }),
-      vanId
-        ? null
-        : this.prisma.customerDepositEntry.aggregate({
-            where: sourceWhere.depositEntry(vendorId, 'REFUND', ['POSTED'], range),
-            _sum: { amount: true },
-          }),
+      // Deposit aggregates run for BOTH scopes (unlike the vendor-wide-only
+      // sources above) — see sourceWhere.depositEntry's doc comment: a
+      // DELIVERY-source entry IS van-attributable, so a van-scoped view still
+      // needs its own (van-filtered) query rather than skipping entirely.
+      this.prisma.customerDepositEntry.aggregate({
+        where: sourceWhere.depositEntry(vendorId, vanId, 'COLLECT', ['POSTED'], range),
+        _sum: { amount: true },
+      }),
+      this.prisma.customerDepositEntry.aggregate({
+        where: sourceWhere.depositEntry(vendorId, vanId, 'REFUND', ['POSTED'], range),
+        _sum: { amount: true },
+      }),
     ]);
 
     const totals = emptyBucketTotals();
@@ -3240,7 +3253,10 @@ export class VanCashLedgerService {
   private normalizeDepositRow(
     row: {
       id: string;
-      direction: 'COLLECT' | 'REFUND' | 'WRITE_OFF';
+      // The `where` filter guarantees only COLLECT/REFUND ever reach here —
+      // widened to the full enum since that's what Prisma's inferred type is.
+      direction: 'COLLECT' | 'REFUND' | 'WRITE_OFF' | 'APPLIED_TO_BALANCE';
+      source: 'OFFICE' | 'DELIVERY';
       amount: number;
       status: 'POSTED' | 'VOIDED';
       effectiveDate: Date;
@@ -3253,6 +3269,7 @@ export class VanCashLedgerService {
       deposit: { customerId: string; customer: { name: string } };
       createdBy: { name: string } | null;
       voidedBy: { name: string } | null;
+      dailySheetItem: { dailySheet: { vanId: string; van: { plateNumber: string } } } | null;
     },
   ): VanCashLedgerRow {
     const isVoided = row.status === 'VOIDED';
@@ -3261,6 +3278,7 @@ export class VanCashLedgerService {
     const type: VanCashLedgerRowType = isRefund ? 'DEPOSIT_REFUND_OUT' : 'DEPOSIT_CASH_IN';
     const customerName = row.deposit.customer.name;
     const date = row.effectiveDate.toISOString();
+    const van = row.dailySheetItem?.dailySheet;
     return {
       ...rowV2(bucket, row.createdAt, date, {
         recordedByName: row.createdBy?.name ?? null,
@@ -3280,11 +3298,13 @@ export class VanCashLedgerService {
       displayAmount: row.amount,
       runningBalance: 0,
       title: isRefund ? `Deposit Refund — ${customerName}` : `Customer Deposit — ${customerName}`,
-      vanId: null,
-      vanPlateNumber: null,
+      vanId: van?.vanId ?? null,
+      vanPlateNumber: van?.van.plateNumber ?? null,
       sourceType: 'CUSTOMER_DEPOSIT_ENTRY',
       sourceRecordId: row.id,
-      sourceBadge: 'Deposit',
+      // Distinguishes an office-counter collection from one a driver took at
+      // the doorstep — both now share the same two bucket rows above.
+      sourceBadge: row.source === 'DELIVERY' ? 'Deposit (Delivery)' : 'Deposit (Office)',
       status: null,
       dailySheetId: null,
       submittedByName: row.createdBy?.name ?? null,

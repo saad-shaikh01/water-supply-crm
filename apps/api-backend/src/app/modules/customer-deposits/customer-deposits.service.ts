@@ -782,7 +782,18 @@ export class CustomerDepositsService {
     return { entry: voided, reversal, deposit: updatedDeposit };
   }
 
-  /** Find-or-create the (customerId, type, productId) deposit row, tx-scoped for atomicity with the first entry. */
+  /**
+   * Find-or-create the (customerId, type, productId) deposit row, tx-scoped
+   * for atomicity with the first entry.
+   *
+   * Deliberately `findFirst`, not `findUnique`: Prisma's generated
+   * `WhereUniqueInput` for a compound `@@unique` that includes a nullable
+   * column (`productId`, null for every CASH deposit) requires that column to
+   * be a defined string — passing `null` throws PrismaClientValidationError
+   * ("Argument `productId` must not be null") even though the column and the
+   * DB constraint both allow it. `findFirst` takes a plain `WhereInput`, which
+   * has no such restriction.
+   */
   private async getOrCreateDepositTx(
     tx: Prisma.TransactionClient,
     vendorId: string,
@@ -790,14 +801,24 @@ export class CustomerDepositsService {
     type: DepositType,
     productId?: string,
   ): Promise<CustomerDeposit> {
-    const existing = await tx.customerDeposit.findUnique({
-      where: { customerId_type_productId: { customerId, type, productId: productId ?? null } },
-    });
+    const where = { customerId, type, productId: productId ?? null };
+    const existing = await tx.customerDeposit.findFirst({ where });
     if (existing) return existing;
 
-    return tx.customerDeposit.create({
-      data: { vendorId, customerId, type, productId },
-    });
+    try {
+      return await tx.customerDeposit.create({
+        data: { vendorId, customerId, type, productId },
+      });
+    } catch (err) {
+      // Two concurrent first-ever collections for the same (customer, type,
+      // product) raced: the loser's insert hit the @@unique constraint. Whoever
+      // lost just reads what the winner created — same DB row either way.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        const winner = await tx.customerDeposit.findFirst({ where });
+        if (winner) return winner;
+      }
+      throw err;
+    }
   }
 
   private async assertDepositsEnabled(vendorId: string): Promise<void> {

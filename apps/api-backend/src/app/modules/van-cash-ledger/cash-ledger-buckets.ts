@@ -5,25 +5,31 @@ import { LedgerEntryStatus, SettlementMethod, StaffLedgerCategory } from '@prism
  * (Cash Ledger redesign, Phase P0; DEPOSIT_CASH_IN/DEPOSIT_REFUND_OUT added
  * for Customer Deposits, owner-requested 2026-09-29).
  *
- *   Cash IN   : SHEET_CASH_IN     — APPROVED VanCashHandover (final amount)
+ *   Cash IN   : SHEET_CASH_IN     — APPROVED VanCashHandover (final amount; REVENUE ONLY —
+ *                                    never includes deposit cash, see sheet-cash.util.ts)
  *               OFFICE_CASH_IN    — VanCashOpeningBalance manual entries
- *               DEPOSIT_CASH_IN   — CustomerDepositEntry COLLECT, source=OFFICE, type=CASH
+ *               DEPOSIT_CASH_IN   — CustomerDepositEntry COLLECT, type=CASH (both
+ *                                    source=OFFICE and source=DELIVERY — a driver's
+ *                                    in-delivery collection gets its own row here too)
  *   Expenses  : OFFICE_EXPENSE    — direct cash Expense (dailySheetId null, paidFromCash)
  *               PAYROLL_CASH      — ADVANCE debits that moved cash + CASH settlements
  *               CREW_CASH         — StandaloneCrewCashExpense (ACTIVE)
  *   Transfers : OWNER_TRANSFER    — OfficeCashRemittance (NOT an expense)
  *               FUEL_CARD         — FuelCardTopUp        (NOT an expense)
- *               DEPOSIT_REFUND_OUT — CustomerDepositEntry REFUND, source=OFFICE, type=CASH
+ *               DEPOSIT_REFUND_OUT — CustomerDepositEntry REFUND, type=CASH (both sources)
  *                                    (NOT an expense — returns a held liability, not a cost)
  *
  * Total Expenses = OFFICE_EXPENSE + PAYROLL_CASH + CREW_CASH. The transfer
  * buckets leave the office cash pool but are not costs.
  *
- * A driver's in-delivery deposit collection (source=DELIVERY) is deliberately
- * NOT its own bucket row here — it's folded into that sheet's SHEET_CASH_IN
- * hand-in total (see sheet-cash.util.ts's buildReconciliation), reported as a
- * separate breakdown line there rather than double-counted as a second ledger
- * row. BOTTLE-type deposits never touch the Cash Ledger (no cash value).
+ * A driver's in-delivery deposit collection is DELIBERATELY excluded from
+ * DailySheet.cashExpected/cashCollected (and therefore from SHEET_CASH_IN,
+ * which is sourced from those via VanCashHandover) — those figures also feed
+ * Analytics' "Collected Cash"/revenue-by-route, and a deposit is a liability,
+ * not revenue, so folding it in would overstate collections. It's still fully
+ * accounted for here as its own DEPOSIT_CASH_IN/DEPOSIT_REFUND_OUT row
+ * instead, dated to the delivery. BOTTLE-type deposits never touch the Cash
+ * Ledger (no cash value).
  */
 export type CashLedgerBucket =
   | 'SHEET_CASH_IN'

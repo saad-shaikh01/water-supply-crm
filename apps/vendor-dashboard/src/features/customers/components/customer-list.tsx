@@ -40,6 +40,10 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const canDeactivate = useCan('customers:deactivate');
   const canForceDeactivate = useCan('customers:force_deactivate');
   const canForceDeactivateBottles = useCan('customers:force_deactivate_bottles');
+  // Customer Deposits — Closure Settlement (owner-requested 2026-09-29): force
+  // write-off of a remaining deposit is gated on the deposit resource's own
+  // permission, same as force_deactivate/force_deactivate_bottles above.
+  const canForceDeactivateDeposits = useCan('customer_deposits:write_off');
   const canRestore = useCan('customers:restore');
   const canDelete = useCan('customers:delete');
   const canViewChats = useCan('conversations:view');
@@ -60,7 +64,13 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   // the current user holds the force permission(s) for every blocker — drives
   // the write-off escalation dialog.
   const [forceTarget, setForceTarget] = useState<
-    { id: string; name: string; balance: number; bottles: Array<{ product: string; balance: number }> } | null
+    {
+      id: string;
+      name: string;
+      balance: number;
+      bottles: Array<{ product: string; balance: number }>;
+      deposits: Array<{ type: 'CASH' | 'BOTTLE'; productName: string | null; balance: number }>;
+    } | null
   >(null);
   const [reactivateId, setReactivateId] = useState<string | null>(null);
   const [chatCustomer, setChatCustomer] = useState<{ id: string; name: string } | null>(null);
@@ -1006,15 +1016,22 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                 setDeactivateId(null);
                 const needBalancePerm = blocked.financialBalance > 0;
                 const needBottlesPerm = (blocked.outstandingBottles ?? []).length > 0;
+                const needDepositsPerm = (blocked.outstandingDeposits ?? []).length > 0;
                 const covered =
                   (!needBalancePerm || canForceDeactivate) &&
-                  (!needBottlesPerm || canForceDeactivateBottles);
+                  (!needBottlesPerm || canForceDeactivateBottles) &&
+                  (!needDepositsPerm || canForceDeactivateDeposits);
                 if (covered) {
                   setForceTarget({
                     id,
                     name: blocked.customerName,
                     balance: blocked.financialBalance,
                     bottles: blocked.outstandingBottles ?? [],
+                    deposits: (blocked.outstandingDeposits ?? []).map((d) => ({
+                      type: d.type,
+                      productName: d.productName,
+                      balance: d.balance,
+                    })),
                   });
                 } else {
                   toast.error(blocked.message);
@@ -1039,7 +1056,27 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             const btl = forceTarget.bottles.map((b) => `${b.product}: ${b.balance}`).join(', ');
             parts.push(`company bottles (${btl})`);
           }
-          return `${forceTarget.name} has ${parts.join(' and ')}. Force deactivating will write ${parts.length > 1 ? 'these' : 'this'} off as a company loss and cannot be reversed. Any still-pending deliveries on open sheets will also be cancelled.`;
+          if (forceTarget.deposits.length > 0) {
+            const dep = forceTarget.deposits
+              .map((d) => `${d.type === 'CASH' ? 'Cash deposit' : `${d.productName ?? 'Bottle'} deposit`}: ${d.balance}`)
+              .join(', ');
+            parts.push(`a security deposit (${dep})`);
+          }
+          // A deposit write-off (CASH or BOTTLE) is never a company loss — the
+          // customer handed something of value to the company as security, so
+          // closing it out without a refund just means the company keeps what
+          // it already held (the customer forfeits it). Only the balance and
+          // the company's OWN circulating bottles (the unrelated BottleWallet
+          // blocker, `forceTarget.bottles`) are genuine company losses.
+          const hasDeposits = forceTarget.deposits.length > 0;
+          const hasLossBlocker = forceTarget.balance > 0 || forceTarget.bottles.length > 0;
+          const closeOutClause = hasLossBlocker
+            ? `write ${parts.length > 1 ? 'these' : 'this'} off as a company loss`
+            : `close ${parts.length > 1 ? 'these' : 'this'} out`;
+          const depositNote = hasDeposits
+            ? ` The deposit is kept by the company (the customer forfeits it), not a company loss.`
+            : '';
+          return `${forceTarget.name} has ${parts.join(' and ')}. Force deactivating will ${closeOutClause} and cannot be reversed.${depositNote} Any still-pending deliveries on open sheets will also be cancelled.`;
         })()}
         onConfirm={() => {
           if (!forceTarget) return;
@@ -1055,6 +1092,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
           if (forceTarget.balance > 0) bits.push(`₨${forceTarget.balance.toLocaleString()}`);
           const btlTotal = forceTarget.bottles.reduce((s, b) => s + b.balance, 0);
           if (btlTotal !== 0) bits.push(`${btlTotal} bottle${btlTotal === 1 ? '' : 's'}`);
+          if (forceTarget.deposits.length > 0) bits.push(`${forceTarget.deposits.length} deposit${forceTarget.deposits.length === 1 ? '' : 's'}`);
           return bits.length ? `Force Deactivate & Write Off ${bits.join(' + ')}` : 'Force Deactivate';
         })()}
       />
@@ -1094,7 +1132,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
               onSuccess: (result) => {
                 setBulkDeactivateOpen(false);
                 setSelectedIds(new Set());
-                if (result.skippedCount > 0 && (canForceDeactivate || canForceDeactivateBottles)) {
+                if (result.skippedCount > 0 && (canForceDeactivate || canForceDeactivateBottles || canForceDeactivateDeposits)) {
                   setBulkForceTarget({ ids: result.skipped.map((s) => s.customerId), skipped: result.skipped });
                 }
               },
@@ -1112,7 +1150,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
         title="Force Deactivate — Write Off Remaining"
         description={
           bulkForceTarget
-            ? `${bulkForceTarget.ids.length} customer${bulkForceTarget.ids.length !== 1 ? 's' : ''} were skipped for an outstanding balance and/or bottles: ${bulkForceTarget.skipped.slice(0, 5).map((s) => s.name).join(', ')}${bulkForceTarget.skipped.length > 5 ? `, +${bulkForceTarget.skipped.length - 5} more` : ''}. Force deactivating will write off their balances/bottles as a company loss and cannot be reversed. Anyone whose blocker you don't have permission to force will be skipped again.`
+            ? `${bulkForceTarget.ids.length} customer${bulkForceTarget.ids.length !== 1 ? 's' : ''} were skipped for an outstanding balance, bottles and/or a deposit: ${bulkForceTarget.skipped.slice(0, 5).map((s) => s.name).join(', ')}${bulkForceTarget.skipped.length > 5 ? `, +${bulkForceTarget.skipped.length - 5} more` : ''}. Force deactivating will write these off and cannot be reversed — a deposit (cash or bottle) is kept by the company (the customer forfeits it, not a loss); an outstanding balance or the company's own unreturned bottles is a company loss. Anyone whose blocker you don't have permission to force will be skipped again.`
             : ''
         }
         onConfirm={() => {

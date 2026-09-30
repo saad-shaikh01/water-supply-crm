@@ -1,7 +1,8 @@
 -- Customer Deposits (owner-requested 2026-09-29): an optional, per-customer
--- refundable security deposit — CASH (a Rs. amount held) or BOTTLE (extra
--- bottles held as collateral, count-only, no cash value, per-product).
--- Deliberately kept separate from CustomerFinancialAdjustment/
+-- refundable security deposit — CASH (a Rs. amount held) or BOTTLE (bottles
+-- the CUSTOMER owns, handed to the company as security, count-only, no cash
+-- value, per-product — the opposite direction from BottleWallet, the
+-- company's own circulating stock). Deliberately kept separate from CustomerFinancialAdjustment/
 -- Customer.financialBalance/BottleWallet: a deposit is a held liability, not
 -- a charge/credit or a normal circulating bottle. Gated vendor-wide by the
 -- new Vendor.depositsEnabled toggle, false by default, so vendors who never

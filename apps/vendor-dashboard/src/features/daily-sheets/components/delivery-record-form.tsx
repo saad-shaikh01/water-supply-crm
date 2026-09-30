@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton,
 } from '@water-supply-crm/ui';
-import { ClipboardEdit, Loader2, ShieldAlert } from 'lucide-react';
+import { ClipboardEdit, Loader2, ShieldAlert, Wallet } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import type {
   DeliveryItem, CollectionPolicy, CollectionPolicyResult, CashCollectionPolicy, CashCollectionPolicyResult, PaymentTypeValue,
@@ -15,6 +15,7 @@ import { useReportDamage } from '../../driver/hooks/use-damage-cases';
 import { usePermissions } from '../../authz/hooks/use-permissions';
 import { DamagePhotoUpload } from '../../driver/components/damage-photo-upload';
 import { DeliveryFailurePhotoCapture } from './delivery-failure-photo-capture';
+import { useDepositsConfig } from '../../customer-deposits/hooks/use-customer-deposits';
 
 const FAILURE_CATEGORIES = [
   { value: 'CUSTOMER_NOT_HOME', label: 'Customer Not Home' },
@@ -44,6 +45,20 @@ const DEFAULT_DAMAGE_FORM: DamageFormState = {
   lossReason: 'CUSTOMER_NOT_RETURNED',
 };
 
+/**
+ * Customer Deposits (owner-requested 2026-09-29) — a driver collecting/
+ * returning a security deposit at this stop. Entirely separate from the
+ * delivery's own cashCollected/bottle fields above; kept as its own tiny
+ * collapsible so vendors who don't use deposits see nothing extra.
+ */
+interface DepositFormState {
+  cashCollected: number;
+  bottlesCollected: number;
+  bottlesReturned: number;
+}
+
+const DEFAULT_DEPOSIT_FORM: DepositFormState = { cashCollected: 0, bottlesCollected: 0, bottlesReturned: 0 };
+
 // Mobile browsers (esp. lower-RAM Android/iOS) frequently kill and reload the
 // tab when it's backgrounded — launching the camera, phone dialer, or WhatsApp
 // all trigger this. A full reload wipes React state, so we mirror in-progress
@@ -59,6 +74,8 @@ interface DeliveryDraft {
   showDamage: boolean;
   damageForm: DamageFormState;
   showFilledReceived: boolean;
+  showDeposit: boolean;
+  depositForm: DepositFormState;
   savedAt: number;
 }
 
@@ -281,6 +298,13 @@ export function DeliveryRecordForm({
   // driver explicitly opts in, so the common-case form stays uncluttered.
   const [showFilledReceived, setShowFilledReceived] = useState(false);
 
+  // Customer Deposits — hidden entirely unless the vendor has turned the
+  // feature on (opt-in, see customer-deposits-tab.tsx's same gate).
+  const { data: depositsConfig } = useDepositsConfig();
+  const depositsEnabled = depositsConfig?.depositsEnabled ?? false;
+  const [showDeposit, setShowDeposit] = useState(false);
+  const [depositForm, setDepositForm] = useState<DepositFormState>(DEFAULT_DEPOSIT_FORM);
+
   // Collection Policy: the backend's 422 backstop result (stale-client / direct-API-call
   // cases where the local mirror below didn't already catch the violation). Cleared as
   // soon as the driver edits cash or mode again — never persisted.
@@ -310,6 +334,8 @@ export function DeliveryRecordForm({
       setShowDamage(draft.showDamage);
       setDamageForm(draft.damageForm);
       setShowFilledReceived(draft.showFilledReceived);
+      setShowDeposit(draft.showDeposit ?? false);
+      setDepositForm(draft.depositForm ?? DEFAULT_DEPOSIT_FORM);
       return;
     }
     const isUnable = item.status === 'RESCHEDULED' || item.status === 'CANCELLED' || item.status === 'NOT_AVAILABLE';
@@ -332,6 +358,19 @@ export function DeliveryRecordForm({
       cashCollected: suggestedCash,
     });
     setShowFilledReceived(item.filledReceived > 0);
+
+    const hasDeposit =
+      (item.depositCashCollected ?? 0) > 0 || (item.depositBottlesCollected ?? 0) > 0 || (item.depositBottlesReturned ?? 0) > 0;
+    setDepositForm(
+      isFirst
+        ? DEFAULT_DEPOSIT_FORM
+        : {
+            cashCollected: item.depositCashCollected ?? 0,
+            bottlesCollected: item.depositBottlesCollected ?? 0,
+            bottlesReturned: item.depositBottlesReturned ?? 0,
+          },
+    );
+    setShowDeposit(hasDeposit);
   }, [item.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Mirror in-progress state to sessionStorage so a browser-triggered reload
@@ -341,12 +380,15 @@ export function DeliveryRecordForm({
     if (readOnly) return;
     if (draftWriteTimeout.current) clearTimeout(draftWriteTimeout.current);
     draftWriteTimeout.current = setTimeout(() => {
-      writeDraft(item.id, { deliveryMode, failureCategory, unableReason, photoKey, itemForm, showDamage, damageForm, showFilledReceived });
+      writeDraft(item.id, {
+        deliveryMode, failureCategory, unableReason, photoKey, itemForm, showDamage, damageForm, showFilledReceived,
+        showDeposit, depositForm,
+      });
     }, 400);
     return () => {
       if (draftWriteTimeout.current) clearTimeout(draftWriteTimeout.current);
     };
-  }, [item.id, readOnly, deliveryMode, failureCategory, unableReason, photoKey, itemForm, showDamage, damageForm, showFilledReceived]);
+  }, [item.id, readOnly, deliveryMode, failureCategory, unableReason, photoKey, itemForm, showDamage, damageForm, showFilledReceived, showDeposit, depositForm]);
 
   // Clear a stale server-side policy violation as soon as the driver changes the cash
   // amount or delivery mode — the next save attempt should be judged fresh.
@@ -477,6 +519,18 @@ export function DeliveryRecordForm({
           filledReceived: itemForm.filledReceived ?? 0,
           cashCollected: itemForm.cashCollected ?? 0,
           forceResubmit: !isFirstRecord,
+          // Customer Deposits — only sent when the collapsible is open, so a
+          // vendor that never touched it never posts anything extra.
+          ...(depositsEnabled && showDeposit
+            ? {
+                depositCashCollected: depositForm.cashCollected || 0,
+                depositBottlesCollected: depositForm.bottlesCollected || 0,
+                depositBottlesReturned: depositForm.bottlesReturned || 0,
+                ...(depositForm.bottlesCollected > 0 || depositForm.bottlesReturned > 0
+                  ? { depositProductId: item.productId }
+                  : {}),
+              }
+            : {}),
         }
       : {
           status: 'NOT_AVAILABLE',
@@ -963,6 +1017,84 @@ export function DeliveryRecordForm({
               </div>
             )}
           </div>}
+
+          {/* Customer Deposits — opt-in per vendor; entirely absent unless the
+              vendor has turned it on. Shown in read-only view too (with
+              disabled inputs) so a previously-recorded deposit doesn't vanish
+              once the sheet closes, same treatment as Bottle Problem above. */}
+          {depositsEnabled && (
+            <div className="rounded-2xl border border-border/40 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => !readOnly && setShowDeposit((v) => !v)}
+                disabled={readOnly}
+                className={cn(
+                  'w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-muted-foreground transition-colors',
+                  !readOnly && 'hover:bg-card/60',
+                )}
+              >
+                <span className="flex items-center gap-2">
+                  <Wallet className="h-4 w-4 text-primary" />
+                  Deposit?
+                </span>
+                <span className={cn('text-xs font-bold transition-colors', showDeposit ? 'text-primary' : 'text-muted-foreground')}>
+                  {showDeposit ? 'Recording deposit' : 'None'}
+                </span>
+              </button>
+
+              {showDeposit && (
+                <div className="px-4 pb-4 space-y-4 border-t border-border/40 pt-4 bg-primary/5">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                      Cash deposit collected (₨)
+                    </Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={depositForm.cashCollected || ''}
+                      onChange={(e) => setDepositForm((p) => ({ ...p, cashCollected: e.target.value === '' ? 0 : Number(e.target.value) }))}
+                      className={cn('h-11 font-mono font-bold', readOnly && 'bg-muted/40 cursor-default')}
+                      readOnly={readOnly}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                        Bottles received from customer (deposit)
+                      </Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={depositForm.bottlesCollected || ''}
+                        onChange={(e) => setDepositForm((p) => ({ ...p, bottlesCollected: e.target.value === '' ? 0 : Number(e.target.value) }))}
+                        className={cn('h-11 font-mono font-bold', readOnly && 'bg-muted/40 cursor-default')}
+                        readOnly={readOnly}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                        Deposit bottles given back
+                      </Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={depositForm.bottlesReturned || ''}
+                        onChange={(e) => setDepositForm((p) => ({ ...p, bottlesReturned: e.target.value === '' ? 0 : Number(e.target.value) }))}
+                        className={cn('h-11 font-mono font-bold', readOnly && 'bg-muted/40 cursor-default')}
+                        readOnly={readOnly}
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    A refundable security deposit — kept separate from today&apos;s bill. Bottles here are the
+                    customer&apos;s own, held by the company as security (count-only, no cash value), recorded
+                    against the {item.product?.name ?? 'product'} being delivered here.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-4">

@@ -77,18 +77,24 @@ export function buildReconciliation(sheet: any) {
     .filter((i) => i.status !== DeliveryStatus.VOIDED)
     .reduce((s, i) => s + i.cashCollected, 0);
 
-  // Customer Deposits (owner-requested 2026-09-29) — a driver-collected
-  // deposit is real cash in the driver's pocket, so it's folded into the same
-  // hand-in total below, but summed and reported separately (`deposits`
-  // block) so it's never mistaken for revenue. `depositCashCollected`
-  // defaults to 0 on every pre-existing row, so this is purely additive —
-  // historical sheets recompute byte-identical.
+  const driverDiscrepancy = totalCashRecorded - sheet.cashCollected;
+
+  // Customer Deposits (owner-requested 2026-09-29) — reported for visibility
+  // ONLY, deliberately NOT folded into shouldHandIn/netToHandIn below (and
+  // therefore never into DailySheet.cashExpected/cashCollected or
+  // VanCashHandover.amount, which is what createHandoverForClosedSheet
+  // persists). Those figures feed Analytics' "Collected Cash"/revenue-by-route
+  // etc — a deposit is a liability, not revenue, so mixing it in would
+  // overstate collections. Driver-collected deposit cash is still fully
+  // accounted for: it gets its own Cash Ledger row (DEPOSIT_CASH_IN, source
+  // DELIVERY) via van-cash-ledger.service.ts's collectWindow/aggregateBuckets,
+  // exactly like an office-collected one — just not folded into this sheet's
+  // revenue total. `depositCashCollected` defaults to 0 on every pre-existing
+  // row, so this block alone is purely additive; the reverted math above is
+  // byte-identical to before Customer Deposits existed.
   const totalDepositCashRecorded = (sheet.items as any[])
     .filter((i) => i.status !== DeliveryStatus.VOIDED)
     .reduce((s, i) => s + (i.depositCashCollected ?? 0), 0);
-
-  const totalCashRecordedWithDeposits = totalCashRecorded + totalDepositCashRecorded;
-  const driverDiscrepancy = totalCashRecordedWithDeposits - sheet.cashCollected;
 
   // Only expenses actually paid out of the driver's van cash-in-hand
   // (paidFromCash, default true) reduce the cash hand-in — a fuel fill or
@@ -161,10 +167,10 @@ export function buildReconciliation(sheet: any) {
       collected: totalDepositCashRecorded,
     },
     driver: {
-      shouldHandIn: totalCashRecordedWithDeposits,
+      shouldHandIn: totalCashRecorded,
       expensePaidFromCash: totalExpenses,
       crewCashPaidFromCash: totalCrewCash,
-      netToHandIn: Math.max(0, totalCashRecordedWithDeposits - totalExpenses - totalCrewCash),
+      netToHandIn: Math.max(0, totalCashRecorded - totalExpenses - totalCrewCash),
       handedIn: sheet.cashCollected,
       discrepancy: driverDiscrepancy,
       unexplainedDiscrepancy: driverDiscrepancy - totalExpenses - totalCrewCash,
