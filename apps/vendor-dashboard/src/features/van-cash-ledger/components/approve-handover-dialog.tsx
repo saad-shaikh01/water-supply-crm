@@ -22,8 +22,10 @@ export interface HandoverApprovalTarget {
   vanPlateNumber: string | null;
   driverName: string | null;
   date: string;
-  /** The originally handed-over amount. */
+  /** The originally handed-over (revenue) amount. */
   amount: number;
+  /** Customer-deposit cash handed over with it — recognized in the ledger on approval. */
+  depositCash?: number;
   /** Optimistic-concurrency token — now surfaced by both read endpoints. */
   version: number;
 }
@@ -100,6 +102,18 @@ export function ApproveHandoverDialog({ target, open, onOpenChange }: ApproveHan
               <p className="font-mono font-black text-emerald-500">₨ {target.amount.toLocaleString()}</p>
             </div>
           </div>
+
+          {(target.depositCash ?? 0) > 0 && (
+            <div className="rounded-xl bg-violet-500/10 border border-violet-500/20 px-3 py-2 text-[11px] space-y-0.5">
+              <p className="font-bold text-violet-600">
+                + ₨ {(target.depositCash ?? 0).toLocaleString()} customer deposit cash
+              </p>
+              <p className="text-muted-foreground">
+                Physical total to receive: ₨ {(target.amount + (target.depositCash ?? 0)).toLocaleString()}. The deposit is
+                added to the Cash Ledger when you approve; the Approved Amount below adjusts the revenue part only.
+              </p>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">

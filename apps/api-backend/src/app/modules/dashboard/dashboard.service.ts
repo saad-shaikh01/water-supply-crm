@@ -5,7 +5,7 @@ import {
   CACHE_KEYS,
   CACHE_TTLS,
 } from '@water-supply-crm/caching';
-import { TransactionType } from '@prisma/client';
+import { DepositType, TransactionType } from '@prisma/client';
 import {
   resolveSheetCash,
   dailySheetItemModifiedOrWhere,
@@ -50,6 +50,8 @@ export class DashboardService {
       pendingPayments,
       onDemandQueue,
       todayCollectionsAgg,
+      cashDepositsHeldAgg,
+      bottleDepositsHeldAgg,
     ] = await Promise.all([
       this.prisma.customer.count({ where: { vendorId, isActive: true } }),
       this.prisma.product.count({ where: { vendorId, isActive: true } }),
@@ -99,6 +101,18 @@ export class DashboardService {
         },
         _sum: { amount: true },
       }),
+      // Customer Deposits — a held liability (what the company owes back), kept
+      // out of Pending Balance/revenue on purpose; surfaced as its own figures.
+      // A deactivated customer can't still hold one (deactivate requires it
+      // settled or written off), so no isActive filter is needed.
+      this.prisma.customerDeposit.aggregate({
+        where: { vendorId, type: DepositType.CASH, balance: { gt: 0 } },
+        _sum: { balance: true },
+      }),
+      this.prisma.customerDeposit.aggregate({
+        where: { vendorId, type: DepositType.BOTTLE, balance: { gt: 0 } },
+        _sum: { balance: true },
+      }),
     ]);
 
     const result = {
@@ -116,6 +130,8 @@ export class DashboardService {
       pendingPayments,
       onDemandQueue,
       todayCollections: Math.abs(todayCollectionsAgg._sum.amount ?? 0),
+      cashDepositsHeld: Math.round((cashDepositsHeldAgg._sum.balance ?? 0) * 100) / 100,
+      bottleDepositsHeld: bottleDepositsHeldAgg._sum.balance ?? 0,
     };
 
     await this.cache.set(cacheKey, result, CACHE_TTLS.DASHBOARD);

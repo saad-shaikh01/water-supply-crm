@@ -12,3 +12,9 @@ export const analyticsApi = {
   getOperations: (from: string, to: string, vanId?: string) =>
     apiClient.get('/analytics/operations', { params: { from: from || undefined, to: to || undefined, vanId: vanId || undefined } }),
 };
+
+export const profitLossApi = {
+  get: (month: string) => apiClient.get('/analytics/profit-loss', { params: { month } }),
+  getDetails: (month: string, category: string, page: number) =>
+    apiClient.get('/analytics/profit-loss/details', { params: { month, category, page, limit: 20 } }),
+};

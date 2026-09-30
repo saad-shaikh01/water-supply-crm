@@ -11,10 +11,18 @@ import { AddExpenseWizard } from '../../../features/expense-center/wizard/add-ex
 import { TopUpFuelCardDialog } from '../../../features/fuel-cards/components/topup-fuel-card-dialog';
 import { FUEL_CARD_PERMISSIONS } from '../../../features/fuel-cards/constants';
 import { useCan } from '../../../features/authz/hooks/use-can';
-import { Button } from '@water-supply-crm/ui';
-import { Fuel, Plus } from 'lucide-react';
+import { ExpenseCategorySummary } from '../../../features/expense-center/components/expense-category-summary';
+import { useExpenseViewMode, type ExpenseViewMode } from '../../../features/expense-center/hooks/use-expense-center';
+import { Button, cn } from '@water-supply-crm/ui';
+import { Fuel, LayoutList, Plus, Table2, type LucideIcon } from 'lucide-react';
+
+const VIEW_OPTIONS: Array<{ value: ExpenseViewMode; label: string; icon: LucideIcon }> = [
+  { value: 'timeline', label: 'Timeline', icon: LayoutList },
+  { value: 'summary', label: 'Category Summary', icon: Table2 },
+];
 
 export default function ExpensesPage() {
+  const { mode, setMode } = useExpenseViewMode();
   const [addOpen, setAddOpen] = useState(false);
   const [fuelTopUpOpen, setFuelTopUpOpen] = useState(false);
   const canTopUpFuelCard = useCan(FUEL_CARD_PERMISSIONS.topup);
@@ -63,7 +71,30 @@ export default function ExpensesPage() {
             cross-source timeline. ExpenseList/ExpenseForm stay in the tree for
             the Phase 2 (§07) row-click edit-routing work (ExpenseForm is also
             reused directly by the wizard below, for its plain-Expense types). */}
-        <ExpenseTimeline />
+        <div
+          role="group"
+          aria-label="Expenses view"
+          className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-card/30 p-1"
+        >
+          {VIEW_OPTIONS.map(({ value, label, icon: Icon }) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={mode === value}
+              onClick={() => setMode(value)}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-full px-4 min-h-9 text-xs font-bold transition-colors',
+                mode === value
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/50',
+              )}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {label}
+            </button>
+          ))}
+        </div>
+        {mode === 'summary' ? <ExpenseCategorySummary /> : <ExpenseTimeline />}
       </div>
       <AddExpenseWizard open={addOpen} onOpenChange={setAddOpen} />
       <TopUpFuelCardDialog open={fuelTopUpOpen} onOpenChange={setFuelTopUpOpen} />

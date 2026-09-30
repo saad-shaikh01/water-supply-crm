@@ -13,7 +13,7 @@ import {
 } from '../hooks/use-analytics';
 import {
   TrendingUp, TrendingDown, DollarSign, Percent, Package, CheckCircle2, Users, Wallet, ArrowRight,
-  Landmark, Tag, PackageX, AlertOctagon, Info,
+  Landmark, Tag, PackageX, AlertOctagon, Info, ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 
@@ -125,6 +125,8 @@ export function OverviewTab({
 
   const profitMargin = f?.profitMargin ?? 0;
   const officeCashAvailable = f?.officeCash?.available ?? 0;
+  const depositsHeldCash = f?.deposits?.heldCash ?? 0;
+  const depositsHeldBottles = f?.deposits?.heldBottles ?? 0;
   const bottlesOutstanding = d?.bottleStats?.outstandingWithCustomers ?? 0;
   const bottlesDelivered = d?.bottleStats?.delivered ?? 0;
   // Weighted average selling price per bottle — same formula as the home
@@ -171,6 +173,9 @@ export function OverviewTab({
         <StatCard label="Collection Rate" value={`${collectionRate}%`} icon={Percent} />
         <StatCard label="Outstanding Balance" value={fmt(outstandingBalance)} icon={Wallet} positive={outstandingBalance <= 0} />
         <StatCard label="Office Cash Available" value={fmt(officeCashAvailable)} icon={Landmark} tooltip="Live cash currently in office custody (Van Cash Ledger) — not scoped to the selected date range." />
+        {(depositsHeldCash > 0 || depositsHeldBottles > 0) && (
+          <StatCard label="Deposits Held" value={fmt(depositsHeldCash)} icon={ShieldCheck} tooltip={`Refundable security deposits the company holds (${depositsHeldBottles} bottle(s) held too). A liability owed back to customers — not part of Outstanding Balance or Revenue. Live, not date-scoped.`} />
+        )}
         <StatCard label="Avg Rate / Bottle Sold" value={fmt(avgRatePerBottle)} icon={Tag} tooltip="Weighted average selling price: Revenue ÷ Bottles Delivered." />
       </div>
 

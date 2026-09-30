@@ -132,7 +132,36 @@ export interface ExpenseCenterTimelineResponse {
   meta: ExpenseCenterTimelineMeta;
 }
 
+/** Month-wise Domain → Category → Subcategory roll-up (mirrors the backend util). */
+export interface ExpenseCategorySummaryNode {
+  key: string;
+  label: string;
+  total: number;
+  /** `YYYY-MM` → amount; only months with spend are present. */
+  byMonth: Record<string, number>;
+}
+
+export interface ExpenseCategorySummaryCategory extends ExpenseCategorySummaryNode {
+  subcategories: ExpenseCategorySummaryNode[];
+}
+
+export interface ExpenseCategorySummaryDomain extends ExpenseCategorySummaryNode {
+  domain: ExpenseCenterDomain;
+  categories: ExpenseCategorySummaryCategory[];
+}
+
+export interface ExpenseCategorySummary {
+  months: string[];
+  grandTotal: number;
+  byMonth: Record<string, number>;
+  domains: ExpenseCategorySummaryDomain[];
+}
+
+export type ExpenseCategorySummaryQuery = Omit<ExpenseCenterTimelineQuery, 'page' | 'limit'>;
+
 export const expenseCenterApi = {
+  getCategorySummary: (params: ExpenseCategorySummaryQuery) =>
+    apiClient.get<ExpenseCategorySummary>('/expense-center/category-summary', { params }),
   getSummary: (params?: ExpenseCenterSummaryQuery) =>
     apiClient.get<ExpenseCenterSummary>('/expense-center/summary', { params }),
   getTimeline: (params: ExpenseCenterTimelineQuery) =>

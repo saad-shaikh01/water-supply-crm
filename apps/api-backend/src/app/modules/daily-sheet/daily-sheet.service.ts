@@ -71,6 +71,7 @@ import {
   buildReconciliation as buildReconciliationPure,
   isSheetModifiedAfterClose,
   resolveSheetCash,
+  sheetDepositCash,
   dailySheetItemModifiedOrWhere,
   SHEET_CASH_RELOAD_INCLUDE,
 } from './sheet-cash.util';
@@ -4505,6 +4506,19 @@ export class DailySheetService implements OnModuleInit {
     await this.vanCashLedger.handlePostCloseCorrection(tx, vendorId, dailySheetId, resolved.cashExpected);
   }
 
+  /**
+   * The driver's TOTAL physical hand-in minus the deposit cash collected at this
+   * sheet's stops = the revenue part the sheet's cash figures are about. A driver
+   * who hands in less than the deposit cash alone leaves 0 revenue handed in (the
+   * whole shortfall then shows on the revenue side, never a negative figure).
+   * Identical to `actualCashHandedIn` when no deposit cash was collected.
+   */
+  private revenuePartOfHandIn(sheet: { items?: any[] }, actualCashHandedIn: number): number {
+    const deposit = sheetDepositCash(sheet);
+    if (deposit <= 0) return actualCashHandedIn;
+    return Math.max(0, Math.round((actualCashHandedIn - deposit) * 100) / 100);
+  }
+
   async closeSheet(vendorId: string, sheetId: string, actorId: string, actorRole: UserRole, actualCashHandedIn: number) {
     const sheet = await this.assertSheetCloseable(vendorId, sheetId);
     // Cash is no longer accumulated per-trip check-in (see checkinLoad) — it's
@@ -4512,7 +4526,14 @@ export class DailySheetService implements OnModuleInit {
     // onto the in-memory sheet BEFORE building the reconciliation so
     // driver.handedIn/discrepancy (and therefore Sheet Discrepancy Case
     // creation below) reflect it, not the sheet's stale/zero DB value.
-    sheet.cashCollected = actualCashHandedIn;
+    // Customer Deposits: `actualCashHandedIn` is the driver's TOTAL physical
+    // hand-in, which includes any deposit cash collected at the stops. Only the
+    // revenue part is persisted as `cashCollected` (it feeds Analytics'
+    // "Collected Cash" and the revenue-vs-expected discrepancy, and a deposit is
+    // a liability, not revenue). The deposit part is recognized in the Cash
+    // Ledger when this sheet's handover is approved.
+    const revenueHandedIn = this.revenuePartOfHandIn(sheet, actualCashHandedIn);
+    sheet.cashCollected = revenueHandedIn;
     const reconciliation = this.buildReconciliation(sheet);
 
     // The isClosed flip, the Crew Cash → Payroll Ledger sync sweep, and Sheet
@@ -4524,7 +4545,7 @@ export class DailySheetService implements OnModuleInit {
         where: { id: sheetId },
         data: {
           isClosed: true,
-          cashCollected: actualCashHandedIn,
+          cashCollected: revenueHandedIn,
           cashExpected: reconciliation.driver.netToHandIn,
           closureStatus: 'APPROVED',
           closureApprovedAt: new Date(),
@@ -4597,14 +4618,15 @@ export class DailySheetService implements OnModuleInit {
     const sheet = await this.assertSheetCloseable(vendorId, sheetId);
     // Same overlay as closeSheet — see comment there. approveClose re-fetches
     // the sheet from the DB afterwards, so it naturally picks up this value.
-    sheet.cashCollected = actualCashHandedIn;
+    const revenueHandedIn = this.revenuePartOfHandIn(sheet, actualCashHandedIn);
+    sheet.cashCollected = revenueHandedIn;
     const reconciliation = this.buildReconciliation(sheet);
 
     const updated = await this.prisma.dailySheet.update({
       where: { id: sheetId },
       data: {
         isClosed: true,
-        cashCollected: actualCashHandedIn,
+        cashCollected: revenueHandedIn,
         cashExpected: reconciliation.driver.netToHandIn,
         closureStatus: 'PENDING_APPROVAL',
         closureRequestedAt: new Date(),

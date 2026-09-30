@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { analyticsApi } from '../api/analytics.api';
+import { analyticsApi, profitLossApi } from '../api/analytics.api';
 
 export const useFinancialAnalytics = (from: string, to: string, vanId?: string) =>
   useQuery({
@@ -29,4 +29,79 @@ export const useOperationsAnalytics = (from: string, to: string, vanId?: string)
   useQuery({
     queryKey: ['analytics', 'operations', from, to, vanId ?? ''],
     queryFn: () => analyticsApi.getOperations(from, to, vanId).then((r) => r.data),
+  });
+
+export interface ProfitLossCategory {
+  key: string;
+  label: string;
+  amount: number;
+  count: number;
+  perBottle: number | null;
+  percent: number;
+}
+
+export interface ProfitLossDomain {
+  domain: string;
+  label: string;
+  amount: number;
+  count: number;
+  perBottle: number | null;
+  percent: number;
+  categories: ProfitLossCategory[];
+}
+
+export interface ProfitLossSummary {
+  bottlesSold: number;
+  saleAmount: number;
+  amountReceived: number;
+  totalExpenses: number;
+  avgRatePerBottle: number | null;
+  avgExpensePerBottle: number | null;
+  avgProfitPerBottle: number | null;
+  saleProfit: number;
+  recoveryProfit: number;
+}
+
+export interface ProfitLossData {
+  month: string;
+  summary: ProfitLossSummary;
+  domains: ProfitLossDomain[];
+  reconciliation: { expenseTableTotal: number; groupedExpenseTableTotal: number; difference: number; ok: boolean };
+  trend: Array<ProfitLossSummary & { month: string; byDomain: Record<string, number> }>;
+}
+
+export interface ProfitLossDetailRow {
+  id: string;
+  date: string;
+  amount: number;
+  title: string;
+  subtitle: string | null;
+  employeeName: string | null;
+  vanPlateNumber: string | null;
+  recordedByName: string | null;
+  source: string;
+  dailySheetId: string | null;
+}
+
+export interface ProfitLossDetails {
+  month: string;
+  category: string;
+  categoryLabel: string;
+  domain: string;
+  total: number;
+  meta: { total: number; page: number; limit: number; totalPages: number };
+  rows: ProfitLossDetailRow[];
+}
+
+export const useProfitLoss = (month: string) =>
+  useQuery<ProfitLossData>({
+    queryKey: ['analytics', 'profit-loss', month],
+    queryFn: () => profitLossApi.get(month).then((r) => r.data),
+  });
+
+export const useProfitLossDetails = (month: string, category: string | null, page: number) =>
+  useQuery<ProfitLossDetails>({
+    queryKey: ['analytics', 'profit-loss', 'details', month, category, page],
+    queryFn: () => profitLossApi.getDetails(month, category as string, page).then((r) => r.data),
+    enabled: !!category,
   });

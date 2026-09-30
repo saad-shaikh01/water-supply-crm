@@ -71,6 +71,7 @@ export function PendingApprovalsPanel({ open, onOpenChange }: PendingApprovalsPa
     driverName: h.driverName,
     date: h.date,
     amount: h.amount,
+    depositCash: h.depositCash,
     version: h.version,
   });
 
@@ -117,6 +118,11 @@ export function PendingApprovalsPanel({ open, onOpenChange }: PendingApprovalsPa
                         <p className="font-mono font-black text-sm text-emerald-500">
                           ₨ {h.amount.toLocaleString()}
                         </p>
+                        {(h.depositCash ?? 0) > 0 && (
+                          <p className="font-mono font-bold text-[11px] text-violet-500">
+                            + ₨ {(h.depositCash ?? 0).toLocaleString()} deposit
+                          </p>
+                        )}
                         {canApprove && (
                           <Button
                             size="sm"

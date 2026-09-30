@@ -757,6 +757,46 @@ export class AnalyticsService {
       outstanding: round2(totalCapCogsAllTime - totalCapPaidAllTime),
     };
 
+    // Customer Deposits — a held liability, reported apart from outstandingBalance/
+    // revenue. `held*` is live (like outstandingBalance); `period` is the money
+    // movement inside the selected range (VOIDED originals and their reversal
+    // entries are both excluded, so a void nets to nothing).
+    const depositCustomerScope = Object.keys(customerVanScope).length ? { customer: customerVanScope } : {};
+    const [depositsHeld, depositPeriodMoves] = await Promise.all([
+      this.prisma.customerDeposit.groupBy({
+        by: ['type'],
+        where: { vendorId, balance: { gt: 0 }, ...depositCustomerScope },
+        _sum: { balance: true },
+        _count: { customerId: true },
+      }),
+      this.prisma.customerDepositEntry.groupBy({
+        by: ['direction'],
+        where: {
+          vendorId,
+          status: 'POSTED',
+          reversalOfId: null,
+          deposit: { type: 'CASH', ...depositCustomerScope },
+          ...(dateFilter && { effectiveDate: dateFilter }),
+        },
+        _sum: { amount: true },
+      }),
+    ]);
+    const heldOf = (type: 'CASH' | 'BOTTLE') => depositsHeld.find((r) => r.type === type);
+    const movedOf = (direction: string) =>
+      round2(depositPeriodMoves.find((r) => r.direction === direction)?._sum.amount ?? 0);
+    const deposits = {
+      heldCash: round2(heldOf('CASH')?._sum.balance ?? 0),
+      heldBottles: heldOf('BOTTLE')?._sum.balance ?? 0,
+      cashHolders: heldOf('CASH')?._count.customerId ?? 0,
+      bottleHolders: heldOf('BOTTLE')?._count.customerId ?? 0,
+      period: {
+        collected: movedOf('COLLECT'),
+        refunded: movedOf('REFUND'),
+        appliedToBalance: movedOf('APPLIED_TO_BALANCE'),
+        writtenOff: movedOf('WRITE_OFF'),
+      },
+    };
+
     const result = {
       revenue: { total: totalRevenue, byDay: revenueByDay },
       expenses: { total: totalExpenses, byCategory: expensesByCategory, byDay: expensesByDay },
@@ -793,6 +833,7 @@ export class AnalyticsService {
       revenueByPaymentType,
       collectionRate,
       outstandingBalance: customers._sum.financialBalance ?? 0,
+      deposits,
       walkInCash,
       // Office Cash Ledger snapshot — `available` is the LIVE balance (never
       // date-scoped, see VanCashLedgerService.computeAvailableBalance); the

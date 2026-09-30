@@ -58,6 +58,8 @@ function makePrisma(opts: {
   allTimeCostRows?: any[];
   transactions?: any[];
   plantPaidTotal?: number;
+  depositsHeld?: any[];
+  depositMoves?: any[];
 }) {
   const deliveryItems = opts.deliveryItems ?? [];
   const allTimeDeliveryItems = opts.allTimeDeliveryItems ?? deliveryItems;
@@ -91,6 +93,8 @@ function makePrisma(opts: {
         return Promise.resolve(deliveryItems); // period-scoped COGS/revenue source
       }),
     },
+    customerDeposit: { groupBy: jest.fn().mockResolvedValue(opts.depositsHeld ?? []) },
+    customerDepositEntry: { groupBy: jest.fn().mockResolvedValue(opts.depositMoves ?? []) },
     dailySheetLoad: { findMany: jest.fn().mockResolvedValue([]) },
     crewCashDistribution: { findMany: jest.fn().mockResolvedValue([]) },
     payrollEntry: { aggregate: jest.fn().mockResolvedValue({ _sum: { finalPayable: 0 } }) },
@@ -113,6 +117,8 @@ function makeService(opts: {
   allTimeCostRows?: any[];
   transactions?: any[];
   plantPaidTotal?: number;
+  depositsHeld?: any[];
+  depositMoves?: any[];
 }) {
   const prisma = makePrisma(opts);
   const cache = {
@@ -375,6 +381,46 @@ describe('AnalyticsService.getFinancial() — officeCash block (Cash Ledger P0 p
       periodPayrollCash: 2000,
       periodOfficeCashIn: 500,
       periodSheetCashIn: 2500,
+    });
+  });
+});
+
+describe('AnalyticsService.getFinancial() — Customer Deposits', () => {
+  it('reports held cash/bottles and the period movement, separate from outstandingBalance', async () => {
+    const { svc, prisma } = makeService({
+      depositsHeld: [
+        { type: 'CASH', _sum: { balance: 15000.5 }, _count: { customerId: 3 } },
+        { type: 'BOTTLE', _sum: { balance: 12 }, _count: { customerId: 2 } },
+      ],
+      depositMoves: [
+        { direction: 'COLLECT', _sum: { amount: 9000 } },
+        { direction: 'REFUND', _sum: { amount: 2000 } },
+        { direction: 'APPLIED_TO_BALANCE', _sum: { amount: 500 } },
+      ],
+    });
+
+    const result = await svc.getFinancial(VENDOR_ID, '2026-01-01', '2026-01-31');
+
+    expect(result.deposits).toEqual({
+      heldCash: 15000.5,
+      heldBottles: 12,
+      cashHolders: 3,
+      bottleHolders: 2,
+      period: { collected: 9000, refunded: 2000, appliedToBalance: 500, writtenOff: 0 },
+    });
+    // void reversals + VOIDED originals must not be counted as movements
+    expect(prisma.customerDepositEntry.groupBy.mock.calls[0][0].where).toEqual(
+      expect.objectContaining({ status: 'POSTED', reversalOfId: null }),
+    );
+    expect(result.outstandingBalance).toBe(0);
+  });
+
+  it('is all zeros when the vendor has no deposits', async () => {
+    const { svc } = makeService({});
+    const result = await svc.getFinancial(VENDOR_ID);
+    expect(result.deposits).toEqual({
+      heldCash: 0, heldBottles: 0, cashHolders: 0, bottleHolders: 0,
+      period: { collected: 0, refunded: 0, appliedToBalance: 0, writtenOff: 0 },
     });
   });
 });

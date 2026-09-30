@@ -9,6 +9,7 @@ import {
 import {
   DepositEntryDirection,
   DepositEntrySource,
+  DepositPaymentMethod,
   DepositType,
   Prisma,
   type CustomerDeposit,
@@ -28,6 +29,7 @@ import {
   normalizeDepositAmount,
   oppositeDepositDirection,
   resolveDepositEffectiveDate,
+  resolveDepositPaymentMethod,
   signedDepositAmount,
 } from './deposit-posting.util';
 
@@ -132,6 +134,7 @@ export class CustomerDepositsService {
     if (!customer) throw new NotFoundException('Customer not found');
 
     const effectiveDate = resolveDepositEffectiveDate(dto.effectiveDate);
+    const paymentMethod = resolveDepositPaymentMethod(dto.type, dto.paymentMethod, dto.referenceNo);
 
     const result = await this.prisma.$transaction((tx) =>
       this.collectTx(tx, user, {
@@ -140,6 +143,7 @@ export class CustomerDepositsService {
         productId: dto.productId,
         amount,
         source: DepositEntrySource.OFFICE,
+        paymentMethod,
         effectiveDate,
         note: dto.note?.trim() || undefined,
         referenceNo: dto.referenceNo?.trim() || undefined,
@@ -170,6 +174,8 @@ export class CustomerDepositsService {
       productId?: string;
       amount: number;
       source: DepositEntrySource;
+      /** Defaults to CASH (a driver's in-delivery collection is always cash). */
+      paymentMethod?: DepositPaymentMethod;
       effectiveDate: Date;
       note?: string;
       referenceNo?: string;
@@ -186,6 +192,7 @@ export class CustomerDepositsService {
         direction: DepositEntryDirection.COLLECT,
         amount: input.amount,
         source: input.source,
+        paymentMethod: input.paymentMethod ?? DepositPaymentMethod.CASH,
         effectiveDate: input.effectiveDate,
         note: input.note,
         referenceNo: input.referenceNo,
@@ -216,6 +223,7 @@ export class CustomerDepositsService {
             direction: 'COLLECT',
             amount: input.amount,
             source: input.source,
+            paymentMethod: input.paymentMethod ?? DepositPaymentMethod.CASH,
             effectiveDate: input.effectiveDate.toISOString(),
             balance: updatedDeposit.balance,
           },
@@ -420,11 +428,13 @@ export class CustomerDepositsService {
       );
     }
     const effectiveDate = resolveDepositEffectiveDate(dto.effectiveDate);
+    const paymentMethod = resolveDepositPaymentMethod(deposit.type, dto.paymentMethod, dto.referenceNo);
 
     const result = await this.prisma.$transaction((tx) =>
       this.closeOutTx(tx, user, deposit, {
         direction: DepositEntryDirection.REFUND,
         amount,
+        paymentMethod,
         effectiveDate,
         note: dto.note?.trim() || undefined,
         referenceNo: dto.referenceNo?.trim() || undefined,
@@ -611,6 +621,8 @@ export class CustomerDepositsService {
     input: {
       direction: Extract<DepositEntryDirection, 'REFUND' | 'WRITE_OFF'>;
       amount: number;
+      /** Defaults to CASH. Only meaningful for a REFUND (a write-off moves no money). */
+      paymentMethod?: DepositPaymentMethod;
       effectiveDate: Date;
       note?: string;
       referenceNo?: string;
@@ -625,6 +637,7 @@ export class CustomerDepositsService {
         direction: input.direction,
         amount: input.amount,
         source: DepositEntrySource.OFFICE,
+        paymentMethod: input.paymentMethod ?? DepositPaymentMethod.CASH,
         effectiveDate: input.effectiveDate,
         note: input.note,
         referenceNo: input.referenceNo,
@@ -658,6 +671,7 @@ export class CustomerDepositsService {
             productId: deposit.productId,
             direction: input.direction,
             amount: input.amount,
+            paymentMethod: input.paymentMethod ?? DepositPaymentMethod.CASH,
             effectiveDate: input.effectiveDate.toISOString(),
             balance: updatedDeposit.balance,
           },
@@ -718,6 +732,26 @@ export class CustomerDepositsService {
     if (original.status === 'VOIDED') {
       throw new ConflictException('This entry has already been voided.');
     }
+    // A delivery-collected entry mirrors the stop's own `depositCashCollected` (the
+    // source of truth — it feeds the sheet's hand-in and is re-synced on every
+    // resubmit/void of the stop). Voiding only the entry would leave the stop still
+    // expecting that cash and later corrupt the balance / block voiding the stop, so
+    // it must be corrected from the stop itself.
+    if (original.source === DepositEntrySource.DELIVERY) {
+      throw new BadRequestException(
+        'This deposit was collected at a delivery stop. Correct it from that stop (edit the stop while the sheet is open, or void the stop on a closed sheet) — it cannot be voided here.',
+      );
+    }
+
+    // Checked before anything is written — see voidLinkedAdjustmentTx.
+    if (
+      original.direction === DepositEntryDirection.APPLIED_TO_BALANCE &&
+      !(await this.permissions.can(user.userId, 'customer_financial_adjustments:void'))
+    ) {
+      throw new ForbiddenException(
+        'Voiding an applied-to-balance entry also reverses the customer credit — you need permission to void adjustments too.',
+      );
+    }
 
     const voidedAt = new Date();
     const reversalDirection = oppositeDepositDirection(original.direction);
@@ -732,6 +766,16 @@ export class CustomerDepositsService {
       throw new ConflictException('This entry has already been voided.');
     }
 
+    // (1b) An APPLIED_TO_BALANCE entry also posted an OTHER_CREDIT adjustment
+    // against Customer.financialBalance (see applyToBalance) — voiding only
+    // the deposit side would restore the held deposit while leaving the
+    // customer's bill credited: a double benefit. Void the paired adjustment
+    // in this same transaction (skipped only if someone already voided it
+    // from the Charges & Credits tab, since its credit is then already gone).
+    if (original.direction === DepositEntryDirection.APPLIED_TO_BALANCE) {
+      await this.voidLinkedAdjustmentTx(tx, user, original, reason);
+    }
+
     // (2) The reversal entry.
     const reversal = await tx.customerDepositEntry.create({
       data: {
@@ -740,6 +784,7 @@ export class CustomerDepositsService {
         direction: reversalDirection,
         amount: original.amount,
         source: original.source,
+        paymentMethod: original.paymentMethod,
         effectiveDate: voidedAt,
         note: `Reversal: ${reason}`,
         createdById: user.userId,
@@ -780,6 +825,26 @@ export class CustomerDepositsService {
     // CustomerFinancialAdjustmentService.voidAdjustmentTx.
     const voided = await tx.customerDepositEntry.findUniqueOrThrow({ where: { id: original.id } });
     return { entry: voided, reversal, deposit: updatedDeposit };
+  }
+
+  private async voidLinkedAdjustmentTx(
+    tx: Prisma.TransactionClient,
+    user: AuthUser,
+    original: CustomerDepositEntry,
+    reason: string,
+  ): Promise<void> {
+    const adjustment = original.referenceNo
+      ? await tx.customerFinancialAdjustment.findFirst({
+          where: { id: original.referenceNo, vendorId: original.vendorId },
+          select: { id: true, status: true },
+        })
+      : null;
+    if (!adjustment) {
+      // applyToBalance always links the two in one transaction — a missing link is corruption.
+      throw new ConflictException('This entry has no linked customer credit. Contact support.');
+    }
+    if (adjustment.status === 'VOIDED') return;
+    await this.adjustments.voidAdjustmentTx(tx, user, adjustment.id, reason);
   }
 
   /**

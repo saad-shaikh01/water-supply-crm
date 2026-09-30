@@ -91,11 +91,20 @@ function buildHarness(opts: { depositsEnabled?: boolean } = {}) {
         return { ...row };
       }),
     },
+    // Paired OTHER_CREDIT adjustments (applyToBalance) — `adjustmentStatus` lets a test
+    // pre-void one, as if staff had already voided it from the Charges & Credits tab.
+    customerFinancialAdjustment: {
+      findFirst: jest.fn().mockImplementation(async (args: any) => {
+        const id = args.where.id;
+        return id ? { id, status: adjustmentStatus.get(id) ?? 'POSTED' } : null;
+      }),
+    },
     auditLog: { create: jest.fn().mockResolvedValue({ id: 'audit-1' }) },
   };
+  const adjustmentStatus = new Map<string, string>();
   db.$transaction = jest.fn().mockImplementation(async (fn: (tx: any) => Promise<unknown>) => fn(db));
 
-  return { db, deposits, entries };
+  return { db, deposits, entries, adjustmentStatus };
 }
 
 function buildService(granted: string[], harness = buildHarness()) {
@@ -115,6 +124,10 @@ function buildService(granted: string[], harness = buildHarness()) {
       transaction: { id: `adj-txn-${adjSeq}` },
       customerBalance: 0,
     })),
+    voidAdjustmentTx: jest.fn().mockImplementation(async (_tx: any, _user: any, id: string) => {
+      harness.adjustmentStatus.set(id, 'VOIDED');
+      return { adjustment: { id, status: 'VOIDED' } };
+    }),
   };
   const service = new CustomerDepositsService(harness.db, cache as any, permissions as any, adjustments as any);
   return { service, cache, permissions, adjustments, ...harness };
@@ -195,6 +208,82 @@ describe('CustomerDepositsService.collect', () => {
 
     expect(cash.deposit.id).not.toBe(bottle.deposit.id);
     expect(bottle.deposit.balance).toBe(2);
+  });
+});
+
+describe('CustomerDepositsService — payment method', () => {
+  it('defaults to CASH when none is given (existing behaviour, counts in the Cash Ledger)', async () => {
+    const { service } = buildService([P('collect')]);
+    const { entry } = await service.collect(USER, CUSTOMER_ID, { type: 'CASH', amount: 1000 } as any);
+    expect(entry.paymentMethod).toBe('CASH');
+  });
+
+  it('records a BANK_TRANSFER deposit, and still raises the held deposit balance', async () => {
+    const { service } = buildService([P('collect')]);
+    const { entry, deposit } = await service.collect(USER, CUSTOMER_ID, {
+      type: 'CASH',
+      amount: 5000,
+      paymentMethod: 'BANK_TRANSFER',
+      referenceNo: 'TRX-991',
+    } as any);
+    expect(entry.paymentMethod).toBe('BANK_TRANSFER');
+    expect(deposit.balance).toBe(5000);
+  });
+
+  it.each(['BANK_TRANSFER', 'ONLINE'])('a %s deposit requires a transaction reference', async (paymentMethod) => {
+    const { service } = buildService([P('collect')]);
+    await expect(
+      service.collect(USER, CUSTOMER_ID, { type: 'CASH', amount: 5000, paymentMethod } as any),
+    ).rejects.toThrow(BadRequestException);
+    await expect(
+      service.collect(USER, CUSTOMER_ID, { type: 'CASH', amount: 5000, paymentMethod, referenceNo: '   ' } as any),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a non-cash payment method on a BOTTLE deposit', async () => {
+    const { service } = buildService([P('collect')]);
+    await expect(
+      service.collect(USER, CUSTOMER_ID, {
+        type: 'BOTTLE',
+        amount: 3,
+        productId: PRODUCT_ID,
+        paymentMethod: 'ONLINE',
+        referenceNo: 'x',
+      } as any),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('a refund records how it was paid out, and a non-cash refund needs a reference', async () => {
+    const harness = buildHarness();
+    const { service } = buildService([P('collect'), P('refund')], harness);
+    const { deposit } = await service.collect(USER, CUSTOMER_ID, { type: 'CASH', amount: 1000 } as any);
+
+    await expect(
+      service.refund(USER, deposit.id, { amount: 200, paymentMethod: 'BANK_TRANSFER' } as any),
+    ).rejects.toThrow(BadRequestException);
+
+    const ok = await service.refund(USER, deposit.id, {
+      amount: 200,
+      paymentMethod: 'BANK_TRANSFER',
+      referenceNo: 'TRX-7',
+    } as any);
+    expect(ok.entry.paymentMethod).toBe('BANK_TRANSFER');
+    expect(ok.deposit.balance).toBe(800);
+
+    const cash = await service.refund(USER, deposit.id, { amount: 100 } as any);
+    expect(cash.entry.paymentMethod).toBe('CASH');
+  });
+
+  it('a void’s reversal carries the original’s payment method', async () => {
+    const { service } = buildService([P('collect'), P('void')]);
+    const { entry } = await service.collect(USER, CUSTOMER_ID, {
+      type: 'CASH',
+      amount: 5000,
+      paymentMethod: 'ONLINE',
+      referenceNo: 'JC-1',
+    } as any);
+    const { reversal } = await service.voidEntry(USER, entry.id, { reason: 'Entered by mistake' } as any);
+    expect(reversal.paymentMethod).toBe('ONLINE');
   });
 });
 
@@ -354,6 +443,71 @@ describe('CustomerDepositsService.voidEntry', () => {
     await expect(service.voidEntry(USER, reversal.id, { reason: 'Undo the undo' } as any)).rejects.toThrow(
       BadRequestException,
     );
+  });
+
+  it('refuses to void a DELIVERY-collected entry — it is corrected from the stop, which is the source of truth', async () => {
+    const harness = buildHarness();
+    const { service, entries } = buildService([P('collect'), P('void')], harness);
+    const { entry, deposit } = await service.collect(USER, CUSTOMER_ID, { type: 'CASH', amount: 200 } as any);
+    entries.get(entry.id).source = 'DELIVERY';
+
+    await expect(service.voidEntry(USER, entry.id, { reason: 'Driver typo' } as any)).rejects.toThrow(
+      BadRequestException,
+    );
+    // nothing written: still POSTED, balance untouched
+    expect(entries.get(entry.id).status).toBe('POSTED');
+    expect(harness.deposits.get(deposit.id).balance).toBe(200);
+  });
+
+  describe('an APPLIED_TO_BALANCE entry', () => {
+    const PERMS = [P('collect'), P('refund'), P('void'), 'customer_financial_adjustments:void'];
+
+    async function applied(granted = PERMS) {
+      const harness = buildHarness();
+      const built = buildService(granted, harness);
+      const { deposit } = await built.service.collect(USER, CUSTOMER_ID, { type: 'CASH', amount: 1000 } as any);
+      const { entry, adjustmentId } = await built.service.applyToBalance(USER, deposit.id, { amount: 600 } as any);
+      return { ...built, entry, adjustmentId, deposit };
+    }
+
+    it('also voids the paired customer credit in the same transaction, so there is no double benefit', async () => {
+      const { service, adjustments, db, entry, adjustmentId } = await applied();
+
+      const result = await service.voidEntry(USER, entry.id, { reason: 'Applied by mistake' } as any);
+
+      expect(adjustments.voidAdjustmentTx).toHaveBeenCalledWith(db, USER, adjustmentId, 'Applied by mistake');
+      expect(result.deposit.balance).toBe(1000);
+    });
+
+    it('does not void the credit twice when staff already voided it from the Charges & Credits tab', async () => {
+      const { service, adjustments, adjustmentStatus, entry, adjustmentId } = await applied();
+      adjustmentStatus.set(adjustmentId, 'VOIDED');
+
+      const result = await service.voidEntry(USER, entry.id, { reason: 'Applied by mistake' } as any);
+
+      expect(adjustments.voidAdjustmentTx).not.toHaveBeenCalled();
+      expect(result.deposit.balance).toBe(1000);
+    });
+
+    it('needs the adjustment-void permission too, and writes nothing when it is missing', async () => {
+      const { service, adjustments, entries, entry } = await applied([P('collect'), P('refund'), P('void')]);
+
+      await expect(service.voidEntry(USER, entry.id, { reason: 'Applied by mistake' } as any)).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(adjustments.voidAdjustmentTx).not.toHaveBeenCalled();
+      expect(entries.get(entry.id).status).toBe('POSTED');
+    });
+
+    it('a plain COLLECT void never touches the adjustment ledger', async () => {
+      const harness = buildHarness();
+      const { service, adjustments } = buildService([P('collect'), P('void')], harness);
+      const { entry } = await service.collect(USER, CUSTOMER_ID, { type: 'CASH', amount: 1000 } as any);
+
+      await service.voidEntry(USER, entry.id, { reason: 'Entered by mistake' } as any);
+
+      expect(adjustments.voidAdjustmentTx).not.toHaveBeenCalled();
+    });
   });
 
   it('rejects a reason shorter than 5 characters', async () => {

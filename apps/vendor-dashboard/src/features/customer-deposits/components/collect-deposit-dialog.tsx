@@ -17,8 +17,9 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { productsApi } from '../../products/api/products.api';
 import type { PaginatedResponse, ProductSummary } from '@water-supply-crm/types';
-import { apiErrorMessage, type DepositType } from '../api/customer-deposits.api';
+import { apiErrorMessage, type DepositPaymentMethod, type DepositType } from '../api/customer-deposits.api';
 import { useCollectDeposit } from '../hooks/use-customer-deposits';
+import { PaymentMethodFields } from './payment-method-fields';
 
 const SELECT_CLASS =
   'h-10 w-full rounded-xl bg-background/50 border border-border text-sm text-foreground dark:text-white px-3 outline-none focus:ring-2 focus:ring-primary/30 cursor-pointer';
@@ -52,6 +53,8 @@ export function CollectDepositDialog({ customerId, open, onOpenChange }: Collect
   const [productId, setProductId] = useState('');
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<DepositPaymentMethod>('CASH');
+  const [referenceNo, setReferenceNo] = useState('');
   const [attempted, setAttempted] = useState(false);
 
   useEffect(() => {
@@ -60,6 +63,8 @@ export function CollectDepositDialog({ customerId, open, onOpenChange }: Collect
       setProductId('');
       setAmount('');
       setNote('');
+      setPaymentMethod('CASH');
+      setReferenceNo('');
       setAttempted(false);
       collect.reset();
     }
@@ -74,17 +79,21 @@ export function CollectDepositDialog({ customerId, open, onOpenChange }: Collect
     parsedAmount <= 0 ||
     (type === 'BOTTLE' && !Number.isInteger(parsedAmount));
   const productMissing = type === 'BOTTLE' && !productId;
+  const referenceMissing = type === 'CASH' && paymentMethod !== 'CASH' && referenceNo.trim() === '';
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (collect.isPending) return;
     setAttempted(true);
-    if (amountInvalid || productMissing) return;
+    if (amountInvalid || productMissing || referenceMissing) return;
     collect.mutate(
       {
         type,
         productId: type === 'BOTTLE' ? productId : undefined,
         amount: parsedAmount as number,
+        // A payment method only applies to a cash-amount deposit, never bottles.
+        paymentMethod: type === 'CASH' ? paymentMethod : undefined,
+        referenceNo: type === 'CASH' && paymentMethod !== 'CASH' ? referenceNo.trim() : undefined,
         note: note.trim() || undefined,
       },
       { onSuccess: () => onOpenChange(false) },
@@ -160,6 +169,17 @@ export function CollectDepositDialog({ customerId, open, onOpenChange }: Collect
               </p>
             )}
           </div>
+
+          {type === 'CASH' && (
+            <PaymentMethodFields
+              method={paymentMethod}
+              onMethodChange={setPaymentMethod}
+              referenceNo={referenceNo}
+              onReferenceNoChange={setReferenceNo}
+              showReferenceError={attempted}
+              verb="collected"
+            />
+          )}
 
           <div className="space-y-2">
             <Label className={FIELD_LABEL}>Note</Label>

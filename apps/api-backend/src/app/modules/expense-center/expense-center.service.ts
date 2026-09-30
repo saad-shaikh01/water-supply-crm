@@ -32,6 +32,11 @@ import {
   type ExpenseCenterSourceBucket,
   type ExpenseProvenanceScope,
 } from './expense-center-domain.util';
+import {
+  buildCategorySummary,
+  type CategorySummaryEntry,
+  type CategorySummaryResult,
+} from './expense-center-category-summary.util';
 
 export interface ExpenseCenterSummary {
   totalSpend: number;
@@ -291,55 +296,10 @@ export class ExpenseCenterService {
     const to = query.to ? endOfDay(new Date(query.to)) : undefined;
     const dateFilter = buildDateFilter(from, to);
 
-    const selection = resolveSourceSelection({
-      domain: query.domain,
-      category: query.category,
-      vanId: query.vanId,
-      employeeId: query.employeeId,
-      extraLabourId: query.extraLabourId,
-      paymentMethod: query.paymentMethod,
-      source: query.source,
-    });
+    const { selection, expenseWhere, ledgerWhere, crewCashWhere, standaloneCrewCashWhere } =
+      buildSourceWheres(vendorId, query, dateFilter);
 
     const windowSize = page * limit + limit;
-
-    const expenseWhere: Prisma.ExpenseWhereInput = {
-      vendorId,
-      ...(dateFilter && { date: dateFilter }),
-      ...(selection.expenseCategories && { category: { in: selection.expenseCategories } }),
-      ...(query.vanId && { vanId: query.vanId }),
-      ...(query.extraLabourId && { extraLabourId: query.extraLabourId }),
-      // card == paidFromCash false; cash == paidFromCash true.
-      ...(query.paymentMethod && { paidFromCash: query.paymentMethod === 'CASH' }),
-      ...expenseProvenanceWhere(selection.expenseProvenance),
-    };
-
-    const ledgerWhere: Prisma.StaffLedgerEntryWhereInput = {
-      vendorId,
-      category: selection.staffLedgerCategories
-        ? { in: selection.staffLedgerCategories }
-        : { not: StaffLedgerCategory.CREW_CASH },
-      status: { not: LedgerEntryStatus.VOIDED },
-      ...(dateFilter && { effectiveDate: dateFilter }),
-      ...(query.employeeId && { userId: query.employeeId }),
-    };
-
-    const crewCashWhere: Prisma.CrewCashDistributionWhereInput = {
-      vendorId,
-      ...(dateFilter && { date: dateFilter }),
-      ...(query.employeeId && { employeeId: query.employeeId }),
-      // Crew cash has no vanId of its own — it inherits the parent sheet's van.
-      ...(query.vanId && { dailySheet: { vanId: query.vanId } }),
-    };
-
-    // Standalone crew cash: ACTIVE only, no van (the selection already drops it
-    // when a vanId filter is present).
-    const standaloneCrewCashWhere: Prisma.StandaloneCrewCashExpenseWhereInput = {
-      vendorId,
-      status: StandaloneCrewCashStatus.ACTIVE,
-      ...(dateFilter && { date: dateFilter }),
-      ...(query.employeeId && { employeeId: query.employeeId }),
-    };
 
     const [
       expenseRows,
@@ -449,6 +409,185 @@ export class ExpenseCenterService {
 
     return paginate(merged.slice(skip, skip + limit), total, page, limit);
   }
+
+  // ────────────────────────────────────────────────────────────────────────
+  // GET /expense-center/category-summary
+  // ────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Month-wise Domain → Category → Subcategory roll-up over the same four
+   * sources, honouring the same filters as the timeline. Period resolves like
+   * `getSummary` (nothing given → current calendar month).
+   *
+   * Reads rows rather than a groupBy because the month bucket and the
+   * maintenance subcategory (a join to the linked service record) can't be
+   * expressed as a Prisma groupBy; volume is bounded by the selected range.
+   */
+  async getCategorySummary(
+    vendorId: string,
+    query: ExpenseCenterTimelineQueryDto,
+  ): Promise<CategorySummaryResult> {
+    const { start, end } = resolvePeriod(query.from, query.to);
+    const { selection, expenseWhere, ledgerWhere, crewCashWhere, standaloneCrewCashWhere } =
+      buildSourceWheres(vendorId, query, { gte: start, lte: end });
+
+    const [expenseRows, ledgerRows, crewCashRows, standaloneRows, serviceTypes] = await Promise.all([
+      selection.includeExpenses
+        ? this.prisma.expense.findMany({
+            where: expenseWhere,
+            select: {
+              category: true,
+              amount: true,
+              date: true,
+              vehicleServiceRecord: { select: { serviceType: true } },
+            },
+          })
+        : [],
+      selection.includeStaffLedger
+        ? this.prisma.staffLedgerEntry.findMany({
+            where: ledgerWhere,
+            select: { category: true, amount: true, effectiveDate: true },
+          })
+        : [],
+      selection.includeCrewCash
+        ? this.prisma.crewCashDistribution.findMany({
+            where: crewCashWhere,
+            select: { category: true, amount: true, date: true },
+          })
+        : [],
+      selection.includeStandaloneCrewCash
+        ? this.prisma.standaloneCrewCashExpense.findMany({
+            where: standaloneCrewCashWhere,
+            select: { category: true, amount: true, date: true },
+          })
+        : [],
+      this.prisma.vehicleServiceTypeDef.findMany({
+        where: { vendorId },
+        select: { key: true, label: true },
+      }),
+    ]);
+
+    const serviceTypeLabels = new Map(serviceTypes.map((type) => [type.key, type.label]));
+    const entries: CategorySummaryEntry[] = [];
+
+    for (const row of expenseRows) {
+      const isMaintenance = row.category === ExpenseCategory.VEHICLE_MAINTENANCE;
+      const serviceType = row.vehicleServiceRecord?.serviceType;
+      entries.push({
+        domain: domainForExpenseCategory(row.category),
+        category: row.category,
+        categoryLabel: labelForExpenseCategory(row.category),
+        ...(isMaintenance && {
+          subKey: serviceType ?? 'UNSPECIFIED',
+          subLabel: serviceType ? (serviceTypeLabels.get(serviceType) ?? humanizeKey(serviceType)) : 'Unspecified',
+        }),
+        amount: Math.abs(row.amount),
+        date: row.date,
+      });
+    }
+
+    for (const row of ledgerRows) {
+      entries.push({
+        domain: 'EMPLOYEES',
+        category: row.category,
+        categoryLabel: labelForStaffLedgerCategory(row.category),
+        amount: Math.abs(row.amount),
+        date: row.effectiveDate,
+      });
+    }
+
+    // Sheet-scoped and standalone crew cash share one CREW_CASH category, split
+    // by what the cash was for (Meal / Tea / ...).
+    for (const row of [...crewCashRows, ...standaloneRows]) {
+      entries.push({
+        domain: 'EMPLOYEES',
+        category: CREW_CASH_CATEGORY,
+        categoryLabel: STAFF_LEDGER_CATEGORY_LABELS.CREW_CASH,
+        subKey: row.category,
+        subLabel: humanizeKey(row.category),
+        amount: Math.abs(row.amount),
+        date: row.date,
+      });
+    }
+
+    return buildCategorySummary(entries, start, end);
+  }
+}
+
+type SourceFilterQuery = Pick<
+  ExpenseCenterTimelineQueryDto,
+  'domain' | 'category' | 'vanId' | 'employeeId' | 'extraLabourId' | 'paymentMethod' | 'source'
+>;
+
+/**
+ * The per-source where-clauses for one filter combination — shared by the
+ * timeline and the category summary so the two can never disagree about which
+ * rows a given filter matches.
+ */
+function buildSourceWheres(
+  vendorId: string,
+  query: SourceFilterQuery,
+  dateFilter: { gte?: Date; lte?: Date } | undefined,
+) {
+  const selection = resolveSourceSelection({
+    domain: query.domain,
+    category: query.category,
+    vanId: query.vanId,
+    employeeId: query.employeeId,
+    extraLabourId: query.extraLabourId,
+    paymentMethod: query.paymentMethod,
+    source: query.source,
+  });
+
+  const expenseWhere: Prisma.ExpenseWhereInput = {
+    vendorId,
+    ...(dateFilter && { date: dateFilter }),
+    ...(selection.expenseCategories && { category: { in: selection.expenseCategories } }),
+    ...(query.vanId && { vanId: query.vanId }),
+    ...(query.extraLabourId && { extraLabourId: query.extraLabourId }),
+    // card == paidFromCash false; cash == paidFromCash true.
+    ...(query.paymentMethod && { paidFromCash: query.paymentMethod === 'CASH' }),
+    ...expenseProvenanceWhere(selection.expenseProvenance),
+  };
+
+  const ledgerWhere: Prisma.StaffLedgerEntryWhereInput = {
+    vendorId,
+    category: selection.staffLedgerCategories
+      ? { in: selection.staffLedgerCategories }
+      : { not: StaffLedgerCategory.CREW_CASH },
+    status: { not: LedgerEntryStatus.VOIDED },
+    ...(dateFilter && { effectiveDate: dateFilter }),
+    ...(query.employeeId && { userId: query.employeeId }),
+  };
+
+  const crewCashWhere: Prisma.CrewCashDistributionWhereInput = {
+    vendorId,
+    ...(dateFilter && { date: dateFilter }),
+    ...(query.employeeId && { employeeId: query.employeeId }),
+    // Crew cash has no vanId of its own — it inherits the parent sheet's van.
+    ...(query.vanId && { dailySheet: { vanId: query.vanId } }),
+  };
+
+  // Standalone crew cash: ACTIVE only, no van (the selection already drops it
+  // when a vanId filter is present).
+  const standaloneCrewCashWhere: Prisma.StandaloneCrewCashExpenseWhereInput = {
+    vendorId,
+    status: StandaloneCrewCashStatus.ACTIVE,
+    ...(dateFilter && { date: dateFilter }),
+    ...(query.employeeId && { employeeId: query.employeeId }),
+  };
+
+  return { selection, expenseWhere, ledgerWhere, crewCashWhere, standaloneCrewCashWhere };
+}
+
+/** "ENGINE_OIL" -> "Engine Oil" — fallback when a service type has no catalogue row any more. */
+function humanizeKey(key: string): string {
+  return key
+    .toLowerCase()
+    .split('_')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
 }
 
 /**

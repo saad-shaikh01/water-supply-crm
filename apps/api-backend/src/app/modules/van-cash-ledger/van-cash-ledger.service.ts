@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { PrismaService } from '@water-supply-crm/database';
 import {
   CrewRole,
+  DepositPaymentMethod,
   DiscrepancyCaseStatus,
   DiscrepancyType,
   FuelCardTopUp,
@@ -26,7 +27,7 @@ import { isFutureVendorDate, vendorDateString, vendorDayEnd, vendorDayStart } fr
 import { paginate, type PaginatedResult } from '../../common/helpers/paginate';
 import { AuditService } from '../audit/audit.service';
 import { PermissionService } from '../authz/permission.service';
-import { resolveSheetCash, SHEET_CASH_RELOAD_INCLUDE } from '../daily-sheet/sheet-cash.util';
+import { resolveSheetCash, sheetDepositCash, SHEET_CASH_RELOAD_INCLUDE } from '../daily-sheet/sheet-cash.util';
 import {
   normalizeExpenseRow,
   normalizeStaffLedgerRow,
@@ -299,23 +300,59 @@ const sourceWhere = {
    * entry IS attributable to the van whose driver collected it (via
    * dailySheetItem -> dailySheet.vanId), so a van-scoped view includes ONLY
    * those, scoped to that van; the vendor-wide view includes both sources.
+   *
+   * TIMING differs by source too. An OFFICE entry counts on its own
+   * `effectiveDate` (the cash is in the office box the moment it is recorded).
+   * A DELIVERY entry is cash the driver is still CARRYING until they hand it
+   * over, so — exactly like the sheet's revenue cash (SHEET_CASH_IN) — it counts
+   * only once that sheet's handover is APPROVED, and on the handover's `date`
+   * (which P4 redirects to today when the business day's period is closed).
+   * Only the original (non-correction) handover row is consulted: the sheet's
+   * deposit cash is read live from the entries, so no correction chain is needed.
    */
   depositEntry: (
     vendorId: string,
     vanId: string | undefined,
-    direction: 'COLLECT' | 'REFUND',
+    direction: Prisma.CustomerDepositEntryWhereInput['direction'],
     statuses: ('POSTED' | 'VOIDED')[],
     range?: DateRange,
-  ): Prisma.CustomerDepositEntryWhereInput => ({
-    vendorId,
-    direction,
-    status: { in: statuses },
-    deposit: { type: 'CASH' },
-    ...(vanId
-      ? { source: 'DELIVERY' as const, dailySheetItem: { dailySheet: { vanId } } }
-      : {}),
-    ...(range && { effectiveDate: range }),
-  }),
+  ): Prisma.CustomerDepositEntryWhereInput => {
+    const officeLeg: Prisma.CustomerDepositEntryWhereInput = {
+      source: 'OFFICE',
+      ...(range && { effectiveDate: range }),
+    };
+    const deliveryLeg: Prisma.CustomerDepositEntryWhereInput = {
+      source: 'DELIVERY',
+      dailySheetItem: {
+        dailySheet: {
+          ...(vanId && { vanId }),
+          vanCashHandovers: {
+            some: {
+              correctsEntryId: null,
+              status: VanCashHandoverStatus.APPROVED,
+              ...(range && { date: range }),
+            },
+          },
+        },
+      },
+    };
+    return {
+      vendorId,
+      direction,
+      status: { in: statuses },
+      deposit: { type: 'CASH' },
+      // Only money that physically moved through the office cash box is a Cash
+      // Ledger movement: a bank-transfer / online deposit (or refund) changes the
+      // customer's held deposit balance but never the office's available cash.
+      paymentMethod: DepositPaymentMethod.CASH,
+      // A void posts a REVERSAL entry (opposite direction, status POSTED) next to
+      // the VOIDED original. The original already drops out via `status`; if the
+      // reversal were counted too, a voided collect would show as a cash REFUND
+      // (and vice-versa) — the void would move the ledger instead of cancelling.
+      reversalOfId: null,
+      OR: vanId ? [deliveryLeg] : [officeLeg, deliveryLeg],
+    };
+  },
 };
 
 export type VanCashLedgerRowType =
@@ -816,7 +853,10 @@ export class VanCashLedgerService {
     if (!sheet) return null;
 
     const resolved = resolveSheetCash(sheet as unknown as Record<string, unknown>);
-    if (resolved.cashExpected === 0) return null;
+    // A sheet whose only cash is customer-deposit cash (revenue 0) still needs a
+    // handover row: approving it is what brings that deposit cash into the
+    // ledger (see sourceWhere.depositEntry).
+    if (resolved.cashExpected === 0 && sheetDepositCash(sheet as { items?: any[] }) <= 0) return null;
 
     // Check-then-create idempotency guard, same discipline
     // CrewCashDistributionService's own duplicate-guard comment documents —
@@ -895,7 +935,21 @@ export class VanCashLedgerService {
     });
 
     if (chain.length === 0) {
-      if (newCashAmount === 0) return null;
+      if (newCashAmount === 0) {
+        // Deposit cash collected on a sheet that never had a handover (revenue 0)
+        // still needs one to be approved — seed a 0-amount row, same as close does.
+        const hasDepositCash = await tx.customerDepositEntry.count({
+          where: {
+            vendorId,
+            source: 'DELIVERY',
+            direction: 'COLLECT',
+            status: 'POSTED',
+            deposit: { type: 'CASH' },
+            dailySheetItem: { dailySheetId: sheetId },
+          },
+        });
+        if (hasDepositCash === 0) return null;
+      }
 
       const sheet = await tx.dailySheet.findUnique({
         where: { id: sheetId },
@@ -1510,6 +1564,20 @@ export class VanCashLedgerService {
       orderBy: { date: 'desc' },
     });
 
+    // Customer Deposits — deposit cash the driver collected on each sheet. It is
+    // handed over together with the revenue `amount` below, and approving the
+    // handover is what brings it into the ledger; shown so the approver counts
+    // the physical total (amount + depositCash).
+    const depositBySheet = new Map<string, number>();
+    if (rows.length > 0) {
+      const sums = await this.prisma.dailySheetItem.groupBy({
+        by: ['dailySheetId'],
+        where: { dailySheetId: { in: rows.map((r) => r.dailySheetId) }, status: { not: 'VOIDED' } },
+        _sum: { depositCashCollected: true },
+      });
+      for (const g of sums) depositBySheet.set(g.dailySheetId, round2(g._sum.depositCashCollected ?? 0));
+    }
+
     // Flattened for the Pending Approvals panel — the driver is who actually
     // submits a handover (submittedById === dailySheet.driverId, see
     // createHandoverForClosedSheet), so it doubles as "driverName" here.
@@ -1521,6 +1589,7 @@ export class VanCashLedgerService {
       salesmanName: row.dailySheet.crew[0]?.user.name ?? null,
       date: row.date,
       amount: row.amount,
+      depositCash: depositBySheet.get(row.dailySheetId) ?? 0,
       version: row.version,
     }));
   }
@@ -2234,21 +2303,29 @@ export class VanCashLedgerService {
       // in one query (distinguished by `direction` when building rows);
       // VOIDED rows are still fetched for the audit trail (fold in as amount 0).
       this.prisma.customerDepositEntry.findMany({
-        where: {
-          vendorId,
-          direction: { in: ['COLLECT', 'REFUND'] },
-          status: { in: ['POSTED', 'VOIDED'] },
-          deposit: { type: 'CASH' },
-          ...(vanId ? { source: 'DELIVERY' as const, dailySheetItem: { dailySheet: { vanId } } } : {}),
-          ...(dateFilter && { effectiveDate: dateFilter }),
-        },
+        where: sourceWhere.depositEntry(vendorId, vanId, { in: ['COLLECT', 'REFUND'] }, ['POSTED', 'VOIDED'], dateFilter),
         include: {
           deposit: { select: { customerId: true, customer: { select: { name: true } } } },
           createdBy: { select: { name: true } },
           voidedBy: { select: { name: true } },
           // DELIVERY-source rows only — which van the collecting driver was
-          // on, so the timeline can show/scope it like any other van row.
-          dailySheetItem: { select: { dailySheet: { select: { vanId: true, van: { select: { plateNumber: true } } } } } },
+          // on, so the timeline can show/scope it like any other van row, and
+          // the approved handover whose date the row is counted on.
+          dailySheetItem: {
+            select: {
+              dailySheet: {
+                select: {
+                  vanId: true,
+                  van: { select: { plateNumber: true } },
+                  vanCashHandovers: {
+                    where: { correctsEntryId: null, status: VanCashHandoverStatus.APPROVED },
+                    select: { date: true },
+                    take: 1,
+                  },
+                },
+              },
+            },
+          },
         },
         orderBy: { effectiveDate: 'asc' },
       }),
@@ -3266,19 +3343,29 @@ export class VanCashLedgerService {
       referenceNo: string | null;
       voidedAt: Date | null;
       voidReason: string | null;
+      /** Set on the REVERSAL entry a void creates — never a real cash movement. */
+      reversalOfId: string | null;
       deposit: { customerId: string; customer: { name: string } };
       createdBy: { name: string } | null;
       voidedBy: { name: string } | null;
-      dailySheetItem: { dailySheet: { vanId: string; van: { plateNumber: string } } } | null;
+      dailySheetItem: {
+        dailySheet: { vanId: string; van: { plateNumber: string }; vanCashHandovers: { date: Date }[] };
+      } | null;
     },
   ): VanCashLedgerRow {
     const isVoided = row.status === 'VOIDED';
+    // The reversal a void creates cancels the (already 0-folded) original — it
+    // is shown for the audit trail but must not move the running balance either.
+    const isReversal = row.reversalOfId !== null;
     const isRefund = row.direction === 'REFUND';
     const bucket: CashLedgerBucket = isRefund ? 'DEPOSIT_REFUND_OUT' : 'DEPOSIT_CASH_IN';
     const type: VanCashLedgerRowType = isRefund ? 'DEPOSIT_REFUND_OUT' : 'DEPOSIT_CASH_IN';
     const customerName = row.deposit.customer.name;
-    const date = row.effectiveDate.toISOString();
     const van = row.dailySheetItem?.dailySheet;
+    // A DELIVERY entry counts on its sheet's approved handover date (see
+    // sourceWhere.depositEntry); an OFFICE entry on its own effective date.
+    const handoverDate = row.source === 'DELIVERY' ? van?.vanCashHandovers?.[0]?.date : undefined;
+    const date = (handoverDate ?? row.effectiveDate).toISOString();
     return {
       ...rowV2(bucket, row.createdAt, date, {
         recordedByName: row.createdBy?.name ?? null,
@@ -3294,7 +3381,7 @@ export class VanCashLedgerService {
       bucket,
       type,
       // A voided entry must not move the running balance — it folds in as 0.
-      amount: isVoided ? 0 : isRefund ? -row.amount : row.amount,
+      amount: isVoided || isReversal ? 0 : isRefund ? -row.amount : row.amount,
       displayAmount: row.amount,
       runningBalance: 0,
       title: isRefund ? `Deposit Refund — ${customerName}` : `Customer Deposit — ${customerName}`,

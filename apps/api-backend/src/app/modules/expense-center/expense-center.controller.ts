@@ -27,6 +27,12 @@ export class ExpenseCenterController {
     return this.expenseCenterService.getSummary(user.vendorId, query);
   }
 
+  @Get('category-summary')
+  @RequirePermissions('expenses:view')
+  getCategorySummary(@CurrentUser() user: AuthUser, @Query() query: ExpenseCenterTimelineQueryDto) {
+    return this.expenseCenterService.getCategorySummary(user.vendorId, query);
+  }
+
   @Get('timeline')
   @RequirePermissions('expenses:view')
   getTimeline(@CurrentUser() user: AuthUser, @Query() query: ExpenseCenterTimelineQueryDto) {

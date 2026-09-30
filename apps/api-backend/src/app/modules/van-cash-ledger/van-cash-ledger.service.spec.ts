@@ -87,6 +87,8 @@ function makeTx(opts: {
   chain?: (typeof baseHandover)[];
   existingHandover?: typeof baseHandover | null;
   discrepancy?: { id: string } | null;
+  /** Delivery-collected CASH deposit entries on the sheet (handlePostCloseCorrection's seed check). */
+  depositEntryCount?: number;
 } = {}) {
   const {
     sheet = buildClosedSheet(),
@@ -94,6 +96,7 @@ function makeTx(opts: {
     chain = [],
     existingHandover = null,
     discrepancy = null,
+    depositEntryCount = 0,
   } = opts;
 
   let current = handover ? { ...handover } : null;
@@ -130,6 +133,9 @@ function makeTx(opts: {
     },
     sheetDiscrepancyCase: {
       findFirst: jest.fn().mockResolvedValue(discrepancy),
+    },
+    customerDepositEntry: {
+      count: jest.fn().mockResolvedValue(depositEntryCount),
     },
   };
 }
@@ -385,6 +391,46 @@ describe('VanCashLedgerService', () => {
       expect(tx.vanCashHandover.create).not.toHaveBeenCalled();
     });
 
+    it('still creates a 0-amount handover when the sheet collected only customer-deposit cash, so approving it can bring that cash into the ledger', async () => {
+      const depositOnlyItem = { status: 'COMPLETED', cashCollected: 0, depositCashCollected: 200 };
+      const { svc, tx } = makeService({ sheet: buildClosedSheet({ cashExpected: 0, cashCollected: 0, items: [depositOnlyItem] }) });
+
+      const result = await svc.createHandoverForClosedSheet(tx as any, VENDOR_ID, SHEET_ID);
+
+      expect(result).not.toBeNull();
+      expect(tx.vanCashHandover.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ amount: 0, expectedAmount: 0, status: VanCashHandoverStatus.PENDING }) }),
+      );
+    });
+
+    it('does not count a VOIDED stop’s deposit cash as a reason to create a handover', async () => {
+      const voided = { status: 'VOIDED', cashCollected: 0, depositCashCollected: 200 };
+      const { svc, tx } = makeService({ sheet: buildClosedSheet({ cashExpected: 0, cashCollected: 0, items: [voided] }) });
+
+      expect(await svc.createHandoverForClosedSheet(tx as any, VENDOR_ID, SHEET_ID)).toBeNull();
+      expect(tx.vanCashHandover.create).not.toHaveBeenCalled();
+    });
+
+    it('still creates a 0-amount handover when the sheet collected only customer-deposit cash, so approving it can bring that cash into the ledger', async () => {
+      const depositOnlyItem = { status: 'COMPLETED', cashCollected: 0, depositCashCollected: 200 };
+      const { svc, tx } = makeService({ sheet: buildClosedSheet({ cashExpected: 0, cashCollected: 0, items: [depositOnlyItem] }) });
+
+      const result = await svc.createHandoverForClosedSheet(tx as any, VENDOR_ID, SHEET_ID);
+
+      expect(result).not.toBeNull();
+      expect(tx.vanCashHandover.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ amount: 0, expectedAmount: 0, status: VanCashHandoverStatus.PENDING }) }),
+      );
+    });
+
+    it('does not count a VOIDED stop’s deposit cash as a reason to create a handover', async () => {
+      const voided = { status: 'VOIDED', cashCollected: 0, depositCashCollected: 200 };
+      const { svc, tx } = makeService({ sheet: buildClosedSheet({ cashExpected: 0, cashCollected: 0, items: [voided] }) });
+
+      expect(await svc.createHandoverForClosedSheet(tx as any, VENDOR_ID, SHEET_ID)).toBeNull();
+      expect(tx.vanCashHandover.create).not.toHaveBeenCalled();
+    });
+
     it('is idempotent — returns the existing original handover instead of creating a second one', async () => {
       const existing = { ...baseHandover };
       const { svc, tx } = makeService({ existingHandover: existing });
@@ -480,6 +526,15 @@ describe('VanCashLedgerService', () => {
       const result = await svc.handlePostCloseCorrection(tx as any, VENDOR_ID, SHEET_ID, 0);
       expect(result).toBeNull();
       expect(tx.vanCashHandover.create).not.toHaveBeenCalled();
+    });
+
+    it('seeds a 0-amount handover when revenue is 0 but a delivery deposit-cash entry exists on the sheet', async () => {
+      const { svc, tx } = makeService({ chain: [], depositEntryCount: 1 });
+      const result = await svc.handlePostCloseCorrection(tx as any, VENDOR_ID, SHEET_ID, 0);
+      expect(result).not.toBeNull();
+      expect(tx.vanCashHandover.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ amount: 0, expectedAmount: 0, status: VanCashHandoverStatus.PENDING }) }),
+      );
     });
 
     it('appends a further correction row on top of an existing correction chain', async () => {
@@ -1282,6 +1337,185 @@ describe('VanCashLedgerService', () => {
       expect(row).toBeDefined();
       expect(row?.amount).toBe(-300);
       expect(row?.runningBalance).toBe(-300); // moved down by 300 exactly once
+    });
+
+    // A voided deposit entry leaves a VOIDED original plus a POSTED REVERSAL of the
+    // opposite direction. Only real movements may count: counting the reversal made a
+    // voided collect show as a cash REFUND (and a voided refund as cash IN).
+    it('getStats: deposit aggregates exclude void-reversal entries (reversalOfId: null)', async () => {
+      const { svc, prisma } = makeLedgerReadService();
+      await svc.getStats(VENDOR_ID, {});
+      const depositWheres = prisma.customerDepositEntry.aggregate.mock.calls.map((c: any[]) => c[0].where);
+      expect(depositWheres).toHaveLength(2);
+      for (const where of depositWheres) expect(where).toEqual(expect.objectContaining({ reversalOfId: null }));
+    });
+
+    // A bank-transfer / online deposit or refund never moved the office cash box.
+    it('getStats + getTimeline: only paymentMethod CASH deposit entries are cash-ledger movements', async () => {
+      const { svc, prisma } = makeLedgerReadService();
+      await svc.getStats(VENDOR_ID, {});
+      await svc.getTimeline(VENDOR_ID, {});
+      const wheres = [
+        ...prisma.customerDepositEntry.aggregate.mock.calls.map((c: any[]) => c[0].where),
+        ...prisma.customerDepositEntry.findMany.mock.calls.map((c: any[]) => c[0].where),
+      ];
+      expect(wheres.length).toBeGreaterThanOrEqual(3);
+      for (const where of wheres) expect(where).toEqual(expect.objectContaining({ paymentMethod: 'CASH' }));
+    });
+
+    // Delivery-collected deposit cash is carried by the driver until the handover is
+    // approved — it must be recognized exactly when (and on the date) the sheet's
+    // revenue cash is, not at the stop. Office-entered deposits count immediately.
+    it('getStats: a DELIVERY deposit only counts once its sheet handover is APPROVED; an OFFICE one counts on its own date', async () => {
+      const { svc, prisma } = makeLedgerReadService();
+      await svc.getStats(VENDOR_ID, { from: '2026-09-01', to: '2026-09-30' } as any);
+
+      const where = prisma.customerDepositEntry.aggregate.mock.calls[0][0].where;
+      expect(where.OR).toHaveLength(2);
+      const [officeLeg, deliveryLeg] = where.OR;
+      expect(officeLeg).toEqual(expect.objectContaining({ source: 'OFFICE', effectiveDate: expect.anything() }));
+      expect(deliveryLeg).toEqual(
+        expect.objectContaining({
+          source: 'DELIVERY',
+          dailySheetItem: {
+            dailySheet: {
+              vanCashHandovers: {
+                some: expect.objectContaining({
+                  correctsEntryId: null,
+                  status: VanCashHandoverStatus.APPROVED,
+                  date: expect.anything(),
+                }),
+              },
+            },
+          },
+        }),
+      );
+    });
+
+    it('getStats: a van-scoped view has ONLY the delivery leg, scoped to that van', async () => {
+      const { svc, prisma } = makeLedgerReadService();
+      await svc.getStats(VENDOR_ID, { vanId: VAN_ID } as any);
+
+      const where = prisma.customerDepositEntry.aggregate.mock.calls[0][0].where;
+      expect(where.OR).toHaveLength(1);
+      expect(where.OR[0].source).toBe('DELIVERY');
+      expect(where.OR[0].dailySheetItem.dailySheet.vanId).toBe(VAN_ID);
+    });
+
+    it('getTimeline: a delivery deposit row is dated on the approved handover, not the moment of the stop', async () => {
+      const entry = {
+        id: 'dep-delivery',
+        direction: 'COLLECT',
+        source: 'DELIVERY',
+        amount: 200,
+        status: 'POSTED',
+        effectiveDate: new Date('2026-09-10T07:00:00Z'), // the stop
+        createdAt: new Date('2026-09-10T07:00:00Z'),
+        createdById: 'driver-1',
+        note: null,
+        referenceNo: null,
+        voidedAt: null,
+        voidReason: null,
+        reversalOfId: null,
+        deposit: { customerId: 'c1', customer: { name: 'Ali' } },
+        createdBy: { name: 'Driver' },
+        voidedBy: null,
+        dailySheetItem: {
+          dailySheet: {
+            vanId: VAN_ID,
+            van: { plateNumber: 'ABC-1' },
+            vanCashHandovers: [{ date: new Date('2026-09-11T00:00:00Z') }], // approved into a later day
+          },
+        },
+      };
+      const { svc } = makeLedgerReadService({
+        customerDepositEntry: {
+          aggregate: jest.fn().mockResolvedValue(AGG0),
+          count: jest.fn().mockResolvedValue(0),
+          findMany: jest.fn().mockResolvedValue([entry]),
+        },
+      });
+
+      const page = await svc.getTimeline(VENDOR_ID, {});
+      const row = page.data.find((r) => r.sourceRecordId === 'dep-delivery');
+      expect(row?.date).toBe('2026-09-11T00:00:00.000Z');
+      expect(row?.amount).toBe(200);
+    });
+
+    it('getPendingHandovers: exposes the deposit cash the driver must hand over with the revenue amount', async () => {
+      const pending = {
+        id: 'h1',
+        dailySheetId: SHEET_ID,
+        van: { id: VAN_ID, plateNumber: 'ABC-1' },
+        submittedBy: { id: DRIVER_ID, name: 'Driver' },
+        dailySheet: { id: SHEET_ID, date: new Date('2026-09-10'), crew: [] },
+        date: new Date('2026-09-10'),
+        amount: 800,
+        version: 1,
+      };
+      const { svc } = makeLedgerReadService({
+        vanCashHandover: {
+          aggregate: jest.fn().mockResolvedValue(AGG0),
+          count: jest.fn().mockResolvedValue(0),
+          findMany: jest.fn().mockResolvedValue([pending]),
+        },
+        dailySheetItem: {
+          groupBy: jest.fn().mockResolvedValue([{ dailySheetId: SHEET_ID, _sum: { depositCashCollected: 200 } }]),
+        },
+      });
+
+      const [row] = await svc.getPendingHandovers(VENDOR_ID);
+      expect(row).toEqual(expect.objectContaining({ amount: 800, depositCash: 200 }));
+    });
+
+    it('getTimeline: a voided deposit collect nets to zero — original and its reversal both fold as 0', async () => {
+      const base = {
+        source: 'OFFICE',
+        effectiveDate: new Date('2026-09-10T06:00:00Z'),
+        createdAt: new Date('2026-09-10T06:00:00Z'),
+        createdById: 'u1',
+        note: null,
+        referenceNo: null,
+        deposit: { customerId: 'c1', customer: { name: 'Ali' } },
+        createdBy: { name: 'Accountant' },
+        voidedBy: { name: 'Accountant' },
+        dailySheetItem: null,
+      };
+      const original = {
+        ...base,
+        id: 'dep-orig',
+        direction: 'COLLECT',
+        amount: 5000,
+        status: 'VOIDED',
+        voidedAt: new Date('2026-09-10T07:00:00Z'),
+        voidReason: 'mistake',
+        reversalOfId: null,
+      };
+      const reversal = {
+        ...base,
+        id: 'dep-rev',
+        direction: 'REFUND',
+        amount: 5000,
+        status: 'POSTED',
+        voidedAt: null,
+        voidReason: null,
+        reversalOfId: 'dep-orig',
+        createdAt: new Date('2026-09-10T07:00:00Z'),
+        effectiveDate: new Date('2026-09-10T07:00:00Z'),
+      };
+      const { svc } = makeLedgerReadService({
+        customerDepositEntry: {
+          aggregate: jest.fn().mockResolvedValue(AGG0),
+          count: jest.fn().mockResolvedValue(0),
+          findMany: jest.fn().mockResolvedValue([original, reversal]),
+        },
+      });
+
+      const page = await svc.getTimeline(VENDOR_ID, {});
+      const rows = page.data.filter((r) => r.sourceType === 'CUSTOMER_DEPOSIT_ENTRY');
+      expect(rows).toHaveLength(2);
+      expect(rows.map((r) => r.amount)).toEqual([0, 0]);
+      expect(rows.every((r) => r.runningBalance === 0)).toBe(true);
     });
   });
 

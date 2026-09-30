@@ -27,6 +27,11 @@ interface ReconcileData {
     expensePaidFromCash: number;
     crewCashPaidFromCash: number;
     netToHandIn: number;
+    // Customer Deposits — cash collected at the stops as a refundable deposit. It
+    // is handed over together with the revenue but is NOT revenue: netToHandIn /
+    // handedIn / discrepancy stay revenue-only. Absent on older backends.
+    depositCashToHandIn?: number;
+    totalToHandIn?: number;
     handedIn: number;
     discrepancy: number;
     unexplainedDiscrepancy: number;
@@ -105,7 +110,13 @@ export function ReconcileDialog({ open, onClose, sheetId, mode = 'direct' }: Rec
         // (sheet.cashCollected is still whatever stale/zero value predates
         // this close), so netToHandIn is the right starting suggestion —
         // editable — for what's about to be entered.
-        setActualCashHandedIn(mode === 'approve' ? preview.driver.handedIn : preview.driver.netToHandIn);
+        // Customer Deposits: the figure entered is the driver's TOTAL physical
+        // hand-in (revenue + deposit cash). The backend persists handedIn as the
+        // revenue part only, so 'approve' mode shows it back as handedIn + deposit.
+        const depositCash = preview.driver.depositCashToHandIn ?? 0;
+        setActualCashHandedIn(
+          mode === 'approve' ? preview.driver.handedIn + depositCash : preview.driver.netToHandIn + depositCash,
+        );
       })
       .catch(() => { toast.error('Failed to load reconciliation preview'); onClose(); })
       .finally(() => setLoading(false));
@@ -262,7 +273,10 @@ export function ReconcileDialog({ open, onClose, sheetId, mode = 'direct' }: Rec
                   seeded above) is what this card is actually meant to show. */}
               {(() => {
                 const liveHandedIn = Number(actualCashHandedIn || 0);
-                const liveUnexplainedDiscrepancy = data.driver.netToHandIn - liveHandedIn;
+                const depositCash = data.driver.depositCashToHandIn ?? 0;
+                // The typed hand-in is the TOTAL (revenue + deposit cash), so compare it
+                // against the total expected, not revenue alone.
+                const liveUnexplainedDiscrepancy = data.driver.netToHandIn + depositCash - liveHandedIn;
                 return (
               <div className={cn(
                 'rounded-2xl border overflow-hidden',
@@ -301,6 +315,17 @@ export function ReconcileDialog({ open, onClose, sheetId, mode = 'direct' }: Rec
                     <div className="rounded-xl bg-blue-500/10 border border-blue-500/20 px-3 py-2 flex items-center justify-between">
                       <p className="text-[10px] font-bold uppercase text-blue-600">Expenses Paid by Card/Other</p>
                       <p className="font-mono font-black text-sm text-blue-600">₨{(data.expenses?.paidByOther ?? 0).toLocaleString()} (not deducted)</p>
+                    </div>
+                  )}
+                  {depositCash > 0 && (
+                    <div className="rounded-xl bg-violet-500/10 border border-violet-500/20 px-3 py-2 space-y-0.5">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[10px] font-bold uppercase text-violet-600">Customer Deposit Cash</p>
+                        <p className="font-mono font-black text-sm text-violet-600">+ ₨{depositCash.toLocaleString()}</p>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">
+                        Hand this over with the revenue — total ₨{(data.driver.netToHandIn + depositCash).toLocaleString()}. It is a refundable liability, not revenue.
+                      </p>
                     </div>
                   )}
                   {(data.crewCash?.total ?? 0) > 0 && (

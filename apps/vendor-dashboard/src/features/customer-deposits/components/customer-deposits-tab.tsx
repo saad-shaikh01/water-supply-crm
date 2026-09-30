@@ -10,6 +10,7 @@ import type { CustomerDeposit, CustomerDepositEntry } from '../api/customer-depo
 import {
   DEPOSIT_DIRECTION_LABELS,
   depositDirectionSign,
+  DEPOSIT_PAYMENT_METHOD_LABELS,
   depositTitle,
   fmtDepositAmount,
   fmtDepositDate,
@@ -212,9 +213,21 @@ export function CustomerDepositsTab({ customerId }: CustomerDepositsTabProps) {
               header: 'Source',
               essential: true,
               cell: (r) => (
-                <Badge variant={r.entry.source === 'DELIVERY' ? 'info' : 'outline'} className="text-[10px]">
-                  {r.entry.source === 'DELIVERY' ? 'Delivery' : 'Office'}
-                </Badge>
+                <div className="flex flex-col items-start gap-1">
+                  <Badge variant={r.entry.source === 'DELIVERY' ? 'info' : 'outline'} className="text-[10px]">
+                    {r.entry.source === 'DELIVERY' ? 'Delivery' : 'Office'}
+                  </Badge>
+                  {/* Only a cash-amount deposit has a payment method; CASH is the normal case, so
+                      only bank/online are called out (they never touched the office cash box). */}
+                  {r.deposit.type === 'CASH' &&
+                    (r.entry.direction === 'COLLECT' || r.entry.direction === 'REFUND') &&
+                    r.entry.paymentMethod &&
+                    r.entry.paymentMethod !== 'CASH' && (
+                      <Badge variant="outline" className="text-[10px]">
+                        {DEPOSIT_PAYMENT_METHOD_LABELS[r.entry.paymentMethod]}
+                      </Badge>
+                    )}
+                </div>
               ),
             },
             {
@@ -240,7 +253,9 @@ export function CustomerDepositsTab({ customerId }: CustomerDepositsTabProps) {
                     header: '',
                     essential: true,
                     cell: (r: FlatEntry) =>
-                      r.entry.status === 'POSTED' && !r.entry.reversalOf ? (
+                      // A delivery-collected entry mirrors the stop's own deposit figure — it is
+                      // corrected from that stop, never voided here (the backend rejects it too).
+                      r.entry.status === 'POSTED' && !r.entry.reversalOf && r.entry.source !== 'DELIVERY' ? (
                         <Button
                           size="sm"
                           variant="ghost"

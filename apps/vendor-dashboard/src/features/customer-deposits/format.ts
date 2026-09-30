@@ -1,4 +1,4 @@
-import type { DepositEntryDirection, DepositType } from './api/customer-deposits.api';
+import type { DepositEntryDirection, DepositPaymentMethod, DepositType } from './api/customer-deposits.api';
 import { PKT_TIME_ZONE } from '../../lib/date-pkt';
 
 /** `₨ 1,250.5` — unsigned Rs. amount. */
@@ -18,6 +18,12 @@ export const DEPOSIT_DIRECTION_LABELS: Record<DepositEntryDirection, string> = {
   REFUND: 'Refunded',
   WRITE_OFF: 'Written off',
   APPLIED_TO_BALANCE: 'Applied to balance',
+};
+
+export const DEPOSIT_PAYMENT_METHOD_LABELS: Record<DepositPaymentMethod, string> = {
+  CASH: 'Cash',
+  BANK_TRANSFER: 'Bank transfer',
+  ONLINE: 'Online',
 };
 
 /** COLLECT raises the held deposit (+); everything else lowers it (−). */

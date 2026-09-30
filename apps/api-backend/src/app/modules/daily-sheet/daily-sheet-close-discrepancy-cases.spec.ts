@@ -244,4 +244,73 @@ describe('DailySheetService.closeSheet — Discrepancy Case creation', () => {
       );
     });
   });
+
+  // ── Customer Deposits: the driver's hand-in is the TOTAL physical cash
+  // (revenue + deposit). Only the revenue part is persisted/reconciled. ──
+  describe('deposit cash at the stops', () => {
+    // One completed cash-customer stop: ₨800 revenue + ₨200 deposit collected.
+    const stop = {
+      status: DeliveryStatus.COMPLETED,
+      filledDropped: 0,
+      filledReceived: 0,
+      emptyReceived: 0,
+      pricePerBottle: 0,
+      cashCollected: 800,
+      depositCashCollected: 200,
+      customer: { paymentType: PaymentType.CASH, customPrices: [] },
+      product: { basePrice: 0 },
+    };
+
+    it('persists only the revenue part of the total hand-in as cashCollected, and reconciles clean', async () => {
+      mockPrisma.dailySheet.findFirst.mockResolvedValue(buildOpenSheet({ items: [stop] }));
+
+      const result = await service.closeSheet(VENDOR_ID, SHEET_ID, ACTOR_ID, ACTOR_ROLE, 1000);
+
+      expect(tx.dailySheet.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ cashCollected: 800, cashExpected: 800 }) }),
+      );
+      expect(result.reconciliation.driver).toEqual(
+        expect.objectContaining({ netToHandIn: 800, depositCashToHandIn: 200, totalToHandIn: 1000, handedIn: 800, discrepancy: 0 }),
+      );
+    });
+
+    it('a driver who hands in only the revenue (₨800) shows a ₨200 shortfall — the deposit cash is missing', async () => {
+      mockPrisma.dailySheet.findFirst.mockResolvedValue(buildOpenSheet({ items: [stop] }));
+
+      const result = await service.closeSheet(VENDOR_ID, SHEET_ID, ACTOR_ID, ACTOR_ROLE, 800);
+
+      expect(result.reconciliation.driver).toEqual(expect.objectContaining({ handedIn: 600, discrepancy: 200 }));
+    });
+
+    it('a VOIDED stop’s deposit cash is not expected in the hand-in', async () => {
+      const voided = { ...stop, status: DeliveryStatus.VOIDED };
+      mockPrisma.dailySheet.findFirst.mockResolvedValue(buildOpenSheet({ items: [stop, voided] }));
+
+      const result = await service.closeSheet(VENDOR_ID, SHEET_ID, ACTOR_ID, ACTOR_ROLE, 1000);
+
+      expect(result.reconciliation.driver.depositCashToHandIn).toBe(200);
+    });
+
+    it('requestClose (Soft Close) applies the same split', async () => {
+      mockPrisma.dailySheet.findFirst.mockResolvedValue(buildOpenSheet({ items: [stop] }));
+      mockPrisma.dailySheet.update = jest.fn().mockImplementation(async ({ data }: any) => ({ id: SHEET_ID, ...data }));
+
+      await service.requestClose(VENDOR_ID, SHEET_ID, ACTOR_ID, 1000);
+
+      expect(mockPrisma.dailySheet.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ cashCollected: 800, cashExpected: 800 }) }),
+      );
+    });
+
+    it('with no deposit cash the hand-in is persisted unchanged (non-deposit vendors are unaffected)', async () => {
+      const plain = { ...stop, depositCashCollected: 0 };
+      mockPrisma.dailySheet.findFirst.mockResolvedValue(buildOpenSheet({ items: [plain] }));
+
+      await service.closeSheet(VENDOR_ID, SHEET_ID, ACTOR_ID, ACTOR_ROLE, 800);
+
+      expect(tx.dailySheet.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ cashCollected: 800 }) }),
+      );
+    });
+  });
 });

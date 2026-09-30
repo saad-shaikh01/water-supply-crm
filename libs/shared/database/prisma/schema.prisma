@@ -4305,6 +4305,17 @@ enum DepositEntryStatus {
   VOIDED
 }
 
+// How the money for a CASH-type deposit entry actually moved (owner-requested
+// 2026-10-01). Only CASH is physical cash in/out of the office box, so only
+// CASH entries touch the Cash Ledger / Office Available Cash — a bank-transfer
+// or online deposit still raises the customer's held deposit balance but never
+// the office cash. Meaningless for BOTTLE deposits (always CASH there, unused).
+enum DepositPaymentMethod {
+  CASH
+  BANK_TRANSFER
+  ONLINE
+}
+
 model CustomerDeposit {
   id       String @id @default(uuid())
   vendorId String
@@ -4344,6 +4355,10 @@ model CustomerDepositEntry {
   amount    Float
   source    DepositEntrySource
   status    DepositEntryStatus    @default(POSTED)
+
+  /// Defaults to CASH so every pre-existing entry keeps counting in the Cash Ledger
+  /// exactly as before. Only CASH entries are cash-ledger movements.
+  paymentMethod DepositPaymentMethod @default(CASH)
 
   /// Business date (vendor timezone).
   effectiveDate DateTime

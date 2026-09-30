@@ -26,6 +26,21 @@ import { DeliveryStatus, PaymentType } from '@prisma/client';
 
 const logger = new Logger('SheetCashUtil');
 
+/**
+ * Customer Deposits — the deposit CASH a driver collected at this sheet's stops
+ * (voided stops excluded: a voided stop "never happened"). Physically part of
+ * what the driver hands in at day end, but NEVER part of the revenue figures
+ * (`cashExpected`/`cashCollected`/`VanCashHandover.amount`) — see
+ * buildReconciliation. Defaults to 0 for vendors/rows that don't use deposits.
+ */
+export function sheetDepositCash(sheet: { items?: any[] }): number {
+  return Math.round(
+    ((sheet.items ?? []) as any[])
+      .filter((i) => i.status !== DeliveryStatus.VOIDED)
+      .reduce((s, i) => s + (i.depositCashCollected ?? 0), 0) * 100,
+  ) / 100;
+}
+
 // ── Pure reconciliation computation ─────────────────────────────────────────
 // Moved verbatim out of DailySheetService.buildReconciliation so dashboard /
 // analytics rollups can reuse it without pulling in the whole service. The
@@ -92,9 +107,7 @@ export function buildReconciliation(sheet: any) {
   // revenue total. `depositCashCollected` defaults to 0 on every pre-existing
   // row, so this block alone is purely additive; the reverted math above is
   // byte-identical to before Customer Deposits existed.
-  const totalDepositCashRecorded = (sheet.items as any[])
-    .filter((i) => i.status !== DeliveryStatus.VOIDED)
-    .reduce((s, i) => s + (i.depositCashCollected ?? 0), 0);
+  const totalDepositCashRecorded = sheetDepositCash(sheet);
 
   // Only expenses actually paid out of the driver's van cash-in-hand
   // (paidFromCash, default true) reduce the cash hand-in — a fuel fill or
@@ -171,6 +184,13 @@ export function buildReconciliation(sheet: any) {
       expensePaidFromCash: totalExpenses,
       crewCashPaidFromCash: totalCrewCash,
       netToHandIn: Math.max(0, totalCashRecorded - totalExpenses - totalCrewCash),
+      // Customer Deposits — what the driver physically hands over is
+      // `netToHandIn` (revenue) + the deposit cash below. `netToHandIn` itself
+      // stays revenue-only; `handedIn`/`discrepancy` below are also revenue-only
+      // because closeSheet/requestClose persist `actualCashHandedIn` minus the
+      // deposit cash. Both are 0/absent-equivalent for non-deposit vendors.
+      depositCashToHandIn: totalDepositCashRecorded,
+      totalToHandIn: Math.max(0, totalCashRecorded - totalExpenses - totalCrewCash) + totalDepositCashRecorded,
       handedIn: sheet.cashCollected,
       discrepancy: driverDiscrepancy,
       unexplainedDiscrepancy: driverDiscrepancy - totalExpenses - totalCrewCash,

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useQueryState, parseAsInteger, parseAsString } from 'nuqs';
 import {
   expenseCenterApi,
+  type ExpenseCategorySummaryQuery,
   type ExpenseCenterDomain,
   type ExpenseCenterSourceBucket,
   type ExpenseCenterSummaryQuery,
@@ -22,6 +23,45 @@ export const useExpenseCenterSummary = () => {
   return useQuery({
     queryKey: [QUERY_KEY, 'summary', params],
     queryFn: () => expenseCenterApi.getSummary(params).then((r) => r.data),
+  });
+};
+
+/** Which Expenses-page body is showing: the row timeline or the category summary. */
+export type ExpenseViewMode = 'timeline' | 'summary';
+
+export const useExpenseViewMode = () => {
+  const [view, setView] = useQueryState('view', parseAsString.withDefault('timeline'));
+  const mode: ExpenseViewMode = view === 'summary' ? 'summary' : 'timeline';
+  return { mode, setMode: (next: ExpenseViewMode) => void setView(next === 'timeline' ? null : next) };
+};
+
+/** Same URL filters as the timeline (date range + every chip/drawer filter), no pagination. */
+export const useExpenseCategorySummary = () => {
+  const [domain] = useQueryState('domain', parseAsString.withDefault(''));
+  const [category] = useQueryState('category', parseAsString.withDefault(''));
+  const [vanId] = useQueryState('vanId', parseAsString.withDefault(''));
+  const [employeeId] = useQueryState('employeeId', parseAsString.withDefault(''));
+  const [extraLabourId] = useQueryState('extraLabourId', parseAsString.withDefault(''));
+  const [paymentMethod] = useQueryState('paymentMethod', parseAsString.withDefault(''));
+  const [source] = useQueryState('source', parseAsString.withDefault(''));
+  const [from] = useQueryState('from', parseAsString.withDefault(''));
+  const [to] = useQueryState('to', parseAsString.withDefault(''));
+
+  const params: ExpenseCategorySummaryQuery = {
+    domain: (domain as ExpenseCenterDomain) || undefined,
+    category: category || undefined,
+    vanId: vanId || undefined,
+    employeeId: employeeId || undefined,
+    extraLabourId: extraLabourId || undefined,
+    paymentMethod: paymentMethod || undefined,
+    source: (source as ExpenseCenterSourceBucket) || undefined,
+    from: from || undefined,
+    to: to || undefined,
+  };
+
+  return useQuery({
+    queryKey: [QUERY_KEY, 'category-summary', params],
+    queryFn: () => expenseCenterApi.getCategorySummary(params).then((r) => r.data),
   });
 };
 

@@ -14,7 +14,8 @@ import {
   Label,
   Textarea,
 } from '@water-supply-crm/ui';
-import type { CustomerDeposit } from '../api/customer-deposits.api';
+import type { CustomerDeposit, DepositPaymentMethod } from '../api/customer-deposits.api';
+import { PaymentMethodFields } from './payment-method-fields';
 import { apiErrorMessage } from '../api/customer-deposits.api';
 import { useApplyDepositToBalance, useRefundDeposit } from '../hooks/use-customer-deposits';
 import { depositTitle, fmtDepositAmount } from '../format';
@@ -44,6 +45,8 @@ export function SettleDepositDialog({ deposit, open, onOpenChange }: SettleDepos
   const [refundAmount, setRefundAmount] = useState('');
   const [applyAmount, setApplyAmount] = useState('');
   const [note, setNote] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<DepositPaymentMethod>('CASH');
+  const [referenceNo, setReferenceNo] = useState('');
   const [attempted, setAttempted] = useState(false);
 
   useEffect(() => {
@@ -51,6 +54,8 @@ export function SettleDepositDialog({ deposit, open, onOpenChange }: SettleDepos
       setRefundAmount('');
       setApplyAmount('');
       setNote('');
+      setPaymentMethod('CASH');
+      setReferenceNo('');
       setAttempted(false);
       refund.reset();
       applyToBalance.reset();
@@ -65,7 +70,10 @@ export function SettleDepositDialog({ deposit, open, onOpenChange }: SettleDepos
   const bothZero = parsedRefund <= 0 && parsedApply <= 0;
   const exceedsBalance = total - deposit.balance > 1e-6;
   const notIntegerBottles = !isCash && !Number.isInteger(parsedRefund);
-  const invalid = bothZero || exceedsBalance || notIntegerBottles || parsedRefund < 0 || parsedApply < 0;
+  // The payment method only applies to the money refunded, not to "apply to balance".
+  const referenceMissing = isCash && parsedRefund > 0 && paymentMethod !== 'CASH' && referenceNo.trim() === '';
+  const invalid =
+    bothZero || exceedsBalance || notIntegerBottles || parsedRefund < 0 || parsedApply < 0 || referenceMissing;
 
   const isPending = refund.isPending || applyToBalance.isPending;
   const isError = refund.isError || applyToBalance.isError;
@@ -78,7 +86,12 @@ export function SettleDepositDialog({ deposit, open, onOpenChange }: SettleDepos
 
     try {
       if (parsedRefund > 0) {
-        await refund.mutateAsync({ amount: parsedRefund, note: note.trim() || undefined });
+        await refund.mutateAsync({
+          amount: parsedRefund,
+          paymentMethod: isCash ? paymentMethod : undefined,
+          referenceNo: isCash && paymentMethod !== 'CASH' ? referenceNo.trim() : undefined,
+          note: note.trim() || undefined,
+        });
       }
       if (parsedApply > 0) {
         await applyToBalance.mutateAsync({ amount: parsedApply, note: note.trim() || undefined });
@@ -104,7 +117,7 @@ export function SettleDepositDialog({ deposit, open, onOpenChange }: SettleDepos
 
         <form onSubmit={submit} noValidate className="space-y-4 py-2">
           <div className="space-y-2">
-            <Label className={FIELD_LABEL}>{isCash ? 'Refund in cash (₨)' : 'Bottles returned'}</Label>
+            <Label className={FIELD_LABEL}>{isCash ? 'Refund to customer (₨)' : 'Bottles returned'}</Label>
             <Input
               type="number"
               min={0}
@@ -116,6 +129,17 @@ export function SettleDepositDialog({ deposit, open, onOpenChange }: SettleDepos
               className="h-10 rounded-xl"
             />
           </div>
+
+          {isCash && parsedRefund > 0 && (
+            <PaymentMethodFields
+              method={paymentMethod}
+              onMethodChange={setPaymentMethod}
+              referenceNo={referenceNo}
+              onReferenceNoChange={setReferenceNo}
+              showReferenceError={attempted}
+              verb="refunded"
+            />
+          )}
 
           {isCash && (
             <div className="space-y-2">

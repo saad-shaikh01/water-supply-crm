@@ -1,6 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { AnalyticsService } from './analytics.service';
-import { DateRangeDto } from './analytics.dto';
+import { DateRangeDto, ProfitLossDetailsQueryDto, ProfitLossQueryDto } from './analytics.dto';
+import { ProfitLossService } from './profit-loss.service';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
@@ -9,7 +10,20 @@ import type { AuthUser } from '@water-supply-crm/types';
 @Controller('analytics')
 @RequirePermissions('analytics:view')
 export class AnalyticsController {
-  constructor(private readonly analyticsService: AnalyticsService) {}
+  constructor(
+    private readonly analyticsService: AnalyticsService,
+    private readonly profitLossService: ProfitLossService,
+  ) {}
+
+  @Get('profit-loss/details')
+  getProfitLossDetails(@CurrentUser() user: AuthUser, @Query() dto: ProfitLossDetailsQueryDto) {
+    return this.profitLossService.getDetails(user.vendorId, dto.month, dto.category, dto.page, dto.limit);
+  }
+
+  @Get('profit-loss')
+  getProfitLoss(@CurrentUser() user: AuthUser, @Query() dto: ProfitLossQueryDto) {
+    return this.profitLossService.getProfitLoss(user.vendorId, dto.month);
+  }
 
   @Get('financial')
   getFinancial(@CurrentUser() user: AuthUser, @Query() dto: DateRangeDto) {

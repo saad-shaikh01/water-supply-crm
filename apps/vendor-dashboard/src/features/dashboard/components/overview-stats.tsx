@@ -1,8 +1,9 @@
 'use client';
 
-import { Users, Package, Truck, DollarSign, ClipboardList, TrendingUp, ArrowUpRight } from 'lucide-react';
+import { Users, Package, Truck, DollarSign, ClipboardList, TrendingUp, ArrowUpRight, ShieldCheck } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, Skeleton, Badge } from '@water-supply-crm/ui';
 import { useOverviewStats } from '../hooks/use-dashboard';
+import { useDepositsConfig } from '../../customer-deposits/hooks/use-customer-deposits';
 
 interface StatCardProps {
   title: string;
@@ -41,6 +42,7 @@ function StatCard({ title, value, icon: Icon, description, trend }: StatCardProp
 
 export function OverviewStats() {
   const { data, isLoading } = useOverviewStats();
+  const { data: depositsConfig } = useDepositsConfig();
 
   if (isLoading) {
     return (
@@ -53,6 +55,11 @@ export function OverviewStats() {
   }
 
   const stats = (data ?? {}) as Record<string, unknown>;
+  // A held deposit is a liability (owed back to customers), never part of Pending
+  // Balance — shown only for vendors who use the feature, or still hold something.
+  const cashDepositsHeld = Number(stats.cashDepositsHeld ?? 0);
+  const bottleDepositsHeld = Number(stats.bottleDepositsHeld ?? 0);
+  const showDeposits = !!depositsConfig?.depositsEnabled || cashDepositsHeld > 0 || bottleDepositsHeld > 0;
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -91,8 +98,16 @@ export function OverviewStats() {
         title="Pending Balance" 
         value={`₨${Number(stats.totalOutstandingBalance ?? 0).toLocaleString()}`} 
         icon={TrendingUp} 
-        description="Collection required" 
+        description="Collection required"
       />
+      {showDeposits && (
+        <StatCard
+          title="Deposits Held"
+          value={`₨${cashDepositsHeld.toLocaleString()}`}
+          icon={ShieldCheck}
+          description={`Refundable · ${bottleDepositsHeld} bottle${bottleDepositsHeld === 1 ? '' : 's'} held`}
+        />
+      )}
     </div>
   );
 }

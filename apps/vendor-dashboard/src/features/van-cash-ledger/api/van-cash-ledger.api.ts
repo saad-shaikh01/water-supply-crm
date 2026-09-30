@@ -645,7 +645,10 @@ export interface PendingHandover {
   /** Sheet's confirmed salesman crew member, if any. */
   salesmanName: string | null;
   date: string;
+  /** Revenue cash handed over (customer-deposit cash is NOT included — see depositCash). */
   amount: number;
+  /** Customer-deposit cash the driver collected on this sheet, handed over with `amount`; counted in the ledger when approved. */
+  depositCash?: number;
   /** Optimistic-concurrency token required by the approve action. */
   version: number;
 }

@@ -10,6 +10,8 @@ export type DepositType = 'CASH' | 'BOTTLE';
 export type DepositEntryDirection = 'COLLECT' | 'REFUND' | 'WRITE_OFF' | 'APPLIED_TO_BALANCE';
 export type DepositEntrySource = 'OFFICE' | 'DELIVERY';
 export type DepositEntryStatus = 'POSTED' | 'VOIDED';
+/** Only CASH moves the office cash box (Cash Ledger); bank/online change the held deposit only. */
+export type DepositPaymentMethod = 'CASH' | 'BANK_TRANSFER' | 'ONLINE';
 
 export interface CustomerDepositEntry {
   id: string;
@@ -19,6 +21,7 @@ export interface CustomerDepositEntry {
   amount: number;
   source: DepositEntrySource;
   status: DepositEntryStatus;
+  paymentMethod: DepositPaymentMethod;
   effectiveDate: string;
   note: string | null;
   referenceNo: string | null;
@@ -49,6 +52,8 @@ export interface CollectDepositPayload {
   /** Required (and only meaningful) when type = BOTTLE. */
   productId?: string;
   amount: number;
+  /** CASH deposits only; defaults to CASH. BANK_TRANSFER/ONLINE require `referenceNo`. */
+  paymentMethod?: DepositPaymentMethod;
   effectiveDate?: string;
   note?: string;
   referenceNo?: string;
@@ -56,6 +61,8 @@ export interface CollectDepositPayload {
 
 export interface RefundDepositPayload {
   amount: number;
+  /** CASH deposits only; defaults to CASH. BANK_TRANSFER/ONLINE require `referenceNo`. */
+  paymentMethod?: DepositPaymentMethod;
   effectiveDate?: string;
   note?: string;
   referenceNo?: string;

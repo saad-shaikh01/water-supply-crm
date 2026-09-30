@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { DepositEntryDirection, DepositType } from '@prisma/client';
+import { DepositEntryDirection, DepositPaymentMethod, DepositType } from '@prisma/client';
 import { isFutureVendorDate, vendorDateString, vendorDayStart } from '../../common/helpers/date.util';
 
 const PAISE = 100;
@@ -65,4 +65,28 @@ export function oppositeDepositDirection(direction: DepositEntryDirection): Depo
   return direction === DepositEntryDirection.COLLECT
     ? DepositEntryDirection.REFUND
     : DepositEntryDirection.COLLECT;
+}
+
+/**
+ * Validates + defaults the payment method of a collect/refund. Only CASH moves
+ * physical cash in the office box (→ Cash Ledger); a BANK_TRANSFER/ONLINE entry
+ * needs a transaction reference so it can be traced, and is meaningless for a
+ * BOTTLE deposit (no money at all).
+ */
+export function resolveDepositPaymentMethod(
+  type: DepositType,
+  method: DepositPaymentMethod | undefined,
+  referenceNo: string | undefined,
+): DepositPaymentMethod {
+  const resolved = method ?? DepositPaymentMethod.CASH;
+  if (type === DepositType.BOTTLE) {
+    if (resolved !== DepositPaymentMethod.CASH) {
+      throw new BadRequestException('A payment method does not apply to a bottle deposit.');
+    }
+    return resolved;
+  }
+  if (resolved !== DepositPaymentMethod.CASH && !referenceNo?.trim()) {
+    throw new BadRequestException('A reference number (transaction ID) is required for a bank-transfer or online payment.');
+  }
+  return resolved;
 }

@@ -1,6 +1,6 @@
 import { Transform } from 'class-transformer';
 import { IsEnum, IsNumber, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
-import { DepositType } from '@prisma/client';
+import { DepositPaymentMethod, DepositType } from '@prisma/client';
 
 /** Collects a deposit from a customer — office manual entry (source = OFFICE). */
 export class CollectDepositDto {
@@ -14,6 +14,14 @@ export class CollectDepositDto {
 
   @IsNumber()
   amount!: number;
+
+  /**
+   * How the customer paid (CASH type deposits only). Defaults to CASH. Only CASH
+   * lands in the office Cash Ledger; BANK_TRANSFER/ONLINE require `referenceNo`.
+   */
+  @IsOptional()
+  @IsEnum(DepositPaymentMethod)
+  paymentMethod?: DepositPaymentMethod;
 
   @IsOptional()
   @IsString()

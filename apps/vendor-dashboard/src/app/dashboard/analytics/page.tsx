@@ -34,6 +34,10 @@ const OperationsTab = dynamic(
   () => import('../../../features/analytics/components/operations-tab').then((m) => m.OperationsTab),
   { loading: () => <div className="animate-pulse h-96 bg-muted rounded" /> }
 );
+const ProfitLossTab = dynamic(
+  () => import('../../../features/analytics/components/profit-loss-tab').then((m) => m.ProfitLossTab),
+  { loading: () => <div className="animate-pulse h-96 bg-muted rounded" /> }
+);
 const ExportSection = dynamic(
   () => import('../../../features/analytics/components/export-section').then((m) => m.ExportSection),
   { loading: () => <div className="animate-pulse h-10 bg-muted rounded" /> }
@@ -82,24 +86,30 @@ function AnalyticsContent() {
     <div className="space-y-6">
       <PageHeader title="Analytics" description={headerDescription} />
 
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 bg-card/30 p-3 sm:p-4 rounded-2xl border border-border">
-        <div className="flex-1 min-w-0">
-          <VanFilter />
-        </div>
-        <div className="flex-1 min-w-0">
-          <DateRangePicker className="w-full sm:w-auto sm:min-w-64" />
-        </div>
-      </div>
+      {/* Profit & Loss is company-wide and month-based (own month picker), so the
+          van / date-range filters and export do not apply to it. */}
+      {activeTab !== 'profit-loss' && (
+        <>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 bg-card/30 p-3 sm:p-4 rounded-2xl border border-border">
+            <div className="flex-1 min-w-0">
+              <VanFilter />
+            </div>
+            <div className="flex-1 min-w-0">
+              <DateRangePicker className="w-full sm:w-auto sm:min-w-64" />
+            </div>
+          </div>
 
-      <ExportSection
-        activeTab={activeTab}
-        financialData={financialData}
-        deliveriesData={deliveriesData}
-        customersData={customersData}
-        staffData={staffData}
-        from={from}
-        to={to}
-      />
+          <ExportSection
+            activeTab={activeTab}
+            financialData={financialData}
+            deliveriesData={deliveriesData}
+            customersData={customersData}
+            staffData={staffData}
+            from={from}
+            to={to}
+          />
+        </>
+      )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="bg-card/40 backdrop-blur-xl border border-white/10 rounded-2xl p-1 h-auto">
@@ -121,6 +131,9 @@ function AnalyticsContent() {
           <TabsTrigger value="operations" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground font-semibold">
             Operations
           </TabsTrigger>
+          <TabsTrigger value="profit-loss" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground font-semibold">
+            Profit &amp; Loss
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-4">
@@ -140,6 +153,9 @@ function AnalyticsContent() {
         </TabsContent>
         <TabsContent value="operations" className="mt-4">
           <OperationsTab from={from} to={to} vanId={vanId} />
+        </TabsContent>
+        <TabsContent value="profit-loss" className="mt-4">
+          <ProfitLossTab />
         </TabsContent>
       </Tabs>
     </div>

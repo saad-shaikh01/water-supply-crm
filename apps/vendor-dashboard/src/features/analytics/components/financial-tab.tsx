@@ -11,7 +11,7 @@ import { useTheme } from 'next-themes';
 import { useFinancialAnalytics } from '../hooks/use-analytics';
 import {
   TrendingUp, TrendingDown, DollarSign, Percent, Landmark, Wallet, Clock, Store, ArrowUpRight, ArrowDownRight,
-  Users, ShieldAlert, PackageSearch, AlertTriangle,
+  Users, ShieldAlert, PackageSearch, AlertTriangle, ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { useCan } from '../../authz/hooks/use-can';
@@ -150,6 +150,12 @@ export function FinancialTab({ from, to, vanId }: { from: string; to: string; va
   const officeCash = d.officeCash ?? {
     scope: 'OFFICE', available: 0, periodExpense: 0, periodCashIn: 0, periodRemitted: 0, pendingHandoverCount: 0, pendingRemittanceCount: 0,
   };
+  const deposits = d.deposits ?? {
+    heldCash: 0, heldBottles: 0, cashHolders: 0, bottleHolders: 0,
+    period: { collected: 0, refunded: 0, appliedToBalance: 0, writtenOff: 0 },
+  };
+  const hasDeposits =
+    deposits.heldCash > 0 || deposits.heldBottles > 0 || Object.values(deposits.period as Record<string, number>).some((v) => v > 0);
   // A single van is already selected — the per-van table below would just
   // repeat that one row, so it's skipped in favor of the summary cards above.
   const isVanScoped = !!vanId;
@@ -514,6 +520,23 @@ export function FinancialTab({ from, to, vanId }: { from: string; to: string; va
           <StatCard label="Walk-in Cash Collected" value={fmt(walkInCash.collected)} icon={Store} sublabel={`${walkInCash.sheetCount} walk-in day(s)`} />
         )}
       </div>
+
+      {/* Customer Deposits — a refundable liability owed back to customers, kept
+          apart from Outstanding Balance and Revenue. Held figures are live (not
+          date-scoped); the movement cards follow the page's date range. */}
+      {hasDeposits && (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard label="Cash Deposits Held" value={fmt(deposits.heldCash)} icon={ShieldCheck} sublabel={`${deposits.cashHolders} customer(s) · owed back, as of now`} />
+          <StatCard label="Bottle Deposits Held" value={String(deposits.heldBottles)} icon={PackageSearch} sublabel={`${deposits.bottleHolders} customer(s) · as of now`} />
+          <StatCard label="Deposits Collected" value={fmt(deposits.period.collected)} icon={TrendingUp} sublabel="cash, this period" />
+          <StatCard
+            label="Deposits Settled"
+            value={fmt(deposits.period.refunded + deposits.period.appliedToBalance + deposits.period.writtenOff)}
+            icon={Wallet}
+            sublabel={`${fmt(deposits.period.refunded)} refunded · ${fmt(deposits.period.appliedToBalance)} to balance · ${fmt(deposits.period.writtenOff)} forfeited`}
+          />
+        </div>
+      )}
 
       {/* Discrepancy write-offs — cash/bottle/empty shortfalls resolved as a
           company loss (distinct from the Customers tab's Force-Deactivate
