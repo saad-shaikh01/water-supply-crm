@@ -2,12 +2,17 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useQueryState, parseAsString } from 'nuqs';
 import { ChevronLeft, ChevronRight, ClipboardList, Filter, History, MessageSquare, RotateCw, X } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, Button, Input, Label, Badge, cn } from '@water-supply-crm/ui';
+import {
+  Card, CardContent, CardHeader, CardTitle, Button, Input, Label, Badge, cn,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@water-supply-crm/ui';
 import { PageHeader } from '../../../components/shared/page-header';
 import { useCan } from '../../../features/authz/hooks/use-can';
-import { vansApi } from '../../../features/vans/api/vans.api';
+import { DateRangePicker } from '../../../components/shared/date-range-picker';
+import { VanFilter } from '../../../components/shared/filters/van-filter';
+import { SearchInput } from '../../../components/shared/filters/search-input';
 import {
   useNotificationLogs,
   useNotificationLogSummary,
@@ -36,32 +41,6 @@ const STATUS_STYLES: Record<string, string> = {
 
 const CHANNELS = ['WHATSAPP', 'SMS', 'FCM', 'IN_APP'] as const;
 
-const INPUT_CLASS =
-  'h-8 rounded-lg border border-border/50 bg-accent/30 px-2 text-xs text-foreground dark:text-white focus:outline-none focus:ring-1 focus:ring-primary/50';
-
-/** Local YYYY-MM-DD (not toISOString, which would shift the day in UTC+5). */
-const isoDay = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
-const daysAgo = (n: number) => {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d;
-};
-
-const PRESETS: { label: string; range: () => [string, string] }[] = [
-  { label: 'Today', range: () => [isoDay(new Date()), isoDay(new Date())] },
-  { label: 'Yesterday', range: () => [isoDay(daysAgo(1)), isoDay(daysAgo(1))] },
-  { label: 'Last 7 days', range: () => [isoDay(daysAgo(6)), isoDay(new Date())] },
-  {
-    label: 'This month',
-    range: () => {
-      const now = new Date();
-      return [isoDay(new Date(now.getFullYear(), now.getMonth(), 1)), isoDay(now)];
-    },
-  },
-];
-
 const pillClass = (active: boolean) =>
   cn(
     'px-2.5 h-8 rounded-lg text-xs font-bold border transition-colors',
@@ -70,34 +49,28 @@ const pillClass = (active: boolean) =>
 
 export default function NotificationLogsPage() {
   const [page, setPage] = useState(1);
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  // Date range, van and search live in the URL — owned by the shared filter components.
+  const [dateFrom, setFrom] = useQueryState('from', parseAsString.withDefault(''));
+  const [dateTo, setTo] = useQueryState('to', parseAsString.withDefault(''));
+  const [vanId, setVanId] = useQueryState('vanId', parseAsString.withDefault(''));
+  const [search, setSearch] = useQueryState('search', parseAsString.withDefault(''));
   const [sheetDate, setSheetDate] = useState('');
   const [channel, setChannel] = useState<string>('WHATSAPP');
   const [status, setStatus] = useState<'all' | 'SENT' | 'FAILED' | 'SKIPPED'>('all');
-  const [search, setSearch] = useState('');
   const [eventType, setEventType] = useState('all');
   const [errorCategory, setErrorCategory] = useState('all');
-  const [vanId, setVanId] = useState('all');
   const [dailySheetId, setDailySheetId] = useState('');
   const [customer, setCustomer] = useState<{ id: string; label: string } | null>(null);
 
   const canRetry = useCan('notifications:configure');
   const retry = useRetryNotificationLog();
 
-  const { data: vansRes } = useQuery({
-    queryKey: ['notification-logs-vans'],
-    queryFn: () => vansApi.getAll({ limit: 100 }).then((r) => r.data),
-    staleTime: 15 * 60 * 1000,
-  });
-  const vans: any[] = ((vansRes as any)?.data ?? (Array.isArray(vansRes) ? vansRes : [])).filter((v: any) => !v.isSystem);
-
   // Everything except status — the summary always shows the full Sent/Failed/Skipped split.
   const baseFilters = {
     channel: channel === 'all' ? undefined : channel,
     eventType: eventType === 'all' ? undefined : eventType,
     errorCategory: errorCategory === 'all' ? undefined : errorCategory,
-    vanId: vanId === 'all' ? undefined : vanId,
+    vanId: vanId || undefined,
     dailySheetId: dailySheetId || undefined,
     sheetDate: sheetDate || undefined,
     customerId: customer?.id,
@@ -114,12 +87,13 @@ export default function NotificationLogsPage() {
   const meta = (data as any)?.meta;
   const hasFilters = !!(
     dateFrom || dateTo || sheetDate || status !== 'all' || eventType !== 'all' || errorCategory !== 'all' ||
-    vanId !== 'all' || dailySheetId || customer || search
+    vanId || dailySheetId || customer || search
   );
 
   const reset = () => {
-    setDateFrom(''); setDateTo(''); setSheetDate(''); setStatus('all'); setEventType('all');
-    setErrorCategory('all'); setVanId('all'); setDailySheetId(''); setCustomer(null); setSearch(''); setPage(1);
+    void setFrom(null); void setTo(null); void setVanId(null); void setSearch(null);
+    setSheetDate(''); setStatus('all'); setEventType('all');
+    setErrorCategory('all'); setDailySheetId(''); setCustomer(null); setPage(1);
   };
   const change = <T,>(setter: (v: T) => void) => (v: T) => { setter(v); setPage(1); };
 
@@ -203,69 +177,53 @@ export default function NotificationLogsPage() {
           )}
 
           {/* Filters */}
-          <div className="flex flex-wrap items-center gap-1.5 mb-3">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mr-1">Quick range</span>
-            {PRESETS.map((p) => {
-              const [from, to] = p.range();
-              return (
-                <button
-                  key={p.label}
-                  type="button"
-                  onClick={() => { setDateFrom(from); setDateTo(to); setPage(1); }}
-                  className={pillClass(dateFrom === from && dateTo === to)}
-                >
-                  {p.label}
-                </button>
-              );
-            })}
-          </div>
-
           <div className="flex flex-wrap items-end gap-3 mb-4">
-            <div className="space-y-1">
-              <Label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">From</Label>
-              <input type="date" value={dateFrom} onChange={(e) => change(setDateFrom)(e.target.value)} className={cn(INPUT_CLASS, 'font-mono')} />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">To</Label>
-              <input type="date" value={dateTo} onChange={(e) => change(setDateTo)(e.target.value)} className={cn(INPUT_CLASS, 'font-mono')} />
+            <div className="space-y-1 min-w-56">
+              <Label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Sent between</Label>
+              <DateRangePicker onChange={() => setPage(1)} />
             </div>
             <div className="space-y-1">
               <Label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Delivery date</Label>
-              <input type="date" value={sheetDate} onChange={(e) => change(setSheetDate)(e.target.value)} className={cn(INPUT_CLASS, 'font-mono')} />
+              <Input
+                type="date"
+                value={sheetDate}
+                onChange={(e) => change(setSheetDate)(e.target.value)}
+                className="h-10 rounded-xl bg-background/50 border-border/50 text-sm"
+              />
             </div>
             <div className="space-y-1">
               <Label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Van</Label>
-              <select value={vanId} onChange={(e) => change(setVanId)(e.target.value)} className={cn(INPUT_CLASS, 'block')}>
-                <option value="all">All Vans</option>
-                {vans.map((v) => (
-                  <option key={v.id} value={v.id}>{v.plateNumber}</option>
-                ))}
-              </select>
+              <VanFilter onBeforeChange={() => setPage(1)} />
             </div>
             <div className="space-y-1">
               <Label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Type</Label>
-              <select value={eventType} onChange={(e) => change(setEventType)(e.target.value)} className={cn(INPUT_CLASS, 'block')}>
-                <option value="all">All Types</option>
-                {Object.entries(TYPE_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
-                ))}
-              </select>
+              <Select value={eventType} onValueChange={change(setEventType)}>
+                <SelectTrigger className="w-[200px] rounded-xl bg-background/50 border-border/50">
+                  <SelectValue placeholder="All Types" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-border/50 shadow-2xl">
+                  <SelectItem value="all">All Types</SelectItem>
+                  {Object.entries(TYPE_LABELS).map(([value, label]) => (
+                    <SelectItem key={value} value={value} className="rounded-lg">{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1">
               <Label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Error</Label>
-              <select value={errorCategory} onChange={(e) => change(setErrorCategory)(e.target.value)} className={cn(INPUT_CLASS, 'block')}>
-                <option value="all">Any / none</option>
-                {Object.entries(ERROR_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
-                ))}
-              </select>
+              <Select value={errorCategory} onValueChange={change(setErrorCategory)}>
+                <SelectTrigger className="w-[200px] rounded-xl bg-background/50 border-border/50">
+                  <SelectValue placeholder="Any / none" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-border/50 shadow-2xl">
+                  <SelectItem value="all">Any / none</SelectItem>
+                  {Object.entries(ERROR_LABELS).map(([value, label]) => (
+                    <SelectItem key={value} value={value} className="rounded-lg">{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <Input
-              placeholder="Search name, code or phone…"
-              value={search}
-              onChange={(e) => change(setSearch)(e.target.value)}
-              className="bg-accent/30 border-border/50 h-8 rounded-lg text-xs w-56"
-            />
+            <SearchInput placeholder="Search name, code or phone…" onBeforeChange={() => setPage(1)} />
           </div>
 
           <div className="flex flex-wrap items-center gap-3 mb-4">
