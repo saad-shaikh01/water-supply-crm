@@ -96,13 +96,16 @@ describe('LedgerService — editPayment / deletePayment', () => {
   let service: LedgerService;
   let mockPrisma: ReturnType<typeof buildMockPrisma>;
   let mockCache: ReturnType<typeof buildMockCache>;
-  let mockNotifications: { queueWhatsApp: jest.Mock };
+  let mockNotifications: { queueWhatsApp: jest.Mock; queueWhatsAppTemplate: jest.Mock };
   let mockAudit: { log: jest.Mock };
 
   beforeEach(async () => {
     mockPrisma = buildMockPrisma();
     mockCache = buildMockCache();
-    mockNotifications = { queueWhatsApp: jest.fn().mockResolvedValue(undefined) };
+    mockNotifications = {
+      queueWhatsApp: jest.fn().mockResolvedValue(undefined),
+      queueWhatsAppTemplate: jest.fn().mockResolvedValue(undefined),
+    };
     mockAudit = { log: jest.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -210,7 +213,7 @@ describe('LedgerService — editPayment / deletePayment', () => {
       );
 
       expect(mockPrisma.customer.update).not.toHaveBeenCalled();
-      expect(mockNotifications.queueWhatsApp).not.toHaveBeenCalled();
+      expect(mockNotifications.queueWhatsAppTemplate).not.toHaveBeenCalled();
       expect(mockPrisma.transaction.updateMany).toHaveBeenCalledTimes(1);
       const updateData = mockPrisma.transaction.updateMany.mock.calls[0][0].data;
       expect(updateData.description).toBe('Corrected note only');
@@ -407,9 +410,13 @@ describe('LedgerService — editPayment / deletePayment', () => {
         USER,
       );
 
-      expect(mockNotifications.queueWhatsApp).toHaveBeenCalledTimes(1);
-      const [phone, , idemKey, meta] = mockNotifications.queueWhatsApp.mock.calls[0];
+      expect(mockNotifications.queueWhatsAppTemplate).toHaveBeenCalledTimes(1);
+      const [phone, templateName, params, idemKey, meta] =
+        mockNotifications.queueWhatsAppTemplate.mock.calls[0];
       expect(phone).toBe('923001234567');
+      expect(templateName).toBe('payment_recorded_corrected');
+      expect(params).toHaveLength(4);
+      expect(params.slice(1, 3)).toEqual(['2500', '2000']);
       expect(idemKey).toEqual(
         expect.stringContaining(`ntf-payment-correction-${TX_ID}-`),
       );
@@ -457,7 +464,7 @@ describe('LedgerService — editPayment / deletePayment', () => {
         USER,
       );
 
-      expect(mockNotifications.queueWhatsApp).not.toHaveBeenCalled();
+      expect(mockNotifications.queueWhatsAppTemplate).not.toHaveBeenCalled();
       expect(mockAudit.log).toHaveBeenCalledTimes(1);
       expect(mockPrisma.customer.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: { financialBalance: { increment: 500 } } }),

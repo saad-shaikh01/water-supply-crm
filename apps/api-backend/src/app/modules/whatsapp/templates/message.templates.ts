@@ -85,6 +85,12 @@ export const MessageTemplates = {
   ) =>
     `Assalam o Alaikum ${customerName},\n\n⚠️ Maafi chahte hain — aapki aaj ki delivery mein ek ghalti hui thi jo hum ne correct kar di hai.\n\n✅ Corrected Details:\n🔵 Product: ${productName}\n🫙 Quantity: ${qty} bottles\n💰 Cash Collected: Rs. ${cashCollected}\n\nIs ghalti ke liye muafi chahte hain. Shukriya!`,
 
+  /**
+   * @deprecated Not sent as free text. `ledger.service.ts` editPayment now sends
+   * the Meta-approved `payment_recorded_corrected` Cloud API template
+   * ({{1}} name · {{2}} previous amount · {{3}} new amount · {{4}} remaining
+   * balance) — this body is kept as a reference only.
+   */
   paymentCorrected: (
     customerName: string,
     previousAmount: number,

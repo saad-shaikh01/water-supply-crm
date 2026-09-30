@@ -27,6 +27,7 @@ import { vendorDateString } from '../../common/helpers/date.util';
 import { NotificationService } from '../notifications/notification.service';
 import { AuditService } from '../audit/audit.service';
 import { MessageTemplates } from '../whatsapp/templates/message.templates';
+import { CloudTemplateNames } from '../whatsapp/templates/cloud-template-names';
 
 /** Plain input shapes — Phase 3 builds the class-validator DTOs that produce these. */
 export interface EditPaymentInput {
@@ -460,14 +461,15 @@ export class LedgerService {
 
     if (delta !== 0 && updated.customer?.phoneNumber) {
       this.notifications
-        .queueWhatsApp(
+        .queueWhatsAppTemplate(
           updated.customer.phoneNumber,
-          MessageTemplates.paymentCorrected(
+          CloudTemplateNames.PAYMENT_RECORDED_CORRECTED,
+          [
             updated.customer.name,
-            oldAmount,
-            newAmount,
-            Math.max(0, updated.customer.financialBalance),
-          ),
+            String(oldAmount),
+            String(newAmount),
+            Math.max(0, updated.customer.financialBalance).toFixed(2),
+          ],
           `ntf-payment-correction-${txId}-${updated.lastEditedAt!.getTime()}-wa`,
           {
             vendorId,
