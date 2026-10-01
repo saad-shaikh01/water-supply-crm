@@ -584,4 +584,84 @@ describe('StaffLedgerService', () => {
       }
     });
   });
+
+  // ── Daily Sheet advances (owner-requested 2026-10-01) ───────────────────────
+  //
+  // An ADVANCE posted from a Daily Sheet has a `sheetAdvanceSource`: its cash left via the
+  // sheet's hand-in, so (a) the Payroll page must not void/reverse/correct it behind the
+  // sheet's back, and (b) the cash-ledger period guard — which protects OFFICE cash — does
+  // not apply to it.
+  describe('Daily Sheet advance twin', () => {
+    const sheetAdvanceId = { id: 'sheet-advance-001' };
+    const twinAdvance = {
+      ...pendingEntry, category: StaffLedgerCategory.ADVANCE, amount: -5000,
+      effectiveDate: new Date('2026-08-14'), status: LedgerEntryStatus.POSTED, version: 1,
+      sheetAdvanceSource: sheetAdvanceId,
+    };
+    const lockedTwin = { ...twinAdvance, payrollEntryId: 'payroll-entry-001' };
+
+    it('voidEntry(): refuses to void a sheet-advance twin from the Payroll page', async () => {
+      const { svc, tx } = makeService(twinAdvance);
+      await expect(svc.voidEntry(adminUser, ENTRY_ID, { version: 1, reason: 'oops' } as any)).rejects.toThrow(/Daily Sheet/);
+      expect(tx.staffLedgerEntry.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('voidEntryTx(): skipSheetAdvanceGuard + skipPeriodGuard let SheetAdvanceService void it, with no period check', async () => {
+      const { svc, tx, periodGuard } = makeService(twinAdvance);
+      const result = await svc.voidEntryTx(
+        tx as any, adminUser, ENTRY_ID, { version: 1, reason: 'edited' } as any,
+        { skipCreatorCheck: true, skipPeriodGuard: true, skipSheetAdvanceGuard: true },
+      );
+      expect(result.status).toBe(LedgerEntryStatus.VOIDED);
+      expect(periodGuard.assertWritable).not.toHaveBeenCalled();
+    });
+
+    it('voidEntryTx(): skipSheetAdvanceGuard alone still runs the period guard (the two opts are independent)', async () => {
+      const { svc, tx, periodGuard } = makeService(twinAdvance);
+      await svc.voidEntryTx(tx as any, adminUser, ENTRY_ID, { version: 1, reason: 'x' } as any, { skipSheetAdvanceGuard: true });
+      expect(periodGuard.assertWritable).toHaveBeenCalledTimes(1);
+    });
+
+    it('reverse(): refuses a sheet-advance twin from the Payroll page', async () => {
+      const { svc } = makeService(lockedTwin);
+      await expect(svc.reverse(adminUser, ENTRY_ID, { version: 1, reason: 'x' } as any)).rejects.toThrow(/Daily Sheet/);
+    });
+
+    it('reverseTx(): skipSheetAdvanceGuard lets SheetAdvanceService reverse a locked twin', async () => {
+      const { svc, tx } = makeService(lockedTwin);
+      await expect(
+        svc.reverseTx(tx as any, adminUser, ENTRY_ID, { version: 1, reason: 'removed' } as any, { skipSheetAdvanceGuard: true }),
+      ).resolves.toBeDefined();
+    });
+
+    it('correct(): refuses a sheet-advance twin from the Payroll page', async () => {
+      const { svc } = makeService(lockedTwin);
+      await expect(
+        svc.correct(adminUser, ENTRY_ID, { version: 1, reason: 'x', correctedAmount: -100 } as any),
+      ).rejects.toThrow(/Daily Sheet/);
+    });
+
+    it('createTx(): skipPeriodGuard skips the cash-ledger guard for an ADVANCE', async () => {
+      const { svc, tx, periodGuard } = makeService();
+      await svc.createTx(
+        tx as any, adminUser,
+        { userId: EMPLOYEE_ID, category: StaffLedgerCategory.ADVANCE, amount: -5000, effectiveDate: '2026-08-14' },
+        { skipPeriodGuard: true },
+      );
+      expect(periodGuard.assertWritable).not.toHaveBeenCalled();
+      expect(tx.staffLedgerEntry.create).toHaveBeenCalled();
+    });
+
+    it('approve(): approving a PENDING sheet-advance twin does NOT hit the cash-ledger period guard', async () => {
+      const { svc, periodGuard } = makeService({ ...twinAdvance, status: LedgerEntryStatus.PENDING, version: 0 });
+      await svc.approve(adminUser, ENTRY_ID, { version: 0 } as any);
+      expect(periodGuard.assertWritable).not.toHaveBeenCalled();
+    });
+
+    it('approve(): an ordinary PENDING ADVANCE still does (regression guard)', async () => {
+      const { svc, periodGuard } = makeService({ ...twinAdvance, sheetAdvanceSource: null, status: LedgerEntryStatus.PENDING, version: 0 });
+      await svc.approve(adminUser, ENTRY_ID, { version: 0 } as any);
+      expect(periodGuard.assertWritable).toHaveBeenCalledTimes(1);
+    });
+  });
 });

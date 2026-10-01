@@ -33,6 +33,8 @@ function matches(row: any, where: any): boolean {
     if (cond === null) return value === null || value === undefined;
     if (cond instanceof Date) return +value === +cond;
     if (typeof cond === 'object') {
+      // Prisma 1:1 relation filter — `{ is: null }` means "no related row" (Daily Sheet advance twins).
+      if ('is' in cond) return cond.is === null ? value === null || value === undefined : true;
       if ('in' in cond && !cond.in.includes(value)) return false;
       if ('not' in cond && value === cond.not) return false;
       if ('lt' in cond && !(value < cond.lt)) return false;
@@ -95,6 +97,7 @@ function makeService(data: Data = {}) {
     customerDepositEntry: model([]),
     dailySheet: model([]),
     crewCashDistribution: model([]),
+    sheetAdvance: model([]),
     auditLog: model([]),
     van: model([]),
     user: model([]),

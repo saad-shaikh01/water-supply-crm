@@ -22,10 +22,13 @@ interface ReconcileData {
   // deduction (see daily-sheet.service.ts buildReconciliation).
   expenses: { total: number; paidFromCash: number; paidByOther: number };
   crewCash: { total: number };
+  /** Salary advances paid from the van's cash — deducted from the hand-in like crew cash. Absent on older backends. */
+  advances?: { total: number };
   driver: {
     shouldHandIn: number;
     expensePaidFromCash: number;
     crewCashPaidFromCash: number;
+    advancesPaidFromCash?: number;
     netToHandIn: number;
     // Customer Deposits — cash collected at the stops as a refundable deposit. It
     // is handed over together with the revenue but is NOT revenue: netToHandIn /
@@ -293,12 +296,12 @@ export function ReconcileDialog({ open, onClose, sheetId, mode = 'direct' }: Rec
                     </div>
                     <div>
                       <p className="text-[9px] font-bold uppercase text-muted-foreground">Deductions</p>
-                      {/* Expenses + Crew Cash — both are subtracted from
+                      {/* Expenses + Crew Cash + Advances — all subtracted from
                           shouldHandIn to get netToHandIn (see backend
                           daily-sheet.service.ts buildReconciliation), so this
-                          tile must include crew cash or it won't reconcile
+                          tile must include each of them or it won't reconcile
                           against Net Expected below. */}
-                      <p className="text-lg font-black font-mono">₨{(data.driver.expensePaidFromCash + data.driver.crewCashPaidFromCash).toLocaleString()}</p>
+                      <p className="text-lg font-black font-mono">₨{(data.driver.expensePaidFromCash + data.driver.crewCashPaidFromCash + (data.driver.advancesPaidFromCash ?? 0)).toLocaleString()}</p>
                     </div>
                     <div>
                       <p className="text-[9px] font-bold uppercase text-muted-foreground">Net Expected</p>
@@ -332,6 +335,12 @@ export function ReconcileDialog({ open, onClose, sheetId, mode = 'direct' }: Rec
                     <div className="rounded-xl bg-orange-500/10 border border-orange-500/20 px-3 py-2 flex items-center justify-between">
                       <p className="text-[10px] font-bold uppercase text-orange-600">Crew Cash Paid</p>
                       <p className="font-mono font-black text-sm text-orange-600">- ₨{(data.crewCash?.total ?? 0).toLocaleString()}</p>
+                    </div>
+                  )}
+                  {(data.advances?.total ?? 0) > 0 && (
+                    <div className="rounded-xl bg-orange-500/10 border border-orange-500/20 px-3 py-2 flex items-center justify-between">
+                      <p className="text-[10px] font-bold uppercase text-orange-600">Advances Paid</p>
+                      <p className="font-mono font-black text-sm text-orange-600">- ₨{(data.advances?.total ?? 0).toLocaleString()}</p>
                     </div>
                   )}
                   <div className="rounded-xl bg-background/70 border border-border/40 px-3 py-2 flex items-center justify-between">

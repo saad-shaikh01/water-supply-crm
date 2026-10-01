@@ -25,6 +25,8 @@ import { AttendanceCategoryService } from './attendance-category.service';
 import { AttendanceCategoryController } from './attendance-category.controller';
 import { StandaloneCrewCashService } from './standalone-crew-cash.service';
 import { StandaloneCrewCashController } from './standalone-crew-cash.controller';
+import { SheetAdvanceService } from './sheet-advance.service';
+import { SheetAdvanceController } from './sheet-advance.controller';
 import { StaffAdvancePlanService } from './staff-advance-plan.service';
 import { StaffAdvancePlanController } from './staff-advance-plan.controller';
 import { PayrollVendorConfigService } from './payroll-vendor-config.service';
@@ -85,6 +87,7 @@ import { PayrollVendorConfigController } from './payroll-vendor-config.controlle
     CrewCashDistributionController,
     StaffAttendanceController,
     StandaloneCrewCashController,
+    SheetAdvanceController,
     AttendanceCategoryController,
     StaffAdvancePlanController,
     PayrollVendorConfigController,
@@ -101,6 +104,7 @@ import { PayrollVendorConfigController } from './payroll-vendor-config.controlle
     CrewCashSyncProcessor,
     StaffAttendanceService,
     StandaloneCrewCashService,
+    SheetAdvanceService,
     AttendanceCategoryService,
     StaffAdvancePlanService,
     PayrollVendorConfigService,

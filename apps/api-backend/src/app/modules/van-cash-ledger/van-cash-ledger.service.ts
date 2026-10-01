@@ -14,6 +14,7 @@ import {
   OfficeCashRemittanceStatus,
   Prisma,
   SettlementMethod,
+  SheetAdvanceStatus,
   StaffLedgerCategory,
   StandaloneCrewCashExpense,
   StandaloneCrewCashStatus,
@@ -246,12 +247,21 @@ const sourceWhere = {
     ...(vanId && { vanId }),
     ...(range && { date: range }),
   }),
-  /** PAYROLL_CASH (a) — R6: POSTED ADVANCE debits, by effectiveDate (see classifyStaffLedgerEntry). */
+  /**
+   * PAYROLL_CASH (a) — R6: POSTED ADVANCE debits, by effectiveDate (see classifyStaffLedgerEntry).
+   *
+   * EXCLUDES advances given from a Daily Sheet (`sheetAdvanceSource` set, owner-requested
+   * 2026-10-01): that cash left the van and is already netted out of the sheet's hand-in
+   * (SHEET_CASH_IN), so counting it here too would take the same rupees out of the office
+   * box twice. The twin keeps the link even when its SheetAdvance is later voided, so a
+   * reversed-but-still-POSTED twin stays excluded.
+   */
   payrollAdvance: (vendorId: string, range?: DateRange): Prisma.StaffLedgerEntryWhereInput => ({
     vendorId,
     category: StaffLedgerCategory.ADVANCE,
     status: LedgerEntryStatus.POSTED,
     amount: { lt: 0 },
+    sheetAdvanceSource: { is: null },
     ...(range && { effectiveDate: range }),
   }),
   /** PAYROLL_CASH (b) — R6: CASH settlements, by paidAt. */
@@ -1752,6 +1762,8 @@ export class VanCashLedgerService {
                 category: StaffLedgerCategory.ADVANCE,
                 status: LedgerEntryStatus.PENDING,
                 amount: { lt: 0 },
+                // A Daily Sheet advance is not an office cash-out (see sourceWhere.payrollAdvance).
+                sheetAdvanceSource: { is: null },
               },
               _sum: { amount: true },
               _count: { _all: true },
@@ -1907,7 +1919,7 @@ export class VanCashLedgerService {
     });
     if (chain.length === 0) throw new NotFoundException('This sheet has no cash handover.');
 
-    const [expenseAgg, crewAgg] = await Promise.all([
+    const [expenseAgg, crewAgg, advanceAgg] = await Promise.all([
       this.prisma.expense.aggregate({
         where: { vendorId, dailySheetId: sheetId, paidFromCash: true },
         _sum: { amount: true },
@@ -1916,12 +1928,18 @@ export class VanCashLedgerService {
         where: { vendorId, dailySheetId: sheetId },
         _sum: { amount: true },
       }),
+      // Advances paid from the van's cash — netted out of the hand-in like crew cash.
+      this.prisma.sheetAdvance.aggregate({
+        where: { vendorId, dailySheetId: sheetId, status: SheetAdvanceStatus.ACTIVE },
+        _sum: { amount: true },
+      }),
     ]);
 
     const collected = sheet.cashCollected ?? 0;
     const expenses = expenseAgg._sum.amount ?? 0;
     const crewCash = crewAgg._sum.amount ?? 0;
-    const netFromSheet = Math.max(0, collected - expenses - crewCash);
+    const advances = advanceAgg._sum.amount ?? 0;
+    const netFromSheet = Math.max(0, collected - expenses - crewCash - advances);
 
     const live = chain.filter((row) => row.status !== VanCashHandoverStatus.VOIDED);
     const expected = live.reduce((sum, row) => sum + row.expectedAmount, 0);
@@ -1935,6 +1953,7 @@ export class VanCashLedgerService {
       collected: round2(collected),
       expenses: round2(expenses),
       crewCash: round2(crewCash),
+      advances: round2(advances),
       netFromSheet: round2(netFromSheet),
       other: round2(expected - netFromSheet),
       expected: round2(expected),
@@ -1963,10 +1982,10 @@ export class VanCashLedgerService {
     sheetIds: string[],
   ): Promise<CashLedgerSummary['memo']['sheetBreakdown']> {
     if (sheetIds.length === 0) {
-      return { sheets: 0, collected: 0, expenses: 0, crewCash: 0, net: 0, other: 0 };
+      return { sheets: 0, collected: 0, expenses: 0, crewCash: 0, advances: 0, net: 0, other: 0 };
     }
 
-    const [sheets, expenseGroups, crewGroups, chainAgg] = await Promise.all([
+    const [sheets, expenseGroups, crewGroups, advanceGroups, chainAgg] = await Promise.all([
       this.prisma.dailySheet.findMany({
         where: { vendorId, id: { in: sheetIds } },
         select: { id: true, cashCollected: true },
@@ -1981,6 +2000,11 @@ export class VanCashLedgerService {
         where: { vendorId, dailySheetId: { in: sheetIds } },
         _sum: { amount: true },
       }),
+      this.prisma.sheetAdvance.groupBy({
+        by: ['dailySheetId'],
+        where: { vendorId, dailySheetId: { in: sheetIds }, status: SheetAdvanceStatus.ACTIVE },
+        _sum: { amount: true },
+      }),
       this.prisma.vanCashHandover.aggregate({
         where: { vendorId, dailySheetId: { in: sheetIds }, status: { not: VanCashHandoverStatus.VOIDED } },
         _sum: { expectedAmount: true },
@@ -1989,18 +2013,22 @@ export class VanCashLedgerService {
 
     const expenseBySheet = new Map(expenseGroups.map((g) => [g.dailySheetId, g._sum.amount ?? 0]));
     const crewBySheet = new Map(crewGroups.map((g) => [g.dailySheetId, g._sum.amount ?? 0]));
+    const advanceBySheet = new Map(advanceGroups.map((g) => [g.dailySheetId, g._sum.amount ?? 0]));
 
     let collected = 0;
     let expenses = 0;
     let crewCash = 0;
+    let advances = 0;
     let net = 0;
     for (const sheet of sheets) {
       const sheetExpenses = expenseBySheet.get(sheet.id) ?? 0;
       const sheetCrew = crewBySheet.get(sheet.id) ?? 0;
+      const sheetAdvances = advanceBySheet.get(sheet.id) ?? 0;
       collected += sheet.cashCollected;
       expenses += sheetExpenses;
       crewCash += sheetCrew;
-      net += Math.max(0, sheet.cashCollected - sheetExpenses - sheetCrew);
+      advances += sheetAdvances;
+      net += Math.max(0, sheet.cashCollected - sheetExpenses - sheetCrew - sheetAdvances);
     }
     const expected = chainAgg._sum.expectedAmount ?? 0;
 
@@ -2009,6 +2037,7 @@ export class VanCashLedgerService {
       collected: round2(collected),
       expenses: round2(expenses),
       crewCash: round2(crewCash),
+      advances: round2(advances),
       net: round2(net),
       other: round2(expected - net),
     };

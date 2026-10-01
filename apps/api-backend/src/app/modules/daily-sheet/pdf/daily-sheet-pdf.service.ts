@@ -243,7 +243,13 @@ export class DailySheetPdfService {
     }
 
     if ((sheet.loads ?? []).length > 0) {
-      const tripStats = this.computeTripStats(sheet.loads ?? [], sheet.items ?? [], sheet.expenses ?? [], sheet.crewCashDistributions ?? []);
+      // Advances paid from the van's cash are deducted per trip exactly like Crew Cash (same {dailySheetLoadId, amount} shape).
+      const tripStats = this.computeTripStats(
+        sheet.loads ?? [],
+        sheet.items ?? [],
+        sheet.expenses ?? [],
+        [...(sheet.crewCashDistributions ?? []), ...(sheet.sheetAdvances ?? [])],
+      );
       this.drawSectionTitle(doc, `Trip Summary (${sheet.loads.length})`);
       this.drawTripSummary(doc, tripStats);
     }
@@ -256,6 +262,11 @@ export class DailySheetPdfService {
     if (sheet.crewCashDistributions?.length) {
       this.drawSectionTitle(doc, `Crew Cash Distribution (${sheet.crewCashDistributions.length})`, true);
       this.drawCrewCash(doc, sheet.crewCashDistributions);
+    }
+
+    if (sheet.sheetAdvances?.length) {
+      this.drawSectionTitle(doc, `Advances (${sheet.sheetAdvances.length})`, true);
+      this.drawSheetAdvances(doc, sheet.sheetAdvances);
     }
 
     // Delivery Items is kept as the last itemized section (right before
@@ -514,10 +525,13 @@ export class DailySheetPdfService {
     // Driver Handover summary tile on the vendor-dashboard side).
     const totalCrewCash = (sheet.crewCashDistributions ?? [])
       .reduce((s: number, cc: any) => s + (cc.amount ?? 0), 0);
+    // Salary advances handed out of the van's cash are deducted from the hand-in the same way.
+    const totalSheetAdvances = (sheet.sheetAdvances ?? [])
+      .reduce((s: number, a: any) => s + (a.amount ?? 0), 0);
 
     const chips: [string, string, string][] = [
       ['GROSS CASH COLLECTED', this.rs(totalItemCash), C.navy],
-      ['TOTAL DEDUCTIONS', this.rs(totalExpenses + totalCrewCash), C.textSoft],
+      ['TOTAL DEDUCTIONS', this.rs(totalExpenses + totalCrewCash + totalSheetAdvances), C.textSoft],
       ['NET CASH IN HAND', this.rs(resolvedCash.cashCollected), C.accent],
     ];
     const chipPad = 8;
@@ -1452,6 +1466,46 @@ export class DailySheetPdfService {
     doc.rect(MARGIN, y, CONTENT_W, 24).fill(C.navy);
     doc.fillColor(C.white).fontSize(7.5).font('Helvetica-Bold')
       .text('TOTAL CREW CASH — DEDUCTED FROM CASH HAND-IN', MARGIN + 4, y + 8, { characterSpacing: 0.3, lineBreak: false });
+    doc.fontSize(8)
+      .text(this.rs(total), MARGIN, y + 8, { width: CONTENT_W - 6, align: 'right', lineBreak: false });
+
+    doc.y = y + 32;
+  }
+
+  // ─── Advances paid from the van's cash (only when the sheet has any) ────
+  private drawSheetAdvances(doc: PDFKit.PDFDocument, entries: any[]): void {
+    const rowH = 20;
+    const AD_COLS = { employee: 168, notes: 260, amount: 87.28 };
+    let y = doc.y;
+
+    entries.forEach((entry, index) => {
+      if (y + rowH > PAGE_H - FOOTER_ZONE) {
+        doc.addPage();
+        y = 50;
+      }
+      if (index % 2 === 1) doc.rect(MARGIN, y, CONTENT_W, rowH).fill(C.surface);
+
+      let x = MARGIN;
+      doc.fillColor(C.navyText).fontSize(8).font('Helvetica-Bold')
+        .text(entry.employee?.name ?? '—', x + 4, y + 6, { width: AD_COLS.employee - 8, height: 10, ellipsis: true, lineBreak: false });
+      x += AD_COLS.employee;
+      doc.fillColor(C.muted).fontSize(7.5).font('Helvetica')
+        .text(entry.notes || '—', x + 4, y + 6, { width: AD_COLS.notes - 8, height: 10, ellipsis: true, lineBreak: false });
+      x += AD_COLS.notes;
+      doc.fillColor(C.navyText).fontSize(8).font('Helvetica-Bold')
+        .text(this.rs(entry.amount), x, y + 6, { width: AD_COLS.amount - 6, align: 'right', lineBreak: false });
+
+      y += rowH;
+    });
+
+    if (y + 24 > PAGE_H - FOOTER_ZONE) {
+      doc.addPage();
+      y = 50;
+    }
+    const total = entries.reduce((s, e) => s + (e.amount ?? 0), 0);
+    doc.rect(MARGIN, y, CONTENT_W, 24).fill(C.navy);
+    doc.fillColor(C.white).fontSize(7.5).font('Helvetica-Bold')
+      .text('TOTAL ADVANCES — DEDUCTED FROM CASH HAND-IN', MARGIN + 4, y + 8, { characterSpacing: 0.3, lineBreak: false });
     doc.fontSize(8)
       .text(this.rs(total), MARGIN, y + 8, { width: CONTENT_W - 6, align: 'right', lineBreak: false });
 

@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { DeliveryStatus, PaymentType } from '@prisma/client';
+import { DeliveryStatus, PaymentType, SheetAdvanceStatus } from '@prisma/client';
 
 /**
  * Hybrid cash rollups (docs/features/post-close-divergence-banner.md §"Hybrid
@@ -133,6 +133,17 @@ export function buildReconciliation(sheet: any) {
     0,
   );
 
+  // Daily Sheet Advances (owner-requested 2026-10-01) — salary advances handed to
+  // employees out of the van's cash. Same physics as Crew Cash: the money is gone from
+  // the driver's pocket the moment it's recorded, regardless of whether its payroll
+  // twin is still awaiting approval, so every ACTIVE row reduces cash-on-hand. Loaders
+  // only ever attach ACTIVE rows; the status check is defence in depth so a VOIDED
+  // row can never deduct cash. The Cash Ledger deliberately does NOT also count these
+  // as PAYROLL_CASH (see sourceWhere.payrollAdvance) — they leave via this hand-in.
+  const totalSheetAdvances = ((sheet.sheetAdvances ?? []) as any[])
+    .filter((a: any) => a.status !== SheetAdvanceStatus.VOIDED)
+    .reduce((s: number, a: any) => s + a.amount, 0);
+
   const pendingCount = (sheet.items as any[]).filter(
     (i) => i.status === DeliveryStatus.PENDING,
   ).length;
@@ -174,6 +185,9 @@ export function buildReconciliation(sheet: any) {
     crewCash: {
       total: totalCrewCash,
     },
+    advances: {
+      total: totalSheetAdvances,
+    },
     // Customer Deposits (owner-requested 2026-09-29) — reported separately from
     // cashCustomers/monthlyCustomers above; never folded into `billed`/`addedToBalance`.
     deposits: {
@@ -183,17 +197,19 @@ export function buildReconciliation(sheet: any) {
       shouldHandIn: totalCashRecorded,
       expensePaidFromCash: totalExpenses,
       crewCashPaidFromCash: totalCrewCash,
-      netToHandIn: Math.max(0, totalCashRecorded - totalExpenses - totalCrewCash),
+      advancesPaidFromCash: totalSheetAdvances,
+      netToHandIn: Math.max(0, totalCashRecorded - totalExpenses - totalCrewCash - totalSheetAdvances),
       // Customer Deposits — what the driver physically hands over is
       // `netToHandIn` (revenue) + the deposit cash below. `netToHandIn` itself
       // stays revenue-only; `handedIn`/`discrepancy` below are also revenue-only
       // because closeSheet/requestClose persist `actualCashHandedIn` minus the
       // deposit cash. Both are 0/absent-equivalent for non-deposit vendors.
       depositCashToHandIn: totalDepositCashRecorded,
-      totalToHandIn: Math.max(0, totalCashRecorded - totalExpenses - totalCrewCash) + totalDepositCashRecorded,
+      totalToHandIn:
+        Math.max(0, totalCashRecorded - totalExpenses - totalCrewCash - totalSheetAdvances) + totalDepositCashRecorded,
       handedIn: sheet.cashCollected,
       discrepancy: driverDiscrepancy,
-      unexplainedDiscrepancy: driverDiscrepancy - totalExpenses - totalCrewCash,
+      unexplainedDiscrepancy: driverDiscrepancy - totalExpenses - totalCrewCash - totalSheetAdvances,
     },
   };
 }
@@ -274,6 +290,8 @@ export const SHEET_CASH_RELOAD_INCLUDE = {
   },
   expenses: { select: { amount: true, paidFromCash: true } },
   crewCashDistributions: { select: { amount: true } },
+  // Daily Sheet Advances — ACTIVE rows only (a VOIDED advance never left the van).
+  sheetAdvances: { where: { status: SheetAdvanceStatus.ACTIVE }, select: { amount: true } },
   loads: { select: { editCount: true } },
 } as const;
 

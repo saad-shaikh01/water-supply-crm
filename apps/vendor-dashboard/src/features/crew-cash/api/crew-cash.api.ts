@@ -6,6 +6,8 @@ export interface CreateCrewCashData {
   category: CrewCashCategory;
   amount: number;
   notes?: string;
+  /** Required by the server only when the sheet is already closed. */
+  reason?: string;
 }
 
 /** No `dailySheetId` — see StandaloneCrewCashExpense in schema.prisma. `date` defaults to now when omitted. */
@@ -65,7 +67,9 @@ export const crewCashApi = {
     apiClient.patch<CrewCashEntry>(`/crew-cash/${id}`, data),
   correct: (id: string, data: CorrectCrewCashData) =>
     apiClient.post<CrewCashEntry>(`/crew-cash/${id}/correct`, data),
-  remove: (id: string) => apiClient.delete(`/crew-cash/${id}`),
+  /** `reason` is mandatory server-side for an already-synced (closed-sheet) row, optional otherwise. */
+  remove: (id: string, reason?: string) =>
+    apiClient.delete(`/crew-cash/${id}`, reason ? { data: { reason } } : undefined),
   createStandalone: (data: CreateStandaloneCrewCashData) =>
     apiClient.post<StandaloneCrewCashEntry>('/crew-cash/standalone', data),
   updateStandalone: (id: string, data: UpdateStandaloneCrewCashData) =>

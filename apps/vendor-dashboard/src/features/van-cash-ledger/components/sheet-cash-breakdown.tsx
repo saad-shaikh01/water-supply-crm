@@ -64,11 +64,12 @@ export function SheetCashBreakdown({ dailySheetId }: { dailySheetId: string }) {
           <Line label="Collected" value={money(data.collected)} />
           <Line label="− Expenses paid from cash" value={neg(data.expenses)} tone="text-destructive" />
           <Line label="− Crew Cash" value={neg(data.crewCash)} tone="text-pink-500" />
+          {(data.advances ?? 0) !== 0 && <Line label="− Advances" value={neg(data.advances ?? 0)} tone="text-emerald-500" />}
           <Line label="= Net cash from sheet" value={moneyOrDash(data.netFromSheet)} strong />
           {data.other !== 0 && <Line label="± Other / corrections" value={signedMoney(data.other)} muted />}
           {data.variance !== 0 && <Line label={approvedLabel} value={money(data.approved)} strong />}
           <p className="text-[10px] text-muted-foreground pt-2">
-            Display only — crew cash on sheets is already inside Sheet Cash In.
+            Display only — crew cash and advances paid on sheets are already inside Sheet Cash In.
           </p>
         </div>
       )}

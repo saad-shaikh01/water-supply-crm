@@ -187,6 +187,8 @@ export interface CashLedgerSummary {
       collected: number;
       expenses: number;
       crewCash: number;
+      /** Salary advances paid from the van's cash on those sheets — already inside Sheet Cash In. */
+      advances: number;
       net: number;
       other: number;
     };
@@ -203,7 +205,9 @@ export interface SheetCashBreakdown {
   collected: number;
   expenses: number;
   crewCash: number;
-  /** collected − expenses − crewCash, floored at 0. */
+  /** Salary advances paid from the van's cash on this sheet. */
+  advances: number;
+  /** collected − expenses − crewCash − advances, floored at 0. */
   netFromSheet: number;
   /** expected − netFromSheet. */
   other: number;

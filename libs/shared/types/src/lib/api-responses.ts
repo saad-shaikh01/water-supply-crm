@@ -457,6 +457,9 @@ export interface SheetExpense {
   vanId: string | null;
   van: { id: string; plateNumber: string } | null;
   createdBy: { id: string; name: string };
+  /** Set for category EXTRA_LABOUR — the labourer who was paid. */
+  extraLabourId?: string | null;
+  extraLabour?: { id: string; name: string } | null;
   /** Trip this expense was recorded during — null if no trip was active at record time. Auto-set server-side. */
   dailySheetLoadId?: string | null;
   /** Set when this row was spawned by a FuelLog (FuelLogService.create) — editing must route to
@@ -490,9 +493,10 @@ export type CrewCashCategory =
 
 /**
  * Crew Cash Distribution — docs/features/crew-operational-cash-distribution.md.
- * Mirrors the raw `CrewCashDistribution` row as returned by `listForSheet`
- * (no relations included), so `employeeId`/`createdById` are resolved against
- * the sheet's own driver+crew on the frontend rather than joined server-side.
+ * Mirrors the `CrewCashDistribution` row as returned by `listForSheet`. The
+ * recipient can be ANY active employee (not just the sheet's crew), so the
+ * server joins `employee`/`createdBy` names; they are optional only because the
+ * create/update/correct responses return the bare row.
  */
 export interface CrewCashEntry {
   id: string;
@@ -513,6 +517,8 @@ export interface CrewCashEntry {
   version: number;
   createdAt: string;
   updatedAt: string;
+  employee?: { id: string; name: string };
+  createdBy?: { id: string; name: string };
 }
 
 /**
@@ -796,6 +802,8 @@ export interface SheetDetail {
   /** Customer Move/Transfer footprint — this sheet as the destination of the move. */
   movedInLogs: DeliveryItemMoveLogEntry[];
   crewCashDistributions: SheetCrewCashDistribution[];
+  /** Salary advances paid out of the van's cash (ACTIVE rows only) — deducted from the hand-in like crew cash. Absent on older backends. */
+  sheetAdvances?: SheetAdvanceEntry[];
   /**
    * Post-Close Divergence Banner (Option C). Present only on a CLOSED sheet
    * whose `cashExpected` snapshot was taken at close time. `diverged` is true
@@ -810,6 +818,30 @@ export interface SheetDetail {
     cashDelta?: number;
     reasons?: string[];
   };
+}
+
+/**
+ * One Daily Sheet advance as returned inside GET /daily-sheets/:id (owner-requested
+ * 2026-10-01) — salary handed to an employee out of the van's cash. Deducted from the
+ * sheet's cash hand-in; its payroll twin (`staffLedgerEntry`) is what the employee is
+ * charged on. Only ACTIVE rows are ever returned.
+ */
+export interface SheetAdvanceEntry {
+  id: string;
+  dailySheetId: string;
+  employeeId: string;
+  employee: { id: string; name: string };
+  amount: number;
+  notes: string | null;
+  date: string;
+  status: 'ACTIVE' | 'VOIDED';
+  version: number;
+  createdById: string;
+  createdBy: { id: string; name: string };
+  /** Trip this advance was recorded during — null if no trip was active at record time. */
+  dailySheetLoadId?: string | null;
+  /** The employee's payroll-ledger twin: PENDING = awaiting approval on the Payroll page; `payrollEntryId` set = rolled into a locked period. */
+  staffLedgerEntry?: { id: string; status: 'PENDING' | 'POSTED' | 'VOIDED'; payrollEntryId: string | null };
 }
 
 /** One Crew Cash Distribution row as returned by GET /daily-sheets/:id (nested

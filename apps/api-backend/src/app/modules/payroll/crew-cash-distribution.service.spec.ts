@@ -73,7 +73,7 @@ const lockedLedgerEntry = { ...notLockedLedgerEntry, payrollEntryId: 'payroll-en
 
 function makeTx(
   entrySnapshot: any = baseEntry,
-  opts: { sheetIsClosed?: boolean; ledgerEntrySnapshot?: any; targetEmployeeExists?: boolean } = {},
+  opts: { sheetIsClosed?: boolean; ledgerEntrySnapshot?: any; targetEmployeeExists?: boolean; lockedPayrollPeriod?: boolean } = {},
 ) {
   let current = { ...entrySnapshot };
   // Models CrewCashDistributionAuditLog as a real table so the SET NULL
@@ -141,7 +141,11 @@ function makeTx(
         return row;
       }),
       findUniqueOrThrow: jest.fn().mockImplementation(async () => ({ ...(opts.ledgerEntrySnapshot ?? notLockedLedgerEntry) })),
+      // removeSynced() loads the linked ledger entry by id.
+      findFirst: jest.fn().mockImplementation(async () => ({ ...(opts.ledgerEntrySnapshot ?? notLockedLedgerEntry) })),
     },
+    // resolveClosedSheetEffectiveDate() — no locked payroll period by default.
+    payrollPeriod: { findFirst: jest.fn().mockResolvedValue(opts.lockedPayrollPeriod ? { id: 'period-locked' } : null) },
     user: {
       findFirst: jest.fn().mockImplementation(async () => (opts.targetEmployeeExists === false ? null : { id: 'some-user' })),
     },
@@ -179,6 +183,7 @@ function makeService(
     ledgerEntrySnapshot?: any;
     targetEmployeeExists?: boolean;
     activeTrip?: { id: string } | null;
+    lockedPayrollPeriod?: boolean;
   } = {},
 ) {
   const {
@@ -193,9 +198,10 @@ function makeService(
     ledgerEntrySnapshot,
     targetEmployeeExists,
     activeTrip = null,
+    lockedPayrollPeriod,
   } = opts;
 
-  const tx = makeTx(entrySnapshot, { sheetIsClosed, ledgerEntrySnapshot, targetEmployeeExists });
+  const tx = makeTx(entrySnapshot, { sheetIsClosed, ledgerEntrySnapshot, targetEmployeeExists, lockedPayrollPeriod });
   tx.crewCashDistribution.count.mockResolvedValue(duplicateCount);
 
   const prisma = {
@@ -269,20 +275,125 @@ describe('CrewCashDistributionService', () => {
       );
     });
 
-    it('allows the sheet driver as employeeId without a DailySheetCrew lookup', async () => {
-      const { svc, prisma } = makeService();
-      await svc.create(salesmanUser, SHEET_ID, { ...createDto, employeeId: DRIVER_ID });
+    it('allows ANY active employee of the vendor — not just the sheet crew (no DailySheetCrew lookup)', async () => {
+      const { svc, prisma } = makeService({ isCrew: false });
+      await svc.create(salesmanUser, SHEET_ID, { ...createDto, employeeId: 'office-staff-001' });
       expect(prisma.dailySheetCrew.findUnique).not.toHaveBeenCalled();
+      expect(prisma.user.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'office-staff-001', vendorId: VENDOR_ID, isActive: true } }),
+      );
     });
 
-    it('rejects an employeeId not on the confirmed crew for this sheet', async () => {
-      const { svc } = makeService({ isCrew: false });
+    it('rejects an employeeId that is unknown, inactive, or belongs to another vendor', async () => {
+      const { svc } = makeService({ employeeExists: false });
       await expect(svc.create(salesmanUser, SHEET_ID, createDto)).rejects.toThrow(BadRequestException);
     });
 
-    it('rejects creating against a closed daily sheet', async () => {
-      const { svc } = makeService({ sheet: sheetClosed });
-      await expect(svc.create(salesmanUser, SHEET_ID, createDto)).rejects.toThrow(BadRequestException);
+    describe('on an already-CLOSED sheet (owner request 2026-10-01)', () => {
+      const closedReload = {
+        id: SHEET_ID,
+        isClosed: true,
+        cashCollected: 0,
+        cashExpected: 0,
+        postCloseCrewCashCorrectionCount: 1,
+        items: [],
+        expenses: [],
+        crewCashDistributions: [{ amount: 50 }],
+        loads: [],
+      };
+      const closedDto = { ...createDto, reason: 'forgot to enter' };
+
+      it('rejects without a reason', async () => {
+        const { svc } = makeService({ sheet: sheetClosed });
+        await expect(svc.create(adminUser, SHEET_ID, createDto)).rejects.toThrow(BadRequestException);
+        await expect(svc.create(adminUser, SHEET_ID, { ...createDto, reason: '  ' })).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects a caller without daily_sheets:edit_closed_expense', async () => {
+        const { svc, permissions } = makeService({ sheet: sheetClosed, canPermission: false });
+        await expect(svc.create(salesmanUser, SHEET_ID, closedDto)).rejects.toThrow(ForbiddenException);
+        expect(permissions.can).toHaveBeenCalledWith(salesmanUser.userId, 'daily_sheets:edit_closed_expense');
+      });
+
+      it('attributes the row to the sheet\'s last-ended trip (a closed sheet has no active trip)', async () => {
+        const { svc, tx, prisma } = makeService({ sheet: sheetClosed });
+        tx.dailySheet.findUnique.mockResolvedValue(closedReload);
+        prisma.dailySheetLoad.findFirst.mockResolvedValue({ id: 'last-trip' });
+        await svc.create(adminUser, SHEET_ID, closedDto);
+        expect(prisma.dailySheetLoad.findFirst).toHaveBeenCalledWith(
+          expect.objectContaining({ where: { dailySheetId: SHEET_ID, endedAt: { not: null } } }),
+        );
+        expect(tx.crewCashDistribution.create).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ dailySheetLoadId: 'last-trip' }) }),
+        );
+      });
+
+      it('syncs the new row into the Payroll Ledger immediately, dated the sheet date', async () => {
+        const { svc, tx } = makeService({ sheet: sheetClosed });
+        tx.dailySheet.findUnique.mockResolvedValue(closedReload);
+        await svc.create(adminUser, SHEET_ID, closedDto);
+        expect(tx.staffLedgerEntry.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              userId: EMPLOYEE_ID,
+              category: 'CREW_CASH',
+              amount: -50,
+              effectiveDate: sheetClosed.date,
+              status: LedgerEntryStatus.POSTED,
+            }),
+          }),
+        );
+        expect(tx.crewCashDistribution.update).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ syncedAt: expect.any(Date), syncedLedgerEntryId: expect.any(String) }) }),
+        );
+      });
+
+      it('dates the ledger entry TODAY when the sheet date sits in a LOCKED/PAID payroll period', async () => {
+        const { svc, tx } = makeService({ sheet: sheetClosed, lockedPayrollPeriod: true });
+        tx.dailySheet.findUnique.mockResolvedValue(closedReload);
+        await svc.create(adminUser, SHEET_ID, closedDto);
+        const data = tx.staffLedgerEntry.create.mock.calls[0][0].data;
+        expect(data.effectiveDate.getTime()).toBeGreaterThan(sheetClosed.date.getTime());
+      });
+
+      it('bumps the marker and corrects the Cash Ledger handover in the same transaction', async () => {
+        const { svc, tx, vanCashLedger } = makeService({ sheet: sheetClosed });
+        tx.dailySheet.findUnique.mockResolvedValue(closedReload);
+        await svc.create(adminUser, SHEET_ID, closedDto);
+        expect(tx.dailySheet.update).toHaveBeenCalledWith(
+          expect.objectContaining({ where: { id: SHEET_ID }, data: { postCloseCrewCashCorrectionCount: { increment: 1 } } }),
+        );
+        expect(vanCashLedger.handlePostCloseCorrection).toHaveBeenCalledTimes(1);
+        expect(vanCashLedger.handlePostCloseCorrection.mock.calls[0].slice(0, 3)).toEqual([tx, VENDOR_ID, SHEET_ID]);
+      });
+
+      it('keeps a row that needs approval UNSYNCED (approve() syncs it later) but still bumps the marker', async () => {
+        const { svc, tx, vanCashLedger } = makeService({ sheet: sheetClosed, approvalRequired: true });
+        tx.dailySheet.findUnique.mockResolvedValue(closedReload);
+        const entry = await svc.create(adminUser, SHEET_ID, closedDto);
+        expect(tx.staffLedgerEntry.create).not.toHaveBeenCalled();
+        expect(entry.syncedAt).toBeNull();
+        expect(vanCashLedger.handlePostCloseCorrection).toHaveBeenCalledTimes(1);
+      });
+
+      it('records the reason on the CREATED audit row', async () => {
+        const { svc, tx } = makeService({ sheet: sheetClosed });
+        tx.dailySheet.findUnique.mockResolvedValue(closedReload);
+        await svc.create(adminUser, SHEET_ID, closedDto);
+        expect(tx.crewCashDistributionAuditLog.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ action: CrewCashAuditAction.CREATED, reason: 'forgot to enter' }),
+          }),
+        );
+      });
+
+      it('never touches the ledger or marker for an OPEN sheet', async () => {
+        const { svc, tx, vanCashLedger } = makeService();
+        await svc.create(salesmanUser, SHEET_ID, createDto);
+        expect(tx.staffLedgerEntry.create).not.toHaveBeenCalled();
+        expect(tx.dailySheet.update).not.toHaveBeenCalled();
+        expect(vanCashLedger.handlePostCloseCorrection).not.toHaveBeenCalled();
+      });
     });
 
     it('throws NotFoundException when the sheet does not belong to this vendor', async () => {
@@ -474,9 +585,99 @@ describe('CrewCashDistributionService', () => {
   // ── remove ────────────────────────────────────────────────────────────────
 
   describe('remove()', () => {
-    it('rejects deleting an entry already synced into the Payroll Ledger', async () => {
-      const { svc } = makeService({ entrySnapshot: syncedEntry });
-      await expect(svc.remove(salesmanUser, ENTRY_ID, { reason: 'oops' })).rejects.toThrow(BadRequestException);
+    describe('already-SYNCED row (closed-sheet delete, owner request 2026-10-01)', () => {
+      const closedReload = {
+        id: SHEET_ID,
+        isClosed: true,
+        cashCollected: 0,
+        cashExpected: 0,
+        postCloseCrewCashCorrectionCount: 1,
+        items: [],
+        expenses: [],
+        crewCashDistributions: [],
+        loads: [],
+      };
+
+      it('requires a reason', async () => {
+        const { svc } = makeService({ entrySnapshot: syncedEntry });
+        await expect(svc.remove(adminUser, ENTRY_ID, {})).rejects.toThrow(BadRequestException);
+        await expect(svc.remove(adminUser, ENTRY_ID, { reason: ' ' })).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects a caller with neither daily_sheets:edit_closed_expense nor payroll:ledger_void — even the row creator', async () => {
+        const { svc, tx } = makeService({ entrySnapshot: syncedEntry, canPermission: false });
+        await expect(svc.remove(salesmanUser, ENTRY_ID, { reason: 'oops' })).rejects.toThrow(ForbiddenException);
+        expect(tx.crewCashDistribution.deleteMany).not.toHaveBeenCalled();
+      });
+
+      it('VOIDS the ledger entry (skipCreatorCheck) when payroll has not locked it, then deletes the row', async () => {
+        const { svc, tx, staffLedger } = makeService({ entrySnapshot: syncedEntry });
+        tx.dailySheet.findUnique.mockResolvedValue(closedReload);
+        const result = await svc.remove(adminUser, ENTRY_ID, { reason: 'entered twice' });
+
+        expect(result).toEqual({ deleted: true });
+        expect(staffLedger.voidEntryTx).toHaveBeenCalledWith(
+          tx,
+          adminUser,
+          LEDGER_ENTRY_ID,
+          { version: notLockedLedgerEntry.version, reason: 'entered twice' },
+          { skipCreatorCheck: true },
+        );
+        expect(staffLedger.reverseTx).not.toHaveBeenCalled();
+        expect(tx.crewCashDistribution.deleteMany).toHaveBeenCalledWith({
+          where: { id: ENTRY_ID, vendorId: VENDOR_ID, syncedLedgerEntryId: LEDGER_ENTRY_ID },
+        });
+      });
+
+      it('REVERSES the ledger entry when it was already rolled into a locked payroll period', async () => {
+        const { svc, tx, staffLedger } = makeService({ entrySnapshot: syncedEntry, ledgerEntrySnapshot: lockedLedgerEntry });
+        tx.dailySheet.findUnique.mockResolvedValue(closedReload);
+        await svc.remove(adminUser, ENTRY_ID, { reason: 'entered twice' });
+
+        expect(staffLedger.reverseTx).toHaveBeenCalledWith(tx, adminUser, LEDGER_ENTRY_ID, {
+          version: lockedLedgerEntry.version,
+          reason: 'entered twice',
+        });
+        expect(staffLedger.voidEntryTx).not.toHaveBeenCalled();
+      });
+
+      it('leaves an already-VOIDED ledger entry alone and still deletes the row', async () => {
+        const { svc, tx, staffLedger } = makeService({
+          entrySnapshot: syncedEntry,
+          ledgerEntrySnapshot: { ...notLockedLedgerEntry, status: LedgerEntryStatus.VOIDED },
+        });
+        tx.dailySheet.findUnique.mockResolvedValue(closedReload);
+        await svc.remove(adminUser, ENTRY_ID, { reason: 'cleanup' });
+        expect(staffLedger.voidEntryTx).not.toHaveBeenCalled();
+        expect(staffLedger.reverseTx).not.toHaveBeenCalled();
+        expect(tx.crewCashDistribution.deleteMany).toHaveBeenCalled();
+      });
+
+      it('writes the DELETED audit row first (with the reason), then bumps the marker and corrects the handover', async () => {
+        const { svc, tx, vanCashLedger } = makeService({ entrySnapshot: syncedEntry });
+        tx.dailySheet.findUnique.mockResolvedValue(closedReload);
+        await svc.remove(adminUser, ENTRY_ID, { reason: 'entered twice' });
+
+        expect(tx.crewCashDistributionAuditLog.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ action: CrewCashAuditAction.DELETED, reason: 'entered twice' }),
+          }),
+        );
+        const auditOrder = tx.crewCashDistributionAuditLog.create.mock.invocationCallOrder[0];
+        const deleteOrder = tx.crewCashDistribution.deleteMany.mock.invocationCallOrder[0];
+        expect(auditOrder).toBeLessThan(deleteOrder);
+        expect(tx.dailySheet.update).toHaveBeenCalledWith(
+          expect.objectContaining({ data: { postCloseCrewCashCorrectionCount: { increment: 1 } } }),
+        );
+        expect(vanCashLedger.handlePostCloseCorrection).toHaveBeenCalledTimes(1);
+      });
+
+      it('rolls back with a ConflictException when a concurrent correction repointed the row (deleteMany matches nothing)', async () => {
+        const { svc, tx } = makeService({ entrySnapshot: syncedEntry });
+        tx.dailySheet.findUnique.mockResolvedValue(closedReload);
+        tx.crewCashDistribution.deleteMany.mockResolvedValueOnce({ count: 0 });
+        await expect(svc.remove(adminUser, ENTRY_ID, { reason: 'race' })).rejects.toThrow(ConflictException);
+      });
     });
 
     it('rejects via the atomic deleteMany guard when a concurrent sync raced the initial read (TOCTOU close)', async () => {

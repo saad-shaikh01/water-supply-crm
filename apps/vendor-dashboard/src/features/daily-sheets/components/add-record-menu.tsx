@@ -7,18 +7,24 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@water-supply-crm/ui';
-import { AlertTriangle, Fuel, Plus, Receipt, Wallet } from 'lucide-react';
+import { AlertTriangle, Fuel, HandCoins, PackagePlus, Plus, Receipt, Wallet } from 'lucide-react';
 
 interface AddRecordMenuProps {
   canLogFuel: boolean;
   canAddExpense: boolean;
   canAddCrewCash: boolean;
+  /** Shortcut into the Expense form pre-set to the Extra Labour category (uses the Expense permission). */
+  canAddExtraLabour?: boolean;
+  /** Salary advance paid from the van's cash (payroll:ledger_create, + the closed-sheet permission when closed). */
+  canAddAdvance?: boolean;
   canAddDelivery: boolean;
   isClosed: boolean;
   canReportDamage: boolean;
   onLogFuel: () => void;
   onAddExpense: () => void;
   onAddCrewCash: () => void;
+  onAddExtraLabour?: () => void;
+  onAddAdvance?: () => void;
   onAddDelivery: () => void;
   onReportDamage: () => void;
 }
@@ -33,15 +39,19 @@ export function AddRecordMenu({
   canLogFuel,
   canAddExpense,
   canAddCrewCash,
+  canAddExtraLabour = false,
+  canAddAdvance = false,
   canAddDelivery,
   canReportDamage,
   onLogFuel,
   onAddExpense,
   onAddCrewCash,
+  onAddExtraLabour,
+  onAddAdvance,
   onAddDelivery,
   onReportDamage,
 }: AddRecordMenuProps) {
-  if (!canLogFuel && !canAddExpense && !canAddCrewCash && !canAddDelivery && !canReportDamage) {
+  if (!canLogFuel && !canAddExpense && !canAddCrewCash && !canAddExtraLabour && !canAddAdvance && !canAddDelivery && !canReportDamage) {
     return null;
   }
 
@@ -66,10 +76,22 @@ export function AddRecordMenu({
             Expense
           </DropdownMenuItem>
         )}
+        {canAddExtraLabour && onAddExtraLabour && (
+          <DropdownMenuItem onClick={onAddExtraLabour} className="gap-2 cursor-pointer">
+            <PackagePlus className="h-4 w-4" />
+            Extra Labour
+          </DropdownMenuItem>
+        )}
         {canAddCrewCash && (
           <DropdownMenuItem onClick={onAddCrewCash} className="gap-2 cursor-pointer">
             <Wallet className="h-4 w-4" />
             Crew Cash
+          </DropdownMenuItem>
+        )}
+        {canAddAdvance && onAddAdvance && (
+          <DropdownMenuItem onClick={onAddAdvance} className="gap-2 cursor-pointer">
+            <HandCoins className="h-4 w-4" />
+            Advance
           </DropdownMenuItem>
         )}
         {canAddDelivery && (

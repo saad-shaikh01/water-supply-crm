@@ -47,6 +47,7 @@ export function SheetList() {
     postCloseModified?: boolean;
     route?: { name: string };
     driver?: { name: string };
+    crew?: Array<{ role: string; user?: { name: string } }>;
     van?: { plateNumber: string };
     _count?: { items: number };
     itemCounts?: { pending: number; completed: number; issues: number };
@@ -253,15 +254,15 @@ export function SheetList() {
             )
           },
           {
-            key: 'driver',
-            header: 'Driver',
+            key: 'salesman',
+            header: 'Salesman',
             defaultVisible: false,
             cell: (r) => (
               <div className="flex items-center gap-2 whitespace-nowrap max-w-[120px]">
                 <div className="h-6 w-6 rounded-full bg-white/5 border border-white/5 flex items-center justify-center shrink-0">
                   <User className="h-3 w-3 text-muted-foreground/60" />
                 </div>
-                <span className="text-xs font-semibold text-foreground dark:text-white/80 truncate">{r.driver?.name ?? '—'}</span>
+                <span className="text-xs font-semibold text-foreground dark:text-white/80 truncate">{(r.crew ?? []).filter((c) => c.role === 'SALESMAN').map((c) => c.user?.name).filter(Boolean).join(', ') || '—'}</span>
               </div>
             )
           },

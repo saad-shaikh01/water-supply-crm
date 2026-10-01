@@ -25,6 +25,7 @@ import { assertCanViewEmployeeCrewCash } from '../../common/helpers/crew-cash-vi
 import { PermissionService } from '../authz/permission.service';
 import { PayrollApprovalGateService } from './payroll-approval-gate.service';
 import { StaffLedgerService } from './staff-ledger.service';
+import { resolveSheetLedgerDate } from './sheet-ledger-date.util';
 import { VanCashLedgerService } from '../van-cash-ledger/van-cash-ledger.service';
 import { resolveSheetCash, SHEET_CASH_RELOAD_INCLUDE } from '../daily-sheet/sheet-cash.util';
 import { CreateCrewCashDistributionDto } from './dto/create-crew-cash-distribution.dto';
@@ -208,13 +209,21 @@ export class CrewCashDistributionService implements OnModuleInit {
   }
 
   /**
-   * Creates a Crew Cash Distribution row. `employeeId` must be today's
-   * confirmed crew for this sheet (the sheet's own `driverId`, or a
-   * `DailySheetCrew` row) — a structural correctness guardrail (§4/§14), not
-   * just a UI nicety. `date` is always the sheet's own date (§4: "not
-   * editable"). `distributedById`/`createdById` are both the caller — the
-   * person filling the form is, by definition, both the custodian who
-   * recorded the entry (§2) and its creator for edit/delete purposes.
+   * Creates a Crew Cash Distribution row. `employeeId` may be ANY active user of
+   * this vendor, not just the sheet's confirmed crew (owner request 2026-10-01 —
+   * cash is often handed to someone who isn't on the van that day). `date` is
+   * always the sheet's own date (§4: "not editable"). `distributedById`/
+   * `createdById` are both the caller — the person filling the form is, by
+   * definition, both the custodian who recorded the entry (§2) and its creator for
+   * edit/delete purposes.
+   *
+   * CLOSED sheet (owner request 2026-10-01 — same as `ExpenseService.createClosed`):
+   * allowed for `daily_sheets:edit_closed_expense` holders with a mandatory
+   * `reason`. The row is synced into the Payroll Ledger immediately (unless it is
+   * waiting on approval, in which case `approve()` syncs it later), the
+   * `postCloseCrewCashCorrectionCount` marker is bumped so the sheet switches to a
+   * live cash recompute, and the Cash Ledger handover chain is corrected in the
+   * same transaction — the frozen close-time `cashExpected` is never rewritten.
    */
   async create(user: AuthUser, dailySheetId: string, dto: CreateCrewCashDistributionDto) {
     const sheet = await this.prisma.dailySheet.findFirst({
@@ -222,25 +231,39 @@ export class CrewCashDistributionService implements OnModuleInit {
       select: { id: true, date: true, isClosed: true, driverId: true },
     });
     if (!sheet) throw new NotFoundException('Daily sheet not found.');
+
+    const closedReason = dto.reason?.trim() ?? '';
     if (sheet.isClosed) {
-      throw new BadRequestException('Cannot record a Crew Cash Distribution against a closed daily sheet.');
+      if (closedReason.length < 3) {
+        throw new BadRequestException('A reason is required to add Crew Cash to a closed daily sheet.');
+      }
+      const canEditClosed = await this.permissions.can(user.userId, 'daily_sheets:edit_closed_expense');
+      if (!canEditClosed) {
+        throw new ForbiddenException('You do not have permission to add Crew Cash to a closed daily sheet.');
+      }
     }
 
-    const isCrewMember = await this.isTodaysCrewMember(dailySheetId, sheet.driverId, dto.employeeId);
-    if (!isCrewMember) {
-      throw new BadRequestException(
-        "The selected employee is not part of this daily sheet's confirmed crew (driver or DailySheetCrew).",
-      );
-    }
-
-    // Trip feature: same active-trip attribution ExpenseService.create uses —
-    // inferred server-side, never an API param. Crew cash has no paidFromCash
-    // toggle (it's unconditionally physical van cash), so every row is
-    // deductible; this only tells the UI/PDF WHICH trip's numbers to reduce.
-    const activeLoad = await this.prisma.dailySheetLoad.findFirst({
-      where: { dailySheetId, endedAt: null },
+    const employee = await this.prisma.user.findFirst({
+      where: { id: dto.employeeId, vendorId: user.vendorId, isActive: true },
+      select: { id: true },
     });
-    const dailySheetLoadId = activeLoad?.id ?? null;
+    if (!employee) {
+      throw new BadRequestException('The selected employee was not found or is inactive.');
+    }
+
+    // Trip feature: same trip attribution ExpenseService uses — inferred
+    // server-side, never an API param. Open sheet → the active trip; closed
+    // sheet (no active trip) → its last-ended trip, like ExpenseService.createClosed.
+    // Crew cash has no paidFromCash toggle (it's unconditionally physical van
+    // cash), so every row is deductible; this only tells the UI/PDF WHICH trip's
+    // numbers to reduce.
+    const tripLoad = sheet.isClosed
+      ? await this.prisma.dailySheetLoad.findFirst({
+          where: { dailySheetId, endedAt: { not: null } },
+          orderBy: { endedAt: 'desc' },
+        })
+      : await this.prisma.dailySheetLoad.findFirst({ where: { dailySheetId, endedAt: null } });
+    const dailySheetLoadId = tripLoad?.id ?? null;
 
     return this.prisma.$transaction(async (tx) => {
       // Approval-gate check and duplicate-detection both live inside the
@@ -283,18 +306,33 @@ export class CrewCashDistributionService implements OnModuleInit {
           actorId: user.userId,
           actorRole: user.role,
           action: CrewCashAuditAction.CREATED,
+          reason: sheet.isClosed ? closedReason : null,
           afterJson: {
             employeeId: entry.employeeId,
             category: entry.category,
             amount: entry.amount,
             requiresApproval: entry.requiresApproval,
+            ...(sheet.isClosed && { addedAfterClose: true }),
           },
         },
       });
 
+      let result: CrewCashDistribution = entry;
+      if (sheet.isClosed) {
+        // A row waiting on approval stays unsynced (approve() syncs it); any
+        // other row goes straight into the Payroll Ledger now — the sheet-close
+        // sweep that normally does this already ran.
+        if (!requiresApproval) {
+          result = await this.syncOneRow(tx, user.vendorId, entry, user.userId, user.role, {
+            effectiveDate: await resolveSheetLedgerDate(tx, user.vendorId, sheet.date),
+          });
+        }
+        await this.syncClosedSheetAfterUnsyncedChange(tx, user.vendorId, dailySheetId);
+      }
+
       // Flag-not-block (§14): a legitimate second cup of tea is never
       // prevented — the caller just gets a heads-up in the response.
-      return { ...entry, possibleDuplicate: duplicateCount > 0 };
+      return { ...result, possibleDuplicate: duplicateCount > 0 };
     });
   }
 
@@ -419,10 +457,12 @@ export class CrewCashDistributionService implements OnModuleInit {
       const entry = await tx.crewCashDistribution.findFirst({ where: { id, vendorId: user.vendorId } });
       if (!entry) throw new NotFoundException('Crew Cash Distribution entry not found.');
 
+      // A synced row (every row of a closed sheet that wasn't waiting on approval)
+      // can't be hard-deleted on its own — its Payroll Ledger twin must be undone
+      // in the same transaction. Owner request 2026-10-01: closed-sheet crew cash
+      // must be deletable, so this routes to the ledger-safe path below.
       if (entry.syncedAt !== null) {
-        throw new BadRequestException(
-          'This entry has already synced into the Payroll Ledger and can no longer be deleted directly.',
-        );
+        return this.removeSynced(tx, user, entry, dto);
       }
 
       if (entry.createdById !== user.userId) {
@@ -479,6 +519,104 @@ export class CrewCashDistributionService implements OnModuleInit {
 
       return { deleted: true };
     });
+  }
+
+  /**
+   * Deletes an already-SYNCED Crew Cash row (closed-sheet delete). Same
+   * ledger-safe shape as `correctSyncedEntry`: the linked `StaffLedgerEntry` is
+   * voided when payroll hasn't consumed it yet, or reversed (a REVERSAL entry
+   * dated today, flowing into the open period) when it was already rolled into a
+   * locked period — never silently edited. The CrewCash row is then hard-deleted
+   * (its audit rows survive via ON DELETE SET NULL, like the unsynced delete), the
+   * `postCloseCrewCashCorrectionCount` marker is bumped and the Cash Ledger
+   * handover chain is corrected, all in the caller's single transaction.
+   *
+   * Authorization: the creator exception does NOT apply here — undoing a ledger
+   * entry payroll may already have used needs `daily_sheets:edit_closed_expense`
+   * (the same cohort as editing a closed sheet's expenses) or `payroll:ledger_void`.
+   * A reason is mandatory.
+   */
+  private async removeSynced(
+    tx: Prisma.TransactionClient,
+    user: AuthUser,
+    entry: CrewCashDistribution,
+    dto?: RemoveCrewCashDistributionDto,
+  ) {
+    const reason = dto?.reason?.trim() ?? '';
+    if (reason.length < 3) {
+      throw new BadRequestException('A reason is required to delete a Crew Cash entry that has already synced.');
+    }
+
+    const allowed =
+      (await this.permissions.can(user.userId, 'daily_sheets:edit_closed_expense')) ||
+      (await this.permissions.can(user.userId, 'payroll:ledger_void'));
+    if (!allowed) {
+      throw new ForbiddenException('You do not have permission to delete a Crew Cash entry that has already synced.');
+    }
+
+    if (entry.syncedLedgerEntryId === null) {
+      throw new ConflictException('This entry is marked synced but has no linked ledger entry — contact support.');
+    }
+    const ledgerEntry = await tx.staffLedgerEntry.findFirst({
+      where: { id: entry.syncedLedgerEntryId, vendorId: user.vendorId },
+    });
+    if (!ledgerEntry) throw new NotFoundException('The linked Payroll Ledger entry was not found.');
+
+    // Audit row first, referencing the still-live id (FK requires the parent to
+    // exist at insert time) — rolls back with everything else on any failure below.
+    await tx.crewCashDistributionAuditLog.create({
+      data: {
+        crewCashDistributionId: entry.id,
+        actorId: user.userId,
+        actorRole: user.role,
+        action: CrewCashAuditAction.DELETED,
+        reason,
+        beforeJson: {
+          dailySheetId: entry.dailySheetId,
+          distributedById: entry.distributedById,
+          employeeId: entry.employeeId,
+          category: entry.category,
+          amount: entry.amount,
+          notes: entry.notes,
+          photoKeys: entry.photoKeys,
+          requiresApproval: entry.requiresApproval,
+          approvedById: entry.approvedById,
+          approvedAt: entry.approvedAt,
+          syncedLedgerEntryId: entry.syncedLedgerEntryId,
+          ledgerEntryPayrollEntryId: ledgerEntry.payrollEntryId,
+        },
+      },
+    });
+
+    // A ledger entry that is no longer POSTED (already voided by some other path)
+    // has nothing left to undo; otherwise void it, or reverse it if payroll locked it.
+    if (ledgerEntry.status === LedgerEntryStatus.POSTED) {
+      if (ledgerEntry.payrollEntryId === null) {
+        await this.staffLedger.voidEntryTx(
+          tx,
+          user,
+          ledgerEntry.id,
+          { version: ledgerEntry.version, reason },
+          { skipCreatorCheck: true },
+        );
+      } else {
+        await this.staffLedger.reverseTx(tx, user, ledgerEntry.id, { version: ledgerEntry.version, reason });
+      }
+    }
+
+    // Atomic compare-and-delete: scoped to the ledger entry we just undid, so a
+    // concurrent correction that repointed the row at a fresh entry makes this a
+    // no-op (and rolls the whole transaction back) instead of orphaning that entry.
+    const result = await tx.crewCashDistribution.deleteMany({
+      where: { id: entry.id, vendorId: user.vendorId, syncedLedgerEntryId: entry.syncedLedgerEntryId },
+    });
+    if (result.count === 0) {
+      throw new ConflictException('This entry was modified while you were deleting it. Reload and retry.');
+    }
+
+    await this.syncClosedSheetAfterUnsyncedChange(tx, user.vendorId, entry.dailySheetId);
+
+    return { deleted: true };
   }
 
   /**
@@ -589,15 +727,18 @@ export class CrewCashDistributionService implements OnModuleInit {
     row: CrewCashDistribution,
     actorId: string,
     actorRole: UserRole,
+    opts?: { effectiveDate?: Date },
   ): Promise<CrewCashDistribution> {
+    const effectiveDate = opts?.effectiveDate ?? row.date;
+    const redated = effectiveDate.getTime() !== row.date.getTime();
     const ledgerEntry = await tx.staffLedgerEntry.create({
       data: {
         vendorId,
         userId: row.employeeId,
         category: StaffLedgerCategory.CREW_CASH,
         amount: -row.amount,
-        effectiveDate: row.date,
-        description: `Crew Cash — ${row.category}${row.notes ? `: ${row.notes}` : ''}`,
+        effectiveDate,
+        description: `Crew Cash — ${row.category}${row.notes ? `: ${row.notes}` : ''}${redated ? ` (sheet of ${row.date.toISOString().slice(0, 10)})` : ''}`,
         status: LedgerEntryStatus.POSTED,
         createdById: actorId,
       },
@@ -854,6 +995,12 @@ export class CrewCashDistributionService implements OnModuleInit {
 
     return this.prisma.crewCashDistribution.findMany({
       where: { vendorId: user.vendorId, dailySheetId },
+      // Names are resolved server-side now that the recipient can be any employee,
+      // not just a member of this sheet's crew the frontend already knows about.
+      include: {
+        employee: { select: { id: true, name: true } },
+        createdBy: { select: { id: true, name: true } },
+      },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -872,16 +1019,5 @@ export class CrewCashDistributionService implements OnModuleInit {
       where: { vendorId: user.vendorId, employeeId },
       orderBy: { createdAt: 'desc' },
     });
-  }
-
-  /** True when `employeeId` is the sheet's driver, or holds a `DailySheetCrew` row for this sheet (§4/§14 guardrail). */
-  private async isTodaysCrewMember(dailySheetId: string, driverId: string, employeeId: string): Promise<boolean> {
-    if (employeeId === driverId) return true;
-
-    const crewRow = await this.prisma.dailySheetCrew.findUnique({
-      where: { dailySheetId_userId: { dailySheetId, userId: employeeId } },
-      select: { id: true },
-    });
-    return crewRow !== null;
   }
 }

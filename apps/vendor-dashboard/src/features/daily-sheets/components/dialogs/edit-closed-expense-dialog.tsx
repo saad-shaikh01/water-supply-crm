@@ -13,6 +13,7 @@ import {
   useCorrectClosedExpense,
   useAddClosedSheetExpense,
 } from '../../../expenses/hooks/use-expenses';
+import { ExtraLabourPicker } from '../../../extra-labour/components/extra-labour-picker';
 
 // Same selectable list ExpenseForm offers (retired categories are not pickable —
 // but an existing row still tagged with one is shown disabled so the field
@@ -51,6 +52,8 @@ interface EditClosedExpenseDialogProps {
   sheetDate?: string;
   /** null → add-a-missed-expense flow; a row → correct that row. */
   expense: SheetExpense | null;
+  /** Add flow only — pre-selects the category (the "Extra Labour" quick action). */
+  initialCategory?: string;
 }
 
 export function EditClosedExpenseDialog({
@@ -59,6 +62,7 @@ export function EditClosedExpenseDialog({
   sheetId,
   sheetDate,
   expense,
+  initialCategory,
 }: EditClosedExpenseDialogProps) {
   const isAdd = !expense;
   const { mutate: correct, isPending: isCorrecting } = useCorrectClosedExpense(sheetId);
@@ -76,31 +80,36 @@ export function EditClosedExpenseDialog({
   const [description, setDescription] = useState('');
   const [paidFromCash, setPaidFromCash] = useState(true);
   const [note, setNote] = useState('');
+  const [extraLabourId, setExtraLabourId] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     if (!open) return;
     if (expense) {
       setAmount(String(expense.amount ?? ''));
       setCategory(expense.category ?? 'OTHER');
+      setExtraLabourId(expense.extraLabourId ?? undefined);
       setDate((expense.date ?? '').slice(0, 10));
       setVanId(expense.vanId ?? 'none');
       setDescription(expense.description ?? '');
       setPaidFromCash(expense.paidFromCash !== false);
     } else {
       setAmount('');
-      setCategory('OTHER');
+      setCategory(initialCategory ?? 'OTHER');
+      setExtraLabourId(undefined);
       setDate((sheetDate ?? new Date().toISOString()).slice(0, 10));
       setVanId('none');
       setDescription('');
       setPaidFromCash(true);
     }
     setNote('');
-  }, [open, expense, sheetDate]);
+  }, [open, expense, sheetDate, initialCategory]);
 
+  const isExtraLabour = category === 'EXTRA_LABOUR';
   const noteValid = note.trim().length >= 3;
   const amountValid = amount !== '' && Number.isFinite(Number(amount)) && Number(amount) >= 0.01;
-  const descriptionValid = description.trim().length > 0;
-  const isValid = noteValid && amountValid && descriptionValid && !!date;
+  // An Extra Labour row's description defaults server-side ("Extra labour — <name>") when left blank.
+  const descriptionValid = isExtraLabour || description.trim().length > 0;
+  const isValid = noteValid && amountValid && descriptionValid && !!date && (!isExtraLabour || !!extraLabourId);
 
   const handleSubmit = () => {
     if (!isValid) return;
@@ -112,6 +121,8 @@ export function EditClosedExpenseDialog({
       paidFromCash,
       vanId: vanId === 'none' ? undefined : vanId,
       correctionNote: note.trim(),
+      // Only ever sent for EXTRA_LABOUR — the server rejects it on any other category.
+      ...(isExtraLabour && extraLabourId && { extraLabourId }),
     };
     if (isAdd) {
       add(body, { onSuccess: onClose });
@@ -168,7 +179,7 @@ export function EditClosedExpenseDialog({
 
           <div className="space-y-1.5">
             <Label className="font-bold text-[11px] uppercase tracking-widest text-muted-foreground">Category</Label>
-            <Select value={category} onValueChange={setCategory}>
+            <Select value={category} onValueChange={(v) => { setCategory(v); if (v !== 'EXTRA_LABOUR') setExtraLabourId(undefined); }}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {LEGACY_CATEGORY_LABELS[category] && (
@@ -180,6 +191,14 @@ export function EditClosedExpenseDialog({
               </SelectContent>
             </Select>
           </div>
+
+          {isExtraLabour && (
+            <ExtraLabourPicker
+              value={extraLabourId}
+              onChange={(v) => setExtraLabourId(v || undefined)}
+              required
+            />
+          )}
 
           <div className="space-y-1.5">
             <Label className="font-bold text-[11px] uppercase tracking-widest text-muted-foreground">Van (optional)</Label>
@@ -195,12 +214,12 @@ export function EditClosedExpenseDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label className="font-bold text-[11px] uppercase tracking-widest text-muted-foreground">Description <span className="text-destructive">*</span></Label>
+            <Label className="font-bold text-[11px] uppercase tracking-widest text-muted-foreground">Description {!isExtraLabour && <span className="text-destructive">*</span>}</Label>
             <input
               type="text"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="What was this expense for?"
+              placeholder={isExtraLabour ? 'Optional — defaults to the labourer\'s name' : 'What was this expense for?'}
               className="w-full h-10 rounded-xl bg-background/50 border border-border/50 text-sm text-foreground dark:text-white px-3 outline-none focus:ring-2 focus:ring-primary/30 placeholder:text-muted-foreground"
             />
           </div>

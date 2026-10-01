@@ -1731,6 +1731,8 @@ export class DailySheetService implements OnModuleInit {
         items: { select: { id: true, sequence: true, customer: { select: { name: true, customerCode: true } } } },
         loads: { select: { id: true, tripNumber: true } },
         expenses: { select: { id: true, description: true, category: true } },
+        // Every advance, VOIDED included — voided rows are kept (soft delete), so their audit trail stays reachable.
+        sheetAdvances: { select: { id: true } },
         vehicleDailyChecks: {
           select: {
             id: true, checkType: true, odometerReading: true, originalOdometerReading: true,
@@ -1746,6 +1748,7 @@ export class DailySheetService implements OnModuleInit {
     const itemIds = sheet.items.map((i) => i.id);
     const loadIds = sheet.loads.map((l) => l.id);
     const expenseIds = sheet.expenses.map((e) => e.id);
+    const advanceIds = sheet.sheetAdvances.map((a) => a.id);
     const itemLabelById = new Map(
       sheet.items.map((i) => [
         i.id,
@@ -1773,6 +1776,7 @@ export class DailySheetService implements OnModuleInit {
             { entity: 'DailySheetItem', entityId: { in: itemIds } },
             { entity: 'DailySheetLoad', entityId: { in: loadIds } },
             { entity: 'Expense', entityId: { in: expenseIds } },
+            { entity: 'SheetAdvance', entityId: { in: advanceIds } },
             // hard-deleted closed-sheet expenses no longer have a live row to key off
             { entity: 'Expense', changes: { path: ['before', 'dailySheetId'], equals: sheetId } },
             { entity: 'Expense', changes: { path: ['after', 'dailySheetId'], equals: sheetId } },
@@ -2586,6 +2590,9 @@ export class DailySheetService implements OnModuleInit {
           include: {
             van: { select: { id: true, plateNumber: true } },
             createdBy: { select: { id: true, name: true } },
+            // EXTRA_LABOUR rows: who was paid (shown on the row; pre-fills the
+            // closed-sheet correction dialog's labourer picker).
+            extraLabour: { select: { id: true, name: true } },
             // Lets the Trip Expenses list route Edit to the FuelLog's own
             // form (odometer field lives there, not on Expense) instead of
             // the generic Expense-correction dialog — see
@@ -2610,6 +2617,17 @@ export class DailySheetService implements OnModuleInit {
           include: {
             employee: { select: { id: true, name: true } },
             distributedBy: { select: { id: true, name: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+        },
+        // Daily Sheet Advances — ACTIVE rows with the payroll twin's status (drives the
+        // "Pending approval" badge). Deducted from cash-to-hand-in like crewCashDistributions.
+        sheetAdvances: {
+          where: { status: 'ACTIVE' },
+          include: {
+            employee: { select: { id: true, name: true } },
+            createdBy: { select: { id: true, name: true } },
+            staffLedgerEntry: { select: { id: true, status: true, payrollEntryId: true } },
           },
           orderBy: { createdAt: 'desc' },
         },
@@ -2978,7 +2996,8 @@ export class DailySheetService implements OnModuleInit {
         // Post-Close Expense Correction — the marker column bumped by every
         // edit / void / add on a closed sheet's Expense rows.
         const expenseCorrectCount = (sheet as any).postCloseExpenseCorrectionCount ?? 0;
-        // Post-Close Crew Cash Correction — same, for /crew-cash/:id/correct.
+        // Post-Close Crew Cash / Advance change — same marker, bumped by /crew-cash/:id/correct, closed-sheet
+        // crew-cash add/delete and every closed-sheet Daily Sheet advance add/edit/delete.
         const crewCashCorrectCount = (sheet as any).postCloseCrewCashCorrectionCount ?? 0;
 
         const reasons: string[] = [];
@@ -3000,7 +3019,7 @@ export class DailySheetService implements OnModuleInit {
         }
         if (crewCashCorrectCount) {
           reasons.push(
-            `${crewCashCorrectCount} crew cash correction${crewCashCorrectCount > 1 ? 's' : ''}`,
+            `${crewCashCorrectCount} crew cash / advance change${crewCashCorrectCount > 1 ? 's' : ''}`,
           );
         }
 
@@ -4425,6 +4444,11 @@ export class DailySheetService implements OnModuleInit {
           select: { amount: true, paidFromCash: true },
         },
         crewCashDistributions: {
+          select: { amount: true },
+        },
+        // Advances paid from the van's cash reduce the hand-in too (buildReconciliation).
+        sheetAdvances: {
+          where: { status: 'ACTIVE' },
           select: { amount: true },
         },
       },

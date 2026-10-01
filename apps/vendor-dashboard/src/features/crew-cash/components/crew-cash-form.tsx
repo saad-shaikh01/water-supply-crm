@@ -6,24 +6,30 @@ import {
   Button, Input, Label,
 } from '@water-supply-crm/ui';
 import { cn } from '@water-supply-crm/ui';
-import { Loader2, Wallet } from 'lucide-react';
+import { AlertTriangle, Loader2, Wallet } from 'lucide-react';
 import type { CrewCashEntry } from '@water-supply-crm/types';
 import { CREW_CASH_CATEGORY_CONFIG, selectableCrewCashCategories } from '../constants';
 import { useCreateCrewCash, useUpdateCrewCash } from '../hooks/use-crew-cash';
+import { EmployeeSelect, type CrewCashEmployeeOption } from './employee-select';
 
-export interface CrewCashEmployeeOption {
-  id: string;
-  name: string;
-}
+export type { CrewCashEmployeeOption };
 
 interface CrewCashFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   sheetId: string;
-  /** Today's confirmed crew only (driver + DailySheetCrew) — doc §4/§13, never the full staff directory. */
+  /**
+   * This sheet's driver + confirmed crew — listed FIRST in the employee dropdown.
+   * Any other active employee is selectable too (owner request 2026-10-01).
+   */
   employees: CrewCashEmployeeOption[];
   /** Present in edit mode; absent for a fresh add. */
   entry?: CrewCashEntry | null;
+  /**
+   * The sheet is closed — this is a post-close add. Shows the closed-sheet notice and
+   * requires a reason (kept in the audit trail), like adding an expense to a closed sheet.
+   */
+  isClosed?: boolean;
 }
 
 interface FormState {
@@ -44,15 +50,18 @@ const emptyForm: FormState = { employeeId: '', category: undefined, amount: unde
  * employee/amount/notes — the category chip stays selected, so recording tea for
  * three crew members is three fast taps, not three full dialog round-trips.
  */
-export function CrewCashForm({ open, onOpenChange, sheetId, employees, entry }: CrewCashFormProps) {
+export function CrewCashForm({ open, onOpenChange, sheetId, employees, entry, isClosed = false }: CrewCashFormProps) {
   const isEdit = !!entry;
+  const needsReason = isClosed && !isEdit;
   const { mutate: create, isPending: isCreating } = useCreateCrewCash(sheetId);
   const { mutate: update, isPending: isUpdating } = useUpdateCrewCash(sheetId);
   const isPending = isCreating || isUpdating;
 
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [reason, setReason] = useState('');
 
   useEffect(() => {
+    if (open) setReason('');
     if (open && entry) {
       setForm({
         employeeId: entry.employeeId,
@@ -69,7 +78,9 @@ export function CrewCashForm({ open, onOpenChange, sheetId, employees, entry }: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, entry?.id]);
 
-  const isValid = !!form.employeeId && !!form.category && !!form.amount && form.amount > 0;
+  const isValid =
+    !!form.employeeId && !!form.category && !!form.amount && form.amount > 0 &&
+    (!needsReason || reason.trim().length >= 3);
 
   const handleSubmit = () => {
     if (!isValid || !form.category || !form.amount) return;
@@ -96,6 +107,7 @@ export function CrewCashForm({ open, onOpenChange, sheetId, employees, entry }: 
         category: form.category,
         amount: form.amount,
         notes: form.notes.trim() || undefined,
+        ...(needsReason && { reason: reason.trim() }),
       },
       {
         onSuccess: () => {
@@ -111,37 +123,35 @@ export function CrewCashForm({ open, onOpenChange, sheetId, employees, entry }: 
         <DialogHeader>
           <DialogTitle className="text-xl font-black flex items-center gap-2">
             <Wallet className="h-5 w-5 text-primary" />
-            {isEdit ? 'Edit Crew Cash Entry' : 'Add Crew Cash'}
+            {isEdit ? 'Edit Crew Cash Entry' : isClosed ? 'Add Crew Cash (Closed Sheet)' : 'Add Crew Cash'}
           </DialogTitle>
         </DialogHeader>
 
+        {needsReason && (
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-start gap-3">
+            <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-700 dark:text-amber-300 font-medium leading-relaxed">
+              This sheet is closed. The entry is posted to the employee&apos;s payroll ledger now and deducted
+              from the day&apos;s cash hand-in; the close-time cash figure is left as it was and the change
+              shows in the post-close divergence banner. A reason is required.
+            </p>
+          </div>
+        )}
+
         <div className="space-y-4 py-2">
-          {/* Employee — tappable list, scoped to today's confirmed crew only (doc §13). */}
+          {/* Employee — dropdown: this sheet's crew first, then every other active employee. */}
           <div className="space-y-2">
             <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
               Employee <span className="text-destructive">*</span>
             </Label>
-            {employees.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {employees.map((emp) => (
-                  <button
-                    key={emp.id}
-                    type="button"
-                    onClick={() => setForm((p) => ({ ...p, employeeId: emp.id }))}
-                    className={cn(
-                      'px-3 py-2 rounded-xl text-sm font-bold border transition-colors',
-                      form.employeeId === emp.id
-                        ? 'bg-primary text-primary-foreground border-primary'
-                        : 'bg-background border-border/50 text-foreground hover:bg-muted',
-                    )}
-                  >
-                    {emp.name}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs italic text-muted-foreground">No confirmed crew for this sheet yet.</p>
-            )}
+            <EmployeeSelect
+              value={form.employeeId}
+              onChange={(id) => setForm((p) => ({ ...p, employeeId: id }))}
+              crew={employees}
+              extra={entry?.employee ?? null}
+              // An existing entry's recipient is its identity — only the correction flow can reassign it.
+              disabled={isEdit}
+            />
           </div>
 
           {/* Category — tappable chips, not a dropdown (doc §4/§13). */}
@@ -204,6 +214,22 @@ export function CrewCashForm({ open, onOpenChange, sheetId, employees, entry }: 
               onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))}
             />
           </div>
+
+          {needsReason && (
+            <div className="space-y-2">
+              <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">
+                Reason <span className="text-destructive">*</span>
+              </Label>
+              <textarea
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Why is this being added after the sheet closed?"
+                rows={2}
+                className="w-full rounded-xl bg-background/50 border border-border/50 text-sm text-foreground dark:text-white px-3 py-2 outline-none focus:ring-2 focus:ring-primary/30 resize-none placeholder:text-muted-foreground"
+              />
+              {reason.trim().length < 3 && <p className="text-[11px] text-muted-foreground">Enter at least 3 characters.</p>}
+            </div>
+          )}
         </div>
 
         <DialogFooter>

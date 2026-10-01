@@ -455,6 +455,7 @@ export class PayrollEntryService {
         attendanceLeaveSource: { select: { id: true } },
         advancePlanDisbursementSource: { select: { id: true } },
         advanceInstallmentSource: { select: { id: true } },
+        sheetAdvanceSource: { select: { id: true } },
         reversalEntries: { where: { status: { not: LedgerEntryStatus.VOIDED } }, select: { id: true } },
       },
     });
@@ -470,7 +471,9 @@ export class PayrollEntryService {
               ? 'Attendance'
               : e.advancePlanDisbursementSource || e.advanceInstallmentSource
                 ? 'Advance plan'
-                : null;
+                : e.sheetAdvanceSource
+                  ? 'Daily Sheet advance'
+                  : null;
 
     const byBucket: Record<keyof BucketTotals, Array<Record<string, unknown>>> = {
       bonuses: [],
@@ -489,7 +492,7 @@ export class PayrollEntryService {
       if (ledgerEntry.category === StaffLedgerCategory.ADVANCE_DISBURSEMENT) continue;
       const {
         crewCashSource, standaloneCrewCashSource, discrepancyCase, attendanceLeaveSource,
-        advancePlanDisbursementSource, advanceInstallmentSource, reversalEntries, ...row
+        advancePlanDisbursementSource, advanceInstallmentSource, sheetAdvanceSource, reversalEntries, ...row
       } = ledgerEntry;
       byBucket[bucketKeyForCategory(ledgerEntry.category)].push({
         ...row,

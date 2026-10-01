@@ -296,6 +296,8 @@ export interface CashLedgerSummary {
       expenses: number;
       /** Crew cash paid on sheets — already inside Sheet Cash In, NEVER a ledger row. */
       crewCash: number;
+      /** Salary advances paid from the van's cash on those sheets — already inside Sheet Cash In, NEVER a PAYROLL_CASH row. Absent on older backends. */
+      advances?: number;
       /** collected − expenses − crewCash (per sheet, floored at 0 like the sheet itself), summed. */
       net: number;
       /** expected − net: sheet corrections / rounding so the breakdown always balances. */
@@ -539,7 +541,9 @@ export interface SheetCashBreakdown {
   collected: number;
   expenses: number;
   crewCash: number;
-  /** collected − expenses − crewCash, floored at 0 (the sheet's own "net to hand in"). */
+  /** Salary advances paid from the van's cash on this sheet. Absent on older backends. */
+  advances?: number;
+  /** collected − expenses − crewCash − advances, floored at 0 (the sheet's own "net to hand in"). */
   netFromSheet: number;
   /** expectedAmount − netFromSheet (sheet corrections after close etc.); 0 when it balances. */
   other: number;

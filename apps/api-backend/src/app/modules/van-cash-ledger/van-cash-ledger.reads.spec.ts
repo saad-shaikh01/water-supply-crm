@@ -35,6 +35,8 @@ function matches(row: any, where: any): boolean {
     if (cond === null) return value === null || value === undefined;
     if (cond instanceof Date) return +value === +cond;
     if (typeof cond === 'object') {
+      // Prisma 1:1 relation filter — `{ is: null }` means "no related row" (Daily Sheet advance twins).
+      if ('is' in cond) return cond.is === null ? value === null || value === undefined : true;
       if ('in' in cond && !cond.in.includes(value)) return false;
       if ('not' in cond && value === cond.not) return false;
       if ('lt' in cond && !(value < cond.lt)) return false;
@@ -88,6 +90,8 @@ interface Data {
   sheets?: any[];
   /** CrewCashDistribution rows (dailySheetId, amount) — read by the sheet breakdown. */
   crewDist?: any[];
+  /** SheetAdvance rows (dailySheetId, amount, status) — read by the sheet breakdown. */
+  sheetAdvances?: any[];
   /** AuditLog rows — read by the entry history. */
   audit?: any[];
   /** Van rows (id, vendorId, plateNumber) — batched plate-number lookup in the history diff. */
@@ -117,6 +121,7 @@ function makeReadService(
     customerDepositEntry: model(data.depositEntries ?? []),
     dailySheet: model(data.sheets ?? []),
     crewCashDistribution: model(data.crewDist ?? []),
+    sheetAdvance: model(data.sheetAdvances ?? []),
     auditLog: model(data.audit ?? []),
     van: model(data.vans ?? []),
     user: model(data.users ?? []),
@@ -202,7 +207,14 @@ function expense(id: string, date: string, amount: number, over: Record<string, 
   };
 }
 
-function ledgerEntry(id: string, category: StaffLedgerCategory, status: LedgerEntryStatus, amount: number, date: string) {
+function ledgerEntry(
+  id: string,
+  category: StaffLedgerCategory,
+  status: LedgerEntryStatus,
+  amount: number,
+  date: string,
+  extra: Record<string, unknown> = {},
+) {
   return {
     id,
     vendorId: VENDOR_ID,
@@ -215,6 +227,7 @@ function ledgerEntry(id: string, category: StaffLedgerCategory, status: LedgerEn
     user: { name: 'Bilal' },
     createdBy: { name: 'Accountant' },
     payrollEntryId: null,
+    ...extra,
   };
 }
 
@@ -507,6 +520,39 @@ describe('VanCashLedgerService — Cash Ledger P0 reads', () => {
       expect(stats.totalExpense).toBe(30000);
       expect(stats.availableBalance).toBe(-30000);
       expect(stats.crewCash).toBe(0); // the CREW_CASH ledger entry is never double-read
+    });
+
+    describe('Daily Sheet advance twins are NOT office payroll cash (they ride the sheet hand-in)', () => {
+      const withTwin: Data = {
+        ledger: [
+          ledgerEntry('adv-office', C.ADVANCE, P, -5000, t), // typed on the Payroll page → counts
+          ledgerEntry('adv-sheet', C.ADVANCE, P, -800, t, { sheetAdvanceSource: { id: 'sa-1' } }), // EXCLUDED
+          // reversed-but-still-POSTED twin of a later-voided sheet advance — must stay excluded too
+          ledgerEntry('adv-sheet-reversed', C.ADVANCE, P, -300, t, { sheetAdvanceSource: { id: 'sa-2' }, payrollEntryId: 'pe-1' }),
+        ],
+      };
+
+      it('stats: only the office advance counts — the sheet-advance twins would otherwise double-count', async () => {
+        const { svc } = makeReadService(withTwin);
+        const stats = await svc.getStats(VENDOR_ID, {});
+        expect(stats.payrollCash).toBe(5000);
+        expect(stats.availableBalance).toBe(-5000);
+      });
+
+      it('timeline: the twins never appear as rows', async () => {
+        const { svc } = makeReadService(withTwin);
+        const page = await svc.getTimeline(VENDOR_ID, { limit: 50 });
+        expect(page.data.map((r) => r.sourceRecordId)).toEqual(['adv-office']);
+      });
+
+      it('the payroll-advance query filters sheetAdvanceSource: { is: null } in BOTH the rows and the aggregate', async () => {
+        const { svc, prisma } = makeReadService(withTwin);
+        await svc.getStats(VENDOR_ID, {});
+        await svc.getTimeline(VENDOR_ID, {});
+        const where = expect.objectContaining({ category: StaffLedgerCategory.ADVANCE, sheetAdvanceSource: { is: null } });
+        expect(prisma.staffLedgerEntry.aggregate).toHaveBeenCalledWith(expect.objectContaining({ where }));
+        expect(prisma.staffLedgerEntry.findMany).toHaveBeenCalledWith(expect.objectContaining({ where }));
+      });
     });
 
     it('timeline: advances stay CASH_OUT/STAFF_LEDGER, settlements are PAYROLL_SETTLEMENT_OUT/SETTLEMENT', async () => {
@@ -1267,6 +1313,7 @@ describe('VanCashLedgerService — Cash Ledger P0 reads', () => {
           collected: 15600,
           expenses: 2900,
           crewCash: 700,
+          advances: 0,
           net: 12000,
           other: 0,
         });
@@ -1275,6 +1322,21 @@ describe('VanCashLedgerService — Cash Ledger P0 reads', () => {
         expect(prisma.dailySheet.findMany).toHaveBeenCalledTimes(1);
         expect(prisma.expense.groupBy).toHaveBeenCalledTimes(1);
         expect(prisma.crewCashDistribution.groupBy).toHaveBeenCalledTimes(1);
+      });
+
+      it('summary breakdown nets Daily Sheet advances out of each sheet (ACTIVE only)', async () => {
+        const data = sheetData();
+        data.sheetAdvances = [
+          { id: 'sa-a', vendorId: VENDOR_ID, dailySheetId: 'sheet-A', amount: 600, status: 'ACTIVE' },
+          { id: 'sa-b', vendorId: VENDOR_ID, dailySheetId: 'sheet-B', amount: 200, status: 'ACTIVE' },
+          { id: 'sa-void', vendorId: VENDOR_ID, dailySheetId: 'sheet-B', amount: 5000, status: 'VOIDED' },
+        ];
+        const { svc, prisma } = makeReadService(data);
+        const summary = await svc.getSummary(VENDOR_ID, Q);
+        expect(summary.memo.sheetBreakdown.advances).toBe(800);
+        expect(summary.memo.sheetBreakdown.net).toBe(11200); // 12000 - 800
+        expect(summary.memo.sheetBreakdown.other).toBe(800); // expected 12000 - net 11200
+        expect(prisma.sheetAdvance.groupBy).toHaveBeenCalledTimes(1); // one grouped query, never per sheet
       });
 
       it('per-sheet net is floored at 0 (an over-spent sheet never contributes a negative)', async () => {
@@ -1312,13 +1374,13 @@ describe('VanCashLedgerService — Cash Ledger P0 reads', () => {
 
         const { svc: svc2 } = makeReadService(sheetData());
         const otherVan = await svc2.getSummary(VENDOR_ID, { vanId: OTHER_VAN_ID });
-        expect(otherVan.memo.sheetBreakdown).toEqual({ sheets: 0, collected: 0, expenses: 0, crewCash: 0, net: 0, other: 0 });
+        expect(otherVan.memo.sheetBreakdown).toEqual({ sheets: 0, collected: 0, expenses: 0, crewCash: 0, advances: 0, net: 0, other: 0 });
       });
 
       it('no approved handovers: zeros and no sheet queries', async () => {
         const { svc, prisma } = makeReadService({});
         const summary = await svc.getSummary(VENDOR_ID, Q);
-        expect(summary.memo.sheetBreakdown).toEqual({ sheets: 0, collected: 0, expenses: 0, crewCash: 0, net: 0, other: 0 });
+        expect(summary.memo.sheetBreakdown).toEqual({ sheets: 0, collected: 0, expenses: 0, crewCash: 0, advances: 0, net: 0, other: 0 });
         expect(prisma.dailySheet.findMany).not.toHaveBeenCalled();
         expect(prisma.expense.groupBy).not.toHaveBeenCalled();
       });
@@ -1368,6 +1430,7 @@ describe('VanCashLedgerService — Cash Ledger P0 reads', () => {
         collected: 8000,
         expenses: 1500,
         crewCash: 400,
+        advances: 0,
         netFromSheet: 6100,
         expected: 6350, // 6100 + 250 (voided 999 excluded)
         approved: 6250, // 6000 + 250
@@ -1384,6 +1447,20 @@ describe('VanCashLedgerService — Cash Ledger P0 reads', () => {
       const { svc } = makeReadService(data);
       const result = await svc.getSheetCashBreakdown(VENDOR_ID, sheetId);
       expect(result).toMatchObject({ other: 0, variance: 0, expected: 6100, approved: 6100, adjustmentReason: null });
+    });
+
+    it('Daily Sheet advances are netted out of the sheet, ACTIVE rows only', async () => {
+      const data = base();
+      data.sheetAdvances = [
+        { id: 'a1', vendorId: VENDOR_ID, dailySheetId: sheetId, amount: 700, status: 'ACTIVE' },
+        { id: 'a-void', vendorId: VENDOR_ID, dailySheetId: sheetId, amount: 9999, status: 'VOIDED' },
+        { id: 'a-other', vendorId: VENDOR_ID, dailySheetId: 'sheet-foreign', amount: 5000, status: 'ACTIVE' },
+      ];
+      const { svc } = makeReadService(data);
+      const result = await svc.getSheetCashBreakdown(VENDOR_ID, sheetId);
+      expect(result.advances).toBe(700);
+      expect(result.netFromSheet).toBe(5400); // 8000 - 1500 - 400 - 700
+      expect(result.other).toBe(950); // expected 6350 - net 5400
     });
 
     it('netFromSheet floors at 0', async () => {

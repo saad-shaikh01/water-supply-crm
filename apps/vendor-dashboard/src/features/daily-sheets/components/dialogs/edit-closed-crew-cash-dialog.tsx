@@ -11,12 +11,13 @@ import type { CrewCashCategory, CrewCashEntry } from '@water-supply-crm/types';
 import { useCorrectCrewCash } from '../../../crew-cash/hooks/use-crew-cash';
 import { CREW_CASH_CATEGORY_CONFIG, CREW_CASH_CATEGORIES } from '../../../crew-cash/constants';
 import type { CrewCashEmployeeOption } from '../../../crew-cash/components/crew-cash-form';
+import { EmployeeSelect } from '../../../crew-cash/components/employee-select';
 
 interface EditClosedCrewCashDialogProps {
   open: boolean;
   onClose: () => void;
   sheetId: string;
-  /** Confirmed crew for this sheet — the reassignment target picker. */
+  /** This sheet's driver + crew — listed first in the reassignment picker (any other active employee is selectable too). */
   crewMembers: CrewCashEmployeeOption[];
   /** The synced row being corrected. */
   entry: CrewCashEntry | null;
@@ -126,17 +127,12 @@ export function EditClosedCrewCashDialog({
 
           <div className="space-y-1.5">
             <Label className="font-bold text-[11px] uppercase tracking-widest text-muted-foreground">Employee</Label>
-            <Select value={employeeId} onValueChange={setEmployeeId}>
-              <SelectTrigger><SelectValue placeholder="Select crew member" /></SelectTrigger>
-              <SelectContent>
-                {crewMembers.map((m) => (
-                  <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
-                ))}
-                {entry && !crewMembers.some((m) => m.id === entry.employeeId) && (
-                  <SelectItem value={entry.employeeId}>Current employee</SelectItem>
-                )}
-              </SelectContent>
-            </Select>
+            <EmployeeSelect
+              value={employeeId}
+              onChange={setEmployeeId}
+              crew={crewMembers}
+              extra={entry ? { id: entry.employeeId, name: entry.employee?.name ?? 'Current employee' } : null}
+            />
           </div>
 
           <div className="space-y-2">

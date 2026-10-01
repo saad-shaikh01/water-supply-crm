@@ -82,6 +82,8 @@ const baseSheet = {
   items: [{ id: 'item-1', sequence: 1, customer: { name: 'Ali Traders', customerCode: 'C-012' } }],
   loads: [{ id: 'load-1', tripNumber: 2 }],
   expenses: [{ id: 'exp-1', description: 'Ice', category: 'ICE_PURCHASED' }],
+  // Daily Sheet advances (every status — voided rows are kept) — their audit rows are keyed off these ids.
+  sheetAdvances: [{ id: 'adv-1' }],
   vehicleDailyChecks: [],
 };
 
@@ -289,5 +291,35 @@ describe('DailySheetService.getSheetAuditLog', () => {
     expect(corr.after).toEqual({ odometerReading: 45210 });
     expect(corr.reason).toBe('typo — was 45010');
     expect(corr.actorName).toBe('Staff');
+  });
+
+  it('includes Daily Sheet advance audit rows (keyed off the advance ids, voided ones included) with human labels', async () => {
+    const prisma = emptyPrisma();
+    prisma.dailySheet.findFirst.mockResolvedValue({ ...baseSheet });
+    prisma.auditLog.findMany.mockResolvedValue([
+      {
+        id: 'adv-a1', action: 'CLOSED_SHEET_ADVANCE_ADDED', entity: 'SheetAdvance', entityId: 'adv-1',
+        userId: 'u-mgr', userName: 'Mgr', createdAt: new Date('2026-09-06T10:00:00Z'),
+        changes: { after: { employeeId: 'u-driver', amount: 500 }, reason: 'driver forgot to log it' },
+      },
+      {
+        id: 'adv-a2', action: 'SHEET_ADVANCE_VOIDED', entity: 'SheetAdvance', entityId: 'adv-1',
+        userId: 'u-mgr', userName: 'Mgr', createdAt: new Date('2026-09-06T11:00:00Z'),
+        changes: { before: { status: 'ACTIVE' }, after: { status: 'VOIDED' }, reason: 'entered twice' },
+      },
+    ]);
+
+    const svc = await makeService(prisma);
+    const log = await svc.getSheetAuditLog(VENDOR_ID, SHEET_ID);
+
+    const added = log.find((e) => e.id === 'adv-a1')!;
+    expect(added.actionLabel).toBe('Advance added (closed sheet)');
+    expect(added.entity).toBe('Advance');
+    expect(added.category).toBe('CREATE');
+    expect(added.reason).toBe('driver forgot to log it');
+    expect(log.find((e) => e.id === 'adv-a2')!.actionLabel).toBe('Advance deleted');
+
+    const where = prisma.auditLog.findMany.mock.calls[0][0].where;
+    expect(where.OR).toContainEqual({ entity: 'SheetAdvance', entityId: { in: ['adv-1'] } });
   });
 });

@@ -72,6 +72,7 @@ export class StaffLedgerService {
     tx: Prisma.TransactionClient,
     user: AuthUser,
     dto: CreateStaffLedgerEntryDto & { linkedCustomerId?: string; causedCustomerAdjustmentId?: string },
+    opts?: { skipPeriodGuard?: boolean },
   ) {
     // Cash-ledger accounting-period guard (P4). ADVANCE and ADVANCE_DISBURSEMENT
     // are the two categories that move cash (R6: POSTED debits by effectiveDate;
@@ -80,7 +81,15 @@ export class StaffLedgerService {
     // ADVANCE_DISBURSEMENT posted, so an installment collection is a payroll
     // bookkeeping entry only. CREW_CASH is guarded by its own service; REVERSAL /
     // CORRECTION / BONUS etc. have no cash effect.
-    if (dto.category === StaffLedgerCategory.ADVANCE || dto.category === StaffLedgerCategory.ADVANCE_DISBURSEMENT) {
+    //
+    // `opts.skipPeriodGuard` exists for SheetAdvanceService only: an advance given
+    // from a Daily Sheet's van cash is NOT office cash (the Cash Ledger excludes it
+    // from PAYROLL_CASH) — its cash effect rides the sheet's hand-in, which has its
+    // own post-close redirect rule for closed periods. Never set by any HTTP route.
+    if (
+      !opts?.skipPeriodGuard &&
+      (dto.category === StaffLedgerCategory.ADVANCE || dto.category === StaffLedgerCategory.ADVANCE_DISBURSEMENT)
+    ) {
       await this.periodGuard.assertWritable(user.vendorId, [dto.effectiveDate], { userId: user.userId });
     }
 
@@ -125,7 +134,10 @@ export class StaffLedgerService {
   /** Approves a PENDING entry — POSTED, approvedById/approvedAt recorded. */
   async approve(user: AuthUser, id: string, dto: ApproveStaffLedgerEntryDto) {
     return this.prisma.$transaction(async (tx) => {
-      const entry = await tx.staffLedgerEntry.findFirst({ where: { id, vendorId: user.vendorId } });
+      const entry = await tx.staffLedgerEntry.findFirst({
+        where: { id, vendorId: user.vendorId },
+        include: { sheetAdvanceSource: { select: { id: true } } },
+      });
       if (!entry) throw new NotFoundException('Ledger entry not found.');
 
       if (entry.status !== LedgerEntryStatus.PENDING) {
@@ -137,7 +149,9 @@ export class StaffLedgerService {
       // effectiveDate — if that month has been CLOSED in the meantime the approval
       // would silently change a closed period, so it needs the same admin override
       // as any other write into it. (Close-check only WARNS about pending advances.)
-      if (entry.category === StaffLedgerCategory.ADVANCE) {
+      // A Daily Sheet advance is the exception: it never counts as office cash (its
+      // cash rode the sheet's hand-in), so approving it changes no period's cash.
+      if (entry.category === StaffLedgerCategory.ADVANCE && !entry.sheetAdvanceSource) {
         await this.periodGuard.assertWritable(user.vendorId, [entry.effectiveDate], { userId: user.userId });
       }
 
@@ -220,10 +234,27 @@ export class StaffLedgerService {
     user: AuthUser,
     id: string,
     dto: VoidStaffLedgerEntryDto,
-    opts?: { skipCreatorCheck?: boolean; skipLinkGuard?: boolean },
+    opts?: {
+      skipCreatorCheck?: boolean;
+      skipLinkGuard?: boolean;
+      /** SheetAdvanceService only — see `createTx`. */
+      skipPeriodGuard?: boolean;
+      /** SheetAdvanceService only — it owns the twin, so it may void it. */
+      skipSheetAdvanceGuard?: boolean;
+    },
   ) {
-    const entry = await tx.staffLedgerEntry.findFirst({ where: { id, vendorId: user.vendorId } });
+    const entry = await tx.staffLedgerEntry.findFirst({
+      where: { id, vendorId: user.vendorId },
+      include: { sheetAdvanceSource: { select: { id: true } } },
+    });
     if (!entry) throw new NotFoundException('Ledger entry not found.');
+
+    // A Daily Sheet advance's twin must be changed from its sheet, never directly:
+    // voiding it here would leave the sheet still deducting the cash from the
+    // driver's hand-in while the employee is no longer charged.
+    if (entry.sheetAdvanceSource && !opts?.skipSheetAdvanceGuard) {
+      throw new BadRequestException('This advance was given from a Daily Sheet — change or delete it from that sheet, so the day\'s cash hand-in stays in step with the payroll ledger.');
+    }
 
     if (!opts?.skipLinkGuard && entry.causedCustomerAdjustmentId) {
       throw new BadRequestException(
@@ -233,7 +264,7 @@ export class StaffLedgerService {
 
     // Cash-ledger accounting-period guard (P4) — voiding an ADVANCE removes cash
     // dated at its effectiveDate; must run before anything is mutated.
-    if (entry.category === StaffLedgerCategory.ADVANCE) {
+    if (entry.category === StaffLedgerCategory.ADVANCE && !opts?.skipPeriodGuard) {
       await this.periodGuard.assertWritable(user.vendorId, [entry.effectiveDate], { userId: user.userId });
     }
 
@@ -311,9 +342,22 @@ export class StaffLedgerService {
    * locked + wrong-employee branch (reverse the entry against the wrong
    * employee, then `createTx` a fresh entry for the right one, atomically).
    */
-  async reverseTx(tx: Prisma.TransactionClient, user: AuthUser, id: string, dto: ReverseStaffLedgerEntryDto) {
-    const original = await tx.staffLedgerEntry.findFirst({ where: { id, vendorId: user.vendorId } });
+  async reverseTx(
+    tx: Prisma.TransactionClient,
+    user: AuthUser,
+    id: string,
+    dto: ReverseStaffLedgerEntryDto,
+    opts?: { skipSheetAdvanceGuard?: boolean },
+  ) {
+    const original = await tx.staffLedgerEntry.findFirst({
+      where: { id, vendorId: user.vendorId },
+      include: { sheetAdvanceSource: { select: { id: true } } },
+    });
     if (!original) throw new NotFoundException('Ledger entry not found.');
+
+    if (original.sheetAdvanceSource && !opts?.skipSheetAdvanceGuard) {
+      throw new BadRequestException('This advance was given from a Daily Sheet — change or delete it from that sheet, so the day\'s cash hand-in stays in step with the payroll ledger.');
+    }
 
     if (original.status !== LedgerEntryStatus.POSTED || original.payrollEntryId === null) {
       throw new BadRequestException(
@@ -404,8 +448,16 @@ export class StaffLedgerService {
    * `original.userId` on the fresh correction row below, by design).
    */
   async correctTx(tx: Prisma.TransactionClient, user: AuthUser, id: string, dto: CorrectStaffLedgerEntryDto) {
-    const original = await tx.staffLedgerEntry.findFirst({ where: { id, vendorId: user.vendorId } });
+    const original = await tx.staffLedgerEntry.findFirst({
+      where: { id, vendorId: user.vendorId },
+      include: { sheetAdvanceSource: { select: { id: true } } },
+    });
     if (!original) throw new NotFoundException('Ledger entry not found.');
+
+    // Same reason as voidEntryTx — a sheet advance is corrected from its sheet only.
+    if (original.sheetAdvanceSource) {
+      throw new BadRequestException('This advance was given from a Daily Sheet — change or delete it from that sheet, so the day\'s cash hand-in stays in step with the payroll ledger.');
+    }
 
     if (original.status !== LedgerEntryStatus.POSTED || original.payrollEntryId === null) {
       throw new BadRequestException(

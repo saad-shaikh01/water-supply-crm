@@ -45,6 +45,7 @@ import { ExpenseForm } from '../../expenses/components/expense-form';
 import { EditClosedExpenseDialog } from './dialogs/edit-closed-expense-dialog';
 import { SheetAuditLogDialog } from './dialogs/sheet-audit-log-dialog';
 import { CrewCashForm } from '../../crew-cash/components/crew-cash-form';
+import { AdvanceFormDialog } from '../../sheet-advances/components/advance-form-dialog';
 import { sortBySequence, sortByNearest, sortByCustomerCode } from '../utils/sort-items';
 import { useDriverLocation } from '../hooks/use-driver-location';
 import { useLocationPublisher } from '../hooks/use-location-publisher';
@@ -75,7 +76,12 @@ interface UiState {
   // Post-Close Expense Correction — the "add a missed expense" flow on a CLOSED
   // sheet (routes to POST /expenses/closed, not the normal ExpenseForm).
   closedExpenseOpen: boolean;
+  // "Extra Labour" quick action — opens the (open- or closed-sheet) expense dialog
+  // pre-set to that category. null = the plain "Expense" action.
+  expensePreset: 'EXTRA_LABOUR' | null;
   crewCashOpen: boolean;
+  // Salary advance paid from the van's cash (owner request 2026-10-01).
+  advanceOpen: boolean;
   damageOpen: boolean;
   activeTab: TabKey;
   tabPage: number;
@@ -115,12 +121,14 @@ type UiAction =
   | { type: 'CLOSE_CRITICAL_OVERRIDE' }
   | { type: 'OPEN_FUEL_LOG' }
   | { type: 'CLOSE_FUEL_LOG' }
-  | { type: 'OPEN_EXPENSE' }
+  | { type: 'OPEN_EXPENSE'; preset?: 'EXTRA_LABOUR' }
   | { type: 'CLOSE_EXPENSE' }
-  | { type: 'OPEN_CLOSED_EXPENSE' }
+  | { type: 'OPEN_CLOSED_EXPENSE'; preset?: 'EXTRA_LABOUR' }
   | { type: 'CLOSE_CLOSED_EXPENSE' }
   | { type: 'OPEN_CREW_CASH' }
   | { type: 'CLOSE_CREW_CASH' }
+  | { type: 'OPEN_ADVANCE' }
+  | { type: 'CLOSE_ADVANCE' }
   | { type: 'OPEN_DAMAGE' }
   | { type: 'CLOSE_DAMAGE' }
   | { type: 'SET_TAB'; tab: TabKey }
@@ -147,7 +155,9 @@ const initialUiState: UiState = {
   fuelLogOpen: false,
   expenseOpen: false,
   closedExpenseOpen: false,
+  expensePreset: null,
   crewCashOpen: false,
+  advanceOpen: false,
   damageOpen: false,
   activeTab: 'all',
   tabPage: 1,
@@ -186,12 +196,14 @@ function uiReducer(state: UiState, action: UiAction): UiState {
     case 'CLOSE_CRITICAL_OVERRIDE': return { ...state, criticalOverrideOpen: false };
     case 'OPEN_FUEL_LOG': return { ...state, fuelLogOpen: true };
     case 'CLOSE_FUEL_LOG': return { ...state, fuelLogOpen: false };
-    case 'OPEN_EXPENSE': return { ...state, expenseOpen: true };
-    case 'CLOSE_EXPENSE': return { ...state, expenseOpen: false };
-    case 'OPEN_CLOSED_EXPENSE': return { ...state, closedExpenseOpen: true };
-    case 'CLOSE_CLOSED_EXPENSE': return { ...state, closedExpenseOpen: false };
+    case 'OPEN_EXPENSE': return { ...state, expenseOpen: true, expensePreset: action.preset ?? null };
+    case 'CLOSE_EXPENSE': return { ...state, expenseOpen: false, expensePreset: null };
+    case 'OPEN_CLOSED_EXPENSE': return { ...state, closedExpenseOpen: true, expensePreset: action.preset ?? null };
+    case 'CLOSE_CLOSED_EXPENSE': return { ...state, closedExpenseOpen: false, expensePreset: null };
     case 'OPEN_CREW_CASH': return { ...state, crewCashOpen: true };
     case 'CLOSE_CREW_CASH': return { ...state, crewCashOpen: false };
+    case 'OPEN_ADVANCE': return { ...state, advanceOpen: true };
+    case 'CLOSE_ADVANCE': return { ...state, advanceOpen: false };
     case 'OPEN_DAMAGE': return { ...state, damageOpen: true };
     case 'CLOSE_DAMAGE': return { ...state, damageOpen: false };
     case 'SET_TAB': return { ...state, activeTab: action.tab, tabPage: 1, expandedItemId: null };
@@ -272,6 +284,10 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const canCreateCrewCash = can('crew_cash:create');
   const canEditAllCrewCash = can('crew_cash:edit');
   const canDeleteAllCrewCash = can('crew_cash:delete');
+  // Salary advance paid from the van's cash — reuses the Payroll ledger permissions (create to
+  // record; void = may change one somebody else recorded). The creator may always change their own.
+  const canCreateAdvance = can('payroll:ledger_create');
+  const canManageAnyAdvance = can('payroll:ledger_void');
   // Fleet Operations Phase 1.
   const canRecordVehicleCheck = can('fleet:record_check');
   const canRecordFuel = can('fleet:record_fuel');
@@ -425,16 +441,19 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
       const tripCrewCash = (data?.crewCashDistributions ?? []).filter(
         (c) => c.dailySheetLoadId === trip.id,
       );
+      // Salary advances are paid from the same van cash (no paidFromCash toggle either).
+      const tripAdvances = (data?.sheetAdvances ?? []).filter((a) => a.dailySheetLoadId === trip.id);
       const deliveryCount = tripItems.length;
       const deliveriesCash = tripItems.reduce((s, i) => s + i.cashCollected, 0);
       const expensesTotal =
         tripExpenses.reduce((s, e) => s + e.amount, 0) +
-        tripCrewCash.reduce((s, c) => s + c.amount, 0);
+        tripCrewCash.reduce((s, c) => s + c.amount, 0) +
+        tripAdvances.reduce((s, a) => s + a.amount, 0);
       cumulativeExpectedCash += deliveriesCash - expensesTotal;
       map[trip.id] = { deliveryCount, deliveriesCash, expensesTotal, expectedCash: cumulativeExpectedCash, items: tripItems };
     }
     return map;
-  }, [loads, data?.items, data?.expenses, data?.crewCashDistributions]);
+  }, [loads, data?.items, data?.expenses, data?.crewCashDistributions, data?.sheetAdvances]);
   // Today's confirmed crew — driver plus DailySheetCrew rows — the only pool the
   // Crew Cash Distribution employee picker (and its list's name lookup) may draw from.
   const crewCashEmployees = useMemo(() => {
@@ -445,6 +464,12 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
     }
     return members;
   }, [data]);
+  // `expense` without an id doubles as initial values (same trick the Add-Expense wizard uses),
+  // so the Extra Labour quick action just opens the expense form pre-set to that category.
+  const expenseInitialValues = useMemo(
+    () => (ui.expensePreset ? ({ category: ui.expensePreset, vanId: data?.vanId ?? undefined } as Record<string, unknown>) : undefined),
+    [ui.expensePreset, data?.vanId],
+  );
   const doneItems = useMemo(
     () => items.filter((i) => i.status === 'COMPLETED' || i.status === 'EMPTY_ONLY'),
     [items],
@@ -581,6 +606,10 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const activeTrip = loads.find((l) => !l.endedAt) ?? null;
   const hasAnyTrip = loads.length > 0;
   const isClosed = !!data?.isClosed;
+  // Crew Cash on a CLOSED sheet (owner request 2026-10-01) reuses the closed-sheet permission
+  // that gates adding/editing a closed sheet's expenses (Admin + Manager).
+  const canAddCrewCashNow = canCreateCrewCash && (!isClosed || canCorrectClosedExpense);
+  const canAddAdvanceNow = canCreateAdvance && (!isClosed || canCorrectClosedExpense);
   // Walk-in / Self-Pickup Delivery (docs/features/walk-in-delivery.md) — no
   // van/odometer/load-out/trip/crew-confirmation UI applies to this sheet.
   const isWalkIn = data?.kind === 'WALK_IN';
@@ -1162,11 +1191,12 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
               <Receipt className="h-5 w-5" />
             </div>
             <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase text-muted-foreground" title="All recorded expenses (fuel included) plus cash handed to crew — the full cash-out figure for this sheet">{isWalkIn ? 'Expenses' : 'Trip Expenses'}</p>
+              <p className="text-[10px] font-bold uppercase text-muted-foreground" title="All recorded expenses (fuel included), cash handed to crew and advances paid — the full cash-out figure for this sheet">{isWalkIn ? 'Expenses' : 'Trip Expenses'}</p>
               <p className="text-sm font-black text-destructive truncate">
                 ₨ {(
                   (data?.expenses ?? []).reduce((s, e) => s + e.amount, 0) +
-                  (data?.crewCashDistributions ?? []).reduce((s, c) => s + c.amount, 0)
+                  (data?.crewCashDistributions ?? []).reduce((s, c) => s + c.amount, 0) +
+                  (data?.sheetAdvances ?? []).reduce((s, a) => s + a.amount, 0)
                 ).toLocaleString()}
               </p>
             </div>
@@ -1254,6 +1284,10 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             canEditAllCrewCash={canEditAllCrewCash}
             canDeleteAllCrewCash={canDeleteAllCrewCash}
             canCorrectClosedCrewCash={canCorrectClosedExpense}
+            canAddCrewCash={canAddCrewCashNow}
+            advances={data?.sheetAdvances ?? []}
+            canAddAdvance={canAddAdvanceNow}
+            canManageAnyAdvance={canManageAnyAdvance}
           />
 
           {/* Ad-hoc / Correction Entry Actions */}
@@ -1262,7 +1296,8 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             (canRecordFuel && !isClosed) ||
             (canCreateExpense && !isClosed) ||
             (canCorrectClosedExpense && isClosed) ||
-            (canCreateCrewCash && !isClosed) ||
+            canAddCrewCashNow ||
+            canAddAdvanceNow ||
             ((!isClosed && canUpdateSheet) || (isClosed && canCorrect)) ||
             canReportDamage
           ) && (
@@ -1281,13 +1316,17 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
               <AddRecordMenu
                 canLogFuel={canRecordFuel && !isClosed}
                 canAddExpense={(canCreateExpense && !isClosed) || (canCorrectClosedExpense && isClosed)}
-                canAddCrewCash={canCreateCrewCash && !isClosed}
+                canAddCrewCash={canAddCrewCashNow}
+                canAddExtraLabour={(canCreateExpense && !isClosed) || (canCorrectClosedExpense && isClosed)}
+                canAddAdvance={canAddAdvanceNow}
                 canAddDelivery={(!isClosed && canUpdateSheet) || (isClosed && canCorrect)}
                 isClosed={isClosed}
                 canReportDamage={canReportDamage}
                 onLogFuel={() => dispatch({ type: 'OPEN_FUEL_LOG' })}
                 onAddExpense={() => dispatch({ type: isClosed ? 'OPEN_CLOSED_EXPENSE' : 'OPEN_EXPENSE' })}
+                onAddExtraLabour={() => dispatch({ type: isClosed ? 'OPEN_CLOSED_EXPENSE' : 'OPEN_EXPENSE', preset: 'EXTRA_LABOUR' })}
                 onAddCrewCash={() => dispatch({ type: 'OPEN_CREW_CASH' })}
+                onAddAdvance={() => dispatch({ type: 'OPEN_ADVANCE' })}
                 onAddDelivery={() => dispatch({ type: isClosed ? 'OPEN_CORRECTION' : 'OPEN_ADHOC' })}
                 onReportDamage={() => dispatch({ type: 'OPEN_DAMAGE' })}
               />
@@ -1317,6 +1356,10 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             canEditAllCrewCash={canEditAllCrewCash}
             canDeleteAllCrewCash={canDeleteAllCrewCash}
             canCorrectClosedCrewCash={canCorrectClosedExpense}
+            canAddCrewCash={canAddCrewCashNow}
+            advances={data?.sheetAdvances ?? []}
+            canAddAdvance={canAddAdvanceNow}
+            canManageAnyAdvance={canManageAnyAdvance}
           />
 
           {/* Full-parity Add/Record row (owner-requested 2026-09-11) — same
@@ -1329,20 +1372,25 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             (canRecordFuel && !isClosed) ||
             (canCreateExpense && !isClosed) ||
             (canCorrectClosedExpense && isClosed) ||
-            (canCreateCrewCash && !isClosed) ||
+            canAddCrewCashNow ||
+            canAddAdvanceNow ||
             canReportDamage
           ) && (
             <div className="flex justify-end gap-2">
               <AddRecordMenu
                 canLogFuel={canRecordFuel && !isClosed}
                 canAddExpense={(canCreateExpense && !isClosed) || (canCorrectClosedExpense && isClosed)}
-                canAddCrewCash={canCreateCrewCash && !isClosed}
+                canAddCrewCash={canAddCrewCashNow}
+                canAddExtraLabour={(canCreateExpense && !isClosed) || (canCorrectClosedExpense && isClosed)}
+                canAddAdvance={canAddAdvanceNow}
                 canAddDelivery={false}
                 isClosed={isClosed}
                 canReportDamage={canReportDamage}
                 onLogFuel={() => dispatch({ type: 'OPEN_FUEL_LOG' })}
                 onAddExpense={() => dispatch({ type: isClosed ? 'OPEN_CLOSED_EXPENSE' : 'OPEN_EXPENSE' })}
+                onAddExtraLabour={() => dispatch({ type: isClosed ? 'OPEN_CLOSED_EXPENSE' : 'OPEN_EXPENSE', preset: 'EXTRA_LABOUR' })}
                 onAddCrewCash={() => dispatch({ type: 'OPEN_CREW_CASH' })}
+                onAddAdvance={() => dispatch({ type: 'OPEN_ADVANCE' })}
                 onAddDelivery={() => {}}
                 onReportDamage={() => dispatch({ type: 'OPEN_DAMAGE' })}
               />
@@ -1619,6 +1667,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         onOpenChange={(o) => dispatch({ type: o ? 'OPEN_EXPENSE' : 'CLOSE_EXPENSE' })}
         dailySheetId={sheetId}
         defaultVanId={data?.vanId ?? undefined}
+        expense={expenseInitialValues}
       />
       {/* Post-Close Expense Correction — add a missed expense onto a CLOSED
           sheet (reuses the edit dialog with empty values + createClosed). */}
@@ -1628,6 +1677,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         sheetId={sheetId}
         sheetDate={data?.date}
         expense={null}
+        initialCategory={ui.expensePreset ?? undefined}
       />
       <CrewCashForm
         open={ui.crewCashOpen}
@@ -1635,6 +1685,15 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         sheetId={sheetId}
         employees={crewCashEmployees}
         entry={null}
+        isClosed={isClosed}
+      />
+      <AdvanceFormDialog
+        open={ui.advanceOpen}
+        onOpenChange={(o) => dispatch({ type: o ? 'OPEN_ADVANCE' : 'CLOSE_ADVANCE' })}
+        sheetId={sheetId}
+        crew={crewCashEmployees}
+        entry={null}
+        isClosed={isClosed}
       />
       <ReportDamageDialog
         open={ui.damageOpen}

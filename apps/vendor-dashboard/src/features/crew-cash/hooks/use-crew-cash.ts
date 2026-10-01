@@ -25,6 +25,8 @@ export const useCreateCrewCash = (sheetId: string) => {
     mutationFn: (data: CreateCrewCashData) => crewCashApi.create(sheetId, data),
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.crewCash.forSheet(sheetId) });
+      // Sheet totals / handover figures / post-close divergence banner all derive from the detail query.
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
       // Flag-not-block (doc §14): a repeat same sheet+employee+category+amount within
       // 5 minutes is never rejected, only surfaced — the entry is already recorded.
       const possibleDuplicate = (res.data as CrewCashEntry & { possibleDuplicate?: boolean }).possibleDuplicate;
@@ -44,6 +46,7 @@ export const useUpdateCrewCash = (sheetId: string) => {
     mutationFn: ({ id, data }: { id: string; data: UpdateCrewCashData }) => crewCashApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.crewCash.forSheet(sheetId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
       toast.success('Crew cash entry updated');
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to update entry'),
@@ -73,9 +76,10 @@ export const useCorrectCrewCash = (sheetId: string) => {
 export const useDeleteCrewCash = (sheetId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => crewCashApi.remove(id),
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) => crewCashApi.remove(id, reason),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.crewCash.forSheet(sheetId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
       toast.success('Crew cash entry deleted');
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to delete entry'),

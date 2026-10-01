@@ -183,7 +183,13 @@ function SheetDetailLine({ data, id }: { data: CashLedgerSummaryData; id: string
       {b.sheets} {b.sheets === 1 ? 'sheet' : 'sheets'} · Collected{' '}
       <span className="font-mono font-bold tabular-nums text-foreground/80">{money(b.collected)}</span> − Expenses{' '}
       <span className="font-mono font-bold tabular-nums text-foreground/80">{money(b.expenses)}</span> − Crew Cash{' '}
-      <span className="font-mono font-bold tabular-nums text-foreground/80">{money(b.crewCash)}</span> ={' '}
+      <span className="font-mono font-bold tabular-nums text-foreground/80">{money(b.crewCash)}</span>
+      {(b.advances ?? 0) !== 0 && (
+        <>
+          {' '}− Advances{' '}
+          <span className="font-mono font-bold tabular-nums text-foreground/80">{money(b.advances ?? 0)}</span>
+        </>
+      )}{' '}={' '}
       <span className="font-mono font-bold tabular-nums text-emerald-500">{money(b.net)}</span>
       {b.other !== 0 && (
         <>
@@ -268,6 +274,9 @@ function MemoLines({ data }: { data: CashLedgerSummaryData }) {
   }
   if (memo.sheetBreakdown && memo.sheetBreakdown.crewCash !== 0) {
     lines.push(<>Crew cash paid on sheets {money(memo.sheetBreakdown.crewCash)} — already inside Sheet Cash In</>);
+  }
+  if (memo.sheetBreakdown && (memo.sheetBreakdown.advances ?? 0) !== 0) {
+    lines.push(<>Advances paid on sheets {money(memo.sheetBreakdown.advances ?? 0)} — already inside Sheet Cash In</>);
   }
   if (memo.approvalAdjustments !== 0) {
     lines.push(<>Approval adjustments {signedMoney(memo.approvalAdjustments)} vs sheet figures</>);

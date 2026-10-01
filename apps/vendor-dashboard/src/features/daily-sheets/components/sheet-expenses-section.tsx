@@ -140,6 +140,9 @@ export function SheetExpensesSection({
                         </Badge>
                       )}
                     </div>
+                    {expense.extraLabour && (
+                      <p className="text-xs font-semibold text-purple-500 truncate mt-0.5">Paid to {expense.extraLabour.name}</p>
+                    )}
                     {expense.description && (
                       <p className="text-xs text-muted-foreground truncate mt-0.5">{expense.description}</p>
                     )}

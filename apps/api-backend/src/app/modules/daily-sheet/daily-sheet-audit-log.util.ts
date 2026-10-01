@@ -45,6 +45,14 @@ const AUDIT_LOG: Record<string, AuditActionMeta> = {
   CLOSED_EXPENSE_VOIDED: { label: 'Expense voided (closed sheet)', category: 'DELETE', entity: 'Expense' },
   CLOSED_EXPENSE_ADDED: { label: 'Expense added (closed sheet)', category: 'CREATE', entity: 'Expense' },
 
+  // Daily Sheet advances (salary paid out of the van's cash) — action names are unique to SheetAdvanceService.
+  SHEET_ADVANCE_ADDED: { label: 'Advance recorded', category: 'CREATE', entity: 'Advance' },
+  SHEET_ADVANCE_UPDATED: { label: 'Advance edited', category: 'EDIT', entity: 'Advance' },
+  SHEET_ADVANCE_VOIDED: { label: 'Advance deleted', category: 'DELETE', entity: 'Advance' },
+  CLOSED_SHEET_ADVANCE_ADDED: { label: 'Advance added (closed sheet)', category: 'CREATE', entity: 'Advance' },
+  CLOSED_SHEET_ADVANCE_CORRECTED: { label: 'Advance corrected (closed sheet)', category: 'CORRECTION', entity: 'Advance' },
+  CLOSED_SHEET_ADVANCE_VOIDED: { label: 'Advance deleted (closed sheet)', category: 'DELETE', entity: 'Advance' },
+
   ACKNOWLEDGE_MESSAGE: { label: 'Instruction acknowledged', category: 'ACK', entity: 'Message' },
 };
 

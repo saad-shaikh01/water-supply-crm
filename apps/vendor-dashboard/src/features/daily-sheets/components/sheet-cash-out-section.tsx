@@ -4,9 +4,10 @@ import { Accordion, AccordionItem, AccordionTrigger, AccordionContent, Badge } f
 import { Wallet } from 'lucide-react';
 import { SheetExpensesSection } from './sheet-expenses-section';
 import { SheetCrewCashSection } from './sheet-crew-cash-section';
+import { SheetAdvancesSection } from './sheet-advances-section';
 import { useCrewCashForSheet } from '../../crew-cash/hooks/use-crew-cash';
 import type { CrewCashEmployeeOption } from '../../crew-cash/components/crew-cash-form';
-import type { SheetExpense } from '@water-supply-crm/types';
+import type { SheetAdvanceEntry, SheetExpense } from '@water-supply-crm/types';
 
 interface SheetCashOutSectionProps {
   sheetId: string;
@@ -22,6 +23,14 @@ interface SheetCashOutSectionProps {
   canDeleteAllCrewCash: boolean;
   /** Reuses `daily_sheets:edit_closed_expense` — closed-sheet crew-cash corrections. */
   canCorrectClosedCrewCash?: boolean;
+  /** Inline "Add" on the Crew Cash block (crew_cash:create, + closed-sheet permission when closed). */
+  canAddCrewCash?: boolean;
+  /** Salary advances paid from the van's cash (ACTIVE rows) — deducted from the hand-in like crew cash. */
+  advances?: SheetAdvanceEntry[];
+  /** `payroll:ledger_create` (+ the closed-sheet permission when closed). */
+  canAddAdvance?: boolean;
+  /** `payroll:ledger_void` — may change an advance somebody else recorded. */
+  canManageAnyAdvance?: boolean;
 }
 
 /**
@@ -48,6 +57,10 @@ export function SheetCashOutSection({
   canEditAllCrewCash,
   canDeleteAllCrewCash,
   canCorrectClosedCrewCash,
+  canAddCrewCash,
+  advances = [],
+  canAddAdvance = false,
+  canManageAnyAdvance = false,
 }: SheetCashOutSectionProps) {
   // Same query key SheetCrewCashSection uses below — react-query dedupes
   // this into a single network request, not two.
@@ -56,9 +69,12 @@ export function SheetCashOutSection({
 
   const expenseTotal = expenses.reduce((s, e) => s + e.amount, 0);
   const crewCashTotal = crewCashList.reduce((s, e) => s + e.amount, 0);
-  const combinedTotal = expenseTotal + crewCashTotal;
-  const entryCount = expenses.length + crewCashList.length;
-  const pendingApprovalCount = crewCashList.filter((e) => e.requiresApproval && !e.approvedAt).length;
+  const advanceTotal = advances.reduce((s, a) => s + a.amount, 0);
+  const combinedTotal = expenseTotal + crewCashTotal + advanceTotal;
+  const entryCount = expenses.length + crewCashList.length + advances.length;
+  const pendingApprovalCount =
+    crewCashList.filter((e) => e.requiresApproval && !e.approvedAt).length +
+    advances.filter((a) => a.staffLedgerEntry?.status === 'PENDING').length;
 
   return (
     <Accordion type="single" collapsible className="rounded-2xl border border-border/40 bg-card/30 px-4">
@@ -73,8 +89,12 @@ export function SheetCashOutSection({
                 <p className="text-sm font-black uppercase tracking-widest text-muted-foreground">Cash Out</p>
                 <p className="text-[11px] text-muted-foreground truncate">
                   {entryCount === 0
-                    ? 'No expenses or crew cash recorded'
-                    : `${expenses.length} expense${expenses.length === 1 ? '' : 's'} · ${crewCashList.length} crew cash`}
+                    ? 'No expenses, crew cash or advances recorded'
+                    : [
+                        `${expenses.length} expense${expenses.length === 1 ? '' : 's'}`,
+                        `${crewCashList.length} crew cash`,
+                        ...(advances.length > 0 ? [`${advances.length} advance${advances.length === 1 ? '' : 's'}`] : []),
+                      ].join(' · ')}
                 </p>
               </div>
             </div>
@@ -108,7 +128,22 @@ export function SheetCashOutSection({
             canEditAll={canEditAllCrewCash}
             canDeleteAll={canDeleteAllCrewCash}
             canCorrectClosedCrewCash={canCorrectClosedCrewCash}
+            canAdd={canAddCrewCash}
           />
+          {/* Shown whenever the user can record one or any exist — hidden otherwise so
+              roles without payroll access don't see an empty block on every sheet. */}
+          {(canAddAdvance || advances.length > 0) && (
+            <SheetAdvancesSection
+              sheetId={sheetId}
+              advances={advances}
+              crewMembers={crewMembers}
+              isClosed={isClosed}
+              currentUserId={currentUserId}
+              canAdd={canAddAdvance}
+              canManageAny={canManageAnyAdvance}
+              canEditClosed={!!canCorrectClosedExpense}
+            />
+          )}
         </AccordionContent>
       </AccordionItem>
     </Accordion>

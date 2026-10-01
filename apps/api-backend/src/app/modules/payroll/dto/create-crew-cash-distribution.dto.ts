@@ -1,4 +1,5 @@
-import { ArrayMinSize, IsArray, IsEnum, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
+import { ArrayMinSize, IsArray, IsEnum, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min, MinLength } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { CrewCashCategory } from '@prisma/client';
 
 /**
@@ -29,4 +30,16 @@ export class CreateCrewCashDistributionDto {
   @IsString({ each: true })
   @ArrayMinSize(0)
   photoKeys?: string[];
+
+  /**
+   * Mandatory ONLY when the sheet is already closed (enforced in the service —
+   * open-sheet adds stay zero-ceremony): why a missed entry is being added after
+   * close. Kept in the audit trail, mirroring `AddClosedExpenseDto.correctionNote`.
+   */
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @MinLength(3)
+  @MaxLength(500)
+  reason?: string;
 }

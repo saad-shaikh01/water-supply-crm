@@ -525,11 +525,33 @@ export class CustomerService {
       lastPayments.map((g) => [g.customerId, g._max.createdAt]),
     );
 
+    // Current bottle rate per customer for the selected product (their
+    // CustomerProductPrice override, else the product's basePrice) — feeds the
+    // "Bottle Rate" column. Only resolved when a rate product is selected.
+    let bottleRateMap: Map<string, number> | null = null;
+    if (rateProductId) {
+      const rateProduct = await this.prisma.product.findFirst({
+        where: { id: rateProductId, vendorId },
+        select: { basePrice: true },
+      });
+      if (rateProduct) {
+        const overrides = customerIds.length
+          ? await this.prisma.customerProductPrice.findMany({
+              where: { productId: rateProductId, customerId: { in: customerIds } },
+              select: { customerId: true, customPrice: true },
+            })
+          : [];
+        const overrideMap = new Map(overrides.map((o) => [o.customerId, o.customPrice]));
+        bottleRateMap = new Map(customerIds.map((id) => [id, overrideMap.get(id) ?? rateProduct.basePrice]));
+      }
+    }
+
     const dataWithLastDelivery = data.map((c) => {
       const isMonthly = c.paymentType === 'MONTHLY';
       const previousMonthOutstanding = isMonthly ? (prevOutstandingMap.get(c.id) ?? 0) : null;
       return {
         ...c,
+        bottleRate: bottleRateMap?.get(c.id) ?? null,
         lastDeliveryAt: lastDeliveryMap.get(c.id) ?? null,
         lastPaymentAt: lastPaymentMap.get(c.id) ?? null,
         previousMonthOutstanding,

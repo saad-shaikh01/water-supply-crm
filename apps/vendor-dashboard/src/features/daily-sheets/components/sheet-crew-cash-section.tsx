@@ -2,13 +2,14 @@
 
 import { useState } from 'react';
 import { Button, Card, CardContent, Badge, Skeleton } from '@water-supply-crm/ui';
-import { Pencil, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { CrewCashForm, type CrewCashEmployeeOption } from '../../crew-cash/components/crew-cash-form';
 import { useCrewCashForSheet, useDeleteCrewCash } from '../../crew-cash/hooks/use-crew-cash';
 import { CREW_CASH_CATEGORY_CONFIG } from '../../crew-cash/constants';
 import { EditClosedCrewCashDialog } from './dialogs/edit-closed-crew-cash-dialog';
+import { DeleteSyncedCrewCashDialog } from './dialogs/delete-synced-crew-cash-dialog';
 import type { CrewCashEntry } from '@water-supply-crm/types';
 
 interface SheetCrewCashSectionProps {
@@ -22,8 +23,10 @@ interface SheetCrewCashSectionProps {
   /** `crew_cash:edit` / `crew_cash:delete` — the entry's own creator may also always edit/delete their own row (backend-enforced; mirrored here for the affordance). */
   canEditAll: boolean;
   canDeleteAll: boolean;
-  /** `daily_sheets:edit_closed_expense` — reused so a closed sheet's synced crew-cash rows are correctable under the same conditions as its expenses. */
+  /** `daily_sheets:edit_closed_expense` — reused so a closed sheet's synced crew-cash rows are correctable/deletable under the same conditions as its expenses. */
   canCorrectClosedCrewCash?: boolean;
+  /** Show the inline "Add" button (`crew_cash:create`, plus the closed-sheet permission when the sheet is closed). */
+  canAdd?: boolean;
 }
 
 export function SheetCrewCashSection({
@@ -34,6 +37,7 @@ export function SheetCrewCashSection({
   canEditAll,
   canDeleteAll,
   canCorrectClosedCrewCash,
+  canAdd = false,
 }: SheetCrewCashSectionProps) {
   const { data: entries, isLoading, isError } = useCrewCashForSheet(sheetId);
   const { mutate: deleteEntry, isPending: isDeleting } = useDeleteCrewCash(sheetId);
@@ -41,15 +45,18 @@ export function SheetCrewCashSection({
   const [editEntry, setEditEntry] = useState<CrewCashEntry | null>(null);
   const [closedEditEntry, setClosedEditEntry] = useState<CrewCashEntry | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [syncedDeleteEntry, setSyncedDeleteEntry] = useState<CrewCashEntry | null>(null);
 
   const list = entries ?? [];
-  const employeeName = (employeeId: string) =>
-    crewMembers.find((m) => m.id === employeeId)?.name ?? 'Unknown';
+  // The recipient can be any employee, so the server joins the name; the sheet's
+  // own crew list is only a fallback for an optimistic/bare row.
+  const employeeName = (entry: CrewCashEntry) =>
+    entry.employee?.name ?? crewMembers.find((m) => m.id === entry.employeeId)?.name ?? 'Unknown';
 
   const openEdit = (entry: CrewCashEntry) => {
-    // On a closed sheet a synced row can only be changed through the ledger-safe
-    // post-close correction flow (mirrors closed-sheet expense editing).
-    if (isClosed && entry.syncedAt != null) {
+    // A synced row can only be changed through the ledger-safe correction flow
+    // (mirrors closed-sheet expense editing).
+    if (entry.syncedAt != null) {
       setClosedEditEntry(entry);
       return;
     }
@@ -61,6 +68,17 @@ export function SheetCrewCashSection({
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-black uppercase tracking-widest text-muted-foreground">Crew Cash Distribution</h3>
+        {canAdd && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1 text-xs"
+            onClick={() => { setEditEntry(null); setFormOpen(true); }}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add
+          </Button>
+        )}
       </div>
 
       {isLoading ? (
@@ -86,10 +104,16 @@ export function SheetCrewCashSection({
             const cfg = CREW_CASH_CATEGORY_CONFIG[entry.category] ?? CREW_CASH_CATEGORY_CONFIG.OTHER;
             const Icon = cfg.icon;
             const isPendingApproval = entry.requiresApproval && !entry.approvedAt;
-            const canEditRow =
-              (!isClosed && (canEditAll || entry.createdById === currentUserId)) ||
-              (isClosed && !!canCorrectClosedCrewCash && entry.syncedAt != null);
-            const canDeleteRow = !isClosed && (canDeleteAll || entry.createdById === currentUserId);
+            // Synced rows (all of a closed sheet's rows that weren't waiting on approval)
+            // go through the ledger-safe correct/delete flows and need the closed-sheet
+            // permission; unsynced rows keep the plain creator-or-crew_cash:* rule.
+            const isSynced = entry.syncedAt != null;
+            const canEditRow = isSynced
+              ? !!canCorrectClosedCrewCash
+              : canEditAll || entry.createdById === currentUserId;
+            const canDeleteRow = isSynced
+              ? !!canCorrectClosedCrewCash
+              : canDeleteAll || entry.createdById === currentUserId;
 
             return (
               <Card
@@ -107,7 +131,7 @@ export function SheetCrewCashSection({
                         {cfg.label}
                       </Badge>
                       <Badge variant="secondary" className="text-[10px] font-semibold">
-                        {employeeName(entry.employeeId)}
+                        {employeeName(entry)}
                       </Badge>
                       {isPendingApproval && (
                         <Badge className="text-[10px] font-bold px-2 py-0.5 rounded-full border-none bg-amber-500/10 text-amber-600">
@@ -133,7 +157,11 @@ export function SheetCrewCashSection({
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0"
-                      onClick={(e) => { e.stopPropagation(); setDeleteId(entry.id); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (isSynced) setSyncedDeleteEntry(entry);
+                        else setDeleteId(entry.id);
+                      }}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
@@ -159,6 +187,7 @@ export function SheetCrewCashSection({
         sheetId={sheetId}
         employees={crewMembers}
         entry={editEntry}
+        isClosed={isClosed}
       />
 
       <EditClosedCrewCashDialog
@@ -175,10 +204,18 @@ export function SheetCrewCashSection({
         title="Delete Crew Cash Entry"
         description="Are you sure? This action cannot be undone."
         onConfirm={() => {
-          if (deleteId) deleteEntry(deleteId, { onSuccess: () => setDeleteId(null) });
+          if (deleteId) deleteEntry({ id: deleteId }, { onSuccess: () => setDeleteId(null) });
         }}
         isLoading={isDeleting}
         confirmLabel="Delete"
+      />
+
+      <DeleteSyncedCrewCashDialog
+        open={!!syncedDeleteEntry}
+        onClose={() => setSyncedDeleteEntry(null)}
+        sheetId={sheetId}
+        entry={syncedDeleteEntry}
+        employeeName={syncedDeleteEntry ? employeeName(syncedDeleteEntry) : ''}
       />
     </div>
   );

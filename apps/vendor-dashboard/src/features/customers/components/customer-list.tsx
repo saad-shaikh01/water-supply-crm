@@ -247,6 +247,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     previousMonthOutstanding?: number | null;
     soldThisMonth?: number;
     soldPrevMonth?: number;
+    bottleRate?: number | null;
     flags?: Array<{ id: string; message: string; category: { name: string; color: string } }>;
   }>;
   const total = customers?.meta?.total ?? 0;
@@ -760,6 +761,25 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                 </span>
               </div>
             )
+          },
+          {
+            key: 'bottleRate',
+            header: 'Bottle Rate',
+            cell: (r) => {
+              if (r.bottleRate == null) {
+                return <span className="text-xs text-muted-foreground/40">—</span>;
+              }
+              return (
+                <div className="flex flex-col gap-0.5 whitespace-nowrap">
+                  <span className="font-mono font-bold text-xs text-foreground dark:text-white">
+                    ₨ {Number(r.bottleRate).toLocaleString()}
+                  </span>
+                  {rateProductName && (
+                    <span className="text-[9px] text-muted-foreground/60 truncate max-w-[120px]">{rateProductName}</span>
+                  )}
+                </div>
+              );
+            }
           },
           {
             key: 'pendingAmount',

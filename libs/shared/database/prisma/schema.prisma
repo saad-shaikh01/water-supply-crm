@@ -361,6 +361,7 @@ model Vendor {
   // Crew Operational Cash Distribution — extension to Payroll (see
   // docs/features/crew-operational-cash-distribution.md)
   crewCashDistributions CrewCashDistribution[]
+  sheetAdvances         SheetAdvance[]
 
   // Fleet Operations & Vehicle Intelligence — Phase 1 (see
   // docs/features/fleet-operations-vehicle-intelligence.md); vehicles
@@ -553,6 +554,11 @@ model User {
   standaloneCrewCashReceived StandaloneCrewCashExpense[] @relation("StandaloneCrewCashEmployee")
   standaloneCrewCashCreated  StandaloneCrewCashExpense[] @relation("StandaloneCrewCashCreatedBy")
   standaloneCrewCashVoided   StandaloneCrewCashExpense[] @relation("StandaloneCrewCashVoidedBy")
+
+  // Daily Sheet Advances (owner-requested 2026-10-01)
+  sheetAdvancesReceived SheetAdvance[] @relation("SheetAdvanceEmployee")
+  sheetAdvancesCreated  SheetAdvance[] @relation("SheetAdvanceCreatedBy")
+  sheetAdvancesVoided   SheetAdvance[] @relation("SheetAdvanceVoidedBy")
 
   // Customer Financial Adjustments (owner-approved 2026-09-21)
   customerAdjustmentsCreated CustomerFinancialAdjustment[]      @relation("CustomerAdjustmentCreatedBy")
@@ -980,6 +986,7 @@ model DailySheet {
   crew                  DailySheetCrew[]
   conversations         Conversation[]
   crewCashDistributions CrewCashDistribution[]
+  sheetAdvances         SheetAdvance[]
   discrepancyCases      SheetDiscrepancyCase[]
   // Staff Attendance & Wage Types — Phase 1 (rows auto-captured on crew confirm)
   staffAttendances      StaffAttendance[]
@@ -1065,6 +1072,7 @@ model DailySheetLoad {
   items                 DailySheetItem[]       @relation("TripItems")
   expenses              Expense[]              @relation("TripExpenses")
   crewCashDistributions CrewCashDistribution[]
+  sheetAdvances         SheetAdvance[]
 
   // Trip Edit-Unlock — same fields/semantics as DailySheetItem's edit lock
   // (editUnlockedBy/editUnlockExpiresAt/editRequestedAt below): a checked-in
@@ -2816,6 +2824,14 @@ model StaffLedgerEntry {
   // entry was created by a standalone (no Daily Sheet) Crew Cash record.
   standaloneCrewCashSource StandaloneCrewCashExpense?
 
+  // Inverse of SheetAdvance.staffLedgerEntry — set when this ADVANCE entry was
+  // posted from a Daily Sheet (cash came out of the van, so it is deducted from
+  // that sheet's hand-in). The Cash Ledger MUST NOT also count it as PAYROLL_CASH
+  // (see sourceWhere.payrollAdvance) or the same rupees would leave the office
+  // twice. A VOIDED row keeps its pointer, so a reversed-but-still-POSTED twin
+  // stays excluded too.
+  sheetAdvanceSource SheetAdvance?
+
   // Inverse of SheetDiscrepancyCase.staffLedgerEntry — set when this entry was
   // created by resolving a discrepancy case as CHARGED_TO_DRIVER.
   discrepancyCase SheetDiscrepancyCase?
@@ -3698,6 +3714,78 @@ model StandaloneCrewCashExpense {
 
   @@index([vendorId, employeeId, date])
   @@index([vendorId, status])
+}
+
+enum SheetAdvanceStatus {
+  ACTIVE
+  VOIDED
+}
+
+// Salary advance handed to an employee out of the van's cash during a Daily
+// Sheet (owner-requested 2026-10-01) — recordable while the sheet is open AND
+// after it is closed, like Expense / Crew Cash.
+//
+// WHY NOT a plain ADVANCE ledger entry typed on the Payroll page: that is an
+// OFFICE cash-out (PAYROLL_CASH in the Cash Ledger). A sheet advance is paid from
+// the driver's hand-in instead, so it must reduce the sheet's cash-to-hand-in
+// (buildReconciliation: advances.total) exactly like an Expense / Crew Cash row,
+// and must NOT also appear as PAYROLL_CASH. Each row therefore owns one
+// StaffLedgerEntry "payroll twin" (category ADVANCE, a debit — it flows into the
+// employee's payroll "advances" bucket like any advance), and the Cash Ledger's
+// payroll-advance source excludes every twin that has this inverse relation.
+//
+// Mutability mirrors StandaloneCrewCashExpense: an edit voids + re-posts the twin
+// in the same transaction (blocked once the twin is rolled into a locked payroll
+// period); a delete is a soft VOID that voids the twin (or reverses it in the
+// current payroll period when it was already locked). Rows are never hard-deleted,
+// so the twin <-> advance link survives for the Cash Ledger exclusion above.
+// Post-close changes bump DailySheet.postCloseCrewCashCorrectionCount (shared
+// marker: "a closed sheet's cash-out rows changed") so the sheet switches to a live
+// cash recompute and the Cash Ledger handover chain follows — the frozen close-time
+// figures are never rewritten.
+model SheetAdvance {
+  id       String @id @default(uuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  dailySheetId String
+  dailySheet   DailySheet @relation(fields: [dailySheetId], references: [id], onDelete: Cascade)
+
+  employeeId String
+  employee   User   @relation("SheetAdvanceEmployee", fields: [employeeId], references: [id])
+
+  amount Int // whole rupees, positive magnitude (the ledger twin carries it negated)
+  notes  String?
+  date   DateTime // the sheet's own date
+
+  status SheetAdvanceStatus @default(ACTIVE)
+
+  staffLedgerEntryId String           @unique
+  staffLedgerEntry   StaffLedgerEntry @relation(fields: [staffLedgerEntryId], references: [id])
+
+  // Trip attribution — same convention as Expense / CrewCashDistribution.
+  dailySheetLoadId String?
+  dailySheetLoad   DailySheetLoad? @relation(fields: [dailySheetLoadId], references: [id])
+
+  createdById String
+  createdBy   User   @relation("SheetAdvanceCreatedBy", fields: [createdById], references: [id])
+
+  voidedById String?
+  voidedBy   User?     @relation("SheetAdvanceVoidedBy", fields: [voidedById], references: [id])
+  voidedAt   DateTime?
+  voidReason String?
+
+  version      Int       @default(1)
+  editCount    Int       @default(0)
+  lastEditedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vendorId, dailySheetId])
+  @@index([dailySheetId])
+  @@index([vendorId, employeeId])
+  @@index([dailySheetLoadId])
 }
 
 // Per-vendor catalogue of service types shown in the "Record Service" dropdown.
