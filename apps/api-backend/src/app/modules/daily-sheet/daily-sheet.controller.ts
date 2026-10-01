@@ -46,6 +46,7 @@ import { BulkRepriceDeliveriesDto } from './dto/bulk-reprice-deliveries.dto';
 import { UnlockEditDto } from './dto/unlock-edit.dto';
 import { RejectCloseDto } from './dto/reject-close.dto';
 import { CloseSheetDto } from './dto/close-sheet.dto';
+import { ForceCloseBulkDto, ForceCloseSheetDto } from './dto/force-close-sheet.dto';
 import { ConfirmCrewDto } from './dto/confirm-crew.dto';
 import { RequirePermissions, RequireAnyPermission } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -553,6 +554,30 @@ export class DailySheetController {
     @Body() dto: CheckInDto,
   ) {
     return this.dailySheetService.checkIn(user.vendorId, id, dto);
+  }
+
+  // ── Stale-sheet force close (admin tool) ──
+  // Reuses `daily_sheets:correct` (the admin-only financial-correction key) so no
+  // new RBAC key/seed is needed. `force-close-bulk` is a static segment; none of
+  // these collide with a bare `@Post(':id')`/`@Get(':id/...')` route.
+  @Post('force-close-bulk')
+  @RequirePermissions('daily_sheets:correct')
+  @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 3 } })
+  forceCloseBulk(@CurrentUser() user: AuthUser, @Body() dto: ForceCloseBulkDto) {
+    return this.dailySheetService.forceCloseBulk(user, dto.sheetIds, dto.reason);
+  }
+
+  @Get(':id/force-close-preview')
+  @RequirePermissions('daily_sheets:correct')
+  getForceClosePreview(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.dailySheetService.getForceClosePreview(user.vendorId, id);
+  }
+
+  @Post(':id/force-close')
+  @RequirePermissions('daily_sheets:correct')
+  @Throttle({ short: { ttl: 1000, limit: 1 }, medium: { ttl: 60000, limit: 10 } })
+  forceCloseSheet(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ForceCloseSheetDto) {
+    return this.dailySheetService.forceCloseSheet(user, id, dto);
   }
 
   @Post(':id/close')

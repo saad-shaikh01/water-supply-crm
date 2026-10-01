@@ -224,6 +224,13 @@ export const dailySheetsApi = {
   approveClose: (id: string) => apiClient.post(`/daily-sheets/${id}/approve-close`),
   rejectClose: (id: string, data: { reason: string }) =>
     apiClient.post(`/daily-sheets/${id}/reject-close`, data),
+  // Stale-sheet force close (admin tool, daily_sheets:correct).
+  getForceClosePreview: (id: string) =>
+    apiClient.get(`/daily-sheets/${id}/force-close-preview`).then((r) => r.data),
+  forceClose: (id: string, data: { reason: string; actualCashHandedIn?: number }) =>
+    apiClient.post(`/daily-sheets/${id}/force-close`, data).then((r) => r.data),
+  forceCloseBulk: (data: { sheetIds: string[]; reason: string }) =>
+    apiClient.post('/daily-sheets/force-close-bulk', data).then((r) => r.data),
   getReconciliationPreview: (id: string) =>
     apiClient.get(`/daily-sheets/${id}/reconciliation-preview`).then((r) => r.data),
   getItemHistory: (itemId: string) =>

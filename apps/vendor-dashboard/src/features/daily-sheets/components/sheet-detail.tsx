@@ -11,6 +11,7 @@ import { SwapDialog } from './dialogs/swap-dialog';
 import { MoveCustomerDialog } from './dialogs/move-customer-dialog';
 import { CrewConfirmDialog } from './dialogs/crew-confirm-dialog';
 import { ReconcileDialog } from './dialogs/reconcile-dialog';
+import { ForceCloseDialog } from './dialogs/force-close-dialog';
 import { RejectCloseDialog } from './dialogs/reject-close-dialog';
 import { AdhocDeliveryDialog } from './dialogs/adhoc-delivery-dialog';
 import { CorrectionEntryDialog } from './dialogs/correction-entry-dialog';
@@ -254,6 +255,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   // crew-validation.ts's FIELD_STAFF_ROLES) — gets the exact same driver-mode screens.
   const isDriver = user?.role === 'DRIVER' || user?.role === 'SALESMAN';
   const { can } = usePermissions();
+  const [forceCloseOpen, setForceCloseOpen] = useState(false);
   const canConfirmCrew = can('daily_sheets:confirm_crew');
   const canSwapAssignment = can('daily_sheets:swap_assignment');
   // Was previously gated by `!isDriver` (hardcoded role check) — switched to the
@@ -1403,6 +1405,17 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
                   Close Sheet
                 </Button>
               )}
+              {/* Stale-sheet force close: admin-only (daily_sheets:correct), open sheets from a previous day. */}
+              {!isClosed && canCorrect && new Date(data.date).getTime() < Date.now() - 24 * 60 * 60 * 1000 + 60 * 1000 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="rounded-full font-bold border-destructive/50 text-destructive"
+                  onClick={() => setForceCloseOpen(true)}
+                >
+                  Close Stale Sheet
+                </Button>
+              )}
             </div>
           )}
         </>
@@ -1538,6 +1551,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         sheetId={sheetId}
         mode={data.closureStatus === 'PENDING_APPROVAL' && canApproveClose ? 'approve' : canCloseSheet ? 'direct' : 'request'}
       />
+      <ForceCloseDialog open={forceCloseOpen} onClose={() => setForceCloseOpen(false)} sheetId={sheetId} />
       <RejectCloseDialog
         open={ui.rejectCloseOpen}
         onClose={() => dispatch({ type: 'CLOSE_REJECT_CLOSE' })}

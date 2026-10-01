@@ -10,6 +10,8 @@ import {
 } from '@water-supply-crm/ui';
 import { DataTable } from '../../../components/shared/data-table';
 import { StatusBadge } from '../../../components/shared/status-badge';
+import { ForceCloseBulkDialog } from './dialogs/force-close-bulk-dialog';
+import { usePermissions } from '../../authz/hooks/use-permissions';
 import { DateRangePicker } from '../../../components/shared/date-range-picker';
 import { RouteFilter } from '../../../components/shared/filters/route-filter';
 import { VanFilter } from '../../../components/shared/filters/van-filter';
@@ -29,6 +31,9 @@ export function SheetList() {
   const [kind, setKind] = useQueryState('kind', parseAsString.withDefault(''));
   const isWalkIn = kind === 'WALK_IN';
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [staleOpen, setStaleOpen] = useState(false);
+  const { can } = usePermissions();
+  const canForceClose = can('daily_sheets:correct');
 
   const sheets = (data as { data?: unknown[]; meta?: { total: number } } | undefined);
   const rows = (sheets?.data ?? []) as Array<{
@@ -113,6 +118,20 @@ export function SheetList() {
             </button>
           </div>
         </div>
+
+        {canForceClose && (
+          <div>
+            <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1 mb-1 block">Admin</Label>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 rounded-xl text-xs font-bold border-destructive/50 text-destructive whitespace-nowrap"
+              onClick={() => setStaleOpen(true)}
+            >
+              Close Stale Sheets
+            </Button>
+          </div>
+        )}
 
         <div className="hidden sm:block">
           <Label className="text-[10px] uppercase font-bold text-muted-foreground ml-1 mb-1 block">Status</Label>
@@ -381,6 +400,7 @@ export function SheetList() {
         ]}
         onRowClick={(r) => router.push(`/dashboard/daily-sheets/${r.id}`)}
       />
+      <ForceCloseBulkDialog open={staleOpen} onClose={() => setStaleOpen(false)} />
     </div>
   );
 }

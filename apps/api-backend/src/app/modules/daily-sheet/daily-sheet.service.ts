@@ -4471,7 +4471,11 @@ export class DailySheetService implements OnModuleInit {
    * this no longer also requires the END check's critical failure to be
    * acknowledged — see assertTripEndClear's docstring for why.
    */
-  private async assertSheetCloseable(vendorId: string, sheetId: string) {
+  private async assertSheetCloseable(
+    vendorId: string,
+    sheetId: string,
+    opts?: { skipPending?: boolean; skipVehicleCheck?: boolean },
+  ) {
     const sheet = await this.fetchSheetForReconciliation(vendorId, sheetId);
     if (!sheet) {
       throw new NotFoundException('Daily sheet not found');
@@ -4490,7 +4494,7 @@ export class DailySheetService implements OnModuleInit {
     const pendingItems = (sheet.items as any[]).filter(
       (item) => item.status === DeliveryStatus.PENDING,
     );
-    if (pendingItems.length > 0) {
+    if (!opts?.skipPending && pendingItems.length > 0) {
       throw new BadRequestException(
         `Cannot close sheet: ${pendingItems.length} item(s) are still PENDING`,
       );
@@ -4500,7 +4504,7 @@ export class DailySheetService implements OnModuleInit {
     // (docs/features/walk-in-delivery.md §3-4) — the end-of-day vehicle
     // check this gate requires is never recorded for one, so it would
     // otherwise be permanently unclosable.
-    if ((sheet as unknown as { kind: DailySheetKind }).kind !== DailySheetKind.WALK_IN) {
+    if (!opts?.skipVehicleCheck && (sheet as unknown as { kind: DailySheetKind }).kind !== DailySheetKind.WALK_IN) {
       await this.vehicleCheck.assertTripEndClear(vendorId, sheetId);
     }
 
@@ -4543,8 +4547,22 @@ export class DailySheetService implements OnModuleInit {
     return Math.max(0, Math.round((actualCashHandedIn - deposit) * 100) / 100);
   }
 
-  async closeSheet(vendorId: string, sheetId: string, actorId: string, actorRole: UserRole, actualCashHandedIn: number) {
-    const sheet = await this.assertSheetCloseable(vendorId, sheetId);
+  async closeSheet(
+    vendorId: string,
+    sheetId: string,
+    actorId: string,
+    actorRole: UserRole,
+    actualCashHandedIn: number,
+    // Stale-sheet force close (admin tool): waives the PENDING-items and END
+    // vehicle-check gates, cancels the PENDING stops inside the close
+    // transaction, and accepts the bottle/empty counts as recorded.
+    force?: { reason: string },
+  ) {
+    const sheet = await this.assertSheetCloseable(
+      vendorId,
+      sheetId,
+      force ? { skipPending: true, skipVehicleCheck: true } : undefined,
+    );
     // Cash is no longer accumulated per-trip check-in (see checkinLoad) — it's
     // this single actual figure the driver reports at close time. Overlay it
     // onto the in-memory sheet BEFORE building the reconciliation so
@@ -4564,7 +4582,18 @@ export class DailySheetService implements OnModuleInit {
     // Discrepancy Case creation all share one transaction so a sheet can
     // never end up closed with either only partially applied — everything
     // commits or everything rolls back together.
-    const { closed, crewCashSync, discrepancySummary } = await this.prisma.$transaction(async (tx) => {
+    const { closed, crewCashSync, discrepancySummary, cancelledPendingCount } = await this.prisma.$transaction(async (tx) => {
+      // Force close only: a PENDING stop never happened (no ledger effect), so it is
+      // simply CANCELLED. Recorded stops (COMPLETED / EMPTY_ONLY / ...) are untouched.
+      let cancelledPending = 0;
+      if (force) {
+        const cancelled = await tx.dailySheetItem.updateMany({
+          where: { dailySheetId: sheetId, status: DeliveryStatus.PENDING },
+          data: { status: DeliveryStatus.CANCELLED },
+        });
+        cancelledPending = cancelled.count;
+      }
+
       const closedSheet = await tx.dailySheet.update({
         where: { id: sheetId },
         data: {
@@ -4591,12 +4620,22 @@ export class DailySheetService implements OnModuleInit {
         tx,
         vendorId,
         { id: sheetId, driverId: sheet.driverId },
-        DailySheetService.discrepancyInputFor((sheet as unknown as { kind: DailySheetKind }).kind, reconciliation),
+        // Force close has no real load/trip to compare against, so the stock
+        // (bottle/empty) counts are accepted as recorded — same treatment WALK_IN gets.
+        DailySheetService.discrepancyInputFor(
+          force ? DailySheetKind.WALK_IN : (sheet as unknown as { kind: DailySheetKind }).kind,
+          reconciliation,
+        ),
         actorId,
         actorRole,
       );
 
-      return { closed: closedSheet, crewCashSync: sync, discrepancySummary: discrepancies };
+      return {
+        closed: closedSheet,
+        crewCashSync: sync,
+        discrepancySummary: discrepancies,
+        cancelledPendingCount: cancelledPending,
+      };
     });
 
     await this.audit.log({
@@ -4626,7 +4665,145 @@ export class DailySheetService implements OnModuleInit {
       syncedCrewCashCount: crewCashSync.synced,
       skippedPendingApprovalCount: crewCashSync.skippedPendingApproval,
       discrepancyCasesCreated: discrepancySummary.createdCount,
+      cancelledPendingCount,
     };
+  }
+
+  /**
+   * Stale-sheet force close (admin tool, 2026-10-01 owner request).
+   *
+   * For an OPEN sheet from a PREVIOUS day that was never closed through the
+   * normal flow (ad-hoc / walk-in entries recorded, no trip, no vehicle check,
+   * a few stops left PENDING). Reuses closeSheet() end to end — crew-cash sync,
+   * the PENDING Cash Ledger handover, cash discrepancy case — and only waives
+   * what cannot be satisfied after the fact:
+   *   - PENDING stops are CANCELLED (they never happened; no ledger effect)
+   *   - the END vehicle check is waived (no odometer is fabricated)
+   *   - bottle/empty counts are accepted as recorded (no stock discrepancy case)
+   * Recorded stops are never touched. Cash defaults to the sheet's expected
+   * hand-in (zero discrepancy); an explicit amount creates a normal cash case.
+   */
+  private assertForceCloseEligible(sheet: { isClosed: boolean; date: Date }) {
+    if (sheet.isClosed) {
+      throw new ConflictException('Sheet is already closed');
+    }
+    if (vendorDateString(sheet.date) >= vendorDateString(new Date())) {
+      throw new BadRequestException(
+        "Only sheets from a previous day can be force-closed. Use the normal Close for today's sheet.",
+      );
+    }
+  }
+
+  async getForceClosePreview(vendorId: string, sheetId: string) {
+    const sheet = await this.fetchSheetForReconciliation(vendorId, sheetId);
+    if (!sheet) throw new NotFoundException('Daily sheet not found');
+
+    const [meta, openTrip, endCheck] = await Promise.all([
+      this.prisma.dailySheet.findUnique({
+        where: { id: sheetId },
+        select: { van: { select: { plateNumber: true } }, driver: { select: { name: true } } },
+      }),
+      this.prisma.dailySheetLoad.findFirst({ where: { dailySheetId: sheetId, endedAt: null }, select: { id: true } }),
+      this.prisma.vehicleDailyCheck.findUnique({
+        where: { dailySheetId_checkType: { dailySheetId: sheetId, checkType: 'END' } },
+        select: { id: true },
+      }),
+    ]);
+
+    const kind = (sheet as unknown as { kind: DailySheetKind }).kind;
+    const reconciliation = this.buildReconciliation(sheet);
+    const items = sheet.items as any[];
+
+    let ineligibleReason: string | null = null;
+    if (sheet.isClosed) ineligibleReason = 'Sheet is already closed';
+    else if (vendorDateString(sheet.date) >= vendorDateString(new Date()))
+      ineligibleReason = "Only sheets from a previous day can be force-closed";
+    else if (openTrip) ineligibleReason = 'A trip is still active on this sheet — it must be checked in first';
+
+    return {
+      sheetId,
+      date: sheet.date.toISOString(),
+      kind,
+      vanPlateNumber: meta?.van?.plateNumber ?? null,
+      driverName: meta?.driver?.name ?? null,
+      eligible: ineligibleReason === null,
+      ineligibleReason,
+      pendingCount: items.filter((i) => i.status === DeliveryStatus.PENDING).length,
+      recordedCount: items.filter(
+        (i) => i.status === DeliveryStatus.COMPLETED || i.status === DeliveryStatus.EMPTY_ONLY,
+      ).length,
+      bottles: {
+        delivered: reconciliation.bottles.delivered,
+        filledReceived: reconciliation.bottles.receivedFromCustomers,
+        emptiesCollected: reconciliation.empties.collectedFromCustomers,
+      },
+      cash: {
+        deliveryCashRecorded: reconciliation.driver.shouldHandIn,
+        vanExpenses: reconciliation.driver.expensePaidFromCash,
+        crewCash: reconciliation.driver.crewCashPaidFromCash,
+        expectedHandIn: reconciliation.driver.totalToHandIn,
+      },
+      vehicleCheck: { required: kind !== DailySheetKind.WALK_IN, endCheckRecorded: !!endCheck },
+    };
+  }
+
+  async forceCloseSheet(user: AuthUser, sheetId: string, dto: { reason: string; actualCashHandedIn?: number }) {
+    const vendorId = user.vendorId;
+    const sheet = await this.fetchSheetForReconciliation(vendorId, sheetId);
+    if (!sheet) throw new NotFoundException('Daily sheet not found');
+    this.assertForceCloseEligible(sheet);
+
+    const kind = (sheet as unknown as { kind: DailySheetKind }).kind;
+    const endCheck = await this.prisma.vehicleDailyCheck.findUnique({
+      where: { dailySheetId_checkType: { dailySheetId: sheetId, checkType: 'END' } },
+      select: { id: true },
+    });
+    const expectedHandIn = this.buildReconciliation(sheet).driver.totalToHandIn;
+    const actualCashHandedIn = dto.actualCashHandedIn ?? expectedHandIn;
+
+    const result = await this.closeSheet(
+      vendorId,
+      sheetId,
+      user.userId,
+      user.role as UserRole,
+      actualCashHandedIn,
+      { reason: dto.reason },
+    );
+
+    await this.audit.log({
+      vendorId,
+      action: 'FORCE_CLOSE',
+      entity: 'DailySheet',
+      entityId: sheetId,
+      changes: {
+        after: {
+          reason: dto.reason,
+          cancelledPendingCount: result.cancelledPendingCount,
+          expectedHandIn,
+          actualCashHandedIn,
+          vehicleCheckWaived: kind !== DailySheetKind.WALK_IN && !endCheck,
+          stockDiscrepancyAccepted: true,
+        },
+      },
+    });
+
+    return result;
+  }
+
+  async forceCloseBulk(user: AuthUser, sheetIds: string[], reason: string) {
+    const results: Array<{ sheetId: string; ok: boolean; cancelledPendingCount?: number; error?: string }> = [];
+    // Sequential on purpose — each close is its own transaction and posts to the
+    // Cash Ledger / payroll sync, so one failure must not affect the others.
+    for (const sheetId of sheetIds) {
+      try {
+        const r = await this.forceCloseSheet(user, sheetId, { reason });
+        results.push({ sheetId, ok: true, cancelledPendingCount: r.cancelledPendingCount });
+      } catch (e) {
+        results.push({ sheetId, ok: false, error: (e as Error).message || 'Failed to close' });
+      }
+    }
+    const closed = results.filter((r) => r.ok).length;
+    return { total: results.length, closed, failed: results.length - closed, results };
   }
 
   /**

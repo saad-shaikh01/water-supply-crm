@@ -683,3 +683,94 @@ export const useConfirmGlobalBulkImport = () => {
       toast.error(e?.response?.data?.message ?? 'Global import failed. Please try again.'),
   });
 };
+
+
+// ── Stale-sheet force close (admin tool, daily_sheets:correct) ──────────────
+export interface ForceClosePreview {
+  sheetId: string;
+  date: string;
+  kind: 'ROUTE' | 'WALK_IN';
+  vanPlateNumber: string | null;
+  driverName: string | null;
+  eligible: boolean;
+  ineligibleReason: string | null;
+  pendingCount: number;
+  recordedCount: number;
+  bottles: { delivered: number; filledReceived: number; emptiesCollected: number };
+  cash: { deliveryCashRecorded: number; vanExpenses: number; crewCash: number; expectedHandIn: number };
+  vehicleCheck: { required: boolean; endCheckRecorded: boolean };
+}
+
+export const useForceClosePreview = (sheetId: string, enabled: boolean) =>
+  useQuery<ForceClosePreview>({
+    queryKey: ['daily-sheet-force-close-preview', sheetId],
+    queryFn: () => dailySheetsApi.getForceClosePreview(sheetId),
+    enabled: enabled && !!sheetId,
+    // The numbers decide a financial close — never show a cached preview.
+    gcTime: 0,
+  });
+
+export const useForceCloseSheet = (sheetId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { reason: string; actualCashHandedIn?: number }) => dailySheetsApi.forceClose(sheetId, data),
+    onSuccess: (r: { cancelledPendingCount?: number }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
+      queryClient.invalidateQueries({ queryKey: ['sheets'] });
+      toast.success(
+        r?.cancelledPendingCount
+          ? `Sheet closed — ${r.cancelledPendingCount} pending deliveries cancelled`
+          : 'Sheet closed',
+      );
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to close sheet'), // eslint-disable-line @typescript-eslint/no-explicit-any
+  });
+};
+
+export interface ForceCloseBulkResult {
+  total: number;
+  closed: number;
+  failed: number;
+  results: Array<{ sheetId: string; ok: boolean; cancelledPendingCount?: number; error?: string }>;
+}
+
+export const useForceCloseBulk = () => {
+  const queryClient = useQueryClient();
+  return useMutation<ForceCloseBulkResult, unknown, { sheetIds: string[]; reason: string }>({
+    mutationFn: (data) => dailySheetsApi.forceCloseBulk(data),
+    onSuccess: (r) => {
+      queryClient.invalidateQueries({ queryKey: ['sheets'] });
+      queryClient.invalidateQueries({ queryKey: ['stale-open-sheets'] });
+      if (r.failed === 0) toast.success(`Closed ${r.closed} sheet${r.closed === 1 ? '' : 's'}`);
+      else toast.warning(`Closed ${r.closed} of ${r.total} — ${r.failed} failed`);
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to close sheets'), // eslint-disable-line @typescript-eslint/no-explicit-any
+  });
+};
+
+export interface StaleOpenSheet {
+  id: string;
+  date: string;
+  kind?: 'ROUTE' | 'WALK_IN';
+  van?: { plateNumber: string };
+  itemCounts?: { pending: number; completed: number; issues: number };
+  tripState?: { tripCount: number; hasActiveTrip: boolean };
+}
+
+/** Every OPEN sheet dated before today (route sheets + walk-in sheets), oldest first. */
+export const useStaleOpenSheets = (enabled: boolean) =>
+  useQuery<StaleOpenSheet[]>({
+    queryKey: ['stale-open-sheets'],
+    enabled,
+    gcTime: 0,
+    queryFn: async () => {
+      const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const base = { page: 1, limit: 100, isClosed: false, dateTo: yesterday } as const;
+      const [route, walkIn] = await Promise.all([
+        dailySheetsApi.getAll(base as never),
+        dailySheetsApi.getAll({ ...base, kind: 'WALK_IN' } as never),
+      ]);
+      const all = [...((route.data?.data ?? []) as StaleOpenSheet[]), ...((walkIn.data?.data ?? []) as StaleOpenSheet[])];
+      return all.sort((a, b) => (a.date < b.date ? -1 : 1));
+    },
+  });
