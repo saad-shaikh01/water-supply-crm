@@ -28,10 +28,10 @@ function StatCard({
     <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
       <CardContent className="pt-6">
         <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-primary/10">
+          <div className="p-2 rounded-xl bg-primary/10 shrink-0">
             <Icon className="h-5 w-5 text-primary" />
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-xs text-muted-foreground uppercase tracking-widest font-bold flex items-center gap-1">
               {label}
               {tooltip && (
@@ -40,7 +40,7 @@ function StatCard({
                 </span>
               )}
             </p>
-            <p className={cn('text-xl font-bold mt-0.5', positive === false && 'text-destructive')}>{value}</p>
+            <p className={cn('text-lg sm:text-xl font-bold mt-0.5 break-words', positive === false && 'text-destructive')}>{value}</p>
           </div>
         </div>
       </CardContent>

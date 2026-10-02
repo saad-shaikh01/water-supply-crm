@@ -47,10 +47,10 @@ const profitTone = (n: number) => (n >= 0 ? 'text-emerald-600 dark:text-emerald-
 
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
-      <CardContent className="pt-6">
-        <p className="text-xs text-muted-foreground uppercase tracking-widest font-bold">{label}</p>
-        <p className="text-2xl font-bold mt-1">{value}</p>
+    <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem] min-w-0">
+      <CardContent className="p-4 sm:p-6">
+        <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider sm:tracking-widest font-bold">{label}</p>
+        <p className="text-lg sm:text-2xl font-bold mt-1 break-words">{value}</p>
         {hint && <p className="text-xs text-muted-foreground mt-1">{hint}</p>}
       </CardContent>
     </Card>
@@ -59,10 +59,10 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
 
 function ProfitCard({ label, sub, value }: { label: string; sub: string; value: number }) {
   return (
-    <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
-      <CardContent className="pt-6">
-        <p className="text-xs text-muted-foreground uppercase tracking-widest font-bold">{label}</p>
-        <p className={cn('text-3xl font-black mt-1', profitTone(value))}>{rs(value)}</p>
+    <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem] min-w-0">
+      <CardContent className="p-4 sm:p-6">
+        <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider sm:tracking-widest font-bold">{label}</p>
+        <p className={cn('text-2xl sm:text-3xl font-black mt-1 break-words', profitTone(value))}>{rs(value)}</p>
         <p className="text-xs text-muted-foreground mt-1">{sub}</p>
       </CardContent>
     </Card>
@@ -225,7 +225,7 @@ function ReceivedProof({ data, onOpen }: { data: ProfitLossData; onOpen: (kind: 
           <CardTitle className="text-base font-bold">Amount Received — where it came from</CardTitle>
           <p className="text-xs text-muted-foreground">Every customer payment recorded in {monthLabel(data.month)}. Click a row to see each payment.</p>
         </CardHeader>
-        <CardContent>
+        <CardContent className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -268,12 +268,12 @@ function ReceivedProof({ data, onOpen }: { data: ProfitLossData; onOpen: (kind: 
           </p>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
-          <div className="flex justify-between"><span>Cash recorded on deliveries</span><span className="font-bold">{rs(h.deliveryCashRecorded)}</span></div>
-          <div className="flex justify-between text-muted-foreground"><span>− Paid from the van (sheet expenses)</span><span>{rs(h.vanCashExpenses)}</span></div>
-          <div className="flex justify-between text-muted-foreground"><span>− Crew cash given</span><span>{rs(h.crewCashPaid)}</span></div>
-          <div className="flex justify-between border-t pt-2"><span>Expected hand-in</span><span className="font-bold">{rs(h.expectedHandIn)}</span></div>
-          <div className="flex justify-between"><span>Actually handed in (at sheet close)</span><span className="font-bold">{rs(h.actualHandedIn)}</span></div>
-          <div className="flex justify-between border-t pt-2">
+          <div className="flex justify-between gap-3"><span>Cash recorded on deliveries</span><span className="font-bold">{rs(h.deliveryCashRecorded)}</span></div>
+          <div className="flex justify-between gap-3 text-muted-foreground"><span>− Paid from the van (sheet expenses)</span><span>{rs(h.vanCashExpenses)}</span></div>
+          <div className="flex justify-between gap-3 text-muted-foreground"><span>− Crew cash given</span><span>{rs(h.crewCashPaid)}</span></div>
+          <div className="flex justify-between gap-3 border-t pt-2"><span>Expected hand-in</span><span className="font-bold">{rs(h.expectedHandIn)}</span></div>
+          <div className="flex justify-between gap-3"><span>Actually handed in (at sheet close)</span><span className="font-bold">{rs(h.actualHandedIn)}</span></div>
+          <div className="flex justify-between gap-3 border-t pt-2">
             <span>Difference (shortfall / changes after close)</span>
             <span className={cn('font-black', h.difference > 0 ? 'text-destructive' : '')}>{rs(h.difference)}</span>
           </div>
@@ -349,18 +349,18 @@ export function ProfitLossTab() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button variant="outline" size="icon" onClick={() => setMonth((m) => shift(m, -1))} aria-label="Previous month">
           <ChevronLeft className="h-4 w-4" />
         </Button>
-        <div className="min-w-44 text-center font-bold">{monthLabel(month)}</div>
+        <div className="flex-1 sm:flex-none sm:min-w-44 text-center font-bold">{monthLabel(month)}</div>
         <Button variant="outline" size="icon" disabled={month >= thisMonth} onClick={() => setMonth((m) => shift(m, 1))} aria-label="Next month">
           <ChevronRight className="h-4 w-4" />
         </Button>
         {month !== thisMonth && (
           <Button variant="ghost" size="sm" onClick={() => setMonth(thisMonth)}>This month</Button>
         )}
-        <p className="ml-auto text-xs text-muted-foreground hidden sm:block">Company-wide · all vans · expenses on cash basis</p>
+        <p className="w-full sm:w-auto sm:ml-auto text-xs text-muted-foreground">Company-wide · all vans · expenses on cash basis</p>
       </div>
 
       {isLoading && (
@@ -403,8 +403,8 @@ export function ProfitLossTab() {
             <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
               <CardHeader><CardTitle className="text-base font-bold">Per-Bottle Averages</CardTitle></CardHeader>
               <CardContent className="space-y-3">
-                <div className="flex justify-between"><span className="text-muted-foreground">Avg Rs / Bottle</span><span className="font-bold">{rs2(data.summary.avgRatePerBottle)}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Avg Expense / Bottle</span><span className="font-bold">{rs2(data.summary.avgExpensePerBottle)}</span></div>
+                <div className="flex justify-between gap-3"><span className="text-muted-foreground">Avg Rs / Bottle</span><span className="font-bold">{rs2(data.summary.avgRatePerBottle)}</span></div>
+                <div className="flex justify-between gap-3"><span className="text-muted-foreground">Avg Expense / Bottle</span><span className="font-bold">{rs2(data.summary.avgExpensePerBottle)}</span></div>
                 <div className="flex justify-between border-t pt-3">
                   <span className="text-muted-foreground">Avg Profit / Bottle</span>
                   <span className={cn('font-black', data.summary.avgProfitPerBottle != null && profitTone(data.summary.avgProfitPerBottle))}>{rs2(data.summary.avgProfitPerBottle)}</span>

@@ -30,12 +30,12 @@ function StatCard({ label, value, icon: Icon }: { label: string; value: string; 
     <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
       <CardContent className="pt-6">
         <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-primary/10">
+          <div className="p-2 rounded-xl bg-primary/10 shrink-0">
             <Icon className="h-5 w-5 text-primary" />
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-xs text-muted-foreground uppercase tracking-widest font-bold">{label}</p>
-            <p className="text-xl font-bold mt-0.5">{value}</p>
+            <p className="text-lg sm:text-xl font-bold mt-0.5 break-words">{value}</p>
           </div>
         </div>
       </CardContent>

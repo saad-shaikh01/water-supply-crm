@@ -43,12 +43,12 @@ function StatCard({
     <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
       <CardContent className="pt-6">
         <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-primary/10">
+          <div className="p-2 rounded-xl bg-primary/10 shrink-0">
             <Icon className="h-5 w-5 text-primary" />
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-xs text-muted-foreground uppercase tracking-widest font-bold">{label}</p>
-            <p className={`text-xl font-bold mt-0.5 ${positive === false ? 'text-destructive' : ''}`}>{value}</p>
+            <p className={`text-lg sm:text-xl font-bold mt-0.5 break-words ${positive === false ? 'text-destructive' : ''}`}>{value}</p>
             {deltaPct !== undefined && <DeltaChip pct={deltaPct} invert={deltaInvert} />}
             {sublabel && <p className="text-[11px] text-muted-foreground mt-0.5">{sublabel}</p>}
           </div>
@@ -188,7 +188,7 @@ export function FinancialTab({ from, to, vanId }: { from: string; to: string; va
           {cogs.isPartial && (
             <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-start gap-3">
               <AlertTriangle className="h-5 w-5 text-amber-500 mt-0.5 flex-shrink-0" />
-              <div className="flex-1 min-w-[200px] space-y-1">
+              <div className="flex-1 min-w-0 space-y-1">
                 <p className="text-sm font-bold text-amber-700 dark:text-amber-400">Gross Profit May Be Understated</p>
                 <p className="text-xs text-muted-foreground">
                   {cogs.uncostedBottles.toLocaleString()} bottle{cogs.uncostedBottles === 1 ? '' : 's'} delivered this period had no recorded plant cost on file
@@ -243,7 +243,7 @@ export function FinancialTab({ from, to, vanId }: { from: string; to: string; va
           {capCogs.isPartial && (
             <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-start gap-3">
               <AlertTriangle className="h-5 w-5 text-amber-500 mt-0.5 flex-shrink-0" />
-              <div className="flex-1 min-w-[200px] space-y-1">
+              <div className="flex-1 min-w-0 space-y-1">
                 <p className="text-sm font-bold text-amber-700 dark:text-amber-400">Gross Profit After Caps May Be Understated</p>
                 <p className="text-xs text-muted-foreground">
                   {capCogs.uncostedBottles.toLocaleString()} bottle{capCogs.uncostedBottles === 1 ? '' : 's'} delivered this

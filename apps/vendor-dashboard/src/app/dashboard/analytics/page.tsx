@@ -83,7 +83,7 @@ function AnalyticsContent() {
     : 'In-depth insights into revenue, deliveries, customers and staff';
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 min-w-0">
       <PageHeader title="Analytics" description={headerDescription} />
 
       {/* Profit & Loss is company-wide and month-based (own month picker), so the
@@ -111,8 +111,9 @@ function AnalyticsContent() {
         </>
       )}
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="bg-card/40 backdrop-blur-xl border border-white/10 rounded-2xl p-1 h-auto">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="min-w-0 [&_.grid]:min-w-0 [&_.grid>*]:min-w-0">
+        <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <TabsList className="bg-card/40 backdrop-blur-xl border border-white/10 rounded-2xl p-1 h-auto w-max justify-start">
           <TabsTrigger value="overview" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground font-semibold">
             Overview
           </TabsTrigger>
@@ -135,6 +136,7 @@ function AnalyticsContent() {
             Profit &amp; Loss
           </TabsTrigger>
         </TabsList>
+        </div>
 
         <TabsContent value="overview" className="mt-4">
           <OverviewTab from={from} to={to} vanId={vanId} onNavigate={setActiveTab} />

@@ -120,7 +120,7 @@ export function ExportSection({ activeTab, financialData, deliveriesData, custom
     <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
       <CardContent className="pt-6">
         <p className="text-sm font-bold text-muted-foreground uppercase tracking-widest mb-4">Export Current Tab</p>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <button
             onClick={handleCSV}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary/10 text-primary border border-primary/20 hover:bg-primary hover:text-primary-foreground transition-all text-sm font-semibold"

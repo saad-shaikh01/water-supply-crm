@@ -19,9 +19,9 @@ function StatCard({ label, value, icon: Icon, color }: { label: string; value: s
           <div className={`p-2 rounded-xl ${color ?? 'bg-primary/10'}`}>
             <Icon className="h-5 w-5 text-primary" />
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-xs text-muted-foreground uppercase tracking-widest font-bold">{label}</p>
-            <p className="text-xl font-bold mt-0.5">{value}</p>
+            <p className="text-lg sm:text-xl font-bold mt-0.5 break-words">{value}</p>
           </div>
         </div>
       </CardContent>
