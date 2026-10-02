@@ -153,6 +153,22 @@ export const useAcknowledgeMessage = (conversationId: string, sheetId: string) =
   });
 };
 
+/**
+ * Fire-and-forget "someone listened" marker. Silent on error — a failed
+ * played-tick must never interrupt playback. Refreshes the thread (prefix
+ * match, conversationId isn't known to the player) so the sender's bubble
+ * picks up the played state.
+ */
+export const useMarkMessagePlayed = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (messageId: string) => conversationsApi.markMessagePlayed(messageId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
+    },
+  });
+};
+
 export const useMessageAudioUrl = (messageId: string, enabled: boolean) => {
   return useQuery({
     queryKey: ['message-audio-url', messageId],

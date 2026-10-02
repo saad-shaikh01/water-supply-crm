@@ -186,3 +186,85 @@ describe('MessageService.sendText', () => {
     );
   });
 });
+
+describe('MessageService.markPlayed', () => {
+  let service: MessageService;
+  let mockPrisma: any;
+
+  const VENDOR_ID = 'vendor-001';
+  const LISTENER: AuthUser = {
+    userId: 'office-1',
+    email: 'o@example.com',
+    name: 'Office',
+    role: UserRole.VENDOR_ADMIN,
+    vendorId: VENDOR_ID,
+    customerId: null,
+  };
+
+  const voiceMessage = (overrides: Record<string, unknown> = {}) => ({
+    id: 'msg-1',
+    type: 'VOICE',
+    vendorId: VENDOR_ID,
+    createdById: 'driver-1',
+    playedAt: null,
+    ...overrides,
+  });
+
+  beforeEach(async () => {
+    mockPrisma = {
+      conversationMessage: { findUnique: jest.fn(), updateMany: jest.fn() },
+    };
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        MessageService,
+        { provide: PrismaService, useValue: mockPrisma },
+        { provide: StorageService, useValue: {} },
+        { provide: AuditService, useValue: { log: jest.fn() } },
+        { provide: ConversationService, useValue: {} },
+        { provide: InAppNotificationService, useValue: { create: jest.fn() } },
+        { provide: NotificationService, useValue: { queueFcm: jest.fn() } },
+      ],
+    }).compile();
+    service = module.get(MessageService);
+  });
+
+  it('stamps playedAt on the first listen by someone other than the sender', async () => {
+    mockPrisma.conversationMessage.findUnique.mockResolvedValue(voiceMessage());
+    mockPrisma.conversationMessage.updateMany.mockResolvedValue({ count: 1 });
+
+    const result = await service.markPlayed(LISTENER, 'msg-1');
+
+    expect(mockPrisma.conversationMessage.updateMany).toHaveBeenCalledWith({
+      where: { id: 'msg-1', playedAt: null },
+      data: { playedAt: expect.any(Date), playedById: LISTENER.userId },
+    });
+    expect(result.playedAt).toBeInstanceOf(Date);
+  });
+
+  it('is a no-op when the sender plays their own message', async () => {
+    mockPrisma.conversationMessage.findUnique.mockResolvedValue(voiceMessage({ createdById: LISTENER.userId }));
+
+    const result = await service.markPlayed(LISTENER, 'msg-1');
+
+    expect(mockPrisma.conversationMessage.updateMany).not.toHaveBeenCalled();
+    expect(result.playedAt).toBeNull();
+  });
+
+  it('never overwrites an existing playedAt', async () => {
+    const first = new Date('2026-10-01T10:00:00.000Z');
+    mockPrisma.conversationMessage.findUnique.mockResolvedValue(voiceMessage({ playedAt: first }));
+
+    const result = await service.markPlayed(LISTENER, 'msg-1');
+
+    expect(mockPrisma.conversationMessage.updateMany).not.toHaveBeenCalled();
+    expect(result.playedAt).toBe(first);
+  });
+
+  it('rejects another vendor\'s message and non-voice messages', async () => {
+    mockPrisma.conversationMessage.findUnique.mockResolvedValueOnce(voiceMessage({ vendorId: 'other' }));
+    await expect(service.markPlayed(LISTENER, 'msg-1')).rejects.toThrow(NotFoundException);
+
+    mockPrisma.conversationMessage.findUnique.mockResolvedValueOnce(voiceMessage({ type: 'TEXT' }));
+    await expect(service.markPlayed(LISTENER, 'msg-1')).rejects.toThrow(BadRequestException);
+  });
+});

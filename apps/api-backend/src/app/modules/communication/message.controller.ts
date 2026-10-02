@@ -16,6 +16,13 @@ export class MessageController {
     return this.messageService.acknowledge(user, id);
   }
 
+  @Patch(':id/played')
+  @RequirePermissions('conversations:view')
+  @Throttle({ short: { ttl: 1000, limit: 20 }, medium: { ttl: 60000, limit: 120 } })
+  markPlayed(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.messageService.markPlayed(user, id);
+  }
+
   @Get(':id/audio')
   @RequirePermissions('conversations:view')
   getAudioUrl(@CurrentUser() user: AuthUser, @Param('id') id: string) {

@@ -7,6 +7,7 @@ import { ExpenseDomainSelect } from './expense-domain-select';
 import { ExpenseFilterDrawer } from './expense-filter-drawer';
 import { ExpenseSourceChips } from './expense-source-chips';
 import { ExpenseFilterChips } from './expense-filter-chips';
+import { ExpenseFilteredTotalsBox } from './expense-filtered-totals-box';
 
 /**
  * Expenses page filter toolbar:
@@ -31,6 +32,7 @@ export function ExpenseFilterToolbar() {
       <ExpenseSourceChips />
 
       {activeCount > 0 && <ExpenseFilterChips />}
+      <ExpenseFilteredTotalsBox />
     </div>
   );
 }

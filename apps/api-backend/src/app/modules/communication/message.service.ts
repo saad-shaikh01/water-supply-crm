@@ -33,6 +33,7 @@ if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath);
 // uploads live side by side; no storage migration.
 const VOICE_PREFIX = 'delivery-voice-notes';
 const PREVIEW_LENGTH = 120;
+const WAVEFORM_BARS = 48;
 const VOICE_PREVIEW = '🎤 Voice message';
 
 // NotificationPreference.eventType key for this feature (Phase 4).
@@ -129,10 +130,13 @@ export class MessageService {
   ) {
     const { conversation, item } = await this.resolveOpenForSending(user, conversationId, itemId);
     const audioKey = await this.uploadVoice(file);
+    // Best-effort cosmetic data — a failure here must never fail the send.
+    const audioWaveform = await this.computeWaveform(file.buffer);
     return this.createMessage(user, conversation, item, {
       type: MessageType.VOICE,
       audioKey,
       audioDuration: audioDuration ?? null,
+      audioWaveform,
       requiresAck: this.resolveRequiresAck(user, requiresAck),
     });
   }
@@ -218,6 +222,56 @@ export class MessageService {
   }
 
   /**
+   * Decodes the recording to 8 kHz mono 16-bit PCM and reduces it to
+   * WAVEFORM_BARS peak bars normalized to 0-100 (loudest bar = 100). Returns
+   * null on any failure or silent/empty audio — the player then falls back to a
+   * placeholder shape, so this can never block or break a send.
+   */
+  private async computeWaveform(buffer: Buffer): Promise<number[] | null> {
+    const inputPath = join(tmpdir(), `${randomUUID()}-wave-in`);
+    const outputPath = join(tmpdir(), `${randomUUID()}-wave-out.raw`);
+    try {
+      await writeFile(inputPath, buffer);
+      await new Promise<void>((resolve, reject) => {
+        ffmpeg(inputPath)
+          .noVideo()
+          .audioChannels(1)
+          .audioFrequency(8000)
+          .audioCodec('pcm_s16le')
+          .format('s16le')
+          .on('error', reject)
+          .on('end', () => resolve())
+          .save(outputPath);
+      });
+      const pcm = await readFile(outputPath);
+      const sampleCount = Math.floor(pcm.length / 2);
+      if (sampleCount < WAVEFORM_BARS) return null;
+
+      const perBar = Math.floor(sampleCount / WAVEFORM_BARS);
+      const peaks: number[] = [];
+      for (let bar = 0; bar < WAVEFORM_BARS; bar++) {
+        let peak = 0;
+        const start = bar * perBar;
+        const end = bar === WAVEFORM_BARS - 1 ? sampleCount : start + perBar;
+        for (let i = start; i < end; i++) {
+          const v = Math.abs(pcm.readInt16LE(i * 2));
+          if (v > peak) peak = v;
+        }
+        peaks.push(peak);
+      }
+      const max = Math.max(...peaks);
+      if (max === 0) return null;
+      return peaks.map((p) => Math.round((p / max) * 100));
+    } catch (err) {
+      this.logger.warn(`Voice waveform extraction failed: ${(err as Error)?.message ?? String(err)}`);
+      return null;
+    } finally {
+      await unlink(inputPath).catch(() => undefined);
+      await unlink(outputPath).catch(() => undefined);
+    }
+  }
+
+  /**
    * Message insert + conversation rollups in one transaction; auto-reopens a
    * RESOLVED conversation (a reply must never stay buried under Resolved).
    * Every send also refreshes the conversation's "most recently discussed
@@ -233,6 +287,7 @@ export class MessageService {
       text?: string;
       audioKey?: string;
       audioDuration?: number | null;
+      audioWaveform?: number[] | null;
       requiresAck: boolean;
     },
   ) {
@@ -252,6 +307,7 @@ export class MessageService {
           text: data.text ?? null,
           audioKey: data.audioKey ?? null,
           audioDuration: data.audioDuration ?? null,
+          ...(data.audioWaveform ? { audioWaveform: data.audioWaveform } : {}),
           requiresAck: data.requiresAck,
         },
         include: MESSAGE_INCLUDE,
@@ -432,6 +488,42 @@ export class MessageService {
       changes: { after: { acknowledgedAt: updated.acknowledgedAt, acknowledgedById: user.userId } },
     });
     return updated;
+  }
+
+  /**
+   * Records the first listen by someone other than the sender (drives the
+   * "played" mic colour / tick). Idempotent and race-safe: the conditional
+   * updateMany only ever writes while playedAt is still null, so a second
+   * listener or a repeat call never overwrites the original timestamp. The
+   * sender replaying their own message is a no-op.
+   */
+  async markPlayed(user: AuthUser, messageId: string) {
+    const message = await this.prisma.conversationMessage.findUnique({
+      where: { id: messageId },
+      select: { id: true, type: true, vendorId: true, createdById: true, playedAt: true },
+    });
+    if (!message || message.vendorId !== user.vendorId) {
+      throw new NotFoundException('Message not found');
+    }
+    if (message.type !== MessageType.VOICE) {
+      throw new BadRequestException('This message does not have a voice recording');
+    }
+    if (message.createdById === user.userId || message.playedAt) {
+      return { playedAt: message.playedAt };
+    }
+    const playedAt = new Date();
+    const { count } = await this.prisma.conversationMessage.updateMany({
+      where: { id: messageId, playedAt: null },
+      data: { playedAt, playedById: user.userId },
+    });
+    if (count === 0) {
+      const current = await this.prisma.conversationMessage.findUnique({
+        where: { id: messageId },
+        select: { playedAt: true },
+      });
+      return { playedAt: current?.playedAt ?? null };
+    }
+    return { playedAt };
   }
 
   async getAudioUrl(vendorId: string, messageId: string) {

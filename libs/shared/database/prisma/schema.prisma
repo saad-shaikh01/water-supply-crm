@@ -2315,6 +2315,9 @@ model ConversationMessage {
   text             String?
   audioKey         String? // Wasabi S3 key for voice messages
   audioDuration    Int? // duration in seconds
+  audioWaveform    Json? // normalized 0-100 peak bars (voice messages); null on pre-feature rows
+  playedAt         DateTime? // first time someone OTHER than the sender played this voice message
+  playedById       String? // userId of that first listener (plain string, no relation needed)
   requiresAck      Boolean        @default(false) // instruction: blocks delivery until acknowledged
   acknowledgedAt   DateTime?
   acknowledgedById String? // userId of driver who acknowledged (plain string, no relation needed)

@@ -1,6 +1,6 @@
 'use client';
 
-import { CheckCircle2, Clock, Loader2, Mic, ShieldAlert } from 'lucide-react';
+import { CheckCircle2, Clock, Loader2, ShieldAlert } from 'lucide-react';
 import { Badge, Button, cn } from '@water-supply-crm/ui';
 import type { ConversationMessage } from '@water-supply-crm/types';
 import { VoiceMessagePlayer } from './voice-message-player';
@@ -65,10 +65,7 @@ export function MessageBubble({
         )}
 
         {message.type === 'VOICE' && (
-          <div className="flex items-center gap-1.5">
-            <Mic className={cn('h-3.5 w-3.5 shrink-0', isOwn ? 'opacity-80' : 'text-primary')} />
-            <VoiceMessagePlayer message={message} />
-          </div>
+          <VoiceMessagePlayer message={message} isOwn={isOwn} />
         )}
 
         {message.requiresAck && (

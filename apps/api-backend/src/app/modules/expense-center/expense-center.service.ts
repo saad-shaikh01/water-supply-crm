@@ -39,6 +39,13 @@ import {
   type CategorySummaryResult,
 } from './expense-center-category-summary.util';
 
+export type ExpenseCenterTimelineResult = PaginatedResult<ExpenseCenterRow> & {
+  meta: PaginatedResult<ExpenseCenterRow>['meta'] & {
+    /** Subtotal of EVERY row matching the active filters (all pages). */
+    filtered: { active: boolean; count: number; totalAmount: number; cashAmount: number; cardAmount: number };
+  };
+};
+
 export interface ExpenseCenterSummary {
   totalSpend: number;
   cashAmount: number;
@@ -291,7 +298,7 @@ export class ExpenseCenterService {
   async getTimeline(
     vendorId: string,
     query: ExpenseCenterTimelineQueryDto,
-  ): Promise<PaginatedResult<ExpenseCenterRow>> {
+  ): Promise<ExpenseCenterTimelineResult> {
     const { page = 1, limit = 20 } = query;
     const from = query.from ? new Date(query.from) : undefined;
     const to = query.to ? endOfDay(new Date(query.to)) : undefined;
@@ -311,6 +318,10 @@ export class ExpenseCenterService {
       crewCashCount,
       standaloneRows,
       standaloneCount,
+      expenseGroups,
+      ledgerAmounts,
+      crewCashSum,
+      standaloneSum,
     ] =
       await Promise.all([
         selection.includeExpenses
@@ -396,6 +407,23 @@ export class ExpenseCenterService {
         selection.includeStandaloneCrewCash
           ? this.prisma.standaloneCrewCashExpense.count({ where: standaloneCrewCashWhere })
           : 0,
+        // Whole-filter totals (NOT just the page) — drives the "Filtered: N · ₨ X" chip.
+        selection.includeExpenses
+          ? this.prisma.expense.groupBy({ by: ['paidFromCash'], where: expenseWhere, _sum: { amount: true } })
+          : [],
+        // Ledger `amount` is SIGNED — a cost total needs SUM(ABS(amount)), so read the rows.
+        selection.includeStaffLedger
+          ? this.prisma.staffLedgerEntry.findMany({ where: ledgerWhere, select: { amount: true } })
+          : [],
+        selection.includeCrewCash
+          ? this.prisma.crewCashDistribution.aggregate({ where: crewCashWhere, _sum: { amount: true } })
+          : null,
+        selection.includeStandaloneCrewCash
+          ? this.prisma.standaloneCrewCashExpense.aggregate({
+              where: standaloneCrewCashWhere,
+              _sum: { amount: true },
+            })
+          : null,
       ]);
 
     const merged: ExpenseCenterRow[] = [];
@@ -408,7 +436,31 @@ export class ExpenseCenterService {
     const total = expenseCount + ledgerCount + crewCashCount + standaloneCount;
     const skip = (page - 1) * limit;
 
-    return paginate(merged.slice(skip, skip + limit), total, page, limit);
+    // Same cash/card assumption as getSummary: only Expense carries a payment flag;
+    // payroll ledger + crew cash rows always count as cash.
+    const expenseCard = (expenseGroups as Array<{ paidFromCash: boolean; _sum: { amount: number | null } }>)
+      .filter((g) => !g.paidFromCash)
+      .reduce((sum, g) => sum + (g._sum.amount ?? 0), 0);
+    const expenseTotal = (expenseGroups as Array<{ _sum: { amount: number | null } }>).reduce(
+      (sum, g) => sum + (g._sum.amount ?? 0),
+      0,
+    );
+    const ledgerTotal = (ledgerAmounts as Array<{ amount: number }>).reduce((sum, row) => sum + Math.abs(row.amount), 0);
+    const totalAmount = round2(expenseTotal + ledgerTotal + (crewCashSum?._sum.amount ?? 0) + (standaloneSum?._sum.amount ?? 0));
+    const cardAmount = round2(expenseCard);
+    const cashAmount = round2(totalAmount - cardAmount);
+    const active = Boolean(
+      query.domain ||
+        query.category ||
+        query.vanId ||
+        query.employeeId ||
+        query.extraLabourId ||
+        query.paymentMethod ||
+        query.source,
+    );
+
+    const result = paginate(merged.slice(skip, skip + limit), total, page, limit);
+    return { ...result, meta: { ...result.meta, filtered: { active, count: total, totalAmount, cashAmount, cardAmount } } };
   }
 
   // ────────────────────────────────────────────────────────────────────────

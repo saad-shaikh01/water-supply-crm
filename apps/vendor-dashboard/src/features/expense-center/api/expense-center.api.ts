@@ -125,6 +125,8 @@ export interface ExpenseCenterTimelineMeta {
   page: number;
   limit: number;
   totalPages: number;
+  /** Subtotal of every row matching the active filters (all pages, not just this one). */
+  filtered?: { active: boolean; count: number; totalAmount: number; cashAmount: number; cardAmount: number };
 }
 
 export interface ExpenseCenterTimelineResponse {

@@ -114,6 +114,11 @@ export const conversationsApi = {
       .patch<ConversationMessage>(`/messages/${messageId}/acknowledge`, {})
       .then((r) => r.data),
 
+  markMessagePlayed: (messageId: string) =>
+    apiClient
+      .patch<{ playedAt: string | null }>(`/messages/${messageId}/played`, {})
+      .then((r) => r.data),
+
   getMessageAudioUrl: (messageId: string) =>
     apiClient.get<{ signedUrl: string }>(`/messages/${messageId}/audio`).then((r) => r.data),
 };

@@ -199,6 +199,10 @@ export interface ConversationMessage {
   text: string | null;
   audioKey: string | null;
   audioDuration: number | null;
+  /** 0-100 peak bars; null/absent on voice messages sent before this existed. */
+  audioWaveform?: number[] | null;
+  /** First listen by someone other than the sender. */
+  playedAt?: string | null;
   requiresAck: boolean;
   acknowledgedAt: string | null;
   acknowledgedById: string | null;
