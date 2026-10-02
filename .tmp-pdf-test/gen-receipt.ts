@@ -20,6 +20,8 @@ async function main() {
     deliveryTime: '02:15 PM',
     vendorName: 'DASANI ENTERPRISES',
     previousMonthOutstanding: -3500,
+    depositCash: 5000,
+    depositBottles: 3,
   });
 
   fs.writeFileSync(__dirname + '/receipt-test.pdf', buffer);

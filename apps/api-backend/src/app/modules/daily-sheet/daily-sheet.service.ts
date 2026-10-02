@@ -67,6 +67,7 @@ import { VehicleCheckService } from '../fleet/vehicle-check.service';
 import { SheetDiscrepancyCaseService } from '../sheet-discrepancy-case/sheet-discrepancy-case.service';
 import { VanCashLedgerService } from '../van-cash-ledger/van-cash-ledger.service';
 import { CustomerDepositsService } from '../customer-deposits/customer-deposits.service';
+import { signedDepositAmount } from '../customer-deposits/deposit-posting.util';
 import {
   buildReconciliation as buildReconciliationPure,
   isSheetModifiedAfterClose,
@@ -966,6 +967,7 @@ export class DailySheetService implements OnModuleInit {
                   item.dailySheet.date,
                 )
               : undefined;
+          const depositHeld = await this.getDepositHeldForReceipt(tx, vendorId, item.customerId);
           const receiptData = {
             customerName: item.customer.name,
             customerCode: item.customer.customerCode,
@@ -982,6 +984,7 @@ export class DailySheetService implements OnModuleInit {
             deliveryTime: now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Karachi' }),
             vendorName: item.dailySheet.vendor?.name ?? 'Water Supply',
             previousMonthOutstanding,
+            ...depositHeld,
           };
           // On a correction, the Meta-approved `delivery_corrected` template (DOCUMENT
           // header) carries the corrected receipt PDF itself — one message instead of
@@ -5774,6 +5777,15 @@ export class DailySheetService implements OnModuleInit {
           )
         : undefined;
 
+    // Entries get posted in the same transaction as the delivery, a few ms after
+    // deliveredAt is stamped — small grace so the delivery's own deposit counts.
+    const depositHeld = await this.getDepositHeldForReceipt(
+      this.prisma,
+      vendorId,
+      item.customerId,
+      new Date(deliveredAt.getTime() + 2 * 60 * 1000),
+    );
+
     return {
       item,
       receiptData: {
@@ -5792,7 +5804,51 @@ export class DailySheetService implements OnModuleInit {
         deliveryTime: deliveredAt.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Karachi' }),
         vendorName: item.dailySheet.vendor?.name ?? 'Water Supply',
         previousMonthOutstanding,
+        ...depositHeld,
       },
+    };
+  }
+
+  /**
+   * Deposit the company is currently holding for a customer, for the receipt's
+   * "Deposit" row: total Rs. (CASH deposits) and total bottle count (BOTTLE
+   * deposits, all products). A field is omitted when it is not > 0, so the row
+   * only renders for customers who actually have a deposit.
+   * Live send → current balances. Historical receipt (asOf) → replayed from
+   * the entry ledger up to that moment (every entry counts, voided originals
+   * and their reversals alike, so a later void never rewrites the past).
+   */
+  private async getDepositHeldForReceipt(
+    db: Prisma.TransactionClient | PrismaService,
+    vendorId: string,
+    customerId: string,
+    asOf?: Date,
+  ): Promise<{ depositCash?: number; depositBottles?: number }> {
+    let cash = 0;
+    let bottles = 0;
+    if (!asOf) {
+      const deposits = await db.customerDeposit.findMany({
+        where: { vendorId, customerId, balance: { not: 0 } },
+        select: { type: true, balance: true },
+      });
+      for (const d of deposits) {
+        if (d.type === 'CASH') cash += d.balance;
+        else bottles += d.balance;
+      }
+    } else {
+      const entries = await db.customerDepositEntry.findMany({
+        where: { vendorId, deposit: { customerId }, createdAt: { lte: asOf } },
+        select: { direction: true, amount: true, deposit: { select: { type: true } } },
+      });
+      for (const e of entries) {
+        const signed = signedDepositAmount(e.direction, e.amount);
+        if (e.deposit.type === 'CASH') cash += signed;
+        else bottles += signed;
+      }
+    }
+    return {
+      ...(cash > 0.004 ? { depositCash: Math.round(cash * 100) / 100 } : {}),
+      ...(bottles > 0.004 ? { depositBottles: Math.round(bottles) } : {}),
     };
   }
 

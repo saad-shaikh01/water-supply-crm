@@ -23,6 +23,10 @@ export interface DeliveryReceiptData {
   vendorName: string;
   /** MONTHLY customers only — balance carried in from before this month. */
   previousMonthOutstanding?: number;
+  /** Cash deposit (Rs.) the vendor holds for this customer — row hidden when absent/0. */
+  depositCash?: number;
+  /** Bottle deposit (bottle count, all products) the vendor holds — row hidden when absent/0. */
+  depositBottles?: number;
 }
 
 // Blue Ice brand logo — same asset used by the customer statement PDF.
@@ -32,8 +36,17 @@ const LOGO_PATH = path.join(__dirname, 'assets', 'blue-ice-logo.png');
 const COMPANY_NAME    = 'DASANI ENTERPRISES';
 const COMPANY_ADDRESS = 'B-145 block 13 D/1 Gulshan e Iqbal, Karachi.';
 const COMPANY_PHONES  = 'Cell# 0316-2677954, 0345-2364698';
+const COMPANY_WEBSITE = 'blueice.com.pk';
+const COMPANY_EMAIL   = 'info@blueice.com.pk';
+
+// Online payment details — same as the customer statement's footer.
+const BANK_TITLE      = 'DASANI ENTERPRISES';
+const BANK_NAME       = 'Meezan Bank';
+const BANK_ACCOUNT_NO = '9933-0104414597';
+const EASYPAISA_NO    = '03162677954';
 
 const C = {
+  cyan:     '#0891b2',
   navy:     '#0f172a',
   navyText: '#111827',
   accent:   '#b91c1c',
@@ -54,8 +67,8 @@ const PAGE_W    = 419.53; // A5
 const PAGE_H    = 595.28;
 const CONTENT_W = PAGE_W - MARGIN * 2;
 const RADIUS    = 10;
-const BANNER_H  = 76;
-const ROW_H     = 22;
+const BANNER_H  = 66;
+const ROW_H     = 16;
 
 interface DetailRow {
   label: string;
@@ -89,6 +102,7 @@ export class DeliveryReceiptPdfService {
         { label: 'Date / Time',       value: `${data.deliveryDate}  ·  ${data.deliveryTime}` },
         { label: 'Customer',          value: data.customerName },
         { label: 'Customer Code',     value: data.customerCode },
+        ...this.depositRow(data),
         { label: 'Product',           value: data.productName },
         { label: 'Price / Bottle',    value: `Rs. ${data.pricePerBottle.toFixed(2)}` },
         ...(data.van ? [{ label: 'Van', value: data.van }] : []),
@@ -102,11 +116,11 @@ export class DeliveryReceiptPdfService {
       this.drawDetailCard(doc, rows);
 
       if (data.previousMonthOutstanding != null) {
-        doc.y += 14;
+        doc.y += 8;
         this.drawBalanceBar(doc, 'PREVIOUS MONTH OUTSTANDING', data.previousMonthOutstanding);
       }
 
-      doc.y += 14;
+      doc.y += 8;
       // financialBalanceAfter < 0 means the customer has overpaid / is in
       // advance credit (e.g. bill Rs.440, paid Rs.500 → balance -60) — the
       // bar must say so instead of always reading "outstanding balance",
@@ -119,15 +133,23 @@ export class DeliveryReceiptPdfService {
             : 'TOTAL OUTSTANDING BALANCE';
       this.drawBalanceBar(doc, totalLabel, data.financialBalanceAfter);
 
-      doc.y += 16;
-      doc.fillColor(C.muted).font('Helvetica').fontSize(7.5)
-        .text(
-          'Thank you! For any questions about this receipt, please contact your vendor.',
-          MARGIN, doc.y, { width: CONTENT_W, align: 'center' },
-        );
+      doc.y += 10;
+      this.drawThankYouFooter(doc);
 
       doc.end();
     });
+  }
+
+  // "Deposit" row — Rs. and/or bottles, joined with " / " when the customer has both.
+  private depositRow(data: DeliveryReceiptData): DetailRow[] {
+    const parts: string[] = [];
+    if ((data.depositCash ?? 0) > 0) {
+      parts.push(`Rs. ${data.depositCash!.toLocaleString('en-PK', { maximumFractionDigits: 2 })}`);
+    }
+    if ((data.depositBottles ?? 0) > 0) {
+      parts.push(`${data.depositBottles} ${data.depositBottles === 1 ? 'bottle' : 'bottles'}`);
+    }
+    return parts.length ? [{ label: 'Deposit', value: parts.join(' / ') }] : [];
   }
 
   // ── Brand banner: gradient card with logo chip (left) + vendor identity (right) ─
@@ -153,11 +175,11 @@ export class DeliveryReceiptPdfService {
     }
 
     doc.fillColor(C.white).font('Helvetica-Bold').fontSize(13)
-      .text(COMPANY_NAME, MARGIN, y + 16, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
+      .text(COMPANY_NAME, MARGIN, y + 12, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
     doc.fillColor('#ffffff', 0.82).font('Helvetica').fontSize(7.5)
-      .text(COMPANY_ADDRESS, MARGIN, y + 35, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
+      .text(COMPANY_ADDRESS, MARGIN, y + 30, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
     doc.fillColor('#ffffff', 0.82).font('Helvetica').fontSize(7.5)
-      .text(COMPANY_PHONES, MARGIN, y + 47, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
+      .text(COMPANY_PHONES, MARGIN, y + 42, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
 
     doc.y = y + BANNER_H + 3;
   }
@@ -186,7 +208,7 @@ export class DeliveryReceiptPdfService {
       if (row.emphasize) {
         doc.moveTo(MARGIN + 10, ry).lineTo(MARGIN + CONTENT_W - 10, ry).strokeColor(C.border).lineWidth(0.75).stroke();
       }
-      const ty = ry + 6.5;
+      const ty = ry + 3.5;
       doc.fillColor(row.emphasize ? C.navyText : C.muted).font(row.emphasize ? 'Helvetica-Bold' : 'Helvetica').fontSize(8.5)
         .text(row.label, MARGIN + 12, ty, { width: CONTENT_W * 0.55, lineBreak: false });
       doc.fillColor(row.valueColor ?? C.text).font('Helvetica-Bold').fontSize(8.5)
@@ -194,6 +216,72 @@ export class DeliveryReceiptPdfService {
     });
 
     doc.y = y + h;
+  }
+
+  // ── Thank-you / payment footer (same design as the customer statement, compacted for A5) ─
+  private drawThankYouFooter(doc: PDFKit.PDFDocument): void {
+    const y = doc.y;
+
+    doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(9)
+      .text('Thank you for your business with us!', MARGIN, y, { width: CONTENT_W, align: 'center', lineBreak: false });
+    doc.fillColor(C.muted).font('Helvetica').fontSize(7)
+      .text(`Please make all payments to ${BANK_TITLE}`, MARGIN, y + 12, { width: CONTENT_W, align: 'center', lineBreak: false });
+    doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
+      .text('FOR ONLINE PAYMENTS', MARGIN, y + 27, { width: CONTENT_W, align: 'center', lineBreak: false });
+
+    const cardsY = y + 40;
+    const gap    = 10;
+    const cardW  = (CONTENT_W - gap) / 2;
+    const cardH  = 56;
+
+    this.drawPaymentCard(doc, MARGIN, cardsY, cardW, cardH, 'B', C.cyan, 'BANK TRANSFER', (bx, by, bw) => {
+      const rows: [string, string][] = [
+        ['Acc Title', BANK_TITLE],
+        ['Acc No',    BANK_ACCOUNT_NO],
+        ['Bank',      BANK_NAME],
+      ];
+      rows.forEach(([lbl, val], i) => {
+        const ry = by + i * 9;
+        doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(5.5)
+          .text(lbl.toUpperCase(), bx, ry + 0.5, { width: bw * 0.32, lineBreak: false });
+        doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(6.5)
+          .text(val, bx + bw * 0.32, ry, { width: bw - bw * 0.32, lineBreak: false });
+      });
+    });
+
+    this.drawPaymentCard(doc, MARGIN + cardW + gap, cardsY, cardW, cardH, 'E', C.green, 'EASYPAISA', (bx, by, bw) => {
+      doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(5.5)
+        .text('ACCOUNT NUMBER', bx, by + 0.5, { width: bw, lineBreak: false });
+      doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(12)
+        .text(EASYPAISA_NO, bx, by + 9, { width: bw, lineBreak: false });
+    });
+
+    const cy = cardsY + cardH + 8;
+    doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7)
+      .text(COMPANY_WEBSITE, MARGIN, cy, { width: CONTENT_W, align: 'right', lineBreak: false });
+    doc.fillColor(C.muted).font('Helvetica').fontSize(7)
+      .text(`${COMPANY_EMAIL}  ·  ${COMPANY_PHONES}`, MARGIN, cy + 9, { width: CONTENT_W, align: 'right', lineBreak: false });
+
+    doc.y = cy + 18;
+  }
+
+  // ── Payment method card: shadow card + colored icon chip + title + custom body ─
+  private drawPaymentCard(
+    doc: PDFKit.PDFDocument,
+    x: number, y: number, w: number, h: number,
+    icon: string, iconColor: string, title: string,
+    drawBody: (bodyX: number, bodyY: number, bodyW: number) => void,
+  ): void {
+    drawShadowShape(doc, x, y, w, h, RADIUS, C.white, { shadowColor: C.navy, borderColor: C.border, shadowOpacity: 0.08 });
+
+    const iconSize = 16;
+    doc.roundedRect(x + 8, y + 7, iconSize, iconSize, 4).fill(iconColor);
+    doc.fillColor(C.white).font('Helvetica-Bold').fontSize(8)
+      .text(icon, x + 8, y + 11, { width: iconSize, align: 'center', lineBreak: false });
+    doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
+      .text(title, x + 8 + iconSize + 6, y + 12, { width: w - iconSize - 22, lineBreak: false });
+
+    drawBody(x + 8, y + 29, w - 16);
   }
 
   // ── Balance summary bar (reused for both outstanding-balance and
