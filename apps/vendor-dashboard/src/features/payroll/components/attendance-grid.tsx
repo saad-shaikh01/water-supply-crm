@@ -16,7 +16,6 @@ import { cn } from '@water-supply-crm/ui';
 import { AlertCircle, CalendarOff, Filter, Inbox, RefreshCw, UserX } from 'lucide-react';
 import type { AttendanceStatus } from '@water-supply-crm/types';
 import { usePermissions } from '../../authz/hooks/use-permissions';
-import { useOpenPayrollPeriod } from '../hooks/use-payroll-dashboard';
 import { usePayrollPeriods } from '../hooks/use-payroll-history';
 import { useEligibleEmployees } from '../hooks/use-eligible-employees';
 import {
@@ -24,7 +23,9 @@ import {
   useAutoBackfillAttendance,
   useBackfillAttendance,
   useBulkMarkAttendance,
+  useCurrentAttendancePeriod,
 } from '../hooks/use-attendance';
+import { pktToday } from '../../../lib/date-pkt';
 import type { AttendanceRecord, MarkAttendanceData } from '../api/payroll.api';
 import { MarkAttendanceDialog, type MarkAttendanceTarget } from './mark-attendance-dialog';
 import { MarkDayOffDialog } from './mark-day-off-dialog';
@@ -87,10 +88,9 @@ export function AttendanceGrid() {
   const { can } = usePermissions();
   const canView = can('payroll:attendance_view');
   const canMark = can('payroll:attendance_mark');
-  // The current period is resolved via find-or-create, which needs period_generate;
-  // browsing prior periods needs view_all. Manager (the default attendance holder)
-  // has the former. Fall back gracefully when a permission is missing.
-  const canResolveCurrent = can('payroll:period_generate');
+  // Today's period is resolved by the attendance endpoint (attendance_view, no period
+  // administration permission needed); browsing other periods needs view_all. Fall back
+  // gracefully to just the current period when view_all is missing.
   const canBrowseHistory = can('payroll:view_all');
 
   const [selectedPeriodId, setSelectedPeriodId] = useState<string | undefined>(undefined);
@@ -100,19 +100,23 @@ export function AttendanceGrid() {
   const [showFilters, setShowFilters] = useState(false);
   const [highlightKeys, setHighlightKeys] = useState<Set<string> | null>(null);
 
+  // The calendar period (today, Asia/Karachi) — NOT the payroll settlement pointer, which can
+  // still be on last month while its deductions are being collected.
   const {
-    data: openPeriod,
-    isLoading: openLoading,
-    isError: openError,
-  } = useOpenPayrollPeriod(canView && canResolveCurrent);
+    data: currentPeriod,
+    isLoading: currentLoading,
+    isError: currentError,
+  } = useCurrentAttendancePeriod(canView);
   const { data: periods } = usePayrollPeriods(canView && canBrowseHistory);
 
-  const activePeriodId = selectedPeriodId ?? openPeriod?.id;
+  const activePeriodId = selectedPeriodId ?? currentPeriod?.id;
 
   const period = useMemo(() => {
     if (!activePeriodId) return undefined;
-    return periods?.find((p) => p.id === activePeriodId) ?? (openPeriod?.id === activePeriodId ? openPeriod : undefined);
-  }, [periods, openPeriod, activePeriodId]);
+    return (
+      periods?.find((p) => p.id === activePeriodId) ?? (currentPeriod?.id === activePeriodId ? currentPeriod : undefined)
+    );
+  }, [periods, currentPeriod, activePeriodId]);
 
   const { data: employees, isLoading: empLoading, isError: empError } = useEligibleEmployees();
   const {
@@ -136,7 +140,8 @@ export function AttendanceGrid() {
   // may still be undefined ahead of the loading/error guards below.
   const days = useMemo(() => (period ? eachUtcDay(period.startDate, period.endDate) : []), [period]);
 
-  const todayYmd = new Date().toISOString().slice(0, 10);
+  // PKT calendar day — toISOString() is UTC, which is still "yesterday" 00:00–05:00 PKT.
+  const todayYmd = pktToday();
   const emptyAbsentTargets = useMemo(() => {
     if (!employees) return [];
     const targets: MarkAttendanceData[] = [];
@@ -158,11 +163,8 @@ export function AttendanceGrid() {
   if (!canView) {
     return permissionCard('Attendance requires additional payroll permissions.');
   }
-  if (!canResolveCurrent && !selectedPeriodId) {
-    return permissionCard('Viewing attendance requires the payroll period-generate permission.');
-  }
 
-  if (openLoading) {
+  if (currentLoading) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-10 w-64 rounded-xl" />
@@ -170,14 +172,18 @@ export function AttendanceGrid() {
       </div>
     );
   }
-  if (openError && !period) {
+  if (currentError && !period) {
     return errorCard('Failed to load the payroll period.');
   }
   if (!period) {
     return errorCard('No payroll period is available yet.');
   }
 
-  const periodOptions = periods && periods.length > 0 ? periods : openPeriod ? [openPeriod] : [];
+  // The cached periods list can predate a period the current-period call just created
+  // (e.g. October on 1 Oct), so merge it in or the Select would show a blank value.
+  const periodOptions = [...(periods ?? [])];
+  if (currentPeriod && !periodOptions.some((p) => p.id === currentPeriod.id)) periodOptions.unshift(currentPeriod);
+  periodOptions.sort((a, b) => (a.startDate < b.startDate ? 1 : -1));
 
   return (
     <div className="space-y-4">
@@ -191,7 +197,7 @@ export function AttendanceGrid() {
               {periodOptions.map((p) => (
                 <SelectItem key={p.id} value={p.id}>
                   {p.periodLabel}
-                  {p.id === openPeriod?.id ? ' (current)' : ''}
+                  {p.id === currentPeriod?.id ? ' (current)' : ''}
                 </SelectItem>
               ))}
             </SelectContent>

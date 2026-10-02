@@ -13,6 +13,7 @@ const user = { userId: 'admin-001', vendorId: 'vendor-001', role: 'VENDOR_ADMIN'
 function makeController() {
   const service = {
     getOrCreateOpenPeriod: jest.fn().mockResolvedValue({ id: 'period-001' }),
+    getCurrentAttendancePeriod: jest.fn().mockResolvedValue({ id: 'period-002' }),
     lockPeriod: jest.fn().mockResolvedValue({ period: { id: 'period-001' }, lockedEntryCount: 1 }),
     unlockPeriod: jest.fn().mockResolvedValue({ period: { id: 'period-001' }, unlockedEntryCount: 1 }),
   };
@@ -27,6 +28,7 @@ describe('PayrollPeriodController — authorization metadata', () => {
 
   const permissionByMethod: Record<string, string> = {
     getOrCreateOpenPeriod: 'payroll:period_generate',
+    getCurrentAttendancePeriod: 'payroll:attendance_view',
     lockPeriod: 'payroll:period_lock',
     unlockPeriod: 'payroll:period_unlock',
   };
@@ -61,6 +63,13 @@ describe('PayrollPeriodController — pass-through', () => {
     const { controller, service } = makeController();
     await controller.getOrCreateOpenPeriod(user);
     expect(service.getOrCreateOpenPeriod).toHaveBeenCalledWith(user);
+  });
+
+  it('getCurrentAttendancePeriod() forwards ONLY the user — it accepts no date/id, so it cannot create an arbitrary period', async () => {
+    const { controller, service } = makeController();
+    await controller.getCurrentAttendancePeriod(user);
+    expect(service.getCurrentAttendancePeriod).toHaveBeenCalledWith(user);
+    expect(controller.getCurrentAttendancePeriod.length).toBe(1);
   });
 
   it('lockPeriod() forwards user and id param to the service', async () => {

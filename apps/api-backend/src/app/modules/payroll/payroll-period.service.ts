@@ -1,10 +1,11 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import { PayrollAuditAction, PayrollEntryStatus, PayrollPeriodStatus, Prisma } from '@prisma/client';
 import type { AuthUser } from '@water-supply-crm/types';
 import { PayrollEntryService } from './payroll-entry.service';
 import { StaffAdvancePlanService } from './staff-advance-plan.service';
 import { computeCycleForCutoff } from './payroll-cycle.util';
+import { vendorTodayString } from '../../common/helpers/date.util';
 
 /**
  * One row per vendor per pay period (§ schema module note, PayrollPeriod).
@@ -28,32 +29,115 @@ export class PayrollPeriodService {
   }
 
   /**
-   * Finds the vendor's current OPEN period, or creates one for the current
-   * cycle (per `PayrollVendorConfig.cutoffDay`, default 1). Idempotent: an
-   * existing OPEN period is always returned as-is, and a period already
-   * created for the same computed cycle (any status) is returned rather than
-   * duplicated — the (vendorId, periodLabel) unique constraint backstops
-   * this at the database level regardless.
+   * The vendor's current SETTLEMENT period — the one payroll work (generate /
+   * approve / lock) is happening on right now: the OLDEST period still OPEN or
+   * REVIEW. Several can be active at once (e.g. September still collecting
+   * deductions until the 10th while October has already started); the oldest
+   * is the one that must be locked first, see `assertNoEarlierActivePeriod`.
+   * LOCKED/PAID periods are never the pointer — their payments are recorded
+   * per-entry from that period's own page. When nothing is OPEN/REVIEW, falls
+   * back to the period containing today (created if missing).
+   *
+   * This is NOT the attendance period — that follows the calendar, not payroll
+   * status. Both resolve their row through `ensurePeriodForDate`.
    */
   async getOrCreateOpenPeriod(user: AuthUser) {
-    const existingOpen = await this.prisma.payrollPeriod.findFirst({
-      where: { vendorId: user.vendorId, status: PayrollPeriodStatus.OPEN },
-      orderBy: { startDate: 'desc' },
+    const oldestActive = await this.prisma.payrollPeriod.findFirst({
+      where: { vendorId: user.vendorId, status: { in: [PayrollPeriodStatus.OPEN, PayrollPeriodStatus.REVIEW] } },
+      orderBy: { startDate: 'asc' },
     });
-    if (existingOpen) return existingOpen;
+    if (oldestActive) return oldestActive;
 
-    const config = await this.prisma.payrollVendorConfig.findUnique({ where: { vendorId: user.vendorId } });
-    const cutoffDay = config?.cutoffDay ?? 1;
-    const { startDate, endDate, periodLabel } = computeCycleForCutoff(cutoffDay, new Date());
+    return this.ensurePeriodForDate(user.vendorId);
+  }
 
-    const existingByLabel = await this.prisma.payrollPeriod.findUnique({
-      where: { vendorId_periodLabel: { vendorId: user.vendorId, periodLabel } },
+  /**
+   * The period the Attendance grid should show: the one containing TODAY
+   * (Asia/Karachi), created if missing. Deliberately takes no date/id from the
+   * caller — it can only ever resolve (or create) today's period, never an
+   * arbitrary, past or future one — and ignores payroll status entirely, so
+   * October attendance starts on 1 Oct while September is still being settled.
+   * Gated on `payroll:attendance_view` at the controller, not period_generate.
+   */
+  async getCurrentAttendancePeriod(user: AuthUser) {
+    return this.ensurePeriodForDate(user.vendorId);
+  }
+
+  /**
+   * Idempotent find-or-create of the period whose date range contains the
+   * vendor-timezone (Asia/Karachi) calendar day of `now`, cycle per
+   * `PayrollVendorConfig.cutoffDay` (default 1). Whatever its status — an
+   * existing LOCKED/PAID row is returned as-is, never re-created or reopened.
+   *
+   * Looked up by RANGE, not label, so a changed `cutoffDay` can't make a label
+   * match a row covering different dates. If a concurrent caller created the
+   * row first (unique (vendorId, periodLabel) → P2002) the winner is re-read.
+   * A row that holds the label but does NOT cover the date (cutoffDay changed
+   * mid-history) is a conflict to resolve by hand, never silently returned.
+   *
+   * Callers: the settlement pointer today; the attendance current-period
+   * endpoint and a scheduler are intended to share it.
+   */
+  async ensurePeriodForDate(vendorId: string, now: Date = new Date()) {
+    // `computeCycleForCutoff` is all-UTC: hand it the UTC midnight of the PKT calendar
+    // day, otherwise 00:00–05:00 PKT on the 1st (still the previous UTC day) resolves
+    // to the previous cycle.
+    const reference = new Date(`${vendorTodayString(now)}T00:00:00.000Z`);
+
+    const findCovering = () =>
+      this.prisma.payrollPeriod.findFirst({
+        where: { vendorId, startDate: { lte: reference }, endDate: { gte: reference } },
+      });
+
+    const existing = await findCovering();
+    if (existing) return existing;
+
+    const config = await this.prisma.payrollVendorConfig.findUnique({ where: { vendorId } });
+    const { startDate, endDate, periodLabel } = computeCycleForCutoff(config?.cutoffDay ?? 1, reference);
+
+    try {
+      return await this.prisma.payrollPeriod.create({
+        data: { vendorId, periodLabel, startDate, endDate, status: PayrollPeriodStatus.OPEN },
+      });
+    } catch (err) {
+      if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') throw err;
+
+      const winner = await findCovering();
+      if (winner) return winner;
+      throw new ConflictException(
+        `A payroll period labelled ${periodLabel} already exists but does not cover ${vendorTodayString(now)} ` +
+          `(was the cut-off day changed?). Resolve it before continuing.`,
+      );
+    }
+  }
+
+  /**
+   * A period may only be locked once every EARLIER period is out of OPEN/REVIEW:
+   * the next period's carry-forward reads this one's frozen `finalPayable` and
+   * settlements, so locking out of order would freeze a stale carry-forward.
+   * Earlier periods with no entries are ignored — `lockPeriod` itself refuses
+   * to lock an empty period, so counting them would deadlock the vendor.
+   */
+  private async assertNoEarlierActivePeriod(
+    tx: Prisma.TransactionClient,
+    vendorId: string,
+    period: { startDate: Date },
+  ) {
+    const earlier = await tx.payrollPeriod.findFirst({
+      where: {
+        vendorId,
+        endDate: { lt: period.startDate },
+        status: { in: [PayrollPeriodStatus.OPEN, PayrollPeriodStatus.REVIEW] },
+        entries: { some: {} },
+      },
+      orderBy: { startDate: 'asc' },
+      select: { periodLabel: true },
     });
-    if (existingByLabel) return existingByLabel;
-
-    return this.prisma.payrollPeriod.create({
-      data: { vendorId: user.vendorId, periodLabel, startDate, endDate, status: PayrollPeriodStatus.OPEN },
-    });
+    if (earlier) {
+      throw new BadRequestException(
+        `Cannot lock this period — the earlier period ${earlier.periodLabel} is still open. Lock it first.`,
+      );
+    }
   }
 
   /**
@@ -111,6 +195,8 @@ export class PayrollPeriodService {
             .join(', ')}`,
         );
       }
+
+      await this.assertNoEarlierActivePeriod(tx, user.vendorId, period);
 
       for (const entry of entries) {
         const approvedFinalPayable = entry.finalPayable;

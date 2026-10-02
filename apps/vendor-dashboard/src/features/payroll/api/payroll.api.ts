@@ -217,6 +217,8 @@ export const payrollApi = {
   // Periods / entries
   listPeriods: () => apiClient.get('/payroll/periods'),
   getOrCreateOpenPeriod: () => apiClient.post('/payroll/periods/open'),
+  /** Today's (Asia/Karachi) period for the Attendance grid — find-or-create, `payroll:attendance_view`. */
+  getCurrentAttendancePeriod: () => apiClient.post('/payroll/periods/current-attendance'),
   getEntriesForPeriod: (periodId: string) => apiClient.get(`/payroll/periods/${periodId}/entries`),
   generateDraft: (periodId: string) => apiClient.post(`/payroll/periods/${periodId}/entries/generate`),
   getEntryBreakdown: (entryId: string) => apiClient.get(`/payroll/entries/${entryId}/breakdown`),

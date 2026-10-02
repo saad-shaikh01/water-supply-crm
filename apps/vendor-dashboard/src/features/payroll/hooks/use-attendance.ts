@@ -9,7 +9,7 @@ import {
   type CreateAttendanceCategoryData,
   type MarkAttendanceData,
 } from '../api/payroll.api';
-import type { AttendanceCategory } from '@water-supply-crm/types';
+import type { AttendanceCategory, PayrollPeriod } from '@water-supply-crm/types';
 import { queryKeys } from '../../../lib/query-keys';
 
 /**
@@ -19,6 +19,20 @@ import { queryKeys } from '../../../lib/query-keys';
  * `onError`. Self-view of one's own attendance needs no permission (server-side
  * scope), so `useAttendanceByEmployee` gates only on id presence.
  */
+
+/**
+ * The period containing TODAY (Asia/Karachi) — `POST /payroll/periods/current-attendance`, an
+ * idempotent find-or-create gated on `payroll:attendance_view`. Attendance follows the calendar
+ * month, independent of the payroll settlement pointer (`useOpenPayrollPeriod`), which can still
+ * be on last month while its deductions are being collected.
+ */
+export const useCurrentAttendancePeriod = (enabled: boolean) => {
+  return useQuery({
+    queryKey: queryKeys.payroll.currentAttendancePeriod(),
+    queryFn: (): Promise<PayrollPeriod> => payrollApi.getCurrentAttendancePeriod().then((r) => r.data),
+    enabled,
+  });
+};
 
 export const useAttendanceByPeriod = (periodId: string | undefined, enabled: boolean) => {
   return useQuery({

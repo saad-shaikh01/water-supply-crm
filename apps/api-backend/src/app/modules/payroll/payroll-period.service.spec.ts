@@ -1,6 +1,6 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { PayrollPeriodService } from './payroll-period.service';
-import { PayrollAuditAction, PayrollEntryStatus, PayrollPeriodStatus } from '@prisma/client';
+import { PayrollAuditAction, PayrollEntryStatus, PayrollPeriodStatus, Prisma } from '@prisma/client';
 
 // ─── fixtures ─────────────────────────────────────────────────────────────────
 
@@ -61,7 +61,8 @@ function defaultBreakdownFor(entry: ReturnType<typeof approvedEntry>) {
 function makeTx(overrides: any = {}) {
   return {
     payrollPeriod: {
-      findFirst: jest.fn().mockResolvedValue(basePeriod),
+      // by-id lookup → this period; the "earlier OPEN/REVIEW period" ordering-guard query (no id) → none
+      findFirst: jest.fn().mockImplementation(async ({ where }: any) => (where?.id ? basePeriod : null)),
       update: jest.fn().mockImplementation(async ({ where, data }: any) => ({ ...basePeriod, id: where.id, ...data })),
     },
     payrollEntry: {
@@ -186,6 +187,48 @@ describe('PayrollPeriodService', () => {
       );
 
       expect(result.lockedEntryCount).toBe(2);
+    });
+
+    describe('ordering guard — an earlier OPEN/REVIEW period must be locked first', () => {
+      const octPeriod = {
+        ...basePeriod,
+        periodLabel: '2026-10',
+        startDate: new Date('2026-10-01T00:00:00.000Z'),
+        endDate: new Date('2026-10-31T23:59:59.999Z'),
+        status: PayrollPeriodStatus.OPEN,
+      };
+      const earlierLookup = (earlier: any) =>
+        jest.fn().mockImplementation(async ({ where }: any) => (where?.id ? octPeriod : earlier));
+
+      it('rejects locking October while September is still active, naming September', async () => {
+        const { svc, tx } = makeService({
+          payrollPeriod: { findFirst: earlierLookup({ periodLabel: '2026-09' }), update: jest.fn() },
+        });
+        await expect(svc.lockPeriod(adminUser, PERIOD_ID)).rejects.toThrow(/2026-09/);
+        expect(tx.payrollPeriod.update).not.toHaveBeenCalled();
+      });
+
+      it('queries only earlier OPEN/REVIEW periods that actually have entries, for this vendor', async () => {
+        const findFirst = earlierLookup(null);
+        const { svc } = makeService({ payrollPeriod: { findFirst, update: jest.fn().mockResolvedValue({}) } });
+        await svc.lockPeriod(adminUser, PERIOD_ID);
+
+        expect(findFirst).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: {
+              vendorId: VENDOR_ID,
+              endDate: { lt: octPeriod.startDate },
+              status: { in: [PayrollPeriodStatus.OPEN, PayrollPeriodStatus.REVIEW] },
+              entries: { some: {} },
+            },
+          }),
+        );
+      });
+
+      it('allows locking when no earlier period is active', async () => {
+        const { svc } = makeService({ payrollPeriod: { findFirst: earlierLookup(null), update: jest.fn().mockResolvedValue({}) } });
+        await expect(svc.lockPeriod(adminUser, PERIOD_ID)).resolves.toEqual(expect.objectContaining({ lockedEntryCount: 1 }));
+      });
     });
 
     it('throws NotFoundException when the period does not belong to this vendor', async () => {
@@ -336,55 +379,201 @@ describe('PayrollPeriodService', () => {
     });
   });
 
-  describe('getOrCreateOpenPeriod()', () => {
-    it('returns the existing OPEN period without creating a new one', async () => {
-      const prisma = {
-        payrollPeriod: {
-          findFirst: jest.fn().mockResolvedValue(basePeriod),
-          findUnique: jest.fn(),
-          create: jest.fn(),
-        },
-        payrollVendorConfig: { findUnique: jest.fn().mockResolvedValue(null) },
-      };
-      const svc = new PayrollPeriodService(prisma as any, {} as any, {} as any);
-      const result = await svc.getOrCreateOpenPeriod(adminUser);
+  // In-memory PayrollPeriod store: findFirst understands the two query shapes the service issues —
+  // the settlement pointer (status in [...], startDate asc) and the covering-range lookup.
+  function makePeriodStore(rows: any[], opts: { createError?: any } = {}) {
+    const findFirst = jest.fn().mockImplementation(async ({ where, orderBy }: any) => {
+      let hits = rows.filter((r) => r.vendorId === where.vendorId);
+      if (where.status?.in) hits = hits.filter((r) => where.status.in.includes(r.status));
+      if (where.startDate?.lte) hits = hits.filter((r) => r.startDate <= where.startDate.lte);
+      if (where.endDate?.gte) hits = hits.filter((r) => r.endDate >= where.endDate.gte);
+      if (orderBy?.startDate) hits = [...hits].sort((a, b) => (a.startDate < b.startDate ? -1 : 1) * (orderBy.startDate === 'asc' ? 1 : -1));
+      return hits[0] ?? null;
+    });
+    const create = jest.fn().mockImplementation(async ({ data }: any) => {
+      if (opts.createError) throw opts.createError;
+      const row = { id: `new-${data.periodLabel}`, ...data };
+      rows.push(row);
+      return row;
+    });
+    const prisma = { payrollPeriod: { findFirst, create }, payrollVendorConfig: { findUnique: jest.fn().mockResolvedValue(null) } };
+    return { prisma, findFirst, create, svc: new PayrollPeriodService(prisma as any, {} as any, {} as any) };
+  }
 
-      expect(result).toBe(basePeriod);
-      expect(prisma.payrollPeriod.create).not.toHaveBeenCalled();
+  const period = (label: string, status: PayrollPeriodStatus, startIso: string, endIso: string) => ({
+    id: `p-${label}`,
+    vendorId: VENDOR_ID,
+    periodLabel: label,
+    startDate: new Date(startIso),
+    endDate: new Date(endIso),
+    status,
+  });
+  const SEP = (status: PayrollPeriodStatus) => period('2026-09', status, '2026-09-01T00:00:00.000Z', '2026-09-30T23:59:59.999Z');
+  const OCT = (status: PayrollPeriodStatus) => period('2026-10', status, '2026-10-01T00:00:00.000Z', '2026-10-31T23:59:59.999Z');
+  const NOV = (status: PayrollPeriodStatus) => period('2026-11', status, '2026-11-01T00:00:00.000Z', '2026-11-30T23:59:59.999Z');
+
+  describe('getOrCreateOpenPeriod() — settlement pointer (oldest OPEN/REVIEW)', () => {
+    beforeEach(() => jest.useFakeTimers({ now: new Date('2026-10-02T06:00:00.000Z') }));
+    afterEach(() => jest.useRealTimers());
+
+    it('returns the existing OPEN period without creating a new one', async () => {
+      const sep = SEP(PayrollPeriodStatus.OPEN);
+      const { svc, create } = makePeriodStore([sep]);
+      expect(await svc.getOrCreateOpenPeriod(adminUser)).toBe(sep);
+      expect(create).not.toHaveBeenCalled();
     });
 
-    it('creates a new period for the current cycle when none is OPEN, using cutoffDay=1 default', async () => {
-      const prisma = {
-        payrollPeriod: {
-          findFirst: jest.fn().mockResolvedValue(null),
-          findUnique: jest.fn().mockResolvedValue(null),
-          create: jest.fn().mockImplementation(async ({ data }: any) => ({ id: 'new-period', ...data })),
-        },
-        payrollVendorConfig: { findUnique: jest.fn().mockResolvedValue(null) },
-      };
-      const svc = new PayrollPeriodService(prisma as any, {} as any, {} as any);
+    it('Sep, Oct, Nov all OPEN → September', async () => {
+      const sep = SEP(PayrollPeriodStatus.OPEN);
+      const { svc } = makePeriodStore([NOV(PayrollPeriodStatus.OPEN), OCT(PayrollPeriodStatus.OPEN), sep]);
+      expect(await svc.getOrCreateOpenPeriod(adminUser)).toBe(sep);
+    });
+
+    it('Scenario A: Sep REVIEW + Oct OPEN → September', async () => {
+      const sep = SEP(PayrollPeriodStatus.REVIEW);
+      const { svc } = makePeriodStore([OCT(PayrollPeriodStatus.OPEN), sep]);
+      expect(await svc.getOrCreateOpenPeriod(adminUser)).toBe(sep);
+    });
+
+    it('Scenario B: Sep LOCKED (payments pending) + Oct OPEN → October', async () => {
+      const oct = OCT(PayrollPeriodStatus.OPEN);
+      const { svc } = makePeriodStore([SEP(PayrollPeriodStatus.LOCKED), oct]);
+      expect(await svc.getOrCreateOpenPeriod(adminUser)).toBe(oct);
+    });
+
+    it('Scenario C: Sep unlocked back to REVIEW + Oct OPEN → September again', async () => {
+      const sep = SEP(PayrollPeriodStatus.REVIEW);
+      const { svc } = makePeriodStore([OCT(PayrollPeriodStatus.OPEN), sep]);
+      expect((await svc.getOrCreateOpenPeriod(adminUser)).periodLabel).toBe('2026-09');
+    });
+
+    it('creates the current-cycle period (cutoffDay=1 default) when nothing is OPEN/REVIEW', async () => {
+      const { svc, create } = makePeriodStore([SEP(PayrollPeriodStatus.LOCKED)]);
       const result = await svc.getOrCreateOpenPeriod(adminUser);
 
-      expect(prisma.payrollPeriod.create).toHaveBeenCalledTimes(1);
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(result.periodLabel).toBe('2026-10');
       expect(result.status).toBe(PayrollPeriodStatus.OPEN);
       expect(result.vendorId).toBe(VENDOR_ID);
     });
 
-    it('is idempotent — returns the existing period by label instead of creating a duplicate', async () => {
-      const existingByLabel = { ...basePeriod, status: PayrollPeriodStatus.REVIEW };
-      const prisma = {
-        payrollPeriod: {
-          findFirst: jest.fn().mockResolvedValue(null),
-          findUnique: jest.fn().mockResolvedValue(existingByLabel),
-          create: jest.fn(),
-        },
-        payrollVendorConfig: { findUnique: jest.fn().mockResolvedValue(null) },
-      };
-      const svc = new PayrollPeriodService(prisma as any, {} as any, {} as any);
-      const result = await svc.getOrCreateOpenPeriod(adminUser);
+    it('is idempotent — falls back to the existing period covering today (any status) instead of duplicating it', async () => {
+      const lockedOct = OCT(PayrollPeriodStatus.LOCKED);
+      const { svc, create } = makePeriodStore([lockedOct]);
+      expect(await svc.getOrCreateOpenPeriod(adminUser)).toBe(lockedOct);
+      expect(create).not.toHaveBeenCalled();
+    });
+  });
 
-      expect(result).toBe(existingByLabel);
-      expect(prisma.payrollPeriod.create).not.toHaveBeenCalled();
+  describe('getCurrentAttendancePeriod() — calendar period, independent of payroll status', () => {
+    beforeEach(() => jest.useFakeTimers({ now: new Date('2026-10-02T06:00:00.000Z') }));
+    afterEach(() => jest.useRealTimers());
+
+    it('on 2 Oct with September still OPEN, resolves (and creates) October — not September', async () => {
+      const { svc, create } = makePeriodStore([SEP(PayrollPeriodStatus.OPEN)]);
+      const result = await svc.getCurrentAttendancePeriod(adminUser);
+
+      expect(result.periodLabel).toBe('2026-10');
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ vendorId: VENDOR_ID, periodLabel: '2026-10', status: PayrollPeriodStatus.OPEN }),
+      });
+    });
+
+    it('never creates a past or future period (no September/November row is created)', async () => {
+      const { svc, create } = makePeriodStore([]);
+      await svc.getCurrentAttendancePeriod(adminUser);
+      const labels = create.mock.calls.map(([arg]: any) => arg.data.periodLabel);
+      expect(labels).toEqual(['2026-10']);
+    });
+
+    it('is idempotent — a second call returns the same row without creating another', async () => {
+      const { svc, create } = makePeriodStore([SEP(PayrollPeriodStatus.OPEN)]);
+      const first = await svc.getCurrentAttendancePeriod(adminUser);
+      const second = await svc.getCurrentAttendancePeriod(adminUser);
+      expect(second).toBe(first);
+      expect(create).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not change the settlement pointer — September stays the oldest OPEN period', async () => {
+      const { svc } = makePeriodStore([SEP(PayrollPeriodStatus.OPEN)]);
+      await svc.getCurrentAttendancePeriod(adminUser); // creates October (OPEN)
+      expect((await svc.getOrCreateOpenPeriod(adminUser)).periodLabel).toBe('2026-09');
+    });
+
+    it('returns the LOCKED period for today as-is (attendance ignores payroll status)', async () => {
+      const lockedOct = OCT(PayrollPeriodStatus.LOCKED);
+      const { svc, create } = makePeriodStore([lockedOct]);
+      expect(await svc.getCurrentAttendancePeriod(adminUser)).toBe(lockedOct);
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it('is scoped to the caller\'s vendor', async () => {
+      const { svc, findFirst } = makePeriodStore([]);
+      await svc.getCurrentAttendancePeriod(adminUser);
+      expect(findFirst).toHaveBeenCalledWith({
+        where: expect.objectContaining({ vendorId: VENDOR_ID }),
+      });
+    });
+  });
+
+  describe('ensurePeriodForDate()', () => {
+    it('creates the October period on 1 Oct 01:00 PKT even though UTC is still 30 Sep', async () => {
+      const { svc, create } = makePeriodStore([SEP(PayrollPeriodStatus.OPEN)]);
+      const result = await svc.ensurePeriodForDate(VENDOR_ID, new Date('2026-09-30T20:00:00.000Z'));
+
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(result.periodLabel).toBe('2026-10');
+      expect(result.startDate.toISOString()).toBe('2026-10-01T00:00:00.000Z');
+      expect(result.endDate.toISOString()).toBe('2026-10-31T23:59:59.999Z');
+    });
+
+    it('still resolves September at 30 Sep 23:00 PKT (UTC 18:00)', async () => {
+      const sep = SEP(PayrollPeriodStatus.OPEN);
+      const { svc, create } = makePeriodStore([sep]);
+      expect(await svc.ensurePeriodForDate(VENDOR_ID, new Date('2026-09-30T18:00:00.000Z'))).toBe(sep);
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it('returns a LOCKED period covering the date as-is — never recreates or reopens it', async () => {
+      const lockedSep = SEP(PayrollPeriodStatus.LOCKED);
+      const { svc, create } = makePeriodStore([lockedSep]);
+      expect(await svc.ensurePeriodForDate(VENDOR_ID, new Date('2026-09-15T06:00:00.000Z'))).toBe(lockedSep);
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it('honours a configured cutoffDay (cycle 10 Sep – 9 Oct for a date on 2 Oct)', async () => {
+      const { svc, prisma } = makePeriodStore([]);
+      prisma.payrollVendorConfig.findUnique.mockResolvedValue({ cutoffDay: 10 });
+      const result = await svc.ensurePeriodForDate(VENDOR_ID, new Date('2026-10-02T06:00:00.000Z'));
+      expect(result.periodLabel).toBe('2026-09');
+      expect(result.startDate.toISOString()).toBe('2026-09-10T00:00:00.000Z');
+      expect(result.endDate.toISOString()).toBe('2026-10-09T23:59:59.999Z');
+    });
+
+    describe('concurrent creation (P2002)', () => {
+      const p2002 = () => new Prisma.PrismaClientKnownRequestError('Unique constraint failed', { code: 'P2002', clientVersion: 'test' });
+
+      it('returns the row the winning caller created', async () => {
+        const rows: any[] = [];
+        const { svc, create, findFirst } = makePeriodStore(rows, { createError: p2002() });
+        const winner = OCT(PayrollPeriodStatus.OPEN);
+        // first covering lookup misses; after the failed create the winner is visible
+        findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(winner);
+
+        expect(await svc.ensurePeriodForDate(VENDOR_ID, new Date('2026-10-02T06:00:00.000Z'))).toBe(winner);
+        expect(create).toHaveBeenCalledTimes(1);
+      });
+
+      it('throws ConflictException when the label is taken by a row that does not cover the date', async () => {
+        const { svc } = makePeriodStore([], { createError: p2002() });
+        await expect(svc.ensurePeriodForDate(VENDOR_ID, new Date('2026-10-02T06:00:00.000Z'))).rejects.toThrow(ConflictException);
+      });
+
+      it('rethrows any non-P2002 create failure', async () => {
+        const { svc } = makePeriodStore([], { createError: new Error('db down') });
+        await expect(svc.ensurePeriodForDate(VENDOR_ID, new Date('2026-10-02T06:00:00.000Z'))).rejects.toThrow('db down');
+      });
     });
   });
 });

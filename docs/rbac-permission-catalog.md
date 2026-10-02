@@ -315,7 +315,7 @@ Each row: permission → the existing feature/endpoint(s) it gates. `page` sorts
 | `payroll:period_lock` | `PATCH /payroll/periods/:id/lock` |
 | `payroll:period_unlock` | `PATCH /payroll/periods/:id/unlock` |
 | `payroll:settlement_record` | `POST /payroll/entries/:id/settlements` |
-| `payroll:attendance_view` | View any employee's attendance — `GET /payroll/attendance/period/:periodId`; self-scope check inside `GET /payroll/attendance/employee/:userId` (self-view needs no permission). `GET /daily-sheets/:dailySheetId/attendance` needs only sheet access (`daily_sheets:view` at the page level), like the sheet's own Crew Cash list |
+| `payroll:attendance_view` | View any employee's attendance — `GET /payroll/attendance/period/:periodId`, `POST /payroll/periods/current-attendance` (find-or-create of TODAY's period only, no date/id accepted); self-scope check inside `GET /payroll/attendance/employee/:userId` (self-view needs no permission). `GET /daily-sheets/:dailySheetId/attendance` needs only sheet access (`daily_sheets:view` at the page level), like the sheet's own Crew Cash list |
 | `payroll:attendance_mark` | `POST /payroll/attendance/mark` — manual per-employee-per-day marking; an `ABSENT` / `HALF_DAY` marking also posts a `LEAVE_UNPAID` `StaffLedgerEntry` in the same transaction (Amendment R16) |
 
 ### 28. Crew Cash Distribution — `crew_cash` *(NON-navigable — recorded from a card on the existing Daily Sheet detail page, no dedicated route)*

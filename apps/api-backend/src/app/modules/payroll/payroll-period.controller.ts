@@ -38,6 +38,18 @@ export class PayrollPeriodController {
     return this.payrollPeriods.getOrCreateOpenPeriod(user);
   }
 
+  /**
+   * POST /payroll/periods/current-attendance — find-or-create the period containing TODAY
+   * (Asia/Karachi), for the Attendance grid. Attendance workflow, not period administration:
+   * gated on `payroll:attendance_view`, and it accepts no date/id so it can never create an
+   * arbitrary, past or future period.
+   */
+  @Post('current-attendance')
+  @RequirePermissions('payroll:attendance_view')
+  getCurrentAttendancePeriod(@CurrentUser() user: AuthUser) {
+    return this.payrollPeriods.getCurrentAttendancePeriod(user);
+  }
+
   /** PATCH /payroll/periods/:id/lock — requires every entry APPROVED first. */
   @Patch(':id/lock')
   @RequirePermissions('payroll:period_lock')

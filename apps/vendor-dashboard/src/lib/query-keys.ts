@@ -71,6 +71,7 @@ export const queryKeys = {
   payroll: {
     eligibleEmployees: () => ['payroll', 'eligible-employees'] as const,
     openPeriod: () => ['payroll', 'open-period'] as const,
+    currentAttendancePeriod: () => ['payroll', 'current-attendance-period'] as const,
     periodEntries: (periodId: string) => ['payroll', 'period-entries', periodId] as const,
     pendingLedgerCount: () => ['payroll', 'pending-ledger-count'] as const,
     salaryHistory: (userId: string) => ['payroll', 'salary-history', userId] as const,
