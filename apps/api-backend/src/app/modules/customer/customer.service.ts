@@ -733,7 +733,7 @@ export class CustomerService {
     return { deleted: true };
   }
 
-  async setCustomPrice(vendorId: string, customerId: string, dto: SetCustomPriceDto) {
+  async setCustomPrice(vendorId: string, customerId: string, dto: SetCustomPriceDto, actor?: AuthUser) {
     const customer = await this.prisma.customer.findFirst({
       where: { id: customerId, vendorId },
     });
@@ -747,6 +747,11 @@ export class CustomerService {
     if (!product) {
       throw new NotFoundException('Product not found');
     }
+
+    const existing = await this.prisma.customerProductPrice.findUnique({
+      where: { customerId_productId: { customerId, productId: dto.productId } },
+      select: { customPrice: true },
+    });
 
     const result = await this.prisma.customerProductPrice.upsert({
       where: {
@@ -767,10 +772,42 @@ export class CustomerService {
     });
 
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
+
+    // `before.price` is the effective price prior to this change: the previous
+    // custom price, or the product base price when none was set (flagged by
+    // `wasCustom` so the history can tell the two apart).
+    await this.audit.log({
+      vendorId,
+      userId: actor?.userId,
+      userName: actor?.name,
+      action: 'PRICE_SET',
+      entity: 'Customer',
+      entityId: customerId,
+      changes: {
+        before: {
+          customerId,
+          customerName: customer.name,
+          productId: product.id,
+          productName: product.name,
+          price: existing ? existing.customPrice : product.basePrice,
+          wasCustom: !!existing,
+        },
+        after: {
+          customerId,
+          customerName: customer.name,
+          productId: product.id,
+          productName: product.name,
+          price: dto.price,
+          wasCustom: true,
+        },
+        reason: dto.reason?.trim() || undefined,
+      },
+    });
+
     return result;
   }
 
-  async removeCustomPrice(vendorId: string, customerId: string, productId: string) {
+  async removeCustomPrice(vendorId: string, customerId: string, productId: string, actor?: AuthUser) {
     const customer = await this.prisma.customer.findFirst({
       where: { id: customerId, vendorId },
     });
@@ -778,7 +815,12 @@ export class CustomerService {
       throw new NotFoundException('Customer not found');
     }
 
-    await this.prisma.customerProductPrice.delete({
+    const product = await this.prisma.product.findFirst({
+      where: { id: productId, vendorId },
+      select: { id: true, name: true, basePrice: true },
+    });
+
+    const removed = await this.prisma.customerProductPrice.delete({
       where: {
         customerId_productId: {
           customerId,
@@ -788,6 +830,34 @@ export class CustomerService {
     });
 
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
+
+    await this.audit.log({
+      vendorId,
+      userId: actor?.userId,
+      userName: actor?.name,
+      action: 'PRICE_REMOVED',
+      entity: 'Customer',
+      entityId: customerId,
+      changes: {
+        before: {
+          customerId,
+          customerName: customer.name,
+          productId,
+          productName: product?.name,
+          price: removed.customPrice,
+          wasCustom: true,
+        },
+        after: {
+          customerId,
+          customerName: customer.name,
+          productId,
+          productName: product?.name,
+          price: product?.basePrice ?? null,
+          wasCustom: false,
+        },
+      },
+    });
+
     return { deleted: true };
   }
 
@@ -903,9 +973,22 @@ export class CustomerService {
     // Falls back past this month's window since a month with zero deliveries
     // (e.g. a MONTHLY customer skipped this period) still has an assigned rate.
     let ratePerBottle = 0;
+    // `currentRate` is the customer's price as of today; `ratePerBottle` is what
+    // the period's deliveries were actually billed at (see billedRates below), so
+    // a price changed after the period never contradicts the rows beneath it.
+    let currentRate = 0;
     const lastDeliveryInPeriod = [...transactions].reverse().find((t) => t.type === 'DELIVERY' && t.productId && t.product);
+
+    // Rates actually billed in the period (recorded per delivery, not today's price).
+    const billedRates = transactions
+      .filter((t) => t.type === 'DELIVERY' && t.dailySheetItem && !t.dailySheetItem.voidedAt && t.dailySheetItem.pricePerBottle != null)
+      .map((t) => t.dailySheetItem!.pricePerBottle as number);
+    const ratePerBottleMin = billedRates.length ? Math.min(...billedRates) : null;
+    const ratePerBottleMax = billedRates.length ? Math.max(...billedRates) : null;
+
     if (lastDeliveryInPeriod) {
-      ratePerBottle = this.resolveCustomerPrice(customer, lastDeliveryInPeriod.productId as string, lastDeliveryInPeriod.product!.basePrice);
+      currentRate = this.resolveCustomerPrice(customer, lastDeliveryInPeriod.productId as string, lastDeliveryInPeriod.product!.basePrice);
+      ratePerBottle = billedRates.length ? billedRates[billedRates.length - 1] : currentRate;
     } else {
       const lastDeliveryEver = await this.prisma.transaction.findFirst({
         where: { customerId, vendorId, type: 'DELIVERY', productId: { not: null } },
@@ -917,6 +1000,7 @@ export class CustomerService {
       } else if (customer.customPrices.length > 0) {
         ratePerBottle = customer.customPrices[0].customPrice;
       }
+      currentRate = ratePerBottle;
     }
 
     const periodActivity = transactions.reduce((sum, t) => sum + (t.amount ?? 0), 0);
@@ -946,6 +1030,9 @@ export class CustomerService {
       month: targetMonth,
       toMonth: endMonth,
       ratePerBottle,
+      ratePerBottleMin,
+      ratePerBottleMax,
+      currentRate,
     };
   }
 
@@ -1008,6 +1095,9 @@ export class CustomerService {
       openingBalance: data.openingBalance,
       closingBalance: data.closingBalance,
       ratePerBottle: data.ratePerBottle,
+      ratePerBottleMin: data.ratePerBottleMin,
+      ratePerBottleMax: data.ratePerBottleMax,
+      currentRate: data.currentRate,
       periodOnly,
       deliveryRows,
       otherRows,
@@ -1739,7 +1829,7 @@ export class CustomerService {
    * BullMQ job to perform the (potentially large) set of upserts in batches.
    * Returns immediately with the job id so the request never times out.
    */
-  async enqueueBulkPriceUpdate(vendorId: string, dto: BulkPriceUpdateDto) {
+  async enqueueBulkPriceUpdate(vendorId: string, dto: BulkPriceUpdateDto, actor?: AuthUser) {
     const product = await this.prisma.product.findFirst({
       where: { id: dto.filters.productId, vendorId },
       select: { basePrice: true },
@@ -1782,6 +1872,7 @@ export class CustomerService {
         customerIds,
         currentPrices,
         action: dto.action,
+        actor: actor ? { userId: actor.userId, name: actor.name } : undefined,
       },
       { attempts: 3, backoff: { type: 'exponential', delay: 2000 } },
     );

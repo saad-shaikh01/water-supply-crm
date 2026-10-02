@@ -62,7 +62,7 @@ export class CustomerController {
   @RequirePermissions('pricing:update')
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   enqueueBulkPriceUpdate(@CurrentUser() user: AuthUser, @Body() dto: BulkPriceUpdateDto) {
-    return this.customerService.enqueueBulkPriceUpdate(user.vendorId, dto);
+    return this.customerService.enqueueBulkPriceUpdate(user.vendorId, dto, user);
   }
 
   /** GET /customers/pricing/bulk-update/:jobId/status — poll background job progress */
@@ -123,7 +123,7 @@ export class CustomerController {
     @Param('id') id: string,
     @Body() dto: SetCustomPriceDto,
   ) {
-    return this.customerService.setCustomPrice(user.vendorId, id, dto);
+    return this.customerService.setCustomPrice(user.vendorId, id, dto, user);
   }
 
   @Delete(':id/custom-prices/:productId')
@@ -134,7 +134,7 @@ export class CustomerController {
     @Param('id') id: string,
     @Param('productId') productId: string,
   ) {
-    return this.customerService.removeCustomPrice(user.vendorId, id, productId);
+    return this.customerService.removeCustomPrice(user.vendorId, id, productId, user);
   }
 
   // ── Financial views (on-screen) → customers:view ──────────────────────────

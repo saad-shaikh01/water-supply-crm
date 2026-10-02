@@ -327,7 +327,13 @@ export interface CustomerStatementData {
   toMonth: string;
   openingBalance: number;
   closingBalance: number;
+  /** Rate the period's deliveries were actually billed at (last delivery's, if mixed). */
   ratePerBottle: number;
+  /** Lowest / highest billed rate in the period; differ when the price changed mid-period. */
+  ratePerBottleMin: number | null;
+  ratePerBottleMax: number | null;
+  /** Customer's price today — can differ from the billed rate if it changed after the period. */
+  currentRate: number;
   /** When true, deliveryRows/totals reflect this period's own activity only
    * (no carried-forward opening balance). openingBalance/closingBalance above
    * are always the true historical figures regardless. */

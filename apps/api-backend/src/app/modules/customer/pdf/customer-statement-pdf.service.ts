@@ -161,6 +161,9 @@ export class CustomerStatementPdfService {
     toMonth?: string;
     /** Customer's actual assigned rate (custom price if set, else product base price). */
     ratePerBottle?: number;
+    /** Lowest / highest rate actually billed in the period; differ when the price changed mid-period. */
+    ratePerBottleMin?: number | null;
+    ratePerBottleMax?: number | null;
     /** Strip the carried-forward opening balance out of the delivery table (no
      * "Previous Balance" row, running balance is this period's own activity
      * only). The BALANCE DUE chip is unaffected — it always uses `closingBalance`. */
@@ -207,7 +210,11 @@ export class CustomerStatementPdfService {
     // otherwise the table reads "just this period" while the chip reads
     // "everything", which is exactly the confusion this mode exists to avoid.
     const chipBalance = periodOnly ? closingBalance - openingBalance : closingBalance;
-    this.drawInfoCards(doc, customer, month, toMonth, chipBalance, ratePerBottle);
+    const rateLabel =
+      data.ratePerBottleMin != null && data.ratePerBottleMax != null && data.ratePerBottleMin !== data.ratePerBottleMax
+        ? `Rs. ${Math.round(data.ratePerBottleMin)} – ${Math.round(data.ratePerBottleMax)}`
+        : undefined;
+    this.drawInfoCards(doc, customer, month, toMonth, chipBalance, ratePerBottle, rateLabel);
 
     doc.y += 18;
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(13)
@@ -362,6 +369,7 @@ export class CustomerStatementPdfService {
     toMonth: string | undefined,
     closingBalance: number,
     ratePerBottle: number,
+    rateLabel?: string,
   ): void {
     const y     = doc.y;
     const boxH  = 92;
@@ -399,7 +407,7 @@ export class CustomerStatementPdfService {
       ['From',         fromTo?.from ?? '—'],
       ['To',           fromTo?.to ?? '—'],
       ['Cust Type',    customer.paymentType === 'MONTHLY' ? 'Monthly' : 'Cash'],
-      ['Rate Per Btl', ratePerBottle > 0 ? `Rs. ${ratePerBottle.toFixed(0)}` : '—'],
+      ['Rate Per Btl', rateLabel ?? (ratePerBottle > 0 ? `Rs. ${ratePerBottle.toFixed(0)}` : '—')],
     ];
     const rowH = (boxH - 16) / rows.length;
     rows.forEach(([lbl, val], i) => {

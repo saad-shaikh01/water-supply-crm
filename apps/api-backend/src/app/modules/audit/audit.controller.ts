@@ -24,6 +24,13 @@ export class AuditController {
     return this.auditService.findAll(vendorId, query);
   }
 
+  // Static route — must stay above `:id`.
+  @Get('filter-options')
+  getFilterOptions(@CurrentUser() user: AuthUser) {
+    const vendorId = user.role === UserRole.SUPER_ADMIN ? null : user.vendorId;
+    return this.auditService.getFilterOptions(vendorId);
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string) {
     const log = await this.auditService.findOne(id);

@@ -20,7 +20,7 @@ export function CustomPriceDialog({ open, onClose, customerId }: CustomPriceDial
   const { data: productsData } = useProducts();
   const allProducts = productsData?.data ?? [];
 
-  const [form, setForm] = useState({ productId: '', customPrice: '' });
+  const [form, setForm] = useState({ productId: '', customPrice: '', reason: '' });
 
   useEffect(() => {
     if (allProducts.length === 1 && !form.productId) {
@@ -29,13 +29,13 @@ export function CustomPriceDialog({ open, onClose, customerId }: CustomPriceDial
   }, [allProducts, open]);
 
   const handleClose = () => {
-    setForm({ productId: '', customPrice: '' });
+    setForm({ productId: '', customPrice: '', reason: '' });
     onClose();
   };
 
   const handleSubmit = () => {
     setCustomPrice(
-      { customerId, data: { productId: form.productId, price: Number(form.customPrice) } },
+      { customerId, data: { productId: form.productId, price: Number(form.customPrice), ...(form.reason.trim() ? { reason: form.reason.trim() } : {}) } },
       { onSuccess: handleClose },
     );
   };
@@ -70,6 +70,15 @@ export function CustomPriceDialog({ open, onClose, customerId }: CustomPriceDial
               className="h-11 font-mono font-bold"
               value={form.customPrice}
               onChange={(e) => setForm((p) => ({ ...p, customPrice: e.target.value }))}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground">Reason (optional)</Label>
+            <Input
+              placeholder="e.g. Agreed new rate with customer"
+              maxLength={300}
+              value={form.reason}
+              onChange={(e) => setForm((p) => ({ ...p, reason: e.target.value }))}
             />
           </div>
         </div>

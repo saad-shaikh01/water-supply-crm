@@ -809,9 +809,23 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                 <CardTitle className="text-base font-bold flex items-center gap-2">
                   <Tag className="h-4 w-4 text-primary" /> Custom Product Pricing
                 </CardTitle>
-                <Button variant="outline" size="sm" className="rounded-full h-8 px-4 text-xs font-bold" onClick={() => setCustomPriceOpen(true)}>
-                  Add Custom Rate
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="rounded-full h-8 px-4 text-xs font-bold"
+                    onClick={() =>
+                      router.push(
+                        `/dashboard/audit-logs?customerId=${encodeURIComponent(customerId)}&customerName=${encodeURIComponent(customer.name ?? '')}`,
+                      )
+                    }
+                  >
+                    <Clock className="h-3.5 w-3.5 mr-1.5" /> Price History
+                  </Button>
+                  <Button variant="outline" size="sm" className="rounded-full h-8 px-4 text-xs font-bold" onClick={() => setCustomPriceOpen(true)}>
+                    Add Custom Rate
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent className="p-0">
                 {customer.customPrices?.length > 0 ? (
@@ -1030,7 +1044,19 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                     const summaryTiles = [
                       ...(s.periodOnly ? [] : [{ label: 'Opening Balance', value: fmtRs(s.openingBalance) }]),
                       { label: 'Period Deliveries', value: `${s.deliveryRows.length}` },
-                      { label: 'Rate / Bottle', value: s.ratePerBottle > 0 ? fmtRs(s.ratePerBottle) : '—' },
+                      {
+                        label: 'Rate / Bottle',
+                        // What the period's deliveries were actually billed at — a
+                        // price changed afterwards must not contradict the rows below.
+                        value:
+                          s.ratePerBottleMin != null && s.ratePerBottleMax != null && s.ratePerBottleMin !== s.ratePerBottleMax
+                            ? `${fmtRs(s.ratePerBottleMin)} – ${fmtRs(s.ratePerBottleMax)}`
+                            : s.ratePerBottle > 0 ? fmtRs(s.ratePerBottle) : '—',
+                        note:
+                          s.currentRate > 0 && s.currentRate !== s.ratePerBottle
+                            ? `Current rate: ${fmtRs(s.currentRate)}`
+                            : undefined,
+                      },
                       {
                         label: isCredit ? 'Credit Balance' : 'Balance Due',
                         value: fmtRs(Math.abs(balanceDue)),
@@ -1046,6 +1072,9 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                             <div key={c.label} className="rounded-2xl bg-muted/30 p-4">
                               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{c.label}</p>
                               <p className={cn('text-lg font-black font-mono mt-1', c.accent)}>{c.value}</p>
+                              {'note' in c && c.note && (
+                                <p className="text-[10px] font-semibold text-amber-500 mt-0.5">{c.note}</p>
+                              )}
                             </div>
                           ))}
                         </div>
