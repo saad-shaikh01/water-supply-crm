@@ -99,7 +99,7 @@ export const EXPENSE_CENTER_SOURCE_BUCKETS: readonly ExpenseCenterSourceBucket[]
 
 export const EXPENSE_CENTER_SOURCE_BUCKET_LABELS: Record<ExpenseCenterSourceBucket, string> = {
   DAILY_SHEET: 'Daily Sheet',
-  CASH_LEDGER: 'Cash Ledger',
+  CASH_LEDGER: 'Ledger Cash',
   FLEET: 'Fleet',
   PAYROLL: 'Payroll',
   EXPENSES: 'Direct Expense',
@@ -113,7 +113,7 @@ export const EXPENSE_CENTER_SOURCE_BUCKET_LABELS: Record<ExpenseCenterSourceBuck
  * turns it into the matching `dailySheetId`/`fuelLog`/`vehicleServiceRecord`
  * where-clause.
  */
-export type ExpenseProvenanceScope = 'ANY' | 'SHEET' | 'FLEET_STANDALONE' | 'MANUAL';
+export type ExpenseProvenanceScope = 'ANY' | 'SHEET' | 'FLEET_STANDALONE' | 'MANUAL' | 'OFFICE_CASH';
 
 export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
   FUEL_EXPENSE: 'Fuel',
@@ -664,8 +664,10 @@ export function resolveSourceSelection(filter: ExpenseCenterFilterInput): Expens
         selection.includeStandaloneCrewCash = false;
         break;
       case 'CASH_LEDGER':
-        selection.includeExpenses = false;
-        selection.includeStaffLedger = false;
+        // "Ledger Cash": everything on the Cash Ledger page's expense side —
+        // cash-paid Expense rows with no daily sheet, payroll, and standalone
+        // crew cash. Sheet-scoped crew cash is settled on the sheet, not here.
+        selection.expenseProvenance = 'OFFICE_CASH';
         selection.includeCrewCash = false;
         break;
       case 'FLEET':

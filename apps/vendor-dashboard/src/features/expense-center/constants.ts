@@ -49,7 +49,7 @@ export const domainMeta = (domain: ExpenseCenterDomain | string): DomainMeta =>
  */
 export const SOURCE_BUCKET_CONFIG: Record<ExpenseCenterSourceBucket, DomainMeta> = {
   DAILY_SHEET: { label: 'Daily Sheet',    color: 'bg-indigo-500/10 text-indigo-500', solid: 'bg-indigo-500', icon: ClipboardList },
-  CASH_LEDGER: { label: 'Cash Ledger',    color: 'bg-teal-500/10 text-teal-500',     solid: 'bg-teal-500',   icon: Wallet },
+  CASH_LEDGER: { label: 'Ledger Cash',   color: 'bg-teal-500/10 text-teal-500',     solid: 'bg-teal-500',   icon: Wallet },
   FLEET:       { label: 'Fleet',          color: 'bg-orange-500/10 text-orange-500', solid: 'bg-orange-500', icon: Wrench },
   PAYROLL:     { label: 'Payroll',        color: 'bg-fuchsia-500/10 text-fuchsia-500', solid: 'bg-fuchsia-500', icon: Banknote },
   EXPENSES:    { label: 'Direct Expense', color: 'bg-slate-400/10 text-slate-400',   solid: 'bg-slate-400',  icon: FileEdit },

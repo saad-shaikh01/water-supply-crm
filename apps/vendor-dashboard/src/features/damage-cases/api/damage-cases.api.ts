@@ -18,18 +18,28 @@ export interface DamageCase {
   reviewNote?: string | null;
   chargeAmount?: number | null;
   writeOffCategory?: WriteOffCategory | null;
+  description?: string | null;
   version: number;
   createdAt: string;
   updatedAt: string;
+  reviewedAt?: string | null;
+  reviewedBy?: { id: string; name: string } | null;
+  /** The field user who REPORTED the case (shown as "Salesman" in the UI). */
   driver?: {
     id: string;
     name: string;
+    role?: string;
   } | null;
   customer?: {
     id: string;
     name: string;
     customerCode?: string;
+    phoneNumber?: string;
+    address?: string;
   } | null;
+  /** Detail endpoint only: other cases already on file for the same customer. */
+  customerCaseCount?: number;
+  customerOpenCount?: number;
   van?: {
     id: string;
     plateNumber: string;
@@ -62,6 +72,23 @@ export interface DamageCaseQuery {
   dateFrom?: string;
   dateTo?: string;
   search?: string;
+  caseType?: DamageCaseType;
+  /** Reporter (salesman) id. */
+  driverId?: string;
+}
+
+export interface DamageCaseSummary {
+  total: number;
+  totalBottles: number;
+  chargedAmount: number;
+  byStatus: Partial<Record<DamageCaseStatus, number>>;
+}
+
+export interface DamageCaseReporter {
+  id: string;
+  name: string;
+  role: string;
+  caseCount: number;
 }
 
 export interface PaginatedResult<T> {
@@ -90,6 +117,12 @@ export interface WaiveDto {
 export const damageCasesApi = {
   list: (query: DamageCaseQuery): Promise<{ data: PaginatedResult<DamageCase> }> =>
     apiClient.get('/damage-cases', { params: query }),
+
+  summary: (query: DamageCaseQuery): Promise<{ data: DamageCaseSummary }> =>
+    apiClient.get('/damage-cases/summary', { params: query }),
+
+  reporters: (): Promise<{ data: DamageCaseReporter[] }> =>
+    apiClient.get('/damage-cases/reporters'),
 
   getOne: (id: string): Promise<{ data: DamageCase }> =>
     apiClient.get(`/damage-cases/${id}`),

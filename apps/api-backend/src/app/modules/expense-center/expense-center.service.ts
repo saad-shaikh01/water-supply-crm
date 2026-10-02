@@ -107,6 +107,8 @@ interface PeriodTotals {
   sheetCrewCashTotal: number;
   /** ACTIVE StandaloneCrewCashExpense only — the CASH_LEDGER source bucket. */
   standaloneCrewCashTotal: number;
+  /** Cash-paid `Expense` rows with no daily sheet — the Ledger Cash bucket's Expense-table slice. */
+  officeCashExpenseTotal: number;
   total: number;
 }
 
@@ -188,6 +190,7 @@ export class ExpenseCenterService {
       sheetExpenseAgg,
       fleetExpenseAgg,
       manualExpenseAgg,
+      officeCashExpenseAgg,
     ] = await Promise.all([
       this.prisma.expense.groupBy({
         by: ['category', 'paidFromCash'],
@@ -238,6 +241,10 @@ export class ExpenseCenterService {
         where: { vendorId, date: dateFilter, dailySheetId: null, fuelLog: null, vehicleServiceRecord: null },
         _sum: { amount: true },
       }),
+      this.prisma.expense.aggregate({
+        where: { vendorId, date: dateFilter, dailySheetId: null, paidFromCash: true },
+        _sum: { amount: true },
+      }),
     ]);
 
     const expenseByCategory = new Map<ExpenseCategory, number>();
@@ -274,6 +281,7 @@ export class ExpenseCenterService {
       manualExpenseTotal: manualExpenseAgg._sum.amount ?? 0,
       sheetCrewCashTotal,
       standaloneCrewCashTotal,
+      officeCashExpenseTotal: officeCashExpenseAgg._sum.amount ?? 0,
       total: expenseCash + expenseCard + staffLedgerTotal + crewCashTotal,
     };
   }
@@ -724,7 +732,8 @@ function buildSourceBreakdown(
 ): ExpenseCenterSummary['bySource'] {
   const bySource: Record<ExpenseCenterSourceBucket, number> = {
     DAILY_SHEET: totals.sheetExpenseTotal + totals.sheetCrewCashTotal,
-    CASH_LEDGER: totals.standaloneCrewCashTotal,
+    // Overlaps the other buckets by design — a cash-ledger view, not a partition.
+    CASH_LEDGER: totals.officeCashExpenseTotal + totals.staffLedgerTotal + totals.standaloneCrewCashTotal,
     FLEET: totals.fleetExpenseTotal,
     PAYROLL: totals.staffLedgerTotal,
     EXPENSES: totals.manualExpenseTotal,
@@ -749,6 +758,8 @@ function expenseProvenanceWhere(scope: ExpenseProvenanceScope): Prisma.ExpenseWh
       return { dailySheetId: null, OR: [{ fuelLog: { isNot: null } }, { vehicleServiceRecord: { isNot: null } }] };
     case 'MANUAL':
       return { dailySheetId: null, fuelLog: null, vehicleServiceRecord: null };
+    case 'OFFICE_CASH':
+      return { dailySheetId: null, paidFromCash: true };
     case 'ANY':
     default:
       return {};

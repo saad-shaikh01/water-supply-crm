@@ -17,6 +17,24 @@ export const useDamageCases = (query: DamageCaseQuery) =>
     queryFn: () => damageCasesApi.list(query).then((r) => r.data),
   });
 
+// ── Summary (KPI cards) ────────────────────────────────────────────────────
+export const useDamageCaseSummary = (query: DamageCaseQuery) => {
+  // page/limit don't affect the totals — drop them so paging doesn't refetch.
+  const { page: _page, limit: _limit, ...filters } = query;
+  return useQuery({
+    queryKey: [DAMAGE_CASES_KEY, 'summary', filters],
+    queryFn: () => damageCasesApi.summary(filters).then((r) => r.data),
+  });
+};
+
+// ── Salesmen who have reported at least one case (filter dropdown) ─────────
+export const useDamageCaseReporters = () =>
+  useQuery({
+    queryKey: [DAMAGE_CASES_KEY, 'reporters'],
+    queryFn: () => damageCasesApi.reporters().then((r) => r.data),
+    staleTime: 60_000,
+  });
+
 // ── Single case hook ───────────────────────────────────────────────────────
 export const useDamageCase = (id: string) =>
   useQuery({

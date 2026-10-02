@@ -472,10 +472,11 @@ describe('resolveSourceSelection', () => {
       expect(selection.includeStandaloneCrewCash).toBe(false);
     });
 
-    it('CASH_LEDGER keeps only standalone crew cash', () => {
+    it('CASH_LEDGER (Ledger Cash) keeps office-cash expenses, payroll and standalone crew cash', () => {
       const selection = resolveSourceSelection({ source: 'CASH_LEDGER' });
-      expect(selection.includeExpenses).toBe(false);
-      expect(selection.includeStaffLedger).toBe(false);
+      expect(selection.includeExpenses).toBe(true);
+      expect(selection.expenseProvenance).toBe('OFFICE_CASH');
+      expect(selection.includeStaffLedger).toBe(true);
       expect(selection.includeCrewCash).toBe(false);
       expect(selection.includeStandaloneCrewCash).toBe(true);
     });

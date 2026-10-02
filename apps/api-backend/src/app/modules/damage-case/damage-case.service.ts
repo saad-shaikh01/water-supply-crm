@@ -432,16 +432,31 @@ export class DamageCaseService {
 
   // ── findAll ──────────────────────────────────────────────────────────────
 
-  async findAll(user: AuthUser, query: DamageCaseQueryDto) {
-    const { page = 1, limit = 20, status, customerId, driverId, vanId, severity, dateFrom, dateTo } = query;
+  /**
+   * Shared filter builder for the list + summary endpoints. `driverId` is the
+   * user who REPORTED the case (field staff — shown as "Salesman" in the UI).
+   */
+  private buildListWhere(user: AuthUser, query: DamageCaseQueryDto) {
+    const { status, customerId, driverId, vanId, severity, caseType, search, dateFrom, dateTo } = query;
 
     const where: any = { vendorId: user.vendorId };
     if (status) where.status = status;
     if (customerId) where.customerId = customerId;
     if (driverId) where.driverId = driverId;
     if (severity) where.severity = severity;
+    if (caseType) where.caseType = caseType;
     if (vanId) {
       where.dailySheetItem = { dailySheet: { vanId } };
+    }
+    const term = search?.trim();
+    if (term) {
+      where.customer = {
+        OR: [
+          { name: { contains: term, mode: 'insensitive' } },
+          { customerCode: { contains: term, mode: 'insensitive' } },
+          { phoneNumber: { contains: term } },
+        ],
+      };
     }
     if (dateFrom || dateTo) {
       const dateFilter: any = {};
@@ -453,15 +468,39 @@ export class DamageCaseService {
       }
       where.createdAt = dateFilter;
     }
+    return where;
+  }
+
+  /** Lifts the sheet + van off the linked sheet item so the UI gets `van` / `dailySheet` directly. */
+  private flattenSheetLink<T extends { dailySheetItem?: any }>(row: T) {
+    const sheet = row.dailySheetItem?.dailySheet ?? null;
+    return {
+      ...row,
+      dailySheet: sheet ? { id: sheet.id, date: sheet.date } : null,
+      van: sheet?.van ?? null,
+    };
+  }
+
+  async findAll(user: AuthUser, query: DamageCaseQueryDto) {
+    const { page = 1, limit = 20 } = query;
+    const where = this.buildListWhere(user, query);
 
     const [data, total] = await Promise.all([
       this.prisma.damageCase.findMany({
         where,
         include: {
-          customer: { select: { id: true, name: true, customerCode: true } },
+          customer: { select: { id: true, name: true, customerCode: true, phoneNumber: true } },
           product: { select: { id: true, name: true } },
-          driver: { select: { id: true, name: true } },
+          driver: { select: { id: true, name: true, role: true } },
           reviewedBy: { select: { id: true, name: true } },
+          dailySheetItem: {
+            select: {
+              id: true,
+              dailySheet: {
+                select: { id: true, date: true, van: { select: { id: true, plateNumber: true } } },
+              },
+            },
+          },
         },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
@@ -470,7 +509,56 @@ export class DamageCaseService {
       this.prisma.damageCase.count({ where }),
     ]);
 
-    return paginate(data, total, page, limit);
+    return paginate(data.map((r) => this.flattenSheetLink(r)), total, page, limit);
+  }
+
+  // ── summary (KPI cards — honours the same filters as the list) ─────────────
+
+  async getSummary(user: AuthUser, query: DamageCaseQueryDto) {
+    const where = this.buildListWhere(user, query);
+    // The status breakdown ignores the status filter so the cards stay a stable overview.
+    const { status: _status, ...rest } = query;
+    const whereNoStatus = this.buildListWhere(user, rest as DamageCaseQueryDto);
+
+    const [byStatus, totals, charged] = await Promise.all([
+      this.prisma.damageCase.groupBy({ by: ['status'], where: whereNoStatus, _count: { _all: true } }),
+      this.prisma.damageCase.aggregate({ where, _count: { _all: true }, _sum: { bottleCount: true } }),
+      this.prisma.damageCase.aggregate({
+        where: { ...whereNoStatus, status: DamageCaseStatus.CHARGED },
+        _sum: { chargeAmount: true },
+      }),
+    ]);
+
+    const counts: Record<string, number> = {};
+    for (const row of byStatus) counts[row.status] = row._count._all;
+
+    return {
+      total: totals._count._all,
+      totalBottles: totals._sum.bottleCount ?? 0,
+      chargedAmount: charged._sum.chargeAmount ?? 0,
+      byStatus: counts,
+    };
+  }
+
+  // ── reporters (salesman dropdown — only users who actually reported a case) ─
+
+  async getReporters(user: AuthUser) {
+    const groups = await this.prisma.damageCase.groupBy({
+      by: ['driverId'],
+      where: { vendorId: user.vendorId },
+      _count: { _all: true },
+    });
+    if (!groups.length) return [];
+
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: groups.map((g) => g.driverId) } },
+      select: { id: true, name: true, role: true },
+    });
+    const counts = new Map(groups.map((g) => [g.driverId, g._count._all]));
+
+    return users
+      .map((u) => ({ id: u.id, name: u.name, role: u.role, caseCount: counts.get(u.id) ?? 0 }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   // ── findOne ──────────────────────────────────────────────────────────────
@@ -483,11 +571,20 @@ export class DamageCaseService {
         ...(user.role === 'DRIVER' ? { driverId: user.userId } : {}),
       },
       include: {
-        customer: { select: { id: true, name: true, customerCode: true } },
+        customer: { select: { id: true, name: true, customerCode: true, phoneNumber: true, address: true } },
         product: { select: { id: true, name: true } },
-        driver: { select: { id: true, name: true } },
+        driver: { select: { id: true, name: true, role: true } },
         reviewedBy: { select: { id: true, name: true } },
-        dailySheetItem: { select: { id: true, sequence: true, status: true } },
+        dailySheetItem: {
+          select: {
+            id: true,
+            sequence: true,
+            status: true,
+            dailySheet: {
+              select: { id: true, date: true, van: { select: { id: true, plateNumber: true } } },
+            },
+          },
+        },
         transaction: true,
       },
     });
@@ -501,7 +598,27 @@ export class DamageCaseService {
       damageCase.photoKeys.map((key) => this.storage.getSignedUrl(key)),
     );
 
-    return { ...damageCase, photoUrls };
+    // Other cases for the same customer (repeat-offender context for the reviewer)
+    const [customerCaseCount, customerOpenCount] = await Promise.all([
+      this.prisma.damageCase.count({
+        where: { vendorId: user.vendorId, customerId: damageCase.customerId, id: { not: id } },
+      }),
+      this.prisma.damageCase.count({
+        where: {
+          vendorId: user.vendorId,
+          customerId: damageCase.customerId,
+          id: { not: id },
+          status: { in: [DamageCaseStatus.REPORTED, DamageCaseStatus.UNDER_REVIEW] },
+        },
+      }),
+    ]);
+
+    return {
+      ...this.flattenSheetLink(damageCase),
+      photoUrls,
+      customerCaseCount,
+      customerOpenCount,
+    };
   }
 
   // ── getMyCases (DRIVER) ──────────────────────────────────────────────────
@@ -556,9 +673,21 @@ export class DamageCaseService {
       throw new NotFoundException('Damage case not found.');
     }
 
-    return this.prisma.damageCaseAuditLog.findMany({
+    const logs = await this.prisma.damageCaseAuditLog.findMany({
       where: { damageCaseId: id },
       orderBy: { createdAt: 'asc' },
+    });
+
+    const actors = await this.prisma.user.findMany({
+      where: { id: { in: [...new Set(logs.map((l) => l.actorId))] } },
+      select: { id: true, name: true },
+    });
+    const names = new Map(actors.map((a) => [a.id, a.name]));
+
+    return logs.map((l) => {
+      const p = (l.payload ?? {}) as Record<string, unknown>;
+      const note = (p['reviewNote'] ?? p['note'] ?? null) as string | null;
+      return { ...l, actorName: names.get(l.actorId) ?? null, note, metadata: p };
     });
   }
 

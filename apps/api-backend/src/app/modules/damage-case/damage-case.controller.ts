@@ -96,6 +96,23 @@ export class DamageCaseController {
     return this.damageCaseService.report(user, dto);
   }
 
+  /** GET /damage-cases/summary — KPI counts for the management page (same filters as the list). */
+  @Get('summary')
+  @RequirePermissions('damage_cases:review')
+  getSummary(
+    @CurrentUser() user: AuthUser,
+    @Query() query: DamageCaseQueryDto,
+  ) {
+    return this.damageCaseService.getSummary(user, query);
+  }
+
+  /** GET /damage-cases/reporters — only users who have reported at least one case (salesman filter). */
+  @Get('reporters')
+  @RequirePermissions('damage_cases:review')
+  getReporters(@CurrentUser() user: AuthUser) {
+    return this.damageCaseService.getReporters(user);
+  }
+
   /**
    * GET /damage-cases
    * List all damage cases for this vendor (STAFF/VENDOR_ADMIN only).

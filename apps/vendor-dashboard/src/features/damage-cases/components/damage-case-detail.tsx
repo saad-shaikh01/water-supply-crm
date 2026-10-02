@@ -1,7 +1,21 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, Loader2, ClipboardList, AlertCircle } from 'lucide-react';
+import Link from 'next/link';
+import {
+  ChevronDown,
+  ChevronUp,
+  Loader2,
+  ClipboardList,
+  AlertCircle,
+  CalendarDays,
+  User as UserIcon,
+  Phone,
+  MapPin,
+  Copy,
+  History,
+  TriangleAlert,
+} from 'lucide-react';
 import { Button, Skeleton } from '@water-supply-crm/ui';
 import { toast } from 'sonner';
 import { useDamageCase, useReviewCase, useAuditLog } from '../hooks/use-damage-cases';
@@ -23,6 +37,9 @@ const LOSS_REASON_LABELS: Record<string, string> = {
   WRONG_ADDRESS: 'Left at wrong address',
   OTHER: 'Other reason',
 };
+
+const fmtDate = (iso: string) =>
+  new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 
 function MetaItem({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -139,9 +156,66 @@ export function DamageCaseDetail({ caseId }: DamageCaseDetailProps) {
             <h2 className="text-xl font-bold text-foreground dark:text-white">Damage Case</h2>
             <StatusBadge status={damageCase.status} />
           </div>
-          <p className="text-xs text-muted-foreground font-mono">{damageCase.id}</p>
+          <button
+            type="button"
+            onClick={() => {
+              navigator.clipboard?.writeText(damageCase.id);
+              toast.success('Case ID copied');
+            }}
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground font-mono hover:text-foreground"
+            title="Copy case ID"
+          >
+            {damageCase.id}
+            <Copy className="h-3 w-3" />
+          </button>
+        </div>
+
+        {/* Quick links */}
+        <div className="flex flex-wrap gap-2">
+          {damageCase.dailySheet && (
+            <Link href={`/dashboard/daily-sheets/${damageCase.dailySheet.id}`}>
+              <Button variant="outline" size="sm" className="rounded-xl gap-1.5 font-semibold">
+                <CalendarDays className="h-4 w-4" />
+                Daily Sheet ({fmtDate(damageCase.dailySheet.date)})
+              </Button>
+            </Link>
+          )}
+          {damageCase.customer && (
+            <Link href={`/dashboard/customers/${damageCase.customer.id}`}>
+              <Button variant="outline" size="sm" className="rounded-xl gap-1.5 font-semibold">
+                <UserIcon className="h-4 w-4" />
+                Customer Profile
+              </Button>
+            </Link>
+          )}
+          {damageCase.customer?.customerCode && (
+            <Link href={`/dashboard/damage-cases?search=${encodeURIComponent(damageCase.customer.customerCode)}`}>
+              <Button variant="outline" size="sm" className="rounded-xl gap-1.5 font-semibold">
+                <History className="h-4 w-4" />
+                All Cases of this Customer
+              </Button>
+            </Link>
+          )}
         </div>
       </div>
+
+      {/* Repeat-customer warning */}
+      {(damageCase.customerCaseCount ?? 0) > 0 && (
+        <div className="flex items-start gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4">
+          <TriangleAlert className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+          <p className="text-sm text-foreground dark:text-white">
+            This customer has{' '}
+            <span className="font-bold">{damageCase.customerCaseCount}</span> other damage/lost case
+            {damageCase.customerCaseCount === 1 ? '' : 's'} on file
+            {(damageCase.customerOpenCount ?? 0) > 0 && (
+              <>
+                {' '}(<span className="font-bold">{damageCase.customerOpenCount}</span> still open)
+              </>
+            )}
+            . Check the history before deciding.
+          </p>
+        </div>
+      )}
 
       {/* Metadata grid */}
       <div className="rounded-2xl border border-border bg-white/[0.02] p-6">
@@ -181,9 +255,68 @@ export function DamageCaseDetail({ caseId }: DamageCaseDetailProps) {
             }
           />
           <MetaItem label="Bottle Count" value={damageCase.bottleCount} />
-          <MetaItem label="Driver" value={damageCase.driver?.name ?? '—'} />
-          <MetaItem label="Customer" value={damageCase.customer?.name ?? '—'} />
+          <MetaItem label="Salesman (Reported by)" value={damageCase.driver?.name ?? '—'} />
+          <MetaItem
+            label="Customer"
+            value={
+              damageCase.customer ? (
+                <Link
+                  href={`/dashboard/customers/${damageCase.customer.id}`}
+                  className="hover:text-primary hover:underline"
+                >
+                  {damageCase.customer.name}
+                  {damageCase.customer.customerCode && (
+                    <span className="ml-1.5 text-[11px] font-mono text-muted-foreground">
+                      {damageCase.customer.customerCode}
+                    </span>
+                  )}
+                </Link>
+              ) : (
+                '—'
+              )
+            }
+          />
+          {damageCase.customer?.phoneNumber && (
+            <MetaItem
+              label="Phone"
+              value={
+                <a
+                  href={`tel:${damageCase.customer.phoneNumber}`}
+                  className="inline-flex items-center gap-1.5 hover:text-primary"
+                >
+                  <Phone className="h-3.5 w-3.5" />
+                  {damageCase.customer.phoneNumber}
+                </a>
+              }
+            />
+          )}
+          {damageCase.customer?.address && (
+            <MetaItem
+              label="Address"
+              value={
+                <span className="inline-flex items-start gap-1.5 font-medium">
+                  <MapPin className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  {damageCase.customer.address}
+                </span>
+              }
+            />
+          )}
           <MetaItem label="Van" value={damageCase.van?.plateNumber ?? '—'} />
+          <MetaItem
+            label="Daily Sheet"
+            value={
+              damageCase.dailySheet ? (
+                <Link
+                  href={`/dashboard/daily-sheets/${damageCase.dailySheet.id}`}
+                  className="text-primary hover:underline"
+                >
+                  {fmtDate(damageCase.dailySheet.date)}
+                </Link>
+              ) : (
+                <span className="text-muted-foreground font-normal">Not linked to a sheet</span>
+              )
+            }
+          />
           <MetaItem
             label="Date Reported"
             value={new Date(damageCase.createdAt).toLocaleDateString(undefined, {
@@ -193,6 +326,21 @@ export function DamageCaseDetail({ caseId }: DamageCaseDetailProps) {
             })}
           />
           <MetaItem label="Product" value={damageCase.product?.name ?? '—'} />
+          {damageCase.reviewedBy && (
+            <MetaItem
+              label="Reviewed By"
+              value={
+                <>
+                  {damageCase.reviewedBy.name}
+                  {damageCase.reviewedAt && (
+                    <span className="block text-[11px] font-normal text-muted-foreground">
+                      {fmtDate(damageCase.reviewedAt)}
+                    </span>
+                  )}
+                </>
+              }
+            />
+          )}
           {damageCase.chargeAmount != null && (
             <MetaItem
               label="Charge Amount"
@@ -205,6 +353,18 @@ export function DamageCaseDetail({ caseId }: DamageCaseDetailProps) {
           )}
         </div>
       </div>
+
+      {/* Salesman's description */}
+      {damageCase.description && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-bold uppercase tracking-widest text-muted-foreground">
+            Salesman&apos;s Note
+          </h3>
+          <p className="rounded-2xl border border-border bg-white/[0.02] p-4 text-sm whitespace-pre-wrap">
+            {damageCase.description}
+          </p>
+        </div>
+      )}
 
       {/* Photos */}
       <div className="space-y-3">
