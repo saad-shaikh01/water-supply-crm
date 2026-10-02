@@ -1,7 +1,7 @@
 'use client';
 
 import { useQueryState, parseAsString } from 'nuqs';
-import { Input } from '@water-supply-crm/ui';
+import { Input, cn } from '@water-supply-crm/ui';
 import { Search, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -9,9 +9,11 @@ interface SearchInputProps {
   placeholder?: string;
   paramKey?: string;
   onBeforeChange?: () => void;
+  /** Fill the parent's width instead of the fixed 300px desktop width (for narrow panes). */
+  fluid?: boolean;
 }
 
-export function SearchInput({ placeholder = 'Search...', paramKey = 'search', onBeforeChange }: SearchInputProps) {
+export function SearchInput({ placeholder = 'Search...', paramKey = 'search', onBeforeChange, fluid = false }: SearchInputProps) {
   const [query, setQuery] = useQueryState(paramKey, parseAsString.withDefault(''));
   const [localValue, setLocalValue] = useState(query);
 
@@ -39,13 +41,13 @@ export function SearchInput({ placeholder = 'Search...', paramKey = 'search', on
   }, [setQuery, onBeforeChange]);
 
   return (
-    <div className="relative group max-w-sm">
+    <div className={cn('relative group', fluid ? 'w-full' : 'max-w-sm')}>
       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
       <Input
         value={localValue}
         onChange={(e) => setLocalValue(e.target.value)}
         placeholder={placeholder}
-        className="pl-9 pr-9 w-full lg:w-[300px] rounded-xl bg-background/50 border-border/50 focus:ring-primary/20 transition-all"
+        className={cn('pl-9 pr-9 w-full rounded-xl bg-background/50 border-border/50 focus:ring-primary/20 transition-all', !fluid && 'lg:w-[300px]')}
       />
       {localValue && (
         <button

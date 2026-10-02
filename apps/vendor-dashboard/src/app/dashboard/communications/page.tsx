@@ -1,7 +1,7 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
-import { useQueryState, parseAsString, parseAsInteger } from 'nuqs';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQueryState, parseAsString } from 'nuqs';
 import { toast } from 'sonner';
 import { Button, cn } from '@water-supply-crm/ui';
 import { ArrowLeft, Inbox } from 'lucide-react';
@@ -24,7 +24,6 @@ function CommunicationsContent() {
   // Daily Sheet page already gives them.
   const isDriver = user?.role === 'DRIVER' || user?.role === 'SALESMAN';
 
-  const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [status, setStatus] = useQueryState('status', parseAsString.withDefault('all'));
   const [waitingOn, setWaitingOn] = useQueryState('waitingOn', parseAsString.withDefault('all'));
   const [search] = useQueryState('search', parseAsString.withDefault(''));
@@ -68,8 +67,10 @@ function CommunicationsContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationParam, conversationQuery.data, conversationQuery.isError]);
 
-  const { data, isLoading } = useInbox({
-    page,
+  const listScrollRef = useRef<HTMLDivElement>(null);
+  const scrollListToTop = useCallback(() => listScrollRef.current?.scrollTo({ top: 0 }), []);
+
+  const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } = useInbox({
     limit: PAGE_LIMIT,
     status: status !== 'all' ? (status as 'OPEN' | 'RESOLVED' | 'CLOSED') : undefined,
     waitingOn: waitingOn !== 'all' ? (waitingOn as 'DRIVER' | 'OFFICE') : undefined,
@@ -80,8 +81,10 @@ function CommunicationsContent() {
     dateTo: to || undefined,
   });
 
-  const conversations = data?.data ?? [];
-  const totalPages = data?.meta.totalPages ?? 1;
+  const conversations = useMemo(() => data?.pages.flatMap((p) => p.data) ?? [], [data]);
+  const loadMore = useCallback(() => {
+    fetchNextPage();
+  }, [fetchNextPage]);
 
   const activeFilterCount = [
     status !== 'all',
@@ -127,46 +130,25 @@ function CommunicationsContent() {
         <div className={cn('flex flex-col border-border/40 md:border-r min-h-0', selected && 'hidden md:flex')}>
           <ConversationFilters
             status={status}
-            onStatusChange={(v) => { setStatus(v); setPage(1); }}
+            onStatusChange={(v) => { setStatus(v); scrollListToTop(); }}
             waitingOn={waitingOn}
-            onWaitingOnChange={(v) => { setWaitingOn(v); setPage(1); }}
+            onWaitingOnChange={(v) => { setWaitingOn(v); scrollListToTop(); }}
             isDriver={isDriver}
-            onBeforeChange={() => setPage(1)}
+            onBeforeChange={scrollListToTop}
             activeFilterCount={activeFilterCount}
           />
-          <div className="flex-1 overflow-y-auto min-h-0">
+          <div ref={listScrollRef} className="flex-1 overflow-y-auto min-h-0">
             <ConversationList
               conversations={conversations}
               selectedId={selected?.id ?? null}
               onSelect={setSelected}
               isLoading={isLoading}
+              hasNextPage={hasNextPage}
+              isFetchingNextPage={isFetchingNextPage}
+              onLoadMore={loadMore}
+              scrollRootRef={listScrollRef}
             />
           </div>
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-t border-border/40">
-              <Button
-                size="sm"
-                variant="outline"
-                className="rounded-full font-bold text-xs h-8"
-                disabled={page <= 1}
-                onClick={() => setPage(Math.max(1, page - 1))}
-              >
-                Prev
-              </Button>
-              <span className="text-[10px] text-muted-foreground font-medium">
-                Page {page} of {totalPages}
-              </span>
-              <Button
-                size="sm"
-                variant="outline"
-                className="rounded-full font-bold text-xs h-8"
-                disabled={page >= totalPages}
-                onClick={() => setPage(Math.min(totalPages, page + 1))}
-              >
-                Next
-              </Button>
-            </div>
-          )}
         </div>
 
         {/* Detail pane */}

@@ -69,14 +69,14 @@ export function ConversationFilters({
     <div className="flex flex-col gap-2.5 p-3 border-b border-border/40">
       <div className="flex items-center gap-2">
         <div className="flex-1 min-w-0">
-          <SearchInput placeholder="Search customer name or code…" onBeforeChange={onBeforeChange} />
+          <SearchInput fluid placeholder="Search customer name or code…" onBeforeChange={onBeforeChange} />
         </div>
         <Button
           variant="outline"
           size="sm"
           onClick={() => setOpen(true)}
           className={cn(
-            'rounded-xl h-9 px-3 gap-1.5 font-semibold shrink-0',
+            'rounded-xl h-9 px-2.5 gap-1.5 font-semibold shrink-0',
             activeFilterCount > 0 && 'border-primary text-primary',
           )}
         >

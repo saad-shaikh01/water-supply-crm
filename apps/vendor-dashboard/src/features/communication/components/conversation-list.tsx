@@ -1,10 +1,12 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { Avatar, AvatarFallback, Badge, Skeleton, cn } from '@water-supply-crm/ui';
-import { Mic, Truck, User } from 'lucide-react';
+import { Loader2, Mic, Truck, User } from 'lucide-react';
 import type { ConversationContext } from '@water-supply-crm/types';
 import type { ConversationListItem } from '../api/conversations.api';
+import { avatarColor, avatarInitial } from '../../../lib/avatar-color';
 import { CustomerFlagIcons, flagRingStyle, flagRowStripeStyle } from '../../customers/components/customer-flag-badge';
 
 const STATUS_STYLES: Record<ConversationContext['status'], string> = {
@@ -12,9 +14,6 @@ const STATUS_STYLES: Record<ConversationContext['status'], string> = {
   RESOLVED: 'bg-blue-500/15 text-blue-700 dark:text-blue-400',
   CLOSED: 'bg-zinc-500/15 text-zinc-600 dark:text-zinc-400',
 };
-
-const initials = (name: string) =>
-  name.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('') || '?';
 
 const formatDate = (iso: string) =>
   new Date(iso).toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
@@ -27,6 +26,11 @@ interface ConversationListProps {
   selectedId: string | null;
   onSelect: (conversation: ConversationListItem) => void;
   isLoading: boolean;
+  hasNextPage?: boolean;
+  isFetchingNextPage?: boolean;
+  onLoadMore?: () => void;
+  /** The scrolling ancestor, used as the observer root for infinite scroll. */
+  scrollRootRef?: React.RefObject<HTMLElement | null>;
 }
 
 /**
@@ -37,7 +41,31 @@ interface ConversationListProps {
  * now). No interactive status control here — those live on
  * conversation-header.tsx; status is shown here as a plain badge.
  */
-export function ConversationList({ conversations, selectedId, onSelect, isLoading }: ConversationListProps) {
+export function ConversationList({
+  conversations,
+  selectedId,
+  onSelect,
+  isLoading,
+  hasNextPage = false,
+  isFetchingNextPage = false,
+  onLoadMore,
+  scrollRootRef,
+}: ConversationListProps) {
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !hasNextPage || isFetchingNextPage || !onLoadMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) onLoadMore();
+      },
+      { root: scrollRootRef?.current ?? null, rootMargin: '200px' },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, onLoadMore, scrollRootRef, conversations.length]);
+
   if (isLoading) {
     return (
       <div className="space-y-2 p-3">
@@ -83,8 +111,11 @@ export function ConversationList({ conversations, selectedId, onSelect, isLoadin
           >
             <div className="relative shrink-0">
               <Avatar className="h-10 w-10" style={flagRingStyle(c.customer.flags)}>
-                <AvatarFallback className="text-xs font-black bg-primary/15 text-primary">
-                  {initials(c.customer.name)}
+                <AvatarFallback
+                  className="text-sm font-bold text-white"
+                  style={{ backgroundColor: avatarColor(c.customer.name) }}
+                >
+                  {avatarInitial(c.customer.name)}
                 </AvatarFallback>
               </Avatar>
               {hasUnread && (
@@ -162,6 +193,9 @@ export function ConversationList({ conversations, selectedId, onSelect, isLoadin
           </div>
         );
       })}
+      <div ref={sentinelRef} className="flex items-center justify-center py-3 h-10">
+        {isFetchingNextPage && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+      </div>
     </div>
   );
 }

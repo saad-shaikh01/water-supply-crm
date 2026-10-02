@@ -29,11 +29,17 @@ const BADGE_POLL_MS = 60_000;
 // via ['conversations'] prefix when both should refresh together.
 const UNREAD_BADGE_KEY = ['conversations', 'unread-count'] as const;
 
-/** Communication Center inbox list (Phase 3). Polls every 30s (Phase 4). */
-export const useInbox = (query: InboxQuery) => {
-  return useQuery({
+/**
+ * Communication Center inbox list (Phase 3). Polls every 30s (Phase 4).
+ * Infinite-scroll: each poll refetches every loaded page.
+ */
+export const useInbox = (query: Omit<InboxQuery, 'page'>) => {
+  return useInfiniteQuery({
     queryKey: queryKeys.communication.inbox(query),
-    queryFn: (): Promise<InboxResponse> => conversationsApi.findMany(query),
+    queryFn: ({ pageParam }: { pageParam: number }): Promise<InboxResponse> =>
+      conversationsApi.findMany({ ...query, page: pageParam }),
+    initialPageParam: 1,
+    getNextPageParam: (last) => (last.meta.page < last.meta.totalPages ? last.meta.page + 1 : undefined),
     placeholderData: (prev) => prev,
     refetchInterval: INBOX_POLL_MS,
   });
