@@ -11,6 +11,7 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { UserRole } from '@prisma/client';
 import { VendorService } from './vendor.service';
+import { VendorProvisioningService } from './vendor-provisioning.service';
 import { CreateVendorDto } from './dto/create-vendor.dto';
 import { UpdateVendorDto } from './dto/update-vendor.dto';
 import { ResetAdminPasswordDto } from './dto/reset-admin-password.dto';
@@ -23,13 +24,27 @@ import type { AuthUser } from '@water-supply-crm/types';
 @Controller('vendors')
 @RequireSuperAdmin()
 export class VendorController {
-  constructor(private readonly vendorService: VendorService) {}
+  constructor(
+    private readonly vendorService: VendorService,
+    private readonly provisioning: VendorProvisioningService,
+  ) {}
 
   /** POST /vendors — Create vendor + admin user */
   @Post()
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
-  create(@Body() dto: CreateVendorDto) {
-    return this.vendorService.create(dto);
+  create(@CurrentUser() user: AuthUser, @Body() dto: CreateVendorDto) {
+    return this.vendorService.create(dto, user);
+  }
+
+  /**
+   * POST /vendors/:id/provision — "Repair Vendor Setup". Idempotently re-runs onboarding
+   * provisioning (system roles, preset-permission catch-up, role-less users, starter
+   * catalogues). Never rewrites an existing role's customised permissions.
+   */
+  @Post(':id/provision')
+  @Throttle({ short: { ttl: 1000, limit: 2 }, medium: { ttl: 60000, limit: 10 } })
+  provision(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.provisioning.repair(id, user);
   }
 
   /** GET /vendors — List all vendors with customer/driver counts */
@@ -40,8 +55,8 @@ export class VendorController {
 
   /**
    * GET /vendors/:id — Vendor detail.
-   * SUPER_ADMIN (any vendor) or VENDOR_ADMIN (their own). NOTE (C6): the service does
-   * not scope VENDOR_ADMIN to their own vendorId — cross-tenant read risk to fix.
+   * SUPER_ADMIN (any vendor) or VENDOR_ADMIN (their own — enforced in the service,
+   * C5 fix; see vendor.service.spec.ts).
    */
   @Get(':id')
   @RequireRoles(UserRole.SUPER_ADMIN, UserRole.VENDOR_ADMIN)

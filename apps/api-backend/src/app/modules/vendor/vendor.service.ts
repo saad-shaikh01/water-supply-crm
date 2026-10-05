@@ -8,12 +8,12 @@ import { PrismaService } from '@water-supply-crm/database';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
 import { CreateVendorDto } from './dto/create-vendor.dto';
 import { UpdateVendorDto } from './dto/update-vendor.dto';
-import { UserService } from '../user/user.service';
-import { UserRole } from '@prisma/client';
+import { Prisma, UserRole } from '@prisma/client';
 import { ForbiddenException } from '@nestjs/common';
 import type { AuthUser } from '@water-supply-crm/types';
 import * as bcrypt from 'bcrypt';
 import { AuditService } from '../audit/audit.service';
+import { VendorProvisioningService } from './vendor-provisioning.service';
 import { paginate } from '../../common/helpers/paginate';
 
 // Redis key used to block suspended vendor's users from authenticating
@@ -24,14 +24,19 @@ export const vendorSuspendedKey = (vendorId: string) =>
 export class VendorService {
   constructor(
     private prisma: PrismaService,
-    private userService: UserService,
     private cache: CacheInvalidationService,
     private audit: AuditService,
+    private provisioning: VendorProvisioningService,
   ) {}
 
-  async create(createVendorDto: CreateVendorDto) {
-    const { adminEmail, adminPassword, adminName, ...vendorData } =
-      createVendorDto;
+  /**
+   * Create a vendor, provision it (system roles, starter catalogues) and create its
+   * VENDOR_ADMIN — all in ONE transaction, every write on `tx`. Anything that fails
+   * (including a duplicate admin email) rolls the whole vendor back, so a half-built
+   * vendor with no usable admin can never be left behind.
+   */
+  async create(createVendorDto: CreateVendorDto, actor?: AuthUser) {
+    const { adminEmail, adminPassword, adminName, ...vendorData } = createVendorDto;
 
     const existing = await this.prisma.vendor.findUnique({
       where: { slug: vendorData.slug },
@@ -39,18 +44,65 @@ export class VendorService {
     if (existing) {
       throw new ConflictException('Vendor with this slug already exists');
     }
-
-    return this.prisma['$transaction'](async (tx: any) => {
-      const vendor = await tx.vendor.create({ data: vendorData });
-      await this.userService.create({
-        email: adminEmail,
-        password: adminPassword,
-        name: adminName,
-        role: UserRole.VENDOR_ADMIN,
-        vendorId: vendor.id,
-      });
-      return vendor;
+    const emailTaken = await this.prisma.user.findUnique({
+      where: { email: adminEmail },
+      select: { id: true },
     });
+    if (emailTaken) {
+      throw new ConflictException('User with this email already exists');
+    }
+
+    const hashedPassword = await bcrypt.hash(adminPassword, 10);
+
+    let created;
+    try {
+      created = await this.prisma.$transaction(
+        async (tx) => {
+          const vendor = await tx.vendor.create({ data: vendorData });
+          const provisioned = await this.provisioning.provisionInTx(tx, vendor.id);
+          const admin = await tx.user.create({
+            data: {
+              email: adminEmail,
+              password: hashedPassword,
+              name: adminName,
+              role: UserRole.VENDOR_ADMIN,
+              vendorId: vendor.id,
+              roleId: provisioned.roleIdByKey.get('vendor_admin'),
+            },
+            select: { id: true, email: true, name: true, role: true },
+          });
+          return { vendor, admin };
+        },
+        { timeout: 30_000 },
+      );
+    } catch (e) {
+      // A concurrent request can win the slug/email race between the checks above and here.
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException('Vendor slug or admin email already exists');
+      }
+      throw e;
+    }
+
+    await this.audit.log({
+      vendorId: created.vendor.id,
+      userId: actor?.userId,
+      userName: actor?.name,
+      action: 'CREATE',
+      entity: 'Vendor',
+      entityId: created.vendor.id,
+      changes: { after: { name: created.vendor.name, slug: created.vendor.slug, adminEmail } },
+    });
+    await this.audit.log({
+      vendorId: created.vendor.id,
+      userId: actor?.userId,
+      userName: actor?.name,
+      action: 'CREATE',
+      entity: 'User',
+      entityId: created.admin.id,
+      changes: { after: { email: created.admin.email, name: created.admin.name, role: created.admin.role } },
+    });
+
+    return created.vendor;
   }
 
   /** List all vendors with pagination — used by SUPER_ADMIN dashboard list */
@@ -190,6 +242,9 @@ export class VendorService {
       await tx.van.deleteMany({ where: { vendorId: id } });
       await tx.route.deleteMany({ where: { vendorId: id } });
       await tx.product.deleteMany({ where: { vendorId: id } });
+      // Seeded by provisioning at creation; FK is RESTRICT (no cascade), so a brand-new vendor
+      // could otherwise never be deleted.
+      await tx.customerFlagCategory.deleteMany({ where: { vendorId: id } });
       await tx.user.deleteMany({ where: { vendorId: id } });
       await tx.vendor.delete({ where: { id } });
     });

@@ -4,3 +4,4 @@ export * from './lib/page-registry';
 export * from './lib/patterns';
 export * from './lib/resolver';
 export * from './lib/presets';
+export * from './lib/role-provisioning';
