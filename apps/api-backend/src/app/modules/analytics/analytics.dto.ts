@@ -31,6 +31,11 @@ export class ProfitLossSummaryQueryDto extends ProfitLossQueryDto {
   @IsString()
   @MaxLength(300)
   adjust?: string;
+
+  /** ACTUAL keeps the adjustment rows visible even when none is selected. */
+  @IsOptional()
+  @IsIn(['CASH', 'ACTUAL'])
+  basis?: string;
 }
 
 export class ProfitLossDetailsQueryDto extends ProfitLossQueryDto {

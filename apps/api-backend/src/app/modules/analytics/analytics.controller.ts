@@ -27,7 +27,7 @@ export class AnalyticsController {
 
   @Get('profit-loss')
   getProfitLoss(@CurrentUser() user: AuthUser, @Query() dto: ProfitLossSummaryQueryDto) {
-    return this.profitLossService.getProfitLoss(user.vendorId, dto.month, dto.adjust);
+    return this.profitLossService.getProfitLoss(user.vendorId, dto.month, dto.adjust, dto.basis);
   }
 
   @Get('financial')

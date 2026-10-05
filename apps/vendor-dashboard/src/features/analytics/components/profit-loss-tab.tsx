@@ -113,107 +113,63 @@ function usePlView() {
   return { basis, off, hydrated, setBasis, toggleKey, reset };
 }
 
-function AdjustmentsPanel({
-  data, basis, off, onToggle, onReset,
-}: {
-  data: ProfitLossData;
-  basis: Basis;
-  off: string[];
-  onToggle: (key: string) => void;
-  onReset: () => void;
-}) {
-  const items = data.adjustments.filter((a) => a.amount > 0);
-  const cashTotal = data.summary.totalExpenses - data.adjustmentTotal;
+/** The adjustment rows hang off the group's main cost category inside the Expenses table. */
+const ADJUSTMENT_HOST_KEY: Record<ProfitLossAdjustment['group'], string> = {
+  PLANT: 'BOTTLE_REFILL_PAYMENT',
+  CAPS: 'CAPS_PURCHASED',
+  SALARY: 'SALARY_SETTLEMENT',
+};
 
-  if (basis === 'CASH') {
-    if (items.length === 0) return null;
-    return (
-      <p className="text-xs text-muted-foreground">
-        {items.length} cost {items.length === 1 ? 'item was' : 'items were'} paid in a different month than they belong to — switch to{' '}
-        <span className="font-semibold">Actual cost</span> to see {monthLabel(data.month)} with them moved.
-      </p>
-    );
-  }
-
-  const groups: Array<{ id: ProfitLossAdjustment['group']; title: string }> = [
-    { id: 'PLANT', title: 'Plant bill (bottle refill)' },
-    { id: 'CAPS', title: 'Caps bill' },
-    { id: 'SALARY', title: 'Salaries' },
-  ];
-
+function CashViewHint({ data }: { data: ProfitLossData }) {
+  const count = data.adjustments.filter((a) => a.amount > 0).length;
+  if (count === 0) return null;
   return (
-    <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
-      <CardHeader className="pb-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle className="text-base font-bold">Actual cost — adjust {monthLabel(data.month)}</CardTitle>
-          <Button variant="ghost" size="sm" onClick={onReset} className="gap-1">
-            <RotateCcw className="h-3.5 w-3.5" /> Reset to cash view
-          </Button>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Untick an item to leave it out of the adjustment. Totals, per-bottle figures and profit below update instantly.
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {items.length === 0 && (
-          <p className="text-sm text-muted-foreground">Nothing to adjust — every cost this month was paid in the month it belongs to.</p>
-        )}
-        {groups.map((g) => {
-          const rows = items.filter((a) => a.group === g.id);
-          if (rows.length === 0) return null;
-          return (
-            <div key={g.id} className="space-y-2">
-              <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider font-bold">{g.title}</p>
-              {rows.map((a) => {
-                const checked = !off.includes(a.key);
-                return (
-                  <label key={a.key} className="flex items-start gap-3 rounded-xl border border-border p-3 cursor-pointer hover:bg-muted/30">
-                    <input
-                      type="checkbox"
-                      className="mt-1 h-4 w-4 accent-primary"
-                      checked={checked}
-                      onChange={() => onToggle(a.key)}
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-semibold">{a.label}</span>
-                      <span className="block text-xs text-muted-foreground">{a.hint}</span>
-                    </span>
-                    <span className={cn('font-bold whitespace-nowrap', a.delta > 0 ? 'text-destructive' : 'text-emerald-600 dark:text-emerald-400')}>
-                      {a.delta > 0 ? '+' : '−'}{rs(a.amount)}
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
-          );
-        })}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-sm">
-          <span className="text-muted-foreground">Cash paid in {monthLabel(data.month, true)}: <span className="font-semibold text-foreground">{rs(cashTotal)}</span></span>
-          <span>
-            Actual cost: <span className="font-black">{rs(data.summary.totalExpenses)}</span>
-            <span className="ml-2 text-xs text-muted-foreground">({data.adjustmentTotal >= 0 ? '+' : '−'}{rs(Math.abs(data.adjustmentTotal))})</span>
-          </span>
-        </div>
-      </CardContent>
-    </Card>
+    <p className="text-xs text-muted-foreground">
+      {count} cost {count === 1 ? 'item was' : 'items were'} paid in a different month than {count === 1 ? 'it belongs' : 'they belong'} to — switch to{' '}
+      <span className="font-semibold">Actual cost</span> to see {monthLabel(data.month)} with {count === 1 ? 'it' : 'them'} moved.
+    </p>
   );
 }
 
 function ExpenseTable({
-  domains, summary, onOpen,
+  domains, summary, onOpen, actual,
 }: {
   domains: ProfitLossDomain[];
   summary: ProfitLossSummary;
   onOpen: (key: string) => void;
+  /** Present only in the Actual-cost view: the adjustment checkboxes live inside this table. */
+  actual?: { data: ProfitLossData; off: string[]; onToggle: (key: string) => void; onReset: () => void };
 }) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
-  const visible = domains.filter((d) => d.amount > 0);
+  const adjustments = actual ? actual.data.adjustments.filter((a) => a.amount > 0) : [];
+  const hostKeys = new Set(adjustments.map((a) => ADJUSTMENT_HOST_KEY[a.group]));
+  const visible = domains.filter((d) => d.amount > 0 || d.categories.length > 0);
+  // In the Actual view, domains that carry an adjustment open by default so the checkboxes are in sight.
+  const isDomainOpen = (d: ProfitLossDomain) => open[d.domain] ?? d.categories.some((c) => hostKeys.has(c.key));
 
   return (
     <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
       <CardHeader>
         <CardTitle className="text-base font-bold">Expenses by Domain</CardTitle>
-        <p className="text-xs text-muted-foreground">Click a domain to see its categories, and a category to see every entry.</p>
+        <p className="text-xs text-muted-foreground">
+          {actual
+            ? 'Actual cost: tick or untick the highlighted rows to move a cost into or out of this month.'
+            : 'Click a domain to see its categories, and a category to see every entry.'}
+        </p>
+        {actual && (
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-sm">
+            <span className="text-muted-foreground">
+              Cash paid in {monthLabel(actual.data.month, true)}:{' '}
+              <span className="font-semibold text-foreground">{rs(summary.totalExpenses - actual.data.adjustmentTotal)}</span>
+              <span className="mx-2">→</span>
+              Actual cost: <span className="font-black text-foreground">{rs(summary.totalExpenses)}</span>
+              <span className="ml-1 text-xs">({actual.data.adjustmentTotal >= 0 ? '+' : '−'}{rs(Math.abs(actual.data.adjustmentTotal))})</span>
+            </span>
+            <Button variant="ghost" size="sm" onClick={actual.onReset} className="gap-1">
+              <RotateCcw className="h-3.5 w-3.5" /> Reset to cash view
+            </Button>
+          </div>
+        )}
       </CardHeader>
       <CardContent className="overflow-x-auto">
         <Table>
@@ -232,7 +188,7 @@ function ExpenseTable({
               </TableRow>
             )}
             {visible.map((d) => {
-              const isOpen = !!open[d.domain];
+              const isOpen = isDomainOpen(d);
               return (
                 <Fragment key={d.domain}>
                   <TableRow
@@ -251,8 +207,8 @@ function ExpenseTable({
                     <TableCell className="text-right">{d.percent}%</TableCell>
                   </TableRow>
                   {isOpen && d.categories.map((c) => (
+                    <Fragment key={c.key}>
                     <TableRow
-                      key={c.key}
                       className="cursor-pointer hover:bg-muted/40"
                       onClick={() => onOpen(c.key)}
                     >
@@ -269,6 +225,31 @@ function ExpenseTable({
                       <TableCell className="text-right">{rs2(c.perBottle)}</TableCell>
                       <TableCell className="text-right">{c.percent}%</TableCell>
                     </TableRow>
+                    {actual && adjustments.filter((a) => ADJUSTMENT_HOST_KEY[a.group] === c.key).map((a) => {
+                      const checked = !actual.off.includes(a.key);
+                      return (
+                        <TableRow key={a.key} className="bg-amber-500/5 hover:bg-amber-500/10">
+                          <TableCell className="pl-14" colSpan={2}>
+                            <label className="flex items-start gap-3 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                                checked={checked}
+                                onChange={() => actual.onToggle(a.key)}
+                              />
+                              <span className="min-w-0">
+                                <span className="block text-sm font-medium">{a.label}</span>
+                                <span className="block text-xs text-muted-foreground">{a.hint}</span>
+                              </span>
+                            </label>
+                          </TableCell>
+                          <TableCell className={cn('text-right font-semibold whitespace-nowrap', a.delta > 0 ? 'text-destructive' : 'text-emerald-600 dark:text-emerald-400', !checked && 'opacity-40 line-through')} colSpan={2}>
+                            {a.delta > 0 ? '+' : '−'}{rs(a.amount)}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    </Fragment>
                   ))}
                 </Fragment>
               );
@@ -494,7 +475,7 @@ export function ProfitLossTab() {
   const [paymentsKind, setPaymentsKind] = useState<string | null>(null);
   const [addExpenseOpen, setAddExpenseOpen] = useState(false);
   const queryClient = useQueryClient();
-  const { data, isLoading, isError } = useProfitLoss(month, adjustKeys, view.hydrated);
+  const { data, isLoading, isError } = useProfitLoss(month, view.basis, adjustKeys, view.hydrated);
 
   // The wizard's mutations don't touch the analytics cache, so refresh the P&L when it closes
   // (a no-op refetch if nothing was recorded).
@@ -566,7 +547,7 @@ export function ProfitLossTab() {
             </div>
           )}
 
-          <AdjustmentsPanel data={data} basis={view.basis} off={view.off} onToggle={view.toggleKey} onReset={view.reset} />
+          {view.basis === 'CASH' && <CashViewHint data={data} />}
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <Stat
@@ -603,7 +584,12 @@ export function ProfitLossTab() {
             </div>
           </div>
 
-          <ExpenseTable domains={data.domains} summary={data.summary} onOpen={setDetailCategory} />
+          <ExpenseTable
+            domains={data.domains}
+            summary={data.summary}
+            onOpen={setDetailCategory}
+            actual={view.basis === 'ACTUAL' ? { data, off: view.off, onToggle: view.toggleKey, onReset: view.reset } : undefined}
+          />
 
           <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
             <CardHeader><CardTitle className="text-base font-bold">Month-wise Comparison <span className="text-xs font-normal text-muted-foreground">(cash basis)</span></CardTitle></CardHeader>

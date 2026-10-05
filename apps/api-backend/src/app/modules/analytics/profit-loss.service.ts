@@ -9,6 +9,7 @@ import {
   TransactionType,
 } from '@prisma/client';
 import {
+  ADJUSTMENT_CATEGORY_KEYS,
   ADJUSTMENT_KEYS,
   adjustmentDelta,
   applyAdjustments,
@@ -85,12 +86,14 @@ export class ProfitLossService {
    * "actual cost" view); omitted/empty = pure cash basis. Every month's
    * adjustment candidates are always returned so the UI can list them.
    */
-  async getProfitLoss(vendorId: string, monthInput?: string, adjustInput?: string) {
+  async getProfitLoss(vendorId: string, monthInput?: string, adjustInput?: string, basisInput?: string) {
     const month = this.resolveMonth(monthInput);
     const applied = this.parseAdjustKeys(adjustInput);
+    // The UI asks for ACTUAL explicitly so the inline checkboxes stay even when every adjustment is unticked.
+    const actualView = basisInput === 'ACTUAL' || applied.length > 0;
     const cacheKey = this.cache.vendorKey(vendorId, `${CACHE_KEYS.DASHBOARD}:analytics:profit-loss:v2:${month}`);
     const cached = await this.cache.get<any>(cacheKey);
-    if (cached) return this.withAdjustments(cached, applied);
+    if (cached) return this.withAdjustments(cached, applied, actualView);
 
     const trendMonths = Array.from({ length: TREND_MONTHS }, (_, i) => shiftMonth(month, i - (TREND_MONTHS - 1)));
     const figuresByMonth = new Map<string, MonthFigures>();
@@ -148,7 +151,7 @@ export class ProfitLossService {
     };
 
     await this.cache.set(cacheKey, result, CACHE_TTL_SECONDS);
-    return this.withAdjustments(result, applied);
+    return this.withAdjustments(result, applied, actualView);
   }
 
   private parseAdjustKeys(input?: string): AdjustmentKey[] {
@@ -166,7 +169,7 @@ export class ProfitLossService {
    * are selected, re-derives summary + domain tree from them. The Month-wise
    * Comparison trend and the reconciliation check always stay cash-basis.
    */
-  private withAdjustments(base: any, applied: AdjustmentKey[]) {
+  private withAdjustments(base: any, applied: AdjustmentKey[], actualView: boolean) {
     if (!base.adjustments) return base; // payload from before adjustments existed
     const { cashCategories, sales, ...rest } = base;
     const items: AdjustmentItem[] = (base.adjustments as AdjustmentItem[]).filter((i) => applied.includes(i.key));
@@ -174,17 +177,26 @@ export class ProfitLossService {
       ...i,
       applied: applied.includes(i.key) && i.amount > 0,
     }));
-    if (items.every((i) => !(i.amount > 0))) return { ...rest, adjustments };
+    if (!actualView) return { ...rest, adjustments };
 
     const cash = new Map<ProfitLossSourceKey, CategoryTotal>(cashCategories);
     const adjusted = applyAdjustments(cash, items);
     const totalExpenses = sumCategoryTotals(adjusted);
     const cashDomains = base.domains as Array<{ categories: Array<{ key: string; amount: number }> }>;
     const cashAmountByKey = new Map<string, number>(cashDomains.flatMap((d) => d.categories.map((c) => [c.key, c.amount] as [string, number])));
-    const domains = buildDomainTree(adjusted, sales.bottlesSold).map((d) => ({
+    const domains: any[] = buildDomainTree(adjusted, sales.bottlesSold).map((d) => ({
       ...d,
       categories: d.categories.map((c) => ({ ...c, adjustment: round2(c.amount - (cashAmountByKey.get(c.key) ?? 0)) })),
     }));
+    // The inline checkboxes hang off the group's main category row. If that row would be empty
+    // (e.g. only an unpaid bill, nothing paid yet) keep a zero row so the checkbox never disappears.
+    for (const group of Object.keys(ADJUSTMENT_CATEGORY_KEYS) as Array<keyof typeof ADJUSTMENT_CATEGORY_KEYS>) {
+      if (!adjustments.some((a) => a.group === group && a.amount > 0)) continue;
+      const host = ADJUSTMENT_CATEGORY_KEYS[group][0];
+      if (domains.some((d) => d.categories.some((c: any) => c.key === host))) continue;
+      const domain = domains.find((d) => d.domain === domainForKey(host));
+      domain?.categories.push({ key: host, label: labelForKey(host), amount: 0, count: 0, perBottle: null, percent: 0, adjustment: 0 });
+    }
     return {
       ...rest,
       basis: 'ACTUAL',

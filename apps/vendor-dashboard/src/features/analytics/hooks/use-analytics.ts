@@ -141,10 +141,10 @@ export interface ProfitLossDetails {
   rows: ProfitLossDetailRow[];
 }
 
-export const useProfitLoss = (month: string, adjust: readonly string[] = [], enabled = true) =>
+export const useProfitLoss = (month: string, basis: 'CASH' | 'ACTUAL' = 'CASH', adjust: readonly string[] = [], enabled = true) =>
   useQuery<ProfitLossData>({
-    queryKey: ['analytics', 'profit-loss', month, adjust.join(',')],
-    queryFn: () => profitLossApi.get(month, adjust.join(',')).then((r) => r.data),
+    queryKey: ['analytics', 'profit-loss', month, basis, adjust.join(',')],
+    queryFn: () => profitLossApi.get(month, adjust.join(','), basis).then((r) => r.data),
     placeholderData: (prev) => prev,
     enabled,
   });
