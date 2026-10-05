@@ -206,6 +206,109 @@ export class FuelCardService {
     return paginate(data, total, page, limit);
   }
 
+  /**
+   * Per-card running-balance statement: opening balance, ACTIVE top-ups (credit)
+   * and fuel fills paid from the card (debit), ordered oldest → newest with a
+   * `balanceAfter` per row, returned newest-first. VOIDED top-ups are listed but
+   * leave the balance untouched. The balance is always accumulated over the
+   * card's FULL history, so date filters/pagination never distort it.
+   */
+  async listLedger(vendorId: string, query: FuelCardTopUpQueryDto) {
+    const { page = 1, limit = 20, fuelCardId, dateFrom, dateTo } = query;
+
+    const cards = await this.prisma.fuelCard.findMany({
+      where: { vendorId, ...(fuelCardId && { id: fuelCardId }) },
+      select: { id: true, name: true, openingBalance: true, createdAt: true },
+    });
+    const cardIds = cards.map((c) => c.id);
+    const cardName = new Map(cards.map((c) => [c.id, c.name]));
+
+    const [topUps, fills] = await Promise.all([
+      this.prisma.fuelCardTopUp.findMany({
+        where: { vendorId, fuelCardId: { in: cardIds } },
+        include: topUpInclude,
+      }),
+      this.prisma.fuelLog.findMany({
+        where: { vendorId, fuelCardId: { in: cardIds } },
+        include: {
+          vehicle: { select: { plateNumber: true } },
+          recordedBy: { select: { id: true, name: true } },
+        },
+      }),
+    ]);
+
+    type Entry = {
+      id: string;
+      type: 'OPENING' | 'TOPUP' | 'FILL';
+      fuelCardId: string;
+      cardName: string;
+      date: Date;
+      sortKey: number;
+      amount: number;
+      /** Signed effect on the card balance (0 for a voided top-up). */
+      delta: number;
+      description: string;
+      reference: string | null;
+      by: string | null;
+      voided: boolean;
+      voidReason: string | null;
+      balanceAfter: number;
+    };
+
+    const entries: Entry[] = [];
+    for (const card of cards) {
+      if (card.openingBalance !== 0) {
+        entries.push({
+          id: `opening-${card.id}`, type: 'OPENING', fuelCardId: card.id, cardName: card.name,
+          date: card.createdAt, sortKey: card.createdAt.getTime() - 1, amount: card.openingBalance,
+          delta: card.openingBalance, description: 'Opening balance', reference: null, by: null,
+          voided: false, voidReason: null, balanceAfter: 0,
+        });
+      }
+    }
+    for (const t of topUps) {
+      const voided = t.status === FuelCardTopUpStatus.VOIDED;
+      entries.push({
+        id: t.id, type: 'TOPUP', fuelCardId: t.fuelCardId, cardName: cardName.get(t.fuelCardId) ?? 'Fuel Card',
+        date: t.date, sortKey: t.date.getTime(), amount: t.amount, delta: voided ? 0 : t.amount,
+        description: t.note || 'Fuel card top-up', reference: t.reference, by: t.createdBy?.name ?? null,
+        voided, voidReason: t.voidReason, balanceAfter: 0,
+      });
+    }
+    for (const f of fills) {
+      const fuelCardIdOfFill = f.fuelCardId as string;
+      const detail = [f.vehicle?.plateNumber, `${f.litersFilled} L`, f.fuelStation].filter(Boolean).join(' · ');
+      entries.push({
+        id: f.id, type: 'FILL', fuelCardId: fuelCardIdOfFill, cardName: cardName.get(fuelCardIdOfFill) ?? 'Fuel Card',
+        date: f.date, sortKey: f.date.getTime(), amount: f.amountPaid, delta: -f.amountPaid,
+        description: `Fuel fill — ${detail}`, reference: null, by: f.recordedBy?.name ?? null,
+        voided: false, voidReason: null, balanceAfter: 0,
+      });
+    }
+
+    // Oldest → newest per card, accumulate, then flip for display.
+    entries.sort((a, b) => a.sortKey - b.sortKey || a.id.localeCompare(b.id));
+    const running = new Map<string, number>();
+    for (const e of entries) {
+      const next = round2((running.get(e.fuelCardId) ?? 0) + e.delta);
+      running.set(e.fuelCardId, next);
+      e.balanceAfter = next;
+    }
+
+    let rows = entries.reverse();
+    if (dateFrom) {
+      const from = new Date(dateFrom).getTime();
+      rows = rows.filter((e) => e.date.getTime() >= from);
+    }
+    if (dateTo) {
+      const end = new Date(dateTo);
+      end.setHours(23, 59, 59, 999);
+      rows = rows.filter((e) => e.date.getTime() <= end.getTime());
+    }
+
+    return paginate(rows.slice((page - 1) * limit, page * limit), rows.length, page, limit);
+  }
+
   async voidTopUp(user: AuthUser, id: string, dto: VoidFuelCardTopUpDto) {
     const row = await this.prisma.fuelCardTopUp.findFirst({ where: { id, vendorId: user.vendorId } });
     if (!row) throw new NotFoundException('Fuel card top-up not found.');
