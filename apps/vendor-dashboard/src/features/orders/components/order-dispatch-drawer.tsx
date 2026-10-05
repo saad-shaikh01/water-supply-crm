@@ -83,7 +83,7 @@ export function OrderDispatchDrawer({
   });
 
   const openSheets = useMemo(
-    () => ((openSheetsData as any)?.data ?? []) as Array<{ id: string; route?: { name: string }; van?: { plateNumber: string }; driver?: { name: string } }>,
+    () => ((openSheetsData as any)?.data ?? []) as Array<{ id: string; route?: { name: string }; van?: { plateNumber: string }; salesman?: { name: string } | null }>,
     [openSheetsData],
   );
 
@@ -171,7 +171,7 @@ export function OrderDispatchDrawer({
                   <SelectItem value="none">Select an open sheet</SelectItem>
                   {openSheets.map((sheet) => (
                     <SelectItem key={sheet.id} value={sheet.id}>
-                      {(sheet.route?.name ?? 'No Route')} | {(sheet.van?.plateNumber ?? '-')} | {(sheet.driver?.name ?? '-')}
+                      {(sheet.route?.name ?? 'No Route')} | {(sheet.van?.plateNumber ?? '-')} | {(sheet.salesman?.name ?? '-')}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -113,6 +113,43 @@ export async function validateDriverAssignment(
 }
 
 /**
+ * Resolves the salesman a generated sheet is stamped with (DailySheet.salesmanId
+ * is NOT NULL — the salesman is the source of truth every operational screen
+ * shows): an active SALESMAN in the van's default crew, else the van's
+ * default salesman, else the sheet's driver (no separate salesman rides along).
+ * `defaultCrew` is the already-isActive-filtered van template.
+ */
+export function resolveEffectiveSalesmanId(
+  van: {
+    defaultSalesmanId?: string | null;
+    defaultCrew?: { userId: string; role: CrewRole }[];
+  },
+  driverId: string,
+): string {
+  const crewSalesman = van.defaultCrew?.find((c) => c.role === CrewRole.SALESMAN);
+  return crewSalesman?.userId ?? van.defaultSalesmanId ?? driverId;
+}
+
+/**
+ * Splits a swap/crew payload into the single salesman (stored on
+ * DailySheet.salesmanId) and the loaders (the only rows DailySheetCrew holds).
+ * Returns salesmanId `undefined` when the payload names no salesman.
+ */
+export function splitSalesmanFromCrew(crew: CrewMemberInput[]): {
+  salesmanId: string | undefined;
+  loaders: CrewMemberInput[];
+} {
+  const salesmen = crew.filter((m) => m.role === CrewRole.SALESMAN);
+  if (salesmen.length > 1) {
+    throw new BadRequestException('A sheet can have only one salesman');
+  }
+  return {
+    salesmanId: salesmen[0]?.userId,
+    loaders: crew.filter((m) => m.role !== CrewRole.SALESMAN),
+  };
+}
+
+/**
  * Validates Van.defaultSalesmanId (van.service.ts create/update) — the
  * priority slot checked ahead of defaultDriverId when resolving who becomes
  * a generated sheet's driver (see resolveEffectiveDriverId). Same

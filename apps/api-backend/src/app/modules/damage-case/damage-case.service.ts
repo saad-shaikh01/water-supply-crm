@@ -373,7 +373,7 @@ export class DamageCaseService {
 
   async reverse(user: AuthUser, id: string, dto: { version: number }) {
     const result = await this.prisma.$transaction(async (tx) => {
-      const damageCase = await tx.damageCase.findUnique({ where: { id } });
+      const damageCase = await tx.damageCase.findFirst({ where: { id, vendorId: user.vendorId } });
       if (!damageCase) throw new NotFoundException('Damage case not found.');
 
       if (damageCase.status !== DamageCaseStatus.CHARGED) {

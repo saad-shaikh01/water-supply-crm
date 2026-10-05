@@ -58,9 +58,11 @@ interface CrewEditorProps {
   /** The assigned driver(s) for the day (e.g. a van's default driver AND
    * default salesman) — excluded from every crew slot. */
   excludeUserId?: string | (string | null | undefined)[] | null;
+  /** A daily sheet has exactly one salesman — hides the add control once one is picked. */
+  singleSalesman?: boolean;
 }
 
-export function CrewEditor({ value, onChange, excludeUserId }: CrewEditorProps) {
+export function CrewEditor({ value, onChange, excludeUserId, singleSalesman }: CrewEditorProps) {
   const { data } = useCrewCandidates();
   const users = (data?.data ?? []) as Array<{ id: string; name: string; role: string }>;
   const usersById = new Map(users.map((u) => [u.id, u]));
@@ -114,7 +116,7 @@ export function CrewEditor({ value, onChange, excludeUserId }: CrewEditorProps) 
           </div>
         )}
 
-        {options.length > 0 ? (
+        {singleSalesman && key === 'salesmanIds' && ids.length >= 1 ? null : options.length > 0 ? (
           <Select value={ADD} onValueChange={add}>
             <SelectTrigger className="h-9 text-xs">
               <SelectValue placeholder={addLabel} />

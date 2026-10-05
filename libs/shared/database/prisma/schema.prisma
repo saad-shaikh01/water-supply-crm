@@ -447,6 +447,7 @@ model User {
   assignedVan                     Van?                     @relation("VanDriver")
   assignedVanAsSalesman           Van?                     @relation("VanSalesman")
   dailySheets                     DailySheet[]             @relation("DriverSheets")
+  salesmanSheets                  DailySheet[]             @relation("SalesmanSheets")
   customer                        Customer? // One-to-one link for Customer Portal
   expenses                        Expense[]
   fcmTokens                       FcmToken[]
@@ -936,6 +937,14 @@ model DailySheet {
   driverId String
   driver   User   @relation("DriverSheets", fields: [driverId], references: [id])
 
+  // The sheet's salesman — the person every operational screen (lists, headers,
+  // cash/ledger, payroll, messaging) shows and holds accountable for the day.
+  // ALWAYS set: when no separate salesman rides along it equals driverId.
+  // `driver` stays the auth anchor and the fleet-flow identity (fuel/odometer/
+  // vehicle checks). DailySheetCrew now holds LOADERs only.
+  salesmanId String
+  salesman   User   @relation("SalesmanSheets", fields: [salesmanId], references: [id])
+
   // Walk-in / Self-Pickup Delivery (docs/features/walk-in-delivery.md) — ROUTE
   // for every generation-pipeline sheet; WALK_IN for the synthetic per-vendor-
   // per-date sheet that off-route deliveries are appended to.
@@ -1029,6 +1038,7 @@ model DailySheet {
   @@index([vendorId, routeId, date])
   @@index([vendorId, kind, date])
   @@index([driverId, date])
+  @@index([salesmanId, date])
   @@index([vanId, date])
 }
 

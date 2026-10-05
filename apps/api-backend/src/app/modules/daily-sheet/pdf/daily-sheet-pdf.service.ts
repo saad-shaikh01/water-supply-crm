@@ -451,9 +451,11 @@ export class DailySheetPdfService {
         characterSpacing: 0.3, width: col1TextW, lineBreak: false,
       });
 
-    const teamRows: [string, string][] = [['Driver', sheet.driver?.name ?? '—']];
+    // The salesman (DailySheet.salesmanId) is who the sheet is shown under; the
+    // driver is a fleet-flow concept and is not listed here.
+    const teamRows: [string, string][] = [['Salesman', sheet.salesman?.name ?? '—']];
     for (const c of (sheet.crew ?? []) as any[]) {
-      teamRows.push([c.role === 'SALESMAN' ? 'Salesman' : 'Loader', c.user?.name ?? '—']);
+      teamRows.push(['Loader', c.user?.name ?? '—']);
     }
     const MAX_TEAM_ROWS = 5;
     const visibleTeamRows = teamRows.slice(0, MAX_TEAM_ROWS);

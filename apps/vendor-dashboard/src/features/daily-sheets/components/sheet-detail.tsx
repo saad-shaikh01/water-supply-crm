@@ -456,11 +456,14 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
     }
     return map;
   }, [loads, data?.items, data?.expenses, data?.crewCashDistributions, data?.sheetAdvances]);
-  // Today's confirmed crew — driver plus DailySheetCrew rows — the only pool the
+  // Today's confirmed crew — salesman, driver plus DailySheetCrew rows — the only pool the
   // Crew Cash Distribution employee picker (and its list's name lookup) may draw from.
   const crewCashEmployees = useMemo(() => {
     const members: { id: string; name: string }[] = [];
-    if (data?.driver) members.push({ id: data.driver.id, name: data.driver.name });
+    if (data?.salesman) members.push({ id: data.salesman.id, name: data.salesman.name });
+    if (data?.driver && !members.some((m) => m.id === data.driver?.id)) {
+      members.push({ id: data.driver.id, name: data.driver.name });
+    }
     for (const c of data?.crew ?? []) {
       if (!members.some((m) => m.id === c.userId)) members.push({ id: c.userId, name: c.user.name });
     }
@@ -697,7 +700,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
       <SheetDetailHeader
         date={data!.date}
         vanPlateNumber={isWalkIn ? null : vehiclePlate}
-        driverName={data?.driver?.name ?? null}
+        salesmanName={data?.salesman?.name ?? null}
         crew={data?.crew ?? []}
         crewConfirmed={!!data?.crewConfirmed}
         crewConfirmedByName={data?.crewConfirmedBy?.name ?? null}
@@ -1095,7 +1098,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             <div className="min-w-0">
               <p className="text-[10px] font-bold uppercase text-muted-foreground">Salesman</p>
               <p className="text-sm font-black truncate">
-                {data?.crew?.find((c) => c.role === 'SALESMAN')?.user.name ?? data?.driver?.name}
+                {data?.salesman?.name ?? '—'}
               </p>
             </div>
           </CardContent>
@@ -1596,6 +1599,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         sheetId={sheetId}
         currentDriverId={data?.driverId}
         currentDriverName={data?.driver?.name}
+        currentSalesmanId={data?.salesmanId}
         currentVanId={data?.vanId}
         currentVanPlate={data?.van?.plateNumber}
         currentCrew={data?.crew ?? []}
@@ -1608,6 +1612,8 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         sheetId={sheetId}
         driverId={data?.driverId ?? null}
         driverName={data?.driver?.name ?? null}
+        salesmanId={data?.salesmanId ?? null}
+        salesmanName={data?.salesman?.name ?? null}
         crew={data?.crew ?? []}
         onEditCrew={() => dispatch({ type: 'OPEN_SWAP' })}
       />

@@ -43,6 +43,9 @@ import {
   validateSupportCrew,
   validateDriverAssignment,
   resolveEffectiveDriverId,
+  resolveEffectiveSalesmanId,
+  splitSalesmanFromCrew,
+  validateSalesmanAssignment,
 } from '../../common/helpers/crew-validation';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
 import type { AuthUser, SheetAuditLogEntry } from '@water-supply-crm/types';
@@ -476,9 +479,16 @@ export class DailySheetService implements OnModuleInit {
     // the two is set before calling createSheetForVan.
     const driverId = resolveEffectiveDriverId(van) as string;
 
-    // Snapshot the van's default supporting crew onto the sheet. The crew
-    // must be explicitly confirmed (crewConfirmed=false) before trips start.
-    const crewSnapshot = van.defaultCrew.filter((c) => c.userId !== driverId);
+    // The sheet's salesman is stored explicitly (never inferred in the UI): the
+    // van's default-crew salesman, else its default salesman, else the driver.
+    const salesmanId = resolveEffectiveSalesmanId(van, driverId);
+
+    // Snapshot the van's default loaders onto the sheet (the salesman lives on
+    // the sheet row itself). The crew must be explicitly confirmed
+    // (crewConfirmed=false) before trips start.
+    const crewSnapshot = van.defaultCrew.filter(
+      (c) => c.role !== CrewRole.SALESMAN && c.userId !== driverId && c.userId !== salesmanId,
+    );
 
     const sheet = await db.dailySheet.create({
       data: {
@@ -486,6 +496,7 @@ export class DailySheetService implements OnModuleInit {
         routeId,
         vanId: van.id,
         driverId,
+        salesmanId,
         date: targetDate,
         items: { create: allItems },
         crew: {
@@ -949,7 +960,12 @@ export class DailySheetService implements OnModuleInit {
 
         // WhatsApp PDF receipt: only when bottles were actually dropped (not empty-only pickups)
         if (resolvedStatus === DeliveryStatus.COMPLETED && item.customer.phoneNumber) {
-          const isCorrection = !!item.whatsappSentAt;
+          // Keyed off the item having ALREADY been a completed delivery, not off
+          // whatsappSentAt: that stamp is only written by the queue worker after a
+          // successful send, so a quick re-edit (worker hasn't stamped yet) or a
+          // failed/rate-limited previous send left it null and the edit wrongly
+          // went out as a plain `delivery_receipt`.
+          const isCorrection = !!dto.forceResubmit && item.status === DeliveryStatus.COMPLETED;
           // Reset whatsappSentAt so processor stamps it fresh after sending
           if (isCorrection) {
             await this.prisma.dailySheetItem
@@ -2104,10 +2120,10 @@ export class DailySheetService implements OnModuleInit {
     // `driverId` means "sheets this person touched" — matches either the assigned
     // driver or a supporting-crew member (DRIVER/SALESMAN/LOADER are one
     // interchangeable field-staff pool, see crew-validation.ts's FIELD_STAFF_ROLES;
-    // a SALESMAN who only ever rides as crew, never as the sheet's driverId, must
-    // still see their own sheets in "my sheets" views like use-daily-sheets.ts /
+    // a SALESMAN who is the sheet's salesman but not its driverId must still see
+    // their own sheets in "my sheets" views like use-daily-sheets.ts /
     // DriverHome's today's-sheet query, both of which send this same param).
-    if (driverId) where.OR = [{ driverId }, { crew: { some: { userId: driverId } } }];
+    if (driverId) where.OR = [{ driverId }, { salesmanId: driverId }, { crew: { some: { userId: driverId } } }];
     if (vanId) where.vanId = vanId;
     if (isClosed !== undefined) where.isClosed = isClosed;
 
@@ -2118,6 +2134,7 @@ export class DailySheetService implements OnModuleInit {
           route: { select: { id: true, name: true } },
           van: { select: { id: true, plateNumber: true } },
           driver: { select: { id: true, name: true } },
+          salesman: { select: { id: true, name: true } },
           crew: {
             include: { user: { select: { id: true, name: true, role: true } } },
           },
@@ -2530,6 +2547,7 @@ export class DailySheetService implements OnModuleInit {
         route: true,
         van: true,
         driver: true,
+        salesman: { select: { id: true, name: true } },
         crew: {
           include: { user: { select: { id: true, name: true, role: true } } },
           orderBy: { createdAt: 'asc' },
@@ -3468,6 +3486,7 @@ export class DailySheetService implements OnModuleInit {
         vendorId,
         vanId: infra.vanId,
         driverId: infra.driverId,
+        salesmanId: infra.driverId,
         routeId: null,
         date: dateOnly,
         kind: DailySheetKind.WALK_IN,
@@ -4704,7 +4723,7 @@ export class DailySheetService implements OnModuleInit {
     const [meta, openTrip, endCheck] = await Promise.all([
       this.prisma.dailySheet.findUnique({
         where: { id: sheetId },
-        select: { van: { select: { plateNumber: true } }, driver: { select: { name: true } } },
+        select: { van: { select: { plateNumber: true } }, salesman: { select: { name: true } } },
       }),
       this.prisma.dailySheetLoad.findFirst({ where: { dailySheetId: sheetId, endedAt: null }, select: { id: true } }),
       this.prisma.vehicleDailyCheck.findUnique({
@@ -4728,7 +4747,7 @@ export class DailySheetService implements OnModuleInit {
       date: sheet.date.toISOString(),
       kind,
       vanPlateNumber: meta?.van?.plateNumber ?? null,
-      driverName: meta?.driver?.name ?? null,
+      salesmanName: meta?.salesman?.name ?? null,
       eligible: ineligibleReason === null,
       ineligibleReason,
       pendingCount: items.filter((i) => i.status === DeliveryStatus.PENDING).length,
@@ -5020,22 +5039,39 @@ export class DailySheetService implements OnModuleInit {
     }
 
     const finalDriverId = updateData.driverId ?? sheet.driverId;
-    if (dto.crew) {
-      await validateSupportCrew(this.prisma, vendorId, dto.crew, finalDriverId);
+
+    // The salesman lives on DailySheet.salesmanId (always set); DailySheetCrew
+    // holds the loaders only. A crew payload naming no salesman means "no
+    // separate salesman" → the driver is the salesman. Without a crew payload the
+    // salesman is kept, except that a salesman who WAS the driver follows a
+    // driver change.
+    const split = dto.crew ? splitSalesmanFromCrew(dto.crew) : null;
+    let finalSalesmanId = sheet.salesmanId;
+    if (split) {
+      finalSalesmanId = split.salesmanId ?? finalDriverId;
+    } else if (updateData.driverId && sheet.salesmanId === sheet.driverId) {
+      finalSalesmanId = updateData.driverId;
+    }
+    if (finalSalesmanId !== sheet.salesmanId) {
+      await validateSalesmanAssignment(this.prisma, vendorId, finalSalesmanId);
+      updateData.salesmanId = finalSalesmanId;
+    }
+    if (split) {
+      await validateSupportCrew(this.prisma, vendorId, split.loaders, [finalDriverId, finalSalesmanId]);
     }
 
     const updated = await this.prisma.$transaction(async (tx) => {
-      if (dto.crew) {
+      if (split) {
         await tx.dailySheetCrew.deleteMany({ where: { dailySheetId: sheetId } });
-        if (dto.crew.length > 0) {
+        if (split.loaders.length > 0) {
           await tx.dailySheetCrew.createMany({
-            data: dto.crew.map((m) => ({ dailySheetId: sheetId, userId: m.userId, role: m.role })),
+            data: split.loaders.map((m) => ({ dailySheetId: sheetId, userId: m.userId, role: m.role })),
           });
         }
-      } else if (updateData.driverId) {
-        // New driver may have been in the supporting crew — remove the duplicate
+      } else if (updateData.driverId || updateData.salesmanId) {
+        // New driver / salesman may have been a loader — remove the duplicate
         await tx.dailySheetCrew.deleteMany({
-          where: { dailySheetId: sheetId, userId: finalDriverId },
+          where: { dailySheetId: sheetId, userId: { in: [finalDriverId, finalSalesmanId] } },
         });
       }
 
@@ -5064,6 +5100,7 @@ export class DailySheetService implements OnModuleInit {
         },
         include: {
           driver: { select: { id: true, name: true } },
+          salesman: { select: { id: true, name: true } },
           van: { select: { id: true, plateNumber: true } },
           route: { select: { id: true, name: true } },
           crew: { include: { user: { select: { id: true, name: true, role: true } } } },
@@ -5116,6 +5153,7 @@ export class DailySheetService implements OnModuleInit {
 
     const crewInclude = {
       driver: { select: { id: true, name: true } },
+      salesman: { select: { id: true, name: true } },
       crew: { include: { user: { select: { id: true, name: true, role: true } } } },
       crewConfirmedBy: { select: { id: true, name: true } },
     };
@@ -5145,6 +5183,7 @@ export class DailySheetService implements OnModuleInit {
           kind: sheetRow.kind,
           date: sheetRow.date,
           driverId: sheetRow.driverId,
+          salesmanId: sheetRow.salesmanId,
           crew: sheetRow.crew.map((c) => ({ userId: c.userId, role: c.role })),
         },
         user.userId,
@@ -5165,6 +5204,7 @@ export class DailySheetService implements OnModuleInit {
             crewConfirmed: true,
             crewConfirmedBy: user.userId,
             driverId: updated.driverId,
+            salesmanId: updated.salesmanId,
             crew: updated.crew.map((c) => ({ userId: c.userId, role: c.role })),
           },
         },
@@ -5388,6 +5428,7 @@ export class DailySheetService implements OnModuleInit {
       select: {
         id: true,
         plateNumber: true,
+        defaultSalesman: { select: { name: true } },
         defaultDriver: { select: { name: true } },
         dailySheets: {
           where: { date: { gte: startOfDay, lte: endOfDay } },
@@ -5402,7 +5443,7 @@ export class DailySheetService implements OnModuleInit {
       return {
         vanId: van.id,
         plateNumber: van.plateNumber,
-        driverName: van.defaultDriver?.name ?? null,
+        salesmanName: (van.defaultSalesman ?? van.defaultDriver)?.name ?? null,
         hasSheetForDate: !!sheet,
         sheetId: sheet?.id,
         isClosed: sheet?.isClosed ?? false,
@@ -5411,7 +5452,7 @@ export class DailySheetService implements OnModuleInit {
   }
 
   async getSheetsByDriver(vendorId: string, driverId: string, date?: string) {
-    const where: any = { vendorId, driverId };
+    const where: any = { vendorId, OR: [{ driverId }, { salesmanId: driverId }] };
 
     if (date) {
       const d = new Date(date);
@@ -5425,6 +5466,7 @@ export class DailySheetService implements OnModuleInit {
       include: {
         route: { select: { id: true, name: true } },
         van: { select: { id: true, plateNumber: true } },
+        salesman: { select: { id: true, name: true } },
         crew: {
           include: { user: { select: { id: true, name: true, role: true } } },
         },
@@ -5459,7 +5501,7 @@ export class DailySheetService implements OnModuleInit {
       // `AND` rather than a flat `OR` so this survives being spread with a further
       // top-level `OR` below (post-close-correction detection) without either one
       // silently overwriting the other.
-      AND: [{ OR: [{ driverId }, { crew: { some: { userId: driverId } } }] }],
+      AND: [{ OR: [{ driverId }, { salesmanId: driverId }, { crew: { some: { userId: driverId } } }] }],
     };
     const completedStatuses: DeliveryStatus[] = [DeliveryStatus.COMPLETED, DeliveryStatus.EMPTY_ONLY];
 

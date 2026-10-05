@@ -21,6 +21,8 @@ interface SwapDialogProps {
   sheetId: string;
   currentDriverId?: string | null;
   currentDriverName?: string | null;
+  /** The sheet's salesman (DailySheet.salesmanId) — seeds the "separate salesman" slot when it differs from the driver. */
+  currentSalesmanId?: string | null;
   currentVanId?: string | null;
   currentVanPlate?: string | null;
   currentCrew?: SheetCrewMember[];
@@ -30,7 +32,7 @@ interface SwapDialogProps {
 
 export function SwapDialog({
   open, onClose, sheetId,
-  currentDriverId, currentDriverName, currentVanId, currentVanPlate,
+  currentDriverId, currentDriverName, currentSalesmanId, currentVanId, currentVanPlate,
   currentCrew, onSaved,
 }: SwapDialogProps) {
   const { mutate: swapAssignment, isPending } = useSwapAssignment(sheetId);
@@ -50,10 +52,15 @@ export function SwapDialog({
   const allDrivers = (candidatesData?.data ?? [])
     .filter((u) => CREW_ROLE_ELIGIBLE.DRIVER.includes(u.role) && !pickedCrew.has(u.id));
 
-  // Seed crew editor from the sheet's current crew each time the dialog opens
+  // Seed crew editor from the sheet's current crew each time the dialog opens.
+  // The salesman lives on the sheet (not in `currentCrew`); an empty slot means
+  // "the driver is the salesman", so only a salesman different from the driver is seeded.
   useEffect(() => {
-    if (open) setCrew(crewArrayToSelection(currentCrew));
-  }, [open, currentCrew]);
+    if (!open) return;
+    const seeded = crewArrayToSelection(currentCrew);
+    if (currentSalesmanId && currentSalesmanId !== currentDriverId) seeded.salesmanIds = [currentSalesmanId];
+    setCrew(seeded);
+  }, [open, currentCrew, currentSalesmanId, currentDriverId]);
 
   const handleClose = () => {
     setForm({});
@@ -129,6 +136,7 @@ export function SwapDialog({
               value={crew}
               onChange={setCrew}
               excludeUserId={form.driverId ?? currentDriverId}
+              singleSalesman
             />
           </div>
 

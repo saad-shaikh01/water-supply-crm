@@ -8,7 +8,8 @@ import type { SheetCrewMember } from '@water-supply-crm/types';
 interface SheetDetailHeaderProps {
   date: string;
   vanPlateNumber: string | null;
-  driverName: string | null;
+  salesmanName: string | null;
+  /** Loaders only — the salesman is stored on the sheet, not in the crew list. */
   crew: SheetCrewMember[];
   crewConfirmed: boolean;
   crewConfirmedByName: string | null;
@@ -26,7 +27,7 @@ interface SheetDetailHeaderProps {
 export function SheetDetailHeader({
   date,
   vanPlateNumber,
-  driverName,
+  salesmanName,
   crew,
   crewConfirmed,
   crewConfirmedByName,
@@ -40,7 +41,6 @@ export function SheetDetailHeader({
   onPrintInvoice,
   onViewAuditLog,
 }: SheetDetailHeaderProps) {
-  const salesmen = crew.filter((c) => c.role === 'SALESMAN');
   const loaders = crew.filter((c) => c.role === 'LOADER');
 
   return (
@@ -67,24 +67,7 @@ export function SheetDetailHeader({
         <div className="text-muted-foreground text-xs flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 font-medium">
           <span className="flex items-center gap-1 whitespace-nowrap">
             <User className="h-3 w-3 shrink-0" />
-            Driver: <span className="font-bold text-foreground">{driverName ?? '—'}</span>
-          </span>
-          <span className="text-muted-foreground/40">•</span>
-          <span className="whitespace-nowrap">
-            {salesmen.length > 0 ? (
-              <>
-                Salesm{salesmen.length > 1 ? 'en' : 'an'}:{' '}
-                <span className="font-bold text-foreground">
-                  {salesmen.map((s) => s.user.name).join(', ')}
-                </span>
-              </>
-            ) : (
-              <>
-                Salesman:{' '}
-                <span className="font-bold text-foreground">{driverName ?? '—'}</span>
-                <span className="text-muted-foreground/70"> (same as driver)</span>
-              </>
-            )}
+            Salesman: <span className="font-bold text-foreground">{salesmanName ?? '—'}</span>
           </span>
           {loaders.length > 0 && (
             <>

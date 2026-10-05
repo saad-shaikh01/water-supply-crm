@@ -1,7 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import {
-  CrewRole,
   DepositPaymentMethod,
   DiscrepancyCaseStatus,
   DiscrepancyType,
@@ -1567,7 +1566,7 @@ export class VanCashLedgerService {
           select: {
             id: true,
             date: true,
-            crew: { where: { role: CrewRole.SALESMAN }, select: { user: { select: { name: true } } } },
+            salesman: { select: { name: true } },
           },
         },
       },
@@ -1596,7 +1595,7 @@ export class VanCashLedgerService {
       dailySheetId: row.dailySheetId,
       vanPlateNumber: row.van.plateNumber,
       driverName: row.submittedBy?.name ?? '—',
-      salesmanName: row.dailySheet.crew[0]?.user.name ?? null,
+      salesmanName: row.dailySheet.salesman?.name ?? null,
       date: row.date,
       amount: row.amount,
       depositCash: depositBySheet.get(row.dailySheetId) ?? 0,

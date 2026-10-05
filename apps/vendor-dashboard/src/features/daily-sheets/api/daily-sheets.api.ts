@@ -170,7 +170,7 @@ export interface MoveDeliveryItemsResponse {
 export interface DestinationOption {
   vanId: string;
   plateNumber: string;
-  driverName: string | null;
+  salesmanName: string | null;
   hasSheetForDate: boolean;
   sheetId?: string;
   isClosed: boolean;

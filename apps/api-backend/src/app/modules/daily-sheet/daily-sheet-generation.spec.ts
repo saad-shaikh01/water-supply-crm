@@ -138,12 +138,35 @@ describe('DailySheetService.createSheetForVan (extracted from processor)', () =>
       { customerId: 'cust-a', sequence: 2, productId: 'product-1', deliveryType: 'SCHEDULED' },
     ]);
 
-    // driver must never appear in the crew snapshot
-    expect(createArgs.data.crew.create).toEqual([{ userId: 'salesman-1', role: 'SALESMAN' }]);
+    // the default-crew SALESMAN is stored on the sheet (salesmanId); the driver and
+    // the salesman never appear in the crew snapshot (loaders only)
+    expect(createArgs.data.salesmanId).toBe('salesman-1');
+    expect(createArgs.data.crew.create).toEqual([]);
 
     expect(result.sheet.id).toBe('sheet-new');
     expect(result.eligibleOnDemandOrderIds).toEqual([]);
     expect(result.alreadyInsertedOnDemandOrderIds).toEqual([]);
+  });
+
+  it('stamps the driver as the salesman when the van has no salesman anywhere', async () => {
+    mockPrisma.dailySheetItem.findMany.mockResolvedValue([]);
+    mockPrisma.dailySheetItem.updateMany.mockResolvedValue({ count: 0 });
+    mockPrisma.dailySheet.create.mockResolvedValue({ id: 'sheet-new' });
+
+    await service.createSheetForVan(
+      mockPrisma as any,
+      VENDOR_ID,
+      { ...VAN, defaultCrew: [{ userId: 'loader-1', role: 'LOADER' as const }] },
+      TARGET_DATE,
+      TARGET_DATE.getDay(),
+      DEFAULT_PRODUCT,
+      [],
+    );
+
+    const createArgs = mockPrisma.dailySheet.create.mock.calls[0][0];
+    expect(createArgs.data.driverId).toBe('driver-1');
+    expect(createArgs.data.salesmanId).toBe('driver-1');
+    expect(createArgs.data.crew.create).toEqual([{ userId: 'loader-1', role: 'LOADER' }]);
   });
 
   it('prioritizes defaultSalesmanId over defaultDriverId as the sheet driver', async () => {
@@ -169,6 +192,7 @@ describe('DailySheetService.createSheetForVan (extracted from processor)', () =>
 
     const createArgs = mockPrisma.dailySheet.create.mock.calls[0][0];
     expect(createArgs.data.driverId).toBe('salesman-1');
+    expect(createArgs.data.salesmanId).toBe('salesman-1');
     // supporting crew is untouched — the salesman isn't in it, only the loader is
     expect(createArgs.data.crew.create).toEqual([{ userId: 'loader-1', role: 'LOADER' }]);
   });

@@ -41,6 +41,8 @@ export interface ConfirmedCrewSheet {
   kind: DailySheetKind;
   date: Date;
   driverId: string;
+  /** DailySheet.salesmanId — always set on real sheets; equals driverId when no separate salesman. */
+  salesmanId?: string;
   crew: { userId: string; role: CrewRole }[];
 }
 
@@ -105,9 +107,11 @@ export class StaffAttendanceService {
     const day = startOfUtcDay(sheet.date);
     const absentSet = new Set(absentUserIds);
 
-    // Roster = the driver (never a DailySheetCrew row — DailySheet.driverId is
-    // the single source of truth) + every support-crew member.
-    const rosterIds = [sheet.driverId, ...sheet.crew.map((m) => m.userId)];
+    // Roster = the driver + the salesman (both live on the sheet row, never in
+    // DailySheetCrew; often the same person) + every loader, de-duplicated.
+    const rosterIds = [
+      ...new Set([sheet.driverId, ...(sheet.salesmanId ? [sheet.salesmanId] : []), ...sheet.crew.map((m) => m.userId)]),
+    ];
 
     // Drop any sentinel/foreign users; tenancy-check the rest in one query.
     const users = await tx.user.findMany({
@@ -408,6 +412,7 @@ export class StaffAttendanceService {
         id: true,
         date: true,
         driverId: true,
+        salesmanId: true,
         crewConfirmedById: true,
         crew: { select: { userId: true } },
       },
@@ -420,7 +425,7 @@ export class StaffAttendanceService {
     for (const sheet of sheets) {
       const day = startOfUtcDay(sheet.date);
       const actorId = sheet.crewConfirmedById ?? sheet.driverId;
-      const rosterIds = [sheet.driverId, ...sheet.crew.map((c) => c.userId)];
+      const rosterIds = [...new Set([sheet.driverId, sheet.salesmanId, ...sheet.crew.map((c) => c.userId)])];
 
       const users = await this.prisma.user.findMany({
         where: { id: { in: rosterIds }, vendorId: user.vendorId },

@@ -61,7 +61,7 @@ export function ForceCloseDialog({ open, onClose, sheetId }: ForceCloseDialogPro
             <p className="text-muted-foreground">
               {new Date(preview.date).toLocaleDateString('en-GB', { timeZone: 'Asia/Karachi' })}
               {preview.vanPlateNumber && ` · ${preview.vanPlateNumber}`}
-              {preview.driverName && ` · ${preview.driverName}`}
+              {preview.salesmanName && ` · ${preview.salesmanName}`}
               {preview.kind === 'WALK_IN' && ' · Walk-in'}
             </p>
 

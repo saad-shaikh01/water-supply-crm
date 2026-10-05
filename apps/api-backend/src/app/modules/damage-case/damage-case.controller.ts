@@ -22,6 +22,7 @@ import { UpdateDamageCaseDto } from './dto/update-damage-case.dto';
 import { ChargeDamageCaseDto } from './dto/charge-damage-case.dto';
 import { WaiveDamageCaseDto } from './dto/waive-damage-case.dto';
 import { DamageCaseQueryDto } from './dto/damage-case-query.dto';
+import { ReverseDamageCaseDto } from './dto/reverse-damage-case.dto';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
@@ -212,7 +213,7 @@ export class DamageCaseController {
   reverse(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdateDamageCaseDto,
+    @Body() dto: ReverseDamageCaseDto,
   ) {
     return this.damageCaseService.reverse(user, id, { version: dto.version });
   }

@@ -782,6 +782,11 @@ export interface SheetDetail {
   route: { id: string; name: string } | null;
   van: { id: string; plateNumber: string } | null;
   driver: { id: string; name: string } | null;
+  // The sheet's salesman (DailySheet.salesmanId, always set). Every operational
+  // screen shows this; `driver` is only for fleet flows.
+  salesmanId: string | null;
+  salesman: { id: string; name: string } | null;
+  // Loaders only — the salesman is not a crew row.
   crew: SheetCrewMember[];
   crewConfirmed: boolean;
   crewConfirmedAt: string | null;

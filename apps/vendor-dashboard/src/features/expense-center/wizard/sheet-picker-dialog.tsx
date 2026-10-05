@@ -75,7 +75,10 @@ export function SheetPickerDialog({ open, onOpenChange, onSelect, optional = fal
 
   const crewMembers = useMemo(() => {
     const members: { id: string; name: string }[] = [];
-    if (sheetDetail?.driver) members.push({ id: sheetDetail.driver.id, name: sheetDetail.driver.name });
+    if (sheetDetail?.salesman) members.push({ id: sheetDetail.salesman.id, name: sheetDetail.salesman.name });
+    if (sheetDetail?.driver && !members.some((m) => m.id === sheetDetail.driver?.id)) {
+      members.push({ id: sheetDetail.driver.id, name: sheetDetail.driver.name });
+    }
     for (const c of sheetDetail?.crew ?? []) {
       if (!members.some((m) => m.id === c.userId)) members.push({ id: c.userId, name: c.user.name });
     }

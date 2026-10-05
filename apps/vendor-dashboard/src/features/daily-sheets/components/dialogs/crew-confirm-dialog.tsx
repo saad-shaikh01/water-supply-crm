@@ -15,12 +15,15 @@ interface CrewConfirmDialogProps {
   sheetId: string;
   driverId: string | null;
   driverName: string | null;
+  salesmanId: string | null;
+  salesmanName: string | null;
+  /** Loaders only — the salesman is not a crew row. */
   crew: SheetCrewMember[];
   /** Closes this dialog and opens the crew editor. */
   onEditCrew: () => void;
 }
 
-/** One toggleable roster line. `userId: null` = a synthetic line (e.g. driver doubling as salesman) — not toggleable. */
+/** One toggleable roster line. `userId: null` = a synthetic line — not toggleable. */
 interface RosterLine {
   key: string;
   name: string;
@@ -38,7 +41,7 @@ interface RosterLine {
  * step on the Attendance screen.
  */
 export function CrewConfirmDialog({
-  open, onClose, sheetId, driverId, driverName, crew, onEditCrew,
+  open, onClose, sheetId, driverId, driverName, salesmanId, salesmanName, crew, onEditCrew,
 }: CrewConfirmDialogProps) {
   const { mutate: confirmCrew, isPending } = useConfirmCrew(sheetId);
 
@@ -54,18 +57,17 @@ export function CrewConfirmDialog({
   const toggleAbsent = (userId: string) =>
     setAbsentUserIds((cur) => (cur.includes(userId) ? cur.filter((id) => id !== userId) : [...cur, userId]));
 
-  const salesmen = crew.filter((c) => c.role === 'SALESMAN');
   const loaders = crew.filter((c) => c.role === 'LOADER');
 
-  const driverLines: RosterLine[] = driverName
-    ? [{ key: driverId ?? 'driver', name: driverName, userId: driverId }]
+  // The salesman is stored on the sheet. The driver only gets its own row when it
+  // is a different person (still on the roster for attendance).
+  const salesmanLines: RosterLine[] = salesmanName
+    ? [{ key: salesmanId ?? 'salesman', name: salesmanName, userId: salesmanId }]
     : [];
-  const salesmanLines: RosterLine[] =
-    salesmen.length > 0
-      ? salesmen.map((s) => ({ key: s.userId, name: s.user.name, userId: s.userId }))
-      : driverName
-        ? [{ key: 'driver-as-salesman', name: `${driverName} (same as driver)`, userId: null }]
-        : [];
+  const driverIsSeparate = !!driverName && !!driverId && driverId !== salesmanId;
+  const driverLines: RosterLine[] = driverIsSeparate
+    ? [{ key: driverId as string, name: driverName as string, userId: driverId }]
+    : [];
   const loaderLines: RosterLine[] = loaders.map((l) => ({ key: l.userId, name: l.user.name, userId: l.userId }));
 
   const row = (label: string, lines: RosterLine[], missingLabel: string, emptyContent?: ReactNode) => (
@@ -127,8 +129,8 @@ export function CrewConfirmDialog({
           </p>
 
           <div className="rounded-2xl border border-border/50 bg-accent/20 divide-y divide-border/40">
-            {row('Driver', driverLines, 'No driver')}
-            {row(salesmen.length > 1 ? 'Salesmen' : 'Salesman', salesmanLines, 'No salesman')}
+            {row('Salesman', salesmanLines, 'No salesman')}
+            {driverIsSeparate && row('Driver', driverLines, 'No driver')}
             {row(
               loaders.length > 1 ? 'Loaders' : 'Loader',
               loaderLines,
@@ -155,9 +157,8 @@ export function CrewConfirmDialog({
           {crew.length === 0 && (
             <div className="flex items-start gap-2 text-[11px] text-amber-600 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2">
               <Users className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-              No separate salesman or loaders are assigned — the driver is treated as the salesman.
-              You can confirm as-is, or edit the crew to add a separate salesman/loaders. Set a
-              default crew on the van to fill this automatically.
+              No loaders are assigned. You can confirm as-is, or edit the crew to change the
+              salesman or add loaders. Set a default crew on the van to fill this automatically.
             </div>
           )}
         </div>

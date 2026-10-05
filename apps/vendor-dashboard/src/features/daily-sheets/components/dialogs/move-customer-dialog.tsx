@@ -119,7 +119,7 @@ export function MoveCustomerDialog({
                   return (
                     <SelectItem key={o.vanId} value={o.vanId} disabled={closed}>
                       {o.plateNumber}
-                      {o.driverName ? ` — ${o.driverName}` : ''}
+                      {o.salesmanName ? ` — ${o.salesmanName}` : ''}
                       {closed ? ' (closed)' : !o.hasSheetForDate ? ' (new sheet)' : ''}
                     </SelectItem>
                   );

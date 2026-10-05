@@ -691,7 +691,7 @@ export interface ForceClosePreview {
   date: string;
   kind: 'ROUTE' | 'WALK_IN';
   vanPlateNumber: string | null;
-  driverName: string | null;
+  salesmanName: string | null;
   eligible: boolean;
   ineligibleReason: string | null;
   pendingCount: number;
