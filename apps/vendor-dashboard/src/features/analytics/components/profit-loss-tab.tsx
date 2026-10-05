@@ -1,6 +1,7 @@
 'use client';
 
-import { Fragment, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { parseAsString, useQueryState } from 'nuqs';
 import {
   Button, Card, CardContent, CardHeader, CardTitle, Skeleton,
   Sheet, SheetContent, SheetHeader, SheetTitle,
@@ -8,11 +9,11 @@ import {
   cn,
 } from '@water-supply-crm/ui';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Plus, RotateCcw } from 'lucide-react';
 import { AddExpenseWizard } from '../../expense-center/wizard/add-expense-wizard';
 import {
-  useProfitLoss, useProfitLossDetails, useProfitLossPayments,
-  type ProfitLossData,
+  PROFIT_LOSS_ADJUSTMENT_KEYS, useProfitLoss, useProfitLossDetails, useProfitLossPayments,
+  type ProfitLossAdjustment, type ProfitLossData,
   type ProfitLossDomain, type ProfitLossSummary,
 } from '../hooks/use-analytics';
 
@@ -66,6 +67,133 @@ function ProfitCard({ label, sub, value }: { label: string; sub: string; value: 
         <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider sm:tracking-widest font-bold">{label}</p>
         <p className={cn('text-2xl sm:text-3xl font-black mt-1 break-words', profitTone(value))}>{rs(value)}</p>
         <p className="text-xs text-muted-foreground mt-1">{sub}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── "Cash basis" vs "Actual cost" view ────────────────────────────────────────
+// The choice (and which adjustments the owner switched off) survives refresh via localStorage.
+
+type Basis = 'CASH' | 'ACTUAL';
+const VIEW_STORAGE_KEY = 'analytics:profit-loss:view:v1';
+
+function usePlView() {
+  const [basis, setBasisState] = useState<Basis>('CASH');
+  const [off, setOffState] = useState<string[]>([]);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(VIEW_STORAGE_KEY) ?? 'null');
+      if (saved?.basis === 'ACTUAL') setBasisState('ACTUAL');
+      if (Array.isArray(saved?.off)) setOffState(saved.off.filter((k: unknown) => typeof k === 'string'));
+    } catch {
+      // storage unavailable or corrupt — fall back to the cash view
+    }
+    setHydrated(true);
+  }, []);
+
+  const persist = useCallback((nextBasis: Basis, nextOff: string[]) => {
+    try {
+      window.localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify({ basis: nextBasis, off: nextOff }));
+    } catch {
+      // ignore — the view simply won't persist
+    }
+  }, []);
+
+  const setBasis = (next: Basis) => { setBasisState(next); persist(next, off); };
+  const toggleKey = (key: string) => {
+    const next = off.includes(key) ? off.filter((k) => k !== key) : [...off, key];
+    setOffState(next);
+    persist(basis, next);
+  };
+  const reset = () => { setBasisState('CASH'); setOffState([]); persist('CASH', []); };
+
+  return { basis, off, hydrated, setBasis, toggleKey, reset };
+}
+
+function AdjustmentsPanel({
+  data, basis, off, onToggle, onReset,
+}: {
+  data: ProfitLossData;
+  basis: Basis;
+  off: string[];
+  onToggle: (key: string) => void;
+  onReset: () => void;
+}) {
+  const items = data.adjustments.filter((a) => a.amount > 0);
+  const cashTotal = data.summary.totalExpenses - data.adjustmentTotal;
+
+  if (basis === 'CASH') {
+    if (items.length === 0) return null;
+    return (
+      <p className="text-xs text-muted-foreground">
+        {items.length} cost {items.length === 1 ? 'item was' : 'items were'} paid in a different month than they belong to — switch to{' '}
+        <span className="font-semibold">Actual cost</span> to see {monthLabel(data.month)} with them moved.
+      </p>
+    );
+  }
+
+  const groups: Array<{ id: ProfitLossAdjustment['group']; title: string }> = [
+    { id: 'PLANT', title: 'Plant bill (bottle refill)' },
+    { id: 'CAPS', title: 'Caps bill' },
+    { id: 'SALARY', title: 'Salaries' },
+  ];
+
+  return (
+    <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
+      <CardHeader className="pb-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle className="text-base font-bold">Actual cost — adjust {monthLabel(data.month)}</CardTitle>
+          <Button variant="ghost" size="sm" onClick={onReset} className="gap-1">
+            <RotateCcw className="h-3.5 w-3.5" /> Reset to cash view
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Untick an item to leave it out of the adjustment. Totals, per-bottle figures and profit below update instantly.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {items.length === 0 && (
+          <p className="text-sm text-muted-foreground">Nothing to adjust — every cost this month was paid in the month it belongs to.</p>
+        )}
+        {groups.map((g) => {
+          const rows = items.filter((a) => a.group === g.id);
+          if (rows.length === 0) return null;
+          return (
+            <div key={g.id} className="space-y-2">
+              <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider font-bold">{g.title}</p>
+              {rows.map((a) => {
+                const checked = !off.includes(a.key);
+                return (
+                  <label key={a.key} className="flex items-start gap-3 rounded-xl border border-border p-3 cursor-pointer hover:bg-muted/30">
+                    <input
+                      type="checkbox"
+                      className="mt-1 h-4 w-4 accent-primary"
+                      checked={checked}
+                      onChange={() => onToggle(a.key)}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold">{a.label}</span>
+                      <span className="block text-xs text-muted-foreground">{a.hint}</span>
+                    </span>
+                    <span className={cn('font-bold whitespace-nowrap', a.delta > 0 ? 'text-destructive' : 'text-emerald-600 dark:text-emerald-400')}>
+                      {a.delta > 0 ? '+' : '−'}{rs(a.amount)}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          );
+        })}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-sm">
+          <span className="text-muted-foreground">Cash paid in {monthLabel(data.month, true)}: <span className="font-semibold text-foreground">{rs(cashTotal)}</span></span>
+          <span>
+            Actual cost: <span className="font-black">{rs(data.summary.totalExpenses)}</span>
+            <span className="ml-2 text-xs text-muted-foreground">({data.adjustmentTotal >= 0 ? '+' : '−'}{rs(Math.abs(data.adjustmentTotal))})</span>
+          </span>
+        </div>
       </CardContent>
     </Card>
   );
@@ -131,6 +259,11 @@ function ExpenseTable({
                       <TableCell className="pl-10">
                         {c.label}
                         <span className="ml-2 text-xs text-muted-foreground">{c.count} {c.count === 1 ? 'entry' : 'entries'}</span>
+                        {!!c.adjustment && (
+                          <span className="ml-2 text-xs font-semibold text-amber-600 dark:text-amber-400">
+                            {c.adjustment > 0 ? '+' : '−'}{rs(Math.abs(c.adjustment))} adjusted
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right">{rs(c.amount)}</TableCell>
                       <TableCell className="text-right">{rs2(c.perBottle)}</TableCell>
@@ -344,12 +477,24 @@ function PaymentsSheet({ month, kind, onClose }: { month: string; kind: string |
 
 export function ProfitLossTab() {
   const thisMonth = currentMonth();
-  const [month, setMonth] = useState(thisMonth);
+  // Month lives in the URL so a refresh / shared link lands on the same month.
+  const [monthParam, setMonthParam] = useQueryState('plMonth', parseAsString.withDefault(''));
+  const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(monthParam) && monthParam <= thisMonth ? monthParam : thisMonth;
+  const setMonth = (next: string | ((m: string) => string)) => {
+    const value = typeof next === 'function' ? next(month) : next;
+    setMonthParam(value === thisMonth ? null : value);
+  };
+  const view = usePlView();
+  // Every adjustment is on unless the owner unticked it; the server ignores keys with nothing to adjust.
+  const adjustKeys = useMemo(
+    () => (view.basis === 'ACTUAL' ? PROFIT_LOSS_ADJUSTMENT_KEYS.filter((k) => !view.off.includes(k)) : []),
+    [view.basis, view.off],
+  );
   const [detailCategory, setDetailCategory] = useState<string | null>(null);
   const [paymentsKind, setPaymentsKind] = useState<string | null>(null);
   const [addExpenseOpen, setAddExpenseOpen] = useState(false);
   const queryClient = useQueryClient();
-  const { data, isLoading, isError } = useProfitLoss(month);
+  const { data, isLoading, isError } = useProfitLoss(month, adjustKeys, view.hydrated);
 
   // The wizard's mutations don't touch the analytics cache, so refresh the P&L when it closes
   // (a no-op refetch if nothing was recorded).
@@ -372,7 +517,25 @@ export function ProfitLossTab() {
           <Button variant="ghost" size="sm" onClick={() => setMonth(thisMonth)}>This month</Button>
         )}
         <div className="w-full sm:w-auto sm:ml-auto flex flex-col-reverse sm:flex-row sm:items-center gap-2 sm:gap-4">
-          <p className="text-xs text-muted-foreground">Company-wide · all vans · expenses on cash basis</p>
+          <div className="inline-flex rounded-full border border-border p-0.5 text-xs font-bold" role="group" aria-label="Cost view">
+            {(['CASH', 'ACTUAL'] as const).map((b) => (
+              <button
+                key={b}
+                type="button"
+                onClick={() => view.setBasis(b)}
+                aria-pressed={view.basis === b}
+                className={cn(
+                  'rounded-full px-3 py-1.5 transition-colors',
+                  view.basis === b ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {b === 'CASH' ? 'Cash paid' : 'Actual cost'}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Company-wide · all vans · {view.basis === 'ACTUAL' ? 'costs moved to the month they belong to' : 'expenses on cash basis'}
+          </p>
           <Button onClick={() => setAddExpenseOpen(true)} className="rounded-full font-bold gap-2">
             <Plus className="h-4 w-4" />
             Add Expense
@@ -403,6 +566,8 @@ export function ProfitLossTab() {
             </div>
           )}
 
+          <AdjustmentsPanel data={data} basis={view.basis} off={view.off} onToggle={view.toggleKey} onReset={view.reset} />
+
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <Stat
               label="Bottles Sold (net)"
@@ -411,7 +576,11 @@ export function ProfitLossTab() {
             />
             <Stat label="Sale" value={rs(data.summary.saleAmount)} />
             <Stat label="Amount Received" value={rs(data.summary.amountReceived)} hint={`${rs(data.summary.receivedOnSheets)} on delivery sheets + ${rs(data.summary.receivedRecorded)} recorded payments`} />
-            <Stat label="Total Expenses" value={rs(data.summary.totalExpenses)} />
+            <Stat
+              label={data.basis === 'ACTUAL' ? 'Total Expenses (actual)' : 'Total Expenses'}
+              value={rs(data.summary.totalExpenses)}
+              hint={data.basis === 'ACTUAL' ? 'Cash paid ' + rs(data.summary.totalExpenses - data.adjustmentTotal) + ' · adjusted' : undefined}
+            />
           </div>
 
           <ReceivedProof data={data} onOpen={setPaymentsKind} />
@@ -437,7 +606,7 @@ export function ProfitLossTab() {
           <ExpenseTable domains={data.domains} summary={data.summary} onOpen={setDetailCategory} />
 
           <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
-            <CardHeader><CardTitle className="text-base font-bold">Month-wise Comparison</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-base font-bold">Month-wise Comparison <span className="text-xs font-normal text-muted-foreground">(cash basis)</span></CardTitle></CardHeader>
             <CardContent className="overflow-x-auto">
               <Table>
                 <TableHeader>

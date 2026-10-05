@@ -54,6 +54,44 @@ export interface SupplierBillOpeningBalance {
 
 type CostRow = { productId: string; costPerUnit: number; effectiveFrom: Date; effectiveTo: Date | null };
 
+/** Per-product cost lookup: the ProductCost row applicable on a given delivery date (rows sorted by effectiveFrom asc). */
+function buildCostLookup(rows: CostRow[]) {
+  const byProduct = new Map<string, CostRow[]>();
+  for (const c of rows) {
+    const list = byProduct.get(c.productId) ?? [];
+    list.push(c);
+    byProduct.set(c.productId, list);
+  }
+  return (productId: string, date: Date) => {
+    const list = byProduct.get(productId);
+    if (!list) return null;
+    let applicable: CostRow | null = null;
+    for (const c of list) {
+      if (c.effectiveFrom > date) break;
+      if (c.effectiveTo && c.effectiveTo < date) continue;
+      applicable = c;
+    }
+    return applicable;
+  };
+}
+
+/** What the P&L "actual cost" view needs to know about one supplier bill for a month, as of that month's end. */
+export interface SupplierMonthAccrual {
+  /** The month's own system-calculated bill (deliveries x ProductCost). */
+  bill: number;
+  /** Cash paid to the supplier during the month (towards any month's bill). */
+  paidInMonth: number;
+  /** Part of paidInMonth that cleared bills of EARLIER months (oldest debt first). */
+  priorPaid: number;
+  /** Part of the month's bill still unpaid at month end. */
+  pending: number;
+}
+
+export interface SupplierMonthAccrualResult {
+  plant: SupplierMonthAccrual;
+  caps: SupplierMonthAccrual;
+}
+
 /**
  * Month-wise Plant/Caps bill status (owner request 2026-09-22) — "how much is
  * left over from previous months vs. what this month's bill already comes to"
@@ -143,6 +181,90 @@ export class SupplierBillService {
     };
   }
 
+  /**
+   * Plant/Caps bill position for ANY calendar month, as of that month's end —
+   * feeds the Profit & Loss "actual cost" view. Same cost source and the same
+   * oldest-debt-first payment waterfall as getSupplierBillStatus, but bounded
+   * to the month: deliveries and payments after it are ignored, so a past month
+   * always reads the same no matter when it is viewed.
+   */
+  async getMonthAccrual(vendorId: string, month: string): Promise<SupplierMonthAccrualResult> {
+    const { startDate, endDate } = periodBounds(month);
+    const bottleCategories = [ExpenseCategory.BOTTLE_PURCHASED, ExpenseCategory.BOTTLE_REFILL_PAYMENT];
+    const capCategories = [ExpenseCategory.CAPS_PURCHASED];
+
+    const sumPaid = async (categories: ExpenseCategory[], date: { lt?: Date; gte?: Date; lte?: Date }) =>
+      (
+        await this.prisma.expense.aggregate({
+          where: { vendorId, category: { in: categories }, date },
+          _sum: { amount: true },
+        })
+      )._sum.amount ?? 0;
+
+    const [deliveryItems, bottleCostRows, capCostRows, openingBalance, bottlePaidBefore, bottlePaidMonth, capPaidBefore, capPaidMonth] =
+      await Promise.all([
+        this.prisma.dailySheetItem.findMany({
+          where: { status: { not: 'VOIDED' }, filledDropped: { gt: 0 }, dailySheet: { vendorId, date: { lte: endDate } } },
+          select: { productId: true, filledDropped: true, dailySheet: { select: { date: true } } },
+        }),
+        this.prisma.productCost.findMany({
+          where: { vendorId, kind: ProductCostKind.BOTTLE, voidedAt: null },
+          orderBy: { effectiveFrom: 'asc' },
+        }),
+        this.prisma.productCost.findMany({
+          where: { vendorId, kind: ProductCostKind.CAP, voidedAt: null },
+          orderBy: { effectiveFrom: 'asc' },
+        }),
+        this.prisma.supplierBillOpeningBalance.findUnique({ where: { vendorId } }),
+        sumPaid(bottleCategories, { lt: startDate }),
+        sumPaid(bottleCategories, { gte: startDate, lte: endDate }),
+        sumPaid(capCategories, { lt: startDate }),
+        sumPaid(capCategories, { gte: startDate, lte: endDate }),
+      ]);
+
+    const findBottleCost = buildCostLookup(bottleCostRows);
+    const findCapCost = buildCostLookup(capCostRows);
+    let bottleBefore = 0;
+    let bottleMonth = 0;
+    let capBefore = 0;
+    let capMonth = 0;
+    for (const item of deliveryItems) {
+      const date = item.dailySheet?.date ?? null;
+      if (!date) continue;
+      const inMonth = date.getTime() >= startDate.getTime();
+      const bottleCost = findBottleCost(item.productId, date);
+      if (bottleCost) {
+        const amount = item.filledDropped * bottleCost.costPerUnit;
+        if (inMonth) bottleMonth += amount;
+        else bottleBefore += amount;
+      }
+      const capCost = findCapCost(item.productId, date);
+      if (capCost) {
+        const amount = item.filledDropped * capCost.costPerUnit;
+        if (inMonth) capMonth += amount;
+        else capBefore += amount;
+      }
+    }
+
+    // Signed throughout, like computeBucket: an overpayment of earlier bills
+    // rolls forward as a credit against this month's bill.
+    const accrue = (cogsBefore: number, cogsMonth: number, paidBefore: number, paidMonth: number, opening: number): SupplierMonthAccrual => {
+      const openingSigned = cogsBefore + opening - paidBefore;
+      const leftoverCredit = Math.max(-(openingSigned - paidMonth), 0);
+      return {
+        bill: round2(cogsMonth),
+        paidInMonth: round2(paidMonth),
+        priorPaid: round2(Math.min(paidMonth, Math.max(openingSigned, 0))),
+        pending: round2(Math.max(cogsMonth - leftoverCredit, 0)),
+      };
+    };
+
+    return {
+      plant: accrue(bottleBefore, bottleMonth, bottlePaidBefore, bottlePaidMonth, openingBalance?.plantAmount ?? 0),
+      caps: accrue(capBefore, capMonth, capPaidBefore, capPaidMonth, openingBalance?.capsAmount ?? 0),
+    };
+  }
+
   async getSupplierBillStatus(vendorId: string): Promise<SupplierBillStatus> {
     const periodLabel = currentPeriodLabel();
     const { startDate: curMonthStart } = periodBounds(periodLabel);
@@ -196,27 +318,8 @@ export class SupplierBillService {
       this.prisma.supplierBillOpeningBalance.findUnique({ where: { vendorId } }),
     ]);
 
-    const buildLookup = (rows: CostRow[]) => {
-      const byProduct = new Map<string, CostRow[]>();
-      for (const c of rows) {
-        const list = byProduct.get(c.productId) ?? [];
-        list.push(c);
-        byProduct.set(c.productId, list);
-      }
-      return (productId: string, date: Date) => {
-        const list = byProduct.get(productId);
-        if (!list) return null;
-        let applicable: CostRow | null = null;
-        for (const c of list) {
-          if (c.effectiveFrom > date) break;
-          if (c.effectiveTo && c.effectiveTo < date) continue;
-          applicable = c;
-        }
-        return applicable;
-      };
-    };
-    const findBottleCost = buildLookup(bottleCostRows);
-    const findCapCost = buildLookup(capCostRows);
+    const findBottleCost = buildCostLookup(bottleCostRows);
+    const findCapCost = buildCostLookup(capCostRows);
 
     let bottleCogsBefore = 0;
     let bottleCogsThisMonth = 0;

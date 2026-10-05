@@ -32,6 +32,7 @@ function makePrisma() {
       findMany: jest.fn().mockResolvedValue([]),
     },
     settlement: { aggregate: jest.fn().mockImplementation(() => agg({ amount: 300000 }, 4)), findMany: jest.fn() },
+    payrollEntry: { findMany: jest.fn().mockResolvedValue([]) },
     staffLedgerEntry: {
       aggregate: jest.fn().mockImplementation(() => agg({ amount: -50000 }, 2)),
       findMany: jest.fn(),
@@ -47,13 +48,15 @@ function makePrisma() {
   };
 }
 
-function makeService(prisma: any) {
+function makeService(prisma: any, accrual?: any) {
   const cache = {
     vendorKey: (_v: string, k: string) => k,
     get: jest.fn().mockResolvedValue(null),
     set: jest.fn().mockResolvedValue(undefined),
   };
-  return { service: new ProfitLossService(prisma, cache as any), cache };
+  const zero = { bill: 0, paidInMonth: 0, priorPaid: 0, pending: 0 };
+  const supplierBills = { getMonthAccrual: jest.fn().mockResolvedValue(accrual ?? { plant: zero, caps: zero }) };
+  return { service: new ProfitLossService(prisma, cache as any, supplierBills as any), cache };
 }
 
 describe('ProfitLossService', () => {
@@ -206,5 +209,38 @@ describe('ProfitLossService', () => {
     expect(r.rows[0]).toMatchObject({ source: 'Fleet', vanPlateNumber: 'ABC-123' });
     const where = prisma.expense.findMany.mock.calls[0][0].where;
     expect(where.date.gte.toISOString()).toBe('2025-07-31T19:00:00.000Z');
+  });
+});
+
+describe('ProfitLossService — actual cost adjustments', () => {
+  const accrual = {
+    plant: { bill: 400000, paidInMonth: 318880, priorPaid: 300000, pending: 381120 },
+    caps: { bill: 0, paidInMonth: 0, priorPaid: 0, pending: 0 },
+  };
+
+  it('stays cash basis when no adjustment is selected, but lists the candidates', async () => {
+    const { service } = makeService(makePrisma(), accrual);
+    const r = await service.getProfitLoss('v1', '2026-09');
+    expect(r.basis).toBe('CASH');
+    expect(r.adjustmentTotal).toBe(0);
+    expect(r.summary.totalExpenses).toBe(925346);
+    expect(r.adjustments.find((a: any) => a.key === 'PLANT_PENDING')).toMatchObject({ amount: 381120, applied: false });
+    expect((r as any).cashCategories).toBeUndefined();
+  });
+
+  it('removes prior-paid and adds pending when selected', async () => {
+    const base = await makeService(makePrisma(), accrual).service.getProfitLoss('v1', '2026-09');
+    const { service } = makeService(makePrisma(), accrual);
+    const r = await service.getProfitLoss('v1', '2026-09', 'PLANT_PRIOR_PAID,PLANT_PENDING,BOGUS');
+    expect(r.basis).toBe('ACTUAL');
+    // the mocked cash refill payment is only 318,880, so the 300,000 prior-paid comes out of it
+    expect(r.adjustmentTotal).toBe(381120 - 300000);
+    expect(r.summary.totalExpenses).toBe(base.summary.totalExpenses + 81120);
+    expect(r.adjustments.filter((a: any) => a.applied).map((a: any) => a.key).sort()).toEqual(['PLANT_PENDING', 'PLANT_PRIOR_PAID']);
+    const refill = r.domains.flatMap((d: any) => d.categories).find((c: any) => c.key === 'BOTTLE_REFILL_PAYMENT');
+    expect(refill.amount).toBe(318880 - 300000 + 381120);
+    expect(refill.adjustment).toBe(81120);
+    // trend and reconciliation remain cash basis
+    expect(r.reconciliation.ok).toBe(true);
   });
 });

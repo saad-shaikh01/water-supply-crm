@@ -213,3 +213,80 @@ export function buildSummary(sales: SalesFigures, totalExpenses: number) {
     recoveryProfit: round2(amountReceived - totalExpenses),
   };
 }
+
+// ── "Actual cost" (accrual) adjustments ───────────────────────────────────────
+//
+// The P&L is cash-basis: a cost lands in the month it was PAID. Plant bill,
+// caps bill and salaries are routinely paid a month late, so the owner can opt
+// into an "actual cost" view per adjustment: take out what was paid this month
+// for EARLIER months, and add this month's own cost that is still unpaid.
+
+export const ADJUSTMENT_KEYS = [
+  'PLANT_PRIOR_PAID',
+  'PLANT_PENDING',
+  'CAPS_PRIOR_PAID',
+  'CAPS_PENDING',
+  'SALARY_PRIOR_PAID',
+  'SALARY_PENDING',
+] as const;
+
+export type AdjustmentKey = (typeof ADJUSTMENT_KEYS)[number];
+
+export function isAdjustmentKey(key: string): key is AdjustmentKey {
+  return (ADJUSTMENT_KEYS as readonly string[]).includes(key);
+}
+
+/** Which cost categories an adjustment moves money in (removals spill across them in order). */
+export const ADJUSTMENT_CATEGORY_KEYS: Record<'PLANT' | 'CAPS' | 'SALARY', ProfitLossSourceKey[]> = {
+  PLANT: [ExpenseCategory.BOTTLE_REFILL_PAYMENT, ExpenseCategory.BOTTLE_PURCHASED],
+  CAPS: [ExpenseCategory.CAPS_PURCHASED],
+  SALARY: ['SALARY_SETTLEMENT'],
+};
+
+export interface AdjustmentItem {
+  key: AdjustmentKey;
+  group: 'PLANT' | 'CAPS' | 'SALARY';
+  /** REMOVE_PRIOR_PAID subtracts, ADD_PENDING adds. */
+  kind: 'REMOVE_PRIOR_PAID' | 'ADD_PENDING';
+  label: string;
+  hint: string;
+  /** Always >= 0 — the size of the movement. */
+  amount: number;
+}
+
+export function adjustmentDelta(item: Pick<AdjustmentItem, 'kind' | 'amount'>): number {
+  return item.kind === 'ADD_PENDING' ? item.amount : -item.amount;
+}
+
+/**
+ * Returns a copy of the cash-basis category totals with the given adjustments
+ * applied. Additions go to the group's first category; removals are taken from
+ * the group's categories in order and never push a category below zero.
+ */
+export function applyAdjustments(
+  totals: Map<ProfitLossSourceKey, CategoryTotal>,
+  items: AdjustmentItem[],
+): Map<ProfitLossSourceKey, CategoryTotal> {
+  const out = new Map<ProfitLossSourceKey, CategoryTotal>();
+  for (const [k, v] of totals) out.set(k, { ...v });
+
+  for (const item of items) {
+    if (!(item.amount > 0)) continue;
+    const keys = ADJUSTMENT_CATEGORY_KEYS[item.group];
+    if (item.kind === 'ADD_PENDING') {
+      const cur = out.get(keys[0]) ?? { amount: 0, count: 0 };
+      out.set(keys[0], { amount: cur.amount + item.amount, count: cur.count });
+      continue;
+    }
+    let remaining = item.amount;
+    for (const k of keys) {
+      if (remaining <= 0) break;
+      const cur = out.get(k);
+      if (!cur || cur.amount <= 0) continue;
+      const take = Math.min(cur.amount, remaining);
+      out.set(k, { amount: cur.amount - take, count: cur.count });
+      remaining -= take;
+    }
+  }
+  return out;
+}

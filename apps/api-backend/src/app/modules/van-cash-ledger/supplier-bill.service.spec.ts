@@ -52,7 +52,7 @@ function makeService(opts: {
     },
     expense: {
       aggregate: jest.fn().mockImplementation(({ where }: any) => {
-        const isCap = where?.category === 'CAPS_PURCHASED';
+        const isCap = where?.category === 'CAPS_PURCHASED' || where?.category?.in?.includes('CAPS_PURCHASED');
         const isBefore = !!where?.date?.lt;
         const amount = isCap
           ? isBefore ? (opts.capPaidBefore ?? 0) : (opts.capPaidThisMonth ?? 0)
@@ -316,5 +316,33 @@ describe('SupplierBillService', () => {
         });
       });
     });
+  });
+});
+
+describe('SupplierBillService.getMonthAccrual', () => {
+  const label = currentPeriodLabel();
+
+  it('splits payments made in the month into earlier-bill vs own-bill and reports the unpaid rest', async () => {
+    const svc = makeService({
+      deliveryItems: [
+        deliveryItem({ filledDropped: 100, dailySheet: { date: beforeThisMonth } }), // 1000 earlier
+        deliveryItem({ filledDropped: 20, dailySheet: { date: withinThisMonth } }), // 200 this month
+      ],
+      bottleCostRows: [costRow()],
+      bottlePaidThisMonth: 1100,
+    });
+    const r = await svc.getMonthAccrual(VENDOR_ID, label);
+    expect(r.plant).toEqual({ bill: 200, paidInMonth: 1100, priorPaid: 1000, pending: 100 });
+    expect(r.caps).toEqual({ bill: 0, paidInMonth: 0, priorPaid: 0, pending: 0 });
+  });
+
+  it('nothing owed earlier: the whole payment stays as the month own cost', async () => {
+    const svc = makeService({
+      deliveryItems: [deliveryItem({ filledDropped: 20, dailySheet: { date: withinThisMonth } })],
+      bottleCostRows: [costRow()],
+      bottlePaidThisMonth: 50,
+    });
+    const r = await svc.getMonthAccrual(VENDOR_ID, label);
+    expect(r.plant).toEqual({ bill: 200, paidInMonth: 50, priorPaid: 0, pending: 150 });
   });
 });

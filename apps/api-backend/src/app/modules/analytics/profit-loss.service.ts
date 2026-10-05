@@ -9,9 +9,13 @@ import {
   TransactionType,
 } from '@prisma/client';
 import {
+  ADJUSTMENT_KEYS,
+  adjustmentDelta,
+  applyAdjustments,
   buildDomainTree,
   buildSummary,
   domainForKey,
+  isAdjustmentKey,
   isExpenseCategoryKey,
   isProfitLossSourceKey,
   isValidMonth,
@@ -20,11 +24,14 @@ import {
   round2,
   shiftMonth,
   sumCategoryTotals,
+  type AdjustmentItem,
+  type AdjustmentKey,
   type CategoryTotal,
   type ProfitLossSourceKey,
   type SalesFigures,
 } from './profit-loss.util';
 import { vendorDateString } from '../../common/helpers/date.util';
+import { SupplierBillService } from '../van-cash-ledger/supplier-bill.service';
 
 const TREND_MONTHS = 6;
 const CACHE_TTL_SECONDS = 60;
@@ -66,17 +73,24 @@ export class ProfitLossService {
   constructor(
     private prisma: PrismaService,
     private cache: CacheInvalidationService,
+    private supplierBills: SupplierBillService,
   ) {}
 
   // ────────────────────────────────────────────────────────────────────────
   // GET /analytics/profit-loss?month=YYYY-MM
   // ────────────────────────────────────────────────────────────────────────
 
-  async getProfitLoss(vendorId: string, monthInput?: string) {
+  /**
+   * `adjustInput` is a comma-separated list of adjustment keys to APPLY (the
+   * "actual cost" view); omitted/empty = pure cash basis. Every month's
+   * adjustment candidates are always returned so the UI can list them.
+   */
+  async getProfitLoss(vendorId: string, monthInput?: string, adjustInput?: string) {
     const month = this.resolveMonth(monthInput);
-    const cacheKey = this.cache.vendorKey(vendorId, `${CACHE_KEYS.DASHBOARD}:analytics:profit-loss:${month}`);
+    const applied = this.parseAdjustKeys(adjustInput);
+    const cacheKey = this.cache.vendorKey(vendorId, `${CACHE_KEYS.DASHBOARD}:analytics:profit-loss:v2:${month}`);
     const cached = await this.cache.get<any>(cacheKey);
-    if (cached) return cached;
+    if (cached) return this.withAdjustments(cached, applied);
 
     const trendMonths = Array.from({ length: TREND_MONTHS }, (_, i) => shiftMonth(month, i - (TREND_MONTHS - 1)));
     const figuresByMonth = new Map<string, MonthFigures>();
@@ -111,8 +125,15 @@ export class ProfitLossService {
       };
     });
 
+    const adjustmentItems = await this.collectAdjustmentItems(vendorId, month);
+
     const result = {
       month,
+      basis: 'CASH' as 'CASH' | 'ACTUAL',
+      adjustmentTotal: 0,
+      adjustments: adjustmentItems.map((i) => ({ ...i, delta: adjustmentDelta(i), applied: false })),
+      cashCategories: Array.from(current.categories.entries()),
+      sales: current.sales,
       summary: buildSummary(current.sales, totalExpenses),
       receivedBreakdown: current.received,
       handoverReconciliation: await this.collectHandover(vendorId, month),
@@ -127,7 +148,132 @@ export class ProfitLossService {
     };
 
     await this.cache.set(cacheKey, result, CACHE_TTL_SECONDS);
-    return result;
+    return this.withAdjustments(result, applied);
+  }
+
+  private parseAdjustKeys(input?: string): AdjustmentKey[] {
+    if (!input) return [];
+    const seen = new Set<AdjustmentKey>();
+    for (const raw of input.split(',')) {
+      const key = raw.trim();
+      if (isAdjustmentKey(key)) seen.add(key);
+    }
+    return ADJUSTMENT_KEYS.filter((k) => seen.has(k));
+  }
+
+  /**
+   * Strips the cached cash categories out of the payload and, when adjustments
+   * are selected, re-derives summary + domain tree from them. The Month-wise
+   * Comparison trend and the reconciliation check always stay cash-basis.
+   */
+  private withAdjustments(base: any, applied: AdjustmentKey[]) {
+    if (!base.adjustments) return base; // payload from before adjustments existed
+    const { cashCategories, sales, ...rest } = base;
+    const items: AdjustmentItem[] = (base.adjustments as AdjustmentItem[]).filter((i) => applied.includes(i.key));
+    const adjustments = (base.adjustments as Array<AdjustmentItem & { delta: number }>).map((i) => ({
+      ...i,
+      applied: applied.includes(i.key) && i.amount > 0,
+    }));
+    if (items.every((i) => !(i.amount > 0))) return { ...rest, adjustments };
+
+    const cash = new Map<ProfitLossSourceKey, CategoryTotal>(cashCategories);
+    const adjusted = applyAdjustments(cash, items);
+    const totalExpenses = sumCategoryTotals(adjusted);
+    const cashDomains = base.domains as Array<{ categories: Array<{ key: string; amount: number }> }>;
+    const cashAmountByKey = new Map<string, number>(cashDomains.flatMap((d) => d.categories.map((c) => [c.key, c.amount] as [string, number])));
+    const domains = buildDomainTree(adjusted, sales.bottlesSold).map((d) => ({
+      ...d,
+      categories: d.categories.map((c) => ({ ...c, adjustment: round2(c.amount - (cashAmountByKey.get(c.key) ?? 0)) })),
+    }));
+    return {
+      ...rest,
+      basis: 'ACTUAL',
+      adjustments,
+      adjustmentTotal: round2(totalExpenses - base.summary.totalExpenses),
+      summary: buildSummary(sales, totalExpenses),
+      domains,
+    };
+  }
+
+  /**
+   * Candidate adjustments for a month: plant/caps bill (from the supplier-bill
+   * waterfall) and salaries (from payroll periods + settlements).
+   */
+  private async collectAdjustmentItems(vendorId: string, month: string): Promise<AdjustmentItem[]> {
+    const { start, end } = monthRange(month);
+    const [bills, priorSettled, entries] = await Promise.all([
+      this.supplierBills.getMonthAccrual(vendorId, month),
+      this.prisma.settlement.aggregate({
+        where: { vendorId, paidAt: { gte: start, lte: end }, payrollEntry: { period: { periodLabel: { lt: month } } } },
+        _sum: { amount: true },
+      }),
+      this.prisma.payrollEntry.findMany({
+        where: { vendorId, period: { periodLabel: month } },
+        select: {
+          finalPayable: true,
+          settlements: { where: { paidAt: { lte: end } }, select: { amount: true } },
+        },
+      }),
+    ]);
+
+    // Unpaid salary of this month's payroll period as of month end. Each entry is
+    // floored at 0 so one overpaid employee never hides another's unpaid salary.
+    const salaryPending = entries.reduce((sum, e) => {
+      const paid = e.settlements.reduce((s, x) => s + x.amount, 0);
+      return sum + Math.max(e.finalPayable - paid, 0);
+    }, 0);
+
+    const monthName = monthLabelOf(month);
+    return [
+      {
+        key: 'PLANT_PRIOR_PAID',
+        group: 'PLANT',
+        kind: 'REMOVE_PRIOR_PAID',
+        label: 'Plant bill of earlier months, paid in ' + monthName,
+        hint: 'Refill payments made this month that cleared older bills — not ' + monthName + "'s own cost.",
+        amount: bills.plant.priorPaid,
+      },
+      {
+        key: 'PLANT_PENDING',
+        group: 'PLANT',
+        kind: 'ADD_PENDING',
+        label: monthName + ' plant bill still unpaid',
+        hint: 'Bottle refill cost of ' + monthName + ' deliveries not yet paid at month end (of a ' + round2(bills.plant.bill) + ' bill).',
+        amount: bills.plant.pending,
+      },
+      {
+        key: 'CAPS_PRIOR_PAID',
+        group: 'CAPS',
+        kind: 'REMOVE_PRIOR_PAID',
+        label: 'Caps bill of earlier months, paid in ' + monthName,
+        hint: 'Caps payments made this month that cleared older bills.',
+        amount: bills.caps.priorPaid,
+      },
+      {
+        key: 'CAPS_PENDING',
+        group: 'CAPS',
+        kind: 'ADD_PENDING',
+        label: monthName + ' caps bill still unpaid',
+        hint: 'Caps cost of ' + monthName + ' deliveries not yet paid at month end (of a ' + round2(bills.caps.bill) + ' bill).',
+        amount: bills.caps.pending,
+      },
+      {
+        key: 'SALARY_PRIOR_PAID',
+        group: 'SALARY',
+        kind: 'REMOVE_PRIOR_PAID',
+        label: 'Salaries of earlier months, paid in ' + monthName,
+        hint: 'Salary settlements made this month for earlier payroll periods.',
+        amount: priorSettled._sum.amount ?? 0,
+      },
+      {
+        key: 'SALARY_PENDING',
+        group: 'SALARY',
+        kind: 'ADD_PENDING',
+        label: monthName + ' salaries still unpaid',
+        hint: "Unsettled balance of " + monthName + "'s payroll period (0 if payroll has not been generated yet).",
+        amount: salaryPending,
+      },
+    ];
   }
 
   // ────────────────────────────────────────────────────────────────────────
@@ -594,4 +740,9 @@ function humanize(value: string): string {
     .split('_')
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(' ');
+}
+
+function monthLabelOf(month: string): string {
+  const [y, m] = month.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, 15)).toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
 }
