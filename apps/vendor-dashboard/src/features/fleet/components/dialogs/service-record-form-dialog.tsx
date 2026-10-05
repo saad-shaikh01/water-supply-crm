@@ -11,6 +11,7 @@ import {
 import { VEHICLE_SERVICE_TYPE_LABELS, type VehicleServiceRecordEntry } from '@water-supply-crm/types';
 import { serviceRecordSchema, type ServiceRecordInput } from '../../schemas';
 import { useCreateServiceRecord, useServiceTypes, useUpdateServiceRecord } from '../../hooks/use-maintenance';
+import { PaidFromCashField } from '../../../../components/shared/paid-from-cash-field';
 import { FleetPhotoUpload } from '../fleet-photo-upload';
 import { ManageServiceTypesDialog } from './manage-service-types-dialog';
 
@@ -24,6 +25,8 @@ interface ServiceRecordFormDialogProps {
   onOpenChange: (open: boolean) => void;
   defaultServiceType?: string;
   currentOdometer?: number;
+  // Create mode: prefill the date (e.g. a Daily Sheet's date) instead of today.
+  defaultDate?: string;
   // Edit mode — passed by the Expense Center detail drawer (Phase 2b) with
   // the full record fetched via `useServiceRecord(sourceRecordId)`. When
   // present, every field prefills from it, the title/submit label switch to
@@ -39,6 +42,7 @@ export function ServiceRecordFormDialog({
   onOpenChange,
   defaultServiceType,
   currentOdometer,
+  defaultDate,
   serviceRecord,
 }: ServiceRecordFormDialogProps) {
   const isEdit = !!serviceRecord;
@@ -58,11 +62,12 @@ export function ServiceRecordFormDialog({
     defaultValues: {
       serviceType: defaultServiceType ?? 'ENGINE_OIL',
       performedAtOdometer: currentOdometer ?? 0,
-      performedAtDate: new Date().toISOString().slice(0, 10),
+      performedAtDate: defaultDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
       cost: 0,
       workshopName: '',
       partsReplaced: '',
       notes: '',
+      paidFromCash: true,
     },
   });
 
@@ -76,21 +81,23 @@ export function ServiceRecordFormDialog({
         workshopName: serviceRecord.workshopName ?? '',
         partsReplaced: serviceRecord.partsReplaced ?? '',
         notes: serviceRecord.notes ?? '',
+        paidFromCash: serviceRecord.expense?.paidFromCash !== false,
       });
       setInvoicePhotoKey(serviceRecord.invoicePhotoKey ?? undefined);
     } else if (open && !serviceRecord) {
       reset({
         serviceType: defaultServiceType ?? 'ENGINE_OIL',
         performedAtOdometer: currentOdometer ?? 0,
-        performedAtDate: new Date().toISOString().slice(0, 10),
+        performedAtDate: defaultDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
         cost: 0,
         workshopName: '',
         partsReplaced: '',
         notes: '',
+        paidFromCash: true,
       });
       setInvoicePhotoKey(undefined);
     }
-  }, [open, serviceRecord, defaultServiceType, currentOdometer, reset]);
+  }, [open, serviceRecord, defaultServiceType, currentOdometer, defaultDate, reset]);
 
   // Create mode: if the pre-selected type no longer exists in the vendor's
   // catalogue (e.g. the default "Engine Oil" was removed), fall back to the
@@ -207,6 +214,19 @@ export function ServiceRecordFormDialog({
             <Label>Notes</Label>
             <Input className="rounded-xl" {...register('notes')} />
           </div>
+
+          <Controller
+            name="paidFromCash"
+            control={control}
+            render={({ field }) => (
+              <PaidFromCashField
+                value={field.value !== false}
+                onChange={field.onChange}
+                onHint="Counted as a cash payment out of Office Cash in the Cash Ledger."
+                offHint="Off = paid by bank / online — still a vehicle cost, but not deducted from Office Cash."
+              />
+            )}
+          />
 
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={isPending}>

@@ -10,6 +10,7 @@ import { AlertTriangle, Loader2, Wallet } from 'lucide-react';
 import type { CrewCashEntry } from '@water-supply-crm/types';
 import { CREW_CASH_CATEGORY_CONFIG, selectableCrewCashCategories } from '../constants';
 import { useCreateCrewCash, useUpdateCrewCash } from '../hooks/use-crew-cash';
+import { PaidFromCashField } from '../../../components/shared/paid-from-cash-field';
 import { EmployeeSelect, type CrewCashEmployeeOption } from './employee-select';
 
 export type { CrewCashEmployeeOption };
@@ -37,9 +38,11 @@ interface FormState {
   category: CrewCashEntry['category'] | undefined;
   amount: number | undefined;
   notes: string;
+  /** Cash (default) vs. bank/online — bank rows are not deducted from the sheet's hand-in. */
+  paidFromCash: boolean;
 }
 
-const emptyForm: FormState = { employeeId: '', category: undefined, amount: undefined, notes: '' };
+const emptyForm: FormState = { employeeId: '', category: undefined, amount: undefined, notes: '', paidFromCash: true };
 
 /**
  * Add/edit dialog for a Crew Cash Distribution entry — sibling of `ExpenseForm`
@@ -68,6 +71,7 @@ export function CrewCashForm({ open, onOpenChange, sheetId, employees, entry, is
         category: entry.category,
         amount: entry.amount,
         notes: entry.notes ?? '',
+        paidFromCash: entry.paidFromCash !== false,
       });
     } else if (open && !entry) {
       setForm(emptyForm);
@@ -94,6 +98,7 @@ export function CrewCashForm({ open, onOpenChange, sheetId, employees, entry, is
             category: form.category,
             amount: form.amount,
             notes: form.notes.trim() || undefined,
+            paidFromCash: form.paidFromCash,
           },
         },
         { onSuccess: () => onOpenChange(false) },
@@ -107,11 +112,13 @@ export function CrewCashForm({ open, onOpenChange, sheetId, employees, entry, is
         category: form.category,
         amount: form.amount,
         notes: form.notes.trim() || undefined,
+        ...(!form.paidFromCash && { paidFromCash: false }),
         ...(needsReason && { reason: reason.trim() }),
       },
       {
         onSuccess: () => {
-          setForm((p) => ({ employeeId: '', category: p.category, amount: undefined, notes: '' }));
+          // Quick-repeat resets to cash — bank crew cash is the exception, never carried over silently.
+          setForm((p) => ({ employeeId: '', category: p.category, amount: undefined, notes: '', paidFromCash: true }));
         },
       },
     );
@@ -214,6 +221,16 @@ export function CrewCashForm({ open, onOpenChange, sheetId, employees, entry, is
               onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))}
             />
           </div>
+
+          {/* Cash vs. bank — defaults to cash (current behaviour). A synced row can't change it here. */}
+          <PaidFromCashField
+            title="Paid from van cash?"
+            value={form.paidFromCash}
+            onChange={(v) => setForm((p) => ({ ...p, paidFromCash: v }))}
+            disabled={isEdit && !!entry?.syncedAt}
+            onHint="This amount is deducted from the sheet's cash hand-in."
+            offHint="Off = paid by bank / online — still recorded for the employee and as a cost, but not deducted from the cash hand-in."
+          />
 
           {needsReason && (
             <div className="space-y-2">

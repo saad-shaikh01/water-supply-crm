@@ -374,7 +374,7 @@ export class ProfitLossService {
         _sum: { amount: true },
       }),
       this.prisma.crewCashDistribution.aggregate({
-        where: { vendorId, ...sheetDate },
+        where: { vendorId, paidFromCash: true, ...sheetDate },
         _sum: { amount: true },
       }),
       this.prisma.dailySheet.aggregate({

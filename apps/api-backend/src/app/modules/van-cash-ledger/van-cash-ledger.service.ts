@@ -261,6 +261,8 @@ const sourceWhere = {
     status: LedgerEntryStatus.POSTED,
     amount: { lt: 0 },
     sheetAdvanceSource: { is: null },
+    // A bank/online advance moved no office cash.
+    paidFromCash: true,
     ...(range && { effectiveDate: range }),
   }),
   /** PAYROLL_CASH (b) — R6: CASH settlements, by paidAt. */
@@ -1763,6 +1765,7 @@ export class VanCashLedgerService {
                 amount: { lt: 0 },
                 // A Daily Sheet advance is not an office cash-out (see sourceWhere.payrollAdvance).
                 sheetAdvanceSource: { is: null },
+                paidFromCash: true,
               },
               _sum: { amount: true },
               _count: { _all: true },
@@ -1924,7 +1927,8 @@ export class VanCashLedgerService {
         _sum: { amount: true },
       }),
       this.prisma.crewCashDistribution.aggregate({
-        where: { vendorId, dailySheetId: sheetId },
+        // Bank/online crew cash never left the van — not part of the hand-in math.
+        where: { vendorId, dailySheetId: sheetId, paidFromCash: true },
         _sum: { amount: true },
       }),
       // Advances paid from the van's cash — netted out of the hand-in like crew cash.
@@ -1996,7 +2000,7 @@ export class VanCashLedgerService {
       }),
       this.prisma.crewCashDistribution.groupBy({
         by: ['dailySheetId'],
-        where: { vendorId, dailySheetId: { in: sheetIds } },
+        where: { vendorId, dailySheetId: { in: sheetIds }, paidFromCash: true },
         _sum: { amount: true },
       }),
       this.prisma.sheetAdvance.groupBy({

@@ -12,6 +12,7 @@ import { CREATABLE_LEDGER_CATEGORIES, LEDGER_CATEGORY_CONFIG, LEDGER_CATEGORY_SI
 import { useCreateLedgerEntry, useCreateLinkedPenalty } from '../hooks/use-ledger-entry';
 import { useEligibleEmployees } from '../hooks/use-eligible-employees';
 import { usePermissions } from '../../authz/hooks/use-permissions';
+import { PaidFromCashField } from '../../../components/shared/paid-from-cash-field';
 import { CustomerCombobox } from '../../customer-adjustments/components/customer-combobox';
 
 /** Categories a customer link makes sense for — a bonus/advance/reimbursement etc. never has this shape. */
@@ -60,6 +61,8 @@ export function LogLedgerEntryDialog({
   const [sign, setSign] = useState<'credit' | 'debit' | undefined>(undefined);
   const [effectiveDate, setEffectiveDate] = useState(todayIso());
   const [description, setDescription] = useState('');
+  // ADVANCE only — defaults to cash; off = paid by bank/online.
+  const [paidFromCash, setPaidFromCash] = useState(true);
 
   // Linked Penalty (owner-approved 2026-09-25) — optional, only offered for
   // PENALTY/DEDUCTION and only to staff who can also post a customer credit.
@@ -75,6 +78,7 @@ export function LogLedgerEntryDialog({
     setSign(undefined);
     setEffectiveDate(todayIso());
     setDescription('');
+    setPaidFromCash(true);
     setLinkToCustomer(false);
     setCustomerId('');
     setCustomerCreditTitle('');
@@ -130,6 +134,7 @@ export function LogLedgerEntryDialog({
         amount: signedAmount,
         effectiveDate,
         description: description.trim() || undefined,
+        ...(category === 'ADVANCE' && { paidFromCash }),
       },
       {
         onSuccess: () => {
@@ -269,6 +274,16 @@ export function LogLedgerEntryDialog({
               onChange={(e) => setDescription(e.target.value)}
             />
           </div>
+
+          {category === 'ADVANCE' && (
+            <PaidFromCashField
+              title="Paid in cash?"
+              value={paidFromCash}
+              onChange={setPaidFromCash}
+              onHint="Counted as cash out of Office Cash in the Cash Ledger."
+              offHint="Off = paid by bank / online — still deducted from the employee's pay, but not taken from Office Cash."
+            />
+          )}
 
           {canOfferLink && (
             <div className="space-y-3 rounded-xl border border-border/50 p-3">

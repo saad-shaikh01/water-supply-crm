@@ -23,9 +23,9 @@ export interface DeliveryReceiptData {
   vendorName: string;
   /** MONTHLY customers only — balance carried in from before this month. */
   previousMonthOutstanding?: number;
-  /** Cash deposit (Rs.) the vendor holds for this customer — row hidden when absent/0. */
+  /** Cash deposit (Rs.) the vendor holds for this customer — shown as 0 when absent. */
   depositCash?: number;
-  /** Bottle deposit (bottle count, all products) the vendor holds — row hidden when absent/0. */
+  /** Bottle deposit (bottle count, all products) the vendor holds — shown as 0 when absent. */
   depositBottles?: number;
 }
 
@@ -140,16 +140,14 @@ export class DeliveryReceiptPdfService {
     });
   }
 
-  // "Deposit" row — Rs. and/or bottles, joined with " / " when the customer has both.
+  // "Deposit" row — always shown for every customer: "Rs. <cash> / <n> bottles" (0 when none held).
   private depositRow(data: DeliveryReceiptData): DetailRow[] {
-    const parts: string[] = [];
-    if ((data.depositCash ?? 0) > 0) {
-      parts.push(`Rs. ${data.depositCash!.toLocaleString('en-PK', { maximumFractionDigits: 2 })}`);
-    }
-    if ((data.depositBottles ?? 0) > 0) {
-      parts.push(`${data.depositBottles} ${data.depositBottles === 1 ? 'bottle' : 'bottles'}`);
-    }
-    return parts.length ? [{ label: 'Deposit', value: parts.join(' / ') }] : [];
+    const cash = data.depositCash ?? 0;
+    const bottles = data.depositBottles ?? 0;
+    return [{
+      label: 'Deposit',
+      value: `Rs. ${cash.toLocaleString('en-PK', { maximumFractionDigits: 2 })} / ${bottles} ${bottles === 1 ? 'bottle' : 'bottles'}`,
+    }];
   }
 
   // ── Brand banner: gradient card with logo chip (left) + vendor identity (right) ─

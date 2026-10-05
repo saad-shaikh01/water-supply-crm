@@ -1716,11 +1716,17 @@ model CrewCashDistribution {
   syncedLedgerEntryId String?           @unique
   syncedLedgerEntry   StaffLedgerEntry? @relation(fields: [syncedLedgerEntryId], references: [id])
 
+  // Cash vs. bank/online (mirrors Expense.paidFromCash). Defaults true — crew cash
+  // is normally physical van cash and every row is then deducted from the sheet's
+  // hand-in. false = paid by bank/online, so it never left the driver's pocket:
+  // it still counts as a cost (P&L, Expense Center) and still syncs to the crew
+  // member's payroll ledger, but is NOT deducted from the hand-in
+  // (buildReconciliation, van-cash-ledger sheet breakdown, P&L hand-in proof).
+  paidFromCash Boolean @default(true)
+
   // Trip feature: same dailySheetLoadId attribution Expense/DailySheetItem
-  // already carry — crew cash is unconditionally paid from the van's
-  // physical cash (no card/other option exists for it, unlike Expense's
-  // paidFromCash toggle), so every row here is deductible; this only tells
-  // the UI/PDF WHICH trip's numbers it should reduce.
+  // already carry — this only tells the UI/PDF WHICH trip's numbers it should
+  // reduce.
   dailySheetLoadId String?
   dailySheetLoad   DailySheetLoad? @relation(fields: [dailySheetLoadId], references: [id])
 
@@ -2871,6 +2877,13 @@ model StaffLedgerEntry {
   // the plain void paths refuse to touch a linked row on their own.
   linkedCustomerId String?
   linkedCustomer   Customer? @relation("StaffLedgerEntryLinkedCustomer", fields: [linkedCustomerId], references: [id])
+
+  // Cash vs. bank/online — meaningful for ADVANCE only (every other category is a
+  // payroll accrual whose cash leaves via Settlement.method). false = the advance
+  // was paid by bank/online, so the Cash Ledger must NOT count it as PAYROLL_CASH
+  // (see sourceWhere.payrollAdvance / classifyStaffLedgerEntry). Still a real cost
+  // everywhere else (payroll netting, P&L). Defaults true = historical behaviour.
+  paidFromCash Boolean @default(true)
 
   causedCustomerAdjustmentId String?                      @unique
   causedCustomerAdjustment   CustomerFinancialAdjustment? @relation(fields: [causedCustomerAdjustmentId], references: [id], onDelete: Restrict)

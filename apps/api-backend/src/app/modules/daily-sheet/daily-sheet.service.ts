@@ -4466,7 +4466,7 @@ export class DailySheetService implements OnModuleInit {
           select: { amount: true, paidFromCash: true },
         },
         crewCashDistributions: {
-          select: { amount: true },
+          select: { amount: true, paidFromCash: true },
         },
         // Advances paid from the van's cash reduce the hand-in too (buildReconciliation).
         sheetAdvances: {
@@ -5855,7 +5855,7 @@ export class DailySheetService implements OnModuleInit {
    * Deposit the company is currently holding for a customer, for the receipt's
    * "Deposit" row: total Rs. (CASH deposits) and total bottle count (BOTTLE
    * deposits, all products). A field is omitted when it is not > 0, so the row
-   * only renders for customers who actually have a deposit.
+   * shows 0 on the receipt for customers who have no deposit.
    * Live send → current balances. Historical receipt (asOf) → replayed from
    * the entry ledger up to that moment (every entry counts, voided originals
    * and their reversals alike, so a later void never rewrites the past).

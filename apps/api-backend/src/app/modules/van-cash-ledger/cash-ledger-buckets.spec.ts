@@ -10,6 +10,13 @@ describe('classifyStaffLedgerEntry() — R6', () => {
     );
   });
 
+  it('excludes a bank/online ADVANCE (paidFromCash false) but keeps cash / unspecified ones', () => {
+    const base = { category: StaffLedgerCategory.ADVANCE, status: posted, amount: -5000 };
+    expect(classifyStaffLedgerEntry({ ...base, paidFromCash: false })).toBeNull();
+    expect(classifyStaffLedgerEntry({ ...base, paidFromCash: true })).toBe('PAYROLL_CASH');
+    expect(classifyStaffLedgerEntry({ ...base, paidFromCash: null })).toBe('PAYROLL_CASH');
+  });
+
   it('excludes a PENDING or VOIDED ADVANCE (no cash moved)', () => {
     expect(
       classifyStaffLedgerEntry({ category: StaffLedgerCategory.ADVANCE, status: LedgerEntryStatus.PENDING, amount: -5000 }),

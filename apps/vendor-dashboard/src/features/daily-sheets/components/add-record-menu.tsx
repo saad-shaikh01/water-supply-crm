@@ -7,7 +7,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@water-supply-crm/ui';
-import { AlertTriangle, Fuel, HandCoins, PackagePlus, Plus, Receipt, Wallet } from 'lucide-react';
+import { AlertTriangle, Fuel, HandCoins, PackagePlus, Plus, Receipt, Wallet, Wrench } from 'lucide-react';
 
 interface AddRecordMenuProps {
   canLogFuel: boolean;
@@ -17,6 +17,8 @@ interface AddRecordMenuProps {
   canAddExtraLabour?: boolean;
   /** Salary advance paid from the van's cash (payroll:ledger_create, + the closed-sheet permission when closed). */
   canAddAdvance?: boolean;
+  /** Vehicle maintenance record for this sheet's vehicle (fleet:manage_maintenance). */
+  canAddMaintenance?: boolean;
   canAddDelivery: boolean;
   isClosed: boolean;
   canReportDamage: boolean;
@@ -25,6 +27,7 @@ interface AddRecordMenuProps {
   onAddCrewCash: () => void;
   onAddExtraLabour?: () => void;
   onAddAdvance?: () => void;
+  onAddMaintenance?: () => void;
   onAddDelivery: () => void;
   onReportDamage: () => void;
 }
@@ -41,6 +44,7 @@ export function AddRecordMenu({
   canAddCrewCash,
   canAddExtraLabour = false,
   canAddAdvance = false,
+  canAddMaintenance = false,
   canAddDelivery,
   canReportDamage,
   onLogFuel,
@@ -48,10 +52,11 @@ export function AddRecordMenu({
   onAddCrewCash,
   onAddExtraLabour,
   onAddAdvance,
+  onAddMaintenance,
   onAddDelivery,
   onReportDamage,
 }: AddRecordMenuProps) {
-  if (!canLogFuel && !canAddExpense && !canAddCrewCash && !canAddExtraLabour && !canAddAdvance && !canAddDelivery && !canReportDamage) {
+  if (!canLogFuel && !canAddExpense && !canAddCrewCash && !canAddExtraLabour && !canAddAdvance && !canAddMaintenance && !canAddDelivery && !canReportDamage) {
     return null;
   }
 
@@ -92,6 +97,12 @@ export function AddRecordMenu({
           <DropdownMenuItem onClick={onAddAdvance} className="gap-2 cursor-pointer">
             <HandCoins className="h-4 w-4" />
             Advance
+          </DropdownMenuItem>
+        )}
+        {canAddMaintenance && onAddMaintenance && (
+          <DropdownMenuItem onClick={onAddMaintenance} className="gap-2 cursor-pointer">
+            <Wrench className="h-4 w-4" />
+            Vehicle Maintenance
           </DropdownMenuItem>
         )}
         {canAddDelivery && (

@@ -47,11 +47,11 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
   const [showDamage, setShowDamage] = useState(false);
   const [damageForm, setDamageForm] = useState<{
     caseType: 'DAMAGE' | 'LOST';
-    bottleCount: number;
+    bottleCount: number | '';
     photoKeys: string[];
     description: string;
     lossReason: string;
-  }>({ caseType: 'DAMAGE', bottleCount: 1, photoKeys: [], description: '', lossReason: 'CUSTOMER_NOT_RETURNED' });
+  }>({ caseType: 'DAMAGE', bottleCount: '', photoKeys: [], description: '', lossReason: 'CUSTOMER_NOT_RETURNED' });
 
   const item = items.find((i) => i.id === open) ?? null;
 
@@ -74,7 +74,7 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
     setPhotoKey(item.photoKey ?? null);
     setAwaitingConfirm(false);
     setShowDamage(false);
-    setDamageForm({ caseType: 'DAMAGE', bottleCount: 1, photoKeys: [], description: '', lossReason: 'CUSTOMER_NOT_RETURNED' });
+    setDamageForm({ caseType: 'DAMAGE', bottleCount: '', photoKeys: [], description: '', lossReason: 'CUSTOMER_NOT_RETURNED' });
     const isFirst = item.status === 'PENDING';
     const custom = item.customer?.customPrices?.find(p => p.productId === item.productId);
     const price = custom?.customPrice ?? item.product?.basePrice ?? 0;
@@ -144,7 +144,7 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
               dailySheetItemId: item.id,
               caseType: damageForm.caseType,
               severity: damageForm.caseType === 'DAMAGE' ? 'MODERATE' : undefined,
-              bottleCount: damageForm.bottleCount,
+              bottleCount: Number(damageForm.bottleCount) || 1,
               photoPaths: damageForm.caseType === 'DAMAGE' ? damageForm.photoKeys : [],
               description: damageForm.description || undefined,
               lossReason: damageForm.caseType === 'LOST' ? damageForm.lossReason : undefined,
@@ -340,7 +340,7 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
                   onClick={() => {
                     if (showDamage) {
                       setShowDamage(false);
-                      setDamageForm({ caseType: 'DAMAGE', bottleCount: 1, photoKeys: [], description: '', lossReason: 'CUSTOMER_NOT_RETURNED' });
+                      setDamageForm({ caseType: 'DAMAGE', bottleCount: '', photoKeys: [], description: '', lossReason: 'CUSTOMER_NOT_RETURNED' });
                     } else {
                       setShowDamage(true);
                     }
@@ -401,7 +401,7 @@ export function DeliveryDialog({ open, onClose, sheetId, items }: DeliveryDialog
                         type="number"
                         min={1}
                         value={damageForm.bottleCount}
-                        onChange={(e) => setDamageForm((p) => ({ ...p, bottleCount: Math.max(1, Number(e.target.value)) }))}
+                        onChange={(e) => setDamageForm((p) => ({ ...p, bottleCount: e.target.value === '' ? '' : Math.max(1, Math.floor(Number(e.target.value))) }))}
                         className="h-11 font-mono font-bold"
                       />
                     </div>

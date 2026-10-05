@@ -86,8 +86,11 @@ export class StaffLedgerService {
     // from a Daily Sheet's van cash is NOT office cash (the Cash Ledger excludes it
     // from PAYROLL_CASH) — its cash effect rides the sheet's hand-in, which has its
     // own post-close redirect rule for closed periods. Never set by any HTTP route.
+    // A bank/online advance (`paidFromCash === false`) moves no office cash, so it
+    // cannot change a closed Cash Ledger period either — no guard for it.
     if (
       !opts?.skipPeriodGuard &&
+      dto.paidFromCash !== false &&
       (dto.category === StaffLedgerCategory.ADVANCE || dto.category === StaffLedgerCategory.ADVANCE_DISBURSEMENT)
     ) {
       await this.periodGuard.assertWritable(user.vendorId, [dto.effectiveDate], { userId: user.userId });
@@ -109,6 +112,8 @@ export class StaffLedgerService {
         description: dto.description ?? null,
         status,
         createdById: user.userId,
+        // Only an ADVANCE can be a bank/online payment; everything else is a payroll accrual.
+        paidFromCash: dto.category === StaffLedgerCategory.ADVANCE ? (dto.paidFromCash ?? true) : true,
         // Linked Penalty (owner-approved 2026-09-25) — set ONLY by
         // LinkedPenaltyService.createLinkedPenalty, together, never by the
         // plain `create`/`CreateStaffLedgerEntryDto` path (which carries
@@ -151,7 +156,7 @@ export class StaffLedgerService {
       // as any other write into it. (Close-check only WARNS about pending advances.)
       // A Daily Sheet advance is the exception: it never counts as office cash (its
       // cash rode the sheet's hand-in), so approving it changes no period's cash.
-      if (entry.category === StaffLedgerCategory.ADVANCE && !entry.sheetAdvanceSource) {
+      if (entry.category === StaffLedgerCategory.ADVANCE && !entry.sheetAdvanceSource && entry.paidFromCash) {
         await this.periodGuard.assertWritable(user.vendorId, [entry.effectiveDate], { userId: user.userId });
       }
 
@@ -264,7 +269,7 @@ export class StaffLedgerService {
 
     // Cash-ledger accounting-period guard (P4) — voiding an ADVANCE removes cash
     // dated at its effectiveDate; must run before anything is mutated.
-    if (entry.category === StaffLedgerCategory.ADVANCE && !opts?.skipPeriodGuard) {
+    if (entry.category === StaffLedgerCategory.ADVANCE && entry.paidFromCash && !opts?.skipPeriodGuard) {
       await this.periodGuard.assertWritable(user.vendorId, [entry.effectiveDate], { userId: user.userId });
     }
 

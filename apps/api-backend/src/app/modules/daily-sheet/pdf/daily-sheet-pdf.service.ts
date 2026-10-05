@@ -526,6 +526,7 @@ export class DailySheetPdfService {
     // was logged (mirrors the same fix applied to reconcile-dialog.tsx's
     // Driver Handover summary tile on the vendor-dashboard side).
     const totalCrewCash = (sheet.crewCashDistributions ?? [])
+      .filter((cc: any) => cc.paidFromCash !== false)
       .reduce((s: number, cc: any) => s + (cc.amount ?? 0), 0);
     // Salary advances handed out of the van's cash are deducted from the hand-in the same way.
     const totalSheetAdvances = (sheet.sheetAdvances ?? [])
@@ -890,10 +891,10 @@ export class DailySheetPdfService {
       expenseByTrip.set(exp.dailySheetLoadId, (expenseByTrip.get(exp.dailySheetLoadId) ?? 0) + (exp.amount ?? 0));
     }
 
-    // Crew Cash has no paidFromCash toggle — it's unconditionally physical
-    // van cash (see the schema comment on CrewCashDistribution.dailySheetLoadId),
-    // so every row here is deductible, same bucket as cash-paid expenses.
+    // Crew Cash is physical van cash by default; a bank/online row
+    // (paidFromCash === false) is skipped, same bucket as cash-paid expenses.
     for (const cc of crewCash) {
+      if (cc.paidFromCash === false) continue;
       if (!cc.dailySheetLoadId) continue; // no active trip at record time — unassigned
       expenseByTrip.set(cc.dailySheetLoadId, (expenseByTrip.get(cc.dailySheetLoadId) ?? 0) + (cc.amount ?? 0));
     }

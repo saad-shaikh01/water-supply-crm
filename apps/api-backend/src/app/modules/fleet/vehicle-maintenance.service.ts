@@ -15,6 +15,8 @@ import { computeMaintenanceStatus } from './fleet-maintenance.util';
 const serviceRecordInclude = {
   recordedBy: { select: { id: true, name: true } },
   vehicle: { select: { id: true, plateNumber: true } },
+  // The payment flag lives on the linked Expense — surfaced so the edit form can prefill it.
+  expense: { select: { paidFromCash: true } },
 };
 
 /**
@@ -172,6 +174,7 @@ export class VehicleMaintenanceService {
           vendorId: user.vendorId,
           category: ExpenseCategory.VEHICLE_MAINTENANCE,
           amount: dto.cost,
+          paidFromCash: dto.paidFromCash ?? true,
           description: `${serviceLabel} — ${vehicle.plateNumber}`,
           date: new Date(dto.performedAtDate),
           // Expense stays route-level (§17.2) — this vehicle isn't
@@ -269,12 +272,16 @@ export class VehicleMaintenanceService {
     const updated = await this.prisma.$transaction(async (tx) => {
       if (
         record.expenseId &&
-        (dto.cost !== undefined || dto.performedAtDate !== undefined || dto.serviceType !== undefined)
+        (dto.cost !== undefined ||
+          dto.performedAtDate !== undefined ||
+          dto.serviceType !== undefined ||
+          dto.paidFromCash !== undefined)
       ) {
         await tx.expense.update({
           where: { id: record.expenseId },
           data: {
             ...(dto.cost !== undefined && { amount: dto.cost }),
+            ...(dto.paidFromCash !== undefined && { paidFromCash: dto.paidFromCash }),
             ...(dto.performedAtDate !== undefined && { date: new Date(dto.performedAtDate) }),
             ...(dto.serviceType !== undefined && {
               description: `${serviceLabel} — ${record.vehicle.plateNumber}`,

@@ -83,12 +83,15 @@ export function classifyStaffLedgerEntry(entry: {
   category: StaffLedgerCategory | string;
   status: LedgerEntryStatus | string;
   amount: number;
+  /** Only ADVANCE rows can be false (bank/online). Absent = cash. */
+  paidFromCash?: boolean | null;
 }): 'PAYROLL_CASH' | null {
   if (entry.category !== StaffLedgerCategory.ADVANCE && entry.category !== StaffLedgerCategory.ADVANCE_DISBURSEMENT) {
     return null;
   }
   if (entry.status !== LedgerEntryStatus.POSTED) return null;
   if (!(entry.amount < 0)) return null;
+  if (entry.paidFromCash === false) return null;
   return 'PAYROLL_CASH';
 }
 

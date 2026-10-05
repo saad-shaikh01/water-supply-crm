@@ -7,7 +7,9 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
   cn,
 } from '@water-supply-crm/ui';
-import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { AddExpenseWizard } from '../../expense-center/wizard/add-expense-wizard';
 import {
   useProfitLoss, useProfitLossDetails, useProfitLossPayments,
   type ProfitLossData,
@@ -345,7 +347,16 @@ export function ProfitLossTab() {
   const [month, setMonth] = useState(thisMonth);
   const [detailCategory, setDetailCategory] = useState<string | null>(null);
   const [paymentsKind, setPaymentsKind] = useState<string | null>(null);
+  const [addExpenseOpen, setAddExpenseOpen] = useState(false);
+  const queryClient = useQueryClient();
   const { data, isLoading, isError } = useProfitLoss(month);
+
+  // The wizard's mutations don't touch the analytics cache, so refresh the P&L when it closes
+  // (a no-op refetch if nothing was recorded).
+  const handleAddExpenseOpenChange = (open: boolean) => {
+    setAddExpenseOpen(open);
+    if (!open) queryClient.invalidateQueries({ queryKey: ['analytics', 'profit-loss'] });
+  };
 
   return (
     <div className="space-y-6">
@@ -360,7 +371,13 @@ export function ProfitLossTab() {
         {month !== thisMonth && (
           <Button variant="ghost" size="sm" onClick={() => setMonth(thisMonth)}>This month</Button>
         )}
-        <p className="w-full sm:w-auto sm:ml-auto text-xs text-muted-foreground">Company-wide · all vans · expenses on cash basis</p>
+        <div className="w-full sm:w-auto sm:ml-auto flex flex-col-reverse sm:flex-row sm:items-center gap-2 sm:gap-4">
+          <p className="text-xs text-muted-foreground">Company-wide · all vans · expenses on cash basis</p>
+          <Button onClick={() => setAddExpenseOpen(true)} className="rounded-full font-bold gap-2">
+            <Plus className="h-4 w-4" />
+            Add Expense
+          </Button>
+        </div>
       </div>
 
       {isLoading && (
@@ -459,6 +476,7 @@ export function ProfitLossTab() {
         </>
       )}
 
+      <AddExpenseWizard open={addExpenseOpen} onOpenChange={handleAddExpenseOpenChange} />
       <PaymentsSheet key={`${month}:pay:${paymentsKind ?? ''}`} month={month} kind={paymentsKind} onClose={() => setPaymentsKind(null)} />
       <DetailsSheet key={`${month}:${detailCategory ?? ''}`} month={month} category={detailCategory} onClose={() => setDetailCategory(null)} />
     </div>

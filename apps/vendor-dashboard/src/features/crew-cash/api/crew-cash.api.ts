@@ -6,6 +6,8 @@ export interface CreateCrewCashData {
   category: CrewCashCategory;
   amount: number;
   notes?: string;
+  /** false = paid by bank/online (not deducted from the sheet's cash hand-in). Omitted = cash. */
+  paidFromCash?: boolean;
   /** Required by the server only when the sheet is already closed. */
   reason?: string;
 }
@@ -43,6 +45,7 @@ export interface UpdateCrewCashData {
   category?: CrewCashCategory;
   amount?: number;
   notes?: string;
+  paidFromCash?: boolean;
 }
 
 /**
