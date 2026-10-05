@@ -141,10 +141,10 @@ export class CustomerService {
   }
 
   async create(vendorId: string, dto: CreateCustomerDto) {
-    // If customerCode provided manually, check uniqueness
+    // If customerCode provided manually, check uniqueness (codes are unique per vendor)
     if (dto.customerCode) {
       const existing = await this.prisma.customer.findUnique({
-        where: { customerCode: dto.customerCode },
+        where: { vendorId_customerCode: { vendorId, customerCode: dto.customerCode } },
       });
       if (existing) throw new ConflictException('Customer code already exists');
     }

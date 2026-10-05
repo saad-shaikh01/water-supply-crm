@@ -27,10 +27,13 @@ export class UserController {
   @RequirePermissions('users:create')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
   async create(@CurrentUser() user: AuthUser, @Body() dto: CreateUserDto) {
-    return this.userService.create({
-      ...dto,
-      vendorId: user.vendorId,
-    });
+    return this.userService.create(
+      {
+        ...dto,
+        vendorId: user.vendorId,
+      },
+      user,
+    );
   }
 
   @Get()
@@ -53,7 +56,7 @@ export class UserController {
     @Param('id') id: string,
     @Body() dto: UpdateUserDto,
   ) {
-    return this.userService.update(user.vendorId, id, dto);
+    return this.userService.update(user.vendorId, id, dto, user);
   }
 
   /** PATCH /users/:id/deactivate — soft-disable (isActive = false), preserves all history */

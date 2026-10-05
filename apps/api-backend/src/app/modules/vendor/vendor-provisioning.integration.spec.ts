@@ -18,6 +18,9 @@ import { VendorProvisioningService, DEFAULT_CUSTOMER_FLAG_CATEGORIES } from './v
  * vendors and must not be pointed at a dev/prod database by accident.
  *
  *   TEST_DATABASE_URL=postgresql://... npx jest -c jest.config.cts vendor-provisioning.integration
+ *
+ * Vendor counts below are scoped to this run's own slug prefix, so the suite is safe to run in
+ * parallel with the other integration suites that share the throwaway database.
  */
 const TEST_DATABASE_URL = process.env['TEST_DATABASE_URL'];
 const describeDb = TEST_DATABASE_URL ? describe : describe.skip;
@@ -26,7 +29,7 @@ jest.setTimeout(60000);
 
 describeDb('Vendor onboarding (real Postgres)', () => {
   const RUN = randomUUID().slice(0, 8);
-  const prisma = new PrismaService({ datasources: { db: { url: TEST_DATABASE_URL } } });
+  const prisma = new PrismaService({ datasources: { db: { url: TEST_DATABASE_URL ?? 'postgresql://skipped:skipped@localhost:1/skipped' } } });
   const invalidated: string[] = [];
   const permissions = { invalidateUsers: jest.fn(async (ids: string[]) => void invalidated.push(...ids)) };
   const audit = { log: jest.fn(async () => undefined) };
@@ -82,11 +85,11 @@ describeDb('Vendor onboarding (real Postgres)', () => {
 
   it('is atomic: a duplicate admin email leaves NO half-built vendor behind', async () => {
     await track('dup');
-    const before = await prisma.vendor.count();
+    const before = await prisma.vendor.count({ where: { slug: { startsWith: `t-${RUN}-` } } });
     await expect(service.create({ ...dto('dup2'), adminEmail: dto('dup').adminEmail })).rejects.toBeInstanceOf(
       ConflictException,
     );
-    expect(await prisma.vendor.count()).toBe(before);
+    expect(await prisma.vendor.count({ where: { slug: { startsWith: `t-${RUN}-` } } })).toBe(before);
     expect(await prisma.vendor.findUnique({ where: { slug: dto('dup2').slug } })).toBeNull();
   });
 
@@ -99,9 +102,9 @@ describeDb('Vendor onboarding (real Postgres)', () => {
 
   it('rolls everything back when provisioning fails mid-transaction', async () => {
     const spy = jest.spyOn(provisioning, 'provisionInTx').mockRejectedValueOnce(new Error('boom'));
-    const before = await prisma.vendor.count();
+    const before = await prisma.vendor.count({ where: { slug: { startsWith: `t-${RUN}-` } } });
     await expect(service.create(dto('rollback'))).rejects.toThrow('boom');
-    expect(await prisma.vendor.count()).toBe(before);
+    expect(await prisma.vendor.count({ where: { slug: { startsWith: `t-${RUN}-` } } })).toBe(before);
     expect(await prisma.user.findUnique({ where: { email: dto('rollback').adminEmail } })).toBeNull();
     spy.mockRestore();
   });

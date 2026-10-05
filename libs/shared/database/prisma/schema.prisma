@@ -679,7 +679,7 @@ model Product {
 
 model Customer {
   id           String @id @default(uuid())
-  customerCode String @unique
+  customerCode String // unique per vendor (see @@unique below) — every vendor's codes start at L1
   name         String
   phoneNumber  String
 
@@ -741,6 +741,8 @@ model Customer {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([vendorId, customerCode])
+  @@index([customerCode]) // public portal activation looks a customer up by code alone
   @@index([vendorId])
   @@index([vendorId, routeId])
   @@index([routeId])

@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import { DamageCaseStatus, DamageCaseType, TransactionType } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import { paginate } from '../../common/helpers/paginate';
 import { StorageService } from '../../common/storage/storage.service';
 import { InAppNotificationService } from '../notifications/in-app-notification.service';
@@ -33,6 +34,22 @@ export class DamageCaseService {
   // ── report ────────────────────────────────────────────────────────────────
 
   async report(user: AuthUser, dto: ReportDamageCaseDto) {
+    // Every referenced entity must belong to the caller's vendor — otherwise a later charge()
+    // would move another tenant's customer balance / bottle wallet.
+    const [customer, product, item] = await Promise.all([
+      this.prisma.customer.findFirst({ where: { id: dto.customerId, vendorId: user.vendorId }, select: { id: true } }),
+      this.prisma.product.findFirst({ where: { id: dto.productId, vendorId: user.vendorId }, select: { id: true } }),
+      dto.dailySheetItemId
+        ? this.prisma.dailySheetItem.findFirst({
+            where: { id: dto.dailySheetItemId, dailySheet: { vendorId: user.vendorId } },
+            select: { id: true },
+          })
+        : Promise.resolve(true),
+    ]);
+    if (!customer) throw new NotFoundException('Customer not found.');
+    if (!product) throw new NotFoundException('Product not found.');
+    if (!item) throw new NotFoundException('Delivery item not found.');
+
     const damageCase = await this.prisma.damageCase.create({
       data: {
         vendorId: user.vendorId,
@@ -82,7 +99,7 @@ export class DamageCaseService {
   // ── update (bottleCount only, REPORTED status) ─────────────────────────
 
   async update(user: AuthUser, id: string, dto: UpdateDamageCaseDto) {
-    const damageCase = await this.findCaseOrThrow(id);
+    const damageCase = await this.findCaseOrThrow(id, user.vendorId);
 
     if (damageCase.status !== DamageCaseStatus.REPORTED) {
       throw new BadRequestException('Only REPORTED damage cases can be updated.');
@@ -125,7 +142,7 @@ export class DamageCaseService {
   // ── review (REPORTED → UNDER_REVIEW) ────────────────────────────────────
 
   async review(user: AuthUser, id: string) {
-    const damageCase = await this.findCaseOrThrow(id);
+    const damageCase = await this.findCaseOrThrow(id, user.vendorId);
 
     if (damageCase.status !== DamageCaseStatus.REPORTED) {
       throw new BadRequestException('Only REPORTED damage cases can be moved to UNDER_REVIEW.');
@@ -163,8 +180,9 @@ export class DamageCaseService {
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
-      const damageCase = await tx.damageCase.findUnique({ where: { id } });
+      const damageCase = await tx.damageCase.findFirst({ where: { id, vendorId: user.vendorId } });
       if (!damageCase) throw new NotFoundException('Damage case not found.');
+      await this.assertCaseCustomerInVendor(tx, damageCase);
 
       if (damageCase.status !== DamageCaseStatus.UNDER_REVIEW) {
         throw new BadRequestException('Only UNDER_REVIEW damage cases can be charged.');
@@ -280,8 +298,9 @@ export class DamageCaseService {
 
   async waive(user: AuthUser, id: string, dto: WaiveDamageCaseDto) {
     const result = await this.prisma.$transaction(async (tx) => {
-      const damageCase = await tx.damageCase.findUnique({ where: { id } });
+      const damageCase = await tx.damageCase.findFirst({ where: { id, vendorId: user.vendorId } });
       if (!damageCase) throw new NotFoundException('Damage case not found.');
+      await this.assertCaseCustomerInVendor(tx, damageCase);
 
       if (damageCase.status !== DamageCaseStatus.UNDER_REVIEW) {
         throw new BadRequestException('Only UNDER_REVIEW damage cases can be waived.');
@@ -375,6 +394,7 @@ export class DamageCaseService {
     const result = await this.prisma.$transaction(async (tx) => {
       const damageCase = await tx.damageCase.findFirst({ where: { id, vendorId: user.vendorId } });
       if (!damageCase) throw new NotFoundException('Damage case not found.');
+      await this.assertCaseCustomerInVendor(tx, damageCase);
 
       if (damageCase.status !== DamageCaseStatus.CHARGED) {
         throw new BadRequestException('Only CHARGED damage cases can be reversed.');
@@ -693,10 +713,27 @@ export class DamageCaseService {
 
   // ── helpers ──────────────────────────────────────────────────────────────
 
-  private async findCaseOrThrow(id: string) {
-    const damageCase = await this.prisma.damageCase.findUnique({ where: { id } });
+  private async findCaseOrThrow(id: string, vendorId: string) {
+    const damageCase = await this.prisma.damageCase.findFirst({ where: { id, vendorId } });
     if (!damageCase) throw new NotFoundException('Damage case not found.');
     return damageCase;
+  }
+
+  /**
+   * Defence in depth for the money/wallet-moving paths: the case's customer must belong to the
+   * case's own vendor, even for rows written before report() validated its inputs.
+   */
+  private async assertCaseCustomerInVendor(
+    tx: Prisma.TransactionClient,
+    damageCase: { customerId: string; vendorId: string },
+  ) {
+    const owner = await tx.customer.findFirst({
+      where: { id: damageCase.customerId, vendorId: damageCase.vendorId },
+      select: { id: true },
+    });
+    if (!owner) {
+      throw new BadRequestException('This damage case references a customer outside its vendor.');
+    }
   }
 
   private async notifyVendorStaff(

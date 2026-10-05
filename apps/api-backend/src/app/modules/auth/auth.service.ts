@@ -37,6 +37,10 @@ export class AuthService {
     // user.password is null for no-login field staff (SALESMAN/LOADER) — always reject
     if (user && user.password && (await bcrypt.compare(pass, user.password))) {
       await this.cache.del(failKey);
+      // Only revealed to someone who proved they know the password, so this leaks nothing.
+      if (!user.isActive) {
+        throw new UnauthorizedException('Your account has been deactivated. Contact your administrator.');
+      }
       const { password, ...result } = user;
       return result;
     }

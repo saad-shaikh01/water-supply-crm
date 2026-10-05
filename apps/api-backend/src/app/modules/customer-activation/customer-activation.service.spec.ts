@@ -37,6 +37,13 @@ describe('CustomerActivationService', () => {
       user: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
       $transaction: jest.fn(async (cb: any) => cb(mockPrisma)),
     };
+    // verifyCustomer() now looks candidates up with findMany (customer codes are unique per vendor,
+    // audit C2). This adapter keeps every scenario below — which stub customer.findUnique, in order —
+    // meaningful: the first findUnique result is the (single) candidate for the code.
+    mockPrisma.customer.findMany = jest.fn(async (...args: any[]) => {
+      const row = await mockPrisma.customer.findUnique(...args);
+      return row ? [row] : [];
+    });
     mockCache = {
       get: jest.fn(),
       set: jest.fn().mockResolvedValue(undefined),

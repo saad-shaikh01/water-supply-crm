@@ -3,6 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
 import { vendorSuspendedKey } from '../vendor/vendor.service';
+import { userInactiveKey } from '../user/user.service';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -31,6 +32,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
           'Your account has been suspended. Contact support.',
         );
       }
+    }
+
+    // Deactivated after this token was issued? (flag set by UserService.deactivate)
+    if (payload.sub && (await this.cache.get<boolean>(userInactiveKey(payload.sub)))) {
+      throw new UnauthorizedException('Your account has been deactivated. Contact your administrator.');
     }
 
     return {

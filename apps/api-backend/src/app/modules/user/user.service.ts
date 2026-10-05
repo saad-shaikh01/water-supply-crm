@@ -1,9 +1,10 @@
-import { Injectable, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, ConflictException, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import { Prisma, UserRole } from '@prisma/client';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
 import { CACHE_KEYS, CACHE_TTLS } from '@water-supply-crm/caching';
 import { LEGACY_ROLE_TO_KEY } from '@water-supply-crm/authz';
+import type { AuthUser } from '@water-supply-crm/types';
 import * as bcrypt from 'bcrypt';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { NO_LOGIN_ROLES } from './dto/create-user.dto';
@@ -14,6 +15,26 @@ import { AuthzPolicyService } from '../authz/authz-policy.service';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { paginate } from '../../common/helpers/paginate';
 import { normalizePhone } from '../whatsapp/phone.util';
+
+/** Redis flag (mirrors `vendorSuspendedKey`): set on deactivate so live JWTs stop working immediately. */
+export const userInactiveKey = (userId: string) => `user:${userId}:inactive`;
+/** Longer than the access-token lifetime (1d) — after that no token issued before deactivation can exist. */
+export const USER_INACTIVE_FLAG_TTL_MS = 25 * 60 * 60 * 1000;
+
+/**
+ * Roles a vendor-side caller may never grant. `SUPER_ADMIN` is the platform tier — only an
+ * existing SUPER_ADMIN may mint one (otherwise any VENDOR_ADMIN, who holds `users:create` via `*`,
+ * could create/promote a SUPER_ADMIN and take over every tenant). `CUSTOMER` portal accounts are
+ * created exclusively by the customer-activation flow. Fails closed when no actor is supplied.
+ */
+export function assertCanAssignRole(actor: AuthUser | undefined, target: UserRole): void {
+  if (target === UserRole.SUPER_ADMIN && actor?.role !== UserRole.SUPER_ADMIN) {
+    throw new ForbiddenException('Only a platform administrator can assign the SUPER_ADMIN role.');
+  }
+  if (target === UserRole.CUSTOMER) {
+    throw new BadRequestException('Customer portal accounts are created through customer activation, not here.');
+  }
+}
 
 @Injectable()
 export class UserService {
@@ -32,7 +53,9 @@ export class UserService {
     role: UserRole;
     vendorId?: string;
     phoneNumber?: string;
-  }) {
+  }, actor?: AuthUser) {
+    assertCanAssignRole(actor, data.role);
+
     // Email/password may be omitted only for no-login field staff
     if (!NO_LOGIN_ROLES.includes(data.role)) {
       if (!data.email) throw new BadRequestException('Email is required for this role');
@@ -215,13 +238,19 @@ export class UserService {
     return user;
   }
 
-  async update(vendorId: string, id: string, dto: UpdateUserDto) {
+  async update(vendorId: string, id: string, dto: UpdateUserDto, actor?: AuthUser) {
     const user = await this.prisma.user.findFirst({
       where: { id, vendorId },
     });
 
     if (!user) {
       throw new NotFoundException('User not found');
+    }
+
+    if (dto.role) assertCanAssignRole(actor, dto.role);
+    // A platform account can't be edited (password reset, demotion…) by a vendor-side caller either.
+    if (user.role === UserRole.SUPER_ADMIN && actor?.role !== UserRole.SUPER_ADMIN) {
+      throw new ForbiddenException('Only a platform administrator can modify a SUPER_ADMIN account.');
     }
 
     const updateData: any = { ...dto };
@@ -297,6 +326,8 @@ export class UserService {
 
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.USERS);
     await this.permissions.invalidateUser(id); // clear cached effective permissions
+    // Cut off already-issued JWTs now (JwtStrategy checks this flag), not when they expire.
+    await this.cache.set(userInactiveKey(id), true, USER_INACTIVE_FLAG_TTL_MS);
 
     // Clear this driver/salesman from any van that still references them
     await this.prisma.van.updateMany({
@@ -345,6 +376,8 @@ export class UserService {
     });
 
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.USERS);
+    await this.cache.del(userInactiveKey(id));
+    await this.permissions.invalidateUser(id); // drop the empty permission set cached while inactive
 
     await this.audit.log({
       vendorId,

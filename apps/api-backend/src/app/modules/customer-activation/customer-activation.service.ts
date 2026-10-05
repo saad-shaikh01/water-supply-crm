@@ -63,16 +63,24 @@ export class CustomerActivationService {
       return { customer: null, result: { eligible: false, reason } };
     };
 
-    const customer = await this.prisma.customer.findUnique({ where: { customerCode: code } });
-    if (!customer) {
+    // Customer codes are unique per vendor, so the same code (e.g. L1) can exist at several
+    // vendors. This public flow has no vendor context: the phone number disambiguates.
+    const candidates = await this.prisma.customer.findMany({ where: { customerCode: code } });
+    if (candidates.length === 0) {
       return fail('Customer not found. Check the customer code and try again.');
     }
 
     const normalizedInput = normalizePhone(phoneNumber);
-    const normalizedStored = normalizePhone(customer.phoneNumber);
-    if (!normalizedInput || normalizedInput !== normalizedStored) {
+    const matching = normalizedInput
+      ? candidates.filter((c) => normalizePhone(c.phoneNumber) === normalizedInput)
+      : [];
+    if (matching.length === 0) {
       return fail('Phone number does not match our records.');
     }
+    if (matching.length > 1) {
+      return fail('This code and phone number match more than one account. Please contact your vendor.');
+    }
+    const customer = matching[0];
 
     if (!customer.isActive) {
       return fail('This account is inactive. Contact your vendor.');

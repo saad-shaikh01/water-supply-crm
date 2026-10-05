@@ -45,7 +45,8 @@ export class PermissionService {
         },
       },
     });
-    if (!user) return [];
+    // Deactivated users hold no permissions (backstop if the JwtStrategy Redis flag was lost).
+    if (!user || user.isActive === false) return [];
 
     const rolePermissions: PermissionPattern[] = (user.roleRef?.permissions ?? []).map(
       (p) => p.permission as PermissionPattern,

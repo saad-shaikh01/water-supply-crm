@@ -31,11 +31,12 @@ const emptyWallet = { ...fullWallet, balance: 1 }; // 1 < bottleCount (2)
 
 function makeTx(caseSnapshot: any = underReviewCase, walletSnapshot: any = fullWallet) {
   return {
-    damageCase:          { findUnique: jest.fn().mockResolvedValue(caseSnapshot),
+    damageCase:          { findFirst: jest.fn().mockResolvedValue(caseSnapshot),
                            update:     jest.fn().mockImplementation(async ({ data }) => ({ ...caseSnapshot, ...data })) },
     bottleWallet:        { findUnique: jest.fn().mockResolvedValue(walletSnapshot),
                            update:     jest.fn().mockResolvedValue({ ...walletSnapshot }) },
-    customer:            { update: jest.fn().mockResolvedValue({ id: CUSTOMER_ID }) },
+    customer:            { findFirst: jest.fn().mockResolvedValue({ id: CUSTOMER_ID }),
+                           update: jest.fn().mockResolvedValue({ id: CUSTOMER_ID }) },
     transaction:         { create: jest.fn().mockResolvedValue({ id: TX_ID }) },
     damageCaseAuditLog:  { create: jest.fn().mockResolvedValue({ id: 'audit-001' }) },
   };
@@ -48,8 +49,7 @@ function makeService(prismaOverrides: Partial<Record<string, any>> = {}) {
   const prisma = {
     $transaction: jest.fn().mockImplementation(async (cb: any) => cb(tx)),
     damageCase:         { create: jest.fn().mockResolvedValue(baseCase),
-                          findUnique: jest.fn().mockResolvedValue(baseCase),
-                          findFirst:  jest.fn().mockResolvedValue(null),
+                          findFirst:  jest.fn().mockResolvedValue(baseCase),
                           update:     jest.fn().mockResolvedValue(baseCase) },
     damageCaseAuditLog: { create: jest.fn().mockResolvedValue({}) },
     ...prismaOverrides,
@@ -153,7 +153,7 @@ describe('DamageCaseService — bottle-damage integration tests', () => {
       const tx = makeTx(chargedCase);
       const prisma = {
         $transaction: jest.fn().mockImplementation(async (cb: any) => cb(tx)),
-        damageCase:         { findUnique: jest.fn(), update: jest.fn() },
+        damageCase:         { findFirst: jest.fn(), update: jest.fn() },
         damageCaseAuditLog: { create: jest.fn() },
       };
       const svc = new DamageCaseService(
@@ -211,7 +211,7 @@ describe('DamageCaseService — bottle-damage integration tests', () => {
       tx.bottleWallet.findUnique.mockResolvedValue(wallet);
       const prisma = {
         $transaction: jest.fn().mockImplementation(async (cb: any) => cb(tx)),
-        damageCase:         { findUnique: jest.fn(), update: jest.fn() },
+        damageCase:         { findFirst: jest.fn(), update: jest.fn() },
         damageCaseAuditLog: { create: jest.fn() },
       };
       const svc = new DamageCaseService(prisma as any, {} as any, {} as any, { sendToCustomer: jest.fn().mockResolvedValue({}) } as any);
@@ -254,7 +254,7 @@ describe('DamageCaseService — bottle-damage integration tests', () => {
       const tx = makeTx({ ...underReviewCase, version: caseAtVersion });
       const prisma = {
         $transaction: jest.fn().mockImplementation(async (cb: any) => cb(tx)),
-        damageCase:         { findUnique: jest.fn().mockResolvedValue({ ...baseCase, version: caseAtVersion }),
+        damageCase:         { findFirst: jest.fn().mockResolvedValue({ ...baseCase, version: caseAtVersion }),
                               update: jest.fn() },
         damageCaseAuditLog: { create: jest.fn() },
       };
@@ -285,7 +285,7 @@ describe('DamageCaseService — bottle-damage integration tests', () => {
 
     it('throws ConflictException when update (bottleCount) is sent with stale version', async () => {
       const { svc, prisma } = makeStaleVersionService(4);
-      prisma.damageCase.findUnique.mockResolvedValue({ ...baseCase, version: 4 });
+      prisma.damageCase.findFirst.mockResolvedValue({ ...baseCase, version: 4 });
       await expect(svc.update(driverUser, CASE_ID, { bottleCount: 3, version: 1 })).rejects.toThrow(ConflictException);
     });
   });
@@ -322,7 +322,7 @@ describe('DamageCaseService — bottle-damage integration tests', () => {
   describe('update() DRIVER ownership', () => {
     it('allows DRIVER to update their own REPORTED case', async () => {
       const { svc, prisma } = makeService();
-      prisma.damageCase.findUnique.mockResolvedValue(baseCase);
+      prisma.damageCase.findFirst.mockResolvedValue(baseCase);
       prisma.damageCase.update.mockResolvedValue({ ...baseCase, bottleCount: 3, version: 1 });
       const result = await svc.update(driverUser, CASE_ID, { bottleCount: 3, version: 0 });
       expect(result.bottleCount).toBe(3);
@@ -330,13 +330,13 @@ describe('DamageCaseService — bottle-damage integration tests', () => {
 
     it('throws ForbiddenException when DRIVER edits another driver\'s case', async () => {
       const { svc, prisma } = makeService();
-      prisma.damageCase.findUnique.mockResolvedValue({ ...baseCase, driverId: 'other-driver' });
+      prisma.damageCase.findFirst.mockResolvedValue({ ...baseCase, driverId: 'other-driver' });
       await expect(svc.update(driverUser, CASE_ID, { bottleCount: 3, version: 0 })).rejects.toThrow(ForbiddenException);
     });
 
     it('throws 400 when attempting to update a non-REPORTED case', async () => {
       const { svc, prisma } = makeService();
-      prisma.damageCase.findUnique.mockResolvedValue(underReviewCase);
+      prisma.damageCase.findFirst.mockResolvedValue(underReviewCase);
       await expect(svc.update(driverUser, CASE_ID, { bottleCount: 3, version: 1 })).rejects.toThrow(BadRequestException);
     });
   });

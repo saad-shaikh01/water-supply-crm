@@ -117,8 +117,8 @@ Gaps (these define the roadmap):
 
 | Step | Status | Notes |
 |---|---|---|
-| 1 | **Implemented (2026-10-05), not committed** | See "Step 1 — decisions & as-built" below. Attendance-category defaults pending owner input. |
-| 2 | Not started | |
+| 1 | **Implemented (2026-10-05), committed (7b485e7)** | See "Step 1 — decisions & as-built" below. Attendance-category defaults pending owner input. |
+| 2 | **Audit complete; Phase 2A (C1, C2, H1, H2) implemented, uncommitted** | Remaining: Medium/Low findings in `tenant-isolation-audit.md`. C2 migration `20261006000000` not applied. |
 | 3 | Not started | |
 | 4 | Not started | |
 | 5 | Not started | |
