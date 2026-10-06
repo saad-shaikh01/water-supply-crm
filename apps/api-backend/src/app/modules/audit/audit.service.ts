@@ -61,7 +61,10 @@ export class AuditService {
     return paginate(data, total, page, limit);
   }
 
-  async findOne(id: string) {
-    return this.prisma.auditLog.findUnique({ where: { id } });
+  /** `callerVendorId` null = platform SUPER_ADMIN (any vendor); otherwise only that vendor's rows. */
+  async findOne(id: string, callerVendorId: string | null) {
+    return this.prisma.auditLog.findFirst({
+      where: { id, ...(callerVendorId ? { vendorId: callerVendorId } : {}) },
+    });
   }
 }

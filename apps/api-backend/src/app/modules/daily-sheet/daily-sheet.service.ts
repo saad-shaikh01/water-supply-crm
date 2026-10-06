@@ -79,6 +79,7 @@ import {
   dailySheetItemModifiedOrWhere,
   SHEET_CASH_RELOAD_INCLUDE,
 } from './sheet-cash.util';
+import { assertOwnedStorageKey, assertOwnedStorageKeys } from '../../common/storage/storage-key.util';
 
 const AUTO_GENERATE_CRON = '5 0 * * *'; // 00:05 AM, evaluated in AUTO_GENERATE_TZ
 const AUTO_GENERATE_TZ = 'Asia/Karachi';
@@ -529,6 +530,7 @@ export class DailySheetService implements OnModuleInit {
   }
 
   async submitDelivery(user: AuthUser, itemId: string, dto: SubmitDeliveryDto) {
+    if (dto.photoKey) assertOwnedStorageKey(dto.photoKey, ['delivery-photos'], user.vendorId, 'photoKey');
     const vendorId = user.vendorId;
     const item = await this.prisma.dailySheetItem.findUnique({
       where: { id: itemId },

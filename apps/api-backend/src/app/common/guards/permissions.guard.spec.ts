@@ -1,7 +1,7 @@
 import { PermissionsGuard } from './permissions.guard';
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { PUBLIC_KEY } from '../decorators/public.decorator';
-import { AUTHENTICATED_ONLY_KEY, REQUIRE_ROLE_KEY } from '../decorators/authz-markers.decorator';
+import { ALLOW_CUSTOMER_KEY, AUTHENTICATED_ONLY_KEY, REQUIRE_ROLE_KEY } from '../decorators/authz-markers.decorator';
 import { PERMISSIONS_KEY } from '../decorators/require-permissions.decorator';
 
 function ctx(user: unknown) {
@@ -36,6 +36,18 @@ describe('PermissionsGuard decision table', () => {
     await expect(guard({ [AUTHENTICATED_ONLY_KEY]: true }).canActivate(ctx(undefined))).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
+  });
+
+  it('@AuthenticatedOnly → refuses a CUSTOMER token unless the route opts in with @AllowCustomer (audit M4)', async () => {
+    const customer = { userId: 'c1', role: 'CUSTOMER' };
+    await expect(guard({ [AUTHENTICATED_ONLY_KEY]: true }).canActivate(ctx(customer))).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    await expect(
+      guard({ [AUTHENTICATED_ONLY_KEY]: true, [ALLOW_CUSTOMER_KEY]: true }).canActivate(ctx(customer)),
+    ).resolves.toBe(true);
+    // staff are unaffected either way
+    await expect(guard({ [AUTHENTICATED_ONLY_KEY]: true }).canActivate(ctx(authedUser))).resolves.toBe(true);
   });
 
   it('@RequireRoles → allow any listed role, reject others', async () => {

@@ -59,13 +59,14 @@ export class DamageCaseController {
       },
     }),
   )
-  async uploadPhoto(@UploadedFile() file?: Express.Multer.File) {
+  async uploadPhoto(@CurrentUser() user: AuthUser, @UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('No file provided');
     const { key } = await this.storage.upload(
       'damage-photos',
       file.buffer,
       file.originalname,
       file.mimetype,
+      user.vendorId,
     );
     return { key };
   }

@@ -10,6 +10,7 @@ import { UpdateFuelCardDto } from './dto/update-fuel-card.dto';
 import { CreateFuelCardTopUpDto } from './dto/create-fuel-card-topup.dto';
 import { VoidFuelCardTopUpDto } from './dto/void-fuel-card-topup.dto';
 import { FuelCardTopUpQueryDto } from './dto/fuel-card-topup-query.dto';
+import { assertOwnedStorageKey, assertOwnedStorageKeys } from '../../common/storage/storage-key.util';
 
 /** Money is reported to 2dp — float sums otherwise leak 0.30000000000000004-style noise. */
 function round2(value: number): number {
@@ -139,6 +140,7 @@ export class FuelCardService {
   // ── Top-ups ────────────────────────────────────────────────────────────
 
   async createTopUp(user: AuthUser, fuelCardId: string, dto: CreateFuelCardTopUpDto) {
+    if (dto.attachmentKey) assertOwnedStorageKey(dto.attachmentKey, ['fuel-card-topup'], user.vendorId, 'attachmentKey');
     const card = await this.prisma.fuelCard.findFirst({ where: { id: fuelCardId, vendorId: user.vendorId } });
     if (!card) throw new NotFoundException('Fuel card not found.');
     if (!card.isActive) throw new BadRequestException('This fuel card is inactive.');

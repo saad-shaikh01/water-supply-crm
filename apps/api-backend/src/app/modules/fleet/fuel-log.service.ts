@@ -7,6 +7,7 @@ import { CreateFuelLogDto } from './dto/create-fuel-log.dto';
 import { UpdateFuelLogDto } from './dto/update-fuel-log.dto';
 import { FuelLogQueryDto } from './dto/fuel-log-query.dto';
 import { computeFuelAvgKmPerLiter, dayRange } from './fleet-period.util';
+import { assertOwnedStorageKey, assertOwnedStorageKeys } from '../../common/storage/storage-key.util';
 
 const fuelLogInclude = {
   recordedBy: { select: { id: true, name: true } },
@@ -36,6 +37,7 @@ export class FuelLogService {
   constructor(private prisma: PrismaService) {}
 
   async create(user: AuthUser, dto: CreateFuelLogDto) {
+    if (dto.receiptPhotoKey) assertOwnedStorageKey(dto.receiptPhotoKey, ['fleet-photos'], user.vendorId, 'receiptPhotoKey');
     const vehicle = await this.prisma.vehicle.findFirst({ where: { id: dto.vehicleId, vendorId: user.vendorId } });
     if (!vehicle) throw new NotFoundException('Vehicle not found');
     if (!vehicle.isActive) throw new BadRequestException('This vehicle is inactive.');
@@ -265,6 +267,7 @@ export class FuelLogService {
   }
 
   async update(vendorId: string, id: string, dto: UpdateFuelLogDto) {
+    if (dto.receiptPhotoKey) assertOwnedStorageKey(dto.receiptPhotoKey, ['fleet-photos'], vendorId, 'receiptPhotoKey');
     const fuelLog = await this.prisma.fuelLog.findFirst({ where: { id, vendorId } });
     if (!fuelLog) throw new NotFoundException('Fuel log not found');
 

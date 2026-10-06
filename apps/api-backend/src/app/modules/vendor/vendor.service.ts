@@ -1,5 +1,7 @@
 import {
   Injectable,
+  Logger,
+  OnModuleInit,
   ConflictException,
   NotFoundException,
   BadRequestException,
@@ -21,7 +23,9 @@ export const vendorSuspendedKey = (vendorId: string) =>
   `vendor:${vendorId}:suspended`;
 
 @Injectable()
-export class VendorService {
+export class VendorService implements OnModuleInit {
+  private readonly logger = new Logger(VendorService.name);
+
   constructor(
     private prisma: PrismaService,
     private cache: CacheInvalidationService,
@@ -35,6 +39,21 @@ export class VendorService {
    * (including a duplicate admin email) rolls the whole vendor back, so a half-built
    * vendor with no usable admin can never be left behind.
    */
+  /**
+   * Suspension is enforced per request from a Redis flag (cheap), with `vendor.isActive` as the
+   * source of truth. A Redis flush/restart would silently un-suspend vendors, so re-seed every flag
+   * from the database on boot.
+   */
+  async onModuleInit() {
+    try {
+      const suspended = await this.prisma.vendor.findMany({ where: { isActive: false }, select: { id: true } });
+      await Promise.all(suspended.map((v) => this.cache.set(vendorSuspendedKey(v.id), true, 0)));
+      if (suspended.length) this.logger.log(`Re-seeded suspension flags for ${suspended.length} vendor(s)`);
+    } catch (e) {
+      this.logger.error(`Could not re-seed vendor suspension flags: ${(e as Error).message}`);
+    }
+  }
+
   async create(createVendorDto: CreateVendorDto, actor?: AuthUser) {
     const { adminEmail, adminPassword, adminName, ...vendorData } = createVendorDto;
 

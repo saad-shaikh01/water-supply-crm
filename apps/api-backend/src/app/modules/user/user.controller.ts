@@ -15,7 +15,7 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { UserQueryDto } from './dto/user-query.dto';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
-import { AuthenticatedOnly } from '../../common/decorators/authz-markers.decorator';
+import { AllowCustomer, AuthenticatedOnly } from '../../common/decorators/authz-markers.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 
@@ -76,6 +76,7 @@ export class UserController {
   /** PATCH /users/me/change-password — user changes their own password */
   @Patch('me/change-password')
   @AuthenticatedOnly()
+  @AllowCustomer()
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   changePassword(@CurrentUser() user: AuthUser, @Body() dto: ChangePasswordDto) {
     return this.userService.changeOwnPassword(user.userId, dto.currentPassword, dto.newPassword);

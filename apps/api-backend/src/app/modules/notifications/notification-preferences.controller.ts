@@ -1,7 +1,7 @@
 ﻿import { Controller, Get, Patch, Body } from '@nestjs/common';
 import { NotificationPreferenceService } from './notification-preference.service';
 import { UpsertPreferenceDto } from './dto/upsert-preference.dto';
-import { AuthenticatedOnly } from '../../common/decorators/authz-markers.decorator';
+import { AllowCustomer, AuthenticatedOnly } from '../../common/decorators/authz-markers.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 
@@ -11,6 +11,7 @@ import type { AuthUser } from '@water-supply-crm/types';
  */
 @Controller('notifications/preferences')
 @AuthenticatedOnly()
+@AllowCustomer()
 export class NotificationPreferencesController {
   constructor(private readonly prefService: NotificationPreferenceService) {}
 

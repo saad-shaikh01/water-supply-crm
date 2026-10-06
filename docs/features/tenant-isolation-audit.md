@@ -14,9 +14,25 @@ reach the platform (SUPER_ADMIN) surface.
 | H1 inactive users | **Fixed** | Login rejects inactive users; deactivate sets a Redis flag that `JwtStrategy` honours (kills live JWTs immediately); `PermissionService` returns no permissions for inactive users (backstop if Redis is flushed); reactivate clears both. |
 | H2 damage-case | **Fixed** | All mutations load the case by `{id, vendorId}`; `report()` validates customer/product/item; money-moving paths re-check the customer belongs to the case's vendor. |
 
-Still open from this audit: M1–M8, L1–L4 (see §2). Tests: `user-role-assignment.spec`, `inactive-user.spec`,
-`damage-case.tenant.spec`, `customer-code-per-vendor.spec`, and the real-Postgres `tenant-security.integration.spec`
-(opt-in via `TEST_DATABASE_URL`).
+Phase 2A tests: `user-role-assignment.spec`, `inactive-user.spec`, `damage-case.tenant.spec`,
+`customer-code-per-vendor.spec`, and the real-Postgres `tenant-security.integration.spec` (opt-in via `TEST_DATABASE_URL`).
+
+## Phase 2B status (2026-10-06) — M1–M6, L1, L2 FIXED
+
+| Finding | Status | Where |
+|---|---|---|
+| M1 audit-log `:id` | **Fixed** | `AuditService.findOne(id, callerVendorId)`; controller passes `null` only for SUPER_ADMIN. |
+| M2 live GPS | **Fixed** | `TrackingService.getDriverLocationResilient` compares the Redis record's `vendorId`; a foreign live record is "not found" (no DB fall-through). |
+| M3 storage keys | **Fixed** | `common/storage/storage-key.util.ts`; new uploads are `<prefix>/<vendorId>/<uuid>.ext`; every service that accepts a client-sent key (delivery photo, damage photos, fuel top-up, remittance, fuel-log receipt, service invoice, vehicle check photos, crew-cash photos, ticket attachments) validates prefix + own vendor. **Legacy un-prefixed keys are still accepted** (`LEGACY_UNSCOPED_KEYS_ALLOWED`) until a backfill moves them. |
+| M4 customer token on staff routes | **Fixed (fail-closed)** | `PermissionsGuard` refuses CUSTOMER on `@AuthenticatedOnly` unless the route has `@AllowCustomer()` (auth `me`, fcm, portal notifications, notification preferences, `users/me/change-password`). |
+| M5 JWT secret | **Fixed** | `auth/jwt-secret.ts`: in `NODE_ENV=production` a missing secret or the old `super-secret-key` aborts startup. **Verify `JWT_SECRET` is set on every production host before deploying.** |
+| M6 suspension | **Fixed** | Login refuses `vendor.isActive=false`; `VendorService.onModuleInit` re-seeds the Redis suspension flags from the DB on boot. (A Redis flush *without* an app restart still leaves already-issued tokens valid until restart/expiry.) |
+| L1 foreign ids | **Fixed** | Warehouse stock creation / opening balance (covers load-out, repair, adjustments…) and order dispatch plans validate the product / van / driver belong to the vendor. |
+| L2 `?token=` | **Fixed** | Query-string JWT accepted only on `/tracking/subscribe`. |
+
+Still open: **M7** (portal activation/reset by code + phone — needs an OTP product decision), **M8** (Dasani branding / single WhatsApp number → roadmap Steps 3 and 5),
+**L3** (global plate uniqueness), **L4** (1-day access token). Phase 2B tests: `storage-key.util.spec`, `jwt-secret.spec`, `audit-tenant.spec`,
+`tracking-tenant.spec`, `customer-token-boundary.spec`, `suspended-vendor.spec`, guard-spec additions, and the real-Postgres `tenant-security-phase2b.integration.spec`.
 
 ## 1. Summary
 

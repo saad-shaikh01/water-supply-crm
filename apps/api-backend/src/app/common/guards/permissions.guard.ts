@@ -14,6 +14,7 @@ import {
 } from '../decorators/require-permissions.decorator';
 import { PUBLIC_KEY } from '../decorators/public.decorator';
 import {
+  ALLOW_CUSTOMER_KEY,
   AUTHENTICATED_ONLY_KEY,
   REQUIRE_ROLE_KEY,
 } from '../decorators/authz-markers.decorator';
@@ -24,7 +25,7 @@ import { PermissionService } from '../../modules/authz/permission.service';
  * a route with NO authorization marker is denied. Markers, in precedence order:
  *
  *   @Public()              → allow (unauthenticated; JwtAuthGuard also skips it)
- *   @AuthenticatedOnly()   → any authenticated user (self-service)
+ *   @AuthenticatedOnly()   → any authenticated staff user (self-service); CUSTOMER tokens only with @AllowCustomer()
  *   @RequireSuperAdmin()   → platform surface (role check; outside the vendor catalog)
  *   @RequireCustomer()     → customer-portal surface (role check)
  *   @RequirePermissions()  → vendor permission check (all / any)
@@ -52,6 +53,11 @@ export class PermissionsGuard implements CanActivate {
 
     if (this.reflector.getAllAndOverride<boolean>(AUTHENTICATED_ONLY_KEY, targets)) {
       requireUser();
+      // A portal customer token is "authenticated" too, but must not reach staff self-service
+      // routes (payroll / crew-cash / attendance lists…) unless the route opts in with @AllowCustomer().
+      if (user.role === UserRole.CUSTOMER && !this.reflector.getAllAndOverride<boolean>(ALLOW_CUSTOMER_KEY, targets)) {
+        throw new ForbiddenException('You do not have access to this resource.');
+      }
       return true;
     }
 

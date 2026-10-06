@@ -78,6 +78,7 @@ export class PaymentPortalController {
         file.buffer,
         file.originalname,
         file.mimetype,
+        user.vendorId,
       );
       screenshotPath = key;
     }

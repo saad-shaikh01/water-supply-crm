@@ -68,13 +68,14 @@ export class TicketPortalController {
       },
     }),
   )
-  async uploadAttachment(@UploadedFile() file?: Express.Multer.File) {
+  async uploadAttachment(@CurrentUser() user: AuthUser, @UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('No file provided');
     const { key } = await this.storage.upload(
       'ticket-attachments',
       file.buffer,
       file.originalname,
       file.mimetype,
+      user.vendorId,
     );
     return { key, name: file.originalname };
   }

@@ -9,6 +9,7 @@ import { CreateTicketMessageDto } from './dto/create-ticket-message.dto';
 import { NotificationService } from '../notifications/notification.service';
 import { FcmService } from '../fcm/fcm.service';
 import { StorageService } from '../../common/storage/storage.service';
+import { assertOwnedStorageKey } from '../../common/storage/storage-key.util';
 import { NOTIFICATION_EVENTS } from '@water-supply-crm/queue';
 import { MessageTemplates } from '../whatsapp/templates/message.templates';
 
@@ -161,6 +162,11 @@ export class TicketService {
     const customer = await this.getCustomer(userId);
     const ticket = await this.prisma.customerTicket.findUnique({ where: { id: ticketId } });
     if (!ticket || ticket.customerId !== customer.id) throw new NotFoundException('Ticket not found');
+
+    // Attachment keys come back from the client: they must be this vendor's own ticket uploads.
+    for (const attachment of dto.attachments ?? []) {
+      assertOwnedStorageKey(attachment?.['key'], ['ticket-attachments'], customer.vendorId, 'attachment key');
+    }
 
     return this.prisma.ticketMessage.create({
       data: {

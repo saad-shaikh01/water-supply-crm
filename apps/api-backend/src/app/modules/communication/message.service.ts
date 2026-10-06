@@ -129,7 +129,7 @@ export class MessageService {
     requiresAck?: boolean,
   ) {
     const { conversation, item } = await this.resolveOpenForSending(user, conversationId, itemId);
-    const audioKey = await this.uploadVoice(file);
+    const audioKey = await this.uploadVoice(file, user.vendorId);
     // Best-effort cosmetic data — a failure here must never fail the send.
     const audioWaveform = await this.computeWaveform(file.buffer);
     return this.createMessage(user, conversation, item, {
@@ -179,7 +179,7 @@ export class MessageService {
     return { conversation, item };
   }
 
-  private async uploadVoice(file: Express.Multer.File): Promise<string> {
+  private async uploadVoice(file: Express.Multer.File, vendorId: string): Promise<string> {
     try {
       const mp3Buffer = await this.transcodeToMp3(file.buffer);
       const { key } = await this.storage.upload(
@@ -187,6 +187,7 @@ export class MessageService {
         mp3Buffer,
         'voice-message.mp3',
         'audio/mpeg',
+        vendorId,
       );
       return key;
     } catch (err) {

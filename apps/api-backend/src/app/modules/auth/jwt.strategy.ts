@@ -4,6 +4,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
 import { vendorSuspendedKey } from '../vendor/vendor.service';
 import { userInactiveKey } from '../user/user.service';
+import { allowsQueryToken, getJwtSecret } from './jwt-secret';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -12,12 +13,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       jwtFromRequest: ExtractJwt.fromExtractors([
         ExtractJwt.fromAuthHeaderAsBearerToken(),
         (req) => {
-          // Allow token via query param for SSE (EventSource)
-          return req?.query?.token as string;
+          // Token via query param ONLY for the SSE stream (EventSource cannot send headers); on every
+          // other route a URL-borne token would leak into access logs / Referer headers.
+          return allowsQueryToken(req?.path) ? (req?.query?.token as string) : null;
         },
       ]),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_SECRET || 'super-secret-key',
+      secretOrKey: getJwtSecret(),
     });
   }
 

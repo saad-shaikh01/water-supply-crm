@@ -119,7 +119,7 @@ export class UserService {
     return this.prisma.user.findUnique({
       where: { email },
       include: {
-        vendor: { select: { id: true, name: true } },
+        vendor: { select: { id: true, name: true, isActive: true } },
         customer: { select: { id: true } },
       },
     });
@@ -129,7 +129,7 @@ export class UserService {
     return this.prisma.user.findUnique({
       where: { phoneNumber },
       include: {
-        vendor: { select: { id: true, name: true } },
+        vendor: { select: { id: true, name: true, isActive: true } },
         customer: { select: { id: true } },
       },
     });
@@ -156,7 +156,7 @@ export class UserService {
     return this.prisma.user.findUnique({
       where: { id },
       include: {
-        vendor: { select: { id: true, name: true } },
+        vendor: { select: { id: true, name: true, isActive: true } },
         customer: { select: { id: true } },
       },
     });

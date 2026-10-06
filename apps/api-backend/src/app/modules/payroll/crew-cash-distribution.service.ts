@@ -33,6 +33,7 @@ import { UpdateCrewCashDistributionDto } from './dto/update-crew-cash-distributi
 import { ApproveCrewCashDistributionDto } from './dto/approve-crew-cash-distribution.dto';
 import { RemoveCrewCashDistributionDto } from './dto/remove-crew-cash-distribution.dto';
 import { CorrectCrewCashDistributionDto } from './dto/correct-crew-cash-distribution.dto';
+import { assertOwnedStorageKey, assertOwnedStorageKeys } from '../../common/storage/storage-key.util';
 
 function versionMismatch(expected: number, received: number): ConflictException {
   return new ConflictException(`Version mismatch: expected ${expected}, received ${received}. Reload and retry.`);
@@ -226,6 +227,7 @@ export class CrewCashDistributionService implements OnModuleInit {
    * same transaction — the frozen close-time `cashExpected` is never rewritten.
    */
   async create(user: AuthUser, dailySheetId: string, dto: CreateCrewCashDistributionDto) {
+    assertOwnedStorageKeys(dto.photoKeys, ['delivery-photos', 'fleet-photos', 'damage-photos'], user.vendorId, 'photoKeys');
     const sheet = await this.prisma.dailySheet.findFirst({
       where: { id: dailySheetId, vendorId: user.vendorId },
       select: { id: true, date: true, isClosed: true, driverId: true },
@@ -350,6 +352,7 @@ export class CrewCashDistributionService implements OnModuleInit {
    * which way the fresh gate evaluation lands.
    */
   async update(user: AuthUser, id: string, dto: UpdateCrewCashDistributionDto) {
+    assertOwnedStorageKeys(dto.photoKeys, ['delivery-photos', 'fleet-photos', 'damage-photos'], user.vendorId, 'photoKeys');
     return this.prisma.$transaction(async (tx) => {
       const entry = await tx.crewCashDistribution.findFirst({ where: { id, vendorId: user.vendorId } });
       if (!entry) throw new NotFoundException('Crew Cash Distribution entry not found.');

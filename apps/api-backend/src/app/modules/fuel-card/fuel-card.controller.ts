@@ -79,9 +79,9 @@ export class FuelCardController {
       },
     }),
   )
-  async uploadTopUpAttachment(@UploadedFile() file?: Express.Multer.File) {
+  async uploadTopUpAttachment(@CurrentUser() user: AuthUser, @UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('No file provided');
-    const { key } = await this.storage.upload('fuel-card-topup', file.buffer, file.originalname, file.mimetype);
+    const { key } = await this.storage.upload('fuel-card-topup', file.buffer, file.originalname, file.mimetype, user.vendorId);
     return { key };
   }
 

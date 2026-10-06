@@ -25,8 +25,10 @@ export class AuditController {
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string) {
-    const log = await this.auditService.findOne(id);
+  async findOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    // Same scoping rule as the list endpoint: only SUPER_ADMIN may read another vendor's log.
+    const vendorId = user.role === UserRole.SUPER_ADMIN ? null : user.vendorId;
+    const log = await this.auditService.findOne(id, vendorId);
     if (!log) throw new NotFoundException('Audit log not found');
     return log;
   }

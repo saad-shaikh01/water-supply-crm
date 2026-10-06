@@ -183,13 +183,14 @@ export class DailySheetController {
       },
     }),
   )
-  async uploadDeliveryPhoto(@UploadedFile() file?: Express.Multer.File) {
+  async uploadDeliveryPhoto(@CurrentUser() user: AuthUser, @UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('No file provided');
     const { key } = await this.storage.upload(
       'delivery-photos',
       file.buffer,
       file.originalname,
       file.mimetype,
+      user.vendorId,
     );
     return { key };
   }

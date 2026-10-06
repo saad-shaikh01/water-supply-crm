@@ -320,9 +320,25 @@ export class OrderService {
     return order;
   }
 
+  /** A dispatch plan may only name this vendor's own van and (active) driver. */
+  private async assertDispatchTargets(vendorId: string, dto: DispatchPlanDto) {
+    if (dto.vanId) {
+      const van = await this.prisma.van.findFirst({ where: { id: dto.vanId, vendorId }, select: { id: true } });
+      if (!van) throw new NotFoundException('Van not found');
+    }
+    if (dto.driverId) {
+      const driver = await this.prisma.user.findFirst({
+        where: { id: dto.driverId, vendorId, isActive: true },
+        select: { id: true },
+      });
+      if (!driver) throw new NotFoundException('Driver not found');
+    }
+  }
+
   async createDispatchPlan(vendorId: string, orderId: string, dto: DispatchPlanDto, userId: string) {
     const order = await this.getApprovedOrder(vendorId, orderId);
     this.validateTargetDate(dto.targetDate);
+    await this.assertDispatchTargets(vendorId, dto);
     if (order.dispatchStatus !== DispatchStatus.UNPLANNED) {
       throw new BadRequestException('Dispatch plan already exists. Use PATCH to update.');
     }
@@ -354,6 +370,7 @@ export class OrderService {
   async updateDispatchPlan(vendorId: string, orderId: string, dto: DispatchPlanDto, userId: string) {
     const order = await this.getApprovedOrder(vendorId, orderId);
     this.validateTargetDate(dto.targetDate);
+    await this.assertDispatchTargets(vendorId, dto);
     if (order.dispatchStatus === DispatchStatus.UNPLANNED) {
       throw new BadRequestException('No dispatch plan exists yet. Use POST to create.');
     }

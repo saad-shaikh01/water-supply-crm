@@ -14,7 +14,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { Public } from '../../common/decorators/public.decorator';
-import { AuthenticatedOnly } from '../../common/decorators/authz-markers.decorator';
+import { AllowCustomer, AuthenticatedOnly } from '../../common/decorators/authz-markers.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 import { PermissionService } from '../authz/permission.service';
@@ -47,6 +47,7 @@ export class AuthController {
 
   @Get('me')
   @AuthenticatedOnly()
+  @AllowCustomer()
   async getProfile(@CurrentUser() user: AuthUser) {
     const [profile, permissions] = await Promise.all([
       this.authService.getProfile(user.userId),

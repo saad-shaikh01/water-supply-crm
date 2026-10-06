@@ -12,6 +12,7 @@ import { VehicleCheckHistoryQueryDto } from './dto/vehicle-check-history-query.d
 import { normalizeChecklistResults, hasCriticalFailure } from './fleet-checklist.util';
 import { dayRange } from './fleet-period.util';
 import { paginate } from '../../common/helpers/paginate';
+import { assertOwnedStorageKey, assertOwnedStorageKeys } from '../../common/storage/storage-key.util';
 
 @Injectable()
 export class VehicleCheckService {
@@ -22,6 +23,8 @@ export class VehicleCheckService {
   ) {}
 
   async create(user: AuthUser, dto: CreateVehicleDailyCheckDto) {
+    if (dto.odometerPhotoKey) assertOwnedStorageKey(dto.odometerPhotoKey, ['fleet-photos'], user.vendorId, 'odometerPhotoKey');
+    assertOwnedStorageKeys(dto.damagePhotoKeys, ['fleet-photos'], user.vendorId, 'damagePhotoKeys');
     const sheet = await this.prisma.dailySheet.findFirst({
       where: { id: dto.dailySheetId, vendorId: user.vendorId },
       select: { id: true, vanId: true, driverId: true, isClosed: true },

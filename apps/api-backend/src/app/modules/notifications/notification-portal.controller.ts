@@ -1,7 +1,7 @@
 ﻿import { Controller, Get, Patch, Param, Query } from '@nestjs/common';
 import { InAppNotificationService } from './in-app-notification.service';
 import { NotificationFeedQueryDto } from './dto/notification-feed-query.dto';
-import { AuthenticatedOnly } from '../../common/decorators/authz-markers.decorator';
+import { AllowCustomer, AuthenticatedOnly } from '../../common/decorators/authz-markers.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 
@@ -9,6 +9,7 @@ import type { AuthUser } from '@water-supply-crm/types';
 // their OWN feed (service scopes by userId). Domain D: @AuthenticatedOnly, not customer-only.
 @Controller('portal/notifications')
 @AuthenticatedOnly()
+@AllowCustomer()
 export class NotificationPortalController {
   constructor(private readonly notifService: InAppNotificationService) {}
 

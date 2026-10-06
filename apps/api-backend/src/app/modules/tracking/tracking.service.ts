@@ -351,7 +351,9 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
    */
   async getDriverLocationResilient(driverId: string, vendorId: string): Promise<DriverLocation | null> {
     const live = await this.getDriverLocationFromRedis(driverId);
-    if (live) return live;
+    // The live (Redis) record is tenant-checked too — otherwise any vendor could read another vendor's
+    // driver by id. A foreign driver is "not found", never a fall-through to the DB copy.
+    if (live) return live.vendorId === vendorId ? live : null;
     const persisted = await this.getDriverLocationFromDb(driverId);
     if (!persisted || persisted.vendorId !== vendorId) return null;
     return persisted;

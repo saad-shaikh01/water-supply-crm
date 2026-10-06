@@ -11,6 +11,7 @@ import { UpdateServiceRecordDto } from './dto/update-service-record.dto';
 import { ServiceRecordQueryDto } from './dto/service-record-query.dto';
 import { dayRange } from './fleet-period.util';
 import { computeMaintenanceStatus } from './fleet-maintenance.util';
+import { assertOwnedStorageKey, assertOwnedStorageKeys } from '../../common/storage/storage-key.util';
 
 const serviceRecordInclude = {
   recordedBy: { select: { id: true, name: true } },
@@ -164,6 +165,7 @@ export class VehicleMaintenanceService {
   }
 
   async createServiceRecord(user: AuthUser, dto: CreateServiceRecordDto) {
+    if (dto.invoicePhotoKey) assertOwnedStorageKey(dto.invoicePhotoKey, ['fleet-photos'], user.vendorId, 'invoicePhotoKey');
     const vehicle = await this.prisma.vehicle.findFirst({ where: { id: dto.vehicleId, vendorId: user.vendorId } });
     if (!vehicle) throw new NotFoundException('Vehicle not found');
     const serviceLabel = await this.serviceTypes.assertKeyExists(user.vendorId, dto.serviceType);
@@ -261,6 +263,7 @@ export class VehicleMaintenanceService {
   }
 
   async updateServiceRecord(user: AuthUser, id: string, dto: UpdateServiceRecordDto) {
+    if (dto.invoicePhotoKey) assertOwnedStorageKey(dto.invoicePhotoKey, ['fleet-photos'], user.vendorId, 'invoicePhotoKey');
     const record = await this.prisma.vehicleServiceRecord.findFirst({
       where: { id, vendorId: user.vendorId },
       include: { vehicle: { select: { id: true, plateNumber: true } } },

@@ -41,6 +41,10 @@ export class AuthService {
       if (!user.isActive) {
         throw new UnauthorizedException('Your account has been deactivated. Contact your administrator.');
       }
+      // Suspension is also recorded in the DB (vendor.isActive) — not only the Redis flag JwtStrategy reads.
+      if (user.vendor && user.vendor.isActive === false) {
+        throw new UnauthorizedException('Your account has been suspended. Contact support.');
+      }
       const { password, ...result } = user;
       return result;
     }

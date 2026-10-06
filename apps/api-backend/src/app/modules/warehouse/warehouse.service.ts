@@ -330,11 +330,22 @@ export class WarehouseService implements OnModuleInit {
       where: { vendorId_productId: { vendorId, productId } },
     });
     if (!stock) {
+      await this.assertProductInVendor(tx, vendorId, productId);
       stock = await tx.warehouseStock.create({
         data: { vendorId, productId },
       });
     }
     return stock;
+  }
+
+  /**
+   * Every warehouse write funnels through stock creation, so checking ownership at the moment a stock
+   * row is first created is enough: a foreign productId can never get a row (and so can never be moved,
+   * repaired, written off or loaded out), and an existing row proves the product was validated before.
+   */
+  private async assertProductInVendor(tx: Prisma.TransactionClient, vendorId: string, productId: string) {
+    const product = await tx.product.findFirst({ where: { id: productId, vendorId }, select: { id: true } });
+    if (!product) throw new NotFoundException('Product not found');
   }
 
   private async applyDeltas(
@@ -411,6 +422,7 @@ export class WarehouseService implements OnModuleInit {
       }
 
       if (!stock) {
+        await this.assertProductInVendor(tx, vendorId, dto.productId);
         await tx.warehouseStock.create({
           data: {
             vendorId,

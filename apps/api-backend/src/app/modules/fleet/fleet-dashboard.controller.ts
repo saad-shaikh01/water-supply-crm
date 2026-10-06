@@ -55,9 +55,9 @@ export class FleetDashboardController {
       },
     }),
   )
-  async uploadPhoto(@UploadedFile() file?: Express.Multer.File) {
+  async uploadPhoto(@CurrentUser() user: AuthUser, @UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('No file provided');
-    const { key } = await this.storage.upload('fleet-photos', file.buffer, file.originalname, file.mimetype);
+    const { key } = await this.storage.upload('fleet-photos', file.buffer, file.originalname, file.mimetype, user.vendorId);
     return { key };
   }
 

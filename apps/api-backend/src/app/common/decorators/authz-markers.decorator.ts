@@ -11,6 +11,15 @@ export const AUTHENTICATED_ONLY_KEY = 'authenticated_only';
 export const AuthenticatedOnly = () => SetMetadata(AUTHENTICATED_ONLY_KEY, true);
 
 /**
+ * Opt-in for @AuthenticatedOnly routes that a customer-portal (CUSTOMER) identity may call.
+ * Without it the guard refuses CUSTOMER tokens on @AuthenticatedOnly routes: those routes are
+ * mostly staff self-service / sheet-level lists (payroll, crew cash, attendance) whose only gate
+ * is tenancy, and a portal customer must never read them. Fail-closed for any new route.
+ */
+export const ALLOW_CUSTOMER_KEY = 'allow_customer';
+export const AllowCustomer = () => SetMetadata(ALLOW_CUSTOMER_KEY, true);
+
+/**
  * Requires the caller to hold one of the given legacy UserRoles — for the platform
  * (super-admin) and customer-portal surfaces, which are intentionally outside the vendor
  * permission catalog. Multi-role like the legacy RolesGuard.

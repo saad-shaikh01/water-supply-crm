@@ -78,6 +78,7 @@ import { buildStatement, emptyBucketTotals, summarizeTotals, type BucketTotals }
 import { buildDailySummary } from './cash-ledger-daily-summary';
 import type { CashLedgerDailySummary } from './cash-ledger-contract';
 import type { CashLedgerDailySummaryQueryDto } from './dto/cash-ledger-daily-summary-query.dto';
+import { assertOwnedStorageKey, assertOwnedStorageKeys } from '../../common/storage/storage-key.util';
 
 export type {
   CashLedgerDayStatement,
@@ -1191,6 +1192,7 @@ export class VanCashLedgerService {
    * endpoint.
    */
   async createRemittance(user: AuthUser, dto: CreateRemittanceDto) {
+    if (dto.attachmentKey) assertOwnedStorageKey(dto.attachmentKey, ['office-cash-remittance'], user.vendorId, 'attachmentKey');
     const availableBalance = round2(await this.computeAvailableBalance(user.vendorId));
     const wouldGoNegative = round2(availableBalance - dto.amount) < 0;
 

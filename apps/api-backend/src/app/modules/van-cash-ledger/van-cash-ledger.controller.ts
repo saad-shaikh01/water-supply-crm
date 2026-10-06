@@ -229,13 +229,14 @@ export class VanCashLedgerController {
       },
     }),
   )
-  async uploadRemittanceAttachment(@UploadedFile() file?: Express.Multer.File) {
+  async uploadRemittanceAttachment(@CurrentUser() user: AuthUser, @UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('No file provided');
     const { key } = await this.storage.upload(
       'office-cash-remittance',
       file.buffer,
       file.originalname,
       file.mimetype,
+      user.vendorId,
     );
     return { key };
   }

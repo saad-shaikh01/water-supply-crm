@@ -37,6 +37,8 @@ export class StorageService {
    * @param buffer       File contents
    * @param originalName Original filename (used for extension extraction)
    * @param mimetype     MIME type sent by the client
+   * @param vendorId     Owning vendor — written into the key (`<prefix>/<vendorId>/<uuid>.ext`) so a key can be
+   *                     tied back to its tenant (see storage-key.util.ts)
    * @returns { key } — the S3 object key to store in the database
    */
   async upload(
@@ -44,9 +46,10 @@ export class StorageService {
     buffer: Buffer,
     originalName: string,
     mimetype: string,
+    vendorId?: string | null,
   ): Promise<{ key: string }> {
     const ext = extname(originalName).toLowerCase() || '.bin';
-    const key = `${prefix}/${randomUUID()}${ext}`;
+    const key = `${prefix}/${vendorId ? `${vendorId}/` : ''}${randomUUID()}${ext}`;
 
     await this.s3.send(
       new PutObjectCommand({

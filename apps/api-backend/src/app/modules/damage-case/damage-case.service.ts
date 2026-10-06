@@ -19,6 +19,7 @@ import { ChargeDamageCaseDto } from './dto/charge-damage-case.dto';
 import { WaiveDamageCaseDto } from './dto/waive-damage-case.dto';
 import { DamageCaseQueryDto } from './dto/damage-case-query.dto';
 import type { AuthUser } from '@water-supply-crm/types';
+import { assertOwnedStorageKey, assertOwnedStorageKeys } from '../../common/storage/storage-key.util';
 
 @Injectable()
 export class DamageCaseService {
@@ -34,6 +35,7 @@ export class DamageCaseService {
   // ── report ────────────────────────────────────────────────────────────────
 
   async report(user: AuthUser, dto: ReportDamageCaseDto) {
+    assertOwnedStorageKeys(dto.photoKeys, ['damage-photos'], user.vendorId, 'photoKeys');
     // Every referenced entity must belong to the caller's vendor — otherwise a later charge()
     // would move another tenant's customer balance / bottle wallet.
     const [customer, product, item] = await Promise.all([
