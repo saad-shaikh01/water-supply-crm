@@ -968,9 +968,10 @@ export class DailySheetService implements OnModuleInit {
           const isCorrection = !!dto.forceResubmit && item.status === DeliveryStatus.COMPLETED;
           // Reset whatsappSentAt so processor stamps it fresh after sending
           if (isCorrection) {
-            await this.prisma.dailySheetItem
-              .update({ where: { id: itemId }, data: { whatsappSentAt: null } })
-              .catch(() => {});
+            // Must go through `tx`: this transaction already holds a row lock on
+            // the item (FOR UPDATE + update above), so a write via the outer client
+            // (another connection) would block on it until the tx timed out (P2028).
+            await tx.dailySheetItem.update({ where: { id: itemId }, data: { whatsappSentAt: null } });
           }
           const now = new Date();
           const previousMonthOutstanding =
