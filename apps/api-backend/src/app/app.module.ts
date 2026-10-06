@@ -52,6 +52,7 @@ import { ProductCostModule } from './modules/product-cost/product-cost.module';
 import { CustomerFinancialAdjustmentModule } from './modules/customer-financial-adjustment/customer-financial-adjustment.module';
 import { ExtraLabourModule } from './modules/extra-labour/extra-labour.module';
 import { CustomerDepositsModule } from './modules/customer-deposits/customer-deposits.module';
+import { VendorImportModule } from './modules/vendor-import/vendor-import.module';
 import { applyLockOverrideMiddleware } from './common/request-context/lock-override.context';
 
 @Module({
@@ -105,6 +106,7 @@ import { applyLockOverrideMiddleware } from './common/request-context/lock-overr
     CustomerFinancialAdjustmentModule,
     ExtraLabourModule,
     CustomerDepositsModule,
+    VendorImportModule,
   ],
   controllers: [AppController],
   providers: [

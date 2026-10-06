@@ -33,6 +33,7 @@ import { AuditService } from '../audit/audit.service';
 import { PermissionService } from '../authz/permission.service';
 import { ConsumptionQueryDto } from './dto/consumption-query.dto';
 import { CustomerDepositsService } from '../customer-deposits/customer-deposits.service';
+import { createCustomerRecords } from './customer-create.helper';
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -160,50 +161,20 @@ export class CustomerService {
     const customer = await this.prisma.$transaction(async (tx) => {
       const customerCode = dto.customerCode ?? (await this.generateCustomerCode(vendorId, tx));
 
-      const customer = await tx.customer.create({
-        data: {
+      // Customer + schedule + per-product wallets + optional custom price: shared with the
+      // vendor data-import executor (customer-create.helper.ts) so the rules cannot drift.
+      return createCustomerRecords(tx, {
+        vendorId,
+        customerCode,
+        customer: {
           ...customerFields,
-          customerCode,
-          vendorId,
           latitude: dto.latitude ?? resolvedCoords.latitude,
           longitude: dto.longitude ?? resolvedCoords.longitude,
         },
+        deliverySchedule,
+        defaultProductId,
+        defaultPrice,
       });
-
-      if (deliverySchedule?.length) {
-        await tx.customerDeliverySchedule.createMany({
-          data: deliverySchedule.map((s) => ({
-            customerId: customer.id,
-            vanId: s.vanId,
-            dayOfWeek: s.dayOfWeek,
-            routeSequence: s.routeSequence ?? null,
-          })),
-        });
-      }
-
-      const products = await tx.product.findMany({
-        where: { vendorId, isActive: true },
-      });
-
-      for (const product of products) {
-        await tx.bottleWallet.create({
-          data: {
-            customerId: customer.id,
-            productId: product.id,
-            balance: 0,
-          },
-        });
-      }
-
-      if (defaultProductId !== undefined && defaultPrice !== undefined) {
-        await tx.customerProductPrice.upsert({
-          where: { customerId_productId: { customerId: customer.id, productId: defaultProductId } },
-          create: { customerId: customer.id, productId: defaultProductId, customPrice: defaultPrice },
-          update: { customPrice: defaultPrice },
-        });
-      }
-
-      return customer;
     });
 
     await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
