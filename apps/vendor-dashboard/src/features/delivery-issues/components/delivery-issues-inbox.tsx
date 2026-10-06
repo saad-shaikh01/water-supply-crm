@@ -42,7 +42,7 @@ import {
   useBulkResolveDeliveryIssues,
 } from '../hooks/use-delivery-issues';
 import { useAllVans } from '../../vans/hooks/use-vans';
-import { useAllDrivers } from '../../users/hooks/use-users';
+import { useAllSalesmen } from '../../users/hooks/use-users';
 import { usersApi } from '../../users/api/users.api';
 // Reused as-is from the Daily Sheet feature — the same per-van "will create
 // new sheet" / "closed" projection the Move dialog there uses, so Bulk
@@ -95,7 +95,7 @@ interface DeliveryIssueRow {
   retryAt?: string;
   assignedToUserId?: string;
   assignedVanId?: string;
-  assignedDriverId?: string;
+  assignedSalesmanId?: string;
   planNotes?: string;
   resolution?: string;
   resolvedNotes?: string;
@@ -126,7 +126,7 @@ interface DeliveryIssueRow {
       date: string;
       route?: { id: string; name: string };
       van?: { id: string; plateNumber: string };
-      driver?: { id: string; name: string };
+      salesman?: { id: string; name: string };
     };
   };
 }
@@ -178,14 +178,14 @@ export function DeliveryIssuesInbox() {
     queryFn: () => usersApi.getAll({ limit: 100, role: 'STAFF', isActive: true }).then((r) => r.data),
   });
   const { data: vansData } = useAllVans();
-  const { data: driversData } = useAllDrivers();
+  const { data: salesmenData } = useAllSalesmen();
 
   const rows = ((data as any)?.data ?? []) as DeliveryIssueRow[];
   const total = (data as any)?.meta?.total ?? 0;
 
   const staff = ((staffData as any)?.data ?? []) as Array<{ id: string; name: string }>;
   const vans = ((vansData as any)?.data ?? []) as Array<{ id: string; plateNumber: string }>;
-  const drivers = ((driversData as any)?.data ?? []) as Array<{ id: string; name: string }>;
+  const salesmen = ((salesmenData as any)?.data ?? []) as Array<{ id: string; name: string }>;
 
   const staffById = useMemo(() => new Map(staff.map((user) => [user.id, user.name])), [staff]);
 
@@ -195,7 +195,7 @@ export function DeliveryIssuesInbox() {
     retryAt: '',
     assignedToUserId: '',
     assignedVanId: '',
-    assignedDriverId: '',
+    assignedSalesmanId: '',
     notes: '',
   });
 
@@ -276,7 +276,7 @@ export function DeliveryIssuesInbox() {
       retryAt: toLocalDateTimeValue(issue.retryAt),
       assignedToUserId: issue.assignedToUserId || '',
       assignedVanId: issue.assignedVanId || '',
-      assignedDriverId: issue.assignedDriverId || '',
+      assignedSalesmanId: issue.assignedSalesmanId || '',
       notes: issue.planNotes || '',
     });
   };
@@ -822,18 +822,18 @@ export function DeliveryIssuesInbox() {
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold uppercase tracking-wider">Driver</Label>
+                <Label className="text-xs font-bold uppercase tracking-wider">Salesman</Label>
                 <Select
-                  value={planForm.assignedDriverId || 'none'}
-                  onValueChange={(value) => setPlanForm((prev) => ({ ...prev, assignedDriverId: value === 'none' ? '' : value }))}
+                  value={planForm.assignedSalesmanId || 'none'}
+                  onValueChange={(value) => setPlanForm((prev) => ({ ...prev, assignedSalesmanId: value === 'none' ? '' : value }))}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Unassigned" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Unassigned</SelectItem>
-                    {drivers.map((driver) => (
-                      <SelectItem key={driver.id} value={driver.id}>{driver.name}</SelectItem>
+                    {salesmen.map((salesman) => (
+                      <SelectItem key={salesman.id} value={salesman.id}>{salesman.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -875,7 +875,7 @@ export function DeliveryIssuesInbox() {
                     retryAt: planForm.retryAt ? new Date(planForm.retryAt).toISOString() : undefined,
                     assignedToUserId: planForm.assignedToUserId || undefined,
                     assignedVanId: planForm.assignedVanId || undefined,
-                    assignedDriverId: planForm.assignedDriverId || undefined,
+                    assignedSalesmanId: planForm.assignedSalesmanId || undefined,
                     notes: planForm.notes || undefined,
                   },
                 }, {

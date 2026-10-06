@@ -124,7 +124,7 @@ export function DiscrepancyCaseDetail({ caseId }: DiscrepancyCaseDetailProps) {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
           <MetaItem label="Type" value={kase.type} />
           <MetaItem label="Reported Gap" value={formatMagnitude(kase.type, kase.reportedQuantity, kase.reportedAmount)} />
-          <MetaItem label="Driver" value={kase.driver?.name ?? '—'} />
+          <MetaItem label="Salesman" value={kase.salesman?.name ?? '—'} />
           <MetaItem label="Van" value={kase.dailySheet?.van?.plateNumber ?? '—'} />
           <MetaItem
             label="Sheet Date"

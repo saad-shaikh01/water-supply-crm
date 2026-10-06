@@ -231,7 +231,7 @@ export interface ConversationContext {
   // delivery" rollup, written only when a real message is sent.
   dailySheet: { id: string; date: string; isClosed: boolean } | null;
   van: { id: string; plateNumber: string } | null;
-  driver: { id: string; name: string } | null;
+  salesman: { id: string; name: string } | null;
   item: { id: string; sequence: number; status: DeliveryStatusType; product: { id: string; name: string } } | null;
 }
 

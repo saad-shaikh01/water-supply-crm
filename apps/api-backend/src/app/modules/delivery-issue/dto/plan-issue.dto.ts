@@ -25,7 +25,7 @@ export class PlanIssueDto {
 
   @IsOptional()
   @IsUUID()
-  assignedDriverId?: string;
+  assignedSalesmanId?: string;
 
   @IsOptional()
   @IsString()

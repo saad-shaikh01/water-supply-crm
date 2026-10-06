@@ -281,7 +281,7 @@ export class MessageService {
   private async createMessage(
     user: AuthUser,
     conversation: { id: string; status: ConversationStatus },
-    item: { id: string; dailySheetId: string; dailySheet: { vanId: string; driverId: string; date: Date } },
+    item: { id: string; dailySheetId: string; dailySheet: { vanId: string; salesmanId: string; date: Date } },
     data: {
       type: MessageType;
       text?: string;
@@ -323,7 +323,7 @@ export class MessageService {
           dailySheetItemId: item.id,
           dailySheetId: item.dailySheetId,
           vanId: item.dailySheet.vanId,
-          driverId: item.dailySheet.driverId,
+          salesmanId: item.dailySheet.salesmanId,
           deliveryDate: item.dailySheet.date,
           ...(conversation.status === ConversationStatus.RESOLVED
             ? { status: ConversationStatus.OPEN }
@@ -363,7 +363,7 @@ export class MessageService {
    * Notifies the "counterpart side" (LOCKED §5.4): a driver's message
    * notifies every ADMIN/STAFF of the vendor (shared office inbox, no
    * Participant table — same derivation rule as conversation access); an
-   * office message notifies the sheet's CURRENT driver, resolved fresh here
+   * office message notifies the sheet's CURRENT salesman, resolved fresh here
    * rather than trusting the denormalized Conversation.driverId.
    */
   private async notifyRecipients(
@@ -375,7 +375,7 @@ export class MessageService {
       where: { id: conversation.id },
       select: {
         customer: { select: { name: true } },
-        item: { select: { sequence: true, dailySheet: { select: { driverId: true } } } },
+        item: { select: { sequence: true, dailySheet: { select: { salesmanId: true } } } },
       },
     });
     // item is guaranteed non-null here — this only runs right after
@@ -399,7 +399,7 @@ export class MessageService {
               select: { id: true },
             })
           ).map((u) => u.id)
-        : [context.item.dailySheet.driverId];
+        : [context.item.dailySheet.salesmanId];
 
     await Promise.all(
       recipientIds.map((userId) =>

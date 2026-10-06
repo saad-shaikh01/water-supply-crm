@@ -65,7 +65,7 @@ export class SheetDiscrepancyCaseService {
   async createCasesForSheet(
     tx: Prisma.TransactionClient,
     vendorId: string,
-    sheet: { id: string; driverId: string },
+    sheet: { id: string; salesmanId: string },
     reconciliation: DiscrepancySourceReconciliation,
     actorId: string,
     actorRole: UserRole,
@@ -104,7 +104,7 @@ export class SheetDiscrepancyCaseService {
         data: {
           vendorId,
           dailySheetId: sheet.id,
-          driverId: sheet.driverId,
+          salesmanId: sheet.salesmanId,
           type: c.type,
           reportedQuantity: c.reportedQuantity,
           reportedAmount: c.reportedAmount,
@@ -128,12 +128,12 @@ export class SheetDiscrepancyCaseService {
   }
 
   async findAll(user: AuthUser, query: DiscrepancyCaseQueryDto) {
-    const { page = 1, limit = 20, status, type, driverId, vanId, dailySheetId, dateFrom, dateTo } = query;
+    const { page = 1, limit = 20, status, type, salesmanId, vanId, dailySheetId, dateFrom, dateTo } = query;
 
     const where: Prisma.SheetDiscrepancyCaseWhereInput = { vendorId: user.vendorId };
     if (status) where.status = status;
     if (type) where.type = type;
-    if (driverId) where.driverId = driverId;
+    if (salesmanId) where.salesmanId = salesmanId;
     if (dailySheetId) where.dailySheetId = dailySheetId;
     if (vanId) where.dailySheet = { vanId };
     if (dateFrom || dateTo) {
@@ -150,7 +150,7 @@ export class SheetDiscrepancyCaseService {
       this.prisma.sheetDiscrepancyCase.findMany({
         where,
         include: {
-          driver: { select: { id: true, name: true } },
+          salesman: { select: { id: true, name: true } },
           resolvedBy: { select: { id: true, name: true } },
           dailySheet: { select: { id: true, date: true, van: { select: { id: true, plateNumber: true } } } },
         },
@@ -168,7 +168,7 @@ export class SheetDiscrepancyCaseService {
     const kase = await this.prisma.sheetDiscrepancyCase.findFirst({
       where: { id, vendorId: user.vendorId },
       include: {
-        driver: { select: { id: true, name: true } },
+        salesman: { select: { id: true, name: true } },
         resolvedBy: { select: { id: true, name: true } },
         dailySheet: { select: { id: true, date: true, van: { select: { id: true, plateNumber: true } } } },
       },
@@ -207,7 +207,7 @@ export class SheetDiscrepancyCaseService {
 
       if (dto.resolutionType === DiscrepancyResolutionType.CHARGED_TO_DRIVER) {
         const entry = await this.staffLedger.createTx(tx, user, {
-          userId: kase.driverId,
+          userId: kase.salesmanId,
           category: StaffLedgerCategory.PENALTY,
           amount: -Math.round(dto.resolutionAmount as number),
           effectiveDate: new Date().toISOString(),

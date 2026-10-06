@@ -37,7 +37,7 @@ const CONVERSATION_INCLUDE = {
   },
   dailySheet: { select: { id: true, date: true, isClosed: true } },
   van: { select: { id: true, plateNumber: true } },
-  driver: { select: { id: true, name: true } },
+  salesman: { select: { id: true, name: true } },
   item: {
     select: {
       id: true,
@@ -260,7 +260,7 @@ export class ConversationService {
     }
     if (query.status) where.status = query.status;
     if (query.vanId) where.vanId = query.vanId;
-    if (query.driverId) where.driverId = query.driverId;
+    if (query.salesmanId) where.salesmanId = query.salesmanId;
     if (query.customerId) where.customerId = query.customerId;
     if (query.dateFrom || query.dateTo) {
       where.deliveryDate = {
@@ -339,7 +339,7 @@ export class ConversationService {
             JOIN "DailySheetItem" i ON i."id" = m."dailySheetItemId"
             JOIN "DailySheet" s ON s."id" = i."dailySheetId"
             LEFT JOIN "DailySheetCrew" dsc ON dsc."dailySheetId" = s."id" AND dsc."userId" = ${user.userId}
-            WHERE m."conversationId" = c."id" AND (s."driverId" = ${user.userId} OR dsc."userId" IS NOT NULL)
+            WHERE m."conversationId" = c."id" AND (s."driverId" = ${user.userId} OR s."salesmanId" = ${user.userId} OR dsc."userId" IS NOT NULL)
           )`
         : Prisma.empty;
     const rows = await this.prisma.$queryRaw<Array<{ id: string }>>`

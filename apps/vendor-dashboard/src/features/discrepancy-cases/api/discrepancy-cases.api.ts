@@ -16,7 +16,7 @@ export interface DiscrepancyCase {
   version: number;
   createdAt: string;
   resolvedAt?: string | null;
-  driver?: { id: string; name: string } | null;
+  salesman?: { id: string; name: string } | null;
   resolvedBy?: { id: string; name: string } | null;
   dailySheet?: {
     id: string;
@@ -39,7 +39,7 @@ export interface DiscrepancyCaseQuery {
   limit?: number;
   status?: DiscrepancyCaseStatus;
   type?: DiscrepancyType;
-  driverId?: string;
+  salesmanId?: string;
   vanId?: string;
   dailySheetId?: string;
   dateFrom?: string;

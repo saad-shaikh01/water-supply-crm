@@ -13,7 +13,7 @@ export class DamageCaseQueryDto extends PaginationQueryDto {
 
   @IsOptional()
   @IsUUID()
-  driverId?: string;
+  salesmanId?: string;
 
   @IsOptional()
   @IsUUID()

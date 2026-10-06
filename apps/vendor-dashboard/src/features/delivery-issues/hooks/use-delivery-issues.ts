@@ -57,7 +57,7 @@ export const usePlanDeliveryIssue = () => {
         retryAt?: string;
         assignedToUserId?: string;
         assignedVanId?: string;
-        assignedDriverId?: string;
+        assignedSalesmanId?: string;
         notes?: string;
       };
     }) => deliveryIssuesApi.plan(id, data),

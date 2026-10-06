@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { DamageCaseService } from './damage-case.service';
-import { DamageCaseStatus, DamageSeverity, WriteOffCategory } from '@prisma/client';
+import { DamageCaseStatus, DamageCaseType, DamageSeverity, WriteOffCategory } from '@prisma/client';
 
 // ─── fixtures ─────────────────────────────────────────────────────────────────
 
@@ -16,12 +16,14 @@ const adminUser   = { userId: 'admin-001', vendorId: VENDOR_ID, role: 'VENDOR_AD
 
 const baseCase = {
   id: CASE_ID, vendorId: VENDOR_ID, customerId: CUSTOMER_ID, productId: PRODUCT_ID,
-  driverId: DRIVER_ID, bottleCount: 2, severity: DamageSeverity.MODERATE,
+  salesmanId: DRIVER_ID, bottleCount: 2, severity: DamageSeverity.MODERATE,
   photoKeys: ['damage-photos/photo-001.jpg'],
   status: DamageCaseStatus.REPORTED, version: 0, chargeAmount: null,
 };
 
 const underReviewCase = { ...baseCase, status: DamageCaseStatus.UNDER_REVIEW, version: 1 };
+const lostCase        = { ...underReviewCase, caseType: DamageCaseType.LOST };
+const damageTypeCase  = { ...underReviewCase, caseType: DamageCaseType.DAMAGE };
 const chargedCase     = { ...baseCase, status: DamageCaseStatus.CHARGED, chargeAmount: 500, version: 2 };
 
 const fullWallet  = { customerId: CUSTOMER_ID, productId: PRODUCT_ID, balance: 5 };
@@ -32,6 +34,7 @@ const emptyWallet = { ...fullWallet, balance: 1 }; // 1 < bottleCount (2)
 function makeTx(caseSnapshot: any = underReviewCase, walletSnapshot: any = fullWallet) {
   return {
     damageCase:          { findUnique: jest.fn().mockResolvedValue(caseSnapshot),
+                           findFirst:  jest.fn().mockResolvedValue(caseSnapshot), // reverse() scopes by vendorId
                            update:     jest.fn().mockImplementation(async ({ data }) => ({ ...caseSnapshot, ...data })) },
     bottleWallet:        { findUnique: jest.fn().mockResolvedValue(walletSnapshot),
                            update:     jest.fn().mockResolvedValue({ ...walletSnapshot }) },
@@ -79,12 +82,20 @@ describe('DamageCaseService — bottle-damage integration tests', () => {
       expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     });
 
-    it('decrements bottle wallet atomically inside the transaction', async () => {
+    it('LOST case: decrements bottle wallet atomically inside the transaction', async () => {
       const { svc, tx } = makeService();
+      tx.damageCase.findUnique.mockResolvedValue(lostCase);
       await svc.charge(adminUser, CASE_ID, chargeDto);
       expect(tx.bottleWallet.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: { balance: { decrement: underReviewCase.bottleCount } } }),
+        expect.objectContaining({ data: { balance: { decrement: lostCase.bottleCount } } }),
       );
+    });
+
+    it('DAMAGE case: does NOT decrement bottle wallet (delivery emptyReceived already did)', async () => {
+      const { svc, tx } = makeService();
+      tx.damageCase.findUnique.mockResolvedValue(damageTypeCase);
+      await svc.charge(adminUser, CASE_ID, chargeDto);
+      expect(tx.bottleWallet.update).not.toHaveBeenCalled();
     });
 
     it('increments financialBalance atomically inside the transaction', async () => {
@@ -117,12 +128,20 @@ describe('DamageCaseService — bottle-damage integration tests', () => {
   describe('waive()', () => {
     const waiveDto = { writeOffCategory: WriteOffCategory.NORMAL_WEAR, version: 1 };
 
-    it('decrements bottle wallet inside the transaction', async () => {
+    it('LOST case: decrements bottle wallet inside the transaction', async () => {
       const { svc, tx } = makeService();
+      tx.damageCase.findUnique.mockResolvedValue(lostCase);
       await svc.waive(adminUser, CASE_ID, waiveDto);
       expect(tx.bottleWallet.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: { balance: { decrement: underReviewCase.bottleCount } } }),
+        expect.objectContaining({ data: { balance: { decrement: lostCase.bottleCount } } }),
       );
+    });
+
+    it('DAMAGE case: does NOT decrement bottle wallet (delivery emptyReceived already did)', async () => {
+      const { svc, tx } = makeService();
+      tx.damageCase.findUnique.mockResolvedValue(damageTypeCase);
+      await svc.waive(adminUser, CASE_ID, waiveDto);
+      expect(tx.bottleWallet.update).not.toHaveBeenCalled();
     });
 
     it('does NOT touch financialBalance', async () => {
@@ -330,7 +349,7 @@ describe('DamageCaseService — bottle-damage integration tests', () => {
 
     it('throws ForbiddenException when DRIVER edits another driver\'s case', async () => {
       const { svc, prisma } = makeService();
-      prisma.damageCase.findUnique.mockResolvedValue({ ...baseCase, driverId: 'other-driver' });
+      prisma.damageCase.findUnique.mockResolvedValue({ ...baseCase, salesmanId: 'other-driver' });
       await expect(svc.update(driverUser, CASE_ID, { bottleCount: 3, version: 0 })).rejects.toThrow(ForbiddenException);
     });
 

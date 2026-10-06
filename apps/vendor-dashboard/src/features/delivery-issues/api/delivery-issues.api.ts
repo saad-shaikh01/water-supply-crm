@@ -21,7 +21,7 @@ export const deliveryIssuesApi = {
       retryAt?: string;
       assignedToUserId?: string;
       assignedVanId?: string;
-      assignedDriverId?: string;
+      assignedSalesmanId?: string;
       notes?: string;
     },
   ) => apiClient.patch(`/delivery-issues/${id}/plan`, data),

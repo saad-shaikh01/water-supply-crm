@@ -120,3 +120,12 @@ export const useChangePassword = () => {
     onError: () => toast.error('Failed to change password. Check your current password.'),
   });
 };
+
+/** Active field staff who can be a sheet's salesman (the owner of every sheet action). */
+export const useAllSalesmen = () => {
+  return useQuery({
+    queryKey: ['users', 'salesmen-all'],
+    queryFn: (): Promise<PaginatedResponse<DriverSummary>> =>
+      usersApi.getAll({ limit: 100, role: 'SALESMAN,DRIVER', isActive: true }).then((r) => r.data),
+  });
+};

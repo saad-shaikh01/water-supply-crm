@@ -280,7 +280,7 @@ export class AnalyticsService {
           type: true,
           resolvedAt: true,
           resolutionAmount: true,
-          driver: { select: { name: true } },
+          salesman: { select: { name: true } },
           dailySheet: { select: { van: { select: { plateNumber: true } } } },
         },
         orderBy: { resolvedAt: 'desc' },
@@ -293,7 +293,7 @@ export class AnalyticsService {
       date: r.resolvedAt,
       type: r.type,
       amount: round2(r.resolutionAmount ?? 0),
-      driverName: r.driver.name,
+      salesmanName: r.salesman.name,
       vanPlateNumber: r.dailySheet.van?.plateNumber ?? 'Unknown',
     }));
 

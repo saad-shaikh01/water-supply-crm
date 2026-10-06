@@ -380,7 +380,7 @@ export class UserService {
         select: { plateNumber: true },
       }),
       this.prisma.damageCase.count({
-        where: { driverId: id, status: { in: ['REPORTED', 'UNDER_REVIEW'] } },
+        where: { salesmanId: id, status: { in: ['REPORTED', 'UNDER_REVIEW'] } },
       }),
     ]);
     if (vanDriverAssignment) {

@@ -14,7 +14,7 @@ export interface InboxQuery {
   status?: ConversationStatusValue;
   waitingOn?: 'DRIVER' | 'OFFICE';
   vanId?: string;
-  driverId?: string;
+  salesmanId?: string;
   dateFrom?: string;
   dateTo?: string;
   search?: string;
