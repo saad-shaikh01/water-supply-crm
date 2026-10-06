@@ -1,4 +1,4 @@
-import { IsDateString, IsIn, IsInt, IsOptional, IsString, IsUUID, MaxLength, NotEquals } from 'class-validator';
+import { IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, IsUUID, MaxLength, NotEquals } from 'class-validator';
 import { StaffLedgerCategory } from '@prisma/client';
 
 /**
@@ -44,4 +44,12 @@ export class CreateStaffLedgerEntryDto {
   @IsString()
   @MaxLength(500)
   description?: string;
+
+  /**
+   * ADVANCE only: false = paid by bank/online, so it is not an office cash-out
+   * in the Cash Ledger. Omitted = cash. Ignored for every other category.
+   */
+  @IsOptional()
+  @IsBoolean()
+  paidFromCash?: boolean;
 }

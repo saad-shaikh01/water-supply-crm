@@ -128,10 +128,14 @@ export function buildReconciliation(sheet: any) {
   // payroll-approval gate yet (that gate only governs the Payroll Ledger
   // sync, not whether the cash was actually spent). All rows on the sheet
   // must reduce cash-on-hand here, the same way every recorded Expense does.
-  const totalCrewCash = ((sheet.crewCashDistributions ?? []) as any[]).reduce(
-    (s: number, c: any) => s + c.amount,
-    0,
-  );
+  // A row marked bank/online (`paidFromCash === false`) never left the driver's
+  // pocket, so — exactly like a non-cash Expense — it is excluded from the
+  // deduction. `totalCrewCashAll` keeps the full spend for display.
+  const allCrewCash = (sheet.crewCashDistributions ?? []) as any[];
+  const totalCrewCashAll = allCrewCash.reduce((s: number, c: any) => s + c.amount, 0);
+  const totalCrewCash = allCrewCash
+    .filter((c: any) => c.paidFromCash !== false)
+    .reduce((s: number, c: any) => s + c.amount, 0);
 
   // Daily Sheet Advances (owner-requested 2026-10-01) — salary advances handed to
   // employees out of the van's cash. Same physics as Crew Cash: the money is gone from
@@ -183,7 +187,9 @@ export function buildReconciliation(sheet: any) {
       paidByOther: totalExpensesNonCash,
     },
     crewCash: {
-      total: totalCrewCash,
+      // Full spend regardless of payment source; `paidFromCash` is the deducted subset.
+      total: totalCrewCashAll,
+      paidFromCash: totalCrewCash,
     },
     advances: {
       total: totalSheetAdvances,
@@ -289,7 +295,7 @@ export const SHEET_CASH_RELOAD_INCLUDE = {
     },
   },
   expenses: { select: { amount: true, paidFromCash: true } },
-  crewCashDistributions: { select: { amount: true } },
+  crewCashDistributions: { select: { amount: true, paidFromCash: true } },
   // Daily Sheet Advances — ACTIVE rows only (a VOIDED advance never left the van).
   sheetAdvances: { where: { status: SheetAdvanceStatus.ACTIVE }, select: { amount: true } },
   loads: { select: { editCount: true } },

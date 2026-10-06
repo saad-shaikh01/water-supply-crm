@@ -46,6 +46,8 @@ export interface CreateLedgerEntryData {
   amount: number;
   effectiveDate: string;
   description?: string;
+  /** ADVANCE only — false = paid by bank/online (not an office cash-out). Omitted = cash. */
+  paidFromCash?: boolean;
 }
 
 /**

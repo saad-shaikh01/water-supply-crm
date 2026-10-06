@@ -34,6 +34,8 @@ export const useOperationsAnalytics = (from: string, to: string, vanId?: string)
 export interface ProfitLossCategory {
   key: string;
   label: string;
+  /** Actual-cost view only: how much of `amount` comes from applied adjustments (+ added, - removed). */
+  adjustment?: number;
   amount: number;
   count: number;
   perBottle: number | null;
@@ -66,8 +68,37 @@ export interface ProfitLossSummary {
   recoveryProfit: number;
 }
 
+export const PROFIT_LOSS_ADJUSTMENT_KEYS = [
+  'PLANT_PRIOR_PAID',
+  'PLANT_PENDING',
+  'CAPS_PRIOR_PAID',
+  'CAPS_PENDING',
+  'SALARY_PRIOR_PAID',
+  'SALARY_PENDING',
+] as const;
+export type ProfitLossAdjustmentKey = (typeof PROFIT_LOSS_ADJUSTMENT_KEYS)[number];
+
+/** One "actual cost" adjustment candidate — a cost paid in a different month than it belongs to. */
+export interface ProfitLossAdjustment {
+  key: ProfitLossAdjustmentKey;
+  group: 'PLANT' | 'CAPS' | 'SALARY';
+  kind: 'REMOVE_PRIOR_PAID' | 'ADD_PENDING';
+  label: string;
+  hint: string;
+  /** Size of the movement, always >= 0. */
+  amount: number;
+  /** Signed effect on Total Expenses when applied. */
+  delta: number;
+  applied: boolean;
+}
+
 export interface ProfitLossData {
   month: string;
+  /** CASH = costs in the month they were paid; ACTUAL = with the selected adjustments applied. */
+  basis: 'CASH' | 'ACTUAL';
+  adjustments: ProfitLossAdjustment[];
+  /** Applied adjustments' net effect on Total Expenses (0 on CASH). */
+  adjustmentTotal: number;
   summary: ProfitLossSummary;
   receivedBreakdown: {
     onSheets: { amount: number; count: number };
@@ -110,10 +141,12 @@ export interface ProfitLossDetails {
   rows: ProfitLossDetailRow[];
 }
 
-export const useProfitLoss = (month: string) =>
+export const useProfitLoss = (month: string, basis: 'CASH' | 'ACTUAL' = 'CASH', adjust: readonly string[] = [], enabled = true) =>
   useQuery<ProfitLossData>({
-    queryKey: ['analytics', 'profit-loss', month],
-    queryFn: () => profitLossApi.get(month).then((r) => r.data),
+    queryKey: ['analytics', 'profit-loss', month, basis, adjust.join(',')],
+    queryFn: () => profitLossApi.get(month, adjust.join(','), basis).then((r) => r.data),
+    placeholderData: (prev) => prev,
+    enabled,
   });
 
 export const useProfitLossDetails = (month: string, category: string | null, page: number) =>

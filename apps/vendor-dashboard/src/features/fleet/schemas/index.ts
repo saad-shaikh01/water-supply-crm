@@ -74,5 +74,6 @@ export const serviceRecordSchema = z.object({
   workshopName: z.string().max(150).optional(),
   partsReplaced: z.string().max(500).optional(),
   notes: z.string().max(500).optional(),
+  paidFromCash: z.boolean().optional(),
 });
 export type ServiceRecordInput = z.infer<typeof serviceRecordSchema>;

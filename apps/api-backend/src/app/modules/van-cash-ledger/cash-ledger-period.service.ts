@@ -176,6 +176,7 @@ export class CashLedgerPeriodService {
           effectiveDate: inPeriod,
           // A Daily Sheet advance is not an office cash-out — it must not block closing the period.
           sheetAdvanceSource: { is: null },
+          paidFromCash: true,
         },
         _sum: { amount: true },
         _count: { _all: true },
@@ -458,7 +459,7 @@ export class CashLedgerPeriodService {
         _min: { date: true },
       }),
       this.prisma.staffLedgerEntry.aggregate({
-        where: { vendorId, category: StaffLedgerCategory.ADVANCE, amount: { lt: 0 }, sheetAdvanceSource: { is: null } },
+        where: { vendorId, category: StaffLedgerCategory.ADVANCE, amount: { lt: 0 }, sheetAdvanceSource: { is: null }, paidFromCash: true },
         _min: { effectiveDate: true },
       }),
       this.prisma.settlement.aggregate({

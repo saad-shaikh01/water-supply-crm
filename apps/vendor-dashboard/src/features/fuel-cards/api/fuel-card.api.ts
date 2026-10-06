@@ -82,7 +82,34 @@ export interface FuelCardTopUpListResponse {
   meta: { total: number; page: number; limit: number; totalPages: number };
 }
 
+export type FuelCardLedgerEntryType = 'OPENING' | 'TOPUP' | 'FILL';
+
+export interface FuelCardLedgerEntry {
+  id: string;
+  type: FuelCardLedgerEntryType;
+  fuelCardId: string;
+  cardName: string;
+  date: string;
+  amount: number;
+  /** Signed effect on the card balance (0 for a voided top-up). */
+  delta: number;
+  description: string;
+  reference: string | null;
+  by: string | null;
+  voided: boolean;
+  voidReason: string | null;
+  /** Running balance of this card right after the entry. */
+  balanceAfter: number;
+}
+
+export interface FuelCardLedgerResponse {
+  data: FuelCardLedgerEntry[];
+  meta: { total: number; page: number; limit: number; totalPages: number };
+}
+
 export const fuelCardApi = {
+  listLedger: (params?: FuelCardTopUpQuery) =>
+    apiClient.get<FuelCardLedgerResponse>('/fuel-cards/ledger', { params }),
   listCards: () => apiClient.get<FuelCard[]>('/fuel-cards'),
   createCard: (data: CreateFuelCardPayload) => apiClient.post<FuelCard>('/fuel-cards', data),
   updateCard: (id: string, data: UpdateFuelCardPayload) =>

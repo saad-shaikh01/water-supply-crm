@@ -85,6 +85,7 @@ export class ConversationService {
             vendorId: true,
             vanId: true,
             driverId: true,
+            salesmanId: true,
             date: true,
             crew: { select: { userId: true } },
           },
@@ -97,6 +98,7 @@ export class ConversationService {
     if (FIELD_DRIVER_ROLES.includes(user.role)) {
       const isOnSheet =
         item.dailySheet.driverId === user.userId ||
+        item.dailySheet.salesmanId === user.userId ||
         item.dailySheet.crew.some((c) => c.userId === user.userId);
       if (!isOnSheet) throw new NotFoundException('Sheet item not found');
     }
@@ -127,7 +129,7 @@ export class ConversationService {
           conversationId,
           item: {
             dailySheet: {
-              OR: [{ driverId: user.userId }, { crew: { some: { userId: user.userId } } }],
+              OR: [{ driverId: user.userId }, { salesmanId: user.userId }, { crew: { some: { userId: user.userId } } }],
             },
           },
         },
@@ -252,7 +254,7 @@ export class ConversationService {
       // Driver OR crew — see resolveItemForUser for why.
       where.messages = {
         some: {
-          item: { dailySheet: { OR: [{ driverId: user.userId }, { crew: { some: { userId: user.userId } } }] } },
+          item: { dailySheet: { OR: [{ driverId: user.userId }, { salesmanId: user.userId }, { crew: { some: { userId: user.userId } } }] } },
         },
       };
     }

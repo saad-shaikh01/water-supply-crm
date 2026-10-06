@@ -91,6 +91,12 @@ export class FuelCardController {
     return this.fuelCards.listTopUps(user.vendorId, query);
   }
 
+  @Get('ledger')
+  @RequirePermissions('fuel_cards:view')
+  listLedger(@CurrentUser() user: AuthUser, @Query() query: FuelCardTopUpQueryDto) {
+    return this.fuelCards.listLedger(user.vendorId, query);
+  }
+
   @Get('top-ups/:id/attachment')
   @RequirePermissions('fuel_cards:view')
   async getTopUpAttachment(@CurrentUser() user: AuthUser, @Param('id') id: string) {

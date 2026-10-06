@@ -23,6 +23,8 @@ import { VehicleCheckDialog } from '../../fleet/components/dialogs/vehicle-check
 import { VehicleCheckEditDialog } from '../../fleet/components/dialogs/vehicle-check-edit-dialog';
 import { CriticalOverrideDialog } from '../../fleet/components/dialogs/critical-override-dialog';
 import { FuelLogFormDialog } from '../../fleet/components/dialogs/fuel-log-form-dialog';
+import { ServiceRecordFormDialog } from '../../fleet/components/dialogs/service-record-form-dialog';
+import { SheetMaintenanceSection } from './sheet-maintenance-section';
 import { useVehicleDailyChecks } from '../../fleet/hooks/use-vehicle-checks';
 import { toast } from 'sonner';
 import {
@@ -293,6 +295,8 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   // Fleet Operations Phase 1.
   const canRecordVehicleCheck = can('fleet:record_check');
   const canRecordFuel = can('fleet:record_fuel');
+  const canManageMaintenance = can('fleet:manage_maintenance');
+  const [maintenanceOpen, setMaintenanceOpen] = useState(false);
   const canOverrideCriticalCheck = can('fleet:override_check');
   // Odometer Correction (2026-08-23) — deliberately fleet:update, not
   // fleet:record_check: a Driver can submit a check but not silently rewrite
@@ -304,6 +308,9 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
   const { data: vehicleChecks } = useVehicleDailyChecks(sheetId);
   const startCheck = vehicleChecks?.find((c) => c.checkType === 'START') ?? null;
   const endCheck = vehicleChecks?.find((c) => c.checkType === 'END') ?? null;
+  // Physical vehicle for this trip (same source the Fuel Fill dialog resolves from).
+  const sheetVehicleId = startCheck?.vehicleId ?? endCheck?.vehicleId ?? null;
+  const canAddMaintenanceNow = canManageMaintenance && !!sheetVehicleId;
   const unresolvedCriticalCheck = startCheck?.hasCriticalFailure && !startCheck.criticalOverrideById ? startCheck : null;
   // Vehicle identity for this trip: the van's operational slot label ("Van2")
   // shown alongside the real registration recorded on whichever check picked
@@ -436,12 +443,10 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
       const tripExpenses = (data?.expenses ?? []).filter(
         (e) => e.dailySheetLoadId === trip.id && e.paidFromCash !== false,
       );
-      // Crew Cash has no paidFromCash toggle — it's unconditionally physical
-      // van cash (see the schema comment on CrewCashDistribution's own
-      // dailySheetLoadId), so every row linked to this trip counts, same
-      // bucket as the cash-paid expenses above.
+      // Crew Cash is physical van cash unless marked bank/online
+      // (paidFromCash === false), same bucket as the cash-paid expenses above.
       const tripCrewCash = (data?.crewCashDistributions ?? []).filter(
-        (c) => c.dailySheetLoadId === trip.id,
+        (c) => c.dailySheetLoadId === trip.id && c.paidFromCash !== false,
       );
       // Salary advances are paid from the same van cash (no paidFromCash toggle either).
       const tripAdvances = (data?.sheetAdvances ?? []).filter((a) => a.dailySheetLoadId === trip.id);
@@ -1294,11 +1299,15 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             canAddAdvance={canAddAdvanceNow}
             canManageAnyAdvance={canManageAnyAdvance}
           />
+          {sheetVehicleId && (
+            <SheetMaintenanceSection vehicleId={sheetVehicleId} date={data!.date} canManage={canManageMaintenance} />
+          )}
 
           {/* Ad-hoc / Correction Entry Actions */}
           {(
             (canBulkImport && !isClosed) ||
             (canRecordFuel && !isClosed) ||
+            canAddMaintenanceNow ||
             (canCreateExpense && !isClosed) ||
             (canCorrectClosedExpense && isClosed) ||
             canAddCrewCashNow ||
@@ -1324,6 +1333,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
                 canAddCrewCash={canAddCrewCashNow}
                 canAddExtraLabour={(canCreateExpense && !isClosed) || (canCorrectClosedExpense && isClosed)}
                 canAddAdvance={canAddAdvanceNow}
+                canAddMaintenance={canAddMaintenanceNow}
                 canAddDelivery={(!isClosed && canUpdateSheet) || (isClosed && canCorrect)}
                 isClosed={isClosed}
                 canReportDamage={canReportDamage}
@@ -1332,6 +1342,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
                 onAddExtraLabour={() => dispatch({ type: isClosed ? 'OPEN_CLOSED_EXPENSE' : 'OPEN_EXPENSE', preset: 'EXTRA_LABOUR' })}
                 onAddCrewCash={() => dispatch({ type: 'OPEN_CREW_CASH' })}
                 onAddAdvance={() => dispatch({ type: 'OPEN_ADVANCE' })}
+                onAddMaintenance={() => setMaintenanceOpen(true)}
                 onAddDelivery={() => dispatch({ type: isClosed ? 'OPEN_CORRECTION' : 'OPEN_ADHOC' })}
                 onReportDamage={() => dispatch({ type: 'OPEN_DAMAGE' })}
               />
@@ -1366,6 +1377,9 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
             canAddAdvance={canAddAdvanceNow}
             canManageAnyAdvance={canManageAnyAdvance}
           />
+          {sheetVehicleId && (
+            <SheetMaintenanceSection vehicleId={sheetVehicleId} date={data!.date} canManage={canManageMaintenance} />
+          )}
 
           {/* Full-parity Add/Record row (owner-requested 2026-09-11) — same
               Fuel Fill / Expense / Crew Cash / Damage actions a ROUTE sheet
@@ -1375,6 +1389,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
           {(
             (!isClosed && (canCloseSheet || canRequestClose)) ||
             (canRecordFuel && !isClosed) ||
+            canAddMaintenanceNow ||
             (canCreateExpense && !isClosed) ||
             (canCorrectClosedExpense && isClosed) ||
             canAddCrewCashNow ||
@@ -1388,6 +1403,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
                 canAddCrewCash={canAddCrewCashNow}
                 canAddExtraLabour={(canCreateExpense && !isClosed) || (canCorrectClosedExpense && isClosed)}
                 canAddAdvance={canAddAdvanceNow}
+                canAddMaintenance={canAddMaintenanceNow}
                 canAddDelivery={false}
                 isClosed={isClosed}
                 canReportDamage={canReportDamage}
@@ -1396,6 +1412,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
                 onAddExtraLabour={() => dispatch({ type: isClosed ? 'OPEN_CLOSED_EXPENSE' : 'OPEN_EXPENSE', preset: 'EXTRA_LABOUR' })}
                 onAddCrewCash={() => dispatch({ type: 'OPEN_CREW_CASH' })}
                 onAddAdvance={() => dispatch({ type: 'OPEN_ADVANCE' })}
+                onAddMaintenance={() => setMaintenanceOpen(true)}
                 onAddDelivery={() => {}}
                 onReportDamage={() => dispatch({ type: 'OPEN_DAMAGE' })}
               />
@@ -1680,6 +1697,14 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
           dailySheetId={sheetId}
           open={ui.fuelLogOpen}
           onOpenChange={(o) => dispatch({ type: o ? 'OPEN_FUEL_LOG' : 'CLOSE_FUEL_LOG' })}
+        />
+      )}
+      {sheetVehicleId && (
+        <ServiceRecordFormDialog
+          vehicleId={sheetVehicleId}
+          defaultDate={data?.date}
+          open={maintenanceOpen}
+          onOpenChange={setMaintenanceOpen}
         />
       )}
       <ExpenseForm

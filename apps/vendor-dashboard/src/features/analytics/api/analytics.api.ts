@@ -14,7 +14,8 @@ export const analyticsApi = {
 };
 
 export const profitLossApi = {
-  get: (month: string) => apiClient.get('/analytics/profit-loss', { params: { month } }),
+  get: (month: string, adjust?: string, basis?: string) =>
+    apiClient.get('/analytics/profit-loss', { params: { month, adjust: adjust || undefined, basis: basis || undefined } }),
   getDetails: (month: string, category: string, page: number) =>
     apiClient.get('/analytics/profit-loss/details', { params: { month, category, page, limit: 20 } }),
   getPayments: (month: string, kind: string, page: number) =>

@@ -23,6 +23,12 @@ export const useFuelCardTopUps = (params?: FuelCardTopUpQuery) =>
     queryFn: () => fuelCardApi.listTopUps(params).then((r) => r.data),
   });
 
+export const useFuelCardLedger = (params?: FuelCardTopUpQuery) =>
+  useQuery({
+    queryKey: [QUERY_KEY, 'ledger', params ?? {}],
+    queryFn: () => fuelCardApi.listLedger(params).then((r) => r.data),
+  });
+
 // A top-up/void moves the Office Cash Ledger's own balance too (see
 // FuelCardService's class doc) — invalidate that feature's queries alongside
 // this one so its stats bar / timeline pick up the change immediately.

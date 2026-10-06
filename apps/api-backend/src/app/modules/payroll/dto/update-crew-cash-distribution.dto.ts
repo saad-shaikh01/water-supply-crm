@@ -1,4 +1,4 @@
-import { ArrayMinSize, IsArray, IsEnum, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { ArrayMinSize, IsArray, IsBoolean, IsEnum, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 import { CrewCashCategory } from '@prisma/client';
 
 /**
@@ -32,4 +32,9 @@ export class UpdateCrewCashDistributionDto {
   @IsString({ each: true })
   @ArrayMinSize(0)
   photoKeys?: string[];
+
+  /** Pre-sync only (like the other fields): false = paid by bank/online. */
+  @IsOptional()
+  @IsBoolean()
+  paidFromCash?: boolean;
 }

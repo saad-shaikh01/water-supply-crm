@@ -1,16 +1,19 @@
 'use client';
 
-import { Fragment, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { parseAsString, useQueryState } from 'nuqs';
 import {
   Button, Card, CardContent, CardHeader, CardTitle, Skeleton,
   Sheet, SheetContent, SheetHeader, SheetTitle,
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
   cn,
 } from '@water-supply-crm/ui';
-import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Plus, RotateCcw } from 'lucide-react';
+import { AddExpenseWizard } from '../../expense-center/wizard/add-expense-wizard';
 import {
-  useProfitLoss, useProfitLossDetails, useProfitLossPayments,
-  type ProfitLossData,
+  PROFIT_LOSS_ADJUSTMENT_KEYS, useProfitLoss, useProfitLossDetails, useProfitLossPayments,
+  type ProfitLossAdjustment, type ProfitLossData,
   type ProfitLossDomain, type ProfitLossSummary,
 } from '../hooks/use-analytics';
 
@@ -69,21 +72,104 @@ function ProfitCard({ label, sub, value }: { label: string; sub: string; value: 
   );
 }
 
+// ── "Cash basis" vs "Actual cost" view ────────────────────────────────────────
+// The choice (and which adjustments the owner switched off) survives refresh via localStorage.
+
+type Basis = 'CASH' | 'ACTUAL';
+const VIEW_STORAGE_KEY = 'analytics:profit-loss:view:v1';
+
+function usePlView() {
+  const [basis, setBasisState] = useState<Basis>('CASH');
+  const [off, setOffState] = useState<string[]>([]);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(VIEW_STORAGE_KEY) ?? 'null');
+      if (saved?.basis === 'ACTUAL') setBasisState('ACTUAL');
+      if (Array.isArray(saved?.off)) setOffState(saved.off.filter((k: unknown) => typeof k === 'string'));
+    } catch {
+      // storage unavailable or corrupt — fall back to the cash view
+    }
+    setHydrated(true);
+  }, []);
+
+  const persist = useCallback((nextBasis: Basis, nextOff: string[]) => {
+    try {
+      window.localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify({ basis: nextBasis, off: nextOff }));
+    } catch {
+      // ignore — the view simply won't persist
+    }
+  }, []);
+
+  const setBasis = (next: Basis) => { setBasisState(next); persist(next, off); };
+  const toggleKey = (key: string) => {
+    const next = off.includes(key) ? off.filter((k) => k !== key) : [...off, key];
+    setOffState(next);
+    persist(basis, next);
+  };
+  const reset = () => { setBasisState('CASH'); setOffState([]); persist('CASH', []); };
+
+  return { basis, off, hydrated, setBasis, toggleKey, reset };
+}
+
+/** The adjustment rows hang off the group's main cost category inside the Expenses table. */
+const ADJUSTMENT_HOST_KEY: Record<ProfitLossAdjustment['group'], string> = {
+  PLANT: 'BOTTLE_REFILL_PAYMENT',
+  CAPS: 'CAPS_PURCHASED',
+  SALARY: 'SALARY_SETTLEMENT',
+};
+
+function CashViewHint({ data }: { data: ProfitLossData }) {
+  const count = data.adjustments.filter((a) => a.amount > 0).length;
+  if (count === 0) return null;
+  return (
+    <p className="text-xs text-muted-foreground">
+      {count} cost {count === 1 ? 'item was' : 'items were'} paid in a different month than {count === 1 ? 'it belongs' : 'they belong'} to — switch to{' '}
+      <span className="font-semibold">Actual cost</span> to see {monthLabel(data.month)} with {count === 1 ? 'it' : 'them'} moved.
+    </p>
+  );
+}
+
 function ExpenseTable({
-  domains, summary, onOpen,
+  domains, summary, onOpen, actual,
 }: {
   domains: ProfitLossDomain[];
   summary: ProfitLossSummary;
   onOpen: (key: string) => void;
+  /** Present only in the Actual-cost view: the adjustment checkboxes live inside this table. */
+  actual?: { data: ProfitLossData; off: string[]; onToggle: (key: string) => void; onReset: () => void };
 }) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
-  const visible = domains.filter((d) => d.amount > 0);
+  const adjustments = actual ? actual.data.adjustments.filter((a) => a.amount > 0) : [];
+  const hostKeys = new Set(adjustments.map((a) => ADJUSTMENT_HOST_KEY[a.group]));
+  const visible = domains.filter((d) => d.amount > 0 || d.categories.length > 0);
+  // In the Actual view, domains that carry an adjustment open by default so the checkboxes are in sight.
+  const isDomainOpen = (d: ProfitLossDomain) => open[d.domain] ?? d.categories.some((c) => hostKeys.has(c.key));
 
   return (
     <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
       <CardHeader>
         <CardTitle className="text-base font-bold">Expenses by Domain</CardTitle>
-        <p className="text-xs text-muted-foreground">Click a domain to see its categories, and a category to see every entry.</p>
+        <p className="text-xs text-muted-foreground">
+          {actual
+            ? 'Actual cost: tick or untick the highlighted rows to move a cost into or out of this month.'
+            : 'Click a domain to see its categories, and a category to see every entry.'}
+        </p>
+        {actual && (
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-sm">
+            <span className="text-muted-foreground">
+              Cash paid in {monthLabel(actual.data.month, true)}:{' '}
+              <span className="font-semibold text-foreground">{rs(summary.totalExpenses - actual.data.adjustmentTotal)}</span>
+              <span className="mx-2">→</span>
+              Actual cost: <span className="font-black text-foreground">{rs(summary.totalExpenses)}</span>
+              <span className="ml-1 text-xs">({actual.data.adjustmentTotal >= 0 ? '+' : '−'}{rs(Math.abs(actual.data.adjustmentTotal))})</span>
+            </span>
+            <Button variant="ghost" size="sm" onClick={actual.onReset} className="gap-1">
+              <RotateCcw className="h-3.5 w-3.5" /> Reset to cash view
+            </Button>
+          </div>
+        )}
       </CardHeader>
       <CardContent className="overflow-x-auto">
         <Table>
@@ -102,7 +188,7 @@ function ExpenseTable({
               </TableRow>
             )}
             {visible.map((d) => {
-              const isOpen = !!open[d.domain];
+              const isOpen = isDomainOpen(d);
               return (
                 <Fragment key={d.domain}>
                   <TableRow
@@ -121,19 +207,49 @@ function ExpenseTable({
                     <TableCell className="text-right">{d.percent}%</TableCell>
                   </TableRow>
                   {isOpen && d.categories.map((c) => (
+                    <Fragment key={c.key}>
                     <TableRow
-                      key={c.key}
                       className="cursor-pointer hover:bg-muted/40"
                       onClick={() => onOpen(c.key)}
                     >
                       <TableCell className="pl-10">
                         {c.label}
                         <span className="ml-2 text-xs text-muted-foreground">{c.count} {c.count === 1 ? 'entry' : 'entries'}</span>
+                        {!!c.adjustment && (
+                          <span className="ml-2 text-xs font-semibold text-amber-600 dark:text-amber-400">
+                            {c.adjustment > 0 ? '+' : '−'}{rs(Math.abs(c.adjustment))} adjusted
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right">{rs(c.amount)}</TableCell>
                       <TableCell className="text-right">{rs2(c.perBottle)}</TableCell>
                       <TableCell className="text-right">{c.percent}%</TableCell>
                     </TableRow>
+                    {actual && adjustments.filter((a) => ADJUSTMENT_HOST_KEY[a.group] === c.key).map((a) => {
+                      const checked = !actual.off.includes(a.key);
+                      return (
+                        <TableRow key={a.key} className="bg-amber-500/5 hover:bg-amber-500/10">
+                          <TableCell className="pl-14" colSpan={2}>
+                            <label className="flex items-start gap-3 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                                checked={checked}
+                                onChange={() => actual.onToggle(a.key)}
+                              />
+                              <span className="min-w-0">
+                                <span className="block text-sm font-medium">{a.label}</span>
+                                <span className="block text-xs text-muted-foreground">{a.hint}</span>
+                              </span>
+                            </label>
+                          </TableCell>
+                          <TableCell className={cn('text-right font-semibold whitespace-nowrap', a.delta > 0 ? 'text-destructive' : 'text-emerald-600 dark:text-emerald-400', !checked && 'opacity-40 line-through')} colSpan={2}>
+                            {a.delta > 0 ? '+' : '−'}{rs(a.amount)}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    </Fragment>
                   ))}
                 </Fragment>
               );
@@ -342,10 +458,31 @@ function PaymentsSheet({ month, kind, onClose }: { month: string; kind: string |
 
 export function ProfitLossTab() {
   const thisMonth = currentMonth();
-  const [month, setMonth] = useState(thisMonth);
+  // Month lives in the URL so a refresh / shared link lands on the same month.
+  const [monthParam, setMonthParam] = useQueryState('plMonth', parseAsString.withDefault(''));
+  const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(monthParam) && monthParam <= thisMonth ? monthParam : thisMonth;
+  const setMonth = (next: string | ((m: string) => string)) => {
+    const value = typeof next === 'function' ? next(month) : next;
+    setMonthParam(value === thisMonth ? null : value);
+  };
+  const view = usePlView();
+  // Every adjustment is on unless the owner unticked it; the server ignores keys with nothing to adjust.
+  const adjustKeys = useMemo(
+    () => (view.basis === 'ACTUAL' ? PROFIT_LOSS_ADJUSTMENT_KEYS.filter((k) => !view.off.includes(k)) : []),
+    [view.basis, view.off],
+  );
   const [detailCategory, setDetailCategory] = useState<string | null>(null);
   const [paymentsKind, setPaymentsKind] = useState<string | null>(null);
-  const { data, isLoading, isError } = useProfitLoss(month);
+  const [addExpenseOpen, setAddExpenseOpen] = useState(false);
+  const queryClient = useQueryClient();
+  const { data, isLoading, isError } = useProfitLoss(month, view.basis, adjustKeys, view.hydrated);
+
+  // The wizard's mutations don't touch the analytics cache, so refresh the P&L when it closes
+  // (a no-op refetch if nothing was recorded).
+  const handleAddExpenseOpenChange = (open: boolean) => {
+    setAddExpenseOpen(open);
+    if (!open) queryClient.invalidateQueries({ queryKey: ['analytics', 'profit-loss'] });
+  };
 
   return (
     <div className="space-y-6">
@@ -360,7 +497,31 @@ export function ProfitLossTab() {
         {month !== thisMonth && (
           <Button variant="ghost" size="sm" onClick={() => setMonth(thisMonth)}>This month</Button>
         )}
-        <p className="w-full sm:w-auto sm:ml-auto text-xs text-muted-foreground">Company-wide · all vans · expenses on cash basis</p>
+        <div className="w-full sm:w-auto sm:ml-auto flex flex-col-reverse sm:flex-row sm:items-center gap-2 sm:gap-4">
+          <div className="inline-flex rounded-full border border-border p-0.5 text-xs font-bold" role="group" aria-label="Cost view">
+            {(['CASH', 'ACTUAL'] as const).map((b) => (
+              <button
+                key={b}
+                type="button"
+                onClick={() => view.setBasis(b)}
+                aria-pressed={view.basis === b}
+                className={cn(
+                  'rounded-full px-3 py-1.5 transition-colors',
+                  view.basis === b ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {b === 'CASH' ? 'Cash paid' : 'Actual cost'}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Company-wide · all vans · {view.basis === 'ACTUAL' ? 'costs moved to the month they belong to' : 'expenses on cash basis'}
+          </p>
+          <Button onClick={() => setAddExpenseOpen(true)} className="rounded-full font-bold gap-2">
+            <Plus className="h-4 w-4" />
+            Add Expense
+          </Button>
+        </div>
       </div>
 
       {isLoading && (
@@ -386,6 +547,8 @@ export function ProfitLossTab() {
             </div>
           )}
 
+          {view.basis === 'CASH' && <CashViewHint data={data} />}
+
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <Stat
               label="Bottles Sold (net)"
@@ -394,7 +557,11 @@ export function ProfitLossTab() {
             />
             <Stat label="Sale" value={rs(data.summary.saleAmount)} />
             <Stat label="Amount Received" value={rs(data.summary.amountReceived)} hint={`${rs(data.summary.receivedOnSheets)} on delivery sheets + ${rs(data.summary.receivedRecorded)} recorded payments`} />
-            <Stat label="Total Expenses" value={rs(data.summary.totalExpenses)} />
+            <Stat
+              label={data.basis === 'ACTUAL' ? 'Total Expenses (actual)' : 'Total Expenses'}
+              value={rs(data.summary.totalExpenses)}
+              hint={data.basis === 'ACTUAL' ? 'Cash paid ' + rs(data.summary.totalExpenses - data.adjustmentTotal) + ' · adjusted' : undefined}
+            />
           </div>
 
           <ReceivedProof data={data} onOpen={setPaymentsKind} />
@@ -417,10 +584,15 @@ export function ProfitLossTab() {
             </div>
           </div>
 
-          <ExpenseTable domains={data.domains} summary={data.summary} onOpen={setDetailCategory} />
+          <ExpenseTable
+            domains={data.domains}
+            summary={data.summary}
+            onOpen={setDetailCategory}
+            actual={view.basis === 'ACTUAL' ? { data, off: view.off, onToggle: view.toggleKey, onReset: view.reset } : undefined}
+          />
 
           <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
-            <CardHeader><CardTitle className="text-base font-bold">Month-wise Comparison</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-base font-bold">Month-wise Comparison <span className="text-xs font-normal text-muted-foreground">(cash basis)</span></CardTitle></CardHeader>
             <CardContent className="overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -459,6 +631,7 @@ export function ProfitLossTab() {
         </>
       )}
 
+      <AddExpenseWizard open={addExpenseOpen} onOpenChange={handleAddExpenseOpenChange} />
       <PaymentsSheet key={`${month}:pay:${paymentsKind ?? ''}`} month={month} kind={paymentsKind} onClose={() => setPaymentsKind(null)} />
       <DetailsSheet key={`${month}:${detailCategory ?? ''}`} month={month} category={detailCategory} onClose={() => setDetailCategory(null)} />
     </div>

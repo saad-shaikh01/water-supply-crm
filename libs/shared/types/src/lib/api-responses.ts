@@ -517,6 +517,8 @@ export interface CrewCashEntry {
   approvedAt: string | null;
   syncedAt: string | null;
   syncedLedgerEntryId: string | null;
+  /** false = paid by bank/online (not deducted from the sheet's cash hand-in). */
+  paidFromCash?: boolean;
   createdById: string;
   version: number;
   createdAt: string;
@@ -735,6 +737,8 @@ export interface VehicleServiceRecordEntry {
   partsReplaced: string | null;
   notes: string | null;
   expenseId: string | null;
+  /** The linked Expense's payment flag (false = bank/online). */
+  expense?: { paidFromCash: boolean } | null;
   recordedBy: { id: string; name: string };
   createdAt: string;
 }
@@ -873,6 +877,8 @@ export interface SheetCrewCashDistribution {
   approvedById: string | null;
   approvedAt: string | null;
   syncedAt: string | null;
+  /** false = paid by bank/online (not deducted from the sheet's cash hand-in). */
+  paidFromCash?: boolean;
   /** Trip this crew cash was recorded during — null if no trip was active at record time. Auto-set server-side. */
   dailySheetLoadId?: string | null;
 }
@@ -1017,6 +1023,8 @@ export interface StaffLedgerEntry {
   linkedCustomerId: string | null;
   linkedCustomer?: { id: string; name: string; customerCode: string } | null;
   causedCustomerAdjustmentId: string | null;
+  /** ADVANCE only: false = paid by bank/online (not an office cash-out). */
+  paidFromCash?: boolean;
   version: number;
   createdAt: string;
   updatedAt: string;

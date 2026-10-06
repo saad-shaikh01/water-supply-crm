@@ -254,9 +254,8 @@ export class CrewCashDistributionService implements OnModuleInit {
     // Trip feature: same trip attribution ExpenseService uses — inferred
     // server-side, never an API param. Open sheet → the active trip; closed
     // sheet (no active trip) → its last-ended trip, like ExpenseService.createClosed.
-    // Crew cash has no paidFromCash toggle (it's unconditionally physical van
-    // cash), so every row is deductible; this only tells the UI/PDF WHICH trip's
-    // numbers to reduce.
+    // This only tells the UI/PDF WHICH trip's numbers to reduce (whether the row
+    // is deducted from the hand-in at all is `paidFromCash`, default true).
     const tripLoad = sheet.isClosed
       ? await this.prisma.dailySheetLoad.findFirst({
           where: { dailySheetId, endedAt: { not: null } },
@@ -293,6 +292,7 @@ export class CrewCashDistributionService implements OnModuleInit {
           amount: dto.amount,
           notes: dto.notes ?? null,
           photoKeys: dto.photoKeys ?? [],
+          paidFromCash: dto.paidFromCash ?? true,
           date: sheet.date,
           requiresApproval,
           createdById: user.userId,
@@ -311,6 +311,7 @@ export class CrewCashDistributionService implements OnModuleInit {
             employeeId: entry.employeeId,
             category: entry.category,
             amount: entry.amount,
+            paidFromCash: entry.paidFromCash,
             requiresApproval: entry.requiresApproval,
             ...(sheet.isClosed && { addedAfterClose: true }),
           },
@@ -368,6 +369,7 @@ export class CrewCashDistributionService implements OnModuleInit {
 
       const categoryChanged = dto.category !== undefined && dto.category !== entry.category;
       const amountChanged = dto.amount !== undefined && dto.amount !== entry.amount;
+      const paymentChanged = dto.paidFromCash !== undefined && dto.paidFromCash !== entry.paidFromCash;
 
       let requiresApprovalUpdate: boolean | undefined;
       let clearApproval = false;
@@ -387,6 +389,7 @@ export class CrewCashDistributionService implements OnModuleInit {
         data: {
           ...(dto.category !== undefined && { category: dto.category }),
           ...(dto.amount !== undefined && { amount: dto.amount }),
+          ...(dto.paidFromCash !== undefined && { paidFromCash: dto.paidFromCash }),
           ...(dto.notes !== undefined && { notes: dto.notes }),
           ...(dto.photoKeys !== undefined && { photoKeys: dto.photoKeys }),
           ...(requiresApprovalUpdate !== undefined && { requiresApproval: requiresApprovalUpdate }),
@@ -409,6 +412,7 @@ export class CrewCashDistributionService implements OnModuleInit {
           beforeJson: {
             category: entry.category,
             amount: entry.amount,
+            paidFromCash: entry.paidFromCash,
             notes: entry.notes,
             photoKeys: entry.photoKeys,
             requiresApproval: entry.requiresApproval,
@@ -416,6 +420,7 @@ export class CrewCashDistributionService implements OnModuleInit {
           afterJson: {
             category: updated.category,
             amount: updated.amount,
+            paidFromCash: updated.paidFromCash,
             notes: updated.notes,
             photoKeys: updated.photoKeys,
             requiresApproval: updated.requiresApproval,
@@ -426,8 +431,8 @@ export class CrewCashDistributionService implements OnModuleInit {
       // An amount change on a still-unsynced row of an already-closed sheet
       // (row was pending approval at close) changes the sheet's live cash
       // figure — keep the Cash Ledger handover in step. Category-only edits
-      // don't move cash.
-      if (amountChanged) {
+      // don't move cash; flipping cash/bank does.
+      if (amountChanged || paymentChanged) {
         await this.syncClosedSheetAfterUnsyncedChange(tx, user.vendorId, entry.dailySheetId);
       }
 

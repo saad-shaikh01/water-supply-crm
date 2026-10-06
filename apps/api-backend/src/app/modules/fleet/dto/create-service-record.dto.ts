@@ -1,4 +1,4 @@
-import { IsUUID, IsInt, Min, IsDateString, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsUUID, IsInt, Min, IsDateString, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class CreateServiceRecordDto {
   @IsUUID()
@@ -25,4 +25,8 @@ export class CreateServiceRecordDto {
   @IsOptional() @IsString() invoicePhotoKey?: string;
   @IsOptional() @IsString() @MaxLength(500) partsReplaced?: string;
   @IsOptional() @IsString() @MaxLength(500) notes?: string;
+
+  // false = paid by bank/online — keeps this cost out of Office Cash in the
+  // Cash Ledger. Omitted = cash (the historical behaviour).
+  @IsOptional() @IsBoolean() paidFromCash?: boolean;
 }

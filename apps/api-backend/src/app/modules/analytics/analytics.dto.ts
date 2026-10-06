@@ -1,4 +1,4 @@
-import { IsOptional, IsDateString, IsUUID, IsString, Matches, IsInt, Min, Max, IsIn } from 'class-validator';
+import { IsOptional, IsDateString, IsUUID, IsString, Matches, IsInt, Min, Max, IsIn, MaxLength } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class DateRangeDto {
@@ -23,6 +23,19 @@ export class ProfitLossQueryDto {
   @IsString()
   @Matches(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'month must be in YYYY-MM format' })
   month?: string;
+}
+
+/** Main P&L read — optionally with "actual cost" adjustments applied (comma-separated AdjustmentKeys). */
+export class ProfitLossSummaryQueryDto extends ProfitLossQueryDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  adjust?: string;
+
+  /** ACTUAL keeps the adjustment rows visible even when none is selected. */
+  @IsOptional()
+  @IsIn(['CASH', 'ACTUAL'])
+  basis?: string;
 }
 
 export class ProfitLossDetailsQueryDto extends ProfitLossQueryDto {

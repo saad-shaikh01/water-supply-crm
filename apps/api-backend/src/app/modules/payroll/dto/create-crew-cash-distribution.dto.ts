@@ -1,4 +1,4 @@
-import { ArrayMinSize, IsArray, IsEnum, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min, MinLength } from 'class-validator';
+import { ArrayMinSize, IsArray, IsBoolean, IsEnum, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min, MinLength } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { CrewCashCategory } from '@prisma/client';
 
@@ -30,6 +30,11 @@ export class CreateCrewCashDistributionDto {
   @IsString({ each: true })
   @ArrayMinSize(0)
   photoKeys?: string[];
+
+  /** false = paid by bank/online (not deducted from the sheet's cash hand-in). Omitted = cash. */
+  @IsOptional()
+  @IsBoolean()
+  paidFromCash?: boolean;
 
   /**
    * Mandatory ONLY when the sheet is already closed (enforced in the service —

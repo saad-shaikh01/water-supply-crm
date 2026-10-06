@@ -968,9 +968,10 @@ export class DailySheetService implements OnModuleInit {
           const isCorrection = !!dto.forceResubmit && item.status === DeliveryStatus.COMPLETED;
           // Reset whatsappSentAt so processor stamps it fresh after sending
           if (isCorrection) {
-            await this.prisma.dailySheetItem
-              .update({ where: { id: itemId }, data: { whatsappSentAt: null } })
-              .catch(() => {});
+            // Must go through `tx`: this transaction already holds a row lock on
+            // the item (FOR UPDATE + update above), so a write via the outer client
+            // (another connection) would block on it until the tx timed out (P2028).
+            await tx.dailySheetItem.update({ where: { id: itemId }, data: { whatsappSentAt: null } });
           }
           const now = new Date();
           const previousMonthOutstanding =
@@ -4466,7 +4467,7 @@ export class DailySheetService implements OnModuleInit {
           select: { amount: true, paidFromCash: true },
         },
         crewCashDistributions: {
-          select: { amount: true },
+          select: { amount: true, paidFromCash: true },
         },
         // Advances paid from the van's cash reduce the hand-in too (buildReconciliation).
         sheetAdvances: {
@@ -5855,7 +5856,7 @@ export class DailySheetService implements OnModuleInit {
    * Deposit the company is currently holding for a customer, for the receipt's
    * "Deposit" row: total Rs. (CASH deposits) and total bottle count (BOTTLE
    * deposits, all products). A field is omitted when it is not > 0, so the row
-   * only renders for customers who actually have a deposit.
+   * shows 0 on the receipt for customers who have no deposit.
    * Live send → current balances. Historical receipt (asOf) → replayed from
    * the entry ledger up to that moment (every entry counts, voided originals
    * and their reversals alike, so a later void never rewrites the past).

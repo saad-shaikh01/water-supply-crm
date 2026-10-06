@@ -31,7 +31,7 @@ const FAILURE_CATEGORIES = [
 
 interface DamageFormState {
   caseType: 'DAMAGE' | 'LOST';
-  bottleCount: number;
+  bottleCount: number | '';
   photoKeys: string[];
   description: string;
   lossReason: string;
@@ -39,7 +39,7 @@ interface DamageFormState {
 
 const DEFAULT_DAMAGE_FORM: DamageFormState = {
   caseType: 'DAMAGE',
-  bottleCount: 1,
+  bottleCount: '',
   photoKeys: [],
   description: '',
   lossReason: 'CUSTOMER_NOT_RETURNED',
@@ -555,7 +555,7 @@ export function DeliveryRecordForm({
               dailySheetItemId: item.id,
               caseType: damageForm.caseType,
               severity: damageForm.caseType === 'DAMAGE' ? 'MODERATE' : undefined,
-              bottleCount: damageForm.bottleCount,
+              bottleCount: Number(damageForm.bottleCount) || 1,
               photoPaths: damageForm.caseType === 'DAMAGE' ? damageForm.photoKeys : [],
               description: damageForm.description || undefined,
               lossReason: damageForm.caseType === 'LOST' ? damageForm.lossReason : undefined,
@@ -614,7 +614,7 @@ export function DeliveryRecordForm({
         dailySheetItemId: item.id,
         caseType: damageForm.caseType,
         severity: damageForm.caseType === 'DAMAGE' ? 'MODERATE' : undefined,
-        bottleCount: damageForm.bottleCount,
+        bottleCount: Number(damageForm.bottleCount) || 1,
         photoPaths: damageForm.caseType === 'DAMAGE' ? damageForm.photoKeys : [],
         description: damageForm.description || undefined,
         lossReason: damageForm.caseType === 'LOST' ? damageForm.lossReason : undefined,
@@ -941,7 +941,7 @@ export function DeliveryRecordForm({
                     type="number"
                     min={1}
                     value={damageForm.bottleCount}
-                    onChange={(e) => setDamageForm((p) => ({ ...p, bottleCount: Math.max(1, Number(e.target.value)) }))}
+                    onChange={(e) => setDamageForm((p) => ({ ...p, bottleCount: e.target.value === '' ? '' : Math.max(1, Math.floor(Number(e.target.value))) }))}
                     className="h-11 font-mono font-bold"
                   />
                 </div>
