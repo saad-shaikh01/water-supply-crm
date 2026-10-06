@@ -195,7 +195,7 @@ describe('ConversationService', () => {
         some: {
           item: {
             dailySheet: {
-              OR: [{ driverId: DRIVER_USER.userId }, { crew: { some: { userId: DRIVER_USER.userId } } }],
+              OR: [{ driverId: DRIVER_USER.userId }, { salesmanId: DRIVER_USER.userId }, { crew: { some: { userId: DRIVER_USER.userId } } }],
             },
           },
         },
@@ -235,6 +235,7 @@ describe('ConversationService', () => {
               dailySheet: {
                 OR: [
                   { driverId: CREW_SALESMAN_USER.userId },
+                  { salesmanId: CREW_SALESMAN_USER.userId },
                   { crew: { some: { userId: CREW_SALESMAN_USER.userId } } },
                 ],
               },
