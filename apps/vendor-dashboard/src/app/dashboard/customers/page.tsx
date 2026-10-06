@@ -6,6 +6,7 @@ import { Plus, UserPlus } from 'lucide-react';
 import { PageHeader } from '../../../components/shared/page-header';
 import { CustomerList } from '../../../features/customers/components/customer-list';
 import { CustomerForm } from '../../../features/customers/components/customer-form';
+import { ImportEmptyBanner } from '../../../features/data-import/components/import-empty-banner';
 
 export default function CustomersPage() {
   const [formOpen, setFormOpen] = useState(false);
@@ -25,6 +26,7 @@ export default function CustomersPage() {
           </Button>
         }
       />
+      <ImportEmptyBanner />
       <div className="bg-background/50 backdrop-blur-sm rounded-3xl">
         <CustomerList onAdd={() => setFormOpen(true)} />
       </div>

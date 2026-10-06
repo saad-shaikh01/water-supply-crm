@@ -28,7 +28,6 @@ const REVERTIBLE_STATUSES: ImportBatchStatus[] = ['COMPLETED', 'COMPLETED_WITH_E
 const STALE_RUN_MS = 5 * 60 * 1000;
 const WRITE_CHUNK = 250;
 const SAMPLE_ROWS = 10;
-const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 export interface BatchSummary {
   plan?: PlanSummary;

@@ -182,7 +182,7 @@ export const PRESET_DRIFT_BACKFILLS: Partial<Record<RoleKey, PermissionPattern[]
   accountant: [
     // Vendor Data Import (2026-10-07): read-only. Existing Accountant roles predate it.
     'data_imports:page',
-    'data_imports:view',,
+    'data_imports:view',
     // Van Cash Ledger (owner-requested 2026-09-09). Existing vendors'
     // Accountant roles predate it and need the catch-up grant. `manage`
     // (opening balances) is deliberately excluded — VENDOR_ADMIN-only.

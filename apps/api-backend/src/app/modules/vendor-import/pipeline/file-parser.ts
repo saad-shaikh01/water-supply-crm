@@ -63,7 +63,7 @@ async function loadWorkbook(buffer: Buffer, ext: string): Promise<ExcelJS.Workbo
   const wb = new ExcelJS.Workbook();
   try {
     if (ext === '.csv') {
-      // Strip a UTF-8 BOM so the first header isn't "﻿Name".
+      // Strip a UTF-8 byte-order mark so the first header is not polluted by it.
       const hasBom = buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf;
       const body = hasBom ? buffer.subarray(3) : buffer;
       // `map` identity: keep every CSV cell as text — the default converts "0300…" to 300 and

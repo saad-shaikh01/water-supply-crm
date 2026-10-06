@@ -434,3 +434,22 @@ Compatibility rules for future work: new entities must be additive; `ImportRow.r
 - Preview totals equal post-import database totals (customers created, Σ `financialBalance`, Σ wallet balance).
 - A fresh import can be reverted when untouched; once a delivery exists for a customer, that customer is refused with a clear reason.
 - No `Transaction`, Cash Ledger, or P&L figure changes as a result of an import.
+
+
+---
+
+## 16. Implementation notes (as built, 2026-10-07)
+
+Where the build differs from, or settles, what is written above:
+
+- **Phase 0 (D1) was already done** — `customerCode` is unique per vendor (migration `20261006000000`). The import migration is `20261007000000_add_vendor_data_import` (additive, **not applied**).
+- **Update-ready, create-only:** `ImportRowAction.UPDATE` / `ImportRowResult.UPDATED` and `ImportRow.diff` exist in the schema but are never produced by the MVP planner. The planner already returns `{ action, normalized, issues }` per row, and the executor dispatches through the entity definition, so adding UPDATE is a new planner branch + executor branch, not a pipeline change.
+- **System mapping profiles:** `ImportMappingProfile.vendorId` is nullable with `isSystem`; the wizard looks up vendor profile → system profile by header fingerprint, then alias dictionary, then fuzzy match. No system profile is seeded yet.
+- **Row cap is a constant** (`import.constants.ts`, env-overridable), not a structural limit.
+- **Resume safety:** the domain write and the `ImportRow` result commit in the same transaction (`record` callback), so a PENDING row has created nothing. Resume re-runs PENDING and FAILED rows. A batch whose heartbeat (`updatedAt`) is older than 5 minutes may be resumed. The worker runs with `maxStalledCount: 0` and `attempts: 1`.
+- **Revert runs as a queue job** (`vendor-import-revert`), not synchronously, with a preview step (`dryRun`). Progress is `summary.revert`.
+- **Money totals** are summed in integer paise (`PlanSummary.sumOpeningBalancePaise`).
+- **Numeric status values (0/1) are never guessed** — the user maps them in the value-mapping panel; unmapped values make the row an ERROR.
+- **CSV cells are read as text** so leading zeros in phones and codes survive.
+- **Not built yet:** the retention purge job (source file + `ImportRow.raw` after 12 months, abandoned drafts after 7 days), an in-app completion notification (the UI polls instead), `Vendor`-impersonated support access beyond existing vendor-context switching.
+- **Frontend entry points:** Settings → Data Import (`/dashboard/data-import`, `/new`, `/[id]`), plus an "Import from Excel" banner on the Customers page while the vendor has zero customers.
