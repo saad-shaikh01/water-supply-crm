@@ -197,6 +197,14 @@ export class ProfitLossService {
       const domain = domains.find((d) => d.domain === domainForKey(host));
       domain?.categories.push({ key: host, label: labelForKey(host), amount: 0, count: 0, perBottle: null, percent: 0, adjustment: 0 });
     }
+    // Row order must not depend on which boxes are ticked — otherwise a row whose amount drops
+    // on untick jumps down the table and looks like it vanished. Order by the amount each
+    // category would have with EVERY adjustment applied (fixed for the month), not the live amount.
+    const fullAmount = applyAdjustments(cash, base.adjustments as AdjustmentItem[]);
+    const orderOf = (key: string) => fullAmount.get(key as ProfitLossSourceKey)?.amount ?? 0;
+    for (const d of domains) {
+      d.categories.sort((a: any, b: any) => orderOf(b.key) - orderOf(a.key) || String(a.key).localeCompare(String(b.key)));
+    }
     return {
       ...rest,
       basis: 'ACTUAL',

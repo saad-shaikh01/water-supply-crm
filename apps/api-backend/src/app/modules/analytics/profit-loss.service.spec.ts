@@ -243,4 +243,15 @@ describe('ProfitLossService — actual cost adjustments', () => {
     // trend and reconciliation remain cash basis
     expect(r.reconciliation.ok).toBe(true);
   });
+
+  it('keeps row order stable whichever adjustments are ticked', async () => {
+    const order = async (adjust?: string) => {
+      const r = await makeService(makePrisma(), accrual).service.getProfitLoss('v1', '2026-09', adjust, 'ACTUAL');
+      return r.domains.flatMap((d: any) => d.categories.map((c: any) => c.key));
+    };
+    const all = await order('PLANT_PRIOR_PAID,PLANT_PENDING,SALARY_PRIOR_PAID,SALARY_PENDING');
+    expect(await order('PLANT_PENDING')).toEqual(all);
+    expect(await order('PLANT_PRIOR_PAID')).toEqual(all);
+    expect(await order(undefined)).toEqual(all);
+  });
 });

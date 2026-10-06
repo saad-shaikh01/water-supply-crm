@@ -73,44 +73,44 @@ function ProfitCard({ label, sub, value }: { label: string; sub: string; value: 
 }
 
 // ── "Cash basis" vs "Actual cost" view ────────────────────────────────────────
-// The choice (and which adjustments the owner switched off) survives refresh via localStorage.
+// The choice (and which adjustments the owner applied) survives refresh via localStorage.
 
 type Basis = 'CASH' | 'ACTUAL';
-const VIEW_STORAGE_KEY = 'analytics:profit-loss:view:v1';
+const VIEW_STORAGE_KEY = 'analytics:profit-loss:view:v2';
 
 function usePlView() {
   const [basis, setBasisState] = useState<Basis>('CASH');
-  const [off, setOffState] = useState<string[]>([]);
+  const [on, setOnState] = useState<string[]>([]);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     try {
       const saved = JSON.parse(window.localStorage.getItem(VIEW_STORAGE_KEY) ?? 'null');
       if (saved?.basis === 'ACTUAL') setBasisState('ACTUAL');
-      if (Array.isArray(saved?.off)) setOffState(saved.off.filter((k: unknown) => typeof k === 'string'));
+      if (Array.isArray(saved?.on)) setOnState(saved.on.filter((k: unknown) => typeof k === 'string'));
     } catch {
       // storage unavailable or corrupt — fall back to the cash view
     }
     setHydrated(true);
   }, []);
 
-  const persist = useCallback((nextBasis: Basis, nextOff: string[]) => {
+  const persist = useCallback((nextBasis: Basis, nextOn: string[]) => {
     try {
-      window.localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify({ basis: nextBasis, off: nextOff }));
+      window.localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify({ basis: nextBasis, on: nextOn }));
     } catch {
       // ignore — the view simply won't persist
     }
   }, []);
 
-  const setBasis = (next: Basis) => { setBasisState(next); persist(next, off); };
+  const setBasis = (next: Basis) => { setBasisState(next); persist(next, on); };
   const toggleKey = (key: string) => {
-    const next = off.includes(key) ? off.filter((k) => k !== key) : [...off, key];
-    setOffState(next);
+    const next = on.includes(key) ? on.filter((k) => k !== key) : [...on, key];
+    setOnState(next);
     persist(basis, next);
   };
-  const reset = () => { setBasisState('CASH'); setOffState([]); persist('CASH', []); };
+  const reset = () => { setBasisState('CASH'); setOnState([]); persist('CASH', []); };
 
-  return { basis, off, hydrated, setBasis, toggleKey, reset };
+  return { basis, on, hydrated, setBasis, toggleKey, reset };
 }
 
 /** The adjustment rows hang off the group's main cost category inside the Expenses table. */
@@ -138,7 +138,7 @@ function ExpenseTable({
   summary: ProfitLossSummary;
   onOpen: (key: string) => void;
   /** Present only in the Actual-cost view: the adjustment checkboxes live inside this table. */
-  actual?: { data: ProfitLossData; off: string[]; onToggle: (key: string) => void; onReset: () => void };
+  actual?: { data: ProfitLossData; on: string[]; onToggle: (key: string) => void; onReset: () => void };
 }) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const adjustments = actual ? actual.data.adjustments.filter((a) => a.amount > 0) : [];
@@ -153,7 +153,7 @@ function ExpenseTable({
         <CardTitle className="text-base font-bold">Expenses by Domain</CardTitle>
         <p className="text-xs text-muted-foreground">
           {actual
-            ? 'Actual cost: tick or untick the highlighted rows to move a cost into or out of this month.'
+            ? 'Actual cost: ticked rows are counted in Total Expenses, unticked rows are left out.'
             : 'Click a domain to see its categories, and a category to see every entry.'}
         </p>
         {actual && (
@@ -226,7 +226,10 @@ function ExpenseTable({
                       <TableCell className="text-right">{c.percent}%</TableCell>
                     </TableRow>
                     {actual && adjustments.filter((a) => ADJUSTMENT_HOST_KEY[a.group] === c.key).map((a) => {
-                      const checked = !actual.off.includes(a.key);
+                      // Checked = this amount is counted in Total Expenses. By default nothing is adjusted (= the cash view):
+                      // paid rows are in, unpaid rows are out. "on" holds the adjustments the owner applied.
+                      const applied = actual.on.includes(a.key);
+                      const checked = a.kind === 'ADD_PENDING' ? applied : !applied;
                       return (
                         <TableRow key={a.key} className="bg-amber-500/5 hover:bg-amber-500/10">
                           <TableCell className="pl-14" colSpan={2}>
@@ -243,8 +246,8 @@ function ExpenseTable({
                               </span>
                             </label>
                           </TableCell>
-                          <TableCell className={cn('text-right font-semibold whitespace-nowrap', a.delta > 0 ? 'text-destructive' : 'text-emerald-600 dark:text-emerald-400', !checked && 'opacity-40 line-through')} colSpan={2}>
-                            {a.delta > 0 ? '+' : '−'}{rs(a.amount)}
+                          <TableCell className={cn('text-right font-semibold whitespace-nowrap', checked ? 'text-foreground' : 'text-muted-foreground opacity-50 line-through')} colSpan={2}>
+                            {rs(a.amount)}
                           </TableCell>
                         </TableRow>
                       );
@@ -466,10 +469,10 @@ export function ProfitLossTab() {
     setMonthParam(value === thisMonth ? null : value);
   };
   const view = usePlView();
-  // Every adjustment is on unless the owner unticked it; the server ignores keys with nothing to adjust.
+  // An adjustment applies only once the owner ticks/unticks its row; the server ignores keys with nothing to adjust.
   const adjustKeys = useMemo(
-    () => (view.basis === 'ACTUAL' ? PROFIT_LOSS_ADJUSTMENT_KEYS.filter((k) => !view.off.includes(k)) : []),
-    [view.basis, view.off],
+    () => (view.basis === 'ACTUAL' ? PROFIT_LOSS_ADJUSTMENT_KEYS.filter((k) => view.on.includes(k)) : []),
+    [view.basis, view.on],
   );
   const [detailCategory, setDetailCategory] = useState<string | null>(null);
   const [paymentsKind, setPaymentsKind] = useState<string | null>(null);
@@ -588,7 +591,7 @@ export function ProfitLossTab() {
             domains={data.domains}
             summary={data.summary}
             onOpen={setDetailCategory}
-            actual={view.basis === 'ACTUAL' ? { data, off: view.off, onToggle: view.toggleKey, onReset: view.reset } : undefined}
+            actual={view.basis === 'ACTUAL' ? { data, on: view.on, onToggle: view.toggleKey, onReset: view.reset } : undefined}
           />
 
           <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">
