@@ -496,6 +496,20 @@ export const PERMISSION_CATALOG = {
     navigable: false,
     actions: ['view', 'collect', 'refund', 'write_off', 'void', 'manage_config'],
   },
+  // Vendor Data Import (owner-approved 2026-10-07): upload a vendor's own Excel/CSV, map its
+  // columns, preview, and onboard customers + opening balances. Navigable:
+  // /dashboard/data-import. Rows carry customer PII and the file is the vendor's own data,
+  // so even `view` is withheld from Viewer's blanket read-only grant (READ_ONLY_EXCLUDED).
+  //   `view`     history, rows, reports, templates, saved mappings.
+  //   `upload`   upload a file, map columns, preview, cancel a draft, manage mappings.
+  //   `execute`  confirm and run an import — bulk-writes customers and opening balances
+  //               (Vendor Admin only by default, reaches vendors via the `*` wildcard).
+  //   `revert`   revert an import's untouched customers (Vendor Admin only by default).
+  data_imports: {
+    label: 'Data Import',
+    navigable: true,
+    actions: ['page', 'view', 'upload', 'execute', 'revert'],
+  },
 } as const satisfies Record<string, ResourceDefinition>;
 
 /** Union of every resource key, e.g. `'customers' | 'orders' | …`. */

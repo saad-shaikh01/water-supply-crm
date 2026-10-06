@@ -418,6 +418,8 @@ model Vendor {
   // Ledger deposit rows all gate on this).
   depositsEnabled        Boolean                @default(false)
   customerDeposits       CustomerDeposit[]
+  importBatches          ImportBatch[]
+  importMappingProfiles  ImportMappingProfile[]
   customerDepositEntries CustomerDepositEntry[]
 }
 
@@ -4506,4 +4508,136 @@ model CustomerDepositEntry {
 
   @@index([vendorId, depositId])
   @@index([dailySheetItemId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Vendor Data Import (owner-approved 2026-10-07) — docs/features/vendor-data-import-design.md
+// Upload → Map → Validate → Plan → Execute → History. Additive: no existing table is
+// touched. A created Customer is linked to its batch only through ImportRow.entityId
+// (deliberately NO FK, so batch history survives a later customer deletion).
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum ImportEntity {
+  CUSTOMERS_OPENING // customers + opening balances (money + bottle balance)
+}
+
+enum ImportBatchStatus {
+  UPLOADED // file stored + parsed, headers known
+  MAPPED // mapping/options confirmed; rows normalized, validated and planned
+  QUEUED // execute accepted, job enqueued
+  EXECUTING
+  COMPLETED // every row resolved, none FAILED
+  COMPLETED_WITH_ERRORS // every row resolved, at least one FAILED
+  FAILED // infrastructure failure while executing — resumable
+  CANCELLED // abandoned before execute
+  REVERTED
+  PARTIALLY_REVERTED
+}
+
+enum ImportRowAction {
+  CREATE
+  UPDATE // reserved for the update-existing phase; never produced by the MVP planner
+  SKIP_EXISTING
+  SKIP_INVALID
+}
+
+enum ImportRowResult {
+  PENDING
+  CREATED
+  UPDATED // reserved (see ImportRowAction.UPDATE)
+  SKIPPED
+  FAILED
+  REVERTED
+  REVERT_SKIPPED
+}
+
+model ImportBatch {
+  id       String            @id @default(uuid())
+  vendorId String
+  vendor   Vendor            @relation(fields: [vendorId], references: [id])
+  entity   ImportEntity
+  status   ImportBatchStatus @default(UPLOADED)
+
+  // Original upload — private Wasabi key, never a public URL. Null once the retention job purged it.
+  sourceFileKey    String?
+  sourceFileName   String
+  sourceFileSize   Int
+  sourceFileSha256 String // detect "this exact file was already imported"
+  sheetName        String?
+  headerRowIndex   Int     @default(1)
+  rowCount         Int     @default(0)
+
+  mapping   Json? // { columns: {<header>: <fieldKey>|null}, valueMaps: {...} }
+  options   Json? // { productId, balanceSign, balancesAsOf, codeStrategy, ... }
+  profileId String? // ImportMappingProfile used/saved — informational, no FK
+  summary   Json? // plan summary + final counters
+  planHash  String? // execute must echo it (409 PLAN_STALE otherwise)
+  plannedAt DateTime?
+
+  jobId        String?
+  errorCode    String?
+  errorMessage String? // customer-safe
+
+  createdById   String?
+  createdByName String? // snapshot — survives the user being renamed/removed
+  startedAt     DateTime?
+  completedAt   DateTime?
+  revertedAt    DateTime?
+  revertedById  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  rows ImportRow[]
+
+  @@index([vendorId, createdAt])
+  @@index([vendorId, entity, status])
+  @@index([vendorId, sourceFileSha256])
+}
+
+model ImportRow {
+  id        String      @id @default(uuid())
+  batchId   String
+  batch     ImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  rowNumber Int // 1-based spreadsheet row, shown to the user
+
+  raw        Json // exactly as read from the file
+  normalized Json? // canonical typed values (null when unparseable)
+  issues     Json? // [{ severity: 'ERROR'|'WARNING', code, field?, message }]
+
+  action          ImportRowAction?
+  diff            Json? // reserved for UPDATE: field-level before→after
+  result          ImportRowResult  @default(PENDING)
+  resultCode      String? // machine code, e.g. CODE_CONFLICT, HAS_ACTIVITY
+  resultMessage   String? // customer-safe
+  entityType      String? // 'Customer'
+  entityId        String? // created Customer.id — plain string, NO FK
+  appliedSnapshot Json? // what was written (revert compares against current state)
+
+  @@unique([batchId, rowNumber])
+  @@index([batchId, action])
+  @@index([batchId, result])
+  @@index([entityType, entityId])
+}
+
+// vendorId NULL + isSystem = a system-level profile for a popular export format (matched by
+// header fingerprint, same path as a vendor's own saved profile; vendor profiles win).
+model ImportMappingProfile {
+  id             String       @id @default(uuid())
+  vendorId       String?
+  vendor         Vendor?      @relation(fields: [vendorId], references: [id])
+  isSystem       Boolean      @default(false)
+  entity         ImportEntity
+  name           String
+  fingerprint    String // hash of the normalized header set → auto-select next time
+  columnMap      Json // header → field
+  valueMaps      Json?
+  optionDefaults Json?
+  lastUsedAt     DateTime?
+  createdById    String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([vendorId, entity, name])
+  @@index([vendorId, entity, fingerprint])
+  @@index([isSystem, entity, fingerprint])
 }

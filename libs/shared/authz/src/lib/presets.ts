@@ -102,6 +102,10 @@ const READ_ONLY_EXCLUDED: Permission[] = [
   // off / corrected) — the same tier as `customers:view_financial`, which Viewer also
   // lacks. Would otherwise leak in through the blanket `:view` grant.
   'customer_financial_adjustments:view',
+  // Vendor Data Import (2026-10-07): uploaded files / rows hold the vendor's raw customer
+  // PII (names, phones, balances). Not for Viewer's blanket read-only grant.
+  'data_imports:page',
+  'data_imports:view',
 ];
 const READ_ONLY_PERMISSIONS: Permission[] = PERMISSIONS.filter((p) => {
   const [, action] = splitPermission(p);
@@ -248,6 +252,10 @@ const MANAGER_PERMISSIONS: Permission[] = [
   // vendors get this via PRESET_DRIFT_BACKFILLS.manager.
   'customer_deposits:view',
   'customer_deposits:collect',
+  // Vendor Data Import (owner-approved 2026-10-07): Manager may upload, map and preview an
+  // import but NOT execute or revert it (bulk financial write — Vendor Admin only).
+  // Existing vendors get this via PRESET_DRIFT_BACKFILLS.manager.
+  'data_imports:page', 'data_imports:view', 'data_imports:upload',
 ];
 
 export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
@@ -359,6 +367,10 @@ export const ROLE_PRESETS: Record<RoleKey, RolePreset> = {
       'customer_deposits:refund',
       'customer_deposits:write_off',
       'customer_deposits:void',
+      // Vendor Data Import (2026-10-07): read-only — the opening balances are theirs to
+      // reconcile. Existing vendors get this via PRESET_DRIFT_BACKFILLS.accountant.
+      'data_imports:page',
+      'data_imports:view',
     ],
   },
   support: {

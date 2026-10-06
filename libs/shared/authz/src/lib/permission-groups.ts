@@ -113,6 +113,10 @@ export const ACTION_LABELS: Record<string, string> = {
   collect: 'Collect deposit',
   refund: 'Refund deposit',
   manage_config: 'Enable / disable deposits for this vendor',
+  // Vendor Data Import. `view` reuses the shared label above.
+  upload: 'Upload & map import files',
+  execute: 'Run (confirm) an import',
+  revert: 'Revert an import',
 };
 
 /** A single permission with display metadata for the role editor. */

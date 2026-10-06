@@ -52,6 +52,7 @@ export const PAGE_REGISTRY: readonly PageRoute[] = [
   { prefix: '/dashboard/cash-ledger', permission: 'van_cash_ledger:page' },
   { prefix: '/dashboard/fuel-cards', permission: 'fuel_cards:page' },
   { prefix: '/dashboard/extra-labour', permission: 'extra_labour:page' },
+  { prefix: '/dashboard/data-import', permission: 'data_imports:page' },
 ];
 
 /**

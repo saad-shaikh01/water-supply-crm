@@ -28,7 +28,7 @@ const MATRIX: Record<RoleKey, Row> = {
     deny: [],
   },
   vendor_admin: {
-    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'daily_sheets:reprice', 'settings:update', 'whatsapp:manage', 'inventory:write_off', 'payroll:period_lock', 'payroll:view_all', 'payroll:attendance_view', 'payroll:attendance_mark', 'payroll:config_manage', 'crew_cash:approve', 'crew_cash:view_all', 'customers:deactivate', 'customers:force_deactivate', 'customers:force_deactivate_bottles', 'customers:bottle_wallet_adjust', 'customer_financial_adjustments:create_restricted', 'customer_financial_adjustments:transfer', 'customer_financial_adjustments:void', 'customer_deposits:refund', 'customer_deposits:write_off', 'customer_deposits:void', 'customer_deposits:manage_config'],
+    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'daily_sheets:reprice', 'settings:update', 'whatsapp:manage', 'inventory:write_off', 'payroll:period_lock', 'payroll:view_all', 'payroll:attendance_view', 'payroll:attendance_mark', 'payroll:config_manage', 'crew_cash:approve', 'crew_cash:view_all', 'customers:deactivate', 'customers:force_deactivate', 'customers:force_deactivate_bottles', 'customers:bottle_wallet_adjust', 'customer_financial_adjustments:create_restricted', 'customer_financial_adjustments:transfer', 'customer_financial_adjustments:void', 'customer_deposits:refund', 'customer_deposits:write_off', 'customer_deposits:void', 'customer_deposits:manage_config', 'data_imports:view', 'data_imports:upload', 'data_imports:execute', 'data_imports:revert'],
     deny: [],
   },
   manager: {
@@ -52,8 +52,11 @@ const MATRIX: Record<RoleKey, Row> = {
       'crew_cash:create', 'crew_cash:edit', 'crew_cash:delete', 'crew_cash:approve', 'crew_cash:view_all',
       // Customer Deposits (Amendment R25): Manager may view + collect, not refund/write_off/void.
       'customer_deposits:view', 'customer_deposits:collect',
+      // Vendor Data Import: Manager may upload/map/preview, not execute/revert.
+      'data_imports:view', 'data_imports:upload',
     ],
     deny: [
+      'data_imports:execute', 'data_imports:revert',
       'users:create', 'users:delete', 'customers:delete', 'payments:approve', 'transactions:adjust',
       'damage_cases:charge', 'daily_sheets:correct', 'inventory:write_off', 'inventory:adjust',
       'roles:view', 'roles:update', 'settings:update', 'audit_logs:view', 'balance_reminders:send', 'whatsapp:manage',
@@ -98,8 +101,9 @@ const MATRIX: Record<RoleKey, Row> = {
       // Customer Deposits (Amendment R25): Accountant holds the full set.
       'customer_deposits:view', 'customer_deposits:collect', 'customer_deposits:refund',
       'customer_deposits:write_off', 'customer_deposits:void',
+      'data_imports:view',
     ],
-    deny: ['customers:update', 'customers:delete', 'orders:approve', 'daily_sheets:update', 'users:create', 'roles:update', 'inventory:add_stock', 'payroll:view_all', 'crew_cash:create', 'crew_cash:view_all'],
+    deny: ['data_imports:upload', 'data_imports:execute', 'data_imports:revert', 'customers:update', 'customers:delete', 'orders:approve', 'daily_sheets:update', 'users:create', 'roles:update', 'inventory:add_stock', 'payroll:view_all', 'crew_cash:create', 'crew_cash:view_all'],
   },
   support: {
     allow: ['dashboard:view', 'tickets:reply', 'orders:reject', 'customers:view', 'customers:update', 'delivery_issues:resolve'],
@@ -148,6 +152,8 @@ const MATRIX: Record<RoleKey, Row> = {
       // documents carry a staff-only internal note, so Viewer's blanket `:view` must not
       // include them.
       'customer_financial_adjustments:view',
+      // Vendor Data Import: raw customer PII — excluded from the blanket read-only grant.
+      'data_imports:view', 'data_imports:page',
     ],
   },
 };

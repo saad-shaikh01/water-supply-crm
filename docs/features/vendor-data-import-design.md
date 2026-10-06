@@ -33,7 +33,7 @@ These were verified against the current code; several change what was discussed 
 
 | # | Finding | Consequence |
 |---|---|---|
-| F1 | `Customer.customerCode` is **globally** `@unique` (not per vendor). `CustomerService.create` checks it with `findUnique({customerCode})`, while `generateCustomerCode()` generates `L{n}` **per vendor**. | Vendor B's first auto-code (`L1`) collides with vendor A's `L1`, and vendors' own codes (`C001`, `A-12`) will collide across vendors. **Prerequisite P0 — see §14, decision D1.** This is a latent multi-vendor bug independent of import. |
+| F1 | **RESOLVED** (commit 2162d4d, migration `20261006000000_customer_code_unique_per_vendor`): `customerCode` is now unique **per vendor** (`@@unique([vendorId, customerCode])`); `CustomerService.create` uses `vendorId_customerCode`. Only global lookup left: public portal activation (`customer-activation.service.ts`), which disambiguates by code + phone. | No Phase 0 migration needed. Import relies on the per-vendor key. Activation interaction: see R1 in §14. |
 | F2 | Opening balance is **not** a ledger row. `import-blue-ice.mjs` sets `Customer.financialBalance` and `BottleWallet.balance` directly, and statements compute `openingBalance = closingBalance − periodActivity` (`customer.service.ts` ~L933). | **Correction to the earlier proposal** ("a single opening ledger entry"): the MVP sets `financialBalance` / `BottleWallet.balance` directly, creates **no** `Transaction`. This keeps P&L, Cash Ledger and collection analytics free of fake revenue/ADJUSTMENT rows. The audit trail lives in `ImportRow` + `AuditLog` instead. |
 | F3 | `CustomerService.create` already: creates the customer, one 0-balance `BottleWallet` per active product, optional `CustomerProductPrice`, optional schedule — in one `$transaction`, then invalidates the vendor customer cache and writes an `AuditLog`. | The executor must **not** re-implement this. Extract the in-transaction part into a shared `createCustomerInTx(tx, …)` used by both `create()` and the import executor (so rules never drift). Cache invalidation + audit are done **once per batch**, not per row. |
 | F4 | `Customer` has no `area` column; the old script folded Area/Block into `address`. | `area` is a mappable source column that is **concatenated into `address`** (configurable), not a stored field. |
@@ -414,7 +414,7 @@ Compatibility rules for future work: new entities must be additive; `ImportRow.r
 
 | # | Decision | Recommendation |
 |---|---|---|
-| **D1** | **`customerCode` global uniqueness (F1).** | **Fix first, as its own small migration:** replace `@unique` with `@@unique([vendorId, customerCode])`, audit and change every `findUnique({ customerCode })` call site (starting with `CustomerService.create`) to be vendor-scoped. Alternative (not preferred): auto-prefix imported codes with a vendor token, which leaves the latent `L{n}` collision between vendors in place. **This is the only hard blocker.** Note existing BLUE ICE data has to stay valid under the composite key (it will). |
+| **D1** | `customerCode` uniqueness. | **DONE** — already per-vendor (see F1). Not a blocker any more. |
 | **D2** | Blank phone policy | Allow; store `"-"`; WARNING. |
 | **D3** | Back-dating `Customer.createdAt` from an optional "customer since" column | Not in MVP (nothing consumes it except analytics cohorts); easy to add as one optional field later. |
 | **D4** | Revert eligibility strictness (§5.6) | As written (any activity blocks that row). No time window, because activity — not time — is what makes revert unsafe. |
