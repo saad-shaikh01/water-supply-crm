@@ -36,6 +36,8 @@ export interface ProfitLossCategory {
   label: string;
   /** Actual-cost view only: how much of `amount` comes from applied adjustments (+ added, - removed). */
   adjustment?: number;
+  /** Actual-cost view: this amount is a what-if (rate x bottles), not recorded cost. */
+  simulated?: boolean;
   amount: number;
   count: number;
   perBottle: number | null;
@@ -90,6 +92,19 @@ export interface ProfitLossAdjustment {
   /** Signed effect on Total Expenses when applied. */
   delta: number;
   applied: boolean;
+  /** A what-if rate currently replaces this group's cost, so this row is set aside. */
+  superseded?: boolean;
+  /** Per-month lines behind the amount. */
+  details?: Array<{ label: string; amount: number }>;
+  /** Context line, e.g. overall balance owed vs. this month's share. */
+  note?: string;
+}
+
+/** Planning inputs sent with the request (never stored on the server). */
+export interface ProfitLossWhatIfParams {
+  plantRate?: number;
+  capsRate?: number;
+  basis?: 'DELIVERED' | 'NET';
 }
 
 export interface ProfitLossData {
@@ -97,6 +112,13 @@ export interface ProfitLossData {
   /** CASH = costs in the month they were paid; ACTUAL = with the selected adjustments applied. */
   basis: 'CASH' | 'ACTUAL';
   adjustments: ProfitLossAdjustment[];
+  /** Actual-cost view only: the bottle count and result of any active what-if rate. */
+  whatIf?: {
+    basis: 'DELIVERED' | 'NET';
+    bottles: number;
+    plant: { rate: number; amount: number } | null;
+    caps: { rate: number; amount: number } | null;
+  };
   /** Applied adjustments' net effect on Total Expenses (0 on CASH). */
   adjustmentTotal: number;
   summary: ProfitLossSummary;
@@ -141,10 +163,16 @@ export interface ProfitLossDetails {
   rows: ProfitLossDetailRow[];
 }
 
-export const useProfitLoss = (month: string, basis: 'CASH' | 'ACTUAL' = 'CASH', adjust: readonly string[] = [], enabled = true) =>
+export const useProfitLoss = (
+  month: string,
+  basis: 'CASH' | 'ACTUAL' = 'CASH',
+  adjust: readonly string[] = [],
+  enabled = true,
+  whatIf?: ProfitLossWhatIfParams,
+) =>
   useQuery<ProfitLossData>({
-    queryKey: ['analytics', 'profit-loss', month, basis, adjust.join(',')],
-    queryFn: () => profitLossApi.get(month, adjust.join(','), basis).then((r) => r.data),
+    queryKey: ['analytics', 'profit-loss', month, basis, adjust.join(','), whatIf?.plantRate ?? 0, whatIf?.capsRate ?? 0, whatIf?.basis ?? ''],
+    queryFn: () => profitLossApi.get(month, adjust.join(','), basis, whatIf).then((r) => r.data),
     placeholderData: (prev) => prev,
     enabled,
   });

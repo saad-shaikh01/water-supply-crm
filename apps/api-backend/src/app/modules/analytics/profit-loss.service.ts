@@ -44,6 +44,13 @@ const ADVANCE_CATEGORIES: StaffLedgerCategory[] = [
   StaffLedgerCategory.ADVANCE_DISBURSEMENT,
 ];
 
+/** Planning inputs (never stored): rate per bottle that replaces the plant / caps cost, and which bottle count to multiply. */
+export interface WhatIfInput {
+  plantRate?: number;
+  capsRate?: number;
+  basis?: string;
+}
+
 interface MonthFigures {
   sales: SalesFigures;
   categories: Map<ProfitLossSourceKey, CategoryTotal>;
@@ -86,14 +93,14 @@ export class ProfitLossService {
    * "actual cost" view); omitted/empty = pure cash basis. Every month's
    * adjustment candidates are always returned so the UI can list them.
    */
-  async getProfitLoss(vendorId: string, monthInput?: string, adjustInput?: string, basisInput?: string) {
+  async getProfitLoss(vendorId: string, monthInput?: string, adjustInput?: string, basisInput?: string, whatIf?: WhatIfInput) {
     const month = this.resolveMonth(monthInput);
     const applied = this.parseAdjustKeys(adjustInput);
     // The UI asks for ACTUAL explicitly so the inline checkboxes stay even when every adjustment is unticked.
     const actualView = basisInput === 'ACTUAL' || applied.length > 0;
     const cacheKey = this.cache.vendorKey(vendorId, `${CACHE_KEYS.DASHBOARD}:analytics:profit-loss:v2:${month}`);
     const cached = await this.cache.get<any>(cacheKey);
-    if (cached) return this.withAdjustments(cached, applied, actualView);
+    if (cached) return this.withAdjustments(cached, applied, actualView, whatIf);
 
     const trendMonths = Array.from({ length: TREND_MONTHS }, (_, i) => shiftMonth(month, i - (TREND_MONTHS - 1)));
     const figuresByMonth = new Map<string, MonthFigures>();
@@ -151,7 +158,7 @@ export class ProfitLossService {
     };
 
     await this.cache.set(cacheKey, result, CACHE_TTL_SECONDS);
-    return this.withAdjustments(result, applied, actualView);
+    return this.withAdjustments(result, applied, actualView, whatIf);
   }
 
   private parseAdjustKeys(input?: string): AdjustmentKey[] {
@@ -169,33 +176,65 @@ export class ProfitLossService {
    * are selected, re-derives summary + domain tree from them. The Month-wise
    * Comparison trend and the reconciliation check always stay cash-basis.
    */
-  private withAdjustments(base: any, applied: AdjustmentKey[], actualView: boolean) {
+  private withAdjustments(base: any, applied: AdjustmentKey[], actualView: boolean, whatIf?: WhatIfInput) {
     if (!base.adjustments) return base; // payload from before adjustments existed
     const { cashCategories, sales, ...rest } = base;
-    const items: AdjustmentItem[] = (base.adjustments as AdjustmentItem[]).filter((i) => applied.includes(i.key));
+    // What-if (planning) rates REPLACE a whole group's cost with rate x bottles, so that group's
+    // paid/unpaid adjustments are set aside while it is on.
+    const plantRate = actualView && (whatIf?.plantRate ?? 0) > 0 ? (whatIf?.plantRate as number) : 0;
+    const capsRate = actualView && (whatIf?.capsRate ?? 0) > 0 ? (whatIf?.capsRate as number) : 0;
+    const superseded = (group: string) => (group === 'PLANT' && plantRate > 0) || (group === 'CAPS' && capsRate > 0);
+    const items: AdjustmentItem[] = (base.adjustments as AdjustmentItem[]).filter((i) => applied.includes(i.key) && !superseded(i.group));
     const adjustments = (base.adjustments as Array<AdjustmentItem & { delta: number }>).map((i) => ({
       ...i,
-      applied: applied.includes(i.key) && i.amount > 0,
+      applied: applied.includes(i.key) && i.amount > 0 && !superseded(i.group),
+      superseded: superseded(i.group),
     }));
     if (!actualView) return { ...rest, adjustments };
 
     const cash = new Map<ProfitLossSourceKey, CategoryTotal>(cashCategories);
     const adjusted = applyAdjustments(cash, items);
+
+    const bottleBasis: 'DELIVERED' | 'NET' = whatIf?.basis === 'NET' ? 'NET' : 'DELIVERED';
+    const whatIfBottles: number = bottleBasis === 'NET' ? sales.bottlesSold : (sales.bottlesDelivered ?? sales.bottlesSold);
+    const simulate = (group: keyof typeof ADJUSTMENT_CATEGORY_KEYS, rate: number) => {
+      if (!(rate > 0)) return null;
+      const keys = ADJUSTMENT_CATEGORY_KEYS[group];
+      for (const k of keys) {
+        const cur = adjusted.get(k);
+        if (cur) adjusted.set(k, { amount: 0, count: cur.count });
+      }
+      const amount = round2(rate * whatIfBottles);
+      adjusted.set(keys[0], { amount, count: adjusted.get(keys[0])?.count ?? 0 });
+      return { rate, amount };
+    };
+    const plantSim = simulate('PLANT', plantRate);
+    const capsSim = simulate('CAPS', capsRate);
+    const simulatedKeys = new Set<string>([
+      ...(plantSim ? [ADJUSTMENT_CATEGORY_KEYS.PLANT[0]] : []),
+      ...(capsSim ? [ADJUSTMENT_CATEGORY_KEYS.CAPS[0]] : []),
+    ]);
+
     const totalExpenses = sumCategoryTotals(adjusted);
     const cashDomains = base.domains as Array<{ categories: Array<{ key: string; amount: number }> }>;
     const cashAmountByKey = new Map<string, number>(cashDomains.flatMap((d) => d.categories.map((c) => [c.key, c.amount] as [string, number])));
     const domains: any[] = buildDomainTree(adjusted, sales.bottlesSold).map((d) => ({
       ...d,
-      categories: d.categories.map((c) => ({ ...c, adjustment: round2(c.amount - (cashAmountByKey.get(c.key) ?? 0)) })),
+      categories: d.categories.map((c) => ({
+        ...c,
+        adjustment: round2(c.amount - (cashAmountByKey.get(c.key) ?? 0)),
+        simulated: simulatedKeys.has(c.key),
+      })),
     }));
     // The inline checkboxes hang off the group's main category row. If that row would be empty
     // (e.g. only an unpaid bill, nothing paid yet) keep a zero row so the checkbox never disappears.
     for (const group of Object.keys(ADJUSTMENT_CATEGORY_KEYS) as Array<keyof typeof ADJUSTMENT_CATEGORY_KEYS>) {
-      if (!adjustments.some((a) => a.group === group && a.amount > 0)) continue;
+      // Plant and caps always keep their row — the what-if input hangs off it even with nothing to adjust.
+      if (group === 'SALARY' && !adjustments.some((a) => a.group === group && a.amount > 0)) continue;
       const host = ADJUSTMENT_CATEGORY_KEYS[group][0];
       if (domains.some((d) => d.categories.some((c: any) => c.key === host))) continue;
       const domain = domains.find((d) => d.domain === domainForKey(host));
-      domain?.categories.push({ key: host, label: labelForKey(host), amount: 0, count: 0, perBottle: null, percent: 0, adjustment: 0 });
+      domain?.categories.push({ key: host, label: labelForKey(host), amount: 0, count: 0, perBottle: null, percent: 0, adjustment: 0, simulated: false });
     }
     // Row order must not depend on which boxes are ticked — otherwise a row whose amount drops
     // on untick jumps down the table and looks like it vanished. Order by the amount each
@@ -208,6 +247,7 @@ export class ProfitLossService {
     return {
       ...rest,
       basis: 'ACTUAL',
+      whatIf: { basis: bottleBasis, bottles: whatIfBottles, plant: plantSim, caps: capsSim },
       adjustments,
       adjustmentTotal: round2(totalExpenses - base.summary.totalExpenses),
       summary: buildSummary(sales, totalExpenses),
@@ -244,6 +284,21 @@ export class ProfitLossService {
     }, 0);
 
     const monthName = monthLabelOf(month);
+    const monthText = (m: string) => (m === 'OPENING' ? 'Before tracking (opening balance)' : monthLabelOf(m));
+    const money = (n: number) => '₨' + Math.round(n).toLocaleString('en');
+    const paidDetails = (rows: Array<{ month: string; amount: number }>) =>
+      rows.map((r) => ({ label: monthText(r.month) + ' bill', amount: r.amount }));
+    const owedNote = (who: string, pending: number, earlier: Array<{ month: string; amount: number }>) => {
+      const earlierTotal = earlier.reduce((sum, r) => sum + r.amount, 0);
+      if (earlierTotal <= 0) return undefined;
+      return (
+        'Overall still owed to ' + who + ' at ' + monthName + ' end: ' + money(pending + earlierTotal) +
+        ' — only ' + money(pending) + ' belongs to ' + monthName + '; the other ' + money(earlierTotal) +
+        ' belongs to earlier months (listed below) and shows in those months.'
+      );
+    };
+    const earlierDetails = (rows: Array<{ month: string; amount: number }>) =>
+      rows.map((r) => ({ label: monthText(r.month) + ' — still unpaid', amount: r.amount }));
     return [
       {
         key: 'PLANT_PRIOR_PAID',
@@ -252,6 +307,7 @@ export class ProfitLossService {
         label: 'Plant bill of earlier months, paid in ' + monthName,
         hint: 'Refill payments made this month that cleared older bills — not ' + monthName + "'s own cost.",
         amount: bills.plant.priorPaid,
+        details: paidDetails(bills.plant.priorPaidByMonth),
       },
       {
         key: 'PLANT_PENDING',
@@ -260,6 +316,8 @@ export class ProfitLossService {
         label: monthName + ' plant bill still unpaid',
         hint: 'Bottle refill cost of ' + monthName + ' deliveries not yet paid at month end (of a ' + round2(bills.plant.bill) + ' bill).',
         amount: bills.plant.pending,
+        details: earlierDetails(bills.plant.earlierPendingByMonth),
+        note: owedNote('the plant', bills.plant.pending, bills.plant.earlierPendingByMonth),
       },
       {
         key: 'CAPS_PRIOR_PAID',
@@ -268,6 +326,7 @@ export class ProfitLossService {
         label: 'Caps bill of earlier months, paid in ' + monthName,
         hint: 'Caps payments made this month that cleared older bills.',
         amount: bills.caps.priorPaid,
+        details: paidDetails(bills.caps.priorPaidByMonth),
       },
       {
         key: 'CAPS_PENDING',
@@ -276,6 +335,8 @@ export class ProfitLossService {
         label: monthName + ' caps bill still unpaid',
         hint: 'Caps cost of ' + monthName + ' deliveries not yet paid at month end (of a ' + round2(bills.caps.bill) + ' bill).',
         amount: bills.caps.pending,
+        details: earlierDetails(bills.caps.earlierPendingByMonth),
+        note: owedNote('the caps supplier', bills.caps.pending, bills.caps.earlierPendingByMonth),
       },
       {
         key: 'SALARY_PRIOR_PAID',

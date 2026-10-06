@@ -252,6 +252,10 @@ export interface AdjustmentItem {
   hint: string;
   /** Always >= 0 — the size of the movement. */
   amount: number;
+  /** Per-month lines behind the amount (e.g. which earlier bill a payment cleared). */
+  details?: Array<{ label: string; amount: number }>;
+  /** One-line context shown under the row (e.g. overall balance owed vs. what counts here). */
+  note?: string;
 }
 
 export function adjustmentDelta(item: Pick<AdjustmentItem, 'kind' | 'amount'>): number {

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import { ExpenseCategory, ProductCostKind } from '@prisma/client';
-import { currentPeriodLabel, periodBounds } from './cash-ledger-period.util';
+import { currentPeriodLabel, periodBounds, periodLabelOf } from './cash-ledger-period.util';
 import { AuditService } from '../audit/audit.service';
 import { SetSupplierBillOpeningBalanceDto } from './dto/set-supplier-bill-opening-balance.dto';
 import type { AuthUser } from '@water-supply-crm/types';
@@ -85,6 +85,10 @@ export interface SupplierMonthAccrual {
   priorPaid: number;
   /** Part of the month's bill still unpaid at month end. */
   pending: number;
+  /** priorPaid split by the earlier month it cleared (oldest first). month = YYYY-MM or 'OPENING' (pre-tracking debt). */
+  priorPaidByMonth: Array<{ month: string; amount: number }>;
+  /** Earlier months' bills still unpaid at this month's end (they belong to those months, not this one). */
+  earlierPendingByMonth: Array<{ month: string; amount: number }>;
 }
 
 export interface SupplierMonthAccrualResult {
@@ -228,6 +232,9 @@ export class SupplierBillService {
     let bottleMonth = 0;
     let capBefore = 0;
     let capMonth = 0;
+    const bottleByMonth = new Map<string, number>();
+    const capByMonth = new Map<string, number>();
+    const bump = (m: Map<string, number>, key: string, amount: number) => m.set(key, (m.get(key) ?? 0) + amount);
     for (const item of deliveryItems) {
       const date = item.dailySheet?.date ?? null;
       if (!date) continue;
@@ -236,32 +243,69 @@ export class SupplierBillService {
       if (bottleCost) {
         const amount = item.filledDropped * bottleCost.costPerUnit;
         if (inMonth) bottleMonth += amount;
-        else bottleBefore += amount;
+        else {
+          bottleBefore += amount;
+          bump(bottleByMonth, periodLabelOf(date), amount);
+        }
       }
       const capCost = findCapCost(item.productId, date);
       if (capCost) {
         const amount = item.filledDropped * capCost.costPerUnit;
         if (inMonth) capMonth += amount;
-        else capBefore += amount;
+        else {
+          capBefore += amount;
+          bump(capByMonth, periodLabelOf(date), amount);
+        }
       }
     }
 
     // Signed throughout, like computeBucket: an overpayment of earlier bills
     // rolls forward as a credit against this month's bill.
-    const accrue = (cogsBefore: number, cogsMonth: number, paidBefore: number, paidMonth: number, opening: number): SupplierMonthAccrual => {
+    const accrue = (
+      cogsBefore: number,
+      cogsMonth: number,
+      paidBefore: number,
+      paidMonth: number,
+      opening: number,
+      byMonth: Map<string, number>,
+    ): SupplierMonthAccrual => {
       const openingSigned = cogsBefore + opening - paidBefore;
       const leftoverCredit = Math.max(-(openingSigned - paidMonth), 0);
+
+      // Oldest-debt-first: earlier payments settle the oldest bills, then this month's payments continue down the list.
+      const buckets: Array<{ month: string; amount: number }> = [
+        ...(opening > 0 ? [{ month: 'OPENING', amount: opening }] : []),
+        ...Array.from(byMonth.entries())
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([month, amount]) => ({ month, amount })),
+      ];
+      let skip = paidBefore;
+      let paidLeft = paidMonth;
+      const priorPaidByMonth: Array<{ month: string; amount: number }> = [];
+      const earlierPendingByMonth: Array<{ month: string; amount: number }> = [];
+      for (const b of buckets) {
+        const absorbed = Math.min(skip, b.amount);
+        skip -= absorbed;
+        const open = b.amount - absorbed;
+        const now = Math.min(paidLeft, open);
+        paidLeft -= now;
+        if (now > 0.005) priorPaidByMonth.push({ month: b.month, amount: round2(now) });
+        if (open - now > 0.005) earlierPendingByMonth.push({ month: b.month, amount: round2(open - now) });
+      }
+
       return {
         bill: round2(cogsMonth),
         paidInMonth: round2(paidMonth),
         priorPaid: round2(Math.min(paidMonth, Math.max(openingSigned, 0))),
         pending: round2(Math.max(cogsMonth - leftoverCredit, 0)),
+        priorPaidByMonth,
+        earlierPendingByMonth,
       };
     };
 
     return {
-      plant: accrue(bottleBefore, bottleMonth, bottlePaidBefore, bottlePaidMonth, openingBalance?.plantAmount ?? 0),
-      caps: accrue(capBefore, capMonth, capPaidBefore, capPaidMonth, openingBalance?.capsAmount ?? 0),
+      plant: accrue(bottleBefore, bottleMonth, bottlePaidBefore, bottlePaidMonth, openingBalance?.plantAmount ?? 0, bottleByMonth),
+      caps: accrue(capBefore, capMonth, capPaidBefore, capPaidMonth, openingBalance?.capsAmount ?? 0, capByMonth),
     };
   }
 
