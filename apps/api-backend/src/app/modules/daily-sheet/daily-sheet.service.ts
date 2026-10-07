@@ -2642,6 +2642,9 @@ export class DailySheetService implements OnModuleInit {
                 vehicle: { select: { id: true, plateNumber: true } },
               },
             },
+            // Vehicle Maintenance spawned from this sheet — its edit/delete live in the
+            // sheet's Vehicle Maintenance section (keeps record + expense in sync).
+            vehicleServiceRecord: { select: { id: true } },
           },
           orderBy: { date: 'desc' },
         },

@@ -29,4 +29,10 @@ export class CreateServiceRecordDto {
   // false = paid by bank/online — keeps this cost out of Office Cash in the
   // Cash Ledger. Omitted = cash (the historical behaviour).
   @IsOptional() @IsBoolean() paidFromCash?: boolean;
+
+  // Set only when the record is added from a Daily Sheet's "Add / Record" menu —
+  // the spawned Expense is then pinned to that sheet, so a cash-paid service
+  // reduces the driver's hand-in (buildReconciliation) like fuel / crew cash do.
+  // Omitted (Fleet / Expense Center) = office-level expense, Cash Ledger only.
+  @IsOptional() @IsUUID() dailySheetId?: string;
 }

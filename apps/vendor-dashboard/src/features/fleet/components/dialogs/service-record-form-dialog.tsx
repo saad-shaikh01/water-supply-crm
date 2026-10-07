@@ -27,6 +27,9 @@ interface ServiceRecordFormDialogProps {
   currentOdometer?: number;
   // Create mode: prefill the date (e.g. a Daily Sheet's date) instead of today.
   defaultDate?: string;
+  // Create mode, from a Daily Sheet: pins the spawned expense to that sheet so a
+  // cash-paid service is deducted from the sheet's cash hand-in.
+  dailySheetId?: string;
   // Edit mode — passed by the Expense Center detail drawer (Phase 2b) with
   // the full record fetched via `useServiceRecord(sourceRecordId)`. When
   // present, every field prefills from it, the title/submit label switch to
@@ -43,6 +46,7 @@ export function ServiceRecordFormDialog({
   defaultServiceType,
   currentOdometer,
   defaultDate,
+  dailySheetId,
   serviceRecord,
 }: ServiceRecordFormDialogProps) {
   const isEdit = !!serviceRecord;
@@ -119,7 +123,7 @@ export function ServiceRecordFormDialog({
       return;
     }
     createServiceRecord(
-      { vehicleId, ...values, invoicePhotoKey },
+      { vehicleId, ...values, invoicePhotoKey, dailySheetId },
       {
         onSuccess: () => {
           onOpenChange(false);
@@ -222,8 +226,12 @@ export function ServiceRecordFormDialog({
               <PaidFromCashField
                 value={field.value !== false}
                 onChange={field.onChange}
-                onHint="Counted as a cash payment out of Office Cash in the Cash Ledger."
-                offHint="Off = paid by bank / online — still a vehicle cost, but not deducted from Office Cash."
+                onHint={
+                  dailySheetId || serviceRecord?.expense?.dailySheetId
+                    ? "Deducted from this sheet's cash hand-in."
+                    : 'Counted as a cash payment out of Office Cash in the Cash Ledger.'
+                }
+                offHint="Off = paid by bank / online — still a vehicle cost, but not deducted from cash."
               />
             )}
           />

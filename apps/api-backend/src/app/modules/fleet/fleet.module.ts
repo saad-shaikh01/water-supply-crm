@@ -22,6 +22,7 @@ import { FleetProcessor } from './fleet.processor';
 import { AuditModule } from '../audit/audit.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { StorageModule } from '../../common/storage/storage.module';
+import { VanCashLedgerModule } from '../van-cash-ledger/van-cash-ledger.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { StorageModule } from '../../common/storage/storage.module';
     AuditModule,
     NotificationsModule,
     StorageModule,
+    VanCashLedgerModule,
   ],
   controllers: [
     VehicleController,

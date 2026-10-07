@@ -1709,6 +1709,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         <ServiceRecordFormDialog
           vehicleId={sheetVehicleId}
           defaultDate={data?.date}
+          dailySheetId={sheetId}
           open={maintenanceOpen}
           onOpenChange={setMaintenanceOpen}
         />

@@ -170,7 +170,7 @@ export function SheetExpensesSection({
                       {new Date(expense.date).toLocaleDateString('en-PK', { day: 'numeric', month: 'short' })}
                     </p>
                   </div>
-                  {canEdit && (
+                  {canEdit && !expense.vehicleServiceRecord && (
                     <Button
                       variant="ghost"
                       size="icon"
@@ -186,7 +186,7 @@ export function SheetExpensesSection({
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
                   )}
-                  {canRemove && (
+                  {canRemove && !expense.vehicleServiceRecord && (
                     <Button
                       variant="ghost"
                       size="icon"

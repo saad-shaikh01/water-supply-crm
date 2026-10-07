@@ -218,6 +218,9 @@ export interface CreateServiceRecordData {
   invoicePhotoKey?: string;
   partsReplaced?: string;
   notes?: string;
+  paidFromCash?: boolean;
+  /** Set when added from a Daily Sheet — deducts from that sheet's cash hand-in. */
+  dailySheetId?: string;
 }
 
 export interface CreateServiceTypeData {

@@ -475,6 +475,8 @@ export interface SheetExpense {
     fuelStation?: string | null;
     vehicle?: { id: string; plateNumber: string };
   } | null;
+  /** Set when this row was spawned by a Vehicle Maintenance record — managed from that record, not the generic dialogs. */
+  vehicleServiceRecord?: { id: string } | null;
 }
 
 export type CrewRole = 'DRIVER' | 'SALESMAN' | 'LOADER';
@@ -738,7 +740,7 @@ export interface VehicleServiceRecordEntry {
   notes: string | null;
   expenseId: string | null;
   /** The linked Expense's payment flag (false = bank/online). */
-  expense?: { paidFromCash: boolean } | null;
+  expense?: { paidFromCash: boolean; dailySheetId?: string | null } | null;
   recordedBy: { id: string; name: string };
   createdAt: string;
 }
