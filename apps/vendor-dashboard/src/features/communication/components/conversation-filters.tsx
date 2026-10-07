@@ -66,7 +66,7 @@ export function ConversationFilters({
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="flex flex-col gap-2.5 p-3 border-b border-border/40">
+    <div className="flex flex-col gap-2.5 p-2 sm:p-3 border-b border-border/40 shrink-0">
       <div className="flex items-center gap-2">
         <div className="flex-1 min-w-0">
           <SearchInput fluid placeholder="Search customer name or code…" onBeforeChange={onBeforeChange} />

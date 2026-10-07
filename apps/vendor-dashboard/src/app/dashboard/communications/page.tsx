@@ -5,7 +5,6 @@ import { useQueryState, parseAsString } from 'nuqs';
 import { toast } from 'sonner';
 import { Button, cn } from '@water-supply-crm/ui';
 import { ArrowLeft, Inbox } from 'lucide-react';
-import { PageHeader } from '../../../components/shared/page-header';
 import { ConversationFilters } from '../../../features/communication/components/conversation-filters';
 import { ConversationList } from '../../../features/communication/components/conversation-list';
 import { ConversationHeader } from '../../../features/communication/components/conversation-header';
@@ -110,10 +109,14 @@ function CommunicationsContent() {
 
   return (
     <div className="flex flex-col h-full">
-      <PageHeader
-        title="Communications"
-        description="Delivery conversations between salesmen and the office."
-      />
+      <div className="mb-3 md:mb-4 shrink-0">
+        <h1 className="text-lg sm:text-xl lg:text-2xl font-bold tracking-tight text-foreground dark:text-white leading-tight">
+          Communications
+        </h1>
+        <p className="hidden sm:block text-muted-foreground text-xs lg:text-sm font-medium mt-0.5 truncate">
+          Delivery conversations between salesmen and the office.
+        </p>
+      </div>
 
       {/* This panel used to force its own height with a hardcoded
           `vh/dvh - Npx` guess, which drifted out of sync with the real
@@ -125,7 +128,7 @@ function CommunicationsContent() {
           layout.tsx) now has a real `h-full`, so `flex-1 min-h-0` here
           fills exactly whatever space is left after PageHeader — no
           pixel-offset guessing needed. */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[360px_1fr] grid-rows-[minmax(0,1fr)] rounded-2xl border border-border/50 bg-card/30 overflow-hidden">
+      <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[minmax(260px,32%)_1fr] xl:grid-cols-[minmax(300px,360px)_1fr] grid-rows-[minmax(0,1fr)] rounded-2xl border border-border/50 bg-card/30 overflow-hidden">
         {/* List pane */}
         <div className={cn('flex flex-col border-border/40 md:border-r min-h-0', selected && 'hidden md:flex')}>
           <ConversationFilters
@@ -167,7 +170,7 @@ function CommunicationsContent() {
                 </Button>
               </div>
               <ConversationHeader conversation={selected} />
-              <div className="flex-1 min-h-0 p-3">
+              <div className="flex-1 min-h-0 p-2 sm:p-3">
                 <ConversationThread
                   itemId={selected.item?.id ?? deepLinkFallback?.itemId ?? ''}
                   sheetId={selected.dailySheet?.id ?? deepLinkFallback?.sheetId ?? ''}

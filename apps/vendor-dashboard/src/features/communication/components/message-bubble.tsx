@@ -45,7 +45,7 @@ export function MessageBubble({
   const showAckAction = message.requiresAck && !isAcknowledged && canAcknowledge && !isOwn;
 
   return (
-    <div className={cn('flex flex-col gap-1 max-w-[85%]', isOwn ? 'items-end self-end' : 'items-start self-start')}>
+    <div className={cn('flex flex-col gap-1 max-w-[92%] sm:max-w-[85%]', isOwn ? 'items-end self-end' : 'items-start self-start')}>
       <div className="flex items-center gap-1.5 px-1">
         <span className="text-[10px] font-bold text-muted-foreground">{message.createdBy.name}</span>
         <span className="text-[10px] text-muted-foreground">{formatTime(message.createdAt)}</span>
@@ -53,7 +53,7 @@ export function MessageBubble({
 
       <div
         className={cn(
-          'rounded-2xl px-3.5 py-2.5 space-y-2 border',
+          'rounded-2xl px-3 py-2 space-y-1.5 border',
           isOwn
             ? 'bg-primary text-primary-foreground border-primary rounded-tr-sm'
             : message.requiresAck && !isAcknowledged

@@ -43,12 +43,12 @@ export function ConversationHeader({ conversation }: ConversationHeaderProps) {
   const [flagsOpen, setFlagsOpen] = useState(false);
 
   return (
-    <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-border/40">
+    <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-2 xl:gap-3 px-3 sm:px-4 py-2 sm:py-2.5 border-b border-border/40 shrink-0">
       <div className="min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <Link
             href={`/dashboard/customers/${conversation.customer.id}`}
-            className="text-sm font-black truncate hover:text-primary hover:underline transition-colors"
+            className="text-sm sm:text-base font-black truncate hover:text-primary hover:underline transition-colors"
           >
             {conversation.customer.name}
           </Link>
@@ -67,7 +67,7 @@ export function ConversationHeader({ conversation }: ConversationHeaderProps) {
             recently discussed delivery" context — only true for the brief
             window between get-or-create and the first send. */}
         {conversation.dailySheet && conversation.van && conversation.salesman && conversation.item && (
-          <div className="flex items-center gap-3 flex-wrap mt-1.5 text-[11px] text-muted-foreground">
+          <div className="flex items-center gap-x-3 gap-y-0.5 flex-wrap mt-1 text-xs text-muted-foreground">
             <span className="flex items-center gap-1">
               <Calendar className="h-3 w-3" />
               {formatDate(conversation.dailySheet.date)}
@@ -88,7 +88,7 @@ export function ConversationHeader({ conversation }: ConversationHeaderProps) {
         )}
       </div>
 
-      <div className="flex flex-col items-end gap-2 shrink-0">
+      <div className="flex flex-wrap items-center xl:justify-end gap-x-2 gap-y-1.5 xl:max-w-[340px] shrink-0">
         <Button
           size="sm"
           variant="outline"

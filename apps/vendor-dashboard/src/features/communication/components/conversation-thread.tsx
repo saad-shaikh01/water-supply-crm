@@ -131,7 +131,7 @@ export function ConversationThread({ itemId, sheetId, variant, isDriver, itemIsP
       : "You don't have permission to send messages.";
 
   return (
-    <div className={cn('space-y-3', variant === 'inbox' && 'h-full flex flex-col')}>
+    <div className={cn('space-y-2 sm:space-y-3', variant === 'inbox' && 'h-full min-h-0 flex flex-col')}>
       {/* Reverse deep link (Phase 6, §6.1): the inbox variant already has its
           own header/context — only the embedded (Daily Sheet card) variant
           needs a way back to the centralized Communication Center. Carries
@@ -152,8 +152,8 @@ export function ConversationThread({ itemId, sheetId, variant, isDriver, itemIsP
       <div
         ref={scrollRef}
         className={cn(
-          'flex flex-col gap-3 overflow-y-auto rounded-xl',
-          variant === 'embedded' ? 'max-h-96 min-h-[80px]' : 'flex-1',
+          'flex flex-col gap-2 sm:gap-3 overflow-y-auto rounded-xl',
+          variant === 'embedded' ? 'max-h-96 min-h-[80px]' : 'flex-1 min-h-[120px]',
         )}
       >
         {messagesQuery.hasNextPage && (
