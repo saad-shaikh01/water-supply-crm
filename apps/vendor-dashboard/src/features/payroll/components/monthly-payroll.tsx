@@ -9,7 +9,7 @@ import { cn } from '@water-supply-crm/ui';
 import {
   CalendarClock, Loader2, RefreshCw, Lock, LockOpen, AlertCircle, Landmark, X,
   Clock, HandCoins, RefreshCcw, ArrowRightLeft, CheckCircle2, Eye, UserX, TrendingDown,
-  Download, MessageCircle, ChevronDown,
+  Download, FileDown, MessageCircle, ChevronDown,
 } from 'lucide-react';
 import type { PayrollEntry } from '@water-supply-crm/types';
 import { StatusBadge } from '../../../components/shared/status-badge';
@@ -25,7 +25,7 @@ import { UnlockPeriodDialog } from './unlock-period-dialog';
 import { SettlementDialog } from './settlement-dialog';
 import { SalaryStructureDialog } from './salary-structure-dialog';
 import { SendSlipsDialog, SlipDispatchResultDialog } from './send-slips-dialog';
-import { usePayrollExport } from '../hooks/use-payroll-export';
+import { usePayrollExport, useSlipPdfDownload } from '../hooks/use-payroll-export';
 import { useSlipStatus } from '../hooks/use-salary-slips';
 import { slipChip, slipDisabledReason, type SlipChipTone } from '../lib/salary-slips';
 
@@ -46,6 +46,8 @@ const SLIP_CHIP_CLASS: Record<SlipChipTone, string> = {
 interface ReviewSignal {
   key: string;
   label: string;
+  /** Compact text for the narrow Review column; `label` stays the tooltip / button title. */
+  short?: string;
   icon: typeof Clock;
   actionable: boolean;
 }
@@ -56,6 +58,7 @@ function reviewSignals(r: PayrollEntry): ReviewSignal[] {
     signals.push({
       key: 'unmarked',
       label: `${r.unmarkedAttendanceDays} unmarked day${r.unmarkedAttendanceDays === 1 ? '' : 's'}`,
+      short: `${r.unmarkedAttendanceDays} unmarked`,
       icon: Clock,
       actionable: true,
     });
@@ -64,6 +67,7 @@ function reviewSignals(r: PayrollEntry): ReviewSignal[] {
     signals.push({
       key: 'absence',
       label: `${r.pendingAbsenceDays} absent day${r.pendingAbsenceDays === 1 ? '' : 's'} undecided`,
+      short: `${r.pendingAbsenceDays} absences undecided`,
       icon: UserX,
       actionable: true,
     });
@@ -161,6 +165,7 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
   const { mutate: approveEntry, isPending: isApproving } = useApproveEntry(period?.id);
   const { mutate: lockPeriod, isPending: isLocking } = useLockPeriod();
   const { mutate: exportCsv, isPending: isExporting } = usePayrollExport();
+  const { mutate: downloadSlip, isPending: isDownloadingSlip, variables: downloadingSlipVars } = useSlipPdfDownload();
   const { data: slipStatus } = useSlipStatus(period?.id, canViewAll);
 
   // Salary slips: row selection for "Send selected", the confirm dialog (entryIds null = everyone) and the results dialog.
@@ -447,28 +452,31 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
                   );
                 }
                 const needsReview = signals.some((s) => s.actionable);
+                // One compact block instead of wrapping pills: a single "Needs review" tag (persistently
+                // visible — a scanning admin shouldn't have to hover) over a tidy one-line-per-signal list.
+                // Lines never wrap, so the column stays the same height whatever the table width.
                 return (
-                  <div className="max-w-[220px] space-y-1">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {signals.map(({ key, label, icon: Icon, actionable }) => (
-                        <span
+                  <div className="flex min-w-[150px] flex-col items-start gap-1.5 py-0.5">
+                    {needsReview && (
+                      <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-amber-500">
+                        <AlertCircle className="h-3 w-3" /> Needs review
+                      </span>
+                    )}
+                    <ul className="space-y-0.5">
+                      {signals.map(({ key, label, short, icon: Icon, actionable }) => (
+                        <li
                           key={key}
+                          title={label}
                           className={cn(
-                            'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold',
-                            actionable
-                              ? 'bg-amber-500/10 border-amber-500/30 text-amber-600'
-                              : 'bg-muted/40 border-border/50 text-muted-foreground',
+                            'flex items-center gap-1.5 whitespace-nowrap text-[11px] font-medium',
+                            actionable ? 'text-foreground/80' : 'text-muted-foreground',
                           )}
                         >
-                          <Icon className="h-3 w-3" /> {label}
-                        </span>
+                          <Icon className={cn('h-3 w-3 shrink-0', actionable ? 'text-amber-500' : 'text-muted-foreground')} />
+                          {short ?? label}
+                        </li>
                       ))}
-                    </div>
-                    {/* Persistently visible, not just a hover title on the Actions button — a
-                        scanning admin should see "needs review" without hovering anything. */}
-                    {needsReview && (
-                      <p className="text-[10px] font-semibold text-amber-600">Needs review before approval</p>
-                    )}
+                    </ul>
                   </div>
                 );
               },
@@ -537,9 +545,10 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
                 const showApprove = canApprove && r.status === 'DRAFT';
                 const showSettle = canSettle && (r.status === 'LOCKED' || r.status === 'SETTLED');
                 const showSlip = canSendSlips;
+                const showPdf = canViewAll;
                 const slipBlockedReason = slipDisabledReason(r.status);
                 const needsReview = reviewSignals(r).some((s) => s.actionable);
-                if (!showApprove && !showSettle && !showSlip) {
+                if (!showApprove && !showSettle && !showSlip && !showPdf) {
                   return <span className="text-xs text-muted-foreground">—</span>;
                 }
                 return (
@@ -585,6 +594,26 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
                       >
                         <Landmark className="h-3 w-3" />
                         Settle
+                      </Button>
+                    )}
+                    {showPdf && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-lg h-7 text-xs font-bold gap-1"
+                        disabled={isDownloadingSlip && downloadingSlipVars?.entryId === r.id}
+                        title={slipBlockedReason ? 'Download a preview of this slip (stamped NOT FINAL)' : 'Download this salary slip as PDF'}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          downloadSlip({ entryId: r.id, employeeName: r.user.name });
+                        }}
+                      >
+                        {isDownloadingSlip && downloadingSlipVars?.entryId === r.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <FileDown className="h-3 w-3" />
+                        )}
+                        PDF
                       </Button>
                     )}
                     {showSlip && (

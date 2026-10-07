@@ -295,6 +295,16 @@ export class PayrollSlipService {
     };
   }
 
+  /** One employee's slip as a PDF for download (any status — a non-final slip is stamped NOT FINAL). Vendor-scoped. */
+  async slipPdf(user: AuthUser, entryId: string): Promise<{ buffer: Buffer; filename: string }> {
+    const built = await this.buildSlipForEntry(user.vendorId, entryId);
+    if (!built) throw new NotFoundException('Payroll entry not found.');
+    return {
+      buffer: await this.pdf.generate(built.slip),
+      filename: slipFilename(built.slip.employeeName, built.slip.periodLabel),
+    };
+  }
+
   // ─── Worker side ────────────────────────────────────────────────────────────
 
   /**

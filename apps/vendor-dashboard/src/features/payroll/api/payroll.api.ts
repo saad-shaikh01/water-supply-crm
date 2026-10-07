@@ -357,6 +357,13 @@ export const payrollApi = {
     };
   },
 
+  /** One employee's salary slip as a PDF (any entry status; a draft is stamped NOT FINAL). */
+  downloadSlipPdf: async (entryId: string, fallbackName: string): Promise<PayrollCsvDownload> => {
+    const res = await apiClient.get<Blob>(`/payroll/entries/${entryId}/slip.pdf`, { responseType: 'blob' });
+    const headers = res.headers as Record<string, string | undefined>;
+    return { blob: res.data, filename: filenameFromContentDisposition(headers['content-disposition'], fallbackName) };
+  },
+
   // Salary slips on WhatsApp (payroll:slip_send; status needs payroll:view_all)
   getSlipStatus: (periodId: string) => apiClient.get<SlipStatusResponse>(`/payroll/periods/${periodId}/slips/status`),
   previewSlips: (periodId: string, entryIds?: string[]) =>

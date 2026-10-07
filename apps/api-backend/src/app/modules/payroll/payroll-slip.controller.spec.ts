@@ -7,6 +7,7 @@ const user = { userId: 'admin-001', vendorId: 'vendor-001' } as any;
 
 function make() {
   const service = {
+    slipPdf: jest.fn().mockResolvedValue({ buffer: Buffer.from('%PDF-x'), filename: 'Salary-Slip-2026-09-Ali.pdf' }),
     status: jest.fn().mockResolvedValue({}),
     preview: jest.fn().mockResolvedValue({}),
     send: jest.fn().mockResolvedValue({}),
@@ -19,6 +20,7 @@ describe('PayrollSlipController — authorization metadata', () => {
   const proto = PayrollSlipController.prototype as any;
   const expected: Record<string, string> = {
     status: 'payroll:view_all',
+    downloadSlipPdf: 'payroll:view_all',
     preview: 'payroll:slip_send',
     send: 'payroll:slip_send',
     dispatchDetail: 'payroll:slip_send',
@@ -46,6 +48,11 @@ describe('PayrollSlipController — pass-through', () => {
     await controller.preview(user, 'p1', { entryIds: ['e1'] });
     await controller.send(user, 'p1', { entryIds: ['e1'], confirmResend: true });
     await controller.dispatchDetail(user, 'd1');
+    const res = { set: jest.fn(), end: jest.fn() };
+    await controller.downloadSlipPdf(user, 'e1', res as any);
+    expect(service.slipPdf).toHaveBeenCalledWith(user, 'e1');
+    expect(res.set).toHaveBeenCalledWith(expect.objectContaining({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="Salary-Slip-2026-09-Ali.pdf"' }));
+    expect(res.end).toHaveBeenCalledWith(Buffer.from('%PDF-x'));
     expect(service.status).toHaveBeenCalledWith(user, 'p1');
     expect(service.preview).toHaveBeenCalledWith(user, 'p1', { entryIds: ['e1'] });
     expect(service.send).toHaveBeenCalledWith(user, 'p1', { entryIds: ['e1'], confirmResend: true });

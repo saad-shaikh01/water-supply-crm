@@ -444,6 +444,24 @@ describe('PayrollSlipService.runDispatch', () => {
   });
 });
 
+describe('PayrollSlipService.slipPdf (download)', () => {
+  it('builds the slip from the vendor-scoped entry and returns the PDF + a safe filename', async () => {
+    const m = make();
+    m.prisma.payrollEntry.findFirst.mockResolvedValue({ ...entryRow('e1'), period });
+    const out = await m.service.slipPdf(user, 'e1');
+    expect(m.prisma.payrollEntry.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'e1', vendorId: 'vendor-A' } }));
+    expect(out.filename).toBe('Salary-Slip-2026-09-Emp-e1.pdf');
+    expect(out.buffer.subarray(0, 5).toString()).toBe('%PDF-');
+  });
+
+  it('404s for an entry of another vendor (never renders it)', async () => {
+    const m = make();
+    m.prisma.payrollEntry.findFirst.mockResolvedValue(null);
+    await expect(m.service.slipPdf(user, 'foreign')).rejects.toBeInstanceOf(NotFoundException);
+    expect(m.pdf.generate).not.toHaveBeenCalled();
+  });
+});
+
 describe('PayrollSlipService.sendDelay (randomized, 5–12s)', () => {
   function realDelay() {
     const m = make();

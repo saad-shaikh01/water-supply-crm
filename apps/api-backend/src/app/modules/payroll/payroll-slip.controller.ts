@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import type { AuthUser } from '@water-supply-crm/types';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
@@ -33,6 +34,21 @@ export class PayrollSlipController {
   @RequirePermissions('payroll:slip_send')
   send(@CurrentUser() user: AuthUser, @Param('periodId') periodId: string, @Body() dto: SendPayrollSlipsDto) {
     return this.slips.send(user, periodId, dto);
+  }
+
+  /** GET /payroll/entries/:entryId/slip.pdf — download one employee's slip (same look as the WhatsApp PDF). */
+  @Get('entries/:entryId/slip.pdf')
+  @RequirePermissions('payroll:view_all')
+  async downloadSlipPdf(@CurrentUser() user: AuthUser, @Param('entryId') entryId: string, @Res() res: Response) {
+    const { buffer, filename } = await this.slips.slipPdf(user, entryId);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Length': String(buffer.length),
+      'Cache-Control': 'private, no-store',
+      'Access-Control-Expose-Headers': 'Content-Disposition',
+    });
+    res.end(buffer);
   }
 
   /** GET /payroll/slips/dispatches/:id — per-employee result of one send. */

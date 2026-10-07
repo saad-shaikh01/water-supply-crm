@@ -30,14 +30,14 @@ export interface DeliveryReceiptData {
 }
 
 // Blue Ice brand logo — same asset used by the customer statement PDF.
-const LOGO_PATH = path.join(__dirname, 'assets', 'blue-ice-logo.png');
+export const LOGO_PATH = path.join(__dirname, 'assets', 'blue-ice-logo.png');
 
 // Company identity — same detail shown in the customer statement's header (single vendor for now).
-const COMPANY_NAME    = 'DASANI ENTERPRISES';
-const COMPANY_ADDRESS = 'B-145 block 13 D/1 Gulshan e Iqbal, Karachi.';
-const COMPANY_PHONES  = 'Cell# 0316-2677954, 0345-2364698';
-const COMPANY_WEBSITE = 'blueice.com.pk';
-const COMPANY_EMAIL   = 'info@blueice.com.pk';
+export const COMPANY_NAME = 'DASANI ENTERPRISES';
+export const COMPANY_ADDRESS = 'B-145 block 13 D/1 Gulshan e Iqbal, Karachi.';
+export const COMPANY_PHONES  = 'Cell# 0316-2677954, 0345-2364698';
+export const COMPANY_WEBSITE = 'blueice.com.pk';
+export const COMPANY_EMAIL   = 'info@blueice.com.pk';
 
 // Online payment details — same as the customer statement's footer.
 const BANK_TITLE      = 'DASANI ENTERPRISES';
@@ -45,7 +45,7 @@ const BANK_NAME       = 'Meezan Bank';
 const BANK_ACCOUNT_NO = '9933-0104414597';
 const EASYPAISA_NO    = '03162677954';
 
-const C = {
+export const C = {
   cyan:     '#0891b2',
   navy:     '#0f172a',
   navyText: '#111827',

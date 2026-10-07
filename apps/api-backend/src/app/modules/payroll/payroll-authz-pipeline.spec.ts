@@ -93,7 +93,7 @@ describe('Payroll routes — real APP_GUARD pipeline (JwtAuthGuard + Permissions
   let payrollEntryService: { listForPeriod: jest.Mock };
   let settlementService: { record: jest.Mock };
   let payrollExportService: { exportPeriodCsv: jest.Mock };
-  let payrollSlipService: { send: jest.Mock; preview: jest.Mock; status: jest.Mock; dispatchDetail: jest.Mock };
+  let payrollSlipService: { slipPdf: jest.Mock; send: jest.Mock; preview: jest.Mock; status: jest.Mock; dispatchDetail: jest.Mock };
   const originalJwtSecret = process.env.JWT_SECRET;
 
   beforeAll(async () => {
@@ -113,6 +113,7 @@ describe('Payroll routes — real APP_GUARD pipeline (JwtAuthGuard + Permissions
       exportPeriodCsv: jest.fn().mockResolvedValue({ filename: 'payroll-2026-09.csv', body: '﻿Period,Employee\r\n', truncated: false }),
     };
     payrollSlipService = {
+      slipPdf: jest.fn().mockResolvedValue({ buffer: Buffer.from('%PDF-1.4 test'), filename: 'Salary-Slip-2026-09-Ali.pdf' }),
       send: jest.fn().mockResolvedValue({ dispatchId: 'dispatch-001', queued: 1 }),
       preview: jest.fn().mockResolvedValue({ items: [] }),
       status: jest.fn().mockResolvedValue({ entries: {} }),
@@ -349,6 +350,20 @@ describe('Payroll routes — real APP_GUARD pipeline (JwtAuthGuard + Permissions
       const res = await axios.post(url.send(), body, authed(adminToken));
       expect(res.status).toBe(400);
       expect(payrollSlipService.send).not.toHaveBeenCalled();
+    });
+
+    it('GET entries/:id/slip.pdf: ADMIN gets the PDF as an attachment; DRIVER 403; no token 401', async () => {
+      const u = baseUrl + '/payroll/entries/entry-001/slip.pdf';
+      const ok = await axios.get(u, { ...authed(adminToken), responseType: 'arraybuffer' });
+      expect(ok.status).toBe(200);
+      expect(ok.headers['content-type']).toBe('application/pdf');
+      expect(ok.headers['content-disposition']).toBe('attachment; filename="Salary-Slip-2026-09-Ali.pdf"');
+      expect(Buffer.from(ok.data).subarray(0, 5).toString()).toBe('%PDF-');
+      expect(payrollSlipService.slipPdf).toHaveBeenCalledWith(expect.objectContaining({ vendorId: VENDOR_ID }), 'entry-001');
+      payrollSlipService.slipPdf.mockClear();
+      expect((await axios.get(u, authed(driverToken))).status).toBe(403);
+      expect(payrollSlipService.slipPdf).not.toHaveBeenCalled();
+      expect((await axios.get(u, { validateStatus: () => true })).status).toBe(401);
     });
 
     it('preview / status / dispatch detail are gated too', async () => {
