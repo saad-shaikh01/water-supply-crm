@@ -26,4 +26,5 @@ export const CloudTemplateNames = {
   DELIVERY_UNSUCCESSFUL_PHOTO: 'delivery_unsuccessful_photo',
   FLEET_DOCUMENT_EXPIRY: 'fleet_document_expiry',
   FLEET_MAINTENANCE_DUE: 'fleet_maintenance_due',
+  SALARY_SLIP: 'salary_slip',
 } as const;

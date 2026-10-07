@@ -88,3 +88,24 @@ export const useCreateLinkedPenalty = () => {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to record the linked penalty'),
   });
 };
+
+/**
+ * "Deduct next month" - moves ONLY the entry's payroll attribution date (effectiveDate and the Cash Ledger
+ * are untouched), so the NEXT payroll period claims it instead of this one. `undo` puts it back.
+ */
+export const useDeferLedgerEntry = () => {
+  const invalidateEmployeeLedger = useInvalidateEmployeeLedger();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; userId: string; periodId: string; version: number; reason: string; undo?: boolean }) =>
+      v.undo
+        ? payrollApi.undoDeferLedgerEntry(v.id, { version: v.version, reason: v.reason })
+        : payrollApi.deferLedgerEntry(v.id, { periodId: v.periodId, version: v.version, reason: v.reason }),
+    onSuccess: (_res, v) => {
+      invalidateEmployeeLedger(v.userId);
+      queryClient.invalidateQueries({ queryKey: ['payroll'] });
+      toast.success(v.undo ? 'Deferral undone - it counts in this period again' : 'Moved to next month - it will be deducted in the next payroll period');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to move this entry'),
+  });
+};

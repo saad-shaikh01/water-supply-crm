@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { StaffAttendanceService } from './staff-attendance.service';
 import { MarkAttendanceDto } from './dto/mark-attendance.dto';
+import { ResolveAbsenceDeductionDto } from './dto/resolve-absence-deduction.dto';
 import { AttendanceSearchQueryDto } from './dto/attendance-search-query.dto';
 import { AuthenticatedOnly } from '../../common/decorators/authz-markers.decorator';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
@@ -35,6 +36,17 @@ export class StaffAttendanceController {
   @RequirePermissions('payroll:attendance_mark')
   mark(@CurrentUser() user: AuthUser, @Body() dto: MarkAttendanceDto) {
     return this.attendance.markStatus(user, dto);
+  }
+
+  /**
+   * POST /payroll/attendance/resolve-absences — bulk paid (waive) / unpaid (deduct) / reset
+   * decision for one employee's Absent & Half-day days. Same permission tier as a manual
+   * mark, since a single mark can already post the same deduction.
+   */
+  @Post('payroll/attendance/resolve-absences')
+  @RequirePermissions('payroll:attendance_mark')
+  resolveAbsences(@CurrentUser() user: AuthUser, @Body() dto: ResolveAbsenceDeductionDto) {
+    return this.attendance.resolveAbsenceDecisions(user, dto);
   }
 
   /**

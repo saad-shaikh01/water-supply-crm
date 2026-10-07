@@ -1025,6 +1025,11 @@ export interface StaffLedgerEntry {
   causedCustomerAdjustmentId: string | null;
   /** ADVANCE only: false = paid by bank/online (not an office cash-out). */
   paidFromCash?: boolean;
+  /**
+   * "Deduct next month" - when set, payroll counts this entry in the period containing THIS date instead of
+   * `effectiveDate` (which, and therefore the Cash Ledger, is left untouched). Null = not deferred.
+   */
+  payrollAttributionDate?: string | null;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -1132,6 +1137,13 @@ export interface PayrollEntry {
   penalties: number;
   otherDeductions: number;
   carryForwardIn: number;
+  /**
+   * Max-deduction ceiling bookkeeping (Payroll Settings). `deferredOut` = deduction NOT charged this period
+   * because it exceeded the ceiling; `deferredIn` = the previous period's `deferredOut`, charged now.
+   * Both 0 while the ceiling is off.
+   */
+  deferredIn: number;
+  deferredOut: number;
   finalPayable: number;
   status: PayrollEntryStatus;
   managerNotes: string | null;
@@ -1148,6 +1160,8 @@ export interface PayrollEntry {
    * existence/count checks, not derived amounts.
    */
   unmarkedAttendanceDays?: number;
+  /** Absent / half-day days (MONTHLY employees) with no paid/unpaid decision yet - same table-view read only. */
+  pendingAbsenceDays?: number;
   hasPendingInstallment?: boolean;
   hasUnreflectedChanges?: boolean;
   /** Sum of `Settlement` rows against this entry — present only on the same table-view read as above. */

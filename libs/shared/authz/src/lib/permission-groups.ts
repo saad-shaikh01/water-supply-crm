@@ -88,6 +88,7 @@ export const ACTION_LABELS: Record<string, string> = {
   attendance_mark: 'Mark attendance',
   advance_plan_manage: 'Manage advance plans (installments)',
   config_manage: 'Manage payroll cutoff/cash-window settings',
+  slip_send: 'Send salary slips on WhatsApp',
   remit: 'Record office cash handover to owner',
   remit_approve: 'Approve office cash handover',
   remit_void: 'Void an approved office cash handover',

@@ -1,6 +1,6 @@
 'use client';
 
-import { CheckCircle2, Clock, Loader2, ShieldAlert } from 'lucide-react';
+import { CheckCircle2, Clock, Loader2, ShieldAlert, ShieldOff, Trash2 } from 'lucide-react';
 import { Badge, Button, cn } from '@water-supply-crm/ui';
 import type { ConversationMessage } from '@water-supply-crm/types';
 import { VoiceMessagePlayer } from './voice-message-player';
@@ -15,6 +15,12 @@ interface MessageBubbleProps {
   canAcknowledge: boolean;
   onAcknowledge: (messageId: string) => void;
   isAcknowledging: boolean;
+  /** Show "Delete message" — own messages, or any message for admins. */
+  canDelete?: boolean;
+  /** Show "Remove instruction" — admins, instruction messages only. */
+  canRemoveInstruction?: boolean;
+  onDelete?: (message: ConversationMessage) => void;
+  onRemoveInstruction?: (message: ConversationMessage) => void;
 }
 
 /**
@@ -29,6 +35,10 @@ export function MessageBubble({
   canAcknowledge,
   onAcknowledge,
   isAcknowledging,
+  canDelete,
+  canRemoveInstruction,
+  onDelete,
+  onRemoveInstruction,
 }: MessageBubbleProps) {
   const isOwn = message.createdBy.id === currentUserId;
   const isAcknowledged = !!message.acknowledgedAt;
@@ -96,6 +106,31 @@ export function MessageBubble({
           </Button>
         )}
       </div>
+
+      {((canRemoveInstruction && message.requiresAck) || canDelete) && (
+        <div className="flex items-center gap-2 px-1">
+          {canRemoveInstruction && message.requiresAck && (
+            <button
+              type="button"
+              className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground hover:text-amber-600"
+              onClick={() => onRemoveInstruction?.(message)}
+            >
+              <ShieldOff className="h-3 w-3" />
+              Remove instruction
+            </button>
+          )}
+          {canDelete && (
+            <button
+              type="button"
+              className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground hover:text-destructive"
+              onClick={() => onDelete?.(message)}
+            >
+              <Trash2 className="h-3 w-3" />
+              Delete
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

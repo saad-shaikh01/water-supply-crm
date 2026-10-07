@@ -1,4 +1,7 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Res } from '@nestjs/common';
+import type { Response } from 'express';
+import { PayrollExportService } from './payroll-export.service';
+import { csvResponseHeaders } from '../van-cash-ledger/cash-ledger-export.csv';
 import { PayrollEntryService } from './payroll-entry.service';
 import { ApprovePayrollEntryDto } from './dto/approve-payroll-entry.dto';
 import { AuthenticatedOnly } from '../../common/decorators/authz-markers.decorator';
@@ -29,7 +32,10 @@ import type { AuthUser } from '@water-supply-crm/types';
  */
 @Controller('payroll')
 export class PayrollEntryController {
-  constructor(private readonly payrollEntries: PayrollEntryService) {}
+  constructor(
+    private readonly payrollEntries: PayrollEntryService,
+    private readonly payrollExport: PayrollExportService,
+  ) {}
 
   /** POST /payroll/periods/:periodId/entries/generate — compute/upsert one entry per eligible employee. */
   @Post('periods/:periodId/entries/generate')
@@ -45,6 +51,18 @@ export class PayrollEntryController {
     return this.payrollEntries.listForPeriod(user, periodId);
   }
 
+  /**
+   * GET /payroll/periods/:periodId/export.csv — the whole period (one row per employee) as a CSV.
+   * Same gate as the table it exports (`payroll:view_all`); works for LOCKED / PAID periods too.
+   */
+  @Get('periods/:periodId/export.csv')
+  @RequirePermissions('payroll:view_all')
+  async exportPeriodCsv(@CurrentUser() user: AuthUser, @Param('periodId') periodId: string, @Res() res: Response) {
+    const result = await this.payrollExport.exportPeriodCsv(user, periodId);
+    res.set(csvResponseHeaders(result));
+    res.end(result.body);
+  }
+
   /** GET /payroll/entries/:id/breakdown — full itemized breakdown for one entry. */
   @Get('entries/:id/breakdown')
   @AuthenticatedOnly()
@@ -56,7 +74,7 @@ export class PayrollEntryController {
   @Patch('entries/:id/approve')
   @RequirePermissions('payroll:entry_approve')
   approveEntry(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ApprovePayrollEntryDto) {
-    return this.payrollEntries.approveEntry(user, id, dto.version);
+    return this.payrollEntries.approveEntry(user, id, dto.version, dto.acknowledgePendingAbsences === true);
   }
 
   /**

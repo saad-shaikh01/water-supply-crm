@@ -200,7 +200,7 @@ export class PayrollPeriodService {
 
       for (const entry of entries) {
         const approvedFinalPayable = entry.finalPayable;
-        const { buckets, ledgerEntryIds, carryForwardIn, finalPayable } = await this.payrollEntries.computeEntryBreakdown(
+        const { buckets, ledgerEntryIds, carryForwardIn, deferredIn, deferredOut, finalPayable } = await this.payrollEntries.computeEntryBreakdown(
           tx,
           user.vendorId,
           entry.userId,
@@ -212,6 +212,8 @@ export class PayrollPeriodService {
           baseSalary: entry.baseSalary,
           ...buckets,
           carryForwardIn,
+          deferredIn,
+          deferredOut,
           finalPayable,
         };
         if (finalPayable !== approvedFinalPayable) {
@@ -236,7 +238,7 @@ export class PayrollPeriodService {
 
         await tx.payrollEntry.update({
           where: { id: entry.id, vendorId: user.vendorId },
-          data: { ...buckets, carryForwardIn, finalPayable, status: PayrollEntryStatus.LOCKED },
+          data: { ...buckets, carryForwardIn, deferredIn, deferredOut, finalPayable, status: PayrollEntryStatus.LOCKED },
         });
 
         await tx.payrollEntryAuditLog.create({

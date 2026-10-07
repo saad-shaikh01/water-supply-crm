@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Patch } from '@nestjs/common';
+import { Controller, Delete, Get, Param, Patch } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { MessageService } from './message.service';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
@@ -14,6 +14,20 @@ export class MessageController {
   @Throttle({ short: { ttl: 1000, limit: 20 }, medium: { ttl: 60000, limit: 60 } })
   acknowledge(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.messageService.acknowledge(user, id);
+  }
+
+  @Delete(':id')
+  @RequirePermissions('conversations:send')
+  @Throttle({ short: { ttl: 1000, limit: 10 }, medium: { ttl: 60000, limit: 60 } })
+  deleteMessage(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.messageService.deleteMessage(user, id);
+  }
+
+  @Delete(':id/instruction')
+  @RequirePermissions('conversations:send')
+  @Throttle({ short: { ttl: 1000, limit: 10 }, medium: { ttl: 60000, limit: 60 } })
+  removeInstruction(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.messageService.removeInstruction(user, id);
   }
 
   @Patch(':id/played')

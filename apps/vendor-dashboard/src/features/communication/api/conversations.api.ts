@@ -114,6 +114,12 @@ export const conversationsApi = {
       .patch<ConversationMessage>(`/messages/${messageId}/acknowledge`, {})
       .then((r) => r.data),
 
+  deleteMessage: (messageId: string) =>
+    apiClient.delete<{ success: boolean }>(`/messages/${messageId}`).then((r) => r.data),
+
+  removeInstruction: (messageId: string) =>
+    apiClient.delete<ConversationMessage>(`/messages/${messageId}/instruction`).then((r) => r.data),
+
   markMessagePlayed: (messageId: string) =>
     apiClient
       .patch<{ playedAt: string | null }>(`/messages/${messageId}/played`, {})

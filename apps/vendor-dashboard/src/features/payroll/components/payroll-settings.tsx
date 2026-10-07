@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, Button, Input, Label, Skeleton, cn } from '@water-supply-crm/ui';
-import { CalendarClock, Wallet, AlertCircle } from 'lucide-react';
+import { CalendarClock, Wallet, AlertCircle, Scale } from 'lucide-react';
 import type { StaffLedgerCategory } from '@water-supply-crm/types';
 import { usePermissions } from '../../authz/hooks/use-permissions';
 import { usePayrollVendorConfig, useUpdatePayrollVendorConfig } from '../hooks/use-payroll-config';
@@ -51,9 +51,13 @@ export function PayrollSettings() {
   const [cashWindowEnabled, setCashWindowEnabled] = useState(false);
   const [cashCutoffDay, setCashCutoffDay] = useState(10);
   const [cashWindowCategories, setCashWindowCategories] = useState<StaffLedgerCategory[]>([]);
+  const [maxDeductionEnabled, setMaxDeductionEnabled] = useState(false);
+  const [maxDeductionPercent, setMaxDeductionPercent] = useState(50);
 
   useEffect(() => {
     if (!config) return;
+    setMaxDeductionEnabled(config.maxDeductionPercent != null);
+    setMaxDeductionPercent(config.maxDeductionPercent ?? 50);
     setCutoffDay(config.cutoffDay);
     setCashWindowEnabled(config.cashCutoffDay != null);
     setCashCutoffDay(config.cashCutoffDay ?? 10);
@@ -86,11 +90,15 @@ export function PayrollSettings() {
     );
   };
 
+  const maxDeductionValid = Number.isInteger(maxDeductionPercent) && maxDeductionPercent >= 1 && maxDeductionPercent <= 100;
+
   const onSave = () => {
+    if (maxDeductionEnabled && !maxDeductionValid) return;
     save({
       cutoffDay,
       cashCutoffDay: cashWindowEnabled ? cashCutoffDay : null,
       cashWindowCategories: cashWindowEnabled ? cashWindowCategories : [],
+      maxDeductionPercent: maxDeductionEnabled ? maxDeductionPercent : null,
     });
   };
 
@@ -210,8 +218,74 @@ export function PayrollSettings() {
         </CardContent>
       </Card>
 
+      <Card className="bg-card/50 backdrop-blur-sm border-border/50">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Scale className="h-4 w-4 text-muted-foreground" />
+            Maximum Deduction Limit (Optional)
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Caps how much of an employee's base salary one payroll period may deduct (advances, penalties,
+            unpaid absences and other deductions together). Anything above the cap is not lost — it is
+            charged in the following period(s), still within the same cap. Leave off to deduct everything in
+            full, even if it exceeds the salary (the default).
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between rounded-xl border border-border/50 px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold">Limit deductions per period</p>
+              <p className="text-xs text-muted-foreground">
+                When off, nothing changes — every deduction is charged in full, like today.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={maxDeductionEnabled}
+              aria-label="Limit deductions per period"
+              onClick={() => setMaxDeductionEnabled((v) => !v)}
+              className={cn(
+                'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                maxDeductionEnabled ? 'bg-emerald-500' : 'bg-input dark:bg-muted',
+              )}
+            >
+              <span
+                className={cn(
+                  'inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform',
+                  maxDeductionEnabled ? 'translate-x-5' : 'translate-x-0.5',
+                )}
+              />
+            </button>
+          </div>
+          <div className={cn('space-y-2 max-w-xs transition-opacity', !maxDeductionEnabled && 'opacity-50 pointer-events-none')}>
+            <Label className="text-sm font-semibold">Maximum deduction (% of base salary)</Label>
+            <Input
+              type="number"
+              min={1}
+              max={100}
+              step={1}
+              className="bg-accent/30 border-border/50 h-11 font-mono font-bold"
+              value={Number.isNaN(maxDeductionPercent) ? '' : maxDeductionPercent}
+              onChange={(e) => setMaxDeductionPercent(Number(e.target.value))}
+            />
+            {maxDeductionEnabled && !maxDeductionValid && (
+              <p className="text-[11px] text-destructive">Enter a whole number from 1 to 100.</p>
+            )}
+            <p className="text-[11px] text-muted-foreground">
+              Example: 50 on a ₨ 50,000 salary deducts at most ₨ 25,000 this month; the rest follows next month.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="flex justify-end">
-        <Button onClick={onSave} disabled={isPending} className="min-w-[140px] shadow-lg shadow-primary/20">
+        <Button
+          onClick={onSave}
+          disabled={isPending || (maxDeductionEnabled && !maxDeductionValid)}
+          className="min-w-[140px] shadow-lg shadow-primary/20"
+        >
           {isPending ? 'Saving...' : 'Save Settings'}
         </Button>
       </div>

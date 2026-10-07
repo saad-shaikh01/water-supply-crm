@@ -1,11 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { Card, CardContent, Skeleton, Button } from '@water-supply-crm/ui';
+import {
+  Card, CardContent, Skeleton, Button,
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
+} from '@water-supply-crm/ui';
 import { cn } from '@water-supply-crm/ui';
 import {
   CalendarClock, Loader2, RefreshCw, Lock, LockOpen, AlertCircle, Landmark, X,
-  Clock, HandCoins, RefreshCcw, ArrowRightLeft, CheckCircle2, Eye,
+  Clock, HandCoins, RefreshCcw, ArrowRightLeft, CheckCircle2, Eye, UserX, TrendingDown,
+  Download, MessageCircle, ChevronDown,
 } from 'lucide-react';
 import type { PayrollEntry } from '@water-supply-crm/types';
 import { StatusBadge } from '../../../components/shared/status-badge';
@@ -13,13 +17,24 @@ import { DataTable } from '../../../components/shared/data-table';
 import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { usePermissions } from '../../authz/hooks/use-permissions';
 import { useOpenPayrollPeriod, usePeriodEntries } from '../hooks/use-payroll-dashboard';
-import { useGenerateDraft, useApproveEntry, useLockPeriod, type GenerateDraftResult } from '../hooks/use-monthly-payroll';
+import { useGenerateDraft, useApproveEntry, useLockPeriod, PENDING_ABSENCE_DECISIONS_CODE, type GenerateDraftResult } from '../hooks/use-monthly-payroll';
 import { usePendingInstallmentCount } from '../hooks/use-advance-plans';
 import { useHistoricalPeriod } from '../hooks/use-payroll-history';
 import { EntryBreakdownDialog } from './entry-breakdown-dialog';
 import { UnlockPeriodDialog } from './unlock-period-dialog';
 import { SettlementDialog } from './settlement-dialog';
 import { SalaryStructureDialog } from './salary-structure-dialog';
+import { SendSlipsDialog, SlipDispatchResultDialog } from './send-slips-dialog';
+import { usePayrollExport } from '../hooks/use-payroll-export';
+import { useSlipStatus } from '../hooks/use-salary-slips';
+import { slipChip, slipDisabledReason, type SlipChipTone } from '../lib/salary-slips';
+
+const SLIP_CHIP_CLASS: Record<SlipChipTone, string> = {
+  ok: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600',
+  warn: 'border-amber-500/30 bg-amber-500/10 text-amber-600',
+  bad: 'border-destructive/30 bg-destructive/10 text-destructive',
+  info: 'border-border/50 bg-muted/40 text-muted-foreground',
+};
 
 /**
  * Row-level review signals (Monthly Payroll triage, owner-requested) — every
@@ -45,8 +60,19 @@ function reviewSignals(r: PayrollEntry): ReviewSignal[] {
       actionable: true,
     });
   }
+  if ((r.pendingAbsenceDays ?? 0) > 0) {
+    signals.push({
+      key: 'absence',
+      label: `${r.pendingAbsenceDays} absent day${r.pendingAbsenceDays === 1 ? '' : 's'} undecided`,
+      icon: UserX,
+      actionable: true,
+    });
+  }
   if (r.hasPendingInstallment) {
     signals.push({ key: 'installment', label: 'Installment due', icon: HandCoins, actionable: true });
+  }
+  if (r.finalPayable < 0) {
+    signals.push({ key: 'negative', label: 'Negative payable', icon: TrendingDown, actionable: true });
   }
   if (r.hasUnreflectedChanges) {
     signals.push({ key: 'stale', label: 'Recent changes', icon: RefreshCcw, actionable: true });
@@ -112,6 +138,7 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
   const canUnlock = can('payroll:period_unlock');
   const canSettle = can('payroll:settlement_record');
   const canManageSalary = can('payroll:salary_structure_manage');
+  const canSendSlips = can('payroll:slip_send');
 
   const {
     data: openPeriod,
@@ -133,6 +160,13 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
   const { mutate: generateDraft, isPending: isGenerating } = useGenerateDraft(period?.id);
   const { mutate: approveEntry, isPending: isApproving } = useApproveEntry(period?.id);
   const { mutate: lockPeriod, isPending: isLocking } = useLockPeriod();
+  const { mutate: exportCsv, isPending: isExporting } = usePayrollExport();
+  const { data: slipStatus } = useSlipStatus(period?.id, canViewAll);
+
+  // Salary slips: row selection for "Send selected", the confirm dialog (entryIds null = everyone) and the results dialog.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [slipDialog, setSlipDialog] = useState<{ entryIds: string[] | null } | null>(null);
+  const [slipResultId, setSlipResultId] = useState<string | null>(null);
 
   const [breakdownEntryId, setBreakdownEntryId] = useState<string | null>(null);
   const [settlementEntryId, setSettlementEntryId] = useState<string | null>(null);
@@ -178,12 +212,33 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
   }
 
   const list = entries ?? [];
+  const selectedList = list.filter((e) => selectedIds.has(e.id));
+  const activeSlipSend = slipStatus?.activeDispatch ?? null;
+  const toggleRow = (id: string) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const toggleAllRows = () =>
+    setSelectedIds((prev) => (list.length > 0 && list.every((e) => prev.has(e.id)) ? new Set() : new Set(list.map((e) => e.id))));
   const canLockPeriod = canLock && (period.status === 'OPEN' || period.status === 'REVIEW');
   const canUnlockPeriod = canUnlock && period.status === 'LOCKED';
 
   const handleApprove = (entry: PayrollEntry) => {
     setApprovingId(entry.id);
-    approveEntry({ id: entry.id, version: entry.version }, { onSettled: () => setApprovingId(null) });
+    approveEntry(
+      { id: entry.id, version: entry.version },
+      {
+        onSettled: () => setApprovingId(null),
+        // The row's counts were stale: the server found undecided absent days. Send the admin to the entry,
+        // where the Attendance tab lets them decide (or approve knowingly).
+        onError: (e: any) => {
+          if (e?.response?.data?.code === PENDING_ABSENCE_DECISIONS_CODE) setBreakdownEntryId(entry.id);
+        },
+      },
+    );
   };
 
   return (
@@ -203,6 +258,45 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {canViewAll && (
+              <Button
+                variant="outline"
+                className="rounded-xl font-bold gap-2"
+                onClick={() => exportCsv({ periodId: period.id, periodLabel: period.periodLabel })}
+                disabled={isExporting || list.length === 0}
+                title={list.length === 0 ? 'No payroll entries to export yet.' : 'Download this period as a CSV'}
+              >
+                {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                Export CSV
+              </Button>
+            )}
+            {canSendSlips && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="rounded-xl font-bold gap-2"
+                    disabled={list.length === 0 || !!activeSlipSend}
+                    title={activeSlipSend ? 'A salary-slip send is already running.' : undefined}
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                    Send slips
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={() => setSlipDialog({ entryIds: null })}>
+                    Send to all eligible
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={selectedList.length === 0}
+                    onSelect={() => setSlipDialog({ entryIds: selectedList.map((e) => e.id) })}
+                  >
+                    Send selected ({selectedList.length})
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             <Button
               variant="outline"
               className="rounded-xl font-bold gap-2"
@@ -240,6 +334,39 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
           </div>
         </CardContent>
       </Card>
+
+      {/* Salary-slip send progress — only while a dispatch is running; the last result stays one click away. */}
+      {canViewAll && activeSlipSend && (
+        <Card className="bg-emerald-500/5 border-emerald-500/20">
+          <CardContent className="p-4 flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-sm font-semibold flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin text-emerald-500" />
+              Sending salary slips… {activeSlipSend.sent + activeSlipSend.failed + activeSlipSend.skipped} of {activeSlipSend.total} done
+              <span className="text-xs font-normal text-muted-foreground">
+                ({activeSlipSend.sent} sent{activeSlipSend.failed ? `, ${activeSlipSend.failed} failed` : ''}
+                {activeSlipSend.skipped ? `, ${activeSlipSend.skipped} skipped` : ''})
+              </span>
+            </p>
+            {canSendSlips && (
+              <Button variant="outline" size="sm" className="rounded-lg h-7 text-xs font-bold" onClick={() => setSlipResultId(activeSlipSend.id)}>
+                Details
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
+      {canViewAll && !activeSlipSend && canSendSlips && slipStatus?.latestDispatch && (
+        <p className="text-xs text-muted-foreground px-1">
+          Last salary-slip send: {slipStatus.latestDispatch.sent} sent
+          {slipStatus.latestDispatch.failed ? `, ${slipStatus.latestDispatch.failed} failed` : ''}
+          {slipStatus.latestDispatch.skipped ? `, ${slipStatus.latestDispatch.skipped} skipped` : ''}
+          {slipStatus.latestDispatch.status === 'ABORTED' ? ' (WhatsApp disconnected — the rest were not sent)' : ''}
+          {' · '}
+          <button type="button" className="underline font-semibold" onClick={() => setSlipResultId(slipStatus.latestDispatch?.id ?? null)}>
+            View results
+          </button>
+        </p>
+      )}
 
       {/* Missing-salary-structure warning (doc §5 edge case) — Generate Draft excludes these
           employees rather than silently defaulting to ₨0; "Set Salary" opens the dialog for
@@ -299,6 +426,10 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
           isLoading={entriesLoading}
           emptyMessage="No payroll entries generated yet — click Generate Draft to compute this period's payroll."
           onRowClick={(row) => setBreakdownEntryId(row.id)}
+          selectable={canSendSlips}
+          selectedIds={selectedIds}
+          onToggleRow={toggleRow}
+          onToggleAll={toggleAllRows}
           tableId="payroll-monthly"
           columns={[
             { key: 'employee', essential: true, header: 'Employee', cell: (r) => <span className="font-bold">{r.user.name}</span> },
@@ -383,14 +514,32 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
               },
             },
             {
+              key: 'slip',
+              header: 'Salary Slip',
+              cell: (r) => {
+                const chip = slipChip(slipStatus?.entries[r.id]);
+                if (!chip) return <span className="text-xs text-muted-foreground">—</span>;
+                return (
+                  <span
+                    title={chip.title}
+                    className={cn('inline-flex rounded-full border px-2 py-0.5 text-[11px] font-bold', SLIP_CHIP_CLASS[chip.tone])}
+                  >
+                    {chip.label}
+                  </span>
+                );
+              },
+            },
+            {
               key: 'actions',
               essential: true,
               header: 'Actions',
               cell: (r) => {
                 const showApprove = canApprove && r.status === 'DRAFT';
                 const showSettle = canSettle && (r.status === 'LOCKED' || r.status === 'SETTLED');
+                const showSlip = canSendSlips;
+                const slipBlockedReason = slipDisabledReason(r.status);
                 const needsReview = reviewSignals(r).some((s) => s.actionable);
-                if (!showApprove && !showSettle) {
+                if (!showApprove && !showSettle && !showSlip) {
                   return <span className="text-xs text-muted-foreground">—</span>;
                 }
                 return (
@@ -438,6 +587,22 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
                         Settle
                       </Button>
                     )}
+                    {showSlip && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-lg h-7 text-xs font-bold gap-1"
+                        disabled={!!slipBlockedReason || !!activeSlipSend}
+                        title={slipBlockedReason ?? (activeSlipSend ? 'A salary-slip send is already running.' : 'Send this employee their salary slip on WhatsApp')}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSlipDialog({ entryIds: [r.id] });
+                        }}
+                      >
+                        <MessageCircle className="h-3 w-3" />
+                        Slip
+                      </Button>
+                    )}
                   </div>
                 );
               },
@@ -468,6 +633,24 @@ export function MonthlyPayroll({ periodId }: MonthlyPayrollProps = {}) {
       />
 
       <UnlockPeriodDialog open={unlockDialogOpen} onOpenChange={setUnlockDialogOpen} periodId={period.id} />
+
+      {canSendSlips && (
+        <>
+          <SendSlipsDialog
+            open={!!slipDialog}
+            onOpenChange={(o) => {
+              if (!o) {
+                setSlipDialog(null);
+                setSelectedIds(new Set());
+              }
+            }}
+            periodId={period.id}
+            periodLabel={period.periodLabel}
+            entryIds={slipDialog?.entryIds ?? null}
+          />
+          <SlipDispatchResultDialog dispatchId={slipResultId} onOpenChange={(o) => !o && setSlipResultId(null)} />
+        </>
+      )}
 
       <SalaryStructureDialog
         employee={salaryDialogEmployee}

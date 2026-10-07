@@ -155,7 +155,9 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // kept separate from customer_financial_adjustments since a deposit is a
 // liability, not a charge/credit. Non-navigable (Deposits tab on customer
 // detail); +1 resource, +6 total permissions.
-const FROZEN_TOTAL = 215;
+// 216 = 215 + payroll:slip_send — salary-slip WhatsApp send (owner-requested 2026-10-07).
+// No new resource/page; VENDOR_ADMIN-only by default (`*` wildcard only).
+const FROZEN_TOTAL = 216;
 const FROZEN_PAGES = 31;
 const FROZEN_RESOURCES = 37;
 

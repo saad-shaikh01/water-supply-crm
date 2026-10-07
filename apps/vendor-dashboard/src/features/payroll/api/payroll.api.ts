@@ -1,4 +1,5 @@
 import { apiClient } from '@water-supply-crm/data-access';
+import { filenameFromContentDisposition } from '../../van-cash-ledger/lib/download-file';
 import type {
   AttendanceCategory,
   AttendanceStatus,
@@ -22,11 +23,99 @@ export interface PayrollVendorConfigData {
   cashCutoffDay: number | null;
   cashWindowCategories: StaffLedgerCategory[];
   autoLockEnabled: boolean;
+  /** Max share of base salary one period may deduct (1-100); null = no ceiling (the default). */
+  maxDeductionPercent: number | null;
 }
 
-export type UpdatePayrollVendorConfigData = Omit<PayrollVendorConfigData, 'autoLockEnabled'> & {
+export type UpdatePayrollVendorConfigData = Omit<PayrollVendorConfigData, 'autoLockEnabled' | 'maxDeductionPercent'> & {
   autoLockEnabled?: boolean;
+  /** Omit to leave the current setting alone; null turns the ceiling off. */
+  maxDeductionPercent?: number | null;
 };
+
+/** A CSV ready to hand to `saveBlob`. */
+export interface PayrollCsvDownload {
+  blob: Blob;
+  filename: string;
+}
+
+// ── Salary slips on WhatsApp ────────────────────────────────────────────────
+
+export type SlipVerdict = 'ELIGIBLE' | 'NOT_FINAL' | 'NO_PHONE';
+export type SlipDeliveryStatus = 'QUEUED' | 'SENDING' | 'SENT' | 'SKIPPED_NO_PHONE' | 'SKIPPED_DISCONNECTED' | 'FAILED';
+export type SlipDispatchStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'ABORTED' | 'FAILED';
+
+export interface SlipPreviewItem {
+  entryId: string;
+  userId: string;
+  name: string;
+  role: string;
+  status: string;
+  finalPayable: number;
+  verdict: SlipVerdict;
+  reason: string | null;
+  alreadySent: { sentAt: string | null; finalPayable: number; amountChanged: boolean } | null;
+}
+
+export interface SlipPreviewResponse {
+  periodId: string;
+  periodLabel: string;
+  items: SlipPreviewItem[];
+  counts: { total: number; eligible: number; notFinal: number; noPhone: number; alreadySent: number };
+}
+
+export interface SendSlipsData {
+  /** Omit for every entry of the period. */
+  entryIds?: string[];
+  /** Send entries that were already sent again. */
+  confirmResend?: boolean;
+  /** Leave already-sent entries out instead. */
+  skipAlreadySent?: boolean;
+}
+
+export interface SendSlipsResult {
+  dispatchId: string;
+  status: SlipDispatchStatus;
+  queued: number;
+  skippedNoPhone: Array<{ entryId: string; name: string }>;
+  skippedNotFinal: Array<{ entryId: string; name: string; status: string }>;
+  skippedAlreadySent: Array<{ entryId: string; name: string }>;
+}
+
+export interface SlipDispatchProgress {
+  id: string;
+  status: SlipDispatchStatus;
+  total: number;
+  sent: number;
+  skipped: number;
+  failed: number;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+export interface SlipEntryStatus {
+  last: { status: SlipDeliveryStatus; error: string | null; at: string } | null;
+  lastSent: { at: string | null; finalPayable: number; amountChanged: boolean } | null;
+}
+
+export interface SlipStatusResponse {
+  activeDispatch: SlipDispatchProgress | null;
+  latestDispatch: SlipDispatchProgress | null;
+  entries: Record<string, SlipEntryStatus>;
+}
+
+export interface SlipDispatchDetail extends SlipDispatchProgress {
+  deliveries: Array<{
+    id: string;
+    entryId: string;
+    userId: string;
+    name: string;
+    status: SlipDeliveryStatus;
+    error: string | null;
+    sentAt: string | null;
+    finalPayable: number;
+  }>;
+}
 
 export interface CreateSalaryStructureData {
   userId: string;
@@ -94,6 +183,27 @@ export interface RecordSettlementData {
   amount: number;
   method: SettlementMethod;
   referenceNote?: string;
+}
+
+/** What to do with a set of Absent / Half-day days (`POST /payroll/attendance/resolve-absences`). */
+export type AbsenceDecisionAction = 'UNPAID' | 'WAIVE' | 'RESET';
+
+export interface ResolveAbsencesData {
+  userId: string;
+  /** YYYY-MM-DD days, all of which must be Absent / Half-day rows. */
+  dates: string[];
+  action: AbsenceDecisionAction;
+  /** Whole rupees per full absent day - required for UNPAID (a half-day is charged half), rejected otherwise. */
+  dailyRate?: number;
+  note?: string;
+}
+
+export interface ResolveAbsencesResult {
+  action: AbsenceDecisionAction;
+  requested: number;
+  affected: number;
+  unchanged: number;
+  totalDeducted: number;
 }
 
 /** Body for `POST /payroll/attendance/mark`. `amount` is required only for ABSENT / HALF_DAY. */
@@ -204,6 +314,12 @@ export const payrollApi = {
   voidLedgerEntry: (id: string, data: VoidLinkedPenaltyData) =>
     apiClient.patch(`/payroll/ledger-entries/${id}/void`, data),
 
+  // "Deduct next month" - moves only the payroll attribution date, never effectiveDate / the Cash Ledger.
+  deferLedgerEntry: (id: string, data: { periodId: string; version: number; reason: string }) =>
+    apiClient.post(`/payroll/ledger-entries/${id}/defer`, data),
+  undoDeferLedgerEntry: (id: string, data: { version: number; reason: string }) =>
+    apiClient.post(`/payroll/ledger-entries/${id}/undo-defer`, data),
+
   // Post-lock fixes — new opposite-sign entries in the open period; the locked row is never touched.
   reverseLedgerEntry: (id: string, data: VoidLinkedPenaltyData) =>
     apiClient.post(`/payroll/ledger-entries/${id}/reverse`, data),
@@ -224,10 +340,31 @@ export const payrollApi = {
   getEntriesForPeriod: (periodId: string) => apiClient.get(`/payroll/periods/${periodId}/entries`),
   generateDraft: (periodId: string) => apiClient.post(`/payroll/periods/${periodId}/entries/generate`),
   getEntryBreakdown: (entryId: string) => apiClient.get(`/payroll/entries/${entryId}/breakdown`),
-  approveEntry: (entryId: string, version: number) =>
-    apiClient.patch(`/payroll/entries/${entryId}/approve`, { version }),
+  approveEntry: (entryId: string, version: number, acknowledgePendingAbsences?: boolean) =>
+    apiClient.patch(`/payroll/entries/${entryId}/approve`, {
+      version,
+      ...(acknowledgePendingAbsences ? { acknowledgePendingAbsences: true } : {}),
+    }),
   recalculateEntry: (entryId: string, version: number) =>
     apiClient.patch(`/payroll/entries/${entryId}/recalculate`, { version }),
+  /** Whole period (one row per employee) as a CSV — same download shape as the Cash Ledger exports. */
+  exportPeriodCsv: async (periodId: string, fallbackLabel: string): Promise<PayrollCsvDownload> => {
+    const res = await apiClient.get<Blob>(`/payroll/periods/${periodId}/export.csv`, { responseType: 'blob' });
+    const headers = res.headers as Record<string, string | undefined>;
+    return {
+      blob: res.data,
+      filename: filenameFromContentDisposition(headers['content-disposition'], `payroll-${fallbackLabel}.csv`),
+    };
+  },
+
+  // Salary slips on WhatsApp (payroll:slip_send; status needs payroll:view_all)
+  getSlipStatus: (periodId: string) => apiClient.get<SlipStatusResponse>(`/payroll/periods/${periodId}/slips/status`),
+  previewSlips: (periodId: string, entryIds?: string[]) =>
+    apiClient.post<SlipPreviewResponse>(`/payroll/periods/${periodId}/slips/preview`, entryIds ? { entryIds } : {}),
+  sendSlips: (periodId: string, data: SendSlipsData) =>
+    apiClient.post<SendSlipsResult>(`/payroll/periods/${periodId}/slips/send`, data),
+  getSlipDispatch: (dispatchId: string) => apiClient.get<SlipDispatchDetail>(`/payroll/slips/dispatches/${dispatchId}`),
+
   lockPeriod: (periodId: string) => apiClient.patch(`/payroll/periods/${periodId}/lock`),
   unlockPeriod: (periodId: string, reason: string) =>
     apiClient.patch(`/payroll/periods/${periodId}/unlock`, { reason }),
@@ -243,6 +380,8 @@ export const payrollApi = {
   getAttendanceForPeriod: (periodId: string) => apiClient.get(`/payroll/attendance/period/${periodId}`),
   getAttendanceForEmployee: (userId: string) => apiClient.get(`/payroll/attendance/employee/${userId}`),
   markAttendance: (data: MarkAttendanceData) => apiClient.post('/payroll/attendance/mark', data),
+  resolveAbsences: (data: ResolveAbsencesData) =>
+    apiClient.post<ResolveAbsencesResult>('/payroll/attendance/resolve-absences', data),
   backfillAttendance: (periodId: string) =>
     apiClient.post<AttendanceBackfillResult>(`/payroll/attendance/period/${periodId}/backfill`, {}),
   searchAttendance: (params: AttendanceSearchQuery) =>

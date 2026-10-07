@@ -521,6 +521,8 @@ it('runs the full ledger -> draft -> approve -> lock payroll pipeline with exact
     penalties: -500,
     otherDeductions: 0,
     carryForwardIn: 0,
+    deferredIn: 0,
+    deferredOut: 0,
     finalPayable: 27800,
     approvedFinalPayable: 27600,
   });
@@ -556,6 +558,8 @@ it('runs the full ledger -> draft -> approve -> lock payroll pipeline with exact
     penalties: 0,
     otherDeductions: 0,
     carryForwardIn: 0,
+    deferredIn: 0,
+    deferredOut: 0,
     finalPayable: 22000,
   });
   expect(snapshot2.breakdownJson).not.toHaveProperty('approvedFinalPayable');

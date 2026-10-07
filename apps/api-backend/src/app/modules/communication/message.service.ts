@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -463,7 +464,7 @@ export class MessageService {
       where: { id: messageId },
       include: { item: { include: { dailySheet: { select: { vendorId: true } } } } },
     });
-    if (!message || message.item.dailySheet.vendorId !== user.vendorId) {
+    if (!message || message.deletedAt || message.item.dailySheet.vendorId !== user.vendorId) {
       throw new NotFoundException('Message not found');
     }
     if (message.acknowledgedAt) {
@@ -488,6 +489,102 @@ export class MessageService {
       changes: { after: { acknowledgedAt: updated.acknowledgedAt, acknowledgedById: user.userId } },
     });
     return updated;
+  }
+
+  // ── delete message / delete instruction ────────────────────────────────────
+
+  /**
+   * Soft-deletes one message. Deleting an instruction message removes the
+   * message AND its delivery block together — every ack-gate query already
+   * filters `deletedAt: null`, so no extra write is needed for that. Admins
+   * may delete any message; everyone else only their own.
+   */
+  async deleteMessage(user: AuthUser, messageId: string) {
+    const message = await this.findActiveMessage(user, messageId);
+    if (
+      !MessageService.ACK_AUTHOR_ROLES.includes(user.role) &&
+      message.createdById !== user.userId
+    ) {
+      throw new ForbiddenException('You can only delete your own messages');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.conversationMessage.update({
+        where: { id: messageId },
+        data: { deletedAt: new Date() },
+      });
+      // Rollups mirror createMessage: count + "last message" preview/sender.
+      const latest = await tx.conversationMessage.findFirst({
+        where: { conversationId: message.conversationId, deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+        include: { createdBy: { select: { id: true, role: true } } },
+      });
+      await tx.conversation.update({
+        where: { id: message.conversationId },
+        data: {
+          messageCount: { decrement: 1 },
+          lastMessageAt: latest?.createdAt ?? null,
+          lastMessagePreview: latest
+            ? latest.type === MessageType.VOICE
+              ? VOICE_PREVIEW
+              : (latest.text ?? '').slice(0, PREVIEW_LENGTH)
+            : null,
+          lastMessageSenderId: latest?.createdBy.id ?? null,
+          lastMessageSenderRole: latest?.createdBy.role ?? null,
+        },
+      });
+    });
+
+    await this.audit.log({
+      vendorId: user.vendorId,
+      userId: user.userId,
+      userName: user.name,
+      action: 'DELETE_MESSAGE',
+      entity: 'ConversationMessage',
+      entityId: messageId,
+      changes: { before: { type: message.type, requiresAck: message.requiresAck } },
+    });
+    return { success: true, conversationId: message.conversationId };
+  }
+
+  /**
+   * Strips only the "Instruction" status from a message: the message stays in
+   * the thread but stops blocking delivery. Admin-only, same as authoring one.
+   */
+  async removeInstruction(user: AuthUser, messageId: string) {
+    if (!MessageService.ACK_AUTHOR_ROLES.includes(user.role)) {
+      throw new ForbiddenException('Only an admin can remove an instruction');
+    }
+    const message = await this.findActiveMessage(user, messageId);
+    if (!message.requiresAck) {
+      throw new BadRequestException('This message is not an instruction');
+    }
+    const updated = await this.prisma.conversationMessage.update({
+      where: { id: messageId },
+      data: { requiresAck: false, acknowledgedAt: null, acknowledgedById: null },
+      include: MESSAGE_INCLUDE,
+    });
+    await this.audit.log({
+      vendorId: user.vendorId,
+      userId: user.userId,
+      userName: user.name,
+      action: 'REMOVE_MESSAGE_INSTRUCTION',
+      entity: 'ConversationMessage',
+      entityId: messageId,
+      changes: {
+        before: { requiresAck: true, acknowledgedAt: message.acknowledgedAt },
+        after: { requiresAck: false },
+      },
+    });
+    return updated;
+  }
+
+  private async findActiveMessage(user: AuthUser, messageId: string) {
+    const message = await this.prisma.conversationMessage.findUnique({ where: { id: messageId } });
+    if (!message || message.deletedAt || message.vendorId !== user.vendorId) {
+      throw new NotFoundException('Message not found');
+    }
+    return message;
   }
 
   /**

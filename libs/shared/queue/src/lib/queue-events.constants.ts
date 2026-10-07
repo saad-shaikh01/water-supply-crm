@@ -10,6 +10,7 @@ export const JOB_NAMES = {
   AUTO_DISPATCH_ORDER: 'auto-dispatch-order',
   SEND_PAYMENT_REMINDERS: 'send-payment-reminders',
   BULK_PRICE_UPDATE: 'bulk-price-update',
+  SEND_PAYROLL_SLIPS: 'send-payroll-slips',
   AUTO_REFILL_EMPTY_BOTTLES: 'auto-refill-empty-bottles',
   FLEET_NOTIFICATION_SWEEP: 'fleet-notification-sweep',
   SYNC_STALE_CREW_CASH: 'sync-stale-crew-cash',

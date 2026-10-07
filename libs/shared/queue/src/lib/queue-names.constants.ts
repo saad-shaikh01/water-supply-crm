@@ -8,4 +8,5 @@ export const QUEUE_NAMES = {
   FLEET_NOTIFICATIONS: 'fleet-notifications',
   CREW_CASH_SYNC: 'crew-cash-sync',
   TRACKING_HISTORY: 'tracking-history',
+  PAYROLL_SLIP_SEND: 'payroll-slip-send',
 } as const;
