@@ -9,6 +9,7 @@ import {
   OnModuleInit,
   Inject,
   forwardRef,
+  Optional,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -49,6 +50,7 @@ import {
 } from '../../common/helpers/crew-validation';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
 import type { AuthUser, SheetAuditLogEntry } from '@water-supply-crm/types';
+import { PermissionService } from '../authz/permission.service';
 import {
   auditActionMeta,
   collectAuditBlobIds,
@@ -123,7 +125,19 @@ export class DailySheetService implements OnModuleInit {
     private customerDeposits: CustomerDepositsService,
     @InjectQueue(QUEUE_NAMES.DAILY_SHEET_GENERATION)
     private sheetQueue: Queue,
+    // Global AuthzModule provides this in the app; @Optional() only keeps
+    // unit-test modules that don't register it constructible.
+    @Optional() private permissions?: PermissionService,
   ) {}
+
+  /**
+   * Edit-lock bypass is permission-based, not role-based: a holder of
+   * `daily_sheets:manage_edit_locks` may re-submit a locked delivery/trip
+   * directly; everyone else needs an active staff-granted unlock window.
+   */
+  private async canBypassEditLock(user: AuthUser): Promise<boolean> {
+    return (await this.permissions?.can(user.userId, 'daily_sheets:manage_edit_locks')) ?? false;
+  }
 
   async onModuleInit() {
     try {
@@ -568,8 +582,8 @@ export class DailySheetService implements OnModuleInit {
         `Delivery already recorded as ${item.status}. Set forceResubmit=true to override.`
       );
     }
-    // Drivers can only force-resubmit if an active unlock window has been granted by staff
-    if (dto.forceResubmit && TERMINAL_STATUSES.includes(item.status) && user.role === 'DRIVER') {
+    // Force-resubmit needs an active unlock window unless the caller holds daily_sheets:manage_edit_locks
+    if (dto.forceResubmit && TERMINAL_STATUSES.includes(item.status) && !(await this.canBypassEditLock(user))) {
       const hasActiveUnlock = item.editUnlockExpiresAt && item.editUnlockExpiresAt > new Date();
       if (!hasActiveUnlock) {
         throw new ForbiddenException('Edit not permitted. Ask staff to unlock this delivery first.');
@@ -3971,12 +3985,11 @@ export class DailySheetService implements OnModuleInit {
       throw new ConflictException('Trip already checked in');
     }
 
-    // Trip Edit-Unlock: re-submitting an already-checked-in trip. Drivers may
-    // only do this within an active staff/admin-granted unlock window;
-    // STAFF/VENDOR_ADMIN bypass the unlock check entirely (same asymmetry as
-    // submitDelivery's forceResubmit gate for delivery items).
+    // Trip Edit-Unlock: re-submitting an already-checked-in trip needs an active
+    // staff/admin-granted unlock window unless the caller holds
+    // daily_sheets:manage_edit_locks (same gate as submitDelivery's forceResubmit).
     const isEdit = !!(dto.forceResubmit && load.endedAt);
-    if (isEdit && user.role === 'DRIVER') {
+    if (isEdit && !(await this.canBypassEditLock(user))) {
       const hasActiveUnlock = load.editUnlockExpiresAt && load.editUnlockExpiresAt > new Date();
       if (!hasActiveUnlock) {
         throw new ForbiddenException('Edit not permitted. Ask staff to unlock this trip first.');

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
 import { Prisma } from '@prisma/client';
 import { VEHICLE_DAILY_ODOMETER_DELTA_CAP_KM, type ChecklistItemResult } from '@water-supply-crm/types';
@@ -24,15 +24,10 @@ export class VehicleCheckService {
   async create(user: AuthUser, dto: CreateVehicleDailyCheckDto) {
     const sheet = await this.prisma.dailySheet.findFirst({
       where: { id: dto.dailySheetId, vendorId: user.vendorId },
-      select: { id: true, vanId: true, driverId: true, salesmanId: true, isClosed: true },
+      select: { id: true, vanId: true, isClosed: true },
     });
     if (!sheet) throw new NotFoundException('Daily sheet not found');
 
-    // Own-vehicle-only for DRIVER; Staff/Admin (fleet:update/manage_maintenance
-    // holders) may record on any sheet as a correction — plan doc §7.12.
-    if (user.role === 'DRIVER' && sheet.driverId !== user.userId && sheet.salesmanId !== user.userId) {
-      throw new ForbiddenException('You can only record checks for your own delivery van.');
-    }
     if (sheet.isClosed) {
       throw new BadRequestException('Cannot record a vehicle check on a closed sheet.');
     }
@@ -148,12 +143,9 @@ export class VehicleCheckService {
   async getForSheet(user: AuthUser, dailySheetId: string) {
     const sheet = await this.prisma.dailySheet.findFirst({
       where: { id: dailySheetId, vendorId: user.vendorId },
-      select: { id: true, driverId: true, salesmanId: true },
+      select: { id: true },
     });
     if (!sheet) throw new NotFoundException('Daily sheet not found');
-    if (user.role === 'DRIVER' && sheet.driverId !== user.userId && sheet.salesmanId !== user.userId) {
-      throw new ForbiddenException('You can only view checks for your own delivery van.');
-    }
 
     return this.prisma.vehicleDailyCheck.findMany({
       where: { dailySheetId },

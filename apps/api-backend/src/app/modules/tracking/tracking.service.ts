@@ -127,7 +127,9 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
       const todayStart = new Date(now);
       todayStart.setHours(0, 0, 0, 0);
       const activeSheet = await this.prisma.dailySheet.findFirst({
-        where: { driverId, vendorId, isClosed: false, date: { gte: todayStart } },
+        // The reporting user may be the sheet's driver OR salesman (location reporting is
+        // permission-based — `tracking:report_location` — not tied to the DRIVER role).
+        where: { OR: [{ driverId }, { salesmanId: driverId }], vendorId, isClosed: false, date: { gte: todayStart } },
         select: { id: true, vanId: true },
         orderBy: { date: 'desc' },
       });
@@ -409,7 +411,9 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
       select: {
         id: true,
         driverId: true,
+        salesmanId: true,
         driver: { select: { name: true } },
+        salesman: { select: { name: true } },
         van: { select: { plateNumber: true } },
         loads: { where: { endedAt: null }, select: { startedAt: true }, take: 1, orderBy: { startedAt: 'desc' } },
       },
@@ -419,29 +423,40 @@ export class TrackingService implements OnModuleInit, OnModuleDestroy {
     const liveKeys = await this.scanKeys(`${LOCATION_KEY_PREFIX}*`);
     const liveDriverIds = new Set(liveKeys.map((k) => k.slice(LOCATION_KEY_PREFIX.length)));
 
-    const candidates = activeSheets.filter((s) => !liveDriverIds.has(s.driverId));
+    // Either of the sheet's people (driver or salesman) may be the one carrying the
+    // reporting phone, so a sheet is only "missing" when NEITHER is live / recently seen.
+    const reportersOf = (s: (typeof activeSheets)[number]) =>
+      [...new Set([s.salesmanId, s.driverId].filter((id): id is string => !!id))];
+
+    const candidates = activeSheets.filter((s) => !reportersOf(s).some((id) => liveDriverIds.has(id)));
     if (!candidates.length) return [];
 
     const lastLocations = await this.prisma.driverLastLocation.findMany({
-      where: { driverId: { in: candidates.map((s) => s.driverId) } },
+      where: { driverId: { in: [...new Set(candidates.flatMap(reportersOf))] } },
       select: { driverId: true, lastSeenAt: true },
     });
     const lastSeenMap = new Map(lastLocations.map((l) => [l.driverId, l.lastSeenAt]));
+    const latestSeen = (s: (typeof activeSheets)[number]): Date | undefined =>
+      reportersOf(s)
+        .map((id) => lastSeenMap.get(id))
+        .filter((d): d is Date => !!d)
+        .sort((a, b) => b.getTime() - a.getTime())[0];
 
     const now = Date.now();
     return candidates
       .filter((s) => {
-        const lastSeen = lastSeenMap.get(s.driverId);
+        const lastSeen = latestSeen(s);
         if (!lastSeen) return true; // never reported this trip at all — always flag
         return (now - lastSeen.getTime()) / 1000 >= MISSING_LOCATION_GRACE_SECONDS;
       })
       .map((s) => ({
-        driverId: s.driverId,
-        driverName: s.driver.name,
+        // The person on the route is the sheet's salesman (driver only in fleet flows).
+        driverId: s.salesmanId ?? s.driverId,
+        driverName: s.salesman?.name ?? s.driver.name,
         vanPlate: s.van?.plateNumber ?? null,
         dailySheetId: s.id,
         tripStartedAt: s.loads[0]?.startedAt.toISOString() ?? '',
-        lastSeenAt: lastSeenMap.get(s.driverId)?.toISOString() ?? null,
+        lastSeenAt: latestSeen(s)?.toISOString() ?? null,
       }));
   }
 

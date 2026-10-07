@@ -160,7 +160,8 @@ export class TrackingHistoryService {
 
     const deliveryItems = await this.prisma.dailySheetItem.findMany({
       where: {
-        dailySheet: { driverId, vendorId, date: { gte: day, lt: dayEnd } },
+        // Reporter may be the sheet's driver OR its salesman (permission-based tracking, not role-based).
+        dailySheet: { OR: [{ driverId }, { salesmanId: driverId }], vendorId, date: { gte: day, lt: dayEnd } },
         deliveredAt: { not: null },
       },
       orderBy: { deliveredAt: 'asc' },
