@@ -143,10 +143,10 @@ export function DiscrepancyCasesList() {
             cell: (r) => <span className="text-sm font-medium">{r.dailySheet?.van?.plateNumber ?? '—'}</span>,
           },
           {
-            key: 'driver',
+            key: 'salesman',
             essential: true,
-            header: 'Driver',
-            cell: (r) => <span className="text-sm font-medium">{r.driver?.name ?? '—'}</span>,
+            header: 'Salesman',
+            cell: (r) => <span className="text-sm font-medium">{r.salesman?.name ?? '—'}</span>,
           },
           {
             key: 'type',

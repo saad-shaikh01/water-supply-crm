@@ -179,10 +179,10 @@ export function ConversationList({
                     {c.van.plateNumber}
                   </span>
                 )}
-                {c.driver && (
+                {c.salesman && (
                   <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                     <User className="h-2.5 w-2.5" />
-                    {c.driver.name}
+                    {c.salesman.name}
                   </span>
                 )}
                 {c.dailySheet && (

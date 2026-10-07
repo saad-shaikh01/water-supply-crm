@@ -25,7 +25,7 @@ export const ordersApi = {
       targetDate: string;
       timeWindow?: string;
       vanId?: string;
-      driverId?: string;
+      salesmanId?: string;
       dispatchMode: string;
       notes?: string;
     },
@@ -37,7 +37,7 @@ export const ordersApi = {
       targetDate: string;
       timeWindow?: string;
       vanId?: string;
-      driverId?: string;
+      salesmanId?: string;
       dispatchMode: string;
       notes?: string;
     },

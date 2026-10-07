@@ -66,7 +66,7 @@ export function ConversationHeader({ conversation }: ConversationHeaderProps) {
         {/* Nullable: a conversation with no message yet has no "most
             recently discussed delivery" context — only true for the brief
             window between get-or-create and the first send. */}
-        {conversation.dailySheet && conversation.van && conversation.driver && conversation.item && (
+        {conversation.dailySheet && conversation.van && conversation.salesman && conversation.item && (
           <div className="flex items-center gap-3 flex-wrap mt-1.5 text-[11px] text-muted-foreground">
             <span className="flex items-center gap-1">
               <Calendar className="h-3 w-3" />
@@ -78,7 +78,7 @@ export function ConversationHeader({ conversation }: ConversationHeaderProps) {
             </span>
             <span className="flex items-center gap-1">
               <User className="h-3 w-3" />
-              {conversation.driver.name}
+              {conversation.salesman.name}
             </span>
             <span className="flex items-center gap-1">
               <Package className="h-3 w-3" />

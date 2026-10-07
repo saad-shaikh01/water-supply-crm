@@ -22,7 +22,7 @@ const adminUser = { userId: ACTOR_ID, vendorId: VENDOR_ID, role: 'VENDOR_ADMIN',
 const baseCase = {
   id: CASE_ID,
   vendorId: VENDOR_ID,
-  driverId: DRIVER_ID,
+  salesmanId: DRIVER_ID,
   dailySheetId: SHEET_ID,
   type: DiscrepancyType.CASH,
   status: DiscrepancyCaseStatus.REPORTED,
@@ -70,7 +70,7 @@ describe('SheetDiscrepancyCaseService', () => {
       };
 
       const result = await svc.createCasesForSheet(
-        tx as any, VENDOR_ID, { id: SHEET_ID, driverId: DRIVER_ID }, reconciliation, ACTOR_ID, UserRole.VENDOR_ADMIN,
+        tx as any, VENDOR_ID, { id: SHEET_ID, salesmanId: DRIVER_ID }, reconciliation, ACTOR_ID, UserRole.VENDOR_ADMIN,
       );
 
       expect(result.createdCount).toBe(3);
@@ -84,7 +84,7 @@ describe('SheetDiscrepancyCaseService', () => {
       const reconciliation = { bottles: { discrepancy: 1 }, empties: { discrepancy: 0 }, driver: { unexplainedDiscrepancy: 0 } };
 
       const result = await svc.createCasesForSheet(
-        tx as any, VENDOR_ID, { id: SHEET_ID, driverId: DRIVER_ID }, reconciliation, ACTOR_ID, UserRole.VENDOR_ADMIN,
+        tx as any, VENDOR_ID, { id: SHEET_ID, salesmanId: DRIVER_ID }, reconciliation, ACTOR_ID, UserRole.VENDOR_ADMIN,
       );
 
       expect(result.createdCount).toBe(1);
@@ -96,7 +96,7 @@ describe('SheetDiscrepancyCaseService', () => {
       const reconciliation = { bottles: { discrepancy: 0 }, empties: { discrepancy: 0 }, driver: { unexplainedDiscrepancy: 0 } };
 
       const result = await svc.createCasesForSheet(
-        tx as any, VENDOR_ID, { id: SHEET_ID, driverId: DRIVER_ID }, reconciliation, ACTOR_ID, UserRole.VENDOR_ADMIN,
+        tx as any, VENDOR_ID, { id: SHEET_ID, salesmanId: DRIVER_ID }, reconciliation, ACTOR_ID, UserRole.VENDOR_ADMIN,
       );
 
       expect(result.createdCount).toBe(0);
@@ -109,7 +109,7 @@ describe('SheetDiscrepancyCaseService', () => {
       const reconciliation = { bottles: { discrepancy: 5 }, empties: { discrepancy: 0 }, driver: { unexplainedDiscrepancy: 250 } };
 
       await svc.createCasesForSheet(
-        tx as any, VENDOR_ID, { id: SHEET_ID, driverId: DRIVER_ID }, reconciliation, ACTOR_ID, UserRole.VENDOR_ADMIN,
+        tx as any, VENDOR_ID, { id: SHEET_ID, salesmanId: DRIVER_ID }, reconciliation, ACTOR_ID, UserRole.VENDOR_ADMIN,
       );
 
       expect(tx.sheetDiscrepancyCase.create).toHaveBeenCalledWith(
@@ -124,17 +124,17 @@ describe('SheetDiscrepancyCaseService', () => {
       );
     });
 
-    it('scopes every created row to the given vendorId/dailySheetId/driverId', async () => {
+    it('scopes every created row to the given vendorId/dailySheetId/salesmanId', async () => {
       const { svc, tx } = makeService();
       const reconciliation = { bottles: { discrepancy: 3 }, empties: { discrepancy: 0 }, driver: { unexplainedDiscrepancy: 0 } };
 
       await svc.createCasesForSheet(
-        tx as any, VENDOR_ID, { id: SHEET_ID, driverId: DRIVER_ID }, reconciliation, ACTOR_ID, UserRole.VENDOR_ADMIN,
+        tx as any, VENDOR_ID, { id: SHEET_ID, salesmanId: DRIVER_ID }, reconciliation, ACTOR_ID, UserRole.VENDOR_ADMIN,
       );
 
       expect(tx.sheetDiscrepancyCase.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ vendorId: VENDOR_ID, dailySheetId: SHEET_ID, driverId: DRIVER_ID }),
+          data: expect.objectContaining({ vendorId: VENDOR_ID, dailySheetId: SHEET_ID, salesmanId: DRIVER_ID }),
         }),
       );
     });

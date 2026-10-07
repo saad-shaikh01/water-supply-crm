@@ -13,7 +13,7 @@ export class DiscrepancyCaseQueryDto extends PaginationQueryDto {
 
   @IsOptional()
   @IsUUID()
-  driverId?: string;
+  salesmanId?: string;
 
   @IsOptional()
   @IsUUID()

@@ -104,7 +104,7 @@ export function DamageCasesList() {
     status: status ? (status as DamageCaseStatus) : undefined,
     severity: severity ? (severity as DamageSeverity) : undefined,
     caseType: caseType ? (caseType as DamageCaseType) : undefined,
-    driverId: salesmanId || undefined,
+    salesmanId: salesmanId || undefined,
     search: search || undefined,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
@@ -390,7 +390,7 @@ export function DamageCasesList() {
           {
             key: 'salesman',
             header: 'Salesman',
-            cell: (r) => <span className="text-sm font-medium">{r.driver?.name ?? '—'}</span>,
+            cell: (r) => <span className="text-sm font-medium">{r.salesman?.name ?? '—'}</span>,
           },
           {
             key: 'van',

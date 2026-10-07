@@ -28,7 +28,7 @@ function CommunicationsContent() {
   const [waitingOn, setWaitingOn] = useQueryState('waitingOn', parseAsString.withDefault('all'));
   const [search] = useQueryState('search', parseAsString.withDefault(''));
   const [vanId] = useQueryState('vanId', parseAsString.withDefault(''));
-  const [driverId] = useQueryState('driverId', parseAsString.withDefault(''));
+  const [salesmanId] = useQueryState('salesmanId', parseAsString.withDefault(''));
   const [from] = useQueryState('from', parseAsString.withDefault(''));
   const [to] = useQueryState('to', parseAsString.withDefault(''));
 
@@ -76,7 +76,7 @@ function CommunicationsContent() {
     waitingOn: waitingOn !== 'all' ? (waitingOn as 'DRIVER' | 'OFFICE') : undefined,
     search: search || undefined,
     vanId: !isDriver && vanId ? vanId : undefined,
-    driverId: !isDriver && driverId ? driverId : undefined,
+    salesmanId: !isDriver && salesmanId ? salesmanId : undefined,
     dateFrom: from || undefined,
     dateTo: to || undefined,
   });
@@ -90,7 +90,7 @@ function CommunicationsContent() {
     status !== 'all',
     waitingOn !== 'all',
     !isDriver && !!vanId,
-    !isDriver && !!driverId,
+    !isDriver && !!salesmanId,
     !!from || !!to,
   ].filter(Boolean).length;
 
@@ -112,7 +112,7 @@ function CommunicationsContent() {
     <div className="flex flex-col h-full">
       <PageHeader
         title="Communications"
-        description="Delivery conversations between drivers and the office."
+        description="Delivery conversations between salesmen and the office."
       />
 
       {/* This panel used to force its own height with a hardcoded

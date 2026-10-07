@@ -556,7 +556,7 @@ export function FinancialTab({ from, to, vanId }: { from: string; to: string; va
                   <tr className="text-left text-xs text-muted-foreground uppercase tracking-widest border-b border-border/50">
                     <th className="pb-3 pr-4">Date</th>
                     <th className="pb-3 pr-4">Van</th>
-                    <th className="pb-3 pr-4">Driver</th>
+                    <th className="pb-3 pr-4">Salesman</th>
                     <th className="pb-3 pr-4">Type</th>
                     <th className="pb-3 text-right">Amount</th>
                   </tr>
@@ -566,7 +566,7 @@ export function FinancialTab({ from, to, vanId }: { from: string; to: string; va
                     <tr key={row.id} className="border-b border-border/30 hover:bg-accent/20 transition-colors">
                       <td className="py-3 pr-4 text-xs text-muted-foreground">{new Date(row.date).toLocaleDateString()}</td>
                       <td className="py-3 pr-4 font-semibold">{row.vanPlateNumber}</td>
-                      <td className="py-3 pr-4">{row.driverName}</td>
+                      <td className="py-3 pr-4">{row.salesmanName}</td>
                       <td className="py-3 pr-4 text-xs text-muted-foreground capitalize">{row.type.toLowerCase()}</td>
                       <td className="py-3 text-right font-mono">{fmt(row.amount)}</td>
                     </tr>
