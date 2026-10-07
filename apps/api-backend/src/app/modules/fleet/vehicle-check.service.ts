@@ -24,13 +24,13 @@ export class VehicleCheckService {
   async create(user: AuthUser, dto: CreateVehicleDailyCheckDto) {
     const sheet = await this.prisma.dailySheet.findFirst({
       where: { id: dto.dailySheetId, vendorId: user.vendorId },
-      select: { id: true, vanId: true, driverId: true, isClosed: true },
+      select: { id: true, vanId: true, driverId: true, salesmanId: true, isClosed: true },
     });
     if (!sheet) throw new NotFoundException('Daily sheet not found');
 
     // Own-vehicle-only for DRIVER; Staff/Admin (fleet:update/manage_maintenance
     // holders) may record on any sheet as a correction — plan doc §7.12.
-    if (user.role === 'DRIVER' && sheet.driverId !== user.userId) {
+    if (user.role === 'DRIVER' && sheet.driverId !== user.userId && sheet.salesmanId !== user.userId) {
       throw new ForbiddenException('You can only record checks for your own delivery van.');
     }
     if (sheet.isClosed) {
@@ -148,10 +148,10 @@ export class VehicleCheckService {
   async getForSheet(user: AuthUser, dailySheetId: string) {
     const sheet = await this.prisma.dailySheet.findFirst({
       where: { id: dailySheetId, vendorId: user.vendorId },
-      select: { id: true, driverId: true },
+      select: { id: true, driverId: true, salesmanId: true },
     });
     if (!sheet) throw new NotFoundException('Daily sheet not found');
-    if (user.role === 'DRIVER' && sheet.driverId !== user.userId) {
+    if (user.role === 'DRIVER' && sheet.driverId !== user.userId && sheet.salesmanId !== user.userId) {
       throw new ForbiddenException('You can only view checks for your own delivery van.');
     }
 

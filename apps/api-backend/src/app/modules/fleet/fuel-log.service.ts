@@ -66,10 +66,10 @@ export class FuelLogService {
     if (dto.dailySheetId) {
       const sheet = await this.prisma.dailySheet.findFirst({
         where: { id: dto.dailySheetId, vendorId: user.vendorId },
-        select: { vanId: true, driverId: true, isClosed: true },
+        select: { vanId: true, driverId: true, salesmanId: true, isClosed: true },
       });
       if (!sheet) throw new NotFoundException('Daily sheet not found');
-      if (user.role === 'DRIVER' && sheet.driverId !== user.userId) {
+      if (user.role === 'DRIVER' && sheet.driverId !== user.userId && sheet.salesmanId !== user.userId) {
         throw new ForbiddenException('You can only record fuel for your own delivery van.');
       }
       // Same closed-sheet business rule already enforced by
