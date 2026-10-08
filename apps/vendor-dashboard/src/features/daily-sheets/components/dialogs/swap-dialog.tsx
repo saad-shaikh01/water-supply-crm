@@ -5,7 +5,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
   Button, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@water-supply-crm/ui';
-import { ArrowRightLeft, Loader2, User, Truck } from 'lucide-react';
+import { ArrowRightLeft, Loader2, Truck } from 'lucide-react';
 import type { SheetCrewMember } from '@water-supply-crm/types';
 import { useSwapAssignment } from '../../hooks/use-daily-sheets';
 import { useAllVans } from '../../../vans/hooks/use-vans';
@@ -32,7 +32,7 @@ interface SwapDialogProps {
 
 export function SwapDialog({
   open, onClose, sheetId,
-  currentDriverId, currentDriverName, currentSalesmanId, currentVanId, currentVanPlate,
+  currentDriverId, currentSalesmanId, currentVanId, currentVanPlate,
   currentCrew, onSaved,
 }: SwapDialogProps) {
   const { mutate: swapAssignment, isPending } = useSwapAssignment(sheetId);
@@ -57,8 +57,10 @@ export function SwapDialog({
   const driverOptions = users.filter(
     (u) => CREW_ROLE_ELIGIBLE.DRIVER.includes(u.role) && !loaderIds.has(u.id),
   );
-  // Selected driver; falls back to the salesman when the sheet has none yet.
-  const selectedDriverId = form.driverId ?? currentDriverId ?? salesmanId;
+  // The driver defaults to the salesman (and follows them if the salesman changes)
+  // until a different driver is explicitly picked. The sheet's current driver is
+  // deliberately NOT pre-selected.
+  const selectedDriverId = form.driverId ?? salesmanId;
 
   // Seed from the sheet each time the dialog opens. The salesman always comes
   // from the sheet's salesmanId (DailySheet.crew holds loaders only).
@@ -139,10 +141,6 @@ export function SwapDialog({
             <div className="flex items-center justify-between">
               <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">Driver</Label>
               <span className="text-[10px] text-muted-foreground">This sheet only</span>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <User className="h-3.5 w-3.5" />
-              <span>Current: <span className="font-bold text-foreground">{currentDriverName ?? '—'}</span></span>
             </div>
             <Select
               value={selectedDriverId ?? ''}
