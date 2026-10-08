@@ -1544,6 +1544,11 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         // Edit-unlock gating is permission-based: only holders of daily_sheets:manage_edit_locks bypass it.
 
         isDriver={!canManageEditLocks}
+        // Chats/Acknowledge gating stays role-based (mirrors Communication Center's own
+        // isDriver) — must NOT follow the manage_edit_locks permission above, or granting/
+        // revoking that permission silently shows/hides the customer-instruction Acknowledge
+        // button for the wrong people.
+        isDriverRole={isDriver}
         canManageEditLocks={canManageEditLocks}
         canMove={canMoveCustomer}
         canVoidDelivery={canVoidDelivery}
