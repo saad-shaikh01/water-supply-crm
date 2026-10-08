@@ -24,6 +24,8 @@ export interface ExecOutcome {
   entityId?: string;
   entityType?: string;
   appliedSnapshot?: Prisma.InputJsonValue;
+  /** Underlying error for server logs only - never persisted or shown to the user. */
+  cause?: unknown;
 }
 
 export interface ExecRow<N> {

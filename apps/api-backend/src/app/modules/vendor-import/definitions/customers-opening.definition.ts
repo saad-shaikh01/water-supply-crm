@@ -579,7 +579,7 @@ export const customersOpeningDefinition: ImportDefinition<NormalizedCustomer, Cu
           };
           await record(tx, outcome); // same transaction as the customer write
           return outcome;
-        });
+        }, TX_OPTIONS);
       } catch (e) {
         const isUnique = (e as { code?: string })?.code === 'P2002';
         if ((e instanceof CodeCollision || isUnique) && !fileCode && attempt < 3) {
@@ -588,9 +588,9 @@ export const customersOpeningDefinition: ImportDefinition<NormalizedCustomer, Cu
           continue;
         }
         if (isUnique) {
-          return { result: 'FAILED', resultCode: 'CODE_CONFLICT', resultMessage: `Customer code "${code}" is already taken.` };
+          return { result: 'FAILED', resultCode: 'CODE_CONFLICT', resultMessage: `Customer code "${code}" is already taken.`, cause: e };
         }
-        return { result: 'FAILED', resultCode: 'DB_ERROR', resultMessage: 'This row could not be saved. It can be retried with Resume.' };
+        return { result: 'FAILED', resultCode: 'DB_ERROR', resultMessage: 'This row could not be saved. It can be retried with Resume.', cause: e };
       }
     }
     return { result: 'FAILED', resultCode: 'CODE_CONFLICT', resultMessage: 'Could not allocate a free customer code.' };
@@ -607,3 +607,6 @@ export const customersOpeningDefinition: ImportDefinition<NormalizedCustomer, Cu
 };
 
 class CodeCollision extends Error {}
+
+/** A slow DB must not expire the per-row transaction (Prisma defaults are 2 s wait / 5 s run). */
+const TX_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;

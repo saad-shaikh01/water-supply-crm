@@ -94,7 +94,24 @@ export class ImportExecutorService {
               await write(tx, o);
             },
           );
-          if (outcome.result !== 'CREATED') await write(this.prisma, outcome);
+          if (outcome.cause) {
+            const c = outcome.cause as { code?: string; message?: string };
+            this.logger.error(
+              `import ${batchId} row ${row.rowNumber} ${outcome.resultCode}: ${c.code ?? ''} ${(c.message ?? '').split('\n').pop()}`,
+            );
+          }
+          if (outcome.result !== 'CREATED') {
+            // Guarded: if the row's transaction actually committed (the client can see a timeout after
+            // the DB committed), its in-transaction CREATED record must not be overwritten by FAILED.
+            await this.prisma.importRow.updateMany({
+              where: { id: row.id, result: { in: ['PENDING', 'FAILED'] } },
+              data: {
+                result: outcome.result,
+                resultCode: outcome.resultCode ?? null,
+                resultMessage: outcome.resultMessage ?? null,
+              },
+            });
+          }
         }
         await this.progress(batchId, base);
       }

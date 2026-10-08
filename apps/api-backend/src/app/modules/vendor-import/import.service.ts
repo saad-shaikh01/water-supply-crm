@@ -465,7 +465,9 @@ export class ImportService {
     const batch = await this.batchOrThrow(vendorId, id);
     const summary = (batch.summary as BatchSummary | null) ?? {};
     const stale = (batch.status === 'QUEUED' || batch.status === 'EXECUTING') && Date.now() - batch.updatedAt.getTime() > STALE_RUN_MS;
-    const resuming = batch.status === 'FAILED' || stale;
+    // A finished batch that still has FAILED rows is resumable too: the row message promises "retry with
+    // Resume", and the executor only ever re-runs PENDING/FAILED rows.
+    const resuming = batch.status === 'FAILED' || batch.status === 'COMPLETED_WITH_ERRORS' || stale;
 
     if (!(batch.status === 'MAPPED' || resuming)) {
       throw new ImportError(

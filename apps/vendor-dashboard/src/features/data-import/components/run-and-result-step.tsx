@@ -113,6 +113,8 @@ export function ResultStep({ detail }: { detail: ImportDetail }) {
   const keptRows = useImportRows(batch.id, { result: 'REVERT_SKIPPED', limit: 50 }, rv?.state === 'DONE' && (rv.skipped ?? 0) > 0);
 
   const interrupted = batch.status === 'FAILED';
+  // Rows that failed while the rest of the import succeeded can be retried the same way.
+  const retryable = interrupted || (batch.status === 'COMPLETED_WITH_ERRORS' && (p?.failed ?? 0) > 0);
   const finished = ['COMPLETED', 'COMPLETED_WITH_ERRORS', 'PARTIALLY_REVERTED'].includes(batch.status);
   const created = (p?.created ?? 0) - (rv?.reverted ?? 0);
 
@@ -123,7 +125,7 @@ export function ResultStep({ detail }: { detail: ImportDetail }) {
           <div className="flex flex-wrap items-center gap-3">
             {interrupted ? <AlertTriangle className="h-8 w-8 text-destructive" /> : <CheckCircle2 className={cn('h-8 w-8', batch.status === 'COMPLETED' ? 'text-emerald-600' : 'text-amber-600')} />}
             <div>
-              <p className="text-xl font-bold flex items-center gap-2">{batch.sourceFileName} <ImportStatusBadge status={batch.status} /></p>
+              <div className="text-xl font-bold flex items-center gap-2">{batch.sourceFileName} <ImportStatusBadge status={batch.status} /></div>
               <p className="text-xs text-muted-foreground">
                 Uploaded by {batch.createdByName ?? 'unknown'} · {new Date(batch.createdAt).toLocaleString()}
                 {batch.completedAt ? ` · finished ${new Date(batch.completedAt).toLocaleString()}` : ''}
@@ -158,12 +160,12 @@ export function ResultStep({ detail }: { detail: ImportDetail }) {
             )}
             <Button variant="outline" className="rounded-full gap-2" onClick={() => downloadReport(batch.id)}><Download className="h-4 w-4" /> Download report</Button>
             <Button variant="outline" className="rounded-full gap-2" onClick={() => downloadSource(batch.id)}><FileSpreadsheet className="h-4 w-4" /> Original file</Button>
-            {interrupted && canExecute && (
+            {retryable && canExecute && (
               <Button
                 className="rounded-full gap-2" disabled={resume.isPending}
                 onClick={() => resume.mutate({ planHash: batch.planHash ?? '', acknowledgeWarnings: true, acknowledgeDuplicateFile: true }, { onError: (e) => toast.error(importErrorOf(e, 'Could not resume').message) })}
               >
-                {resume.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Resume import
+                {resume.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} {interrupted ? 'Resume import' : 'Retry failed rows'}
               </Button>
             )}
             {finished && canRevert && !isRunning(batch) && (created > 0 || batch.status === 'COMPLETED_WITH_ERRORS') && (

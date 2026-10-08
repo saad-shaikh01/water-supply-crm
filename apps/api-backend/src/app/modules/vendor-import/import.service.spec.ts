@@ -84,7 +84,12 @@ describe('ImportService.execute guards', () => {
     const failed = build(mapped({ status: 'FAILED' }));
     await expect(failed.svc.execute(user, 'b1', dto({ planHash: '' }))).resolves.toBeDefined();
   });
-  it('cannot run a draft that was never mapped, or a finished import', async () => {
+  it('a finished batch that still has FAILED rows can be retried (Resume), without a plan hash', async () => {
+    const { svc, queue } = build(mapped({ status: 'COMPLETED_WITH_ERRORS' }));
+    await expect(svc.execute(user, 'b1', dto({ planHash: '' }))).resolves.toMatchObject({ status: 'QUEUED' });
+    expect(queue.add).toHaveBeenCalledTimes(1);
+  });
+  it('cannot run a draft that was never mapped, or a fully completed import', async () => {
     const draft = build(mapped({ status: 'UPLOADED' }));
     await expect(draft.svc.execute(user, 'b1', dto())).rejects.toMatchObject({ code: 'NOT_EXECUTABLE' });
     const done = build(mapped({ status: 'COMPLETED' }));
