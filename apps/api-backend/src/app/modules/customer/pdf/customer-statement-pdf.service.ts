@@ -4,20 +4,19 @@ import * as path from 'path';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import PDFDocument = require('pdfkit');
 import { drawShadowShape, brandGradient, drawClippedWatermark } from '../../../common/pdf/pdf-theme.util';
-import { DocBranding, LEGACY_DOC_BRANDING } from '../../../common/pdf/doc-branding';
+import { DocBranding, imageSource } from '../../../common/pdf/doc-branding';
+import { LEGACY_DOC_BRANDING } from '../../../common/pdf/legacy-dasani-branding';
+import {
+  PaymentBlockStyle,
+  bannerColors,
+  contactLines,
+  drawLogoInChip,
+  drawPaymentCards,
+  paymentBlockHeight,
+} from '../../../common/pdf/brand-draw';
 
-// ── Company identity (hardcoded — single vendor for now) ────────────────────
-const COMPANY_NAME    = 'DASANI ENTERPRISES';
-const COMPANY_ADDRESS = 'B-145 block 13 D/1 Gulshan e Iqbal, Karachi.';
-const COMPANY_PHONES  = 'Cell# 0316-2677954, 0345-2364698';
-const COMPANY_WEBSITE = 'blueice.com.pk';
-const COMPANY_EMAIL   = 'info@blueice.com.pk';
-
-// Payment / footer details (hardcoded — single vendor for now)
-const BANK_TITLE      = 'DASANI ENTERPRISES';
-const BANK_NAME       = 'Meezan Bank';
-const BANK_ACCOUNT_NO = '9933-0104414597';
-const EASYPAISA_NO    = '03162677954';
+// Company identity, logo and payment accounts come from the vendor's DocBranding
+// (VendorBrandingService.resolveForDocs) — nothing vendor-specific is hardcoded here.
 
 // Blue Ice brand assets — copied from apps/vendor-dashboard/public,
 // bundled to dist alongside main.js via webpack `assets` config
@@ -52,6 +51,15 @@ const C = {
 function isDeliveryLike(t: { type: string; filledDropped?: number | null }): boolean {
   return t.type === 'DELIVERY' || (t.type === 'HISTORICAL' && t.filledDropped !== null && t.filledDropped !== undefined);
 }
+
+const PAY_STYLE: PaymentBlockStyle = {
+  gap: 14, cardH: 78, extraRowH: 12, includeIban: true,
+  iconSize: 20, iconX: 10, iconY: 10, iconRadius: 5, iconFont: 9, iconTextY: 15,
+  titleFont: 8.5, titleY: 16, titleDx: 38, titleWSub: 48,
+  bodyDx: 10, bodyDy: 38, rowStep: 12,
+  labelFont: 6.5, valueFont: 7.5, labelDy: 0, valueDy: -0.5,
+  walletLabelFont: 6.5, walletLabelDy: 0, walletNumFont: 13, walletNumDy: 11,
+};
 
 const TYPE_LABEL: Record<string, string> = {
   PAYMENT:    'Payment',
@@ -233,7 +241,7 @@ export class CustomerStatementPdfService {
     }
     doc.y += 20;
     const showFilled = deliveryRows.some((r) => r.filledPickup > 0);
-    this.drawDeliveryCard(doc, deliveryRows, rowsOpeningBalance, showFilled ? DCOL_WITH_FILLED : DCOL_BASE, !!periodOnly, branding.legacy);
+    this.drawDeliveryCard(doc, deliveryRows, rowsOpeningBalance, showFilled ? DCOL_WITH_FILLED : DCOL_BASE, !!periodOnly, imageSource(branding.icon ?? branding.logo, ICON_PATH));
 
     if (otherRows.length) {
       doc.y += 18;
@@ -329,44 +337,32 @@ export class CustomerStatementPdfService {
     const y = MARGIN;
     const h = BANNER_H;
 
-    drawShadowShape(doc, MARGIN, y, CONTENT_W, h, RADIUS, brandGradient(doc, MARGIN, y, CONTENT_W, h), {
+    drawShadowShape(doc, MARGIN, y, CONTENT_W, h, RADIUS, brandGradient(doc, MARGIN, y, CONTENT_W, h, bannerColors(branding)), {
       shadowColor: C.navy,
       shadowOpacity: 0.13,
     });
 
-    if (!branding.legacy) {
-      // Vendor-neutral banner: the vendor's own name (+ address when set) only — no Dasani logo/phones.
-      doc.fillColor(C.white).font('Helvetica-Bold').fontSize(15)
-        .text(branding.name, MARGIN + 14, y + 16, { width: CONTENT_W - 28, align: 'right', lineBreak: false });
-      if (branding.address) {
-        doc.fillColor('#ffffff', 0.82).font('Helvetica').fontSize(8)
-          .text(branding.address, MARGIN + 14, y + 35, { width: CONTENT_W - 28, align: 'right', lineBreak: false });
-      }
-      doc.y = y + h + 3;
-      return;
+    // White logo chip (only when the vendor has a logo)
+    if (branding.logo) {
+      const chipW = 118;
+      const chipH = 48;
+      const chipX = MARGIN + 14;
+      const chipY = y + (h - chipH) / 2;
+      doc.roundedRect(chipX, chipY, chipW, chipH, 8).fill(C.white);
+      drawLogoInChip(doc, branding.logo, LOGO_PATH, { x: chipX, y: chipY, w: chipW, h: chipH, padX: 8, padY: 10 });
     }
 
-    // White logo chip
-    const chipW = 118;
-    const chipH = 48;
-    const chipX = MARGIN + 14;
-    const chipY = y + (h - chipH) / 2;
-    doc.roundedRect(chipX, chipY, chipW, chipH, 8).fill(C.white);
-    try {
-      if (fs.existsSync(LOGO_PATH)) {
-        doc.image(LOGO_PATH, chipX + 8, chipY + 10, { width: chipW - 16 });
-      }
-    } catch {
-      // logo missing/unreadable — chip still reads fine as a blank white box
-    }
-
-    // Company identity — right-aligned
+    // Company identity — right-aligned; missing lines are simply not drawn
     doc.fillColor(C.white).font('Helvetica-Bold').fontSize(15)
-      .text(COMPANY_NAME, MARGIN, y + 16, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
-    doc.fillColor('#ffffff', 0.82).font('Helvetica').fontSize(8)
-      .text(COMPANY_ADDRESS, MARGIN, y + 35, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
-    doc.fillColor('#ffffff', 0.82).font('Helvetica').fontSize(8)
-      .text(COMPANY_PHONES, MARGIN, y + 47, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
+      .text(branding.name, MARGIN, y + 16, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
+    if (branding.address) {
+      doc.fillColor('#ffffff', 0.82).font('Helvetica').fontSize(8)
+        .text(branding.address, MARGIN, y + 35, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
+    }
+    if (branding.phones) {
+      doc.fillColor('#ffffff', 0.82).font('Helvetica').fontSize(8)
+        .text(branding.phones, MARGIN, y + 47, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
+    }
 
     doc.y = y + h + 3;
   }
@@ -458,7 +454,7 @@ export class CustomerStatementPdfService {
   }
 
   // ── Delivery card (paginates with its own shadow card per page) ────────────
-  private drawDeliveryCard(doc: PDFKit.PDFDocument, rows: DeliveryRow[], openingBalance: number, cols: DeliveryCols, periodOnly = false, watermark = true): void {
+  private drawDeliveryCard(doc: PDFKit.PDFDocument, rows: DeliveryRow[], openingBalance: number, cols: DeliveryCols, periodOnly = false, watermark: Buffer | string | null = null): void {
     const lines: DeliveryLine[] = [];
     if (!periodOnly) lines.push({ kind: 'prev', openingBalance });
     rows.forEach((row, index) => lines.push({ kind: 'row', row, index }));
@@ -621,7 +617,7 @@ export class CustomerStatementPdfService {
     headerH: number,
     drawHeader: (x: number, y: number, w: number) => void,
     drawLine: (line: T, x: number, y: number, index: number) => void,
-    opts: { watermark?: boolean } = {},
+    opts: { watermark?: Buffer | string | null } = {},
   ): void {
     let drawn = 0;
     while (drawn < lines.length) {
@@ -633,7 +629,7 @@ export class CustomerStatementPdfService {
 
       this.shadowCard(doc, MARGIN, cardY, CONTENT_W, cardH);
       if (opts.watermark && drawn === 0) {
-        drawClippedWatermark(doc, ICON_PATH, MARGIN, cardY, CONTENT_W, cardH);
+        drawClippedWatermark(doc, opts.watermark, MARGIN, cardY, CONTENT_W, cardH);
       }
       drawHeader(MARGIN, cardY + 6, CONTENT_W);
       for (let li = 0; li < linesThisCard; li++) {
@@ -651,81 +647,46 @@ export class CustomerStatementPdfService {
 
   // ── Thank-you / payment footer (appears once at end of document) ───────────
   private drawThankYouFooter(doc: PDFKit.PDFDocument, branding: DocBranding): void {
-    if (!branding.legacy) {
-      // No payment block for non-legacy vendors until they supply their own details (P1).
-      if (doc.y + 30 > FOOTER_Y - 10) { doc.addPage(); doc.y = MARGIN; }
-      doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(10)
-        .text('Thank you for your business with us!', MARGIN, doc.y, { width: CONTENT_W, align: 'center' });
-      doc.y += 10;
-      return;
-    }
-    if (doc.y + 165 > FOOTER_Y - 10) { doc.addPage(); doc.y = MARGIN; }
+    const accounts = branding.paymentAccounts;
+    const contacts = contactLines(branding);
+    // 165 = legacy height of the whole block (one row of 78pt cards); other layouts scale from it.
+    const need = accounts.length
+      ? 165 - PAY_STYLE.cardH + paymentBlockHeight(accounts, PAY_STYLE)
+      : 40 + contacts.length * 11 + (branding.footerNote ? 14 : 0);
+    if (doc.y + need > FOOTER_Y - 10) { doc.addPage(); doc.y = MARGIN; }
     const y = doc.y;
 
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(10)
       .text('Thank you for your business with us!', MARGIN, y, { width: CONTENT_W, align: 'center' });
-    doc.fillColor(C.muted).font('Helvetica').fontSize(8)
-      .text(`Please make all payments to ${BANK_TITLE}`, MARGIN, doc.y + 3, { width: CONTENT_W, align: 'center' });
 
-    doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(8.5)
-      .text('FOR ONLINE PAYMENTS', MARGIN, doc.y + 16, { width: CONTENT_W, align: 'center', lineBreak: false });
+    let cy: number;
+    if (accounts.length) {
+      doc.fillColor(C.muted).font('Helvetica').fontSize(8)
+        .text(`Please make all payments to ${branding.payTo}`, MARGIN, doc.y + 3, { width: CONTENT_W, align: 'center' });
 
-    const cardsY = doc.y + 14;
-    const gap    = 14;
-    const cardW  = (CONTENT_W - gap) / 2;
-    const cardH  = 78;
+      doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(8.5)
+        .text('FOR ONLINE PAYMENTS', MARGIN, doc.y + 16, { width: CONTENT_W, align: 'center', lineBreak: false });
 
-    this.drawPaymentCard(doc, MARGIN, cardsY, cardW, cardH, 'B', C.cyan, 'BANK TRANSFER', (bx, by, bw) => {
-      const rows: [string, string][] = [
-        ['Acc Title', BANK_TITLE],
-        ['Acc No',    BANK_ACCOUNT_NO],
-        ['Bank',      BANK_NAME],
-      ];
-      rows.forEach(([lbl, val], i) => {
-        const ry = by + i * 12;
-        doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(6.5)
-          .text(lbl.toUpperCase(), bx, ry, { width: bw * 0.32, lineBreak: false });
-        doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
-          .text(val, bx + bw * 0.32, ry - 0.5, { width: bw - bw * 0.32, lineBreak: false });
+      const bottom = drawPaymentCards(doc, accounts, doc.y + 14, MARGIN, CONTENT_W, PAY_STYLE, {
+        navy: C.navy, navyText: C.navyText, muted: C.muted, white: C.white, border: C.border,
+        cyan: C.cyan, green: C.green, amber: C.amber, purple: C.purple, radius: RADIUS,
       });
+      cy = bottom + 12;
+    } else {
+      cy = doc.y + 12;
+    }
+
+    contacts.forEach((line, i) => {
+      doc.fillColor(line.bold ? C.navyText : C.muted).font(line.bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(7.5)
+        .text(line.text, MARGIN, cy + i * 11, { width: CONTENT_W, align: 'right', lineBreak: false });
     });
-
-    const epX = MARGIN + cardW + gap;
-    this.drawPaymentCard(doc, epX, cardsY, cardW, cardH, 'E', C.green, 'EASYPAISA', (bx, by, bw) => {
-      doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(6.5)
-        .text('ACCOUNT NUMBER', bx, by, { width: bw, lineBreak: false });
-      doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(13)
-        .text(EASYPAISA_NO, bx, by + 11, { width: bw, lineBreak: false });
-    });
-
-    const cy = cardsY + cardH + 12;
-    doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
-      .text(COMPANY_WEBSITE, MARGIN, cy, { width: CONTENT_W, align: 'right', lineBreak: false });
-    doc.fillColor(C.muted).font('Helvetica').fontSize(7.5)
-      .text(COMPANY_EMAIL, MARGIN, cy + 11, { width: CONTENT_W, align: 'right', lineBreak: false });
-    doc.fillColor(C.muted).font('Helvetica').fontSize(7.5)
-      .text(COMPANY_PHONES, MARGIN, cy + 22, { width: CONTENT_W, align: 'right', lineBreak: false });
-
-    doc.y = cy + 22 + 10;
-  }
-
-  // ── Payment method card: shadow card + colored icon chip + title + custom body ─
-  private drawPaymentCard(
-    doc: PDFKit.PDFDocument,
-    x: number, y: number, w: number, h: number,
-    icon: string, iconColor: string, title: string,
-    drawBody: (bodyX: number, bodyY: number, bodyW: number) => void,
-  ): void {
-    drawShadowShape(doc, x, y, w, h, RADIUS, C.white, { shadowColor: C.navy, borderColor: C.border, shadowOpacity: 0.08 });
-
-    const iconSize = 20;
-    doc.roundedRect(x + 10, y + 10, iconSize, iconSize, 5).fill(iconColor);
-    doc.fillColor(C.white).font('Helvetica-Bold').fontSize(9)
-      .text(icon, x + 10, y + 15, { width: iconSize, align: 'center', lineBreak: false });
-    doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(8.5)
-      .text(title, x + 10 + iconSize + 8, y + 16, { width: w - iconSize - 28, lineBreak: false });
-
-    drawBody(x + 10, y + 38, w - 20);
+    let end = cy + Math.max(0, contacts.length - 1) * 11 + 10;
+    if (branding.footerNote) {
+      doc.fillColor(C.muted).font('Helvetica-Oblique').fontSize(7)
+        .text(branding.footerNote, MARGIN, end + 2, { width: CONTENT_W, align: 'center', lineBreak: false });
+      end += 14;
+    }
+    doc.y = end;
   }
 
   // ── Per-page footer (page number + timestamp) ───────────────────────────────

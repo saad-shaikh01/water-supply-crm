@@ -19,4 +19,5 @@ export const JOB_NAMES = {
   VENDOR_IMPORT_PLAN: 'vendor-import-plan',
   VENDOR_IMPORT_EXECUTE: 'vendor-import-execute',
   VENDOR_IMPORT_REVERT: 'vendor-import-revert',
+  WHATSAPP_ACCOUNT_HEALTH: 'whatsapp-account-health',
 } as const;

@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { IWhatsAppProvider } from './whatsapp-provider.interface';
+import { IWhatsAppProvider, ListTemplatesResult, MetaTemplateRecord, PhoneNumberInfoResult, WhatsAppCredentials } from './whatsapp-provider.interface';
 import { normalizePhone } from '../phone.util';
 
 const TIMEOUT_MS = 12_000;
@@ -13,7 +13,13 @@ export class MetaCloudApiProvider implements IWhatsAppProvider, OnModuleInit {
   private readonly accessToken = process.env['META_WA_ACCESS_TOKEN'] || '';
   private readonly phoneNumberId = process.env['META_WA_PHONE_NUMBER_ID'] || '';
   private readonly apiVersion = process.env['META_WA_API_VERSION'] || 'v21.0';
-  private readonly baseUrl = `https://graph.facebook.com/${this.apiVersion}/${this.phoneNumberId}`;
+
+  /** The credentials a call runs with: the given sender's, or (when omitted) the platform env ones. */
+  private creds(c?: WhatsAppCredentials): Required<WhatsAppCredentials> {
+    return c
+      ? { accessToken: c.accessToken, phoneNumberId: c.phoneNumberId, apiVersion: c.apiVersion ?? this.apiVersion }
+      : { accessToken: this.accessToken, phoneNumberId: this.phoneNumberId, apiVersion: this.apiVersion };
+  }
 
   onModuleInit() {
     if (!this.enabled) {
@@ -31,17 +37,78 @@ export class MetaCloudApiProvider implements IWhatsAppProvider, OnModuleInit {
     );
   }
 
-  isReady(): boolean {
-    return this.enabled && !!this.accessToken && !!this.phoneNumberId;
+  isReady(creds?: WhatsAppCredentials): boolean {
+    const c = this.creds(creds);
+    return this.enabled && !!c.accessToken && !!c.phoneNumberId;
   }
 
-  async sendMessage(phone: string, message: string): Promise<boolean> {
-    if (!this.isReady()) return false;
+  async fetchPhoneNumberInfo(creds: WhatsAppCredentials): Promise<PhoneNumberInfoResult> {
+    const c = this.creds(creds);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      const res = await fetch(
+        `https://graph.facebook.com/${c.apiVersion}/${encodeURIComponent(c.phoneNumberId)}?fields=display_phone_number,verified_name,quality_rating`,
+        { headers: { Authorization: `Bearer ${c.accessToken}` }, signal: controller.signal },
+      );
+      const body: any = await res.json().catch(() => null);
+      if (res.ok) {
+        return {
+          ok: true,
+          displayNumber: body?.display_phone_number ?? null,
+          verifiedName: body?.verified_name ?? null,
+          qualityRating: body?.quality_rating ?? null,
+        };
+      }
+      return { ok: false, status: res.status, code: body?.error?.code ?? null, message: String(body?.error?.message ?? `HTTP ${res.status}`).slice(0, 300) };
+    } catch (err: any) {
+      return { ok: false, status: 0, code: null, message: err?.name === 'AbortError' ? 'Timed out reaching WhatsApp' : String(err?.message ?? err).slice(0, 300) };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async listTemplates(creds: WhatsAppCredentials, wabaId: string): Promise<ListTemplatesResult> {
+    const c = this.creds(creds);
+    const templates: MetaTemplateRecord[] = [];
+    let url: string | null =
+      `https://graph.facebook.com/${c.apiVersion}/${encodeURIComponent(wabaId)}/message_templates?fields=name,language,category,status,rejected_reason&limit=200`;
+    for (let page = 0; url && page < 10; page++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      try {
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${c.accessToken}` }, signal: controller.signal });
+        const body: any = await res.json().catch(() => null);
+        if (!res.ok) {
+          return { ok: false, status: res.status, code: body?.error?.code ?? null, message: String(body?.error?.message ?? `HTTP ${res.status}`).slice(0, 300) };
+        }
+        for (const t of body?.data ?? []) {
+          templates.push({
+            name: String(t.name),
+            language: String(t.language ?? 'en'),
+            category: t.category ?? null,
+            status: String(t.status ?? 'UNKNOWN'),
+            rejectedReason: t.rejected_reason && t.rejected_reason !== 'NONE' ? String(t.rejected_reason) : null,
+          });
+        }
+        url = body?.paging?.next ?? null;
+      } catch (err: any) {
+        return { ok: false, status: 0, code: null, message: err?.name === 'AbortError' ? 'Timed out reaching WhatsApp' : String(err?.message ?? err).slice(0, 300) };
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    return { ok: true, templates };
+  }
+
+  async sendMessage(phone: string, message: string, creds?: WhatsAppCredentials): Promise<boolean> {
+    if (!this.isReady(creds)) return false;
     const to = normalizePhone(phone);
     const result = await this.postGraph(
       '/messages',
       { messaging_product: 'whatsapp', to, type: 'text', text: { body: message } },
       `text message to ${to}`,
+      creds,
     );
     if (result) this.logger.log(`✅ WhatsApp text sent to ${to}`);
     return !!result;
@@ -52,11 +119,12 @@ export class MetaCloudApiProvider implements IWhatsAppProvider, OnModuleInit {
     pdfBuffer: Buffer,
     filename: string,
     caption?: string,
+    creds?: WhatsAppCredentials,
   ): Promise<boolean> {
-    if (!this.isReady()) return false;
+    if (!this.isReady(creds)) return false;
     const to = normalizePhone(phone);
 
-    const mediaId = await this.uploadMedia(pdfBuffer, filename, 'application/pdf', `document upload for ${to}`);
+    const mediaId = await this.uploadMedia(pdfBuffer, filename, 'application/pdf', `document upload for ${to}`, creds);
     if (!mediaId) return false;
 
     const result = await this.postGraph(
@@ -68,6 +136,7 @@ export class MetaCloudApiProvider implements IWhatsAppProvider, OnModuleInit {
         document: { id: mediaId, filename, caption: caption ?? '' },
       },
       `document message to ${to}`,
+      creds,
     );
     if (result) this.logger.log(`✅ WhatsApp document sent to ${to}: ${filename}`);
     return !!result;
@@ -79,13 +148,14 @@ export class MetaCloudApiProvider implements IWhatsAppProvider, OnModuleInit {
     bodyParams: string[],
     document?: { buffer: Buffer; filename: string },
     imageUrl?: string,
+    creds?: WhatsAppCredentials,
   ): Promise<boolean> {
-    if (!this.isReady()) return false;
+    if (!this.isReady(creds)) return false;
     const to = normalizePhone(phone);
 
     let mediaId: string | null = null;
     if (document) {
-      mediaId = await this.uploadMedia(document.buffer, document.filename, 'application/pdf', `template media for ${to}`);
+      mediaId = await this.uploadMedia(document.buffer, document.filename, 'application/pdf', `template media for ${to}`, creds);
       if (!mediaId) return false;
     }
 
@@ -126,6 +196,7 @@ export class MetaCloudApiProvider implements IWhatsAppProvider, OnModuleInit {
         template: { name: templateName, language: { code: 'en' }, components },
       },
       `template "${templateName}" to ${to}`,
+      creds,
     );
     if (result) this.logger.log(`✅ WhatsApp template "${templateName}" sent to ${to}`);
     return !!result;
@@ -137,12 +208,13 @@ export class MetaCloudApiProvider implements IWhatsAppProvider, OnModuleInit {
     filename: string,
     mimeType: string,
     context: string,
+    creds?: WhatsAppCredentials,
   ): Promise<string | null> {
     const form = new FormData();
     form.append('messaging_product', 'whatsapp');
     form.append('file', new Blob([Uint8Array.from(buffer)], { type: mimeType }), filename);
 
-    const result = await this.postGraph('/media', form, context);
+    const result = await this.postGraph('/media', form, context, creds);
     return (result?.['id'] as string) ?? null;
   }
 
@@ -158,8 +230,9 @@ export class MetaCloudApiProvider implements IWhatsAppProvider, OnModuleInit {
    *   full context (status/code/subcode/message/fbtrace_id) so failures are
    *   diagnosable instead of a bare `false`.
    */
-  private async postGraph(path: string, body: unknown, context: string): Promise<Record<string, unknown> | null> {
-    const url = `${this.baseUrl}${path}`;
+  private async postGraph(path: string, body: unknown, context: string, creds?: WhatsAppCredentials): Promise<Record<string, unknown> | null> {
+    const c = this.creds(creds);
+    const url = `https://graph.facebook.com/${c.apiVersion}/${c.phoneNumberId}${path}`;
     const isForm = body instanceof FormData;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -170,7 +243,7 @@ export class MetaCloudApiProvider implements IWhatsAppProvider, OnModuleInit {
         const res = await fetch(url, {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${this.accessToken}`,
+            Authorization: `Bearer ${c.accessToken}`,
             ...(isForm ? {} : { 'Content-Type': 'application/json' }),
           },
           body: isForm ? (body as FormData) : JSON.stringify(body),

@@ -64,6 +64,14 @@ export class StorageService {
     return { key };
   }
 
+  /** Download an object's bytes (small files only — e.g. a vendor logo for a PDF). */
+  async getObjectBuffer(key: string): Promise<Buffer> {
+    const res = await this.s3.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+    const bytes = await res.Body?.transformToByteArray();
+    if (!bytes) throw new Error(`Empty object body for ${key}`);
+    return Buffer.from(bytes);
+  }
+
   /**
    * Generate a pre-signed GET URL for a private object.
    * @param key       S3 object key (as stored in the database)

@@ -238,7 +238,9 @@ export const PERMISSION_CATALOG = {
     actions: ['page', 'view', 'create', 'send', 'acknowledge', 'manage_status'],
   },
   // Non-navigable: surfaced inside Settings, no dedicated route → no `:page`.
-  whatsapp: { label: 'WhatsApp Integration', navigable: false, actions: ['view', 'manage'] },
+  // 'page' (owner-approved 2026-10-09): Settings -> WhatsApp, where a vendor connects its own sender.
+  // Withheld from Viewer's blanket read-only grant (READ_ONLY_EXCLUDED) — it shows the sender's identifiers.
+  whatsapp: { label: 'WhatsApp Integration', navigable: true, actions: ['page', 'view', 'manage'] },
   // Amendment R3 (Payroll Phase 1, owner-approved 2026-08-06): new resource — see
   // docs/rbac-permission-catalog.md §27 for the full amendment note.
   // Amendment R6 (Payroll Phase 4-1, owner-approved 2026-08-08): added `page`,
@@ -513,6 +515,16 @@ export const PERMISSION_CATALOG = {
     label: 'Data Import',
     navigable: true,
     actions: ['page', 'view', 'upload', 'execute', 'revert'],
+  },
+  // Company Profile (owner-approved 2026-10-08, multi-vendor branding P1): the vendor's own name,
+  // address, contacts, logo and PAYMENT ACCOUNTS printed on every customer-facing document.
+  // Navigable: /dashboard/company-profile. `update` changes where customers are told to send money,
+  // so it reaches only Vendor Admin (via the `*` wildcard) and Super Admin; `view` is withheld
+  // from Viewer's blanket read-only grant (READ_ONLY_EXCLUDED).
+  company_profile: {
+    label: 'Company Profile',
+    navigable: true,
+    actions: ['page', 'view', 'update'],
   },
 } as const satisfies Record<string, ResourceDefinition>;
 

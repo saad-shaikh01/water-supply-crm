@@ -4,12 +4,16 @@ import {
   IWhatsAppProvider,
   WHATSAPP_PROVIDER,
 } from './providers/whatsapp-provider.interface';
-import { evaluateGate, isBlocked } from '../../common/tenant-gate/legacy-vendor-gate';
+import { WhatsAppAccountService } from './whatsapp-account.service';
+import { templateNameFor } from './templates/template-catalog';
+import { isLegacyVendor } from '../../common/tenant-gate/legacy-vendor-gate';
 
 /**
- * Every send takes the owning `vendorId` first. P0 stop-gap (see legacy-vendor-gate.ts): the
- * platform WhatsApp number may only be used for vendors in WHATSAPP_ALLOWED_VENDOR_IDS once
- * WHATSAPP_GUARD_MODE=enforce; in the default `shadow` mode nothing is blocked, only logged.
+ * Every send takes the owning `vendorId` first and is routed per vendor (WhatsAppAccountService.routeFor):
+ * the vendor's own READY WhatsApp account when it has one; otherwise the platform number ONLY while the
+ * P0 gate lets that vendor through (default `shadow`, `off`, or the legacy allow-list) — see
+ * legacy-vendor-gate.ts. A vendor with neither is blocked: its messages are never sent from someone
+ * else's number.
  */
 @Injectable()
 export class WhatsAppService {
@@ -20,15 +24,27 @@ export class WhatsAppService {
     @Inject(WHATSAPP_PROVIDER)
     private readonly provider: IWhatsAppProvider,
     private readonly cache: CacheInvalidationService,
+    private readonly accounts: WhatsAppAccountService,
   ) {}
 
+  /** Platform (env-level) credentials ready? Vendor-specific readiness: see canSendFor / WhatsAppAccountService. */
   isReady(): boolean {
     return this.provider.isReady();
   }
 
-  /** Side-effect-free: would the gate stop this vendor right now? (lets callers log a precise reason) */
-  isBlockedForVendor(vendorId?: string | null): boolean {
-    return isBlocked(vendorId);
+  /**
+   * Can THIS vendor's messages be sent right now — through its own account, or the platform number where the
+   * gate allows it — and is that sender actually configured? Used by bulk loops to abort a batch cleanly
+   * (replaces the platform-only isReady(), which is wrong for a vendor that has its own account).
+   */
+  async isReadyFor(vendorId?: string | null): Promise<boolean> {
+    const route = await this.accounts.routeFor(vendorId, 'readiness-check', true);
+    return !!route && this.provider.isReady(route.creds);
+  }
+
+  /** Side-effect-free: could a message for this vendor leave right now (its own account, or an allowed platform fallback)? */
+  canSendFor(vendorId?: string | null): Promise<boolean> {
+    return this.accounts.canSend(vendorId);
   }
 
   private rateLimitKey(vendorId: string | null | undefined, phone: string): string {
@@ -43,8 +59,9 @@ export class WhatsAppService {
     caption?: string,
   ): Promise<boolean> {
     if (!phone || !pdfBuffer) return false;
-    if (evaluateGate(vendorId, 'whatsapp.sendDocument').blocked) return false;
-    return this.provider.sendDocument(phone, pdfBuffer, filename, caption);
+    const route = await this.accounts.routeFor(vendorId, 'whatsapp.sendDocument');
+    if (!route) return false;
+    return this.provider.sendDocument(phone, pdfBuffer, filename, caption, route.creds);
   }
 
   async sendTemplate(
@@ -56,7 +73,16 @@ export class WhatsAppService {
     imageUrl?: string,
   ): Promise<boolean> {
     if (!phone || !templateName) return false;
-    if (evaluateGate(vendorId, `whatsapp.sendTemplate(${templateName})`).blocked) return false;
+    const route = await this.accounts.routeFor(vendorId, `whatsapp.sendTemplate(${templateName})`);
+    if (!route) return false;
+
+    // On a vendor's own account the template name carries its brand suffix (several brands may share one
+    // WABA), and a template Meta is KNOWN not to have approved is skipped with a clear log line instead of
+    // failing at Meta. Blue Ice (legacy allow-list) is exempt until its template sync has proven accurate.
+    if (route.source === 'ACCOUNT' && route.accountId) {
+      templateName = templateNameFor(templateName, route.templateSuffix);
+      if (!isLegacyVendor(vendorId) && !(await this.accounts.templateSendable(route.accountId, templateName))) return false;
+    }
 
     // Rate limiting: 1 message per vendor+phone per minute
     const rateLimitKey = this.rateLimitKey(vendorId, phone);
@@ -67,7 +93,7 @@ export class WhatsAppService {
       return false;
     }
 
-    const sent = await this.provider.sendTemplate(phone, templateName, bodyParams, document, imageUrl);
+    const sent = await this.provider.sendTemplate(phone, templateName, bodyParams, document, imageUrl, route.creds);
 
     if (sent) {
       await this.cache.set(rateLimitKey, true, this.RATE_LIMIT_TTL);
@@ -78,7 +104,8 @@ export class WhatsAppService {
 
   async sendMessage(vendorId: string | null | undefined, phone: string, message: string): Promise<boolean> {
     if (!phone || !message) return false;
-    if (evaluateGate(vendorId, 'whatsapp.sendMessage').blocked) return false;
+    const route = await this.accounts.routeFor(vendorId, 'whatsapp.sendMessage');
+    if (!route) return false;
 
     // Rate limiting: 1 message per vendor+phone per minute
     const rateLimitKey = this.rateLimitKey(vendorId, phone);
@@ -89,7 +116,7 @@ export class WhatsAppService {
       return false;
     }
 
-    const sent = await this.provider.sendMessage(phone, message);
+    const sent = await this.provider.sendMessage(phone, message, route.creds);
 
     if (sent) {
       // Set rate limit flag for 1 minute

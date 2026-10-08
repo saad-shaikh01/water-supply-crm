@@ -4,6 +4,8 @@ import { BalanceReminderService } from './balance-reminder.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { NotificationSettingsService } from '../notifications/notification-settings.service';
 import { CustomerStatementPdfService } from '../customer/pdf/customer-statement-pdf.service';
+import { VendorBrandingService } from '../vendor-branding/vendor-branding.service';
+import { LEGACY_DOC_BRANDING } from '../../common/pdf/legacy-dasani-branding';
 
 /**
  * Phase 0 refactor — behaviour lock.
@@ -56,7 +58,7 @@ describe('BalanceReminderService (Phase 0 pipeline)', () => {
     reminderSendLog: { create: jest.Mock; findMany: jest.Mock; count: jest.Mock };
     balanceReminderConfig: { findUnique: jest.Mock; upsert: jest.Mock };
   };
-  let whatsapp: { isReady: jest.Mock; sendTemplate: jest.Mock };
+  let whatsapp: { isReadyFor: jest.Mock; sendTemplate: jest.Mock };
   let notifSettings: { isEnabled: jest.Mock };
   let statementPdf: { generate: jest.Mock };
   let redis: ReturnType<typeof makeRedis>;
@@ -72,7 +74,7 @@ describe('BalanceReminderService (Phase 0 pipeline)', () => {
       },
       balanceReminderConfig: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn().mockResolvedValue({}) },
     };
-    whatsapp = { isReady: jest.fn().mockReturnValue(true), sendTemplate: jest.fn().mockResolvedValue(true) };
+    whatsapp = { isReadyFor: jest.fn().mockResolvedValue(true), sendTemplate: jest.fn().mockResolvedValue(true) };
     notifSettings = { isEnabled: jest.fn().mockResolvedValue(true) };
     statementPdf = { generate: jest.fn() };
 
@@ -83,6 +85,7 @@ describe('BalanceReminderService (Phase 0 pipeline)', () => {
         { provide: WhatsAppService, useValue: whatsapp },
         { provide: NotificationSettingsService, useValue: notifSettings },
         { provide: CustomerStatementPdfService, useValue: statementPdf },
+        { provide: VendorBrandingService, useValue: { resolveForDocs: jest.fn().mockResolvedValue(LEGACY_DOC_BRANDING) } },
       ],
     }).compile();
 
@@ -280,7 +283,7 @@ describe('BalanceReminderService (Phase 0 pipeline)', () => {
     });
 
     it('connectivity abort marks the current + all following customers skipped-disconnected', async () => {
-      whatsapp.isReady.mockReturnValueOnce(true).mockReturnValue(false);
+      whatsapp.isReadyFor.mockResolvedValueOnce(true).mockResolvedValue(false);
       prisma.customer.findMany.mockResolvedValue(rows([{}, {}, {}]));
       const res = await service.processVendorReminders('v1', 100, false, '2026-08', false, undefined, false, 'manual');
 

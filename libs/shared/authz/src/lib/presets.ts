@@ -106,6 +106,11 @@ const READ_ONLY_EXCLUDED: Permission[] = [
   // PII (names, phones, balances). Not for Viewer's blanket read-only grant.
   'data_imports:page',
   'data_imports:view',
+  // Company Profile (2026-10-08): carries the vendor's payment-account details — Vendor Admin only.
+  'company_profile:page',
+  'company_profile:view',
+  // WhatsApp settings page (2026-10-09): shows the sender's identifiers — Vendor Admin only.
+  'whatsapp:page',
 ];
 const READ_ONLY_PERMISSIONS: Permission[] = PERMISSIONS.filter((p) => {
   const [, action] = splitPermission(p);

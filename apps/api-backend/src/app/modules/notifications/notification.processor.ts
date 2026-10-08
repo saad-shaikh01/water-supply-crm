@@ -8,7 +8,7 @@ import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.serv
 import { CloudTemplateNames } from '../whatsapp/templates/cloud-template-names';
 import { FcmService } from '../fcm/fcm.service';
 import { StorageService } from '../../common/storage/storage.service';
-import { resolveDocBranding } from '../../common/pdf/doc-branding';
+import { VendorBrandingService } from '../vendor-branding/vendor-branding.service';
 
 // Reason recorded in NotificationLog when the P0 vendor gate (WHATSAPP_GUARD_MODE=enforce) stops a send.
 const VENDOR_BLOCKED_REASON =
@@ -28,6 +28,7 @@ export class NotificationProcessor extends WorkerHost {
     private readonly fcm: FcmService,
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
+    private readonly branding: VendorBrandingService,
   ) {
     super();
   }
@@ -52,7 +53,7 @@ export class NotificationProcessor extends WorkerHost {
     switch (job.name) {
       case JOB_NAMES.SEND_WHATSAPP: {
         const { phoneNumber, message, entityType, entityId, vendorId } = job.data;
-        if (this.whatsapp.isBlockedForVendor(vendorId)) return VENDOR_BLOCKED_REASON;
+        if (!(await this.whatsapp.canSendFor(vendorId))) return VENDOR_BLOCKED_REASON;
         const sent = await this.whatsapp.sendMessage(vendorId, phoneNumber, message);
         if (sent) {
           this.logger.log(`WhatsApp sent to ${phoneNumber}`);
@@ -74,7 +75,7 @@ export class NotificationProcessor extends WorkerHost {
           bodyParams: string[];
           vendorId?: string;
         };
-        if (this.whatsapp.isBlockedForVendor(vendorId)) return VENDOR_BLOCKED_REASON;
+        if (!(await this.whatsapp.canSendFor(vendorId))) return VENDOR_BLOCKED_REASON;
         const sent = await this.whatsapp.sendTemplate(vendorId, phoneNumber, templateName, bodyParams);
         if (sent) {
           this.logger.log(`WhatsApp template "${templateName}" sent to ${phoneNumber}`);
@@ -84,8 +85,8 @@ export class NotificationProcessor extends WorkerHost {
       }
       case JOB_NAMES.SEND_WHATSAPP_PDF: {
         const { phoneNumber, receiptData, entityType, entityId, vendorId } = job.data;
-        if (this.whatsapp.isBlockedForVendor(vendorId)) return VENDOR_BLOCKED_REASON;
-        const branding = await resolveDocBranding(this.prisma, vendorId, receiptData['vendorName'] as string | undefined);
+        if (!(await this.whatsapp.canSendFor(vendorId))) return VENDOR_BLOCKED_REASON;
+        const branding = await this.branding.resolveForDocs(vendorId, receiptData['vendorName'] as string | undefined);
         const pdfBuffer = await this.pdfService.generate(receiptData as any, branding);
         const filename = `${this.sanitizeForFilename(receiptData['customerCode'] as string)}-${this.sanitizeForFilename(receiptData['customerName'] as string)}-${receiptData['deliveryDate']}.pdf`;
         // delivery_receipt (Meta-approved) takes 3 body vars: {{1}} name, {{2}} customer code, {{3}} delivery date —
@@ -125,7 +126,7 @@ export class NotificationProcessor extends WorkerHost {
           entityId?: string;
         };
 
-        if (this.whatsapp.isBlockedForVendor(vendorId)) return VENDOR_BLOCKED_REASON;
+        if (!(await this.whatsapp.canSendFor(vendorId))) return VENDOR_BLOCKED_REASON;
 
         let imageUrl: string | undefined;
         if (data.photoKey) {

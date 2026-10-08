@@ -34,7 +34,7 @@ import { PermissionService } from '../authz/permission.service';
 import { ConsumptionQueryDto } from './dto/consumption-query.dto';
 import { CustomerDepositsService } from '../customer-deposits/customer-deposits.service';
 import { createCustomerRecords } from './customer-create.helper';
-import { resolveDocBranding } from '../../common/pdf/doc-branding';
+import { VendorBrandingService } from '../vendor-branding/vendor-branding.service';
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -49,6 +49,7 @@ export class CustomerService {
     private customerDeposits: CustomerDepositsService,
     @InjectQueue(QUEUE_NAMES.BULK_PRICE_UPDATE)
     private bulkPriceQueue: Queue,
+    private vendorBranding: VendorBrandingService,
   ) {}
 
   /** Follow a Google Maps short URL and extract lat/lng from the resolved full URL */
@@ -929,7 +930,7 @@ export class CustomerService {
     periodOnly?: boolean,
   ): Promise<Buffer> {
     const data = await this.getMonthlyStatement(vendorId, customerId, month, toMonth);
-    const branding = await resolveDocBranding(this.prisma, vendorId);
+    const branding = await this.vendorBranding.resolveForDocs(vendorId);
     return this.statementPdf.generate({ ...data, periodOnly, branding });
   }
 

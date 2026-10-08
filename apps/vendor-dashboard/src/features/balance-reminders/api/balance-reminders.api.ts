@@ -4,6 +4,8 @@ export interface WhatsAppStatus {
   enabled: boolean;
   ready: boolean;
   status: 'disabled' | 'connected' | 'disconnected';
+  /** Which sender this vendor's messages leave from (own account vs the shared platform number). */
+  via?: 'ACCOUNT' | 'PLATFORM' | 'NONE';
 }
 
 export type PaymentTypeFilter = 'MONTHLY' | 'CASH' | undefined;

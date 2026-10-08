@@ -7,7 +7,7 @@ import {
   ClipboardList, CreditCard, UserCog, Droplets, Banknote, Navigation,
   Receipt, Bell, BellRing, ScrollText, BarChart2, Home, History, ShoppingCart,
   MessageSquare, AlertTriangle, Tag, ShieldAlert, Warehouse, Wrench, ChevronDown, KeyRound,
-  Inbox, Percent, Wallet, Landmark, Gauge, AlertOctagon, PiggyBank, CalendarCheck, Fuel, UserCheck, Settings, FileUp,
+  Inbox, Percent, Wallet, Landmark, Gauge, AlertOctagon, PiggyBank, CalendarCheck, Fuel, UserCheck, Settings, FileUp, Building2, Smartphone,
 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { pagePermissionForPath } from '@water-supply-crm/authz';
@@ -116,6 +116,8 @@ const navItems: NavItem[] = [
   { label: 'Analytics', href: '/dashboard/analytics', icon: BarChart2, group: 'Finance' },
 
   // Settings
+  { label: 'Company Profile', href: '/dashboard/company-profile', icon: Building2, group: 'Settings' },
+  { label: 'WhatsApp', href: '/dashboard/settings/whatsapp', icon: Smartphone, group: 'Settings' },
   { label: 'Users', href: '/dashboard/users', icon: UserCog, group: 'Settings' },
   { label: 'Roles & Access', href: '/dashboard/settings/roles', icon: KeyRound, group: 'Settings' },
   { label: 'Balance Reminders', href: '/dashboard/balance-reminders', icon: Bell, group: 'Settings' },

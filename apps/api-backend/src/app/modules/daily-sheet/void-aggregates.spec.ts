@@ -23,6 +23,7 @@ import { WarehouseService } from '../warehouse/warehouse.service';
 import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { CustomerPortalService } from '../customer-portal/customer-portal.service';
+import { VendorBrandingService } from '../vendor-branding/vendor-branding.service';
 import { CustomerService } from '../customer/customer.service';
 
 /**
@@ -399,6 +400,7 @@ describe('CustomerPortalService.getDeliveries — voided items', () => {
         CustomerPortalService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: CustomerService, useValue: {} },
+        { provide: VendorBrandingService, useValue: {} },
       ],
     }).compile();
     service = module.get<CustomerPortalService>(CustomerPortalService);

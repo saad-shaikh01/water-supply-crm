@@ -53,6 +53,8 @@ export const PAGE_REGISTRY: readonly PageRoute[] = [
   { prefix: '/dashboard/fuel-cards', permission: 'fuel_cards:page' },
   { prefix: '/dashboard/extra-labour', permission: 'extra_labour:page' },
   { prefix: '/dashboard/data-import', permission: 'data_imports:page' },
+  { prefix: '/dashboard/company-profile', permission: 'company_profile:page' },
+  { prefix: '/dashboard/settings/whatsapp', permission: 'whatsapp:page' },
 ];
 
 /**

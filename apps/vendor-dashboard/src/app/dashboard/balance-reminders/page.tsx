@@ -353,7 +353,7 @@ export default function BalanceRemindersPage() {
                 </div>
                 <div>
                   <p className="text-sm font-bold text-amber-500">WhatsApp Disabled</p>
-                  <p className="text-xs text-muted-foreground">Set WHATSAPP_ENABLED=true in server environment to enable.</p>
+                  <p className="text-xs text-muted-foreground">WhatsApp sending is switched off for the whole platform. Contact your platform administrator.</p>
                 </div>
               </div>
             )}
@@ -366,7 +366,8 @@ export default function BalanceRemindersPage() {
                 <div>
                   <p className="text-sm font-bold text-destructive">WhatsApp Not Connected</p>
                   <p className="text-xs text-muted-foreground">
-                    Meta credentials missing — check META_WA_ACCESS_TOKEN / META_WA_PHONE_NUMBER_ID on the server.
+                    Your business has no WhatsApp number connected, so reminders are not sent. Connect one under{' '}
+                    <a href="/dashboard/settings/whatsapp" className="font-semibold underline">Settings → WhatsApp</a>.
                   </p>
                 </div>
               </div>

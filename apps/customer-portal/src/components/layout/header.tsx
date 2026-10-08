@@ -14,6 +14,7 @@ import { User, LogOut } from 'lucide-react';
 import { ThemeToggle } from './theme-toggle';
 import { cn } from '@water-supply-crm/ui';
 import { NotificationCenter } from '../../features/notifications/components/notification-center';
+import { usePortalBranding } from '../../features/branding/hooks/use-portal-branding';
 
 const navItems = [
   { href: '/home', label: 'Home' },
@@ -31,6 +32,7 @@ export function Header() {
   const user = useAuthStore((s) => s.user);
   const logout = useLogout();
   const pathname = usePathname();
+  const { data: branding, isLoading: brandingLoading } = usePortalBranding();
 
   const initials = user?.name
     ? user.name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
@@ -41,22 +43,34 @@ export function Header() {
       <Link href="/home" className="flex items-center shrink-0">
         {/* Theme swap is done with CSS (not the theme hook) so the logo never
             flashes the wrong variant during hydration. */}
-        <Image
-          src="/logo-dark.png"
-          alt="Blue Ice — Purified Drinking Water"
-          width={1024}
-          height={256}
-          priority
-          className="h-8 w-auto md:h-9 dark:hidden"
-        />
-        <Image
-          src="/logo-light.png"
-          alt="Blue Ice — Purified Drinking Water"
-          width={1024}
-          height={256}
-          priority
-          className="hidden h-8 w-auto md:h-9 dark:block"
-        />
+        {brandingLoading ? (
+          // never guess a brand while loading
+          <span className="inline-block h-8 w-28 md:h-9" aria-hidden />
+        ) : branding?.builtinLogo ? (
+          <>
+            <Image
+              src="/logo-dark.png"
+              alt="Blue Ice — Purified Drinking Water"
+              width={1024}
+              height={256}
+              priority
+              className="h-8 w-auto md:h-9 dark:hidden"
+            />
+            <Image
+              src="/logo-light.png"
+              alt="Blue Ice — Purified Drinking Water"
+              width={1024}
+              height={256}
+              priority
+              className="hidden h-8 w-auto md:h-9 dark:block"
+            />
+          </>
+        ) : branding?.logoUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL on another origin
+          <img src={branding.logoUrl} alt={branding.name} className="h-8 w-auto max-w-[10rem] object-contain md:h-9" />
+        ) : (
+          <span className="text-base font-extrabold tracking-tight md:text-lg">{branding?.name ?? 'Customer Portal'}</span>
+        )}
       </Link>
 
       {/* Desktop Nav — scrolls horizontally instead of overflowing at narrower

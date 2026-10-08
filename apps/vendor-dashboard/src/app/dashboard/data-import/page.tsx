@@ -7,6 +7,7 @@ import { PageHeader } from '../../../components/shared/page-header';
 import { useCan } from '../../../features/authz/hooks/use-can';
 import { DATA_IMPORT_PERMISSIONS } from '../../../features/data-import/constants';
 import { ImportHistory } from '../../../features/data-import/components/import-history';
+import { GoLiveChecklist } from '../../../features/onboarding/components/go-live-checklist';
 
 export default function DataImportPage() {
   const canUpload = useCan(DATA_IMPORT_PERMISSIONS.upload);
@@ -24,6 +25,7 @@ export default function DataImportPage() {
         }
       />
       <div className="space-y-6 pb-4">
+        <GoLiveChecklist />
         <ImportHistory />
       </div>
     </>

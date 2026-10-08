@@ -1,6 +1,7 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import PDFDocument = require('pdfkit');
 import { CustomerStatementPdfService } from './customer-statement-pdf.service';
+import { neutralBranding } from '../../../common/pdf/doc-branding';
 
 /** Collects every string the service draws (pdfkit compresses streams, so assert on the text() calls). */
 function captureText(): { texts: string[]; restore: () => void } {
@@ -41,7 +42,7 @@ describe('CustomerStatementPdfService — P0 branding', () => {
 
   it('neutral branding prints only the vendor name/address — no Dasani identity, bank, wallet, contacts or "pay to"', async () => {
     const cap = captureText();
-    const buf = await svc.generate({ ...data, branding: { legacy: false, name: 'Lorem Water', address: 'Lahore' } });
+    const buf = await svc.generate({ ...data, branding: neutralBranding('Lorem Water', 'Lahore') });
     cap.restore();
     expect(buf.subarray(0, 5).toString()).toBe('%PDF-');
     const all = cap.texts.join('\n');

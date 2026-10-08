@@ -51,9 +51,10 @@ function make() {
   };
   const payrollEntries = { attendanceSummaryFor: jest.fn().mockResolvedValue({ structure: null, attendance }) };
   const pdf = { generate: jest.fn().mockResolvedValue(Buffer.from('%PDF-fake')) };
-  const whatsapp = { isReady: jest.fn().mockReturnValue(true), sendTemplate: jest.fn().mockResolvedValue(true) };
+  const whatsapp = { isReadyFor: jest.fn().mockResolvedValue(true), sendTemplate: jest.fn().mockResolvedValue(true) };
   const queue = { add: jest.fn().mockResolvedValue({}) };
-  const service = new PayrollSlipService(prisma, payrollEntries as any, pdf as any, whatsapp as any, queue as any);
+  const branding = { resolveForDocs: jest.fn().mockResolvedValue({ name: 'Blue Ice' }) };
+  const service = new PayrollSlipService(prisma, payrollEntries as any, pdf as any, whatsapp as any, queue as any, branding as any);
   // never really sleep in specs
   const delaySpy = jest.spyOn(service as any, 'sendDelay').mockResolvedValue(undefined);
   return { service, prisma, payrollEntries, pdf, whatsapp, queue, delaySpy };
@@ -317,7 +318,7 @@ describe('PayrollSlipService.runDispatch', () => {
   it('aborts mid-batch when WhatsApp drops: the rest become SKIPPED_DISCONNECTED, dispatch ABORTED, no more sends', async () => {
     const m = make();
     seedRun(m, [entryRow('a'), entryRow('b'), entryRow('c')]);
-    m.whatsapp.isReady.mockReturnValueOnce(true).mockReturnValue(false);
+    m.whatsapp.isReadyFor.mockResolvedValueOnce(true).mockResolvedValue(false);
     await m.service.runDispatch('dispatch-1');
     expect(m.whatsapp.sendTemplate).toHaveBeenCalledTimes(1);
     expect(m.prisma.payrollSlipDelivery.updateMany).toHaveBeenCalledWith(

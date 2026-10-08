@@ -87,6 +87,7 @@ function makeService(opts: {
     permissions as any,
     customerDeposits as any,
     bulkPriceQueue as any,
+    {} as any, // VendorBrandingService (statement PDFs only)
   );
   return { svc, prisma, tx, cache, audit, permissions, customerDeposits };
 }

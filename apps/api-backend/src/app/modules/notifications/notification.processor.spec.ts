@@ -1,6 +1,7 @@
 import { NotificationProcessor } from './notification.processor';
 import { JOB_NAMES } from '@water-supply-crm/queue';
 import { resetGateLogThrottle } from '../../common/tenant-gate/legacy-vendor-gate';
+import { LEGACY_DOC_BRANDING } from '../../common/pdf/legacy-dasani-branding';
 
 const ENV_KEYS = ['WHATSAPP_GUARD_MODE', 'WHATSAPP_ALLOWED_VENDOR_IDS'] as const;
 const BLUE_ICE = 'vendor-blue-ice';
@@ -15,9 +16,10 @@ const receiptData = {
 
 describe('NotificationProcessor — P0 vendor gate', () => {
   const saved: Record<string, string | undefined> = {};
-  let whatsapp: { sendTemplate: jest.Mock; sendMessage: jest.Mock; isBlockedForVendor: jest.Mock };
+  let whatsapp: { sendTemplate: jest.Mock; sendMessage: jest.Mock; canSendFor: jest.Mock };
   let pdf: { generate: jest.Mock };
   let prisma: any;
+  let branding: { resolveForDocs: jest.Mock };
   let processor: NotificationProcessor;
 
   const job = (name: string, data: Record<string, unknown>) =>
@@ -32,12 +34,12 @@ describe('NotificationProcessor — P0 vendor gate', () => {
     process.env['WHATSAPP_GUARD_MODE'] = 'enforce';
     process.env['WHATSAPP_ALLOWED_VENDOR_IDS'] = BLUE_ICE;
 
-    // Real WhatsAppService gate semantics, mocked provider side.
+    // Real gate semantics (an account-less vendor is allowed only when the gate lets it through).
     const { isBlocked } = jest.requireActual('../../common/tenant-gate/legacy-vendor-gate');
     whatsapp = {
       sendTemplate: jest.fn().mockResolvedValue(true),
       sendMessage: jest.fn().mockResolvedValue(true),
-      isBlockedForVendor: jest.fn((v?: string) => isBlocked(v)),
+      canSendFor: jest.fn(async (v?: string) => !isBlocked(v)),
     };
     pdf = { generate: jest.fn().mockResolvedValue(Buffer.from('%PDF-')) };
     prisma = {
@@ -45,7 +47,8 @@ describe('NotificationProcessor — P0 vendor gate', () => {
       dailySheetItem: { update: jest.fn().mockResolvedValue({}) },
       vendor: { findUnique: jest.fn().mockResolvedValue({ name: 'Lorem Water', address: 'Lahore' }) },
     };
-    processor = new NotificationProcessor(whatsapp as any, pdf as any, {} as any, prisma, {} as any);
+    branding = { resolveForDocs: jest.fn().mockResolvedValue(LEGACY_DOC_BRANDING) };
+    processor = new NotificationProcessor(whatsapp as any, pdf as any, {} as any, prisma, {} as any, branding as any);
   });
   afterEach(() => {
     ENV_KEYS.forEach((k) => {
@@ -82,7 +85,8 @@ describe('NotificationProcessor — P0 vendor gate', () => {
 
   it('Blue Ice receipt PDF job: legacy branding, delivery_receipt template with the 3 approved params', async () => {
     await processor.process(job(JOB_NAMES.SEND_WHATSAPP_PDF, { phoneNumber: '923001234567', receiptData, vendorId: BLUE_ICE }));
-    expect(pdf.generate).toHaveBeenCalledWith(receiptData, expect.objectContaining({ legacy: true }));
+    expect(branding.resolveForDocs).toHaveBeenCalledWith(BLUE_ICE, 'Lorem Water');
+    expect(pdf.generate).toHaveBeenCalledWith(receiptData, LEGACY_DOC_BRANDING);
     expect(whatsapp.sendTemplate).toHaveBeenCalledWith(
       BLUE_ICE,
       '923001234567',
@@ -90,13 +94,12 @@ describe('NotificationProcessor — P0 vendor gate', () => {
       ['Ali', 'L1', '01 August 2026'],
       { buffer: expect.any(Buffer), filename: expect.stringContaining('.pdf') },
     );
-    expect(prisma.vendor.findUnique).not.toHaveBeenCalled();
-  });
+      });
 
   it('in shadow mode (the default) another vendor still sends, exactly like before', async () => {
     process.env['WHATSAPP_GUARD_MODE'] = 'shadow';
     await processor.process(job(JOB_NAMES.SEND_WHATSAPP_PDF, { phoneNumber: '923001234567', receiptData, vendorId: LOREM }));
-    expect(pdf.generate).toHaveBeenCalledWith(receiptData, expect.objectContaining({ legacy: true }));
+    expect(pdf.generate).toHaveBeenCalledWith(receiptData, LEGACY_DOC_BRANDING);
     expect(whatsapp.sendTemplate).toHaveBeenCalledTimes(1);
   });
 });

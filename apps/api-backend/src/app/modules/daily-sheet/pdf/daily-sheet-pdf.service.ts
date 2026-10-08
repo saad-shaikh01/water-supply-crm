@@ -5,16 +5,14 @@ import * as path from 'path';
 import PDFDocument = require('pdfkit');
 import { drawShadowShape, brandGradient, drawClippedWatermark } from '../../../common/pdf/pdf-theme.util';
 import { resolveSheetCash } from '../sheet-cash.util';
+import { DocBranding, imageSource } from '../../../common/pdf/doc-branding';
+import { LEGACY_DOC_BRANDING } from '../../../common/pdf/legacy-dasani-branding';
+import { bannerColors, drawLogoInChip } from '../../../common/pdf/brand-draw';
 
 // NOTE: standard PDF fonts (Helvetica) only support WinAnsi characters —
 // no emoji, no check/warning glyphs. Stick to ASCII + · × — for decorations.
 
-// ── Company identity (hardcoded — single vendor for now) — same convention
-// and same values as CustomerStatementPdfService / DeliveryReceiptPdfService,
-// so every PDF this system prints reads as one consistent brand. ─────────────
-const COMPANY_NAME    = 'DASANI ENTERPRISES';
-const COMPANY_ADDRESS = 'B-145 Block 13 D/1 Gulshan-e-Iqbal, Korangi Creek Korangi';
-const COMPANY_PHONES  = 'Cell# 0316-2677954, 0345-2364698';
+// Company identity comes from the vendor's DocBranding (VendorBrandingService.resolveForDocs).
 
 // Blue Ice brand assets — local copy alongside this service (mirrors the
 // customer/pdf and whatsapp module convention), bundled to dist via webpack.
@@ -190,6 +188,13 @@ interface TripStats {
 
 @Injectable()
 export class DailySheetPdfService {
+  /** Identity for the render in progress (set/reset synchronously inside generate()). */
+  private branding: DocBranding = LEGACY_DOC_BRANDING;
+
+  private iconSource(): Buffer | string | null {
+    return imageSource(this.branding.icon ?? this.branding.logo, ICON_PATH);
+  }
+
   /**
    * Generates a PDF buffer for a daily sheet.
    * @param sheet - Full sheet object from dailySheet.service.findOne(), with
@@ -197,7 +202,7 @@ export class DailySheetPdfService {
    *                attached by the controller before calling this.
    * @returns Buffer — pipe directly to response
    */
-  async generate(sheet: any): Promise<Buffer> {
+  async generate(sheet: any, branding: DocBranding = LEGACY_DOC_BRANDING): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({ margin: MARGIN, size: 'A4', bufferPages: true });
       const chunks: Buffer[] = [];
@@ -206,8 +211,14 @@ export class DailySheetPdfService {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      this.drawDocument(doc, sheet);
-      this.drawFooters(doc, sheet);
+      // Rendering below is fully synchronous, so a per-render field cannot interleave with another request.
+      this.branding = branding;
+      try {
+        this.drawDocument(doc, sheet);
+        this.drawFooters(doc, sheet);
+      } finally {
+        this.branding = LEGACY_DOC_BRANDING;
+      }
       doc.end();
     });
   }
@@ -311,7 +322,7 @@ export class DailySheetPdfService {
 
       this.shadowCard(doc, MARGIN, cardY, CONTENT_W, cardH);
       if (opts.watermark && drawn === 0) {
-        drawClippedWatermark(doc, ICON_PATH, MARGIN, cardY, CONTENT_W, cardH);
+        drawClippedWatermark(doc, this.iconSource(), MARGIN, cardY, CONTENT_W, cardH);
       }
       drawHeader(MARGIN, cardY + 6, CONTENT_W);
       for (let li = 0; li < linesThisCard; li++) {
@@ -328,35 +339,35 @@ export class DailySheetPdfService {
   }
 
   // ─── Brand banner: gradient card with logo chip (left) + company identity (right) ─
-  // UNCHANGED — kept exactly as-is per explicit instruction not to touch it.
+  // Identity now comes from DocBranding; for Dasani the output is unchanged (golden test).
   private drawBrandBanner(doc: PDFKit.PDFDocument): void {
     const y = MARGIN;
     const h = BANNER_H;
 
-    drawShadowShape(doc, MARGIN, y, CONTENT_W, h, RADIUS, brandGradient(doc, MARGIN, y, CONTENT_W, h), {
+    drawShadowShape(doc, MARGIN, y, CONTENT_W, h, RADIUS, brandGradient(doc, MARGIN, y, CONTENT_W, h, bannerColors(this.branding)), {
       shadowColor: C.navy,
       shadowOpacity: 0.13,
     });
 
-    const chipW = 118;
-    const chipH = 48;
-    const chipX = MARGIN + 14;
-    const chipY = y + (h - chipH) / 2;
-    doc.roundedRect(chipX, chipY, chipW, chipH, 8).fill(C.white);
-    try {
-      if (fs.existsSync(LOGO_PATH)) {
-        doc.image(LOGO_PATH, chipX + 8, chipY + 10, { width: chipW - 16 });
-      }
-    } catch {
-      // logo missing/unreadable — chip still reads fine as a blank white box
+    if (this.branding.logo) {
+      const chipW = 118;
+      const chipH = 48;
+      const chipX = MARGIN + 14;
+      const chipY = y + (h - chipH) / 2;
+      doc.roundedRect(chipX, chipY, chipW, chipH, 8).fill(C.white);
+      drawLogoInChip(doc, this.branding.logo, LOGO_PATH, { x: chipX, y: chipY, w: chipW, h: chipH, padX: 8, padY: 10 });
     }
 
     doc.fillColor(C.white).font('Helvetica-Bold').fontSize(15)
-      .text(COMPANY_NAME, MARGIN, y + 16, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
-    doc.fillColor('#ffffff', 0.82).font('Helvetica').fontSize(8)
-      .text(COMPANY_ADDRESS, MARGIN, y + 35, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
-    doc.fillColor('#ffffff', 0.82).font('Helvetica').fontSize(8)
-      .text(COMPANY_PHONES, MARGIN, y + 47, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
+      .text(this.branding.name, MARGIN, y + 16, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
+    if (this.branding.address) {
+      doc.fillColor('#ffffff', 0.82).font('Helvetica').fontSize(8)
+        .text(this.branding.address, MARGIN, y + 35, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
+    }
+    if (this.branding.phones) {
+      doc.fillColor('#ffffff', 0.82).font('Helvetica').fontSize(8)
+        .text(this.branding.phones, MARGIN, y + 47, { width: CONTENT_W - 14, align: 'right', lineBreak: false });
+    }
 
     doc.y = y + h + 3;
   }
@@ -422,7 +433,7 @@ export class DailySheetPdfService {
     // Faint centered icon watermark, clipped to the card — same treatment
     // (asset, size formula, opacity) as CustomerStatementPdfService's
     // Delivery Card watermark, applied here to this document's own hero card.
-    drawClippedWatermark(doc, ICON_PATH, MARGIN, y, CONTENT_W, boxH);
+    drawClippedWatermark(doc, this.iconSource(), MARGIN, y, CONTENT_W, boxH);
     doc.moveTo(x2, y + 12).lineTo(x2, y + boxH - 12).strokeColor(C.border).lineWidth(0.75).stroke();
     doc.moveTo(x3, y + 12).lineTo(x3, y + boxH - 12).strokeColor(C.border).lineWidth(0.75).stroke();
 
@@ -1065,7 +1076,7 @@ export class DailySheetPdfService {
 
     const cardY = doc.y;
     this.shadowCard(doc, MARGIN, cardY, CONTENT_W, cardH);
-    drawClippedWatermark(doc, ICON_PATH, MARGIN, cardY, CONTENT_W, cardH);
+    drawClippedWatermark(doc, this.iconSource(), MARGIN, cardY, CONTENT_W, cardH);
 
     let y = cardY + TOP_PAD;
     y = this.drawTripHeaderRow(doc, MARGIN, y, CONTENT_W, cols);
@@ -1549,7 +1560,7 @@ export class DailySheetPdfService {
       const lineY = PAGE_H - 36;
       doc.moveTo(MARGIN, lineY).lineTo(MARGIN + CONTENT_W, lineY).lineWidth(0.5).stroke(C.border);
       doc.fillColor(C.mutedLt).fontSize(6.5).font('Helvetica')
-        .text(`${COMPANY_NAME} · Generated ${generated} · Sheet ${sheet.id.slice(0, 8).toUpperCase()}`, MARGIN, lineY + 7, { lineBreak: false });
+        .text(`${this.branding.name} · Generated ${generated} · Sheet ${sheet.id.slice(0, 8).toUpperCase()}`, MARGIN, lineY + 7, { lineBreak: false });
       doc.fillColor(C.mutedLt).font('Helvetica-Bold')
         .text(`Page ${i - range.start + 1} of ${range.count}`, MARGIN, lineY + 7, { width: CONTENT_W, align: 'right', lineBreak: false });
 

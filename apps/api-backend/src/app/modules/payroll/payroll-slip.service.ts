@@ -16,6 +16,7 @@ import { CloudTemplateNames } from '../whatsapp/templates/cloud-template-names';
 import { isSendablePhone } from '../whatsapp/phone.util';
 import { PayrollEntryService } from './payroll-entry.service';
 import { SalarySlipPdfService } from './salary-slip-pdf.service';
+import { VendorBrandingService } from '../vendor-branding/vendor-branding.service';
 import { MAX_SLIPS_PER_DISPATCH, type PreviewPayrollSlipsDto, type SendPayrollSlipsDto } from './dto/send-payroll-slips.dto';
 import {
   buildSalarySlip,
@@ -73,6 +74,7 @@ export class PayrollSlipService {
     private readonly pdf: SalarySlipPdfService,
     private readonly whatsapp: WhatsAppService,
     @InjectQueue(QUEUE_NAMES.PAYROLL_SLIP_SEND) private readonly slipQueue: Queue,
+    private readonly branding: VendorBrandingService,
   ) {}
 
   // ─── Preview ────────────────────────────────────────────────────────────────
@@ -300,7 +302,7 @@ export class PayrollSlipService {
     const built = await this.buildSlipForEntry(user.vendorId, entryId);
     if (!built) throw new NotFoundException('Payroll entry not found.');
     return {
-      buffer: await this.pdf.generate(built.slip),
+      buffer: await this.pdf.generate(built.slip, await this.branding.resolveForDocs(user.vendorId, built.slip.vendorName)),
       filename: slipFilename(built.slip.employeeName, built.slip.periodLabel),
     };
   }
@@ -346,7 +348,7 @@ export class PayrollSlipService {
         const row = rows[i];
 
         // WhatsApp dropped mid-batch — stop instead of burning 5–12s per remaining employee.
-        if (!this.whatsapp.isReady()) {
+        if (!(await this.whatsapp.isReadyFor(row.vendorId))) {
           this.logger.warn(`WhatsApp disconnected mid-batch — aborting dispatch ${dispatchId}, ${rows.length - i} slip(s) remaining`);
           await this.prisma.payrollSlipDelivery.updateMany({
             where: { id: { in: rows.slice(i).map((r) => r.id) }, status: PayrollSlipDeliveryStatus.QUEUED },
@@ -437,7 +439,7 @@ export class PayrollSlipService {
         return { status: PayrollSlipDeliveryStatus.SKIPPED_NO_PHONE, error: SLIP_VERDICT_REASON.NO_PHONE, ...snapshot };
       }
 
-      const buffer = await this.pdf.generate(slip);
+      const buffer = await this.pdf.generate(slip, await this.branding.resolveForDocs(row.vendorId, slip.vendorName));
       const sent = await this.whatsapp.sendTemplate(
         row.vendorId,
         phone,

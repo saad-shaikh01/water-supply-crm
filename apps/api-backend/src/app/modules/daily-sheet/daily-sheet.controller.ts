@@ -51,6 +51,7 @@ import { ConfirmCrewDto } from './dto/confirm-crew.dto';
 import { RequirePermissions, RequireAnyPermission } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
+import { VendorBrandingService } from '../vendor-branding/vendor-branding.service';
 
 const ALLOWED_EXCEL_MIMES = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -66,6 +67,7 @@ export class DailySheetController {
     private readonly bulkImportService: BulkImportService,
     private readonly storage: StorageService,
     private readonly deliveryRepricingService: DeliveryRepricingService,
+    private readonly branding: VendorBrandingService,
   ) {}
 
   // ── Static routes MUST come before /:id ──────────────────────────────
@@ -720,7 +722,7 @@ export class DailySheetController {
     const vehicleLog = await this.dailySheetService.getVehicleLogForSheet(user.vendorId, id);
     (sheet as any).vehicleDailyChecks = vehicleLog.vehicleDailyChecks;
     (sheet as any).fuelLogs = vehicleLog.fuelLogs;
-    const pdfBuffer = await this.pdfService.generate(sheet);
+    const pdfBuffer = await this.pdfService.generate(sheet, await this.branding.resolveForDocs(user.vendorId));
 
     const dateStr = new Date(sheet.date).toISOString().split('T')[0];
     const filename = `invoice-${dateStr}-${(sheet as any).van?.plateNumber ?? id}.pdf`
@@ -746,7 +748,7 @@ export class DailySheetController {
     const vehicleLog = await this.dailySheetService.getVehicleLogForSheet(user.vendorId, id);
     (sheet as any).vehicleDailyChecks = vehicleLog.vehicleDailyChecks;
     (sheet as any).fuelLogs = vehicleLog.fuelLogs;
-    const pdfBuffer = await this.pdfService.generate(sheet);
+    const pdfBuffer = await this.pdfService.generate(sheet, await this.branding.resolveForDocs(user.vendorId));
 
     const dateStr = new Date(sheet.date).toISOString().split('T')[0];
     const filename = `sheet-${dateStr}-${sheet.route?.name ?? id}.pdf`

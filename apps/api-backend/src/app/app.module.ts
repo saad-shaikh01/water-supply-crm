@@ -53,6 +53,8 @@ import { CustomerFinancialAdjustmentModule } from './modules/customer-financial-
 import { ExtraLabourModule } from './modules/extra-labour/extra-labour.module';
 import { CustomerDepositsModule } from './modules/customer-deposits/customer-deposits.module';
 import { VendorImportModule } from './modules/vendor-import/vendor-import.module';
+import { VendorBrandingModule } from './modules/vendor-branding/vendor-branding.module';
+import { VendorReadinessModule } from './modules/vendor-readiness/vendor-readiness.module';
 import { applyLockOverrideMiddleware } from './common/request-context/lock-override.context';
 
 @Module({
@@ -107,6 +109,8 @@ import { applyLockOverrideMiddleware } from './common/request-context/lock-overr
     ExtraLabourModule,
     CustomerDepositsModule,
     VendorImportModule,
+    VendorBrandingModule,
+    VendorReadinessModule,
   ],
   controllers: [AppController],
   providers: [

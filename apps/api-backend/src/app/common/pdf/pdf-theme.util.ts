@@ -43,14 +43,22 @@ export function drawShadowShape(
 }
 
 /** Builds the brand's diagonal "water" gradient anchored to a given rect. */
-export function brandGradient(doc: PDFKit.PDFDocument, x: number, y: number, w: number, h: number): PDFKit.PDFGradient {
-  return doc.linearGradient(x, y, x + w, y + h).stop(0, BRAND_GRADIENT.light).stop(1, BRAND_GRADIENT.dark);
+export function brandGradient(
+  doc: PDFKit.PDFDocument,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  colors: { light: string; dark: string } | null = null,
+): PDFKit.PDFGradient {
+  const { light, dark } = colors ?? BRAND_GRADIENT;
+  return doc.linearGradient(x, y, x + w, y + h).stop(0, light).stop(1, dark);
 }
 
 /** Draws a faint icon watermark clipped to a given rect (e.g. a table card), centered within it. */
 export function drawClippedWatermark(
   doc: PDFKit.PDFDocument,
-  logoPath: string,
+  logoPath: string | Buffer | null,
   x: number,
   y: number,
   w: number,
@@ -59,7 +67,7 @@ export function drawClippedWatermark(
 ): void {
   const { width = Math.min(w * 0.42, 190), opacity = 0.05, radius = 10 } = opts;
   try {
-    if (!fs.existsSync(logoPath)) return;
+    if (!logoPath || (typeof logoPath === 'string' && !fs.existsSync(logoPath))) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const img = (doc as any).openImage(logoPath);
     const height = (img.height / img.width) * width;
@@ -79,14 +87,14 @@ export function drawClippedWatermark(
 /** Draws a large, very faint, centered logo watermark on the current page. */
 export function drawWatermark(
   doc: PDFKit.PDFDocument,
-  logoPath: string,
+  logoPath: string | Buffer | null,
   pageW: number,
   pageH: number,
   opts: { width?: number; opacity?: number } = {},
 ): void {
   const { width = pageW * 0.62, opacity = 0.06 } = opts;
   try {
-    if (!fs.existsSync(logoPath)) return;
+    if (!logoPath || (typeof logoPath === 'string' && !fs.existsSync(logoPath))) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const img = (doc as any).openImage(logoPath);
     const height = (img.height / img.width) * width;

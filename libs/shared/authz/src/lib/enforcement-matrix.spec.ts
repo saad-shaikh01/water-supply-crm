@@ -28,7 +28,7 @@ const MATRIX: Record<RoleKey, Row> = {
     deny: [],
   },
   vendor_admin: {
-    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'daily_sheets:reprice', 'settings:update', 'whatsapp:manage', 'inventory:write_off', 'payroll:period_lock', 'payroll:view_all', 'payroll:attendance_view', 'payroll:attendance_mark', 'payroll:config_manage', 'payroll:slip_send', 'crew_cash:approve', 'crew_cash:view_all', 'customers:deactivate', 'customers:force_deactivate', 'customers:force_deactivate_bottles', 'customers:bottle_wallet_adjust', 'customer_financial_adjustments:create_restricted', 'customer_financial_adjustments:transfer', 'customer_financial_adjustments:void', 'customer_deposits:refund', 'customer_deposits:write_off', 'customer_deposits:void', 'customer_deposits:manage_config', 'data_imports:view', 'data_imports:upload', 'data_imports:execute', 'data_imports:revert'],
+    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'daily_sheets:reprice', 'settings:update', 'whatsapp:manage', 'company_profile:page', 'company_profile:view', 'company_profile:update', 'whatsapp:page', 'inventory:write_off', 'payroll:period_lock', 'payroll:view_all', 'payroll:attendance_view', 'payroll:attendance_mark', 'payroll:config_manage', 'payroll:slip_send', 'crew_cash:approve', 'crew_cash:view_all', 'customers:deactivate', 'customers:force_deactivate', 'customers:force_deactivate_bottles', 'customers:bottle_wallet_adjust', 'customer_financial_adjustments:create_restricted', 'customer_financial_adjustments:transfer', 'customer_financial_adjustments:void', 'customer_deposits:refund', 'customer_deposits:write_off', 'customer_deposits:void', 'customer_deposits:manage_config', 'data_imports:view', 'data_imports:upload', 'data_imports:execute', 'data_imports:revert'],
     deny: [],
   },
   manager: {
@@ -59,7 +59,7 @@ const MATRIX: Record<RoleKey, Row> = {
       'data_imports:execute', 'data_imports:revert',
       'users:create', 'users:delete', 'customers:delete', 'payments:approve', 'transactions:adjust',
       'damage_cases:charge', 'daily_sheets:correct', 'inventory:write_off', 'inventory:adjust',
-      'roles:view', 'roles:update', 'settings:update', 'audit_logs:view', 'balance_reminders:send', 'whatsapp:manage',
+      'roles:view', 'roles:update', 'settings:update', 'audit_logs:view', 'balance_reminders:send', 'whatsapp:manage', 'whatsapp:page', 'company_profile:page', 'company_profile:view', 'company_profile:update',
       'payroll:ledger_approve', 'payroll:ledger_void', 'payroll:ledger_reverse', 'payroll:ledger_correct',
       'payroll:entry_approve', 'payroll:period_lock', 'payroll:period_unlock',
       // view_all is override-only (Amendment R3) — MANAGER does not get it by default,
@@ -105,7 +105,7 @@ const MATRIX: Record<RoleKey, Row> = {
       'customer_deposits:write_off', 'customer_deposits:void',
       'data_imports:view',
     ],
-    deny: ['data_imports:upload', 'data_imports:execute', 'data_imports:revert', 'customers:update', 'customers:delete', 'orders:approve', 'daily_sheets:update', 'users:create', 'roles:update', 'inventory:add_stock', 'payroll:view_all', 'crew_cash:create', 'crew_cash:view_all'],
+    deny: ['whatsapp:page', 'company_profile:update', 'company_profile:view', 'data_imports:upload', 'data_imports:execute', 'data_imports:revert', 'customers:update', 'customers:delete', 'orders:approve', 'daily_sheets:update', 'users:create', 'roles:update', 'inventory:add_stock', 'payroll:view_all', 'crew_cash:create', 'crew_cash:view_all'],
   },
   support: {
     allow: ['dashboard:view', 'tickets:reply', 'orders:reject', 'customers:view', 'customers:update', 'delivery_issues:resolve'],
@@ -155,7 +155,7 @@ const MATRIX: Record<RoleKey, Row> = {
       // include them.
       'customer_financial_adjustments:view',
       // Vendor Data Import: raw customer PII — excluded from the blanket read-only grant.
-      'data_imports:view', 'data_imports:page',
+      'data_imports:view', 'data_imports:page', 'company_profile:view', 'company_profile:page', 'whatsapp:page',
     ],
   },
 };

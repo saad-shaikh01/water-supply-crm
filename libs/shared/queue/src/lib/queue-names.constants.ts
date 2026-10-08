@@ -10,4 +10,5 @@ export const QUEUE_NAMES = {
   TRACKING_HISTORY: 'tracking-history',
   VENDOR_IMPORT: 'vendor-import',
   PAYROLL_SLIP_SEND: 'payroll-slip-send',
+  WHATSAPP_HEALTH: 'whatsapp-health',
 } as const;

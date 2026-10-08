@@ -2,15 +2,10 @@ import { Injectable } from '@nestjs/common';
 import * as fs from 'fs';
 import PDFDocument from 'pdfkit';
 import { drawShadowShape, brandGradient, drawWatermark } from '../../common/pdf/pdf-theme.util';
-import {
-  C,
-  COMPANY_ADDRESS,
-  COMPANY_EMAIL,
-  COMPANY_NAME,
-  COMPANY_PHONES,
-  COMPANY_WEBSITE,
-  LOGO_PATH,
-} from '../whatsapp/delivery-receipt-pdf.service';
+import { C, LOGO_PATH } from '../whatsapp/delivery-receipt-pdf.service';
+import { DocBranding, imageSource } from '../../common/pdf/doc-branding';
+import { LEGACY_DOC_BRANDING } from '../../common/pdf/legacy-dasani-branding';
+import { bannerColors, compactContactLines, drawLogoInChip } from '../../common/pdf/brand-draw';
 import { formatRupees, isSlipEligibleStatus, type SalarySlipData } from './payroll-slip.util';
 
 /**
@@ -50,7 +45,8 @@ function signedRupees(amount: number): string {
 
 @Injectable()
 export class SalarySlipPdfService {
-  generate(slip: SalarySlipData): Promise<Buffer> {
+  /** `branding` omitted = legacy Dasani/Blue Ice identity (see DocBranding). */
+  generate(slip: SalarySlipData, branding: DocBranding = LEGACY_DOC_BRANDING): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({ size: 'A4', margin: MARGIN });
       const chunks: Buffer[] = [];
@@ -59,8 +55,8 @@ export class SalarySlipPdfService {
       doc.on('error', reject);
 
       try {
-        drawWatermark(doc, LOGO_PATH, PAGE_W, PAGE_H);
-        this.drawBanner(doc);
+        drawWatermark(doc, imageSource(branding.logo, LOGO_PATH), PAGE_W, PAGE_H);
+        this.drawBanner(doc, branding);
 
         doc.y += 12;
         this.drawSectionTitle(doc, 'SALARY SLIP');
@@ -90,7 +86,7 @@ export class SalarySlipPdfService {
         this.drawDetailCard(doc, this.attendanceRows(slip));
 
         doc.y += 16;
-        this.drawFooter(doc);
+        this.drawFooter(doc, branding);
         doc.end();
       } catch (err) {
         reject(err);
@@ -146,30 +142,32 @@ export class SalarySlipPdfService {
   }
 
   // ── Brand banner: gradient card with logo chip (left) + company identity (right) ──
-  private drawBanner(doc: PDFKit.PDFDocument): void {
+  private drawBanner(doc: PDFKit.PDFDocument, branding: DocBranding): void {
     const y = MARGIN;
-    drawShadowShape(doc, MARGIN, y, CONTENT_W, BANNER_H, RADIUS, brandGradient(doc, MARGIN, y, CONTENT_W, BANNER_H), {
+    drawShadowShape(doc, MARGIN, y, CONTENT_W, BANNER_H, RADIUS, brandGradient(doc, MARGIN, y, CONTENT_W, BANNER_H, bannerColors(branding)), {
       shadowColor: C.navy,
       shadowOpacity: 0.13,
     });
 
-    const chipW = 84;
-    const chipH = 38;
-    const chipX = MARGIN + 14;
-    const chipY = y + (BANNER_H - chipH) / 2;
-    doc.roundedRect(chipX, chipY, chipW, chipH, 8).fill(C.white);
-    try {
-      if (fs.existsSync(LOGO_PATH)) doc.image(LOGO_PATH, chipX + 6, chipY + 8, { width: chipW - 12 });
-    } catch {
-      // logo missing/unreadable — the chip still reads fine as a blank white box
+    if (branding.logo) {
+      const chipW = 84;
+      const chipH = 38;
+      const chipX = MARGIN + 14;
+      const chipY = y + (BANNER_H - chipH) / 2;
+      doc.roundedRect(chipX, chipY, chipW, chipH, 8).fill(C.white);
+      drawLogoInChip(doc, branding.logo, LOGO_PATH, { x: chipX, y: chipY, w: chipW, h: chipH, padX: 6, padY: 8 });
     }
 
     doc.fillColor(C.white).font('Helvetica-Bold').fontSize(15)
-      .text(COMPANY_NAME, MARGIN, y + 13, { width: CONTENT_W - 16, align: 'right', lineBreak: false });
-    doc.fillColor('#ffffff', 0.82).font('Helvetica').fontSize(8.5)
-      .text(COMPANY_ADDRESS, MARGIN, y + 33, { width: CONTENT_W - 16, align: 'right', lineBreak: false });
-    doc.fillColor('#ffffff', 0.82).font('Helvetica').fontSize(8.5)
-      .text(COMPANY_PHONES, MARGIN, y + 47, { width: CONTENT_W - 16, align: 'right', lineBreak: false });
+      .text(branding.name, MARGIN, y + 13, { width: CONTENT_W - 16, align: 'right', lineBreak: false });
+    if (branding.address) {
+      doc.fillColor('#ffffff', 0.82).font('Helvetica').fontSize(8.5)
+        .text(branding.address, MARGIN, y + 33, { width: CONTENT_W - 16, align: 'right', lineBreak: false });
+    }
+    if (branding.phones) {
+      doc.fillColor('#ffffff', 0.82).font('Helvetica').fontSize(8.5)
+        .text(branding.phones, MARGIN, y + 47, { width: CONTENT_W - 16, align: 'right', lineBreak: false });
+    }
 
     doc.y = y + BANNER_H + 3;
   }
@@ -224,7 +222,7 @@ export class SalarySlipPdfService {
   }
 
   // ── Thank-you + contact footer (same design as the receipt / statement) ──
-  private drawFooter(doc: PDFKit.PDFDocument): void {
+  private drawFooter(doc: PDFKit.PDFDocument, branding: DocBranding): void {
     const y = doc.y;
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(10)
       .text('Thank you for your hard work with us!', MARGIN, y, { width: CONTENT_W, align: 'center', lineBreak: false });
@@ -232,10 +230,11 @@ export class SalarySlipPdfService {
       .text('For any query about this slip, please contact the office.', MARGIN, y + 14, { width: CONTENT_W, align: 'center', lineBreak: false });
 
     const cy = y + 34;
-    doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
-      .text(COMPANY_WEBSITE, MARGIN, cy, { width: CONTENT_W, align: 'right', lineBreak: false });
-    doc.fillColor(C.muted).font('Helvetica').fontSize(7.5)
-      .text(`${COMPANY_EMAIL}  ·  ${COMPANY_PHONES}`, MARGIN, cy + 10, { width: CONTENT_W, align: 'right', lineBreak: false });
-    doc.y = cy + 20;
+    const contacts = compactContactLines(branding);
+    contacts.forEach((line, i) => {
+      doc.fillColor(line.bold ? C.navyText : C.muted).font(line.bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(7.5)
+        .text(line.text, MARGIN, cy + i * 10, { width: CONTENT_W, align: 'right', lineBreak: false });
+    });
+    doc.y = cy + Math.max(0, contacts.length - 1) * 10 + 10;
   }
 }

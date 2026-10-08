@@ -1,6 +1,7 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import PDFDocument = require('pdfkit');
 import { DeliveryReceiptPdfService, DeliveryReceiptData } from './delivery-receipt-pdf.service';
+import { neutralBranding } from '../../common/pdf/doc-branding';
 
 function captureText(): { texts: string[]; restore: () => void } {
   const texts: string[] = [];
@@ -43,7 +44,7 @@ describe('DeliveryReceiptPdfService — P0 branding', () => {
 
   it("neutral branding shows only the vendor and never another vendor's bank/contact details", async () => {
     const cap = captureText();
-    const buf = await svc.generate(receipt, { legacy: false, name: 'Lorem Water', address: null });
+    const buf = await svc.generate(receipt, neutralBranding('Lorem Water'));
     cap.restore();
     expect(buf.subarray(0, 5).toString()).toBe('%PDF-');
     const all = cap.texts.join('\n');

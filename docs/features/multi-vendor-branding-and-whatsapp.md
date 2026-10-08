@@ -1,6 +1,6 @@
 # Multi-Vendor Branding + Per-Vendor WhatsApp — Design
 
-**Status (2026-10-08): P0 IMPLEMENTED in the working tree — NOT committed, NOT deployed (see §12). P1–P4 are design only.** Owner approval needed per phase.
+**Status (2026-10-09): P0 committed (6cbdf57). P1 (branding), P2 (per-vendor WhatsApp accounts), P3 (templates, reduced) and P4 (go-live + portal branding) are IMPLEMENTED in the working tree — NOT committed, NOT deployed. See §12–§15 (as-built, deliberate omissions, deploy + smoke-test checklist).**
 Covers roadmap steps 3 (branding) and 5 (WhatsApp) of `multi-vendor-onboarding-roadmap.md`, plus
 the readiness/go-live part of step 6.
 
@@ -276,3 +276,106 @@ The risk is real: P0 is fail-closed and P2 moves credentials from env to DB. Rul
 - **Deploy order:** (1) set `WHATSAPP_ALLOWED_VENDOR_IDS=<Blue Ice vendor id>` and `WHATSAPP_GUARD_MODE=shadow` in `.env.live`;
   (2) deploy; (3) watch logs ≥ 1 full day for `would BLOCK … vendor=<Blue Ice id>` or `MISSING_VENDOR_ID` (must be zero for Blue Ice);
   (4) switch to `enforce`; (5) canary: send Blue Ice's real templates to an owner number. Kill switch: `WHATSAPP_GUARD_MODE=off`.
+
+## 13. P1 as built (2026-10-09, uncommitted)
+
+- **Schema:** `VendorBranding` (1:1, cascade) — migration `20261009000000_add_vendor_branding`, which also **backfills Blue Ice**
+  (slug `blue-ice`) with the exact strings its documents have always printed (+ `builtin:blue-ice` logo/icon sentinels).
+  Verified on a throwaway Postgres: applies cleanly, no schema drift for the new table, only `blue-ice` gets a row.
+  `tagline` and `waDisplayName` from §3.1 were dropped (nothing renders them yet); `strn` kept.
+- **Rendering:** `DocBranding` (name, payTo, address, phones, email, website, taxLine, logo, icon, gradient, paymentAccounts, footerNote)
+  is the single input of all four PDFs. Statement / receipt / salary slip / daily sheet no longer hold any company constant.
+  Payment block draws any number of accounts (BANK / EASYPAISA / JAZZCASH / RAAST); the A5 receipt shows the first two
+  (no IBAN row) and points to the statement for the rest, because the legacy layout has no spare vertical room (extra rows
+  made pdfkit spill onto extra pages — covered by a test). Missing data => the element is omitted, never defaulted.
+- **Resolution:** `VendorBrandingService.resolveForDocs()` — row => row; no row + gate not blocking (default shadow / allow-listed) =>
+  legacy Dasani values (so Blue Ice can never degrade, even if its slug is not `blue-ice` or the table is unreachable); no row +
+  enforce + other vendor => neutral (own name/address only). 60 s per-vendor cache, busted on save; logo downloads cached by key.
+- **API:** vendor admin `GET/PUT /company-profile`, `POST /company-profile/preview?doc=statement|receipt` (draft -> sample PDF),
+  `POST|DELETE /company-profile/image/:kind`; super admin: same under `/vendors/:vendorId/branding`.
+  New permission resource `company_profile` {page, view, update} (224 total) — Vendor Admin via `*`, withheld from Viewer.
+  DTO rejects text the PDF fonts cannot print (Urdu/emoji), validates IBAN/colours/email, caps 6 accounts; images must be real PNG/JPEG ≤ 1 MB (magic-byte check).
+- **UI:** Settings -> Company Profile (`/dashboard/company-profile`): Business info / Logo & colours / Payment accounts tabs,
+  required-before-go-live banner, "Preview statement / receipt" from the unsaved draft, super-admin vendor picker.
+- **Safety nets:** `pdf-golden.spec` (Blue Ice statement/receipt/salary-slip/daily-sheet text identical to the pre-refactor fixture;
+  only the daily-sheet address line changed, decision 10), `tenant-hardcode-guard.spec` (no Dasani details in app code except
+  `legacy-dasani-branding.ts`), `vendor-branding-render.spec` (a non-Dasani vendor's four documents carry only its own data and
+  the receipt stays one page), real-Postgres `vendor-branding.integration.spec` (opt-in via `TEST_DATABASE_URL`), DTO, service, module-wiring specs.
+- **Known limitation (closed in P3, §14):** WhatsApp template bodies carried "Blue Ice"; the template catalogue now renders each vendor's own brand.
+
+## 14. P2–P4 as built (2026-10-09, uncommitted) and what was deliberately NOT built
+
+### P2 — per-vendor WhatsApp accounts
+- **Schema:** `WhatsAppAccount` (WABA id, phone-number id UNIQUE, token AES-256-GCM `tokenCipher/Iv/Tag/keyVersion`, status
+  `NOT_CONFIGURED|READY|TOKEN_INVALID|SUSPENDED`, quality rating, `templateSuffix`, `templatesSyncedAt`) + `Vendor.whatsappAccountId`
+  (FK SET NULL). Separate from `Vendor` so sister brands can share one sender (platform admin links them).
+  Migration `20261009010000_add_whatsapp_account`.
+- **Routing (`WhatsAppAccountService.routeFor`)** — every send: (1) the vendor's own READY account → its credentials; (2) else the
+  platform env credentials **only** while the P0 gate lets the vendor through (default `shadow`, `off`, or the legacy allow-list);
+  (3) else blocked. A broken/undecryptable account therefore degrades Blue Ice to the env path but never opens the platform number
+  to anyone else. Blue Ice with no account row behaves byte-for-byte as before.
+- **Credentials:** `PUT /whatsapp/account` verifies the token with Meta FIRST (`GET /{phone-number-id}`), then stores it encrypted;
+  write-only (never returned/logged/audited). `WHATSAPP_TOKEN_KEY` (32-byte b64/hex, versioned `_V<n>` for rotation) is required —
+  without it the API answers 503 and nothing is stored. Daily health job (`whatsapp-health` queue, 03:10 PKT) re-verifies every
+  account: 401/code 190 => `TOKEN_INVALID`; transient errors keep the status.
+- **Super admin:** `/vendors/:id/whatsapp-account` (get/connect/verify/disconnect/link/import-platform/settings/templates),
+  `GET /platform/whatsapp-accounts`. `import-platform` copies the env credentials into an encrypted account for a vendor — how Blue Ice
+  can move env to DB without pasting a token (optional; Blue Ice works without it).
+- **Fixes folded in:** vendor-scoped `GET /whatsapp/status` (no env-var names, no platform status leak — B2); bulk loops
+  (balance reminders, salary slips) now ask `isReadyFor(vendorId)` instead of the platform-only `isReady()`; rate-limit key per vendor+phone (B3).
+- **UI:** Settings -> WhatsApp (connect form, status, verify/disconnect, shared-sender notice, super-admin link/import tools).
+  New permission `whatsapp:page` (225 total).
+
+### P3 (reduced) — templates
+- `templates/template-catalog.ts`: the 22 templates with Blue Ice's approved bodies and a `{{brand}}` placeholder; spec asserts
+  variables/samples match, no hardcoded company, Blue Ice's `delivery_receipt` body is reproduced exactly.
+- Names: plain for the first brand on a WABA, `<name>_<suffix>` for further brands (`WhatsAppAccount.templateSuffix`, unique per WABA).
+  `WhatsAppTemplate` mirrors Meta's review status via a **read-only** sync (`GET /{waba}/message_templates`), on demand and daily.
+  After a sync, a template Meta is known not to have approved is **skipped with a log line** instead of failing at Meta; Blue Ice
+  (allow-list) is exempt from this gate. UI: Settings -> WhatsApp -> "Message templates" (status per template, exact name/body to copy).
+- **NOT built (deliberate):** (a) auto-submitting templates to Meta — document/image-header templates need the Resumable Upload API
+  (a Meta App id/secret) and cannot be validated without a real WABA, so submission stays manual with copy-ready text; (b) Meta
+  webhook (delivery/read/quality/template-status push) — polling covers template status, a public signed endpoint is extra surface;
+  (c) hard warm-up daily caps — Cloud API enforces its own messaging tiers and a hard cap would silently drop legitimate receipts;
+  revisit if a vendor's quality rating drops.
+
+### P4 — onboarding + portal
+- `Vendor.goLiveAt` (migration `20261009020000_add_vendor_go_live`; **every existing vendor is backfilled as live**, only vendors
+  created afterwards start not-live). `GET /onboarding/readiness` (computed checklist: company profile, payment accounts, products
+  [required]; WhatsApp number, required templates approved [required]; vans/routes, customers [recommended]) and
+  `POST /onboarding/go-live` (refused while a required item is open; platform admin may force; audited). While the gate **enforces**
+  and a non-allow-listed vendor is not live, no customer-facing WhatsApp leaves (default `shadow` changes nothing).
+  Platform: `GET /platform/onboarding` (progress of every vendor), `POST /vendors/:id/go-live|go-offline`, `GET /vendors/:id/readiness`.
+  UI: "Get ready to go live" card on Data Import / Company Profile / WhatsApp pages (hidden once live — Blue Ice never sees it).
+- Portal: `GET /portal/branding` (signed-in customer's vendor: name, logo, colours) -> header shows the vendor's logo/name and sets the
+  tab title (never guesses a brand while loading); Blue Ice keeps its bundled artwork (flag `builtinLogo`, also set when it has no
+  profile row but is allow-listed). `GET /portal/payment-info` gains `accounts` (the vendor's own payment accounts — additive) and the
+  payment dialog lists them. Public `GET /portal/public/branding/:slug` exists for a future slug login link.
+- **NOT built:** `/{slug}` portal routing and dynamic PWA manifest/icons (the manifest and favicon stay Blue Ice's; they appear only in
+  "Add to home screen"). The login page has no logo today, so nothing wrong is shown there.
+
+### Operational notes / known gaps
+- **A5 is still open:** order / ticket / payment-reversal messages still go as free text (`queueWhatsApp`), which Cloud API delivers
+  only inside a 24 h window. The approved templates exist (`order_*`, `ticket_replied`) but are not wired; wiring would START
+  delivering messages Blue Ice customers have not been receiving, so it needs an explicit owner decision.
+- `payment_recorded_corrected` has no catalogue entry (its approved body is not recorded in `cloud-api-templates.md`).
+- The customer-statement `.debug.ts` dev script keeps the Dasani constants (allow-listed in the hardcode guard).
+
+## 15. Deploy + smoke-test checklist (run in this order)
+
+1. **Env (server `.env.live`)** — before the code:
+   `WHATSAPP_ALLOWED_VENDOR_IDS=<Blue Ice vendor id>`, `WHATSAPP_GUARD_MODE=shadow`, `WHATSAPP_TOKEN_KEY=<32-byte base64>` (keep a backup of it!).
+2. **Migrations** — apply all pending ones (S51-S65 + `20261008000000_add_transaction_history_import`, then `20261009000000_add_vendor_branding`,
+   `20261009010000_add_whatsapp_account`, `20261009020000_add_vendor_go_live`). The three new ones are additive and were applied from scratch,
+   together with the full chain, on a throwaway Postgres; `add_vendor_branding` backfills the vendor with slug `blue-ice`,
+   `add_vendor_go_live` marks every existing vendor live.
+3. **Deploy** API + vendor-dashboard + customer-portal.
+4. **Blue Ice smoke test (nothing may change):** open a statement PDF and a delivery receipt for a Blue Ice customer and compare with an old one
+   (same header, logo, Meezan/Easypaisa block); send one real receipt + one balance reminder to your own phone; Settings -> Company Profile shows the
+   Dasani details; portal login as a Blue Ice customer shows the Blue Ice logo; no "Get ready to go live" card appears.
+5. **Watch logs for at least 1 day** for `[shadow] would BLOCK ... vendor=<Blue Ice id>` / `MISSING_VENDOR_ID` (must be none), then set
+   `WHATSAPP_GUARD_MODE=enforce` and repeat step 4.
+6. **New-vendor smoke test:** a test vendor -> Company Profile (fill + preview statement/receipt) -> Settings -> WhatsApp (connect a test number;
+   copy templates; Refresh status) -> checklist -> Go live. Before "Go live" a reminder/receipt for that vendor is skipped (Notification Logs show
+   the reason); its PDFs carry only that vendor's details.
+7. **Kill switch** if anything misbehaves: `WHATSAPP_GUARD_MODE=off` + restart (legacy single-number behaviour; PDFs keep the DB profile).

@@ -5,12 +5,14 @@ import { paginate } from '../../common/helpers/paginate';
 import { CustomerService } from '../customer/customer.service';
 import { PortalDeliveriesQueryDto } from './dto/portal-deliveries-query.dto';
 import { PortalTransactionsQueryDto } from './dto/portal-transactions-query.dto';
+import { VendorBrandingService } from '../vendor-branding/vendor-branding.service';
 
 @Injectable()
 export class CustomerPortalService {
   constructor(
     private prisma: PrismaService,
     private customerService: CustomerService,
+    private vendorBranding: VendorBrandingService,
   ) {}
 
   private async getCustomer(userId: string) {
@@ -76,13 +78,24 @@ export class CustomerPortalService {
     });
     if (!customer) throw new ForbiddenException('No customer account linked');
 
+    // Additive: the vendor's own bank / wallet / Raast accounts from its company profile (Settings -> Company Profile).
+    const accounts = await this.vendorBranding.portalPaymentAccounts(customer.vendor.id);
     return {
       vendorName: customer.vendor.name,
       raastId: customer.vendor.raastId ?? null,
+      accounts,
       instructions: customer.vendor.raastId
         ? `Send payment to Raast ID: ${customer.vendor.raastId}\nThen submit your reference number in the app.`
-        : 'Please contact your vendor for payment instructions.',
+        : accounts.length
+          ? 'Send payment to one of the accounts below, then submit your reference number in the app.'
+          : 'Please contact your vendor for payment instructions.',
     };
+  }
+
+  /** Branding of the signed-in customer's vendor (header logo / name). */
+  async getBranding(userId: string) {
+    const customer = await this.getCustomer(userId);
+    return this.vendorBranding.publicBrandingForVendor(customer.vendorId);
   }
 
   async getBalance(userId: string) {

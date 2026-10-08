@@ -1,4 +1,5 @@
-﻿import { Controller, Get, Post, Query, Body, Res } from '@nestjs/common';
+﻿import { Controller, Get, NotFoundException, Param, Post, Query, Body, Res } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Response } from 'express';
 import { CustomerPortalService } from './customer-portal.service';
 import { PortalTransactionsQueryDto } from './dto/portal-transactions-query.dto';
@@ -7,6 +8,8 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { StatementQueryDto } from '../customer/dto/statement-query.dto';
 import { ScheduleQueryDto } from '../customer/dto/schedule-query.dto';
 import { RequireCustomer } from '../../common/decorators/authz-markers.decorator';
+import { Public } from '../../common/decorators/public.decorator';
+import { VendorBrandingService } from '../vendor-branding/vendor-branding.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
 
@@ -18,6 +21,12 @@ export class CustomerPortalController {
   @Get('me')
   getProfile(@CurrentUser() user: AuthUser) {
     return this.portalService.getProfile(user.userId);
+  }
+
+  /** GET /portal/branding — brand name / logo / colours of the signed-in customer's vendor. */
+  @Get('branding')
+  getBranding(@CurrentUser() user: AuthUser) {
+    return this.portalService.getBranding(user.userId);
   }
 
   @Get('balance')
@@ -87,5 +96,23 @@ export class CustomerPortalController {
       dto.currentPassword,
       dto.newPassword,
     );
+  }
+}
+
+/**
+ * Unauthenticated: lets the portal login page show the right business (name, logo, colours) for a
+ * vendor-specific link such as /auth/login?v=<slug>. Exposes brand identity only — nothing private.
+ */
+@Controller('portal/public')
+export class PortalPublicController {
+  constructor(private readonly branding: VendorBrandingService) {}
+
+  @Get('branding/:slug')
+  @Public()
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 60 } })
+  async brandingBySlug(@Param('slug') slug: string) {
+    const b = await this.branding.publicBrandingBySlug(slug.toLowerCase());
+    if (!b) throw new NotFoundException('Business not found');
+    return b;
   }
 }

@@ -61,6 +61,71 @@ describe('MetaCloudApiProvider', () => {
     });
   });
 
+  describe('per-vendor credentials', () => {
+    const VENDOR = { accessToken: 'vendor-token', phoneNumberId: '999000' };
+
+    it('a call with vendor credentials uses THEIR token and phone-number id — never the platform ones', async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse(200, { messages: [{ id: 'wamid.v' }] }));
+      expect(await provider.sendTemplate('923001234567', 'balance_reminder', ['A', '1'], undefined, undefined, VENDOR)).toBe(true);
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe('https://graph.facebook.com/v21.0/999000/messages');
+      expect(init.headers['Authorization']).toBe('Bearer vendor-token');
+      expect(JSON.stringify(fetchMock.mock.calls)).not.toContain('test-token');
+    });
+
+    it('uploads media with the vendor credentials too (document templates)', async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse(200, { id: 'm1' })).mockResolvedValueOnce(jsonResponse(200, { messages: [{ id: 'w' }] }));
+      await provider.sendTemplate('923001234567', 'delivery_receipt', ['A'], { buffer: Buffer.from('x'), filename: 'r.pdf' }, undefined, VENDOR);
+      for (const [url, init] of fetchMock.mock.calls) {
+        expect(url).toContain('/999000/');
+        expect(init.headers['Authorization']).toBe('Bearer vendor-token');
+      }
+    });
+
+    it('readiness is judged per credentials, but the platform master switch still applies to everyone', () => {
+      expect(provider.isReady(VENDOR)).toBe(true);
+      expect(provider.isReady({ accessToken: '', phoneNumberId: '1' })).toBe(false);
+      process.env['WHATSAPP_ENABLED'] = 'false';
+      expect(new MetaCloudApiProvider().isReady(VENDOR)).toBe(false);
+    });
+
+    it('fetchPhoneNumberInfo returns the sender record, or the Graph error (code 190 = dead token)', async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse(200, { display_phone_number: '+92 300 1111111', verified_name: 'Lorem', quality_rating: 'GREEN' }));
+      expect(await provider.fetchPhoneNumberInfo(VENDOR)).toEqual({ ok: true, displayNumber: '+92 300 1111111', verifiedName: 'Lorem', qualityRating: 'GREEN' });
+      expect(fetchMock.mock.calls[0][0]).toContain('/999000?fields=display_phone_number,verified_name,quality_rating');
+
+      fetchMock.mockResolvedValueOnce(jsonResponse(401, { error: { code: 190, message: 'Error validating access token' } }));
+      expect(await provider.fetchPhoneNumberInfo(VENDOR)).toEqual({ ok: false, status: 401, code: 190, message: 'Error validating access token' });
+
+      fetchMock.mockRejectedValueOnce(new Error('ECONNRESET'));
+      expect(await provider.fetchPhoneNumberInfo(VENDOR)).toMatchObject({ ok: false, status: 0, message: 'ECONNRESET' });
+    });
+
+    it('listTemplates pages through Meta and maps review status / rejection reason', async () => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse(200, {
+          data: [{ name: 'balance_reminder', language: 'en', category: 'UTILITY', status: 'APPROVED', rejected_reason: 'NONE' }],
+          paging: { next: 'https://graph.facebook.com/v21.0/1000/message_templates?after=abc' },
+        }))
+        .mockResolvedValueOnce(jsonResponse(200, { data: [{ name: 'order_approved', language: 'en', category: 'UTILITY', status: 'REJECTED', rejected_reason: 'INVALID_FORMAT' }] }));
+      const res = await provider.listTemplates(VENDOR, '1000');
+      expect(res).toEqual({
+        ok: true,
+        templates: [
+          { name: 'balance_reminder', language: 'en', category: 'UTILITY', status: 'APPROVED', rejectedReason: null },
+          { name: 'order_approved', language: 'en', category: 'UTILITY', status: 'REJECTED', rejectedReason: 'INVALID_FORMAT' },
+        ],
+      });
+      expect(fetchMock.mock.calls[0][0]).toContain('/1000/message_templates?fields=name,language,category,status,rejected_reason');
+      expect(fetchMock.mock.calls[0][1].headers['Authorization']).toBe('Bearer vendor-token');
+    });
+
+    it('listTemplates surfaces a Graph error instead of pretending there are no templates', async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse(400, { error: { code: 100, message: 'Unsupported get request' } }));
+      expect(await provider.listTemplates(VENDOR, '1000')).toEqual({ ok: false, status: 400, code: 100, message: 'Unsupported get request' });
+    });
+  });
+
   it('uploads media then sends a document message referencing the returned media id', async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse(200, { id: 'media-123' }))

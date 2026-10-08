@@ -158,9 +158,11 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // 221 = 215 + data_imports (page, view, upload, execute, revert; owner-approved 2026-10-07)
 // + payroll:slip_send (salary-slip WhatsApp send, owner-requested 2026-10-07; VENDOR_ADMIN-only by default).
 // data_imports adds +1 resource, +1 page, +5 permissions; slip_send adds +1 permission.
-const FROZEN_TOTAL = 221;
-const FROZEN_PAGES = 32;
-const FROZEN_RESOURCES = 38;
+// 224 = 221 + company_profile (page, view, update; owner-approved 2026-10-08): +1 resource, +1 page, +3 permissions.
+// 225 = 224 + whatsapp:page (Settings -> WhatsApp; the existing `whatsapp` resource becomes navigable): +1 page, +1 permission.
+const FROZEN_TOTAL = 225;
+const FROZEN_PAGES = 34;
+const FROZEN_RESOURCES = 39;
 
 describe('permission catalog (frozen contract)', () => {
   it('has the frozen totals', () => {

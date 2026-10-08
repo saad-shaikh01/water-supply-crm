@@ -253,11 +253,29 @@ export function PaymentDialog({ open, onOpenChange, suggestedAmount = 0 }: Payme
                     ) : (
                       <div className="space-y-6">
                         <div className="space-y-4">
-                          <div className="p-4 rounded-2xl bg-accent/30 border border-border/50">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">Vendor Raast ID</p>
-                            <p className="text-lg font-black font-mono">{info?.raastId || 'Not Configured'}</p>
-                            <p className="text-[10px] text-muted-foreground mt-1">Pay to this ID first, then submit details here.</p>
-                          </div>
+                          {(info?.raastId || !info?.accounts?.length) && (
+                            <div className="p-4 rounded-2xl bg-accent/30 border border-border/50">
+                              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">Vendor Raast ID</p>
+                              <p className="text-lg font-black font-mono">{info?.raastId || 'Not Configured'}</p>
+                              <p className="text-[10px] text-muted-foreground mt-1">Pay to this ID first, then submit details here.</p>
+                            </div>
+                          )}
+                          {info?.accounts?.map((a, i) => (
+                            <div key={i} className="p-4 rounded-2xl bg-accent/30 border border-border/50">
+                              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">
+                                {a.kind === 'BANK' ? 'Bank transfer' : a.kind === 'EASYPAISA' ? 'Easypaisa' : a.kind === 'JAZZCASH' ? 'JazzCash' : 'Raast'}
+                              </p>
+                              <p className="text-lg font-black font-mono">{a.accountNumber}</p>
+                              <p className="text-xs font-semibold mt-1">{a.accountTitle}</p>
+                              {a.kind === 'BANK' && (
+                                <p className="text-[11px] text-muted-foreground">
+                                  {[a.bankName, a.branch].filter(Boolean).join(' · ')}
+                                  {a.iban ? ` · IBAN ${a.iban}` : ''}
+                                </p>
+                              )}
+                              {i === 0 && <p className="text-[10px] text-muted-foreground mt-1">Pay to one of these accounts first, then submit details here.</p>}
+                            </div>
+                          ))}
 
                           <div className="space-y-2">
                             <Label className="text-xs font-black uppercase tracking-widest">Payment Method</Label>

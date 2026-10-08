@@ -1,8 +1,19 @@
 import { apiClient } from '@water-supply-crm/data-access';
 
+export interface PortalPaymentAccount {
+  kind: 'BANK' | 'EASYPAISA' | 'JAZZCASH' | 'RAAST';
+  accountTitle: string;
+  accountNumber: string;
+  bankName: string | null;
+  iban: string | null;
+  branch: string | null;
+}
+
 export interface PaymentInfo {
   raastId: string | null;
   instructions: string;
+  /** The vendor's own payment accounts (company profile). */
+  accounts?: PortalPaymentAccount[];
 }
 
 export interface RaastQrRequest {

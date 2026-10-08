@@ -342,6 +342,13 @@ model Vendor {
   supplierBillOpeningBalance SupplierBillOpeningBalance?
   warehouseAutoRefillConfig  WarehouseAutoRefillConfig?
   balanceReminderConfig      BalanceReminderConfig?
+  branding                   VendorBranding?
+  whatsappAccountId          String?
+  // Set when the vendor admin presses "Go live" on the onboarding checklist. Until then (and while the
+  // gate enforces) no customer-facing WhatsApp leaves for this vendor. Every vendor that existed when
+  // this column was added was backfilled as live, so nothing changes for them.
+  goLiveAt                   DateTime?
+  whatsappAccount            WhatsAppAccount? @relation(fields: [whatsappAccountId], references: [id], onDelete: SetNull)
 
   // Staff Payroll & Financial Management — Phase 1 (Foundation)
   salaryStructures     SalaryStructure[]
@@ -422,6 +429,91 @@ model Vendor {
   importBatches          ImportBatch[]
   importMappingProfiles  ImportMappingProfile[]
   customerDepositEntries CustomerDepositEntry[]
+}
+
+// A WhatsApp Business Cloud API sender (WABA + phone number + access token). Separate from Vendor so
+// sister brands owned by one company can share one account (super admin links them) while every other
+// vendor gets its own (docs/features/multi-vendor-branding-and-whatsapp.md §3.2, §5).
+// The access token is AES-256-GCM encrypted (tokenCipher/tokenIv/tokenTag/keyVersion) and never
+// leaves the server. Vendors without a READY account send nothing — there is no platform fallback
+// (the only exception is the legacy Blue Ice allow-list, which keeps using the env credentials).
+enum WhatsAppAccountStatus {
+  NOT_CONFIGURED
+  READY
+  TOKEN_INVALID
+  SUSPENDED
+}
+
+model WhatsAppAccount {
+  id                String                @id @default(uuid())
+  label             String
+  wabaId            String?
+  phoneNumberId     String?               @unique
+  displayNumber     String?
+  verifiedName      String?
+  tokenCipher       String?
+  tokenIv           String?
+  tokenTag          String?
+  keyVersion        Int                   @default(1)
+  status            WhatsAppAccountStatus @default(NOT_CONFIGURED)
+  qualityRating     String?
+  lastHealthCheckAt DateTime?
+  lastHealthError   String?
+  // Several brands can run on one WhatsApp Business Account (one WABA, several numbers); template names
+  // are per-WABA, so every brand but the first uses `<base>_<suffix>` (e.g. delivery_receipt_lorem).
+  // null = the plain Blue Ice names (delivery_receipt, …).
+  templateSuffix    String?
+  templatesSyncedAt DateTime?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  vendors   Vendor[]
+  templates WhatsAppTemplate[]
+}
+
+// Status of a Meta message template on an account's WABA, mirrored from Meta (read-only sync).
+// Used to skip — with a clear reason — sends whose template Meta has not approved.
+model WhatsAppTemplate {
+  id             String          @id @default(uuid())
+  accountId      String
+  account        WhatsAppAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  name           String
+  language       String
+  category       String?
+  status         String
+  rejectedReason String?
+  syncedAt       DateTime        @default(now())
+
+  @@unique([accountId, name, language])
+  @@index([accountId])
+}
+
+// Per-vendor company profile that every customer-facing document is rendered from
+// (docs/features/multi-vendor-branding-and-whatsapp.md §3.1, §4). One row per vendor.
+// `logoKey` / `iconKey` are Wasabi object keys (private bucket); the sentinel 'builtin:blue-ice'
+// means "use the bundled Blue Ice asset" and exists only for the Dasani backfill.
+// `paymentAccounts` is an ordered Json list: { kind: BANK|EASYPAISA|JAZZCASH|RAAST, accountTitle,
+// accountNumber, bankName?, iban?, branch?, note? } — validated in the service, printed on statements/receipts.
+model VendorBranding {
+  vendorId        String   @id
+  vendor          Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  displayName     String
+  legalName       String?
+  address         String?
+  phones          String?
+  email           String?
+  website         String?
+  ntn             String?
+  strn            String?
+  logoKey         String?
+  iconKey         String?
+  primaryColor    String?
+  accentColor     String?
+  paymentAccounts Json     @default("[]")
+  invoiceFooter   String?
+  updatedById     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 model User {

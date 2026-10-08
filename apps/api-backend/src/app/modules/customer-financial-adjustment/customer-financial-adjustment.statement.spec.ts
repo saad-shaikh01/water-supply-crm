@@ -125,6 +125,7 @@ function buildService() {
     {} as any,
     {} as any,
     {} as any,
+    {} as any, // VendorBrandingService (statement PDFs only)
   );
   return { service, prisma };
 }

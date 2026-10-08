@@ -7,7 +7,7 @@ import { isSendablePhone } from '../whatsapp/phone.util';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { NotificationSettingsService } from '../notifications/notification-settings.service';
 import { CustomerStatementPdfService } from '../customer/pdf/customer-statement-pdf.service';
-import { resolveDocBranding } from '../../common/pdf/doc-branding';
+import { VendorBrandingService } from '../vendor-branding/vendor-branding.service';
 import { SendNowDto, SendTargetedDto, PreviewDto, SendKind, UpdateBalanceReminderConfigDto } from './dto/schedule-reminder.dto';
 
 const DEFAULT_MIN_BALANCE = 100;
@@ -105,6 +105,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     private readonly whatsapp: WhatsAppService,
     private readonly notifSettings: NotificationSettingsService,
     private readonly statementPdf: CustomerStatementPdfService,
+    private readonly branding: VendorBrandingService,
   ) {}
 
   onModuleInit() {
@@ -889,7 +890,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       }
 
       // WhatsApp dropped mid-batch — abort instead of burning 5s per remaining customer
-      if (!this.whatsapp.isReady()) {
+      if (!(await this.whatsapp.isReadyFor(opts.vendorId))) {
         this.logger.warn(`WhatsApp disconnected mid-batch — aborting, ${opts.ordered.length - i} customers remaining`);
         for (let j = i; j < opts.ordered.length; j++) {
           const c = opts.ordered[j];
@@ -1345,7 +1346,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       const openingBalance = closingBalance - periodActivity;
       const period = new Date(year, mon - 1, 1).toLocaleString('en-PK', { month: 'long', year: 'numeric' });
 
-      const branding = await resolveDocBranding(this.prisma, vendorId);
+      const branding = await this.branding.resolveForDocs(vendorId);
       const buffer = await this.statementPdf.generate({ customer, transactions, openingBalance, closingBalance, period, month, branding });
       // Format: customercode_shortname_month e.g. L0042_Ahmed_June_2026.pdf
       const shortName = (customer.name ?? '').trim().split(/\s+/)[0] || 'customer';

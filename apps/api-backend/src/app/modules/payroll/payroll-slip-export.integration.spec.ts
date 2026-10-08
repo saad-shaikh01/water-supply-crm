@@ -52,7 +52,7 @@ const attendance = new StaffAttendanceService(prisma, unusedPermissions, staffLe
 const settlements = new SettlementService(prisma, unusedPermissions);
 const exporter = new PayrollExportService(prisma, entries);
 
-const whatsapp = { isReady: jest.fn(), sendTemplate: jest.fn() };
+const whatsapp = { isReadyFor: jest.fn(), sendTemplate: jest.fn() };
 const queue = { add: jest.fn() };
 const slips = new PayrollSlipService(prisma, entries, new SalarySlipPdfService(), whatsapp as any, queue as any);
 jest.spyOn(slips as any, 'sendDelay').mockResolvedValue(undefined); // never really sleep
@@ -161,7 +161,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  whatsapp.isReady.mockReset().mockReturnValue(true);
+  whatsapp.isReadyFor.mockReset().mockResolvedValue(true);
   whatsapp.sendTemplate.mockReset().mockResolvedValue(true);
   queue.add.mockReset().mockResolvedValue({});
 });
@@ -317,7 +317,7 @@ describe('salary slips + CSV export (real DB)', () => {
 
   it('9. WhatsApp drops mid-batch: first goes out, the rest are persisted SKIPPED_DISCONNECTED and the dispatch is ABORTED', async () => {
     const out = await slips.send(w.admin, w.periodId, { confirmResend: true });
-    whatsapp.isReady.mockReturnValueOnce(true).mockReturnValue(false);
+    whatsapp.isReadyFor.mockResolvedValueOnce(true).mockResolvedValue(false);
     const done = await runQueued(out.dispatchId);
     expect(whatsapp.sendTemplate).toHaveBeenCalledTimes(1);
     expect(done.status).toBe(PayrollSlipDispatchStatus.ABORTED);
