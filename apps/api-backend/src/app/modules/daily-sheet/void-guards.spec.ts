@@ -203,7 +203,7 @@ describe('DailySheetService — Void Delivery guards', () => {
       id: ITEM_ID,
       status: DeliveryStatus.VOIDED,
       voidedAt: new Date(),
-      dailySheet: { id: 'sheet-001', vendorId: VENDOR_ID, driverId: DRIVER_ID, date: SHEET_DATE },
+      dailySheet: { id: 'sheet-001', vendorId: VENDOR_ID, salesmanId: DRIVER_ID, date: SHEET_DATE },
       customer: { name: 'C' },
     });
 

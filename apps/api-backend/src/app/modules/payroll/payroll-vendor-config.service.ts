@@ -29,6 +29,7 @@ export class PayrollVendorConfigService {
       cashCutoffDay: row?.cashCutoffDay ?? null,
       cashWindowCategories: row?.cashWindowCategories ?? [],
       autoLockEnabled: row?.autoLockEnabled ?? false,
+      maxDeductionPercent: row?.maxDeductionPercent ?? null,
     };
   }
 
@@ -38,6 +39,8 @@ export class PayrollVendorConfigService {
       cashCutoffDay: dto.cashCutoffDay,
       cashWindowCategories: dto.cashWindowCategories,
       ...(dto.autoLockEnabled !== undefined ? { autoLockEnabled: dto.autoLockEnabled } : {}),
+      // undefined = leave as is; null = turn the ceiling off.
+      ...(dto.maxDeductionPercent !== undefined ? { maxDeductionPercent: dto.maxDeductionPercent } : {}),
       updatedById: user.userId,
     };
 
@@ -62,6 +65,7 @@ export class PayrollVendorConfigService {
       cashCutoffDay: row.cashCutoffDay,
       cashWindowCategories: row.cashWindowCategories,
       autoLockEnabled: row.autoLockEnabled,
+      maxDeductionPercent: row.maxDeductionPercent ?? null,
     };
   }
 }

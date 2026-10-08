@@ -296,6 +296,10 @@ export const PERMISSION_CATALOG = {
       // reshapes every future period's computation rather than one ledger
       // row.
       'config_manage',
+      // Salary-slip WhatsApp send (owner-requested 2026-10-07): outward-facing message to
+      // staff phones, so VENDOR_ADMIN-only by default (via the `*` wildcard; no preset
+      // grants it) — same tier as `config_manage`.
+      'slip_send',
     ],
   },
   // Amendment R5 (Crew Cash Phase 3, owner-approved 2026-08-07): new resource — see

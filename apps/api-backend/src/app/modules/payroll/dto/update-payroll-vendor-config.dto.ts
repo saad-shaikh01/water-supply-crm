@@ -38,4 +38,16 @@ export class UpdatePayrollVendorConfigDto {
   @IsOptional()
   @IsBoolean()
   autoLockEnabled?: boolean;
+
+  /**
+   * Optional ceiling on what one period may deduct from an employee, as a whole percent of
+   * their base salary (advances + penalties + other deductions, including unpaid-absence
+   * deductions). Anything above it is not lost: it is charged in the following period(s).
+   * Omit to leave the current setting alone; `null` turns the ceiling OFF (the default).
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  maxDeductionPercent?: number | null;
 }

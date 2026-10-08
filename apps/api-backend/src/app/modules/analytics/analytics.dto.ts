@@ -36,6 +36,25 @@ export class ProfitLossSummaryQueryDto extends ProfitLossQueryDto {
   @IsOptional()
   @IsIn(['CASH', 'ACTUAL'])
   basis?: string;
+
+  /** What-if planning: rate per bottle that replaces the plant (bottle refill) cost. Never stored. */
+  @IsOptional()
+  @Type(() => Number)
+  @Min(0)
+  @Max(1000000)
+  plantRate?: number;
+
+  /** What-if planning: rate per bottle that replaces the caps cost. Never stored. */
+  @IsOptional()
+  @Type(() => Number)
+  @Min(0)
+  @Max(1000000)
+  capsRate?: number;
+
+  /** Which bottle count the what-if rates multiply. */
+  @IsOptional()
+  @IsIn(['DELIVERED', 'NET'])
+  whatIfBasis?: string;
 }
 
 export class ProfitLossDetailsQueryDto extends ProfitLossQueryDto {

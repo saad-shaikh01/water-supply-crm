@@ -7,17 +7,19 @@ import {
   Button, Input,
 } from '@water-supply-crm/ui';
 import { cn } from '@water-supply-crm/ui';
-import { Receipt, HandCoins, CheckCircle2, XCircle, Plus, Ban, AlertTriangle, Loader2, Trash2, Undo2 } from 'lucide-react';
+import { Receipt, HandCoins, CheckCircle2, XCircle, Plus, Ban, AlertTriangle, Loader2, Trash2, Undo2, CalendarClock, BadgeCheck } from 'lucide-react';
 import { AdjustLockedEntryDialog } from './adjust-locked-entry-dialog';
 import { useAuthStore } from '../../../store/auth.store';
 import { VoidLedgerEntryDialog } from './void-ledger-entry-dialog';
 import { StatusBadge } from '../../../components/shared/status-badge';
 import { ledgerCategoryLabel } from '../constants';
-import { useEntryBreakdown, useApproveEntry, useRecalculateEntry, type PayrollEntryBucketTotals, type AttendanceBreakdownDay, type BreakdownLedgerEntry } from '../hooks/use-monthly-payroll';
+import { useEntryBreakdown, useApproveEntry, useRecalculateEntry, PENDING_ABSENCE_DECISIONS_CODE, type PayrollEntryBucketTotals, type BreakdownLedgerEntry } from '../hooks/use-monthly-payroll';
 import { useCollectAdvanceInstallment, useSkipAdvanceInstallment } from '../hooks/use-advance-plans';
 import { useAttendanceCategories } from '../hooks/use-attendance';
 import { usePermissions } from '../../authz/hooks/use-permissions';
-import { MarkAttendanceDialog, type MarkAttendanceTarget } from './mark-attendance-dialog';
+import { AbsenceDecisionBar } from './absence-decision-bar';
+import { ApproveEntryConfirmDialog } from './approve-entry-confirm-dialog';
+import { DeferLedgerEntryDialog } from './defer-ledger-entry-dialog';
 import { STATUS_META } from './attendance-grid';
 import { NewAdvancePlanDialog } from './new-advance-plan-dialog';
 import { WriteOffAdvancePlanDialog } from './write-off-advance-plan-dialog';
@@ -87,8 +89,18 @@ const ATTENDANCE_STATUS_LABEL: Record<string, string> = {
   WEEKLY_OFF: 'Weekly Off',
 };
 
-/** Statuses eligible for an inline "Deduct" action — mirrors `MarkAttendanceDialog`'s `AMOUNT_ELIGIBLE`. */
+/** Statuses a paid/unpaid decision applies to. */
 const DEDUCTIBLE_STATUSES = new Set(['ABSENT', 'HALF_DAY']);
+
+/** Categories that are bookkeeping fixes themselves / never reach a payroll bucket - never "deduct next month". */
+const NOT_DEFERRABLE_CATEGORIES = new Set(['REVERSAL', 'CORRECTION', 'ADVANCE_DISBURSEMENT']);
+
+/** Calendar-cell look per decision, layered on top of the status colour. */
+const DECISION_LABEL: Record<'DEDUCTED' | 'WAIVED' | 'PENDING', string> = {
+  DEDUCTED: 'Unpaid - deducted',
+  WAIVED: 'Paid - no deduction',
+  PENDING: 'Not decided yet',
+};
 
 /**
  * Row-click detail — this codebase's established "DataTable has no
@@ -110,9 +122,13 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
   const canApprove = can('payroll:entry_approve');
   const { mutate: approveEntry, isPending: isApproving } = useApproveEntry(data?.entry.periodId);
   const { mutate: recalculateEntry, isPending: isRecalculating } = useRecalculateEntry(data?.entry.periodId);
+  const canDefer = can('payroll:ledger_void');
 
   const [tab, setTab] = useState('breakdown');
-  const [markTarget, setMarkTarget] = useState<MarkAttendanceTarget | null>(null);
+  // Days ticked in the Attendance calendar for a bulk paid/unpaid decision (YYYY-MM-DD).
+  const [selectedDates, setSelectedDates] = useState<Set<string>>(new Set());
+  const [approveConfirmOpen, setApproveConfirmOpen] = useState(false);
+  const [deferTarget, setDeferTarget] = useState<BreakdownLedgerEntry | null>(null);
   const [newPlanOpen, setNewPlanOpen] = useState(false);
   const [addAdjustmentOpen, setAddAdjustmentOpen] = useState(false);
   const [collectingId, setCollectingId] = useState<string | null>(null);
@@ -148,6 +164,15 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
     (canReverse || canCorrect);
   const canVoidEntry = (e: BreakdownLedgerEntry) =>
     periodWritable && e.payrollEntryId === null && (can('payroll:ledger_void') || e.createdById === currentUserId);
+  // "Deduct next month" needs the same authority as a void (the server enforces payroll:ledger_void) and only
+  // makes sense for a deduction nobody else owns; the server re-checks every one of these.
+  const canDeferEntry = (e: BreakdownLedgerEntry) =>
+    canDefer &&
+    periodWritable &&
+    e.payrollEntryId === null &&
+    (e.amount < 0 || !!e.payrollAttributionDate) &&
+    !NOT_DEFERRABLE_CATEGORIES.has(e.category) &&
+    !e.managedElsewhere;
 
   // Honest freshness check, no new endpoint: `entry[key]` is the STORED bucket total
   // (last set by Generate Draft or Lock); `ledgerEntriesByBucket[key]` is a LIVE query
@@ -163,18 +188,41 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
     if (open) return;
     setTab('breakdown');
     setCollectingId(null);
+    setSelectedDates(new Set());
+    setApproveConfirmOpen(false);
     onOpenChange(false);
   };
 
-  const openDeduct = (day: AttendanceBreakdownDay) => {
-    if (!data) return;
-    setMarkTarget({
-      userId: data.entry.userId,
-      name: data.entry.user.name,
-      date: ymd(day.date),
-      currentStatus: day.status,
-      suggestedAmount: data.suggestedMonthlyDailyRate ?? undefined,
+  const toggleDate = (date: string) =>
+    setSelectedDates((prev) => {
+      const next = new Set(prev);
+      if (next.has(date)) next.delete(date);
+      else next.add(date);
+      return next;
     });
+
+  // Approve: a soft confirm when there is something the admin should knowingly accept (undecided absences, a
+  // negative payable). The server enforces the absence part too, so a stale screen cannot sneak past it.
+  const pendingAbsenceDays = data?.attendance.pendingDecisionDays ?? 0;
+  const approveNow = (acknowledge: boolean) => {
+    if (!data) return;
+    approveEntry(
+      { id: data.entry.id, version: data.entry.version, acknowledgePendingAbsences: acknowledge },
+      {
+        onSuccess: () => {
+          setApproveConfirmOpen(false);
+          refetch();
+        },
+        onError: (e: any) => {
+          if (e?.response?.data?.code === PENDING_ABSENCE_DECISIONS_CODE) setApproveConfirmOpen(true);
+        },
+      },
+    );
+  };
+  const handleApproveClick = () => {
+    if (!data) return;
+    if (pendingAbsenceDays > 0 || data.entry.finalPayable < 0) setApproveConfirmOpen(true);
+    else approveNow(false);
   };
 
   const startCollect = (installmentId: string, scheduledAmount: number) => {
@@ -215,9 +263,7 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
                     size="sm"
                     className="rounded-lg h-7 text-xs font-bold"
                     disabled={isApproving}
-                    onClick={() =>
-                      approveEntry({ id: data.entry.id, version: data.entry.version }, { onSuccess: () => refetch() })
-                    }
+                    onClick={handleApproveClick}
                   >
                     {isApproving ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" /> : null}
                     Approve
@@ -264,6 +310,18 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
                       {data.entry.carryForwardIn >= 0 ? '+' : '−'}₨ {Math.abs(data.entry.carryForwardIn).toLocaleString()}
                     </span>
                   </div>
+                  {data.entry.deferredIn > 0 && (
+                    <div className="flex items-center justify-between px-4 py-3">
+                      <span className="text-sm font-semibold text-muted-foreground">Held back last period, charged now</span>
+                      <span className="font-mono font-bold text-destructive">−₨ {data.entry.deferredIn.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {data.entry.deferredOut > 0 && (
+                    <div className="flex items-center justify-between px-4 py-3">
+                      <span className="text-sm font-semibold text-muted-foreground">Held back (over max-deduction limit)</span>
+                      <span className="font-mono font-bold text-emerald-500">+₨ {data.entry.deferredOut.toLocaleString()}</span>
+                    </div>
+                  )}
                   <div
                     className={cn(
                       'flex items-center justify-between px-4 py-3.5 rounded-b-2xl',
@@ -276,6 +334,30 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
                     </span>
                   </div>
                 </div>
+
+                {data.entry.finalPayable < 0 && (
+                  <div className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2 flex items-start gap-2">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                    <span>
+                      Deductions are <strong>₨ {Math.abs(data.entry.finalPayable).toLocaleString()} more than the salary</strong>.
+                      The employee would owe this amount, which carries forward to the next period. To avoid this, defer some
+                      deductions to next month or waive them below
+                      {canDefer ? '' : ' (needs the ledger void permission)'}.
+                    </span>
+                  </div>
+                )}
+                {(data.entry.deferredOut > 0 || data.entry.deferredIn > 0) && (
+                  <div className="text-xs text-amber-700 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 flex items-start gap-2">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                    <span>
+                      The maximum-deduction limit is on (Payroll Settings).
+                      {data.entry.deferredOut > 0 &&
+                        ` ₨ ${data.entry.deferredOut.toLocaleString()} of this month's deductions is held back and will be charged next period.`}
+                      {data.entry.deferredIn > 0 &&
+                        ` ₨ ${data.entry.deferredIn.toLocaleString()} held back last period is charged now.`}
+                    </span>
+                  </div>
+                )}
 
                 <div className="space-y-4">
                   <div className="flex items-center justify-between gap-2">
@@ -344,6 +426,14 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
                               <div className="min-w-0">
                                 <span className="font-semibold">{ledgerCategoryLabel(entry.category)}</span>
                                 <span className="text-xs text-muted-foreground ml-2">{formatDate(entry.effectiveDate)}</span>
+                                {entry.payrollAttributionDate && (
+                                  <span
+                                    className="ml-2 inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary"
+                                    title="Moved here from an earlier month with Deduct next month"
+                                  >
+                                    <CalendarClock className="h-2.5 w-2.5" /> deferred to here
+                                  </span>
+                                )}
                                 {entry.description && (
                                   <p className="text-xs text-muted-foreground truncate">{entry.description}</p>
                                 )}
@@ -360,14 +450,26 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
                                     via {entry.managedElsewhere}
                                   </span>
                                 ) : canVoidEntry(entry) ? (
-                                  <Button
-                                    variant="ghost" size="icon"
-                                    className="h-6 w-6 text-destructive hover:text-destructive"
-                                    title="Void this entry"
-                                    onClick={() => setVoidTarget(entry)}
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </Button>
+                                  <>
+                                    {canDeferEntry(entry) && (
+                                      <Button
+                                        variant="ghost" size="icon"
+                                        className="h-6 w-6 text-primary hover:text-primary"
+                                        title={entry.payrollAttributionDate ? 'Undo "Deduct next month"' : 'Deduct next month instead'}
+                                        onClick={() => setDeferTarget(entry)}
+                                      >
+                                        <CalendarClock className="h-3.5 w-3.5" />
+                                      </Button>
+                                    )}
+                                    <Button
+                                      variant="ghost" size="icon"
+                                      className="h-6 w-6 text-destructive hover:text-destructive"
+                                      title="Waive - void this entry so it is not deducted at all"
+                                      onClick={() => setVoidTarget(entry)}
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </>
                                 ) : entry.alreadyReversed ? (
                                   <span className="text-[10px] text-muted-foreground">reversed</span>
                                 ) : canFixLocked(entry) ? (
@@ -406,6 +508,48 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
                     </div>
                   ))}
                 </div>
+                {data.attendance.decisionsApply && (
+                  <div
+                    className={cn(
+                      'rounded-xl border px-3 py-2.5 text-xs flex flex-wrap items-center gap-x-3 gap-y-2',
+                      data.attendance.pendingDecisionDays > 0
+                        ? 'border-amber-500/30 bg-amber-500/5'
+                        : 'border-border/40 bg-muted/20',
+                    )}
+                  >
+                    {data.attendance.pendingDecisionDays > 0 ? (
+                      <span className="font-semibold text-amber-700">
+                        {data.attendance.pendingDecisionDays} absent / half-day day
+                        {data.attendance.pendingDecisionDays === 1 ? '' : 's'} not decided yet — approving pays{' '}
+                        {data.attendance.pendingDecisionDays === 1 ? 'it' : 'them'} in full.
+                      </span>
+                    ) : (
+                      <span className="font-semibold text-muted-foreground">Every absent / half-day day has a paid / unpaid decision.</span>
+                    )}
+                    {canMarkAttendance && periodWritable && !['LOCKED', 'SETTLED'].includes(data.entry.status) && (
+                      <span className="flex flex-wrap items-center gap-1.5 ml-auto">
+                        {data.attendance.pendingDecisionDays > 0 && (
+                          <Button
+                            size="sm" variant="outline"
+                            className="h-7 rounded-lg text-xs font-bold"
+                            onClick={() =>
+                              setSelectedDates(
+                                new Set(data.attendance.days.filter((d) => d.decision === 'PENDING').map((d) => ymd(d.date))),
+                              )
+                            }
+                          >
+                            Select all undecided ({data.attendance.pendingDecisionDays})
+                          </Button>
+                        )}
+                        {selectedDates.size > 0 && (
+                          <Button size="sm" variant="ghost" className="h-7 rounded-lg text-xs" onClick={() => setSelectedDates(new Set())}>
+                            Clear
+                          </Button>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                )}
                 {data.attendance.unmarkedDays > 0 && (
                   <p className="text-xs text-muted-foreground">
                     {data.attendance.unmarkedDays} of {data.attendance.periodDayCount} day
@@ -470,30 +614,46 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
                             const matchesStatus = statusFilter === STATUS_FILTER_ALL || day?.status === statusFilter;
                             const matchesCategory = categoryFilter === CATEGORY_FILTER_ALL || day?.categoryId === categoryFilter;
                             const dimmed = !matchesStatus || !matchesCategory;
-                            const deductible = !!day && DEDUCTIBLE_STATUSES.has(day.status);
-                            const canDeduct = deductible && !day?.hasDeduction && canMarkAttendance && periodWritable;
+                            // Only a MONTHLY employee's Absent / Half-day days carry a paid/unpaid decision.
+                            const decidable =
+                              !!day && data.attendance.decisionsApply && DEDUCTIBLE_STATUSES.has(day.status) && day.decision !== null;
+                            const canSelect =
+                              decidable && canMarkAttendance && periodWritable && !['LOCKED', 'SETTLED'].includes(data.entry.status);
+                            const selected = selectedDates.has(date);
                             return (
                               <button
                                 key={date}
                                 type="button"
-                                disabled={!canDeduct}
-                                onClick={() => day && canDeduct && openDeduct(day)}
+                                disabled={!canSelect}
+                                aria-pressed={canSelect ? selected : undefined}
+                                onClick={() => canSelect && toggleDate(date)}
                                 title={
                                   day
-                                    ? `${formatDate(date)} — ${ATTENDANCE_STATUS_LABEL[day.status] ?? day.status}${day.categoryName ? ` (${day.categoryName})` : ''}`
+                                    ? `${formatDate(date)} — ${ATTENDANCE_STATUS_LABEL[day.status] ?? day.status}${day.categoryName ? ` (${day.categoryName})` : ''}${day.decision ? ` — ${DECISION_LABEL[day.decision]}${day.waivedReason ? `: ${day.waivedReason}` : ''}` : ''}`
                                     : `${formatDate(date)} — no record`
                                 }
                                 className={cn(
                                   'relative rounded-lg h-11 flex items-center justify-center text-[11px] font-bold transition-opacity',
                                   meta ? meta.className : 'bg-muted/20 text-muted-foreground',
                                   dimmed && 'opacity-25',
-                                  canDeduct && 'cursor-pointer hover:ring-2 hover:ring-primary/40',
-                                  !canDeduct && 'cursor-default',
+                                  canSelect && 'cursor-pointer hover:ring-2 hover:ring-primary/40',
+                                  !canSelect && 'cursor-default',
+                                  day?.decision === 'PENDING' && 'ring-1 ring-amber-500/60',
+                                  selected && 'ring-2 ring-primary',
                                 )}
                               >
                                 {Number(date.slice(8, 10))}
-                                {day?.hasDeduction && (
+                                {day?.decision === 'DEDUCTED' && (
                                   <CheckCircle2 className="h-3 w-3 absolute bottom-0.5 right-0.5 text-emerald-600" />
+                                )}
+                                {day?.decision === 'WAIVED' && (
+                                  <BadgeCheck className="h-3 w-3 absolute bottom-0.5 right-0.5 text-sky-500" />
+                                )}
+                                {day?.decision === 'PENDING' && (
+                                  <span className="absolute top-0.5 right-1 text-[10px] font-black text-amber-500">?</span>
+                                )}
+                                {selected && (
+                                  <span className="absolute top-0.5 left-1 h-2 w-2 rounded-full bg-primary" />
                                 )}
                               </button>
                             );
@@ -504,9 +664,27 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
                   );
                 })()}
 
-                <p className="text-[10px] text-muted-foreground">
-                  Click an Absent/Half Day cell to deduct — a green check means it already has a deduction.
-                </p>
+                {data.attendance.decisionsApply && (
+                  <>
+                    <AbsenceDecisionBar
+                      userId={data.entry.userId}
+                      selected={data.attendance.days.filter((d) => selectedDates.has(ymd(d.date)))}
+                      suggestedRate={data.suggestedMonthlyDailyRate}
+                      onClear={() => setSelectedDates(new Set())}
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      Tick the Absent / Half Day cells, then choose <strong>Unpaid</strong> (deduct) or <strong>Paid</strong> (no deduction) for all of
+                      them at once. <span className="text-amber-500 font-bold">?</span> = not decided ·{' '}
+                      <CheckCircle2 className="inline h-3 w-3 text-emerald-600" /> = unpaid, deducted ·{' '}
+                      <BadgeCheck className="inline h-3 w-3 text-sky-500" /> = paid, no deduction.
+                    </p>
+                  </>
+                )}
+                {!data.attendance.decisionsApply && (
+                  <p className="text-[10px] text-muted-foreground">
+                    This employee is paid per attended day, so an absence is already unpaid — nothing to decide here.
+                  </p>
+                )}
               </TabsContent>
 
               {/* ── Advances ──────────────────────────────────────────────── */}
@@ -626,7 +804,6 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
         )}
       </DialogContent>
 
-      <MarkAttendanceDialog target={markTarget} onOpenChange={(o) => !o && setMarkTarget(null)} />
       <NewAdvancePlanDialog
         employee={newPlanOpen && data ? { id: data.entry.userId, name: data.entry.user.name } : null}
         onOpenChange={setNewPlanOpen}
@@ -639,6 +816,22 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
         onOpenChange={(o) => !o && setWriteOffPlanTarget(null)}
       />
       <VoidLedgerEntryDialog entry={voidTarget} onOpenChange={(o) => !o && setVoidTarget(null)} />
+      <DeferLedgerEntryDialog
+        entry={deferTarget}
+        periodId={data?.entry.periodId ?? ''}
+        periodLabel={data?.entry.period.periodLabel ?? ''}
+        onOpenChange={(o) => !o && setDeferTarget(null)}
+      />
+      <ApproveEntryConfirmDialog
+        open={approveConfirmOpen}
+        onOpenChange={setApproveConfirmOpen}
+        employeeName={data?.entry.user.name ?? ''}
+        pendingAbsenceDays={pendingAbsenceDays}
+        finalPayable={data?.entry.finalPayable ?? 0}
+        deferredOut={data?.entry.deferredOut ?? 0}
+        isLoading={isApproving}
+        onConfirm={() => approveNow(true)}
+      />
       <AdjustLockedEntryDialog
         entry={fixTarget}
         onOpenChange={(o) => !o && setFixTarget(null)}

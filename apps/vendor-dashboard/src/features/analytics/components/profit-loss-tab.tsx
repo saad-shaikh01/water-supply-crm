@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { parseAsString, useQueryState } from 'nuqs';
 import {
   Button, Card, CardContent, CardHeader, CardTitle, Skeleton,
@@ -13,7 +13,7 @@ import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Plus, RotateCcw 
 import { AddExpenseWizard } from '../../expense-center/wizard/add-expense-wizard';
 import {
   PROFIT_LOSS_ADJUSTMENT_KEYS, useProfitLoss, useProfitLossDetails, useProfitLossPayments,
-  type ProfitLossAdjustment, type ProfitLossData,
+  type ProfitLossAdjustment, type ProfitLossData, type ProfitLossWhatIfParams,
   type ProfitLossDomain, type ProfitLossSummary,
 } from '../hooks/use-analytics';
 
@@ -73,44 +73,44 @@ function ProfitCard({ label, sub, value }: { label: string; sub: string; value: 
 }
 
 // ── "Cash basis" vs "Actual cost" view ────────────────────────────────────────
-// The choice (and which adjustments the owner switched off) survives refresh via localStorage.
+// The choice (and which adjustments the owner applied) survives refresh via localStorage.
 
 type Basis = 'CASH' | 'ACTUAL';
-const VIEW_STORAGE_KEY = 'analytics:profit-loss:view:v1';
+const VIEW_STORAGE_KEY = 'analytics:profit-loss:view:v2';
 
 function usePlView() {
   const [basis, setBasisState] = useState<Basis>('CASH');
-  const [off, setOffState] = useState<string[]>([]);
+  const [on, setOnState] = useState<string[]>([]);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     try {
       const saved = JSON.parse(window.localStorage.getItem(VIEW_STORAGE_KEY) ?? 'null');
       if (saved?.basis === 'ACTUAL') setBasisState('ACTUAL');
-      if (Array.isArray(saved?.off)) setOffState(saved.off.filter((k: unknown) => typeof k === 'string'));
+      if (Array.isArray(saved?.on)) setOnState(saved.on.filter((k: unknown) => typeof k === 'string'));
     } catch {
       // storage unavailable or corrupt — fall back to the cash view
     }
     setHydrated(true);
   }, []);
 
-  const persist = useCallback((nextBasis: Basis, nextOff: string[]) => {
+  const persist = useCallback((nextBasis: Basis, nextOn: string[]) => {
     try {
-      window.localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify({ basis: nextBasis, off: nextOff }));
+      window.localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify({ basis: nextBasis, on: nextOn }));
     } catch {
       // ignore — the view simply won't persist
     }
   }, []);
 
-  const setBasis = (next: Basis) => { setBasisState(next); persist(next, off); };
+  const setBasis = (next: Basis) => { setBasisState(next); persist(next, on); };
   const toggleKey = (key: string) => {
-    const next = off.includes(key) ? off.filter((k) => k !== key) : [...off, key];
-    setOffState(next);
+    const next = on.includes(key) ? on.filter((k) => k !== key) : [...on, key];
+    setOnState(next);
     persist(basis, next);
   };
-  const reset = () => { setBasisState('CASH'); setOffState([]); persist('CASH', []); };
+  const reset = () => { setBasisState('CASH'); setOnState([]); persist('CASH', []); };
 
-  return { basis, off, hydrated, setBasis, toggleKey, reset };
+  return { basis, on, hydrated, setBasis, toggleKey, reset };
 }
 
 /** The adjustment rows hang off the group's main cost category inside the Expenses table. */
@@ -119,6 +119,156 @@ const ADJUSTMENT_HOST_KEY: Record<ProfitLossAdjustment['group'], string> = {
   CAPS: 'CAPS_PURCHASED',
   SALARY: 'SALARY_SETTLEMENT',
 };
+
+// ── What-if rate per bottle (planning only — kept in localStorage per month, never saved to the database) ──
+
+interface WhatIfState {
+  plantOn: boolean;
+  plantRate: string;
+  capsOn: boolean;
+  capsRate: string;
+  basis: 'DELIVERED' | 'NET';
+}
+
+const WHATIF_DEFAULT: WhatIfState = { plantOn: false, plantRate: '', capsOn: false, capsRate: '', basis: 'DELIVERED' };
+const WHATIF_STORAGE_PREFIX = 'analytics:profit-loss:whatif:v1:';
+
+function parseRate(value: string): number {
+  const n = parseFloat(value);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function useWhatIf(month: string) {
+  const [state, setState] = useState<WhatIfState>(WHATIF_DEFAULT);
+  const [loadedMonth, setLoadedMonth] = useState<string | null>(null);
+
+  useEffect(() => {
+    let next = WHATIF_DEFAULT;
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(WHATIF_STORAGE_PREFIX + month) ?? 'null');
+      if (saved && typeof saved === 'object') {
+        next = {
+          plantOn: !!saved.plantOn,
+          plantRate: typeof saved.plantRate === 'string' ? saved.plantRate : '',
+          capsOn: !!saved.capsOn,
+          capsRate: typeof saved.capsRate === 'string' ? saved.capsRate : '',
+          basis: saved.basis === 'NET' ? 'NET' : 'DELIVERED',
+        };
+      }
+    } catch {
+      // storage unavailable or corrupt — start empty
+    }
+    setState(next);
+    setLoadedMonth(month);
+  }, [month]);
+
+  const update = useCallback(
+    (patch: Partial<WhatIfState>) => {
+      setState((prev) => {
+        const next = { ...prev, ...patch };
+        try {
+          window.localStorage.setItem(WHATIF_STORAGE_PREFIX + month, JSON.stringify(next));
+        } catch {
+          // ignore — the what-if simply won't persist
+        }
+        return next;
+      });
+    },
+    [month],
+  );
+
+  return { state, update, loadedMonth };
+}
+
+/** Delays a fast-changing value (typing a rate) so each keystroke does not fire a request. */
+function useDebounced<T>(value: T, ms: number, resetKey: string): T {
+  const [debounced, setDebounced] = useState(value);
+  const keyRef = useRef(resetKey);
+  useEffect(() => {
+    if (keyRef.current !== resetKey) {
+      keyRef.current = resetKey;
+      setDebounced(value);
+      return;
+    }
+    const t = setTimeout(() => setDebounced(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms, resetKey]);
+  return debounced;
+}
+
+function WhatIfRow({
+  kind, state, update, delivered, net,
+}: {
+  kind: 'PLANT' | 'CAPS';
+  state: WhatIfState;
+  update: (patch: Partial<WhatIfState>) => void;
+  delivered: number;
+  net: number;
+}) {
+  const plant = kind === 'PLANT';
+  const on = plant ? state.plantOn : state.capsOn;
+  const rate = plant ? state.plantRate : state.capsRate;
+  const count = state.basis === 'NET' ? net : delivered;
+  const total = parseRate(rate) * count;
+  const setOn = (v: boolean) => update(plant ? { plantOn: v } : { capsOn: v });
+  const setRate = (v: string) => {
+    const patch = plant ? { plantRate: v } : { capsRate: v };
+    // typing a real rate switches the what-if on — that is clearly the intent
+    update(parseRate(v) > 0 && !on ? { ...patch, ...(plant ? { plantOn: true } : { capsOn: true }) } : patch);
+  };
+  const counted = on && total > 0;
+
+  return (
+    <TableRow className="bg-sky-500/5 hover:bg-sky-500/10">
+      <TableCell className="pl-14" colSpan={2}>
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 accent-primary" checked={on} onChange={(e) => setOn(e.target.checked)} />
+          <span className="min-w-0">
+            <span className="block text-sm font-medium">
+              What-if: {plant ? 'refill rate per bottle' : 'cap rate per bottle'}
+              <span className="ml-2 rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-600 dark:text-sky-400">Simulated</span>
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              Planning only — not saved to your records. While ticked, it replaces this whole cost (paid and unpaid rows above are set aside).
+            </span>
+          </span>
+        </label>
+        <div className="mt-2 flex flex-wrap items-center gap-2 pl-7 text-sm">
+          <span className="text-muted-foreground">₨</span>
+          <input
+            type="number"
+            min="0"
+            step="any"
+            inputMode="decimal"
+            placeholder="e.g. 23"
+            value={rate}
+            onChange={(e) => setRate(e.target.value)}
+            aria-label={plant ? 'Refill rate per bottle' : 'Cap rate per bottle'}
+            className="h-8 w-24 rounded-md border border-input bg-background px-2 text-sm"
+          />
+          <span className="text-muted-foreground">per bottle ×</span>
+          <span className="font-semibold">{count.toLocaleString('en')}</span>
+          <span className="inline-flex rounded-full border border-border p-0.5 text-xs font-bold" role="group" aria-label="Bottle count">
+            {(['DELIVERED', 'NET'] as const).map((b) => (
+              <button
+                key={b}
+                type="button"
+                onClick={() => update({ basis: b })}
+                aria-pressed={state.basis === b}
+                className={cn('rounded-full px-2.5 py-1 transition-colors', state.basis === b ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}
+              >
+                {b === 'DELIVERED' ? 'Delivered' : 'Net'}
+              </button>
+            ))}
+          </span>
+        </div>
+      </TableCell>
+      <TableCell className={cn('text-right font-semibold whitespace-nowrap align-top', counted ? 'text-foreground' : 'text-muted-foreground opacity-50')} colSpan={2}>
+        {total > 0 ? rs(total) : '—'}
+      </TableCell>
+    </TableRow>
+  );
+}
 
 function CashViewHint({ data }: { data: ProfitLossData }) {
   const count = data.adjustments.filter((a) => a.amount > 0).length;
@@ -138,11 +288,21 @@ function ExpenseTable({
   summary: ProfitLossSummary;
   onOpen: (key: string) => void;
   /** Present only in the Actual-cost view: the adjustment checkboxes live inside this table. */
-  actual?: { data: ProfitLossData; off: string[]; onToggle: (key: string) => void; onReset: () => void };
+  actual?: {
+    data: ProfitLossData;
+    on: string[];
+    onToggle: (key: string) => void;
+    onReset: () => void;
+    whatIf: { state: WhatIfState; update: (patch: Partial<WhatIfState>) => void };
+  };
 }) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const adjustments = actual ? actual.data.adjustments.filter((a) => a.amount > 0) : [];
-  const hostKeys = new Set(adjustments.map((a) => ADJUSTMENT_HOST_KEY[a.group]));
+  // Plant and caps always carry the what-if row in the Actual view, so their domain opens by default too.
+  const hostKeys = new Set<string>([
+    ...adjustments.map((a) => ADJUSTMENT_HOST_KEY[a.group]),
+    ...(actual ? [ADJUSTMENT_HOST_KEY.PLANT, ADJUSTMENT_HOST_KEY.CAPS] : []),
+  ]);
   const visible = domains.filter((d) => d.amount > 0 || d.categories.length > 0);
   // In the Actual view, domains that carry an adjustment open by default so the checkboxes are in sight.
   const isDomainOpen = (d: ProfitLossDomain) => open[d.domain] ?? d.categories.some((c) => hostKeys.has(c.key));
@@ -153,7 +313,7 @@ function ExpenseTable({
         <CardTitle className="text-base font-bold">Expenses by Domain</CardTitle>
         <p className="text-xs text-muted-foreground">
           {actual
-            ? 'Actual cost: tick or untick the highlighted rows to move a cost into or out of this month.'
+            ? 'Actual cost: ticked rows are counted in Total Expenses, unticked rows are left out.'
             : 'Click a domain to see its categories, and a category to see every entry.'}
         </p>
         {actual && (
@@ -215,7 +375,10 @@ function ExpenseTable({
                       <TableCell className="pl-10">
                         {c.label}
                         <span className="ml-2 text-xs text-muted-foreground">{c.count} {c.count === 1 ? 'entry' : 'entries'}</span>
-                        {!!c.adjustment && (
+                        {c.simulated && (
+                          <span className="ml-2 text-xs font-semibold text-sky-600 dark:text-sky-400">simulated</span>
+                        )}
+                        {!c.simulated && !!c.adjustment && (
                           <span className="ml-2 text-xs font-semibold text-amber-600 dark:text-amber-400">
                             {c.adjustment > 0 ? '+' : '−'}{rs(Math.abs(c.adjustment))} adjusted
                           </span>
@@ -226,7 +389,10 @@ function ExpenseTable({
                       <TableCell className="text-right">{c.percent}%</TableCell>
                     </TableRow>
                     {actual && adjustments.filter((a) => ADJUSTMENT_HOST_KEY[a.group] === c.key).map((a) => {
-                      const checked = !actual.off.includes(a.key);
+                      // Checked = this amount is counted in Total Expenses. By default nothing is adjusted (= the cash view):
+                      // paid rows are in, unpaid rows are out. "on" holds the adjustments the owner applied.
+                      const applied = actual.on.includes(a.key);
+                      const checked = a.kind === 'ADD_PENDING' ? applied : !applied;
                       return (
                         <TableRow key={a.key} className="bg-amber-500/5 hover:bg-amber-500/10">
                           <TableCell className="pl-14" colSpan={2}>
@@ -235,20 +401,44 @@ function ExpenseTable({
                                 type="checkbox"
                                 className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
                                 checked={checked}
+                                disabled={a.superseded}
                                 onChange={() => actual.onToggle(a.key)}
                               />
-                              <span className="min-w-0">
+                              <span className={cn('min-w-0', a.superseded && 'opacity-50')}>
                                 <span className="block text-sm font-medium">{a.label}</span>
                                 <span className="block text-xs text-muted-foreground">{a.hint}</span>
+                                {a.superseded && (
+                                  <span className="block text-xs font-semibold text-sky-600 dark:text-sky-400">Set aside — the what-if rate below is replacing this cost.</span>
+                                )}
+                                {a.note && <span className="mt-1 block text-xs text-amber-600 dark:text-amber-400">{a.note}</span>}
+                                {!!a.details?.length && (
+                                  <span className="mt-1 block space-y-0.5">
+                                    {a.details.map((dl) => (
+                                      <span key={dl.label} className="flex justify-between gap-6 text-xs text-muted-foreground">
+                                        <span>{dl.label}</span>
+                                        <span className="whitespace-nowrap">{rs(dl.amount)}</span>
+                                      </span>
+                                    ))}
+                                  </span>
+                                )}
                               </span>
                             </label>
                           </TableCell>
-                          <TableCell className={cn('text-right font-semibold whitespace-nowrap', a.delta > 0 ? 'text-destructive' : 'text-emerald-600 dark:text-emerald-400', !checked && 'opacity-40 line-through')} colSpan={2}>
-                            {a.delta > 0 ? '+' : '−'}{rs(a.amount)}
+                          <TableCell className={cn('text-right font-semibold whitespace-nowrap align-top', checked && !a.superseded ? 'text-foreground' : 'text-muted-foreground opacity-50 line-through')} colSpan={2}>
+                            {rs(a.amount)}
                           </TableCell>
                         </TableRow>
                       );
                     })}
+                    {actual && (c.key === ADJUSTMENT_HOST_KEY.PLANT || c.key === ADJUSTMENT_HOST_KEY.CAPS) && (
+                      <WhatIfRow
+                        kind={c.key === ADJUSTMENT_HOST_KEY.PLANT ? 'PLANT' : 'CAPS'}
+                        state={actual.whatIf.state}
+                        update={actual.whatIf.update}
+                        delivered={actual.data.summary.bottlesDelivered}
+                        net={actual.data.summary.bottlesSold}
+                      />
+                    )}
                     </Fragment>
                   ))}
                 </Fragment>
@@ -466,16 +656,33 @@ export function ProfitLossTab() {
     setMonthParam(value === thisMonth ? null : value);
   };
   const view = usePlView();
-  // Every adjustment is on unless the owner unticked it; the server ignores keys with nothing to adjust.
+  const whatIf = useWhatIf(month);
+  // Rates are debounced while typing; the month rides along so a stale month's rates are never sent to another month.
+  const whatIfValue = useDebounced(
+    {
+      month: whatIf.loadedMonth,
+      plantRate: whatIf.state.plantOn ? parseRate(whatIf.state.plantRate) : 0,
+      capsRate: whatIf.state.capsOn ? parseRate(whatIf.state.capsRate) : 0,
+      basis: whatIf.state.basis,
+    },
+    400,
+    whatIf.loadedMonth ?? '',
+  );
+  const whatIfReady = whatIf.loadedMonth === month && whatIfValue.month === month;
+  const whatIfParams: ProfitLossWhatIfParams | undefined =
+    view.basis === 'ACTUAL' && whatIfReady && (whatIfValue.plantRate > 0 || whatIfValue.capsRate > 0)
+      ? { plantRate: whatIfValue.plantRate || undefined, capsRate: whatIfValue.capsRate || undefined, basis: whatIfValue.basis }
+      : undefined;
+  // An adjustment applies only once the owner ticks/unticks its row; the server ignores keys with nothing to adjust.
   const adjustKeys = useMemo(
-    () => (view.basis === 'ACTUAL' ? PROFIT_LOSS_ADJUSTMENT_KEYS.filter((k) => !view.off.includes(k)) : []),
-    [view.basis, view.off],
+    () => (view.basis === 'ACTUAL' ? PROFIT_LOSS_ADJUSTMENT_KEYS.filter((k) => view.on.includes(k)) : []),
+    [view.basis, view.on],
   );
   const [detailCategory, setDetailCategory] = useState<string | null>(null);
   const [paymentsKind, setPaymentsKind] = useState<string | null>(null);
   const [addExpenseOpen, setAddExpenseOpen] = useState(false);
   const queryClient = useQueryClient();
-  const { data, isLoading, isError } = useProfitLoss(month, view.basis, adjustKeys, view.hydrated);
+  const { data, isLoading, isError } = useProfitLoss(month, view.basis, adjustKeys, view.hydrated && whatIfReady, whatIfParams);
 
   // The wizard's mutations don't touch the analytics cache, so refresh the P&L when it closes
   // (a no-op refetch if nothing was recorded).
@@ -588,7 +795,7 @@ export function ProfitLossTab() {
             domains={data.domains}
             summary={data.summary}
             onOpen={setDetailCategory}
-            actual={view.basis === 'ACTUAL' ? { data, off: view.off, onToggle: view.toggleKey, onReset: view.reset } : undefined}
+            actual={view.basis === 'ACTUAL' ? { data, on: view.on, onToggle: view.toggleKey, onReset: view.reset, whatIf: { state: whatIf.state, update: whatIf.update } } : undefined}
           />
 
           <Card className="bg-card/40 backdrop-blur-xl border-white/10 rounded-[2rem]">

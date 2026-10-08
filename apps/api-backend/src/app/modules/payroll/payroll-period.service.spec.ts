@@ -189,6 +189,31 @@ describe('PayrollPeriodService', () => {
       expect(result.lockedEntryCount).toBe(2);
     });
 
+    it('freezes the max-deduction ceiling bookkeeping (deferredIn / deferredOut) into the entry AND the snapshot', async () => {
+      const { svc, tx } = makeService({}, async () => ({
+        buckets: { ...emptyBuckets },
+        ledgerEntryIds: ['le-1'],
+        carryForwardIn: 0,
+        deferredIn: 100,
+        deferredOut: 250,
+        finalPayable: 30000,
+      }));
+
+      await svc.lockPeriod(adminUser, PERIOD_ID);
+
+      expect(tx.payrollEntry.update).toHaveBeenCalledWith({
+        where: { id: 'entry-1', vendorId: VENDOR_ID },
+        data: expect.objectContaining({ deferredIn: 100, deferredOut: 250, status: PayrollEntryStatus.LOCKED }),
+      });
+      expect(tx.payrollSnapshot.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            breakdownJson: expect.objectContaining({ deferredIn: 100, deferredOut: 250 }),
+          }),
+        }),
+      );
+    });
+
     describe('ordering guard — an earlier OPEN/REVIEW period must be locked first', () => {
       const octPeriod = {
         ...basePeriod,

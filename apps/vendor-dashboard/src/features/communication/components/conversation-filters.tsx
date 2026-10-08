@@ -19,7 +19,7 @@ import {
 } from '@water-supply-crm/ui';
 import { SearchInput } from '../../../components/shared/filters/search-input';
 import { VanFilter } from '../../../components/shared/filters/van-filter';
-import { DriverFilter } from '../../../components/shared/filters/driver-filter';
+import { SalesmanFilter } from '../../../components/shared/filters/salesman-filter';
 import { DateRangePicker } from '../../../components/shared/date-range-picker';
 
 const STATUS_OPTIONS = [
@@ -66,7 +66,7 @@ export function ConversationFilters({
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="flex flex-col gap-2.5 p-3 border-b border-border/40">
+    <div className="flex flex-col gap-2.5 p-2 sm:p-3 border-b border-border/40 shrink-0">
       <div className="flex items-center gap-2">
         <div className="flex-1 min-w-0">
           <SearchInput fluid placeholder="Search customer name or code…" onBeforeChange={onBeforeChange} />
@@ -139,8 +139,8 @@ export function ConversationFilters({
 
             {!isDriver && (
               <div className="space-y-2">
-                <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Driver</Label>
-                <DriverFilter onBeforeChange={onBeforeChange} />
+                <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Salesman</Label>
+                <SalesmanFilter onBeforeChange={onBeforeChange} />
               </div>
             )}
 

@@ -25,7 +25,7 @@ export interface DamageCase {
   reviewedAt?: string | null;
   reviewedBy?: { id: string; name: string } | null;
   /** The field user who REPORTED the case (shown as "Salesman" in the UI). */
-  driver?: {
+  salesman?: {
     id: string;
     name: string;
     role?: string;
@@ -74,7 +74,7 @@ export interface DamageCaseQuery {
   search?: string;
   caseType?: DamageCaseType;
   /** Reporter (salesman) id. */
-  driverId?: string;
+  salesmanId?: string;
 }
 
 export interface DamageCaseSummary {

@@ -19,6 +19,11 @@ import { roundToNearestRupee } from '../../common/helpers/payroll-rounding.util'
 import { PermissionService } from '../authz/permission.service';
 import { StaffAdvancePlanService } from './staff-advance-plan.service';
 import { computeCycleForCutoff } from './payroll-cycle.util';
+import { applyDeductionCeiling } from './payroll-deduction-ceiling.util';
+import { attributedWithin, buildLedgerWindowFilter, PENDING_ABSENCE_WHERE, type CashWindow } from './payroll-attribution.util';
+
+/** The vendor's `PayrollVendorConfig` row, or null when the vendor has never saved one (every default applies). */
+type VendorConfigRow = Prisma.PayrollVendorConfigGetPayload<object> | null;
 
 function versionMismatch(expected: number, received: number): ConflictException {
   return new ConflictException(`Version mismatch: expected ${expected}, received ${received}. Reload and retry.`);
@@ -256,7 +261,7 @@ export class PayrollEntryService {
         }
 
         const baseSalary = this.resolvePeriodBase(structures[0], attendanceByUser.get(employee.id));
-        const { buckets, carryForwardIn, finalPayable } = await this.computeEntryBreakdown(
+        const { buckets, carryForwardIn, deferredIn, deferredOut, finalPayable } = await this.computeEntryBreakdown(
           tx,
           user.vendorId,
           employee.id,
@@ -271,7 +276,7 @@ export class PayrollEntryService {
           };
           const updated = await tx.payrollEntry.update({
             where: { id: existingEntry.id },
-            data: { baseSalary, ...buckets, carryForwardIn, finalPayable, version: { increment: 1 } },
+            data: { baseSalary, ...buckets, carryForwardIn, deferredIn, deferredOut, finalPayable, version: { increment: 1 } },
           });
           await tx.payrollEntryAuditLog.create({
             data: {
@@ -293,6 +298,8 @@ export class PayrollEntryService {
               baseSalary,
               ...buckets,
               carryForwardIn,
+              deferredIn,
+              deferredOut,
               finalPayable,
               status: PayrollEntryStatus.DRAFT,
             },
@@ -319,14 +326,43 @@ export class PayrollEntryService {
     return { periodId, generated, regenerated, skippedMissingSalaryStructure, skippedDataError, skippedAlreadyReviewed };
   }
 
-  /** Atomic CAS: DRAFT -> APPROVED. */
-  async approveEntry(user: AuthUser, entryId: string, version: number) {
+  /**
+   * Atomic CAS: DRAFT -> APPROVED.
+   *
+   * A MONTHLY employee whose period still has ABSENT / HALF_DAY days nobody has
+   * decided on (neither deducted nor explicitly waived/paid) would otherwise be
+   * approved at full salary by default — that silent "paid" is exactly what
+   * confuses employees. So approval is refused with code
+   * `PENDING_ABSENCE_DECISIONS` unless the caller passes
+   * `acknowledgePendingAbsences` (the UI shows a confirm dialog first and
+   * re-sends). This is a soft gate: it never blocks, it only forces a decision
+   * to be made or knowingly skipped.
+   */
+  async approveEntry(user: AuthUser, entryId: string, version: number, acknowledgePendingAbsences = false) {
     return this.prisma.$transaction(async (tx) => {
-      const entry = await tx.payrollEntry.findFirst({ where: { id: entryId, vendorId: user.vendorId } });
+      const entry = await tx.payrollEntry.findFirst({
+        where: { id: entryId, vendorId: user.vendorId },
+        include: { period: true },
+      });
       if (!entry) throw new NotFoundException('Payroll entry not found.');
 
       if (entry.status !== PayrollEntryStatus.DRAFT) {
         throw new BadRequestException(`Only DRAFT entries can be approved (current status: ${entry.status}).`);
+      }
+
+      if (!acknowledgePendingAbsences) {
+        const pending = (await this.countPendingAbsenceDays(tx, user.vendorId, [entry.userId], entry.period)).get(entry.userId) ?? 0;
+        if (pending > 0) {
+          throw new BadRequestException({
+            statusCode: 400,
+            error: 'Bad Request',
+            code: 'PENDING_ABSENCE_DECISIONS',
+            pendingAbsenceDays: pending,
+            message:
+              `${pending} absent/half-day day${pending === 1 ? ' has' : 's have'} no paid/unpaid decision yet — ` +
+              'approving now pays them in full. Decide them first, or approve with acknowledgement.',
+          });
+        }
       }
 
       const claim = await tx.payrollEntry.updateMany({
@@ -360,6 +396,56 @@ export class PayrollEntryService {
   }
 
   /**
+   * Keeps ONE employee's DRAFT entry in step with a decision that just changed what it should total (an
+   * absence marked unpaid/paid/reset, a deduction deferred to next month) - inside the caller's transaction, so
+   * the decision and the refreshed numbers commit or roll back together. The admin therefore never has to
+   * hunt for "Generate Draft", and approval can never be given on a number the decision has already outdated.
+   *
+   * Strictly a no-op for anything other than a DRAFT: an APPROVED / LOCKED entry is never touched here (an
+   * approved one is refreshed by the explicit Recalculate action, a locked one is frozen). Recomputes only
+   * the ledger-derived part from the entry's stored \`baseSalary\` - the same math \`recalculateEntry\` runs -
+   * and writes the same REGENERATED audit row \`generateDraft\` would. Returns whether a draft was refreshed.
+   */
+  async refreshDraftEntryTx(
+    tx: Prisma.TransactionClient,
+    actor: AuthUser,
+    userId: string,
+    period: PayrollPeriod,
+  ): Promise<boolean> {
+    const entry = await tx.payrollEntry.findUnique({
+      where: { periodId_userId: { periodId: period.id, userId } },
+    });
+    if (!entry || entry.vendorId !== actor.vendorId || entry.status !== PayrollEntryStatus.DRAFT) return false;
+
+    const { buckets, carryForwardIn, deferredIn, deferredOut, finalPayable } = await this.computeEntryBreakdown(
+      tx,
+      actor.vendorId,
+      userId,
+      period,
+      entry.baseSalary,
+    );
+    const claim = await tx.payrollEntry.updateMany({
+      where: { id: entry.id, vendorId: actor.vendorId, status: PayrollEntryStatus.DRAFT, version: entry.version },
+      data: { ...buckets, carryForwardIn, deferredIn, deferredOut, finalPayable, version: { increment: 1 } },
+    });
+    if (claim.count === 0) {
+      throw new ConflictException('This payroll entry was changed by someone else. Reload and retry.');
+    }
+
+    await tx.payrollEntryAuditLog.create({
+      data: {
+        payrollEntryId: entry.id,
+        actorId: actor.userId,
+        actorRole: actor.role,
+        action: PayrollAuditAction.REGENERATED,
+        beforeJson: { finalPayable: entry.finalPayable },
+        afterJson: { finalPayable },
+      },
+    });
+    return true;
+  }
+
+  /**
    * Refreshes an already-APPROVED/UNDER_REVIEW entry's stored buckets, carry-
    * forward and finalPayable from the live ledger — the same math
    * `computeEntryBreakdown` runs at lock time — WITHOUT locking the period or
@@ -387,7 +473,7 @@ export class PayrollEntryService {
       }
 
       const before = { finalPayable: entry.finalPayable };
-      const { buckets, carryForwardIn, finalPayable } = await this.computeEntryBreakdown(
+      const { buckets, carryForwardIn, deferredIn, deferredOut, finalPayable } = await this.computeEntryBreakdown(
         tx,
         user.vendorId,
         entry.userId,
@@ -397,7 +483,7 @@ export class PayrollEntryService {
 
       const claim = await tx.payrollEntry.updateMany({
         where: { id: entryId, vendorId: user.vendorId, version },
-        data: { ...buckets, carryForwardIn, finalPayable, version: { increment: 1 } },
+        data: { ...buckets, carryForwardIn, deferredIn, deferredOut, finalPayable, version: { increment: 1 } },
       });
       if (claim.count === 0) {
         throw versionMismatch(entry.version, version);
@@ -435,14 +521,15 @@ export class PayrollEntryService {
 
     await assertCanViewEmployeePayroll(this.permissions, user, entry.userId);
 
-    const cashWindow = await this.resolveCashWindow(this.prisma, user.vendorId, entry.period);
+    const config = await this.prisma.payrollVendorConfig.findUnique({ where: { vendorId: user.vendorId } });
+    const cashWindow = this.cashWindowFromConfig(config, entry.period);
 
     const ledgerEntries = await this.prisma.staffLedgerEntry.findMany({
       where: {
         vendorId: user.vendorId,
         userId: entry.userId,
         status: LedgerEntryStatus.POSTED,
-        ...this.ledgerWindowFilter(entry.period, cashWindow),
+        ...buildLedgerWindowFilter(entry.period, cashWindow),
       },
       orderBy: { effectiveDate: 'asc' },
       // Only ids — used to tell "typed by hand" entries from ones another feature
@@ -501,16 +588,7 @@ export class PayrollEntryService {
       });
     }
 
-    const attendance = await this.summarizeAttendance(entry.userId, entry.period);
-    const structure = await this.prisma.salaryStructure.findFirst({
-      where: {
-        vendorId: user.vendorId,
-        userId: entry.userId,
-        voidedAt: null,
-        effectiveFrom: { lte: entry.period.endDate },
-        OR: [{ effectiveTo: null }, { effectiveTo: { gte: entry.period.endDate } }],
-      },
-    });
+    const { structure, attendance } = await this.attendanceSummaryFor(user.vendorId, entry.userId, entry.period);
     const suggestedMonthlyDailyRate =
       structure?.payFrequency === PayFrequency.MONTHLY
         ? this.suggestedMonthlyDailyRate(structure.baseAmount, entry.period)
@@ -518,6 +596,72 @@ export class PayrollEntryService {
     const advancePlans = await this.advancePlans.listForEmployeePeriod(user.vendorId, entry.userId, entry.periodId);
 
     return { entry, ledgerEntriesByBucket: byBucket, attendance, suggestedMonthlyDailyRate, advancePlans, cashWindow };
+  }
+
+  /**
+   * The employee's active salary structure + attendance summary for a period — shared by
+   * `getBreakdown` and the salary-slip builder so both read absences the same way.
+   * A paid/unpaid decision only exists for a MONTHLY employee: a DAILY/WEEKLY base is already derived from
+   * attended days, so an absence there is unpaid by construction (see countPendingAbsenceDays).
+   */
+  async attendanceSummaryFor(vendorId: string, userId: string, period: PayrollPeriod) {
+    const structure = await this.prisma.salaryStructure.findFirst({
+      where: {
+        vendorId,
+        userId,
+        voidedAt: null,
+        effectiveFrom: { lte: period.endDate },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: period.endDate } }],
+      },
+    });
+    const attendance = await this.summarizeAttendance(userId, period, structure?.payFrequency === PayFrequency.MONTHLY);
+    return { structure, attendance };
+  }
+
+  /**
+   * Per-employee count of ABSENT / HALF_DAY days in the period that are still
+   * undecided (see PENDING_ABSENCE_WHERE). Only MONTHLY employees are counted:
+   * a DAILY/WEEKLY employee's base is already derived from attended days, so an
+   * absence is unpaid by construction there and deducting it again would charge
+   * it twice. Two batched queries for any number of employees.
+   */
+  async countPendingAbsenceDays(
+    client: Prisma.TransactionClient | PrismaService,
+    vendorId: string,
+    userIds: string[],
+    period: PayrollPeriod,
+  ): Promise<Map<string, number>> {
+    const result = new Map<string, number>();
+    if (userIds.length === 0) return result;
+
+    const [structures, grouped] = await Promise.all([
+      client.salaryStructure.findMany({
+        where: {
+          vendorId,
+          userId: { in: userIds },
+          voidedAt: null,
+          effectiveFrom: { lte: period.endDate },
+          OR: [{ effectiveTo: null }, { effectiveTo: { gte: period.endDate } }],
+        },
+        select: { userId: true, payFrequency: true },
+      }),
+      client.staffAttendance.groupBy({
+        by: ['userId'],
+        where: {
+          vendorId,
+          userId: { in: userIds },
+          date: { gte: period.startDate, lte: period.endDate },
+          ...PENDING_ABSENCE_WHERE,
+        },
+        _count: { _all: true },
+      }),
+    ]);
+
+    const monthly = new Set(structures.filter((st) => st.payFrequency === PayFrequency.MONTHLY).map((st) => st.userId));
+    for (const row of grouped) {
+      if (monthly.has(row.userId)) result.set(row.userId, row._count._all);
+    }
+    return result;
   }
 
   /**
@@ -529,11 +673,14 @@ export class PayrollEntryService {
    * (`unmarkedDays`) since those are exactly the ones an admin may still want
    * to act on from that screen.
    */
-  private async summarizeAttendance(userId: string, period: PayrollPeriod) {
+  private async summarizeAttendance(userId: string, period: PayrollPeriod, decisionsApply: boolean) {
     const rows = await this.prisma.staffAttendance.findMany({
       where: { userId, date: { gte: period.startDate, lte: period.endDate } },
       orderBy: { date: 'asc' },
-      include: { category: { select: { id: true, name: true } } },
+      include: {
+        category: { select: { id: true, name: true } },
+        leaveLedgerEntry: { select: { status: true, amount: true, payrollAttributionDate: true } },
+      },
     });
 
     const counts = { presentDays: 0, absentDays: 0, halfDays: 0, leaveDays: 0, weeklyOffDays: 0 };
@@ -560,18 +707,41 @@ export class PayrollEntryService {
     const periodDayCount = this.periodDayCount(period);
     const unmarkedDays = Math.max(0, periodDayCount - rows.length);
 
+    // Decision per unpaid-status day: DEDUCTED (a live, non-VOIDED leave entry exists), WAIVED (admin said
+    // paid), or PENDING (nobody has decided). Null for every other status — there is nothing to decide.
+    const decisionOf = (row: (typeof rows)[number]): 'DEDUCTED' | 'WAIVED' | 'PENDING' | null => {
+      if (row.status !== AttendanceStatus.ABSENT && row.status !== AttendanceStatus.HALF_DAY) return null;
+      if (row.leaveLedgerEntry && row.leaveLedgerEntry.status !== LedgerEntryStatus.VOIDED) return 'DEDUCTED';
+      if (!decisionsApply) return null;
+      if (row.deductionWaivedAt) return 'WAIVED';
+      return 'PENDING';
+    };
+    const days = rows.map((row) => ({
+      date: row.date,
+      status: row.status,
+      note: row.note,
+      categoryId: row.categoryId,
+      categoryName: row.category?.name ?? null,
+      decision: decisionOf(row),
+      // Kept for backward compatibility with older clients: true only for a LIVE deduction.
+      hasDeduction: decisionOf(row) === 'DEDUCTED',
+      waivedReason: row.deductionWaivedAt ? (row.deductionWaivedReason ?? null) : null,
+      // Rupees deducted for this day (LIVE leave entry only; stored negative, exposed positive).
+      deductedAmount: decisionOf(row) === 'DEDUCTED' && row.leaveLedgerEntry ? Math.abs(row.leaveLedgerEntry.amount) : 0,
+      // "Deduct next month": the live leave entry is attributed past this period, so THIS period's total excludes it.
+      deductionDeferred:
+        decisionOf(row) === 'DEDUCTED' &&
+        !!row.leaveLedgerEntry?.payrollAttributionDate &&
+        row.leaveLedgerEntry.payrollAttributionDate > period.endDate,
+    }));
+
     return {
       ...counts,
       periodDayCount,
       unmarkedDays,
-      days: rows.map((row) => ({
-        date: row.date,
-        status: row.status,
-        note: row.note,
-        categoryId: row.categoryId,
-        categoryName: row.category?.name ?? null,
-        hasDeduction: row.leaveLedgerEntryId != null,
-      })),
+      decisionsApply,
+      pendingDecisionDays: days.filter((d) => d.decision === 'PENDING').length,
+      days,
     };
   }
 
@@ -639,7 +809,7 @@ export class PayrollEntryService {
       Math.floor((elapsedEnd.getTime() - period.startDate.getTime()) / 86_400_000) + 1,
     );
 
-    const [attendanceCounts, pendingInstallments, latestLedgerActivity, settledAmounts] = await Promise.all([
+    const [attendanceCounts, pendingInstallments, latestLedgerActivity, settledAmounts, pendingAbsenceByUser] = await Promise.all([
       this.prisma.staffAttendance.groupBy({
         by: ['userId'],
         where: { userId: { in: userIds }, date: { gte: period.startDate, lte: period.endDate } },
@@ -662,7 +832,7 @@ export class PayrollEntryService {
           userId: { in: userIds },
           status: LedgerEntryStatus.POSTED,
           category: { not: StaffLedgerCategory.ADVANCE_DISBURSEMENT },
-          effectiveDate: { gte: period.startDate, lte: period.endDate },
+          ...attributedWithin({ gte: period.startDate, lte: period.endDate }),
         },
         _max: { createdAt: true },
       }),
@@ -671,6 +841,7 @@ export class PayrollEntryService {
         where: { payrollEntryId: { in: entryIds } },
         _sum: { amount: true },
       }),
+      this.countPendingAbsenceDays(this.prisma, user.vendorId, userIds, period),
     ]);
 
     const markedDaysByUser = new Map(attendanceCounts.map((r) => [r.userId, r._count._all]));
@@ -686,6 +857,7 @@ export class PayrollEntryService {
         hasPendingInstallment: pendingInstallmentUserIds.has(entry.userId),
         settledAmount: settledAmountByEntry.get(entry.id) ?? 0,
         hasUnreflectedChanges: !!latestActivity && latestActivity > entry.updatedAt,
+        pendingAbsenceDays: pendingAbsenceByUser.get(entry.userId) ?? 0,
       };
     });
   }
@@ -707,21 +879,39 @@ export class PayrollEntryService {
     userId: string,
     period: PayrollPeriod,
     baseSalary: number,
-  ): Promise<{ buckets: BucketTotals; ledgerEntryIds: string[]; carryForwardIn: number; finalPayable: number }> {
-    const { buckets, ledgerEntryIds } = await this.computeLedgerContribution(tx, vendorId, userId, period);
-    const carryForwardIn = await this.computeCarryForwardIn(tx, vendorId, userId, period);
+  ): Promise<{
+    buckets: BucketTotals;
+    ledgerEntryIds: string[];
+    carryForwardIn: number;
+    deferredIn: number;
+    deferredOut: number;
+    finalPayable: number;
+  }> {
+    // One vendor-wide config row, read ONCE per transaction (generate-draft / lock run this per employee).
+    const config = await this.vendorConfigForTx(tx, vendorId);
+    const { buckets, ledgerEntryIds } = await this.computeLedgerContribution(tx, vendorId, userId, period, config);
+    const { carryForwardIn, deferredIn } = await this.computeCarryForwardIn(tx, vendorId, userId, period);
+
+    // Optional max-deduction ceiling (PayrollVendorConfig.maxDeductionPercent, off by default). With it off
+    // and no deferredIn this reduces to exactly `base + every bucket + carry` — see applyDeductionCeiling.
+    const { allowedDeduction, deferredOut, netCredit } = applyDeductionCeiling({
+      baseSalary,
+      deductionNet: buckets.advances + buckets.penalties + buckets.otherDeductions,
+      deferredIn,
+      maxDeductionPercent: config?.maxDeductionPercent,
+    });
+
     const finalPayable =
       baseSalary +
       buckets.bonuses +
       buckets.overtime +
       buckets.incentives +
-      buckets.advances +
       buckets.expenses +
-      buckets.penalties +
-      buckets.otherDeductions +
-      carryForwardIn;
+      netCredit +
+      carryForwardIn -
+      allowedDeduction;
 
-    return { buckets, ledgerEntryIds, carryForwardIn, finalPayable };
+    return { buckets, ledgerEntryIds, carryForwardIn, deferredIn, deferredOut, finalPayable };
   }
 
   /**
@@ -738,8 +928,9 @@ export class PayrollEntryService {
     vendorId: string,
     userId: string,
     period: PayrollPeriod,
+    config: VendorConfigRow,
   ): Promise<{ buckets: BucketTotals; ledgerEntryIds: string[] }> {
-    const cashWindow = await this.resolveCashWindow(tx, vendorId, period);
+    const cashWindow = this.cashWindowFromConfig(config, period);
 
     const ledgerEntries = await tx.staffLedgerEntry.findMany({
       where: {
@@ -751,7 +942,7 @@ export class PayrollEntryService {
         // PayrollEntry bucket (see bucketKeyForCategory); only its
         // ADVANCE_RECOVERY installments do, each in the window it's collected.
         category: { not: StaffLedgerCategory.ADVANCE_DISBURSEMENT },
-        ...this.ledgerWindowFilter(period, cashWindow),
+        ...buildLedgerWindowFilter(period, cashWindow),
       },
       select: { id: true, category: true, amount: true },
     });
@@ -779,12 +970,7 @@ export class PayrollEntryService {
    * `getBreakdown` — a read-only, non-transactional call — needs the same
    * resolution outside of `generateDraft`/`lockPeriod`'s transaction.
    */
-  private async resolveCashWindow(
-    prismaOrTx: Prisma.TransactionClient | PrismaService,
-    vendorId: string,
-    period: PayrollPeriod,
-  ): Promise<{ startDate: Date; endDate: Date; categories: StaffLedgerCategory[] } | null> {
-    const config = await prismaOrTx.payrollVendorConfig.findUnique({ where: { vendorId } });
+  private cashWindowFromConfig(config: VendorConfigRow, period: PayrollPeriod): CashWindow | null {
     if (!config?.cashCutoffDay || config.cashWindowCategories.length === 0) return null;
 
     const { startDate, endDate } = computeCycleForCutoff(config.cashCutoffDay, period.endDate);
@@ -792,26 +978,25 @@ export class PayrollEntryService {
   }
 
   /**
-   * The `effectiveDate` (+ category split, when a cash window is active)
-   * clause shared by `computeLedgerContribution` and `getBreakdown` — the
-   * ONE place either query decides which window a category's rows come
-   * from, so the numbers actually summed and the rows displayed as "why"
-   * can never disagree. `cashWindow == null` (the default for every vendor
-   * that hasn't opted in) reduces to the original single-window filter.
+   * The vendor's config row, memoised per transaction client. `generateDraft` and `lockPeriod` call
+   * `computeEntryBreakdown` once per employee inside ONE transaction; the row cannot change within it, so
+   * one lookup serves all of them. Keyed on the transaction object (fresh per `$transaction`), never on the
+   * long-lived PrismaService, so nothing is ever served stale across requests.
    */
-  private ledgerWindowFilter(
-    period: PayrollPeriod,
-    cashWindow: { startDate: Date; endDate: Date; categories: StaffLedgerCategory[] } | null,
-  ): Prisma.StaffLedgerEntryWhereInput {
-    if (!cashWindow) {
-      return { effectiveDate: { gte: period.startDate, lte: period.endDate } };
+  private readonly txVendorConfig = new WeakMap<object, Map<string, Promise<VendorConfigRow>>>();
+
+  private vendorConfigForTx(tx: Prisma.TransactionClient, vendorId: string): Promise<VendorConfigRow> {
+    let byVendor = this.txVendorConfig.get(tx);
+    if (!byVendor) {
+      byVendor = new Map();
+      this.txVendorConfig.set(tx, byVendor);
     }
-    return {
-      OR: [
-        { category: { in: cashWindow.categories }, effectiveDate: { gte: cashWindow.startDate, lte: cashWindow.endDate } },
-        { category: { notIn: cashWindow.categories }, effectiveDate: { gte: period.startDate, lte: period.endDate } },
-      ],
-    };
+    let cached = byVendor.get(vendorId);
+    if (!cached) {
+      cached = tx.payrollVendorConfig.findUnique({ where: { vendorId } });
+      byVendor.set(vendorId, cached);
+    }
+    return cached;
   }
 
   /**
@@ -826,24 +1011,41 @@ export class PayrollEntryService {
     vendorId: string,
     userId: string,
     period: PayrollPeriod,
-  ): Promise<number> {
+  ): Promise<{ carryForwardIn: number; deferredIn: number }> {
+    const none = { carryForwardIn: 0, deferredIn: 0 };
     const previousPeriod = await tx.payrollPeriod.findFirst({
       where: { vendorId, endDate: { lt: period.startDate } },
       orderBy: { endDate: 'desc' },
     });
-    if (!previousPeriod) return 0;
+    if (!previousPeriod) return none; // the vendor's very first period - nothing earlier can exist
 
     const previousEntry = await tx.payrollEntry.findUnique({
       where: { periodId_userId: { periodId: previousPeriod.id, userId } },
     });
-    if (!previousEntry) return 0;
+    if (!previousEntry) {
+      // No entry in the immediately preceding period (e.g. a month the employee had no salary structure and
+      // was skipped). Carry-forward keeps its existing rule (0). But a deduction the max-deduction ceiling held
+      // back is still OWED - nothing has charged it since - so look further back for the latest entry and
+      // pick up its deferredOut rather than letting it silently vanish.
+      const lastEntry = await tx.payrollEntry.findFirst({
+        where: { vendorId, userId, period: { endDate: { lt: period.startDate } } },
+        orderBy: { period: { endDate: 'desc' } },
+        select: { deferredOut: true },
+      });
+      return lastEntry ? { carryForwardIn: 0, deferredIn: lastEntry.deferredOut ?? 0 } : none;
+    }
 
     const settled = await tx.settlement.aggregate({
       where: { payrollEntryId: previousEntry.id },
       _sum: { amount: true },
     });
 
-    return previousEntry.finalPayable - (settled._sum.amount ?? 0);
+    // `deferredOut` is a deduction the previous period did NOT charge (it is already excluded from that
+    // entry's finalPayable, so it is not part of the carry) — it is owed now, as this period's `deferredIn`.
+    return {
+      carryForwardIn: previousEntry.finalPayable - (settled._sum.amount ?? 0),
+      deferredIn: previousEntry.deferredOut ?? 0,
+    };
   }
 
   /**

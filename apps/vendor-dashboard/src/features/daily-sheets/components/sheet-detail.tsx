@@ -353,7 +353,9 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
 
   // Continuously publish driver GPS to the tracking backend while the sheet is open.
   // Enables live map tracking for the vendor without any manual driver action.
-  useLocationPublisher(sheetId, isDriver && !(data?.isClosed ?? true));
+  // Permission-based (not role-based): anyone granted `tracking:report_location` publishes GPS
+  // while a sheet is open — matches the backend's POST /tracking/location guard.
+  useLocationPublisher(sheetId, can('tracking:report_location') && !(data?.isClosed ?? true));
 
   const items = useMemo(() => data?.items ?? [], [data]);
 
@@ -1271,7 +1273,9 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
               dispatch({ type: 'OPEN_RECONCILE' });
             }}
             onCheckin={(tripId) => dispatch({ type: 'OPEN_CHECKIN', tripId })}
-            isDriver={isDriver}
+            // Edit-unlock gating is permission-based: only holders of daily_sheets:manage_edit_locks bypass it.
+
+            isDriver={!canManageEditLocks}
             canManageEditLocks={canManageEditLocks}
             canEditClosedTrip={canEditClosedTrip}
             onEditTrip={(loadId) => dispatch({ type: 'OPEN_EDIT_TRIP', tripId: loadId })}
@@ -1537,7 +1541,14 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         onSaveLocation={async (customerId, lat, lng, address) => {
           await updateCustomerLocation.mutateAsync({ customerId, latitude: lat, longitude: lng, address });
         }}
-        isDriver={isDriver}
+        // Edit-unlock gating is permission-based: only holders of daily_sheets:manage_edit_locks bypass it.
+
+        isDriver={!canManageEditLocks}
+        // Chats/Acknowledge gating stays role-based (mirrors Communication Center's own
+        // isDriver) — must NOT follow the manage_edit_locks permission above, or granting/
+        // revoking that permission silently shows/hides the customer-instruction Acknowledge
+        // button for the wrong people.
+        isDriverRole={isDriver}
         canManageEditLocks={canManageEditLocks}
         canMove={canMoveCustomer}
         canVoidDelivery={canVoidDelivery}
@@ -1703,6 +1714,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         <ServiceRecordFormDialog
           vehicleId={sheetVehicleId}
           defaultDate={data?.date}
+          dailySheetId={sheetId}
           open={maintenanceOpen}
           onOpenChange={setMaintenanceOpen}
         />

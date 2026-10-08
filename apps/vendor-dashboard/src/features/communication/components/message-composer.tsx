@@ -75,7 +75,7 @@ export function MessageComposer({
   }
 
   return (
-    <div className="space-y-2.5 rounded-xl border border-border/40 bg-background/70 p-3">
+    <div className="space-y-2 rounded-xl border border-border/40 bg-background/70 p-2 sm:p-2.5 shrink-0">
       <div className="flex items-center justify-between gap-2">
         <div className="flex gap-1 rounded-lg bg-muted/40 p-1">
           {([
@@ -120,7 +120,8 @@ export function MessageComposer({
           placeholder="Type a message…"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          className="min-h-[70px] rounded-xl resize-none text-sm"
+          rows={2}
+          className="min-h-[44px] max-h-24 rounded-xl resize-none text-sm"
           maxLength={1000}
         />
       ) : (
@@ -130,7 +131,7 @@ export function MessageComposer({
       <div className="flex justify-end">
         <Button
           size="sm"
-          className="rounded-full font-bold gap-1.5"
+          className="rounded-full font-bold gap-1.5 h-8"
           onClick={handleSend}
           disabled={!canSend || isSending}
         >

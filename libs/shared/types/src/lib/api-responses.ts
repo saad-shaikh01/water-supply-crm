@@ -231,7 +231,7 @@ export interface ConversationContext {
   // delivery" rollup, written only when a real message is sent.
   dailySheet: { id: string; date: string; isClosed: boolean } | null;
   van: { id: string; plateNumber: string } | null;
-  driver: { id: string; name: string } | null;
+  salesman: { id: string; name: string } | null;
   item: { id: string; sequence: number; status: DeliveryStatusType; product: { id: string; name: string } } | null;
 }
 
@@ -475,6 +475,8 @@ export interface SheetExpense {
     fuelStation?: string | null;
     vehicle?: { id: string; plateNumber: string };
   } | null;
+  /** Set when this row was spawned by a Vehicle Maintenance record — managed from that record, not the generic dialogs. */
+  vehicleServiceRecord?: { id: string } | null;
 }
 
 export type CrewRole = 'DRIVER' | 'SALESMAN' | 'LOADER';
@@ -738,7 +740,7 @@ export interface VehicleServiceRecordEntry {
   notes: string | null;
   expenseId: string | null;
   /** The linked Expense's payment flag (false = bank/online). */
-  expense?: { paidFromCash: boolean } | null;
+  expense?: { paidFromCash: boolean; dailySheetId?: string | null } | null;
   recordedBy: { id: string; name: string };
   createdAt: string;
 }
@@ -1025,6 +1027,11 @@ export interface StaffLedgerEntry {
   causedCustomerAdjustmentId: string | null;
   /** ADVANCE only: false = paid by bank/online (not an office cash-out). */
   paidFromCash?: boolean;
+  /**
+   * "Deduct next month" - when set, payroll counts this entry in the period containing THIS date instead of
+   * `effectiveDate` (which, and therefore the Cash Ledger, is left untouched). Null = not deferred.
+   */
+  payrollAttributionDate?: string | null;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -1132,6 +1139,13 @@ export interface PayrollEntry {
   penalties: number;
   otherDeductions: number;
   carryForwardIn: number;
+  /**
+   * Max-deduction ceiling bookkeeping (Payroll Settings). `deferredOut` = deduction NOT charged this period
+   * because it exceeded the ceiling; `deferredIn` = the previous period's `deferredOut`, charged now.
+   * Both 0 while the ceiling is off.
+   */
+  deferredIn: number;
+  deferredOut: number;
   finalPayable: number;
   status: PayrollEntryStatus;
   managerNotes: string | null;
@@ -1148,6 +1162,8 @@ export interface PayrollEntry {
    * existence/count checks, not derived amounts.
    */
   unmarkedAttendanceDays?: number;
+  /** Absent / half-day days (MONTHLY employees) with no paid/unpaid decision yet - same table-view read only. */
+  pendingAbsenceDays?: number;
   hasPendingInstallment?: boolean;
   hasUnreflectedChanges?: boolean;
   /** Sum of `Settlement` rows against this entry — present only on the same table-view read as above. */

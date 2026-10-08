@@ -21,7 +21,7 @@ export class DispatchPlanDto {
 
   @IsOptional()
   @IsUUID()
-  driverId?: string;
+  salesmanId?: string;
 
   @IsEnum(DispatchMode)
   dispatchMode: DispatchMode;

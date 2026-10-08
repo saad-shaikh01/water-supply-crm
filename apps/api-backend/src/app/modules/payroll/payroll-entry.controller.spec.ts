@@ -18,8 +18,11 @@ function makeController() {
     approveEntry: jest.fn().mockResolvedValue({ id: 'entry-001' }),
     recalculateEntry: jest.fn().mockResolvedValue({ id: 'entry-001' }),
   };
-  const controller = new PayrollEntryController(service as any);
-  return { controller, service };
+  const exporter = {
+    exportPeriodCsv: jest.fn().mockResolvedValue({ filename: 'payroll-2026-09.csv', body: '﻿a,b\r\n', truncated: false }),
+  };
+  const controller = new PayrollEntryController(service as any, exporter as any);
+  return { controller, service, exporter };
 }
 
 // ─── authorization metadata ────────────────────────────────────────────────────
@@ -30,6 +33,7 @@ describe('PayrollEntryController — authorization metadata', () => {
   const permissionByMethod: Record<string, string> = {
     generateDraft: 'payroll:period_generate',
     listForPeriod: 'payroll:view_all',
+    exportPeriodCsv: 'payroll:view_all',
     approveEntry: 'payroll:entry_approve',
     recalculateEntry: 'payroll:entry_approve',
   };
@@ -72,6 +76,20 @@ describe('PayrollEntryController — pass-through', () => {
     expect(service.listForPeriod).toHaveBeenCalledWith(user, 'period-001');
   });
 
+  it('exportPeriodCsv() forwards user + periodId and writes the CSV headers and body', async () => {
+    const { controller, exporter } = makeController();
+    const res = { set: jest.fn(), end: jest.fn() };
+    await controller.exportPeriodCsv(user, 'period-001', res as any);
+    expect(exporter.exportPeriodCsv).toHaveBeenCalledWith(user, 'period-001');
+    expect(res.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="payroll-2026-09.csv"',
+      }),
+    );
+    expect(res.end).toHaveBeenCalledWith('﻿a,b\r\n');
+  });
+
   it('getBreakdown() forwards user and id param to the service', async () => {
     const { controller, service } = makeController();
     await controller.getBreakdown(user, 'entry-001');
@@ -82,7 +100,15 @@ describe('PayrollEntryController — pass-through', () => {
     const { controller, service } = makeController();
     const dto = { version: 1 };
     await controller.approveEntry(user, 'entry-001', dto);
-    expect(service.approveEntry).toHaveBeenCalledWith(user, 'entry-001', dto.version);
+    expect(service.approveEntry).toHaveBeenCalledWith(user, 'entry-001', dto.version, false);
+  });
+
+  it('approveEntry() forwards the pending-absence acknowledgement only when it is exactly true', async () => {
+    const { controller, service } = makeController();
+    await controller.approveEntry(user, 'entry-001', { version: 1, acknowledgePendingAbsences: true });
+    expect(service.approveEntry).toHaveBeenLastCalledWith(user, 'entry-001', 1, true);
+    await controller.approveEntry(user, 'entry-001', { version: 1, acknowledgePendingAbsences: false });
+    expect(service.approveEntry).toHaveBeenLastCalledWith(user, 'entry-001', 1, false);
   });
 
   it('recalculateEntry() forwards user, id param, and version to the service', async () => {

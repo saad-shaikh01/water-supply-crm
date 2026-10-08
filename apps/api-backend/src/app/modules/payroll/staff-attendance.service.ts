@@ -5,6 +5,7 @@ import {
   AttendanceStatus,
   CrewRole,
   DailySheetKind,
+  LedgerEntryStatus,
   PayrollEntryStatus,
   Prisma,
   StaffLedgerCategory,
@@ -13,9 +14,11 @@ import type { AuthUser } from '@water-supply-crm/types';
 import { assertCanViewEmployeeAttendance } from '../../common/helpers/attendance-view-scope.util';
 import { PermissionService } from '../authz/permission.service';
 import { StaffLedgerService } from './staff-ledger.service';
-import { PAYROLL_ELIGIBLE_ROLES } from './payroll-entry.service';
+import { PAYROLL_ELIGIBLE_ROLES, PayrollEntryService } from './payroll-entry.service';
 import { AttendanceCategoryService } from './attendance-category.service';
 import { CATEGORIZED_ATTENDANCE_STATUSES, MarkAttendanceDto, UNPAID_ATTENDANCE_STATUSES } from './dto/mark-attendance.dto';
+import { AbsenceDecisionAction, ResolveAbsenceDeductionDto } from './dto/resolve-absence-deduction.dto';
+import { roundToNearestRupee } from '../../common/helpers/payroll-rounding.util';
 import { AttendanceSearchQueryDto } from './dto/attendance-search-query.dto';
 
 /** `search()`'s hard ceiling on `dateFrom`..`dateTo` — a reporting filter, not an unbounded history dump. */
@@ -69,7 +72,19 @@ export class StaffAttendanceService {
     private readonly permissions: PermissionService,
     private readonly staffLedger: StaffLedgerService,
     private readonly categories: AttendanceCategoryService,
+    private readonly payrollEntries: PayrollEntryService,
   ) {}
+
+  /** The one LEAVE_UNPAID debit an unpaid absence posts - shared by the single mark and the bulk decision. */
+  private leaveUnpaidDto(userId: string, status: AttendanceStatus, day: Date, amount: number, note?: string) {
+    return {
+      userId,
+      category: StaffLedgerCategory.LEAVE_UNPAID,
+      amount: -Math.abs(amount),
+      effectiveDate: day.toISOString(),
+      description: note ?? `Unpaid ${status === AttendanceStatus.HALF_DAY ? 'half-day' : 'absence'} — ${ymd(day)}`,
+    };
+  }
 
   /**
    * Auto-capture from a crew confirmation. Runs on BOTH the first confirmation
@@ -132,7 +147,8 @@ export class StaffAttendanceService {
 
       if (existing) {
         // Manual decisions and financially-bridged rows are untouchable here.
-        if (existing.source === AttendanceSource.MANUAL || existing.leaveLedgerEntryId !== null) continue;
+        // A waived ("paid") day is the same kind of deliberate human decision as a posted deduction.
+        if (existing.source === AttendanceSource.MANUAL || existing.leaveLedgerEntryId !== null || Boolean(existing.deductionWaivedAt)) continue;
         // Merge-review finding H2: never touch a day already frozen into a
         // LOCKED/SETTLED PayrollEntry for this user — StaffAttendance has no
         // ledger-style `payrollEntryId` claim to protect it the way
@@ -187,6 +203,7 @@ export class StaffAttendanceService {
         dailySheetId: sheet.id,
         source: AttendanceSource.CREW_CONFIRM,
         leaveLedgerEntryId: null,
+        deductionWaivedAt: null,
         userId: { notIn: rosterIds },
       },
       select: { id: true, userId: true, date: true },
@@ -295,9 +312,11 @@ export class StaffAttendanceService {
 
       const existing = await tx.staffAttendance.findUnique({
         where: { userId_date: { userId: dto.userId, date: day } },
+        include: { leaveLedgerEntry: { select: { status: true } } },
       });
 
-      if (existing?.leaveLedgerEntryId) {
+      // A VOIDED leave entry no longer charges anything, so it must not block re-marking the day.
+      if (existing?.leaveLedgerEntryId && existing.leaveLedgerEntry?.status !== LedgerEntryStatus.VOIDED) {
         throw new ConflictException(
           `Attendance for ${ymd(day)} already has a posted unpaid-leave ledger entry (${existing.leaveLedgerEntryId}). ` +
             'Void or correct that entry through the payroll ledger before re-marking this day.',
@@ -306,16 +325,17 @@ export class StaffAttendanceService {
 
       let leaveLedgerEntryId: string | null = null;
       if (hasAmount) {
-        const entry = await this.staffLedger.createTx(tx, user, {
-          userId: dto.userId,
-          category: StaffLedgerCategory.LEAVE_UNPAID,
-          amount: -Math.abs(dto.amount as number),
-          effectiveDate: day.toISOString(),
-          description:
-            dto.note ?? `Unpaid ${dto.status === AttendanceStatus.HALF_DAY ? 'half-day' : 'absence'} — ${ymd(day)}`,
-        });
+        const entry = await this.staffLedger.createTx(
+          tx,
+          user,
+          this.leaveUnpaidDto(dto.userId, dto.status, day, dto.amount as number, dto.note),
+        );
         leaveLedgerEntryId = entry.id;
       }
+
+      // An earlier "paid / waived" call survives a re-mark that changes nothing about the decision (same status,
+      // no deduction posted - e.g. just editing the note). Any other re-mark is a fresh decision point.
+      const keepWaiver = Boolean(existing?.deductionWaivedAt) && existing?.status === dto.status && !hasAmount;
 
       const base = {
         vendorId: user.vendorId,
@@ -327,6 +347,7 @@ export class StaffAttendanceService {
         markedById: user.userId,
         leaveLedgerEntryId,
         categoryId: dto.categoryId ?? null,
+        ...(keepWaiver ? {} : { deductionWaivedAt: null, deductionWaivedById: null, deductionWaivedReason: null }),
       };
 
       return existing
@@ -335,6 +356,188 @@ export class StaffAttendanceService {
             data: { ...base, version: { increment: 1 } },
           })
         : tx.staffAttendance.create({ data: base });
+    });
+  }
+
+  /**
+   * Bulk paid / unpaid decision for one employee's ABSENT / HALF_DAY days
+   * (owner-requested 2026-10-07 — deciding 22 absences one click at a time was
+   * unworkable). One `$transaction`, ALL-OR-NOTHING: if any requested day is not
+   * an Absent/Half-day row, or already frozen into a LOCKED/SETTLED payroll
+   * entry, nothing is written and the error lists every offending day.
+   *
+   *  - UNPAID: posts one LEAVE_UNPAID ledger entry per day via
+   *    `StaffLedgerService.createTx` (so the approval gate + ledger audit apply
+   *    exactly as for the single-day mark) at `dailyRate` — HALF_DAY at half of
+   *    it — and links it on the row. A day that already has a live deduction is
+   *    left untouched (idempotent, counted as `unchanged`); a waived day is
+   *    switched to unpaid.
+   *  - WAIVE: records "paid / no deduction" on the row. A day with a live
+   *    deduction is refused — it must be RESET first, never silently dropped.
+   *  - RESET: undoes a decision — voids a not-yet-locked deduction (the ledger
+   *    audit records who/why) and/or clears a waiver, returning the day to
+   *    "pending decision".
+   */
+  async resolveAbsenceDecisions(user: AuthUser, dto: ResolveAbsenceDeductionDto) {
+    const isUnpaid = dto.action === AbsenceDecisionAction.UNPAID;
+    if (isUnpaid && dto.dailyRate == null) {
+      throw new BadRequestException('`dailyRate` is required to deduct.');
+    }
+    if (!isUnpaid && dto.dailyRate != null) {
+      throw new BadRequestException('`dailyRate` is only accepted when deducting.');
+    }
+
+    const employee = await this.prisma.user.findFirst({
+      where: { id: dto.userId, vendorId: user.vendorId },
+      select: { id: true, role: true },
+    });
+    if (!employee) throw new NotFoundException('Employee not found.');
+    if (!PAYROLL_ELIGIBLE_ROLES.includes(employee.role)) {
+      throw new BadRequestException(
+        `Attendance can only be decided for payroll-eligible staff (${PAYROLL_ELIGIBLE_ROLES.join(', ')}).`,
+      );
+    }
+
+    // Normalise to UTC midnight and de-duplicate (two timestamps on the same calendar day are one day).
+    const dayByTime = new Map<number, Date>();
+    for (const raw of dto.dates) {
+      const day = startOfUtcDay(new Date(raw));
+      // new Date('2026-02-31') silently rolls over to Mar 3 - refuse anything that is not the day it says it is.
+      if (Number.isNaN(day.getTime()) || ymd(day) !== raw.slice(0, 10)) {
+        throw new BadRequestException(`"${raw}" is not a valid calendar day.`);
+      }
+      dayByTime.set(day.getTime(), day);
+    }
+    const days = [...dayByTime.values()].sort((a, b) => a.getTime() - b.getTime());
+
+    return this.prisma.$transaction(async (tx) => {
+      const rows = await tx.staffAttendance.findMany({
+        where: { vendorId: user.vendorId, userId: dto.userId, date: { in: days } },
+        include: { leaveLedgerEntry: { select: { id: true, status: true, version: true } } },
+      });
+      const rowByTime = new Map(rows.map((r) => [r.date.getTime(), r]));
+
+      // Which of the requested days sit in a payroll entry that is already LOCKED / SETTLED - two queries for
+      // the whole batch (not two per day), then checked in memory. Same rule as isDateInLockedPeriod.
+      const covering = await tx.payrollPeriod.findMany({
+        where: { vendorId: user.vendorId, startDate: { lte: days[days.length - 1] }, endDate: { gte: days[0] } },
+      });
+      const lockedEntries = covering.length
+        ? await tx.payrollEntry.findMany({
+            where: {
+              userId: dto.userId,
+              periodId: { in: covering.map((p) => p.id) },
+              status: { in: [PayrollEntryStatus.LOCKED, PayrollEntryStatus.SETTLED] },
+            },
+            select: { periodId: true },
+          })
+        : [];
+      const lockedPeriodIds = new Set(lockedEntries.map((e) => e.periodId));
+      const periodHasDay = (p: { startDate: Date; endDate: Date }, day: Date) => p.startDate <= day && p.endDate >= day;
+      const isLocked = (day: Date) => covering.some((p) => lockedPeriodIds.has(p.id) && periodHasDay(p, day));
+
+      const problems: string[] = [];
+      for (const day of days) {
+        const row = rowByTime.get(day.getTime());
+        if (!row) {
+          problems.push(`${ymd(day)}: no attendance record`);
+        } else if (!UNPAID_ATTENDANCE_STATUSES.includes(row.status)) {
+          problems.push(`${ymd(day)}: is ${row.status}, not Absent / Half Day`);
+        } else if (isLocked(day)) {
+          problems.push(`${ymd(day)}: already locked into a payroll entry`);
+        }
+      }
+      if (problems.length > 0) {
+        throw new BadRequestException(`Nothing was changed — ${problems.join('; ')}.`);
+      }
+
+      let affected = 0;
+      let unchanged = 0;
+      let totalDeducted = 0;
+
+      // Optimistic claim on the row's version: two admins deciding the same day at once must not both win
+      // (the loser would leave a live ledger entry nothing points at). A conflict rolls the whole batch back.
+      const claimRow = async (row: (typeof rows)[number], data: Prisma.StaffAttendanceUncheckedUpdateManyInput) => {
+        const res = await tx.staffAttendance.updateMany({
+          where: { id: row.id, version: row.version },
+          data: { ...data, version: { increment: 1 } },
+        });
+        if (res.count === 0) {
+          throw new ConflictException(`Attendance for ${ymd(row.date)} was changed by someone else. Reload and retry.`);
+        }
+      };
+
+      for (const day of days) {
+        const row = rowByTime.get(day.getTime())!;
+        const liveEntry =
+          row.leaveLedgerEntry && row.leaveLedgerEntry.status !== LedgerEntryStatus.VOIDED ? row.leaveLedgerEntry : null;
+        const waived = row.deductionWaivedAt !== null;
+        const clearWaiver = { deductionWaivedAt: null, deductionWaivedById: null, deductionWaivedReason: null };
+
+        if (dto.action === AbsenceDecisionAction.UNPAID) {
+          if (liveEntry) {
+            unchanged++;
+            continue;
+          }
+          const dailyRate = dto.dailyRate as number;
+          const amount = row.status === AttendanceStatus.HALF_DAY ? roundToNearestRupee(dailyRate / 2) : dailyRate;
+          const entry = await this.staffLedger.createTx(
+            tx,
+            user,
+            this.leaveUnpaidDto(dto.userId, row.status, day, amount, dto.note),
+          );
+          await claimRow(row, { leaveLedgerEntryId: entry.id, ...clearWaiver });
+          totalDeducted += amount;
+          affected++;
+        } else if (dto.action === AbsenceDecisionAction.WAIVE) {
+          if (liveEntry) {
+            throw new BadRequestException(
+              `${ymd(day)} already has a deduction — reset it first if it should be paid instead.`,
+            );
+          }
+          if (waived) {
+            unchanged++;
+            continue;
+          }
+          await claimRow(row, {
+            deductionWaivedAt: new Date(),
+            deductionWaivedById: user.userId,
+            deductionWaivedReason: dto.note ?? null,
+            // A VOIDED leave pointer is dead weight once the day is explicitly waived.
+            leaveLedgerEntryId: null,
+          });
+          affected++;
+        } else {
+          // RESET
+          if (liveEntry) {
+            // The ledger's own void rule applies: the person who posted the deduction, or someone holding
+            // payroll:ledger_void. Marking attendance alone must not be a back door to void other people's entries.
+            await this.staffLedger.voidEntryTx(tx, user, liveEntry.id, {
+              version: liveEntry.version,
+              reason: dto.note ?? `Attendance deduction reset — ${ymd(day)}`,
+            });
+            await claimRow(row, { leaveLedgerEntryId: null, ...clearWaiver });
+            affected++;
+          } else if (waived || row.leaveLedgerEntryId) {
+            await claimRow(row, { leaveLedgerEntryId: null, ...clearWaiver });
+            affected++;
+          } else {
+            unchanged++;
+          }
+        }
+      }
+
+      // Keep the employee's DRAFT payroll entry(ies) for the touched period(s) in step, in this same
+      // transaction, so the decision and the totals can never disagree and approval can't act on stale numbers.
+      let draftsRefreshed = 0;
+      if (affected > 0) {
+        for (const period of covering) {
+          if (!days.some((day) => periodHasDay(period, day))) continue;
+          if (await this.payrollEntries.refreshDraftEntryTx(tx, user, dto.userId, period)) draftsRefreshed++;
+        }
+      }
+
+      return { action: dto.action, requested: days.length, affected, unchanged, totalDeducted, draftsRefreshed };
     });
   }
 

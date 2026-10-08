@@ -28,8 +28,19 @@ export interface AttendanceBreakdownDay {
   note: string | null;
   categoryId: string | null;
   categoryName: string | null;
-  /** True if this day already spawned a LEAVE_UNPAID ledger entry — re-marking it requires voiding that entry first. */
+  /** True only while a LIVE (non-voided) LEAVE_UNPAID entry exists for this day. */
   hasDeduction: boolean;
+  /**
+   * The admin's paid/unpaid call for an Absent / Half-day day: DEDUCTED (money is being charged), WAIVED
+   * (explicitly paid), PENDING (nobody decided yet - approving pays it in full). Null for every other status,
+   * and for every day of a DAILY/WEEKLY employee (an absence is already unpaid by construction there).
+   */
+  decision: 'DEDUCTED' | 'WAIVED' | 'PENDING' | null;
+  waivedReason: string | null;
+  /** Rupees deducted for this day (live deduction only, positive); 0 otherwise. */
+  deductedAmount?: number;
+  /** "Deduct next month" — the deduction is charged in the NEXT period, not this one. */
+  deductionDeferred?: boolean;
 }
 
 /** `PayrollEntryBreakdown.attendance` — one employee's attendance summary for this entry's period. */
@@ -41,6 +52,10 @@ export interface AttendanceBreakdownSummary {
   weeklyOffDays: number;
   periodDayCount: number;
   unmarkedDays: number;
+  /** False for a DAILY/WEEKLY employee - no paid/unpaid decision exists for them. */
+  decisionsApply: boolean;
+  /** Absent / half-day days still in the PENDING state. */
+  pendingDecisionDays: number;
   days: AttendanceBreakdownDay[];
 }
 
@@ -131,16 +146,28 @@ export const useGenerateDraft = (periodId: string | undefined) => {
   });
 };
 
-/** DRAFT -> APPROVED, per row. Optimistic-concurrency `version` must match the entry's current version. */
+/** Error `code` the server answers an approve with while Absent/Half-day days still have no paid/unpaid decision. */
+export const PENDING_ABSENCE_DECISIONS_CODE = 'PENDING_ABSENCE_DECISIONS';
+
+/**
+ * DRAFT -> APPROVED, per row. Optimistic-concurrency `version` must match the entry's current version.
+ * `acknowledgePendingAbsences` = the admin has seen the "N absent days undecided - they will be paid in
+ * full" confirmation and approves anyway.
+ */
 export const useApproveEntry = (periodId: string | undefined) => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, version }: { id: string; version: number }) => payrollApi.approveEntry(id, version),
+    mutationFn: ({ id, version, acknowledgePendingAbsences }: { id: string; version: number; acknowledgePendingAbsences?: boolean }) =>
+      payrollApi.approveEntry(id, version, acknowledgePendingAbsences),
     onSuccess: () => {
       if (periodId) invalidatePeriod(queryClient, periodId);
       toast.success('Payroll entry approved');
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to approve payroll entry'),
+    onError: (e: any) => {
+      // The pending-absence refusal is not a failure to toast about: callers answer it with a confirm dialog.
+      if (e?.response?.data?.code === PENDING_ABSENCE_DECISIONS_CODE) return;
+      toast.error(e?.response?.data?.message ?? 'Failed to approve payroll entry');
+    },
   });
 };
 

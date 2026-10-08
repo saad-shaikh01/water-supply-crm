@@ -255,7 +255,7 @@ export function DamageCaseDetail({ caseId }: DamageCaseDetailProps) {
             }
           />
           <MetaItem label="Bottle Count" value={damageCase.bottleCount} />
-          <MetaItem label="Salesman (Reported by)" value={damageCase.driver?.name ?? '—'} />
+          <MetaItem label="Salesman (Reported by)" value={damageCase.salesman?.name ?? '—'} />
           <MetaItem
             label="Customer"
             value={

@@ -1,9 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
-import { ExpenseCategory } from '@prisma/client';
+import { CacheInvalidationService } from '@water-supply-crm/caching';
+import { ExpenseCategory, Prisma } from '@prisma/client';
 import { paginate } from '../../common/helpers/paginate';
 import type { AuthUser } from '@water-supply-crm/types';
 import { AuditService } from '../audit/audit.service';
+import { VanCashLedgerService } from '../van-cash-ledger/van-cash-ledger.service';
+import { SHEET_CASH_RELOAD_INCLUDE, resolveSheetCash } from '../daily-sheet/sheet-cash.util';
 import { VehicleServiceTypeService } from './vehicle-service-type.service';
 import { UpdateMaintenanceRuleDto } from './dto/update-maintenance-rule.dto';
 import { CreateServiceRecordDto } from './dto/create-service-record.dto';
@@ -17,7 +20,7 @@ const serviceRecordInclude = {
   recordedBy: { select: { id: true, name: true } },
   vehicle: { select: { id: true, plateNumber: true } },
   // The payment flag lives on the linked Expense — surfaced so the edit form can prefill it.
-  expense: { select: { paidFromCash: true } },
+  expense: { select: { paidFromCash: true, dailySheetId: true } },
 };
 
 /**
@@ -31,7 +34,35 @@ export class VehicleMaintenanceService {
     private prisma: PrismaService,
     private audit: AuditService,
     private serviceTypes: VehicleServiceTypeService,
+    private vanCashLedger: VanCashLedgerService,
+    private cache: CacheInvalidationService,
   ) {}
+
+  /**
+   * A sheet-linked service Expense (paidFromCash) feeds the sheet's hand-in, so on
+   * a CLOSED sheet any create / edit / delete of it must flag the sheet as modified
+   * after close and re-sync the Cash Ledger — same as ExpenseService's closed-sheet
+   * corrections (which refuse service-record expenses, hence handled here).
+   */
+  private async markClosedSheetCorrected(tx: Prisma.TransactionClient, vendorId: string, dailySheetId: string) {
+    await tx.dailySheet.update({
+      where: { id: dailySheetId },
+      data: { postCloseExpenseCorrectionCount: { increment: 1 } },
+    });
+    const sheet = await tx.dailySheet.findUnique({ where: { id: dailySheetId }, include: SHEET_CASH_RELOAD_INCLUDE });
+    if (!sheet) return;
+    const resolved = resolveSheetCash(sheet as unknown as Record<string, unknown>);
+    await this.vanCashLedger.handlePostCloseCorrection(tx, vendorId, dailySheetId, resolved.cashExpected);
+  }
+
+  private async invalidateSheetRollups(vendorId: string, sheetDate?: Date | null) {
+    const dateStr = sheetDate ? new Date(sheetDate).toISOString().slice(0, 10) : undefined;
+    await Promise.all([
+      this.cache.invalidateDailyDashboard(vendorId, dateStr),
+      this.cache.invalidateOverview(vendorId),
+      this.cache.invalidateAnalytics(vendorId),
+    ]);
+  }
 
   /**
    * Makes sure a vehicle has a rule row for every service type in the vendor's
@@ -170,6 +201,26 @@ export class VehicleMaintenanceService {
     if (!vehicle) throw new NotFoundException('Vehicle not found');
     const serviceLabel = await this.serviceTypes.assertKeyExists(user.vendorId, dto.serviceType);
 
+    // Added from a Daily Sheet → pin the Expense to it (and to the trip in
+    // progress / last trip, like fuel) so cash-paid service reduces the hand-in.
+    let sheet: { id: string; vanId: string | null; isClosed: boolean; date: Date } | null = null;
+    let dailySheetLoadId: string | null = null;
+    if (dto.dailySheetId) {
+      sheet = await this.prisma.dailySheet.findFirst({
+        where: { id: dto.dailySheetId, vendorId: user.vendorId },
+        select: { id: true, vanId: true, isClosed: true, date: true },
+      });
+      if (!sheet) throw new NotFoundException('Daily sheet not found');
+      const load = await this.prisma.dailySheetLoad.findFirst({
+        where: sheet.isClosed
+          ? { dailySheetId: sheet.id, endedAt: { not: null } }
+          : { dailySheetId: sheet.id, endedAt: null },
+        orderBy: { endedAt: 'desc' },
+        select: { id: true },
+      });
+      dailySheetLoadId = load?.id ?? null;
+    }
+
     const record = await this.prisma.$transaction(async (tx) => {
       const expense = await tx.expense.create({
         data: {
@@ -179,13 +230,17 @@ export class VehicleMaintenanceService {
           paidFromCash: dto.paidFromCash ?? true,
           description: `${serviceLabel} — ${vehicle.plateNumber}`,
           date: new Date(dto.performedAtDate),
-          // Expense stays route-level (§17.2) — this vehicle isn't
-          // necessarily tied to a specific van/route at service time, so no
-          // vanId is attached here (unchanged behavior: this field was never
-          // populated for service-record Expenses even before the split).
+          // Without a sheet the Expense stays route-level (§17.2) — this vehicle
+          // isn't necessarily tied to a specific van/route at service time, so no
+          // vanId is attached. With a sheet it takes that sheet's van.
+          vanId: sheet?.vanId ?? null,
+          dailySheetId: sheet?.id ?? null,
+          dailySheetLoadId,
           createdById: user.userId,
         },
       });
+
+      if (sheet?.isClosed) await this.markClosedSheetCorrected(tx, user.vendorId, sheet.id);
 
       return tx.vehicleServiceRecord.create({
         data: {
@@ -205,6 +260,8 @@ export class VehicleMaintenanceService {
         include: serviceRecordInclude,
       });
     });
+
+    if (sheet) await this.invalidateSheetRollups(user.vendorId, sheet.date);
 
     // Keep the profile's odometer cache current if this service happened
     // further than any check has reported yet (workshop odometer is authoritative
@@ -266,9 +323,13 @@ export class VehicleMaintenanceService {
     if (dto.invoicePhotoKey) assertOwnedStorageKey(dto.invoicePhotoKey, ['fleet-photos'], user.vendorId, 'invoicePhotoKey');
     const record = await this.prisma.vehicleServiceRecord.findFirst({
       where: { id, vendorId: user.vendorId },
-      include: { vehicle: { select: { id: true, plateNumber: true } } },
+      include: {
+        vehicle: { select: { id: true, plateNumber: true } },
+        expense: { select: { dailySheetId: true, dailySheet: { select: { isClosed: true, date: true } } } },
+      },
     });
     if (!record) throw new NotFoundException('Service record not found');
+    const linkedClosedSheetId = record.expense?.dailySheet?.isClosed ? record.expense.dailySheetId : null;
     const serviceLabel =
       dto.serviceType !== undefined ? await this.serviceTypes.assertKeyExists(user.vendorId, dto.serviceType) : null;
 
@@ -291,6 +352,7 @@ export class VehicleMaintenanceService {
             }),
           },
         });
+        if (linkedClosedSheetId) await this.markClosedSheetCorrected(tx, user.vendorId, linkedClosedSheetId);
       }
 
       return tx.vehicleServiceRecord.update({
@@ -309,6 +371,8 @@ export class VehicleMaintenanceService {
       });
     });
 
+    if (linkedClosedSheetId) await this.invalidateSheetRollups(user.vendorId, record.expense?.dailySheet?.date);
+
     await this.audit.log({
       vendorId: user.vendorId,
       userId: user.userId,
@@ -323,15 +387,21 @@ export class VehicleMaintenanceService {
   }
 
   async removeServiceRecord(user: AuthUser, id: string) {
-    const record = await this.prisma.vehicleServiceRecord.findFirst({ where: { id, vendorId: user.vendorId } });
+    const record = await this.prisma.vehicleServiceRecord.findFirst({
+      where: { id, vendorId: user.vendorId },
+      include: { expense: { select: { dailySheetId: true, dailySheet: { select: { isClosed: true, date: true } } } } },
+    });
     if (!record) throw new NotFoundException('Service record not found');
+    const linkedClosedSheetId = record.expense?.dailySheet?.isClosed ? record.expense.dailySheetId : null;
 
     await this.prisma.$transaction(async (tx) => {
       await tx.vehicleServiceRecord.delete({ where: { id } });
       if (record.expenseId) {
         await tx.expense.delete({ where: { id: record.expenseId } });
+        if (linkedClosedSheetId) await this.markClosedSheetCorrected(tx, user.vendorId, linkedClosedSheetId);
       }
     });
+    if (linkedClosedSheetId) await this.invalidateSheetRollups(user.vendorId, record.expense?.dailySheet?.date);
 
     await this.audit.log({
       vendorId: user.vendorId,

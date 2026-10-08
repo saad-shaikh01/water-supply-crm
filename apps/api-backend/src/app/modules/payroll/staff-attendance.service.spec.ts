@@ -108,7 +108,8 @@ function makeService(
         ? jest.fn().mockRejectedValue(new BadRequestException('Unknown attendance category'))
         : jest.fn().mockResolvedValue(undefined),
   };
-  const svc = new StaffAttendanceService(prisma as any, permissions as any, staffLedger as any, categories as any);
+  const payrollEntries = { refreshDraftEntryTx: jest.fn().mockResolvedValue(false) };
+  const svc = new StaffAttendanceService(prisma as any, permissions as any, staffLedger as any, categories as any, payrollEntries as any);
   return { svc, prisma, tx, permissions, staffLedger, categories };
 }
 

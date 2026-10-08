@@ -28,7 +28,7 @@ const MATRIX: Record<RoleKey, Row> = {
     deny: [],
   },
   vendor_admin: {
-    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'daily_sheets:reprice', 'settings:update', 'whatsapp:manage', 'inventory:write_off', 'payroll:period_lock', 'payroll:view_all', 'payroll:attendance_view', 'payroll:attendance_mark', 'payroll:config_manage', 'crew_cash:approve', 'crew_cash:view_all', 'customers:deactivate', 'customers:force_deactivate', 'customers:force_deactivate_bottles', 'customers:bottle_wallet_adjust', 'customer_financial_adjustments:create_restricted', 'customer_financial_adjustments:transfer', 'customer_financial_adjustments:void', 'customer_deposits:refund', 'customer_deposits:write_off', 'customer_deposits:void', 'customer_deposits:manage_config', 'data_imports:view', 'data_imports:upload', 'data_imports:execute', 'data_imports:revert'],
+    allow: ['users:delete', 'roles:update', 'payments:approve', 'daily_sheets:correct', 'daily_sheets:reprice', 'settings:update', 'whatsapp:manage', 'inventory:write_off', 'payroll:period_lock', 'payroll:view_all', 'payroll:attendance_view', 'payroll:attendance_mark', 'payroll:config_manage', 'payroll:slip_send', 'crew_cash:approve', 'crew_cash:view_all', 'customers:deactivate', 'customers:force_deactivate', 'customers:force_deactivate_bottles', 'customers:bottle_wallet_adjust', 'customer_financial_adjustments:create_restricted', 'customer_financial_adjustments:transfer', 'customer_financial_adjustments:void', 'customer_deposits:refund', 'customer_deposits:write_off', 'customer_deposits:void', 'customer_deposits:manage_config', 'data_imports:view', 'data_imports:upload', 'data_imports:execute', 'data_imports:revert'],
     deny: [],
   },
   manager: {
@@ -68,6 +68,8 @@ const MATRIX: Record<RoleKey, Row> = {
       // config_manage (Amendment R22, Dual-Cutoff Payroll Flexibility) is
       // VENDOR_ADMIN-only by default, same tier as period_unlock/view_all above.
       'payroll:config_manage',
+      // slip_send (salary-slip WhatsApp) is VENDOR_ADMIN-only by default, same tier.
+      'payroll:slip_send',
       // Customer Deposits manage_config (Amendment R25) is VENDOR_ADMIN-only by
       // default, same tier as payroll:config_manage above.
       'customer_deposits:manage_config',

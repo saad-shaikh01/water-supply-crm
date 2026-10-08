@@ -486,6 +486,26 @@ We truly appreciate your continued trust and support.
 
 ---
 
+### 22. `salary_slip`  — Employee salary slip (PDF ke saath, internal staff recipient)
+- **Category:** UTILITY · **Language:** English · **Header:** Document (PDF)
+- **Wired:** `PayrollSlipProcessor` (Monthly Payroll → "Send slips") — one message per employee, PDF slip attached, sent with a randomized 5–12s gap. **Meta par approve karwana baqi hai** — jab tak approve na ho, slip send FAILED log hoga (Graph API 132001), koi message nahi jata.
+- **Body (3 params):**
+```
+Assalamu Alaikum, *{{1}}*,
+
+Your salary slip for *{{2}}* is attached for your review.
+
+Net payable: Rs. *{{3}}*
+
+For any query, please contact the office.
+
+Thank you for your hard work at *Blue Ice*.
+```
+- **Variables:** `{{1}}` = employee name · `{{2}}` = payroll period label (e.g. `2026-09`) · `{{3}}` = final payable, plain number with thousands separators (e.g. `45,000`)
+- **Sample:** `{{1}}` = `Ali Raza`, `{{2}}` = `2026-09`, `{{3}}` = `45,000`
+
+---
+
 ## Summary — kaunsi templates zaroori vs optional
 
 | # | Template | Zaroori? |
@@ -511,6 +531,7 @@ We truly appreciate your continued trust and support.
 | 19 | `delivery_unsuccessful_photo` | ✅ Code wired — submit for Meta approval |
 | 20 | `fleet_document_expiry` | ✅ Code wired — submit for Meta approval |
 | 21 | `fleet_maintenance_due` | ✅ Code wired — submit for Meta approval |
+| 22 | `salary_slip` (PDF) | ✅ Code wired — submit for Meta approval |
 
 > **Go-live se pehle #1–#13 approve hone chahiye.** Jab tak approve na ho, un notifications ke messages nahi jaayenge.
 > `delivery_unsuccessful` (#17) aur `delivery_unsuccessful_photo` (#19) dono submit kar dena — backend code

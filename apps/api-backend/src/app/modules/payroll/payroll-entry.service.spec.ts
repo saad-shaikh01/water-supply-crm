@@ -234,16 +234,14 @@ describe('PayrollEntryService', () => {
     it('stays on the single attendance-period window when the vendor has no PayrollVendorConfig row (the default for every existing vendor)', async () => {
       const { svc, tx } = makeService();
       await svc.generateDraft(adminUser, PERIOD_ID);
-      expect(tx.staffLedgerEntry.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            effectiveDate: { gte: openPeriod.startDate, lte: openPeriod.endDate },
-          }),
-        }),
-      );
-      // No OR-split clause at all when the feature is off.
+      // A row belongs to the period by its effectiveDate — or, if it was deferred ("deduct next month"),
+      // by its payrollAttributionDate instead. Nothing else: no category split when the feature is off.
       const where = tx.staffLedgerEntry.findMany.mock.calls[0][0].where;
-      expect(where.OR).toBeUndefined();
+      expect(where.OR).toEqual([
+        { payrollAttributionDate: null, effectiveDate: { gte: openPeriod.startDate, lte: openPeriod.endDate } },
+        { payrollAttributionDate: { gte: openPeriod.startDate, lte: openPeriod.endDate } },
+      ]);
+      expect(where.AND).toBeUndefined();
     });
 
     it('stays on the single window when cashCutoffDay is set but no category has opted in (empty cashWindowCategories)', async () => {
@@ -256,8 +254,10 @@ describe('PayrollEntryService', () => {
       });
       await svc.generateDraft(adminUser, PERIOD_ID);
       const where = tx.staffLedgerEntry.findMany.mock.calls[0][0].where;
-      expect(where.OR).toBeUndefined();
-      expect(where.effectiveDate).toEqual({ gte: openPeriod.startDate, lte: openPeriod.endDate });
+      expect(where.OR).toEqual([
+        { payrollAttributionDate: null, effectiveDate: { gte: openPeriod.startDate, lte: openPeriod.endDate } },
+        { payrollAttributionDate: { gte: openPeriod.startDate, lte: openPeriod.endDate } },
+      ]);
     });
 
     it('splits the ledger query by category when cashCutoffDay + cashWindowCategories are both configured', async () => {
@@ -278,18 +278,14 @@ describe('PayrollEntryService', () => {
       // August); the cash cutoff (10th) cycle containing that date runs
       // 2026-08-10 -> 2026-09-09 — the exact "advances/crew cash cut off
       // around the 10th, ahead of a 10th-of-next-month release" scenario.
+      const cashRange = { gte: new Date('2026-08-10T00:00:00.000Z'), lte: new Date('2026-09-09T23:59:59.999Z') };
+      const periodRange = { gte: openPeriod.startDate, lte: openPeriod.endDate };
+      const attributed = (range: { gte: Date; lte: Date }) => ({
+        OR: [{ payrollAttributionDate: null, effectiveDate: range }, { payrollAttributionDate: range }],
+      });
       expect(where.OR).toEqual([
-        {
-          category: { in: [StaffLedgerCategory.ADVANCE, StaffLedgerCategory.CREW_CASH] },
-          effectiveDate: {
-            gte: new Date('2026-08-10T00:00:00.000Z'),
-            lte: new Date('2026-09-09T23:59:59.999Z'),
-          },
-        },
-        {
-          category: { notIn: [StaffLedgerCategory.ADVANCE, StaffLedgerCategory.CREW_CASH] },
-          effectiveDate: { gte: openPeriod.startDate, lte: openPeriod.endDate },
-        },
+        { AND: [{ category: { in: [StaffLedgerCategory.ADVANCE, StaffLedgerCategory.CREW_CASH] } }, attributed(cashRange)] },
+        { AND: [{ category: { notIn: [StaffLedgerCategory.ADVANCE, StaffLedgerCategory.CREW_CASH] } }, attributed(periodRange)] },
       ]);
       // ADVANCE_DISBURSEMENT stays hard-excluded regardless of the window split.
       expect(where.category).toEqual({ not: StaffLedgerCategory.ADVANCE_DISBURSEMENT });
@@ -743,7 +739,7 @@ describe('PayrollEntryService', () => {
   describe('approveEntry()', () => {
     it('approves a DRAFT entry via atomic CAS', async () => {
       const { svc, tx } = makeService();
-      const draftEntry = { id: 'entry-001', vendorId: VENDOR_ID, status: PayrollEntryStatus.DRAFT, version: 0 };
+      const draftEntry = { id: 'entry-001', vendorId: VENDOR_ID, userId: EMPLOYEE_ID, status: PayrollEntryStatus.DRAFT, version: 0, period: openPeriod };
       tx.payrollEntry.findFirst.mockResolvedValue(draftEntry);
       tx.payrollEntry.updateMany.mockResolvedValue({ count: 1 });
       tx.payrollEntry.findUniqueOrThrow.mockResolvedValue({ ...draftEntry, status: PayrollEntryStatus.APPROVED, version: 1 });
@@ -754,7 +750,7 @@ describe('PayrollEntryService', () => {
 
     it('throws ConflictException on stale version', async () => {
       const { svc, tx } = makeService();
-      const draftEntry = { id: 'entry-001', vendorId: VENDOR_ID, status: PayrollEntryStatus.DRAFT, version: 0 };
+      const draftEntry = { id: 'entry-001', vendorId: VENDOR_ID, userId: EMPLOYEE_ID, status: PayrollEntryStatus.DRAFT, version: 0, period: openPeriod };
       tx.payrollEntry.findFirst.mockResolvedValue(draftEntry);
       tx.payrollEntry.updateMany.mockResolvedValue({ count: 0 });
 
@@ -770,6 +766,297 @@ describe('PayrollEntryService', () => {
         version: 1,
       });
       await expect(svc.approveEntry(adminUser, 'entry-001', 1)).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('approveEntry() - pending absence decisions gate', () => {
+    const draftEntry = {
+      id: 'entry-001',
+      vendorId: VENDOR_ID,
+      userId: EMPLOYEE_ID,
+      status: PayrollEntryStatus.DRAFT,
+      version: 0,
+      period: openPeriod,
+    };
+    function setup(pendingCount: number, payFrequency: PayFrequency = PayFrequency.MONTHLY) {
+      const made = makeService();
+      made.tx.payrollEntry.findFirst.mockResolvedValue(draftEntry);
+      made.tx.payrollEntry.updateMany.mockResolvedValue({ count: 1 });
+      made.tx.payrollEntry.findUniqueOrThrow.mockResolvedValue({ ...draftEntry, status: PayrollEntryStatus.APPROVED, version: 1 });
+      made.tx.salaryStructure.findMany.mockResolvedValue([{ userId: EMPLOYEE_ID, payFrequency }]);
+      made.tx.staffAttendance.groupBy.mockResolvedValue(pendingCount > 0 ? [{ userId: EMPLOYEE_ID, _count: { _all: pendingCount } }] : []);
+      return made;
+    }
+
+    it('refuses with code PENDING_ABSENCE_DECISIONS (and writes nothing) while absent days are undecided', async () => {
+      const { svc, tx } = setup(3);
+      const err: any = await svc.approveEntry(adminUser, 'entry-001', 0).catch((e) => e);
+      expect(err).toBeInstanceOf(BadRequestException);
+      expect(err.getResponse()).toMatchObject({ code: 'PENDING_ABSENCE_DECISIONS', pendingAbsenceDays: 3 });
+      expect(tx.payrollEntry.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('queries only undecided Absent/Half-day days: no live deduction, not waived, inside the period', async () => {
+      const { svc, tx } = setup(1);
+      await svc.approveEntry(adminUser, 'entry-001', 0).catch(() => undefined);
+      expect(tx.staffAttendance.groupBy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            vendorId: VENDOR_ID,
+            userId: { in: [EMPLOYEE_ID] },
+            date: { gte: openPeriod.startDate, lte: openPeriod.endDate },
+            status: { in: [AttendanceStatus.ABSENT, AttendanceStatus.HALF_DAY] },
+            deductionWaivedAt: null,
+            OR: [{ leaveLedgerEntryId: null }, { leaveLedgerEntry: { status: LedgerEntryStatus.VOIDED } }],
+          }),
+        }),
+      );
+    });
+
+    it('approves when the caller acknowledges the undecided days', async () => {
+      const { svc, tx } = setup(3);
+      const result = await svc.approveEntry(adminUser, 'entry-001', 0, true);
+      expect(result.status).toBe(PayrollEntryStatus.APPROVED);
+      expect(tx.staffAttendance.groupBy).not.toHaveBeenCalled();
+    });
+
+    it('approves straight away when nothing is undecided', async () => {
+      const { svc } = setup(0);
+      const result = await svc.approveEntry(adminUser, 'entry-001', 0);
+      expect(result.status).toBe(PayrollEntryStatus.APPROVED);
+    });
+
+    it('never gates a DAILY/WEEKLY employee - an absence is already unpaid by construction there', async () => {
+      const { svc } = setup(5, PayFrequency.DAILY);
+      const result = await svc.approveEntry(adminUser, 'entry-001', 0);
+      expect(result.status).toBe(PayrollEntryStatus.APPROVED);
+    });
+  });
+
+  describe('generateDraft() - max-deduction ceiling (PayrollVendorConfig.maxDeductionPercent)', () => {
+    // mixedLedgerEntries: advances -5000, penalties -500, otherDeductions -200+100 = -100 => net deduction 5600.
+    // Everything else: +2000 expenses, +1000 bonus, +300 overtime, +700 incentive; base 30000.
+    // No ceiling: 30000 + 4000 - 5600 = 28400 (the sign-convention test above).
+    function ceilingService(opts: { pct?: number | null; previousDeferredOut?: number; previousFinalPayable?: number }) {
+      const previous = opts.previousDeferredOut !== undefined || opts.previousFinalPayable !== undefined;
+      return makeService({
+        txOverrides: {
+          payrollVendorConfig: {
+            findUnique: jest.fn().mockResolvedValue(opts.pct == null ? null : { cashCutoffDay: null, cashWindowCategories: [], maxDeductionPercent: opts.pct }),
+          },
+          payrollPeriod: {
+            findFirst: jest.fn().mockResolvedValue(previous ? { id: 'prev-period', endDate: new Date('2026-07-31T23:59:59.999Z') } : null),
+          },
+          payrollEntry: {
+            findUnique: jest
+              .fn()
+              .mockImplementation(async ({ where }: any) =>
+                where.periodId_userId?.periodId === 'prev-period'
+                  ? { id: 'prev-entry', finalPayable: opts.previousFinalPayable ?? 0, deferredOut: opts.previousDeferredOut ?? 0 }
+                  : null,
+              ),
+            create: jest.fn().mockImplementation(async ({ data }: any) => ({ id: 'new', version: 0, ...data })),
+            update: jest.fn(),
+            updateMany: jest.fn(),
+            findFirst: jest.fn(),
+            findUniqueOrThrow: jest.fn(),
+          },
+        },
+      });
+    }
+    const created = (tx: any) => tx.payrollEntry.create.mock.calls[0][0].data;
+
+    it('is a strict no-op when the ceiling is off (null) - finalPayable identical to the pre-ceiling formula', async () => {
+      const { svc, tx } = ceilingService({ pct: null });
+      await svc.generateDraft(adminUser, PERIOD_ID);
+      expect(created(tx)).toMatchObject({ finalPayable: 28400, deferredIn: 0, deferredOut: 0 });
+    });
+
+    it('does nothing when deductions are within the ceiling', async () => {
+      // 30% of 30000 = 9000 >= 5600 owed.
+      const { svc, tx } = ceilingService({ pct: 30 });
+      await svc.generateDraft(adminUser, PERIOD_ID);
+      expect(created(tx)).toMatchObject({ finalPayable: 28400, deferredOut: 0 });
+    });
+
+    it('charges only up to the ceiling and pushes the rest to deferredOut (not lost)', async () => {
+      // 10% of 30000 = 3000 allowed; 5600 owed => 2600 deferred. Pay = 30000+4000-3000 = 31000.
+      const { svc, tx } = ceilingService({ pct: 10 });
+      await svc.generateDraft(adminUser, PERIOD_ID);
+      expect(created(tx)).toMatchObject({ finalPayable: 31000, deferredOut: 2600, deferredIn: 0 });
+      // The stored buckets still show the FULL deductions that were posted - the ceiling changes what is charged, not what was recorded.
+      expect(created(tx)).toMatchObject({ advances: -5000, penalties: -500, otherDeductions: -100 });
+    });
+
+    it('charges last period deferredOut as deferredIn - through the SAME ceiling again', async () => {
+      // owed = 5600 + 2600 = 8200; ceiling 10% = 3000 => allowed 3000, deferredOut 5200.
+      const { svc, tx } = ceilingService({ pct: 10, previousDeferredOut: 2600, previousFinalPayable: 0 });
+      await svc.generateDraft(adminUser, PERIOD_ID);
+      expect(created(tx)).toMatchObject({ deferredIn: 2600, deferredOut: 5200, finalPayable: 31000 });
+    });
+
+    it('collects the whole backlog at once if the vendor later turns the ceiling off (never stranded)', async () => {
+      // No ceiling: owed 5600 + 2600 deferredIn = 8200. Pay = 30000+4000-8200 = 25800.
+      const { svc, tx } = ceilingService({ pct: null, previousDeferredOut: 2600, previousFinalPayable: 0 });
+      await svc.generateDraft(adminUser, PERIOD_ID);
+      expect(created(tx)).toMatchObject({ deferredIn: 2600, deferredOut: 0, finalPayable: 25800 });
+    });
+
+    it('keeps the previous carry-forward separate from deferredIn (carry = prior finalPayable - settled; deferredOut is not in it)', async () => {
+      const { svc, tx } = ceilingService({ pct: 10, previousDeferredOut: 2600, previousFinalPayable: 500 });
+      await svc.generateDraft(adminUser, PERIOD_ID);
+      expect(created(tx)).toMatchObject({ carryForwardIn: 500, deferredIn: 2600, finalPayable: 31500 });
+    });
+  });
+
+  describe('generateDraft() - max-deduction ceiling: edge cases', () => {
+    it('picks up a held-back deduction across a GAP - the previous period has no entry for this employee, an older one does', async () => {
+      const { svc, tx } = makeService({
+        txOverrides: {
+          payrollVendorConfig: { findUnique: jest.fn().mockResolvedValue({ cashCutoffDay: null, cashWindowCategories: [], maxDeductionPercent: 10 }) },
+          payrollPeriod: { findFirst: jest.fn().mockResolvedValue({ id: 'prev-period', endDate: new Date('2026-07-31T23:59:59.999Z') }) },
+          payrollEntry: {
+            // no entry in the immediately preceding period (employee had no salary structure that month)...
+            findUnique: jest.fn().mockResolvedValue(null),
+            // ...but the latest entry the employee DOES have still holds back 700.
+            findFirst: jest.fn().mockResolvedValue({ deferredOut: 700 }),
+            create: jest.fn().mockImplementation(async ({ data }: any) => ({ id: 'new', version: 0, ...data })),
+            update: jest.fn(),
+            updateMany: jest.fn(),
+            findUniqueOrThrow: jest.fn(),
+          },
+        },
+      });
+      await svc.generateDraft(adminUser, PERIOD_ID);
+      const data = tx.payrollEntry.create.mock.calls[0][0].data;
+      // owed = 5600 + 700; ceiling 10% of 30000 = 3000 => allowed 3000, held back 3300. carry stays 0 (existing rule).
+      expect(data).toMatchObject({ carryForwardIn: 0, deferredIn: 700, deferredOut: 3300, finalPayable: 31000 });
+      expect(tx.payrollEntry.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { vendorId: VENDOR_ID, userId: EMPLOYEE_ID, period: { endDate: { lt: openPeriod.startDate } } } }),
+      );
+    });
+
+    it('does not even look further back for the vendor\'s very first period (no earlier period can exist)', async () => {
+      const { svc, tx } = makeService(); // payrollPeriod.findFirst -> null by default
+      await svc.generateDraft(adminUser, PERIOD_ID);
+      expect(tx.payrollEntry.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('reads the vendor config ONCE per transaction no matter how many employees are computed', async () => {
+      const employees = [1, 2, 3, 4, 5].map((n) => ({ id: `emp-${n}`, name: `Emp ${n}` }));
+      const { svc, tx } = makeService({ eligibleEmployees: employees });
+      await svc.generateDraft(adminUser, PERIOD_ID);
+      expect(tx.payrollEntry.create).toHaveBeenCalledTimes(5);
+      expect(tx.payrollVendorConfig.findUnique).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not leak the cached config between two separate transactions (a settings change is seen by the next run)', async () => {
+      const first = makeService();
+      await first.svc.generateDraft(adminUser, PERIOD_ID);
+      await first.svc.generateDraft(adminUser, PERIOD_ID);
+      // generateDraft opens a fresh $transaction (a fresh tx object) each run => one read per run.
+      expect(first.prisma.$transaction).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('refreshDraftEntryTx() - keeps ONE employee DRAFT in step with a decision, in the caller transaction', () => {
+    const draft = {
+      id: 'entry-001',
+      vendorId: VENDOR_ID,
+      userId: EMPLOYEE_ID,
+      status: PayrollEntryStatus.DRAFT,
+      version: 4,
+      baseSalary: 30000,
+      finalPayable: 30000,
+    };
+
+    it('recomputes the ledger-derived numbers from the stored base, bumps version, audits REGENERATED, and reports true', async () => {
+      const { svc, tx } = makeService();
+      tx.payrollEntry.findUnique.mockResolvedValue(draft);
+      tx.payrollEntry.updateMany.mockResolvedValue({ count: 1 });
+
+      const refreshed = await svc.refreshDraftEntryTx(tx as any, adminUser, EMPLOYEE_ID, openPeriod as any);
+
+      expect(refreshed).toBe(true);
+      // mixedLedgerEntries => 28400 (see the sign-convention test); base is the STORED 30000, never re-derived.
+      expect(tx.payrollEntry.updateMany).toHaveBeenCalledWith({
+        where: { id: 'entry-001', vendorId: VENDOR_ID, status: PayrollEntryStatus.DRAFT, version: 4 },
+        data: expect.objectContaining({ finalPayable: 28400, deferredIn: 0, deferredOut: 0, version: { increment: 1 } }),
+      });
+      expect(tx.payrollEntryAuditLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          payrollEntryId: 'entry-001',
+          action: PayrollAuditAction.REGENERATED,
+          beforeJson: { finalPayable: 30000 },
+          afterJson: { finalPayable: 28400 },
+        }),
+      });
+    });
+
+    it.each([
+      PayrollEntryStatus.APPROVED,
+      PayrollEntryStatus.UNDER_REVIEW,
+      PayrollEntryStatus.LOCKED,
+      PayrollEntryStatus.SETTLED,
+    ])('never touches a %s entry (only a DRAFT is refreshed)', async (status) => {
+      const { svc, tx } = makeService();
+      tx.payrollEntry.findUnique.mockResolvedValue({ ...draft, status });
+      expect(await svc.refreshDraftEntryTx(tx as any, adminUser, EMPLOYEE_ID, openPeriod as any)).toBe(false);
+      expect(tx.payrollEntry.updateMany).not.toHaveBeenCalled();
+      expect(tx.payrollEntryAuditLog.create).not.toHaveBeenCalled();
+    });
+
+    it('is a no-op when the employee has no entry for the period, or the entry belongs to another vendor', async () => {
+      const none = makeService();
+      none.tx.payrollEntry.findUnique.mockResolvedValue(null);
+      expect(await none.svc.refreshDraftEntryTx(none.tx as any, adminUser, EMPLOYEE_ID, openPeriod as any)).toBe(false);
+
+      const foreign = makeService();
+      foreign.tx.payrollEntry.findUnique.mockResolvedValue({ ...draft, vendorId: 'someone-else' });
+      expect(await foreign.svc.refreshDraftEntryTx(foreign.tx as any, adminUser, EMPLOYEE_ID, openPeriod as any)).toBe(false);
+      expect(foreign.tx.payrollEntry.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('409s - so the surrounding decision rolls back - if the draft changed under it', async () => {
+      const { svc, tx } = makeService();
+      tx.payrollEntry.findUnique.mockResolvedValue(draft);
+      tx.payrollEntry.updateMany.mockResolvedValue({ count: 0 });
+      await expect(svc.refreshDraftEntryTx(tx as any, adminUser, EMPLOYEE_ID, openPeriod as any)).rejects.toThrow(ConflictException);
+      expect(tx.payrollEntryAuditLog.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('listForPeriod() - undecided absence days per row', () => {
+    it('reports pendingAbsenceDays for MONTHLY employees only', async () => {
+      const { svc, prisma } = makeService();
+      prisma.payrollPeriod.findFirst.mockResolvedValue(openPeriod);
+      prisma.payrollEntry.findMany.mockResolvedValue([
+        { id: 'e1', userId: 'u-monthly', updatedAt: new Date(), user: { id: 'u-monthly', name: 'M', role: 'DRIVER' } },
+        { id: 'e2', userId: 'u-daily', updatedAt: new Date(), user: { id: 'u-daily', name: 'D', role: 'DRIVER' } },
+      ]);
+      (prisma as any).staffAttendance = {
+        groupBy: jest.fn().mockImplementation(async ({ where }: any) =>
+          where.status
+            ? [
+                { userId: 'u-monthly', _count: { _all: 4 } },
+                { userId: 'u-daily', _count: { _all: 9 } },
+              ]
+            : [],
+        ),
+      };
+      (prisma as any).salaryStructure = {
+        findMany: jest.fn().mockResolvedValue([
+          { userId: 'u-monthly', payFrequency: PayFrequency.MONTHLY },
+          { userId: 'u-daily', payFrequency: PayFrequency.DAILY },
+        ]),
+      };
+      (prisma as any).staffAdvanceInstallment = { findMany: jest.fn().mockResolvedValue([]) };
+      (prisma as any).staffLedgerEntry = { groupBy: jest.fn().mockResolvedValue([]) };
+      (prisma as any).settlement = { groupBy: jest.fn().mockResolvedValue([]) };
+
+      const rows: any[] = await svc.listForPeriod(adminUser, PERIOD_ID);
+      expect(rows.find((r: any) => r.userId === 'u-monthly')!.pendingAbsenceDays).toBe(4);
+      expect(rows.find((r: any) => r.userId === 'u-daily')!.pendingAbsenceDays).toBe(0);
     });
   });
 
@@ -884,7 +1171,10 @@ describe('PayrollEntryService', () => {
         expect.objectContaining({
           where: expect.objectContaining({
             status: LedgerEntryStatus.POSTED,
-            effectiveDate: { gte: openPeriod.startDate, lte: openPeriod.endDate },
+            OR: [
+              { payrollAttributionDate: null, effectiveDate: { gte: openPeriod.startDate, lte: openPeriod.endDate } },
+              { payrollAttributionDate: { gte: openPeriod.startDate, lte: openPeriod.endDate } },
+            ],
           }),
         }),
       );
@@ -912,11 +1202,11 @@ describe('PayrollEntryService', () => {
     it('summarizes attendance counts for the entry\'s employee and period, plus unmarked days', async () => {
       const { svc, prisma } = makeBreakdownService();
       prisma.staffAttendance.findMany.mockResolvedValue([
-        { date: new Date('2026-08-01'), status: AttendanceStatus.PRESENT, note: null, leaveLedgerEntryId: null, category: null },
-        { date: new Date('2026-08-02'), status: AttendanceStatus.ABSENT, note: null, leaveLedgerEntryId: 'le-9', category: null },
-        { date: new Date('2026-08-03'), status: AttendanceStatus.HALF_DAY, note: null, leaveLedgerEntryId: null, category: null },
-        { date: new Date('2026-08-04'), status: AttendanceStatus.LEAVE, note: null, leaveLedgerEntryId: null, category: null },
-        { date: new Date('2026-08-05'), status: AttendanceStatus.WEEKLY_OFF, note: null, leaveLedgerEntryId: null, category: null },
+        { date: new Date('2026-08-01'), status: AttendanceStatus.PRESENT, note: null, leaveLedgerEntryId: null, leaveLedgerEntry: null, deductionWaivedAt: null, category: null },
+        { date: new Date('2026-08-02'), status: AttendanceStatus.ABSENT, note: null, leaveLedgerEntryId: 'le-9', leaveLedgerEntry: { status: LedgerEntryStatus.POSTED, amount: -1000 }, deductionWaivedAt: null, category: null },
+        { date: new Date('2026-08-03'), status: AttendanceStatus.HALF_DAY, note: null, leaveLedgerEntryId: null, leaveLedgerEntry: null, deductionWaivedAt: null, category: null },
+        { date: new Date('2026-08-04'), status: AttendanceStatus.LEAVE, note: null, leaveLedgerEntryId: null, leaveLedgerEntry: null, deductionWaivedAt: null, category: null },
+        { date: new Date('2026-08-05'), status: AttendanceStatus.WEEKLY_OFF, note: null, leaveLedgerEntryId: null, leaveLedgerEntry: null, deductionWaivedAt: null, category: null },
       ]);
       const result = await svc.getBreakdown(adminUser, 'entry-001');
       expect(result.attendance.presentDays).toBe(1);
@@ -929,6 +1219,40 @@ describe('PayrollEntryService', () => {
       expect(result.attendance.unmarkedDays).toBe(26);
       expect(result.attendance.days[1].hasDeduction).toBe(true);
       expect(result.attendance.days[0].hasDeduction).toBe(false);
+    });
+
+    it('classifies every Absent/Half-day as DEDUCTED / WAIVED / PENDING - a VOIDED deduction counts as undecided again; non-unpaid statuses have no decision', async () => {
+      const { svc, prisma } = makeBreakdownService();
+      prisma.salaryStructure.findFirst.mockResolvedValue({ ...salaryStructure, payFrequency: PayFrequency.MONTHLY });
+      const base = { note: null, category: null, deductionWaivedReason: null };
+      prisma.staffAttendance.findMany.mockResolvedValue([
+        { ...base, date: new Date('2026-08-01'), status: AttendanceStatus.ABSENT, leaveLedgerEntryId: 'le-1', leaveLedgerEntry: { status: LedgerEntryStatus.POSTED, amount: -1000 }, deductionWaivedAt: null },
+        { ...base, date: new Date('2026-08-02'), status: AttendanceStatus.ABSENT, leaveLedgerEntryId: 'le-2', leaveLedgerEntry: { status: LedgerEntryStatus.PENDING, amount: -1000 }, deductionWaivedAt: null },
+        { ...base, date: new Date('2026-08-03'), status: AttendanceStatus.ABSENT, leaveLedgerEntryId: null, leaveLedgerEntry: null, deductionWaivedAt: new Date(), deductionWaivedReason: 'sick, approved' },
+        { ...base, date: new Date('2026-08-04'), status: AttendanceStatus.HALF_DAY, leaveLedgerEntryId: null, leaveLedgerEntry: null, deductionWaivedAt: null },
+        { ...base, date: new Date('2026-08-05'), status: AttendanceStatus.ABSENT, leaveLedgerEntryId: 'le-5', leaveLedgerEntry: { status: LedgerEntryStatus.VOIDED, amount: -1000 }, deductionWaivedAt: null },
+        { ...base, date: new Date('2026-08-06'), status: AttendanceStatus.PRESENT, leaveLedgerEntryId: null, leaveLedgerEntry: null, deductionWaivedAt: null },
+      ]);
+      const { attendance } = await svc.getBreakdown(adminUser, 'entry-001');
+      expect(attendance.days.map((d) => d.decision)).toEqual(['DEDUCTED', 'DEDUCTED', 'WAIVED', 'PENDING', 'PENDING', null]);
+      expect(attendance.days.map((d) => d.hasDeduction)).toEqual([true, true, false, false, false, false]);
+      expect(attendance.days[2].waivedReason).toBe('sick, approved');
+      expect(attendance.pendingDecisionDays).toBe(2);
+      expect(attendance.decisionsApply).toBe(true);
+    });
+
+    it('has NO paid/unpaid decision for a DAILY/WEEKLY employee (absence is already unpaid by construction) - but still shows a live deduction', async () => {
+      const { svc, prisma } = makeBreakdownService();
+      prisma.salaryStructure.findFirst.mockResolvedValue({ ...salaryStructure, payFrequency: PayFrequency.DAILY });
+      const base = { note: null, category: null, deductionWaivedReason: null, deductionWaivedAt: null };
+      prisma.staffAttendance.findMany.mockResolvedValue([
+        { ...base, date: new Date('2026-08-01'), status: AttendanceStatus.ABSENT, leaveLedgerEntryId: null, leaveLedgerEntry: null },
+        { ...base, date: new Date('2026-08-02'), status: AttendanceStatus.ABSENT, leaveLedgerEntryId: 'le-1', leaveLedgerEntry: { status: LedgerEntryStatus.POSTED, amount: -500 } },
+      ]);
+      const { attendance } = await svc.getBreakdown(adminUser, 'entry-001');
+      expect(attendance.decisionsApply).toBe(false);
+      expect(attendance.days.map((d) => d.decision)).toEqual([null, 'DEDUCTED']);
+      expect(attendance.pendingDecisionDays).toBe(0);
     });
 
     it('returns suggestedMonthlyDailyRate = baseAmount / periodDayCount for a MONTHLY employee, rounded', async () => {

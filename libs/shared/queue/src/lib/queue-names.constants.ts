@@ -9,4 +9,5 @@ export const QUEUE_NAMES = {
   CREW_CASH_SYNC: 'crew-cash-sync',
   TRACKING_HISTORY: 'tracking-history',
   VENDOR_IMPORT: 'vendor-import',
+  PAYROLL_SLIP_SEND: 'payroll-slip-send',
 } as const;

@@ -8,6 +8,8 @@ import { SalaryStructureService } from './salary-structure.service';
 import { SalaryStructureController } from './salary-structure.controller';
 import { StaffLedgerService } from './staff-ledger.service';
 import { StaffLedgerController } from './staff-ledger.controller';
+import { StaffLedgerDeferralService } from './staff-ledger-deferral.service';
+import { StaffLedgerDeferralController } from './staff-ledger-deferral.controller';
 import { LinkedPenaltyService } from './linked-penalty.service';
 import { PayrollApprovalGateService } from './payroll-approval-gate.service';
 import { PayrollPeriodService } from './payroll-period.service';
@@ -31,6 +33,11 @@ import { StaffAdvancePlanService } from './staff-advance-plan.service';
 import { StaffAdvancePlanController } from './staff-advance-plan.controller';
 import { PayrollVendorConfigService } from './payroll-vendor-config.service';
 import { PayrollVendorConfigController } from './payroll-vendor-config.controller';
+import { PayrollExportService } from './payroll-export.service';
+import { PayrollSlipService } from './payroll-slip.service';
+import { PayrollSlipController } from './payroll-slip.controller';
+import { PayrollSlipProcessor } from './payroll-slip.processor';
+import { SalarySlipPdfService } from './salary-slip-pdf.service';
 
 /**
  * Staff Payroll & Financial Management — Phase 1b.
@@ -74,6 +81,8 @@ import { PayrollVendorConfigController } from './payroll-vendor-config.controlle
   // that module imports nothing back from Payroll, so no cycle.
   imports: [
     BullModule.registerQueue({ name: QUEUE_NAMES.CREW_CASH_SYNC }),
+    // Salary-slip WhatsApp sends — WhatsAppService comes from the @Global WhatsAppModule.
+    BullModule.registerQueue({ name: QUEUE_NAMES.PAYROLL_SLIP_SEND }),
     AuditModule,
     VanCashLedgerModule,
     CustomerFinancialAdjustmentModule,
@@ -81,6 +90,7 @@ import { PayrollVendorConfigController } from './payroll-vendor-config.controlle
   controllers: [
     SalaryStructureController,
     StaffLedgerController,
+    StaffLedgerDeferralController,
     PayrollPeriodController,
     PayrollEntryController,
     SettlementController,
@@ -91,10 +101,12 @@ import { PayrollVendorConfigController } from './payroll-vendor-config.controlle
     AttendanceCategoryController,
     StaffAdvancePlanController,
     PayrollVendorConfigController,
+    PayrollSlipController,
   ],
   providers: [
     SalaryStructureService,
     StaffLedgerService,
+    StaffLedgerDeferralService,
     LinkedPenaltyService,
     PayrollApprovalGateService,
     PayrollPeriodService,
@@ -108,6 +120,10 @@ import { PayrollVendorConfigController } from './payroll-vendor-config.controlle
     AttendanceCategoryService,
     StaffAdvancePlanService,
     PayrollVendorConfigService,
+    PayrollExportService,
+    PayrollSlipService,
+    PayrollSlipProcessor,
+    SalarySlipPdfService,
   ],
   exports: [
     SalaryStructureService,

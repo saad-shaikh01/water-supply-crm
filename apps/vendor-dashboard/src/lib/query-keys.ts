@@ -89,6 +89,9 @@ export const queryKeys = {
     advanceVendorSummary: () => ['payroll', 'advance-vendor-summary'] as const,
     advancePendingCount: (periodId: string) => ['payroll', 'advance-pending-count', periodId] as const,
     vendorConfig: () => ['payroll', 'vendor-config'] as const,
+    slipStatus: (periodId: string) => ['payroll', 'slip-status', periodId] as const,
+    slipPreview: (periodId: string, key: string) => ['payroll', 'slip-preview', periodId, key] as const,
+    slipDispatch: (dispatchId: string) => ['payroll', 'slip-dispatch', dispatchId] as const,
   },
   // Fleet Operations & Vehicle Intelligence (docs/features/fleet-operations-vehicle-intelligence.md).
   fleet: {

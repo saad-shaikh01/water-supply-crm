@@ -57,7 +57,7 @@ export class DamageCaseService {
         vendorId: user.vendorId,
         customerId: dto.customerId,
         productId: dto.productId,
-        driverId: user.userId,
+        salesmanId: user.userId,
         dailySheetItemId: dto.dailySheetItemId ?? null,
         caseType: dto.caseType ?? DamageCaseType.DAMAGE,
         lossReason: dto.lossReason ?? null,
@@ -107,7 +107,7 @@ export class DamageCaseService {
       throw new BadRequestException('Only REPORTED damage cases can be updated.');
     }
 
-    if (user.role === 'DRIVER' && damageCase.driverId !== user.userId) {
+    if (user.role === 'DRIVER' && damageCase.salesmanId !== user.userId) {
       throw new ForbiddenException('Drivers can only update their own damage cases.');
     }
 
@@ -455,16 +455,16 @@ export class DamageCaseService {
   // ── findAll ──────────────────────────────────────────────────────────────
 
   /**
-   * Shared filter builder for the list + summary endpoints. `driverId` is the
+   * Shared filter builder for the list + summary endpoints. `salesmanId` is the
    * user who REPORTED the case (field staff — shown as "Salesman" in the UI).
    */
   private buildListWhere(user: AuthUser, query: DamageCaseQueryDto) {
-    const { status, customerId, driverId, vanId, severity, caseType, search, dateFrom, dateTo } = query;
+    const { status, customerId, salesmanId, vanId, severity, caseType, search, dateFrom, dateTo } = query;
 
     const where: any = { vendorId: user.vendorId };
     if (status) where.status = status;
     if (customerId) where.customerId = customerId;
-    if (driverId) where.driverId = driverId;
+    if (salesmanId) where.salesmanId = salesmanId;
     if (severity) where.severity = severity;
     if (caseType) where.caseType = caseType;
     if (vanId) {
@@ -513,7 +513,7 @@ export class DamageCaseService {
         include: {
           customer: { select: { id: true, name: true, customerCode: true, phoneNumber: true } },
           product: { select: { id: true, name: true } },
-          driver: { select: { id: true, name: true, role: true } },
+          salesman: { select: { id: true, name: true, role: true } },
           reviewedBy: { select: { id: true, name: true } },
           dailySheetItem: {
             select: {
@@ -566,17 +566,17 @@ export class DamageCaseService {
 
   async getReporters(user: AuthUser) {
     const groups = await this.prisma.damageCase.groupBy({
-      by: ['driverId'],
+      by: ['salesmanId'],
       where: { vendorId: user.vendorId },
       _count: { _all: true },
     });
     if (!groups.length) return [];
 
     const users = await this.prisma.user.findMany({
-      where: { id: { in: groups.map((g) => g.driverId) } },
+      where: { id: { in: groups.map((g) => g.salesmanId) } },
       select: { id: true, name: true, role: true },
     });
-    const counts = new Map(groups.map((g) => [g.driverId, g._count._all]));
+    const counts = new Map(groups.map((g) => [g.salesmanId, g._count._all]));
 
     return users
       .map((u) => ({ id: u.id, name: u.name, role: u.role, caseCount: counts.get(u.id) ?? 0 }))
@@ -590,12 +590,12 @@ export class DamageCaseService {
       where: {
         id,
         vendorId: user.vendorId,
-        ...(user.role === 'DRIVER' ? { driverId: user.userId } : {}),
+        ...(user.role === 'DRIVER' ? { salesmanId: user.userId } : {}),
       },
       include: {
         customer: { select: { id: true, name: true, customerCode: true, phoneNumber: true, address: true } },
         product: { select: { id: true, name: true } },
-        driver: { select: { id: true, name: true, role: true } },
+        salesman: { select: { id: true, name: true, role: true } },
         reviewedBy: { select: { id: true, name: true } },
         dailySheetItem: {
           select: {
@@ -649,7 +649,7 @@ export class DamageCaseService {
     const { page = 1, limit = 20, status, severity, dateFrom, dateTo } = query;
 
     const where: any = {
-      driverId: user.userId,
+      salesmanId: user.userId,
       vendorId: user.vendorId,
     };
     if (status) where.status = status;

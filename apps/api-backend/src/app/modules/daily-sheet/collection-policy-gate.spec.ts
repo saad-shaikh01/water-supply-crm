@@ -18,6 +18,7 @@ import { SheetDiscrepancyCaseService } from '../sheet-discrepancy-case/sheet-dis
 import { VanCashLedgerService } from '../van-cash-ledger/van-cash-ledger.service';
 import { CustomerDepositsService } from '../customer-deposits/customer-deposits.service';
 import { StorageService } from '../../common/storage/storage.service';
+import { PermissionService } from '../authz/permission.service';
 import { WarehouseService } from '../warehouse/warehouse.service';
 import { DeliveryReceiptPdfService } from '../whatsapp/delivery-receipt-pdf.service';
 import { QUEUE_NAMES } from '@water-supply-crm/queue';
@@ -189,6 +190,8 @@ describe('DailySheetService.submitDelivery — Collection Policy gate', () => {
         { provide: WarehouseService, useValue: {} },
         { provide: DeliveryReceiptPdfService, useValue: {} },
         { provide: getQueueToken(QUEUE_NAMES.DAILY_SHEET_GENERATION), useValue: { add: jest.fn() } },
+        // Staff/admin hold daily_sheets:manage_edit_locks → bypass the edit-unlock window.
+        { provide: PermissionService, useValue: { can: jest.fn().mockResolvedValue(true) } },
       ],
     }).compile();
 

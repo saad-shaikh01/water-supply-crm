@@ -1,20 +1,22 @@
 'use client';
 
-import { Fragment, useEffect, useRef } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Button, Skeleton, cn } from '@water-supply-crm/ui';
 import { Calendar, ChevronUp, ExternalLink, Loader2, MessagesSquare, Package, Truck } from 'lucide-react';
-import type { ConversationMessageItem } from '@water-supply-crm/types';
+import type { ConversationMessage, ConversationMessageItem } from '@water-supply-crm/types';
 import { useAuthStore } from '../../../store/auth.store';
 import { useCan } from '../../authz/hooks/use-can';
 import {
   useAcknowledgeMessage,
   useConversationForItem,
+  useDeleteMessage,
   useMarkRead,
   useMessages,
   useSendMessage,
   useSendVoiceMessage,
 } from '../hooks/use-conversations';
+import { ConfirmDialog } from '../../../components/shared/confirm-dialog';
 import { AckGate } from './ack-gate';
 import { MessageBubble } from './message-bubble';
 import { MessageComposer } from './message-composer';
@@ -90,6 +92,9 @@ export function ConversationThread({ itemId, sheetId, variant, isDriver, itemIsP
   const sendVoice = useSendVoiceMessage(conversationId ?? '', itemId);
   const acknowledge = useAcknowledgeMessage(conversationId ?? '', sheetId);
   const markRead = useMarkRead(conversationId, itemId);
+  const { deleteMessage, removeInstruction } = useDeleteMessage(conversationId ?? '', itemId, sheetId);
+  const [pendingDelete, setPendingDelete] = useState<ConversationMessage | null>(null);
+  const [pendingRemoveInstruction, setPendingRemoveInstruction] = useState<ConversationMessage | null>(null);
 
   // Oldest -> newest: infinite-query pages are fetched newest-page-first
   // (each fetchNextPage() call walks further into the past via `before`).
@@ -126,7 +131,7 @@ export function ConversationThread({ itemId, sheetId, variant, isDriver, itemIsP
       : "You don't have permission to send messages.";
 
   return (
-    <div className={cn('space-y-3', variant === 'inbox' && 'h-full flex flex-col')}>
+    <div className={cn('space-y-2 sm:space-y-3', variant === 'inbox' && 'h-full min-h-0 flex flex-col')}>
       {/* Reverse deep link (Phase 6, §6.1): the inbox variant already has its
           own header/context — only the embedded (Daily Sheet card) variant
           needs a way back to the centralized Communication Center. Carries
@@ -147,8 +152,8 @@ export function ConversationThread({ itemId, sheetId, variant, isDriver, itemIsP
       <div
         ref={scrollRef}
         className={cn(
-          'flex flex-col gap-3 overflow-y-auto rounded-xl',
-          variant === 'embedded' ? 'max-h-96 min-h-[80px]' : 'flex-1',
+          'flex flex-col gap-2 sm:gap-3 overflow-y-auto rounded-xl',
+          variant === 'embedded' ? 'max-h-96 min-h-[80px]' : 'flex-1 min-h-[120px]',
         )}
       >
         {messagesQuery.hasNextPage && (
@@ -190,6 +195,10 @@ export function ConversationThread({ itemId, sheetId, variant, isDriver, itemIsP
                 canAcknowledge={isDriver}
                 onAcknowledge={(messageId) => acknowledge.mutate(messageId)}
                 isAcknowledging={acknowledge.isPending}
+                canDelete={canSend && !isClosed && (canInstruct || message.createdBy.id === currentUserId)}
+                canRemoveInstruction={canInstruct && !isClosed}
+                onDelete={setPendingDelete}
+                onRemoveInstruction={setPendingRemoveInstruction}
               />
             </Fragment>
           ))
@@ -208,6 +217,34 @@ export function ConversationThread({ itemId, sheetId, variant, isDriver, itemIsP
           formData.append('audio', new File([recording.blob], 'voice-message.webm', { type: recording.mimeType }));
           sendVoice.mutate({ formData, duration: recording.durationSeconds, requiresAck });
         }}
+      />
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        onOpenChange={(open) => !open && setPendingDelete(null)}
+        title="Delete message?"
+        description={
+          pendingDelete?.requiresAck
+            ? 'This message is an instruction. Deleting it removes the message and its delivery block.'
+            : 'This message will be removed from the conversation.'
+        }
+        confirmLabel="Delete"
+        isLoading={deleteMessage.isPending}
+        onConfirm={() =>
+          pendingDelete && deleteMessage.mutate(pendingDelete.id, { onSettled: () => setPendingDelete(null) })
+        }
+      />
+      <ConfirmDialog
+        open={!!pendingRemoveInstruction}
+        onOpenChange={(open) => !open && setPendingRemoveInstruction(null)}
+        title="Remove instruction?"
+        description="The message stays in the conversation, but it will no longer block delivery."
+        confirmLabel="Remove instruction"
+        isLoading={removeInstruction.isPending}
+        onConfirm={() =>
+          pendingRemoveInstruction &&
+          removeInstruction.mutate(pendingRemoveInstruction.id, { onSettled: () => setPendingRemoveInstruction(null) })
+        }
       />
     </div>
   );

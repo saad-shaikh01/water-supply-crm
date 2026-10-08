@@ -18,6 +18,9 @@ import { PayrollPeriodController } from './payroll-period.controller';
 import { PayrollPeriodService } from './payroll-period.service';
 import { PayrollEntryController } from './payroll-entry.controller';
 import { PayrollEntryService } from './payroll-entry.service';
+import { PayrollExportService } from './payroll-export.service';
+import { PayrollSlipController } from './payroll-slip.controller';
+import { PayrollSlipService } from './payroll-slip.service';
 import { SettlementController } from './settlement.controller';
 import { SettlementService } from './settlement.service';
 
@@ -89,6 +92,8 @@ describe('Payroll routes — real APP_GUARD pipeline (JwtAuthGuard + Permissions
   let payrollPeriodService: { lockPeriod: jest.Mock };
   let payrollEntryService: { listForPeriod: jest.Mock };
   let settlementService: { record: jest.Mock };
+  let payrollExportService: { exportPeriodCsv: jest.Mock };
+  let payrollSlipService: { slipPdf: jest.Mock; send: jest.Mock; preview: jest.Mock; status: jest.Mock; dispatchDetail: jest.Mock };
   const originalJwtSecret = process.env.JWT_SECRET;
 
   beforeAll(async () => {
@@ -104,6 +109,16 @@ describe('Payroll routes — real APP_GUARD pipeline (JwtAuthGuard + Permissions
     };
     payrollEntryService = { listForPeriod: jest.fn().mockResolvedValue([]) };
     settlementService = { record: jest.fn().mockResolvedValue({ id: 'settlement-001', amount: 5000 }) };
+    payrollExportService = {
+      exportPeriodCsv: jest.fn().mockResolvedValue({ filename: 'payroll-2026-09.csv', body: '﻿Period,Employee\r\n', truncated: false }),
+    };
+    payrollSlipService = {
+      slipPdf: jest.fn().mockResolvedValue({ buffer: Buffer.from('%PDF-1.4 test'), filename: 'Salary-Slip-2026-09-Ali.pdf' }),
+      send: jest.fn().mockResolvedValue({ dispatchId: 'dispatch-001', queued: 1 }),
+      preview: jest.fn().mockResolvedValue({ items: [] }),
+      status: jest.fn().mockResolvedValue({ entries: {} }),
+      dispatchDetail: jest.fn().mockResolvedValue({ deliveries: [] }),
+    };
 
     const moduleRef = await Test.createTestingModule({
       imports: [
@@ -115,6 +130,7 @@ describe('Payroll routes — real APP_GUARD pipeline (JwtAuthGuard + Permissions
         PayrollPeriodController,
         PayrollEntryController,
         SettlementController,
+        PayrollSlipController,
       ],
       providers: [
         Reflector,
@@ -129,6 +145,8 @@ describe('Payroll routes — real APP_GUARD pipeline (JwtAuthGuard + Permissions
         { provide: PayrollPeriodService, useValue: payrollPeriodService },
         { provide: PayrollEntryService, useValue: payrollEntryService },
         { provide: SettlementService, useValue: settlementService },
+        { provide: PayrollExportService, useValue: payrollExportService },
+        { provide: PayrollSlipService, useValue: payrollSlipService },
       ],
     }).compile();
 
@@ -167,6 +185,14 @@ describe('Payroll routes — real APP_GUARD pipeline (JwtAuthGuard + Permissions
   function authed(token: string) {
     return { headers: { Authorization: `Bearer ${token}` }, validateStatus: () => true };
   }
+
+  const url = {
+    export: () => `${baseUrl}/payroll/periods/period-001/export.csv`,
+    send: () => `${baseUrl}/payroll/periods/period-001/slips/send`,
+    preview: () => `${baseUrl}/payroll/periods/period-001/slips/preview`,
+    status: () => `${baseUrl}/payroll/periods/period-001/slips/status`,
+    dispatch: () => `${baseUrl}/payroll/slips/dispatches/d1`,
+  };
 
   // ── 1. Ledger-entry mutation: POST /payroll/ledger-entries (payroll:ledger_create) ──
 
@@ -254,6 +280,99 @@ describe('Payroll routes — real APP_GUARD pipeline (JwtAuthGuard + Permissions
         validateStatus: () => true,
       });
       expect(res.status).toBe(401);
+    });
+  });
+
+  // ── 5. CSV export: GET /payroll/periods/:periodId/export.csv (payroll:view_all) ──
+
+  describe('GET /payroll/periods/:periodId/export.csv', () => {
+    it('VENDOR_ADMIN → 200 text/csv attachment with the BOM body, scoped to the caller vendor', async () => {
+      const res = await axios.get(`${baseUrl}/payroll/periods/period-001/export.csv`, { ...authed(adminToken), responseType: 'arraybuffer' });
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('text/csv');
+      expect(res.headers['content-disposition']).toBe('attachment; filename="payroll-2026-09.csv"');
+      expect(res.headers['cache-control']).toContain('no-store');
+      // raw bytes: the UTF-8 BOM (EF BB BF) must survive the HTTP hop (a text decode would strip it)
+      expect(Buffer.from(res.data).subarray(0, 3).toString('hex')).toBe('efbbbf');
+      expect(Buffer.from(res.data).toString('utf8').replace(/^﻿/, '')).toBe('Period,Employee\r\n');
+      expect(payrollExportService.exportPeriodCsv).toHaveBeenCalledWith(
+        expect.objectContaining({ vendorId: VENDOR_ID, userId: ADMIN_USER_ID }),
+        'period-001',
+      );
+    });
+
+    it('DRIVER (no payroll:view_all) → 403, never reached', async () => {
+      payrollExportService.exportPeriodCsv.mockClear();
+      const res = await axios.get(url.export(), authed(driverToken));
+      expect(res.status).toBe(403);
+      expect(payrollExportService.exportPeriodCsv).not.toHaveBeenCalled();
+    });
+
+    it('no token → 401', async () => {
+      const res = await axios.get(url.export(), { validateStatus: () => true });
+      expect(res.status).toBe(401);
+    });
+  });
+
+  // ── 6. Salary slips: payroll:slip_send (+ DTO validation by the real ValidationPipe) ──
+
+  describe('salary-slip routes', () => {
+    it('POST .../slips/send as VENDOR_ADMIN → 201, DTO forwarded', async () => {
+      const res = await axios.post(url.send(), { entryIds: ['e1'], confirmResend: true }, authed(adminToken));
+      expect(res.status).toBe(201);
+      expect(payrollSlipService.send).toHaveBeenCalledWith(
+        expect.objectContaining({ vendorId: VENDOR_ID }),
+        'period-001',
+        expect.objectContaining({ entryIds: ['e1'], confirmResend: true }),
+      );
+    });
+
+    it('POST .../slips/send as DRIVER → 403, never reached', async () => {
+      payrollSlipService.send.mockClear();
+      const res = await axios.post(url.send(), {}, authed(driverToken));
+      expect(res.status).toBe(403);
+      expect(payrollSlipService.send).not.toHaveBeenCalled();
+    });
+
+    it('POST .../slips/send without a token → 401', async () => {
+      const res = await axios.post(url.send(), {}, { validateStatus: () => true });
+      expect(res.status).toBe(401);
+    });
+
+    it.each([
+      ['empty entryIds array', { entryIds: [] }],
+      ['non-string entry id', { entryIds: [123] }],
+      ['duplicate entry ids', { entryIds: ['e1', 'e1'] }],
+      ['more than 500 ids', { entryIds: Array.from({ length: 501 }, (_, i) => 'e' + i) }],
+      ['non-boolean confirmResend', { confirmResend: 'yes' }],
+    ])('POST .../slips/send rejects %s with 400 before the service runs', async (_label, body) => {
+      payrollSlipService.send.mockClear();
+      const res = await axios.post(url.send(), body, authed(adminToken));
+      expect(res.status).toBe(400);
+      expect(payrollSlipService.send).not.toHaveBeenCalled();
+    });
+
+    it('GET entries/:id/slip.pdf: ADMIN gets the PDF as an attachment; DRIVER 403; no token 401', async () => {
+      const u = baseUrl + '/payroll/entries/entry-001/slip.pdf';
+      const ok = await axios.get(u, { ...authed(adminToken), responseType: 'arraybuffer' });
+      expect(ok.status).toBe(200);
+      expect(ok.headers['content-type']).toBe('application/pdf');
+      expect(ok.headers['content-disposition']).toBe('attachment; filename="Salary-Slip-2026-09-Ali.pdf"');
+      expect(Buffer.from(ok.data).subarray(0, 5).toString()).toBe('%PDF-');
+      expect(payrollSlipService.slipPdf).toHaveBeenCalledWith(expect.objectContaining({ vendorId: VENDOR_ID }), 'entry-001');
+      payrollSlipService.slipPdf.mockClear();
+      expect((await axios.get(u, authed(driverToken))).status).toBe(403);
+      expect(payrollSlipService.slipPdf).not.toHaveBeenCalled();
+      expect((await axios.get(u, { validateStatus: () => true })).status).toBe(401);
+    });
+
+    it('preview / status / dispatch detail are gated too', async () => {
+      expect((await axios.post(url.preview(), {}, authed(driverToken))).status).toBe(403);
+      expect((await axios.get(url.status(), authed(driverToken))).status).toBe(403);
+      expect((await axios.get(url.dispatch(), authed(driverToken))).status).toBe(403);
+      expect((await axios.post(url.preview(), {}, authed(adminToken))).status).toBe(201);
+      expect((await axios.get(url.status(), authed(adminToken))).status).toBe(200);
+      expect((await axios.get(url.dispatch(), authed(adminToken))).status).toBe(200);
     });
   });
 });

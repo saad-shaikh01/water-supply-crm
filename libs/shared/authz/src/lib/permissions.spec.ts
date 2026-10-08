@@ -155,10 +155,10 @@ import { PAGE_REGISTRY, pagePermissionForPath } from './page-registry';
 // kept separate from customer_financial_adjustments since a deposit is a
 // liability, not a charge/credit. Non-navigable (Deposits tab on customer
 // detail); +1 resource, +6 total permissions.
-// 220 = 215 + data_imports (page, view, upload, execute, revert) — new navigable
-// resource for Vendor Data Import (owner-approved 2026-10-07): /dashboard/data-import.
-// +1 resource, +1 page, +5 total permissions.
-const FROZEN_TOTAL = 220;
+// 221 = 215 + data_imports (page, view, upload, execute, revert; owner-approved 2026-10-07)
+// + payroll:slip_send (salary-slip WhatsApp send, owner-requested 2026-10-07; VENDOR_ADMIN-only by default).
+// data_imports adds +1 resource, +1 page, +5 permissions; slip_send adds +1 permission.
+const FROZEN_TOTAL = 221;
 const FROZEN_PAGES = 32;
 const FROZEN_RESOURCES = 38;
 

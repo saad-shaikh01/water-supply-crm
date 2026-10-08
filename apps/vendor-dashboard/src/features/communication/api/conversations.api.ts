@@ -14,7 +14,7 @@ export interface InboxQuery {
   status?: ConversationStatusValue;
   waitingOn?: 'DRIVER' | 'OFFICE';
   vanId?: string;
-  driverId?: string;
+  salesmanId?: string;
   dateFrom?: string;
   dateTo?: string;
   search?: string;
@@ -113,6 +113,12 @@ export const conversationsApi = {
     apiClient
       .patch<ConversationMessage>(`/messages/${messageId}/acknowledge`, {})
       .then((r) => r.data),
+
+  deleteMessage: (messageId: string) =>
+    apiClient.delete<{ success: boolean }>(`/messages/${messageId}`).then((r) => r.data),
+
+  removeInstruction: (messageId: string) =>
+    apiClient.delete<ConversationMessage>(`/messages/${messageId}/instruction`).then((r) => r.data),
 
   markMessagePlayed: (messageId: string) =>
     apiClient

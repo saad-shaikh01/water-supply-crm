@@ -160,6 +160,38 @@ export const useAcknowledgeMessage = (conversationId: string, sheetId: string) =
 };
 
 /**
+ * Deleting a message (or just its instruction) can lift the delivery
+ * ack-gate, so — like acknowledge — it also refreshes the sheet query. A
+ * deleted message also changes the conversation's last-message rollups.
+ */
+export const useDeleteMessage = (conversationId: string, itemId: string, sheetId: string) => {
+  const queryClient = useQueryClient();
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.communication.messages(conversationId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.communication.forItem(itemId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.sheets.one(sheetId) });
+    queryClient.invalidateQueries({ queryKey: INBOX_AND_BADGE_PREFIX });
+  };
+  const deleteMessage = useMutation({
+    mutationFn: (messageId: string) => conversationsApi.deleteMessage(messageId),
+    onSuccess: () => {
+      toast.success('Message deleted');
+      refresh();
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to delete message'),
+  });
+  const removeInstruction = useMutation({
+    mutationFn: (messageId: string) => conversationsApi.removeInstruction(messageId),
+    onSuccess: () => {
+      toast.success('Instruction removed');
+      refresh();
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to remove instruction'),
+  });
+  return { deleteMessage, removeInstruction };
+};
+
+/**
  * Fire-and-forget "someone listened" marker. Silent on error — a failed
  * played-tick must never interrupt playback. Refreshes the thread (prefix
  * match, conversationId isn't known to the player) so the sender's bubble

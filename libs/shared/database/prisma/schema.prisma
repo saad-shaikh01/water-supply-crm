@@ -459,12 +459,12 @@ model User {
   driverLocationHistory           DriverLocationHistory[]  @relation("DriverLocationHistoryDriver")
   driverStops                     DriverStop[]             @relation("DriverStopDriver")
   driverRouteSummaries            DriverRouteSummary[]     @relation("DriverRouteSummaryDriver")
-  driverDamageCases               DamageCase[]             @relation("DriverDamageCases")
+  salesmanDamageCases             DamageCase[]             @relation("SalesmanDamageCases")
   reviewedDamageCases             DamageCase[]             @relation("DamageCaseReviewer")
-  driverDiscrepancyCases          SheetDiscrepancyCase[]   @relation("DriverDiscrepancyCases")
+  salesmanDiscrepancyCases        SheetDiscrepancyCase[]   @relation("SalesmanDiscrepancyCases")
   resolvedDiscrepancyCases        SheetDiscrepancyCase[]   @relation("DiscrepancyCaseResolver")
   sentMessages                    ConversationMessage[]    @relation("MessageSender")
-  conversationsAsDriver           Conversation[]           @relation("ConversationDriver")
+  conversationsAsSalesman         Conversation[]           @relation("ConversationSalesman")
   conversationReads               ConversationRead[]       @relation("ConversationReader")
   createdWarehouseTx              WarehouseTransaction[]   @relation("WarehouseTxCreatedBy")
   createdRepairBatches            RepairBatch[]            @relation("RepairBatchCreatedBy")
@@ -501,6 +501,7 @@ model User {
   // Staff Attendance & Wage Types — Phase 1
   staffAttendances       StaffAttendance[] @relation("StaffAttendanceEmployee")
   markedStaffAttendances StaffAttendance[] @relation("StaffAttendanceMarkedBy")
+  waivedStaffAttendances StaffAttendance[] @relation("StaffAttendanceWaivedBy")
 
   // Advance Installments
   advancePlans               StaffAdvancePlan[]        @relation("StaffAdvancePlanEmployee")
@@ -1287,14 +1288,14 @@ model DeliveryIssue {
   status DeliveryIssueStatus @default(OPEN)
 
   // Plan fields
-  nextAction       IssueNextAction?
-  retryAt          DateTime?
-  assignedToUserId String?
-  assignedVanId    String?
-  assignedDriverId String?
-  planNotes        String?
-  plannedAt        DateTime?
-  plannedById      String?
+  nextAction         IssueNextAction?
+  retryAt            DateTime?
+  assignedToUserId   String?
+  assignedVanId      String?
+  assignedSalesmanId String?
+  planNotes          String?
+  plannedAt          DateTime?
+  plannedById        String?
 
   // Resolution fields
   resolution    IssueResolution?
@@ -1456,16 +1457,16 @@ model CustomerOrder {
   rejectionReason String?
 
   // Dispatch planning
-  dispatchStatus   DispatchStatus @default(UNPLANNED)
-  targetDate       DateTime?
-  timeWindow       String?
-  dispatchVanId    String?
-  dispatchDriverId String?
-  dispatchMode     DispatchMode?
-  dispatchNotes    String?
-  plannedAt        DateTime?
-  plannedById      String?
-  dispatchedAt     DateTime?
+  dispatchStatus     DispatchStatus @default(UNPLANNED)
+  targetDate         DateTime?
+  timeWindow         String?
+  dispatchVanId      String?
+  dispatchSalesmanId String?
+  dispatchMode       DispatchMode?
+  dispatchNotes      String?
+  plannedAt          DateTime?
+  plannedById        String?
+  dispatchedAt       DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2144,8 +2145,8 @@ model DamageCase {
   customer         Customer             @relation(fields: [customerId], references: [id])
   productId        String
   product          Product              @relation(fields: [productId], references: [id])
-  driverId         String
-  driver           User                 @relation("DriverDamageCases", fields: [driverId], references: [id])
+  salesmanId       String
+  salesman         User                 @relation("SalesmanDamageCases", fields: [salesmanId], references: [id])
   dailySheetItemId String?
   dailySheetItem   DailySheetItem?      @relation(fields: [dailySheetItemId], references: [id])
   caseType         DamageCaseType       @default(DAMAGE)
@@ -2170,7 +2171,7 @@ model DamageCase {
 
   @@index([vendorId, status])
   @@index([customerId])
-  @@index([driverId])
+  @@index([salesmanId])
 }
 
 model DamageCaseAuditLog {
@@ -2204,8 +2205,8 @@ model SheetDiscrepancyCase {
   vendor       Vendor     @relation(fields: [vendorId], references: [id])
   dailySheetId String
   dailySheet   DailySheet @relation(fields: [dailySheetId], references: [id])
-  driverId     String
-  driver       User       @relation("DriverDiscrepancyCases", fields: [driverId], references: [id])
+  salesmanId   String
+  salesman     User       @relation("SalesmanDiscrepancyCases", fields: [salesmanId], references: [id])
 
   type             DiscrepancyType
   // Raw bottle/empty count gap from buildReconciliation() — set for
@@ -2242,7 +2243,7 @@ model SheetDiscrepancyCase {
 
   @@index([vendorId, status])
   @@index([dailySheetId])
-  @@index([driverId])
+  @@index([salesmanId])
 }
 
 model SheetDiscrepancyCaseAuditLog {
@@ -2290,8 +2291,8 @@ model Conversation {
   dailySheet       DailySheet?     @relation(fields: [dailySheetId], references: [id])
   vanId            String?
   van              Van?            @relation(fields: [vanId], references: [id])
-  driverId         String?
-  driver           User?           @relation("ConversationDriver", fields: [driverId], references: [id])
+  salesmanId       String?
+  salesman         User?           @relation("ConversationSalesman", fields: [salesmanId], references: [id])
   deliveryDate     DateTime?
 
   status ConversationStatus @default(OPEN)
@@ -2315,7 +2316,7 @@ model Conversation {
   @@unique([vendorId, customerId])
   @@index([vendorId, lastMessageAt])
   @@index([vendorId, status, lastMessageAt])
-  @@index([driverId, lastMessageAt])
+  @@index([salesmanId, lastMessageAt])
   @@index([dailySheetId])
 }
 
@@ -2819,6 +2820,12 @@ model StaffLedgerEntry {
   effectiveDate DateTime // date this counts against for period attribution — may differ from createdAt
   description   String?
 
+  // "Deduct next month" (owner-requested 2026-10-07). When set, PAYROLL attribution (which PayrollPeriod
+  // claims this row) uses this date instead of `effectiveDate`. `effectiveDate` itself is never touched,
+  // so the Cash Ledger — which dates an ADVANCE's real cash movement by `effectiveDate` — is unaffected.
+  // Cleared again by "undo defer". Only settable while payrollEntryId is null (not yet locked).
+  payrollAttributionDate DateTime?
+
   status LedgerEntryStatus @default(PENDING)
 
   createdById  String
@@ -3055,6 +3062,12 @@ model PayrollVendorConfig {
   cashCutoffDay        Int? // day of month the SEPARATE cash-deduction cycle starts/ends; null = disabled, cashWindowCategories are ignored
   cashWindowCategories StaffLedgerCategory[] @default([]) // which ledger categories are pulled from the cashCutoffDay cycle instead of the attendance period; ignored while cashCutoffDay is null
   autoLockEnabled      Boolean               @default(false)
+  // Optional per-employee deduction ceiling, as a whole-number percent of the period's base salary
+  // (owner-requested 2026-10-07). null = OFF (every deduction lands in full, byte-identical to before).
+  // When set, advances + penalties + otherDeductions (net debit) above `baseSalary * pct / 100` are NOT
+  // charged this period — they are recorded on PayrollEntry.deferredOut and charged (again subject to
+  // the same ceiling) next period via PayrollEntry.deferredIn.
+  maxDeductionPercent  Int?
   updatedById          String
   updatedBy            User                  @relation(fields: [updatedById], references: [id])
   createdAt            DateTime              @default(now())
@@ -3107,6 +3120,12 @@ model PayrollEntry {
   penalties       Int @default(0)
   otherDeductions Int @default(0)
   carryForwardIn  Int @default(0)
+  // Max-deduction ceiling bookkeeping (see PayrollVendorConfig.maxDeductionPercent). Both stay 0 for every
+  // vendor that has not turned the ceiling on. `deferredOut` = deduction NOT charged this period because it
+  // exceeded the ceiling (already excluded from finalPayable); `deferredIn` = the previous period's
+  // `deferredOut`, charged (subject to the ceiling again) in this period.
+  deferredIn      Int @default(0)
+  deferredOut     Int @default(0)
   finalPayable    Int
 
   status       PayrollEntryStatus @default(DRAFT)
@@ -3124,9 +3143,76 @@ model PayrollEntry {
   snapshots     PayrollSnapshot[]
   settlements   Settlement[]
   auditLogs     PayrollEntryAuditLog[]
+  slipDeliveries PayrollSlipDelivery[]
 
   @@unique([periodId, userId])
   @@index([vendorId, userId])
+}
+
+// Salary-slip WhatsApp send (owner-requested 2026-10-07). One dispatch = one "Send slips" click
+// (all eligible, or a selected subset); it is processed by a BullMQ job that sends one slip at a
+// time with a randomized delay. Every employee in the dispatch gets a PayrollSlipDelivery row so
+// the result (sent / no phone / failed / WhatsApp disconnected) is kept, and so a later click can
+// tell "already sent" apart from "never sent". vendorId/periodId/userId/requestedById are plain
+// ids (indexed, always filtered by vendorId) — only the entry + dispatch carry real FKs.
+enum PayrollSlipDispatchStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  ABORTED // WhatsApp dropped mid-batch — the remaining rows are SKIPPED_DISCONNECTED
+  FAILED
+}
+
+enum PayrollSlipDeliveryStatus {
+  QUEUED
+  SENDING // claimed by a worker, WhatsApp call in flight — never picked up again (at-most-once)
+  SENT
+  SKIPPED_NO_PHONE
+  SKIPPED_DISCONNECTED
+  FAILED
+}
+
+model PayrollSlipDispatch {
+  id            String                    @id @default(uuid())
+  vendorId      String
+  periodId      String
+  requestedById String
+  status        PayrollSlipDispatchStatus @default(QUEUED)
+  total         Int
+  sent          Int                       @default(0)
+  skipped       Int                       @default(0)
+  failed        Int                       @default(0)
+  createdAt     DateTime                  @default(now())
+  startedAt     DateTime?
+  finishedAt    DateTime?
+
+  deliveries PayrollSlipDelivery[]
+
+  @@index([vendorId, periodId, createdAt])
+}
+
+model PayrollSlipDelivery {
+  id             String                    @id @default(uuid())
+  dispatchId     String
+  dispatch       PayrollSlipDispatch       @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+  vendorId       String
+  periodId       String
+  payrollEntryId String
+  payrollEntry   PayrollEntry              @relation(fields: [payrollEntryId], references: [id])
+  userId         String
+  /// Normalized (digits-only, country code) phone at request time; null when the employee had none.
+  phone          String?
+  status         PayrollSlipDeliveryStatus @default(QUEUED)
+  error          String?
+  /// finalPayable / entry version the slip was built from — lets a later click flag "amount changed since sent".
+  finalPayable   Int
+  entryVersion   Int
+  createdAt      DateTime                  @default(now())
+  sentAt         DateTime?
+
+  @@index([dispatchId])
+  @@index([payrollEntryId, status])
+  @@index([vendorId, periodId, createdAt])
 }
 
 // Immutable frozen breakdown of a PayrollEntry at lock time. One-to-many —
@@ -3240,6 +3326,15 @@ model StaffAttendance {
   // bridging the same row twice.
   leaveLedgerEntryId String?           @unique
   leaveLedgerEntry   StaffLedgerEntry? @relation("StaffAttendanceLeaveEntry", fields: [leaveLedgerEntryId], references: [id])
+
+  // "Paid / waived" decision for an ABSENT / HALF_DAY day (owner-requested 2026-10-07): the admin has
+  // explicitly decided NOT to deduct for this day. Mutually exclusive with an active leaveLedgerEntry.
+  // An ABSENT/HALF_DAY row with neither a live (non-VOIDED) leave entry nor this set is "pending decision".
+  // Cleared automatically if the day is re-marked to any other status.
+  deductionWaivedAt     DateTime?
+  deductionWaivedById   String?
+  deductionWaivedBy     User?     @relation("StaffAttendanceWaivedBy", fields: [deductionWaivedById], references: [id])
+  deductionWaivedReason String?
 
   version   Int      @default(1)
   createdAt DateTime @default(now())

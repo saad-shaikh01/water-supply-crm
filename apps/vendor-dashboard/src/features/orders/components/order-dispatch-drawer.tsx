@@ -19,7 +19,7 @@ import {
 } from '@water-supply-crm/ui';
 import { CalendarClock, Truck } from 'lucide-react';
 import { useAllVans } from '../../vans/hooks/use-vans';
-import { useAllDrivers } from '../../users/hooks/use-users';
+import { useAllSalesmen } from '../../users/hooks/use-users';
 import { dailySheetsApi } from '../../daily-sheets/api/daily-sheets.api';
 
 const DISPATCH_MODE_OPTIONS = [
@@ -35,7 +35,7 @@ interface OrderDispatchDrawerProps {
     targetDate: string;
     timeWindow?: string;
     vanId?: string;
-    driverId?: string;
+    salesmanId?: string;
     dispatchMode: string;
     notes?: string;
     targetSheetId?: string;
@@ -55,19 +55,19 @@ export function OrderDispatchDrawer({
   isDispatching,
 }: OrderDispatchDrawerProps) {
   const { data: vansData } = useAllVans();
-  const { data: driversData } = useAllDrivers();
+  const { data: salesmenData } = useAllSalesmen();
   const [form, setForm] = useState({
     targetDate: '',
     timeWindow: '',
     vanId: '',
-    driverId: '',
+    salesmanId: '',
     dispatchMode: 'QUEUE_FOR_GENERATION',
     notes: '',
     targetSheetId: '',
   });
 
   const vans = ((vansData as any)?.data ?? []) as Array<{ id: string; plateNumber: string }>;
-  const drivers = ((driversData as any)?.data ?? []) as Array<{ id: string; name: string }>;
+  const salesmen = ((salesmenData as any)?.data ?? []) as Array<{ id: string; name: string }>;
 
   const { data: openSheetsData } = useQuery({
     queryKey: ['order-dispatch-open-sheets', form.targetDate, form.vanId],
@@ -98,7 +98,7 @@ export function OrderDispatchDrawer({
         : '',
       timeWindow: order.timeWindow ?? '',
       vanId: order.dispatchVanId ?? '',
-      driverId: order.dispatchDriverId ?? '',
+      salesmanId: order.dispatchSalesmanId ?? '',
       dispatchMode: order.dispatchMode ?? 'QUEUE_FOR_GENERATION',
       notes: order.dispatchNotes ?? '',
       targetSheetId: '',
@@ -208,15 +208,15 @@ export function OrderDispatchDrawer({
             </div>
 
             <div className="space-y-2">
-              <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Assign Driver</Label>
-              <Select value={form.driverId || 'none'} onValueChange={(value) => setForm((prev) => ({ ...prev, driverId: value === 'none' ? '' : value }))}>
+              <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Assign Salesman</Label>
+              <Select value={form.salesmanId || 'none'} onValueChange={(value) => setForm((prev) => ({ ...prev, salesmanId: value === 'none' ? '' : value }))}>
                 <SelectTrigger>
-                  <SelectValue placeholder="No driver assigned" />
+                  <SelectValue placeholder="No salesman assigned" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">No driver assigned</SelectItem>
-                  {drivers.map((driver) => (
-                    <SelectItem key={driver.id} value={driver.id}>{driver.name}</SelectItem>
+                  <SelectItem value="none">No salesman assigned</SelectItem>
+                  {salesmen.map((salesman) => (
+                    <SelectItem key={salesman.id} value={salesman.id}>{salesman.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -258,7 +258,7 @@ export function OrderDispatchDrawer({
                 targetDate: form.targetDate,
                 timeWindow: form.timeWindow || undefined,
                 vanId: form.vanId || undefined,
-                driverId: form.driverId || undefined,
+                salesmanId: form.salesmanId || undefined,
                 dispatchMode: form.dispatchMode,
                 notes: form.notes || undefined,
                 targetSheetId: form.targetSheetId || undefined,

@@ -54,7 +54,7 @@ function makeService(prisma: any, accrual?: any) {
     get: jest.fn().mockResolvedValue(null),
     set: jest.fn().mockResolvedValue(undefined),
   };
-  const zero = { bill: 0, paidInMonth: 0, priorPaid: 0, pending: 0 };
+  const zero = { bill: 0, paidInMonth: 0, priorPaid: 0, pending: 0, priorPaidByMonth: [], earlierPendingByMonth: [] };
   const supplierBills = { getMonthAccrual: jest.fn().mockResolvedValue(accrual ?? { plant: zero, caps: zero }) };
   return { service: new ProfitLossService(prisma, cache as any, supplierBills as any), cache };
 }
@@ -214,8 +214,8 @@ describe('ProfitLossService', () => {
 
 describe('ProfitLossService — actual cost adjustments', () => {
   const accrual = {
-    plant: { bill: 400000, paidInMonth: 318880, priorPaid: 300000, pending: 381120 },
-    caps: { bill: 0, paidInMonth: 0, priorPaid: 0, pending: 0 },
+    plant: { bill: 400000, paidInMonth: 318880, priorPaid: 300000, pending: 381120, priorPaidByMonth: [], earlierPendingByMonth: [] },
+    caps: { bill: 0, paidInMonth: 0, priorPaid: 0, pending: 0, priorPaidByMonth: [], earlierPendingByMonth: [] },
   };
 
   it('stays cash basis when no adjustment is selected, but lists the candidates', async () => {
@@ -242,5 +242,60 @@ describe('ProfitLossService — actual cost adjustments', () => {
     expect(refill.adjustment).toBe(81120);
     // trend and reconciliation remain cash basis
     expect(r.reconciliation.ok).toBe(true);
+  });
+
+  it('keeps row order stable whichever adjustments are ticked', async () => {
+    const order = async (adjust?: string) => {
+      const r = await makeService(makePrisma(), accrual).service.getProfitLoss('v1', '2026-09', adjust, 'ACTUAL');
+      return r.domains.flatMap((d: any) => d.categories.map((c: any) => c.key));
+    };
+    const all = await order('PLANT_PRIOR_PAID,PLANT_PENDING,SALARY_PRIOR_PAID,SALARY_PENDING');
+    expect(await order('PLANT_PENDING')).toEqual(all);
+    expect(await order('PLANT_PRIOR_PAID')).toEqual(all);
+    expect(await order(undefined)).toEqual(all);
+  });
+});
+
+describe('ProfitLossService — what-if rate per bottle', () => {
+  const zero = { bill: 0, paidInMonth: 0, priorPaid: 0, pending: 0, priorPaidByMonth: [], earlierPendingByMonth: [] };
+  const accrual = {
+    plant: { bill: 400000, paidInMonth: 318880, priorPaid: 300000, pending: 381120, priorPaidByMonth: [{ month: '2026-08', amount: 300000 }], earlierPendingByMonth: [{ month: '2026-08', amount: 50000 }] },
+    caps: zero,
+  };
+  const refillOf = (r: any) => r.domains.flatMap((d: any) => d.categories).find((c: any) => c.key === 'BOTTLE_REFILL_PAYMENT');
+
+  it('replaces the refill cost with rate x delivered bottles and sets the paid/unpaid rows aside', async () => {
+    const base = await makeService(makePrisma(), accrual).service.getProfitLoss('v1', '2026-09', undefined, 'ACTUAL');
+    const r = await makeService(makePrisma(), accrual).service.getProfitLoss('v1', '2026-09', 'PLANT_PENDING', 'ACTUAL', { plantRate: 23 });
+    // mocked month: 10,000 delivered, 35 filled taken back
+    expect(refillOf(r).amount).toBe(230000);
+    expect(refillOf(r).simulated).toBe(true);
+    expect(r.whatIf).toMatchObject({ basis: 'DELIVERED', bottles: 10000, plant: { rate: 23, amount: 230000 }, caps: null });
+    expect(r.summary.totalExpenses).toBe(base.summary.totalExpenses - 318880 + 230000);
+    expect(r.adjustments.filter((a: any) => a.group === 'PLANT').every((a: any) => a.superseded && !a.applied)).toBe(true);
+  });
+
+  it('can multiply the net bottle count instead', async () => {
+    const r = await makeService(makePrisma(), accrual).service.getProfitLoss('v1', '2026-09', undefined, 'ACTUAL', { plantRate: 23, basis: 'NET' });
+    expect(r.whatIf.bottles).toBe(9965);
+    expect(refillOf(r).amount).toBe(229195);
+  });
+
+  it('is ignored on the cash view and keeps a plant/caps row even when there is nothing to adjust', async () => {
+    const cash = await makeService(makePrisma(), accrual).service.getProfitLoss('v1', '2026-09', undefined, undefined, { plantRate: 23 });
+    expect(cash.basis).toBe('CASH');
+    expect(refillOf(cash).amount).toBe(318880);
+    const { service } = makeService(makePrisma(), { plant: zero, caps: zero });
+    const r = await service.getProfitLoss('v1', '2026-09', undefined, 'ACTUAL', { capsRate: 2 });
+    expect(r.domains.flatMap((d: any) => d.categories).find((c: any) => c.key === 'CAPS_PURCHASED').amount).toBe(20000);
+  });
+
+  it('explains the overall balance vs the month own share', async () => {
+    const r = await makeService(makePrisma(), accrual).service.getProfitLoss('v1', '2026-09');
+    const pending = r.adjustments.find((a: any) => a.key === 'PLANT_PENDING');
+    expect(pending.details).toEqual([{ label: expect.stringContaining('Aug 2026'), amount: 50000 }]);
+    expect(pending.note).toContain('431,120');
+    const paid = r.adjustments.find((a: any) => a.key === 'PLANT_PRIOR_PAID');
+    expect(paid.details).toEqual([{ label: expect.stringContaining('Aug 2026'), amount: 300000 }]);
   });
 });

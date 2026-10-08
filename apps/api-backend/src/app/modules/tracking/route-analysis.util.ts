@@ -137,7 +137,8 @@ export async function matchStopsToDeliveries(
   const dayEnd = addDays(day, 1);
   const deliveries = await prisma.dailySheetItem.findMany({
     where: {
-      dailySheet: { driverId, vendorId, date: { gte: day, lt: dayEnd } },
+      // `driverId` here is whoever reported the GPS trail — the sheet's driver OR its salesman.
+      dailySheet: { OR: [{ driverId }, { salesmanId: driverId }], vendorId, date: { gte: day, lt: dayEnd } },
       deliveredAt: { not: null },
     },
     select: {

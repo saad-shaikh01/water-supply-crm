@@ -44,7 +44,7 @@ describe('MessageService.sendText', () => {
       dailySheet: {
         id: 'sheet-001',
         vanId: 'van-001',
-        driverId: DRIVER_USER.userId,
+        salesmanId: DRIVER_USER.userId,
         date: new Date('2026-07-17T00:00:00.000Z'),
       },
       ...overrides,
@@ -161,7 +161,7 @@ describe('MessageService.sendText', () => {
           dailySheetItemId: item.id,
           dailySheetId: item.dailySheetId,
           vanId: item.dailySheet.vanId,
-          driverId: item.dailySheet.driverId,
+          salesmanId: item.dailySheet.salesmanId,
           deliveryDate: item.dailySheet.date,
         }),
       }),

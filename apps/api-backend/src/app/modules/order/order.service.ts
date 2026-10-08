@@ -97,7 +97,7 @@ export class OrderService {
         order.dispatchStatus !== 'UNPLANNED'
           ? {
               vanId: order.dispatchVanId ?? null,
-              driverId: order.dispatchDriverId ?? null,
+              salesmanId: order.dispatchSalesmanId ?? null,
               targetDate: order.targetDate ?? null,
               dispatchMode: order.dispatchMode ?? null,
             }
@@ -350,7 +350,7 @@ export class OrderService {
         targetDate: new Date(dto.targetDate),
         timeWindow: dto.timeWindow ?? null,
         dispatchVanId: dto.vanId ?? null,
-        dispatchDriverId: dto.driverId ?? null,
+        dispatchSalesmanId: dto.salesmanId ?? null,
         dispatchMode: dto.dispatchMode,
         dispatchNotes: dto.notes ?? null,
         plannedAt: new Date(),
@@ -385,7 +385,7 @@ export class OrderService {
         targetDate: new Date(dto.targetDate),
         timeWindow: dto.timeWindow ?? null,
         dispatchVanId: dto.vanId ?? null,
-        dispatchDriverId: dto.driverId ?? null,
+        dispatchSalesmanId: dto.salesmanId ?? null,
         dispatchMode: dto.dispatchMode,
         dispatchNotes: dto.notes ?? null,
         plannedAt: new Date(),

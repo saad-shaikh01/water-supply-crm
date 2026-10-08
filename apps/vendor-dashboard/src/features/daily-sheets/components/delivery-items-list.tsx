@@ -243,7 +243,10 @@ interface DeliveryItemsListProps {
   onPageChange: (page: number) => void;
   onToggleExpand: (itemId: string | null) => void;
   onSaveLocation: (customerId: string, lat: number, lng: number, address?: string) => Promise<void>;
+  /** Permission-based (`!daily_sheets:manage_edit_locks`) — gates the Edit/Request-Edit UI only. NOT the same as "is actually a driver"; see `isDriverRole`. */
   isDriver: boolean;
+  /** Real role check (DRIVER/SALESMAN) — mirrors Communication Center's own `isDriver` (communications/page.tsx). Only DRIVER/SALESMAN may acknowledge an instruction, so this (not the permission-based `isDriver` above) must gate the Chats modal. */
+  isDriverRole: boolean;
   canManageEditLocks: boolean;
   /** Gates the Select/Move-to-another-van/sheet UI (`daily_sheets:move_customer`). */
   canMove: boolean;
@@ -293,6 +296,7 @@ export function DeliveryItemsList({
   onToggleExpand,
   onSaveLocation,
   isDriver,
+  isDriverRole,
   canManageEditLocks,
   canMove,
   canVoidDelivery,
@@ -1223,7 +1227,7 @@ export function DeliveryItemsList({
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-black text-amber-700 dark:text-amber-400">Read Before Delivering</p>
                                 <p className="text-xs text-muted-foreground mt-0.5">
-                                  {isDriver
+                                  {isDriverRole
                                     ? `Acknowledge ${pendingAckCount === 1 ? 'the instruction' : `all ${pendingAckCount} instructions`} in Chats to unlock the delivery form.`
                                     : `Waiting on the driver to acknowledge ${pendingAckCount === 1 ? 'an instruction' : `${pendingAckCount} instructions`} in Chats before this can be recorded.`}
                                 </p>
@@ -1334,7 +1338,7 @@ export function DeliveryItemsList({
         <ChatModal
           item={chatItem}
           sheetId={sheetId}
-          isDriver={isDriver}
+          isDriver={isDriverRole}
           // This is the same per-customer thread as the Communication Center
           // and the Customer List's "Chats" entry point (see
           // communications/page.tsx and customer-conversation-thread.tsx) —
@@ -1376,6 +1380,7 @@ function ChatModal({
 }: {
   item: DeliveryItem;
   sheetId: string;
+  /** Real role check (DRIVER/SALESMAN) — gates the acknowledge action inside the thread. */
   isDriver: boolean;
   isClosed: boolean;
   onClose: () => void;

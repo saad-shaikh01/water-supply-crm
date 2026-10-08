@@ -104,13 +104,13 @@ export function ConversationList({
               }
             }}
             className={cn(
-              'w-full flex items-start gap-3 px-4 py-3 text-left transition-colors cursor-pointer',
+              'w-full flex items-start gap-2.5 sm:gap-3 px-3 sm:px-4 py-2.5 text-left transition-colors cursor-pointer',
               isSelected ? 'bg-primary/10' : 'hover:bg-accent/40',
             )}
             style={flagRowStripeStyle(c.customer.flags)}
           >
             <div className="relative shrink-0">
-              <Avatar className="h-10 w-10" style={flagRingStyle(c.customer.flags)}>
+              <Avatar className="h-9 w-9 sm:h-10 sm:w-10" style={flagRingStyle(c.customer.flags)}>
                 <AvatarFallback
                   className="text-sm font-bold text-white"
                   style={{ backgroundColor: avatarColor(c.customer.name) }}
@@ -136,7 +136,7 @@ export function ConversationList({
                   >
                     {c.customer.name}
                   </Link>
-                  <span className="text-[10px] text-muted-foreground font-mono shrink-0">
+                  <span className="hidden sm:inline text-[10px] text-muted-foreground font-mono shrink-0">
                     ({c.customer.customerCode})
                   </span>
                 </span>
@@ -162,7 +162,7 @@ export function ConversationList({
                 )}
               </div>
 
-              <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+              <div className="flex items-center gap-x-1.5 gap-y-1 mt-1 flex-wrap">
                 <Badge className={cn('text-[9px] px-1.5 border-0', STATUS_STYLES[c.status])}>{c.status}</Badge>
                 <CustomerFlagIcons flags={c.customer.flags} />
                 {c.waitingOn && (
@@ -179,10 +179,10 @@ export function ConversationList({
                     {c.van.plateNumber}
                   </span>
                 )}
-                {c.driver && (
+                {c.salesman && (
                   <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                     <User className="h-2.5 w-2.5" />
-                    {c.driver.name}
+                    {c.salesman.name}
                   </span>
                 )}
                 {c.dailySheet && (

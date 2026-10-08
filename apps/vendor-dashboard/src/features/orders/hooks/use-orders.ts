@@ -87,7 +87,7 @@ export const useSaveDispatchPlan = () => {
         targetDate: string;
         timeWindow?: string;
         vanId?: string;
-        driverId?: string;
+        salesmanId?: string;
         dispatchMode: string;
         notes?: string;
       };

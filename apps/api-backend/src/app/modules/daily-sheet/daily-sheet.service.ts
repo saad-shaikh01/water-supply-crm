@@ -9,6 +9,7 @@ import {
   OnModuleInit,
   Inject,
   forwardRef,
+  Optional,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -49,6 +50,7 @@ import {
 } from '../../common/helpers/crew-validation';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
 import type { AuthUser, SheetAuditLogEntry } from '@water-supply-crm/types';
+import { PermissionService } from '../authz/permission.service';
 import {
   auditActionMeta,
   collectAuditBlobIds,
@@ -124,7 +126,19 @@ export class DailySheetService implements OnModuleInit {
     private customerDeposits: CustomerDepositsService,
     @InjectQueue(QUEUE_NAMES.DAILY_SHEET_GENERATION)
     private sheetQueue: Queue,
+    // Global AuthzModule provides this in the app; @Optional() only keeps
+    // unit-test modules that don't register it constructible.
+    @Optional() private permissions?: PermissionService,
   ) {}
+
+  /**
+   * Edit-lock bypass is permission-based, not role-based: a holder of
+   * `daily_sheets:manage_edit_locks` may re-submit a locked delivery/trip
+   * directly; everyone else needs an active staff-granted unlock window.
+   */
+  private async canBypassEditLock(user: AuthUser): Promise<boolean> {
+    return (await this.permissions?.can(user.userId, 'daily_sheets:manage_edit_locks')) ?? false;
+  }
 
   async onModuleInit() {
     try {
@@ -570,8 +584,8 @@ export class DailySheetService implements OnModuleInit {
         `Delivery already recorded as ${item.status}. Set forceResubmit=true to override.`
       );
     }
-    // Drivers can only force-resubmit if an active unlock window has been granted by staff
-    if (dto.forceResubmit && TERMINAL_STATUSES.includes(item.status) && user.role === 'DRIVER') {
+    // Force-resubmit needs an active unlock window unless the caller holds daily_sheets:manage_edit_locks
+    if (dto.forceResubmit && TERMINAL_STATUSES.includes(item.status) && !(await this.canBypassEditLock(user))) {
       const hasActiveUnlock = item.editUnlockExpiresAt && item.editUnlockExpiresAt > new Date();
       if (!hasActiveUnlock) {
         throw new ForbiddenException('Edit not permitted. Ask staff to unlock this delivery first.');
@@ -1645,7 +1659,7 @@ export class DailySheetService implements OnModuleInit {
     const item = await this.prisma.dailySheetItem.findUnique({
       where: { id: itemId },
       include: {
-        dailySheet: { select: { id: true, vendorId: true, driverId: true, date: true } },
+        dailySheet: { select: { id: true, vendorId: true, salesmanId: true, date: true } },
         customer: { select: { name: true } },
       },
     });
@@ -1654,8 +1668,8 @@ export class DailySheetService implements OnModuleInit {
       throw new NotFoundException('Sheet item not found');
     }
 
-    if (item.dailySheet.driverId !== user.userId) {
-      throw new ForbiddenException('Only the assigned driver can request an edit');
+    if (item.dailySheet.salesmanId !== user.userId) {
+      throw new ForbiddenException('Only the assigned salesman can request an edit');
     }
 
     this.assertItemNotVoided(item);
@@ -1673,7 +1687,7 @@ export class DailySheetService implements OnModuleInit {
     // Notify all VENDOR_ADMIN and STAFF users for this vendor
     const sheetId = item.dailySheet.id;
     const customerName = item.customer?.name ?? 'Customer';
-    const driverName = user.name ?? 'Driver';
+    const salesmanName = user.name ?? 'Salesman';
     const dateStr = new Date(item.dailySheet.date).toLocaleDateString('en-PK', {
       day: 'numeric', month: 'short',
     });
@@ -1690,13 +1704,13 @@ export class DailySheetService implements OnModuleInit {
           vendorId: user.vendorId,
           type: 'DELIVERY_EDIT_REQUESTED',
           title: `Edit Request — ${customerName}`,
-          message: `${driverName} requests to edit delivery #${item.sequence} for ${customerName} (${dateStr}).`,
+          message: `${salesmanName} requests to edit delivery #${item.sequence} for ${customerName} (${dateStr}).`,
           entityId: sheetId,
         });
         await this.notifications.queueFcm(
           admin.id,
           `Edit Request — ${customerName}`,
-          `${driverName} wants to edit delivery #${item.sequence} for ${customerName} (${dateStr}).`,
+          `${salesmanName} wants to edit delivery #${item.sequence} for ${customerName} (${dateStr}).`,
           { type: 'DELIVERY_EDIT_REQUESTED', sheetId },
         );
       }),
@@ -2630,6 +2644,9 @@ export class DailySheetService implements OnModuleInit {
                 vehicle: { select: { id: true, plateNumber: true } },
               },
             },
+            // Vehicle Maintenance spawned from this sheet — its edit/delete live in the
+            // sheet's Vehicle Maintenance section (keeps record + expense in sync).
+            vehicleServiceRecord: { select: { id: true } },
           },
           orderBy: { date: 'desc' },
         },
@@ -3973,12 +3990,11 @@ export class DailySheetService implements OnModuleInit {
       throw new ConflictException('Trip already checked in');
     }
 
-    // Trip Edit-Unlock: re-submitting an already-checked-in trip. Drivers may
-    // only do this within an active staff/admin-granted unlock window;
-    // STAFF/VENDOR_ADMIN bypass the unlock check entirely (same asymmetry as
-    // submitDelivery's forceResubmit gate for delivery items).
+    // Trip Edit-Unlock: re-submitting an already-checked-in trip needs an active
+    // staff/admin-granted unlock window unless the caller holds
+    // daily_sheets:manage_edit_locks (same gate as submitDelivery's forceResubmit).
     const isEdit = !!(dto.forceResubmit && load.endedAt);
-    if (isEdit && user.role === 'DRIVER') {
+    if (isEdit && !(await this.canBypassEditLock(user))) {
       const hasActiveUnlock = load.editUnlockExpiresAt && load.editUnlockExpiresAt > new Date();
       if (!hasActiveUnlock) {
         throw new ForbiddenException('Edit not permitted. Ask staff to unlock this trip first.');
@@ -4232,14 +4248,14 @@ export class DailySheetService implements OnModuleInit {
   async requestTripEdit(user: AuthUser, sheetId: string, loadId: string) {
     const load = await this.prisma.dailySheetLoad.findFirst({
       where: { id: loadId, dailySheetId: sheetId },
-      include: { dailySheet: { select: { id: true, vendorId: true, driverId: true, date: true } } },
+      include: { dailySheet: { select: { id: true, vendorId: true, salesmanId: true, date: true } } },
     });
 
     if (!load || load.dailySheet.vendorId !== user.vendorId) {
       throw new NotFoundException('Load trip not found');
     }
-    if (load.dailySheet.driverId !== user.userId) {
-      throw new ForbiddenException('Only the assigned driver can request an edit');
+    if (load.dailySheet.salesmanId !== user.userId) {
+      throw new ForbiddenException('Only the assigned salesman can request an edit');
     }
     if (!load.endedAt) {
       throw new BadRequestException('Trip has not been checked in yet');
@@ -4251,7 +4267,7 @@ export class DailySheetService implements OnModuleInit {
     });
 
     const sheetId2 = load.dailySheet.id;
-    const driverName = user.name ?? 'Driver';
+    const salesmanName = user.name ?? 'Salesman';
     const dateStr = new Date(load.dailySheet.date).toLocaleDateString('en-PK', {
       day: 'numeric', month: 'short',
     });
@@ -4268,13 +4284,13 @@ export class DailySheetService implements OnModuleInit {
           vendorId: user.vendorId,
           type: 'TRIP_EDIT_REQUESTED',
           title: `Trip Edit Request — Trip ${load.tripNumber}`,
-          message: `${driverName} requests to edit Trip ${load.tripNumber}'s check-in (${dateStr}).`,
+          message: `${salesmanName} requests to edit Trip ${load.tripNumber}'s check-in (${dateStr}).`,
           entityId: sheetId2,
         });
         await this.notifications.queueFcm(
           admin.id,
           `Trip Edit Request — Trip ${load.tripNumber}`,
-          `${driverName} wants to edit Trip ${load.tripNumber}'s check-in (${dateStr}).`,
+          `${salesmanName} wants to edit Trip ${load.tripNumber}'s check-in (${dateStr}).`,
           { type: 'TRIP_EDIT_REQUESTED', sheetId: sheetId2 },
         );
       }),
@@ -4644,7 +4660,7 @@ export class DailySheetService implements OnModuleInit {
       const discrepancies = await this.discrepancyCases.createCasesForSheet(
         tx,
         vendorId,
-        { id: sheetId, driverId: sheet.driverId },
+        { id: sheetId, salesmanId: sheet.salesmanId },
         // Force close has no real load/trip to compare against, so the stock
         // (bottle/empty) counts are accepted as recorded — same treatment WALK_IN gets.
         DailySheetService.discrepancyInputFor(
@@ -4921,7 +4937,7 @@ export class DailySheetService implements OnModuleInit {
       const discrepancies = await this.discrepancyCases.createCasesForSheet(
         tx,
         vendorId,
-        { id: sheetId, driverId: sheet.driverId },
+        { id: sheetId, salesmanId: sheet.salesmanId },
         DailySheetService.discrepancyInputFor((sheet as unknown as { kind: DailySheetKind }).kind, reconciliation),
         actorId,
         actorRole,
@@ -5081,11 +5097,11 @@ export class DailySheetService implements OnModuleInit {
       // Keep the Communication Center's denormalized inbox context in sync
       // (LOCKED §5.6). Display/filter data only — driver access checks always
       // resolve the sheet's current driver, never these columns.
-      if (updateData.driverId || updateData.vanId) {
+      if (updateData.salesmanId || updateData.vanId) {
         await tx.conversation.updateMany({
           where: { dailySheetId: sheetId },
           data: {
-            ...(updateData.driverId ? { driverId: updateData.driverId } : {}),
+            ...(updateData.salesmanId ? { salesmanId: updateData.salesmanId } : {}),
             ...(updateData.vanId ? { vanId: updateData.vanId } : {}),
           },
         });
@@ -5393,14 +5409,14 @@ export class DailySheetService implements OnModuleInit {
       // consistency rule; display/filter data only, never authorization).
       const destSheet = await tx.dailySheet.findUniqueOrThrow({
         where: { id: destinationSheetId },
-        select: { vanId: true, driverId: true, date: true },
+        select: { vanId: true, salesmanId: true, date: true },
       });
       await tx.conversation.updateMany({
         where: { dailySheetItemId: { in: items.map((i) => i.id) } },
         data: {
           dailySheetId: destinationSheetId,
           vanId: destSheet.vanId,
-          driverId: destSheet.driverId,
+          salesmanId: destSheet.salesmanId,
           deliveryDate: destSheet.date,
         },
       });

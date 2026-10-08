@@ -24,7 +24,7 @@ describe('PayrollVendorConfigService', () => {
     it('returns the documented defaults (calendar-month, cash window disabled) when the vendor has no row yet', async () => {
       const { service } = makeService(null);
       const config = await service.getConfig(VENDOR_ID);
-      expect(config).toEqual({ cutoffDay: 1, cashCutoffDay: null, cashWindowCategories: [], autoLockEnabled: false });
+      expect(config).toEqual({ cutoffDay: 1, cashCutoffDay: null, cashWindowCategories: [], autoLockEnabled: false, maxDeductionPercent: null });
     });
 
     it('returns the stored row as-is when one exists', async () => {
@@ -33,6 +33,7 @@ describe('PayrollVendorConfigService', () => {
         cashCutoffDay: 10,
         cashWindowCategories: [StaffLedgerCategory.ADVANCE, StaffLedgerCategory.CREW_CASH],
         autoLockEnabled: true,
+        maxDeductionPercent: 40,
       });
       const config = await service.getConfig(VENDOR_ID);
       expect(config).toEqual({
@@ -40,6 +41,7 @@ describe('PayrollVendorConfigService', () => {
         cashCutoffDay: 10,
         cashWindowCategories: [StaffLedgerCategory.ADVANCE, StaffLedgerCategory.CREW_CASH],
         autoLockEnabled: true,
+        maxDeductionPercent: 40,
       });
     });
   });
@@ -79,6 +81,25 @@ describe('PayrollVendorConfigService', () => {
         expect.objectContaining({ update: expect.objectContaining({ cashCutoffDay: null, cashWindowCategories: [] }) }),
       );
       expect(result.cashCutoffDay).toBeNull();
+    });
+
+    it('leaves maxDeductionPercent untouched when the field is omitted (a settings save that does not know about it must not switch the ceiling off)', async () => {
+      const { service, prisma } = makeService({ cutoffDay: 1, maxDeductionPercent: 40 });
+      await service.updateConfig(USER, { cutoffDay: 1, cashCutoffDay: null, cashWindowCategories: [] } as any);
+      const arg = prisma.payrollVendorConfig.upsert.mock.calls[0][0];
+      expect('maxDeductionPercent' in arg.update).toBe(false);
+      expect('maxDeductionPercent' in arg.create).toBe(false);
+    });
+
+    it('sets the ceiling, and null turns it off again', async () => {
+      const { service, prisma } = makeService();
+      const on = await service.updateConfig(USER, { cutoffDay: 1, cashCutoffDay: null, cashWindowCategories: [], maxDeductionPercent: 50 } as any);
+      expect(on.maxDeductionPercent).toBe(50);
+      expect(prisma.payrollVendorConfig.upsert.mock.calls[0][0].update.maxDeductionPercent).toBe(50);
+
+      const off = await service.updateConfig(USER, { cutoffDay: 1, cashCutoffDay: null, cashWindowCategories: [], maxDeductionPercent: null } as any);
+      expect(off.maxDeductionPercent).toBeNull();
+      expect(prisma.payrollVendorConfig.upsert.mock.calls[1][0].update.maxDeductionPercent).toBeNull();
     });
   });
 });

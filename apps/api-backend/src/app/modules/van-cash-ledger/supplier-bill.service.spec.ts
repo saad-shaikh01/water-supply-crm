@@ -1,5 +1,5 @@
 import { SupplierBillService } from './supplier-bill.service';
-import { currentPeriodLabel, periodBounds } from './cash-ledger-period.util';
+import { currentPeriodLabel, periodBounds, periodLabelOf } from './cash-ledger-period.util';
 
 // Month-wise Plant/Caps bill status (owner request 2026-09-22). Anchored to
 // the REAL current PKT month (via cash-ledger-period.util, same as the
@@ -332,8 +332,15 @@ describe('SupplierBillService.getMonthAccrual', () => {
       bottlePaidThisMonth: 1100,
     });
     const r = await svc.getMonthAccrual(VENDOR_ID, label);
-    expect(r.plant).toEqual({ bill: 200, paidInMonth: 1100, priorPaid: 1000, pending: 100 });
-    expect(r.caps).toEqual({ bill: 0, paidInMonth: 0, priorPaid: 0, pending: 0 });
+    expect(r.plant).toEqual({
+      bill: 200,
+      paidInMonth: 1100,
+      priorPaid: 1000,
+      pending: 100,
+      priorPaidByMonth: [{ month: periodLabelOf(beforeThisMonth), amount: 1000 }],
+      earlierPendingByMonth: [],
+    });
+    expect(r.caps).toEqual({ bill: 0, paidInMonth: 0, priorPaid: 0, pending: 0, priorPaidByMonth: [], earlierPendingByMonth: [] });
   });
 
   it('nothing owed earlier: the whole payment stays as the month own cost', async () => {
@@ -343,6 +350,26 @@ describe('SupplierBillService.getMonthAccrual', () => {
       bottlePaidThisMonth: 50,
     });
     const r = await svc.getMonthAccrual(VENDOR_ID, label);
-    expect(r.plant).toEqual({ bill: 200, paidInMonth: 50, priorPaid: 0, pending: 150 });
+    expect(r.plant).toMatchObject({ bill: 200, paidInMonth: 50, priorPaid: 0, pending: 150 });
+  });
+});
+
+describe('SupplierBillService.getMonthAccrual — month breakdown', () => {
+  it('lists each earlier month still owed and how the month payment was split, oldest first', async () => {
+    const twoMonthsBack = new Date(curMonthStart.getTime() - 45 * 24 * 60 * 60 * 1000);
+    const svc = makeService({
+      deliveryItems: [
+        deliveryItem({ filledDropped: 50, dailySheet: { date: twoMonthsBack } }), // 500 oldest
+        deliveryItem({ filledDropped: 100, dailySheet: { date: beforeThisMonth } }), // 1000
+        deliveryItem({ filledDropped: 20, dailySheet: { date: withinThisMonth } }), // 200 this month
+      ],
+      bottleCostRows: [costRow()],
+      bottlePaidThisMonth: 700,
+    });
+    const r = await svc.getMonthAccrual(VENDOR_ID, currentPeriodLabel());
+    expect(r.plant.priorPaid).toBe(700);
+    expect(r.plant.priorPaidByMonth).toEqual([{ month: periodLabelOf(twoMonthsBack), amount: 500 }, { month: periodLabelOf(beforeThisMonth), amount: 200 }]);
+    expect(r.plant.earlierPendingByMonth).toEqual([{ month: periodLabelOf(beforeThisMonth), amount: 800 }]);
+    expect(r.plant.pending).toBe(200);
   });
 });

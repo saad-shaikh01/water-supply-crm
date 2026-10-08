@@ -19,7 +19,7 @@ export class ConversationQueryDto extends PaginationQueryDto {
 
   @IsOptional()
   @IsUUID()
-  driverId?: string;
+  salesmanId?: string;
 
   @IsOptional()
   @IsUUID()
