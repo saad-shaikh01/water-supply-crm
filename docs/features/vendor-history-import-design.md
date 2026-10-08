@@ -40,3 +40,10 @@ Batch-level: delete the Transaction ids recorded in each ImportRow's `appliedSna
 
 ## Deviation to flag
 The request asked to fill `financialBalanceAfter` / `bottleBalanceAfter` on each posted row; `Transaction` has no such columns (they live on `DailySheetItem`). Adding them would put two new columns on the hot, portal-exposed table, which the request itself rules out. The after-values are kept on `ImportRow.normalized` / `appliedSnapshot`; the statement derives its running balance from amounts. Adding two nullable columns later is a small follow-up if the statement should show a bottle-balance column for history rows.
+
+## As built / verified (2026-10-09)
+- Real `Tran_Data.html` (55,126 vouchers, 1,062 customers, 29.7 MB) on a throwaway Postgres + Redis + S3 stub + real Chrome: all 1,062 customers reconcile, 52,318 charge + 18,293 payment rows = 70,611 `HISTORICAL` transactions, `financialBalance` / wallets bit-for-bit unchanged, no sheet/item rows, P&L / analytics / dashboard revenue = 0 over the whole span.
+- Throughput: upload+parse+insert ~12 s, plan job ~9 s, execute ~79 s (~700 vouchers/s), crash at 15k rows then Resume ~57 s with zero duplicates, revert ~118 s (preview 4 s).
+- File cap is **50 MB** (not 25): the real export is 28.3 MB of per-cell markup. Env `IMPORT_HISTORY_MAX_FILE_BYTES` / `IMPORT_HISTORY_MAX_ROWS`.
+- Statement PDF: history CHARGE rows (type HISTORICAL with bottle counts) render in the Delivery History table; history payments stay under "Other Transactions" typed "History". Wallet-at-period-end (`customer.service`) now includes HISTORICAL.
+- Known gaps: the statement's "BAL BTL" column is blank for history rows (needs the two optional `Transaction` columns discussed above); reports mode: P&L "Sale" and date-filtered analytics ignore sheet-less deliveries; the daily-sheet export of a past day lists imported payments as standalone payments; customer consumption analytics (type DELIVERY) and `lastPayment` ignore HISTORICAL rows.

@@ -28,14 +28,14 @@ export function ImportHistory() {
         <CardContent className="p-10 text-center space-y-4">
           <FileSpreadsheet className="h-12 w-12 mx-auto text-muted-foreground" />
           <div>
-            <p className="text-lg font-bold">Bring your existing customers in</p>
+            <p className="text-lg font-bold">Bring your existing data in</p>
             <p className="text-sm text-muted-foreground max-w-lg mx-auto">
-              Upload the Excel or CSV you already keep — names, phones, addresses, what each customer owes and how many bottles they hold.
+              Upload the Excel or CSV you already keep — customers with what they owe and how many bottles they hold, or their past deliveries and payments.
               You match the columns, preview everything, and only then import. Nothing is saved until you confirm.
             </p>
           </div>
           {canUpload && (
-            <Button asChild className="rounded-full gap-2 px-6"><Link href="/dashboard/data-import/new"><Upload className="h-4 w-4" /> Import customers</Link></Button>
+            <Button asChild className="rounded-full gap-2 px-6"><Link href="/dashboard/data-import/new"><Upload className="h-4 w-4" /> New import</Link></Button>
           )}
         </CardContent>
       </Card>
@@ -68,7 +68,7 @@ export function ImportHistory() {
                     <TableCell className="whitespace-nowrap">{new Date(b.createdAt).toLocaleString()}</TableCell>
                     <TableCell>
                       <p className="font-medium">{b.sourceFileName}</p>
-                      <p className="text-xs text-muted-foreground">{b.rowCount.toLocaleString()} rows · {fileSize(b.sourceFileSize)}</p>
+                      <p className="text-xs text-muted-foreground">{b.entity === 'TRANSACTION_HISTORY' ? 'Transaction history' : 'Customers & balances'} · {b.rowCount.toLocaleString()} rows · {fileSize(b.sourceFileSize)}</p>
                     </TableCell>
                     <TableCell>{b.createdByName ?? '—'}</TableCell>
                     <TableCell><ImportStatusBadge status={b.status} /></TableCell>

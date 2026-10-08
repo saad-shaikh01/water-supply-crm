@@ -6,11 +6,11 @@ import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { cn } from '@water-supply-crm/ui';
 import { PageHeader } from '../../../../components/shared/page-header';
-import { isRunning, useImportDetail } from '../../../../features/data-import/hooks/use-data-import';
+import { isPlanning, isRunning, useImportDetail } from '../../../../features/data-import/hooks/use-data-import';
 import { isDraft } from '../../../../features/data-import/components/format';
 import { MappingStep } from '../../../../features/data-import/components/mapping-step';
 import { ReviewStep } from '../../../../features/data-import/components/review-step';
-import { ProgressStep, ResultStep } from '../../../../features/data-import/components/run-and-result-step';
+import { PlanningStep, ProgressStep, ResultStep } from '../../../../features/data-import/components/run-and-result-step';
 
 const STEPS = ['Upload', 'Map columns', 'Review', 'Import'];
 
@@ -69,6 +69,17 @@ export default function ImportBatchPage() {
       <>
         {back}
         <PageHeader title="Import cancelled" description="This draft was cancelled and its data removed." />
+      </>
+    );
+  }
+
+  if (isPlanning(batch)) {
+    return (
+      <>
+        {back}
+        <PageHeader title="Building the preview" description={`${batch.sourceFileName} · ${batch.rowCount.toLocaleString()} rows`} />
+        <Stepper active={2} />
+        <PlanningStep batch={batch} />
       </>
     );
   }

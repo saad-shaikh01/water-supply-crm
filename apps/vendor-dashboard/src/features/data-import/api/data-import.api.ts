@@ -4,6 +4,7 @@ import { apiClient } from '@water-supply-crm/data-access';
 
 export type ImportBatchStatus =
   | 'UPLOADED'
+  | 'PLANNING'
   | 'MAPPED'
   | 'QUEUED'
   | 'EXECUTING'
@@ -26,6 +27,43 @@ export interface PlanSummary {
   /** Σ opening balance of rows to be created, in paise (integer). */
   sumOpeningBalancePaise: number;
   sumOpeningBottles: number;
+  /** TRANSACTION_HISTORY only. */
+  history?: HistoryPlanSummary;
+}
+
+export interface HistoryPlanSummary {
+  reportingMode: ReportingMode;
+  cutoverDate: string;
+  dateFrom: string | null;
+  dateTo: string | null;
+  customersInFile: number;
+  customersToImport: number;
+  customersBlocked: number;
+  unknownCodes: number;
+  unknownCodeList: string[];
+  mismatches: { code: string; expected: number | null; file: number | null; kind: 'MONEY' | 'BOTTLES' }[];
+  chargeRows: number;
+  paymentRows: number;
+  sumChargePaise: number;
+  sumPaidPaise: number;
+  bottlesOut: number;
+  bottlesIn: number;
+  noMovement: number;
+  alreadyImported: number;
+  duplicateInFile: number;
+  afterCutover: number;
+  withoutRunningBalance: number;
+  notices: string[];
+}
+
+export type ReportingMode = 'STATEMENT_ONLY' | 'COUNT_IN_REPORTS';
+
+export interface HistoryOptions {
+  cutoverDate: string;
+  reportingMode: ReportingMode;
+  productId: string | null;
+  dateOrder: 'MDY' | 'DMY';
+  reportsAcknowledged: boolean;
 }
 
 export interface ImportProgress {
@@ -38,6 +76,7 @@ export interface ImportProgress {
 export interface ImportBatchSummary {
   plan?: PlanSummary;
   progress?: ImportProgress;
+  planning?: { stage: string; done: number; total: number };
   revert?: {
     state: 'RUNNING' | 'DONE';
     startedAt: string;
@@ -57,7 +96,7 @@ export interface ImportBatch {
   headerRowIndex: number;
   rowCount: number;
   mapping: { columns: Record<string, string | null>; valueMaps: Record<string, Record<string, string>> } | null;
-  options: ImportOptions | null;
+  options: (ImportOptions & Partial<HistoryOptions>) | null;
   summary: ImportBatchSummary | null;
   planHash: string | null;
   errorCode: string | null;
@@ -158,14 +197,39 @@ export interface Paginated<T> {
 export interface SaveMappingPayload {
   columns: Record<string, string | null>;
   valueMaps?: Record<string, Record<string, string>>;
-  options?: Partial<ImportOptions>;
+  options?: Partial<ImportOptions> | Partial<HistoryOptions>;
   saveProfileAs?: string;
 }
 
 export interface SaveMappingResult {
-  planHash: string;
-  summary: PlanSummary;
-  options: ImportOptions;
+  /** PLANNING = the preview is being built by a worker job (large files); MAPPED = ready now. */
+  status: 'PLANNING' | 'MAPPED';
+  planHash?: string;
+  summary?: PlanSummary;
+  options: ImportOptions | HistoryOptions;
+}
+
+/** One voucher row of a TRANSACTION_HISTORY import, as stored in ImportRow.normalized. */
+export interface VoucherNormalized {
+  valid: boolean;
+  customerCode: string;
+  voucher: string | null;
+  date: string | null;
+  filled: number;
+  empty: number;
+  charge: number;
+  paid: number;
+  outstandingAfter: number | null;
+  bottleBalanceAfter: number | null;
+}
+
+export interface ImportEntityInfo {
+  entity: string;
+  label: string;
+  accept: string[];
+  asyncPlan: boolean;
+  maxFileMb: number;
+  maxRows: number;
 }
 
 export interface ExecutePayload {
@@ -202,6 +266,7 @@ export interface ImportProfile {
 }
 
 export const dataImportApi = {
+  entities: () => apiClient.get<ImportEntityInfo[]>('/imports/entities'),
   list: (params?: { page?: number; limit?: number; status?: string }) =>
     apiClient.get<Paginated<ImportBatch>>('/imports', { params }),
   get: (id: string) => apiClient.get<ImportDetail>(`/imports/${id}`),

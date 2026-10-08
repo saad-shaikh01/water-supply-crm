@@ -8,13 +8,34 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow, cn,
 } from '@water-supply-crm/ui';
 import { toast } from 'sonner';
-import type { ImportBatch, ImportDetail, RevertPreview } from '../api/data-import.api';
+import type { ImportBatch, ImportDetail, RevertPreview, VoucherNormalized } from '../api/data-import.api';
 import { DATA_IMPORT_PERMISSIONS } from '../constants';
 import { useCan } from '../../authz/hooks/use-can';
 import {
   downloadReport, downloadSource, importErrorOf, isRunning, useExecuteImport, useImportRows, useRevertImport, useRevertPreview,
 } from '../hooks/use-data-import';
 import { BLOCK_REASON_LABEL, ImportStatusBadge, rupees, rupeesFromPaise } from './format';
+
+const isHistoryBatch = (b: Pick<ImportBatch, 'entity'>) => b.entity === 'TRANSACTION_HISTORY';
+
+/** The preview of a large file is being built by a worker job; the page polls every 2 s until it is ready. */
+export function PlanningStep({ batch }: { batch: ImportBatch }) {
+  const pl = batch.summary?.planning;
+  const pct = pl && pl.total ? Math.min(100, Math.round((pl.done / pl.total) * 100)) : 0;
+  return (
+    <Card className="rounded-3xl max-w-2xl" data-testid="planning-card">
+      <CardContent className="p-8 space-y-5 text-center">
+        <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto" />
+        <div>
+          <p className="text-lg font-bold">Building your preview…</p>
+          <p className="text-sm text-muted-foreground">Checking every row against your customers and balances. This can take a minute for big files — you can leave this page and come back.</p>
+        </div>
+        <div className="h-3 rounded-full bg-muted overflow-hidden"><div className="h-full bg-primary transition-all duration-500" style={{ width: `${pct}%` }} /></div>
+        <p className="text-sm font-semibold">{pl ? `${pl.stage}${pl.total ? ` · ${pl.done.toLocaleString()} / ${pl.total.toLocaleString()}` : ''}` : 'Starting…'}</p>
+      </CardContent>
+    </Card>
+  );
+}
 
 /** Step 4 — live progress while the BullMQ job runs. The page polls the batch every 2 s. */
 export function ProgressStep({ batch }: { batch: ImportBatch }) {
@@ -24,13 +45,15 @@ export function ProgressStep({ batch }: { batch: ImportBatch }) {
   const done = p ? p.created + p.skipped + p.failed : 0;
   const pct = total ? Math.min(100, Math.round((done / total) * 100)) : 0;
   const reverting = batch.summary?.revert?.state === 'RUNNING';
+  const history = isHistoryBatch(batch);
+  const unit = history ? 'vouchers' : 'customers';
 
   return (
-    <Card className="rounded-3xl max-w-2xl">
+    <Card className="rounded-3xl max-w-2xl" data-testid="progress-card">
       <CardContent className="p-8 space-y-5 text-center">
         <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto" />
         <div>
-          <p className="text-lg font-bold">{reverting ? 'Reverting the import…' : batch.status === 'QUEUED' ? 'Waiting to start…' : 'Importing your customers…'}</p>
+          <p className="text-lg font-bold">{reverting ? 'Reverting the import…' : batch.status === 'QUEUED' ? 'Waiting to start…' : history ? 'Importing the history…' : 'Importing your customers…'}</p>
           <p className="text-sm text-muted-foreground">You can leave this page — the import keeps running in the background.</p>
         </div>
         {!reverting && (
@@ -38,7 +61,7 @@ export function ProgressStep({ batch }: { batch: ImportBatch }) {
             <div className="h-3 rounded-full bg-muted overflow-hidden">
               <div className="h-full bg-primary transition-all duration-500" style={{ width: `${pct}%` }} />
             </div>
-            <p className="text-sm font-semibold">{done.toLocaleString()} of {total.toLocaleString()} customers · {pct}%</p>
+            <p className="text-sm font-semibold">{done.toLocaleString()} of {total.toLocaleString()} {unit} · {pct}%</p>
             {p && p.failed > 0 && <p className="text-xs text-destructive">{p.failed} row(s) failed so far — they can be retried afterwards.</p>}
           </>
         )}
@@ -67,14 +90,16 @@ function RevertDialog({ batch, open, onOpenChange }: { batch: ImportBatch; open:
         <DialogHeader>
           <DialogTitle>Revert this import?</DialogTitle>
           <DialogDescription>
-            Only customers that have not been used since the import are removed. Anyone with deliveries, payments, orders or a changed balance is kept.
+            {isHistoryBatch(batch)
+              ? 'The history entries this import added are removed. Customer balances and bottle balances are not touched. Entries that were changed afterwards are kept.'
+              : 'Only customers that have not been used since the import are removed. Anyone with deliveries, payments, orders or a changed balance is kept.'}
           </DialogDescription>
         </DialogHeader>
         {!data ? (
-          <div className="py-8 text-center text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin inline mr-2" />Checking each customer…</div>
+          <div className="py-8 text-center text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin inline mr-2" />{isHistoryBatch(batch) ? 'Checking each voucher…' : 'Checking each customer…'}</div>
         ) : (
           <div className="space-y-3 text-sm">
-            <p><strong>{data.revertible.toLocaleString()}</strong> of {data.total.toLocaleString()} customers can be removed.</p>
+            <p><strong>{data.revertible.toLocaleString()}</strong> of {data.total.toLocaleString()} {isHistoryBatch(batch) ? 'vouchers' : 'customers'} can be removed.</p>
             {data.blocked.length > 0 && (
               <div className="rounded-xl bg-amber-500/10 p-3 space-y-1">
                 <p className="font-semibold text-amber-700 dark:text-amber-400">These will be kept:</p>
@@ -90,7 +115,7 @@ function RevertDialog({ batch, open, onOpenChange }: { batch: ImportBatch; open:
             onClick={() => revert.mutate(batch.id, { onSuccess: () => close(false), onError: (e) => toast.error(importErrorOf(e, 'Could not start the revert').message) })}
           >
             {revert.isPending && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
-            Remove {data?.revertible.toLocaleString() ?? ''} customers
+            Remove {data?.revertible.toLocaleString() ?? ''} {isHistoryBatch(batch) ? 'vouchers' : 'customers'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -117,6 +142,8 @@ export function ResultStep({ detail }: { detail: ImportDetail }) {
   const retryable = interrupted || (batch.status === 'COMPLETED_WITH_ERRORS' && (p?.failed ?? 0) > 0);
   const finished = ['COMPLETED', 'COMPLETED_WITH_ERRORS', 'PARTIALLY_REVERTED'].includes(batch.status);
   const created = (p?.created ?? 0) - (rv?.reverted ?? 0);
+  const history = isHistoryBatch(batch);
+  const hs = plan?.history;
 
   return (
     <div className="space-y-6">
@@ -135,10 +162,21 @@ export function ResultStep({ detail }: { detail: ImportDetail }) {
 
           {interrupted && (
             <div className="rounded-xl bg-destructive/10 text-destructive p-3 text-sm">
-              {batch.errorMessage ?? 'The import was interrupted.'} Customers already created are kept; Resume finishes the rest without creating anything twice.
+              {batch.errorMessage ?? 'The import was interrupted.'} {history ? 'Vouchers already imported are kept' : 'Customers already created are kept'}; Resume finishes the rest without creating anything twice.
             </div>
           )}
 
+          {history && hs ? (
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3" data-testid="history-result">
+              <div className="rounded-2xl border p-4"><p className="text-xs text-muted-foreground">Vouchers imported</p><p className="text-2xl font-bold text-emerald-600">{Math.max(0, created).toLocaleString()}</p></div>
+              <div className="rounded-2xl border p-4"><p className="text-xs text-muted-foreground">Customers</p><p className="text-2xl font-bold">{hs.customersToImport.toLocaleString()}</p></div>
+              <div className="rounded-2xl border p-4"><p className="text-xs text-muted-foreground">Skipped — already imported / no movement</p><p className="text-2xl font-bold">{(plan?.skipExisting ?? 0).toLocaleString()}</p></div>
+              <div className="rounded-2xl border p-4"><p className="text-xs text-muted-foreground">Skipped — errors / blocked</p><p className="text-2xl font-bold">{(plan?.skipInvalid ?? 0).toLocaleString()}</p></div>
+              <div className="rounded-2xl border p-4"><p className="text-xs text-muted-foreground">Failed</p><p className={cn('text-2xl font-bold', (p?.failed ?? 0) > 0 && 'text-destructive')}>{(p?.failed ?? 0).toLocaleString()}</p></div>
+              <div className="rounded-2xl border p-4 col-span-2"><p className="text-xs text-muted-foreground">Charged / received (history)</p><p className="text-xl font-bold">{rupeesFromPaise(hs.sumChargePaise)} / {rupeesFromPaise(hs.sumPaidPaise)}</p></div>
+              <div className="rounded-2xl border p-4 col-span-2"><p className="text-xs text-muted-foreground">Used for</p><p className="text-xl font-bold">{hs.reportingMode === 'COUNT_IN_REPORTS' ? 'Statements + reports' : 'Statements only'}</p></div>
+            </div>
+          ) : (
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
             <div className="rounded-2xl border p-4"><p className="text-xs text-muted-foreground">Customers created</p><p className="text-2xl font-bold text-emerald-600">{Math.max(0, created).toLocaleString()}</p></div>
             <div className="rounded-2xl border p-4"><p className="text-xs text-muted-foreground">Skipped — already exist</p><p className="text-2xl font-bold">{(plan?.skipExisting ?? 0).toLocaleString()}</p></div>
@@ -146,10 +184,11 @@ export function ResultStep({ detail }: { detail: ImportDetail }) {
             <div className="rounded-2xl border p-4"><p className="text-xs text-muted-foreground">Failed</p><p className={cn('text-2xl font-bold', (p?.failed ?? 0) > 0 && 'text-destructive')}>{(p?.failed ?? 0).toLocaleString()}</p></div>
             <div className="rounded-2xl border p-4"><p className="text-xs text-muted-foreground">Opening balance imported</p><p className="text-2xl font-bold">{plan ? rupeesFromPaise(plan.sumOpeningBalancePaise) : '—'}</p></div>
           </div>
+          )}
 
           {rv?.state === 'DONE' && (
             <div className="rounded-xl bg-muted p-3 text-sm">
-              Reverted: <strong>{(rv.reverted ?? 0).toLocaleString()}</strong> customers removed
+              Reverted: <strong>{(rv.reverted ?? 0).toLocaleString()}</strong> {history ? 'vouchers removed' : 'customers removed'}
               {(rv.skipped ?? 0) > 0 && <>, <strong>{(rv.skipped ?? 0).toLocaleString()}</strong> kept ({Object.entries(rv.byReason ?? {}).map(([k, n]) => `${n} ${BLOCK_REASON_LABEL[k] ?? k}`).join('; ')})</>}.
             </div>
           )}
@@ -175,7 +214,7 @@ export function ResultStep({ detail }: { detail: ImportDetail }) {
         </CardContent>
       </Card>
 
-      {[{ title: 'Rows that failed', rows: failedRows.data?.data }, { title: 'Customers kept when reverting', rows: keptRows.data?.data }].map(
+      {[{ title: 'Rows that failed', rows: failedRows.data?.data }, { title: history ? 'Vouchers kept when reverting' : 'Customers kept when reverting', rows: keptRows.data?.data }].map(
         (blk) =>
           blk.rows &&
           blk.rows.length > 0 && (
@@ -184,13 +223,13 @@ export function ResultStep({ detail }: { detail: ImportDetail }) {
                 <p className="font-semibold">{blk.title}</p>
                 <div className="overflow-x-auto rounded-xl border">
                   <Table>
-                    <TableHeader><TableRow><TableHead>Row</TableHead><TableHead>Customer</TableHead><TableHead>Balance</TableHead><TableHead>Why</TableHead></TableRow></TableHeader>
+                    <TableHeader><TableRow><TableHead>Row</TableHead><TableHead>Customer</TableHead><TableHead>{history ? 'Date' : 'Balance'}</TableHead><TableHead>Why</TableHead></TableRow></TableHeader>
                     <TableBody>
                       {blk.rows.map((r) => (
                         <TableRow key={r.id}>
                           <TableCell>{r.rowNumber}</TableCell>
-                          <TableCell className="font-medium">{r.normalized?.name ?? '—'}</TableCell>
-                          <TableCell>{r.normalized ? rupees(r.normalized.openingBalance) : '—'}</TableCell>
+                          <TableCell className="font-medium">{history ? ((r.normalized as unknown as VoucherNormalized | null)?.customerCode ?? '—') : (r.normalized?.name ?? '—')}</TableCell>
+                          <TableCell>{history ? ((r.normalized as unknown as VoucherNormalized | null)?.date ?? '—') : (r.normalized ? rupees(r.normalized.openingBalance) : '—')}</TableCell>
                           <TableCell className="text-sm">{r.resultMessage ?? r.resultCode}</TableCell>
                         </TableRow>
                       ))}

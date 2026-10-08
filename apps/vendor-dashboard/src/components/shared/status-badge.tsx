@@ -46,6 +46,8 @@ const statusConfig: Record<string, { label: string; variant: 'default' | 'second
   PAID: { label: 'Paid', variant: 'success' },
   DRAFT: { label: 'Draft', variant: 'outline' },
   SETTLED: { label: 'Settled', variant: 'success' },
+  // Imported pre-system history (Data Import, statements-only mode)
+  HISTORICAL: { label: 'History', variant: 'outline' },
 };
 
 export function StatusBadge({ status }: { status: Status }) {

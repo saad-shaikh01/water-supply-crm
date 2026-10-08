@@ -11,6 +11,7 @@ const TYPE_TABS = [
   { value: 'DELIVERY', label: 'Deliveries' },
   { value: 'PAYMENT', label: 'Payments' },
   { value: 'ADJUSTMENT', label: 'Adjustments' },
+  { value: 'HISTORICAL', label: 'History' },
 ];
 
 function TransactionsContent() {

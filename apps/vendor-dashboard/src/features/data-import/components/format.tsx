@@ -14,6 +14,7 @@ type BadgeVariant = 'default' | 'secondary' | 'destructive' | 'outline' | 'prima
 
 const STATUS: Record<ImportBatchStatus, { label: string; variant: BadgeVariant }> = {
   UPLOADED: { label: 'Draft — needs mapping', variant: 'secondary' },
+  PLANNING: { label: 'Building preview…', variant: 'info' },
   MAPPED: { label: 'Ready to review', variant: 'info' },
   QUEUED: { label: 'Queued', variant: 'info' },
   EXECUTING: { label: 'Importing…', variant: 'info' },
@@ -64,4 +65,5 @@ export const BLOCK_REASON_LABEL: Record<string, string> = {
   BALANCE_CHANGED: 'Balance changed after the import',
   PORTAL_LINKED: 'Customer activated a portal login',
   ALREADY_GONE: 'No longer exists',
+  EDITED: 'Changed after the import',
 };

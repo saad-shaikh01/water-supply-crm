@@ -11,6 +11,7 @@ import { DATA_IMPORT_PERMISSIONS } from '../constants';
 import { useCan } from '../../authz/hooks/use-can';
 import { downloadReport, importErrorOf, useCancelImport, useExecuteImport, useImportRows } from '../hooks/use-data-import';
 import { RowOutcomeBadge, rupees, rupeesFromPaise } from './format';
+import { HistoryReviewStep } from './history-review';
 
 type Tab = 'all' | 'create' | 'exists' | 'errors' | 'warnings';
 const TABS: { key: Tab; label: string; filter: RowsQuery }[] = [
@@ -38,7 +39,11 @@ interface Props {
 }
 
 /** Step 3 — the preview. Everything shown here is the persisted plan the executor will apply. */
-export function ReviewStep({ detail, onBack, onExecuted, onCancelled }: Props) {
+export function ReviewStep(props: Props) {
+  return props.detail.batch.entity === 'TRANSACTION_HISTORY' ? <HistoryReviewStep {...props} /> : <CustomerReviewStep {...props} />;
+}
+
+function CustomerReviewStep({ detail, onBack, onExecuted, onCancelled }: Props) {
   const { batch, wizard } = detail;
   const plan = batch.summary?.plan;
   const canExecute = useCan(DATA_IMPORT_PERMISSIONS.execute);

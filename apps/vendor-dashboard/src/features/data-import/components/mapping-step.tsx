@@ -9,6 +9,7 @@ import {
 } from '@water-supply-crm/ui';
 import type { ImportFieldDef, ImportOptions, ImportWizardData, MappingConfidence } from '../api/data-import.api';
 import { importErrorOf, useColumnValues, useSaveMapping } from '../hooks/use-data-import';
+import { HistoryOptionsCard, historyProblems, type HistoryOptionsState } from './history-options';
 
 const NONE = '__none__';
 const SKIP_ROW = '__SKIP_ROW__';
@@ -99,7 +100,16 @@ export function MappingStep({ batchId, data, onPlanned }: Props) {
   const [defaultPaymentType, setDefaultPaymentType] = useState<ImportOptions['defaultPaymentType']>(defaults.defaultPaymentType ?? 'CASH');
   const [areaIntoAddress, setAreaIntoAddress] = useState<boolean>(defaults.areaIntoAddress ?? true);
   const [saveName, setSaveName] = useState('');
-  const [serverError, setServerError] = useState<string | null>(null);
+  const [serverError, setServerError] = useState<string | null>(batch.errorMessage);
+
+  // ── TRANSACTION_HISTORY options ──
+  const isHistory = batch.entity === 'TRANSACTION_HISTORY';
+  const [hist, setHist] = useState<HistoryOptionsState>(() => ({
+    cutoverDate: batch.options?.cutoverDate ?? '',
+    reportingMode: batch.options?.reportingMode ?? 'STATEMENT_ONLY',
+    reportsAcknowledged: batch.options?.reportsAcknowledged ?? false,
+    dateOrder: batch.options?.dateOrder ?? (matchedProfile?.optionDefaults as { dateOrder?: 'MDY' | 'DMY' } | null)?.dateOrder ?? 'MDY',
+  }));
 
   const confidence = (h: string) => suggestions.find((s) => s.header === h)?.confidence ?? null;
   const headerOf = (key: string) => headers.find((h) => columns[h] === key);
@@ -115,14 +125,21 @@ export function MappingStep({ batchId, data, onPlanned }: Props) {
     });
 
   // ── what the options panel must ask, derived from what is mapped ──
-  const needsProduct = mapped('openingBottles') || mapped('rate');
-  const needsSign = mapped('openingBalance');
-  const needsAsOf = mapped('openingBalance') || mapped('openingBottles');
+  const needsProduct = isHistory ? mapped('filled') || mapped('empty') || mapped('bottleBalanceAfter') : mapped('openingBottles') || mapped('rate');
+  const needsSign = !isHistory && mapped('openingBalance');
+  const needsAsOf = !isHistory && (mapped('openingBalance') || mapped('openingBottles'));
   const enumFields = (['paymentType', 'isActive'] as const).filter((k) => mapped(k));
 
   const problems: string[] = [];
-  if (!mapped('name')) problems.push('Map the customer name column.');
-  if (!mapped('address') && !mapped('area')) problems.push('Map an address column (or at least an area column).');
+  if (isHistory) {
+    if (!mapped('customerCode')) problems.push('Map the customer code column.');
+    if (!mapped('date')) problems.push('Map the date column.');
+    if (!(mapped('charge') || mapped('paid') || mapped('filled') || mapped('empty'))) problems.push('Map at least one of: charge, paid, filled bottles, empty bottles.');
+    problems.push(...historyProblems(hist));
+  } else {
+    if (!mapped('name')) problems.push('Map the customer name column.');
+    if (!mapped('address') && !mapped('area')) problems.push('Map an address column (or at least an area column).');
+  }
   if (needsProduct && activeProducts.length === 0) problems.push('Create an active product first — bottle balances and rates belong to a product.');
   if (needsProduct && activeProducts.length > 1 && !productId) problems.push('Choose the product these bottle balances / rates are for.');
   if (needsSign && !balanceSign) problems.push('Say what a positive balance means.');
@@ -139,7 +156,15 @@ export function MappingStep({ batchId, data, onPlanned }: Props) {
       await save.mutateAsync({
         columns: cols,
         valueMaps: vm,
-        options: {
+        options: isHistory
+          ? {
+              cutoverDate: hist.cutoverDate,
+              reportingMode: hist.reportingMode,
+              reportsAcknowledged: hist.reportingMode === 'COUNT_IN_REPORTS' ? hist.reportsAcknowledged : false,
+              dateOrder: hist.dateOrder,
+              ...(needsProduct && productId ? { productId } : {}),
+            }
+          : {
           ...(needsProduct && productId ? { productId } : {}),
           ...(needsSign && balanceSign ? { balanceSign } : {}),
           ...(needsAsOf && asOf ? { balancesAsOf: asOf } : {}),
@@ -229,6 +254,20 @@ export function MappingStep({ batchId, data, onPlanned }: Props) {
         </Card>
       )}
 
+      {isHistory && (
+        <HistoryOptionsCard
+          state={hist}
+          onChange={(patch) => setHist((p) => ({ ...p, ...patch }))}
+          needsProduct={needsProduct}
+          productId={productId}
+          onProduct={setProductId}
+          activeProducts={activeProducts}
+          saveName={saveName}
+          onSaveName={setSaveName}
+        />
+      )}
+
+      {!isHistory && (
       <Card className="rounded-3xl">
         <CardHeader><CardTitle className="text-lg">Import options</CardTitle></CardHeader>
         <CardContent className="space-y-5">
@@ -317,6 +356,7 @@ export function MappingStep({ batchId, data, onPlanned }: Props) {
           </div>
         </CardContent>
       </Card>
+      )}
 
       {(problems.length > 0 || serverError) && (
         <div className="flex items-start gap-2 rounded-xl bg-amber-500/10 text-amber-700 dark:text-amber-400 p-3 text-sm">

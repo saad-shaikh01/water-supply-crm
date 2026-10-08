@@ -14,7 +14,7 @@ export default function NewImportPage() {
       <Link href="/dashboard/data-import" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-4">
         <ArrowLeft className="h-4 w-4" /> All imports
       </Link>
-      <PageHeader title="Import customers" description="Step 1 of 4 — upload your file. Nothing is saved until you confirm at the end." />
+      <PageHeader title="New import" description="Step 1 of 4 — choose what to import and upload your file. Nothing is saved until you confirm at the end." />
       {canUpload ? <UploadStep /> : <p className="text-sm text-muted-foreground">You don&apos;t have permission to upload import files.</p>}
     </>
   );

@@ -90,7 +90,7 @@ export function RecentTransactions() {
                       {isPayment ? '-' : '+'} ₨ {Math.abs(tx.amount).toLocaleString()}
                     </p>
                     <Badge variant="outline" className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0 mt-1 opacity-50">
-                      {tx.type}
+                      {tx.type === 'HISTORICAL' ? 'HISTORY' : tx.type}
                     </Badge>
                   </div>
                 </div>

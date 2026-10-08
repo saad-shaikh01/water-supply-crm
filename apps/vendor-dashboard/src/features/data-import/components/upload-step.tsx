@@ -9,12 +9,10 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@water-supply-crm/ui';
-import { IMPORT_ENTITY, IMPORT_MAX_MB } from '../constants';
+import { IMPORT_ENTITIES, entityInfo, type ImportEntityKey } from '../constants';
 import type { ImportWizardData } from '../api/data-import.api';
 import { downloadTemplate, importErrorOf, useUploadImport } from '../hooks/use-data-import';
 import { fileSize } from './format';
-
-const ACCEPTED = ['.xlsx', '.csv'];
 
 /** Step 1 — pick a file, read it, let the user correct sheet / header row, then continue to mapping. */
 export function UploadStep() {
@@ -23,6 +21,8 @@ export function UploadStep() {
   const inputRef = useRef<HTMLInputElement>(null);
   const upload = useUploadImport();
 
+  const [entity, setEntity] = useState<ImportEntityKey>('CUSTOMERS_OPENING');
+  const info = entityInfo(entity);
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,16 +35,24 @@ export function UploadStep() {
     setResult(null);
     if (!f) return;
     const ext = f.name.slice(f.name.lastIndexOf('.')).toLowerCase();
-    if (!ACCEPTED.includes(ext)) return setError('Only .xlsx and .csv files are supported.');
-    if (f.size > IMPORT_MAX_MB * 1024 * 1024) return setError(`The file is larger than ${IMPORT_MAX_MB} MB.`);
+    if (!info.accept.includes(ext)) return setError(`Only ${info.accept.join(', ')} files are supported for this import.`);
+    if (f.size > info.maxMb * 1024 * 1024) return setError(`The file is larger than ${info.maxMb} MB.`);
     setFile(f);
+  };
+
+  const chooseEntity = (k: ImportEntityKey) => {
+    if (k === entity) return;
+    setEntity(k);
+    setFile(null);
+    setResult(null);
+    setError(null);
   };
 
   const read = async (opts?: { sheetName?: string; headerRow?: number }) => {
     if (!file) return;
     setError(null);
     try {
-      const data = await upload.mutateAsync({ entity: IMPORT_ENTITY, file, replaceBatchId: result?.batch.id, ...opts });
+      const data = await upload.mutateAsync({ entity, file, replaceBatchId: result?.batch.id, ...opts });
       setResult(data);
       setSheet(data.batch.sheetName ?? undefined);
       setHeaderRow('');
@@ -58,6 +66,19 @@ export function UploadStep() {
 
   return (
     <div className="space-y-6 max-w-3xl">
+      <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="What do you want to import?">
+        {IMPORT_ENTITIES.map((e) => (
+          <button
+            key={e.key} type="button" role="radio" aria-checked={entity === e.key} data-testid={`entity-${e.key}`}
+            onClick={() => chooseEntity(e.key)}
+            className={cn('rounded-2xl border p-4 text-left transition-colors', entity === e.key ? 'border-primary bg-primary/5' : 'hover:border-primary/40')}
+          >
+            <p className="font-semibold">{e.title}</p>
+            <p className="text-xs text-muted-foreground mt-1">{e.description}</p>
+          </button>
+        ))}
+      </div>
+
       <Card className="rounded-3xl">
         <CardContent className="p-6 space-y-5">
           <div
@@ -70,7 +91,7 @@ export function UploadStep() {
               dragging ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50',
             )}
           >
-            <input ref={inputRef} type="file" accept=".xlsx,.csv" className="hidden" onChange={(e) => pick(e.target.files?.[0])} />
+            <input ref={inputRef} type="file" accept={info.accept.join(',')} className="hidden" onChange={(e) => pick(e.target.files?.[0])} />
             {file ? (
               <>
                 <FileSpreadsheet className="h-10 w-10 text-primary" />
@@ -80,8 +101,8 @@ export function UploadStep() {
             ) : (
               <>
                 <Upload className="h-10 w-10 text-muted-foreground" />
-                <p className="font-semibold">Drop your customer Excel / CSV here, or click to browse</p>
-                <p className="text-xs text-muted-foreground">.xlsx or .csv · up to {IMPORT_MAX_MB} MB · up to 5,000 rows. Any column layout works — you map the columns next.</p>
+                <p className="font-semibold">{info.dropText}</p>
+                <p className="text-xs text-muted-foreground">{info.accept.join(' / ')} · up to {info.maxMb} MB · up to {info.maxRows.toLocaleString()} rows. Any column layout works — you map the columns next.</p>
               </>
             )}
           </div>
@@ -94,7 +115,7 @@ export function UploadStep() {
           )}
 
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <Button variant="outline" className="rounded-full gap-2" onClick={() => downloadTemplate(IMPORT_ENTITY)}>
+            <Button variant="outline" className="rounded-full gap-2" onClick={() => downloadTemplate(entity)}>
               <Download className="h-4 w-4" /> Download template
             </Button>
             {!result && (

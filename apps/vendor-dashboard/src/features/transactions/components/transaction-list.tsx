@@ -39,6 +39,7 @@ const TRANSACTION_TYPES = [
   { value: 'PAYMENT', label: 'Payment' },
   { value: 'ADJUSTMENT', label: 'Adjustment' },
   { value: 'COLLECTION', label: 'Collection' },
+  { value: 'HISTORICAL', label: 'Imported history' },
 ];
 
 const PAYMENT_MODE_OPTIONS = [

@@ -78,7 +78,7 @@ export function TransactionList({ typeFilter }: TransactionListProps) {
                     </p>
                   </div>
                   <Badge variant={isPayment ? 'success' : 'outline'} className="text-[9px] font-black tracking-widest shrink-0">
-                    {tx.type}
+                    {tx.type === 'HISTORICAL' ? 'HISTORY' : tx.type}
                   </Badge>
                 </div>
                 <p className={cn('text-right font-mono font-black text-base', isPayment ? 'text-emerald-500' : 'text-destructive')}>
@@ -136,7 +136,7 @@ export function TransactionList({ typeFilter }: TransactionListProps) {
                     </TableCell>
                     <TableCell className="whitespace-nowrap">
                       <Badge variant={isPayment ? 'success' : 'outline'} className="text-[9px] font-black tracking-widest">
-                        {tx.type}
+                        {tx.type === 'HISTORICAL' ? 'HISTORY' : tx.type}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right pr-6 whitespace-nowrap">

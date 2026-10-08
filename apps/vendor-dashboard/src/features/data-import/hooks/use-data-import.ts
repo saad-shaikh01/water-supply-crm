@@ -21,6 +21,9 @@ export function importErrorOf(e: any, fallback: string): { code: string | null; 
 export const isRunning = (b?: Pick<ImportBatch, 'status' | 'summary'> | null) =>
   !!b && (b.status === 'QUEUED' || b.status === 'EXECUTING' || b.summary?.revert?.state === 'RUNNING');
 
+/** The preview of a large file is being built by a worker job. */
+export const isPlanning = (b?: Pick<ImportBatch, 'status'> | null) => !!b && b.status === 'PLANNING';
+
 export const useImportList = (params?: { page?: number; limit?: number }) =>
   useQuery({
     queryKey: [KEY, 'list', params ?? {}],
@@ -34,7 +37,7 @@ export const useImportDetail = (id: string | undefined) =>
     queryKey: [KEY, 'detail', id],
     queryFn: () => dataImportApi.get(id as string).then((r) => r.data),
     enabled: !!id,
-    refetchInterval: (q) => (isRunning(q.state.data?.batch) ? 2000 : false),
+    refetchInterval: (q) => (isRunning(q.state.data?.batch) || isPlanning(q.state.data?.batch) ? 2000 : false),
   });
 
 export const useImportRows = (id: string | undefined, params: RowsQuery, enabled = true) =>
