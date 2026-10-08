@@ -57,10 +57,10 @@ export function SwapDialog({
   const driverOptions = users.filter(
     (u) => CREW_ROLE_ELIGIBLE.DRIVER.includes(u.role) && !loaderIds.has(u.id),
   );
-  // The driver defaults to the salesman (and follows them if the salesman changes)
-  // until a different driver is explicitly picked. The sheet's current driver is
-  // deliberately NOT pre-selected.
-  const selectedDriverId = form.driverId ?? salesmanId;
+  // The driver is REQUIRED and never pre-selected — not the sheet's current driver,
+  // not the salesman. Staff must pick one explicitly on every save (the salesman may
+  // also be picked); Save stays disabled until they do.
+  const selectedDriverId = form.driverId ?? null;
 
   // Seed from the sheet each time the dialog opens. The salesman always comes
   // from the sheet's salesmanId (DailySheet.crew holds loaders only).
@@ -71,6 +71,7 @@ export function SwapDialog({
     setCrew(seeded);
     const sm = currentSalesmanId ?? currentDriverId ?? null;
     setSalesmanId(sm);
+    setForm({});
   }, [open, currentCrew, currentSalesmanId, currentDriverId]);
 
   const handleClose = () => {
@@ -79,7 +80,7 @@ export function SwapDialog({
   };
 
   const handleSave = () => {
-    const effectiveDriverId = selectedDriverId ?? null;
+    const effectiveDriverId = selectedDriverId;
     // Send the driver when it changes, or when the van changes (the backend would
     // otherwise auto-assign the new van's default driver over our choice).
     const sendDriver = !!effectiveDriverId && (effectiveDriverId !== currentDriverId || !!form.vanId);
@@ -147,7 +148,7 @@ export function SwapDialog({
               onValueChange={(v) => setForm((p) => ({ ...p, driverId: v || undefined }))}
             >
               <SelectTrigger className="h-10">
-                <SelectValue placeholder="Select driver" />
+                <SelectValue placeholder="Select driver (required)" />
               </SelectTrigger>
               <SelectContent>
                 {driverOptions.map((d) => (
@@ -218,7 +219,7 @@ export function SwapDialog({
           <Button variant="ghost" onClick={handleClose}>Cancel</Button>
           <Button
             onClick={handleSave}
-            disabled={isPending || !salesmanId}
+            disabled={isPending || !salesmanId || !selectedDriverId}
             className="rounded-xl font-bold"
           >
             {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}

@@ -370,6 +370,14 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
     }
   }, [data, canConfirmCrew]);
 
+  // The driver must be explicitly picked in "Edit Crew" before the crew can be
+  // confirmed. Page-local on purpose: it re-arms for every unconfirmed sheet, and
+  // clears again once the crew is confirmed.
+  const [driverPicked, setDriverPicked] = useState(false);
+  useEffect(() => {
+    if (data?.crewConfirmed) setDriverPicked(false);
+  }, [data?.crewConfirmed]);
+
   // Vehicle daily check: auto-open the start-of-day check right after crew
   // confirmation, once per mount — mirrors hasPromptedCrewConfirm exactly.
   // A missing (or critically-failed-and-unacknowledged) check is now a hard
@@ -1632,7 +1640,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         currentVanPlate={data?.van?.plateNumber}
         currentCrew={data?.crew ?? []}
         // Editing resets the confirmation — bring the user straight back to confirm
-        onSaved={() => { if (!isClosed) dispatch({ type: 'OPEN_CREW_CONFIRM' }); }}
+        onSaved={() => { setDriverPicked(true); if (!isClosed) dispatch({ type: 'OPEN_CREW_CONFIRM' }); }}
       />
       <CrewConfirmDialog
         open={ui.crewConfirmOpen}
@@ -1644,6 +1652,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         salesmanName={data?.salesman?.name ?? null}
         crew={data?.crew ?? []}
         onEditCrew={() => dispatch({ type: 'OPEN_SWAP' })}
+        driverPicked={driverPicked}
       />
       <AdhocDeliveryDialog
         open={ui.adhocOpen}
