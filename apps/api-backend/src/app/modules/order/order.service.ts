@@ -320,18 +320,18 @@ export class OrderService {
     return order;
   }
 
-  /** A dispatch plan may only name this vendor's own van and (active) driver. */
+  /** A dispatch plan may only name this vendor's own van and (active) salesman. */
   private async assertDispatchTargets(vendorId: string, dto: DispatchPlanDto) {
     if (dto.vanId) {
       const van = await this.prisma.van.findFirst({ where: { id: dto.vanId, vendorId }, select: { id: true } });
       if (!van) throw new NotFoundException('Van not found');
     }
-    if (dto.driverId) {
-      const driver = await this.prisma.user.findFirst({
-        where: { id: dto.driverId, vendorId, isActive: true },
+    if (dto.salesmanId) {
+      const salesman = await this.prisma.user.findFirst({
+        where: { id: dto.salesmanId, vendorId, isActive: true },
         select: { id: true },
       });
-      if (!driver) throw new NotFoundException('Driver not found');
+      if (!salesman) throw new NotFoundException('Salesman not found');
     }
   }
 
