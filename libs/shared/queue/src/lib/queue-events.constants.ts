@@ -16,6 +16,7 @@ export const JOB_NAMES = {
   SYNC_STALE_CREW_CASH: 'sync-stale-crew-cash',
   TRACKING_DAILY_SUMMARY: 'tracking-daily-summary',
   TRACKING_BREADCRUMB_CLEANUP: 'tracking-breadcrumb-cleanup',
+  VENDOR_IMPORT_PLAN: 'vendor-import-plan',
   VENDOR_IMPORT_EXECUTE: 'vendor-import-execute',
   VENDOR_IMPORT_REVERT: 'vendor-import-revert',
 } as const;

@@ -100,6 +100,7 @@ enum TransactionType {
   ADJUSTMENT
   LOAD_OUT
   CHECK_IN
+  HISTORICAL // imported pre-CRM history (Data Import, statement-only mode) - excluded from every revenue consumer by type
 }
 
 // How a PAYMENT transaction's money physically arrived. Set on manually
@@ -4614,10 +4615,12 @@ model CustomerDepositEntry {
 
 enum ImportEntity {
   CUSTOMERS_OPENING // customers + opening balances (money + bottle balance)
+  TRANSACTION_HISTORY // past vouchers (charges, payments, bottle movement) for existing customers
 }
 
 enum ImportBatchStatus {
   UPLOADED // file stored + parsed, headers known
+  PLANNING // plan job running (large files): normalize + validate + plan
   MAPPED // mapping/options confirmed; rows normalized, validated and planned
   QUEUED // execute accepted, job enqueued
   EXECUTING
@@ -4707,11 +4710,13 @@ model ImportRow {
   entityType      String? // 'Customer'
   entityId        String? // created Customer.id — plain string, NO FK
   appliedSnapshot Json? // what was written (revert compares against current state)
+  dedupeKey       String? // TRANSACTION_HISTORY: sha256(vendor|code|voucher|date|filled|empty|charge|paid)[#n]
 
   @@unique([batchId, rowNumber])
   @@index([batchId, action])
   @@index([batchId, result])
   @@index([entityType, entityId])
+  @@index([dedupeKey])
 }
 
 // vendorId NULL + isSystem = a system-level profile for a popular export format (matched by
