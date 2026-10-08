@@ -834,6 +834,7 @@ describe('BalanceReminderService (Phase 0 pipeline)', () => {
         prisma.transaction.findMany.mockResolvedValue([{ type: 'DELIVERY', amount: 1540 }]);
         await sendWarn([wcust({ financialBalance: 1540, paymentType: 'CASH' })]);
         expect(whatsapp.sendTemplate).toHaveBeenCalledWith(
+          'v1',
           VALID_PHONE,
           'payment_overdue_warning',
           ['Cust 1', 'L0001', '1540.00', '1540.00', '0.00', '1540.00'],

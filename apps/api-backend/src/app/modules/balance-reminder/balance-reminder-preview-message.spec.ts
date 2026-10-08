@@ -4,6 +4,8 @@ import { PrismaService } from '@water-supply-crm/database';
 import { BalanceReminderService } from './balance-reminder.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { NotificationSettingsService } from '../notifications/notification-settings.service';
+import { VendorBrandingService } from '../vendor-branding/vendor-branding.service';
+import { LEGACY_DOC_BRANDING } from '../../common/pdf/legacy-dasani-branding';
 import { CustomerStatementPdfService } from '../customer/pdf/customer-statement-pdf.service';
 import { buildReminderMessage } from './reminder-message.builder';
 import { renderTemplateBody } from './reminder-template-bodies';
@@ -38,7 +40,7 @@ describe('reminder-message builder + renderer', () => {
 describe('BalanceReminderService.previewMessage', () => {
   let service: BalanceReminderService;
   let prisma: any;
-  let whatsapp: { sendTemplate: jest.Mock; isReady: jest.Mock };
+  let whatsapp: { sendTemplate: jest.Mock; isReadyFor: jest.Mock };
   let notifSettings: { isEnabled: jest.Mock };
 
   beforeEach(async () => {
@@ -48,7 +50,7 @@ describe('BalanceReminderService.previewMessage', () => {
       reminderSendLog: { create: jest.fn(), findMany: jest.fn().mockResolvedValue([]), count: jest.fn() },
       balanceReminderConfig: { findUnique: jest.fn().mockResolvedValue(null) },
     };
-    whatsapp = { sendTemplate: jest.fn().mockResolvedValue(true), isReady: jest.fn().mockReturnValue(true) };
+    whatsapp = { sendTemplate: jest.fn().mockResolvedValue(true), isReadyFor: jest.fn().mockResolvedValue(true) };
     notifSettings = { isEnabled: jest.fn().mockResolvedValue(true) };
     const module = await Test.createTestingModule({
       providers: [
@@ -57,6 +59,7 @@ describe('BalanceReminderService.previewMessage', () => {
         { provide: WhatsAppService, useValue: whatsapp },
         { provide: NotificationSettingsService, useValue: notifSettings },
         { provide: CustomerStatementPdfService, useValue: { generate: jest.fn() } },
+        { provide: VendorBrandingService, useValue: { resolveForDocs: jest.fn().mockResolvedValue(LEGACY_DOC_BRANDING) } },
       ],
     }).compile();
     service = module.get(BalanceReminderService);
@@ -85,7 +88,7 @@ describe('BalanceReminderService.previewMessage', () => {
     prisma.customer.findMany.mockResolvedValue([customerRow({ paymentType: 'MONTHLY' })]);
     await service.sendTargeted('v1', { sendKind: 'reminder', mode: 'single', customerIds: ['c1'], month: MONTH, includeStatement: false } as any);
 
-    expect(whatsapp.sendTemplate).toHaveBeenCalledWith(VALID_PHONE, preview.templateName, preview.params);
+    expect(whatsapp.sendTemplate).toHaveBeenCalledWith('v1', VALID_PHONE, preview.templateName, preview.params);
     expect(preview.attachment).toBeNull();
   });
 
