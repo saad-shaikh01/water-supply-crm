@@ -716,6 +716,7 @@ export function SheetDetail({ sheetId }: SheetDetailProps) {
         date={data!.date}
         vanPlateNumber={isWalkIn ? null : vehiclePlate}
         salesmanName={data?.salesman?.name ?? null}
+        driverName={isWalkIn ? null : (data?.driver?.name ?? null)}
         crew={data?.crew ?? []}
         crewConfirmed={!!data?.crewConfirmed}
         crewConfirmedByName={data?.crewConfirmedBy?.name ?? null}
