@@ -57,14 +57,16 @@ export function VehicleDetail({ vehicleId }: VehicleDetailProps) {
       </div>
 
       <Tabs defaultValue="overview" className="w-full">
-        <TabsList className="rounded-xl">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="documents">Documents</TabsTrigger>
-          <TabsTrigger value="maintenance">Maintenance</TabsTrigger>
-          <TabsTrigger value="fuel">Fuel</TabsTrigger>
-          <TabsTrigger value="other-costs">Other Costs</TabsTrigger>
-          <TabsTrigger value="meter-readings">Meter Readings</TabsTrigger>
-        </TabsList>
+        <div className="w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <TabsList className="w-max justify-start rounded-xl">
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="documents">Documents</TabsTrigger>
+            <TabsTrigger value="maintenance">Maintenance</TabsTrigger>
+            <TabsTrigger value="fuel">Fuel</TabsTrigger>
+            <TabsTrigger value="other-costs">Other Costs</TabsTrigger>
+            <TabsTrigger value="meter-readings">Meter Readings</TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="overview" className="mt-4">
           <VehicleOverviewTab

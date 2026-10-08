@@ -271,6 +271,9 @@ export class FuelLogService {
     // paidFromCash either way — the caller's own paidFromCash (or the
     // existing value) then applies.
     let paidFromCash = dto.paidFromCash;
+    // Explicitly switching to "paid from van cash" means no card paid for it —
+    // drop any card so the cash flag isn't overridden below.
+    if (dto.paidFromCash === true) dto.fuelCardId = null;
     if (dto.fuelCardId !== undefined && dto.fuelCardId !== null) {
       const card = await this.prisma.fuelCard.findFirst({ where: { id: dto.fuelCardId, vendorId } });
       if (!card) throw new NotFoundException('Fuel card not found');

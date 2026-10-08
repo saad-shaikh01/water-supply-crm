@@ -202,7 +202,8 @@ export interface CreateFuelLogData {
   isFullTank?: boolean;
   paidFromCash?: boolean;
   // Fuel Card Wallet (owner-requested 2026-09-15) — see fuelLogSchema.
-  fuelCardId?: string;
+  // null clears a previously-set card on update.
+  fuelCardId?: string | null;
   fuelStation?: string;
   receiptPhotoKey?: string;
   notes?: string;
