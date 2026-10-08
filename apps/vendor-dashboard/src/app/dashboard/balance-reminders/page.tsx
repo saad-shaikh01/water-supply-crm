@@ -4,23 +4,27 @@ import { useState, useEffect } from 'react';
 import {
   Send, Users, CheckCircle2, Loader2,
   User, FileText, ChevronRight, AlertCircle, Info, Wifi, WifiOff, Zap, History,
-  ChevronLeft, Download, AlertTriangle, Settings2,
+  ChevronLeft, Download, AlertTriangle, Settings2, Eye,
 } from 'lucide-react';
 import {
   Card, CardContent, CardHeader, CardTitle, Button, Input, Label,
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
   Badge, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from '@water-supply-crm/ui';
+import { toast } from 'sonner';
 import { PageHeader } from '../../../components/shared/page-header';
 import {
   useSendTargeted,
   usePreviewReminders,
+  usePreviewMessage,
   useWhatsAppStatus,
   useReminderHistory,
   useReminderHistoryDetail,
   useReminderConfig,
   useUpdateReminderConfig,
 } from '../../../features/balance-reminders/hooks/use-balance-reminders';
+import { MessagePreviewDialog } from '../../../features/balance-reminders/components/message-preview-dialog';
+import { balanceRemindersApi } from '../../../features/balance-reminders/api/balance-reminders.api';
 import { useCustomerSearch } from '../../../features/customers/hooks/use-customers';
 import { useAllVans } from '../../../features/vans/hooks/use-vans';
 import { useCan } from '../../../features/authz/hooks/use-can';
@@ -130,6 +134,7 @@ const SEND_TYPES: { value: SendType; label: string }[] = [
 export default function BalanceRemindersPage() {
   const { mutate: sendTargeted, isPending: isSending } = useSendTargeted();
   const { mutate: sendToOne } = useSendTargeted();
+  const { mutate: loadMessage, isPending: isLoadingMessage, data: messagePreview, reset: resetMessage } = usePreviewMessage();
   const { mutate: preview, isPending: isPreviewing, data: previewData, reset: resetPreview } = usePreviewReminders();
   const { data: allVansData } = useAllVans();
   const { data: waStatus } = useWhatsAppStatus();
@@ -158,6 +163,8 @@ export default function BalanceRemindersPage() {
   const [sentIds, setSentIds] = useState<Set<string>>(new Set());
   const [sendingCustomerId, setSendingCustomerId] = useState<string | null>(null);
   const [forceOverride, setForceOverride] = useState(false);
+  const [messageFor, setMessageFor] = useState<{ id: string; name: string } | null>(null);
+  const [isLoadingStatement, setIsLoadingStatement] = useState(false);
   const [historyPage, setHistoryPage] = useState(1);
   const [historyDateFrom, setHistoryDateFrom] = useState('');
   const [historyDateTo, setHistoryDateTo] = useState('');
@@ -242,6 +249,33 @@ export default function BalanceRemindersPage() {
     setSendingCustomerId(null);
     setShowPreview(true);
     preview(buildPreviewPayload());
+  };
+
+  /** "View message" — build the exact message this customer would get with the current settings. */
+  const handleViewMessage = (customerId: string, name: string) => {
+    setMessageFor({ id: customerId, name });
+    loadMessage(
+      { customerId, sendKind: sendType, month, includeStatement: effectiveIncludeStatement },
+      { onError: () => setMessageFor(null) },
+    );
+  };
+
+  const closeMessage = () => { setMessageFor(null); resetMessage(); };
+
+  /** Open the exact statement PDF a send would attach, in a new tab. */
+  const handleViewStatement = async () => {
+    if (!messageFor) return;
+    setIsLoadingStatement(true);
+    try {
+      const res = await balanceRemindersApi.previewStatementPdf(messageFor.id, month);
+      const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch {
+      toast.error('Statement could not be generated for this customer');
+    } finally {
+      setIsLoadingStatement(false);
+    }
   };
 
   /** Send to exactly one customer from the preview list (same logic as single mode) */
@@ -999,6 +1033,16 @@ export default function BalanceRemindersPage() {
         </CardContent>
       </Card>
 
+      <MessagePreviewDialog
+        open={!!messageFor}
+        onClose={closeMessage}
+        customerName={messageFor?.name ?? ''}
+        isLoading={isLoadingMessage}
+        preview={messagePreview}
+        onViewStatement={handleViewStatement}
+        isLoadingStatement={isLoadingStatement}
+      />
+
       {/* Preview dialog */}
       <Dialog open={showPreview} onOpenChange={(open) => { if (!open) { setShowPreview(false); resetPreview(); } }}>
         <DialogContent className="rounded-3xl max-w-2xl max-h-[85vh] flex flex-col">
@@ -1169,6 +1213,16 @@ export default function BalanceRemindersPage() {
                         </Badge>
                         {previewTab === 'send' && !isSent && (
                           <>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleViewMessage(e.customerId, e.name)}
+                              disabled={isRowSending}
+                              title="View the exact message"
+                              className="h-6 px-2 ml-2 rounded-lg text-[10px] font-bold flex-shrink-0 text-sky-400 hover:text-sky-400 hover:bg-sky-500/10"
+                            >
+                              <Eye className="h-3 w-3 mr-1" /> View
+                            </Button>
                             <Button
                               size="sm"
                               onClick={() => handleSendToOne(e.customerId)}

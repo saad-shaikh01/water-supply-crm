@@ -8,10 +8,12 @@
   Query,
   ParseIntPipe,
   DefaultValuePipe,
+  Res,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { BalanceReminderService } from './balance-reminder.service';
-import { SendNowDto, SendTargetedDto, PreviewDto, UpdateBalanceReminderConfigDto } from './dto/schedule-reminder.dto';
+import { SendNowDto, SendTargetedDto, PreviewDto, PreviewMessageDto, UpdateBalanceReminderConfigDto } from './dto/schedule-reminder.dto';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '@water-supply-crm/types';
@@ -79,6 +81,38 @@ export class BalanceReminderController {
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 20 } })
   previewReminders(@CurrentUser() user: AuthUser, @Body() dto: PreviewDto) {
     return this.reminderService.previewReminders(user.vendorId, dto);
+  }
+
+  /**
+   * POST /balance-reminders/preview-message
+   * Body: { customerId, sendKind?, month?, includeStatement? }
+   * The exact WhatsApp message one customer would receive - read-only, sends nothing.
+   */
+  @Post('preview-message')
+  @RequirePermissions('balance_reminders:view')
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 60 } })
+  previewMessage(@CurrentUser() user: AuthUser, @Body() dto: PreviewMessageDto) {
+    return this.reminderService.previewMessage(user.vendorId, dto);
+  }
+
+  /**
+   * GET /balance-reminders/preview-statement?customerId=...&month=YYYY-MM
+   * The statement PDF a send would attach (for the preview "View statement" button).
+   */
+  @Get('preview-statement')
+  @RequirePermissions('balance_reminders:view')
+  @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 30 } })
+  async previewStatement(
+    @CurrentUser() user: AuthUser,
+    @Query('customerId') customerId: string,
+    @Res() res: Response,
+    @Query('month') month?: string,
+  ) {
+    const pdf = await this.reminderService.previewStatementPdf(user.vendorId, customerId, month);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${pdf.filename}"`);
+    res.setHeader('Content-Length', pdf.buffer.length);
+    res.end(pdf.buffer);
   }
 
   /**

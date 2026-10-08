@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { balanceRemindersApi, PreviewPayload, SendTargetedPayload, UpdateWarningConfigPayload } from '../api/balance-reminders.api';
+import { balanceRemindersApi, PreviewMessagePayload, PreviewPayload, SendTargetedPayload, UpdateWarningConfigPayload } from '../api/balance-reminders.api';
 
 export const useSendRemindersNow = () => {
   return useMutation({
@@ -28,6 +28,13 @@ export const useSendTargeted = () => {
       if (!data?.dryRun) qc.invalidateQueries({ queryKey: ['reminder-history'] });
     },
     onError: () => toast.error('Failed to send reminders'),
+  });
+};
+
+export const usePreviewMessage = () => {
+  return useMutation({
+    mutationFn: (payload: PreviewMessagePayload) => balanceRemindersApi.previewMessage(payload).then((r) => r.data),
+    onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to build message preview'),
   });
 };
 
