@@ -43,23 +43,33 @@ export function SwapDialog({
   const [form, setForm] = useState<{ vanId?: string; driverId?: string }>({});
   const [crew, setCrew] = useState<CrewSelection>(emptyCrewSelection);
 
-  // Driver picker draws from the same field-staff pool as the crew slots
-  // below (DRIVER/SALESMAN/LOADER are interchangeable day to day) — also
-  // excludes whoever is currently picked as supporting crew, so nobody can
-  // be selected as both driver and crew at once (backend also rejects that
-  // combo on save).
-  const pickedCrew = new Set([...crew.salesmanIds, ...crew.loaderIds]);
-  const allDrivers = (candidatesData?.data ?? [])
-    .filter((u) => CREW_ROLE_ELIGIBLE.DRIVER.includes(u.role) && !pickedCrew.has(u.id));
+  // The salesman is the sheet's primary person. The driver defaults to "same as
+  // salesman" and only becomes a separate pick when the toggle is turned off.
+  const [salesmanId, setSalesmanId] = useState<string | null>(null);
+  const [sameAsSalesman, setSameAsSalesman] = useState(true);
 
-  // Seed crew editor from the sheet's current crew each time the dialog opens.
-  // The salesman lives on the sheet (not in `currentCrew`); an empty slot means
-  // "the driver is the salesman", so only a salesman different from the driver is seeded.
+  const users = (candidatesData?.data ?? []) as Array<{ id: string; name: string; role: string }>;
+  const loaderIds = new Set(crew.loaderIds);
+  const salesmanOptions = users.filter(
+    (u) => CREW_ROLE_ELIGIBLE.SALESMAN.includes(u.role) && !loaderIds.has(u.id),
+  );
+  // Separate driver: any field staff except the salesman and the loaders (backend
+  // also rejects a driver doubling as crew).
+  const driverOptions = users.filter(
+    (u) => CREW_ROLE_ELIGIBLE.DRIVER.includes(u.role) && u.id !== salesmanId && !loaderIds.has(u.id),
+  );
+  const salesmanName = users.find((u) => u.id === salesmanId)?.name;
+
+  // Seed from the sheet each time the dialog opens. The salesman always comes
+  // from the sheet's salesmanId (DailySheet.crew holds loaders only).
   useEffect(() => {
     if (!open) return;
     const seeded = crewArrayToSelection(currentCrew);
-    if (currentSalesmanId && currentSalesmanId !== currentDriverId) seeded.salesmanIds = [currentSalesmanId];
+    seeded.salesmanIds = [];
     setCrew(seeded);
+    const sm = currentSalesmanId ?? currentDriverId ?? null;
+    setSalesmanId(sm);
+    setSameAsSalesman(!currentDriverId || currentDriverId === sm);
   }, [open, currentCrew, currentSalesmanId, currentDriverId]);
 
   const handleClose = () => {
@@ -68,8 +78,20 @@ export function SwapDialog({
   };
 
   const handleSave = () => {
+    const effectiveDriverId = sameAsSalesman ? salesmanId : (form.driverId ?? currentDriverId ?? null);
+    // Send the driver when it changes, or when the van changes (the backend would
+    // otherwise auto-assign the new van's default driver over our choice).
+    const sendDriver = !!effectiveDriverId && (effectiveDriverId !== currentDriverId || !!form.vanId);
+    const crewPayload = [
+      ...(salesmanId ? [{ userId: salesmanId, role: 'SALESMAN' as const }] : []),
+      ...crewSelectionToArray({ salesmanIds: [], loaderIds: crew.loaderIds }),
+    ];
     swapAssignment(
-      { ...form, crew: crewSelectionToArray(crew) },
+      {
+        ...(form.vanId ? { vanId: form.vanId } : {}),
+        ...(sendDriver ? { driverId: effectiveDriverId as string } : {}),
+        crew: crewPayload,
+      },
       {
         onSuccess: () => {
           handleClose();
@@ -90,53 +112,87 @@ export function SwapDialog({
         </DialogHeader>
 
         <div className="space-y-5 py-4">
+          {/* Salesman section */}
+          <div className="space-y-3 p-4 rounded-2xl bg-accent/20 border border-border/30">
+            <div className="flex items-center justify-between">
+              <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">Salesman</Label>
+              <span className="text-[10px] text-muted-foreground">This sheet only</span>
+            </div>
+            <Select value={salesmanId ?? ''} onValueChange={(v) => setSalesmanId(v || null)}>
+              <SelectTrigger className="h-10">
+                <SelectValue placeholder="Select salesman" />
+              </SelectTrigger>
+              <SelectContent>
+                {salesmanOptions.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    {u.name}
+                    {u.role !== 'SALESMAN' && (
+                      <span className="ml-1 text-xs text-muted-foreground">({u.role.toLowerCase()})</span>
+                    )}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* Driver section */}
           <div className="space-y-3 p-4 rounded-2xl bg-accent/20 border border-border/30">
             <div className="flex items-center justify-between">
               <Label className="font-bold text-xs uppercase tracking-widest text-muted-foreground">Driver</Label>
               <span className="text-[10px] text-muted-foreground">This sheet only</span>
             </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-              <User className="h-3.5 w-3.5" />
-              <span>Current: <span className="font-bold text-foreground">{currentDriverName ?? '—'}</span></span>
-            </div>
-            <Select
-              value={form.driverId ?? ''}
-              onValueChange={(v) => setForm((p) => ({ ...p, driverId: v || undefined }))}
-            >
-              <SelectTrigger className="h-10">
-                <SelectValue placeholder="Keep current driver" />
-              </SelectTrigger>
-              <SelectContent>
-                {allDrivers
-                  .filter((d) => d.id !== currentDriverId)
-                  .map((d) => (
-                    <SelectItem key={d.id} value={d.id}>
-                      {d.name}
-                      {d.role !== 'DRIVER' && (
-                        <span className="ml-1 text-xs text-muted-foreground">({d.role.toLowerCase()})</span>
-                      )}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
-            {form.driverId && (
-              <button
-                className="text-[11px] text-muted-foreground underline"
-                onClick={() => setForm((p) => ({ ...p, driverId: undefined }))}
-              >
-                Clear driver change
-              </button>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={sameAsSalesman}
+                onChange={(e) => {
+                  setSameAsSalesman(e.target.checked);
+                  if (e.target.checked) setForm((p) => ({ ...p, driverId: undefined }));
+                }}
+                className="h-4 w-4 rounded border-border"
+              />
+              <span>
+                Same as salesman
+                {sameAsSalesman && salesmanName && (
+                  <span className="ml-1 font-bold">({salesmanName})</span>
+                )}
+              </span>
+            </label>
+            {!sameAsSalesman && (
+              <>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <User className="h-3.5 w-3.5" />
+                  <span>Current: <span className="font-bold text-foreground">{currentDriverName ?? '—'}</span></span>
+                </div>
+                <Select
+                  value={form.driverId ?? (currentDriverId !== salesmanId ? currentDriverId ?? '' : '')}
+                  onValueChange={(v) => setForm((p) => ({ ...p, driverId: v || undefined }))}
+                >
+                  <SelectTrigger className="h-10">
+                    <SelectValue placeholder="Select driver" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {driverOptions.map((d) => (
+                      <SelectItem key={d.id} value={d.id}>
+                        {d.name}
+                        {d.role !== 'DRIVER' && (
+                          <span className="ml-1 text-xs text-muted-foreground">({d.role.toLowerCase()})</span>
+                        )}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>
             )}
           </div>
 
-          {/* Supporting crew section */}
+          {/* Loaders section */}
           <div className="space-y-3 p-4 rounded-2xl bg-accent/20 border border-border/30">
             <CrewEditor
               value={crew}
               onChange={setCrew}
-              excludeUserId={form.driverId ?? currentDriverId}
-              singleSalesman
+              excludeUserId={[salesmanId, sameAsSalesman ? null : (form.driverId ?? currentDriverId)]}
+              hideSalesman
             />
           </div>
 
@@ -186,7 +242,7 @@ export function SwapDialog({
           <Button variant="ghost" onClick={handleClose}>Cancel</Button>
           <Button
             onClick={handleSave}
-            disabled={isPending}
+            disabled={isPending || !salesmanId || (!sameAsSalesman && (form.driverId ?? currentDriverId) === salesmanId)}
             className="rounded-xl font-bold"
           >
             {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}

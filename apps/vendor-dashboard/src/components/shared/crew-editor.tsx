@@ -60,9 +60,11 @@ interface CrewEditorProps {
   excludeUserId?: string | (string | null | undefined)[] | null;
   /** A daily sheet has exactly one salesman — hides the add control once one is picked. */
   singleSalesman?: boolean;
+  /** Hides the salesman slot (the caller renders its own salesman picker) — loaders only. */
+  hideSalesman?: boolean;
 }
 
-export function CrewEditor({ value, onChange, excludeUserId, singleSalesman }: CrewEditorProps) {
+export function CrewEditor({ value, onChange, excludeUserId, singleSalesman, hideSalesman }: CrewEditorProps) {
   const { data } = useCrewCandidates();
   const users = (data?.data ?? []) as Array<{ id: string; name: string; role: string }>;
   const usersById = new Map(users.map((u) => [u.id, u]));
@@ -145,7 +147,7 @@ export function CrewEditor({ value, onChange, excludeUserId, singleSalesman }: C
         <Users className="h-3.5 w-3.5" />
         Supporting Crew
       </div>
-      {group('Salesman (if separate from driver)', 'salesmanIds', 'SALESMAN', SALESMAN_ELIGIBLE, 'Add a separate salesman', 'Driver is the salesman — add only if a separate one rides along')}
+      {!hideSalesman && group('Salesman (if separate from driver)', 'salesmanIds', 'SALESMAN', SALESMAN_ELIGIBLE, 'Add a separate salesman', 'Driver is the salesman — add only if a separate one rides along')}
       {group('Loaders', 'loaderIds', 'LOADER', LOADER_ELIGIBLE, 'Add loader', 'No loaders assigned')}
     </div>
   );
