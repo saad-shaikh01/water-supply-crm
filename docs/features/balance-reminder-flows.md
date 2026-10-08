@@ -268,6 +268,8 @@ Thank you for your prompt attention and continued trust in *Blue Ice*.
 `{{5}}` = payments received since the statement · `{{6}}` = live total balance. Figures come from
 `BalanceReminderService.warningFigures()`. Deliberately factual (service-continuity notice, not a
 "pay or lose service" marketing message) to keep it UTILITY-classifiable.
+**CASH customers** have no monthly invoice, so for them `{{3}}` = `{{4}}` = live balance (≥ 0) and
+`{{5}}` = 0 — reconstructing "balance at statement time" gave 0 for dues built from later deliveries.
 
 ### Full template → kind map
 | Kind | Balance | Template | Body params | PDF |

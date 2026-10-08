@@ -1151,7 +1151,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
    */
   private async sendWarning(
     vendorId: string,
-    customer: { id: string; name: string; customerCode: string; phoneNumber: string; financialBalance: number; lastStatementSentAt?: Date | null },
+    customer: { id: string; name: string; customerCode: string; phoneNumber: string; financialBalance: number; paymentType?: string; lastStatementSentAt?: Date | null },
     month: string,
   ): Promise<DispatchOutcome> {
     if (!(await this.notifSettings.isEnabled(vendorId, NotificationType.PAYMENT_WARNING, NotificationChannel.WHATSAPP))) {
@@ -1188,12 +1188,23 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
    *  - paymentReceived = net PAYMENT/COLLECTION money received since then
    *  - outstanding     = the part of the invoice still unpaid (invoice − payments, ≥ 0)
    *  - currentBalance  = LIVE balance (also includes deliveries made since)
+   *
+   * CASH customers have no monthly invoice — their balance is running dues, mostly
+   * from deliveries after the statement month ended, so the "balance at statement
+   * time" figures above come out 0 and contradict the live balance. For them the
+   * whole live balance is the amount due: invoice = outstanding = live balance,
+   * payment received = 0.
    */
   private async warningFigures(
     vendorId: string,
-    customer: { id: string; financialBalance: number; lastStatementSentAt?: Date | null },
+    customer: { id: string; financialBalance: number; paymentType?: string; lastStatementSentAt?: Date | null },
     month: string,
   ): Promise<{ invoiceAmount: number; paymentReceived: number; outstanding: number; currentBalance: number }> {
+    if (customer.paymentType === 'CASH') {
+      const due = Math.max(0, customer.financialBalance);
+      return { invoiceAmount: due, paymentReceived: 0, outstanding: due, currentBalance: customer.financialBalance };
+    }
+
     const monthEnd = this.monthEndDate(month);
     const since = customer.lastStatementSentAt && customer.lastStatementSentAt < monthEnd ? customer.lastStatementSentAt : monthEnd;
 
