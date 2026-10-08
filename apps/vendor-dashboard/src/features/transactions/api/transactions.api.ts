@@ -52,6 +52,9 @@ export const transactionsApi = {
     apiClient.patch(`/transactions/payments/${id}`, data),
   deletePayment: (id: string, data: Record<string, unknown>) =>
     apiClient.delete(`/transactions/payments/${id}`, { data }),
+  /** Re-push the "payment recorded" WhatsApp notice for a manual payment. */
+  resendPaymentNotification: (id: string) =>
+    apiClient.post<{ queued: boolean }>(`/transactions/payments/${id}/resend-notification`),
 
   // Payment Requests (Admin Review)
   getRequests: (params: PaymentRequestQuery) => apiClient.get('/payment-requests', { params }),
