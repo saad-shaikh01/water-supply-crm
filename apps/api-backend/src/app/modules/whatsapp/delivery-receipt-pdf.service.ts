@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import PDFDocument from 'pdfkit';
 import { drawShadowShape, brandGradient, drawWatermark } from '../../common/pdf/pdf-theme.util';
+import { DocBranding, LEGACY_DOC_BRANDING } from '../../common/pdf/doc-branding';
 
 export interface DeliveryReceiptData {
   customerName: string;
@@ -79,7 +80,8 @@ interface DetailRow {
 
 @Injectable()
 export class DeliveryReceiptPdfService {
-  async generate(data: DeliveryReceiptData): Promise<Buffer> {
+  /** `branding` omitted = legacy Dasani/Blue Ice identity (see DocBranding). */
+  async generate(data: DeliveryReceiptData, branding: DocBranding = LEGACY_DOC_BRANDING): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({ size: 'A5', margin: MARGIN });
       const chunks: Buffer[] = [];
@@ -88,9 +90,9 @@ export class DeliveryReceiptPdfService {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      drawWatermark(doc, LOGO_PATH, PAGE_W, PAGE_H);
+      if (branding.legacy) drawWatermark(doc, LOGO_PATH, PAGE_W, PAGE_H);
 
-      this.drawBanner(doc, data);
+      this.drawBanner(doc, branding);
 
       doc.y += 10;
       this.drawSectionTitle(doc, 'INVOICE');
@@ -134,7 +136,7 @@ export class DeliveryReceiptPdfService {
       this.drawBalanceBar(doc, totalLabel, data.financialBalanceAfter);
 
       doc.y += 10;
-      this.drawThankYouFooter(doc);
+      this.drawThankYouFooter(doc, branding);
 
       doc.end();
     });
@@ -151,13 +153,25 @@ export class DeliveryReceiptPdfService {
   }
 
   // ── Brand banner: gradient card with logo chip (left) + vendor identity (right) ─
-  private drawBanner(doc: PDFKit.PDFDocument, data: DeliveryReceiptData): void {
+  private drawBanner(doc: PDFKit.PDFDocument, branding: DocBranding): void {
     const y = MARGIN;
 
     drawShadowShape(doc, MARGIN, y, CONTENT_W, BANNER_H, RADIUS, brandGradient(doc, MARGIN, y, CONTENT_W, BANNER_H), {
       shadowColor: C.navy,
       shadowOpacity: 0.13,
     });
+
+    if (!branding.legacy) {
+      // Vendor-neutral banner: the vendor's own name (+ address when set) only — no Dasani logo/phones.
+      doc.fillColor(C.white).font('Helvetica-Bold').fontSize(13)
+        .text(branding.name, MARGIN + 12, y + 12, { width: CONTENT_W - 26, align: 'right', lineBreak: false });
+      if (branding.address) {
+        doc.fillColor('#ffffff', 0.82).font('Helvetica').fontSize(7.5)
+          .text(branding.address, MARGIN + 12, y + 30, { width: CONTENT_W - 26, align: 'right', lineBreak: false });
+      }
+      doc.y = y + BANNER_H + 3;
+      return;
+    }
 
     const chipW = 72;
     const chipH = 32;
@@ -217,8 +231,16 @@ export class DeliveryReceiptPdfService {
   }
 
   // ── Thank-you / payment footer (same design as the customer statement, compacted for A5) ─
-  private drawThankYouFooter(doc: PDFKit.PDFDocument): void {
+  private drawThankYouFooter(doc: PDFKit.PDFDocument, branding: DocBranding): void {
     const y = doc.y;
+
+    if (!branding.legacy) {
+      // No payment block for non-legacy vendors until they supply their own details (P1).
+      doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(9)
+        .text('Thank you for your business with us!', MARGIN, y, { width: CONTENT_W, align: 'center', lineBreak: false });
+      doc.y = y + 14;
+      return;
+    }
 
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(9)
       .text('Thank you for your business with us!', MARGIN, y, { width: CONTENT_W, align: 'center', lineBreak: false });

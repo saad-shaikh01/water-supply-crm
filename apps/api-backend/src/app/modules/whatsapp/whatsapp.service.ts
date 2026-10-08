@@ -4,11 +4,17 @@ import {
   IWhatsAppProvider,
   WHATSAPP_PROVIDER,
 } from './providers/whatsapp-provider.interface';
+import { evaluateGate, isBlocked } from '../../common/tenant-gate/legacy-vendor-gate';
 
+/**
+ * Every send takes the owning `vendorId` first. P0 stop-gap (see legacy-vendor-gate.ts): the
+ * platform WhatsApp number may only be used for vendors in WHATSAPP_ALLOWED_VENDOR_IDS once
+ * WHATSAPP_GUARD_MODE=enforce; in the default `shadow` mode nothing is blocked, only logged.
+ */
 @Injectable()
 export class WhatsAppService {
   private readonly logger = new Logger(WhatsAppService.name);
-  private readonly RATE_LIMIT_TTL = 60000; // 1 message per phone per minute
+  private readonly RATE_LIMIT_TTL = 60000; // 1 message per vendor+phone per minute
 
   constructor(
     @Inject(WHATSAPP_PROVIDER)
@@ -20,12 +26,29 @@ export class WhatsAppService {
     return this.provider.isReady();
   }
 
-  async sendDocument(phone: string, pdfBuffer: Buffer, filename: string, caption?: string): Promise<boolean> {
+  /** Side-effect-free: would the gate stop this vendor right now? (lets callers log a precise reason) */
+  isBlockedForVendor(vendorId?: string | null): boolean {
+    return isBlocked(vendorId);
+  }
+
+  private rateLimitKey(vendorId: string | null | undefined, phone: string): string {
+    return `whatsapp:ratelimit:${vendorId ?? 'none'}:${phone.replace(/\D/g, '')}`;
+  }
+
+  async sendDocument(
+    vendorId: string | null | undefined,
+    phone: string,
+    pdfBuffer: Buffer,
+    filename: string,
+    caption?: string,
+  ): Promise<boolean> {
     if (!phone || !pdfBuffer) return false;
+    if (evaluateGate(vendorId, 'whatsapp.sendDocument').blocked) return false;
     return this.provider.sendDocument(phone, pdfBuffer, filename, caption);
   }
 
   async sendTemplate(
+    vendorId: string | null | undefined,
     phone: string,
     templateName: string,
     bodyParams: string[],
@@ -33,9 +56,10 @@ export class WhatsAppService {
     imageUrl?: string,
   ): Promise<boolean> {
     if (!phone || !templateName) return false;
+    if (evaluateGate(vendorId, `whatsapp.sendTemplate(${templateName})`).blocked) return false;
 
-    // Rate limiting: 1 message per phone per minute
-    const rateLimitKey = `whatsapp:ratelimit:${phone.replace(/\D/g, '')}`;
+    // Rate limiting: 1 message per vendor+phone per minute
+    const rateLimitKey = this.rateLimitKey(vendorId, phone);
     const isLimited = await this.cache.get<boolean>(rateLimitKey);
 
     if (isLimited) {
@@ -52,11 +76,12 @@ export class WhatsAppService {
     return sent;
   }
 
-  async sendMessage(phone: string, message: string): Promise<boolean> {
+  async sendMessage(vendorId: string | null | undefined, phone: string, message: string): Promise<boolean> {
     if (!phone || !message) return false;
+    if (evaluateGate(vendorId, 'whatsapp.sendMessage').blocked) return false;
 
-    // Rate limiting: 1 message per phone per minute
-    const rateLimitKey = `whatsapp:ratelimit:${phone.replace(/\D/g, '')}`;
+    // Rate limiting: 1 message per vendor+phone per minute
+    const rateLimitKey = this.rateLimitKey(vendorId, phone);
     const isLimited = await this.cache.get<boolean>(rateLimitKey);
 
     if (isLimited) {
@@ -75,6 +100,7 @@ export class WhatsAppService {
   }
 
   async sendBulk(
+    vendorId: string | null | undefined,
     recipients: { phone: string; message: string }[],
     delayMs = 1500,
   ): Promise<{ sent: number; failed: number }> {
@@ -82,7 +108,7 @@ export class WhatsAppService {
     let failed = 0;
 
     for (const { phone, message } of recipients) {
-      const success = await this.sendMessage(phone, message);
+      const success = await this.sendMessage(vendorId, phone, message);
       success ? sent++ : failed++;
 
       // Delay between messages to avoid WhatsApp spam detection

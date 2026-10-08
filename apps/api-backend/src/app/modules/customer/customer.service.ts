@@ -34,6 +34,7 @@ import { PermissionService } from '../authz/permission.service';
 import { ConsumptionQueryDto } from './dto/consumption-query.dto';
 import { CustomerDepositsService } from '../customer-deposits/customer-deposits.service';
 import { createCustomerRecords } from './customer-create.helper';
+import { resolveDocBranding } from '../../common/pdf/doc-branding';
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -928,7 +929,8 @@ export class CustomerService {
     periodOnly?: boolean,
   ): Promise<Buffer> {
     const data = await this.getMonthlyStatement(vendorId, customerId, month, toMonth);
-    return this.statementPdf.generate({ ...data, periodOnly });
+    const branding = await resolveDocBranding(this.prisma, vendorId);
+    return this.statementPdf.generate({ ...data, periodOnly, branding });
   }
 
   /**

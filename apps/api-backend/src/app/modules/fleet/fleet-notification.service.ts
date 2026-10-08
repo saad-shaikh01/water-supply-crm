@@ -140,7 +140,7 @@ export class FleetNotificationService implements OnModuleInit {
           year: 'numeric',
           timeZone: 'Asia/Karachi',
         });
-        await this.sendWhatsAppAlerts(whatsappRecipients, CloudTemplateNames.FLEET_DOCUMENT_EXPIRY, [
+        await this.sendWhatsAppAlerts(vendorId, whatsappRecipients, CloudTemplateNames.FLEET_DOCUMENT_EXPIRY, [
           doc.vehicle.plateNumber,
           label,
           documentExpiryPhrase(daysUntilExpiry),
@@ -189,7 +189,7 @@ export class FleetNotificationService implements OnModuleInit {
         await this.notifyAdmins(vendorId, MAINTENANCE_DUE_TYPE, entityId, title, message);
 
         if (whatsappRecipients.length) {
-          await this.sendWhatsAppAlerts(whatsappRecipients, CloudTemplateNames.FLEET_MAINTENANCE_DUE, [
+          await this.sendWhatsAppAlerts(vendorId, whatsappRecipients, CloudTemplateNames.FLEET_MAINTENANCE_DUE, [
             vehicle.plateNumber,
             label,
             maintenanceDuePhrase(status.kmRemaining, status.daysRemaining),
@@ -204,13 +204,14 @@ export class FleetNotificationService implements OnModuleInit {
 
   /** Sends one WhatsApp template to every active Fleet Alert Recipient, paced like a bulk send. */
   private async sendWhatsAppAlerts(
+    vendorId: string,
     recipients: { name: string; phone: string }[],
     templateName: string,
     bodyParams: string[],
   ): Promise<void> {
     for (const recipient of recipients) {
       try {
-        await this.whatsapp.sendTemplate(recipient.phone, templateName, bodyParams);
+        await this.whatsapp.sendTemplate(vendorId, recipient.phone, templateName, bodyParams);
       } catch (err) {
         this.logger.error(
           `Failed to send ${templateName} to fleet alert recipient ${recipient.name}`,

@@ -507,6 +507,7 @@ describe('BalanceReminderService (Phase 0 pipeline)', () => {
         expect(res.sent).toBe(1);
         expect(res.customers[0].status).toBe('sent');
         expect(whatsapp.sendTemplate).toHaveBeenCalledWith(
+          'v1',
           VALID_PHONE,
           'monthly_statement_neutral',
           ['Cust 1', expect.stringContaining('2026')],
@@ -518,7 +519,7 @@ describe('BalanceReminderService (Phase 0 pipeline)', () => {
         givePdf();
         prisma.customer.findMany.mockResolvedValue(row([{ id: 'c1', financialBalance: 5000 }]));
         await service.processVendorReminders('v1', 100, false, '2026-08', false, undefined, false, 'manual', undefined, undefined, undefined, 'STATEMENT_ONLY' as any);
-        const templates = whatsapp.sendTemplate.mock.calls.map((c) => c[1]);
+        const templates = whatsapp.sendTemplate.mock.calls.map((c) => c[2]);
         expect(templates).toEqual(['monthly_statement_neutral']);
       });
 
@@ -579,7 +580,7 @@ describe('BalanceReminderService (Phase 0 pipeline)', () => {
         const res: any = await service.sendTargeted('v1', { sendKind: 'statement_only', mode: 'single', customerIds: ['c1'], month: '2026-08' } as any);
 
         expect(res.sent).toBe(1);
-        expect(whatsapp.sendTemplate).toHaveBeenCalledWith(VALID_PHONE, 'monthly_statement_neutral', ['Cust 1', expect.stringContaining('2026')], expect.anything());
+        expect(whatsapp.sendTemplate).toHaveBeenCalledWith('v1', VALID_PHONE, 'monthly_statement_neutral', ['Cust 1', expect.stringContaining('2026')], expect.anything());
         expect(prisma.reminderSendLog.create).toHaveBeenCalledWith({
           data: expect.objectContaining({ mode: 'single', kind: 'STATEMENT_ONLY', includeStatement: true }),
         });
@@ -592,7 +593,7 @@ describe('BalanceReminderService (Phase 0 pipeline)', () => {
         const res = await service.processVendorReminders('v1', 100, false, '2026-08', false, undefined, false, 'manual');
 
         expect(res.sent).toBe(1);
-        expect(whatsapp.sendTemplate).toHaveBeenCalledWith(VALID_PHONE, 'balance_reminder', ['Cust 1', '500.00']);
+        expect(whatsapp.sendTemplate).toHaveBeenCalledWith('v1', VALID_PHONE, 'balance_reminder', ['Cust 1', '500.00']);
         expect(prisma.reminderSendLog.create).toHaveBeenCalledWith({
           data: expect.objectContaining({ kind: 'REMINDER' }),
         });
@@ -602,7 +603,7 @@ describe('BalanceReminderService (Phase 0 pipeline)', () => {
         prisma.customer.findMany.mockResolvedValue(row([{ id: 'c1', financialBalance: 500 }]));
         const res: any = await service.sendTargeted('v1', { sendKind: 'reminder', mode: 'single', customerIds: ['c1'], month: '2026-08' } as any);
         expect(res.sent).toBe(1);
-        expect(whatsapp.sendTemplate).toHaveBeenCalledWith(VALID_PHONE, 'balance_reminder', ['Cust 1', '500.00']);
+        expect(whatsapp.sendTemplate).toHaveBeenCalledWith('v1', VALID_PHONE, 'balance_reminder', ['Cust 1', '500.00']);
       });
     });
   });
@@ -816,6 +817,7 @@ describe('BalanceReminderService (Phase 0 pipeline)', () => {
         const res: any = await sendWarn([wcust({ financialBalance: 1500 })]);
         expect(res.sent).toBe(1);
         expect(whatsapp.sendTemplate).toHaveBeenCalledWith(
+          'v1',
           VALID_PHONE,
           'payment_overdue_warning',
           ['Cust 1', 'L0001', '1200.00', '2000.00', '800.00', '1500.00'],
@@ -835,6 +837,7 @@ describe('BalanceReminderService (Phase 0 pipeline)', () => {
         prisma.transaction.findMany.mockResolvedValue([]);
         await sendWarn([wcust({ financialBalance: 500 })]);
         expect(whatsapp.sendTemplate).toHaveBeenCalledWith(
+          'v1',
           VALID_PHONE,
           'payment_overdue_warning',
           ['Cust 1', 'L0001', '500.00', '500.00', '0.00', '500.00'],

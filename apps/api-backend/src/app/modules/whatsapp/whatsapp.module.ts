@@ -1,9 +1,10 @@
-import { Module, Global } from '@nestjs/common';
+import { Module, Global, OnModuleInit } from '@nestjs/common';
 import { WhatsAppService } from './whatsapp.service';
 import { WhatsAppController } from './whatsapp.controller';
 import { MetaCloudApiProvider } from './providers/meta-cloud-api.provider';
 import { WHATSAPP_PROVIDER } from './providers/whatsapp-provider.interface';
 import { DeliveryReceiptPdfService } from './delivery-receipt-pdf.service';
+import { logGateStartup } from '../../common/tenant-gate/legacy-vendor-gate';
 
 @Global()
 @Module({
@@ -18,4 +19,8 @@ import { DeliveryReceiptPdfService } from './delivery-receipt-pdf.service';
   ],
   exports: [WhatsAppService, DeliveryReceiptPdfService],
 })
-export class WhatsAppModule {}
+export class WhatsAppModule implements OnModuleInit {
+  onModuleInit() {
+    logGateStartup();
+  }
+}

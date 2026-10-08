@@ -269,6 +269,7 @@ describe('PayrollSlipService.runDispatch', () => {
     await m.service.runDispatch('dispatch-1');
     expect(m.whatsapp.sendTemplate).toHaveBeenCalledTimes(1);
     expect(m.whatsapp.sendTemplate).toHaveBeenCalledWith(
+      'vendor-A',
       '923001234567',
       CloudTemplateNames.SALARY_SLIP,
       ['Emp e1', '2026-09', '45,000'],
@@ -292,7 +293,7 @@ describe('PayrollSlipService.runDispatch', () => {
     const m = make();
     seedRun(m, [entryRow('e1', { user: { id: 'u', name: 'Ali\n  Raza\t', role: 'LOADER', phoneNumber: '03001234567' } })]);
     await m.service.runDispatch('dispatch-1');
-    expect(m.whatsapp.sendTemplate.mock.calls[0][2][0]).toBe('Ali Raza');
+    expect(m.whatsapp.sendTemplate.mock.calls[0][3][0]).toBe('Ali Raza');
   });
 
   it('pauses (randomized sendDelay) between sends — n-1 times, never after the last', async () => {

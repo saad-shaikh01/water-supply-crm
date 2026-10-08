@@ -4,6 +4,7 @@ import * as path from 'path';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import PDFDocument = require('pdfkit');
 import { drawShadowShape, brandGradient, drawClippedWatermark } from '../../../common/pdf/pdf-theme.util';
+import { DocBranding, LEGACY_DOC_BRANDING } from '../../../common/pdf/doc-branding';
 
 // ── Company identity (hardcoded — single vendor for now) ────────────────────
 const COMPANY_NAME    = 'DASANI ENTERPRISES';
@@ -175,6 +176,8 @@ export class CustomerStatementPdfService {
      * "Previous Balance" row, running balance is this period's own activity
      * only). The BALANCE DUE chip is unaffected — it always uses `closingBalance`. */
     periodOnly?: boolean;
+    /** Omit for the legacy Dasani/Blue Ice identity (see DocBranding). */
+    branding?: DocBranding;
   }): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({
@@ -207,8 +210,9 @@ export class CustomerStatementPdfService {
     const { deliveryRows, otherRows, ratePerBottle: computedRatePerBottle } = this.buildRows(transactions, rowsOpeningBalance);
     const ratePerBottle = data.ratePerBottle ?? computedRatePerBottle;
     const isRange = !!toMonth && toMonth !== month;
+    const branding: DocBranding = data.branding ?? LEGACY_DOC_BRANDING;
 
-    this.drawBrandBanner(doc);
+    this.drawBrandBanner(doc, branding);
     doc.y += 18;
     this.drawSectionTitle(doc, isRange ? 'STATEMENT' : 'MONTHLY STATEMENT');
     doc.y += 12;
@@ -229,7 +233,7 @@ export class CustomerStatementPdfService {
     }
     doc.y += 20;
     const showFilled = deliveryRows.some((r) => r.filledPickup > 0);
-    this.drawDeliveryCard(doc, deliveryRows, rowsOpeningBalance, showFilled ? DCOL_WITH_FILLED : DCOL_BASE, !!periodOnly);
+    this.drawDeliveryCard(doc, deliveryRows, rowsOpeningBalance, showFilled ? DCOL_WITH_FILLED : DCOL_BASE, !!periodOnly, branding.legacy);
 
     if (otherRows.length) {
       doc.y += 18;
@@ -240,7 +244,7 @@ export class CustomerStatementPdfService {
     }
 
     doc.y += 18;
-    this.drawThankYouFooter(doc);
+    this.drawThankYouFooter(doc, branding);
   }
 
   // ── Row building / grouping ──────────────────────────────────────────────
@@ -321,7 +325,7 @@ export class CustomerStatementPdfService {
   }
 
   // ── Brand banner: gradient card with logo box (left) + company identity (right) ─
-  private drawBrandBanner(doc: PDFKit.PDFDocument): void {
+  private drawBrandBanner(doc: PDFKit.PDFDocument, branding: DocBranding): void {
     const y = MARGIN;
     const h = BANNER_H;
 
@@ -329,6 +333,18 @@ export class CustomerStatementPdfService {
       shadowColor: C.navy,
       shadowOpacity: 0.13,
     });
+
+    if (!branding.legacy) {
+      // Vendor-neutral banner: the vendor's own name (+ address when set) only — no Dasani logo/phones.
+      doc.fillColor(C.white).font('Helvetica-Bold').fontSize(15)
+        .text(branding.name, MARGIN + 14, y + 16, { width: CONTENT_W - 28, align: 'right', lineBreak: false });
+      if (branding.address) {
+        doc.fillColor('#ffffff', 0.82).font('Helvetica').fontSize(8)
+          .text(branding.address, MARGIN + 14, y + 35, { width: CONTENT_W - 28, align: 'right', lineBreak: false });
+      }
+      doc.y = y + h + 3;
+      return;
+    }
 
     // White logo chip
     const chipW = 118;
@@ -442,7 +458,7 @@ export class CustomerStatementPdfService {
   }
 
   // ── Delivery card (paginates with its own shadow card per page) ────────────
-  private drawDeliveryCard(doc: PDFKit.PDFDocument, rows: DeliveryRow[], openingBalance: number, cols: DeliveryCols, periodOnly = false): void {
+  private drawDeliveryCard(doc: PDFKit.PDFDocument, rows: DeliveryRow[], openingBalance: number, cols: DeliveryCols, periodOnly = false, watermark = true): void {
     const lines: DeliveryLine[] = [];
     if (!periodOnly) lines.push({ kind: 'prev', openingBalance });
     rows.forEach((row, index) => lines.push({ kind: 'row', row, index }));
@@ -454,7 +470,7 @@ export class CustomerStatementPdfService {
       ROW_H,
       (x, y, w) => this.drawDeliveryTableHeader(doc, x, y, w, cols),
       (line, x, y) => this.drawDeliveryLine(doc, line, x, y, cols),
-      { watermark: true },
+      { watermark },
     );
 
     if (!rows.length) {
@@ -634,7 +650,15 @@ export class CustomerStatementPdfService {
   }
 
   // ── Thank-you / payment footer (appears once at end of document) ───────────
-  private drawThankYouFooter(doc: PDFKit.PDFDocument): void {
+  private drawThankYouFooter(doc: PDFKit.PDFDocument, branding: DocBranding): void {
+    if (!branding.legacy) {
+      // No payment block for non-legacy vendors until they supply their own details (P1).
+      if (doc.y + 30 > FOOTER_Y - 10) { doc.addPage(); doc.y = MARGIN; }
+      doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(10)
+        .text('Thank you for your business with us!', MARGIN, doc.y, { width: CONTENT_W, align: 'center' });
+      doc.y += 10;
+      return;
+    }
     if (doc.y + 165 > FOOTER_Y - 10) { doc.addPage(); doc.y = MARGIN; }
     const y = doc.y;
 

@@ -7,6 +7,7 @@ import { isSendablePhone } from '../whatsapp/phone.util';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { NotificationSettingsService } from '../notifications/notification-settings.service';
 import { CustomerStatementPdfService } from '../customer/pdf/customer-statement-pdf.service';
+import { resolveDocBranding } from '../../common/pdf/doc-branding';
 import { SendNowDto, SendTargetedDto, PreviewDto, SendKind, UpdateBalanceReminderConfigDto } from './dto/schedule-reminder.dto';
 
 const DEFAULT_MIN_BALANCE = 100;
@@ -1164,6 +1165,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     if (!pdf) return 'skipped-pdf-failed';
     const f = await this.warningFigures(vendorId, customer, month);
     const ok = await this.whatsapp.sendTemplate(
+      vendorId,
       customer.phoneNumber,
       CloudTemplateNames.PAYMENT_OVERDUE_WARNING,
       [
@@ -1238,6 +1240,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     if (!pdf) return 'skipped-pdf-failed';
 
     const sent = await this.whatsapp.sendTemplate(
+      vendorId,
       customer.phoneNumber,
       CloudTemplateNames.MONTHLY_STATEMENT_NEUTRAL,
       [customer.name, this.formatMonthLabel(month)],
@@ -1274,6 +1277,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
         const document = { buffer: pdf.buffer, filename: pdf.filename };
         if (hasDue) {
           return this.whatsapp.sendTemplate(
+            vendorId,
             customer.phoneNumber,
             CloudTemplateNames.MONTHLY_STATEMENT,
             [customer.name, customer.customerCode, balance.toFixed(2)],
@@ -1282,6 +1286,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
         }
         if (balance < 0) {
           return this.whatsapp.sendTemplate(
+            vendorId,
             customer.phoneNumber,
             CloudTemplateNames.MONTHLY_STATEMENT_ADVANCE,
             [customer.name, monthLabel, Math.abs(balance).toFixed(2)],
@@ -1289,6 +1294,7 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
           );
         }
         return this.whatsapp.sendTemplate(
+          vendorId,
           customer.phoneNumber,
           CloudTemplateNames.MONTHLY_STATEMENT_CLEAR,
           [customer.name, monthLabel],
@@ -1298,12 +1304,12 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (hasDue) {
-      return this.whatsapp.sendTemplate(customer.phoneNumber, CloudTemplateNames.BALANCE_REMINDER, [customer.name, balance.toFixed(2)]);
+      return this.whatsapp.sendTemplate(vendorId, customer.phoneNumber, CloudTemplateNames.BALANCE_REMINDER, [customer.name, balance.toFixed(2)]);
     }
     if (balance < 0) {
-      return this.whatsapp.sendTemplate(customer.phoneNumber, CloudTemplateNames.BALANCE_CLEAR_ADVANCE, [customer.name, Math.abs(balance).toFixed(2)]);
+      return this.whatsapp.sendTemplate(vendorId, customer.phoneNumber, CloudTemplateNames.BALANCE_CLEAR_ADVANCE, [customer.name, Math.abs(balance).toFixed(2)]);
     }
-    return this.whatsapp.sendTemplate(customer.phoneNumber, CloudTemplateNames.BALANCE_CLEAR, [customer.name]);
+    return this.whatsapp.sendTemplate(vendorId, customer.phoneNumber, CloudTemplateNames.BALANCE_CLEAR, [customer.name]);
   }
 
   /**
@@ -1339,7 +1345,8 @@ export class BalanceReminderService implements OnModuleInit, OnModuleDestroy {
       const openingBalance = closingBalance - periodActivity;
       const period = new Date(year, mon - 1, 1).toLocaleString('en-PK', { month: 'long', year: 'numeric' });
 
-      const buffer = await this.statementPdf.generate({ customer, transactions, openingBalance, closingBalance, period, month });
+      const branding = await resolveDocBranding(this.prisma, vendorId);
+      const buffer = await this.statementPdf.generate({ customer, transactions, openingBalance, closingBalance, period, month, branding });
       // Format: customercode_shortname_month e.g. L0042_Ahmed_June_2026.pdf
       const shortName = (customer.name ?? '').trim().split(/\s+/)[0] || 'customer';
       const filename = `${this.sanitizeForFilename(customer.customerCode)}_${this.sanitizeForFilename(shortName)}_${this.sanitizeForFilename(period)}.pdf`;

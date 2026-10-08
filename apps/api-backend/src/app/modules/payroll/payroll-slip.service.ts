@@ -439,6 +439,7 @@ export class PayrollSlipService {
 
       const buffer = await this.pdf.generate(slip);
       const sent = await this.whatsapp.sendTemplate(
+        row.vendorId,
         phone,
         CloudTemplateNames.SALARY_SLIP,
         // Meta rejects newlines / tabs / runs of spaces inside a template parameter.
