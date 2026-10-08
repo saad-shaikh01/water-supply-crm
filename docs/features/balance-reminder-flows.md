@@ -268,6 +268,15 @@ Thank you for your prompt attention and continued trust in *Blue Ice*.
 `{{5}}` = payments received since the statement · `{{6}}` = live total balance. Figures come from
 `BalanceReminderService.warningFigures()`. Deliberately factual (service-continuity notice, not a
 "pay or lose service" marketing message) to keep it UTILITY-classifiable.
+**CASH customers** have no monthly invoice, so for them `{{3}}` = `{{4}}` = live balance (≥ 0) and
+`{{5}}` = 0 — reconstructing "balance at statement time" gave 0 for dues built from later deliveries.
+
+### Reviewing the exact message before sending ("View" in the preview list)
+`POST /balance-reminders/preview-message` (`{ customerId, sendKind, month, includeStatement }`) returns the
+rendered text, template name, params and PDF filename one customer would get; `GET /balance-reminders/preview-statement`
+returns the exact statement PDF. Read-only (no send, no log, no cooldown). The real send and the preview both build
+the message through `reminder-message.builder.ts`, so they cannot drift. The rendered text comes from a **local copy**
+of the approved Meta bodies (`reminder-template-bodies.ts`) — update it when a template is edited on Meta.
 
 ### Full template → kind map
 | Kind | Balance | Template | Body params | PDF |

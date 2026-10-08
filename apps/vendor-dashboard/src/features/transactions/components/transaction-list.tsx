@@ -32,6 +32,7 @@ import { cn } from '@water-supply-crm/ui';
 // function, same backend endpoint, same receipt generation. No new receipt
 // logic is introduced here.
 import { dailySheetsApi } from '../../daily-sheets/api/daily-sheets.api';
+import { transactionsApi } from '../api/transactions.api';
 
 const TRANSACTION_TYPES = [
   { value: '', label: 'All Types' },
@@ -125,10 +126,16 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
   // delivery-items-list.tsx's handleResendReceipt, just keyed off the
   // transaction's linked dailySheetItemId instead of a DeliveryItem prop.
   const handleResendReceipt = async (row: typeof rows[0]) => {
-    if (!row.dailySheetItemId) return;
+    // Manual payments have no delivery to re-render — they re-push the same
+    // "payment recorded" notice that was sent when they were recorded.
+    if (!row.dailySheetItemId && !isPaymentEditable(row)) return;
     setResendingId(row.id);
     try {
-      await dailySheetsApi.resendReceipt(row.dailySheetItemId);
+      if (row.dailySheetItemId) {
+        await dailySheetsApi.resendReceipt(row.dailySheetItemId);
+      } else {
+        await transactionsApi.resendPaymentNotification(row.id);
+      }
       toast.success(`Receipt sent to ${row.customer?.name ?? 'customer'} on WhatsApp`);
     } catch (err: any) {
       toast.error(err?.response?.data?.message || 'Failed to resend receipt');
@@ -506,9 +513,10 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
             header: '',
             width: '60px',
             cell: (r) => {
-              // "Resend Receipt" is only meaningful for a delivery-linked row.
-              const resendAvailable = !!r.dailySheetItemId;
+              // Delivery-linked rows resend the delivery receipt; manually
+              // recorded payments resend the "payment recorded" notice.
               const editable = isPaymentEditable(r);
+              const resendAvailable = !!r.dailySheetItemId || editable;
               const showEdit = editable && canEditPayment;
               const showDelete = editable && canDeletePayment;
 
@@ -517,7 +525,7 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
               if (!resendAvailable && !showEdit && !showDelete) return null;
 
               const missingPhone = !r.customer?.phoneNumber;
-              const notCompleted = r.dailySheetItem?.status !== 'COMPLETED';
+              const notCompleted = !!r.dailySheetItemId && r.dailySheetItem?.status !== 'COMPLETED';
               const disabledReason = missingPhone
                 ? 'Customer has no phone number on file'
                 : notCompleted
@@ -544,7 +552,7 @@ export function TransactionList({ customerId: overrideCustomerId }: TransactionL
                           <Send className="h-4 w-4 text-emerald-600" />
                         )}
                         <span className="flex flex-col items-start">
-                          Resend Receipt
+                          {r.dailySheetItemId ? 'Resend Receipt' : 'Resend Message'}
                           {disabledReason && (
                             <span className="text-[10px] font-normal normal-case text-muted-foreground">{disabledReason}</span>
                           )}

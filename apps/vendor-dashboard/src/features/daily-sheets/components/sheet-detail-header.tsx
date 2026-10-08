@@ -9,6 +9,8 @@ interface SheetDetailHeaderProps {
   date: string;
   vanPlateNumber: string | null;
   salesmanName: string | null;
+  /** Shown only once the crew is confirmed (the driver is picked explicitly in Edit Crew). */
+  driverName?: string | null;
   /** Loaders only — the salesman is stored on the sheet, not in the crew list. */
   crew: SheetCrewMember[];
   crewConfirmed: boolean;
@@ -28,6 +30,7 @@ export function SheetDetailHeader({
   date,
   vanPlateNumber,
   salesmanName,
+  driverName,
   crew,
   crewConfirmed,
   crewConfirmedByName,
@@ -69,6 +72,15 @@ export function SheetDetailHeader({
             <User className="h-3 w-3 shrink-0" />
             Salesman: <span className="font-bold text-foreground">{salesmanName ?? '—'}</span>
           </span>
+          {crewConfirmed && driverName && (
+            <>
+              <span className="text-muted-foreground/40">•</span>
+              <span className="flex items-center gap-1 whitespace-nowrap">
+                <Truck className="h-3 w-3 shrink-0" />
+                Driver: <span className="font-bold text-foreground">{driverName}</span>
+              </span>
+            </>
+          )}
           {loaders.length > 0 && (
             <>
               <span className="text-muted-foreground/40">•</span>

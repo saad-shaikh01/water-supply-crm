@@ -21,6 +21,11 @@ interface CrewConfirmDialogProps {
   crew: SheetCrewMember[];
   /** Closes this dialog and opens the crew editor. */
   onEditCrew: () => void;
+  /**
+   * True once staff explicitly picked the driver in "Edit Crew" for this
+   * confirmation cycle. Confirming is blocked until then.
+   */
+  driverPicked: boolean;
 }
 
 /** One toggleable roster line. `userId: null` = a synthetic line — not toggleable. */
@@ -41,7 +46,7 @@ interface RosterLine {
  * step on the Attendance screen.
  */
 export function CrewConfirmDialog({
-  open, onClose, sheetId, driverId, driverName, salesmanId, salesmanName, crew, onEditCrew,
+  open, onClose, sheetId, driverId, driverName, salesmanId, salesmanName, crew, onEditCrew, driverPicked,
 }: CrewConfirmDialogProps) {
   const { mutate: confirmCrew, isPending } = useConfirmCrew(sheetId);
 
@@ -111,6 +116,7 @@ export function CrewConfirmDialog({
 
   const absentCount = absentUserIds.length;
   const loaderAckRequired = loaderLines.length === 0 && !noLoaderAck;
+  const driverRequired = !driverPicked;
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
@@ -168,7 +174,7 @@ export function CrewConfirmDialog({
             onClick={() =>
               confirmCrew(absentCount > 0 ? { absentUserIds } : undefined, { onSuccess: onClose })
             }
-            disabled={isPending || loaderAckRequired}
+            disabled={isPending || loaderAckRequired || driverRequired}
             className="w-full rounded-xl font-bold gap-2"
           >
             {isPending
@@ -176,7 +182,12 @@ export function CrewConfirmDialog({
               : <CheckCircle2 className="h-4 w-4" />}
             Confirm Crew{absentCount > 0 ? ` (${absentCount} absent)` : ''}
           </Button>
-          {loaderAckRequired && (
+          {driverRequired && (
+            <p className="text-[11px] text-center text-amber-600 dark:text-amber-400">
+              Select the driver via &quot;Edit Crew&quot; before confirming.
+            </p>
+          )}
+          {!driverRequired && loaderAckRequired && (
             <p className="text-[11px] text-center text-amber-600 dark:text-amber-400">
               Select a loader via &quot;Edit Crew&quot;, or tap &quot;Confirm No Loader&quot; above.
             </p>

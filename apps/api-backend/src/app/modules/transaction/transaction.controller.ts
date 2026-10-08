@@ -94,6 +94,13 @@ export class TransactionController {
     return this.ledgerService.editPayment(user.vendorId, id, dto, user);
   }
 
+  @Post('payments/:id/resend-notification')
+  @RequirePermissions('transactions:record_payment')
+  @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 20 } })
+  resendPaymentNotification(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.ledgerService.resendPaymentNotification(user.vendorId, id, user);
+  }
+
   @Delete('payments/:id')
   @RequirePermissions('transactions:delete_payment')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })

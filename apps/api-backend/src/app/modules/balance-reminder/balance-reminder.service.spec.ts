@@ -622,7 +622,7 @@ describe('BalanceReminderService (Phase 0 pipeline)', () => {
 
     type WCustomer = {
       id: string; name: string; customerCode: string; phoneNumber: string;
-      financialBalance: number; createdAt?: Date; paymentRequests?: { id: string }[];
+      financialBalance: number; createdAt?: Date; paymentRequests?: { id: string }[]; paymentType?: string;
     };
 
     const wcust = (over: Partial<WCustomer> = {}): WCustomer => ({
@@ -827,6 +827,18 @@ describe('BalanceReminderService (Phase 0 pipeline)', () => {
           { buffer: expect.any(Buffer), filename: expect.stringContaining('.pdf') },
         );
         expect(whatsapp.sendTemplate).toHaveBeenCalledTimes(1);
+      });
+
+      it('CASH customer → invoice = outstanding = live balance, payment 0 (no month-end reconstruction)', async () => {
+        // all 1540 came from deliveries after the statement month → a reconstruction would give invoice 0
+        prisma.transaction.findMany.mockResolvedValue([{ type: 'DELIVERY', amount: 1540 }]);
+        await sendWarn([wcust({ financialBalance: 1540, paymentType: 'CASH' })]);
+        expect(whatsapp.sendTemplate).toHaveBeenCalledWith(
+          VALID_PHONE,
+          'payment_overdue_warning',
+          ['Cust 1', 'L0001', '1540.00', '1540.00', '0.00', '1540.00'],
+          expect.anything(),
+        );
       });
 
       it('statement PDF cannot be generated → skipped, template never sent', async () => {

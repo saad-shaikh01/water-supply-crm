@@ -493,6 +493,74 @@ export class LedgerService {
   }
 
   /**
+   * Re-push the `payment_recorded` WhatsApp notice for a manually recorded
+   * payment — same template/params as the notice sent when it was recorded
+   * (TransactionController.recordPayment). Uses the payment's current amount
+   * (so an edited payment resends its corrected figure) and the customer's
+   * current balance. Delivery-linked and portal-request payments are out of
+   * scope: deliveries have their own receipt resend.
+   */
+  async resendPaymentNotification(vendorId: string, txId: string, user: AuthUser) {
+    const tx = await this.prisma.transaction.findFirst({
+      where: { id: txId, vendorId },
+      include: {
+        customer: {
+          select: { id: true, name: true, customerCode: true, phoneNumber: true, financialBalance: true },
+        },
+      },
+    });
+    if (!tx) throw new NotFoundException('Transaction not found');
+    if (tx.type !== TransactionType.PAYMENT) {
+      throw new ConflictException('Only payment transactions can be resent.');
+    }
+    if (tx.dailySheetId || tx.dailySheetItemId) {
+      throw new ConflictException(
+        'This payment was collected during a delivery. Resend the receipt from the delivery instead.',
+      );
+    }
+    if (tx.paymentRequestId) {
+      throw new ConflictException(
+        'This payment came from an online/portal payment request and cannot be resent here.',
+      );
+    }
+    if (!tx.customer?.phoneNumber) {
+      throw new BadRequestException('This customer has no phone number on file');
+    }
+
+    // Unique job id per resend — the original send's `ntf-payment-recorded-<id>-wa`
+    // id would otherwise be deduplicated by BullMQ while that job is retained.
+    const job = await this.notifications.queueWhatsAppTemplate(
+      tx.customer.phoneNumber,
+      CloudTemplateNames.PAYMENT_RECORDED,
+      [
+        tx.customer.name,
+        tx.customer.customerCode,
+        String(-Number(tx.amount)),
+        tx.customer.financialBalance.toFixed(2),
+      ],
+      `ntf-payment-resend-${txId}-${Date.now()}-wa`,
+      {
+        vendorId,
+        type: NotificationType.PAYMENT_RECEIVED,
+        recipientType: 'CUSTOMER',
+        recipientId: tx.customerId!,
+      },
+    );
+
+    await this.audit.log({
+      vendorId,
+      userId: user.userId,
+      userName: user.name,
+      action: 'RESEND_RECEIPT',
+      entity: 'Transaction',
+      entityId: txId,
+      changes: { after: { resent: true, amount: -Number(tx.amount) } },
+    });
+
+    return { queued: !!job };
+  }
+
+  /**
    * Reverse (hard-delete) a standalone PAYMENT transaction and undo its balance
    * effect. Same editable-scope guards as `editPayment`.
    */

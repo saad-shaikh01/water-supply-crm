@@ -73,6 +73,26 @@ export class SendNowDto {
   excludeCustomerIds?: string[];
 }
 
+/** Body of POST /balance-reminders/preview-message - one customer's exact message. */
+export class PreviewMessageDto {
+  @IsString()
+  customerId!: string;
+
+  @IsOptional()
+  @IsIn(SEND_KINDS)
+  sendKind?: SendKind;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'month must be in YYYY-MM format' })
+  month?: string;
+
+  /** Reminder kind only: attach the statement PDF (changes which template is used). */
+  @IsOptional()
+  @IsBoolean()
+  includeStatement?: boolean;
+}
+
 export class PreviewDto {
   @IsOptional()
   @IsIn(SEND_KINDS)
