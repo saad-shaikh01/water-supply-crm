@@ -9,6 +9,7 @@ import { PrismaService } from '@water-supply-crm/database';
 import { LedgerEntryStatus, Prisma, SheetAdvanceStatus, StaffLedgerCategory } from '@prisma/client';
 import type { AuthUser } from '@water-supply-crm/types';
 import { vendorDateString } from '../../common/helpers/date.util';
+import { resolveSheetTripId } from '../../common/helpers/sheet-trip.util';
 import { AuditService } from '../audit/audit.service';
 import { PermissionService } from '../authz/permission.service';
 import { resolveSheetCash, SHEET_CASH_RELOAD_INCLUDE } from '../daily-sheet/sheet-cash.util';
@@ -135,13 +136,7 @@ export class SheetAdvanceService {
 
     // Trip attribution — inferred server-side, same as Expense / Crew Cash: the
     // active trip on an open sheet, the last-ended trip on a closed one.
-    const tripLoad = sheet.isClosed
-      ? await this.prisma.dailySheetLoad.findFirst({
-          where: { dailySheetId, endedAt: { not: null } },
-          orderBy: { endedAt: 'desc' },
-          select: { id: true },
-        })
-      : await this.prisma.dailySheetLoad.findFirst({ where: { dailySheetId, endedAt: null }, select: { id: true } });
+    const tripLoadId = await resolveSheetTripId(this.prisma, dailySheetId);
 
     const notes = dto.notes?.trim() || null;
 
@@ -172,7 +167,7 @@ export class SheetAdvanceService {
           notes,
           date: sheet.date,
           staffLedgerEntryId: twin.id,
-          dailySheetLoadId: tripLoad?.id ?? null,
+          dailySheetLoadId: tripLoadId,
           createdById: user.userId,
         },
         include: SHEET_ADVANCE_INCLUDE,

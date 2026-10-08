@@ -19,6 +19,7 @@ import { paginate } from '../../common/helpers/paginate';
 import { resolveSheetCash, SHEET_CASH_RELOAD_INCLUDE } from '../daily-sheet/sheet-cash.util';
 import { VanCashLedgerService } from '../van-cash-ledger/van-cash-ledger.service';
 import { CashLedgerPeriodGuard } from '../van-cash-ledger/cash-ledger-period.guard';
+import { resolveSheetTripId } from '../../common/helpers/sheet-trip.util';
 
 /** The user performing a plain (open-sheet) Expense update/remove — recorded in the audit log. */
 export interface ExpenseActor {
@@ -185,10 +186,8 @@ export class ExpenseService {
         throw new BadRequestException('Cannot record an Expense against a closed daily sheet.');
       }
 
-      const activeLoad = await this.prisma.dailySheetLoad.findFirst({
-        where: { dailySheetId: dto.dailySheetId, endedAt: null },
-      });
-      dailySheetLoadId = activeLoad?.id ?? null;
+      // Running trip, else the last-ended one (all trips done, sheet still open).
+      dailySheetLoadId = await resolveSheetTripId(this.prisma, dto.dailySheetId);
     }
 
     // Accounting-period guard (pass-through until P4) — BEFORE mutating, only

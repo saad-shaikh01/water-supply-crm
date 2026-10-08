@@ -3,6 +3,7 @@ import { PrismaService } from '@water-supply-crm/database';
 import { CacheInvalidationService } from '@water-supply-crm/caching';
 import { ExpenseCategory, Prisma } from '@prisma/client';
 import { paginate } from '../../common/helpers/paginate';
+import { resolveSheetTripId } from '../../common/helpers/sheet-trip.util';
 import type { AuthUser } from '@water-supply-crm/types';
 import { AuditService } from '../audit/audit.service';
 import { VanCashLedgerService } from '../van-cash-ledger/van-cash-ledger.service';
@@ -209,14 +210,7 @@ export class VehicleMaintenanceService {
         select: { id: true, vanId: true, isClosed: true, date: true },
       });
       if (!sheet) throw new NotFoundException('Daily sheet not found');
-      const load = await this.prisma.dailySheetLoad.findFirst({
-        where: sheet.isClosed
-          ? { dailySheetId: sheet.id, endedAt: { not: null } }
-          : { dailySheetId: sheet.id, endedAt: null },
-        orderBy: { endedAt: 'desc' },
-        select: { id: true },
-      });
-      dailySheetLoadId = load?.id ?? null;
+      dailySheetLoadId = await resolveSheetTripId(this.prisma, sheet.id);
     }
 
     const record = await this.prisma.$transaction(async (tx) => {

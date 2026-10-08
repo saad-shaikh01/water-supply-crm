@@ -318,7 +318,8 @@ describe('CrewCashDistributionService', () => {
       it('attributes the row to the sheet\'s last-ended trip (a closed sheet has no active trip)', async () => {
         const { svc, tx, prisma } = makeService({ sheet: sheetClosed });
         tx.dailySheet.findUnique.mockResolvedValue(closedReload);
-        prisma.dailySheetLoad.findFirst.mockResolvedValue({ id: 'last-trip' });
+        // No active trip first, then the last-ended one.
+        prisma.dailySheetLoad.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 'last-trip' });
         await svc.create(adminUser, SHEET_ID, closedDto);
         expect(prisma.dailySheetLoad.findFirst).toHaveBeenCalledWith(
           expect.objectContaining({ where: { dailySheetId: SHEET_ID, endedAt: { not: null } } }),

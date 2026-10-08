@@ -22,6 +22,7 @@ import {
 } from '@prisma/client';
 import type { AuthUser } from '@water-supply-crm/types';
 import { assertCanViewEmployeeCrewCash } from '../../common/helpers/crew-cash-view-scope.util';
+import { resolveSheetTripId } from '../../common/helpers/sheet-trip.util';
 import { PermissionService } from '../authz/permission.service';
 import { PayrollApprovalGateService } from './payroll-approval-gate.service';
 import { StaffLedgerService } from './staff-ledger.service';
@@ -256,13 +257,7 @@ export class CrewCashDistributionService implements OnModuleInit {
     // sheet (no active trip) → its last-ended trip, like ExpenseService.createClosed.
     // This only tells the UI/PDF WHICH trip's numbers to reduce (whether the row
     // is deducted from the hand-in at all is `paidFromCash`, default true).
-    const tripLoad = sheet.isClosed
-      ? await this.prisma.dailySheetLoad.findFirst({
-          where: { dailySheetId, endedAt: { not: null } },
-          orderBy: { endedAt: 'desc' },
-        })
-      : await this.prisma.dailySheetLoad.findFirst({ where: { dailySheetId, endedAt: null } });
-    const dailySheetLoadId = tripLoad?.id ?? null;
+    const dailySheetLoadId = await resolveSheetTripId(this.prisma, dailySheetId);
 
     return this.prisma.$transaction(async (tx) => {
       // Approval-gate check and duplicate-detection both live inside the
