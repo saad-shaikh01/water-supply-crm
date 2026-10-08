@@ -3,6 +3,7 @@ import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { JOB_NAMES, QUEUE_NAMES } from '@water-supply-crm/queue';
 import { ImportExecutorService, type ImportJobData } from './import-executor.service';
+import { ImportService } from './import.service';
 
 /**
  * Vendor data import worker. No automatic retry (`attempts: 1`) and `maxStalledCount: 0`: the
@@ -13,11 +14,15 @@ import { ImportExecutorService, type ImportJobData } from './import-executor.ser
 export class ImportProcessor extends WorkerHost {
   private readonly logger = new Logger(ImportProcessor.name);
 
-  constructor(private readonly executor: ImportExecutorService) {
+  constructor(
+    private readonly executor: ImportExecutorService,
+    private readonly imports: ImportService,
+  ) {
     super();
   }
 
   async process(job: Job<ImportJobData>): Promise<void> {
+    if (job.name === JOB_NAMES.VENDOR_IMPORT_PLAN) return this.imports.runPlanJob(job.data as ImportJobData & { saveProfileAs?: string | null });
     if (job.name === JOB_NAMES.VENDOR_IMPORT_EXECUTE) return this.executor.run(job.data);
     if (job.name === JOB_NAMES.VENDOR_IMPORT_REVERT) return this.executor.runRevert(job.data);
   }
@@ -27,5 +32,6 @@ export class ImportProcessor extends WorkerHost {
     if (!job?.data?.batchId) return;
     this.logger.error(`import job ${job.id} (${job.name}) failed: ${err.message}`);
     if (job.name === JOB_NAMES.VENDOR_IMPORT_EXECUTE) await this.executor.markFailed(job.data.batchId, 'WORKER_INTERRUPTED');
+    if (job.name === JOB_NAMES.VENDOR_IMPORT_PLAN) await this.imports.failPlan(job.data.batchId, 'PLAN_INTERRUPTED');
   }
 }

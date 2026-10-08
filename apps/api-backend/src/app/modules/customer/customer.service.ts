@@ -1449,7 +1449,7 @@ export class CustomerService {
                 customerId,
                 vendorId,
                 productId: w.productId,
-                type: { in: ['DELIVERY', 'ADJUSTMENT'] },
+                type: { in: ['DELIVERY', 'ADJUSTMENT', 'HISTORICAL'] }, // HISTORICAL = imported history (Data Import): moves the wallet like a delivery
                 bottleCount: { not: null },
                 createdAt: { gte: endExclusive },
               },

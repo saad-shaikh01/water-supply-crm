@@ -33,6 +33,20 @@ export interface ExecRow<N> {
   normalized: N;
 }
 
+/** One ImportRow of a customer-level group (history imports execute a whole customer chain at once). */
+export interface GroupRow<N> {
+  rowId: string;
+  rowNumber: number;
+  normalized: N;
+  /** `ImportRow.dedupeKey` (idempotency key), when the planner set one. */
+  dedupeKey?: string | null;
+}
+
+export interface GroupRowOutcome {
+  rowId: string;
+  outcome: ExecOutcome;
+}
+
 export interface RevertRowInput {
   rowId: string;
   entityId: string;
@@ -60,6 +74,15 @@ export interface ImportDefinition<N = unknown, O = unknown, C = unknown, E = unk
   readonly label: string;
   readonly fields: ImportFieldDef[];
 
+  /** Plan stage runs in a worker job (large files); the request returns status PLANNING. */
+  readonly asyncPlan?: boolean;
+  /** Accepts a headerless HTML table export with these fixed column names. */
+  readonly htmlFormat?: { headers: string[] };
+  /** Per-entity upload caps; defaults to the customer-import limits. */
+  readonly limits?: { maxFileBytes: number; maxRows: number };
+  /** What the user is told when the plan has nothing to write. */
+  readonly nothingToImportMessage?: string;
+
   /** Fields that must be mapped before a plan can be built (any-of groups allowed). */
   requiredMappings(): { anyOf: string[]; message: string }[];
 
@@ -68,7 +91,8 @@ export interface ImportDefinition<N = unknown, O = unknown, C = unknown, E = unk
 
   normalizeRow(raw: RawRow, mapping: ImportMapping, options: O): NormalizedRowResult<N>;
 
-  loadContext(prisma: PrismaService, vendorId: string, options: O): Promise<C>;
+  /** `rows` (normalized, in file order) lets a definition load only what the file touches. */
+  loadContext(prisma: PrismaService, vendorId: string, options: O, rows?: { rowNumber: number; normalized: N | null }[]): Promise<C>;
 
   validateAndPlan(
     rows: { rowNumber: number; normalized: N | null; issues: RowIssue[] }[],
@@ -76,9 +100,9 @@ export interface ImportDefinition<N = unknown, O = unknown, C = unknown, E = unk
     options: O,
   ): PlannedRow<N>[];
 
-  summarize(planned: PlannedRow<N>[]): PlanSummary;
+  summarize(planned: PlannedRow<N>[], options?: O): PlanSummary;
 
-  prepareExecution(prisma: PrismaService, vendorId: string, rows: ExecRow<N>[], options: O): Promise<E>;
+  prepareExecution(prisma: PrismaService, vendorId: string, rows: ExecRow<N>[], options: O, batchId?: string): Promise<E>;
   /**
    * Execute ONE row. A successful write must call `record(tx, outcome)` INSIDE its own
    * transaction so the domain write and the `ImportRow` result commit atomically — that is
@@ -92,6 +116,27 @@ export interface ImportDefinition<N = unknown, O = unknown, C = unknown, E = unk
     options: O,
     record: (tx: Prisma.TransactionClient, outcome: ExecOutcome) => Promise<void>,
   ): Promise<ExecOutcome>;
+
+  /**
+   * Group-level execution: when both are defined the executor hands over all pending rows of one
+   * group (e.g. one customer) at a time. `executeGroup` writes the whole group in ONE transaction
+   * and must call `recordMany(tx, outcomes)` inside it for the rows it created.
+   */
+  groupKey?(normalized: N): string;
+  executeGroup?(
+    prisma: PrismaService,
+    vendorId: string,
+    rows: GroupRow<N>[],
+    exec: E,
+    options: O,
+    recordMany: (tx: Prisma.TransactionClient, items: GroupRowOutcome[]) => Promise<void>,
+  ): Promise<GroupRowOutcome[]>;
+
+  /** Which vendor caches to drop once the executor finishes. */
+  readonly cacheScope?: 'customers' | 'reports';
+
+  /** Option values worth remembering in a saved mapping profile. */
+  profileOptionDefaults?(options: O): Record<string, unknown>;
 
   /** Safe revert of untouched created entities (design doc §5.6). */
   revertRows(prisma: PrismaService, vendorId: string, rows: RevertRowInput[], dryRun: boolean): Promise<RevertOutcome[]>;

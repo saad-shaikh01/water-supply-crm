@@ -14,6 +14,19 @@ export const IMPORT_LIMITS = {
   headerScanRows: 10,
 } as const;
 
+/**
+ * Transaction-history files are far bigger than customer lists (55k+ vouchers), so they get their
+ * own caps; the plan stage runs in a worker job for them (see `ImportDefinition.asyncPlan`).
+ */
+export const HISTORY_IMPORT_LIMITS = {
+  // 50 MB, not 25: a real 55k-voucher HTML export is ~28 MB because of the per-cell markup.
+  maxFileBytes: num(process.env['IMPORT_HISTORY_MAX_FILE_BYTES'], 50 * 1024 * 1024),
+  maxRows: num(process.env['IMPORT_HISTORY_MAX_ROWS'], 100_000),
+} as const;
+
+/** `ImportRow` insert chunk at upload time. */
+export const IMPORT_ROW_INSERT_CHUNK = 2000;
+
 /** Rows per executor chunk (each row is still its own transaction). */
 export const IMPORT_EXEC_CHUNK = 100;
 
@@ -24,3 +37,5 @@ export const IMPORT_DRAFT_TTL_DAYS = 7;
 export const IMPORT_QUEUE_JOB = 'import.execute';
 
 export const ALLOWED_UPLOAD_EXTENSIONS = ['.xlsx', '.csv'] as const;
+/** Extra extensions accepted by entities that declare a headerless HTML export (`htmlFormat`). */
+export const HTML_UPLOAD_EXTENSIONS = ['.html', '.htm'] as const;

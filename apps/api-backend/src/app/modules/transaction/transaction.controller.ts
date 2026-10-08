@@ -12,6 +12,7 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { NotificationType } from '@prisma/client';
 import { LedgerService } from './ledger.service';
+import { ImportedTransactionGuard } from './imported-transaction.guard';
 import { RecordPaymentDto } from './dto/record-payment.dto';
 import { EditPaymentDto } from './dto/edit-payment.dto';
 import { DeletePaymentDto } from './dto/delete-payment.dto';
@@ -31,6 +32,7 @@ export class TransactionController {
   constructor(
     private readonly ledgerService: LedgerService,
     private readonly notificationService: NotificationService,
+    private readonly importedGuard: ImportedTransactionGuard,
   ) {}
 
   @Get()
@@ -83,22 +85,24 @@ export class TransactionController {
   @Patch('payments/:id')
   @RequirePermissions('transactions:edit_payment')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
-  editPayment(
+  async editPayment(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: EditPaymentDto,
   ) {
+    await this.importedGuard.assertNotImported(user.vendorId, id);
     return this.ledgerService.editPayment(user.vendorId, id, dto, user);
   }
 
   @Delete('payments/:id')
   @RequirePermissions('transactions:delete_payment')
   @Throttle({ short: { ttl: 1000, limit: 5 }, medium: { ttl: 60000, limit: 30 } })
-  deletePayment(
+  async deletePayment(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: DeletePaymentDto,
   ) {
+    await this.importedGuard.assertNotImported(user.vendorId, id);
     return this.ledgerService.deletePayment(user.vendorId, id, dto, user);
   }
 

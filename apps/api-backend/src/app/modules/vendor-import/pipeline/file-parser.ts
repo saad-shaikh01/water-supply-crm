@@ -88,9 +88,12 @@ export interface ParseOptions {
   sheetName?: string;
   /** 1-based; auto-detected when omitted. */
   headerRowIndex?: number;
+  /** Row cap override (transaction-history files are much larger than customer lists). */
+  maxRows?: number;
 }
 
 export async function parseImportFile(buffer: Buffer, ext: string, opts: ParseOptions = {}): Promise<ParsedFile> {
+  const maxRows = opts.maxRows ?? IMPORT_LIMITS.maxRows;
   const wb = await loadWorkbook(buffer, ext);
   const sheets = wb.worksheets.map((w) => w.name);
   const ws = (opts.sheetName ? wb.getWorksheet(opts.sheetName) : wb.worksheets[0]) ?? undefined;
@@ -129,8 +132,8 @@ export async function parseImportFile(buffer: Buffer, ext: string, opts: ParseOp
   for (let r = headerRowIndex + 1; r <= ws.rowCount; r++) {
     const cells = rowCells(ws.getRow(r), headers.length);
     if (cells.every(isBlank)) continue;
-    if (rows.length >= IMPORT_LIMITS.maxRows) {
-      throw new ImportError('TOO_MANY_ROWS', `The file has more than ${IMPORT_LIMITS.maxRows} rows. Split it into smaller files.`, 400);
+    if (rows.length >= maxRows) {
+      throw new ImportError('TOO_MANY_ROWS', `The file has more than ${maxRows} rows. Split it into smaller files.`, 400);
     }
     const values: RawRow = {};
     headers.forEach((h, i) => (values[h] = cells[i]));

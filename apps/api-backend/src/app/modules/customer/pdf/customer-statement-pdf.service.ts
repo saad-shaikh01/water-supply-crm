@@ -44,12 +44,21 @@ const C = {
   closeGrn:  '#86efac',
 };
 
+/**
+ * A delivery row in the statement: a real DELIVERY, or an imported history CHARGE row (type HISTORICAL with
+ * bottle counts - imported payment rows carry none and stay in "Other Transactions").
+ */
+function isDeliveryLike(t: { type: string; filledDropped?: number | null }): boolean {
+  return t.type === 'DELIVERY' || (t.type === 'HISTORICAL' && t.filledDropped !== null && t.filledDropped !== undefined);
+}
+
 const TYPE_LABEL: Record<string, string> = {
   PAYMENT:    'Payment',
   ADJUSTMENT: 'Adjustment',
   COLLECTION: 'Collection',
   LOAD_OUT:   'Load Out',
   CHECK_IN:   'Check In',
+  HISTORICAL: 'History',
 };
 
 const TYPE_COLOR: Record<string, string> = {
@@ -58,6 +67,7 @@ const TYPE_COLOR: Record<string, string> = {
   COLLECTION: C.purple,
   LOAD_OUT:   C.cyan,
   CHECK_IN:   C.cyan,
+  HISTORICAL: C.muted,
 };
 
 // ── Page geometry ───────────────────────────────────────────────────────────
@@ -260,7 +270,7 @@ export class CustomerStatementPdfService {
     let totalBottles = 0;
 
     for (const t of transactions) {
-      if (t.type !== 'DELIVERY') continue;
+      if (!isDeliveryLike(t)) continue;
       const paired = t.dailySheetItemId ? paymentByItemId.get(t.dailySheetItemId) : undefined;
       if (paired) consumedPaymentIds.add(paired.id);
 
@@ -291,7 +301,7 @@ export class CustomerStatementPdfService {
     }
 
     const otherRows: OtherRow[] = transactions
-      .filter((t) => t.type !== 'DELIVERY' && !consumedPaymentIds.has(t.id))
+      .filter((t) => !isDeliveryLike(t) && !consumedPaymentIds.has(t.id))
       .map((t) => ({
         date: t.createdAt,
         type: TYPE_LABEL[t.type] ?? t.type,

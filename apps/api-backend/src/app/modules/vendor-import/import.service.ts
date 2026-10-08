@@ -13,11 +13,12 @@ import { StorageService } from '../../common/storage/storage.service';
 import { paginate } from '../../common/helpers/paginate';
 import { AuditService } from '../audit/audit.service';
 import { getDefinition, listDefinitions } from './definitions/registry';
-import { ALLOWED_UPLOAD_EXTENSIONS, IMPORT_LIMITS } from './import.constants';
+import { ALLOWED_UPLOAD_EXTENSIONS, HTML_UPLOAD_EXTENSIONS, IMPORT_LIMITS, IMPORT_ROW_INSERT_CHUNK } from './import.constants';
 import { ImportError } from './import.types';
 import type { ImportMapping, PlanSummary, RawRow } from './import.types';
 import { headerFingerprint, suggestMapping } from './pipeline/column-mapper';
 import { parseImportFile } from './pipeline/file-parser';
+import { parseHtmlTable } from './pipeline/html-table-parser';
 import { computePlanHash } from './pipeline/plan';
 import type { ExecuteImportDto, ImportListQueryDto, ImportRowsQueryDto, SaveMappingDto, UploadImportDto } from './dto/import.dto';
 import { SKIP_ROW_VALUE } from './definitions/customers-opening.definition';
@@ -26,12 +27,18 @@ const DRAFT_STATUSES: ImportBatchStatus[] = ['UPLOADED', 'MAPPED'];
 const REVERTIBLE_STATUSES: ImportBatchStatus[] = ['COMPLETED', 'COMPLETED_WITH_ERRORS', 'PARTIALLY_REVERTED'];
 /** A QUEUED/EXECUTING batch untouched this long is considered dead and may be resumed. */
 const STALE_RUN_MS = 5 * 60 * 1000;
+/** A PLANNING batch with no progress heartbeat this long is considered dead. */
+const PLAN_STALE_MS = 10 * 60 * 1000;
 const WRITE_CHUNK = 250;
+/** Rows per bulk plan write-back (history imports). */
+const PLAN_WRITE_CHUNK = 2000;
 const SAMPLE_ROWS = 10;
 
 export interface BatchSummary {
   plan?: PlanSummary;
   progress?: { created: number; skipped: number; failed: number; pending: number };
+  /** Async plan job progress (batch status PLANNING). */
+  planning?: { stage: string; done: number; total: number };
   revert?: { state: 'RUNNING' | 'DONE'; startedAt: string; reverted?: number; skipped?: number; byReason?: Record<string, number> };
 }
 
@@ -106,14 +113,20 @@ export class ImportService {
     const def = getDefinition(entity);
     if (!file) throw new ImportError('NO_FILE', 'No file was uploaded.', 400);
     const ext = extname(file.originalname).toLowerCase();
-    if (!(ALLOWED_UPLOAD_EXTENSIONS as readonly string[]).includes(ext)) {
-      throw new ImportError('UNSUPPORTED_TYPE', 'Only .xlsx and .csv files are supported.', 400);
+    const isHtml = (HTML_UPLOAD_EXTENSIONS as readonly string[]).includes(ext);
+    const allowed = [...ALLOWED_UPLOAD_EXTENSIONS, ...(def.htmlFormat ? HTML_UPLOAD_EXTENSIONS : [])] as readonly string[];
+    if (!allowed.includes(ext)) {
+      throw new ImportError('UNSUPPORTED_TYPE', def.htmlFormat ? 'Only .xlsx, .csv and .html files are supported.' : 'Only .xlsx and .csv files are supported.', 400);
     }
-    if (file.size > IMPORT_LIMITS.maxFileBytes) {
-      throw new ImportError('FILE_TOO_LARGE', `The file is larger than ${Math.round(IMPORT_LIMITS.maxFileBytes / 1024 / 1024)} MB.`, 400);
+    const limits = def.limits ?? { maxFileBytes: IMPORT_LIMITS.maxFileBytes, maxRows: IMPORT_LIMITS.maxRows };
+    if (file.size > limits.maxFileBytes) {
+      throw new ImportError('FILE_TOO_LARGE', `The file is larger than ${Math.round(limits.maxFileBytes / 1024 / 1024)} MB.`, 400);
     }
 
-    const parsed = await parseImportFile(file.buffer, ext, { sheetName: dto.sheetName, headerRowIndex: dto.headerRow });
+    const parsed =
+      isHtml && def.htmlFormat
+        ? parseHtmlTable(file.buffer, def.htmlFormat, { maxRows: limits.maxRows, maxCellChars: IMPORT_LIMITS.maxCellChars })
+        : await parseImportFile(file.buffer, ext, { sheetName: dto.sheetName, headerRowIndex: dto.headerRow, maxRows: limits.maxRows });
     const sha = createHash('sha256').update(file.buffer).digest('hex');
 
     let key: string;
@@ -142,9 +155,9 @@ export class ImportService {
     });
 
     try {
-      for (let i = 0; i < parsed.rows.length; i += 1000) {
+      for (let i = 0; i < parsed.rows.length; i += IMPORT_ROW_INSERT_CHUNK) {
         await this.prisma.importRow.createMany({
-          data: parsed.rows.slice(i, i + 1000).map((r) => ({ batchId: batch.id, rowNumber: r.rowNumber, raw: json(r.values) })),
+          data: parsed.rows.slice(i, i + IMPORT_ROW_INSERT_CHUNK).map((r) => ({ batchId: batch.id, rowNumber: r.rowNumber, raw: json(r.values) })),
         });
       }
     } catch (e) {
@@ -232,8 +245,9 @@ export class ImportService {
   async saveMapping(user: AuthUser, id: string, dto: SaveMappingDto) {
     const { vendorId } = user;
     const batch = await this.batchOrThrow(vendorId, id);
-    if (!DRAFT_STATUSES.includes(batch.status)) {
-      throw new ImportError('NOT_EDITABLE', 'This import can no longer be changed.', 409);
+    const planStale = batch.status === 'PLANNING' && Date.now() - batch.updatedAt.getTime() > PLAN_STALE_MS;
+    if (!DRAFT_STATUSES.includes(batch.status) && !planStale) {
+      throw new ImportError('NOT_EDITABLE', batch.status === 'PLANNING' ? 'The preview is still being built.' : 'This import can no longer be changed.', 409);
     }
     const def = getDefinition(batch.entity);
     const headers = await this.headersOf(id);
@@ -271,60 +285,36 @@ export class ImportService {
       activeProducts: await this.activeProducts(vendorId),
     });
 
-    // ── normalize → validate → plan (the single path Preview and Execute both consume) ──
-    const rows = await this.prisma.importRow.findMany({ where: { batchId: id }, orderBy: { rowNumber: 'asc' }, select: { id: true, rowNumber: true, raw: true } });
-    const normalized = rows.map((r) => ({ id: r.id, rowNumber: r.rowNumber, ...def.normalizeRow(r.raw as RawRow, mapping, options) }));
-    const ctx = await def.loadContext(this.prisma, vendorId, options);
-    const planned = def.validateAndPlan(
-      normalized.map((n) => ({ rowNumber: n.rowNumber, normalized: n.normalized, issues: n.issues })),
-      ctx,
-      options,
-    );
-    const plan = def.summarize(planned);
-    const planHash = computePlanHash(planned, mapping, options);
-
-    const idByRow = new Map(normalized.map((n) => [n.rowNumber, n.id]));
-    for (let i = 0; i < planned.length; i += WRITE_CHUNK) {
-      await this.prisma.$transaction(
-        planned.slice(i, i + WRITE_CHUNK).map((p) =>
-          this.prisma.importRow.update({
-            where: { id: idByRow.get(p.rowNumber) as string },
-            data: {
-              normalized: p.normalized ? json(p.normalized) : Prisma.JsonNull,
-              issues: p.issues.length ? json(p.issues) : Prisma.JsonNull,
-              action: p.action,
-              result: 'PENDING',
-              resultCode: null,
-              resultMessage: null,
-            },
-          }),
-        ),
-      );
+    if (def.asyncPlan) {
+      // Large files: persist the confirmed mapping, then plan in a worker job (status PLANNING).
+      await this.prisma.importBatch.update({
+        where: { id },
+        data: {
+          status: 'PLANNING',
+          mapping: json(mapping),
+          options: json(options),
+          summary: json({ planning: { stage: 'Queued', done: 0, total: batch.rowCount } } satisfies BatchSummary),
+          planHash: null,
+          plannedAt: null,
+          errorCode: null,
+          errorMessage: null,
+        },
+      });
+      try {
+        await this.queue.add(
+          JOB_NAMES.VENDOR_IMPORT_PLAN,
+          { batchId: id, vendorId, userId: user.userId, userName: user.name, saveProfileAs: dto.saveProfileAs?.trim() || null },
+          { jobId: `${id}-plan-${Date.now()}`, attempts: 1, removeOnComplete: { age: 3600 }, removeOnFail: { age: 86400 } },
+        );
+      } catch (e) {
+        await this.prisma.importBatch.update({ where: { id }, data: { status: 'UPLOADED', summary: Prisma.JsonNull } });
+        throw e;
+      }
+      return { status: 'PLANNING' as const, options };
     }
 
-    // ── saved mapping profile ──
-    let profileId: string | null = null;
-    const fingerprint = headerFingerprint(headers);
-    if (dto.saveProfileAs?.trim()) {
-      const name = dto.saveProfileAs.trim();
-      const data = {
-        fingerprint,
-        columnMap: json(columns),
-        valueMaps: json(valueMaps),
-        optionDefaults: json({
-          balanceSign: options.balanceSign,
-          codeStrategy: options.codeStrategy,
-          defaultPaymentType: options.defaultPaymentType,
-          areaIntoAddress: options.areaIntoAddress,
-        }),
-        lastUsedAt: new Date(),
-      };
-      const existing = await this.prisma.importMappingProfile.findFirst({ where: { vendorId, entity: batch.entity, name } });
-      const saved = existing
-        ? await this.prisma.importMappingProfile.update({ where: { id: existing.id }, data })
-        : await this.prisma.importMappingProfile.create({ data: { ...data, vendorId, entity: batch.entity, name, createdById: user.userId } });
-      profileId = saved.id;
-    }
+    const { plan, planHash } = await this.buildPlan(vendorId, id, def, mapping, options);
+    const profileId = await this.persistProfile(user.userId, vendorId, batch.entity, def, headers, columns, valueMaps, options, dto.saveProfileAs);
 
     const summary: BatchSummary = { plan };
     await this.prisma.importBatch.update({
@@ -340,7 +330,158 @@ export class ImportService {
       },
     });
 
-    return { planHash, summary: plan, options };
+    return { status: 'MAPPED' as const, planHash, summary: plan, options };
+  }
+
+  /**
+   * normalize → validate → plan: the single path Preview and Execute both consume. Used inline for
+   * small entities and from the plan job for `asyncPlan` ones.
+   */
+  private async buildPlan(
+    vendorId: string,
+    id: string,
+    def: ReturnType<typeof getDefinition>,
+    mapping: ImportMapping,
+    options: unknown,
+    onProgress?: (stage: string, done: number, total: number) => Promise<void>,
+  ) {
+    const rows = await this.prisma.importRow.findMany({ where: { batchId: id }, orderBy: { rowNumber: 'asc' }, select: { id: true, rowNumber: true, raw: true } });
+    await onProgress?.('Reading rows', rows.length, rows.length);
+    const normalized = rows.map((r) => ({ id: r.id, rowNumber: r.rowNumber, ...def.normalizeRow(r.raw as RawRow, mapping, options) }));
+    await onProgress?.('Checking customers and balances', 0, rows.length);
+    const ctx = await def.loadContext(
+      this.prisma,
+      vendorId,
+      options,
+      normalized.map((n) => ({ rowNumber: n.rowNumber, normalized: n.normalized })),
+    );
+    const planned = def.validateAndPlan(
+      normalized.map((n) => ({ rowNumber: n.rowNumber, normalized: n.normalized, issues: n.issues })),
+      ctx,
+      options,
+    );
+    const plan = def.summarize(planned, options);
+    const planHash = computePlanHash(planned, mapping, options);
+
+    const idByRow = new Map(normalized.map((n) => [n.rowNumber, n.id]));
+    if (def.asyncPlan) {
+      for (let i = 0; i < planned.length; i += PLAN_WRITE_CHUNK) {
+        const part = planned.slice(i, i + PLAN_WRITE_CHUNK);
+        const ids = part.map((p) => idByRow.get(p.rowNumber) as string);
+        const n = part.map((p) => (p.normalized ? JSON.stringify(p.normalized) : ''));
+        const iss = part.map((p) => (p.issues.length ? JSON.stringify(p.issues) : ''));
+        const act = part.map((p) => p.action);
+        const keys = part.map((p) => p.dedupeKey ?? '');
+        await this.prisma.$executeRaw`
+          UPDATE "ImportRow" r SET
+            "normalized" = NULLIF(v.n, '')::jsonb,
+            "issues" = NULLIF(v.i, '')::jsonb,
+            "action" = v.a::"ImportRowAction",
+            "dedupeKey" = NULLIF(v.k, ''),
+            "result" = 'PENDING'::"ImportRowResult",
+            "resultCode" = NULL,
+            "resultMessage" = NULL
+          FROM unnest(${ids}::text[], ${n}::text[], ${iss}::text[], ${act}::text[], ${keys}::text[]) AS v(id, n, i, a, k)
+          WHERE r."id" = v.id`;
+        await onProgress?.('Saving the plan', Math.min(i + PLAN_WRITE_CHUNK, planned.length), planned.length);
+      }
+    } else {
+      for (let i = 0; i < planned.length; i += WRITE_CHUNK) {
+        await this.prisma.$transaction(
+          planned.slice(i, i + WRITE_CHUNK).map((p) =>
+            this.prisma.importRow.update({
+              where: { id: idByRow.get(p.rowNumber) as string },
+              data: {
+                normalized: p.normalized ? json(p.normalized) : Prisma.JsonNull,
+                issues: p.issues.length ? json(p.issues) : Prisma.JsonNull,
+                action: p.action,
+                result: 'PENDING',
+                resultCode: null,
+                resultMessage: null,
+              },
+            }),
+          ),
+        );
+      }
+    }
+    return { plan, planHash };
+  }
+
+  private async persistProfile(
+    userId: string | undefined,
+    vendorId: string,
+    entity: ImportEntity,
+    def: ReturnType<typeof getDefinition>,
+    headers: string[],
+    columns: Record<string, string | null>,
+    valueMaps: ImportMapping['valueMaps'],
+    options: Record<string, unknown>,
+    saveProfileAs?: string | null,
+  ): Promise<string | null> {
+    if (!saveProfileAs?.trim()) return null;
+    const name = saveProfileAs.trim();
+    const data = {
+      fingerprint: headerFingerprint(headers),
+      columnMap: json(columns),
+      valueMaps: json(valueMaps),
+      optionDefaults: json(
+        def.profileOptionDefaults
+          ? def.profileOptionDefaults(options)
+          : {
+              balanceSign: options['balanceSign'],
+              codeStrategy: options['codeStrategy'],
+              defaultPaymentType: options['defaultPaymentType'],
+              areaIntoAddress: options['areaIntoAddress'],
+            },
+      ),
+      lastUsedAt: new Date(),
+    };
+    const existing = await this.prisma.importMappingProfile.findFirst({ where: { vendorId, entity, name } });
+    const saved = existing
+      ? await this.prisma.importMappingProfile.update({ where: { id: existing.id }, data })
+      : await this.prisma.importMappingProfile.create({ data: { ...data, vendorId, entity, name, createdById: userId } });
+    return saved.id;
+  }
+
+  /** A plan job that died: put the batch back to a draft so the user can confirm the mapping again. */
+  async failPlan(batchId: string, code: string): Promise<void> {
+    await this.prisma.importBatch.updateMany({
+      where: { id: batchId, status: 'PLANNING' },
+      data: { status: 'UPLOADED', summary: Prisma.JsonNull, errorCode: code, errorMessage: 'Building the preview was interrupted. Confirm the mapping again.' },
+    });
+  }
+
+  /** Worker entry for `asyncPlan` entities: builds the plan from the mapping saved on the batch. */
+  async runPlanJob(data: { batchId: string; vendorId: string; userId?: string; saveProfileAs?: string | null }): Promise<void> {
+    const { batchId, vendorId } = data;
+    const batch = await this.prisma.importBatch.findFirst({ where: { id: batchId, vendorId } });
+    if (!batch || batch.status !== 'PLANNING') return;
+    const def = getDefinition(batch.entity);
+    const mapping = batch.mapping as unknown as ImportMapping;
+    const options = batch.options as Record<string, unknown>;
+    let lastBeat = 0;
+    const onProgress = async (stage: string, done: number, total: number) => {
+      const now = Date.now();
+      if (now - lastBeat < 1500 && done < total) return; // heartbeat, not a write per chunk
+      lastBeat = now;
+      await this.prisma.importBatch.update({ where: { id: batchId }, data: { summary: json({ planning: { stage, done, total } } satisfies BatchSummary) } });
+    };
+    try {
+      const { plan, planHash } = await this.buildPlan(vendorId, batchId, def, mapping, options, onProgress);
+      const headers = await this.headersOf(batchId);
+      const columns = Object.fromEntries(Object.entries(mapping.columns).filter(([, v]) => v));
+      const profileId = await this.persistProfile(data.userId, vendorId, batch.entity, def, headers, columns, mapping.valueMaps, options, data.saveProfileAs);
+      await this.prisma.importBatch.update({
+        where: { id: batchId },
+        data: { status: 'MAPPED', summary: json({ plan } satisfies BatchSummary), planHash, plannedAt: new Date(), profileId },
+      });
+    } catch (e) {
+      this.logger.error(`import plan ${batchId} failed: ${(e as Error).message}`, (e as Error).stack);
+      await this.prisma.importBatch.updateMany({
+        where: { id: batchId, status: 'PLANNING' },
+        data: { status: 'UPLOADED', summary: Prisma.JsonNull, errorCode: 'PLAN_FAILED', errorMessage: 'The preview could not be built. Check the mapping and try again.' },
+      });
+    }
   }
 
   // ── reading ───────────────────────────────────────────────────────────────
@@ -361,7 +502,14 @@ export class ImportService {
   }
 
   async get(vendorId: string, id: string) {
-    const batch = await this.batchOrThrow(vendorId, id);
+    let batch = await this.batchOrThrow(vendorId, id);
+    if (batch.status === 'PLANNING' && Date.now() - batch.updatedAt.getTime() > PLAN_STALE_MS) {
+      await this.prisma.importBatch.updateMany({
+        where: { id, status: 'PLANNING' },
+        data: { status: 'UPLOADED', summary: Prisma.JsonNull, errorCode: 'PLAN_INTERRUPTED', errorMessage: 'Building the preview was interrupted. Confirm the mapping again.' },
+      });
+      batch = await this.batchOrThrow(vendorId, id);
+    }
     const draft = DRAFT_STATUSES.includes(batch.status);
     return { batch, wizard: draft ? await this.wizard(vendorId, id) : null };
   }
@@ -480,7 +628,7 @@ export class ImportService {
       if (!batch.planHash || dto.planHash !== batch.planHash) {
         throw new ImportError('PLAN_STALE', 'The preview is out of date. Review the plan again before importing.', 409);
       }
-      if (!summary.plan || summary.plan.create === 0) throw new ImportError('NOTHING_TO_IMPORT', 'There is nothing to import — no valid new customers in this file.', 422);
+      if (!summary.plan || summary.plan.create === 0) throw new ImportError('NOTHING_TO_IMPORT', getDefinition(batch.entity).nothingToImportMessage ?? 'There is nothing to import — no valid new customers in this file.', 422);
       if (summary.plan.rowsWithWarnings > 0 && !dto.acknowledgeWarnings) {
         throw new ImportError('WARNINGS_NOT_ACKNOWLEDGED', 'Confirm that you reviewed the warnings.', 422);
       }
@@ -579,7 +727,8 @@ export class ImportService {
   }
 
   /** Called by the executor once a vendor's customer data changed. */
-  async invalidateVendorCaches(vendorId: string) {
+  async invalidateVendorCaches(vendorId: string, scope: 'customers' | 'reports' = 'customers') {
     await Promise.all([CACHE_KEYS.CUSTOMERS, CACHE_KEYS.WALLETS, CACHE_KEYS.DASHBOARD].map((k) => this.cache.invalidateVendorEntity(vendorId, k)));
+    if (scope === 'reports') await Promise.all([this.cache.invalidateOverview(vendorId), this.cache.invalidateAnalytics(vendorId)]);
   }
 }

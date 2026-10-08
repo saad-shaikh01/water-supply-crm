@@ -49,7 +49,7 @@ describe('ImportExecutorService.run', () => {
     const { svc, rowUpdates, imports } = build();
     await svc.run({ batchId: 'b1', vendorId: 'v1' });
     expect(rowUpdates).toHaveLength(0);
-    expect(imports.invalidateVendorCaches).toHaveBeenCalledWith('v1');
+    expect(imports.invalidateVendorCaches).toHaveBeenCalledWith('v1', undefined); // cacheScope: the mocked definition declares none
   });
 
   it('does nothing when another worker already claimed the batch (no double run)', async () => {

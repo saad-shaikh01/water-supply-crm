@@ -57,6 +57,8 @@ export interface RowIssue {
   code: string;
   field?: string;
   message: string;
+  /** Structured detail for summaries (e.g. expected vs file balance); never shown raw. */
+  data?: Record<string, string | number | null>;
 }
 
 export interface NormalizedRowResult<N> {
@@ -71,6 +73,8 @@ export interface PlannedRow<N> {
   normalized: N | null;
   issues: RowIssue[];
   action: PlanAction;
+  /** Idempotency key persisted on `ImportRow.dedupeKey` (history imports). */
+  dedupeKey?: string | null;
 }
 
 export interface PlanSummary {
@@ -82,6 +86,34 @@ export interface PlanSummary {
   /** Σ opening balance of CREATE rows, in paise (integer) — see design doc R5. */
   sumOpeningBalancePaise: number;
   sumOpeningBottles: number;
+  /** TRANSACTION_HISTORY only. */
+  history?: HistoryPlanSummary;
+}
+
+export interface HistoryPlanSummary {
+  reportingMode: 'STATEMENT_ONLY' | 'COUNT_IN_REPORTS';
+  cutoverDate: string;
+  dateFrom: string | null;
+  dateTo: string | null;
+  customersInFile: number;
+  customersToImport: number;
+  /** Customers whose whole chain was skipped (balance mismatch or a row error). */
+  customersBlocked: number;
+  unknownCodes: number;
+  unknownCodeList: string[];
+  mismatches: { code: string; expected: number | null; file: number | null; kind: 'MONEY' | 'BOTTLES' }[];
+  chargeRows: number;
+  paymentRows: number;
+  sumChargePaise: number;
+  sumPaidPaise: number;
+  bottlesOut: number;
+  bottlesIn: number;
+  noMovement: number;
+  alreadyImported: number;
+  duplicateInFile: number;
+  afterCutover: number;
+  withoutRunningBalance: number;
+  notices: string[];
 }
 
 export interface ImportEntityInfo {

@@ -20,7 +20,7 @@ import type { Response } from 'express';
 import type { AuthUser } from '@water-supply-crm/types';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
-import { IMPORT_LIMITS } from './import.constants';
+import { HISTORY_IMPORT_LIMITS, IMPORT_LIMITS } from './import.constants';
 import { ColumnValuesQueryDto, ExecuteImportDto, ImportListQueryDto, ImportRowsQueryDto, SaveMappingDto, UploadImportDto } from './dto/import.dto';
 import { ImportErrorFilter } from './import-error.filter';
 import { ImportService } from './import.service';
@@ -71,7 +71,7 @@ export class ImportController {
   @Post(':entity')
   @RequirePermissions('data_imports:upload')
   @Throttle({ short: { ttl: 5000, limit: 2 }, medium: { ttl: 60000, limit: 10 } })
-  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: IMPORT_LIMITS.maxFileBytes, files: 1 } }))
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: Math.max(IMPORT_LIMITS.maxFileBytes, HISTORY_IMPORT_LIMITS.maxFileBytes), files: 1 } }))
   upload(
     @CurrentUser() user: AuthUser,
     @Param('entity') entity: string,
