@@ -197,7 +197,10 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
     const days = data.attendance.days;
     const unpaidDays = days.filter((d) => d.decision === 'DEDUCTED' && !d.deductionDeferred).length;
     const paidLeaveDays = days.filter((d) => d.decision === 'WAIVED').length;
-    const other = data.entry.otherDeductions - crewCash - unpaid;
+    // Remainder comes from the SAME live rows as crew cash / unpaid. Using the stored bucket total here would
+    // invent a phantom credit/debit whenever something posted after the draft was computed.
+    const liveOther = data.ledgerEntriesByBucket.otherDeductions.reduce((t, e) => t + e.amount, 0);
+    const other = liveOther - crewCash - unpaid;
     const add = (key: string, label: string, amount: number, hint?: string) => {
       if (amount !== 0) summaryRows.push({ key, label, hint, amount });
     };
