@@ -89,6 +89,34 @@ export class SalarySlipPdfService {
         doc.y += 8;
         this.drawDetailCard(doc, this.attendanceRows(slip));
 
+        const absenceDays = slip.absence.days ?? [];
+        if (absenceDays.length > 0) {
+          this.drawTable(doc, 'ABSENCE & LEAVE DAYS', [
+            { header: 'Date', width: 70, cells: absenceDays.map((d) => longDate(d.date)) },
+            { header: 'Status', width: 70, cells: absenceDays.map((d) => d.status.replace(/_/g, ' ')) },
+            { header: 'Paid / Unpaid', width: 150, cells: absenceDays.map((d) => d.outcome) },
+            { header: 'Note', width: CONTENT_W - 28 - 70 - 70 - 150 - 80, cells: absenceDays.map((d) => d.note) },
+            { header: 'Amount', width: 80, align: 'right', cells: absenceDays.map((d) => (d.amount ? signedRupees(-d.amount) : '-')) },
+          ]);
+        }
+
+        const deductions = slip.deductions ?? [];
+        if (deductions.length > 0) {
+          const total = deductions.reduce((t, d) => t + d.amount, 0);
+          this.drawTable(
+            doc,
+            'DEDUCTION STATEMENT',
+            [
+              { header: 'Date', width: 70, cells: deductions.map((d) => longDate(d.date)) },
+              { header: 'Type', width: 110, cells: deductions.map((d) => d.group) },
+              { header: 'Details', width: CONTENT_W - 28 - 70 - 110 - 80, cells: deductions.map((d) => d.description) },
+              { header: 'Amount', width: 80, align: 'right', cells: deductions.map((d) => signedRupees(d.amount)) },
+            ],
+            { label: 'Total', value: signedRupees(total) },
+          );
+        }
+
+        this.ensureSpace(doc, 80);
         doc.y += 16;
         this.drawFooter(doc);
         doc.end();
@@ -121,6 +149,8 @@ export class SalarySlipPdfService {
         value: `Present ${att.presentDays}  ·  Absent ${att.absentDays}  ·  Half ${att.halfDays}  ·  Leave ${att.leaveDays}  (of ${att.periodDayCount} days)`,
       },
     ];
+    if (att.weeklyOffDays) rows.push({ label: 'Weekly Off', value: `${att.weeklyOffDays} day(s)` });
+    if (att.unmarkedDays) rows.push({ label: 'Not Marked', value: `${att.unmarkedDays} day(s)` });
     if (a.absentDays + a.halfDays === 0) return rows;
 
     if (!a.decisionsApply) {
@@ -140,9 +170,76 @@ export class SalarySlipPdfService {
     if (a.deferredDays > 0) {
       rows.push({ label: 'Charged Next Month', value: `${a.deferredDays} day(s)  -  Rs. ${formatRupees(a.deferredAmount)}` });
     }
-    if (a.waivedDays > 0) rows.push({ label: 'Absent but Paid', value: `${a.waivedDays} day(s)` });
+    if (a.waivedDays > 0) rows.push({ label: 'Absent but Paid (Paid Leave)', value: `${a.waivedDays} day(s)` });
     if (a.pendingDays > 0) rows.push({ label: 'Not Yet Decided', value: `${a.pendingDays} day(s)` });
     return rows;
+  }
+
+  /** Starts a new page (with the watermark) unless `needed` points still fit above the bottom margin. */
+  private ensureSpace(doc: PDFKit.PDFDocument, needed: number): void {
+    if (doc.y + needed <= PAGE_H - MARGIN) return;
+    doc.addPage({ size: 'A4', margin: MARGIN });
+    drawWatermark(doc, LOGO_PATH, PAGE_W, PAGE_H);
+    doc.y = MARGIN;
+  }
+
+  // ── Statement table: titled card, header row, wrapped zebra rows, optional total; flows across pages ──
+  private drawTable(
+    doc: PDFKit.PDFDocument,
+    title: string,
+    columns: Array<{ header: string; width: number; align?: 'left' | 'right'; cells: string[] }>,
+    total?: { label: string; value: string },
+  ): void {
+    const PAD = 14;
+    const FONT = 8.5;
+    const rowCount = columns[0].cells.length;
+    const xs: number[] = [];
+    let x = MARGIN + PAD;
+    for (const c of columns) {
+      xs.push(x);
+      x += c.width;
+    }
+    const cellHeight = (r: number) => {
+      doc.font('Helvetica').fontSize(FONT);
+      return Math.max(...columns.map((c) => doc.heightOfString(c.cells[r] || '-', { width: c.width - 6 }))) + 8;
+    };
+    const drawHeader = () => {
+      const y = doc.y;
+      doc.rect(MARGIN, y, CONTENT_W, 18).fill(C.navy);
+      doc.fillColor(C.white).font('Helvetica-Bold').fontSize(8);
+      columns.forEach((c, i) => doc.text(c.header, xs[i], y + 5.5, { width: c.width - 6, align: c.align ?? 'left', lineBreak: false }));
+      doc.y = y + 18;
+    };
+
+    this.ensureSpace(doc, 14 + 8 + 18 + 30);
+    doc.y += 14;
+    this.drawSectionTitle(doc, title);
+    doc.y += 8;
+    drawHeader();
+
+    for (let r = 0; r < rowCount; r++) {
+      const h = cellHeight(r);
+      if (doc.y + h > PAGE_H - MARGIN) {
+        this.ensureSpace(doc, PAGE_H); // force a new page
+        drawHeader();
+      }
+      const y = doc.y;
+      if (r % 2 !== 0) doc.rect(MARGIN, y, CONTENT_W, h).fill(C.surface);
+      doc.fillColor(C.text).font('Helvetica').fontSize(FONT);
+      columns.forEach((c, i) => doc.text(c.cells[r] || '-', xs[i], y + 4, { width: c.width - 6, align: c.align ?? 'left' }));
+      doc.y = y + h;
+    }
+
+    if (total) {
+      this.ensureSpace(doc, 26);
+      const y = doc.y;
+      doc.moveTo(MARGIN, y).lineTo(MARGIN + CONTENT_W, y).strokeColor(C.border).lineWidth(0.75).stroke();
+      doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(9.5)
+        .text(total.label, MARGIN + PAD, y + 7, { width: CONTENT_W * 0.5, lineBreak: false });
+      doc.fillColor(total.value.startsWith('-') ? C.red : C.text).font('Helvetica-Bold').fontSize(9.5)
+        .text(total.value, MARGIN, y + 7, { width: CONTENT_W - PAD, align: 'right', lineBreak: false });
+      doc.y = y + 24;
+    }
   }
 
   // ── Brand banner: gradient card with logo chip (left) + company identity (right) ──

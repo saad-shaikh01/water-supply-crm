@@ -468,9 +468,10 @@ export class PayrollSlipService {
     });
     if (!entry) return null;
 
-    const [vendor, { attendance }] = await Promise.all([
+    const [vendor, { attendance }, deductions] = await Promise.all([
       this.prisma.vendor.findUnique({ where: { id: vendorId }, select: { name: true } }),
       this.payrollEntries.attendanceSummaryFor(vendorId, entry.userId, entry.period),
+      this.payrollEntries.otherDeductionItemsFor(vendorId, entry.userId, entry.period),
     ]);
 
     const slip = buildSalarySlip({
@@ -479,6 +480,7 @@ export class PayrollSlipService {
       period: entry.period,
       entry,
       attendance,
+      deductions,
     });
     const phone = isSendablePhone(entry.user.phoneNumber) ? normalizePhone(entry.user.phoneNumber) : null;
     return { slip, entry, phone };

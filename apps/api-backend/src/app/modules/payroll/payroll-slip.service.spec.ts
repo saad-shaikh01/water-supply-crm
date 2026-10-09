@@ -49,7 +49,10 @@ function make() {
     $executeRaw: jest.fn().mockResolvedValue(1),
     $transaction: jest.fn(async (fn: any) => fn(prisma)),
   };
-  const payrollEntries = { attendanceSummaryFor: jest.fn().mockResolvedValue({ structure: null, attendance }) };
+  const payrollEntries = {
+    attendanceSummaryFor: jest.fn().mockResolvedValue({ structure: null, attendance }),
+    otherDeductionItemsFor: jest.fn().mockResolvedValue([]),
+  };
   const pdf = { generate: jest.fn().mockResolvedValue(Buffer.from('%PDF-fake')) };
   const whatsapp = { isReady: jest.fn().mockReturnValue(true), sendTemplate: jest.fn().mockResolvedValue(true) };
   const queue = { add: jest.fn().mockResolvedValue({}) };

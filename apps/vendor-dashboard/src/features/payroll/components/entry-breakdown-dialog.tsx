@@ -184,6 +184,34 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
       ({ key }) => data.ledgerEntriesByBucket[key].reduce((sum, e) => sum + e.amount, 0) !== data.entry[key],
     );
 
+  // Summary card rows. The catch-all "Other Deductions" bucket is split into what it really is (crew cash,
+  // unpaid absence charges, anything else) so the card explains itself. Earnings buckets that are 0 are hidden.
+  // The split reads the same live ledger rows as the lists below; the remainder row keeps the card summing to
+  // the stored bucket total even when something posted after the entry was last computed.
+  const summaryRows: Array<{ key: string; label: string; hint?: string; amount: number }> = [];
+  if (data) {
+    const sumOf = (cat: string) =>
+      data.ledgerEntriesByBucket.otherDeductions.filter((e) => e.category === cat).reduce((t, e) => t + e.amount, 0);
+    const crewCash = sumOf('CREW_CASH');
+    const unpaid = sumOf('LEAVE_UNPAID');
+    const days = data.attendance.days;
+    const unpaidDays = days.filter((d) => d.decision === 'DEDUCTED' && !d.deductionDeferred).length;
+    const paidLeaveDays = days.filter((d) => d.decision === 'WAIVED').length;
+    const other = data.entry.otherDeductions - crewCash - unpaid;
+    const add = (key: string, label: string, amount: number, hint?: string) => {
+      if (amount !== 0) summaryRows.push({ key, label, hint, amount });
+    };
+    for (const { key, label } of BUCKET_ORDER) {
+      if (key === 'otherDeductions') continue;
+      if (['bonuses', 'overtime', 'incentives', 'expenses'].includes(key)) add(key, label, data.entry[key]);
+      else summaryRows.push({ key, label, amount: data.entry[key] });
+    }
+    add('crewCash', 'Total Crew Cash', crewCash);
+    add('unpaid', 'Total Unpaid Deduction', unpaid, unpaidDays > 0 ? `(${unpaidDays} day${unpaidDays === 1 ? '' : 's'})` : undefined);
+    if (paidLeaveDays > 0) summaryRows.push({ key: 'paidLeaves', label: 'Total Paid Leaves', hint: `(${paidLeaveDays} day${paidLeaveDays === 1 ? '' : 's'} - no deduction)`, amount: 0 });
+    add('otherDeductions', 'Other Deductions', other);
+  }
+
   const handleClose = (open: boolean) => {
     if (open) return;
     setTab('breakdown');
@@ -286,30 +314,35 @@ export function EntryBreakdownDialog({ entryId, onOpenChange }: EntryBreakdownDi
                     <span className="text-sm font-semibold text-muted-foreground">Base Salary</span>
                     <span className="font-mono font-bold">₨ {data.entry.baseSalary.toLocaleString()}</span>
                   </div>
-                  {BUCKET_ORDER.map(({ key, label }) => (
-                    <div key={key} className="flex items-center justify-between px-4 py-3">
-                      <span className="text-sm font-semibold text-muted-foreground">{label}</span>
+                  {summaryRows.map((row) => (
+                    <div key={row.key} className="flex items-center justify-between px-4 py-3">
+                      <span className="text-sm font-semibold text-muted-foreground">
+                        {row.label}
+                        {row.hint && <span className="ml-2 text-xs font-normal text-muted-foreground/80">{row.hint}</span>}
+                      </span>
                       <span
                         className={cn(
                           'font-mono font-bold',
-                          data.entry[key] > 0 ? 'text-emerald-500' : data.entry[key] < 0 ? 'text-destructive' : 'text-foreground',
+                          row.amount > 0 ? 'text-emerald-500' : row.amount < 0 ? 'text-destructive' : 'text-foreground',
                         )}
                       >
-                        {data.entry[key] >= 0 ? '+' : '−'}₨ {Math.abs(data.entry[key]).toLocaleString()}
+                        {row.amount >= 0 ? '+' : '−'}₨ {Math.abs(row.amount).toLocaleString()}
                       </span>
                     </div>
                   ))}
-                  <div className="flex items-center justify-between px-4 py-3">
-                    <span className="text-sm font-semibold text-muted-foreground">Carry Forward In</span>
-                    <span
-                      className={cn(
-                        'font-mono font-bold',
-                        data.entry.carryForwardIn > 0 ? 'text-emerald-500' : data.entry.carryForwardIn < 0 ? 'text-destructive' : 'text-foreground',
-                      )}
-                    >
-                      {data.entry.carryForwardIn >= 0 ? '+' : '−'}₨ {Math.abs(data.entry.carryForwardIn).toLocaleString()}
-                    </span>
-                  </div>
+                  {data.entry.carryForwardIn !== 0 && (
+                    <div className="flex items-center justify-between px-4 py-3">
+                      <span className="text-sm font-semibold text-muted-foreground">Carry Forward In</span>
+                      <span
+                        className={cn(
+                          'font-mono font-bold',
+                          data.entry.carryForwardIn > 0 ? 'text-emerald-500' : 'text-destructive',
+                        )}
+                      >
+                        {data.entry.carryForwardIn >= 0 ? '+' : '−'}₨ {Math.abs(data.entry.carryForwardIn).toLocaleString()}
+                      </span>
+                    </div>
+                  )}
                   {data.entry.deferredIn > 0 && (
                     <div className="flex items-center justify-between px-4 py-3">
                       <span className="text-sm font-semibold text-muted-foreground">Held back last period, charged now</span>

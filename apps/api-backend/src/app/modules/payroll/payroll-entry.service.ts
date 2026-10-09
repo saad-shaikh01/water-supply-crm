@@ -21,6 +21,7 @@ import { StaffAdvancePlanService } from './staff-advance-plan.service';
 import { computeCycleForCutoff } from './payroll-cycle.util';
 import { applyDeductionCeiling } from './payroll-deduction-ceiling.util';
 import { attributedWithin, buildLedgerWindowFilter, PENDING_ABSENCE_WHERE, type CashWindow } from './payroll-attribution.util';
+import type { SlipDeductionItem } from './payroll-slip.util';
 
 /** The vendor's `PayrollVendorConfig` row, or null when the vendor has never saved one (every default applies). */
 type VendorConfigRow = Prisma.PayrollVendorConfigGetPayload<object> | null;
@@ -616,6 +617,63 @@ export class PayrollEntryService {
     });
     const attendance = await this.summarizeAttendance(userId, period, structure?.payFrequency === PayFrequency.MONTHLY);
     return { structure, attendance };
+  }
+
+  /**
+   * The statement behind an entry's "Other deductions" bucket for the salary slip: every POSTED ledger row the
+   * period claims (same window as `getBreakdown`) that folds into `otherDeductions`, oldest first, each with a
+   * human description (crew cash category + sheet date + note, the absent day it was charged for, ...).
+   */
+  async otherDeductionItemsFor(vendorId: string, userId: string, period: PayrollPeriod): Promise<SlipDeductionItem[]> {
+    const config = await this.prisma.payrollVendorConfig.findUnique({ where: { vendorId } });
+    const rows = await this.prisma.staffLedgerEntry.findMany({
+      where: {
+        vendorId,
+        userId,
+        status: LedgerEntryStatus.POSTED,
+        category: { not: StaffLedgerCategory.ADVANCE_DISBURSEMENT },
+        ...buildLedgerWindowFilter(period, this.cashWindowFromConfig(config, period)),
+      },
+      orderBy: [{ effectiveDate: 'asc' }, { createdAt: 'asc' }],
+      include: {
+        crewCashSource: { select: { category: true, notes: true, date: true } },
+        standaloneCrewCashSource: { select: { category: true, notes: true, date: true } },
+        attendanceLeaveSource: { select: { date: true, status: true } },
+      },
+    });
+
+    const day = (d: Date) => d.toISOString().slice(0, 10);
+    const words = (v: string) => v.replace(/_/g, ' ').toLowerCase().replace(/^w/, (c) => c.toUpperCase());
+    const items: SlipDeductionItem[] = [];
+    for (const r of rows) {
+      if (bucketKeyForCategory(r.category) !== 'otherDeductions') continue;
+      const crew = r.crewCashSource ?? r.standaloneCrewCashSource;
+      let group: string;
+      let description: string;
+      if (r.category === StaffLedgerCategory.CREW_CASH || crew) {
+        group = 'Crew cash';
+        const parts = [crew ? words(String(crew.category)) : 'Crew cash'];
+        if (r.crewCashSource) parts.push(`daily sheet ${day(r.crewCashSource.date)}`);
+        const note = crew?.notes ?? r.description;
+        if (note) parts.push(note);
+        description = parts.join(' - ');
+      } else if (r.category === StaffLedgerCategory.LEAVE_UNPAID || r.attendanceLeaveSource) {
+        group = 'Absence deductions';
+        const a = r.attendanceLeaveSource;
+        description = a ? `${a.status === 'HALF_DAY' ? 'Half day' : 'Absent'} on ${day(a.date)}` : (r.description ?? 'Unpaid leave');
+      } else if (r.category === StaffLedgerCategory.LEAVE_PAID) {
+        group = 'Paid leave adjustments';
+        description = r.description ?? 'Paid leave';
+      } else if (r.category === StaffLedgerCategory.DEDUCTION) {
+        group = 'Other deductions';
+        description = r.description ?? 'Deduction';
+      } else {
+        group = 'Adjustments & corrections';
+        description = [words(String(r.category)), r.description].filter(Boolean).join(' - ');
+      }
+      items.push({ date: r.effectiveDate, group, description, amount: r.amount });
+    }
+    return items;
   }
 
   /**
