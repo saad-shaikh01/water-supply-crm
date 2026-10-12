@@ -77,6 +77,8 @@ module.exports = {
         WHATSAPP_ALLOWED_VENDOR_IDS: process.env.WHATSAPP_ALLOWED_VENDOR_IDS,
         WHATSAPP_TOKEN_KEY: process.env.WHATSAPP_TOKEN_KEY,
         WHATSAPP_TOKEN_KEY_VERSION: process.env.WHATSAPP_TOKEN_KEY_VERSION,
+        // Super-admin "wipe vendor data" — off unless explicitly set to true (see docs/features/vendor-data-wipe.md).
+        VENDOR_WIPE_ENABLED: process.env.VENDOR_WIPE_ENABLED,
         ...infraOverrides,
       },
       error_file: path.join(ROOT, 'logs/dasani-api-error.log'),
