@@ -135,7 +135,11 @@ export function FuelLogFormDialog({ vehicleId, dailySheetId, open, onOpenChange,
   function onSubmit(values: FuelLogInput) {
     if (isEdit) {
       updateFuelLog(
-        { id: fuelLog!.id, data: { ...values, receiptPhotoKey } },
+        {
+          id: fuelLog!.id,
+          // null (not undefined) so the backend actually clears a previous card.
+          data: { ...values, fuelCardId: values.paidFromCash ? null : (values.fuelCardId ?? null), receiptPhotoKey },
+        },
         { onSuccess: () => onOpenChange(false) },
       );
       return;

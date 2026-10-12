@@ -53,6 +53,10 @@ export interface SlipAttendanceDay {
   decision: 'DEDUCTED' | 'WAIVED' | 'PENDING' | null;
   deductedAmount?: number;
   deductionDeferred?: boolean;
+  /** Attendance category (e.g. "Sick") and free-text note, when the admin recorded them. */
+  categoryName?: string | null;
+  note?: string | null;
+  waivedReason?: string | null;
 }
 
 export interface SlipAttendanceInput {
@@ -62,7 +66,36 @@ export interface SlipAttendanceInput {
   absentDays: number;
   halfDays: number;
   leaveDays: number;
+  weeklyOffDays?: number;
+  unmarkedDays?: number;
   days: SlipAttendanceDay[];
+}
+
+/** One non-present day printed in the slip's attendance table. */
+export interface SlipAbsenceDay {
+  date: Date;
+  /** ABSENT | HALF_DAY | LEAVE */
+  status: string;
+  /** Plain-words outcome: "Unpaid - deducted", "Paid", "Not decided yet", ... */
+  outcome: string;
+  /** Rupees charged this period for the day (0 when none). */
+  amount: number;
+  note: string;
+}
+
+/** One ledger row behind the "Other deductions" total (crew cash, absence charge, manual deduction ...). */
+export interface SlipDeductionItem {
+  date: Date;
+  /** Group heading, e.g. "Crew cash". */
+  group: string;
+  description: string;
+  /** Signed rupees, as stored (negative = charged to the employee). */
+  amount: number;
+}
+
+export interface SlipDeductionGroup {
+  label: string;
+  amount: number;
 }
 
 export interface SlipLine {
@@ -85,6 +118,8 @@ export interface SlipAbsence {
   deferredAmount: number;
   waivedDays: number;
   pendingDays: number;
+  /** Every absent / half-day / leave day with its outcome — empty for an employee with none. */
+  days?: SlipAbsenceDay[];
 }
 
 export interface SalarySlipData {
@@ -98,7 +133,17 @@ export interface SalarySlipData {
   lines: SlipLine[];
   finalPayable: number;
   absence: SlipAbsence;
-  attendance: { presentDays: number; absentDays: number; halfDays: number; leaveDays: number; periodDayCount: number };
+  attendance: {
+    presentDays: number;
+    absentDays: number;
+    halfDays: number;
+    leaveDays: number;
+    weeklyOffDays?: number;
+    unmarkedDays?: number;
+    periodDayCount: number;
+  };
+  /** Statement of the rows behind "Other deductions", oldest first. Omitted/empty = nothing to itemise. */
+  deductions?: SlipDeductionItem[];
 }
 
 /**
@@ -109,7 +154,7 @@ export interface SalarySlipData {
  * (`deferredIn` = last period's held-back deduction charged now; `deferredOut` = this period's deduction held
  * back to next month — see `applyDeductionCeiling`).
  */
-export function buildSlipLines(entry: SlipEntryInput): SlipLine[] {
+export function buildSlipLines(entry: SlipEntryInput, otherGroups: readonly SlipDeductionGroup[] = []): SlipLine[] {
   const lines: SlipLine[] = [{ label: 'Base salary', amount: entry.baseSalary }];
   const add = (label: string, amount: number, note?: string, always = false) => {
     if (amount !== 0 || always) lines.push({ label, amount, ...(note ? { note } : {}) });
@@ -120,7 +165,14 @@ export function buildSlipLines(entry: SlipEntryInput): SlipLine[] {
   add('Expense reimbursements', entry.expenses);
   add('Advances', entry.advances);
   add('Penalties', entry.penalties);
-  add('Other deductions', entry.otherDeductions, 'Includes absence deductions, crew cash and other deductions.');
+  // Split the catch-all bucket into its real causes — only when the parts add up EXACTLY to the stored
+  // bucket (a ledger change after the entry was computed must never print a slip that doesn't sum).
+  const groupTotal = otherGroups.reduce((t, g) => t + g.amount, 0);
+  if (otherGroups.length > 0 && groupTotal === entry.otherDeductions) {
+    for (const g of otherGroups) add(g.label, g.amount);
+  } else {
+    add('Other deductions', entry.otherDeductions, 'Includes absence deductions, crew cash and other deductions.');
+  }
   add('Carried forward from previous month', entry.carryForwardIn);
   add('Held-back deductions from previous month', -entry.deferredIn, 'Deductions held back last month, charged now.');
   add('Deductions held back to next month', entry.deferredOut, 'Not deducted this month (deduction limit) — will be charged next month.');
@@ -142,8 +194,11 @@ export function summarizeSlipAbsence(attendance: SlipAttendanceInput): SlipAbsen
     deferredAmount: 0,
     waivedDays: 0,
     pendingDays: 0,
+    days: [],
   };
   for (const day of attendance.days) {
+    const listed = describeAbsenceDay(day, attendance.decisionsApply);
+    if (listed) out.days!.push(listed);
     if (day.decision === 'DEDUCTED') {
       if (day.deductionDeferred) {
         out.deferredDays++;
@@ -158,12 +213,29 @@ export function summarizeSlipAbsence(attendance: SlipAttendanceInput): SlipAbsen
   return out;
 }
 
+/** Plain-words outcome of one non-present day, or null for a day that needs no line (present / weekly off). */
+function describeAbsenceDay(day: SlipAttendanceDay, decisionsApply: boolean): SlipAbsenceDay | null {
+  if (day.status !== 'ABSENT' && day.status !== 'HALF_DAY' && day.status !== 'LEAVE') return null;
+  let outcome: string;
+  let amount = 0;
+  if (day.status === 'LEAVE') outcome = 'Leave';
+  else if (day.decision === 'DEDUCTED') {
+    amount = day.deductedAmount ?? 0;
+    outcome = day.deductionDeferred ? 'Unpaid - charged next month' : 'Unpaid - deducted';
+  } else if (day.decision === 'WAIVED') outcome = 'Paid (not deducted)';
+  else if (day.decision === 'PENDING') outcome = 'Not decided yet';
+  else outcome = decisionsApply ? 'Not decided yet' : 'Unpaid - in base pay';
+  const note = [day.categoryName, day.waivedReason ?? day.note].filter((x): x is string => !!x && !!x.trim()).join(' - ');
+  return { date: day.date, status: day.status, outcome, amount, note };
+}
+
 export function buildSalarySlip(input: {
   vendorName: string;
   employee: { name: string; role: string };
   period: { periodLabel: string; startDate: Date; endDate: Date };
   entry: SlipEntryInput;
   attendance: SlipAttendanceInput;
+  deductions?: SlipDeductionItem[];
 }): SalarySlipData {
   const { entry, attendance } = input;
   return {
@@ -174,7 +246,7 @@ export function buildSalarySlip(input: {
     periodStart: input.period.startDate,
     periodEnd: input.period.endDate,
     status: entry.status,
-    lines: buildSlipLines(entry),
+    lines: buildSlipLines(entry, groupDeductions(input.deductions ?? [])),
     finalPayable: entry.finalPayable,
     absence: summarizeSlipAbsence(attendance),
     attendance: {
@@ -182,9 +254,19 @@ export function buildSalarySlip(input: {
       absentDays: attendance.absentDays,
       halfDays: attendance.halfDays,
       leaveDays: attendance.leaveDays,
+      weeklyOffDays: attendance.weeklyOffDays,
+      unmarkedDays: attendance.unmarkedDays,
       periodDayCount: attendance.periodDayCount,
     },
+    deductions: input.deductions ?? [],
   };
+}
+
+/** Sums the statement rows per group, keeping first-seen order. */
+export function groupDeductions(items: readonly SlipDeductionItem[]): SlipDeductionGroup[] {
+  const byLabel = new Map<string, number>();
+  for (const i of items) byLabel.set(i.group, (byLabel.get(i.group) ?? 0) + i.amount);
+  return [...byLabel].map(([label, amount]) => ({ label, amount }));
 }
 
 /** `45000` → `45,000` (no currency prefix) — the `{{3}}` template variable and the PDF amounts. */

@@ -1,6 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@water-supply-crm/database';
-import { ExpenseCategory } from '@prisma/client';
+import { CacheInvalidationService } from '@water-supply-crm/caching';
+import { ExpenseCategory, Prisma } from '@prisma/client';
+import { VanCashLedgerService } from '../van-cash-ledger/van-cash-ledger.service';
+import { SHEET_CASH_RELOAD_INCLUDE, resolveSheetCash } from '../daily-sheet/sheet-cash.util';
 import { paginate } from '../../common/helpers/paginate';
 import type { AuthUser } from '@water-supply-crm/types';
 import { CreateFuelLogDto } from './dto/create-fuel-log.dto';
@@ -8,6 +11,7 @@ import { UpdateFuelLogDto } from './dto/update-fuel-log.dto';
 import { FuelLogQueryDto } from './dto/fuel-log-query.dto';
 import { computeFuelAvgKmPerLiter, dayRange } from './fleet-period.util';
 import { assertOwnedStorageKey, assertOwnedStorageKeys } from '../../common/storage/storage-key.util';
+import { resolveSheetTripId } from '../../common/helpers/sheet-trip.util';
 
 const fuelLogInclude = {
   recordedBy: { select: { id: true, name: true } },
@@ -34,7 +38,46 @@ const fuelLogInclude = {
  */
 @Injectable()
 export class FuelLogService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private vanCashLedger: VanCashLedgerService,
+    private cache: CacheInvalidationService,
+  ) {}
+
+  /**
+   * A sheet-linked fuel Expense (paidFromCash) feeds the sheet's hand-in, so on a
+   * CLOSED sheet any edit / delete of the fill must flag the sheet as modified
+   * after close and re-sync the Cash Ledger handover — same as ExpenseService's
+   * closed-sheet corrections and VehicleMaintenanceService.markClosedSheetCorrected.
+   */
+  private async markClosedSheetCorrected(tx: Prisma.TransactionClient, vendorId: string, dailySheetId: string) {
+    await tx.dailySheet.update({
+      where: { id: dailySheetId },
+      data: { postCloseExpenseCorrectionCount: { increment: 1 } },
+    });
+    const sheet = await tx.dailySheet.findUnique({ where: { id: dailySheetId }, include: SHEET_CASH_RELOAD_INCLUDE });
+    if (!sheet) return;
+    const resolved = resolveSheetCash(sheet as unknown as Record<string, unknown>);
+    await this.vanCashLedger.handlePostCloseCorrection(tx, vendorId, dailySheetId, resolved.cashExpected);
+  }
+
+  private async findClosedSheet(vendorId: string, dailySheetId: string | null) {
+    if (!dailySheetId) return null;
+    const sheet = await this.prisma.dailySheet.findFirst({
+      where: { id: dailySheetId, vendorId },
+      select: { id: true, isClosed: true, date: true },
+    });
+    return sheet?.isClosed ? sheet : null;
+  }
+
+  private async invalidateSheetRollups(vendorId: string, sheetDate?: Date | null) {
+    const dateStr = sheetDate ? new Date(sheetDate).toISOString().slice(0, 10) : undefined;
+    await Promise.all([
+      this.cache.invalidateDailyDashboard(vendorId, dateStr),
+      this.cache.invalidateOverview(vendorId),
+      this.cache.invalidateAnalytics(vendorId),
+    ]);
+  }
 
   async create(user: AuthUser, dto: CreateFuelLogDto) {
     if (dto.receiptPhotoKey) assertOwnedStorageKey(dto.receiptPhotoKey, ['fleet-photos'], user.vendorId, 'receiptPhotoKey');
@@ -79,11 +122,8 @@ export class FuelLogService {
       }
       sheetVanId = sheet.vanId;
 
-      const activeLoad = await this.prisma.dailySheetLoad.findFirst({
-        where: { dailySheetId: dto.dailySheetId, endedAt: null },
-        select: { id: true },
-      });
-      dailySheetLoadId = activeLoad?.id ?? null;
+      // Running trip, else the last-ended one (all trips done, sheet still open).
+      dailySheetLoadId = await resolveSheetTripId(this.prisma, dto.dailySheetId);
 
       // Odometer sanity gate (owner request): a fuel fill logged against a
       // sheet must not read lower than that sheet's own Start-of-Day Vehicle
@@ -274,6 +314,9 @@ export class FuelLogService {
     // paidFromCash either way — the caller's own paidFromCash (or the
     // existing value) then applies.
     let paidFromCash = dto.paidFromCash;
+    // Explicitly switching to "paid from van cash" means no card paid for it —
+    // drop any card so the cash flag isn't overridden below.
+    if (dto.paidFromCash === true) dto.fuelCardId = null;
     if (dto.fuelCardId !== undefined && dto.fuelCardId !== null) {
       const card = await this.prisma.fuelCard.findFirst({ where: { id: dto.fuelCardId, vendorId } });
       if (!card) throw new NotFoundException('Fuel card not found');
@@ -281,7 +324,10 @@ export class FuelLogService {
       paidFromCash = false;
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    // A fill logged on a CLOSED sheet changes that sheet's hand-in when edited.
+    const closedSheet = await this.findClosedSheet(vendorId, fuelLog.dailySheetId);
+
+    const updated = await this.prisma.$transaction(async (tx) => {
       if (
         fuelLog.expenseId &&
         (dto.amountPaid !== undefined ||
@@ -304,7 +350,7 @@ export class FuelLogService {
         });
       }
 
-      return tx.fuelLog.update({
+      const row = await tx.fuelLog.update({
         where: { id },
         data: {
           ...(dto.date !== undefined && { date: new Date(dto.date) }),
@@ -320,19 +366,30 @@ export class FuelLogService {
         },
         include: fuelLogInclude,
       });
+
+      if (closedSheet) await this.markClosedSheetCorrected(tx, vendorId, closedSheet.id);
+      return row;
     });
+
+    if (closedSheet) await this.invalidateSheetRollups(vendorId, closedSheet.date);
+    return updated;
   }
 
   async remove(vendorId: string, id: string) {
     const fuelLog = await this.prisma.fuelLog.findFirst({ where: { id, vendorId } });
     if (!fuelLog) throw new NotFoundException('Fuel log not found');
 
+    const closedSheet = await this.findClosedSheet(vendorId, fuelLog.dailySheetId);
+
     await this.prisma.$transaction(async (tx) => {
       await tx.fuelLog.delete({ where: { id } });
       if (fuelLog.expenseId) {
         await tx.expense.delete({ where: { id: fuelLog.expenseId } });
       }
+      if (closedSheet) await this.markClosedSheetCorrected(tx, vendorId, closedSheet.id);
     });
+
+    if (closedSheet) await this.invalidateSheetRollups(vendorId, closedSheet.date);
     return { deleted: true };
   }
 }

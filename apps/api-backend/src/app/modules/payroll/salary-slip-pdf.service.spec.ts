@@ -36,7 +36,7 @@ describe('SalarySlipPdfService', () => {
     expect((buf.toString('latin1').match(/\/Type\s*\/Page\b/g) ?? []).length).toBe(1);
   });
 
-  it('WORST case (every optional line, every note, every absence row, a draft stamp) still fits ONE A4 page', async () => {
+  it('WORST case (every optional line, every note, every absence row, a draft stamp) is at most TWO A4 pages (the absence table adds a row per day)', async () => {
     const worst = buildSalarySlip({
       vendorName: 'x',
       employee: { name: 'A Very Long Employee Name Of Some Person', role: 'SALESMAN' },
@@ -54,7 +54,32 @@ describe('SalarySlipPdfService', () => {
       },
     });
     const buf = await svc.generate(worst);
-    expect((buf.toString('latin1').match(/\/Type\s*\/Page\b/g) ?? []).length).toBe(1);
+    expect((buf.toString('latin1').match(/\/Type\s*\/Page\b/g) ?? []).length).toBeLessThanOrEqual(2);
+  });
+
+  it('prints the deduction statement + per-day absence table, flowing onto extra pages when long', async () => {
+    const items = Array.from({ length: 80 }, (_, i) => ({
+      date: new Date(Date.UTC(2026, 8, 1 + (i % 28))),
+      group: i % 2 ? 'Crew cash' : 'Absence deductions',
+      description: i % 2 ? 'Meal - daily sheet 2026-09-0' + (i % 9) + ' - lunch for the crew on a long route' : 'Absent on 2026-09-02',
+      amount: -100,
+    }));
+    const slip = buildSalarySlip({
+      vendorName: 'x',
+      employee: { name: 'Ali', role: 'LOADER' },
+      period: { periodLabel: '2026-09', startDate: new Date('2026-09-01T00:00:00Z'), endDate: new Date('2026-09-30T23:59:59.999Z') },
+      entry: {
+        baseSalary: 35000, bonuses: 0, overtime: 0, incentives: 0, advances: 0, expenses: 0, penalties: 0,
+        otherDeductions: -8000, carryForwardIn: 0, deferredIn: 0, deferredOut: 0, finalPayable: 27000, status: 'APPROVED',
+      },
+      attendance,
+      deductions: items,
+    });
+    expect(slip.lines.find((l) => l.label === 'Crew cash')?.amount).toBe(-4000);
+    expect(slip.lines.find((l) => l.label === 'Absence deductions')?.amount).toBe(-4000);
+    expect(slip.lines.some((l) => l.label === 'Other deductions')).toBe(false);
+    const buf = await svc.generate(slip);
+    expect((buf.toString('latin1').match(/\/Type\s*\/Page\b/g) ?? []).length).toBeGreaterThan(1);
   });
 
   it('copes with DAILY/WEEKLY staff (no per-day decisions) and zero absences', async () => {
