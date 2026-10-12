@@ -69,6 +69,12 @@ module.exports = {
         META_WA_ACCESS_TOKEN: process.env.META_WA_ACCESS_TOKEN,
         META_WA_PHONE_NUMBER_ID: process.env.META_WA_PHONE_NUMBER_ID,
         META_WA_API_VERSION: process.env.META_WA_API_VERSION,
+        META_WA_WABA_ID: process.env.META_WA_WABA_ID,
+        // Multi-vendor gate + per-vendor WhatsApp token encryption (see legacy-vendor-gate.ts). Unset = shadow mode, no vendor blocked.
+        WHATSAPP_GUARD_MODE: process.env.WHATSAPP_GUARD_MODE,
+        WHATSAPP_ALLOWED_VENDOR_IDS: process.env.WHATSAPP_ALLOWED_VENDOR_IDS,
+        WHATSAPP_TOKEN_KEY: process.env.WHATSAPP_TOKEN_KEY,
+        WHATSAPP_TOKEN_KEY_VERSION: process.env.WHATSAPP_TOKEN_KEY_VERSION,
         ...infraOverrides,
       },
       error_file: path.join(ROOT, 'logs/wscrm-api-error.log'),
