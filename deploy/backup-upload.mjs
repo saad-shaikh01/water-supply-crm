@@ -17,12 +17,14 @@ import { readFileSync } from 'fs';
 import { basename } from 'path';
 
 const RETENTION_DAYS = 7;
-const PREFIX = 'db-backups';
 
-const [, , localFilePath, dbName] = process.argv;
+const [, , localFilePath, dbName, remotePrefix] = process.argv;
+
+// Per-tenant folder inside the bucket; default keeps the original testinglinq layout.
+const PREFIX = (remotePrefix || 'db-backups').replace(/\/+$/, '');
 
 if (!localFilePath) {
-  console.error('Usage: node backup-upload.mjs <localFilePath> [dbName]');
+  console.error('Usage: node backup-upload.mjs <localFilePath> [dbName] [remotePrefix]');
   process.exit(1);
 }
 
@@ -74,7 +76,12 @@ async function pruneOldBackups() {
   );
 
   const stale = (list.Contents ?? []).filter(
-    (obj) => obj.Key && obj.LastModified && obj.LastModified.getTime() < cutoff,
+    (obj) =>
+      obj.Key &&
+      // direct children only — never prune another tenant's sub-folder (e.g. db-backups/dasani/)
+      !obj.Key.slice(PREFIX.length + 1).includes('/') &&
+      obj.LastModified &&
+      obj.LastModified.getTime() < cutoff,
   );
 
   for (const obj of stale) {

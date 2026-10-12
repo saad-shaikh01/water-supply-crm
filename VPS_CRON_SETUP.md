@@ -125,3 +125,21 @@ gunzip -c backups/wscrm-<timestamp>.sql.gz | docker exec -i wscrm-postgres psql 
 - [ ] `crontab -e` → add the backup line
 - [ ] `crontab -l` → confirm it's saved
 - [ ] Check `logs/backup.log` the next morning to confirm the first automatic run succeeded
+
+---
+
+## Dasani (live) backup
+
+`deploy/backup-db.sh` takes a tenant argument (default `testinglinq`). For Dasani, run it from the Dasani checkout (`/home/dasani-crm`):
+
+```bash
+bash deploy/backup-db.sh dasani      # .env.live + dasani-postgres -> Wasabi db-backups/dasani/
+```
+
+Crontab (UTC server, ~2:30 AM PKT):
+
+```
+30 21 * * * cd /home/dasani-crm && bash deploy/backup-db.sh dasani >> logs/backup.log 2>&1
+```
+
+Local files are named `dasani-<timestamp>.sql.gz`; manual files such as `dasani-pre-deploy-*.sql.gz` are never auto-pruned.

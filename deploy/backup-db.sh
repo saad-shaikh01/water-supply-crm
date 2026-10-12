@@ -4,7 +4,7 @@
 #
 # Runs entirely on the host, decoupled from the API's PM2 process (which is
 # memory-capped at 512MB) — safe even if the app is crashed/restarting.
-# Uses `docker exec` against the wscrm-postgres container, which already
+# Uses `docker exec` against the tenant's postgres container (see TENANT below), which already
 # ships pg_dump — no extra host packages required.
 #
 # First-time VPS setup (run ONCE):
@@ -18,15 +18,36 @@
 #      if your cron daemon supports it) so this actually lands at 2:30 AM PKT.
 #
 # Restore a backup (disaster recovery):
-#   gunzip -c backups/wscrm-<timestamp>.sql.gz | docker exec -i wscrm-postgres psql -U "$POSTGRES_USER" "$POSTGRES_DB"
+#   gunzip -c backups/<file>.sql.gz | docker exec -i <container: wscrm-postgres / dasani-postgres> psql -U "$POSTGRES_USER" "$POSTGRES_DB"
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ENV_FILE="${REPO_ROOT}/.env.prod"
+# Tenant profile — first argument, defaults to testinglinq so the existing
+# `bash deploy/backup-db.sh` invocation keeps working unchanged.
+#   bash deploy/backup-db.sh            -> testinglinq (.env.prod, wscrm-postgres)
+#   bash deploy/backup-db.sh dasani     -> Dasani live (.env.live, dasani-postgres)
+TENANT="${1:-testinglinq}"
+case "${TENANT}" in
+  testinglinq)
+    ENV_FILE="${REPO_ROOT}/.env.prod"
+    CONTAINER_NAME="wscrm-postgres"
+    FILE_PREFIX="wscrm"
+    REMOTE_PREFIX="db-backups"
+    ;;
+  dasani)
+    ENV_FILE="${REPO_ROOT}/.env.live"
+    CONTAINER_NAME="dasani-postgres"
+    FILE_PREFIX="dasani"
+    REMOTE_PREFIX="db-backups/dasani"
+    ;;
+  *)
+    echo "ERROR: unknown tenant '${TENANT}' (expected: testinglinq | dasani)"
+    exit 1
+    ;;
+esac
 BACKUP_DIR="${REPO_ROOT}/backups"
 RETENTION_DAYS=7
-CONTAINER_NAME="wscrm-postgres"
 
 if [ ! -f "${ENV_FILE}" ]; then
   echo "ERROR: ${ENV_FILE} not found."
@@ -48,16 +69,16 @@ done
 mkdir -p "${BACKUP_DIR}"
 
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
-DUMP_FILE="${BACKUP_DIR}/wscrm-${TIMESTAMP}.sql.gz"
+DUMP_FILE="${BACKUP_DIR}/${FILE_PREFIX}-${TIMESTAMP}.sql.gz"
 
 echo "==> Dumping ${POSTGRES_DB} from ${CONTAINER_NAME}..."
 docker exec "${CONTAINER_NAME}" pg_dump -U "${POSTGRES_USER}" "${POSTGRES_DB}" | gzip > "${DUMP_FILE}"
 echo "     Dump written: ${DUMP_FILE} ($(du -h "${DUMP_FILE}" | cut -f1))"
 
 echo "==> Uploading to Wasabi..."
-node "${REPO_ROOT}/deploy/backup-upload.mjs" "${DUMP_FILE}" "${POSTGRES_DB}"
+node "${REPO_ROOT}/deploy/backup-upload.mjs" "${DUMP_FILE}" "${POSTGRES_DB}" "${REMOTE_PREFIX}"
 
 echo "==> Pruning local backups older than ${RETENTION_DAYS} days..."
-find "${BACKUP_DIR}" -name 'wscrm-*.sql.gz' -mtime "+${RETENTION_DAYS}" -print -delete
+find "${BACKUP_DIR}" -name "${FILE_PREFIX}-[0-9]*.sql.gz" -mtime "+${RETENTION_DAYS}" -print -delete
 
 echo "==> Backup complete: ${DUMP_FILE}"
