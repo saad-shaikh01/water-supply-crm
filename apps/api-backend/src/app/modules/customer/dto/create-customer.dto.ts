@@ -69,6 +69,15 @@ export class CreateCustomerDto {
   @IsUUID()
   routeId?: string;
 
+  // Optional grouping; only accepted when the vendor has customer grouping enabled.
+  @IsOptional()
+  @IsUUID()
+  groupId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  subGroupId?: string;
+
   @IsOptional()
   @IsUUID()
   defaultProductId?: string;

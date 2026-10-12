@@ -67,4 +67,14 @@ export class UpdateCustomerDto {
   @IsOptional()
   @IsUUID()
   routeId?: string;
+
+  // Optional grouping. `null` clears; omitted leaves unchanged. Changing groupId without
+  // subGroupId clears the sub-group (it belonged to the old group).
+  @IsOptional()
+  @IsUUID()
+  groupId?: string | null;
+
+  @IsOptional()
+  @IsUUID()
+  subGroupId?: string | null;
 }

@@ -17,6 +17,9 @@ export const customerSchema = z.object({
 
   // Service
   routeId: z.string().uuid().optional().or(z.literal('')),
+  // Optional grouping (only sent when the vendor has grouping enabled)
+  groupId: z.string().uuid().optional().or(z.literal('')),
+  subGroupId: z.string().uuid().optional().or(z.literal('')),
   paymentType: z.enum(['MONTHLY', 'CASH']),
   isBillingExempt: z.boolean().optional(),
 

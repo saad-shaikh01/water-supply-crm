@@ -8,6 +8,7 @@ import { useAuthStore } from '../../../store/auth.store';
 import { CompanyProfileEditor } from '../../../features/company-profile/components/company-profile-editor';
 import { useVendorPicker } from '../../../features/company-profile/hooks/use-company-profile';
 import { GoLiveChecklist } from '../../../features/onboarding/components/go-live-checklist';
+import { CustomerGroupingSettingsCard } from '../../../features/customer-groups/components/customer-grouping-settings-card';
 
 export default function CompanyProfilePage() {
   const user = useAuthStore((s) => s.user);
@@ -49,12 +50,18 @@ export default function CompanyProfilePage() {
 
         {isSuperAdmin ? (
           vendorId ? (
-            <CompanyProfileEditor key={vendorId} vendorId={vendorId} />
+            <>
+              <CustomerGroupingSettingsCard key={`grouping-${vendorId}`} vendorId={vendorId} />
+              <CompanyProfileEditor key={vendorId} vendorId={vendorId} />
+            </>
           ) : (
             <p className="text-sm text-muted-foreground">Choose a vendor to view or fill in its company profile.</p>
           )
         ) : (
-          <CompanyProfileEditor />
+          <>
+            <CustomerGroupingSettingsCard />
+            <CompanyProfileEditor />
+          </>
         )}
       </div>
     </>

@@ -17,6 +17,7 @@ import { useAllVans } from '../../vans/hooks/use-vans';
 import { productsApi } from '../../products/api/products.api';
 import { cn } from '@water-supply-crm/ui';
 import { reverseGeocode } from '../../../lib/geocoding';
+import { useCreateCustomerGroup, useCustomerGroups, useGroupingEnabled } from '../../customer-groups/hooks/use-customer-groups';
 
 interface CustomerFormProps {
   open: boolean;
@@ -55,6 +56,8 @@ const EMPTY_DEFAULTS: CustomerInput = {
   deliveryInstructions: '',
   googleMapsUrl: '',
   routeId: '',
+  groupId: '',
+  subGroupId: '',
   deliverySchedule: [],
   paymentType: 'CASH',
   isBillingExempt: false,
@@ -71,6 +74,14 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
 
   const [showNewRoute, setShowNewRoute] = useState(false);
   const [newRouteName, setNewRouteName] = useState('');
+
+  // Optional grouping — the whole section is hidden unless the vendor enabled it.
+  const { enabled: groupingEnabled } = useGroupingEnabled();
+  const { data: customerGroups } = useCustomerGroups(groupingEnabled && open);
+  const { mutateAsync: createGroup, isPending: isCreatingGroup } = useCreateCustomerGroup();
+  // 'group' | 'sub' while the inline "new ..." input is open.
+  const [newGroupMode, setNewGroupMode] = useState<'group' | 'sub' | null>(null);
+  const [newGroupName, setNewGroupName] = useState('');
   const { data: vansResponse } = useAllVans();
   const { data: productsResponse } = useQuery({
     queryKey: ['products-form-list'],
@@ -133,6 +144,8 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
         deliveryInstructions: String(customer.deliveryInstructions ?? ''),
         googleMapsUrl: String(customer.googleMapsUrl ?? ''),
         routeId: String((customer.route as { id?: string } | undefined)?.id ?? customer.routeId ?? ''),
+        groupId: String((customer.group as { id?: string } | null | undefined)?.id ?? customer.groupId ?? ''),
+        subGroupId: String((customer.subGroup as { id?: string } | null | undefined)?.id ?? customer.subGroupId ?? ''),
         deliverySchedule: (customer.deliverySchedules as any[] ?? []).map((s: any) => ({
           dayOfWeek: s.dayOfWeek,
           vanId: s.vanId,
@@ -147,6 +160,30 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
       reset(EMPTY_DEFAULTS);
     }
   }, [open, customer, reset]);
+
+  const selectedGroup = customerGroups?.find((g) => g.id === watch('groupId'));
+
+  const handleCreateGroup = async () => {
+    const name = newGroupName.trim();
+    if (!name || !newGroupMode) return;
+    try {
+      const created = (await createGroup(
+        newGroupMode === 'sub' ? { name, parentId: getValues('groupId') } : { name },
+      )) as { id?: string };
+      if (created?.id) {
+        if (newGroupMode === 'sub') {
+          setValue('subGroupId', created.id, { shouldValidate: true });
+        } else {
+          setValue('groupId', created.id, { shouldValidate: true });
+          setValue('subGroupId', '');
+        }
+      }
+      setNewGroupMode(null);
+      setNewGroupName('');
+    } catch {
+      // error toast handled by useCreateCustomerGroup
+    }
+  };
 
   const handleCreateRoute = async () => {
     const name = newRouteName.trim();
@@ -182,8 +219,17 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
   }, [googleMapsUrl, setValue]);
 
   const onSubmit = (data: CustomerInput) => {
+    const { groupId, subGroupId, ...rest } = data;
     const payload = {
-      ...data,
+      ...rest,
+      // Grouping fields are only sent when grouping is on. On edit an empty pick sends null so
+      // the customer can be taken out of a group; on create an empty pick is simply omitted.
+      ...(groupingEnabled
+        ? {
+            groupId: groupId || (isEdit ? null : undefined),
+            subGroupId: groupId && subGroupId ? subGroupId : isEdit ? null : undefined,
+          }
+        : {}),
       routeId: data.routeId || undefined,
       floor: data.floor || undefined,
       nearbyLandmark: data.nearbyLandmark || undefined,
@@ -404,6 +450,83 @@ export function CustomerForm({ open, onOpenChange, customer }: CustomerFormProps
               )}
               {errors.routeId && <p className="text-[11px] font-medium text-destructive">{errors.routeId.message}</p>}
             </div>
+
+            {groupingEnabled && (
+              <div className="space-y-2 sm:col-span-2 rounded-xl border border-border/50 p-3">
+                <Label className="text-sm font-semibold">Group <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Select
+                    value={watch('groupId') || 'none'}
+                    onValueChange={(v) => {
+                      if (v === '__new__') {
+                        setNewGroupMode('group');
+                        setNewGroupName('');
+                        return;
+                      }
+                      setNewGroupMode(null);
+                      setValue('groupId', v === 'none' ? '' : v, { shouldValidate: true });
+                      // The old sub-group belonged to the previous group.
+                      setValue('subGroupId', '');
+                    }}
+                  >
+                    <SelectTrigger className="bg-accent/30 border-border/50"><SelectValue placeholder="No group" /></SelectTrigger>
+                    <SelectContent className="rounded-xl border-border/50 shadow-2xl">
+                      <SelectItem value="none" className="rounded-lg">No group</SelectItem>
+                      {(customerGroups ?? []).map((g) => (
+                        <SelectItem key={g.id} value={g.id} className="rounded-lg">{g.name}</SelectItem>
+                      ))}
+                      <SelectItem value="__new__" className="rounded-lg text-primary font-semibold">
+                        <span className="flex items-center gap-1.5"><Plus className="h-3.5 w-3.5" />Create new group...</span>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  {watch('groupId') && (
+                    <Select
+                      value={watch('subGroupId') || 'none'}
+                      onValueChange={(v) => {
+                        if (v === '__new__') {
+                          setNewGroupMode('sub');
+                          setNewGroupName('');
+                          return;
+                        }
+                        setNewGroupMode(null);
+                        setValue('subGroupId', v === 'none' ? '' : v, { shouldValidate: true });
+                      }}
+                    >
+                      <SelectTrigger className="bg-accent/30 border-border/50"><SelectValue placeholder="No sub-group" /></SelectTrigger>
+                      <SelectContent className="rounded-xl border-border/50 shadow-2xl">
+                        <SelectItem value="none" className="rounded-lg">No sub-group</SelectItem>
+                        {(selectedGroup?.subGroups ?? []).map((s) => (
+                          <SelectItem key={s.id} value={s.id} className="rounded-lg">{s.name}</SelectItem>
+                        ))}
+                        <SelectItem value="__new__" className="rounded-lg text-primary font-semibold">
+                          <span className="flex items-center gap-1.5"><Plus className="h-3.5 w-3.5" />Create new sub-group...</span>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+                {newGroupMode && (
+                  <div className="flex gap-2 items-center">
+                    <Input
+                      autoFocus
+                      placeholder={newGroupMode === 'sub' ? 'Sub-group name' : 'Group name'}
+                      value={newGroupName}
+                      onChange={(e) => setNewGroupName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreateGroup(); } }}
+                      className="h-9 text-sm"
+                    />
+                    <Button type="button" size="sm" onClick={handleCreateGroup} disabled={!newGroupName.trim() || isCreatingGroup} className="shrink-0 h-9">
+                      {isCreatingGroup ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Create'}
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => { setNewGroupMode(null); setNewGroupName(''); }} className="shrink-0 h-9 px-2">
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label className="text-sm font-semibold">Payment Type <span className="text-destructive">*</span></Label>

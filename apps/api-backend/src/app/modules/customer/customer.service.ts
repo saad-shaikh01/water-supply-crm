@@ -25,9 +25,11 @@ import {
 } from './dto/bulk-price-update.dto';
 import { BulkScheduleUpdateDto } from './dto/bulk-schedule-update.dto';
 import { BulkDeactivateDto } from './dto/bulk-deactivate.dto';
+import { BulkAssignGroupDto } from './dto/bulk-assign-group.dto';
 import { AdjustBottleWalletDto, BottleWalletAdjustmentMode } from './dto/adjust-bottle-wallet.dto';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { paginate } from '../../common/helpers/paginate';
+import { resolveCustomerGrouping } from '../customer-group/customer-group.helper';
 import { CustomerStatementPdfService } from './pdf/customer-statement-pdf.service';
 import { AuditService } from '../audit/audit.service';
 import { PermissionService } from '../authz/permission.service';
@@ -158,7 +160,8 @@ export class CustomerService {
       resolvedCoords = await this.resolveGoogleMapsLatLng(dto.googleMapsUrl);
     }
 
-    const { deliverySchedule, defaultProductId, defaultPrice, ...customerFields } = dto;
+    const { deliverySchedule, defaultProductId, defaultPrice, groupId, subGroupId, ...customerFields } = dto;
+    const grouping = await resolveCustomerGrouping(this.prisma, vendorId, groupId, subGroupId);
 
     const customer = await this.prisma.$transaction(async (tx) => {
       const customerCode = dto.customerCode ?? (await this.generateCustomerCode(vendorId, tx));
@@ -170,6 +173,7 @@ export class CustomerService {
         customerCode,
         customer: {
           ...customerFields,
+          ...grouping,
           latitude: dto.latitude ?? resolvedCoords.latitude,
           longitude: dto.longitude ?? resolvedCoords.longitude,
         },
@@ -193,7 +197,7 @@ export class CustomerService {
   }
 
   async findAllPaginated(vendorId: string, query: CustomerQueryDto) {
-    const { page = 1, limit = 20, search, routeId, paymentType, vanId, dayOfWeek, isActive, hasPortalAccess, balanceMin, balanceMax, notDeliveredInDays, notPaidInDays, outstandingMonthly, outstandingCash, minPendingAmount, rateProductId, rateAbove, rateBelow, rateAmount, sort = 'name', sortDir = 'asc' } = query;
+    const { page = 1, limit = 20, search, routeId, groupId, subGroupId, ungrouped, paymentType, vanId, dayOfWeek, isActive, hasPortalAccess, balanceMin, balanceMax, notDeliveredInDays, notPaidInDays, outstandingMonthly, outstandingCash, minPendingAmount, rateProductId, rateAbove, rateBelow, rateAmount, sort = 'name', sortDir = 'asc' } = query;
 
     // Filter by status only when explicitly requested. When no isActive param is
     // sent (the "All Status" option in the UI), return both active and inactive
@@ -214,6 +218,15 @@ export class CustomerService {
 
     if (routeId) {
       where.routeId = routeId;
+    }
+
+    // Grouping filters. Matched by id only (not by deletedAt) so a voided group can still be
+    // used to look up its historical members.
+    if (ungrouped) {
+      where.groupId = null;
+    } else {
+      if (groupId) where.groupId = groupId;
+      if (subGroupId) where.subGroupId = subGroupId;
     }
 
     if (paymentType) {
@@ -340,6 +353,8 @@ export class CustomerService {
 
     const listInclude = {
       route: { select: { id: true, name: true } },
+      group: { select: { id: true, name: true } },
+      subGroup: { select: { id: true, name: true } },
       wallets: { include: { product: { select: { id: true, name: true } } } },
       deliverySchedules: {
         include: { van: { select: { id: true, plateNumber: true } } },
@@ -541,6 +556,8 @@ export class CustomerService {
       where: { id, vendorId },
       include: {
         route: { select: { id: true, name: true } },
+        group: { select: { id: true, name: true } },
+        subGroup: { select: { id: true, name: true } },
         wallets: {
           select: {
             id: true,
@@ -591,7 +608,17 @@ export class CustomerService {
       resolvedCoords = await this.resolveGoogleMapsLatLng(dto.googleMapsUrl);
     }
 
-    const { deliverySchedule, ...customerFields } = dto;
+    const { deliverySchedule, groupId, subGroupId, ...customerFields } = dto;
+
+    // Grouping is only touched when the request mentions it. Moving to a different group without
+    // naming a sub-group clears the old sub-group (it belonged to the previous group).
+    let groupingData: { groupId: string | null; subGroupId: string | null } | undefined;
+    if (groupId !== undefined || subGroupId !== undefined) {
+      const nextGroupId = groupId !== undefined ? groupId : customer.groupId;
+      const groupChanged = groupId !== undefined && groupId !== customer.groupId;
+      const nextSubGroupId = subGroupId !== undefined ? subGroupId : groupChanged ? null : customer.subGroupId;
+      groupingData = await resolveCustomerGrouping(this.prisma, vendorId, nextGroupId, nextSubGroupId);
+    }
 
     const updated = await this.prisma.$transaction(async (tx) => {
       // Replace schedule if provided (delete-then-recreate)
@@ -613,11 +640,14 @@ export class CustomerService {
         where: { id },
         data: {
           ...customerFields,
+          ...groupingData,
           latitude: dto.latitude ?? resolvedCoords.latitude,
           longitude: dto.longitude ?? resolvedCoords.longitude,
         },
         include: {
           route: { select: { id: true, name: true } },
+          group: { select: { id: true, name: true } },
+          subGroup: { select: { id: true, name: true } },
           wallets: { include: { product: { select: { id: true, name: true } } } },
           deliverySchedules: {
             include: { van: { select: { id: true, plateNumber: true } } },
@@ -1879,6 +1909,26 @@ export class CustomerService {
    * in `skipped` (with a reason naming the missing permission), so one
    * under-permissioned or blocked account never fails the whole batch.
    */
+  /**
+   * Assign (or, with no group, clear) the group of many customers at once. The same validation as
+   * a single edit applies; customers not in this vendor are silently ignored by the vendorId scope.
+   */
+  async bulkAssignGroup(vendorId: string, dto: BulkAssignGroupDto) {
+    const grouping = await resolveCustomerGrouping(this.prisma, vendorId, dto.groupId, dto.subGroupId);
+    const { count } = await this.prisma.customer.updateMany({
+      where: { id: { in: dto.customerIds }, vendorId },
+      data: grouping,
+    });
+    await this.cache.invalidateVendorEntity(vendorId, CACHE_KEYS.CUSTOMERS);
+    await this.audit.log({
+      vendorId,
+      action: 'UPDATE',
+      entity: 'Customer',
+      changes: { after: { bulkAssignGroup: { ...grouping, customerCount: count } } },
+    });
+    return { updated: count };
+  }
+
   async bulkDeactivate(vendorId: string, dto: BulkDeactivateDto, actor?: AuthUser) {
     const force = dto.force ?? false;
     const customers = await this.prisma.customer.findMany({

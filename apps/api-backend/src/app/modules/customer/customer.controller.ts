@@ -20,6 +20,7 @@ import { SetCustomPriceDto } from './dto/set-custom-price.dto';
 import { BulkPricePreviewDto, BulkPriceUpdateDto } from './dto/bulk-price-update.dto';
 import { BulkScheduleUpdateDto } from './dto/bulk-schedule-update.dto';
 import { BulkDeactivateDto } from './dto/bulk-deactivate.dto';
+import { BulkAssignGroupDto } from './dto/bulk-assign-group.dto';
 import { DeactivateCustomerDto } from './dto/deactivate-customer.dto';
 import { AdjustBottleWalletDto } from './dto/adjust-bottle-wallet.dto';
 import { StatementQueryDto } from './dto/statement-query.dto';
@@ -88,6 +89,14 @@ export class CustomerController {
   @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 10 } })
   bulkDeactivate(@CurrentUser() user: AuthUser, @Body() dto: BulkDeactivateDto) {
     return this.customerService.bulkDeactivate(user.vendorId, dto, user);
+  }
+
+  /** POST /customers/bulk-assign-group — put the selected customers in one group / sub-group (or clear it) */
+  @Post('bulk-assign-group')
+  @RequirePermissions('customers:update')
+  @Throttle({ short: { ttl: 1000, limit: 3 }, medium: { ttl: 60000, limit: 20 } })
+  bulkAssignGroup(@CurrentUser() user: AuthUser, @Body() dto: BulkAssignGroupDto) {
+    return this.customerService.bulkAssignGroup(user.vendorId, dto);
   }
 
   @Get(':id')

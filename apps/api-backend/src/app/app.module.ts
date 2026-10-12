@@ -17,6 +17,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { ProductModule } from './modules/product/product.module';
 import { RouteModule } from './modules/route/route.module';
 import { CustomerModule } from './modules/customer/customer.module';
+import { CustomerGroupModule } from './modules/customer-group/customer-group.module';
 import { VanModule } from './modules/van/van.module';
 import { DailySheetModule } from './modules/daily-sheet/daily-sheet.module';
 import { TransactionModule } from './modules/transaction/transaction.module';
@@ -73,6 +74,7 @@ import { applyLockOverrideMiddleware } from './common/request-context/lock-overr
     ProductModule,
     RouteModule,
     CustomerModule,
+    CustomerGroupModule,
     VanModule,
     DailySheetModule,
     TransactionModule,

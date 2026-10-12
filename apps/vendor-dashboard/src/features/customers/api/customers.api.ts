@@ -5,6 +5,9 @@ export interface CustomerQuery {
   page?: number;
   limit?: number;
   routeId?: string;
+  groupId?: string;
+  subGroupId?: string;
+  ungrouped?: boolean;
   vanId?: string;
   dayOfWeek?: number;
   paymentType?: 'MONTHLY' | 'CASH';

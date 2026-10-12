@@ -348,6 +348,10 @@ model Vendor {
   // gate enforces) no customer-facing WhatsApp leaves for this vendor. Every vendor that existed when
   // this column was added was backfilled as live, so nothing changes for them.
   goLiveAt                   DateTime?
+  // Optional customer grouping (Group -> optional SubGroup). OFF by default: when false the
+  // vendor sees no group UI and the API ignores group fields. Turning it OFF never deletes data.
+  customerGroupingEnabled    Boolean          @default(false)
+  customerGroups             CustomerGroup[]
   whatsappAccount            WhatsAppAccount? @relation(fields: [whatsappAccountId], references: [id], onDelete: SetNull)
 
   // Staff Payroll & Financial Management — Phase 1 (Foundation)
@@ -794,6 +798,13 @@ model Customer {
   routeId String? // Optional "home route" for organizational grouping only
   route   Route?  @relation(fields: [routeId], references: [id])
 
+  // Optional grouping (only used when Vendor.customerGroupingEnabled). subGroupId, when set, always
+  // points at a CustomerGroup whose parentId === groupId (enforced in CustomerGroupService).
+  groupId    String?
+  group      CustomerGroup? @relation("CustomerGroupMembers", fields: [groupId], references: [id])
+  subGroupId String?
+  subGroup   CustomerGroup? @relation("CustomerSubGroupMembers", fields: [subGroupId], references: [id])
+
   userId String? @unique
   user   User?   @relation(fields: [userId], references: [id])
 
@@ -842,6 +853,7 @@ model Customer {
   @@index([vendorId])
   @@index([vendorId, routeId])
   @@index([routeId])
+  @@index([vendorId, groupId, subGroupId])
 }
 
 model CustomerDeliverySchedule {
@@ -881,6 +893,27 @@ model BottleWallet {
   product  Product  @relation(fields: [productId], references: [id])
 
   @@unique([customerId, productId])
+}
+
+// Customer grouping: one table, two levels. parentId = null -> a Group; parentId set -> a SubGroup
+// under that Group. Deleting is soft (deletedAt) so history/stats can still be filtered by a group
+// that no longer exists in the pickers; a group with customers assigned cannot be deleted.
+model CustomerGroup {
+  id        String          @id @default(uuid())
+  vendorId  String
+  vendor    Vendor          @relation(fields: [vendorId], references: [id])
+  name      String
+  parentId  String?
+  parent    CustomerGroup?  @relation("GroupChildren", fields: [parentId], references: [id])
+  children  CustomerGroup[] @relation("GroupChildren")
+  deletedAt DateTime?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  customersInGroup    Customer[] @relation("CustomerGroupMembers")
+  customersInSubGroup Customer[] @relation("CustomerSubGroupMembers")
+
+  @@index([vendorId, parentId])
 }
 
 model Route {

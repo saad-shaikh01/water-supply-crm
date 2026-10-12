@@ -54,9 +54,13 @@ export interface NormalizedCustomer {
   /** Positive = the customer owes the vendor (already sign-corrected). Rupees, 2 dp. */
   openingBalance: number;
   openingBottles: number;
+  /** Optional customer grouping: names as typed in the file (trimmed); resolved to ids at execution. */
+  group: string | null;
+  subGroup: string | null;
 }
 
 interface PlanContext {
+  groupingEnabled: boolean;
   existingCodes: Set<string>;
   existingPhoneName: Set<string>;
   existingPhones: Set<string>;
@@ -67,7 +71,15 @@ interface ExecContext {
   basePriceByProduct: Map<string, number>;
   reservedCodes: Set<string>;
   nextNumber: number;
+  /** groupKey(name) -> CustomerGroup id for the top-level groups used by this file. */
+  groupIds: Map<string, string>;
+  /** subGroupKey(parentId, name) -> CustomerGroup id. */
+  subGroupIds: Map<string, string>;
 }
+
+const MAX_GROUP_NAME = 100;
+const groupKey = (name: string) => name.trim().toLowerCase();
+const subGroupKey = (parentId: string, name: string) => `${parentId}|${groupKey(name)}`;
 
 const FIELDS: ImportFieldDef[] = [
   {
@@ -136,6 +148,22 @@ const FIELDS: ImportFieldDef[] = [
       bill: 'MONTHLY',
       credit: 'MONTHLY',
     },
+  },
+  {
+    key: 'group',
+    label: 'Customer group',
+    type: 'text',
+    required: false,
+    help: 'Optional. Created automatically if it does not exist yet. Needs Customer Grouping enabled for your company.',
+    aliases: ['group', 'client group', 'client_group', 'customer group', 'company', 'party group'],
+  },
+  {
+    key: 'subGroup',
+    label: 'Customer sub-group',
+    type: 'text',
+    required: false,
+    help: 'Optional. Sits under the group above, so a Group column must be mapped too.',
+    aliases: ['sub group', 'sub_group', 'subgroup', 'sub-group', 'customer sub group'],
   },
   {
     key: 'isActive',
@@ -376,6 +404,13 @@ export const customersOpeningDefinition: ImportDefinition<NormalizedCustomer, Cu
       }
     }
 
+    // optional grouping
+    const group = parseText(cell('group') as never);
+    const subGroup = parseText(cell('subGroup') as never);
+    if (subGroup && !group) issues.push(err('SUBGROUP_WITHOUT_GROUP', 'A sub-group needs a group on the same row.', 'subGroup'));
+    if (group && group.length > MAX_GROUP_NAME) issues.push(err('GROUP_NAME_TOO_LONG', `Group name is longer than ${MAX_GROUP_NAME} characters.`, 'group'));
+    if (subGroup && subGroup.length > MAX_GROUP_NAME) issues.push(err('GROUP_NAME_TOO_LONG', `Sub-group name is longer than ${MAX_GROUP_NAME} characters.`, 'subGroup'));
+
     if (!isActive && (openingBalance !== 0 || openingBottles !== 0)) {
       issues.push(warn('CLOSED_WITH_BALANCE', 'Customer is closed but has a non-zero balance.', 'isActive'));
     }
@@ -397,12 +432,15 @@ export const customersOpeningDefinition: ImportDefinition<NormalizedCustomer, Cu
         rate,
         openingBalance,
         openingBottles,
+        group,
+        subGroup,
       },
       issues,
     };
   },
 
   async loadContext(prisma: PrismaService, vendorId: string): Promise<PlanContext> {
+    const vendor = await prisma.vendor.findUnique({ where: { id: vendorId }, select: { customerGroupingEnabled: true } });
     const existing = await prisma.customer.findMany({
       where: { vendorId },
       select: { customerCode: true, name: true, phoneNumber: true },
@@ -418,7 +456,7 @@ export const customersOpeningDefinition: ImportDefinition<NormalizedCustomer, Cu
         if (k) existingPhoneName.add(k);
       }
     }
-    return { existingCodes, existingPhoneName, existingPhones };
+    return { existingCodes, existingPhoneName, existingPhones, groupingEnabled: vendor?.customerGroupingEnabled ?? false };
   },
 
   validateAndPlan(rows, ctx): PlannedRow<NormalizedCustomer>[] {
@@ -430,6 +468,11 @@ export const customersOpeningDefinition: ImportDefinition<NormalizedCustomer, Cu
       const issues = [...row.issues];
       const n = row.normalized;
       if (!n || issues.some((i) => i.severity === 'ERROR')) {
+        return { rowNumber: row.rowNumber, normalized: n, issues, action: 'SKIP_INVALID' as const };
+      }
+
+      if (n.group && !ctx.groupingEnabled) {
+        issues.push(err('GROUPING_DISABLED', 'Customer Grouping is not enabled for your company. Turn it on in Company Profile, or unmap the group columns.', 'group'));
         return { rowNumber: row.rowNumber, normalized: n, issues, action: 'SKIP_INVALID' as const };
       }
 
@@ -509,7 +552,10 @@ export const customersOpeningDefinition: ImportDefinition<NormalizedCustomer, Cu
     `;
     const reservedCodes = new Set<string>();
     for (const r of rows) if (r.normalized.customerCode) reservedCodes.add(r.normalized.customerCode);
+    const { groupIds, subGroupIds } = await resolveGroups(prisma, vendorId, rows.map((r) => r.normalized));
     return {
+      groupIds,
+      subGroupIds,
       activeProductIds: products.map((p) => p.id),
       basePriceByProduct: new Map(products.map((p) => [p.id, p.basePrice])),
       reservedCodes,
@@ -541,6 +587,9 @@ export const customersOpeningDefinition: ImportDefinition<NormalizedCustomer, Cu
             throw new CodeCollision();
           }
 
+          const groupId = n.group ? exec.groupIds.get(groupKey(n.group)) ?? null : null;
+          const subGroupId = groupId && n.subGroup ? exec.subGroupIds.get(subGroupKey(groupId, n.subGroup)) ?? null : null;
+
           const productId = options.productId;
           const basePrice = productId ? exec.basePriceByProduct.get(productId) : undefined;
           const applyRate = productId !== null && n.rate !== null && n.rate !== basePrice;
@@ -558,6 +607,8 @@ export const customersOpeningDefinition: ImportDefinition<NormalizedCustomer, Cu
               paymentType: n.paymentType === 'MONTHLY' ? PaymentType.MONTHLY : PaymentType.CASH,
               isActive: n.isActive,
               financialBalance: n.openingBalance,
+              groupId,
+              subGroupId,
             },
             activeProductIds: exec.activeProductIds,
             walletBalances,
@@ -607,6 +658,59 @@ export const customersOpeningDefinition: ImportDefinition<NormalizedCustomer, Cu
 };
 
 class CodeCollision extends Error {}
+
+/**
+ * Find-or-create every group / sub-group the file uses (case-insensitive, trimmed) BEFORE the
+ * per-row transactions run, so a rolled-back row can never leave a stale id in the cache. Groups
+ * created here stay even if a later row fails or the import is reverted; they are empty and harmless.
+ */
+async function resolveGroups(
+  prisma: PrismaService,
+  vendorId: string,
+  customers: NormalizedCustomer[],
+): Promise<{ groupIds: Map<string, string>; subGroupIds: Map<string, string> }> {
+  const groupIds = new Map<string, string>();
+  const subGroupIds = new Map<string, string>();
+
+  // distinct names, keeping the first spelling seen
+  const groups = new Map<string, string>();
+  const subs = new Map<string, { group: string; name: string }>();
+  for (const c of customers) {
+    if (!c.group) continue;
+    const gk = groupKey(c.group);
+    if (!groups.has(gk)) groups.set(gk, c.group);
+    if (c.subGroup) {
+      const sk = `${gk}|${groupKey(c.subGroup)}`;
+      if (!subs.has(sk)) subs.set(sk, { group: gk, name: c.subGroup });
+    }
+  }
+  if (groups.size === 0) return { groupIds, subGroupIds };
+
+  const existing = await prisma.customerGroup.findMany({ where: { vendorId, deletedAt: null } });
+  const byId = new Map(existing.map((g) => [g.id, g]));
+  for (const g of existing) {
+    if (g.parentId === null && !groupIds.has(groupKey(g.name))) groupIds.set(groupKey(g.name), g.id);
+  }
+  for (const g of existing) {
+    const parent = g.parentId ? byId.get(g.parentId) : undefined;
+    if (parent && !subGroupIds.has(subGroupKey(parent.id, g.name))) subGroupIds.set(subGroupKey(parent.id, g.name), g.id);
+  }
+
+  for (const [gk, name] of groups) {
+    if (!groupIds.has(gk)) {
+      const created = await prisma.customerGroup.create({ data: { vendorId, name } });
+      groupIds.set(gk, created.id);
+    }
+  }
+  for (const { group, name } of subs.values()) {
+    const parentId = groupIds.get(group) as string;
+    if (!subGroupIds.has(subGroupKey(parentId, name))) {
+      const created = await prisma.customerGroup.create({ data: { vendorId, name, parentId } });
+      subGroupIds.set(subGroupKey(parentId, name), created.id);
+    }
+  }
+  return { groupIds, subGroupIds };
+}
 
 /** A slow DB must not expire the per-row transaction (Prisma defaults are 2 s wait / 5 s run). */
 const TX_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;

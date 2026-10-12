@@ -475,6 +475,11 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
               {customer.route?.name || 'Unassigned'}
             </div>
             <p className="text-[10px] text-muted-foreground mt-1 font-medium">Primary Delivery Route</p>
+            {customer.group && (
+              <p className="text-xs font-semibold mt-2">
+                Group: {customer.group.name}{customer.subGroup ? ` › ${customer.subGroup.name}` : ''}
+              </p>
+            )}
           </CardContent>
         </Card>
 

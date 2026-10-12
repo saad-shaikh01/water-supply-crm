@@ -16,6 +16,9 @@ export const useCustomers = () => {
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [limit, setLimit] = useQueryState('limit', parseAsInteger.withDefault(20));
   const [routeId] = useQueryState('routeId', parseAsString.withDefault(''));
+  // groupId is the literal 'none' for the "No group" option (see GroupFilters).
+  const [groupId] = useQueryState('groupId', parseAsString.withDefault(''));
+  const [subGroupId] = useQueryState('subGroupId', parseAsString.withDefault(''));
   const [vanId] = useQueryState('vanId', parseAsString.withDefault(''));
   const [dayOfWeek] = useQueryState('dayOfWeek', parseAsInteger.withDefault(0));
   const [paymentType] = useQueryState('paymentType', parseAsString.withDefault(''));
@@ -40,6 +43,9 @@ export const useCustomers = () => {
     page,
     limit,
     routeId: routeId || undefined,
+    groupId: groupId && groupId !== 'none' ? groupId : undefined,
+    subGroupId: groupId && groupId !== 'none' && subGroupId ? subGroupId : undefined,
+    ungrouped: groupId === 'none' ? true : undefined,
     vanId: vanId || undefined,
     dayOfWeek: dayOfWeek || undefined,
     paymentType: (['MONTHLY', 'CASH'] as const).includes(paymentType as PaymentTypeValue)
@@ -73,6 +79,8 @@ export const useCustomers = () => {
     limit,
     setLimit,
     routeId,
+    groupId,
+    subGroupId,
     vanId,
     dayOfWeek,
     paymentType,

@@ -141,7 +141,7 @@ describe('customers-opening: normalize → validate → plan', () => {
     { mappedFieldKeys: mapped, activeProducts: [{ id: 'p1', name: 'Bottle', basePrice: 240 }] },
   );
   const row = (v: Record<string, string | number | null>) => def.normalizeRow({ Code: 'C1', Name: 'Ali', Phone: '0300-1234567', Address: 'H1', Type: 'Cash', Status: 0, Rate: 240, Bal: '1,500', Bottles: 3, ...v }, mapping, options);
-  const emptyCtx = { existingCodes: new Set<string>(), existingPhoneName: new Set<string>(), existingPhones: new Set<string>() };
+  const emptyCtx = { existingCodes: new Set<string>(), existingPhoneName: new Set<string>(), existingPhones: new Set<string>(), groupingEnabled: true };
   const plan = (rows: ReturnType<typeof row>[], ctx = emptyCtx) =>
     def.validateAndPlan(rows.map((r, i) => ({ rowNumber: i + 2, ...r })), ctx, options);
 
@@ -165,6 +165,34 @@ describe('customers-opening: normalize → validate → plan', () => {
     expect(r.normalized?.phoneNumber).toBe('-');
     expect(r.issues.map((i) => [i.severity, i.code])).toContainEqual(['WARNING', 'PHONE_MISSING']);
   });
+  describe('optional grouping columns', () => {
+    const gMapping = { ...mapping, columns: { ...mapping.columns, Grp: 'group', Sub: 'subGroup' } };
+    const gOptions = def.parseOptions(
+      { balanceSign: 'POSITIVE_MEANS_CUSTOMER_OWES', balancesAsOf: '2026-10-01', productId: 'p1', codeStrategy: 'USE_FILE_CODES' },
+      { mappedFieldKeys: new Set(Object.values(gMapping.columns)), activeProducts: [{ id: 'p1', name: 'Bottle', basePrice: 240 }] },
+    );
+    const gRow = (v: Record<string, string | number | null>) =>
+      def.normalizeRow({ Code: 'C1', Name: 'Ali', Phone: '0300-1234567', Address: 'H1', Type: 'Cash', Status: 0, Rate: 240, Bal: '1,500', Bottles: 3, ...v }, gMapping, gOptions);
+
+    it('reads group + sub-group (trimmed) and treats blanks as none', () => {
+      expect(gRow({ Grp: ' ARSALAN TRADERS ', Sub: 'INAQUA' }).normalized).toMatchObject({ group: 'ARSALAN TRADERS', subGroup: 'INAQUA' });
+      expect(gRow({ Grp: null, Sub: null }).normalized).toMatchObject({ group: null, subGroup: null });
+      expect(gRow({ Grp: 'ARSALAN TRADERS', Sub: null }).normalized).toMatchObject({ group: 'ARSALAN TRADERS', subGroup: null });
+    });
+    it('a sub-group without a group is an ERROR', () => {
+      const r = gRow({ Grp: null, Sub: 'INAQUA' });
+      expect(r.normalized).toBeNull();
+      expect(r.issues.map((i) => i.code)).toContain('SUBGROUP_WITHOUT_GROUP');
+    });
+    it('rows with a group are blocked when the vendor has grouping disabled', () => {
+      const n = gRow({ Grp: 'ARSALAN TRADERS' });
+      const ctx = { existingCodes: new Set<string>(), existingPhoneName: new Set<string>(), existingPhones: new Set<string>(), groupingEnabled: false };
+      const p = def.validateAndPlan([{ rowNumber: 2, ...n }], ctx, gOptions);
+      expect(p[0].action).toBe('SKIP_INVALID');
+      expect(p[0].issues.map((i) => i.code)).toContain('GROUPING_DISABLED');
+    });
+  });
+
   it('skips existing codes, blocks in-file duplicates, plans the rest', () => {
     const planned = plan(
       [row({ Code: 'A1' }), row({ Code: 'A1', Name: 'Dup' }), row({ Code: 'EXIST' }), row({ Code: 'N1', Phone: '0311-0000001' })],

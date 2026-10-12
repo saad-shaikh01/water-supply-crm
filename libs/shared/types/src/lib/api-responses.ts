@@ -111,6 +111,8 @@ export interface CustomerDetail {
   updatedAt: string;
   routeId: string | null;
   route: { id: string; name: string } | null;
+  group?: { id: string; name: string } | null;
+  subGroup?: { id: string; name: string } | null;
   wallets: BottleWallet[];
   customPrices: CustomPrice[];
   deliverySchedules: DeliverySchedule[];

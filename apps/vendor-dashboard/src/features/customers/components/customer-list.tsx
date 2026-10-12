@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { useQueryState, parseAsString, parseAsInteger } from 'nuqs';
-import { MoreHorizontal, Pencil, Trash2, Eye, MapPin, Phone, PowerOff, Power, SlidersHorizontal, X, ChevronUp, ChevronDown, ChevronsUpDown, CalendarClock, MessageSquare, StickyNote, Flag } from 'lucide-react';
+import { Layers, MoreHorizontal, Pencil, Trash2, Eye, MapPin, Phone, PowerOff, Power, SlidersHorizontal, X, ChevronUp, ChevronDown, ChevronsUpDown, CalendarClock, MessageSquare, StickyNote, Flag } from 'lucide-react';
 import {
   Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuTrigger, Badge, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -30,6 +30,10 @@ import { CustomerFlagsDialog } from './customer-flags-dialog';
 import { ManageCustomerFlagCategoriesDialog } from './manage-customer-flag-categories-dialog';
 import { cn } from '@water-supply-crm/ui';
 import { useCan } from '../../authz/hooks/use-can';
+import { useGroupingEnabled, useCustomerGroups } from '../../customer-groups/hooks/use-customer-groups';
+import { GroupFilters } from '../../customer-groups/components/group-filters';
+import { BulkAssignGroupDialog } from '../../customer-groups/components/bulk-assign-group-dialog';
+import { ManageCustomerGroupsDialog } from '../../customer-groups/components/manage-customer-groups-dialog';
 
 interface CustomerListProps {
   onAdd?: () => void;
@@ -48,6 +52,12 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const canDelete = useCan('customers:delete');
   const canViewChats = useCan('conversations:view');
   const canManageFlagCategories = useCan('customer_flags:manage_categories');
+  const { enabled: groupingEnabled } = useGroupingEnabled();
+  const { data: customerGroups } = useCustomerGroups(groupingEnabled, true);
+  const canCreateCustomer = useCan('customers:create');
+  const [manageGroupsOpen, setManageGroupsOpen] = useState(false);
+  const [groupId, setGroupId] = useQueryState('groupId', parseAsString.withDefault(''));
+  const [subGroupId, setSubGroupId] = useQueryState('subGroupId', parseAsString.withDefault(''));
   const {
     data, isLoading, page, setPage, limit, setLimit, isActive, setIsActive, hasPortalAccess, setHasPortalAccess,
     outstandingMonthly, setOutstandingMonthly, outstandingCash, setOutstandingCash, minPendingAmount, setMinPendingAmount,
@@ -80,6 +90,7 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkScheduleOpen, setBulkScheduleOpen] = useState(false);
+  const [bulkGroupOpen, setBulkGroupOpen] = useState(false);
   const [bulkDeactivateOpen, setBulkDeactivateOpen] = useState(false);
   // Set after a normal bulk deactivate leaves some customers skipped (outstanding
   // balance/bottles) AND the current user holds at least one force permission —
@@ -137,6 +148,8 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const rateProductName = products.find((p) => p.id === rateProductId)?.name;
 
   const activeFilters = [
+    groupingEnabled && groupId ? { label: groupId === 'none' ? 'No group' : `Group: ${customerGroups?.find((g) => g.id === groupId)?.name ?? '…'}`, clear: () => { resetPage(); setGroupId(null); setSubGroupId(null); } } : null,
+    groupingEnabled && groupId && groupId !== 'none' && subGroupId ? { label: `Sub-group: ${customerGroups?.find((g) => g.id === groupId)?.subGroups.find((s) => s.id === subGroupId)?.name ?? '…'}`, clear: () => { resetPage(); setSubGroupId(null); } } : null,
     paymentType ? { label: `Type: ${paymentType}`, clear: () => { resetPage(); setPaymentType(null); } } : null,
     isActive !== 'all' ? { label: isActive === 'true' ? 'Active' : 'Inactive', clear: () => { resetPage(); setIsActive('all'); } } : null,
     hasPortalAccess !== 'all' ? { label: hasPortalAccess === 'true' ? 'Portal: Activated' : 'Portal: Not Activated', clear: () => { resetPage(); setHasPortalAccess('all'); } } : null,
@@ -167,6 +180,8 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
   const clearAllFilters = () => {
     resetPage();
     setPaymentType(null);
+    setGroupId(null);
+    setSubGroupId(null);
     setIsActive('all');
     setHasPortalAccess('all');
     setDayOfWeek(null);
@@ -234,6 +249,8 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
     phoneNumber: string;
     address: string;
     route?: { name: string };
+    group?: { id: string; name: string } | null;
+    subGroup?: { id: string; name: string } | null;
     financialBalance?: number;
     customerCode: string;
     paymentType?: 'MONTHLY' | 'CASH';
@@ -296,6 +313,17 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
             </Badge>
           )}
         </Button>
+        {groupingEnabled && (canCreateCustomer || canUpdate || canDelete) && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setManageGroupsOpen(true)}
+            className="rounded-xl h-9 sm:h-10 px-3 sm:px-4 gap-2 font-semibold shrink-0 w-full sm:w-auto"
+          >
+            <Layers className="h-4 w-4" />
+            Groups
+          </Button>
+        )}
         {canManageFlagCategories && (
           <Button
             variant="outline"
@@ -344,6 +372,12 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
               <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Route</Label>
               <RouteFilter onBeforeChange={resetPage} />
             </div>
+            {groupingEnabled && (
+              <div className="space-y-2">
+                <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Group</Label>
+                <GroupFilters onBeforeChange={resetPage} />
+              </div>
+            )}
             <div className="space-y-2">
               <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Payment Type</Label>
               <Select value={paymentType || 'all'} onValueChange={(v) => { resetPage(); setPaymentType(v === 'all' ? null : v as 'MONTHLY' | 'CASH'); }}>
@@ -600,6 +634,12 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
                 Deactivate
               </Button>
             )}
+            {canUpdate && groupingEnabled && (
+              <Button variant="outline" size="sm" onClick={() => setBulkGroupOpen(true)} className="gap-1.5">
+                <Layers className="h-4 w-4" />
+                Assign Group
+              </Button>
+            )}
             {canUpdate && (
               <Button size="sm" onClick={() => setBulkScheduleOpen(true)} className="gap-1.5">
                 <CalendarClock className="h-4 w-4" />
@@ -705,6 +745,23 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
               </div>
             )
           },
+          ...(groupingEnabled
+            ? [
+                {
+                  key: 'group',
+                  header: 'Group',
+                  cell: (r: (typeof rows)[number]) =>
+                    r.group ? (
+                      <div className="text-xs leading-tight whitespace-nowrap">
+                        <div className="font-semibold">{r.group.name}</div>
+                        {r.subGroup && <div className="text-muted-foreground">{r.subGroup.name}</div>}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground/50">-</span>
+                    ),
+                },
+              ]
+            : []),
           {
             key: 'payment',
             header: 'Payment',
@@ -1008,6 +1065,16 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
 
       <ManageCustomerFlagCategoriesDialog open={manageFlagCategoriesOpen} onOpenChange={setManageFlagCategoriesOpen} />
 
+      {groupingEnabled && (
+        <ManageCustomerGroupsDialog
+          open={manageGroupsOpen}
+          onOpenChange={setManageGroupsOpen}
+          canCreate={canCreateCustomer}
+          canUpdate={canUpdate}
+          canDelete={canDelete}
+        />
+      )}
+
       <ConfirmDialog
         open={!!deleteId}
         onOpenChange={(o) => { if (!o) setDeleteId(null); }}
@@ -1132,6 +1199,15 @@ export function CustomerList({ onAdd: _ }: CustomerListProps) {
         onOpenChange={(o) => { if (!o) setEditCustomer(null); }}
         customer={editCustomer}
       />
+
+      {groupingEnabled && (
+        <BulkAssignGroupDialog
+          open={bulkGroupOpen}
+          onOpenChange={setBulkGroupOpen}
+          customerIds={[...selectedIds]}
+          onSuccess={() => setSelectedIds(new Set())}
+        />
+      )}
 
       <BulkScheduleUpdateDialog
         open={bulkScheduleOpen}

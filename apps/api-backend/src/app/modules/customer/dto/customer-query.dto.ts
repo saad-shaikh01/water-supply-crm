@@ -13,6 +13,20 @@ export class CustomerQueryDto extends PaginationQueryDto {
   routeId?: string;
 
   @IsOptional()
+  @IsUUID()
+  groupId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  subGroupId?: string;
+
+  /** Only customers with no group assigned. Takes precedence over groupId/subGroupId. */
+  @IsOptional()
+  @Transform(({ obj }) => obj.ungrouped === 'true' || obj.ungrouped === true)
+  @IsBoolean()
+  ungrouped?: boolean;
+
+  @IsOptional()
   @IsEnum(PaymentType)
   paymentType?: PaymentType;
 
