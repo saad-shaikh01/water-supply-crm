@@ -141,7 +141,7 @@ describe('customers-opening: normalize → validate → plan', () => {
     { mappedFieldKeys: mapped, activeProducts: [{ id: 'p1', name: 'Bottle', basePrice: 240 }] },
   );
   const row = (v: Record<string, string | number | null>) => def.normalizeRow({ Code: 'C1', Name: 'Ali', Phone: '0300-1234567', Address: 'H1', Type: 'Cash', Status: 0, Rate: 240, Bal: '1,500', Bottles: 3, ...v }, mapping, options);
-  const emptyCtx = { existingCodes: new Set<string>(), existingPhoneName: new Set<string>(), existingPhones: new Set<string>(), groupingEnabled: true };
+  const emptyCtx = { vendorId: 'v1', vansByPlate: new Map(), routeNames: new Set<string>(), existingCodes: new Set<string>(), existingPhoneName: new Set<string>(), existingPhones: new Set<string>(), groupingEnabled: true };
   const plan = (rows: ReturnType<typeof row>[], ctx = emptyCtx) =>
     def.validateAndPlan(rows.map((r, i) => ({ rowNumber: i + 2, ...r })), ctx, options);
 
@@ -186,7 +186,7 @@ describe('customers-opening: normalize → validate → plan', () => {
     });
     it('rows with a group are blocked when the vendor has grouping disabled', () => {
       const n = gRow({ Grp: 'ARSALAN TRADERS' });
-      const ctx = { existingCodes: new Set<string>(), existingPhoneName: new Set<string>(), existingPhones: new Set<string>(), groupingEnabled: false };
+      const ctx = { ...emptyCtx, groupingEnabled: false };
       const p = def.validateAndPlan([{ rowNumber: 2, ...n }], ctx, gOptions);
       expect(p[0].action).toBe('SKIP_INVALID');
       expect(p[0].issues.map((i) => i.code)).toContain('GROUPING_DISABLED');

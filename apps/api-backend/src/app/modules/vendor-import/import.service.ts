@@ -360,7 +360,7 @@ export class ImportService {
       ctx,
       options,
     );
-    const plan = def.summarize(planned, options);
+    const plan = def.summarize(planned, options, ctx);
     const planHash = computePlanHash(planned, mapping, options);
 
     const idByRow = new Map(normalized.map((n) => [n.rowNumber, n.id]));
@@ -728,7 +728,7 @@ export class ImportService {
 
   /** Called by the executor once a vendor's customer data changed. */
   async invalidateVendorCaches(vendorId: string, scope: 'customers' | 'reports' = 'customers') {
-    await Promise.all([CACHE_KEYS.CUSTOMERS, CACHE_KEYS.WALLETS, CACHE_KEYS.DASHBOARD].map((k) => this.cache.invalidateVendorEntity(vendorId, k)));
+    await Promise.all([CACHE_KEYS.CUSTOMERS, CACHE_KEYS.WALLETS, CACHE_KEYS.DASHBOARD, CACHE_KEYS.VANS, CACHE_KEYS.ROUTES].map((k) => this.cache.invalidateVendorEntity(vendorId, k)));
     if (scope === 'reports') await Promise.all([this.cache.invalidateOverview(vendorId), this.cache.invalidateAnalytics(vendorId)]);
   }
 }

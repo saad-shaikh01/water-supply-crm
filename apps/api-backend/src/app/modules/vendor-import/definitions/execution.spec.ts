@@ -37,11 +37,11 @@ const baseRow = (over: Partial<NormalizedCustomer> = {}): { rowNumber: number; n
   rowNumber: 2,
   normalized: {
     customerCode: 'C1', name: 'Ali', phoneNumber: '923001234567', hasPhone: true, address: 'H1', floor: null, nearbyLandmark: null,
-    paymentType: 'MONTHLY', isActive: true, rate: 250, openingBalance: 1500, openingBottles: 3, group: null, subGroup: null, ...over,
+    paymentType: 'MONTHLY', isActive: true, rate: 250, openingBalance: 1500, openingBottles: 3, group: null, subGroup: null, route: null, routeSequence: null, schedule: [], ...over,
   },
 });
-const options = { productId: 'p1', balanceSign: 'POSITIVE_MEANS_CUSTOMER_OWES', balancesAsOf: '2026-10-01', codeStrategy: 'USE_FILE_CODES', defaultPaymentType: 'CASH', areaIntoAddress: true } as const;
-const exec = () => ({ activeProductIds: ['p1', 'p2'], basePriceByProduct: new Map([['p1', 240]]), reservedCodes: new Set<string>(), nextNumber: 10, groupIds: new Map<string, string>(), subGroupIds: new Map<string, string>() });
+const options = { productId: 'p1', balanceSign: 'POSITIVE_MEANS_CUSTOMER_OWES', balancesAsOf: '2026-10-01', codeStrategy: 'USE_FILE_CODES', defaultPaymentType: 'CASH', areaIntoAddress: true, createMissingVans: true, vanPrefix: '', routeFromArea: false } as const;
+const exec = () => ({ activeProductIds: ['p1', 'p2'], basePriceByProduct: new Map([['p1', 240]]), reservedCodes: new Set<string>(), nextNumber: 10, groupIds: new Map<string, string>(), subGroupIds: new Map<string, string>(), vanIds: new Map<string, string>(), routeIds: new Map<string, string>() });
 
 describe('customers-opening executeRow', () => {
   it('creates the customer, sets balances directly, wallets for every product, rate override — and records inside the tx', async () => {

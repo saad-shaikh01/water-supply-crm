@@ -100,7 +100,8 @@ export interface ImportDefinition<N = unknown, O = unknown, C = unknown, E = unk
     options: O,
   ): PlannedRow<N>[];
 
-  summarize(planned: PlannedRow<N>[], options?: O): PlanSummary;
+  /** `ctx` is the same context `validateAndPlan` used (e.g. to tell which vans already exist). */
+  summarize(planned: PlannedRow<N>[], options?: O, ctx?: C): PlanSummary;
 
   prepareExecution(prisma: PrismaService, vendorId: string, rows: ExecRow<N>[], options: O, batchId?: string): Promise<E>;
   /**

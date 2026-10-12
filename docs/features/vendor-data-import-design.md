@@ -454,3 +454,23 @@ Where the build differs from, or settles, what is written above:
 - **Not built yet:** the retention purge job (source file + `ImportRow.raw` after 12 months, abandoned drafts after 7 days), an in-app completion notification (the UI polls instead), `Vendor`-impersonated support access beyond existing vendor-context switching.
 - **Frontend entry points:** Settings → Data Import (`/dashboard/data-import`, `/new`, `/[id]`), plus an "Import from Excel" banner on the Customers page while the vendor has zero customers.
 - **Verified on a real Postgres + Redis + BullMQ worker + real Chrome (2026-10-08).** Fixes from verification: an executor row whose transaction committed but whose client saw a timeout is no longer overwritten as FAILED (guarded write, 30 s tx timeout, error logging); a COMPLETED_WITH_ERRORS batch can now be resumed to retry its FAILED rows (UI: "Retry failed rows"); a Badge-in-paragraph hydration error on the result page.
+
+
+---
+
+## Addendum (2026-10-13): routes, vans and weekly delivery schedule in the customers file
+
+The **Customers & opening balances** import can now carry route / van / delivery-day columns, so a vendor can onboard 500+ customers together with their schedules in one Excel upload (no scripts, no per-customer scheduling by hand). This supersedes the "delivery schedule is Phase 2" decision (§1.4) for the customers import.
+
+**New optional columns**
+- **Route** (text) and **Stop number** (whole number): the customer's route (created if missing) and position in the van's run. Option *Use Area as route* when the file has no Route column.
+- **Van + Delivery days**: for example Van `V1` with Days `Mon, Thu`, `Mon-Wed`, `Daily` or `1,4` (1 = Monday ... 6 = Saturday).
+- **or** one van column per weekday (**Mon ... Sat**): the cell holds the van that delivers that day, blank or `0` means no delivery (the legacy Master_Data layout). Use one style per file, not both.
+- Sunday is not a delivery day in the CRM schedule, so a Sunday column is ignored.
+
+**Behaviour**
+- Vans named in the file are created (plate number = prefix + label) when missing; the company's existing vans are reused (case-insensitive). Routes likewise; a new route's default van is the van most of its customers use first.
+- `Van.plateNumber` is **globally unique**, so the options offer a **van prefix** (for example `ACME-`). The preview blocks a row whose van label already belongs to another company and tells the user to set a prefix.
+- New vans have **no driver** - assign one in Vans before the first daily sheet.
+- Create-only still holds: an existing customer is skipped, so its schedule is not touched. Revert removes the customers and their schedule rows; vans and routes created by the import stay (empty and harmless, like groups).
+- The preview shows customers with a schedule, vans/routes to be created, and existing vans used.

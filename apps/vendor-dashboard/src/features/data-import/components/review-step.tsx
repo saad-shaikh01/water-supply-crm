@@ -22,11 +22,12 @@ const TABS: { key: Tab; label: string; filter: RowsQuery }[] = [
   { key: 'warnings', label: 'Warnings', filter: { action: 'CREATE', severity: 'WARNING' } },
 ];
 
-function Stat({ label, value, tone }: { label: string; value: string; tone?: 'ok' | 'warn' | 'bad' }) {
+function Stat({ label, value, tone, hint }: { label: string; value: string; tone?: 'ok' | 'warn' | 'bad'; hint?: string }) {
   return (
     <div className="rounded-2xl border p-4">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className={cn('text-2xl font-bold mt-1', tone === 'ok' && 'text-emerald-600', tone === 'warn' && 'text-amber-600', tone === 'bad' && 'text-destructive')}>{value}</p>
+      {hint && <p className="text-xs text-muted-foreground mt-1 break-words">{hint}</p>}
     </div>
   );
 }
@@ -86,6 +87,15 @@ function CustomerReviewStep({ detail, onBack, onExecuted, onCancelled }: Props) 
         <Stat label="Total opening balance" value={rupeesFromPaise(plan.sumOpeningBalancePaise)} />
         <Stat label="Total bottles with customers" value={plan.sumOpeningBottles.toLocaleString()} />
       </div>
+
+      {plan.schedule && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <Stat label="Customers with a delivery schedule" value={plan.schedule.customersWithSchedule.toLocaleString()} />
+          <Stat label="Vans to be created" value={plan.schedule.vansToCreate.length.toLocaleString()} hint={plan.schedule.vansToCreate.join(', ') || undefined} />
+          <Stat label="Existing vans used" value={plan.schedule.vansExisting.toLocaleString()} />
+          <Stat label="Routes to be created" value={plan.schedule.routesToCreate.length.toLocaleString()} hint={plan.schedule.routesToCreate.slice(0, 6).join(', ') || undefined} />
+        </div>
+      )}
 
       <Card className="rounded-3xl">
         <CardContent className="p-4 sm:p-6 space-y-4">
@@ -178,6 +188,15 @@ function CustomerReviewStep({ detail, onBack, onExecuted, onCancelled }: Props) 
                 <strong>{rupeesFromPaise(plan.sumOpeningBalancePaise)}</strong> and <strong>{plan.sumOpeningBottles.toLocaleString()} bottles</strong>.
                 Existing customers are never changed. This adds balances only — no payments, deliveries or ledger entries are created.
               </p>
+              {plan.schedule && (
+                <p className="text-sm">
+                  It will also create <strong>{plan.schedule.vansToCreate.length} van(s)</strong>
+                  {plan.schedule.vansToCreate.length > 0 && <> ({plan.schedule.vansToCreate.slice(0, 8).join(', ')}{plan.schedule.vansToCreate.length > 8 ? '…' : ''})</>},
+                  {' '}<strong>{plan.schedule.routesToCreate.length} route(s)</strong> and{' '}
+                  <strong>{plan.schedule.scheduleEntries.toLocaleString()} delivery-day assignment(s)</strong> for {plan.schedule.customersWithSchedule.toLocaleString()} customers.
+                  New vans have no driver yet — assign one in Vans before the first daily sheet.
+                </p>
+              )}
               {dup && (
                 <label className="flex items-start gap-2 text-sm rounded-xl bg-amber-500/10 p-3">
                   <input type="checkbox" className="h-4 w-4 mt-0.5" checked={dupAck} onChange={(e) => setDupAck(e.target.checked)} />

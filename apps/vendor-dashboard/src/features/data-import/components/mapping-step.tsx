@@ -99,6 +99,9 @@ export function MappingStep({ batchId, data, onPlanned }: Props) {
   const [codeStrategy, setCodeStrategy] = useState<ImportOptions['codeStrategy']>(defaults.codeStrategy ?? 'USE_FILE_CODES');
   const [defaultPaymentType, setDefaultPaymentType] = useState<ImportOptions['defaultPaymentType']>(defaults.defaultPaymentType ?? 'CASH');
   const [areaIntoAddress, setAreaIntoAddress] = useState<boolean>(defaults.areaIntoAddress ?? true);
+  const [createMissingVans, setCreateMissingVans] = useState<boolean>(defaults.createMissingVans ?? true);
+  const [vanPrefix, setVanPrefix] = useState<string>(defaults.vanPrefix ?? '');
+  const [routeFromArea, setRouteFromArea] = useState<boolean>(defaults.routeFromArea ?? false);
   const [saveName, setSaveName] = useState('');
   const [serverError, setServerError] = useState<string | null>(batch.errorMessage);
 
@@ -129,6 +132,10 @@ export function MappingStep({ batchId, data, onPlanned }: Props) {
   const needsSign = !isHistory && mapped('openingBalance');
   const needsAsOf = !isHistory && (mapped('openingBalance') || mapped('openingBottles'));
   const enumFields = (['paymentType', 'isActive'] as const).filter((k) => mapped(k));
+  const dayKeys = ['dayMon', 'dayTue', 'dayWed', 'dayThu', 'dayFri', 'daySat'];
+  const hasDayColumns = dayKeys.some((k) => mapped(k));
+  const hasSchedule = !isHistory && (mapped('van') || hasDayColumns);
+  const hasRoutesOrSchedule = !isHistory && (hasSchedule || mapped('route') || mapped('deliveryDays'));
 
   const problems: string[] = [];
   if (isHistory) {
@@ -139,6 +146,12 @@ export function MappingStep({ batchId, data, onPlanned }: Props) {
   } else {
     if (!mapped('name')) problems.push('Map the customer name column.');
     if (!mapped('address') && !mapped('area')) problems.push('Map an address column (or at least an area column).');
+  }
+  if (!isHistory) {
+    if (mapped('van') && !mapped('deliveryDays') && !hasDayColumns) problems.push('You mapped a Van column — also map "Delivery days", or use the Monday–Saturday columns.');
+    if (mapped('deliveryDays') && !mapped('van')) problems.push('You mapped "Delivery days" — also map the Van column.');
+    if (mapped('van') && hasDayColumns) problems.push('Use either "Van + Delivery days" or the Monday–Saturday columns — not both.');
+    if (hasSchedule && !/^[A-Za-z0-9._/#-]{0,12}$/.test(vanPrefix.trim())) problems.push('The van prefix may only contain letters, numbers and . _ - / # (max 12 characters).');
   }
   if (needsProduct && activeProducts.length === 0) problems.push('Create an active product first — bottle balances and rates belong to a product.');
   if (needsProduct && activeProducts.length > 1 && !productId) problems.push('Choose the product these bottle balances / rates are for.');
@@ -171,6 +184,8 @@ export function MappingStep({ batchId, data, onPlanned }: Props) {
           codeStrategy: mapped('customerCode') ? codeStrategy : 'GENERATE',
           defaultPaymentType,
           areaIntoAddress,
+          ...(hasSchedule ? { createMissingVans, vanPrefix: vanPrefix.trim() } : {}),
+          ...(!mapped('route') && mapped('area') ? { routeFromArea } : {}),
         },
         saveProfileAs: saveName.trim() || undefined,
       });
@@ -340,6 +355,39 @@ export function MappingStep({ batchId, data, onPlanned }: Props) {
                   <SelectItem value="MONTHLY">Monthly billing</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+          )}
+
+          {hasRoutesOrSchedule && (
+            <div className="space-y-3 rounded-xl border p-4">
+              <div>
+                <p className="font-semibold text-sm">Routes, vans &amp; delivery days</p>
+                <p className="text-xs text-muted-foreground">
+                  Routes and vans named in your file are created automatically if they don&apos;t exist yet, and every customer gets their weekly delivery schedule.
+                </p>
+              </div>
+              {hasSchedule && (
+                <>
+                  <div className="space-y-1.5 max-w-xs">
+                    <Label>Van name prefix (recommended)</Label>
+                    <Input className="h-10 rounded-xl" placeholder="e.g. ACME-" maxLength={12} value={vanPrefix} onChange={(e) => setVanPrefix(e.target.value)} />
+                    <p className="text-xs text-muted-foreground">
+                      Van names are unique across all companies on the platform. With prefix <strong>{vanPrefix.trim() || 'ACME-'}</strong>, a file van &ldquo;V1&rdquo; becomes <strong>{(vanPrefix.trim() || 'ACME-') + 'V1'}</strong>.
+                      Leave empty to use the names exactly as written (the preview tells you if one is already taken).
+                    </p>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" className="h-4 w-4" checked={createMissingVans} onChange={(e) => setCreateMissingVans(e.target.checked)} />
+                    Create vans that don&apos;t exist yet
+                  </label>
+                </>
+              )}
+              {!mapped('route') && mapped('area') && (
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" className="h-4 w-4" checked={routeFromArea} onChange={(e) => setRouteFromArea(e.target.checked)} />
+                  Use the Area column as the route name
+                </label>
+              )}
             </div>
           )}
 

@@ -88,6 +88,18 @@ export interface PlanSummary {
   sumOpeningBottles: number;
   /** TRANSACTION_HISTORY only. */
   history?: HistoryPlanSummary;
+  /** CUSTOMERS_OPENING only, when the file carries route / van / delivery-day columns. */
+  schedule?: SchedulePlanSummary;
+}
+
+export interface SchedulePlanSummary {
+  customersWithSchedule: number;
+  scheduleEntries: number;
+  /** Full plate numbers (prefix applied) that will be created. */
+  vansToCreate: string[];
+  vansExisting: number;
+  routesToCreate: string[];
+  routesExisting: number;
 }
 
 export interface HistoryPlanSummary {
