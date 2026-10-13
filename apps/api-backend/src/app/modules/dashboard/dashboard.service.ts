@@ -542,10 +542,39 @@ export class DashboardService {
       };
     };
 
+    // ── Pending balance carried in from the previous month ──
+    // Per customer: opening balance of month M = live financialBalance minus
+    // every ledger row booked on/after M's first day (same derivation as
+    // CustomerService.computePrevMonthOutstanding). Only customers who owe
+    // (opening > 0) count; credit balances are not netted against others' debt.
+    const customerBalances = await this.prisma.customer.findMany({
+      where: { vendorId },
+      select: { id: true, financialBalance: true },
+    });
+    const laterActivityByMonth = await Promise.all(
+      Array.from({ length: months }, async (_, idx) => {
+        const monthStart = new Date(now.getFullYear(), now.getMonth() - (months - 1 - idx), 1);
+        const rows = await this.prisma.transaction.groupBy({
+          by: ['customerId'],
+          where: { vendorId, customerId: { not: null }, createdAt: { gte: monthStart } },
+          _sum: { amount: true },
+        });
+        return new Map(rows.map((r) => [r.customerId as string, r._sum.amount ?? 0]));
+      }),
+    );
+
     const result = Array.from({ length: months }, (_, idx) => {
       const monthIndex = months - 1 - idx;
       const monthStart = new Date(now.getFullYear(), now.getMonth() - monthIndex, 1);
       const monthEnd = new Date(now.getFullYear(), now.getMonth() - monthIndex + 1, 0, 23, 59, 59, 999);
+
+      const laterActivity = laterActivityByMonth[idx];
+      const pendingBalance = Math.round(
+        customerBalances.reduce(
+          (s, c) => s + Math.max(0, (c.financialBalance ?? 0) - (laterActivity.get(c.id) ?? 0)),
+          0,
+        ),
+      );
 
       const monthItems = items.filter(
         (i) => i.dailySheet.date >= monthStart && i.dailySheet.date <= monthEnd,
@@ -592,6 +621,7 @@ export class DashboardService {
         cashExpected,
         cashCollected,
         amountReceived,
+        pendingBalance,
         collectionRate: cashExpected > 0 ? Math.round((sheetCashCollected / cashExpected) * 100) : 0,
         hasModifiedClosedSheets,
       };

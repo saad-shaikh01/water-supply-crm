@@ -18,6 +18,8 @@ type MonthRow = {
   filledReceived: number;
   /** Every customer payment recorded in the month, gross (same figure as Analytics > Profit & Loss). */
   amountReceived: number;
+  /** Total customer outstanding carried in from the previous month (opening balance of this month). */
+  pendingBalance: number;
   /** Actual sales revenue for the month (delivered bottles × their sold rate). */
   revenue: number;
   /** Weighted average selling price per bottle for the month. */
@@ -143,8 +145,8 @@ export function MonthlySummaryWidget() {
                     <th className="pb-3 pr-4 text-right">Empty Recv.</th>
                     <th className="pb-3 pr-4 text-right">Revenue</th>
                     <th className="pb-3 pr-4 text-right">Avg. Rate</th>
-                    <th className="pb-3 pr-4 text-right" title="Every customer payment recorded in the month (delivery cash + recorded payments), gross">Total Received</th>
                     <th className="pb-3 pr-4 text-right" title="What drivers handed in after van expenses and crew cash, plus recorded payments">Cash Collected</th>
+                    <th className="pb-3 pr-4 text-right" title="Total amount customers still owed at the start of this month, i.e. carried over from the previous month">Pending Balance</th>
                     <th className="pb-3 text-center">Rate</th>
                   </tr>
                 </thead>
@@ -160,8 +162,8 @@ export function MonthlySummaryWidget() {
                       <td className="py-3 pr-4 text-right font-mono tabular-nums">{r.emptyReceived.toLocaleString()}</td>
                       <td className="py-3 pr-4 text-right font-mono tabular-nums">{fmtCash(r.revenue)}</td>
                       <td className="py-3 pr-4 text-right font-mono tabular-nums">{fmtCash(r.averageRate)}</td>
-                      <td className="py-3 pr-4 text-right font-mono tabular-nums text-emerald-400 font-bold">{fmtCash(r.amountReceived)}</td>
                       <td className="py-3 pr-4 text-right font-mono tabular-nums text-emerald-400">{fmtCash(r.cashCollected)}</td>
+                      <td className="py-3 pr-4 text-right font-mono tabular-nums text-amber-400">{fmtCash(r.pendingBalance)}</td>
                       <td className="py-3 text-center"><RateBadge rate={r.collectionRate} /></td>
                     </tr>
                   ))}
@@ -169,8 +171,8 @@ export function MonthlySummaryWidget() {
               </table>
               <p className="mt-3 text-[11px] text-muted-foreground/60">
                 Delivered is gross; Net Sold = Delivered − Filled Returned (revenue is net of returned filled bottles).
-                Total Received = every customer payment recorded in the month. Cash Collected = driver hand-in after van
-                expenses and crew cash, plus recorded payments.
+                Cash Collected = driver hand-in after van expenses and crew cash, plus recorded payments. Pending Balance =
+                total owed by customers at the start of the month (carried over from the previous month).
               </p>
               {hasRecalculatedMonths && (
                 <p className="mt-3 text-[11px] text-muted-foreground/60">
