@@ -10,6 +10,7 @@ import type {
   PlanSummary,
   PlannedRow,
   RawRow,
+  RowDisplay,
   RowIssue,
 } from '../import.types';
 import { parseIsoDate, parseMoney, parseText, parseWholeNumber, toPaise } from '../pipeline/value-parsers';
@@ -630,6 +631,22 @@ export const customersOpeningDefinition: ImportDefinition<NormalizedCustomer, Cu
       },
       issues,
     };
+  },
+
+  rowDisplay(raw: RawRow, mapping: ImportMapping): RowDisplay {
+    const headers = fieldHeaders(mapping);
+    const cell = (key: string) => (headers[key] === undefined ? null : parseText(raw[headers[key]] as never));
+    let isActive: boolean | null = true;
+    if (headers['isActive'] !== undefined) {
+      const r = resolveEnum(fieldDef('isActive'), mapping, raw[headers['isActive']]);
+      isActive = r.state === 'value' ? r.value === 'true' : r.state === 'empty' ? true : null;
+    }
+    return { code: cell('customerCode'), name: cell('name'), phone: cell('phone'), isActive };
+  },
+
+  editableFields(mapping: ImportMapping, options): string[] {
+    const mapped = new Set(Object.values(mapping.columns).filter(Boolean));
+    return ['customerCode', 'name', 'phone', 'address', 'isActive'].filter((k) => mapped.has(k) && (k !== 'customerCode' || options.codeStrategy === 'USE_FILE_CODES'));
   },
 
   async loadContext(prisma: PrismaService, vendorId: string, options, rows): Promise<PlanContext> {

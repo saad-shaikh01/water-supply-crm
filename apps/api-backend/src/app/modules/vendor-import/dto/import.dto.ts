@@ -105,10 +105,32 @@ export class ImportRowsQueryDto {
   @IsIn(['PENDING', 'CREATED', 'UPDATED', 'SKIPPED', 'FAILED', 'REVERTED', 'REVERT_SKIPPED'])
   result?: string;
 
+  /** Customer-code order (natural: A9 before A10). Default is file order. */
+  @IsOptional()
+  @IsIn(['row', 'code', 'code_desc'])
+  sort?: 'row' | 'code' | 'code_desc';
+
+  @IsOptional()
+  @IsIn(['active', 'closed'])
+  status?: 'active' | 'closed';
+
   @IsOptional()
   @IsString()
   @MaxLength(100)
   search?: string;
+}
+
+export class UpdateImportRowDto {
+  /** field key → new cell text (null/'' clears the cell). */
+  @IsObject()
+  values!: Record<string, string | null>;
+}
+
+export class ReportQueryDto {
+  /** Omit for the full report; otherwise only the rows that need fixing, laid out for re-upload. */
+  @IsOptional()
+  @IsIn(['errors', 'warnings', 'problems'])
+  scope?: 'errors' | 'warnings' | 'problems';
 }
 
 export class ColumnValuesQueryDto {

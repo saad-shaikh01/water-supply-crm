@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Put,
   Query,
@@ -21,7 +22,7 @@ import type { AuthUser } from '@water-supply-crm/types';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { HISTORY_IMPORT_LIMITS, IMPORT_LIMITS } from './import.constants';
-import { ColumnValuesQueryDto, ExecuteImportDto, ImportListQueryDto, ImportRowsQueryDto, SaveMappingDto, UploadImportDto } from './dto/import.dto';
+import { ColumnValuesQueryDto, ExecuteImportDto, ImportListQueryDto, ImportRowsQueryDto, ReportQueryDto, SaveMappingDto, UpdateImportRowDto, UploadImportDto } from './dto/import.dto';
 import { ImportErrorFilter } from './import-error.filter';
 import { ImportService } from './import.service';
 
@@ -108,10 +109,17 @@ export class ImportController {
     return this.imports.rows(user.vendorId, id, q);
   }
 
+  @Patch(':id/rows/:rowId')
+  @RequirePermissions('data_imports:upload')
+  @Throttle({ short: { ttl: 1000, limit: 5 } })
+  updateRow(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Param('rowId') rowId: string, @Body() dto: UpdateImportRowDto) {
+    return this.imports.updateRow(user.vendorId, id, rowId, dto.values);
+  }
+
   @Get(':id/report')
   @RequirePermissions('data_imports:view')
-  async report(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Res() res: Response) {
-    const { buffer, fileName } = await this.imports.report(user.vendorId, id);
+  async report(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Query() q: ReportQueryDto, @Res() res: Response) {
+    const { buffer, fileName } = await this.imports.report(user.vendorId, id, q.scope);
     res.setHeader('Content-Type', XLSX_MIME);
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
     res.setHeader('Content-Length', buffer.length);

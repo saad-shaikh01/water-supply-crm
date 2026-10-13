@@ -515,13 +515,39 @@ export class ImportService {
   }
 
   async rows(vendorId: string, id: string, q: ImportRowsQueryDto) {
-    await this.batchOrThrow(vendorId, id);
+    const batch = await this.batchOrThrow(vendorId, id);
     const page = q.page ?? 1;
     const limit = q.limit ?? 50;
     const where: Prisma.ImportRowWhereInput = { batchId: id };
     if (q.action) where.action = q.action as never;
     if (q.result) where.result = q.result as never;
     if (q.severity) where.issues = { array_contains: [{ severity: q.severity }] };
+
+    const def = getDefinition(batch.entity);
+    const mapping = batch.mapping as unknown as ImportMapping | null;
+    if (def.rowDisplay && mapping) {
+      // Customer-sized imports (≤ 5000 rows): filter / sort in memory so rows with errors — which
+      // have no normalized data — can still be searched, sorted and filtered by their raw cells.
+      const options = batch.options as never;
+      const all = await this.prisma.importRow.findMany({ where, orderBy: { rowNumber: 'asc' } });
+      const s = q.search?.trim().toLowerCase();
+      let list = all.map((r) => ({ r, display: (def.rowDisplay as NonNullable<typeof def.rowDisplay>)(r.raw as RawRow, mapping, options) }));
+      if (s) list = list.filter(({ r, display: d }) => [d.name, d.code, d.phone, (r.normalized as { name?: string } | null)?.name].some((v) => v?.toLowerCase().includes(s)));
+      if (q.status) list = list.filter(({ display: d }) => (q.status === 'closed' ? d.isActive === false : d.isActive !== false));
+      if (q.sort === 'code' || q.sort === 'code_desc') {
+        const dir = q.sort === 'code' ? 1 : -1;
+        list.sort((a, b) => {
+          const ca = a.display.code;
+          const cb = b.display.code;
+          if (!ca || !cb) return ca ? -1 : cb ? 1 : a.r.rowNumber - b.r.rowNumber; // blank codes always last
+          return dir * ca.localeCompare(cb, undefined, { numeric: true, sensitivity: 'base' }) || a.r.rowNumber - b.r.rowNumber;
+        });
+      }
+      const slice = list.slice((page - 1) * limit, page * limit).map(({ r, display }) => ({ ...r, display }));
+      const editable = batch.status === 'MAPPED' && !def.asyncPlan && def.editableFields ? def.editableFields(mapping, options) : [];
+      return { ...paginate(slice, list.length, page, limit), editableFields: editable };
+    }
+
     if (q.search?.trim()) {
       const s = q.search.trim();
       where.OR = [
@@ -537,18 +563,55 @@ export class ImportService {
     return paginate(data, total, page, limit);
   }
 
+  /**
+   * Fix one cell group of a row from the review screen. The corrected values are written into the
+   * row's raw cells (the file as it should have been), then the whole plan is rebuilt, so the
+   * counts, notes and plan hash the vendor confirms always reflect the correction.
+   */
+  async updateRow(vendorId: string, id: string, rowId: string, values: Record<string, string | null>) {
+    const batch = await this.batchOrThrow(vendorId, id);
+    const def = getDefinition(batch.entity);
+    const mapping = batch.mapping as unknown as ImportMapping | null;
+    if (batch.status !== 'MAPPED' || def.asyncPlan || !def.editableFields || !mapping) {
+      throw new ImportError('NOT_EDITABLE', 'Rows can only be edited while the import is waiting for review.', 409);
+    }
+    const options = batch.options as never;
+    const editable = def.editableFields(mapping, options);
+    const row = await this.prisma.importRow.findFirst({ where: { id: rowId, batchId: id } });
+    if (!row) throw new ImportError('ROW_NOT_FOUND', 'Row not found.', 404);
+
+    const raw: RawRow = { ...(row.raw as RawRow) };
+    for (const [key, value] of Object.entries(values ?? {})) {
+      if (!editable.includes(key)) throw new ImportError('FIELD_NOT_EDITABLE', `"${key}" cannot be edited here — its column is not mapped.`);
+      const header = Object.entries(mapping.columns).find(([, k]) => k === key)?.[0];
+      if (!header) continue;
+      const text = typeof value === 'string' ? value.trim() : '';
+      if (text.length > IMPORT_LIMITS.maxCellChars) throw new ImportError('VALUE_TOO_LONG', `Value is longer than ${IMPORT_LIMITS.maxCellChars} characters.`);
+      raw[header] = text === '' ? null : text;
+    }
+    await this.prisma.importRow.update({ where: { id: rowId }, data: { raw: json(raw) } });
+
+    const { plan, planHash } = await this.buildPlan(vendorId, id, def, mapping, options);
+    await this.prisma.importBatch.update({ where: { id }, data: { summary: json({ plan } satisfies BatchSummary), planHash, plannedAt: new Date() } });
+    return { planHash, summary: plan };
+  }
+
   async sourceUrl(vendorId: string, id: string) {
     const batch = await this.batchOrThrow(vendorId, id);
     if (!batch.sourceFileKey) throw new ImportError('SOURCE_PURGED', 'The original file is no longer stored.', 404);
     return { signedUrl: await this.storage.getSignedUrl(batch.sourceFileKey), fileName: batch.sourceFileName };
   }
 
-  async report(vendorId: string, id: string): Promise<{ buffer: Buffer; fileName: string }> {
+  async report(vendorId: string, id: string, scope?: 'errors' | 'warnings' | 'problems'): Promise<{ buffer: Buffer; fileName: string }> {
     const batch = await this.batchOrThrow(vendorId, id);
     const headers = await this.headersOf(id);
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Import report');
-    ws.addRow(['Row', 'Outcome', 'Problems / notes', ...headers]).font = { bold: true };
+    // A "fix and re-upload" file keeps the vendor's own columns first and the diagnostics last.
+    const fixMode = !!scope;
+    ws.addRow(fixMode ? [...headers, 'Row', 'Outcome', 'Problems / notes'] : ['Row', 'Outcome', 'Problems / notes', ...headers]).font = { bold: true };
+    const wanted = (issues: { severity: string }[]) =>
+      !scope || (scope === 'errors' ? issues.some((i) => i.severity === 'ERROR') : scope === 'warnings' ? issues.some((i) => i.severity === 'WARNING') : issues.length > 0);
 
     const outcomeText = (action: string | null, result: string) => {
       if (result === 'CREATED') return 'Created';
@@ -565,15 +628,21 @@ export class ImportService {
       if (!chunk.length) break;
       cursor += chunk.length;
       for (const r of chunk) {
-        const issues = ((r.issues as { severity: string; message: string }[] | null) ?? []).map((i) => `${i.severity === 'ERROR' ? 'Error' : 'Warning'}: ${i.message}`);
+        const rowIssues = (r.issues as { severity: string; message: string }[] | null) ?? [];
+        if (!wanted(rowIssues)) continue;
+        const issues = rowIssues.map((i) => `${i.severity === 'ERROR' ? 'Error' : 'Warning'}: ${i.message}`);
         if (r.resultMessage) issues.push(r.resultMessage);
         const raw = r.raw as RawRow;
-        ws.addRow([r.rowNumber, outcomeText(r.action, r.result), issues.join(' | '), ...headers.map((h) => safeCell(raw[h]))]);
+        const cells = headers.map((h) => safeCell(raw[h]));
+        const info = [r.rowNumber, outcomeText(r.action, r.result), issues.join(' | ')];
+        ws.addRow(fixMode ? [...cells, ...info] : [...info, ...cells]);
       }
     }
-    ws.columns.forEach((c, i) => (c.width = i < 3 ? (i === 2 ? 60 : 22) : 18));
+    const infoStart = fixMode ? headers.length : 0;
+    ws.columns.forEach((c, i) => (c.width = i >= infoStart && i < infoStart + 3 ? (i === infoStart + 2 ? 60 : 22) : 18));
     ws.views = [{ state: 'frozen', ySplit: 1 }];
-    return { buffer: Buffer.from(await wb.xlsx.writeBuffer()), fileName: `import-report-${batch.id.slice(0, 8)}.xlsx` };
+    const suffix = scope ? `-${scope}` : '';
+    return { buffer: Buffer.from(await wb.xlsx.writeBuffer()), fileName: `import-report${suffix}-${batch.id.slice(0, 8)}.xlsx` };
   }
 
   // ── profiles ──────────────────────────────────────────────────────────────

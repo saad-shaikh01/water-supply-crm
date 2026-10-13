@@ -4,6 +4,7 @@ import {
   dataImportApi,
   type ExecutePayload,
   type ImportBatch,
+  type ReportScope,
   type RowsQuery,
   type SaveMappingPayload,
 } from '../api/data-import.api';
@@ -73,6 +74,17 @@ export const useSaveMapping = (id: string) => {
   });
 };
 
+export const useUpdateImportRow = (id: string) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { rowId: string; values: Record<string, string | null> }) => dataImportApi.updateRow(id, v.rowId, v.values).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [KEY, 'detail', id] });
+      qc.invalidateQueries({ queryKey: [KEY, 'rows', id] });
+    },
+  });
+};
+
 export const useExecuteImport = (id: string) => {
   const qc = useQueryClient();
   return useMutation({
@@ -114,10 +126,10 @@ export function saveBlob(blob: Blob, fileName: string) {
   URL.revokeObjectURL(url);
 }
 
-export async function downloadReport(id: string) {
+export async function downloadReport(id: string, scope?: ReportScope) {
   try {
-    const res = await dataImportApi.report(id);
-    saveBlob(res.data, `import-report-${id.slice(0, 8)}.xlsx`);
+    const res = await dataImportApi.report(id, scope);
+    saveBlob(res.data, `import-report${scope ? `-${scope}` : ''}-${id.slice(0, 8)}.xlsx`);
   } catch (e) {
     toast.error(importErrorOf(e, 'Could not download the report').message);
   }

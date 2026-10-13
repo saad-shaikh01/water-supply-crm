@@ -66,6 +66,15 @@ export interface NormalizedRowResult<N> {
   issues: RowIssue[];
 }
 
+/** What the review table shows for a row, read from the raw cells so rows with errors are identifiable too. */
+export interface RowDisplay {
+  code: string | null;
+  name: string | null;
+  phone: string | null;
+  /** null = unknown (status column unmapped values) — treated as active by the status filter. */
+  isActive: boolean | null;
+}
+
 export type PlanAction = 'CREATE' | 'SKIP_EXISTING' | 'SKIP_INVALID';
 
 export interface PlannedRow<N> {

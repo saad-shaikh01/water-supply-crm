@@ -42,6 +42,8 @@ export interface SchedulePlanSummary {
   routesExisting: number;
 }
 
+export type ReportScope = 'errors' | 'warnings' | 'problems';
+
 export interface HistoryPlanSummary {
   reportingMode: ReportingMode;
   cutoverDate: string;
@@ -197,6 +199,8 @@ export interface ImportRow {
     openingBottles: number;
   } | null;
   issues: RowIssue[] | null;
+  /** Identifying cells read from the raw row (present even when the row has errors). */
+  display?: { code: string | null; name: string | null; phone: string | null; isActive: boolean | null };
   action: ImportRowAction | null;
   result: ImportRowResult;
   resultCode: string | null;
@@ -206,6 +210,8 @@ export interface ImportRow {
 export interface Paginated<T> {
   data: T[];
   meta: { total: number; page: number; limit: number; totalPages: number };
+  /** Rows endpoint only: field keys that can be edited inline right now. */
+  editableFields?: string[];
 }
 
 export interface SaveMappingPayload {
@@ -259,6 +265,8 @@ export interface RowsQuery {
   severity?: 'ERROR' | 'WARNING';
   result?: ImportRowResult;
   search?: string;
+  sort?: 'row' | 'code' | 'code_desc';
+  status?: 'active' | 'closed';
 }
 
 export interface RevertPreview {
@@ -302,12 +310,14 @@ export const dataImportApi = {
   columnValues: (id: string, header: string) =>
     apiClient.get<ColumnValue[]>(`/imports/${id}/column-values`, { params: { header } }),
   rows: (id: string, params?: RowsQuery) => apiClient.get<Paginated<ImportRow>>(`/imports/${id}/rows`, { params }),
+  updateRow: (id: string, rowId: string, values: Record<string, string | null>) =>
+    apiClient.patch<{ planHash: string; summary: PlanSummary }>(`/imports/${id}/rows/${rowId}`, { values }),
   execute: (id: string, data: ExecutePayload) => apiClient.post<{ batchId: string; status: string }>(`/imports/${id}/execute`, data),
   cancel: (id: string) => apiClient.post<{ cancelled: boolean }>(`/imports/${id}/cancel`),
   revertPreview: (id: string) => apiClient.post<RevertPreview>(`/imports/${id}/revert/preview`),
   revert: (id: string) => apiClient.post<{ batchId: string; revert: 'RUNNING' }>(`/imports/${id}/revert`),
   sourceUrl: (id: string) => apiClient.get<{ signedUrl: string; fileName: string }>(`/imports/${id}/source`),
-  report: (id: string) => apiClient.get<Blob>(`/imports/${id}/report`, { responseType: 'blob' }),
+  report: (id: string, scope?: ReportScope) => apiClient.get<Blob>(`/imports/${id}/report`, { params: { scope }, responseType: 'blob' }),
   template: (entity: string) => apiClient.get<Blob>(`/imports/templates/${entity}`, { responseType: 'blob' }),
   profiles: (entity?: string) => apiClient.get<ImportProfile[]>('/imports/mapping-profiles', { params: { entity } }),
   deleteProfile: (id: string) => apiClient.delete(`/imports/mapping-profiles/${id}`),

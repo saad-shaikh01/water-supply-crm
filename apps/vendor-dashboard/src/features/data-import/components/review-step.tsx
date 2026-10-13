@@ -1,15 +1,15 @@
 'use client';
 
-import { useState } from 'react';
-import { AlertTriangle, ArrowLeft, Download, Loader2, Search, XCircle } from 'lucide-react';
+import { Fragment, useState } from 'react';
+import { AlertTriangle, ArrowLeft, Download, Loader2, Pencil, Search, XCircle } from 'lucide-react';
 import {
   Button, Card, CardContent, Input, cn,
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@water-supply-crm/ui';
-import type { ImportDetail, RowsQuery } from '../api/data-import.api';
+import type { ImportDetail, ImportRow, RowsQuery } from '../api/data-import.api';
 import { DATA_IMPORT_PERMISSIONS } from '../constants';
 import { useCan } from '../../authz/hooks/use-can';
-import { downloadReport, importErrorOf, useCancelImport, useExecuteImport, useImportRows } from '../hooks/use-data-import';
+import { downloadReport, importErrorOf, useCancelImport, useExecuteImport, useImportRows, useUpdateImportRow } from '../hooks/use-data-import';
 import { RowOutcomeBadge, rupees, rupeesFromPaise } from './format';
 import { HistoryReviewStep } from './history-review';
 
@@ -21,6 +21,63 @@ const TABS: { key: Tab; label: string; filter: RowsQuery }[] = [
   { key: 'errors', label: 'Errors', filter: { action: 'SKIP_INVALID' } },
   { key: 'warnings', label: 'Warnings', filter: { action: 'CREATE', severity: 'WARNING' } },
 ];
+
+const FIELD_LABELS: Record<string, string> = { customerCode: 'Customer code', name: 'Name', phone: 'Phone', address: 'Address', isActive: 'Status' };
+const SELECT_CLASS = 'h-9 rounded-full border bg-background px-3 text-sm';
+
+/** Inline fix for one row: edits the cells of the uploaded file, then the preview is rebuilt. */
+function RowFixer({ row, fields, batchId, onDone }: { row: ImportRow; fields: string[]; batchId: string; onDone: () => void }) {
+  const update = useUpdateImportRow(batchId);
+  const n = row.normalized;
+  const d = row.display;
+  const initial: Record<string, string> = {
+    customerCode: d?.code ?? n?.customerCode ?? '',
+    name: d?.name ?? n?.name ?? '',
+    phone: d?.phone ?? (n?.phoneNumber && n.phoneNumber !== '-' ? n.phoneNumber : ''),
+    address: n?.address ?? '',
+    isActive: d?.isActive === false ? 'Closed' : 'Active',
+  };
+  const [draft, setDraft] = useState<Record<string, string>>(initial);
+  const [err, setErr] = useState<string | null>(null);
+  const changed = fields.filter((f) => draft[f] !== initial[f]);
+
+  const save = async () => {
+    setErr(null);
+    try {
+      await update.mutateAsync({ rowId: row.id, values: Object.fromEntries(changed.map((f) => [f, draft[f]])) });
+      onDone();
+    } catch (e) {
+      setErr(importErrorOf(e, 'Could not save the change.').message);
+    }
+  };
+
+  return (
+    <div className="space-y-3 py-1">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {fields.map((f) => (
+          <label key={f} className="text-xs text-muted-foreground space-y-1 block">
+            {FIELD_LABELS[f] ?? f}
+            {f === 'isActive' ? (
+              <select className={cn(SELECT_CLASS, 'w-full')} value={draft[f]} onChange={(e) => setDraft({ ...draft, [f]: e.target.value })}>
+                <option value="Active">Active</option>
+                <option value="Closed">Closed</option>
+              </select>
+            ) : (
+              <Input className="h-9 rounded-full text-foreground" value={draft[f] ?? ''} onChange={(e) => setDraft({ ...draft, [f]: e.target.value })} />
+            )}
+          </label>
+        ))}
+      </div>
+      {err && <p className="text-xs text-destructive font-medium">{err}</p>}
+      <div className="flex gap-2">
+        <Button size="sm" className="rounded-full" disabled={!changed.length || update.isPending} onClick={save}>
+          {update.isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}Save &amp; re-check
+        </Button>
+        <Button size="sm" variant="ghost" className="rounded-full" onClick={onDone}>Cancel</Button>
+      </div>
+    </div>
+  );
+}
 
 function Stat({ label, value, tone, hint }: { label: string; value: string; tone?: 'ok' | 'warn' | 'bad'; hint?: string }) {
   return (
@@ -54,12 +111,15 @@ function CustomerReviewStep({ detail, onBack, onExecuted, onCancelled }: Props) 
   const [tab, setTab] = useState<Tab>(plan && plan.create === 0 && plan.skipInvalid > 0 ? 'errors' : 'all');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [sort, setSort] = useState<NonNullable<RowsQuery['sort']>>('row');
+  const [status, setStatus] = useState<'all' | 'active' | 'closed'>('all');
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [reviewed, setReviewed] = useState(false);
   const [dupAck, setDupAck] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const filter = TABS.find((t) => t.key === tab)?.filter ?? {};
-  const rows = useImportRows(batch.id, { ...filter, search: search.trim() || undefined, page, limit: 25 });
+  const rows = useImportRows(batch.id, { ...filter, search: search.trim() || undefined, sort, status: status === 'all' ? undefined : status, page, limit: 25 });
 
   if (!plan) return null;
   const dup = wizard?.duplicateOf;
@@ -108,7 +168,17 @@ function CustomerReviewStep({ detail, onBack, onExecuted, onCancelled }: Props) 
                 {t.label}
               </button>
             ))}
-            <div className="relative ml-auto w-full sm:w-64">
+            <select className={cn(SELECT_CLASS, 'ml-auto')} value={status} onChange={(e) => { setStatus(e.target.value as typeof status); setPage(1); }} aria-label="Customer status">
+              <option value="all">All statuses</option>
+              <option value="active">Active only</option>
+              <option value="closed">Closed only</option>
+            </select>
+            <select className={SELECT_CLASS} value={sort} onChange={(e) => { setSort(e.target.value as typeof sort); setPage(1); }} aria-label="Sort rows">
+              <option value="row">File order</option>
+              <option value="code">Customer code A→Z</option>
+              <option value="code_desc">Customer code Z→A</option>
+            </select>
+            <div className="relative w-full sm:w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input className="h-9 rounded-full pl-9" placeholder="Search name, code, phone" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
             </div>
@@ -137,14 +207,20 @@ function CustomerReviewStep({ detail, onBack, onExecuted, onCancelled }: Props) 
                 {rows.data?.data.map((r) => {
                   const n = r.normalized;
                   const raw = Object.values(r.raw)[0];
+                  const d = r.display;
+                  const canFix = !!rows.data?.editableFields?.length && r.result === 'PENDING' && r.action !== 'SKIP_EXISTING';
                   return (
-                    <TableRow key={r.id}>
+                    <Fragment key={r.id}>
+                    <TableRow>
                       <TableCell className="text-muted-foreground">{r.rowNumber}</TableCell>
                       <TableCell>
-                        <p className="font-medium">{n?.name ?? String(raw ?? '—')}</p>
-                        <p className="text-xs text-muted-foreground">{n?.customerCode ?? (n ? 'code auto-generated' : '')}</p>
+                        <p className="font-medium">
+                          {n?.name ?? d?.name ?? <span className="text-destructive">No name{raw != null && String(raw) !== '' ? ` ("${String(raw)}")` : ''}</span>}
+                          {d?.isActive === false && <span className="ml-2 text-[10px] font-semibold uppercase text-muted-foreground">Closed</span>}
+                        </p>
+                        <p className="text-xs text-muted-foreground">{n?.customerCode ?? d?.code ?? (n ? 'code auto-generated' : 'no code')}</p>
                       </TableCell>
-                      <TableCell className="whitespace-nowrap">{n?.phoneNumber && n.phoneNumber !== '-' ? n.phoneNumber : <span className="text-muted-foreground">—</span>}</TableCell>
+                      <TableCell className="whitespace-nowrap">{(n?.phoneNumber && n.phoneNumber !== '-' ? n.phoneNumber : d?.phone) || <span className="text-muted-foreground">—</span>}</TableCell>
                       <TableCell className="text-right whitespace-nowrap">{n ? rupees(n.openingBalance) : '—'}</TableCell>
                       <TableCell className="text-right">{n ? n.openingBottles : '—'}</TableCell>
                       <TableCell><RowOutcomeBadge action={r.action} result={r.result} /></TableCell>
@@ -157,8 +233,19 @@ function CustomerReviewStep({ detail, onBack, onExecuted, onCancelled }: Props) 
                             </li>
                           ))}
                         </ul>
+                        {canFix && (r.issues?.length ?? 0) > 0 && (
+                          <button type="button" className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline" onClick={() => setEditingId(editingId === r.id ? null : r.id)}>
+                            <Pencil className="h-3 w-3" /> Fix here
+                          </button>
+                        )}
                       </TableCell>
                     </TableRow>
+                    {editingId === r.id && rows.data?.editableFields && (
+                      <TableRow className="bg-muted/30 hover:bg-muted/30">
+                        <TableCell colSpan={7}><RowFixer row={r} fields={rows.data.editableFields} batchId={batch.id} onDone={() => setEditingId(null)} /></TableCell>
+                      </TableRow>
+                    )}
+                    </Fragment>
                   );
                 })}
               </TableBody>
@@ -216,6 +303,12 @@ function CustomerReviewStep({ detail, onBack, onExecuted, onCancelled }: Props) 
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" className="rounded-full gap-2" onClick={onBack}><ArrowLeft className="h-4 w-4" /> Back to mapping</Button>
               <Button variant="outline" className="rounded-full gap-2" onClick={() => downloadReport(batch.id)}><Download className="h-4 w-4" /> Download report</Button>
+              {plan.skipInvalid > 0 && (
+                <Button variant="outline" className="rounded-full gap-2 text-destructive" onClick={() => downloadReport(batch.id, 'errors')}><Download className="h-4 w-4" /> Errors only ({plan.skipInvalid.toLocaleString()})</Button>
+              )}
+              {plan.rowsWithWarnings > 0 && (
+                <Button variant="outline" className="rounded-full gap-2 text-amber-600" onClick={() => downloadReport(batch.id, 'warnings')}><Download className="h-4 w-4" /> Warnings only ({plan.rowsWithWarnings.toLocaleString()})</Button>
+              )}
               <Button variant="ghost" className="rounded-full text-destructive" disabled={cancel.isPending} onClick={() => cancel.mutate(batch.id, { onSuccess: onCancelled })}>Cancel import</Button>
             </div>
             {canExecute && !blocked && (

@@ -7,6 +7,7 @@ import type {
   PlanSummary,
   PlannedRow,
   RawRow,
+  RowDisplay,
   RowIssue,
 } from '../import.types';
 
@@ -138,6 +139,11 @@ export interface ImportDefinition<N = unknown, O = unknown, C = unknown, E = unk
 
   /** Option values worth remembering in a saved mapping profile. */
   profileOptionDefaults?(options: O): Record<string, unknown>;
+
+  /** Identifying cells of a row, read from `raw` (so error rows can be told apart). Enables sort/status filter/inline edit. */
+  rowDisplay?(raw: RawRow, mapping: ImportMapping, options: O): RowDisplay;
+  /** Field keys the review screen may edit inline (only fields that are mapped to a column). */
+  editableFields?(mapping: ImportMapping, options: O): string[];
 
   /** Safe revert of untouched created entities (design doc §5.6). */
   revertRows(prisma: PrismaService, vendorId: string, rows: RevertRowInput[], dryRun: boolean): Promise<RevertOutcome[]>;
