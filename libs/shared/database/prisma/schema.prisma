@@ -3289,6 +3289,12 @@ enum PayrollSlipDispatchStatus {
   FAILED
 }
 
+/// Which PDF a delivery row sent: the full A4 salary slip, or the compact A5 salary receipt.
+enum PayrollSlipDocumentKind {
+  SLIP
+  RECEIPT
+}
+
 enum PayrollSlipDeliveryStatus {
   QUEUED
   SENDING // claimed by a worker, WhatsApp call in flight — never picked up again (at-most-once)
@@ -3329,6 +3335,8 @@ model PayrollSlipDelivery {
   /// Normalized (digits-only, country code) phone at request time; null when the employee had none.
   phone          String?
   status         PayrollSlipDeliveryStatus @default(QUEUED)
+  /// One row per (employee, document): sending a slip AND a receipt creates two rows.
+  documentKind   PayrollSlipDocumentKind   @default(SLIP)
   error          String?
   /// finalPayable / entry version the slip was built from — lets a later click flag "amount changed since sent".
   finalPayable   Int

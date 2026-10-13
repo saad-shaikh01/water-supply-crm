@@ -27,4 +27,5 @@ export const CloudTemplateNames = {
   FLEET_DOCUMENT_EXPIRY: 'fleet_document_expiry',
   FLEET_MAINTENANCE_DUE: 'fleet_maintenance_due',
   SALARY_SLIP: 'salary_slip',
+  SALARY_RECEIPT: 'salary_receipt',
 } as const;

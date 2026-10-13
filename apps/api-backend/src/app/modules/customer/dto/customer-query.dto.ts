@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsUUID, IsIn, IsEnum, IsNumber, IsBoolean, IsInt, Min, Max } from 'class-validator';
+import { IsOptional, IsString, IsUUID, IsIn, IsEnum, IsNumber, IsBoolean, IsInt, Min, Max, MaxLength, Matches } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
 import { PaymentType } from '@prisma/client';
@@ -141,6 +141,25 @@ export class CustomerQueryDto extends PaginationQueryDto {
   @IsNumber()
   @Min(0)
   rateAmount?: number;
+
+  /**
+   * Position filter — either a customer code or a created-on date (the client
+   * sends one of the two) plus a direction. `after`/`before` are strict: the
+   * given code / day itself is excluded. Codes are compared by their trailing
+   * number (L0100 → 100), so L0100 < L0101 regardless of zero-padding.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  codeRef?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  createdDateRef?: string;
+
+  @IsOptional()
+  @IsIn(['after', 'before'])
+  rangeDir?: 'after' | 'before';
 
   @IsOptional()
   @IsIn(['name', 'customerCode', 'createdAt', 'financialBalance', 'bottleBalance', 'pendingAmount'])

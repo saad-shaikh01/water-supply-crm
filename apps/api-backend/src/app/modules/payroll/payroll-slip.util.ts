@@ -8,6 +8,12 @@ import { normalizePhone, isSendablePhone } from '../whatsapp/phone.util';
 /** A slip is only sent once the employee's final payable is settled on: APPROVED, LOCKED or SETTLED. */
 export const SLIP_ELIGIBLE_STATUSES = ['APPROVED', 'LOCKED', 'SETTLED'] as const;
 
+/** The documents an employee can be sent: the full A4 salary slip, or the compact A5 salary receipt. */
+export const SLIP_DOCUMENT_KINDS = ['SLIP', 'RECEIPT'] as const;
+export type SlipDocumentKind = (typeof SLIP_DOCUMENT_KINDS)[number];
+/** What is sent when the request does not say (the behaviour before receipts existed). */
+export const DEFAULT_SLIP_DOCUMENTS: readonly SlipDocumentKind[] = ['SLIP'];
+
 export type SlipVerdict = 'ELIGIBLE' | 'NOT_FINAL' | 'NO_PHONE';
 
 /** Human reason shown next to a disabled "Send slip" button. */
@@ -279,4 +285,9 @@ export function slipFilename(employeeName: string, periodLabel: string): string 
   const part = (employeeName ?? '').trim().replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'Employee';
   const label = (periodLabel ?? '').replace(/[^A-Za-z0-9-]+/g, '-') || 'period';
   return `Salary-Slip-${label}-${part}.pdf`;
+}
+
+/** File name of the compact salary receipt (`Salary-Receipt-2026-09-Ali-Raza.pdf`). */
+export function receiptFilename(employeeName: string, periodLabel: string): string {
+  return slipFilename(employeeName, periodLabel).replace(/^Salary-Slip-/, 'Salary-Receipt-');
 }

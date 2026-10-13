@@ -51,6 +51,21 @@ export class PayrollSlipController {
     res.end(buffer);
   }
 
+  /** GET /payroll/entries/:entryId/receipt.pdf — download one employee's compact salary receipt (same file WhatsApp gets). */
+  @Get('entries/:entryId/receipt.pdf')
+  @RequirePermissions('payroll:view_all')
+  async downloadReceiptPdf(@CurrentUser() user: AuthUser, @Param('entryId') entryId: string, @Res() res: Response) {
+    const { buffer, filename } = await this.slips.receiptPdfFor(user, entryId);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Length': String(buffer.length),
+      'Cache-Control': 'private, no-store',
+      'Access-Control-Expose-Headers': 'Content-Disposition',
+    });
+    res.end(buffer);
+  }
+
   /** GET /payroll/slips/dispatches/:id — per-employee result of one send. */
   @Get('slips/dispatches/:id')
   @RequirePermissions('payroll:slip_send')

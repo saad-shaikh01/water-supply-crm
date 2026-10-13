@@ -21,6 +21,7 @@ import { SettlementService } from './settlement.service';
 import { PayrollExportService } from './payroll-export.service';
 import { PayrollSlipService } from './payroll-slip.service';
 import { SalarySlipPdfService } from './salary-slip-pdf.service';
+import { SalaryReceiptPdfService } from './salary-receipt-pdf.service';
 import { AbsenceDecisionAction } from './dto/resolve-absence-deduction.dto';
 import { CloudTemplateNames } from '../whatsapp/templates/cloud-template-names';
 
@@ -54,7 +55,7 @@ const exporter = new PayrollExportService(prisma, entries);
 
 const whatsapp = { isReadyFor: jest.fn(), sendTemplate: jest.fn() };
 const queue = { add: jest.fn() };
-const slips = new PayrollSlipService(prisma, entries, new SalarySlipPdfService(), whatsapp as any, queue as any);
+const slips = new PayrollSlipService(prisma, entries, new SalarySlipPdfService(), whatsapp as any, queue as any, undefined as any, new SalaryReceiptPdfService());
 jest.spyOn(slips as any, 'sendDelay').mockResolvedValue(undefined); // never really sleep
 
 const d = (s: string) => new Date(`${s}T00:00:00.000Z`);

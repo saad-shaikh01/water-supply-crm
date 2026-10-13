@@ -322,6 +322,20 @@ For any query, please contact the office.
 Thank you for your hard work at *{{brand}}*.`,
     variables: ['Employee name', 'Period (e.g. 2026-09)', 'Net payable'], sample: ['Ali Raza', '2026-09', '45,000'],
   },
+  {
+    name: N.SALARY_RECEIPT, title: 'Salary receipt (PDF)', usedFor: 'Payroll → send the short salary receipt to employees', required: false, internal: true,
+    header: { type: 'DOCUMENT' },
+    body: `Assalamu Alaikum, *{{1}}*,
+
+Your salary receipt for *{{2}}* is attached.
+
+Final payable: Rs. *{{3}}*
+
+For any query, please contact the office.
+
+Thank you for your hard work at *{{brand}}*.`,
+    variables: ['Employee name', 'Period (e.g. 2026-09)', 'Final payable'], sample: ['Ali Raza', '2026-09', '45,000'],
+  },
 ];
 // NOTE: `payment_recorded_corrected` has no catalogue entry yet — its approved Blue Ice body is not recorded
 // in cloud-api-templates.md. It is still sent by name; a vendor must create it by hand until it is added here.

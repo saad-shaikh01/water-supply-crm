@@ -41,6 +41,8 @@ export interface PayrollCsvDownload {
 
 // ── Salary slips on WhatsApp ────────────────────────────────────────────────
 
+/** The two documents an employee can be sent: the full salary slip, or the short salary receipt. */
+export type SlipDocumentKind = 'SLIP' | 'RECEIPT';
 export type SlipVerdict = 'ELIGIBLE' | 'NOT_FINAL' | 'NO_PHONE';
 export type SlipDeliveryStatus = 'QUEUED' | 'SENDING' | 'SENT' | 'SKIPPED_NO_PHONE' | 'SKIPPED_DISCONNECTED' | 'FAILED';
 export type SlipDispatchStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'ABORTED' | 'FAILED';
@@ -54,6 +56,10 @@ export interface SlipPreviewItem {
   finalPayable: number;
   verdict: SlipVerdict;
   reason: string | null;
+  /** What this employee would get (their own choice, else the request-wide one). */
+  documents: SlipDocumentKind[];
+  /** Which of `documents` were already sent. */
+  alreadySentKinds: SlipDocumentKind[];
   alreadySent: { sentAt: string | null; finalPayable: number; amountChanged: boolean } | null;
 }
 
@@ -64,7 +70,14 @@ export interface SlipPreviewResponse {
   counts: { total: number; eligible: number; notFinal: number; noPhone: number; alreadySent: number };
 }
 
-export interface SendSlipsData {
+/** Which documents to send: for everyone, and optional per-employee overrides. */
+export interface SlipDocumentChoice {
+  /** Omit = the full salary slip only. */
+  documents?: SlipDocumentKind[];
+  perEntry?: Array<{ entryId: string; documents: SlipDocumentKind[] }>;
+}
+
+export interface SendSlipsData extends SlipDocumentChoice {
   /** Omit for every entry of the period. */
   entryIds?: string[];
   /** Send entries that were already sent again. */
@@ -93,9 +106,14 @@ export interface SlipDispatchProgress {
   finishedAt: string | null;
 }
 
-export interface SlipEntryStatus {
+export interface SlipEntrySlot {
   last: { status: SlipDeliveryStatus; error: string | null; at: string } | null;
   lastSent: { at: string | null; finalPayable: number; amountChanged: boolean } | null;
+}
+
+/** Any-document state (the table chip) plus one slot per document kind. */
+export interface SlipEntryStatus extends SlipEntrySlot {
+  byKind?: Partial<Record<SlipDocumentKind, SlipEntrySlot>>;
 }
 
 export interface SlipStatusResponse {
@@ -110,6 +128,7 @@ export interface SlipDispatchDetail extends SlipDispatchProgress {
     entryId: string;
     userId: string;
     name: string;
+    documentKind: SlipDocumentKind;
     status: SlipDeliveryStatus;
     error: string | null;
     sentAt: string | null;
@@ -364,10 +383,17 @@ export const payrollApi = {
     return { blob: res.data, filename: filenameFromContentDisposition(headers['content-disposition'], fallbackName) };
   },
 
+  /** One employee's short salary receipt as a PDF (any entry status; a draft is stamped NOT FINAL). */
+  downloadReceiptPdf: async (entryId: string, fallbackName: string): Promise<PayrollCsvDownload> => {
+    const res = await apiClient.get<Blob>(`/payroll/entries/${entryId}/receipt.pdf`, { responseType: 'blob' });
+    const headers = res.headers as Record<string, string | undefined>;
+    return { blob: res.data, filename: filenameFromContentDisposition(headers['content-disposition'], fallbackName) };
+  },
+
   // Salary slips on WhatsApp (payroll:slip_send; status needs payroll:view_all)
   getSlipStatus: (periodId: string) => apiClient.get<SlipStatusResponse>(`/payroll/periods/${periodId}/slips/status`),
-  previewSlips: (periodId: string, entryIds?: string[]) =>
-    apiClient.post<SlipPreviewResponse>(`/payroll/periods/${periodId}/slips/preview`, entryIds ? { entryIds } : {}),
+  previewSlips: (periodId: string, entryIds?: string[], choice: SlipDocumentChoice = {}) =>
+    apiClient.post<SlipPreviewResponse>(`/payroll/periods/${periodId}/slips/preview`, { ...(entryIds ? { entryIds } : {}), ...choice }),
   sendSlips: (periodId: string, data: SendSlipsData) =>
     apiClient.post<SendSlipsResult>(`/payroll/periods/${periodId}/slips/send`, data),
   getSlipDispatch: (dispatchId: string) => apiClient.get<SlipDispatchDetail>(`/payroll/slips/dispatches/${dispatchId}`),
@@ -408,6 +434,7 @@ export const payrollApi = {
   collectAdvanceInstallment: (id: string, data: CollectAdvanceInstallmentData) =>
     apiClient.post(`/payroll/advance-installments/${id}/collect`, data),
   skipAdvanceInstallment: (id: string) => apiClient.post(`/payroll/advance-installments/${id}/skip`),
+  reverseAdvanceInstallment: (id: string) => apiClient.post(`/payroll/advance-installments/${id}/reverse`, {}),
   writeOffAdvancePlan: (id: string, data: WriteOffAdvancePlanData) =>
     apiClient.post(`/payroll/advance-plans/${id}/write-off`, data),
   getAdvanceVendorSummary: () => apiClient.get<AdvanceVendorSummary>('/payroll/advance-plans/vendor-summary'),

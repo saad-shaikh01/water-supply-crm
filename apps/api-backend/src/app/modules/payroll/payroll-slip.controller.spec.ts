@@ -21,6 +21,7 @@ describe('PayrollSlipController — authorization metadata', () => {
   const expected: Record<string, string> = {
     status: 'payroll:view_all',
     downloadSlipPdf: 'payroll:view_all',
+    downloadReceiptPdf: 'payroll:view_all',
     preview: 'payroll:slip_send',
     send: 'payroll:slip_send',
     dispatchDetail: 'payroll:slip_send',

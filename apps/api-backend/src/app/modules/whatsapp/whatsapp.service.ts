@@ -47,8 +47,9 @@ export class WhatsAppService {
     return this.accounts.canSend(vendorId);
   }
 
-  private rateLimitKey(vendorId: string | null | undefined, phone: string): string {
-    return `whatsapp:ratelimit:${vendorId ?? 'none'}:${phone.replace(/\D/g, '')}`;
+  /** `scope` gives a message family its own 1-per-minute slot (default: the shared one). */
+  private rateLimitKey(vendorId: string | null | undefined, phone: string, scope?: string): string {
+    return `whatsapp:ratelimit:${vendorId ?? 'none'}:${phone.replace(/\D/g, '')}${scope ? `:${scope}` : ''}`;
   }
 
   async sendDocument(
@@ -71,6 +72,8 @@ export class WhatsAppService {
     bodyParams: string[],
     document?: { buffer: Buffer; filename: string },
     imageUrl?: string,
+    /** Own rate-limit slot, so two different documents to ONE number (salary slip + receipt) do not block each other. */
+    rateLimitScope?: string,
   ): Promise<boolean> {
     if (!phone || !templateName) return false;
     const route = await this.accounts.routeFor(vendorId, `whatsapp.sendTemplate(${templateName})`);
@@ -84,8 +87,8 @@ export class WhatsAppService {
       if (!isLegacyVendor(vendorId) && !(await this.accounts.templateSendable(route.accountId, templateName))) return false;
     }
 
-    // Rate limiting: 1 message per vendor+phone per minute
-    const rateLimitKey = this.rateLimitKey(vendorId, phone);
+    // Rate limiting: 1 message per vendor+phone(+scope) per minute
+    const rateLimitKey = this.rateLimitKey(vendorId, phone, rateLimitScope);
     const isLimited = await this.cache.get<boolean>(rateLimitKey);
 
     if (isLimited) {

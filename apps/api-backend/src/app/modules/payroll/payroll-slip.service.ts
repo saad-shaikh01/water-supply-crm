@@ -16,16 +16,20 @@ import { CloudTemplateNames } from '../whatsapp/templates/cloud-template-names';
 import { isSendablePhone } from '../whatsapp/phone.util';
 import { PayrollEntryService } from './payroll-entry.service';
 import { SalarySlipPdfService } from './salary-slip-pdf.service';
+import { SalaryReceiptPdfService } from './salary-receipt-pdf.service';
 import { VendorBrandingService } from '../vendor-branding/vendor-branding.service';
 import { MAX_SLIPS_PER_DISPATCH, type PreviewPayrollSlipsDto, type SendPayrollSlipsDto } from './dto/send-payroll-slips.dto';
 import {
   buildSalarySlip,
   classifySlipEntry,
+  DEFAULT_SLIP_DOCUMENTS,
   formatRupees,
   isSlipEligibleStatus,
   normalizePhone,
+  receiptFilename,
   SLIP_VERDICT_REASON,
   slipFilename,
+  type SlipDocumentKind,
   type SlipVerdict,
 } from './payroll-slip.util';
 
@@ -61,8 +65,26 @@ export interface SlipPreviewItem {
   verdict: SlipVerdict;
   /** Why the slip cannot be sent (NOT_FINAL / NO_PHONE); null when eligible. */
   reason: string | null;
+  /** The documents this employee would get (their own override, else the request-wide choice, else the slip). */
+  documents: SlipDocumentKind[];
+  /** Which of `documents` were already sent. */
+  alreadySentKinds: SlipDocumentKind[];
+  /** Most recent already-sent document among `documents` (null when none was sent). */
   alreadySent: { sentAt: Date | null; finalPayable: number; amountChanged: boolean } | null;
 }
+
+/** Per-document slot of the status chips (same shape as the entry-wide one). */
+interface SlipStatusSlot {
+  last: { status: PayrollSlipDeliveryStatus; error: string | null; at: Date } | null;
+  lastSent: { at: Date | null; finalPayable: number; amountChanged: boolean } | null;
+}
+
+/** What each document needs to be built and sent. */
+const DOCUMENT_SPEC: Record<SlipDocumentKind, { template: string; rateLimitScope?: string; label: string }> = {
+  SLIP: { template: CloudTemplateNames.SALARY_SLIP, label: 'salary slip' },
+  // Own rate-limit slot: the receipt goes to the same number moments after the slip (WhatsApp throttles 1/min/number).
+  RECEIPT: { template: CloudTemplateNames.SALARY_RECEIPT, rateLimitScope: 'salary-receipt', label: 'salary receipt' },
+};
 
 @Injectable()
 export class PayrollSlipService {
@@ -75,12 +97,13 @@ export class PayrollSlipService {
     private readonly whatsapp: WhatsAppService,
     @InjectQueue(QUEUE_NAMES.PAYROLL_SLIP_SEND) private readonly slipQueue: Queue,
     private readonly branding: VendorBrandingService,
+    private readonly receiptPdf: SalaryReceiptPdfService,
   ) {}
 
   // ─── Preview ────────────────────────────────────────────────────────────────
 
   async preview(user: AuthUser, periodId: string, dto: PreviewPayrollSlipsDto) {
-    const { period, items } = await this.classify(user.vendorId, periodId, dto.entryIds);
+    const { period, items } = await this.classify(user.vendorId, periodId, dto);
     return {
       periodId,
       periodLabel: period.periodLabel,
@@ -92,42 +115,46 @@ export class PayrollSlipService {
   // ─── Send (enqueue) ─────────────────────────────────────────────────────────
 
   async send(user: AuthUser, periodId: string, dto: SendPayrollSlipsDto) {
-    const { items, phoneByUser } = await this.classify(user.vendorId, periodId, dto.entryIds);
+    const { items, phoneByUser } = await this.classify(user.vendorId, periodId, dto);
 
     await this.assertNoActiveDispatch(this.prisma, user.vendorId); // fast fail before any work
 
     const notFinal = items.filter((i) => i.verdict === 'NOT_FINAL');
     const noPhone = items.filter((i) => i.verdict === 'NO_PHONE');
-    let sendable = items.filter((i) => i.verdict === 'ELIGIBLE');
+    const eligible = items.filter((i) => i.verdict === 'ELIGIBLE');
 
-    const alreadySent = sendable.filter((i) => i.alreadySent);
+    const alreadySent = eligible.filter((i) => i.alreadySentKinds.length > 0);
     const skippedAlreadySent: SlipPreviewItem[] = [];
-    if (alreadySent.length > 0) {
-      if (dto.skipAlreadySent) {
-        skippedAlreadySent.push(...alreadySent);
-        sendable = sendable.filter((i) => !i.alreadySent);
-      } else if (!dto.confirmResend) {
-        throw new ConflictException({
-          message: `${alreadySent.length} slip(s) were already sent. Confirm to send them again.`,
-          code: 'SLIP_ALREADY_SENT',
-          alreadySent: alreadySent.map((i) => ({
-            entryId: i.entryId,
-            name: i.name,
-            sentAt: i.alreadySent?.sentAt ?? null,
-            amountChanged: i.alreadySent?.amountChanged ?? false,
-          })),
-        });
-      }
+    if (alreadySent.length > 0 && !dto.skipAlreadySent && !dto.confirmResend) {
+      throw new ConflictException({
+        message: `${alreadySent.length} employee(s) were already sent one of these documents. Confirm to send again.`,
+        code: 'SLIP_ALREADY_SENT',
+        alreadySent: alreadySent.map((i) => ({
+          entryId: i.entryId,
+          name: i.name,
+          kinds: i.alreadySentKinds,
+          sentAt: i.alreadySent?.sentAt ?? null,
+          amountChanged: i.alreadySent?.amountChanged ?? false,
+        })),
+      });
+    }
+
+    // One unit = one document to one employee (= one delivery row = one WhatsApp message).
+    const sendable: Array<{ item: SlipPreviewItem; kind: SlipDocumentKind }> = [];
+    for (const item of eligible) {
+      const kinds = dto.skipAlreadySent ? item.documents.filter((k) => !item.alreadySentKinds.includes(k)) : item.documents;
+      if (kinds.length === 0) skippedAlreadySent.push(item);
+      for (const kind of kinds) sendable.push({ item, kind });
     }
 
     if (sendable.length > MAX_SLIPS_PER_DISPATCH) {
-      throw new BadRequestException(`At most ${MAX_SLIPS_PER_DISPATCH} slips can be sent at once.`);
+      throw new BadRequestException(`At most ${MAX_SLIPS_PER_DISPATCH} documents can be sent at once.`);
     }
     if (sendable.length === 0 && noPhone.length === 0) {
       throw new BadRequestException(
         notFinal.length > 0
           ? 'Nothing to send — the selected entries are not approved yet.'
-          : 'Nothing to send — every selected slip was already sent.',
+          : 'Nothing to send — everything selected was already sent.',
       );
     }
 
@@ -151,13 +178,16 @@ export class PayrollSlipService {
         },
       });
       const entryRows = await tx.payrollEntry.findMany({
-        where: { id: { in: [...sendable, ...noPhone].map((i) => i.entryId) }, vendorId: user.vendorId },
+        where: { id: { in: [...sendable.map((u) => u.item), ...noPhone].map((i) => i.entryId) }, vendorId: user.vendorId },
         select: { id: true, version: true, finalPayable: true },
       });
       const entryById = new Map(entryRows.map((e) => [e.id, e]));
+      // createMany stamps every row with the same `now()`; the worker sends in createdAt order, so give each row
+      // its own millisecond — an employee's documents (and the employees themselves) then go out in this order.
+      const base = Date.now();
       await tx.payrollSlipDelivery.createMany({
         data: [
-          ...sendable.map((i) => ({
+          ...sendable.map(({ item: i, kind }, n) => ({
             dispatchId: created.id,
             vendorId: user.vendorId,
             periodId,
@@ -165,10 +195,13 @@ export class PayrollSlipService {
             userId: i.userId,
             phone: normalizePhone(phoneByUser.get(i.userId)),
             status: PayrollSlipDeliveryStatus.QUEUED,
+            documentKind: kind,
             finalPayable: entryById.get(i.entryId)?.finalPayable ?? i.finalPayable,
             entryVersion: entryById.get(i.entryId)?.version ?? 0,
+            createdAt: new Date(base + n),
           })),
-          ...noPhone.map((i) => ({
+          // One skipped row per employee without a phone, however many documents were chosen.
+          ...noPhone.map((i, n) => ({
             dispatchId: created.id,
             vendorId: user.vendorId,
             periodId,
@@ -176,9 +209,11 @@ export class PayrollSlipService {
             userId: i.userId,
             phone: null,
             status: PayrollSlipDeliveryStatus.SKIPPED_NO_PHONE,
+            documentKind: i.documents[0],
             error: SLIP_VERDICT_REASON.NO_PHONE,
             finalPayable: entryById.get(i.entryId)?.finalPayable ?? i.finalPayable,
             entryVersion: entryById.get(i.entryId)?.version ?? 0,
+            createdAt: new Date(base + sendable.length + n),
           })),
         ],
       });
@@ -220,7 +255,7 @@ export class PayrollSlipService {
       this.prisma.payrollSlipDelivery.findMany({
         where: { vendorId: user.vendorId, periodId },
         orderBy: { createdAt: 'desc' },
-        select: { payrollEntryId: true, status: true, error: true, sentAt: true, createdAt: true, finalPayable: true },
+        select: { payrollEntryId: true, documentKind: true, status: true, error: true, sentAt: true, createdAt: true, finalPayable: true },
       }),
       this.prisma.payrollEntry.findMany({
         where: { vendorId: user.vendorId, periodId },
@@ -239,15 +274,10 @@ export class PayrollSlipService {
     ]);
 
     const currentPayable = new Map(entries.map((e) => [e.id, e.finalPayable]));
-    const byEntry: Record<
-      string,
-      {
-        last: { status: PayrollSlipDeliveryStatus; error: string | null; at: Date } | null;
-        lastSent: { at: Date | null; finalPayable: number; amountChanged: boolean } | null;
-      }
-    > = {};
-    for (const d of deliveries) {
-      const slot = (byEntry[d.payrollEntryId] ??= { last: null, lastSent: null });
+    // `deliveries` is newest first, so the first row seen per slot is its latest. Each employee has one slot for
+    // "any document" (the table chip) and one per document kind (the send dialog / tooltips).
+    const byEntry: Record<string, SlipStatusSlot & { byKind: Partial<Record<SlipDocumentKind, SlipStatusSlot>> }> = {};
+    const fold = (slot: SlipStatusSlot, d: (typeof deliveries)[number]) => {
       if (!slot.last) {
         const abandoned =
           (d.status === PayrollSlipDeliveryStatus.QUEUED || d.status === PayrollSlipDeliveryStatus.SENDING) &&
@@ -263,6 +293,11 @@ export class PayrollSlipService {
           amountChanged: currentPayable.get(d.payrollEntryId) !== d.finalPayable,
         };
       }
+    };
+    for (const d of deliveries) {
+      const entry = (byEntry[d.payrollEntryId] ??= { last: null, lastSent: null, byKind: {} });
+      fold(entry, d);
+      fold((entry.byKind[d.documentKind] ??= { last: null, lastSent: null }), d);
     }
 
     const latest = dispatches[0] ?? null;
@@ -289,6 +324,7 @@ export class PayrollSlipService {
         entryId: d.payrollEntryId,
         userId: d.userId,
         name: nameById.get(d.userId) ?? 'Unknown',
+        documentKind: d.documentKind,
         status: d.status,
         error: d.error,
         sentAt: d.sentAt,
@@ -304,6 +340,16 @@ export class PayrollSlipService {
     return {
       buffer: await this.pdf.generate(built.slip, await this.branding.resolveForDocs(user.vendorId, built.slip.vendorName)),
       filename: slipFilename(built.slip.employeeName, built.slip.periodLabel),
+    };
+  }
+
+  /** One employee's compact salary receipt as a PDF for download (any status — a draft is stamped NOT FINAL). Vendor-scoped. */
+  async receiptPdfFor(user: AuthUser, entryId: string): Promise<{ buffer: Buffer; filename: string }> {
+    const built = await this.buildSlipForEntry(user.vendorId, entryId);
+    if (!built) throw new NotFoundException('Payroll entry not found.');
+    return {
+      buffer: await this.receiptPdf.generate(built.slip, await this.branding.resolveForDocs(user.vendorId, built.slip.vendorName)),
+      filename: receiptFilename(built.slip.employeeName, built.slip.periodLabel),
     };
   }
 
@@ -389,7 +435,7 @@ export class PayrollSlipService {
             where: { id: { in: rows.slice(i + 1).map((r) => r.id) }, status: PayrollSlipDeliveryStatus.QUEUED },
             data: {
               status: PayrollSlipDeliveryStatus.FAILED,
-              error: `Not attempted — the batch stopped after ${SLIP_MAX_CONSECUTIVE_FAILURES} failures in a row (check the WhatsApp connection and that the salary_slip template is approved).`,
+              error: `Not attempted — the batch stopped after ${SLIP_MAX_CONSECUTIVE_FAILURES} failures in a row (check the WhatsApp connection and that the salary_slip / salary_receipt templates are approved).`,
             },
           });
           failed += rest.count;
@@ -426,6 +472,7 @@ export class PayrollSlipService {
   private async sendOne(row: {
     payrollEntryId: string;
     vendorId: string;
+    documentKind: SlipDocumentKind;
   }): Promise<{ status: PayrollSlipDeliveryStatus; error?: string; finalPayable?: number; entryVersion?: number }> {
     try {
       const built = await this.buildSlipForEntry(row.vendorId, row.payrollEntryId);
@@ -439,14 +486,20 @@ export class PayrollSlipService {
         return { status: PayrollSlipDeliveryStatus.SKIPPED_NO_PHONE, error: SLIP_VERDICT_REASON.NO_PHONE, ...snapshot };
       }
 
-      const buffer = await this.pdf.generate(slip, await this.branding.resolveForDocs(row.vendorId, slip.vendorName));
+      const kind = row.documentKind;
+      const spec = DOCUMENT_SPEC[kind];
+      const docBranding = await this.branding.resolveForDocs(row.vendorId, slip.vendorName);
+      const buffer = kind === 'RECEIPT' ? await this.receiptPdf.generate(slip, docBranding) : await this.pdf.generate(slip, docBranding);
+      const filename = kind === 'RECEIPT' ? receiptFilename(slip.employeeName, slip.periodLabel) : slipFilename(slip.employeeName, slip.periodLabel);
       const sent = await this.whatsapp.sendTemplate(
         row.vendorId,
         phone,
-        CloudTemplateNames.SALARY_SLIP,
+        spec.template,
         // Meta rejects newlines / tabs / runs of spaces inside a template parameter.
         [slip.employeeName.replace(/\s+/g, ' ').trim(), slip.periodLabel, formatRupees(slip.finalPayable)],
-        { buffer, filename: slipFilename(slip.employeeName, slip.periodLabel) },
+        { buffer, filename },
+        undefined,
+        spec.rateLimitScope,
       );
       return sent
         ? { status: PayrollSlipDeliveryStatus.SENT, ...snapshot }
@@ -515,9 +568,11 @@ export class PayrollSlipService {
   }
 
   /** Loads the period's entries (optionally a subset) and classifies each. Vendor + period scoped. */
-  private async classify(vendorId: string, periodId: string, entryIds?: string[]) {
+  private async classify(vendorId: string, periodId: string, dto: PreviewPayrollSlipsDto) {
     const period = await this.requirePeriod(vendorId, periodId);
-    const wanted = entryIds ? [...new Set(entryIds)] : undefined;
+    const wanted = dto.entryIds ? [...new Set(dto.entryIds)] : undefined;
+    const requestWide = dto.documents?.length ? [...new Set(dto.documents)] : [...DEFAULT_SLIP_DOCUMENTS];
+    const overrides = new Map((dto.perEntry ?? []).map((o) => [o.entryId, [...new Set(o.documents)]]));
 
     const entries = await this.prisma.payrollEntry.findMany({
       where: { periodId, vendorId, ...(wanted ? { id: { in: wanted } } : {}) },
@@ -527,6 +582,10 @@ export class PayrollSlipService {
     if (wanted && entries.length !== wanted.length) {
       throw new NotFoundException('One or more payroll entries were not found in this period.');
     }
+    const known = new Set(entries.map((e) => e.id));
+    if ([...overrides.keys()].some((id) => !known.has(id))) {
+      throw new BadRequestException('A per-employee document choice names an entry that is not part of this send.');
+    }
 
     const lastSent = await this.lastSentByEntry(
       vendorId,
@@ -535,7 +594,13 @@ export class PayrollSlipService {
 
     const items: SlipPreviewItem[] = entries.map((e) => {
       const verdict = classifySlipEntry(e, e.user.phoneNumber);
-      const sent = lastSent.get(e.id);
+      const documents = overrides.get(e.id) ?? requestWide;
+      const sentDocs = documents.flatMap((kind) => {
+        const s = lastSent.get(`${e.id}:${kind}`);
+        return s ? [{ kind, ...s }] : [];
+      });
+      // The most recently sent of the chosen documents drives the "already sent on ..." line.
+      const sent = [...sentDocs].sort((a, b) => (b.sentAt?.getTime() ?? 0) - (a.sentAt?.getTime() ?? 0))[0];
       return {
         entryId: e.id,
         userId: e.userId,
@@ -545,8 +610,10 @@ export class PayrollSlipService {
         finalPayable: e.finalPayable,
         verdict,
         reason: verdict === 'ELIGIBLE' ? null : SLIP_VERDICT_REASON[verdict],
+        documents,
+        alreadySentKinds: sentDocs.map((s) => s.kind),
         alreadySent: sent
-          ? { sentAt: sent.sentAt, finalPayable: sent.finalPayable, amountChanged: sent.finalPayable !== e.finalPayable }
+          ? { sentAt: sent.sentAt, finalPayable: sent.finalPayable, amountChanged: sentDocs.some((s) => s.finalPayable !== e.finalPayable) }
           : null,
       };
     });
@@ -559,19 +626,23 @@ export class PayrollSlipService {
       eligible: items.filter((i) => i.verdict === 'ELIGIBLE').length,
       notFinal: items.filter((i) => i.verdict === 'NOT_FINAL').length,
       noPhone: items.filter((i) => i.verdict === 'NO_PHONE').length,
-      alreadySent: items.filter((i) => i.verdict === 'ELIGIBLE' && i.alreadySent).length,
+      alreadySent: items.filter((i) => i.verdict === 'ELIGIBLE' && i.alreadySentKinds.length > 0).length,
     };
   }
 
+  /** Latest SENT delivery per employee AND document, keyed `entryId:KIND`. */
   private async lastSentByEntry(vendorId: string, entryIds: string[]) {
     const result = new Map<string, { sentAt: Date | null; finalPayable: number }>();
     if (entryIds.length === 0) return result;
     const rows = await this.prisma.payrollSlipDelivery.findMany({
       where: { vendorId, payrollEntryId: { in: entryIds }, status: PayrollSlipDeliveryStatus.SENT },
       orderBy: { sentAt: 'desc' },
-      select: { payrollEntryId: true, sentAt: true, finalPayable: true },
+      select: { payrollEntryId: true, documentKind: true, sentAt: true, finalPayable: true },
     });
-    for (const r of rows) if (!result.has(r.payrollEntryId)) result.set(r.payrollEntryId, r);
+    for (const r of rows) {
+      const key = `${r.payrollEntryId}:${r.documentKind}`;
+      if (!result.has(key)) result.set(key, r);
+    }
     return result;
   }
 
