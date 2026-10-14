@@ -1017,8 +1017,10 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                     // movement (closing − opening), not the customer's true
                     // all-time outstanding — otherwise the table reads
                     // "just this month" while the summary reads "everything".
-                    const balanceDue = s.periodOnly ? s.closingBalance - s.openingBalance : s.closingBalance;
-                    const isCredit = balanceDue < 0;
+                    const balanceDue = s.periodOnly
+                      ? s.deliveryRows.reduce((sum, r) => sum + r.amountDue, 0)
+                      : s.closingBalance;
+                    const isCredit = !s.periodOnly && balanceDue < 0;
                     const totalPages = Math.max(1, Math.ceil(s.deliveryRows.length / STATEMENT_PAGE_SIZE));
                     const pageSafe = Math.min(statementPage, totalPages);
                     const start = (pageSafe - 1) * STATEMENT_PAGE_SIZE;
@@ -1037,7 +1039,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                       { label: 'Period Deliveries', value: `${s.deliveryRows.length}` },
                       { label: 'Rate / Bottle', value: s.ratePerBottle > 0 ? fmtRs(s.ratePerBottle) : '—' },
                       {
-                        label: isCredit ? 'Credit Balance' : 'Balance Due',
+                        label: s.periodOnly ? 'Total Amount' : isCredit ? 'Credit Balance' : 'Balance Due',
                         value: fmtRs(Math.abs(balanceDue)),
                         accent: isCredit ? 'text-emerald-500' : 'text-rose-500',
                       },
@@ -1090,9 +1092,9 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                                     {showFilled && <th className="text-right px-3 py-2">Filled Ret</th>}
                                     <th className="text-right px-3 py-2">Bal Btl</th>
                                     <th className="text-right px-3 py-2">Rate</th>
-                                    <th className="text-right px-3 py-2">Due</th>
-                                    <th className="text-right px-3 py-2">Recv</th>
-                                    <th className="text-right px-3 py-2">Balance</th>
+                                    <th className="text-right px-3 py-2">{s.periodOnly ? 'Amount' : 'Due'}</th>
+                                    {!s.periodOnly && <th className="text-right px-3 py-2">Recv</th>}
+                                    {!s.periodOnly && <th className="text-right px-3 py-2">Balance</th>}
                                   </tr>
                                 </thead>
                                 <tbody className="divide-y divide-border/40">
@@ -1135,15 +1137,17 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                                         {r.pricePerBottle != null ? fmtRs(r.pricePerBottle) : '—'}
                                       </td>
                                       <td className="px-3 py-2 text-right font-mono font-bold">{fmtRs(r.amountDue)}</td>
-                                      <td className="px-3 py-2 text-right font-mono font-bold text-emerald-600">
-                                        {r.amountReceived > 0 ? fmtRs(r.amountReceived) : ''}
-                                      </td>
-                                      <td className="px-3 py-2 text-right font-mono font-bold">{fmtRs(r.runningBalance)}</td>
+                                      {!s.periodOnly && (
+                                        <td className="px-3 py-2 text-right font-mono font-bold text-emerald-600">
+                                          {r.amountReceived > 0 ? fmtRs(r.amountReceived) : ''}
+                                        </td>
+                                      )}
+                                      {!s.periodOnly && <td className="px-3 py-2 text-right font-mono font-bold">{fmtRs(r.runningBalance)}</td>}
                                     </tr>
                                   ))}
                                   {s.deliveryRows.length === 0 && (
                                     <tr>
-                                      <td className="px-3 py-6 text-center text-muted-foreground" colSpan={(canBulkReprice ? 10 : 9) + (showFilled ? 1 : 0)}>
+                                      <td className="px-3 py-6 text-center text-muted-foreground" colSpan={(canBulkReprice ? 10 : 9) + (showFilled ? 1 : 0) - (s.periodOnly ? 2 : 0)}>
                                         No deliveries recorded for this period.
                                       </td>
                                     </tr>
@@ -1157,8 +1161,8 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                                       <td className="px-3 py-2" />
                                       <td className="px-3 py-2" />
                                       <td className="px-3 py-2 text-right font-mono">{fmtRs(s.totals.totalDue)}</td>
-                                      <td className="px-3 py-2 text-right font-mono">{fmtRs(s.totals.totalRecv)}</td>
-                                      <td className="px-3 py-2 text-right font-mono">{fmtRs(s.totals.finalBalance)}</td>
+                                      {!s.periodOnly && <td className="px-3 py-2 text-right font-mono">{fmtRs(s.totals.totalRecv)}</td>}
+                                      {!s.periodOnly && <td className="px-3 py-2 text-right font-mono">{fmtRs(s.totals.finalBalance)}</td>}
                                     </tr>
                                   )}
                                 </tbody>
@@ -1199,7 +1203,7 @@ export function CustomerDetail({ customerId }: CustomerDetailProps) {
                         </div>
 
                         {/* Other transactions */}
-                        {s.otherRows.length > 0 && (
+                        {s.otherRows.length > 0 && !s.periodOnly && (
                           <div>
                             <p className="text-xs font-black uppercase tracking-widest text-muted-foreground mb-2">Other Transactions</p>
                             <div className="border border-border/50 rounded-2xl overflow-hidden">

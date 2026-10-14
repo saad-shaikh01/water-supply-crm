@@ -98,7 +98,7 @@ const FOOTER_Y  = PAGE_H - FOOTER_H;
 type DeliveryCol = { x: number; w: number };
 type DeliveryCols = {
   date: DeliveryCol; trans: DeliveryCol; btl: DeliveryCol; empty: DeliveryCol;
-  fret?: DeliveryCol; bal: DeliveryCol; due: DeliveryCol; recv: DeliveryCol; amt: DeliveryCol;
+  fret?: DeliveryCol; bal: DeliveryCol; due: DeliveryCol; recv?: DeliveryCol; amt?: DeliveryCol;
 };
 const DCOL_BASE: DeliveryCols = {
   date:  { x: MARGIN,       w: 95    },
@@ -120,6 +120,26 @@ const DCOL_WITH_FILLED: DeliveryCols = {
   due:   { x: MARGIN + 310, w: 65    },
   recv:  { x: MARGIN + 375, w: 70    },
   amt:   { x: MARGIN + 445, w: 70.28 },
+};
+
+// Period Only layouts — no AMOUNT RECV / BALANCE columns, so the remaining
+// columns are widened to still span the full card (515.28).
+const DCOL_PERIOD_ONLY: DeliveryCols = {
+  date:  { x: MARGIN,       w: 100    },
+  trans: { x: MARGIN + 100, w: 70     },
+  btl:   { x: MARGIN + 170, w: 65     },
+  empty: { x: MARGIN + 235, w: 65     },
+  bal:   { x: MARGIN + 300, w: 65     },
+  due:   { x: MARGIN + 365, w: 150.28 },
+};
+const DCOL_PERIOD_ONLY_WITH_FILLED: DeliveryCols = {
+  date:  { x: MARGIN,       w: 90     },
+  trans: { x: MARGIN + 90,  w: 65     },
+  btl:   { x: MARGIN + 155, w: 55     },
+  empty: { x: MARGIN + 210, w: 55     },
+  fret:  { x: MARGIN + 265, w: 50     },
+  bal:   { x: MARGIN + 315, w: 55     },
+  due:   { x: MARGIN + 370, w: 145.28 },
 };
 
 // ── Other-transactions table column geometry (sums to 515.28) ──────────────
@@ -228,8 +248,9 @@ export class CustomerStatementPdfService {
     // (closing − opening), not the customer's true all-time outstanding —
     // otherwise the table reads "just this period" while the chip reads
     // "everything", which is exactly the confusion this mode exists to avoid.
-    const chipBalance = periodOnly ? closingBalance - openingBalance : closingBalance;
-    this.drawInfoCards(doc, customer, month, toMonth, chipBalance, ratePerBottle);
+    // Period Only's chip shows the plain total of this period's delivery amounts.
+    const chipBalance = periodOnly ? deliveryRows.reduce((sum, r) => sum + r.amountDue, 0) : closingBalance;
+    this.drawInfoCards(doc, customer, month, toMonth, chipBalance, ratePerBottle, !!periodOnly);
 
     doc.y += 18;
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(13)
@@ -241,9 +262,10 @@ export class CustomerStatementPdfService {
     }
     doc.y += 20;
     const showFilled = deliveryRows.some((r) => r.filledPickup > 0);
-    this.drawDeliveryCard(doc, deliveryRows, rowsOpeningBalance, showFilled ? DCOL_WITH_FILLED : DCOL_BASE, !!periodOnly, imageSource(branding.icon ?? branding.logo, ICON_PATH));
+    this.drawDeliveryCard(doc, deliveryRows, rowsOpeningBalance, periodOnly ? (showFilled ? DCOL_PERIOD_ONLY_WITH_FILLED : DCOL_PERIOD_ONLY) : (showFilled ? DCOL_WITH_FILLED : DCOL_BASE), !!periodOnly, imageSource(branding.icon ?? branding.logo, ICON_PATH));
 
-    if (otherRows.length) {
+    // Period Only is deliveries-only: payments / adjustments etc. are left out.
+    if (otherRows.length && !periodOnly) {
       doc.y += 18;
       doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(13)
         .text('Other Transactions', MARGIN, doc.y, { lineBreak: false });
@@ -384,6 +406,7 @@ export class CustomerStatementPdfService {
     toMonth: string | undefined,
     closingBalance: number,
     ratePerBottle: number,
+    totalAmountMode = false,
   ): void {
     const y     = doc.y;
     const boxH  = 92;
@@ -441,8 +464,8 @@ export class CustomerStatementPdfService {
     // closingBalance > 0 means the customer owes money; <= 0 means they're paid up
     // or in credit — showing "BALANCE DUE" with the absolute amount in that case
     // would be misleading, so the label and color flip accordingly.
-    const isCredit = closingBalance < 0;
-    const chipLabel = isCredit ? 'CREDIT BALANCE' : 'BALANCE DUE';
+    const isCredit = !totalAmountMode && closingBalance < 0;
+    const chipLabel = totalAmountMode ? 'TOTAL AMOUNT' : isCredit ? 'CREDIT BALANCE' : 'BALANCE DUE';
     const chipAmountColor = isCredit ? C.closeGrn : C.white;
     doc.roundedRect(chipX, chipY, chipW, chipH, 8).fill(C.navy);
     doc.fillColor('#ffffff', 0.75).font('Helvetica').fontSize(7)
@@ -487,9 +510,13 @@ export class CustomerStatementPdfService {
       doc.text('FILL RET',  cols.fret.x + 3, y + 7, { width: cols.fret.w - 4, align: 'right', lineBreak: false });
     }
     doc.text('BAL BTL',     cols.bal.x   + 3, y + 7, { width: cols.bal.w   - 4, align: 'right', lineBreak: false });
-    doc.text('AMOUNT DUE',  cols.due.x   + 3, y + 7, { width: cols.due.w   - 6, align: 'right', lineBreak: false });
-    doc.text('AMOUNT RECV', cols.recv.x  + 3, y + 7, { width: cols.recv.w  - 6, align: 'right', lineBreak: false });
-    doc.text('BALANCE',     cols.amt.x   + 3, y + 7, { width: cols.amt.w   - 10, align: 'right', lineBreak: false });
+    doc.text(cols.recv ? 'AMOUNT DUE' : 'AMOUNT', cols.due.x + 3, y + 7, { width: cols.due.w - 6, align: 'right', lineBreak: false });
+    if (cols.recv) {
+      doc.text('AMOUNT RECV', cols.recv.x  + 3, y + 7, { width: cols.recv.w  - 6, align: 'right', lineBreak: false });
+    }
+    if (cols.amt) {
+      doc.text('BALANCE',     cols.amt.x   + 3, y + 7, { width: cols.amt.w   - 10, align: 'right', lineBreak: false });
+    }
   }
 
   private drawDeliveryLine(doc: PDFKit.PDFDocument, line: DeliveryLine, x: number, y: number, cols: DeliveryCols): void {
@@ -498,8 +525,10 @@ export class CustomerStatementPdfService {
         .text('Previous Month Balance', cols.date.x + 6, y + 7, { width: cols.trans.x + cols.trans.w - cols.date.x - 6, lineBreak: false });
       doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
         .text(this.rs(line.openingBalance), cols.due.x + 3, y + 7, { width: cols.due.w - 6, align: 'right', lineBreak: false });
-      doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
-        .text(this.rs(line.openingBalance), cols.amt.x + 3, y + 7, { width: cols.amt.w - 10, align: 'right', lineBreak: false });
+      if (cols.amt) {
+        doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
+          .text(this.rs(line.openingBalance), cols.amt.x + 3, y + 7, { width: cols.amt.w - 10, align: 'right', lineBreak: false });
+      }
       doc.moveTo(x + 10, y + ROW_H).lineTo(x + CONTENT_W - 10, y + ROW_H)
         .strokeColor(C.border).lineWidth(0.5).stroke();
       return;
@@ -508,7 +537,8 @@ export class CustomerStatementPdfService {
     if (line.kind === 'row') {
       const { row, index } = line;
       if (index % 2 !== 0) {
-        doc.rect(x + 1, y, (cols.amt.x + cols.amt.w) - MARGIN - 2, ROW_H).fill(C.surface);
+        const last = cols.amt ?? cols.due;
+        doc.rect(x + 1, y, (last.x + last.w) - MARGIN - 2, ROW_H).fill(C.surface);
       }
       const ty = y + 7;
       const dateStr = new Date(row.date).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -529,12 +559,14 @@ export class CustomerStatementPdfService {
         .text(row.bottleBalance != null ? `${row.bottleBalance}` : '—', cols.bal.x + 3, ty, { width: cols.bal.w - 4, align: 'right', lineBreak: false });
       doc.fillColor(C.text).font('Helvetica-Bold').fontSize(7.5)
         .text(this.rs(row.amountDue), cols.due.x + 3, ty, { width: cols.due.w - 6, align: 'right', lineBreak: false });
-      if (row.amountReceived > 0) {
+      if (cols.recv && row.amountReceived > 0) {
         doc.fillColor(C.green).font('Helvetica-Bold').fontSize(7.5)
           .text(this.rs(row.amountReceived), cols.recv.x + 3, ty, { width: cols.recv.w - 6, align: 'right', lineBreak: false });
       }
-      doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
-        .text(this.rs(row.runningBalance), cols.amt.x + 3, ty, { width: cols.amt.w - 10, align: 'right', lineBreak: false });
+      if (cols.amt) {
+        doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
+          .text(this.rs(row.runningBalance), cols.amt.x + 3, ty, { width: cols.amt.w - 10, align: 'right', lineBreak: false });
+      }
       return;
     }
 
@@ -561,10 +593,14 @@ export class CustomerStatementPdfService {
     }
     doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
       .text(this.rs(totalDue), cols.due.x + 3, ty, { width: cols.due.w - 6, align: 'right', lineBreak: false });
-    doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
-      .text(this.rs(totalRecv), cols.recv.x + 3, ty, { width: cols.recv.w - 6, align: 'right', lineBreak: false });
-    doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
-      .text(this.rs(finalBalance), cols.amt.x + 3, ty, { width: cols.amt.w - 10, align: 'right', lineBreak: false });
+    if (cols.recv) {
+      doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
+        .text(this.rs(totalRecv), cols.recv.x + 3, ty, { width: cols.recv.w - 6, align: 'right', lineBreak: false });
+    }
+    if (cols.amt) {
+      doc.fillColor(C.navyText).font('Helvetica-Bold').fontSize(7.5)
+        .text(this.rs(finalBalance), cols.amt.x + 3, ty, { width: cols.amt.w - 10, align: 'right', lineBreak: false });
+    }
   }
 
   // ── Other transactions card ─────────────────────────────────────────────────
